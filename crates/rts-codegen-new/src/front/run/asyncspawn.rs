@@ -116,7 +116,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 sig.name
             ))
         })?;
-        let fref = module.declare_func_in_func(fid, self.builder.func);
+        let fref = self.func_ref(module, fid);
         let fn_addr = self.builder.ins().func_addr(types::I64, fref);
         let handle = self
             .call_runtime(

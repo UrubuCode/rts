@@ -65,6 +65,7 @@ mod objstatic;
 mod optchain_lower;
 mod parcompile;
 mod prelude_cache;
+mod progcache;
 mod prune;
 pub mod resident;
 mod regex;
@@ -106,8 +107,13 @@ use super::error::{FrontResult, Unsupported};
 /// - a parse error (returned as an `Unsupported` wrapping the message), or
 /// - any construct outside the implemented subset (an explicit `Unsupported`).
 pub fn run_source(src: &str) -> FrontResult<()> {
-    let prog = build_with_includes(src)?;
-    let program = module_jit::compile_program(&prog)?;
+    // Whole-program JIT cache (opt-in `RTS_JIT_CACHE=1`): replay the cached machine
+    // code on a hit, else build+compile normally. No-op when disabled.
+    let program = progcache::compile_cached(
+        src,
+        || build_with_includes(src),
+        |p| module_jit::compile_program(p),
+    )?;
     program.run_main();
     // An UNCAUGHT top-level throw (e.g. a runtime `TypeError: not a function`)
     // left the pending-error slot set — surface it as an error, exactly like
@@ -157,12 +163,9 @@ fn build_with_includes(src: &str) -> FrontResult<LoweredProgram> {
         let prelude = build_program_for_prelude(&inc)?;
         let ambient_fns = prelude_fn_names(&prelude);
         let user = build_program_with_ambient(src, &prelude.classes, &ambient_fns)?;
-        let mut merged = merge_programs(prelude, user)?;
-        // RESIDENT prelude (slice 2): define the prelude fns from the baked machine
-        // code instead of re-compiling them, when a consistent baked prelude is
-        // installed.
-        mark_resident_imports(&mut merged, &inc, top_level);
-        Ok(merged)
+        // `merge_programs` decides resident (slice 2) internally and skips the prune
+        // when it engages (slice 3).
+        merge_programs(prelude, user, &inc, top_level)
     }
 }
 
@@ -177,11 +180,18 @@ fn build_with_includes(src: &str) -> FrontResult<LoweredProgram> {
 /// from the SAME prelude text (via the slice-1 cache), so the merged program's
 /// prelude shape ids equal the baked immediates. This only additionally guards the
 /// gcell numbering, which `merge_programs` recomputes.
+///
+/// Returns `true` iff resident ENGAGED (every prelude fn is now defined-from-bytes).
+/// The caller uses this to SKIP `prune_prelude` (slice 3): with resident on, the
+/// prune would remove ~830 prelude fns that this function immediately RESTORES from
+/// the manifest — pure wasted work. When this returns `false` (not installed, hash
+/// mismatch, nested compile, gcell mismatch) the caller runs the prune as before,
+/// so the fallback and AOT paths are byte-identical to today.
 pub(super) fn mark_resident_imports(
     merged: &mut LoweredProgram,
     prelude_src: &str,
     top_level: bool,
-) {
+) -> bool {
     // The prelude fns marked here are DEFINED from the baked machine code
     // (`define_function_bytes` into this run's JIT arena — near calls, no linking),
     // skipping their re-compile. ON by default whenever a baked manifest is
@@ -189,19 +199,19 @@ pub(super) fn mark_resident_imports(
     // `RTS_NO_RESIDENT=1` is the escape hatch (mirrors `RTS_NO_PRELUDE_CACHE`).
     // See CRANELIFT_IMPLEMENTATION.md slice 2.
     if std::env::var_os("RTS_NO_RESIDENT").is_some() {
-        return;
+        return false;
     }
     if !resident::is_installed() {
         crate::timing::note("resident: installed(0)", 0);
-        return;
+        return false;
     }
     let Some(manifest) = resident::manifest() else {
         crate::timing::note("resident: manifest-decode-fail", 0);
-        return;
+        return false;
     };
     if manifest.prelude_hash != prelude_cache::key(prelude_src) {
         crate::timing::note("resident: hash-mismatch", 0);
-        return;
+        return false;
     }
     // TOP-LEVEL ONLY. The baked machine code has the prelude's shape ids as
     // immediates assigned from the BASE (0), which holds only for the top-level
@@ -211,7 +221,7 @@ pub(super) fn mark_resident_imports(
     // there (re-lower + compile, exactly as nested does for the cache).
     if !top_level {
         crate::timing::note("resident: not-top-level", 0);
-        return;
+        return false;
     }
     // Every prelude gcell must land on the SAME id the baked code has as an
     // immediate — otherwise resident prelude code and freshly-compiled user code
@@ -219,7 +229,7 @@ pub(super) fn mark_resident_imports(
     for (name, baked_id) in &manifest.program.gcells {
         if merged.gcells.get(name) != Some(baked_id) {
             crate::timing::note("resident: gcell-mismatch", *baked_id as usize);
-            return;
+            return false;
         }
     }
     // RESTORE the WHOLE prelude that `merge_programs` PRUNED. A reachable prelude
@@ -255,6 +265,7 @@ pub(super) fn mark_resident_imports(
         manifest.program.funcs.iter().map(|f| f.name.clone()).collect();
     crate::timing::note("resident: prelude fns defined-from-bytes", names.len());
     merged.resident_import_names = names;
+    true
 }
 
 /// Arrow-name namespace for the PRELUDE build (`__rtsn_arrow_p{N}`). The prelude
@@ -295,8 +306,13 @@ pub(super) fn prelude_fn_names(prelude: &LoweredProgram) -> std::collections::Ha
 /// final write target differs. Used by the in-process unit tests; for true
 /// end-to-end stdout use [`run_source`] + the bun fixture harness.
 pub fn render_source(src: &str) -> FrontResult<String> {
-    let prog = build_with_includes(src)?;
-    render_source_core(&prog)
+    let program = progcache::compile_cached(
+        src,
+        || build_with_includes(src),
+        |p| module_jit::compile_program(p),
+    )?;
+    let ((), out) = crate::value::abi_adapter::with_capture(|| program.run_main());
+    Ok(out)
 }
 
 /// Compile an already-built [`LoweredProgram`] and run it with `console.log`
@@ -391,7 +407,11 @@ pub fn render_source_with_prelude(prelude_src: &str, user_src: &str) -> FrontRes
     let prelude = build_program(&merged_prelude_src, PRELUDE_ARROW_NS)?;
     let ambient_fns = prelude_fn_names(&prelude);
     let user = build_program_with_ambient(user_src, &prelude.classes, &ambient_fns)?;
-    let merged = merge_programs(prelude, user)?;
+    // A custom test prelude never matches the baked manifest hash (and this path is
+    // never the top-level program compile in a real run), so resident cannot engage
+    // here — pass `"", false` so `mark_resident_imports` bails at the hash/top-level
+    // gate and the prune runs exactly as before.
+    let merged = merge_programs(prelude, user, "", false)?;
     let program = module_jit::compile_program(&merged)?;
     let ((), out) = crate::value::abi_adapter::with_capture(|| program.run_main());
     Ok(out)
@@ -409,7 +429,12 @@ pub fn render_source_with_prelude(prelude_src: &str, user_src: &str) -> FrontRes
 /// the single `__rtsn_main`; module-level mutable globals are recomputed over it so
 /// a prelude top-level `let` written from a prelude function (the hook setters)
 /// becomes a shared cell exactly like a user one.
-fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<LoweredProgram> {
+fn merge_programs(
+    prelude: LoweredProgram,
+    user: LoweredProgram,
+    prelude_src: &str,
+    top_level: bool,
+) -> FrontResult<LoweredProgram> {
     // ClassTable: prelude first, then user (user can override).
     let mut classes = prelude.classes;
     for desc in user.classes.iter() {
@@ -507,18 +532,34 @@ fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<
         builtins,
         param_classes,
         resident_import_names: std::collections::HashSet::new(),
+        resident_main: false,
     };
+    // RESIDENT prelude (slice 2): define the prelude fns from the baked machine code
+    // instead of re-compiling them, when a consistent baked prelude is installed.
+    // Decided HERE — after the gcells are computed (the gate reads them) but BEFORE
+    // the prune — so slice 3 can SKIP the prune when resident engages.
+    let engaged = mark_resident_imports(&mut merged, prelude_src, top_level);
     // Drop the embedded-prelude functions this program cannot reach BEFORE the
     // Cranelift phase — the ~830 stdlib fns were the dominant FIXED startup cost
     // (see [`prune`]). Never touches user functions or `main`.
-    crate::timing::phase("prune prelude", || prune::prune_prelude(&mut merged));
+    //
+    // SLICE 3: skip the prune entirely when resident engaged. The prune would remove
+    // the unreachable prelude fns that `mark_resident_imports` just RESTORED from the
+    // manifest (every prelude fn is defined-from-bytes, so all must be present) —
+    // running it would be pure prune-then-restore churn. Skipping is byte-identical:
+    // gcell ids are already fixed above (immune to the prune), shape ids are seeded
+    // from the manifest, and replay relocs resolve by NAME (immune to func order).
+    // When resident did NOT engage (fallback / nested / AOT) the prune runs as before.
+    if !engaged {
+        crate::timing::phase("prune prelude", || prune::prune_prelude(&mut merged));
+    }
     Ok(merged)
 }
 
 /// A lowered program ready to JIT: the user functions (incl. synthesized class
 /// constructors/methods + extracted arrows), the synthesized `__rtsn_main`, the
 /// class table, and the synthesized-fn → owning-class map (for binding `this`).
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct LoweredProgram {
     pub funcs: Vec<HirFunc>,
     pub main: HirFunc,
@@ -582,6 +623,11 @@ pub(crate) struct LoweredProgram {
     /// serialized.
     #[serde(skip)]
     pub resident_import_names: std::collections::HashSet<String>,
+    /// WHOLE-PROGRAM CACHE (extends slice 2): when true, `__rtsn_main` is ALSO
+    /// defined from the baked machine code (not compiled from IR) — the cache
+    /// replays the entire program including its entry. Transient.
+    #[serde(skip)]
+    pub resident_main: bool,
 }
 
 /// Parse `src` and lower it to (user functions, synthesized `__rtsn_main`).
@@ -1017,6 +1063,7 @@ fn build_from_program(
         builtins: std::collections::HashMap::new(),
         param_classes,
         resident_import_names: std::collections::HashSet::new(),
+        resident_main: false,
     })
 }
 

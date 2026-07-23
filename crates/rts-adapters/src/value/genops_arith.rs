@@ -68,6 +68,17 @@ pub extern "C" fn __rtsadp_pow(a: u64, b: u64) -> u64 {
     arith(a, b, |x, y| x.powf(y))
 }
 
+/// SCALAR `%` on already-unboxed `f64` — the fast path for a float `%` whose
+/// operands the front-end PROVED numeric (step 9). Cranelift has no `frem`/`fmod`
+/// instruction and no fmod libcall, so `%` genuinely needs a call; but calling this
+/// on raw f64 skips the box/unbox + the generic PolyValue trampoline (`__rtsadp_mod`)
+/// + its internal ToNumber×2. Same `f64::%` semantics as `__rtsadp_mod` (sign of the
+/// dividend, `x % 0 == NaN`).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_fmod_f64(a: f64, b: f64) -> f64 {
+    a % b
+}
+
 // ===========================================================================
 // Relational comparison — `< <= > >=`, result a PolyValue bool.
 // ===========================================================================

@@ -90,3 +90,23 @@ pub extern "C" fn __RTS_FN_RT_INIT() {
     runtime_init();
 }
 
+/// Seed the AOT binary's global shape + error-class registries from the blob the
+/// codegen embedded (`rts_engine::heap::shapes::export_seed_blob`). Called by the
+/// AOT `main` shim BEFORE `__rtsn_main`. Without it the registry is EMPTY in the
+/// separate AOT process and every DYNAMIC shape read (`obj_get` on a Tagged/`any`
+/// receiver, `console.log(obj)`, catch-bound `e.name`, `new Number(x).valueOf()`)
+/// misses on its baked shape id and returns `undefined`. JIT does not need this —
+/// it shares the compile-time registry in-process. Safe: `ptr`/`len` name a
+/// codegen-emitted, linker-placed data object (never user input).
+///
+/// # Safety
+/// `ptr` must point at `len` valid bytes produced by `export_seed_blob`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __RTS_FN_RT_SEED_SHAPES(ptr: *const u8, len: usize) {
+    if ptr.is_null() || len == 0 {
+        return;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
+    rts_engine::heap::shapes::seed_from_blob(bytes);
+}
+

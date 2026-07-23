@@ -257,11 +257,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // side-table). `C.prototype.m = v` then writes it dynamically, and every
         // instance reaches it through the dynamic-get prototype walk.
         if field == "prototype" {
-            let k = crate::value::abi_adapter::intern_poly_const(class);
-            let k_word = self
-                .builder
-                .ins()
-                .iconst(cranelift_codegen::ir::types::I64, k.raw() as i64);
+            let k_word = self.emit_str_const_word(module, class)?;
             let w = self
                 .call_runtime(module, "__rtsadp_class_proto", &[k_word])?
                 .expect("__rtsadp_class_proto returns a word");
@@ -344,7 +340,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .map_err(|e| {
                 crate::front::error::Unsupported::new(format!("declare fn `{fn_name}`: {e}"))
             })?;
-        let func_ref = module.declare_func_in_func(callee, self.builder.func);
+        let func_ref = self.func_ref(module, callee);
         let call = self.builder.ins().call(func_ref, &call_args);
         let result = match sig.ret {
             Some(ret) => {
@@ -386,7 +382,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .map_err(|e| {
                 crate::front::error::Unsupported::new(format!("declare fn `{fn_name}`: {e}"))
             })?;
-        let func_ref = module.declare_func_in_func(callee, self.builder.func);
+        let func_ref = self.func_ref(module, callee);
         let call = self.builder.ins().call(func_ref, &call_args);
 
         let result = match sig.ret {
@@ -423,8 +419,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         use cranelift_codegen::ir::condcodes::IntCC;
         let recv = self.lower_expr(module, object)?;
         let recv_word = self.box_value(recv);
-        let key = crate::value::abi_adapter::intern_poly_const(method);
-        let key_word = self.builder.ins().iconst(types::I64, key.raw() as i64);
+        let key_word = self.emit_str_const_word(module, method)?;
         let own = self
             .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key_word])?
             .expect("__rtsadp_obj_get returns a value");

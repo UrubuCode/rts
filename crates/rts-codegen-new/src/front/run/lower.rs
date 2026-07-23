@@ -319,6 +319,15 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// supported way to make a value live across blocks; the builder inserts
     /// whatever block params it needs.
     pub gcell_cache: HashMap<u32, cranelift_frontend::Variable>,
+    /// Per-function memoization of `module.declare_func_in_func(fid, …)`. Each
+    /// call to that helper imports a FRESH `SigRef` + `FuncRef` into the current
+    /// `ir::Function` — it does NOT dedup — so N call sites of the same callee
+    /// emitted N redundant `sigK =`/`fnK =` preamble entries (measured: 1947
+    /// decls for 229 distinct targets on a one-line `console.log`). A `FuncRef`
+    /// is reusable across every `call` in the same function, so cache it by
+    /// `FuncId` and reuse. Reset per function (fresh `Lowerer`), which is exactly
+    /// the FuncRef validity scope. Use via [`Self::func_ref`].
+    pub func_ref_cache: HashMap<cranelift_module::FuncId, cranelift_codegen::ir::FuncRef>,
     /// A proven typed-array VIEW local (`const a = new Uint8Array(ab)`) → the
     /// `(base_ptr, elem_count)` Variables computed ONCE at its declaration (step
     /// 5b, hoisting). Each `a[i]` reads them with `use_var` instead of calling
@@ -385,6 +394,27 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
 }
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
+    /// Import `fid` as a `FuncRef` in the current function, memoized by `FuncId`
+    /// ([`Self::func_ref_cache`]). Cranelift's `declare_func_in_func` imports a
+    /// fresh `SigRef` + `FuncRef` on every call (no dedup); routing the hot
+    /// per-call-site declaration sites through here collapses the redundant
+    /// preamble to one entry per distinct callee. The first import of each callee
+    /// goes through [`value::emit_marshal::declare_func_dedup`], which also reuses
+    /// an existing `SigRef` of equal signature (so the `sigK =` preamble collapses
+    /// to the few distinct shapes, not one per callee).
+    pub fn func_ref(
+        &mut self,
+        module: &mut dyn Module,
+        fid: cranelift_module::FuncId,
+    ) -> cranelift_codegen::ir::FuncRef {
+        if let Some(&fref) = self.func_ref_cache.get(&fid) {
+            return fref;
+        }
+        let fref = value::emit_marshal::declare_func_dedup(module, self.builder.func, fid);
+        self.func_ref_cache.insert(fid, fref);
+        fref
+    }
+
     /// Lower one user function (or the synthesized main) into `builder`, whose
     /// `Function` already carries the signature from [`FnSig::to_cranelift`].
     #[allow(clippy::too_many_arguments)]
@@ -439,6 +469,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             gcells,
             immutable_gcells,
             gcell_cache: HashMap::new(),
+            func_ref_cache: HashMap::new(),
             ta_view_base_len: HashMap::new(),
             gcell_classes,
             globalthis_class_refs,

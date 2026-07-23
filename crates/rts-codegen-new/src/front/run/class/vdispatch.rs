@@ -246,8 +246,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // call from every plain object carrying an own fn of that name.
         if arg_words.len() <= 3 {
             use cranelift_codegen::ir::condcodes::IntCC;
-            let key = crate::value::abi_adapter::intern_poly_const(method);
-            let key_word = self.builder.ins().iconst(types::I64, key.raw() as i64);
+            let key_word = self.emit_str_const_word(module, method)?;
             let own = self
                 .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key_word])?
                 .expect("__rtsadp_obj_get returns a value");
@@ -377,7 +376,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.builder.seal_block(guarded);
         let shape_word = self.read_shape_word(module, recv_word);
         self.emit_shape_arms(module, recv_word, shape_word, &targets, &[], merge)?;
-        let key_word = self.intern_key_word(prop);
+        let key_word = self.emit_str_const_word(module, prop)?;
         let data = self
             .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key_word])?
             .expect("__rtsadp_obj_get returns a value");

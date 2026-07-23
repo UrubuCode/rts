@@ -442,6 +442,11 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
                 ret: U64,
             }
         }
+        // SCALAR float `%` fast path (step 9): raw f64 in/out, no PolyValue boxing.
+        "__rtsadp_fmod_f64" => SymSig {
+            params: &[F64, F64],
+            ret: F64,
+        },
         // ---- generic unary (P4.8 + P5.6): one PolyValue word ----
         "__rtsadp_neg" | "__rtsadp_bnot" | "__rtsadp_not" | "__rtsadp_pos" => SymSig {
             params: &[U64],

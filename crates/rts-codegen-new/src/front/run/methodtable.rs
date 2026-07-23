@@ -11,7 +11,7 @@
 use cranelift_codegen::ir::{InstBuilder, types};
 use cranelift_module::Module;
 
-use crate::value::{self, abi_adapter};
+use crate::value;
 
 use crate::front::error::FrontResult;
 
@@ -72,13 +72,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
         }
         for (class, parent, methods) in rows {
-            let k = abi_adapter::intern_poly_const(&class);
-            let k_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
+            let k_word = self.emit_str_const_word(module, &class)?;
             let parent_word = match &parent {
-                Some(p) => {
-                    let pk = abi_adapter::intern_poly_const(p);
-                    self.builder.ins().iconst(types::I64, pk.raw() as i64)
-                }
+                Some(p) => self.emit_str_const_word(module, p)?,
                 None => self
                     .builder
                     .ins()
@@ -89,7 +85,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 .expect("__rtsadp_class_proto_init returns a word");
             for (mname, fname, nparams) in methods {
                 let thunk_id = *self.thunks.get(&fname).expect("thunk presence checked");
-                let func_ref = module.declare_func_in_func(thunk_id, self.builder.func);
+                let func_ref = self.func_ref(module, thunk_id);
                 let addr = self.builder.ins().func_addr(types::I64, func_ref);
                 let np_v = self.builder.ins().iconst(types::I64, nparams);
                 let zero = self.builder.ins().iconst(types::I64, 0);
@@ -105,10 +101,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let masked = self.builder.ins().band(payload, mask);
                 let header_v = self.builder.ins().iconst(types::I64, header);
                 let word = self.builder.ins().bor(masked, header_v);
-                let name_w = self.builder.ins().iconst(
-                    types::I64,
-                    abi_adapter::intern_poly_const(&mname).raw() as i64,
-                );
+                let name_w = self.emit_str_const_word(module, &mname)?;
                 self.call_runtime(module, "__rtsadp_proto_set_method", &[proto, name_w, word])?;
             }
         }

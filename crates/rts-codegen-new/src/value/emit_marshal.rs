@@ -7,12 +7,76 @@
 //! call's Cranelift signature is EXACTLY right (param count, f64 vs i64, the
 //! `StrPtr` ptr+len split). It defines no symbol; it only emits `call`s.
 
-use cranelift_codegen::ir::{InstBuilder, Value, types};
+use cranelift_codegen::ir::{
+    self, ExtFuncData, ExternalName, FuncRef, InstBuilder, UserExternalName, Value, types,
+};
 use cranelift_frontend::FunctionBuilder;
-use cranelift_module::{Linkage, Module};
+use cranelift_module::{FuncId, Linkage, Module};
 
 use super::PAYLOAD_MASK;
 use super::abi_sig::sig_of;
+
+/// Declare `callee` as a `FuncRef` in `func`, deduplicating the imported `SigRef`
+/// by signature CONTENT.
+///
+/// Mirrors the body of `Module::declare_func_in_func`, but where that helper calls
+/// `func.import_signature` — which unconditionally PUSHES a fresh `SigRef` even for
+/// a byte-identical signature — this reuses an existing `SigRef` of equal
+/// [`ir::Signature`]. The prelude bootstrap imports hundreds of runtime symbols
+/// that share only ~9 distinct Cranelift shapes, so the reuse collapses the
+/// `sigK =` preamble to those few. It does NOT dedup the `FuncRef` itself — callers
+/// gate that (a per-`FuncId` cache in the lowerer, or an `ext_funcs` scan in
+/// [`import_func`]); this only removes the redundant SIGNATURE imports.
+pub(crate) fn declare_func_dedup(
+    module: &mut dyn Module,
+    func: &mut ir::Function,
+    callee: FuncId,
+) -> FuncRef {
+    let decl = module.declarations().get_function_decl(callee);
+    let want_sig = decl.signature.clone();
+    let colocated = decl.linkage.is_final();
+    let sigref = func
+        .dfg
+        .signatures
+        .iter()
+        .find(|(_, s)| **s == want_sig)
+        .map(|(r, _)| r)
+        .unwrap_or_else(|| func.import_signature(want_sig));
+    let name_ref = func.declare_imported_user_function(UserExternalName::new(0, callee.as_u32()));
+    func.import_function(ExtFuncData {
+        name: ExternalName::user(name_ref),
+        signature: sigref,
+        colocated,
+        patchable: false,
+    })
+}
+
+/// Import `callee` into `builder`'s function as a `FuncRef`, REUSING an existing
+/// import of the same `FuncId` instead of creating a duplicate.
+///
+/// Cranelift's `Module::declare_func_in_func` imports a FRESH `SigRef` + `FuncRef`
+/// on every call — it does not dedup — so the runtime-call boundary (this module,
+/// hit once per `__RTS_FN_*`/`__rtsadp_*` call) emitted one redundant
+/// `sigK =`/`fnK =` preamble entry per call site. A single `console.log` lowered
+/// ~600 runtime calls into `__rtsn_main`, inflating the preamble to ~1500 decls
+/// for a few hundred distinct symbols. A `FuncRef` is reusable across every `call`
+/// in the same function, so scan the already-imported `ext_funcs` (keyed by the
+/// deduped `UserExternalName{namespace:0, index:FuncId}`) and reuse the match. The
+/// scan is scoped to the passed `builder`, so it can never return a `FuncRef` from
+/// another function — correct without any cross-function cache state. A first-time
+/// import goes through [`declare_func_dedup`] so its `SigRef` is deduped too.
+fn import_func(module: &mut dyn Module, builder: &mut FunctionBuilder, callee: FuncId) -> FuncRef {
+    let want = callee.as_u32();
+    for (fref, data) in builder.func.dfg.ext_funcs.iter() {
+        if let ExternalName::User(nr) = data.name {
+            let un = &builder.func.params.user_named_funcs()[nr];
+            if un.namespace == 0 && un.index == want {
+                return fref;
+            }
+        }
+    }
+    declare_func_dedup(module, builder.func, callee)
+}
 
 /// Declare-import `name` (resolving its real [`super::abi_sig::SymSig`]) and emit
 /// the `call` with `args` (already-marshaled Cranelift values, one per Cranelift
@@ -39,7 +103,7 @@ pub fn emit_call(
     let callee = module
         .declare_function(name, Linkage::Import, &cl_sig)
         .unwrap_or_else(|e| panic!("declare runtime symbol `{name}`: {e}"));
-    let func_ref = module.declare_func_in_func(callee, builder.func);
+    let func_ref = import_func(module, builder, callee);
     let call = builder.ins().call(func_ref, args);
     if sig.returns() {
         Some(builder.inst_results(call)[0])
@@ -66,7 +130,7 @@ pub fn emit_call_sig(
     let callee = module
         .declare_function(name, Linkage::Import, &cl_sig)
         .unwrap_or_else(|e| panic!("declare runtime symbol `{name}`: {e}"));
-    let func_ref = module.declare_func_in_func(callee, builder.func);
+    let func_ref = import_func(module, builder, callee);
     let call = builder.ins().call(func_ref, args);
     if matches!(ret, rts_runtime::abi::AbiType::Void) {
         None

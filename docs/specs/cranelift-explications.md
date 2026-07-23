@@ -36,6 +36,9 @@ project — general Cranelift usage.
 22. [Optimization Settings](#22-optimization-settings)
 23. [Common Patterns](#23-common-patterns)
 24. [Pitfalls and Rules](#24-pitfalls-and-rules)
+25. [Exception Handling — `try_call`](#25-exception-handling--try_call-and-exception-tables)
+26. [Libcalls](#26-libcalls--runtime-routines-the-backend-may-emit)
+27. [Cold Blocks and Layout Hints](#27-cold-blocks-and-layout-hints)
 
 ---
 
@@ -593,6 +596,26 @@ let flags = MemFlags::new().with_notrap().with_aligned().with_readonly();
 Use `trusted()` for stack slots and known globals. Use `notrap()` only when
 you've validated the pointer in the language runtime.
 
+### Alias regions — disambiguate memory for the optimizer
+
+A `MemFlags` can be tagged with an **alias region** so the e-graph's alias
+analysis knows two accesses can't overlap and may reorder/eliminate them. Regions
+are mutually disjoint by assumption: a `Heap` load never aliases a `Table` or
+`Vmctx` store.
+
+```rust
+use cranelift_codegen::ir::AliasRegion;
+
+let heap  = MemFlags::new().with_alias_region(Some(AliasRegion::Heap));   // GC heap / linear memory
+let table = MemFlags::new().with_alias_region(Some(AliasRegion::Table));  // handle/function tables
+let vmctx = MemFlags::trusted().with_alias_region(Some(AliasRegion::Vmctx)); // runtime context struct
+```
+
+Only ONE region per flag set (setting a second is an error). Tag a load/store with
+a region only when the memory genuinely cannot alias the others — a wrong tag lets
+the optimizer drop a real dependency and miscompile. Untagged accesses (`None`,
+the default) conservatively alias everything.
+
 ### Full-width load / store
 
 ```rust
@@ -791,6 +814,75 @@ let inst = builder.ins().call(fref, &[arg1, arg2]);
 let results = builder.inst_results(inst);
 let ret = results[0];
 ```
+
+### Import deduplication — `declare_func_in_func` / `import_signature` do NOT dedup
+
+`Module::declare_func_in_func` imports a **fresh** `SigRef` **and** `FuncRef` on
+every call, even for a `FuncId` already imported in the same function. Its body is
+literally `func.import_signature(decl.signature.clone())` + `import_function(...)`,
+and `import_signature` just **pushes** onto `func.dfg.signatures` (no equality
+check). So N call sites of the same callee emit N redundant `sigK =`/`fnK =`
+preamble entries.
+
+The duplicates are DCE'd from the final machine code, but they bloat the printed
+IR and cost e-graph/verifier time at compile. A one-line `console.log` lowering
+~600 runtime calls into one function produced **1947 decls for 229 distinct
+callees / 9 distinct signatures** — collapsed to `229`/`9` by deduping. A
+`FuncRef` is reusable across every `call` in the same function, so cache it.
+
+**Dedup a FuncRef by FuncId (cheapest — a per-function cache):**
+
+```rust
+// Reset per function (a FuncRef is only valid inside the ir::Function it was
+// imported into). Key by FuncId; the cached FuncRef reuses its SigRef too.
+fn func_ref(cache: &mut HashMap<FuncId, FuncRef>,
+            module: &mut dyn Module, builder: &mut FunctionBuilder,
+            fid: FuncId) -> FuncRef {
+    *cache.entry(fid).or_insert_with(|| declare_func_dedup(module, builder.func, fid))
+}
+```
+
+**No per-function cache handy? Scan the already-imported `ext_funcs`** (scoped to
+the builder, so it can never return a FuncRef from another function):
+
+```rust
+fn import_func(module: &mut dyn Module, builder: &mut FunctionBuilder,
+               callee: FuncId) -> FuncRef {
+    let want = callee.as_u32();
+    for (fref, data) in builder.func.dfg.ext_funcs.iter() {
+        if let ExternalName::User(nr) = data.name {
+            let un = &builder.func.params.user_named_funcs()[nr];
+            if un.namespace == 0 && un.index == want { return fref; }  // reuse
+        }
+    }
+    declare_func_dedup(module, builder.func, callee)
+}
+```
+
+**Also dedup the SigRef by content** (mirror `declare_func_in_func`, but reuse an
+equal `Signature` — `ir::Signature` is `PartialEq`/`Eq`):
+
+```rust
+fn declare_func_dedup(module: &mut dyn Module, func: &mut ir::Function,
+                      callee: FuncId) -> FuncRef {
+    let decl = module.declarations().get_function_decl(callee);
+    let want_sig  = decl.signature.clone();
+    let colocated = decl.linkage.is_final();
+    let sigref = func.dfg.signatures.iter()
+        .find(|(_, s)| **s == want_sig).map(|(r, _)| r)
+        .unwrap_or_else(|| func.import_signature(want_sig));
+    let name_ref = func.declare_imported_user_function(
+        UserExternalName::new(0, callee.as_u32()));
+    func.import_function(ir::ExtFuncData {
+        name: ExternalName::user(name_ref), signature: sigref,
+        colocated, patchable: false,
+    })
+}
+```
+
+> RTS uses both paths: `Lowerer.func_ref` (HashMap by FuncId) for user-fn/thunk
+> sites, `emit_marshal::import_func` (ext_funcs scan) at the runtime-call boundary,
+> both landing in `declare_func_dedup`. See commit `f956f7af`.
 
 ### Indirect call (function pointer)
 
@@ -1343,6 +1435,93 @@ identities (e.g., `x + 0 → x`, `x * 1 → x`, `x & 0 → 0`).
 `types::I128` is supported for basic arithmetic and loads/stores, but some
 backends decompose it into two 64-bit operations. Avoid I128 in hot paths;
 use `smulhi`/`umulhi` + `imul` instead for 128-bit products.
+
+### Function/signature imports are not deduplicated
+`declare_func_in_func` and `import_signature` push a new `FuncRef`/`SigRef` every
+call — importing the same callee from 100 sites yields 100 near-identical preamble
+decls. Cache a `FuncRef` per `FuncId` for the current function (and reuse an equal
+`Signature`) to keep the preamble to one entry per distinct callee/shape. See
+§16 "Import deduplication" for the pattern.
+
+### `fcvt_to_sint` TRAPS on NaN / out-of-range — JS needs the `_sat` form
+The trapping `fcvt_to_sint` / `fcvt_to_uint` raise a `BadConversionToInteger`
+(NaN) or `IntegerOverflow` trap for any float outside the integer's range — on
+x86-64 a raw `cvttsd2si` of an out-of-range double, which at runtime surfaces as a
+**SIGILL / illegal-instruction** through Cranelift's trap handler, not a clean
+error. JS `ToInt32`/`ToUint32` never trap (NaN/±∞ → 0, otherwise truncate-then-
+wrap). When lowering a JS number → int coercion always use the **saturating**
+`fcvt_to_sint_sat` / `fcvt_to_uint_sat` (clamp, no trap), then apply the JS wrap
+separately if `ToInt32` semantics are required. RTS shipped exactly this bug: a
+`coerce(Tagged→Int)` used the trapping form and crashed ~19 fixtures with SIGILL
+until switched to `_sat`.
+
+---
+
+## 25. Exception Handling — `try_call` and exception tables
+
+Cranelift 0.131 has a native exception mechanism (distinct from Rust panics /
+`std::arch` unwinding): `try_call` / `try_call_indirect` call a function while
+routing an unwound exception to a handler block via an **exception table**.
+
+- `ir::ExceptionTable` (entity `"extable"`) + `ExceptionTableData::new(sig,
+  normal_return: BlockCall, matches)` — `matches` is a set of
+  `ExceptionTableItem::{Tag(ExceptionTag, BlockCall), Default(BlockCall),
+  Context(..)}`; `normal_return` is the no-exception successor.
+- The exceptional edge receives payload values through the special block args
+  `BlockArg::TryCallRet(i)` (a normal return value on the fallthrough edge) and
+  `BlockArg::TryCallExn(i)` (an exception payload on a catch edge) — you don't
+  pass these as ordinary `Value`s; they are generated "on the edge" out of the
+  `try_call`.
+- `try_call` must be a **block terminator** (like `brif`), because it has
+  successor edges (normal + handler).
+
+This is the substrate for *real* zero-cost unwinding. A runtime that instead uses
+a thread-local error slot + explicit post-call checks (RTS's current model, #128
+phase 1) does NOT need exception tables; migrating to `try_call` is what a "real
+unwind" phase would build on. Documented here as the available primitive — verify
+the exact generated `InstBuilder::try_call` argument order against your Cranelift
+version before wiring it, since the opcode is meta-generated.
+
+---
+
+## 26. Libcalls — runtime routines the backend may emit
+
+Some IR lowers to a call into a small fixed set of runtime routines rather than
+inline instructions. The `ir::LibCall` enum enumerates them; the JIT/AOT must
+provide their symbols (the default `cranelift_module::default_libcall_names` maps
+them to the usual C names).
+
+- Float rounding/FMA when no native instruction: `CeilF32/64`, `FloorF32/64`,
+  `TruncF32/64`, `NearestF32/64`, `FmaF32/64`.
+- Bulk memory: `Memcpy`, `Memset`, `Memmove`, `Memcmp` (large `stack_load`/
+  aggregate copies may lower to these).
+- Stack-overflow probing: `Probestack` (emitted when `enable_probestack` is on).
+- TLS access: `ElfTlsGetAddr`, `ElfTlsGetOffset`.
+- Fallback SIMD: `X86Pshufb` (shuffle when SSSE3 is absent).
+
+For a **JIT**, register these with `JITBuilder::symbol`/`symbols` (or rely on the
+default libcall names resolving through the process). For **AOT**, they become
+relocations resolved by the system linker against libc. A missing libcall symbol
+is a link-time error, not a codegen error.
+
+---
+
+## 27. Cold Blocks and Layout Hints
+
+Mark rarely-taken blocks (error paths, slow-path IC misses, deopt stubs) as COLD
+so the register allocator and block layout push them out of the hot path (out of
+line, spills preferred there over the fast path):
+
+```rust
+// After creating the block, before/while filling it:
+builder.func.layout.set_cold(slow_block);
+let is_cold = builder.func.layout.is_cold(slow_block);
+```
+
+Cold blocks are placed after the function body, keep the hot path's I-cache
+dense, and bias spill/reload decisions away from the common case. Pair with a
+`brif` whose likely edge is the hot block. This is a hint, not a guarantee — the
+backend is free to ignore it, and correctness never depends on it.
 
 ---
 

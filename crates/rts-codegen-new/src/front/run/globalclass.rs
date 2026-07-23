@@ -174,8 +174,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
             self.box_value(f)
         } else {
-            let pv = value::abi_adapter::intern_poly_const("");
-            self.builder.ins().iconst(types::I64, pv.raw() as i64)
+            self.emit_str_const_word(module, "")?
         };
         Ok(self
             .call_runtime(module, "__rtsadp_re_compile", &[pat_word, flags_word])?
@@ -285,7 +284,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // runtime trampoline.
             let recv = self.lower_expr(module, object)?;
             let recv_word = self.box_value(recv);
-            let key = self.intern_key_word(prop);
+            let key = self.emit_str_const_word(module, prop)?;
             let v = self
                 .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key])?
                 .expect("__rtsadp_obj_get returns a value");

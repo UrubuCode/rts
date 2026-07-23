@@ -58,8 +58,17 @@ use super::{build_from_program, merge_programs, module_jit, registry, render_sou
 /// namespace object, unknown member, builtin used as a value) — all explicit
 /// `Unsupported`.
 pub fn run_path(entry: &Path) -> FrontResult<()> {
-    let prog = build_path(entry)?;
-    let program = module_jit::compile_program(&prog)?;
+    // Whole-program JIT cache (opt-in `RTS_JIT_CACHE=1`): key on the ENTRY file text
+    // (single-file `rts run file.ts` is the common case; a multi-file program that
+    // changes only an IMPORT is not yet invalidated — a documented v1 limit). A hit
+    // replays the cached machine code; a miss builds + bakes + stores. No-op when
+    // the cache is disabled.
+    let cache_src = std::fs::read_to_string(entry).unwrap_or_default();
+    let program = super::progcache::compile_cached(
+        &cache_src,
+        || build_path(entry),
+        |p| module_jit::compile_program(p),
+    )?;
     program.run_main();
     // An uncaught top-level `throw` records the thrown value in the codegen
     // pending-error slot and unwinds via a sentinel `return` out of `main`, but
@@ -99,6 +108,18 @@ pub fn dump_ir_path(entry: &Path) -> FrontResult<()> {
 /// backend (`ObjectModule`) and the synthesized `main` entry shim differ. Returns
 /// the object bytes; the caller writes them and drives the linker.
 pub fn compile_path_to_object(entry: &Path) -> FrontResult<Vec<u8>> {
+    // AOT can REUSE the whole-program JIT cache manifest (opt-in `RTS_JIT_CACHE=1`):
+    // replay the baked machine code into the object, skipping the per-fn compile.
+    // Not on macOS (its AOT `is_pic` codegen differs from the non-pic JIT bytes).
+    #[cfg(not(target_os = "macos"))]
+    if super::progcache::enabled() {
+        let cache_src = std::fs::read_to_string(entry).unwrap_or_default();
+        if let Some(m) = super::progcache::load(super::progcache::key(&cache_src)) {
+            crate::timing::note("aot: jit-cache hit (replay into object)", 1);
+            return super::module_aot::compile_replay_aot(&m);
+        }
+    }
+
     // Mark the AOT build BEFORE `build_path` so its prelude prune is SKIPPED for
     // AOT. Pruning exists to cut JIT startup (`rts run`); an AOT compile is
     // one-shot and its binary is reused, so the prune buys AOT nothing — and it
@@ -182,13 +203,13 @@ fn build_path(entry: &Path) -> FrontResult<super::LoweredProgram> {
     match prelude {
         None => Ok(user),
         Some(prelude) => {
-            let mut merged =
-                crate::timing::phase("merge programs", || merge_programs(prelude, user))?;
-            // RESIDENT prelude (slice 2): define the prelude fns from the baked
-            // machine code instead of re-compiling — the disk path's twin of the
-            // string path's hook in `build_with_includes`. No-op on a non-resident
-            // build (or a nested compile).
-            super::mark_resident_imports(&mut merged, &inc, top_level);
+            // `merge_programs` decides resident (slice 2) internally and skips the
+            // prune when it engages (slice 3) — the disk path's twin of the string
+            // path's hook in `build_with_includes`. No-op on a non-resident build
+            // (or a nested compile): the prune runs as before.
+            let merged = crate::timing::phase("merge programs", || {
+                merge_programs(prelude, user, &inc, top_level)
+            })?;
             Ok(merged)
         }
     }

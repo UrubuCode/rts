@@ -46,6 +46,29 @@ pub(crate) fn manifest() -> Option<PreludeManifest> {
     bincode::deserialize(bytes).ok()
 }
 
+thread_local! {
+    /// WHOLE-PROGRAM CACHE: the manifest `replay` should use for THIS compile,
+    /// overriding the process-installed prelude manifest. Set by
+    /// `module_jit::compile_from_manifest` around a cache-hit compile so `replay`
+    /// draws bytes from the program cache, not the prelude.
+    static REPLAY_OVERRIDE: std::cell::RefCell<Option<PreludeManifest>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Run `f` with `m` as the replay manifest (whole-program cache hit).
+pub(crate) fn with_replay_manifest<T>(m: PreludeManifest, f: impl FnOnce() -> T) -> T {
+    REPLAY_OVERRIDE.with(|c| *c.borrow_mut() = Some(m));
+    let out = f();
+    REPLAY_OVERRIDE.with(|c| *c.borrow_mut() = None);
+    out
+}
+
+/// The manifest `replay` should use: the whole-program override if set, else the
+/// installed prelude manifest.
+fn replay_manifest() -> Option<PreludeManifest> {
+    REPLAY_OVERRIDE.with(|c| c.borrow().clone()).or_else(manifest)
+}
+
 /// Define every RESIDENT prelude function (and its string-data objects) into
 /// `module` from the baked machine code, using `ids` (the name→FuncId map
 /// `populate_module` built when it declared the prelude fns `Local`). Only the
@@ -61,7 +84,7 @@ pub(crate) fn replay(
     declared: &HashMap<String, FuncId>,
     to_define: &std::collections::HashSet<String>,
 ) -> Result<(), String> {
-    let manifest = manifest().ok_or("resident manifest missing at replay")?;
+    let manifest = replay_manifest().ok_or("resident manifest missing at replay")?;
 
     // 1. Define every baked string-data object; record name→DataId.
     let mut data_ids: HashMap<String, DataId> = HashMap::new();

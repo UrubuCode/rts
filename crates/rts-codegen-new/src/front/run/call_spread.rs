@@ -132,7 +132,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let callee = module
             .declare_function(&sig.name, cranelift_module::Linkage::Local, &cl_sig)
             .map_err(|e| Unsupported::new(format!("declare callee `{}`: {e}", sig.name)))?;
-        let func_ref = module.declare_func_in_func(callee, self.builder.func);
+        let func_ref = self.func_ref(module, callee);
         let call = self.builder.ins().call(func_ref, lowered);
 
         let result = match sig.ret {

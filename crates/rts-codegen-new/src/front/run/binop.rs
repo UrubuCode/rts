@@ -134,8 +134,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     if let Some(class) = self.enclosing_class() {
                         return self.user_instanceof(module, rhs, &class);
                     }
-                    let k = crate::value::abi_adapter::intern_poly_const(real);
-                    let key_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
+                    let key_word = self.emit_str_const_word(module, real)?;
                     let obj = self.lower_expr(module, rhs)?;
                     let obj_word = self.box_value(obj);
                     let res = self
@@ -434,9 +433,36 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(self.poly_bool_to_bool(res))
     }
 
-    /// Bitwise/shift ops — always the generic `__rtsadp_*` trampoline (JS bitwise
-    /// semantics are ToInt32/ToUint32 + 5-bit shift-count mask, NOT a native i64
-    /// op). Result is a JS number (int32, or a double for a large `>>>`).
+    /// JS `ToInt32` of a PROVEN-numeric operand as a native i32 Cranelift value —
+    /// the inline counterpart of `genops_arith::to_int32`. Coerce to the i64
+    /// truncation (`fcvt_to_sint_sat` for a double; the register as-is for int/bool),
+    /// then `ireduce` to the low 32 bits (the modular 2^32 step, sign bit 31). A
+    /// Float64 operand additionally guards `!is_finite → 0`: `fcvt_to_sint_sat`
+    /// saturates ±Inf to i64::MAX/MIN (low32 = -1/0), but JS `ToInt32(±Inf)` is 0 —
+    /// so `select(f - f == 0, low, 0)`. Int/Bool operands are already finite, no
+    /// guard. Divergence from V8 for magnitudes ≥ 2^63 is identical to the runtime
+    /// trampoline (`trunc as i64` also saturates) — not a regression. Step 9.
+    fn emit_to_int32(&mut self, v: Val) -> FrontResult<Value> {
+        if matches!(v.repr, Repr::Float64) {
+            let f = v.v;
+            let conv = self.builder.ins().fcvt_to_sint_sat(types::I64, f);
+            let low = self.builder.ins().ireduce(types::I32, conv);
+            let diff = self.builder.ins().fsub(f, f);
+            let zero_f = self.builder.ins().f64const(0.0);
+            let finite = self.builder.ins().fcmp(FloatCC::Equal, diff, zero_f);
+            let zero_i = self.builder.ins().iconst(types::I32, 0);
+            Ok(self.builder.ins().select(finite, low, zero_i))
+        } else {
+            let i64v = self.coerce(v, Repr::Int32)?;
+            Ok(self.builder.ins().ireduce(types::I32, i64v))
+        }
+    }
+
+    /// Bitwise/shift ops. When BOTH operands are proven non-Tagged numeric, emit the
+    /// op INLINE (ToInt32 + native `band`/`ishl`/… — no extern call, no box/unbox);
+    /// the xorshift row of the bench is exactly this. A Tagged operand falls to the
+    /// generic `__rtsadp_*` trampoline. JS bitwise = ToInt32/ToUint32 + a 5-bit
+    /// shift-count mask; result is an int32 (or a uint32 double for a large `>>>`).
     pub(super) fn lower_bitwise(
         &mut self,
         module: &mut dyn Module,
@@ -444,6 +470,40 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         l: Val,
         r: Val,
     ) -> FrontResult<Val> {
+        if !is_tagged(l) && !is_tagged(r) {
+            let x = self.emit_to_int32(l)?;
+            let y = self.emit_to_int32(r)?;
+            // Shift ops mask the count to 5 bits (`& 31`); logical/arith per op. The
+            // result rides the i64 register (sign-extended) tagged Int32, EXCEPT
+            // `>>>` whose uint32 result can exceed i32::MAX → zero-extend + Int64 so
+            // it boxes as the correct positive double.
+            let (res_i32, repr) = match op {
+                HirBinOp::BitAnd => (self.builder.ins().band(x, y), Repr::Int32),
+                HirBinOp::BitOr => (self.builder.ins().bor(x, y), Repr::Int32),
+                HirBinOp::BitXor => (self.builder.ins().bxor(x, y), Repr::Int32),
+                HirBinOp::Shl => {
+                    let s = self.builder.ins().band_imm(y, 31);
+                    (self.builder.ins().ishl(x, s), Repr::Int32)
+                }
+                HirBinOp::Shr => {
+                    let s = self.builder.ins().band_imm(y, 31);
+                    (self.builder.ins().sshr(x, s), Repr::Int32)
+                }
+                HirBinOp::UShr => {
+                    let s = self.builder.ins().band_imm(y, 31);
+                    (self.builder.ins().ushr(x, s), Repr::Int64)
+                }
+                _ => return unsupported!("bitwise op {op:?}"),
+            };
+            let wide = if matches!(repr, Repr::Int64) {
+                // `>>>`: zero-extend the uint32 bit-pattern to a positive i64.
+                self.builder.ins().uextend(types::I64, res_i32)
+            } else {
+                // signed 32-bit result → sign-extend into the i64 carrier.
+                self.builder.ins().sextend(types::I64, res_i32)
+            };
+            return Ok(Val::new(wide, repr));
+        }
         let sym = match op {
             HirBinOp::BitAnd => "__rtsadp_band",
             HirBinOp::BitOr => "__rtsadp_bor",
@@ -536,10 +596,29 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let v = self.builder.ins().fdiv(lv, rv);
                 Ok(Val::new(v, Repr::Float64))
             }
-            // Float `%` is fmod-style (sign of dividend); `**` has no native op.
-            // Route both to the generic numeric trampolines (correct, rare).
-            HirBinOp::Rem if !both_int => self.lower_generic_arith(module, op, l, r),
-            HirBinOp::Exp => self.lower_generic_arith(module, op, l, r),
+            // Float `%` is fmod-style (sign of dividend); `**` is Math.pow. Cranelift
+            // has NO `frem`/fmod instruction and no pow — both need a CALL. But the
+            // operands here are PROVEN non-Tagged numeric (the tagged case returned
+            // above), so call on RAW f64 (`__rtsadp_fmod_f64` / the existing `POW`
+            // symbol), skipping the box/unbox + the generic PolyValue trampoline and
+            // its internal ToNumber×2. Result stays native `Float64` (no re-box
+            // downstream). Step 9.
+            HirBinOp::Rem if !both_int => {
+                let lv = self.coerce(l, Repr::Float64)?;
+                let rv = self.coerce(r, Repr::Float64)?;
+                let v = self
+                    .call_runtime(module, "__rtsadp_fmod_f64", &[lv, rv])?
+                    .expect("fmod returns a value");
+                Ok(Val::new(v, Repr::Float64))
+            }
+            HirBinOp::Exp => {
+                let lv = self.coerce(l, Repr::Float64)?;
+                let rv = self.coerce(r, Repr::Float64)?;
+                let v = self
+                    .call_runtime(module, "__RTS_FN_NS_MATH_POW", &[lv, rv])?
+                    .expect("pow returns a value");
+                Ok(Val::new(v, Repr::Float64))
+            }
             // Integer `%`: native `srem` TRAPS on a zero divisor, but JS `x % 0`
             // is `NaN` (a Number). Only stay on the fast int path when the divisor
             // is a compile-time-known non-zero constant (covers `i % 2` etc.);

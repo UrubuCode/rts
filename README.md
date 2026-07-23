@@ -38,7 +38,7 @@ JS spec compatibility validated against **Bun** and **Node** over 679 standalone
 | 🚫 Rejected (RTS-only) | 0 |
 | 📦 Total fixtures | 679 |
 
-_Updated: 2026-07-21 — [how to add a fixture](docs/specs/cross-runtime-testing.md)_
+_Updated: 2026-07-22 — [how to add a fixture](docs/specs/cross-runtime-testing.md)_
 
 <!-- CROSS_RUNTIME_STATS_END -->
 
@@ -73,17 +73,17 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `c8300be`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `8c8e9d1`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
-| Monte Carlo π 10M (same xorshift algorithm) | 4.92 s | 9.27 s | 3.62 s | 236 ms | **116 ms** | **42.28×** | **79.69×** |
-| Monte Carlo π 10M (JS `Math.random`) | 126 ms | 272 ms | 251 ms | 248 ms | **116 ms** | **1.09×** | **2.36×** |
-| π decimal ~30 digits (i128 vs BigInt) | 57 ms | 60 ms | 45 ms | 139 ms | **12 ms** | **4.66×** | **4.94×** |
-| Monte Carlo 10M threaded (vs Bun Workers) | 177 ms | — | — | 206 ms | **94 ms** | **1.88×** | — |
-| π Machin f64 (RTS only) | — | — | — | 125 ms | **11 ms** | — | — |
+| Monte Carlo π 10M (same xorshift algorithm) | 4.82 s | 7.48 s | 3.66 s | 235 ms | **127 ms** | **38.05×** | **59.02×** |
+| Monte Carlo π 10M (JS `Math.random`) | 123 ms | 272 ms | 242 ms | 277 ms | **128 ms** | **0.96×** | **2.13×** |
+| π decimal ~30 digits (i128 vs BigInt) | 54 ms | 60 ms | 42 ms | 127 ms | **33 ms** | **1.63×** | **1.81×** |
+| Monte Carlo 10M threaded (vs Bun Workers) | 166 ms | — | — | 198 ms | **106 ms** | **1.56×** | — |
+| π Machin f64 (RTS only) | — | — | — | 125 ms | **33 ms** | — | — |
 
-_Updated: 2026-07-21 — run locally with `powershell -File bench/benchmark.ps1`_
+_Updated: 2026-07-22 — run locally with `powershell -File bench/benchmark.ps1`_
 
 <!-- BENCH_STATS_END -->
 

@@ -134,7 +134,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .map_err(|e| {
                 crate::front::error::Unsupported::new(format!("declare ctor `{}`: {e}", sig.name))
             })?;
-        let func_ref = module.declare_func_in_func(callee, self.builder.func);
+        let func_ref = self.func_ref(module, callee);
         self.builder.ins().call(func_ref, &call_args);
         // P5.13: a `throw` inside the constructor must propagate (the ctor's sentinel
         // return left the pending-error slot set) — route the unwind here.
@@ -145,13 +145,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         //          prototype walk (own-key reads never touch this). The one-time
         //          init also wires `constructor.name` + the extends chain up to
         //          the Object.prototype root. ----
-        let k = crate::value::abi_adapter::intern_poly_const(class);
-        let k_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
+        let k_word = self.emit_str_const_word(module, class)?;
         let parent_word = match &desc.parent {
-            Some(p) => {
-                let pk = crate::value::abi_adapter::intern_poly_const(p);
-                self.builder.ins().iconst(types::I64, pk.raw() as i64)
-            }
+            Some(p) => self.emit_str_const_word(module, p)?,
             None => self
                 .builder
                 .ins()
@@ -185,8 +181,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             for (slot, fn_name) in wk {
                 let f = self.reify_method(module, &fn_name)?;
                 let fw = self.box_value(f);
-                let key = crate::value::abi_adapter::intern_poly_const(&slot);
-                let key_w = self.builder.ins().iconst(types::I64, key.raw() as i64);
+                let key_w = self.emit_str_const_word(module, &slot)?;
                 self.call_runtime(module, "__rtsadp_obj_set", &[proto, key_w, fw])?;
             }
         }
@@ -226,7 +221,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let thunk_id = *self.thunks.get(name).ok_or_else(|| {
             crate::front::error::Unsupported::new(format!("no thunk for `{name}`"))
         })?;
-        let func_ref = module.declare_func_in_func(thunk_id, self.builder.func);
+        let func_ref = self.func_ref(module, thunk_id);
         Ok(self.builder.ins().func_addr(types::I64, func_ref))
     }
 
@@ -266,7 +261,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let thunk_id = *self.thunks.get(name).ok_or_else(|| {
             crate::front::error::Unsupported::new(format!("no thunk for `{name}`"))
         })?;
-        let func_ref = module.declare_func_in_func(thunk_id, self.builder.func);
+        let func_ref = self.func_ref(module, thunk_id);
         let fn_ptr = self.builder.ins().func_addr(types::I64, func_ref);
         self.call_runtime(module, "__rtsadp_ctor_mark", &[obj_word, fn_ptr])?;
 

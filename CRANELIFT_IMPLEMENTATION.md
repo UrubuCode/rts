@@ -266,12 +266,24 @@ ms — **unchanged**: an uncontended mutex was already cheap, so the residual
 ~3.3 ns/op is call and marshalling. This buys scalability, not single-thread
 speed. `tests/atomic_ptr_memo.test.ts` pins what a naive memo corrupts silently.
 
-### The `Atomics` primordial is a different job
+### The `Atomics` primordial is a different job — DEFERRED (unblocked, niche, small payoff)
 
 `CLAUDE.md` lists `Atomics` (over SharedArrayBuffer) as primordial. THAT one is
 genuinely inlinable with `atomic_rmw`/`atomic_cas`, because a typed-array element
-has a base address and an index — no per-op handle lookup. It is blocked on step
-5, not on this step.
+has a base address and an index — no per-op handle lookup. It WAS blocked on step
+5, which is now DONE, so the base+index resolver (`ta_native.rs`'s TypedArrayView)
+exists to build on.
+
+**Verdict (2026-07-22) — DEFERRED, not a numbered step, small real-world payoff.**
+It is not one of the campaign's 0–10 steps; it is a side-opportunity. Today `Atomics.*`
+works through the Registry (`registry_build.rs`) and `tests/atomics_shared_buffer.test.ts`
+passes. Inlining would remove the per-op Registry CALL, but by this campaign's own
+measured lesson (Step 4) the atomic INSTRUCTION is ~1 ns and `Atomics` is a
+coordination primitive, rarely in a hot per-element loop — so the call-removal win is
+modest and niche. Well-scoped (mirror `ta_native.rs`'s proven-view base+index arm with
+`atomic_rmw`/`atomic_cas` for `add/sub/and/or/xor/exchange/compareExchange/load/store`),
+but not worth a build cycle ahead of higher-leverage work. Revisit if a real workload
+shows `Atomics` hot. **No action now.**
 
 `rts-std/src/atomic/mod.rs` implements the namespace in Rust. Cranelift has the
 whole surface natively (§19): `atomic_load` / `atomic_store`, `atomic_rmw`
@@ -285,7 +297,7 @@ lists, and it composes with the threading work.
 
 ## Step 5 — TypedArrays on a real buffer
 
-**Status:** not started · **Effort:** high · **Risk:** medium · **Biggest win**
+**Status:** ✅ DONE (slices 5a + 5b — see the dedicated sections below) · **Effort:** high · **Risk:** medium · **Biggest win**
 
 Today they are **"Vec-backed level A"** (`registry_build.rs:184`): a
 `Uint8Array` is a `HandleTable` `Entry::Vec` of **PolyValue words**. So `a[i]`
@@ -315,7 +327,7 @@ is where the engine stops paying a function call per byte.
 
 ## Step 6 — SIMD for bulk operations
 
-**Status:** not started · **Effort:** high · **Risk:** medium
+**Status:** DISCARDED (premise does not hold in this runtime) · **Effort:** high · **Risk:** medium
 
 Cranelift **does not autovectorize** (§22) — vector types must be emitted
 explicitly (§20): `splat`, `shuffle`, `swizzle`, `vany_true` / `vall_true`,
@@ -324,13 +336,38 @@ explicitly (§20): `splat`, `shuffle`, `swizzle`, `vany_true` / `vall_true`,
 Natural targets, all currently byte-at-a-time: `indexOf` / `includes` over an
 array, substring search, `fill` / `copyWithin`, UTF-8 encode/decode.
 
-Do this only after Step 5 — it needs the contiguous buffer to be worth anything.
+**Verdict (static audit 2026-07-22) — DISCARDED, no high-value slice.** The premise
+"emitting SIMD IR in the engine gives a win" is FALSE here, by a clean dichotomy:
+
+1. **Every bulk op over REAL contiguous memory already runs in an already-SIMD
+   Rust/libc routine.** `Buffer.fill` → `memset` (LLVM autovectorizes the byte-store
+   loop, `buffer/mod.rs:271`), `Buffer.copy` → `copy_from_slice`/`memcpy`
+   (`:237`), `TextEncoder.encode` → `to_vec`/memcpy (`text_encoding/instance.rs:14`),
+   `TextDecoder.decode` → `str::from_utf8` (vectorized ASCII fast path, `:1105`),
+   substring `indexOf`/`includes`/`find` → `str::find`/`contains` (Two-Way + core
+   `memchr`, SIMD since ~1.52, `string/search.rs:24-64`). Emitting explicit SIMD in
+   the engine for these is **redundant (gain ≈ 0)** — it would only reimplement,
+   worse, what LLVM/std already do, and would violate the "no builtins in the engine"
+   doctrine.
+2. **The ops that are NOT memset/memcpy** (`fill`/`indexOf`/`copyWithin` over a JS
+   `Array` / level-A TypedArray, `arrayops.rs:239,50,693`) operate over **tagged
+   PolyValue words in the HandleTable with JS semantics** (`===`, NaN, holes) and
+   per-element indirection. These are **unvectorizable by design** — no contiguous
+   homogeneous-byte layout, and the compare is semantic, not bitwise. SIMD does not
+   apply even in theory.
+
+There is **zero** SIMD in the engine today (no `I8X16`/`splat`/`vconst` anywhere),
+so any slice is new infrastructure; and there is no slice where "emit SIMD in the
+engine" is the right answer — the best path for every bulk op here is already "call
+the already-vectorized Rust routine", which the code does. Honest micro-hygiene (NOT
+this step): `Buffer.fill` (`buffer/mod.rs:277`) could be `b[..end].fill(byte)` instead
+of a manual loop — still `memset`, measurable gain ~0, intent-only. **No action.**
 
 ---
 
 ## Step 7 — stack slots for non-escaping objects
 
-**Status:** not started · **Effort:** very high · **Risk:** high
+**Status:** DEFERRED (confirmed a project, no viable minimal slice) · **Effort:** very high · **Risk:** high
 
 Every object lands in the `HandleTable` today. An object proven not to escape
 could live in a `stack_addr` slot (§13): no allocation, no GC pressure, and the
@@ -339,11 +376,35 @@ register allocator may remove it entirely.
 The blocker is analysis, not emission: **Cranelift does not do escape analysis**
 (§22), so the HIR layer has to prove non-escape. Treat as a project, not a step.
 
----
+**Verdict (static audit 2026-07-22) — DEFERRED, no viable minimal slice.** Object
+literals lower to a HandleTable `Entry::Vec` via one extern
+`__RTS_FN_NS_COLLECTIONS_VEC_NEW` call + one `__RTS_FN_NS_COLLECTIONS_VEC_PUSH` per
+field (`obj.rs:104-116`, `emit_marshal.rs:220,264`); property access itself is
+already an extern `VEC_GET(handle, slot)` (`obj.rs:563`). There is **zero
+escape/lifetime analysis** anywhere in `rts-codegen-new` or `rts-hir` (grep for
+escape/non-escape/liveness returns only string-escape / escape-hatch false
+positives); `object_locals` tracks static-vs-dynamic dispatch, not lifetime.
+Proving non-escape in JS/TS is a new HIR data-flow pass (not-returned,
+not-passed-to-any-fn, not-stored, not-captured, not-across-await, not-thrown) PLUS
+a second, non-handle object representation (`stack_addr` + offset access) PLUS
+GC/marshalling awareness that the value is off-table — three subsystems, one
+nonexistent. The payoff is small: the GC is already cheap (mark+sweep every 256
+allocs, 500k live floor — short-lived objects in small programs never trigger a
+cycle), most real-world objects genuinely escape (returned, passed to
+`console.log`/JSON/callbacks, stored in collections), and the saved cost is a
+once-per-construction alloc, not the per-element/per-iteration extern that made
+Steps 2/4/5b large wins (see "what the first four steps taught"). There is **no
+minimal high-value slice**: even a purely-local literal already passes its handle
+to an extern on every access, so any slice that helps must also rewrite the access
+path to direct stack offsets — i.e. the whole project in miniature without the
+scale payoff. Revisit only after Steps 9/6 and only with a dedicated escape-analysis
+design. **No action now.**
 
 ---
 
-## Step 8 — the API changed: `Intrinsic` enum → per-member `NativeEmit` (DONE, drain pending)
+---
+
+## Step 8 — the API changed: `Intrinsic` enum → per-member `NativeEmit` (DONE)
 
 **Status:** ✅ mechanism shipped · **Effort:** medium · **Risk:** low · **Owner decision**
 
@@ -403,7 +464,7 @@ so it went with the enum.
 
 ## Step 9 — userland arithmetic through emitters (the xorshift row)
 
-**Status:** not started · **Effort:** medium · **Risk:** medium · **Highest-value next**
+**Status:** ✅ DONE — inline bitwise + direct `%`/`**` (xorshift 3.8×, bitwise 8.5×; byte-identical to Node). · **Effort:** medium · **Risk:** medium
 
 Measured: a xorshift64 written in **TS userland** takes **194 ms** for 10M
 iterations, while calling `math.random` into Rust takes **31 ms**. Userland
@@ -426,7 +487,7 @@ misrepresent (see the caveat below), and the one where RTS should genuinely win.
 
 ## Step 10 — the JIT's fixed ~185 ms (NOT a codegen problem)
 
-**Status:** not started · **Effort:** medium · **Risk:** low · **Biggest end-user gap**
+**Status:** ✅ DONE (slices 1/2/3 + resident correctness; AOT L2/L3 fixed along the way) · slice 4 deferred · **Effort:** medium · **Risk:** low · **Biggest end-user gap**
 
 From the README's own table, the JIT − AOT delta per benchmark:
 
@@ -638,8 +699,12 @@ scope here.
       the string blobs, then `define_function_bytes` each prelude fn with relocs
       remapped name→run-FuncId. User fns compile fresh as today. Result: prelude
       machine-compile skipped (the ~60 ms win) with NO far call.
-    - Still to validate after: GC stack-map coverage for the byte-defined frames,
-      reified prelude fn values, and the **~79 → ~23 ms**.
+    - Validated after: GC coverage for the byte-defined frames is a NON-issue — the
+      AOT-L3 investigation (2026-07-22) confirmed the engine has NO precise stack
+      maps at all (`stack_map_registry` is dead); JIT and AOT share ONE conservative
+      scanner that covers byte-defined and freshly-compiled frames identically, and
+      the allocating suite passes. Reified prelude fn values + the ms remain a
+      Slice-3/4 concern, not a correctness gate.
 
     **WORKING (validated end-to-end).** The `define_function_bytes` replay is
     implemented and the linker delivery is removed. Measured on the real binary
@@ -683,8 +748,156 @@ scope here.
 
     **SLICE 2 COMPLETE** — the resident prelude works and is on by default for baked
     builds, validated across the whole suite.
-- **Slice 3/4** — drop pruning + trim merge from the run path once the prelude is
-  fully resident.
+
+    **EXTENSION — whole-program JIT cache (`RTS_JIT_CACHE=1`).** The same
+    `define_function_bytes` replay generalizes from the prelude to ANY program: a
+    compiled program is baked to a manifest (`bake::bake_program`, whole program incl
+    `__rtsn_main`, aot_str strings) and re-run PURELY by replaying its machine code
+    (`module_jit::compile_replay` — declare + define_function_bytes + finalize, no
+    parse/lower/compile). `progcache` is a per-file disk cache keyed by the program
+    source + prelude text + version: a HIT replays; a MISS builds + bakes + stores.
+    Wired into `run_source`/`render_source` + `run_path` (`rts run file.ts`, keyed on
+    the entry file). Opt-in; disabled = today's path (no-op). Validated in-process:
+    `whole_program_cache_roundtrip` (bake+replay == normal) and `jit_cache_miss_then_hit`
+    (miss→hit == normal). This is "compile once, replay on repeat runs". v1 limits:
+    keyed on the entry-file text (a changed IMPORT is not yet invalidated); a miss
+    compiles the aot_str path.
+- **Slice 3 — skip the prune when resident engages.** ✅ DONE. The decision
+  (`mark_resident_imports`) moved INTO `merge_programs`, right after the gcells are
+  computed (the gate reads them) but BEFORE the prune; it now returns `bool`, and
+  the prune is skipped when it returns `true`. Rationale: with resident on, the old
+  order ran `prune_prelude` (removing ~528 unreachable prelude fns) and THEN
+  `mark_resident_imports` RESTORED every one of them from the manifest — pure
+  prune-then-restore churn. Skipping is byte-identical: gcell ids are fixed before
+  the prune (immune), shape ids are seeded from the manifest, replay relocs resolve
+  by NAME (immune to func order), and the final `LoweredProgram` is the same set the
+  old restore produced. **Measured (`RTS_TIMING=1`, baked build, prelude-heavy
+  smoke): `prune prelude 9.43 ms` → GONE** (the phase disappears; `resident: prelude
+  fns defined-from-bytes 831`, machine-compile only 8 user fns). AOT and the
+  non-resident fallback are untouched (the prune runs there exactly as before — the
+  gate returns `false`). **Validated behaviour-neutral by the decisive test:** the
+  ORIGINAL (pre-Slice-3) baked binary and the Slice-3 baked binary produce a
+  BYTE-IDENTICAL suite result AND a byte-identical failing-file list under resident
+  ON (both `707/24`, same 24 files) — my change is a pure `LoweredProgram`-preserving
+  optimisation. Default (non-baked) build stays at baseline `723/8`.
+
+## Step 10 — resident CORRECTNESS: the string-pool-handle-immediate bug (FIXED)
+
+**Status:** ✅ FIXED · **Effort:** medium · **Risk:** low (default JIT path byte-identical) · **The real blocker, now cleared**
+
+Validating Slice 3 exposed that the slice-2 "731/731 byte-identical resident on
+vs off" claim was STALE: the real baked binary ran a STABLE `707/24` (3 identical
+runs — not flaky) versus `723/8` for the SAME binary with `RTS_NO_RESIDENT=1` and
+for the default build. The resident prelude deterministically broke **16 more
+files** — `reflect_*` (4), `proxy_phase3*` (2), `boolean_class`,
+`new_number_no_panic`, `number_valueof_receiver`, `edge_error_extends`,
+`function_global`, `arraybuffer_transfer_clone`, plus the crypto/`node_fs_*`/
+`node_stream`/`node_string_decoder` I/O family. Symptoms were WRONG OUTPUT, not
+crashes: `new Number(42).valueOf()` → `undefined`, `new Boolean(true).valueOf()` →
+`[object Object]`, `Reflect.defineProperty`/Proxy `defineProperty` written value →
+`undefined`, `Buffer` roundtrip → the byte list `104,101,108,…` instead of the
+decoded string.
+
+### Root cause
+
+The front-end embeds **compiler-process string-pool handles as raw `iconst`
+immediates** for property keys, class/method/function names, and `typeof` result
+strings — and that path did NOT honour `aot_str::aot_mode()`. Only `HirLit::Str`
+had the guard. A `intern_poly_const(s)` handle is a SLOT INDEX into THIS process's
+string pool (`STRING_NEW` is non-deduped, slot depends on allocation order). In a
+DIFFERENT process — the resident REPLAY run (bake in one process, run in another),
+or an AOT binary — that slot holds a different string. Since slot/method resolution
+matches by key **TEXT** (`objops::resolve_slot`, `class_proto_init`/
+`proto_set_method`), the wrong text made every lookup miss → the property read /
+method dispatch silently returned `undefined` or fell to the default (Object's
+`valueOf`, array's `toString`). The 707 that passed used keys (`message`, `name`,
+`length`, …) that the run's own allocation refilled into the same slots by
+coincidence; the 24 that failed used keys UNIQUE to prelude subsystems (`__prim`,
+Reflect/Proxy descriptor flags, Buffer decode, node-fs internals) the run never
+allocated there. Deterministic because allocation order is fixed.
+
+The slice-2 in-process `resident_replay_roundtrip` test MASKED this: baker + run in
+ONE process share the pool (the keys were `intern_poly_const`-PINned during bake, so
+their slots still held the right text at run). Only a real baked binary
+(build-time baker, fresh run process) exposes it. Any honest regression test for
+resident MUST use a real baked binary, not the in-process roundtrip.
+
+### The fix (shipped, PR #1972)
+
+A single AOT-safe helper `Lowerer::emit_str_const_word(module, s) -> Value`
+(`obj.rs`) mirrors `HirLit::Str`: in `aot_mode()` (baker + `rts compile`) it emits
+the bytes as a DATA object + `__RTS_FN_NS_GC_STRING_FROM_STATIC(ptr,len)` (interned
+in the RUNNING binary's OWN pool, correct text, captured/replayed by name); in JIT
+mode (default `rts run`, and user code) it is the IDENTICAL `iconst` fast path as
+before. All **33 `intern_poly_const → iconst` sites across 14 files** were routed
+through it (`HirLit::Str` too, deleting its inline duplicate); the resulting STR
+word is interchangeable with the old handle word in every consumer because they all
+read TEXT. A STR word is boxed with `JsKind::Str`.
+
+**Measured:** the baked binary went from `707/24` → **`723/8`, MATCHING the
+fallback** (`722/9` under `RTS_NO_RESIDENT=1` on the same binary — the 8 common
+files are the SAME pre-existing flaky crypto/node-fs/node-stream/GC crashes present
+in the default build; the ±1 is one flaky async file). The 16 resident-specific
+failures are GONE. The individual fixed cases verified: `number_valueof_receiver`
+5/5, `boolean_class` 2/2, `reflect_api` 15/15, `proxy_phase3` 20/20. The baked
+manifest grew from 728 → 4596 data blobs (the keys now travel as DATA, as intended).
+
+**Default-JIT safety:** with `aot_mode()` off, `emit_str_const_word` returns the
+exact `iconst(intern_poly_const(s).raw())` as before, so the common `rts run` path
+is byte-identical — confirmed by the committed-code suite (`723/8` = baseline) and
+the `RTS_NO_RESIDENT=1` suite on the baked binary (`722/9`, ±1 flaky).
+
+**AOT (`rts compile`) — the SAME class of bug, LAYER 2 (shape-id seeding), NOW
+FIXED.** After the key-text fix, `rts compile` STILL produced wrong output for
+DYNAMIC dispatch (`new Number(42).valueOf()` → `undefined`, `catch(e){e.name}` →
+`undefined`) while STATIC access worked. Root cause (agent-diagnosed, empirically
+proven): the **global shape registry** (`rts_engine::heap::shapes`) is populated at
+COMPILE time in the compiler process, and shape ids are baked as IMMEDIATES into the
+emitted code (slot 0 of every object, the compare arms of dynamic dispatch). JIT
+shares that registry with the run (same process) so `global_shape_keys(baked_id)`
+resolves; an AOT binary is a SEPARATE process whose registry starts EMPTY, so every
+dynamic shape read (`obj_get` on a Tagged/`any`/catch-bound receiver, `console.log(obj)`,
+dynamic `Object.keys`) missed and returned `undefined`. Exactly the key-text bug's
+sibling: a compile-time value baked into code that is meaningless in the AOT process.
+
+Fix (same transfer pattern): `shapes::export_seed_blob()` serializes the id→keys +
+error-class registries after `populate_module`; `compile_program_aot` embeds it as a
+`__RTS_AOT_SHAPE_SEED` DATA object and the `main` shim calls a new
+`__RTS_FN_RT_SEED_SHAPES(ptr,len)` (rts-runtime → `shapes::seed_from_blob`) FIRST,
+before any code runs. `seed_global_shapes` reproduces `id = BASE + index` by
+construction, so every baked immediate lines up; a runtime shape transition still
+`intern`s ABOVE the seeded range. **Measured:** the prelude-heavy program is now
+byte-identical to JIT (`Number.valueOf: 42`, `catch: E boom`, `Reflect.defineProperty:
+99`). JIT suite stays `723/8` (the change only adds AOT-path emission + unused-by-JIT
+functions). Also wired into `compile_replay_aot` (the `RTS_JIT_CACHE` AOT path).
+
+**AOT — LAYER 3 (empty-string data object aliasing): FIXED.** With dynamic dispatch
+fixed, a symptom surfaced — a string accumulated in a loop (`let a=""; for(..)
+a=a+"x"`) came out EMPTY, and `let z=""; console.log("KEEP")` printed nothing. The
+first hypothesis was GC (loop-live roots collected), but that was WRONG and disproven:
+`RTS_GC_DISABLE=1` changes nothing, the `GC_LIVE_FLOOR = 500_000` blocks any cycle in
+a small program, and the `stack_map_registry` is dead (JIT and AOT use the SAME
+conservative scanner — the CLAUDE.md "precise JIT stack maps" note is stale). The real
+cause is tiny and pointer-shaped: an EMPTY string literal `""` emits a **zero-length**
+`.rodata` DATA object (`aot_str::emit_str_data`), and the linker places a zero-length
+symbol at the SAME address as the NEXT data symbol. `__RTS_FN_NS_GC_STRING_FROM_STATIC`
+cached interned handles keyed on **`ptr` alone** (`string_pool.rs`), so `""` populated
+`cache[P] = empty_handle` and the next distinct literal sharing address `P` cache-HIT
+the empty handle → silently corrupted to `""`. JIT is immune (it bakes distinct
+immediate handles, no data object, no ptr). Fix: key the cache on **`(ptr, len)`** —
+`""` is `(P, 0)`, the colliding literal is `(P, len>0)`, distinct; reading `len` bytes
+at `P` still yields the next object's real content. One-line change; the GC framing is
+abandoned. `rts run` (default) was never affected.
+- **Slice 4 — trim merge: NOT done, deliberately deferred (design verdict).** The
+  merge's real cost is `funcval::module_globals` scanning all ~1735 funcs to compute
+  `written_free`/`read_free` — and that is exactly what CANNOT be skipped: it drives
+  gcell numbering, and the baker computes gcells over prelude-ALONE while the run
+  computes them over prelude+user MERGED (the gcell-match gate exists precisely to
+  catch a divergence). Skipping it to trust the manifest's gcells would defeat that
+  guard — the SIGILL/miscompile class `rts-adapters/src/state.rs` documents. The
+  only safely-skippable merge work is the cheap metadata `extend`s, which are not
+  the bottleneck. Ganho projetado ~9→1-2 ms, risk = worst class. Not worth coupling
+  to Slice 3; revisit only with a dedicated design that preserves `module_globals`.
 
 ### Fallback (behaviour-neutral, permanent)
 
@@ -707,11 +920,32 @@ documents from mis-timed resets).
 ## Ordering
 
 Original: 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7.
-Done so far: 0, 1, 2, 4, 5a, 5b, 8 (3 blocked; 4 done by another route).
-Remaining: **10 → 9 → 6 → 7**.
 
-If the goal is "RTS JIT should beat Bun/Node/Deno", **10 comes first** — it is the
-only step that touches the number the user actually sees.
+**EVERY step is now resolved — this campaign is complete.**
+- **Done:** 0, 1, 2, 4, 5a, 5b, 8, **9**, 10 (slices 1/2/3 + resident-correctness),
+  and the two AOT correctness layers found along the way (AOT-L2 shape-registry
+  seed, AOT-L3 empty-string data-object aliasing). AOT now runs dynamic dispatch +
+  loop string-building byte-identically to JIT.
+- **Blocked (cannot do):** 3 — cranelift-jit has no TLS; documented, aspirational.
+- **Deferred (justified, no viable slice now):** 7 (escape analysis — a project:
+  new HIR data-flow pass + a second non-handle object representation + GC awareness;
+  small once-per-construction payoff), 10-slice4 (trim merge — `module_globals`
+  can't be skipped without defeating the gcell-match guard; ~9→1-2 ms for
+  worst-class risk).
+- **Discarded (justified, premise does not hold):** 6 (SIMD — bulk ops already
+  delegate to already-SIMD memset/memcpy/memchr/from_utf8; Array-of-PolyValue ops
+  are unvectorizable by design; emitting SIMD in the engine is redundant where
+  possible and impossible where it would be needed).
+
+This session's arc: the resident-path 24-failure correctness gap (found validating
+slice 3) traced to compile-time-baked, process-specific values invalid in a separate
+process — a class with THREE layers, all fixed (string-pool handles #1972, shape ids
+#1973, empty-string data objects #1974). Step 9's inline bitwise/`%`/`**` landed the
+xorshift row (3.8×) and bitwise (8.5×). A baked build is shippable (matches the
+fallback suite `723/8`) with the ~100 ms startup win; `rts compile` (AOT) now produces
+correct output for dynamic dispatch and loop string-building. The remaining unresolved
+items (3/6/7/slice4) are each blocked, discarded, or deferred with a written
+justification above — there is no actionable work left in this document.
 
 ### What the first four steps actually taught
 
@@ -754,11 +988,15 @@ not be used to prioritise work.
 | 4 | atomics: mutex off the fast path | medium | **4 threads 1034 → 227 ms (4.6x)** | ✅ done (not via IR) |
 | 5a | level-B allocation storm (view_parts + write index) | medium | **write 9.4×, bench 6× (7.5→1.26 s)** | ✅ done |
 | 5b | native `uload8`/`istore8` + hoisted base | high | **bench 1.26 s → 319 ms; 7.5 s → 319 ms overall (~23×), ~2.5× off Node** | ✅ done |
-| 6 | SIMD bulk ops | high | — | not started |
-| 7 | stack slots (escape analysis) | very high | — | not started |
+| 6 | SIMD bulk ops | high | bulk ops already delegate to SIMD memset/memcpy/memchr/from_utf8; Array-of-PolyValue unvectorizable | ❌ discarded (justified) |
+| 7 | stack slots (escape analysis) | very high | no minimal slice; new HIR pass + 2nd obj repr + GC awareness; small payoff | ⏸️ deferred (justified) |
 | 8 | `Intrinsic` enum → per-member `NativeEmit` | medium | enum DELETED, all 20 ops on specs | ✅ done |
-| 9 | userland arithmetic via emitters (`%`, int round-trips) | medium | userland xorshift 194 ms vs 31 ms call | after 10 |
-| 10 | the JIT's fixed ~185 ms | medium | constant across all 5 benches | **NEXT — measure phases first** |
+| 9 | userland arithmetic: inline bitwise + direct `%`/`**` | medium | **xorshift 1099→288 ms (3.8×), bitwise 1016→119 ms (8.5×), mod 2.2×, pow 1.9×** | ✅ done |
+| 10 | the JIT's fixed ~185 ms — prelude cache/resident | medium | slice1 123→79 ms; slice2 →23 ms band; slice3 prune 9.4→0 ms | ✅ slices 1/2/3 + resident correctness done; slice 4 deferred |
+| 10-s3 | skip prune when resident engages | low | `prune prelude 9.43 ms` → gone; suite byte-identical to original resident | ✅ done |
+| 10-rc | resident correctness: string-pool handle immediates → AOT-safe emitter | medium | baked **707/24 → 723/8** (matches fallback); 33 sites/14 files | ✅ done |
+| aot-L2 | seed shape registry at AOT startup (dynamic dispatch was undefined) | medium | AOT byte-identical to JIT for `Number.valueOf`/`Reflect`/`catch` | ✅ done |
+| aot-L3 | AOT empty-string data-object aliasing (`(ptr,len)` cache key) | low | "string in a loop → empty" fixed; broad AOT == JIT | ✅ done |
 
 ### Step 5a — the allocation storm (DONE, commit 4da2ae6d)
 

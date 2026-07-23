@@ -196,8 +196,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let k = self.lower_expr(module, key_expr)?;
                 (self.box_value(k), value_expr)
             } else {
-                let k = abi_adapter::intern_poly_const(key);
-                let k_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
+                let k_word = self.emit_str_const_word(module, key)?;
                 (k_word, expr)
             };
             let v = self.lower_expr(module, value_expr)?;
@@ -355,8 +354,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 if self.local(fname).is_none() {
                     if let Some(sig) = self.sigs.get(fname.as_str()) {
                         if prop == "name" {
-                            let pv = crate::value::abi_adapter::intern_poly_const(fname);
-                            let v = self.builder.ins().iconst(types::I64, pv.raw() as i64);
+                            let v = self.emit_str_const_word(module, fname)?;
                             return Ok(Val::tagged_kind(v, JsKind::Str));
                         }
                         let n = sig.params.len() as i64
@@ -415,8 +413,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if prop == "prototype" {
             if let HirExprKind::Ident(g) = &object.kind {
                 if matches!(g.as_str(), "Array" | "Object") && self.local(g).is_none() {
-                    let k = crate::value::abi_adapter::intern_poly_const(g);
-                    let k_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
+                    let k_word = self.emit_str_const_word(module, g)?;
                     let w = self
                         .call_runtime(module, "__rtsadp_class_proto", &[k_word])?
                         .expect("__rtsadp_class_proto returns a word");
@@ -472,15 +469,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // elevation / `new F()` observe one object.
             if prop == "prototype" {
                 if let HirExprKind::Ident(name) = &object.kind {
-                    let k = abi_adapter::intern_poly_const(name);
-                    let k_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
+                    let k_word = self.emit_str_const_word(module, name)?;
                     let w = self
                         .call_runtime(module, "__rtsadp_class_proto", &[k_word])?
                         .expect("__rtsadp_class_proto returns a word");
                     return Ok(Val::tagged_kind(w, JsKind::Object));
                 }
             }
-            let key_word = self.intern_key_word(prop);
+            let key_word = self.emit_str_const_word(module, prop)?;
             let word = self
                 .call_runtime(module, "__rtsadp_fn_get_prop", &[fn_word, key_word])?
                 .expect("__rtsadp_fn_get_prop returns a value");
@@ -863,8 +859,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let Some(class) = self.class_name_receiver(object) {
             // `C.prototype = obj` — replace the class's shared prototype object.
             if prop == "prototype" {
-                let k = abi_adapter::intern_poly_const(&class);
-                let k_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
+                let k_word = self.emit_str_const_word(module, &class)?;
                 let v = self.lower_expr(module, value)?;
                 let word = self.box_value(v);
                 self.call_runtime(module, "__rtsadp_class_proto_set", &[k_word, word])?;
@@ -924,15 +919,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // same `class_proto(name)`).
             if prop == "prototype" {
                 if let HirExprKind::Ident(name) = &object.kind {
-                    let k = abi_adapter::intern_poly_const(name);
-                    let k_word = self.builder.ins().iconst(types::I64, k.raw() as i64);
+                    let k_word = self.emit_str_const_word(module, name)?;
                     let v = self.lower_expr(module, value)?;
                     let word = self.box_value(v);
                     self.call_runtime(module, "__rtsadp_class_proto_set", &[k_word, word])?;
                     return Ok(Val::new(word, Repr::Tagged));
                 }
             }
-            let key_word = self.intern_key_word(prop);
+            let key_word = self.emit_str_const_word(module, prop)?;
             let v = self.lower_expr(module, value)?;
             let word = self.box_value(v);
             let ret = self
@@ -970,7 +964,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // non-ident receiver (no local to demote) still routes the dynamic set.
             let v = self.lower_expr(module, value)?;
             let word = self.box_value(v);
-            let key_word = self.intern_key_word(prop);
+            let key_word = self.emit_str_const_word(module, prop)?;
             self.call_runtime(module, "__rtsadp_obj_set", &[recv_word, key_word, word])?;
             self.emit_post_call_error_check(module)?; // Proxy set trap / setter can THROW
             if let HirExprKind::Ident(name) = &object.kind {
@@ -1001,7 +995,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirExprKind::Member { object, prop } => {
                 let obj = self.lower_expr(module, object)?;
                 let obj_word = self.box_value(obj);
-                (object.as_ref(), obj_word, self.intern_key_word(prop))
+                let key = self.emit_str_const_word(module, prop)?;
+                (object.as_ref(), obj_word, key)
             }
             HirExprKind::Index { object, index } => {
                 let obj = self.lower_expr(module, object)?;
@@ -1366,7 +1361,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         name: &str,
         prop: &str,
     ) -> FrontResult<Val> {
-        let key_word = self.intern_key_word(prop);
+        let key_word = self.emit_str_const_word(module, prop)?;
         let obj_word = self.load_local_word(name);
         let word = self
             .call_runtime(module, "__rtsadp_obj_get", &[obj_word, key_word])?
@@ -1384,7 +1379,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         prop: &str,
         value: &HirExpr,
     ) -> FrontResult<Val> {
-        let key_word = self.intern_key_word(prop);
+        let key_word = self.emit_str_const_word(module, prop)?;
         let v = self.lower_expr(module, value)?;
         let word = self.box_value(v);
         let obj_word = self.load_local_word(name);
@@ -1421,7 +1416,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
         let recv = self.lower_expr(module, object)?;
         let recv_word = self.box_value(recv);
-        let key_word = self.intern_key_word(prop);
+        let key_word = self.emit_str_const_word(module, prop)?;
         let word = self
             .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key_word])?
             .expect("__rtsadp_obj_get returns a value");
@@ -1447,7 +1442,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
         let recv = self.lower_expr(module, object)?;
         let recv_word = self.box_value(recv);
-        let key_word = self.intern_key_word(prop);
+        let key_word = self.emit_str_const_word(module, prop)?;
         let v = self.lower_expr(module, value)?;
         let word = self.box_value(v);
         self.call_runtime(module, "__rtsadp_obj_set", &[recv_word, key_word, word])?;
@@ -1465,12 +1460,46 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(self.box_value(v))
     }
 
-    /// Intern a STATIC property name as a string-PolyValue key word (an i64
-    /// constant — the literal is interned in the real pool at lowering time, like
-    /// every string literal).
-    pub(super) fn intern_key_word(&mut self, prop: &str) -> Value {
-        let pv = abi_adapter::intern_poly_const(prop);
-        self.builder.ins().iconst(types::I64, pv.raw() as i64)
+    /// Emit a STRING CONSTANT as a boxed STR PolyValue WORD (an i64 `Value`),
+    /// AOT-safe. The canonical helper for EVERY synthesized string the front-end
+    /// splices as a constant — property keys, class/method/function names used for
+    /// dispatch, `typeof` result strings — mirroring the `HirLit::Str` lowering.
+    ///
+    /// It MUST honor AOT/baker mode exactly like `HirLit::Str` does. A
+    /// compile-time-interned pool handle (`intern_poly_const`) is a SLOT INDEX into
+    /// THIS compiler process's string pool. In a DIFFERENT process — an AOT binary,
+    /// or a resident-prelude REPLAY run (`bake` then a fresh run) — that slot holds a
+    /// different string, so a raw immediate makes every key/name text-compare against
+    /// the WRONG string. Since slot resolution (`objops::resolve_slot`) and method
+    /// dispatch match by key TEXT, the miss surfaces as a property read / method call
+    /// silently returning `undefined` or falling to the default — the resident 24-file
+    /// bug (see `CRANELIFT_IMPLEMENTATION.md` step 10). The old `intern_key_word` and
+    /// ~30 sibling sites skipped this guard; only `HirLit::Str` had it.
+    ///
+    /// - AOT/baker mode: emit the bytes as a DATA object + `string_from_static` so the
+    ///   string is interned in the RUNNING binary's OWN pool (correct text), reusing
+    ///   the capture/replay machinery (`emit_str_data` + `CAPTURE_DATA`).
+    /// - JIT mode (default `rts run`, and user code — `aot_mode()` is off): the fast
+    ///   path, IDENTICAL to before — intern now, splice the boxed word as an immediate.
+    pub(super) fn emit_str_const_word(
+        &mut self,
+        module: &mut dyn Module,
+        s: &str,
+    ) -> FrontResult<Value> {
+        if super::aot_str::aot_mode() {
+            let (ptr, len) = super::aot_str::emit_str_data(module, self.builder, s)?;
+            let handle = self
+                .call_runtime(module, "__RTS_FN_NS_GC_STRING_FROM_STATIC", &[ptr, len])?
+                .expect("string_from_static returns a handle");
+            Ok(crate::value::emit_marshal::emit_box_real_string(
+                module,
+                self.builder,
+                handle,
+            ))
+        } else {
+            let pv = abi_adapter::intern_poly_const(s);
+            Ok(self.builder.ins().iconst(types::I64, pv.raw() as i64))
+        }
     }
 
     /// Lower a COMPUTED index expression to a string-PolyValue key WORD for the

@@ -394,8 +394,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(None);
         }
         let recv_word = self.box_value(recv);
-        let key = crate::value::abi_adapter::intern_poly_const(method);
-        let key_w = self.builder.ins().iconst(types::I64, key.raw() as i64);
+        let key_w = self.emit_str_const_word(module, method)?;
         let undef = || crate::value::PolyValue::undefined().raw() as i64;
         let mut slots = [self.builder.ins().iconst(types::I64, undef()); 3];
         for (i, a) in args.iter().enumerate() {
