@@ -73,23 +73,14 @@ pub fn module_globals(
     // written-free test can't fire on it), so plain user `const`s are unaffected.
     let mut top: Vec<String> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
-    // Top-level bindings whose initializer is a NON-LITERAL (a call/member/etc. that
-    // yields a RUNTIME value with identity — e.g. `const c = atomic.i64_new(0)`). A
-    // literal init (`let p = "hi-"`) is re-materializable / by-value-capturable, so a
-    // read-only closure capture handles it WITHOUT a cell; a runtime-value init read
-    // from a plain function cannot be re-materialized and MUST be a shared cell.
-    let mut runtime_init: HashSet<String> = HashSet::new();
     for s in &main.body {
-        let (name, init) = match s {
-            HirStmt::Let { name, init, .. } => (name, init.as_ref()),
-            HirStmt::Const { name, init, .. } => (name, Some(init)),
+        let name = match s {
+            HirStmt::Let { name, .. } => name,
+            HirStmt::Const { name, .. } => name,
             _ => continue,
         };
         if seen.insert(name.clone()) {
             top.push(name.clone());
-            if init.is_some_and(|e| !matches!(e.kind, HirExprKind::Lit(_))) {
-                runtime_init.insert(name.clone());
-            }
         }
     }
     if top.is_empty() {
@@ -127,9 +118,18 @@ pub fn module_globals(
         // it is READ free from a function AND its init is a runtime value (the
         // read-only-shared-handle case, `const c = atomic.i64_new(0)`). A read-only
         // LITERAL is left to the by-value closure-capture path (don't disturb it).
+        // Promote a top-level `let`/`const` to a runtime CELL when it is WRITTEN free
+        // from a function (#195 mutable case), force-promoted, OR simply READ free from
+        // a function. The read case now covers LITERAL inits too (`const NEAR = 0.05`
+        // used inside a plain top-level `function`): a plain function has no closure env
+        // to capture into, so the by-value capture path bailed ("not a simple local").
+        // A shared cell is also the JS-correct semantics (closures see later mutations),
+        // and a never-written literal const lands in `immutable_gcells` → read once at
+        // entry, so the cell cost is amortized. Top-level-only consts (never read from a
+        // function) stay off this path — plain user consts are unaffected.
         let promote = written_free.contains(&name)
             || force.contains(&name)
-            || (read_free.contains(&name) && runtime_init.contains(&name));
+            || read_free.contains(&name);
         if promote {
             map.insert(name, id);
             id += 1;

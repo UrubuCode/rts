@@ -193,10 +193,9 @@ pub struct RenderState {
     /// Janela transparente → clear com alpha 0 (o painel egui também fica
     /// transparente em `end_frame`), pra o SO compor o fundo.
     pub transparent: bool,
-    /// Estado do scene pass 3D (`gpu3d`) desta janela — `None` até o 1º
-    /// `gpu3d.mesh`. Quando há draws no frame, a cena é gravada ANTES do pass
-    /// do egui (que então carrega em vez de limpar). Ver `crate::scene3d`.
-    pub scene: Option<crate::scene3d::SceneState>,
+    /// Pipeline 3D wgpu (scene pass) — `None` até o TS usar `egui.mesh*`/`drawMesh`.
+    /// Quando presente, roda ANTES do egui (limpa color+depth); o egui usa `Load`.
+    pub scene: Option<super::scene3d::Scene3D>,
 }
 
 impl RenderState {
@@ -354,22 +353,26 @@ pub(crate) fn present_wgpu(
     r.renderer
         .update_buffers(&r.device, &r.queue, &mut encoder, &paint_jobs, &screen_descriptor);
 
-    // ── Scene pass 3D (gpu3d) — ANTES do pass do egui, no MESMO encoder ─────
-    // Quando o TS enfileirou `gpu3d.draw` neste frame, a cena limpa cor+depth e
-    // desenha as malhas; o pass do egui abaixo então CARREGA (LoadOp::Load) em
-    // vez de limpar, compondo a UI por cima. Sem draws: comportamento idêntico
-    // ao anterior (egui limpa). Ver docs/specs/gpu3d-scene-pass.md.
-    let scene_drawn = crate::scene3d::record_if_active(
-        &mut r.scene,
-        &r.device,
-        &r.queue,
-        &mut encoder,
-        &view,
-        r.config.width,
-        r.config.height,
-    );
+    // ── SCENE PASS 3D (antes do egui, mesmo encoder) ─────────────────────────
+    // Se há um pipeline 3D ativo, ele limpa color+depth e desenha as meshes; o
+    // egui então compõe por cima com LoadOp::Load. Sem cena, o egui limpa (Clear),
+    // preservando o comportamento antigo das janelas puramente de UI.
+    let scene_cleared = if let Some(scene) = &mut r.scene {
+        scene.render(&r.device, &r.queue, &mut encoder, &view, r.config.width, r.config.height)
+    } else {
+        false
+    };
 
     {
+        let egui_load = if scene_cleared {
+            wgpu::LoadOp::Load
+        } else {
+            wgpu::LoadOp::Clear(if r.transparent {
+                wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }
+            } else {
+                wgpu::Color { r: 0.02, g: 0.02, b: 0.03, a: 1.0 }
+            })
+        };
         let pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("rts-egui pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -377,16 +380,7 @@ pub(crate) fn present_wgpu(
                 resolve_target: None,
                 depth_slice: None,
                 ops: wgpu::Operations {
-                    // Cena 3D desenhada → carrega (a UI compõe por cima).
-                    // Transparente: clear com alpha 0 p/ o SO compor o fundo.
-                    // Opaco: fundo escuro padrão.
-                    load: if scene_drawn {
-                        wgpu::LoadOp::Load
-                    } else if r.transparent {
-                        wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 })
-                    } else {
-                        wgpu::LoadOp::Clear(wgpu::Color { r: 0.02, g: 0.02, b: 0.03, a: 1.0 })
-                    },
+                    load: egui_load,
                     store: wgpu::StoreOp::Store,
                 },
             })],

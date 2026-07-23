@@ -22,13 +22,13 @@ mod ctx;
 mod app;
 mod canvas;
 mod frame;
-mod scene3d;
 #[cfg(feature = "glow-backend")]
 mod glbackend;
 // `pub` para a facade `rts-runtime` chamar `register_backend()` no bootstrap
 // (`runtime_init`), instalando o backend no thread_local da main thread no AOT.
 pub mod render_backend;
 mod widgets;
+mod scene_api;
 
 // O DOM (árvore + parser + NodeId) E o ESTADO de estilo vivem no crate `rts-dom`;
 // o egui só os CONSOME (lê e pinta). Aliases para reuso interno: `crate::dom::*`
@@ -265,8 +265,94 @@ pub fn register(e: &mut Engine) {
             "Width (points) of a text in the real font — the ONLY layout-aware op left in egui (TS can't measure text without the font). Synchronous.",
             canvas::__RTS_FN_NS_EGUI_MEASURE_TEXT as *const u8,
         ))
+        // ── Pipeline 3D wgpu (scene pass) — só-wgpu; glow no-op ─────────────────
+        .member(func(
+            "meshUpload",
+            "__RTS_FN_NS_EGUI_MESH_UPLOAD",
+            Sig::new(vec![U64, U64, I64, U64, I64], U64),
+            "meshUpload(h: number, vertsPtr: number, vertexCount: number, indicesPtr: number, indexCount: number): number",
+            "Uploads a mesh to GPU (verts = interleaved pos+normal, 6 floats/vertex at vertsPtr; indices = u32 at indicesPtr). Returns a mesh id. GPU 3D scene pass, drawn before the egui UI.",
+            scene_api::__RTS_FN_NS_EGUI_MESH_UPLOAD as *const u8,
+        ))
+        .member(func(
+            "meshFree",
+            "__RTS_FN_NS_EGUI_MESH_FREE",
+            Sig::new(vec![U64, U64], AbiType::Void),
+            "meshFree(h: number, meshId: number): void",
+            "Frees a mesh uploaded with meshUpload.",
+            scene_api::__RTS_FN_NS_EGUI_MESH_FREE as *const u8,
+        ))
+        .member(func(
+            "setCamera",
+            "__RTS_FN_NS_EGUI_SET_CAMERA",
+            Sig::new(vec![U64, F64, F64, F64, F64, F64, F64, F64], AbiType::Void),
+            "setCamera(h: number, camX: number, camY: number, camZ: number, yaw: number, pitch: number, fovY: number, aspect: number): void",
+            "Sets the 3D camera for this frame (fly cam: position + yaw/pitch + vertical FOV + aspect). Builds the view-projection.",
+            scene_api::__RTS_FN_NS_EGUI_SET_CAMERA as *const u8,
+        ))
+        .member(func(
+            "setCameraLookAt",
+            "__RTS_FN_NS_EGUI_SET_CAMERA_LOOKAT",
+            Sig::new(vec![U64, F64, F64, F64, F64, F64, F64, F64, F64, F64, F64], AbiType::Void),
+            "setCameraLookAt(h: number, eyeX: number, eyeY: number, eyeZ: number, targetX: number, targetY: number, targetZ: number, fovY: number, aspect: number, near: number, far: number): void",
+            "Sets the 3D camera as a NaN-safe look-at (eye position looking at a target, up = +Y) with explicit near/far. More convenient than yaw/pitch for framing an object; degrades gracefully when looking straight up/down instead of gimbal-locking.",
+            scene_api::__RTS_FN_NS_EGUI_SET_CAMERA_LOOKAT as *const u8,
+        ))
+        .member(func(
+            "setClearColor",
+            "__RTS_FN_NS_EGUI_SET_CLEAR_COLOR",
+            Sig::new(vec![U64, F64, F64, F64], AbiType::Void),
+            "setClearColor(h: number, r: number, g: number, b: number): void",
+            "Sets a FLAT background color (r,g,b in 0..1) for the 3D scene pass, disabling the procedural skybox. Ideal for an editor viewport that wants a neutral background instead of the starfield.",
+            scene_api::__RTS_FN_NS_EGUI_SET_CLEAR_COLOR as *const u8,
+        ))
+        .member(func(
+            "setSkybox",
+            "__RTS_FN_NS_EGUI_SET_SKYBOX",
+            Sig::new(vec![U64, I64], AbiType::Void),
+            "setSkybox(h: number, on: number): void",
+            "Re-enables the procedural skybox (on!=0), undoing a previous setClearColor.",
+            scene_api::__RTS_FN_NS_EGUI_SET_SKYBOX as *const u8,
+        ))
+        .member(func(
+            "setLight",
+            "__RTS_FN_NS_EGUI_SET_LIGHT",
+            Sig::new(vec![U64, F64, F64, F64, F64], AbiType::Void),
+            "setLight(h: number, dirX: number, dirY: number, dirZ: number, ambient: number): void",
+            "Sets the directional light (direction + ambient 0..1) for the 3D scene pass.",
+            scene_api::__RTS_FN_NS_EGUI_SET_LIGHT as *const u8,
+        ))
+        .member(func(
+            "winWidth",
+            "__RTS_FN_NS_EGUI_WIN_WIDTH",
+            Sig::new(vec![U64], F64),
+            "winWidth(h: number): number",
+            "Current LOGICAL width (points) of the window — follows resize.",
+            scene_api::__RTS_FN_NS_EGUI_WIN_WIDTH as *const u8,
+        ))
+        .member(func(
+            "winHeight",
+            "__RTS_FN_NS_EGUI_WIN_HEIGHT",
+            Sig::new(vec![U64], F64),
+            "winHeight(h: number): number",
+            "Current LOGICAL height (points) of the window — follows resize.",
+            scene_api::__RTS_FN_NS_EGUI_WIN_HEIGHT as *const u8,
+        ))
+        .member(func(
+            "setShadow",
+            "__RTS_FN_NS_EGUI_SET_SHADOW",
+            Sig::new(vec![U64, F64, F64, F64, F64, F64, F64, F64], AbiType::Void),
+            "setShadow(h: number, dirX: number, dirY: number, dirZ: number, cX: number, cY: number, cZ: number, radius: number): void",
+            "Configures the directional shadow map: light travel direction (dirX/Y/Z), the center and radius of the orthographic box the shadows cover. radius<=0 disables shadows.",
+            scene_api::__RTS_FN_NS_EGUI_SET_SHADOW as *const u8,
+        ))
+        .member(func(
+            "drawMesh",
+            "__RTS_FN_NS_EGUI_DRAW_MESH",
+            Sig::new(vec![U64, U64, F64, F64, F64, F64, F64, F64, F64, F64, I64, I64, I64], AbiType::Void),
+            "drawMesh(h: number, meshId: number, px: number, py: number, pz: number, rx: number, ry: number, sx: number, sy: number, sz: number, color: number, emissive: number, tex: number): void",
+            "Queues a 3D draw of meshId with a transform (pos/rot euler/scale), color 0xAARRGGBB, emissive flag (0/1), and procedural texture (0=none, 1=world-space checker). Rendered in the scene pass at endFrame. Light is a POINT light at setLight's position; shadows via setShadow.",
+            scene_api::__RTS_FN_NS_EGUI_DRAW_MESH as *const u8,
+        ))
         .done();
-    // Namespace irmão `gpu3d`: scene pass 3D sob o overlay do egui (fase P7+ do
-    // design doc; spec docs/specs/gpu3d-scene-pass.md). Mesma doutrina Registry.
-    scene3d::register(e);
 }

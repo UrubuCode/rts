@@ -33,7 +33,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 types::I64,
                 crate::value::PolyValue::undefined().raw() as i64,
             );
-            if self.is_main {
+            if self.is_main && self.block_depth == 1 {
                 if let Some(id) = self.gcells.get(name).copied() {
                     self.emit_gcell_set(module, id, undef)?;
                     return Ok(());
@@ -59,7 +59,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // fresh LOCAL that shadows the global (JS scoping) — routing it to the cell
         // made the prelude's `Console.__format` local `let out` CLOBBER a user
         // gcell named `out` (every console.log corrupted the captured variable).
-        if self.is_main {
+        // Only the TOP-LEVEL (depth-1) main declaration initializes the promoted
+        // gcell. A same-spelled `let`/`const` NESTED in a loop/if/block is a fresh
+        // block-scoped local that SHADOWS the global (JS scoping) — diverting it to
+        // the cell here made a loop-body `const x` alias and corrupt a top-level `x`.
+        if self.is_main && self.block_depth == 1 {
             if let Some(id) = self.gcells.get(name).copied() {
                 let val = self.lower_expr(module, init)?;
                 let word = self.box_value(val);

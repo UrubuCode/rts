@@ -362,6 +362,14 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// inside ANY function declares a fresh LOCAL that shadows the global
     /// (without this a prelude-internal `let out` clobbered a user gcell).
     pub is_main: bool,
+    /// Lexical block nesting depth while lowering (0 = not yet in the body;
+    /// `lower_block` bumps it, so the function's OUTERMOST body statements are at
+    /// depth 1 and anything inside a loop/if/try/block is ≥2). In `__rtsn_main`
+    /// the promoted-global GCELL divert of a `let`/`const` must apply ONLY to the
+    /// top-level declaration (depth 1) — a same-spelled `let` NESTED in a loop is
+    /// a fresh block-scoped local that must SHADOW the global, not alias its cell
+    /// (otherwise a loop-body `const x` corrupts a top-level `x` across scopes).
+    pub block_depth: u32,
     /// The NAME of the function being lowered (`__rtsn_main`, `__rtsn_ctor_C`,
     /// `__rtsn_method_C_m`, `__rtsn_static_C_m`, …). Drives the TS access-surface
     /// re-checks: a `readonly` field write is allowed only inside a
@@ -468,6 +476,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             classes,
             is_prelude,
             is_main: func.name == "__rtsn_main",
+            block_depth: 0,
             current_fn: func.name.clone(),
             builtins,
             float_promoted: super::floatscan::float_promoted_locals(&func.body),
@@ -711,6 +720,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Lower a statement block (control flow is statement-driven; this does not
     /// open a Cranelift block). Stops once the block is terminated.
     pub(super) fn lower_block(
+        &mut self,
+        module: &mut dyn Module,
+        stmts: &[HirStmt],
+    ) -> FrontResult<()> {
+        // Track lexical nesting: the function body's own `lower_block` makes its
+        // direct statements depth 1; a nested loop/if/try/block body is ≥2. Used by
+        // `lower_let` to only divert a TOP-LEVEL (depth-1) main `let` to its gcell.
+        self.block_depth += 1;
+        let r = self.lower_block_inner(module, stmts);
+        self.block_depth -= 1;
+        r
+    }
+
+    fn lower_block_inner(
         &mut self,
         module: &mut dyn Module,
         stmts: &[HirStmt],
