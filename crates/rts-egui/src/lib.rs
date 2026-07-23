@@ -347,6 +347,14 @@ pub fn register(e: &mut Engine) {
             scene_api::__RTS_FN_NS_EGUI_SET_SHADOW as *const u8,
         ))
         .member(func(
+            "textureUpload",
+            "__RTS_FN_NS_EGUI_TEXTURE_UPLOAD",
+            Sig::new(vec![U64, U64, I64, I64], U64),
+            "textureUpload(h: number, pixelsPtr: number, w: number, h2: number): number",
+            "Uploads an RGBA8 image (pixelsPtr -> w*h*4 bytes, sRGB) to VRAM and returns a texture id (>=2) for drawMesh(..., tex=id). Typical flow: fs reads the file, imgdec.decode gives RGBA + w/h, this uploads to GPU. Sampled triplanar (world-space) in the 3D pass. 0 if invalid / non-wgpu window.",
+            scene_api::__RTS_FN_NS_EGUI_TEXTURE_UPLOAD as *const u8,
+        ))
+        .member(func(
             "drawMesh",
             "__RTS_FN_NS_EGUI_DRAW_MESH",
             Sig::new(vec![U64, U64, F64, F64, F64, F64, F64, F64, F64, F64, I64, I64, I64], AbiType::Void),
