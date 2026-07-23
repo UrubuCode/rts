@@ -285,9 +285,9 @@ pub fn register(e: &mut Engine) {
         .member(func(
             "drawMesh",
             "__RTS_FN_NS_EGUI_DRAW_MESH",
-            Sig::new(vec![U64, U64, F64, F64, F64, F64, F64, F64, F64, F64, I64], AbiType::Void),
-            "drawMesh(h: number, meshId: number, px: number, py: number, pz: number, rx: number, ry: number, sx: number, sy: number, sz: number, color: number): void",
-            "Queues a 3D draw of meshId with a transform (pos/rot euler/scale) and color 0xAARRGGBB. Rendered in the scene pass at endFrame.",
+            Sig::new(vec![U64, U64, F64, F64, F64, F64, F64, F64, F64, F64, I64, I64], AbiType::Void),
+            "drawMesh(h: number, meshId: number, px: number, py: number, pz: number, rx: number, ry: number, sx: number, sy: number, sz: number, color: number, emissive: number): void",
+            "Queues a 3D draw of meshId with a transform (pos/rot euler/scale), color 0xAARRGGBB, and emissive flag (0/1 — 1 = full-bright, unlit, e.g. a sun). Rendered in the scene pass at endFrame. Light is a POINT light at setLight's position.",
             scene_api::__RTS_FN_NS_EGUI_DRAW_MESH as *const u8,
         ))
         .done();

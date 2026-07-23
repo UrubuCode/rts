@@ -79,6 +79,7 @@ struct VOut {
   @location(0) normal: vec3<f32>,
   @location(1) color: vec4<f32>,
   @location(2) world: vec3<f32>,
+  @location(3) emissive: f32,
 };
 
 @vertex
@@ -90,6 +91,7 @@ fn vs(
   @location(4) m2: vec4<f32>,
   @location(5) m3: vec4<f32>,
   @location(6) color: vec4<f32>,
+  @location(7) iparams: vec4<f32>,
 ) -> VOut {
   let model = mat4x4<f32>(m0, m1, m2, m3);
   let world = model * vec4<f32>(position, 1.0);
@@ -98,19 +100,22 @@ fn vs(
   o.normal = normalize((model * vec4<f32>(normal, 0.0)).xyz);
   o.color = color;
   o.world = world.xyz;
+  o.emissive = iparams.x;
   return o;
 }
 
 @fragment
 fn fs(i: VOut) -> @location(0) vec4<f32> {
+  // emissivo (ex.: o Sol) — cor cheia, sem sombreamento
+  if (i.emissive > 0.5) { return vec4<f32>(i.color.rgb, i.color.a); }
   let n = normalize(i.normal);
-  let l = normalize(cam.light.xyz);
+  // LUZ PONTUAL: cam.light.xyz = POSICAO da luz (ex.: o Sol)
+  let l = normalize(cam.light.xyz - i.world);
   let nd = max(dot(n, l), 0.0);
   let lit = cam.light.w + (1.0 - cam.light.w) * nd;
-  // specular Blinn-Phong (brilho)
   let vdir = normalize(cam.cam_pos.xyz - i.world);
   let h = normalize(l + vdir);
-  let spec = pow(max(dot(n, h), 0.0), 32.0) * 0.35;
+  let spec = pow(max(dot(n, h), 0.0), 32.0) * 0.3;
   let rgb = i.color.rgb * lit + vec3<f32>(spec, spec, spec);
   return vec4<f32>(rgb, i.color.a);
 }
@@ -143,7 +148,7 @@ pub struct Scene3D {
     cfwd: [f32; 3],
     tan_h: f32,
     tan_v: f32,
-    draws: Vec<(u64, [f32; 16], [f32; 4])>,
+    draws: Vec<(u64, [f32; 16], [f32; 4], f32)>,
     inst_buf: wgpu::Buffer,
     inst_cap: u64,
 }
@@ -201,7 +206,7 @@ impl Scene3D {
         };
         // instância (slot 1): model 4×vec4 @2..5, color vec4 @6 — stride 80
         let ibl = wgpu::VertexBufferLayout {
-            array_stride: 80,
+            array_stride: 96,
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &[
                 wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 0, shader_location: 2 },
@@ -209,6 +214,7 @@ impl Scene3D {
                 wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 32, shader_location: 4 },
                 wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 48, shader_location: 5 },
                 wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 64, shader_location: 6 },
+                wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x4, offset: 80, shader_location: 7 },
             ],
         };
 
@@ -287,7 +293,7 @@ impl Scene3D {
         let (depth_view, _t) = make_depth(device, 1, 1);
         let inst_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("scene3d inst"),
-            size: 80 * 64,
+            size: 96 * 64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -339,11 +345,11 @@ impl Scene3D {
         self.tan_v = cd.tan_v;
     }
     pub fn set_light(&mut self, d: [f32; 3], ambient: f32) {
-        let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt().max(1e-6);
-        self.light = [d[0] / len, d[1] / len, d[2] / len, ambient];
+        // ponto de luz: guarda a POSICAO (nao normaliza)
+        self.light = [d[0], d[1], d[2], ambient];
     }
-    pub fn queue_draw(&mut self, mesh: u64, model: [f32; 16], color: [f32; 4]) {
-        self.draws.push((mesh, model, color));
+    pub fn queue_draw(&mut self, mesh: u64, model: [f32; 16], color: [f32; 4], emissive: f32) {
+        self.draws.push((mesh, model, color, emissive));
     }
 
     fn ensure_depth(&mut self, device: &wgpu::Device, w: u32, h: u32) {
@@ -386,16 +392,20 @@ impl Scene3D {
             let cap = n.next_power_of_two().max(64);
             self.inst_buf = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("scene3d inst"),
-                size: 80 * cap,
+                size: 96 * cap,
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
             self.inst_cap = cap;
         }
-        let mut inst: Vec<f32> = Vec::with_capacity(self.draws.len() * 20);
-        for (_m, model, color) in &self.draws {
+        let mut inst: Vec<f32> = Vec::with_capacity(self.draws.len() * 24);
+        for (_m, model, color, emissive) in &self.draws {
             inst.extend_from_slice(model);
             inst.extend_from_slice(color);
+            inst.push(*emissive);
+            inst.push(0.0);
+            inst.push(0.0);
+            inst.push(0.0);
         }
         if !inst.is_empty() {
             queue.write_buffer(&self.inst_buf, 0, f32_bytes(&inst));
@@ -432,11 +442,11 @@ impl Scene3D {
         // 2. meshes (depth test/write)
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.cam_bg, &[]);
-        for (i, (mesh_id, _model, _color)) in self.draws.iter().enumerate() {
+        for (i, (mesh_id, _model, _color, _emiss)) in self.draws.iter().enumerate() {
             if let Some(m) = self.meshes.get(mesh_id) {
-                let off = (i as u64) * 80;
+                let off = (i as u64) * 96;
                 pass.set_vertex_buffer(0, m.vbuf.slice(..));
-                pass.set_vertex_buffer(1, self.inst_buf.slice(off..off + 80));
+                pass.set_vertex_buffer(1, self.inst_buf.slice(off..off + 96));
                 pass.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..m.icount, 0, 0..1);
             }

@@ -94,6 +94,7 @@ pub extern "C" fn __RTS_FN_NS_EGUI_DRAW_MESH(
     sy: f64,
     sz: f64,
     color: i64,
+    emissive: i64,
 ) {
     let m = model_matrix(
         px as f32, py as f32, pz as f32, rx as f32, ry as f32, sx as f32, sy as f32, sz as f32,
@@ -106,5 +107,6 @@ pub extern "C" fn __RTS_FN_NS_EGUI_DRAW_MESH(
         (c & 0xFF) as f32 / 255.0,
         if a == 0 { 1.0 } else { a as f32 / 255.0 }, // sem byte de alpha = opaco
     ];
-    with_scene(win, |s, _d| s.queue_draw(mesh, m, col), ());
+    let em = if emissive != 0 { 1.0 } else { 0.0 };
+    with_scene(win, |s, _d| s.queue_draw(mesh, m, col, em), ());
 }
