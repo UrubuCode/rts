@@ -419,6 +419,8 @@ pub extern "C" fn __rtsadp_same_value(a: u64, b: u64) -> u64 {
         let ah = abi_adapter::real_handle_of(av);
         let bh = abi_adapter::real_handle_of(bv);
         rt_str::__RTS_FN_NS_GC_STRING_EQ(ah, bh) != 0
+    } else if av.is_function() && bv.is_function() {
+        super::funcops::fn_value_identity_eq(a, b)
     } else {
         av.raw() == bv.raw()
     };
@@ -437,6 +439,10 @@ pub extern "C" fn __rtsadp_strict_eq(a: u64, b: u64) -> u64 {
         let ah = abi_adapter::real_handle_of(av);
         let bh = abi_adapter::real_handle_of(bv);
         rt_str::__RTS_FN_NS_GC_STRING_EQ(ah, bh) != 0
+    } else if av.is_function() && bv.is_function() {
+        // A function value re-reifies a fresh Entry each reference, so raw-word
+        // compare would say `f !== f`. Compare stable identity instead.
+        super::funcops::fn_value_identity_eq(a, b)
     } else {
         // Non-number, non-both-string: identical representation ⇒ ===.
         av.raw() == bv.raw()

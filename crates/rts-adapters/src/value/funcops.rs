@@ -76,6 +76,45 @@ pub extern "C" fn __rtsadp_fn_ptr(fn_word: u64) -> u64 {
     })
 }
 
+/// True iff two function VALUE words denote the SAME function for JS `===`.
+///
+/// A function value re-reifies a FRESH `Entry::Function` on each reference
+/// (`fn_reify_core` calls `alloc_entry` every time), so two words for the SAME
+/// source function have DIFFERENT 48-bit payloads — a raw-word compare wrongly
+/// yields `f !== f`, which breaks `Set<fn>`, `removeListener`, and unsubscribe.
+///
+/// The STABLE identity is the tuple `(fn_ptr, bound_this, bound_args)`:
+/// - plain fn → `(thunk, 0, [])`, so every reference compares equal (`f === f`);
+/// - closure → env word rides `bound_this`, so two closures from the same source
+///   (`mk() === mk()`) differ by their distinct env arrays;
+/// - bound fn → `bound_args` distinguishes the bound state.
+///
+/// Known limit: two SEPARATE `f.bind(x)` with identical `x`/args compare equal
+/// here though JS makes each `.bind` a distinct object (`!==`). That pattern is
+/// rare; the win is `f === f` being correct everywhere. A fully precise fix is
+/// idempotent reify (a later increment — see the prototype-unification plan).
+pub fn fn_value_identity_eq(a: u64, b: u64) -> bool {
+    if a == b {
+        return true;
+    }
+    let (pa, pb) = (PolyValue::from_raw(a), PolyValue::from_raw(b));
+    if !pa.is_function() || !pb.is_function() {
+        return false;
+    }
+    let ra = rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(pa.as_handle());
+    let rb = rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(pb.as_handle());
+    let identity = |real: u64| {
+        with_entry(real, |e| match e {
+            Some(Entry::Function(d)) => Some((d.fn_ptr, d.bound_this, d.bound_args.clone())),
+            _ => None,
+        })
+    };
+    match (identity(ra), identity(rb)) {
+        (Some(x), Some(y)) => x == y,
+        _ => false,
+    }
+}
+
 /// `__rtsadp_ctor_mark(obj_word, fn_ptr)` — record that the instance `obj_word`
 /// was constructed by the function whose identity is `fn_ptr`. A non-object word
 /// or a `0` fn_ptr is ignored (no entry recorded). The key is the full boxed
