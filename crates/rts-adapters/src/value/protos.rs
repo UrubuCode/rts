@@ -31,6 +31,35 @@ pub(crate) fn proto_of(obj_word: u64) -> Option<u64> {
     proto_table().lock().ok()?.get(&obj_word).copied()
 }
 
+/// object word → the REGISTRY class NAME that constructed it (`new Date()` →
+/// "Date"), recorded by `emit_registry_ctor`. Lets `getPrototypeOf(new Date())`
+/// resolve to `Date.prototype` (a real object, not `null`) without a fixed
+/// per-word proto link. This is a PLAIN insert (never `obj_set_proto`), so a Proxy
+/// instance recorded here is unaffected: `__rtsadp_obj_proto_of` checks
+/// `proxy_parts` FIRST and routes a Proxy through its `getPrototypeOf` trap, never
+/// reaching this fallback. An explicit `setPrototypeOf` (a `proto_table` entry)
+/// still wins — it is matched as `Some(..)` before this `None`-branch fallback.
+fn registry_class_table() -> &'static Mutex<HashMap<u64, String>> {
+    static T: OnceLock<Mutex<HashMap<u64, String>>> = OnceLock::new();
+    T.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Record that `obj_word` was constructed by the Registry class named `name_word`.
+/// Returns `obj_word` unchanged (pass-through, so the call site keeps the instance
+/// word).
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_record_registry_class(obj_word: u64, name_word: u64) -> u64 {
+    let name = super::abi_adapter::resolve_poly(PolyValue::from_raw(name_word));
+    if let Ok(mut t) = registry_class_table().lock() {
+        t.insert(obj_word, name);
+    }
+    obj_word
+}
+
+fn registry_class_of(obj_word: u64) -> Option<String> {
+    registry_class_table().lock().ok()?.get(&obj_word).cloned()
+}
+
 /// The INTRINSIC prototype of a PRIMITIVE receiver — the one JS reaches by
 /// AUTOBOXING on property access (`"abc".toUpperCase`, `(255).toString`,
 /// `true.toString`). A primitive is not a heap object, so it carries no
@@ -155,6 +184,15 @@ pub extern "C" fn __rtsadp_obj_proto_of(obj_word: u64) -> u64 {
         Some(0) => PolyValue::null().raw(),
         Some(p) => p,
         None => {
+            // A Registry-class instance (Date …) recorded at construction resolves
+            // to `ClassName.prototype` — a real object, so `getPrototypeOf(new
+            // Date())` is not `null`. (A Proxy is already handled by the
+            // `proxy_parts` guard at the top of this fn; an explicit
+            // `setPrototypeOf` matched `Some(..)` above.)
+            if let Some(name) = registry_class_of(obj_word) {
+                let name_w = super::abi_adapter::intern_poly(&name).raw();
+                return __rtsadp_class_proto(name_w);
+            }
             // No recorded link: an ARRAY's implicit prototype is the SAME
             // object `Array.prototype` resolves to (`__rtsadp_class_proto`),
             // so `Object.getPrototypeOf([]) === Array.prototype` holds.
@@ -255,6 +293,9 @@ pub fn reset_state() {
         t.clear();
     }
     if let Ok(mut t) = class_proto_table().lock() {
+        t.clear();
+    }
+    if let Ok(mut t) = registry_class_table().lock() {
         t.clear();
     }
 }
