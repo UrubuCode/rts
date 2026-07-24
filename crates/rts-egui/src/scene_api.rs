@@ -27,8 +27,8 @@ fn with_scene<R: Copy>(win: u64, f: impl FnOnce(&mut Scene3D, &wgpu::Device) -> 
     .unwrap_or(default)
 }
 
-/// Sobe uma mesh (verts interleaved pos+normal = 6 f32/vértice; índices u32) pra
-/// VRAM. Retorna o id da mesh (0 se a janela não é wgpu).
+/// Sobe uma mesh (verts interleaved pos+normal+uv = 8 f32/vértice; índices u32)
+/// pra VRAM. Retorna o id da mesh (0 se a janela não é wgpu).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_EGUI_MESH_UPLOAD(
     win: u64,
@@ -40,7 +40,7 @@ pub extern "C" fn __RTS_FN_NS_EGUI_MESH_UPLOAD(
     if vptr == 0 || iptr == 0 || vcount <= 0 || icount <= 0 {
         return 0;
     }
-    let verts = unsafe { std::slice::from_raw_parts(vptr as *const f32, (vcount * 6) as usize) };
+    let verts = unsafe { std::slice::from_raw_parts(vptr as *const f32, (vcount * 8) as usize) };
     let inds = unsafe { std::slice::from_raw_parts(iptr as *const u32, icount as usize) };
     with_scene(win, |s, dev| s.upload_mesh(dev, verts, inds), 0)
 }
