@@ -19,31 +19,56 @@
 //! return is allocated into the string pool and returned as a handle), and
 //! `pub fn register(e: &mut Engine)`. The author adds `register` to `REGISTER`.
 //!
-//! Status: G3 — ctor + instance methods (`&self` / `&mut self`) + STATIC methods (`#[rtse::statical]`;
+//! Status: G4 — ctor + instance methods (`&self` / `&mut self`) + STATIC methods (`#[rtse::statical]`;
 //! `statical` not `static`, a Rust keyword), scalar (`f64`/`i64`/`i32`/`bool`) +
 //! `&str` PARAMS (StrPtr) + `String`/`&str` RETURN, `#[rtse::method(name=…,
-//! readonly)]`, `#[rtse::private]`. AOT force-keep via per-class `#[used]` FnPtr array (the externs are only referenced by the compiler REGISTER, so `--gc-sections` would strip them from the runtime archive → `rts compile` undefined-symbol). `#[rtse::variable]` fields, `primitive=`,
+//! readonly)]`, `#[rtse::private]`. AOT force-keep via per-class `#[used]` FnPtr array (the externs are only referenced by the compiler REGISTER, so `--gc-sections` would strip them from the runtime archive → `rts compile` undefined-symbol). `#[rtse::variable]` fields (getter/setter, two-attr option A). `primitive=`,
 //! `#[rtse::symbol]`, `global(descriptor)`, `target/` generation land next.
 
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::{FnArg, ImplItem, ItemImpl, ReturnType, Type, parse_macro_input};
+use syn::{FnArg, ImplItem, ItemImpl, ReturnType, Type};
 
-/// `#[rtse::class("Name")]` on an `impl` block — generate the engine ABI glue.
+/// `#[rtse::class("Name")]` — on the STRUCT (fields via `#[rtse::variable]`) OR on
+/// the `impl` block (ctor/methods). Both are required for a class with fields: the
+/// struct macro emits `__rtse_fields_<Class>(cb)` and the impl's `register` calls
+/// it (option A coordination — the two items can't see each other otherwise).
 #[proc_macro_attribute]
 pub fn class(args: TokenStream, item: TokenStream) -> TokenStream {
     let class_name = match syn::parse::<syn::LitStr>(args) {
         Ok(l) => l.value(),
         Err(e) => return e.to_compile_error().into(),
     };
-    let class_upper = class_name.to_uppercase();
-    let mut imp = parse_macro_input!(item as ItemImpl);
-    let self_ty = (*imp.self_ty).clone();
+    if let Ok(s) = syn::parse::<syn::ItemStruct>(item.clone()) {
+        return gen_struct(class_name, s);
+    }
+    match syn::parse::<ItemImpl>(item) {
+        Ok(imp) => gen_impl(class_name, imp),
+        Err(e) => e.to_compile_error().into(),
+    }
+}
 
+/// A `#[used]` static forcing `keep`'s extern addresses into the AOT archive.
+fn keep_static(class_upper: &str, suffix: &str, keep: &[proc_macro2::Ident]) -> proc_macro2::TokenStream {
+    if keep.is_empty() {
+        return quote!();
+    }
+    let ident = format_ident!("__RTSE_KEEP_{}{}", class_upper, suffix);
+    let n = keep.len();
+    quote! {
+        #[used]
+        static #ident: [::rts_engine::FnPtr; #n] = [#(::rts_engine::FnPtr(#keep as *const u8)),*];
+    }
+}
+
+/// `#[rtse::class]` on the `impl` — ctor/methods + `register` (which calls the
+/// struct's `__rtse_fields_<Class>` to add the field accessors first).
+fn gen_impl(class_name: String, mut imp: ItemImpl) -> TokenStream {
+    let class_upper = class_name.to_uppercase();
+    let self_ty = (*imp.self_ty).clone();
     let mut externs = Vec::new();
     let mut members = Vec::new();
     let mut keep = Vec::new();
-
     for it in imp.items.iter_mut() {
         let ImplItem::Fn(f) = it else { continue };
         let Some(kind) = take_kind(&mut f.attrs) else {
@@ -58,34 +83,57 @@ pub fn class(args: TokenStream, item: TokenStream) -> TokenStream {
             Err(e) => return e.to_compile_error().into(),
         }
     }
-
-    // AOT force-keep: the generated `#[no_mangle]` externs are referenced only by
-    // the COMPILER's `REGISTER` (via `register`'s fn_ptrs), not by the runtime
-    // archive's own reachable code, so the linker `--gc-sections` would strip them
-    // → `rts compile` fails with `undefined symbol`. A `#[used]` static holding
-    // their addresses forces them into the archive WITHOUT running them (the JIT
-    // installs them from the Registry harvest; this is only for AOT link-keep).
-    let keep_ident = format_ident!("__RTSE_KEEP_{}", class_upper);
-    let n = keep.len();
-    let keep_static = if n == 0 {
-        quote!()
-    } else {
-        quote! {
-            #[used]
-            static #keep_ident: [::rts_engine::FnPtr; #n] =
-                [#(::rts_engine::FnPtr(#keep as *const u8)),*];
-        }
-    };
-
+    let keep_tok = keep_static(&class_upper, "", &keep);
+    let fields_fn = format_ident!("__rtse_fields_{}", class_upper);
     quote! {
         #imp
         #(#externs)*
-        #keep_static
+        #keep_tok
         /// Register this class + members into the engine Registry. Add to `REGISTER`.
         pub fn register(e: &mut ::rts_engine::Engine) {
-            e.class(#class_name)
+            #fields_fn(e.class(#class_name))
                 #(#members)*
                 .done();
+        }
+    }
+    .into()
+}
+
+/// `#[rtse::class]` on the STRUCT — generate a getter (and setter unless
+/// `readonly`) per `#[rtse::variable]` field, plus
+/// `pub fn __rtse_fields_<Class>(cb) -> cb` that the impl's `register` chains.
+fn gen_struct(class_name: String, mut s: syn::ItemStruct) -> TokenStream {
+    let class_upper = class_name.to_uppercase();
+    let self_ty: Type = syn::parse_str(&s.ident.to_string()).unwrap();
+    let mut externs = Vec::new();
+    let mut members = Vec::new();
+    let mut keep = Vec::new();
+    if let syn::Fields::Named(named) = &mut s.fields {
+        for f in named.named.iter_mut() {
+            let Some(readonly) = take_variable(&mut f.attrs) else {
+                continue;
+            };
+            let fname = f.ident.clone().unwrap();
+            match gen_field(&class_name, &class_upper, &self_ty, &fname, &f.ty, readonly) {
+                Ok((exts, mems, ids)) => {
+                    externs.extend(exts);
+                    members.extend(mems);
+                    keep.extend(ids);
+                }
+                Err(e) => return e.to_compile_error().into(),
+            }
+        }
+    }
+    let keep_tok = keep_static(&class_upper, "_FIELDS", &keep);
+    let fields_fn = format_ident!("__rtse_fields_{}", class_upper);
+    quote! {
+        #s
+        #(#externs)*
+        #keep_tok
+        /// Add this class's `#[rtse::variable]` field accessors to `cb`. Called by
+        /// the impl's generated `register`.
+        pub fn #fields_fn(cb: ::rts_engine::ClassBuilder) -> ::rts_engine::ClassBuilder {
+            cb #(#members)*
         }
     }
     .into()
@@ -413,6 +461,126 @@ fn gen_member(
     };
 
     Ok((extern_fn, member, extern_ident))
+}
+
+/// Detect + strip a `#[rtse::variable]` / `#[rtse::variable(readonly)]` on a field.
+/// `Some(readonly)` when present; `None` = a plain field (not exposed).
+fn take_variable(attrs: &mut Vec<syn::Attribute>) -> Option<bool> {
+    let mut found = None;
+    attrs.retain(|a| {
+        let segs = &a.path().segments;
+        if segs.len() == 2 && segs[0].ident == "rtse" && segs[1].ident == "variable" {
+            let mut readonly = false;
+            let _ = a.parse_nested_meta(|m| {
+                if m.path.is_ident("readonly") {
+                    readonly = true;
+                }
+                Ok(())
+            });
+            found = Some(readonly);
+            return false;
+        }
+        true
+    });
+    found
+}
+
+type FieldGen = (
+    Vec<proc_macro2::TokenStream>,
+    Vec<proc_macro2::TokenStream>,
+    Vec<proc_macro2::Ident>,
+);
+
+/// Generate the getter (and setter unless `readonly`) extern + Member for one
+/// `#[rtse::variable]` scalar field.
+fn gen_field(
+    _class: &str,
+    class_upper: &str,
+    self_ty: &Type,
+    fname: &proc_macro2::Ident,
+    fty: &Type,
+    readonly: bool,
+) -> syn::Result<FieldGen> {
+    let Some((abi, ext_ty, ts)) = scalar(fty) else {
+        return Err(syn::Error::new_spanned(
+            fty,
+            "rtse variable: field must be f64/i64/i32/bool",
+        ));
+    };
+    let is_bool = matches!(fty, Type::Path(p) if p.path.is_ident("bool"));
+    let js_name = to_camel(&fname.to_string());
+    let field_upper = fname.to_string().to_uppercase();
+    let mut externs = Vec::new();
+    let mut members = Vec::new();
+    let mut keep = Vec::new();
+
+    // Getter.
+    let get_sym = format!("__RTS_FN_GL_{class_upper}_GET_{field_upper}");
+    let get_id = format_ident!("{}", get_sym);
+    let read = quote!(::rts_engine::heap::handles::with_rtse::<#self_ty, _>(__recv, |__s| match __s {
+        ::core::option::Option::Some(__s) => __s.#fname,
+        ::core::option::Option::None => ::core::default::Default::default(),
+    }));
+    let get_ret = if is_bool { quote!((#read) as i64) } else { read };
+    externs.push(quote! {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn #get_id(__recv: u64) -> #ext_ty { #get_ret }
+    });
+    let get_ts = format!("{js_name}: {ts}");
+    members.push(quote! {
+        .member(::rts_engine::Member {
+            name: #js_name.into(),
+            kind: ::rts_engine::MemberKind::InstanceGetter,
+            sig: ::rts_engine::Sig::new(::std::vec![::rts_engine::AbiType::Handle], #abi),
+            symbol: #get_sym.into(),
+            fn_ptr: ::rts_engine::FnPtr(#get_id as *const u8),
+            flags: ::rts_engine::MemberFlags::NONE,
+            aliases: ::std::vec::Vec::new(),
+            variadic: false,
+            ts_signature: #get_ts.into(),
+            doc: ::std::string::String::new(),
+            pure: true,
+            emit: ::core::option::Option::None,
+        })
+    });
+    keep.push(get_id);
+
+    // Setter (unless readonly).
+    if !readonly {
+        let set_sym = format!("__RTS_FN_GL_{class_upper}_SET_{field_upper}");
+        let set_id = format_ident!("{}", set_sym);
+        let val = if is_bool { quote!((__v != 0)) } else { quote!(__v) };
+        externs.push(quote! {
+            #[unsafe(no_mangle)]
+            pub extern "C" fn #set_id(__recv: u64, __v: #ext_ty) {
+                ::rts_engine::heap::handles::with_rtse_mut::<#self_ty, _>(__recv, |__s| {
+                    if let ::core::option::Option::Some(__s) = __s { __s.#fname = #val; }
+                });
+            }
+        });
+        members.push(quote! {
+            .member(::rts_engine::Member {
+                name: #js_name.into(),
+                kind: ::rts_engine::MemberKind::InstanceSetter,
+                sig: ::rts_engine::Sig::new(
+                    ::std::vec![::rts_engine::AbiType::Handle, #abi],
+                    ::rts_engine::AbiType::Void,
+                ),
+                symbol: #set_sym.into(),
+                fn_ptr: ::rts_engine::FnPtr(#set_id as *const u8),
+                flags: ::rts_engine::MemberFlags::NONE,
+                aliases: ::std::vec::Vec::new(),
+                variadic: false,
+                ts_signature: ::std::string::String::new(),
+                doc: ::std::string::String::new(),
+                pure: false,
+                emit: ::core::option::Option::None,
+            })
+        });
+        keep.push(set_id);
+    }
+
+    Ok((externs, members, keep))
 }
 
 fn to_camel(s: &str) -> String {
