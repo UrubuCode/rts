@@ -532,6 +532,10 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             crate::value::protos::__rtsadp_obj_set_proto as *const u8,
         ),
         sym(
+            "__rtsadp_record_registry_class",
+            crate::value::protos::__rtsadp_record_registry_class as *const u8,
+        ),
+        sym(
             "__rtsadp_is_prototype_of",
             crate::value::protos::__rtsadp_is_prototype_of as *const u8,
         ),

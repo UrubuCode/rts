@@ -133,6 +133,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             JsKind::Object
         };
         let res = self.emit_registry_call(module, &call, None, &vals, kind)?;
+        // Record the instance's Registry class NAME (a plain side-table insert, NOT
+        // a proto link), so `getPrototypeOf(new Date())` resolves to
+        // `Date.prototype`. Proxy is intentionally NOT special-cased here: the
+        // record is harmless (obj_proto_of routes a Proxy through its trap before
+        // ever consulting this table), and it avoids naming a class in the engine.
+        // Only Object instances — a typed-array ctor (`JsKind::Array`) rides the
+        // Array surface. Method dispatch is unaffected (Registry methods resolve
+        // through the spec, not this chain).
+        if matches!(kind, JsKind::Object) {
+            let name_w = self.emit_str_const_word(module, class)?;
+            self.call_runtime(module, "__rtsadp_record_registry_class", &[res.v, name_w])?;
+        }
         Ok(res.v)
     }
 
