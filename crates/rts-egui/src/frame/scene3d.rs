@@ -120,12 +120,14 @@ struct VOut {
   @location(2) world: vec3<f32>,
   @location(3) emissive: f32,
   @location(4) tex: f32,
+  @location(5) uv: vec2<f32>,
 };
 
 @vertex
 fn vs(
   @location(0) position: vec3<f32>,
   @location(1) normal: vec3<f32>,
+  @location(8) uv: vec2<f32>,
   @location(2) m0: vec4<f32>,
   @location(3) m1: vec4<f32>,
   @location(4) m2: vec4<f32>,
@@ -142,22 +144,17 @@ fn vs(
   o.world = world.xyz;
   o.emissive = iparams.x;
   o.tex = iparams.y;
+  o.uv = uv;
   return o;
 }
 
 @fragment
 fn fs(i: VOut) -> @location(0) vec4<f32> {
   var albedo = i.color.rgb;
-  // TRIPLANAR: amostra a textura de albedo projetando em X/Y/Z e misturando pela
-  // normal — dá UV automático sem precisar de coords per-vértice. Amostrada SEMPRE
+  // UV-CORRETO: amostra a textura de albedo pela UV per-vértice (interpolada) —
+  // mapeamento do modelo (OBJ vt / UVs geradas dos primitivos). Amostrada SEMPRE
   // (control flow uniforme p/ as derivadas do sampler); só APLICADA se tex real.
-  let bn = abs(normalize(i.normal));
-  let wsum = bn.x + bn.y + bn.z + 1e-5;
-  let sc = 0.5; // escala mundo→uv (1 tile a cada 2 unidades)
-  let cx = textureSample(albedo_tex, albedo_samp, i.world.zy * sc).rgb;
-  let cy = textureSample(albedo_tex, albedo_samp, i.world.xz * sc).rgb;
-  let cz = textureSample(albedo_tex, albedo_samp, i.world.xy * sc).rgb;
-  let texcol = (cx * bn.x + cy * bn.y + cz * bn.z) / wsum;
+  let texcol = textureSample(albedo_tex, albedo_samp, i.uv).rgb;
   // i.tex: 0=nenhuma, 1=xadrez procedural, >=2 = textura real (imagem).
   if (i.tex > 1.5) {
     albedo = albedo * texcol;
@@ -369,11 +366,12 @@ impl Scene3D {
 
         // vertex (slot 0): pos vec3 @0, normal vec3 @12 — stride 24
         let vbl = wgpu::VertexBufferLayout {
-            array_stride: 24,
+            array_stride: 32,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[
                 wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 0, shader_location: 0 },
                 wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x3, offset: 12, shader_location: 1 },
+                wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x2, offset: 24, shader_location: 8 },
             ],
         };
         // instância (slot 1): model 4×vec4 @2..5, color vec4 @6 — stride 80
