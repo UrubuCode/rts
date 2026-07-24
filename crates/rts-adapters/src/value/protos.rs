@@ -367,7 +367,7 @@ pub extern "C" fn __rtsadp_class_proto_init(name_word: u64, parent_name_word: u6
 
 /// The shared `Object.prototype` root: constructor name `"Object"`, no
 /// prototype above it (`getPrototypeOf` → null, terminating chain walks).
-fn object_proto_root() -> u64 {
+pub(crate) fn object_proto_root() -> u64 {
     use std::sync::OnceLock;
     static ROOT: OnceLock<u64> = OnceLock::new();
     *ROOT.get_or_init(|| {

@@ -674,9 +674,11 @@ pub extern "C" fn __rtsadp_obj_has(obj_word: u64, key_str_handle: u64) -> i64 {
                     return (!PolyValue::from_raw(elem).is_hole()) as i64;
                 }
                 // An Array.prototype METHOD (`"push" in []`) — decided off the
-                // SAME dispatch rows the method dispatch reads (data-driven).
+                // SAME dispatch rows the method dispatch reads (data-driven) — plus
+                // the inherited Object.prototype members, read as REAL slots off the
+                // shared root (no hardcoded member list).
                 return (crate::dispatch::array_has_method(&key)
-                    || OBJECT_PROTO_MEMBERS.contains(&key.as_str()))
+                    || __rtsadp_obj_has(super::protos::object_proto_root(), key_str_handle) != 0)
                     as i64;
             }
         }
@@ -694,28 +696,25 @@ pub extern "C" fn __rtsadp_obj_has(obj_word: u64, key_str_handle: u64) -> i64 {
         // chain truly ends — not even Object.prototype.
         Some(0) => 0,
         Some(proto) => __rtsadp_obj_has(proto, key_str_handle),
-        // No recorded proto = a plain object's IMPLICIT Object.prototype tail.
+        // No recorded proto = a plain object's IMPLICIT Object.prototype tail:
+        // continue the walk into the shared root, whose members are REAL slots
+        // (methodtable prologue), so no hardcoded member list is needed.
         None => {
-            let is_obj = {
-                let v = PolyValue::from_raw(obj_word);
-                v.is_object()
-            };
-            (is_obj && OBJECT_PROTO_MEMBERS.contains(&key.as_str())) as i64
+            let is_obj = PolyValue::from_raw(obj_word).is_object();
+            if !is_obj {
+                return 0;
+            }
+            let root = super::protos::object_proto_root();
+            if obj_word == root {
+                // The root's own slots were already checked at the top; its own
+                // chain ends here (no extra Object.prototype loop).
+                return 0;
+            }
+            __rtsadp_obj_has(root, key_str_handle)
         }
     }
 }
 
-/// The members every plain object inherits from Object.prototype (the `in`
-/// operator's implicit chain tail).
-const OBJECT_PROTO_MEMBERS: &[&str] = &[
-    "toString",
-    "toLocaleString",
-    "valueOf",
-    "hasOwnProperty",
-    "isPrototypeOf",
-    "propertyIsEnumerable",
-    "constructor",
-];
 
 /// `obj.hasOwnProperty(key)` → a BOXED bool PolyValue word (`true`/`false`
 /// singleton). OWN-only: `resolve_slot` reads the receiver's own shape and does
