@@ -19,7 +19,7 @@
 //! return is allocated into the string pool and returned as a handle), and
 //! `pub fn register(e: &mut Engine)`. The author adds `register` to `REGISTER`.
 //!
-//! Status: G2 — ctor + instance methods + STATIC methods (`#[rtse::statical]`;
+//! Status: G3 — ctor + instance methods (`&self` / `&mut self`) + STATIC methods (`#[rtse::statical]`;
 //! `statical` not `static`, a Rust keyword), scalar (`f64`/`i64`/`i32`/`bool`) +
 //! `&str` PARAMS (StrPtr) + `String`/`&str` RETURN, `#[rtse::method(name=…,
 //! readonly)]`, `#[rtse::private]`. `#[rtse::variable]` fields, `primitive=`,
@@ -309,11 +309,25 @@ fn gen_member(
         }
     };
 
+    // A `&mut self` (or `self: &mut X`) method needs mutable access to the boxed
+    // struct → `with_rtse_mut`; an `&self` method → `with_rtse`.
+    let is_mut_recv = sig.inputs.iter().any(|a| match a {
+        FnArg::Receiver(r) => {
+            r.mutability.is_some()
+                || matches!(&*r.ty, Type::Reference(rf) if rf.mutability.is_some())
+        }
+        _ => false,
+    });
+    let with_fn = if is_mut_recv {
+        quote!(with_rtse_mut)
+    } else {
+        quote!(with_rtse)
+    };
     let call = if is_ctor || is_static {
         quote!(<#self_ty>::#rust_name(#(#call_args),*))
     } else {
         quote!(
-            ::rts_engine::heap::handles::with_rtse::<#self_ty, _>(__recv, |__s| match __s {
+            ::rts_engine::heap::handles::#with_fn::<#self_ty, _>(__recv, |__s| match __s {
                 ::core::option::Option::Some(__s) => __s.#rust_name(#(#call_args),*),
                 ::core::option::Option::None => ::core::default::Default::default(),
             })
