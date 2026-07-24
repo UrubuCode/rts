@@ -2473,9 +2473,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -5431,4 +5431,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":679,"pass":479,"rts_diverge":96,"bun_node_diverge":18,"errors":86,"rejected":0}}
+],"summary":{"total":679,"pass":478,"rts_diverge":96,"bun_node_diverge":19,"errors":86,"rejected":0}}
