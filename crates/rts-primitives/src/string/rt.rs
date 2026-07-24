@@ -14,6 +14,66 @@ pub(crate) fn alloc_str(s: &str) -> u64 {
     unsafe { __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64) }
 }
 
+/// O UTF-16 code unit em `idx`, SEM materializar a string inteira.
+///
+/// `charAt`/`charCodeAt` faziam `s.encode_utf16().collect()` a CADA chamada —
+/// O(n) de trabalho e uma alocação por acesso, então varrer uma string caractere
+/// a caractere (um parser, um tokenizador) custava O(n²). Medido: varrer 98 K
+/// chars levava 20 s; com isto passa a ser linear.
+///
+/// Fast path: numa string ASCII cada byte é exatamente um code unit UTF-16, logo
+/// o unit em `idx` É o byte em `idx` — O(1), sem alocar. Não-ASCII cai numa
+/// caminhada UTF-16 exata, ainda sem alocação.
+#[inline]
+fn utf16_unit_at(s: &str, idx: i64) -> Option<u16> {
+    if idx < 0 {
+        return None;
+    }
+    let i = idx as usize;
+    let bytes = s.as_bytes();
+    // FAST PATH O(1): numa string ASCII, índice de byte == índice de code unit.
+    // O teste `is_ascii()` é O(n), então seria O(n²) refazê-lo por acesso —
+    // por isso o resultado é MEMORIZADO por (ptr, len) da string. Um parser
+    // varre uma string por vez, então o cache acerta praticamente sempre.
+    if is_ascii_cached(bytes) {
+        return bytes.get(i).map(|b| *b as u16);
+    }
+    s.encode_utf16().nth(i)
+}
+
+thread_local! {
+    /// Última string testada por `is_ascii_cached`: (ptr, len, é_ascii).
+    /// Cache de UMA entrada porque o padrão de uso é varrer uma string do início
+    /// ao fim; guardar mais não melhora e complica a invalidação.
+    static ASCII_CACHE: std::cell::Cell<(usize, usize, bool)> =
+        const { std::cell::Cell::new((0, 0, false)) };
+}
+
+/// `bytes.is_ascii()` memorizado por (endereço, tamanho) — O(n) na primeira
+/// chamada de uma string, O(1) nas seguintes.
+#[inline]
+fn is_ascii_cached(bytes: &[u8]) -> bool {
+    let key = (bytes.as_ptr() as usize, bytes.len());
+    ASCII_CACHE.with(|c| {
+        let (p, l, a) = c.get();
+        if p == key.0 && l == key.1 {
+            return a;
+        }
+        let a = bytes.is_ascii();
+        c.set((key.0, key.1, a));
+        a
+    })
+}
+
+/// Número de code units UTF-16, sem materializá-los.
+#[inline]
+fn utf16_len(s: &str) -> usize {
+    if s.is_ascii() {
+        return s.len();
+    }
+    s.encode_utf16().count()
+}
+
 fn handle_to_str<'a>(h: u64) -> Option<&'a str> {
     // (#1023) Unwrap StringBox antes de tentar STRING_PTR/LEN.
     let unwrapped: u64 = rts_engine::heap::handles::with_entry(h, |e| match e {
@@ -268,8 +328,8 @@ pub extern "C" fn __RTS_FN_GL_STRING_CHAR_AT(recv: u64, idx: i64) -> u64 {
     if idx < 0 {
         return alloc_str("");
     }
-    let units: Vec<u16> = s.encode_utf16().collect();
-    let Some(&unit) = units.get(idx as usize) else {
+    // O(1) via utf16_unit_at (antes: Vec<u16> da string inteira por chamada)
+    let Some(unit) = utf16_unit_at(s, idx) else {
         return alloc_str("");
     };
     // Tenta decodificar como char valido (BMP nao-surrogate); surrogate isolado
@@ -294,8 +354,7 @@ pub extern "C" fn __RTS_FN_GL_STRING_CHAR_CODE_AT(recv: u64, idx: i64) -> i64 {
     if idx < 0 {
         return -1;
     }
-    let units: Vec<u16> = s.encode_utf16().collect();
-    units.get(idx as usize).map(|&u| u as i64).unwrap_or(-1)
+    utf16_unit_at(s, idx).map(|u| u as i64).unwrap_or(-1)
 }
 
 /// `str.charCodeAt(idx)` — JS spec: retorna NaN (f64) fora de range.
@@ -307,9 +366,8 @@ pub extern "C" fn __RTS_FN_GL_STRING_CHAR_CODE_AT_F64(recv: u64, idx: i64) -> f6
     if idx < 0 {
         return f64::NAN;
     }
-    let units: Vec<u16> = s.encode_utf16().collect();
-    match units.get(idx as usize) {
-        Some(&u) => u as f64,
+    match utf16_unit_at(s, idx) {
+        Some(u) => u as f64,
         None => f64::NAN,
     }
 }
@@ -332,14 +390,13 @@ pub extern "C" fn __RTS_FN_GL_STRING_CODE_POINT_AT(recv: u64, idx: i64) -> u64 {
     if idx < 0 {
         return POLY_UNDEFINED;
     }
-    let units: Vec<u16> = s.encode_utf16().collect();
     let i = idx as usize;
-    let Some(&first) = units.get(i) else {
+    let Some(first) = utf16_unit_at(s, idx) else {
         return POLY_UNDEFINED;
     };
     // High surrogate seguido de low: combina.
     if (0xD800..=0xDBFF).contains(&first) {
-        if let Some(&second) = units.get(i + 1) {
+        if let Some(second) = utf16_unit_at(s, idx + 1) {
             if (0xDC00..=0xDFFF).contains(&second) {
                 let high = (first as u32 - 0xD800) << 10;
                 let low = second as u32 - 0xDC00;
@@ -795,7 +852,7 @@ pub extern "C" fn __RTS_FN_GL_STRING_NORMALIZE(recv: u64, form_h: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_STRING_LENGTH_UTF16(recv: u64) -> i64 {
     match handle_to_str(recv) {
-        Some(s) => s.encode_utf16().count() as i64,
+        Some(s) => utf16_len(s) as i64,
         None => 0,
     }
 }

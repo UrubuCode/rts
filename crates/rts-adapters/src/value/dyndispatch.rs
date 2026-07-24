@@ -199,6 +199,58 @@ fn utf16_units(recv: u64) -> Vec<u16> {
         .collect()
 }
 
+/// The UTF-16 code unit at `i`, WITHOUT materializing the whole string.
+///
+/// Indexing used to build a full `Vec<u16>` per access (`utf16_units`), so a
+/// char-by-char loop over an n-char string did O(n) work n times — O(n²), with
+/// two heap copies per character. A 115 KB `JSON.parse` measured 42 s.
+///
+/// Fast path: an all-ASCII string has one UTF-16 unit per byte, so the unit at
+/// `i` IS the byte at `i` — an O(1) read with no allocation. That covers the
+/// overwhelmingly common case (source text, JSON, identifiers). Only when a
+/// non-ASCII byte is present do we fall back to an exact UTF-16 walk, which is
+/// still allocation-free.
+///
+/// Returns `None` when `i` is out of range.
+fn utf16_unit_at(recv: u64, i: i64) -> Option<u16> {
+    if i < 0 {
+        return None;
+    }
+    let handle = abi_adapter::real_handle_of(PolyValue::from_raw(recv));
+    abi_adapter::with_handle_bytes(handle, |bytes| {
+        let idx = i as usize;
+        // is_ascii() é O(n): sem memorizar, indexar num laço voltaria a ser
+        // O(n²). O cache é por (ptr,len) — ver `is_ascii_cached`.
+        if is_ascii_cached(bytes) {
+            return bytes.get(idx).map(|b| *b as u16);
+        }
+        let text = std::str::from_utf8(bytes).ok()?;
+        text.encode_utf16().nth(idx)
+    })
+}
+
+thread_local! {
+    /// Última string testada: (ptr, len, é_ascii). Uma entrada basta — o padrão
+    /// de uso é varrer uma string do início ao fim.
+    static ASCII_CACHE: std::cell::Cell<(usize, usize, bool)> =
+        const { std::cell::Cell::new((0, 0, false)) };
+}
+
+/// `bytes.is_ascii()` memorizado por (endereço, tamanho).
+#[inline]
+fn is_ascii_cached(bytes: &[u8]) -> bool {
+    let key = (bytes.as_ptr() as usize, bytes.len());
+    ASCII_CACHE.with(|c| {
+        let (p, l, a) = c.get();
+        if p == key.0 && l == key.1 {
+            return a;
+        }
+        let a = bytes.is_ascii();
+        c.set((key.0, key.1, a));
+        a
+    })
+}
+
 /// Intern a single UTF-16 code unit as a 1-unit string, returning the REAL string
 /// handle (for `charAt`/`at`). A lone surrogate is rendered lossily (`U+FFFD`) —
 /// valid UTF-8 the pool can hold; the common BMP corpus round-trips exactly.
@@ -307,11 +359,13 @@ pub extern "C" fn __rtsadp_idx_get(recv: u64, idx: u64) -> u64 {
         // the intrinsic `String.prototype`. Coercing every key with ToNumber
         // here was wrong: `"length"` → NaN → 0 read the FIRST CHARACTER.
         if let Some(i) = array_index_key(idx) {
-            let units = utf16_units(recv);
-            if i >= units.len() as i64 {
-                return undef();
-            }
-            return box_str(intern_utf16_unit(units[i as usize]));
+            // O(1) por acesso (ver `utf16_unit_at`): antes materializava a
+            // string inteira em UTF-16 a cada índice, o que fazia qualquer
+            // laço char-a-char virar O(n²).
+            return match utf16_unit_at(recv, i) {
+                Some(u) => box_str(intern_utf16_unit(u)),
+                None => undef(),
+            };
         }
         return super::objops::__rtsadp_obj_get(recv, idx);
     }
@@ -538,12 +592,13 @@ pub extern "C" fn __rtsadp_dyn_char_at(recv: u64, idx: u64) -> u64 {
     if v.is_string() {
         // JS `charAt` indexes UTF-16 code units, returning the 1-unit string (`""`
         // out of range). UTF-16 over the real bytes so surrogate strings match bun.
-        let units = utf16_units(recv);
+        // O(1) via `utf16_unit_at` — materializar os units por chamada fazia um
+        // laço char-a-char custar O(n²).
         let i = genops_to_i64(idx);
-        if i < 0 || i >= units.len() as i64 {
-            return box_str(empty_string_handle());
-        }
-        return box_str(intern_utf16_unit(units[i as usize]));
+        return match utf16_unit_at(recv, i) {
+            Some(u) => box_str(intern_utf16_unit(u)),
+            None => box_str(empty_string_handle()),
+        };
     }
     undef()
 }
@@ -556,13 +611,12 @@ pub extern "C" fn __rtsadp_dyn_char_code_at(recv: u64, idx: u64) -> u64 {
     if v.is_string() {
         // JS `charCodeAt` returns the UTF-16 CODE UNIT at the index (a surrogate
         // half for an astral char), or `NaN` out of range. Compute over the real
-        // UTF-16 units so emoji/surrogate strings match bun.
-        let units = utf16_units(recv);
+        // UTF-16 units so emoji/surrogate strings match bun. O(1) por chamada
+        // (ver `utf16_unit_at`) — antes era O(n), e O(n²) num laço.
         let i = genops_to_i64(idx);
-        return if i < 0 || i >= units.len() as i64 {
-            PolyValue::from_f64(f64::NAN).raw()
-        } else {
-            PolyValue::from_i32(units[i as usize] as i32).raw()
+        return match utf16_unit_at(recv, i) {
+            Some(u) => PolyValue::from_i32(u as i32).raw(),
+            None => PolyValue::from_f64(f64::NAN).raw(),
         };
     }
     undef()

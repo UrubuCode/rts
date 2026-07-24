@@ -115,6 +115,28 @@ pub fn real_handle_to_string(handle: u64) -> String {
     bytes_to_string(ptr, len)
 }
 
+/// Borrow a string handle's UTF-8 bytes WITHOUT copying, and run `f` on them.
+///
+/// Exists for the hot indexing paths (`s[i]`, `charAt`, `charCodeAt`): those used
+/// to call `resolve_poly` + `encode_utf16().collect()` on EVERY access, which is
+/// two full copies of the whole string per character read — turning any
+/// char-by-char loop (a JSON parser, a tokenizer) into O(n²). Measured: a 115 KB
+/// `JSON.parse` took 42 s; dropping the per-access copy makes it linear.
+///
+/// The slice is only valid inside `f`; the closure must not stash it.
+pub fn with_handle_bytes<R>(handle: u64, f: impl FnOnce(&[u8]) -> R) -> R {
+    let ptr = rt_str::__RTS_FN_NS_GC_STRING_PTR(handle);
+    let len = rt_str::__RTS_FN_NS_GC_STRING_LEN(handle);
+    if ptr.is_null() || len < 0 {
+        return f(&[]);
+    }
+    // SAFETY: same contract as `bytes_to_string` — the pool guarantees `len`
+    // valid UTF-8 bytes at `ptr` while the handle is live, and the table holds a
+    // strong ref for the duration of this call.
+    let bytes = unsafe { std::slice::from_raw_parts(ptr, len as usize) };
+    f(bytes)
+}
+
 /// Read `(ptr, len)` UTF-8 bytes into an owned `String` (empty on null/negative).
 fn bytes_to_string(ptr: *const u8, len: i64) -> String {
     if ptr.is_null() || len < 0 {

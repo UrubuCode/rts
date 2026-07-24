@@ -161,22 +161,16 @@ function __json_render(v: any, pad: string, depth: number, keyFilter: any, fnRep
 // Join `parts` between brackets: compact (no pad) `[a,b]`, or pretty with one
 // member per pad-indented line.
 function __json_wrap(open: string, close: string, parts: string[], pad: string, depth: number): string {
+  // `join` concatena de UMA vez. O laço `body += parts[i]` copiava todo o
+  // acumulado a cada item — O(total²) ao serializar um array/objeto grande.
   if (pad.length === 0) {
-    let body = "";
-    for (let i = 0; i < parts.length; i++) {
-      if (i > 0) body += ",";
-      body += parts[i];
-    }
-    return open + body + close;
+    return open + parts.join(",") + close;
   }
   const inner = __json_repeat(pad, depth + 1);
   const outer = __json_repeat(pad, depth);
-  let body = "";
-  for (let i = 0; i < parts.length; i++) {
-    if (i > 0) body += ",\n";
-    body += inner + parts[i];
-  }
-  return open + "\n" + body + "\n" + outer + close;
+  const indented: string[] = [];
+  for (let i = 0; i < parts.length; i++) indented.push(inner + parts[i]);
+  return open + "\n" + indented.join(",\n") + "\n" + outer + close;
 }
 
 function __json_repeat(pad: string, n: number): string {
@@ -278,12 +272,33 @@ class __JsonParser {
   }
   parseString(): string {
     this.#i++; // opening quote
-    let out = "";
+    // FAST PATH: most JSON strings carry no escape at all. Scan to the closing
+    // quote and return ONE slice. The old `out += c` loop copied the whole
+    // accumulator per character — O(k²) per string, and the dominant cost of
+    // parsing a large document once indexing itself became O(1).
+    const start = this.#i;
+    let j = this.#i;
+    while (j < this.#n) {
+      const c = this.#s[j];
+      if (c === '"') {
+        this.#i = j + 1;
+        return this.#s.substring(start, j);
+      }
+      if (c === "\\") break; // has an escape → slow path below
+      j++;
+    }
+    // SLOW PATH (escapes present): still avoids per-character concatenation by
+    // appending each escape-free RUN in one go.
+    let out = this.#s.substring(start, j);
+    this.#i = j;
     while (this.#i < this.#n) {
       const c = this.#s[this.#i];
-      this.#i++;
-      if (c === '"') break;
+      if (c === '"') {
+        this.#i++;
+        break;
+      }
       if (c === "\\") {
+        this.#i++;
         const e = this.#s[this.#i];
         this.#i++;
         if (e === "n") out += "\n";
@@ -291,7 +306,15 @@ class __JsonParser {
         else if (e === "r") out += "\r";
         else out += e;
       } else {
-        out += c;
+        const runStart = this.#i;
+        let k = this.#i;
+        while (k < this.#n) {
+          const d = this.#s[k];
+          if (d === '"' || d === "\\") break;
+          k++;
+        }
+        out += this.#s.substring(runStart, k);
+        this.#i = k;
       }
     }
     return out;
