@@ -42,4 +42,11 @@ impl Point {
     fn tagged(self: &Point, prefix: &str) -> String {
         format!("{}{}", prefix, self.x + self.y)
     }
+
+    // `&mut self` — mutates the boxed struct in place (with_rtse_mut).
+    #[rtse::method]
+    fn bump(self: &mut Point) -> f64 {
+        self.x += 1.0;
+        self.x + self.y
+    }
 }
