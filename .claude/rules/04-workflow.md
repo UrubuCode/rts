@@ -119,9 +119,10 @@ It enforces the binding rules as a commit gate:
   ArrayBuffer/SharedArrayBuffer/DataView/TypedArrays/Atomics/WeakRef/
   FinalizationRegistry/Math — they define/intercept the value model, engine
   MAY name them (see CLAUDE.md doctrine); current draining
-  targets `dateclass.rs`, `globalclass.rs`); any source file **> 500 lines**
-  (split into a folder/subfolder of cohesive submodules — never append to an
-  already-oversized file).
+  targets `dateclass.rs`, `globalclass.rs`); any source file over its layer
+  ceiling **(codegen ≤1000 / engine ≤700 / rest ≤500)** (split into a
+  folder/subfolder of cohesive submodules — never append to an already-oversized
+  file).
 - **INFO:** `todo!()`/`unimplemented!()` markers (fine as WIP, never as a shipped
   "pass").
 

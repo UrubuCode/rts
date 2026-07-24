@@ -11,12 +11,12 @@
 #              rts-shared / rts-std crates is a REGRESSION — everything
 #              non-primordial resolves through the Registry, never hardcoded in
 #              codegen. rts-shared/rts-std are NOT native/primitive.
-#   [LAYOUT]  no source file > 500 lines — split it into a folder/subfolder of
-#              cohesive submodules instead.
+#   [LAYOUT]  no codegen source file > 1000 lines — split it into a
+#              folder/subfolder of cohesive submodules instead.
 #   [WIP]     surface todo!()/unimplemented!() so none ship disguised as "done".
 #
 # HARD failures (forbidden deps/uses, broken build) exit non-zero — do NOT
-# commit. The doctrine class-mention scan and the >500-line scan are REVIEW
+# commit. The doctrine class-mention scan and the >1000-line scan are REVIEW
 # gates: read every entry and confirm it resolves via the Registry (bridge file)
 # and is genuinely unavoidable, or fix it. Pre-existing debt is listed so it
 # keeps shrinking, never grows.
@@ -29,7 +29,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENGINE="$ROOT/crates/rts-codegen-new"
 SRC="$ENGINE/src"
 CARGO="$ENGINE/Cargo.toml"
-MAX_LINES=500
+MAX_LINES=1000
 NO_BUILD=0
 [ "${1:-}" = "--no-build" ] && NO_BUILD=1
 

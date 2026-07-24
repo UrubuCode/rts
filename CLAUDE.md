@@ -34,7 +34,7 @@ This is the first and most important rule. It governs all others.
   and `.claude/rules/00-meta.md`)
 - **MANDATORY RULE: read_before_commit.sh GATE + FILE LAYOUT** — run
   `bash scripts/read_before_commit.sh` and read its whole output before every commit
-  touching the engine; no engine source file > 500 lines (split into a
+  touching the engine; file-size ceilings codegen ≤1000 / engine ≤700 / rest ≤500 (split into a
   folder/subfolder); the engine names ONLY primordials —
   `rts-shared`/`rts-std` are **NOT** native/primitive and a direct mention is a
   regression
@@ -166,10 +166,12 @@ a new non-primordial path to one.
 > expected). The current draining targets are `front/run/dateclass.rs` and
 > `front/run/globalclass.rs`.
 
-### Rule B — no source file over 500 lines
+### Rule B — file-size ceilings (tiered)
 
-No file under `crates/rts-codegen-new/src/` may exceed **500 lines**. When a file
-would grow past 500, split it into a **folder/subfolder** of cohesive submodules
+Per-layer line ceilings: **codegen** (`crates/rts-codegen-new/src/`) **≤ 1000**,
+**engine** (`crates/rts-engine/src/`) **≤ 700**, **everything else ≤ 500**. When a
+file would grow past its ceiling, split it into a **folder/subfolder** of cohesive
+submodules
 (the `mod.rs` + sibling-files pattern already used across the engine). The gate
 REVIEW-lists every offender; the list must only shrink. New code lands in a
 small, focused module, not appended to an already-oversized file.

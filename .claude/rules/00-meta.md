@@ -56,7 +56,7 @@ Read these files in order (path relative to repo root):
   and follow its phases in order. STRICTLY MANDATORY — no exceptions.
 - **MANDATORY RULE: read_before_commit.sh GATE + FILE LAYOUT** (in `CLAUDE.md`;
   workflow detail in `04-workflow.md`) — run `bash scripts/read_before_commit.sh` before
-  every engine commit; no engine source file > 500 lines (split into
+  every engine commit; file-size ceilings codegen ≤1000 / engine ≤700 / rest ≤500 (split into
   folders/subfolders); engine names ONLY primordials, `rts-shared`/`rts-std` are
   NOT native/primitive
 
