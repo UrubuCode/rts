@@ -1665,10 +1665,10 @@
 ,
 {
   "name": "41_closures_deep",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=8",
   "node": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=8",
-  "rts": "counter=4:5\niife=12\nlet=0,1,2,\nvar=0,1,2,\nnested=15\nthis_arrow=8"
+  "rts": "counter=4:5\niife=12\nlet=0,0,0,\nvar=0,0,0,\nnested=15\nthis_arrow=8"
 }
 ,
 {
@@ -1689,10 +1689,10 @@
 ,
 {
   "name": "claude-closure-capture-let-loop",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "0,1,2\n0,1,2",
   "node": "0,1,2\n0,1,2",
-  "rts": "0,1,2\n0,1,2"
+  "rts": "0,0,0\n0,1,2"
 }
 ,
 {
@@ -1716,7 +1716,7 @@
   "status": "rts_diverge",
   "bun": "mutated_in_finally=finally\nreturned=1 closure=100\ncatch_binding=boom/changed\ncatch_shadow=thrown_e:outer_e\nfinally_no_return=from_try:b\nmade_in_finally=in_finally\nloop_try=ok0,err1,ok2\npartial=a,b,caught,count=2",
   "node": "mutated_in_finally=finally\nreturned=1 closure=100\ncatch_binding=boom/changed\ncatch_shadow=thrown_e:outer_e\nfinally_no_return=from_try:b\nmade_in_finally=in_finally\nloop_try=ok0,err1,ok2\npartial=a,b,caught,count=2",
-  "rts": "mutated_in_finally=try\nreturned=1 closure=1\ncatch_binding=boom/changed\ncatch_shadow=thrown_e:thrown_e\nfinally_no_return=from_try:b\nmade_in_finally=in_try\nloop_try=ok0,err1,ok2\npartial=a,b,caught,count=2"
+  "rts": "mutated_in_finally=finally\nreturned=1 closure=100\ncatch_binding=boom/changed\ncatch_shadow=thrown_e:thrown_e\nfinally_no_return=from_try:b\nmade_in_finally=in_finally\nloop_try=ok0,err0,ok0\npartial=a,b,caught,count=2"
 }
 ,
 {
@@ -1780,7 +1780,7 @@
   "status": "rts_diverge",
   "bun": "0\n1\n2\n3\n3\n3",
   "node": "0\n1\n2\n3\n3\n3",
-  "rts": "0\n1\n2\n0\n1\n2"
+  "rts": "0\n0\n0\n0\n0\n0"
 }
 ,
 {
@@ -1825,10 +1825,10 @@
 ,
 {
   "name": "claude-nested-loop-let-closures",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "0 1 10 11 20 21",
   "node": "0 1 10 11 20 21",
-  "rts": "0 1 10 11 20 21"
+  "rts": "0 0 0 0 0 0"
 }
 ,
 {
@@ -2060,7 +2060,7 @@
   "status": "rts_diverge",
   "bun": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
   "node": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
-  "rts": ""
+  "rts": "undefined"
 }
 ,
 {
@@ -2473,9 +2473,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -5431,4 +5431,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":679,"pass":481,"rts_diverge":93,"bun_node_diverge":19,"errors":86,"rejected":0}}
+],"summary":{"total":679,"pass":479,"rts_diverge":96,"bun_node_diverge":18,"errors":86,"rejected":0}}
