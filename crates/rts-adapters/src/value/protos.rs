@@ -447,3 +447,22 @@ pub extern "C" fn __rtsadp_is_prototype_of(proto_word: u64, obj_word: u64) -> u6
     let found = walk_proto_chain(obj_word, |p| p == proto_word);
     PolyValue::bool(found).raw()
 }
+
+/// `obj instanceof <named class>` via the UNIFIED walk: `true` iff
+/// `ClassName.prototype` (`__rtsadp_class_proto(name)`) appears in `obj`'s
+/// prototype chain. A non-object / non-function `obj` is never an instance (spec:
+/// no autobox). The GENERAL instanceof path — the compile-time fast branches
+/// (user-class shape-id set, `Object` tag check, fn-ctor ctor-table) handle their
+/// cases first; this catches the rest (a registered class the fast branches don't
+/// name) off the one `walk_proto_chain`, so `instanceof` shares the single
+/// prototype mechanism instead of a per-class predicate.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsadp_instanceof_walk(obj_word: u64, class_name_word: u64) -> u64 {
+    let v = PolyValue::from_raw(obj_word);
+    if !(v.is_object() || v.is_function()) {
+        return PolyValue::bool(false).raw();
+    }
+    let target = __rtsadp_class_proto(class_name_word);
+    let found = walk_proto_chain(obj_word, |p| p == target);
+    PolyValue::bool(found).raw()
+}
