@@ -22,7 +22,7 @@
 //! Status: G3 — ctor + instance methods (`&self` / `&mut self`) + STATIC methods (`#[rtse::statical]`;
 //! `statical` not `static`, a Rust keyword), scalar (`f64`/`i64`/`i32`/`bool`) +
 //! `&str` PARAMS (StrPtr) + `String`/`&str` RETURN, `#[rtse::method(name=…,
-//! readonly)]`, `#[rtse::private]`. `#[rtse::variable]` fields, `primitive=`,
+//! readonly)]`, `#[rtse::private]`. AOT force-keep via per-class `#[used]` FnPtr array (the externs are only referenced by the compiler REGISTER, so `--gc-sections` would strip them from the runtime archive → `rts compile` undefined-symbol). `#[rtse::variable]` fields, `primitive=`,
 //! `#[rtse::symbol]`, `global(descriptor)`, `target/` generation land next.
 
 use proc_macro::TokenStream;
@@ -42,6 +42,7 @@ pub fn class(args: TokenStream, item: TokenStream) -> TokenStream {
 
     let mut externs = Vec::new();
     let mut members = Vec::new();
+    let mut keep = Vec::new();
 
     for it in imp.items.iter_mut() {
         let ImplItem::Fn(f) = it else { continue };
@@ -49,17 +50,37 @@ pub fn class(args: TokenStream, item: TokenStream) -> TokenStream {
             continue;
         };
         match gen_member(&class_name, &class_upper, &self_ty, &f.sig, kind) {
-            Ok((ext, mem)) => {
+            Ok((ext, mem, id)) => {
                 externs.push(ext);
                 members.push(mem);
+                keep.push(id);
             }
             Err(e) => return e.to_compile_error().into(),
         }
     }
 
+    // AOT force-keep: the generated `#[no_mangle]` externs are referenced only by
+    // the COMPILER's `REGISTER` (via `register`'s fn_ptrs), not by the runtime
+    // archive's own reachable code, so the linker `--gc-sections` would strip them
+    // → `rts compile` fails with `undefined symbol`. A `#[used]` static holding
+    // their addresses forces them into the archive WITHOUT running them (the JIT
+    // installs them from the Registry harvest; this is only for AOT link-keep).
+    let keep_ident = format_ident!("__RTSE_KEEP_{}", class_upper);
+    let n = keep.len();
+    let keep_static = if n == 0 {
+        quote!()
+    } else {
+        quote! {
+            #[used]
+            static #keep_ident: [::rts_engine::FnPtr; #n] =
+                [#(::rts_engine::FnPtr(#keep as *const u8)),*];
+        }
+    };
+
     quote! {
         #imp
         #(#externs)*
+        #keep_static
         /// Register this class + members into the engine Registry. Add to `REGISTER`.
         pub fn register(e: &mut ::rts_engine::Engine) {
             e.class(#class_name)
@@ -183,7 +204,11 @@ fn gen_member(
     self_ty: &Type,
     sig: &syn::Signature,
     kind: Kind,
-) -> syn::Result<(proc_macro2::TokenStream, proc_macro2::TokenStream)> {
+) -> syn::Result<(
+    proc_macro2::TokenStream,
+    proc_macro2::TokenStream,
+    proc_macro2::Ident,
+)> {
     let rust_name = sig.ident.clone();
     let is_ctor = matches!(kind, Kind::Ctor);
     let is_static = matches!(kind, Kind::Static { .. });
@@ -387,7 +412,7 @@ fn gen_member(
         })
     };
 
-    Ok((extern_fn, member))
+    Ok((extern_fn, member, extern_ident))
 }
 
 fn to_camel(s: &str) -> String {
