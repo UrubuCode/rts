@@ -1123,6 +1123,11 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_BIND(handle: u64, this_arg: i64, args_han
 /// Necessario porque cada `Animal.prototype` no codigo TS cria nova
 /// Entry::Function via REIFY — armazenar prototype dentro da Entry
 /// faria cada acesso retornar Map diferente.
+///
+/// NB: isto e' `F.prototype` (o OBJETO que `new F()` da como `[[Prototype]]` das
+/// instancias), NAO o `[[Prototype]]` da PROPRIA funcao (que e' `Function.prototype`,
+/// resolvido pelo resolver unificado `proto_of_value` → `function_proto_root`).
+/// Conceitos distintos — este registry NAO e' uma duplicata do proto-foundation.
 static FN_PROTOTYPE_REGISTRY: std::sync::OnceLock<
     std::sync::Mutex<std::collections::HashMap<u64, u64>>,
 > = std::sync::OnceLock::new();
@@ -1282,6 +1287,13 @@ pub fn invoke_fn_ptr_with_registry(fn_ptr: u64, args: &[i64]) -> i64 {
 /// `__proto__ = OBJECT_PROTOTYPE_HANDLE()`, garantindo que iteracao
 /// chain `while (proto) { ... proto = Object.getPrototypeOf(proto); }`
 /// termine com `proto.constructor.name === "Object"` antes do null.
+///
+/// INTENCIONALMENTE separado do `object_proto_root` do engine
+/// (`rts-adapters::value::protos`, um objeto Vec-keyed com slots reais): este e'
+/// Map-backed e serve a chain legacy de Map/Set (string-sentinels), numa CAMADA
+/// que NAO pode alcancar o rts-adapters (rts-shared/rts-primitives estao ABAIXO
+/// dele). Reps incompativeis (Map vs Vec-keyed) + layering ⇒ NAO e' uma duplicata
+/// de proto do engine a unificar; e' um artefato de camada aceito.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE() -> u64 {
     static SINGLETON: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
