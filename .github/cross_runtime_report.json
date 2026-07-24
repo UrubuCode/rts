@@ -993,10 +993,10 @@
 ,
 {
   "name": "claude-instanceof-inheritance-chain",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "a_A=true\na_B=false\na_C=false\nb_A=true\nb_B=true\nb_C=false\nc_A=true\nc_B=true\nc_C=true\no_A=false\no_Other=true\nc_Object=true\nc_Function=false\nctor_Function=true\nnum_A=false\nstr_Object=false\nnull_Object=false\nc_ctor_name=C\nb_ctor_name=B\nc_ctor_is_C=true\nproto_B_of_C=true\nisProto_A_c=true\nisProto_C_b=false\nstatic_inherit=true\nsweep=A,B,C,?\ncount_A=3\ne_SubErr=true\ne_MyErr=true\ne_Error=true\ne_msg=boom",
   "node": "a_A=true\na_B=false\na_C=false\nb_A=true\nb_B=true\nb_C=false\nc_A=true\nc_B=true\nc_C=true\no_A=false\no_Other=true\nc_Object=true\nc_Function=false\nctor_Function=true\nnum_A=false\nstr_Object=false\nnull_Object=false\nc_ctor_name=C\nb_ctor_name=B\nc_ctor_is_C=true\nproto_B_of_C=true\nisProto_A_c=true\nisProto_C_b=false\nstatic_inherit=true\nsweep=A,B,C,?\ncount_A=3\ne_SubErr=true\ne_MyErr=true\ne_Error=true\ne_msg=boom",
-  "rts": "__RUNTIME_ERROR__"
+  "rts": "a_A=true\na_B=false\na_C=false\nb_A=true\nb_B=true\nb_C=false\nc_A=true\nc_B=true\nc_C=true\no_A=false\no_Other=true\nc_Object=true\nc_Function=false\nctor_Function=false\nnum_A=false\nstr_Object=false\nnull_Object=false\nc_ctor_name=C\nb_ctor_name=B\nc_ctor_is_C=false\nproto_B_of_C=true\nisProto_A_c=true\nisProto_C_b=false\nstatic_inherit=false\nsweep=A,B,C,?\ncount_A=3\ne_SubErr=true\ne_MyErr=true\ne_Error=true\ne_msg=boom"
 }
 ,
 {
@@ -2060,7 +2060,7 @@
   "status": "rts_diverge",
   "bun": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
   "node": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
-  "rts": "undefined"
+  "rts": ""
 }
 ,
 {
@@ -2473,9 +2473,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -5431,4 +5431,4 @@
   "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":679,"pass":479,"rts_diverge":96,"bun_node_diverge":18,"errors":86,"rejected":0}}
+],"summary":{"total":679,"pass":478,"rts_diverge":97,"bun_node_diverge":19,"errors":85,"rejected":0}}
