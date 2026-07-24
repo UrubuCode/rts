@@ -62,7 +62,8 @@ crates/
   rts-primitives/   — PRIMORDIAL classes
   rts-shared/       — non-primordial universal (math/num/collections/json/globals)
   rts-std/          — backend (io/net/tokio/console/promise impl)
-  rts-runtime/      — facade ("rts" + "rts:<ns>" submodules); AOT staticlib
+  rts-runtime/      — facade ("rts" + "rts:<ns>" submodules). NB: the AOT staticlib
+                      build.rs embeds is rts-adapters' (superset), not this crate's
   rts-node/         — Node.js builtin shims (fs, os, path, process, crypto, util)
   rts-egui/         — egui-based GUI / web-UI engine. Follow the FROZEN plan
                       (docs/specs/html-engine/ + egui-ui-crate-design.md) — see the
