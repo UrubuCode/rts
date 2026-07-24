@@ -478,7 +478,8 @@ crates/
                       Boolean/Number/Error+subclasses)
   rts-shared/       — non-primordial universal (math/num/collections/json/globals)
   rts-std/          — backend (io/net/tokio/console/promise impl)
-  rts-runtime/      — thin facade ("rts" + "rts:<ns>" submodules); AOT staticlib
+  rts-runtime/      — thin facade ("rts" + "rts:<ns>" submodules). NB: the AOT
+                      staticlib build.rs embeds is rts-adapters' (superset), not this
   rts-node/         — Node.js builtin shims (fs, os, path, process, crypto, util)
   rts-napi/         — N-API: Node.js native addons (.node) via libloading + the
                       engine HandleTable (ArrayBuffer/BigInt/External). 159 N-API
@@ -774,7 +775,7 @@ use).
 
 ```bash
 cargo test --lib                                              # Rust unit tests
-cargo build --release -p rts-runtime                          # AOT runtime archive (see note)
+cargo build --release -p rts-adapters                         # AOT runtime archive (see note)
 cargo build --release                                         # release build
 $env:RUST_BACKTRACE="full"; target/release/rts.exe run file.ts            # JIT
 $env:RUST_BACKTRACE="full"; target/release/rts.exe compile -p file.ts out # AOT
@@ -782,15 +783,22 @@ $env:RUST_BACKTRACE="full"; target/release/rts.exe test tests/foo.test.ts # TS s
 target/release/rts.exe apis                                   # list APIs
 ```
 
-**AOT archive is a two-step build.** `rts-runtime` is `crate-type =
-["rlib","staticlib"]`; Cargo bundles all deps + every `__RTS_*` symbol into the
-staticlib that `build.rs` embeds for AOT linking. Cargo only emits that staticlib
-when `rts-runtime` is a *direct* target, so build it first (`cargo build
--p rts-runtime`) before building `rts`. Skipping it does NOT break the build or
-JIT — `build.rs` embeds a placeholder and `rts run` works; only `rts compile`
-(AOT) errors with a "rebuild the runtime archive" message until the staticlib
-exists. The two-step replaced a fragile build.rs that hand-picked dependency
-rlibs and could not disambiguate duplicate variants on CI (serde_core/time).
+**AOT archive is a two-step build.** The staticlib `build.rs` embeds for AOT
+linking is **`rts-adapters`'s**, NOT `rts-runtime`'s: `rts-adapters` is
+`crate-type = ["rlib","staticlib"]` and DEPENDS ON `rts-runtime`, so Cargo bundles
+rts-runtime's whole rlib (every `__RTS_*` extern "C" symbol) INTO the adapters
+staticlib alongside the codegen-owned `__rtsadp_*` trampolines — one archive,
+superset of the runtime archive, no merge, no duplicate symbols. Cargo only emits
+that staticlib when `rts-adapters` is a *direct* target, so build it first
+(`cargo build -p rts-adapters`) before building `rts`. Skipping it does NOT break
+the build or JIT — `build.rs` embeds a placeholder and `rts run` works; only `rts
+compile` (AOT) errors with a "rebuild the runtime archive" message until the
+staticlib exists. NOTE: after the staticlib appears, `build.rs` only re-embeds it
+if forced to re-run (`touch build.rs`) — a plain rebuild of an already-compiled
+`rts` keeps the placeholder; a fresh build (CI) runs `build.rs` in order and
+embeds it correctly. The two-step replaced a fragile build.rs that hand-picked
+dependency rlibs and could not disambiguate duplicate variants on CI
+(serde_core/time).
 
 **Mandatory:** always set `RUST_BACKTRACE=full` before running `rts.exe`.
 Without it crashes show a shallow stack; the crash handler (`src/crash.rs`)
