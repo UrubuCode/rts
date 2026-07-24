@@ -409,9 +409,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     let v = self.builder.ins().iconst(types::I64, word);
                     return Ok(Some(Val::tagged_kind(v, JsKind::Bool)));
                 }
-                return Ok(None);
+                // Dynamic operand: the UNIFIED walk against `RegExp.prototype`.
+                return self.emit_instanceof_walk(module, lhs, class).map(Some);
             }
-            _ => return Ok(None),
+            // Any other named class the fast branches did not handle: the UNIFIED
+            // walk against `ClassName.prototype` — instanceof shares the one
+            // prototype mechanism instead of bailing.
+            _ => return self.emit_instanceof_walk(module, lhs, class).map(Some),
         };
         let v = self.lower_expr(module, lhs)?;
         let boxed = self.box_value(v);
@@ -419,6 +423,25 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .call_runtime(module, symbol, &[boxed])?
             .expect("instanceof trampoline returns a value");
         Ok(Some(Val::tagged_kind(res, JsKind::Bool)))
+    }
+
+    /// `lhs instanceof <class>` via the UNIFIED `walk_proto_chain` against
+    /// `ClassName.prototype` (the general path — the fast branches handle their
+    /// cases first). Lowers the operand once, boxes it, and calls
+    /// `__rtsadp_instanceof_walk(obj, name)`.
+    fn emit_instanceof_walk(
+        &mut self,
+        module: &mut dyn Module,
+        lhs: &HirExpr,
+        class: &str,
+    ) -> FrontResult<Val> {
+        let v = self.lower_expr(module, lhs)?;
+        let word = self.box_value(v);
+        let name_w = self.emit_str_const_word(module, class)?;
+        let res = self
+            .call_runtime(module, "__rtsadp_instanceof_walk", &[word, name_w])?
+            .expect("__rtsadp_instanceof_walk returns a value");
+        Ok(Val::tagged_kind(res, JsKind::Bool))
     }
 
     /// `lhs instanceof <UserClass>`. When the lhs has a statically-known class the

@@ -973,7 +973,8 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             ret: U64,
         },
         "__rtsadp_is_prototype_of" | "__rtsadp_has_own" | "__rtsadp_prop_is_enumerable"
-        | "__rtsadp_obj_set_proto" | "__rtsadp_record_registry_class" => SymSig {
+        | "__rtsadp_obj_set_proto" | "__rtsadp_record_registry_class"
+        | "__rtsadp_instanceof_walk" => SymSig {
             params: &[U64, U64],
             ret: U64,
         },
