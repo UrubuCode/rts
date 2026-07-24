@@ -55,12 +55,15 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: rts-${{ inputs.version }}-Linux-X64
-          path: bin
+          path: dl
 
       - name: Stage binary
         run: |
           mkdir -p target/release
-          f=$(find bin -type f | head -1)
+          # baixa em `dl` (NÃO `bin`): `bin/` tem o `bin/rts.exe` Windows commitado,
+          # e `find bin | head -1` podia pegá-lo em vez do artefato Linux
+          # (→ "Exec format error"). `dl` só contém o artefato baixado.
+          f=$(find dl -type f | head -1)
           cp "$f" target/release/rts
           chmod +x target/release/rts
 

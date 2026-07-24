@@ -48,6 +48,10 @@ struct Cam {
 // shadow map (group 1): depth da cena vista da luz + comparison sampler
 @group(1) @binding(0) var shadow_tex: texture_depth_2d;
 @group(1) @binding(1) var shadow_samp: sampler_comparison;
+// textura de ALBEDO real (group 2): imagem decodificada + sampler linear/repeat.
+// Bindada por-draw; quando o objeto não tem textura, uma 1×1 branca é bindada.
+@group(2) @binding(0) var albedo_tex: texture_2d<f32>;
+@group(2) @binding(1) var albedo_samp: sampler;
 
 // vertex do SHADOW PASS: projeta pela luz (só posição).
 @vertex
@@ -144,8 +148,20 @@ fn vs(
 @fragment
 fn fs(i: VOut) -> @location(0) vec4<f32> {
   var albedo = i.color.rgb;
-  // TEXTURA procedural: xadrez em espaço de mundo (iparams.y = i.tex)
-  if (i.tex > 0.5) {
+  // TRIPLANAR: amostra a textura de albedo projetando em X/Y/Z e misturando pela
+  // normal — dá UV automático sem precisar de coords per-vértice. Amostrada SEMPRE
+  // (control flow uniforme p/ as derivadas do sampler); só APLICADA se tex real.
+  let bn = abs(normalize(i.normal));
+  let wsum = bn.x + bn.y + bn.z + 1e-5;
+  let sc = 0.5; // escala mundo→uv (1 tile a cada 2 unidades)
+  let cx = textureSample(albedo_tex, albedo_samp, i.world.zy * sc).rgb;
+  let cy = textureSample(albedo_tex, albedo_samp, i.world.xz * sc).rgb;
+  let cz = textureSample(albedo_tex, albedo_samp, i.world.xy * sc).rgb;
+  let texcol = (cx * bn.x + cy * bn.y + cz * bn.z) / wsum;
+  // i.tex: 0=nenhuma, 1=xadrez procedural, >=2 = textura real (imagem).
+  if (i.tex > 1.5) {
+    albedo = albedo * texcol;
+  } else if (i.tex > 0.5) {
     let s = 1.0;
     let c = floor(i.world.x * s) + floor(i.world.z * s) + floor(i.world.y * s);
     let chk = fract(c * 0.5) * 2.0;        // 0 ou 1
@@ -185,6 +201,13 @@ pub struct Scene3D {
     cam_bg: wgpu::BindGroup,
     shadow_view: wgpu::TextureView,
     shadow_bg: wgpu::BindGroup,
+    // textura de albedo (group 2): layout + sampler + a 1×1 branca default (objeto
+    // sem textura) + o mapa id→bind group das texturas de imagem subidas.
+    tex_bgl: wgpu::BindGroupLayout,
+    tex_sampler: wgpu::Sampler,
+    default_tex_bg: wgpu::BindGroup,
+    textures: HashMap<u64, wgpu::BindGroup>,
+    next_tex: u64,
     depth_view: wgpu::TextureView,
     depth_w: u32,
     depth_h: u32,
@@ -200,7 +223,9 @@ pub struct Scene3D {
     cfwd: [f32; 3],
     tan_h: f32,
     tan_v: f32,
-    draws: Vec<(u64, [f32; 16], [f32; 4], f32, f32)>,
+    // (mesh, model, color, emissive, tex_flag, tex_id) — tex_flag vai pro shader
+    // (0/1/2), tex_id seleciona o bind group da textura no render loop.
+    draws: Vec<(u64, [f32; 16], [f32; 4], f32, f32, u64)>,
     inst_buf: wgpu::Buffer,
     inst_cap: u64,
     /// Fundo do scene pass: `None` = skybox procedural (default); `Some(rgba)` =
@@ -209,7 +234,7 @@ pub struct Scene3D {
 }
 
 impl Scene3D {
-    pub fn new(device: &wgpu::Device, color_format: wgpu::TextureFormat) -> Scene3D {
+    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, color_format: wgpu::TextureFormat) -> Scene3D {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("scene3d shader"),
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
@@ -287,7 +312,49 @@ impl Scene3D {
             ],
         });
 
-        // layout do pass principal + sky: group 0 (câmera) + group 1 (shadow map)
+        // textura de albedo (group 2): layout texture_2d + sampler linear/repeat.
+        let tex_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("scene3d tex bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let tex_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("scene3d tex samp"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest, // mip_level_count=1 → irrelevante
+            ..Default::default()
+        });
+        // 1×1 branca default: bindada em objetos SEM textura (o shader só a usa se
+        // tex_flag>=2, mas o pipeline exige group 2 sempre bindado).
+        let default_tex_bg = make_tex_bg(device, queue, &tex_bgl, &tex_sampler, &[255, 255, 255, 255], 1, 1);
+
+        // layout do pass principal: group 0 (câmera) + group 1 (shadow) + group 2 (albedo).
+        let mesh_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("scene3d mesh layout"),
+            bind_group_layouts: &[Some(&cam_bgl), Some(&shadow_bgl), Some(&tex_bgl)],
+            immediate_size: 0,
+        });
+        // layout do sky: group 0 (câmera) + group 1 (shadow) — sem textura de albedo.
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("scene3d layout"),
             bind_group_layouts: &[Some(&cam_bgl), Some(&shadow_bgl)],
@@ -325,7 +392,7 @@ impl Scene3D {
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("scene3d pipeline"),
-            layout: Some(&layout),
+            layout: Some(&mesh_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs"),
@@ -440,6 +507,11 @@ impl Scene3D {
             cam_bg,
             shadow_view,
             shadow_bg,
+            tex_bgl,
+            tex_sampler,
+            default_tex_bg,
+            textures: HashMap::new(),
+            next_tex: 2, // 0=nenhuma, 1=xadrez procedural reservados
             depth_view,
             depth_w: 1,
             depth_h: 1,
@@ -496,8 +568,29 @@ impl Scene3D {
             self.light_vp = light_view_proj(dir, center, radius);
         }
     }
-    pub fn queue_draw(&mut self, mesh: u64, model: [f32; 16], color: [f32; 4], emissive: f32, tex: f32) {
-        self.draws.push((mesh, model, color, emissive, tex));
+    /// `tex`: 0=nenhuma, 1=xadrez procedural, >=2 = id de textura real (imagem).
+    pub fn queue_draw(&mut self, mesh: u64, model: [f32; 16], color: [f32; 4], emissive: f32, tex: u64) {
+        self.draws.push((mesh, model, color, emissive, tex_flag(tex), tex));
+    }
+
+    /// Sobe uma imagem RGBA8 (`w×h`, `rgba` = w*h*4 bytes) pra VRAM e devolve um id
+    /// de textura (>=2) usável em `drawMesh(..., tex=id)`. 0 se dimensões inválidas.
+    pub fn upload_texture(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        rgba: &[u8],
+        w: u32,
+        h: u32,
+    ) -> u64 {
+        if w == 0 || h == 0 || rgba.len() < (w as usize) * (h as usize) * 4 {
+            return 0;
+        }
+        let bg = make_tex_bg(device, queue, &self.tex_bgl, &self.tex_sampler, rgba, w, h);
+        let id = self.next_tex;
+        self.next_tex += 1;
+        self.textures.insert(id, bg);
+        id
     }
     /// Fundo CHAPADO (desliga o skybox): o pass limpa o color pra `rgba` e não
     /// desenha o starfield. Ideal pro viewport do editor.
@@ -560,11 +653,11 @@ impl Scene3D {
             self.inst_cap = cap;
         }
         let mut inst: Vec<f32> = Vec::with_capacity(self.draws.len() * 24);
-        for (_m, model, color, emissive, tex) in &self.draws {
+        for (_m, model, color, emissive, tex_flag, _tid) in &self.draws {
             inst.extend_from_slice(model);
             inst.extend_from_slice(color);
             inst.push(*emissive);
-            inst.push(*tex);
+            inst.push(*tex_flag);
             inst.push(0.0);
             inst.push(0.0);
         }
@@ -592,7 +685,7 @@ impl Scene3D {
             });
             sp.set_pipeline(&self.shadow_pipeline);
             sp.set_bind_group(0, &self.cam_bg, &[]);
-            for (i, (mesh_id, _model, _color, _emiss, _tex)) in self.draws.iter().enumerate() {
+            for (i, (mesh_id, _model, _color, _emiss, _tf, _tid)) in self.draws.iter().enumerate() {
                 if let Some(m) = self.meshes.get(mesh_id) {
                     let off = (i as u64) * 96;
                     sp.set_vertex_buffer(0, m.vbuf.slice(..));
@@ -640,10 +733,14 @@ impl Scene3D {
             pass.set_pipeline(&self.sky_pipeline);
             pass.draw(0..3, 0..1);
         }
-        // 2. meshes (depth test/write)
+        // 2. meshes (depth test/write). Group 2 = textura de albedo: por-draw,
+        // a textura do objeto (tex_id>=2) ou a 1×1 branca default.
         pass.set_pipeline(&self.pipeline);
-        for (i, (mesh_id, _model, _color, _emiss, _tex)) in self.draws.iter().enumerate() {
+        pass.set_bind_group(2, &self.default_tex_bg, &[]);
+        for (i, (mesh_id, _model, _color, _emiss, _tf, tid)) in self.draws.iter().enumerate() {
             if let Some(m) = self.meshes.get(mesh_id) {
+                let tex_bg = self.textures.get(tid).unwrap_or(&self.default_tex_bg);
+                pass.set_bind_group(2, tex_bg, &[]);
                 let off = (i as u64) * 96;
                 pass.set_vertex_buffer(0, m.vbuf.slice(..));
                 pass.set_vertex_buffer(1, self.inst_buf.slice(off..off + 96));
@@ -656,6 +753,67 @@ impl Scene3D {
         self.draws.clear();
         true
     }
+}
+
+/// Mapeia o `tex` da API (0=nenhuma, 1=xadrez procedural, >=2 = id de textura real)
+/// pro FLAG que o shader lê no instance param: 0.0 / 1.0 / 2.0. Qualquer id real
+/// (>=2) vira 2.0 — a seleção da textura em si é por bind group no render loop.
+fn tex_flag(tex: u64) -> f32 {
+    if tex >= 2 {
+        2.0
+    } else {
+        tex as f32
+    }
+}
+
+/// Cria uma textura RGBA8 `w×h`, preenche com `rgba` (w*h*4 bytes, sRGB) via
+/// `queue.write_texture` e devolve um bind group (group 2: textura + sampler)
+/// pronto pro pipeline de mesh. Usada tanto pra 1×1 branca default quanto pras
+/// texturas de imagem subidas.
+fn make_tex_bg(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    bgl: &wgpu::BindGroupLayout,
+    sampler: &wgpu::Sampler,
+    rgba: &[u8],
+    w: u32,
+    h: u32,
+) -> wgpu::BindGroup {
+    let size = wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 };
+    let tex = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("scene3d albedo tex"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &tex,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        rgba,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(4 * w),
+            rows_per_image: Some(h),
+        },
+        size,
+    );
+    let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("scene3d albedo bg"),
+        layout: bgl,
+        entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
+            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(sampler) },
+        ],
+    })
 }
 
 fn make_depth(device: &wgpu::Device, w: u32, h: u32) -> (wgpu::TextureView, wgpu::Texture) {
@@ -944,5 +1102,15 @@ mod tests {
         let m = model_matrix(2.0, -3.0, 4.0, 0.0, 0.0, 1.0, 1.0, 1.0);
         let p = apply(&m, [1.0, 1.0, 1.0]);
         assert_eq!([p[0], p[1], p[2]], [3.0, -2.0, 5.0]);
+    }
+
+    /// Mapeamento tex→flag: 0=nenhuma, 1=xadrez, e QUALQUER id real (>=2) vira 2.0.
+    #[test]
+    fn tex_flag_mapping() {
+        assert_eq!(tex_flag(0), 0.0); // nenhuma
+        assert_eq!(tex_flag(1), 1.0); // xadrez procedural
+        assert_eq!(tex_flag(2), 2.0); // 1ª textura real
+        assert_eq!(tex_flag(3), 2.0);
+        assert_eq!(tex_flag(99), 2.0); // qualquer id real → flag 2 (bind group seleciona)
     }
 }

@@ -15,7 +15,7 @@ fn with_scene<R: Copy>(win: u64, f: impl FnOnce(&mut Scene3D, &wgpu::Device) -> 
     with_ctx(win, |c| {
         if let Backend::Wgpu(r) = &mut c.backend {
             if r.scene.is_none() {
-                r.scene = Some(Scene3D::new(&r.device, r.config.format));
+                r.scene = Some(Scene3D::new(&r.device, &r.queue, r.config.format));
             }
             let dev = &r.device;
             let s = r.scene.as_mut().unwrap();
@@ -193,6 +193,31 @@ pub extern "C" fn __RTS_FN_NS_EGUI_DRAW_MESH(
         if a == 0 { 1.0 } else { a as f32 / 255.0 }, // sem byte de alpha = opaco
     ];
     let em = if emissive != 0 { 1.0 } else { 0.0 };
-    let tx = if tex != 0 { 1.0 } else { 0.0 };
-    with_scene(win, |s, _d| s.queue_draw(mesh, m, col, em, tx), ());
+    // tex: 0=nenhuma, 1=xadrez procedural, >=2 = id de textura real (textureUpload).
+    with_scene(win, |s, _d| s.queue_draw(mesh, m, col, em, tex.max(0) as u64), ());
+}
+
+/// Sobe uma imagem RGBA8 (`ptr` → w*h*4 bytes, sRGB) pra VRAM e devolve um id de
+/// textura (>=2) usável em `drawMesh(..., tex=id)`. Fluxo típico: `fs` lê o arquivo,
+/// `imgdec.decode` devolve RGBA + w/h, e isto sobe pra GPU. 0 se inválido/não-wgpu.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_TEXTURE_UPLOAD(win: u64, ptr: u64, w: i64, h: i64) -> u64 {
+    if ptr == 0 || w <= 0 || h <= 0 {
+        return 0;
+    }
+    let (w, h) = (w as u32, h as u32);
+    let rgba = unsafe { std::slice::from_raw_parts(ptr as *const u8, (w as usize) * (h as usize) * 4) };
+    with_ctx(win, |c| {
+        if let Backend::Wgpu(r) = &mut c.backend {
+            if r.scene.is_none() {
+                r.scene = Some(Scene3D::new(&r.device, &r.queue, r.config.format));
+            }
+            let (dev, q) = (&r.device, &r.queue);
+            let s = r.scene.as_mut().unwrap();
+            s.upload_texture(dev, q, rgba, w, h)
+        } else {
+            0
+        }
+    })
+    .unwrap_or(0)
 }
