@@ -14,6 +14,7 @@ edition = "2024"
 cranelift-codegen = "0.131"
 cranelift-frontend = "0.131"
 rts-engine = { path = "../rts-engine" }
+rtse = { package = "rts-macro", path = "../rts-macro" }
 # Primordiais movidos p/ rts-primitives (Fase 2): collections/vec.rs chama
 # rts_primitives::string::rt::* por símbolo. Aresta acíclica shared → primitives.
 rts-primitives = { path = "../rts-primitives" }

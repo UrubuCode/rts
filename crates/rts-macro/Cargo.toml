@@ -1,0 +1,17 @@
+[package]
+name = "rts-macro"
+version = "0.1.0"
+edition = "2024"
+
+# The `#[rtse::*]` authoring macros: annotate a normal Rust struct + impl to
+# generate the extern-C ABI glue + Registry metadata for the engine, WITHOUT
+# changing the struct's normal Rust usability (like PyO3/napi-rs). Lib name is
+# `rtse` so the attribute path is `#[rtse::class]` / `#[rtse::method]` / ….
+[lib]
+name = "rtse"
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"

@@ -18,6 +18,7 @@ members = [
     "crates/rts-render",
     "crates/rts-egui",
     "crates/rts-adapters",
+    "crates/rts-macro",
     "crates/rts-codegen-new",
     "crates/rts-prelude-baker",
     "crates/rts-cli",

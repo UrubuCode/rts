@@ -10,6 +10,7 @@ pub mod symbol;
 pub mod bigint;
 // number → PRIMORDIAL: movido p/ `rts-primitives` (Fase 2).
 pub mod date;
+pub mod point;
 pub mod dom_exception;
 pub mod finalization_registry;
 pub mod global_this;

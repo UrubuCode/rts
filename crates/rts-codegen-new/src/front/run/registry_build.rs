@@ -132,6 +132,8 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     ns::engine::register,
     // RUNTIME/Registry global CLASS specs (ctor/methods/instanceof as metadata).
     ns::globals::date::register_class_spec,
+    // `Point` — G1 proof of the `#[rtse::class]` authoring macro (generated glue).
+    ns::globals::point::register,
     // Promise is PRIMORDIAL; its class spec carries the static surface
     // (`resolve`/`reject`/`all`/…) + then/catch/finally as registry metadata so the
     // static-call path can resolve `Promise.resolve()` generically.
