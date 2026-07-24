@@ -30,4 +30,16 @@ impl Point {
     fn label(self: &Point) -> String {
         format!("({},{})", self.x, self.y)
     }
+
+    // Static method (`statical`, not the `static` keyword): `Point.unit()`.
+    #[rtse::statical]
+    fn unit() -> f64 {
+        1.0
+    }
+
+    // `&str` param → StrPtr marshalling.
+    #[rtse::method]
+    fn tagged(self: &Point, prefix: &str) -> String {
+        format!("{}{}", prefix, self.x + self.y)
+    }
 }

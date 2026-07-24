@@ -19,10 +19,11 @@
 //! return is allocated into the string pool and returned as a handle), and
 //! `pub fn register(e: &mut Engine)`. The author adds `register` to `REGISTER`.
 //!
-//! Status: G1 — ctor + instance methods, scalar (`f64`/`i64`/`i32`/`bool`) +
-//! `String`/`&str` RETURN, `#[rtse::method(name=…, readonly)]`, `#[rtse::private]`.
-//! `#[rtse::variable]` fields, `&str` PARAMS, statics, `primitive=`,
-//! `#[rtse::symbol]` land incrementally.
+//! Status: G2 — ctor + instance methods + STATIC methods (`#[rtse::statical]`;
+//! `statical` not `static`, a Rust keyword), scalar (`f64`/`i64`/`i32`/`bool`) +
+//! `&str` PARAMS (StrPtr) + `String`/`&str` RETURN, `#[rtse::method(name=…,
+//! readonly)]`, `#[rtse::private]`. `#[rtse::variable]` fields, `primitive=`,
+//! `#[rtse::symbol]`, `global(descriptor)`, `target/` generation land next.
 
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
@@ -76,6 +77,9 @@ enum Kind {
         readonly: bool,
         private: bool,
     },
+    Static {
+        name: Option<String>,
+    },
 }
 
 /// Remove and classify the `#[rtse::ctor]`/`#[rtse::method(...)]`/`#[rtse::private]`
@@ -105,6 +109,12 @@ fn take_kind(attrs: &mut Vec<syn::Attribute>) -> Option<Kind> {
                         readonly: false,
                         private: true,
                     });
+                    return false;
+                }
+                // `statical` (not `static` — a Rust keyword) marks a static method.
+                "statical" => {
+                    let (name, _) = method_args(a);
+                    kind = Some(Kind::Static { name });
                     return false;
                 }
                 _ => {}
@@ -146,6 +156,11 @@ fn scalar(ty: &Type) -> Option<(proc_macro2::TokenStream, proc_macro2::TokenStre
     })
 }
 
+/// Is this param type `&str`?
+fn is_str_param(ty: &Type) -> bool {
+    matches!(ty, Type::Reference(r) if matches!(&*r.elem, Type::Path(p) if p.path.is_ident("str")))
+}
+
 /// Is this return type a `String` or `&str`? (both marshal to a string handle).
 fn is_string_ret(ty: &Type) -> bool {
     match ty {
@@ -171,6 +186,7 @@ fn gen_member(
 ) -> syn::Result<(proc_macro2::TokenStream, proc_macro2::TokenStream)> {
     let rust_name = sig.ident.clone();
     let is_ctor = matches!(kind, Kind::Ctor);
+    let is_static = matches!(kind, Kind::Static { .. });
     let (js_name, readonly, private) = match &kind {
         Kind::Ctor => ("new".to_string(), false, false),
         Kind::Method {
@@ -182,6 +198,11 @@ fn gen_member(
             *readonly,
             *private,
         ),
+        Kind::Static { name } => (
+            name.clone().unwrap_or_else(|| to_camel(&rust_name.to_string())),
+            false,
+            false,
+        ),
     };
     let member_upper = rust_name.to_string().to_uppercase();
     let symbol = format!("__RTS_FN_GL_{class_upper}_{member_upper}");
@@ -192,16 +213,32 @@ fn gen_member(
     let mut call_args = Vec::new();
     let mut arg_abis = Vec::new();
     let mut ts_params = Vec::new();
-    if !is_ctor {
+    if !is_ctor && !is_static {
         ext_params.push(quote!(__recv: u64));
     }
     let mut idx = 0usize;
     for a in &sig.inputs {
         let FnArg::Typed(pt) = a else { continue };
+        if is_str_param(&pt.ty) {
+            // `&str` crosses as StrPtr = two slots (ptr:i64, len:i64); rebuild the
+            // &str from the string-pool pointer the codegen passes.
+            let pp = format_ident!("__a{}_ptr", idx);
+            let pl = format_ident!("__a{}_len", idx);
+            ext_params.push(quote!(#pp: i64));
+            ext_params.push(quote!(#pl: i64));
+            call_args.push(quote!({
+                let __b = unsafe { ::core::slice::from_raw_parts(#pp as *const u8, #pl as usize) };
+                ::core::str::from_utf8(__b).unwrap_or("")
+            }));
+            arg_abis.push(quote!(::rts_engine::AbiType::StrPtr));
+            ts_params.push(format!("a{idx}: string"));
+            idx += 1;
+            continue;
+        }
         let Some((abi, ext_ty, ts)) = scalar(&pt.ty) else {
             return Err(syn::Error::new_spanned(
                 &pt.ty,
-                "rtse G1: param must be f64/i64/i32/bool (String/&str params: G2)",
+                "rtse: param must be f64/i64/i32/bool/&str",
             ));
         };
         let pid = format_ident!("__a{}", idx);
@@ -272,7 +309,7 @@ fn gen_member(
         }
     };
 
-    let call = if is_ctor {
+    let call = if is_ctor || is_static {
         quote!(<#self_ty>::#rust_name(#(#call_args),*))
     } else {
         quote!(
@@ -293,10 +330,13 @@ fn gen_member(
 
     let kind_tok = if is_ctor {
         quote!(::rts_engine::MemberKind::Constructor)
+    } else if is_static {
+        quote!(::rts_engine::MemberKind::StaticMethod)
     } else {
         quote!(::rts_engine::MemberKind::InstanceMethod)
     };
-    let sig_args = if is_ctor {
+    // Instance methods carry the receiver Handle in arg slot 0; ctor/static do not.
+    let sig_args = if is_ctor || is_static {
         quote!(::std::vec![#(#arg_abis),*])
     } else {
         quote!(::std::vec![::rts_engine::AbiType::Handle #(, #arg_abis)*])
@@ -367,6 +407,10 @@ pub fn variable(_a: TokenStream, item: TokenStream) -> TokenStream {
 }
 #[proc_macro_attribute]
 pub fn private(_a: TokenStream, item: TokenStream) -> TokenStream {
+    item
+}
+#[proc_macro_attribute]
+pub fn statical(_a: TokenStream, item: TokenStream) -> TokenStream {
     item
 }
 #[proc_macro_attribute]
