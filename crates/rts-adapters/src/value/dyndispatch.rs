@@ -127,9 +127,20 @@ pub extern "C" fn __rtsadp_dyn_length(recv: u64) -> u64 {
         // length (`STRING_LEN` is bytes — they differ for any non-ASCII char). We
         // OWN this trampoline, so we read the real bytes and count code units
         // (`encode_utf16`), matching bun/Node exactly (`"😀".length === 2`).
-        let s = abi_adapter::resolve_poly(v);
-        let units = s.chars().map(|c| c.len_utf16()).sum::<usize>();
-        return PolyValue::from_i32(units as i32).raw();
+        // FAST PATH ASCII: nº de bytes == nº de code units, sem copiar a string.
+        // Antes: `resolve_poly` copiava a string INTEIRA e depois somava
+        // `len_utf16` por char — O(n) e uma alocação a cada leitura de
+        // `.length`, o que num `while (i < s.length)` vira O(n²).
+        let len = abi_adapter::with_handle_bytes(h, |bytes| {
+            if is_ascii_cached(bytes) {
+                return bytes.len();
+            }
+            match std::str::from_utf8(bytes) {
+                Ok(t) => t.chars().map(|c| c.len_utf16()).sum::<usize>(),
+                Err(_) => 0,
+            }
+        });
+        return PolyValue::from_i32(len as i32).raw();
     }
     // A level-B typed-array VIEW: element COUNT (buffer bytes / elem width).
     if let Some((bh, bytes, ..)) = super::taops::view_parts(recv) {

@@ -436,6 +436,23 @@ pub extern "C" fn __RTS_FN_GL_STRING_SLICE(recv: u64, start: i64, end: i64) -> u
     let Some(s) = handle_to_str(recv) else {
         return alloc_str("");
     };
+    // FAST PATH ASCII (ver SUBSTRING): fatia direto dos bytes, sem materializar
+    // a string em UTF-16 a cada chamada.
+    let bytes = s.as_bytes();
+    if is_ascii_cached(bytes) {
+        let count = bytes.len() as i64;
+        let norm = |i: i64| -> usize {
+            let n = if i < 0 { count + i } else { i };
+            n.clamp(0, count) as usize
+        };
+        let si = norm(start);
+        let ei = norm(end);
+        if si >= ei {
+            return alloc_str("");
+        }
+        // SAFETY: ASCII — toda fronteira de byte é fronteira de char.
+        return alloc_str(unsafe { std::str::from_utf8_unchecked(&bytes[si..ei]) });
+    }
     // JS string indices are UTF-16 CODE UNITS (never code points): slicing a
     // surrogate pair at its middle keeps only the half the range covers.
     let units: Vec<u16> = s.encode_utf16().collect();
@@ -458,6 +475,23 @@ pub extern "C" fn __RTS_FN_GL_STRING_SUBSTRING(recv: u64, start: i64, end: i64) 
     let Some(s) = handle_to_str(recv) else {
         return alloc_str("");
     };
+    // FAST PATH ASCII: índice de byte == índice de code unit, então a fatia sai
+    // direto dos bytes. O caminho antigo materializava um Vec<u16> da string
+    // INTEIRA só pra recortar alguns caracteres — O(n) por chamada, e O(n²) num
+    // parser que fatia milhares de vezes (JSON.parse fazia exatamente isso).
+    let bytes = s.as_bytes();
+    if is_ascii_cached(bytes) {
+        let count = bytes.len() as i64;
+        let clamp = |i: i64| i.clamp(0, count) as usize;
+        let a = clamp(start);
+        let b = clamp(end);
+        let (si, ei) = if a <= b { (a, b) } else { (b, a) };
+        if si >= ei {
+            return alloc_str("");
+        }
+        // SAFETY: ASCII, então qualquer fronteira de byte é fronteira de char.
+        return alloc_str(unsafe { std::str::from_utf8_unchecked(&bytes[si..ei]) });
+    }
     // UTF-16 code-unit indices (JS spec), like `slice`.
     let units: Vec<u16> = s.encode_utf16().collect();
     let count = units.len() as i64;
@@ -483,6 +517,19 @@ pub extern "C" fn __RTS_FN_GL_STRING_SUBSTR(recv: u64, start: i64, length: i64) 
     let Some(s) = handle_to_str(recv) else {
         return alloc_str("");
     };
+    // FAST PATH ASCII (ver SUBSTRING)
+    let bytes = s.as_bytes();
+    if is_ascii_cached(bytes) {
+        let count = bytes.len() as i64;
+        let si = (if start < 0 { count + start } else { start }).clamp(0, count) as usize;
+        let take = if length < 0 { 0 } else { length as usize };
+        let ei = si.saturating_add(take).min(bytes.len());
+        if si >= ei {
+            return alloc_str("");
+        }
+        // SAFETY: ASCII — toda fronteira de byte é fronteira de char.
+        return alloc_str(unsafe { std::str::from_utf8_unchecked(&bytes[si..ei]) });
+    }
     // UTF-16 code-unit indices (JS spec), like `slice`.
     let units: Vec<u16> = s.encode_utf16().collect();
     let count = units.len() as i64;
