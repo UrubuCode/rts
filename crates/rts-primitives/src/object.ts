@@ -66,6 +66,11 @@ class Object {
   propertyIsEnumerable(key: string): boolean {
     return engine.obj_has(this, key);
   }
+  // `proto.isPrototypeOf(obj)` — true iff `this` is in obj's prototype chain.
+  // A REAL slot (so a chain walk / `in` finds it) over the unified walk.
+  isPrototypeOf(obj: any): boolean {
+    return engine.is_prototype_of(this, obj);
+  }
   // JS `Object.prototype.toString` default tag for a plain object.
   toString(): string {
     return "[object Object]";

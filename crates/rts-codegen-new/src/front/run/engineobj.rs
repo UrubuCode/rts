@@ -227,6 +227,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 Repr::Bool,
             );
         }
+        // `is_prototype_of(proto, obj)` — the `.ts` `Object.prototype.isPrototypeOf`
+        // as a REAL slot (so a proto-chain walk / `in` finds it), over the unified
+        // `walk_proto_chain`. `this` is the proto, the arg the tested object.
+        if method == "is_prototype_of" {
+            return self.lower_engine_descriptor(
+                module,
+                args,
+                "__rtsadp_is_prototype_of",
+                2,
+                Repr::Bool,
+            );
+        }
         // Timer bridges (the `.ts` global setTimeout/… wrappers): all-words in,
         // a word out — the adapters wrapper decodes ms / converts the fn word.
         if method == "set_timeout" {
