@@ -4188,6 +4188,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-macro"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "rts-napi"
 version = "0.1.0"
 dependencies = [
@@ -4295,6 +4304,7 @@ dependencies = [
  "json5",
  "regex",
  "rts-engine",
+ "rts-macro",
  "rts-primitives",
  "serde",
  "serde_json",

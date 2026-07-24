@@ -476,6 +476,12 @@ pub enum Entry {
     /// can be held independently of the shard lock. The concrete type is
     /// `globals::events::instance::EmitterData`; downcast at access sites.
     EventEmitter(std::sync::Arc<std::sync::Mutex<dyn std::any::Any + Send>>),
+    /// Generic struct-backed instance for a `#[rtse::class]` — the authored Rust
+    /// struct boxed as `dyn Any`, downcast to its concrete type at access (via
+    /// `with_rtse`). This is what lets an arbitrary Rust struct be a class
+    /// instance (Date uses a dedicated `DateMs` variant; the macro-authored
+    /// classes use this one). Send+Sync so it crosses shards like every Entry.
+    Rtse(Box<dyn std::any::Any + Send + Sync>),
     /// EventEmitter primitivo do namespace `events` (rts:events). Armazena
     /// listeners por nome de evento como function pointers (i64 raw).
     /// Distinto do `EventEmitter` global acima — coexistem.
@@ -1518,6 +1524,30 @@ pub fn free_handle(handle: u64) -> bool {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .free(handle)
+}
+
+/// Allocate a generic struct-backed instance (`#[rtse::class]` state), returning
+/// its handle. The struct is boxed as `dyn Any` and recovered by `with_rtse`.
+pub fn alloc_rtse<T: std::any::Any + Send + Sync>(v: T) -> u64 {
+    alloc_entry(Entry::Rtse(Box::new(v)))
+}
+
+/// Immutable access to the `T` behind an `Entry::Rtse` handle. A dead handle or a
+/// wrong-type / non-Rtse entry calls `f(None)` (never faults).
+pub fn with_rtse<T: std::any::Any, R>(handle: u64, f: impl FnOnce(Option<&T>) -> R) -> R {
+    with_entry(handle, |e| match e {
+        Some(Entry::Rtse(b)) => f(b.downcast_ref::<T>()),
+        _ => f(None),
+    })
+}
+
+/// Mutable access to the `T` behind an `Entry::Rtse` handle (for `&mut self`
+/// methods). Same `None`-mapping as [`with_rtse`].
+pub fn with_rtse_mut<T: std::any::Any, R>(handle: u64, f: impl FnOnce(Option<&mut T>) -> R) -> R {
+    with_entry_mut(handle, |e| match e {
+        Some(Entry::Rtse(b)) => f(b.downcast_mut::<T>()),
+        _ => f(None),
+    })
 }
 
 /// Immutable access to an entry. `f` receives `None` for invalid handles.
