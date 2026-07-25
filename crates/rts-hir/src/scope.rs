@@ -87,6 +87,17 @@ impl Scope {
         self.classes.get(name).copied()
     }
 
+    /// O NOME da classe de um [`ClassId`] — o inverso de [`Self::resolve_class`].
+    /// O codegen indexa suas tabelas de classe por NOME, então precisa desta
+    /// volta para consumir um `HirType::Class(id)` vindo de uma anotação
+    /// (`const arr: P[]` → `Array(Class(id))` → o elemento é um `P`).
+    pub fn class_name_of(&self, id: ClassId) -> Option<&str> {
+        self.classes
+            .iter()
+            .find(|(_, v)| **v == id)
+            .map(|(k, _)| k.as_str())
+    }
+
     pub fn register_class(&mut self, name: impl Into<String>) -> ClassId {
         let id = ClassId(self.next_class_id);
         self.next_class_id += 1;

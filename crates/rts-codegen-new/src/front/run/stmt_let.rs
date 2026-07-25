@@ -465,6 +465,26 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.local_class_refs.insert(name.to_string(), class);
                 return Ok(());
             }
+            // `const o = arr[i]` onde `arr: P[]`: o HIR preserva a anotação como
+            // `Array(Class(id))` e propaga o elemento, então o tipo DESTE local
+            // é `Class(id)`. Registrar o shape aqui é o que faz `o.campo`
+            // alcançar o fast path de slot constante em vez do caminho dinâmico
+            // (`__rtsadp_obj_get`: mutex + comparação de string, ~1 µs).
+            HirExprKind::Index { .. } => {
+                match class_of_hir_ty(ty) {
+                    Some(cls) => match self.classes.get(&cls) {
+                        Some(desc) => {
+                            let shape_id = self.shapes.intern(&desc.fields);
+                            let val = self.lower_expr(module, init)?;
+                            self.bind_tagged_local(name, val);
+                            self.local_classes.insert(name.to_string(), cls);
+                            Some(HeapShape::Object(shape_id))
+                        }
+                        None => None,
+                    },
+                    None => None,
+                }
+            }
             _ => None,
         };
         if let Some(shape) = shape {
@@ -585,5 +605,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 repr: Repr::Tagged,
             },
         );
+    }
+}
+
+/// Nome da CLASSE de um tipo HIR, quando ele é `Class(id)`.
+/// O `HirType` só carrega o id; o nome vem do side-table que a resolução de
+/// anotação preenche (`rts_hir::lower::class_name_of_id`), porque as tabelas de
+/// classe do codegen são indexadas por nome.
+fn class_of_hir_ty(ty: &HirType) -> Option<String> {
+    match ty {
+        HirType::Class(id) => rts_hir::lower::class_name_of_id(*id),
+        _ => None,
     }
 }

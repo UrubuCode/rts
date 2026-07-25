@@ -299,7 +299,7 @@ fn lower_var_decl(vd: &swc::VarDecl, scope: &mut Scope, _raw_text: &str) -> HirS
         let annotation = extract_ts_type_annotation(&d.name);
         let annotated_ty = annotation
             .as_deref()
-            .map(parse_type_annotation)
+            .map(|a| parse_type_annotation_in(a, scope))
             .unwrap_or(HirType::Unknown);
 
         let init_expr = d.init.as_deref().map(|e| lower_swc_expr(e, scope));
@@ -1060,6 +1060,55 @@ pub fn parse_type_annotation(s: &str) -> HirType {
             HirType::Array(Box::new(inner))
         }
         _ => HirType::Unknown,
+    }
+}
+
+/// Como [`parse_type_annotation`], mas resolvendo TIPOS NOMEADOS de classe pelo
+/// escopo — `P` vira `HirType::Class(id)` e `P[]` vira `Array(Class(id))`.
+///
+/// A função livre não tem acesso à tabela de classes, então um `const arr: P[]`
+/// virava `Unknown` e o element-type se perdia. Como `arr[i]` JÁ herda o tipo do
+/// elemento (ver o arm de `MemberProp::Computed`), preservar a classe aqui é o
+/// que permite a um `const o = arr[i]` saber que `o` é um `P` — e daí o acesso
+/// `o.campo` alcançar o fast path de slot constante do codegen em vez do
+/// caminho dinâmico (`__rtsadp_obj_get`, ~1 µs por leitura).
+/// Nome da classe por [`ClassId`], preenchido quando uma anotação resolve um
+/// tipo nomeado. O codegen indexa suas tabelas por NOME, mas o `HirType::Class`
+/// só carrega o id; este side-table faz a volta. Um programa por processo (o
+/// compilador reseta entre compilações), então um mapa global basta.
+pub fn class_name_of_id(id: crate::ir::ClassId) -> Option<String> {
+    CLASS_NAMES
+        .lock()
+        .ok()
+        .and_then(|m| m.as_ref().and_then(|h| h.get(&id.0).cloned()))
+}
+
+static CLASS_NAMES: std::sync::Mutex<Option<std::collections::HashMap<u32, String>>> =
+    std::sync::Mutex::new(None);
+
+fn remember_class_name(id: crate::ir::ClassId, name: &str) {
+    if let Ok(mut g) = CLASS_NAMES.lock() {
+        g.get_or_insert_with(Default::default)
+            .insert(id.0, name.to_string());
+    }
+}
+
+fn parse_type_annotation_in(s: &str, scope: &Scope) -> HirType {
+    let t = s.trim();
+    // arrays primeiro, pra `P[]` resolver o elemento pelo escopo
+    if let Some(inner) = t.strip_suffix("[]") {
+        return HirType::Array(Box::new(parse_type_annotation_in(inner, scope)));
+    }
+    match parse_type_annotation(t) {
+        // só um nome NÃO reconhecido pode ser uma classe do usuário
+        HirType::Unknown => match scope.resolve_class(t) {
+            Some(id) => {
+                remember_class_name(id, t);
+                HirType::Class(id)
+            }
+            None => HirType::Unknown,
+        },
+        known => known,
     }
 }
 
