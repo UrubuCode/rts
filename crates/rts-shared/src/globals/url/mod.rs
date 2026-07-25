@@ -52,47 +52,27 @@ fn m(
 }
 
 /// Register the global class `URL`. Getters/setters/methods/statics come from the
-/// `#[rtse::class]` in `instance.rs` (`instance::register`). The two fallible
-/// `new URL(...)` constructors are hand-written (macro gap: a ctor returning
-/// null on an unparseable input) and appended here — `ClassBuilder::done()`
-/// REPLACES (does not merge) the Registry entry, so we read the macro members
-/// back and re-emit them together with the ctors in a single `.done()`.
+/// `#[rtse::class]` in `instance.rs` (`instance::register`) — ctors (fallible
+/// `-> Option<Self>`), getters/setters/methods/statics all macro-authored. This
+/// wrapper re-opens the class only to attach the class-level doc string;
+/// `ClassBuilder::done()` REPLACES (does not merge) the Registry entry, so it
+/// replays the macro members back in the single `.done()`.
 pub fn register_url_class_spec(e: &mut Engine) {
-    // 1) Macro-authored getters/setters/methods/statics.
+    // 1) Macro-authored ctors + getters/setters/methods/statics.
     instance::register(e);
     let macro_members: Vec<Member> = e
         .registry()
         .class("URL")
         .map(|c| c.members.clone())
         .unwrap_or_default();
-    // 2) Re-open the class, replay the macro members, then append the two ctors.
+    // 2) Re-open only to set the class doc; replay the macro members.
     let mut cb = e
         .class("URL")
         .doc("WHATWG URL API — new URL(href[, base]) + href/protocol/host/hostname/port/pathname/search/hash/origin/username/password (getters+setters) + searchParams + toString/toJSON + static canParse.");
     for mem in macro_members {
         cb = cb.member(mem);
     }
-    cb.member(m(
-        "new",
-        MemberKind::Constructor,
-        Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
-        "__RTS_FN_GL_URL_NEW",
-        instance::__RTS_FN_GL_URL_NEW as *const u8,
-        "new URL(url: string): URL",
-        "new URL(url) — parse a URL. Returns a URL handle or 0 (null) if invalid.",
-        true,
-    ))
-    .member(m(
-        "new",
-        MemberKind::Constructor,
-        Sig::new(vec![AbiType::StrPtr, AbiType::StrPtr], AbiType::Handle),
-        "__RTS_FN_GL_URL_NEW_WITH_BASE",
-        instance::__RTS_FN_GL_URL_NEW_WITH_BASE as *const u8,
-        "new URL(url: string, base: string): URL",
-        "new URL(relative, base) — resolve a relative URL against a base URL.",
-        true,
-    ))
-    .done();
+    cb.done();
 }
 
 /// Register the global class `URLSearchParams`. Ctor + get/has/set/delete/

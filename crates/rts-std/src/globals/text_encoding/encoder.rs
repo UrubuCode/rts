@@ -85,8 +85,8 @@ mod tests {
 
     #[test]
     fn encode_roundtrip_len() {
-        let h = __RTS_FN_GL_TEXTENCODER_NEW();
-        let bh = __RTS_FN_GL_TEXTENCODER_ENCODE(
+        let h = __RTS_FN_GL_TEXTENCODER_new();
+        let bh = __RTS_FN_GL_TEXTENCODER_encode(
             h,
             "hi".as_ptr() as i64,
             2,

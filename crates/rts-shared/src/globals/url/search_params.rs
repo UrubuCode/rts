@@ -115,17 +115,15 @@ impl UrlSearchParams {
     /// `get(key)` — first occurrence's value, or `""` if absent.
     ///
     /// Returns `String` (ts `): string`) so the engine boxes the result as a string
-    /// word (`ret_is_string_handle`); a raw `Handle` return would ts as `object` and
-    /// render the value as `[object Object]`. NOTE: WHATWG returns `null` for an
-    /// absent key — RTS returns `""` here (a nullable-string handle return needs
-    /// `box_handle_auto` routing, a deeper engine/macro follow-up).
+    /// word (`ret_is_string_handle`). WHATWG returns `null` for an absent key —
+    /// the `-> Option<String>` return maps `None` → JS `null` (ts `string | null`),
+    /// `Some` → the value string.
     #[rtse::method]
-    fn get(self: &UrlSearchParams, key: &str) -> String {
+    fn get(self: &UrlSearchParams, key: &str) -> Option<String> {
         self.pairs
             .iter()
             .find(|(k, _)| k == key)
             .map(|(_, v)| v.clone())
-            .unwrap_or_default()
     }
 
     /// `has(key)`.
@@ -317,20 +315,20 @@ mod tests {
     #[test]
     fn get_has_size() {
         let handle = h(&[("a", "1"), ("b", "2")]);
-        assert_eq!(__RTS_FN_GL_URLSEARCHPARAMS_SIZE(handle), 2);
-        assert!(__RTS_FN_GL_URLSEARCHPARAMS_HAS(
+        assert_eq!(__RTS_FN_GL_URLSEARCHPARAMS_size(handle), 2);
+        assert!(__RTS_FN_GL_URLSEARCHPARAMS_has(
             handle,
             "a".as_ptr() as i64,
             1
         ) != 0);
-        let vh = __RTS_FN_GL_URLSEARCHPARAMS_GET(handle, "a".as_ptr() as i64, 1);
+        let vh = __RTS_FN_GL_URLSEARCHPARAMS_get(handle, "a".as_ptr() as i64, 1);
         assert!(vh != 0);
     }
 
     #[test]
     fn set_replaces_first_drops_dupes() {
         let handle = h(&[("a", "1"), ("a", "x"), ("b", "2")]);
-        __RTS_FN_GL_URLSEARCHPARAMS_SET(handle, "a".as_ptr() as i64, 1, "9".as_ptr() as i64, 1);
+        __RTS_FN_GL_URLSEARCHPARAMS_set(handle, "a".as_ptr() as i64, 1, "9".as_ptr() as i64, 1);
         with_rtse::<UrlSearchParams, _>(handle, |s| {
             let s = s.unwrap();
             assert_eq!(s.pairs, vec![("a".into(), "9".into()), ("b".into(), "2".into())]);
@@ -340,7 +338,7 @@ mod tests {
     #[test]
     fn delete_removes_all() {
         let handle = h(&[("a", "1"), ("a", "2"), ("b", "3")]);
-        __RTS_FN_GL_URLSEARCHPARAMS_DELETE(handle, "a".as_ptr() as i64, 1);
+        __RTS_FN_GL_URLSEARCHPARAMS_delete(handle, "a".as_ptr() as i64, 1);
         with_rtse::<UrlSearchParams, _>(handle, |s| {
             assert_eq!(s.unwrap().pairs, vec![("b".into(), "3".into())]);
         });
@@ -349,8 +347,8 @@ mod tests {
     #[test]
     fn append_preserves_dupes() {
         let handle = h(&[]);
-        __RTS_FN_GL_URLSEARCHPARAMS_APPEND(handle, "a".as_ptr() as i64, 1, "1".as_ptr() as i64, 1);
-        __RTS_FN_GL_URLSEARCHPARAMS_APPEND(handle, "a".as_ptr() as i64, 1, "2".as_ptr() as i64, 1);
+        __RTS_FN_GL_URLSEARCHPARAMS_append(handle, "a".as_ptr() as i64, 1, "1".as_ptr() as i64, 1);
+        __RTS_FN_GL_URLSEARCHPARAMS_append(handle, "a".as_ptr() as i64, 1, "2".as_ptr() as i64, 1);
         with_rtse::<UrlSearchParams, _>(handle, |s| {
             assert_eq!(
                 s.unwrap().pairs,
@@ -362,7 +360,7 @@ mod tests {
     #[test]
     fn sort_orders_by_key() {
         let handle = h(&[("b", "2"), ("a", "1")]);
-        __RTS_FN_GL_URLSEARCHPARAMS_SORT(handle);
+        __RTS_FN_GL_URLSEARCHPARAMS_sort(handle);
         with_rtse::<UrlSearchParams, _>(handle, |s| {
             assert_eq!(s.unwrap().pairs, vec![("a".into(), "1".into()), ("b".into(), "2".into())]);
         });
@@ -371,7 +369,7 @@ mod tests {
     #[test]
     fn to_string_form_encodes() {
         let handle = h(&[("a b", "c+d")]);
-        let sh = __RTS_FN_GL_URLSEARCHPARAMS_TO_STRING(handle);
+        let sh = __RTS_FN_GL_URLSEARCHPARAMS_to_string(handle);
         let s = with_entry(sh, |e| match e {
             Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
             _ => String::new(),

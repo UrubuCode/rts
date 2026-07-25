@@ -277,7 +277,7 @@ mod tests {
     #[test]
     fn get_joins_values_with_comma_space() {
         let handle = h(&[("a", "1"), ("a", "2")]);
-        let vh = __RTS_FN_GL_HEADERS_GET(handle, "a".as_ptr() as i64, 1);
+        let vh = __RTS_FN_GL_HEADERS_get(handle, "a".as_ptr() as i64, 1);
         let s = with_entry(vh, |e| match e {
             Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
             _ => String::new(),
@@ -288,15 +288,15 @@ mod tests {
     #[test]
     fn has_and_delete() {
         let handle = h(&[("a", "1")]);
-        assert!(__RTS_FN_GL_HEADERS_HAS(handle, "A".as_ptr() as i64, 1) != 0);
-        __RTS_FN_GL_HEADERS_DELETE(handle, "a".as_ptr() as i64, 1);
-        assert_eq!(__RTS_FN_GL_HEADERS_HAS(handle, "a".as_ptr() as i64, 1), 0);
+        assert!(__RTS_FN_GL_HEADERS_has(handle, "A".as_ptr() as i64, 1) != 0);
+        __RTS_FN_GL_HEADERS_delete(handle, "a".as_ptr() as i64, 1);
+        assert_eq!(__RTS_FN_GL_HEADERS_has(handle, "a".as_ptr() as i64, 1), 0);
     }
 
     #[test]
     fn set_replaces_all() {
         let handle = h(&[("a", "1"), ("a", "2")]);
-        __RTS_FN_GL_HEADERS_SET(handle, "a".as_ptr() as i64, 1, "9".as_ptr() as i64, 1);
+        __RTS_FN_GL_HEADERS_set(handle, "a".as_ptr() as i64, 1, "9".as_ptr() as i64, 1);
         with_rtse::<Headers, _>(handle, |s| {
             assert_eq!(s.unwrap().map.get("a"), Some(&vec!["9".to_string()]));
         });
@@ -305,8 +305,8 @@ mod tests {
     #[test]
     fn append_preserves_dupes() {
         let handle = h(&[]);
-        __RTS_FN_GL_HEADERS_APPEND(handle, "a".as_ptr() as i64, 1, "1".as_ptr() as i64, 1);
-        __RTS_FN_GL_HEADERS_APPEND(handle, "a".as_ptr() as i64, 1, "2".as_ptr() as i64, 1);
+        __RTS_FN_GL_HEADERS_append(handle, "a".as_ptr() as i64, 1, "1".as_ptr() as i64, 1);
+        __RTS_FN_GL_HEADERS_append(handle, "a".as_ptr() as i64, 1, "2".as_ptr() as i64, 1);
         with_rtse::<Headers, _>(handle, |s| {
             assert_eq!(
                 s.unwrap().map.get("a"),

@@ -4,17 +4,10 @@
 //! per-accessor `#[no_mangle] extern "C"` fns to the `#[rtse::class]` authoring
 //! macro (like `Point`/`URLSearchParams`). The instance is a normal Rust struct
 //! (`Url`, owned `String` components) stored via the generic `Entry::Rtse`.
-//! Getters, setters, `toString`/`toJSON`, `searchParams`, and the `canParse`
-//! statics are all macro-authored (idiomatic Rust; `&self`/`&mut self`).
-//!
-//! **Left hand-written** (appended by `url::register_url_class_spec` via the
-//! class-reopen pattern): the two `new URL(...)` constructors. WHATWG `new URL`
-//! is FALLIBLE — it must yield a null handle (`0`) on an unparseable input, and
-//! the macro's `#[rtse::ctor] -> Self` always allocates a struct (no
-//! null/`Option<Self>` return path). So the ctors stay ordinary
-//! `#[no_mangle] extern "C"` fns that return `0` on a parse failure and
-//! `alloc_rtse("URL", …)` on success — the SAME `Entry::Rtse<Url>` storage the
-//! macro members read. (Macro gap: a fallible/nullable constructor.)
+//! Everything is macro-authored (idiomatic Rust; `&self`/`&mut self`): the two
+//! `new URL(...)` constructors (`#[rtse::ctor] -> Option<Self>` — WHATWG `new URL`
+//! is FALLIBLE, yielding a null handle `0` on an unparseable input), the getters,
+//! setters, `toString`/`toJSON`, `searchParams`, and the `canParse` statics.
 
 use rts_engine::abi::ty::Handle;
 use rts_engine::heap::handles::{alloc_rtse, with_rtse};
@@ -121,6 +114,41 @@ impl Url {
 
 #[rtse::class("URL")]
 impl Url {
+    // ---- constructors (fallible: null handle on an unparseable input) ---------
+
+    /// `new URL(url)` — parse a URL string; returns null (`0`) on an invalid URL.
+    #[rtse::ctor]
+    fn new(url: &str) -> Option<Self> {
+        ParsedUrl::parse(url).map(Url::from_parsed)
+    }
+
+    /// `new URL(relative, base)` — resolve a relative URL against a base; returns
+    /// null when the base is unparseable.
+    #[rtse::ctor]
+    fn new_with_base(rel: &str, base: &str) -> Option<Self> {
+        // A relative that already carries its own scheme is used directly.
+        if rel.contains("://") {
+            return ParsedUrl::parse(rel).map(Url::from_parsed);
+        }
+        let base_parsed = ParsedUrl::parse(base)?;
+        let resolved_path = if rel.starts_with('/') {
+            rel.to_string()
+        } else {
+            let base_dir = match base_parsed.pathname.rsplit_once('/') {
+                Some((dir, _)) => format!("{dir}/"),
+                None => "/".to_string(),
+            };
+            format!("{base_dir}{rel}")
+        };
+        let combined = format!(
+            "{}//{}{}",
+            base_parsed.protocol,
+            base_parsed.host(),
+            resolved_path
+        );
+        ParsedUrl::parse(&combined).map(Url::from_parsed)
+    }
+
     // ---- readonly getters (0-arg instance methods, read as properties) --------
 
     /// `url.href` — the full URL serialized (reflects setters + searchParams).
@@ -366,71 +394,3 @@ impl Url {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Hand-written constructors (macro gap: a FALLIBLE ctor returning `0`/null on an
-// unparseable input — the macro's `-> Self` ctor always allocates). Both alloc
-// the SAME `Entry::Rtse<Url>` the macro members read. Symbols/signatures are
-// preserved verbatim: `rts-node` (words.rs/legacy.rs) links against
-// `__RTS_FN_GL_URL_NEW` / `__RTS_FN_GL_URL_NEW_WITH_BASE` by name.
-// ---------------------------------------------------------------------------
-
-fn str_from_parts(ptr: i64, len: i64) -> &'static str {
-    if ptr == 0 || len == 0 {
-        return "";
-    }
-    unsafe {
-        let slice = std::slice::from_raw_parts(ptr as *const u8, len as usize);
-        std::str::from_utf8_unchecked(slice)
-    }
-}
-
-/// `new URL(url)` — parse a URL string. Returns the `URL` handle, or `0`
-/// (null) on an invalid URL.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_URL_NEW(ptr: i64, len: i64) -> u64 {
-    match ParsedUrl::parse(str_from_parts(ptr, len)) {
-        Some(p) => alloc_rtse("URL", Url::from_parsed(p)),
-        None => 0,
-    }
-}
-
-/// `new URL(relative, base)` — resolve a relative URL against a base. Returns
-/// the `URL` handle, or `0` (null) when the base is unparseable.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_URL_NEW_WITH_BASE(
-    rel_ptr: i64,
-    rel_len: i64,
-    base_ptr: i64,
-    base_len: i64,
-) -> u64 {
-    let rel = str_from_parts(rel_ptr, rel_len);
-    let base = str_from_parts(base_ptr, base_len);
-    // If the relative already has its own scheme (http://, …), use it directly.
-    if rel.contains("://") {
-        return __RTS_FN_GL_URL_NEW(rel_ptr, rel_len);
-    }
-    let Some(base_parsed) = ParsedUrl::parse(base) else {
-        return 0;
-    };
-    // Resolve the path relative to base.pathname.
-    let resolved_path = if rel.starts_with('/') {
-        rel.to_string()
-    } else {
-        let base_dir = match base_parsed.pathname.rsplit_once('/') {
-            Some((dir, _)) => format!("{dir}/"),
-            None => "/".to_string(),
-        };
-        format!("{base_dir}{rel}")
-    };
-    // Reuse the parser to normalize segments + extract search/hash.
-    let combined = format!(
-        "{}//{}{}",
-        base_parsed.protocol,
-        base_parsed.host(),
-        resolved_path
-    );
-    match ParsedUrl::parse(&combined) {
-        Some(p) => alloc_rtse("URL", Url::from_parsed(p)),
-        None => 0,
-    }
-}

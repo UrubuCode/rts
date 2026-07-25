@@ -462,6 +462,42 @@ fn is_self_ret(ty: &Type) -> bool {
     matches!(ty, Type::Path(p) if p.path.is_ident("Self"))
 }
 
+/// Is this return type `Option<Self>` — a FALLIBLE ctor/factory that yields a
+/// NULL handle (`0`) on `None` (WHATWG `new URL(bad)` → null; the shape any
+/// parse-or-null constructor needs). The macro allocs the `Some` payload via
+/// `alloc_rtse` exactly like `-> Self`, and returns `0u64` for `None`.
+fn is_option_self_ret(ty: &Type) -> bool {
+    let Type::Path(p) = ty else { return false };
+    let Some(seg) = p.path.segments.last() else {
+        return false;
+    };
+    if seg.ident != "Option" {
+        return false;
+    }
+    let syn::PathArguments::AngleBracketed(a) = &seg.arguments else {
+        return false;
+    };
+    matches!(a.args.first(), Some(syn::GenericArgument::Type(inner)) if is_self_ret(inner))
+}
+
+/// Is this return type `Option<String>` — a NULLABLE string getter/method that
+/// yields JS `null` (a `0` handle) on `None` and a string handle on `Some`
+/// (`URLSearchParams.get(missing)` → null, not `""`). ts return is
+/// `string | null` so the engine's nullable-string rebox maps `0` → `null`.
+fn is_option_string_ret(ty: &Type) -> bool {
+    let Type::Path(p) = ty else { return false };
+    let Some(seg) = p.path.segments.last() else {
+        return false;
+    };
+    if seg.ident != "Option" {
+        return false;
+    }
+    let syn::PathArguments::AngleBracketed(a) = &seg.arguments else {
+        return false;
+    };
+    matches!(a.args.first(), Some(syn::GenericArgument::Type(inner)) if is_string_ret(inner))
+}
+
 /// Is this a `Poly` (`any`) type? A NaN-boxed PolyValue word crosses the ABI
 /// UNCHANGED (`AbiType::PolyValue`) — an arbitrary JS value (weakmap value, etc.).
 fn is_poly_ty(ty: &Type) -> bool {
@@ -583,8 +619,12 @@ fn gen_member(
         }
     }
 
-    let member_upper = rust_name.to_string().to_uppercase();
-    let symbol = format!("__RTS_FN_GL_{class_upper}_{member_upper}");
+    // The Rust fn name is used VERBATIM (case-preserved) in the symbol — NOT
+    // uppercased — so two members differing only by case (`fn Foo` vs `fn foo`)
+    // stay distinct symbols instead of colliding. Consumers link by the exact
+    // name; the engine reads `Member.symbol`, so it is case-agnostic regardless.
+    let member = rust_name.to_string();
+    let symbol = format!("__RTS_FN_GL_{class_upper}_{member}");
     let extern_ident = format_ident!("{}", symbol);
 
     // Params (skip the receiver).
@@ -668,13 +708,26 @@ fn gen_member(
         Box<dyn Fn(proc_macro2::TokenStream) -> proc_macro2::TokenStream>,
     ) = if is_ctor {
         // The ctor allocates the struct as a classed `Entry::Rtse` (the class name
-        // travels so `instanceof` can consult the hierarchy).
+        // travels so `instanceof` can consult the hierarchy). A FALLIBLE ctor
+        // (`-> Option<Self>`) allocs the `Some` and returns null (`0`) for `None`.
         let cls = class.to_string();
+        let fallible = ret_ty(sig).is_some_and(is_option_self_ret);
+        let wrap: Box<dyn Fn(proc_macro2::TokenStream) -> proc_macro2::TokenStream> = if fallible {
+            Box::new(move |b| {
+                quote!(match #b {
+                    ::core::option::Option::Some(__v) =>
+                        ::rts_engine::heap::handles::alloc_rtse(#cls, __v),
+                    ::core::option::Option::None => 0u64,
+                })
+            })
+        } else {
+            Box::new(move |b| quote!(::rts_engine::heap::handles::alloc_rtse(#cls, #b)))
+        };
         (
             quote!(::rts_engine::AbiType::Handle),
             quote!(u64),
             class.to_string(),
-            Box::new(move |b| quote!(::rts_engine::heap::handles::alloc_rtse(#cls, #b))),
+            wrap,
         )
     } else {
         match ret_ty(sig) {
@@ -709,6 +762,40 @@ fn gen_member(
                     Box::new(move |b| quote!(::rts_engine::heap::handles::alloc_rtse(#cls, #b))),
                 )
             }
+            Some(t) if is_option_self_ret(t) => {
+                // `-> Option<Self>`: a fallible factory — alloc the `Some`, return
+                // null (`0`) for `None`. Same class-tracked handle as `-> Self`.
+                let cls = class.to_string();
+                (
+                    quote!(::rts_engine::AbiType::Handle),
+                    quote!(u64),
+                    class.to_string(),
+                    Box::new(move |b| {
+                        quote!(match #b {
+                            ::core::option::Option::Some(__v) =>
+                                ::rts_engine::heap::handles::alloc_rtse(#cls, __v),
+                            ::core::option::Option::None => 0u64,
+                        })
+                    }),
+                )
+            }
+            Some(t) if is_option_string_ret(t) => (
+                // `-> Option<String>`: a nullable string — `Some(s)` allocs a string
+                // handle, `None` returns `0` (JS `null`). ts `string | null` so the
+                // engine's nullable-string rebox maps the `0` handle to `null`.
+                quote!(::rts_engine::AbiType::Handle),
+                quote!(u64),
+                "string | null".into(),
+                Box::new(|b| {
+                    quote!(match #b {
+                        ::core::option::Option::Some(__s) =>
+                            ::rts_engine::heap::handles::alloc_entry(
+                                ::rts_engine::heap::handles::Entry::String(__s.into_bytes())
+                            ),
+                        ::core::option::Option::None => 0u64,
+                    })
+                }),
+            ),
             Some(t) if is_string_ret(t) => (
                 quote!(::rts_engine::AbiType::Handle),
                 quote!(u64),
@@ -1099,7 +1186,8 @@ fn gen_field(
     };
     let is_bool = matches!(fty, Type::Path(p) if p.path.is_ident("bool"));
     let js_name = to_camel(&fname.to_string());
-    let field_upper = fname.to_string().to_uppercase();
+    // Field name VERBATIM (case-preserved) in the symbol — see `member` above.
+    let field_upper = fname.to_string();
     let mut externs = Vec::new();
     let mut members = Vec::new();
     let mut keep = Vec::new();
