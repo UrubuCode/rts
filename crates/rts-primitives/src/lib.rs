@@ -58,20 +58,12 @@ pub const BOOLEAN_TS: &str = include_str!("boolean.ts");
 /// wrapper trampoline.
 pub const NUMBER_TS: &str = include_str!("number.ts");
 
-/// Embedded TypeScript source of the PRIMORDIAL `String.prototype` methods
-/// (case/trim/charAt/charCodeAt/at/repeat/slice/substring/indexOf/lastIndexOf/
-/// includes/startsWith/endsWith/padStart/padEnd/concat/replace/replaceAll).
-/// `string` is a PRIMITIVE (native literal syntax `""`), so the VALUE stays a
-/// `TAG_STR` PolyValue — only the METHOD library moves here. A method called on a
-/// PRIMITIVE string receiver (`"abc".toUpperCase()`) is routed into this ambient
-/// `class String`'s method with the primitive BOXED as `this` (shape-based
-/// dispatch, NOT JS prototypes). The irreducible Unicode-aware string logic stays
-/// in Rust (`string/`, `__RTS_FN_GL_STRING_*`) and is re-exposed PRIVATELY via the
-/// `engine.str_*` helpers the bodies call — one source of truth. Same pattern as
-/// `NUMBER_TS`. `.length` stays an engine direct read; `split` (array) + the
-/// regex-first methods stay on the engine's dispatch paths. The wrapper object
-/// `new String(x)` stays the engine's wrapper trampoline.
-pub const STRING_TS: &str = include_str!("string.ts");
+// String is now a pure-Rust `#[rtse::class("String", value)]` value-class
+// (`string/value_class.rs` + `string/strops.rs`) — the `.ts` prelude (`STRING_TS`)
+// was DELETED. Instance dispatch: proven (`try_primitive_class_method`) +
+// dynamic/computed/method-as-value (`runtime_ci` + `funcops::prim_method_value`) +
+// wrapper ToPrimitive; variadic statics via `globals::string_static_call`. The
+// macro generates every String symbol; nothing hardcoded in the engine.
 
 pub mod array;
 pub mod arraybuffer;

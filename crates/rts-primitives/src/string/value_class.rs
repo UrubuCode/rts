@@ -406,17 +406,11 @@ impl StringWrapper {
         String::from_utf8_lossy(&strops::to_well_formed(&raw_bytes(recv))).into_owned()
     }
 
-    // ── statics ─────────────────────────────────────────────────────────────────
-
-    /// `String.fromCharCode(code)` — char from a UTF-16 code unit.
-    #[rtse::statical]
-    fn from_char_code(code: f64) -> String {
-        strops::from_char_code(code as i64)
-    }
-
-    /// `String.fromCodePoint(codePoint)` — char from a full Unicode code point.
-    #[rtse::statical]
-    fn from_code_point(code: f64) -> String {
-        strops::from_code_point(code as i64)
-    }
+    // NOTE: the VARIADIC statics `String.fromCharCode(...codes)` /
+    // `fromCodePoint(...)` are NOT value-class members — they are handled by the
+    // dedicated variadic codegen path `globals::string_static_call` (→ the
+    // `__rtsadp_str_from_char_code` value-model trampoline), which the macro's
+    // fixed-arity `#[rtse::statical]` cannot express. Registering them here would
+    // shadow that path and reject `fromCharCode(a, b)` (arity > 1). The static
+    // `String.raw` likewise stays on that codegen path.
 }

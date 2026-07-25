@@ -633,6 +633,29 @@ pub extern "C" fn __rtsadp_obj_own_symbols(obj_word: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_own_names(obj_word: u64) -> u64 {
     let obj = PolyValue::from_raw(obj_word);
+    // A pure-Rust `new String("hi")` WRAPPER (`Entry::Rtse` classed "String"): JS
+    // exposes the UTF-16 code-unit indices + "length" as own property names
+    // (#789). The primitive is read via the value-class `valueOf` (runtime_ci),
+    // data-driven — no class named here beyond the value's own tag.
+    if obj.is_object() && super::dynci::class_tag_of_pub(obj_word).as_deref() == Some("String") {
+        let undef = PolyValue::undefined().raw();
+        let key = abi_adapter::intern_poly("valueOf").raw();
+        if let Some(prim) = super::dynci::try_runtime_ci(obj_word, key, undef, undef, undef, 0) {
+            if PolyValue::from_raw(prim).is_string() {
+                let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+                let len = abi_adapter::resolve_poly(PolyValue::from_raw(prim))
+                    .encode_utf16()
+                    .count();
+                for i in 0..len {
+                    let word = abi_adapter::intern_poly(&i.to_string()).raw() as i64;
+                    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, word);
+                }
+                let word = abi_adapter::intern_poly("length").raw() as i64;
+                rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, word);
+                return box_vec_as_array(vec);
+            }
+        }
+    }
     // A STRING BOX (`new String("hi")` — a keyed object whose primitive lives in
     // the `__prim` slot): JS exposes the code-unit indices + `length` as own
     // property names (#789). Shape-detected (the `__prim` slot holding a string),

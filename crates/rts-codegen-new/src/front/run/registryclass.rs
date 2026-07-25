@@ -288,6 +288,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if self.local(name).is_some() || !self.is_pure_registry_class(name) {
             return Ok(None);
         }
+        // A WRAPPER PRIMORDIAL (String/Number/Boolean — engine MAY name them) whose
+        // requested static is NOT a Registry member: the VARIADIC statics
+        // (`String.fromCharCode`/`fromCodePoint`/`raw`) live on the dedicated
+        // global-static codegen path, which the macro's fixed-arity `#[rtse::statical]`
+        // cannot express. Fall through (Ok(None)) so `try_global_static_call`
+        // (`string_static_call`) handles them instead of bailing "no such static".
+        if matches!(name.as_str(), "String" | "Number" | "Boolean")
+            && super::registry::class_statics(name, method).is_empty()
+        {
+            return Ok(None);
+        }
         self.resolve_static_via_registry(module, name, method, args)
             .map(Some)
     }

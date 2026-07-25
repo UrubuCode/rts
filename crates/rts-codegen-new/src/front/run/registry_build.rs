@@ -481,18 +481,13 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
         source: rts_runtime::NUMBER_TS,
         why: "num.toFixed/toString(radix)/…",
     },
-    // String — the pure-Rust `#[rtse::class("String", value)]` value-class handles
-    // the full INSTANCE surface: proven dispatch (`try_primitive_class_method`),
-    // dynamic/computed CALL + method-AS-VALUE read (`runtime_ci` +
-    // `funcops::prim_method_value`), wrapper ToPrimitive. This `.ts` prelude stays
-    // ONLY for the last 2 gaps before deletion: the VARIADIC statics
-    // `String.fromCharCode`/`fromCodePoint` (need macro variadic-static support)
-    // and string index-property ENUMERATION (`Object.keys("ab")` → "0","1","length").
-    PreludeTs {
-        label: "String",
-        source: rts_runtime::STRING_TS,
-        why: "interim: variadic fromCharCode/fromCodePoint + string index enumeration",
-    },
+    // String — MIGRATED to a pure-Rust `#[rtse::class("String", value)]`
+    // (rts-primitives/src/string/value_class.rs); NO `.ts` prelude. Instance surface
+    // via the value-class (proven `try_primitive_class_method` + dynamic/computed +
+    // method-as-value `runtime_ci`/`prim_method_value` + wrapper ToPrimitive); the
+    // VARIADIC statics `fromCharCode`/`fromCodePoint`/`raw` via the dedicated codegen
+    // path `globals::string_static_call`; `getOwnPropertyNames(new String())` via the
+    // Rtse-wrapper branch in `iterops`. The macro generates every String symbol.
     // Global console object (front names nothing; bridges via engine.*).
     PreludeTs {
         label: "console",
