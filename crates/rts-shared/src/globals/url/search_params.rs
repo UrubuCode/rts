@@ -16,10 +16,9 @@
 //! SAME `UrlSearchParams` struct via `with_rtse`, so both authoring styles agree
 //! on one storage representation.
 
-use rts_engine::abi::ty::Handle;
 use rts_engine::heap::handles::{Entry, alloc_entry, with_rtse};
 
-use super::instance::percent_encode_form;
+use super::parse::percent_encode_form;
 
 /// (cross-runtime #746) Percent-decode a URL query component: `%XX` -> byte
 /// 0xXX; `+` -> ' '; invalid bytes kept as-is. Lossy UTF-8.
