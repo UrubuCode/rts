@@ -72,7 +72,12 @@ pub const WEBAPI_TS: &str = include_str!("webapi.ts");
 /// rides the real setTimeout queue; MessagePort delivers via queueMicrotask.
 pub const EVENTS_TS: &str = include_str!("events.ts");
 
-// Web Streams (`ReadableStream`/`WritableStream`/`TransformStream`/
-// `TextEncoderStream`/`TextDecoderStream`) moved to `#[rtse::class]` Rust
-// (DRAIN_MOTOR §11, `crates/rts-std/src/globals/streams/`) — `STREAMS_TS`
-// removed, `streams.ts` deleted.
+/// Web Streams — `ReadableStream`/`WritableStream`/`TransformStream`/
+/// `TextEncoderStream`/`TextDecoderStream`. RESTORED as the live surface: the
+/// `#[rtse::class]` Rust reimplementation (`crates/rts-std/src/globals/streams/`)
+/// is NOT yet at parity (controller `enqueue` from a `start(c)` callback + the
+/// streaming read-loop regressed `node:fs` streams / StringDecoder), so the `.ts`
+/// stays wired until the Rust streams are validated (they need the engine's
+/// closure-capture to test the read-loop). The Rust module compiles but is
+/// UNWIRED (DRAIN_MOTOR §11 — migrate-before-delete: keep the working surface).
+pub const STREAMS_TS: &str = include_str!("streams.ts");
