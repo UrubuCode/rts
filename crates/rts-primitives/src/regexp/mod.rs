@@ -13,6 +13,23 @@ use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use rts_engine::heap::handles::{Entry, alloc_entry, with_entry, with_entry_mut};
 
+// `RegExp` (PRIMORDIAL, native `/re/` syntax) is layered ABOVE the `regex`
+// namespace (non-primordial backend, lives in `rts-shared`). rts-primitives
+// cannot `use rts_shared::...` (would invert the crate DAG:
+// rts-shared already depends on rts-primitives) so these two symbols are
+// reached the same way codegen reaches runtime externs — by LINK-TIME symbol
+// name, not by a Cargo/module dependency. Both crates always link together via
+// the `rts-runtime` facade, so the symbols are guaranteed present at link time.
+unsafe extern "C" {
+    fn __RTS_FN_NS_REGEX_COMPILE(
+        pattern_ptr: *const u8,
+        pattern_len: i64,
+        flags_ptr: *const u8,
+        flags_len: i64,
+    ) -> Handle;
+    fn __RTS_FN_NS_REGEX_TEST(handle: Handle, s_ptr: *const u8, s_len: i64) -> Bool;
+}
+
 // ── Helpers (side-table indices_vec_handle -> groups_map_handle) ───────────────
 
 /// (cross-runtime #70/#1162) Side-table indices_vec_handle -> groups_map_handle.
@@ -38,7 +55,7 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_NEW(pattern_ptr: *const u8, pattern_len: i6
         Some(s) => s,
         None => return 0,
     };
-    crate::regex::__RTS_FN_NS_REGEX_COMPILE(pattern.as_ptr(), pattern.len() as i64, "".as_ptr(), 0)
+    unsafe { __RTS_FN_NS_REGEX_COMPILE(pattern.as_ptr(), pattern.len() as i64, "".as_ptr(), 0) }
 }
 
 /// `new RegExp(pattern, flags)` — with flags like "gi", "im", "s".
@@ -57,12 +74,14 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_NEW_WITH_FLAGS(
         Some(s) => s,
         None => return 0,
     };
-    crate::regex::__RTS_FN_NS_REGEX_COMPILE(
-        pattern.as_ptr(),
-        pattern.len() as i64,
-        flags.as_ptr(),
-        flags.len() as i64,
-    )
+    unsafe {
+        __RTS_FN_NS_REGEX_COMPILE(
+            pattern.as_ptr(),
+            pattern.len() as i64,
+            flags.as_ptr(),
+            flags.len() as i64,
+        )
+    }
 }
 
 /// `re.test(str)` — returns 1 if match, 0 otherwise.
@@ -72,7 +91,7 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_TEST(handle: Handle, s_ptr: *const u8, s_le
         Some(s) => s,
         None => return 0,
     };
-    crate::regex::__RTS_FN_NS_REGEX_TEST(handle, s.as_ptr(), s.len() as i64)
+    unsafe { __RTS_FN_NS_REGEX_TEST(handle, s.as_ptr(), s.len() as i64) }
 }
 
 /// `re.exec(str)` — JS Array-like (Map) com matched + captures + groups.
@@ -82,7 +101,6 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_EXEC(handle: Handle, s_ptr: *const u8, s_le
         Some(s) => s,
         None => return 0,
     };
-    use indexmap::IndexMap;
     let s_full = s.to_string();
     let result = with_entry_mut(handle, |entry| {
         if let Some(Entry::Regex(rx)) = entry {

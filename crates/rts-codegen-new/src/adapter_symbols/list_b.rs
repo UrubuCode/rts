@@ -85,32 +85,15 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             rts_runtime::namespaces::globals::text_encoding::instance::__RTS_FN_GL_TEXTENC_ATOB
                 as *const u8,
         ),
-        // TextEncoder/TextDecoder class ctor + instance methods (Registry class).
-        sym(
-            "__RTS_FN_GL_TEXTENC_NEW",
-            rts_runtime::namespaces::globals::text_encoding::instance::__RTS_FN_GL_TEXTENC_NEW
-                as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_TEXTENC_ENCODE_INSTANCE",
-            rts_runtime::namespaces::globals::text_encoding::instance::__RTS_FN_GL_TEXTENC_ENCODE_INSTANCE
-                as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_TEXTENC_ENCODE_INTO",
-            rts_runtime::namespaces::globals::text_encoding::instance::__RTS_FN_GL_TEXTENC_ENCODE_INTO
-                as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_TEXTDEC_NEW",
-            rts_runtime::namespaces::globals::text_encoding::instance::__RTS_FN_GL_TEXTDEC_NEW
-                as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_TEXTDEC_DECODE_INSTANCE",
-            rts_runtime::namespaces::globals::text_encoding::instance::__RTS_FN_GL_TEXTDEC_DECODE_INSTANCE
-                as *const u8,
-        ),
+        // TextEncoder/TextDecoder class ctor + instance methods: migrated to
+        // `#[rtse::class]` (DRAIN_MOTOR) — the macro-generated members carry a
+        // REAL `fn_ptr`, so the Registry harvest (`all_jit_symbols`) installs
+        // their JIT symbol automatically; no manual `sym()` entry needed
+        // anymore (removed: `__RTS_FN_GL_TEXTENC_NEW/ENCODE_INSTANCE/
+        // ENCODE_INTO`, `__RTS_FN_GL_TEXTDEC_NEW/DECODE_INSTANCE`). The
+        // hand-written residual `decode` (`__RTS_FN_GL_TEXTDECODER_DECODE`,
+        // `decoder.rs`) also carries a real `fn_ptr` and is harvested the
+        // same way.
         // Promise PRIMORDIAL class: ctor + then/catch/finally + statics. The
         // `__RTS_FN_GL_PROMISE_*` impls live in rts-std (fetch/instance); the spec
         // carries null fn_ptr (external), so they are registered HERE for the JIT.

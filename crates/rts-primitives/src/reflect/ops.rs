@@ -32,7 +32,7 @@ fn reify_accessor_fn(fn_ptr: u64, name: &str) -> u64 {
         return alloc_entry(Entry::String(b"undefined".to_vec()));
     }
     let name_bytes = name.as_bytes();
-    rts_primitives::function::ops::__RTS_FN_GL_FUNCTION_REIFY(
+    crate::function::ops::__RTS_FN_GL_FUNCTION_REIFY(
         fn_ptr,
         0,
         name_bytes.as_ptr() as i64,
@@ -77,18 +77,18 @@ pub extern "C" fn __RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR(
     // Consulta flags reais setadas via Object.defineProperty; default true.
     let bool_true: i64 = i64::MIN + 1;
     let bool_false: i64 = i64::MIN;
-    let writable = if crate::collections::map::is_non_writable(obj, &key_str) {
+    let writable = if rts_engine::heap::descriptors::is_non_writable(obj, &key_str) {
         bool_false
     } else {
         bool_true
     };
-    let enumerable = if crate::collections::map::is_non_enumerable(obj, &key_str) {
+    let enumerable = if rts_engine::heap::descriptors::is_non_enumerable(obj, &key_str) {
         bool_false
     } else {
         bool_true
     };
     // (#1073) configurable rastreado via Object.defineProperty
-    let configurable = if crate::collections::map::is_non_configurable(obj, &key_str) {
+    let configurable = if rts_engine::heap::descriptors::is_non_configurable(obj, &key_str) {
         bool_false
     } else {
         bool_true
@@ -135,18 +135,18 @@ pub extern "C" fn __RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS(obj: u64) -> u
     let mut out: IndexMap<String, i64> = IndexMap::new();
     for (k, v) in data_pairs {
         // (#749) Consulta flags reais setadas via Object.defineProperty.
-        let writable = if crate::collections::map::is_non_writable(obj, &k) {
+        let writable = if rts_engine::heap::descriptors::is_non_writable(obj, &k) {
             bool_false
         } else {
             bool_true
         };
-        let enumerable = if crate::collections::map::is_non_enumerable(obj, &k) {
+        let enumerable = if rts_engine::heap::descriptors::is_non_enumerable(obj, &k) {
             bool_false
         } else {
             bool_true
         };
         // (#1073) configurable rastreado.
-        let configurable = if crate::collections::map::is_non_configurable(obj, &k) {
+        let configurable = if rts_engine::heap::descriptors::is_non_configurable(obj, &k) {
             bool_false
         } else {
             bool_true

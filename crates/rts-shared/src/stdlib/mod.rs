@@ -46,9 +46,6 @@ pub const REFLECT_TS: &str = include_str!("reflect.ts");
 /// here — `structuredClone(x)` is an ordinary call of this ambient function.
 pub const STRUCTURED_CLONE_TS: &str = include_str!("structured_clone.ts");
 
-/// DOMException — web exception class (name/message/legacy code), ambient.
-pub const DOMEXCEPTION_TS: &str = include_str!("domexception.ts");
-
 /// The global `performance` object (`now()` monotonic ms + `timeOrigin` epoch) —
 /// a rts-shared backend utility (no native syntax). A `.ts` singleton like
 /// `console`, reading the PRIVATE `engine.now_ms`/`unix_ms` clock bridges.
@@ -60,10 +57,13 @@ pub const PERFORMANCE_TS: &str = include_str!("performance.ts");
 /// value rides into the runtime's ordered macro/microtask queues.
 pub const TIMERS_TS: &str = include_str!("timers.ts");
 
-/// Web-platform value classes — `Headers`/`FormData`/`Blob`/`File`/`Request`/
-/// `Response` — rts-shared backend utilities (no native syntax). Pure `.ts`
-/// value holders (insertion-ordered parallel arrays; UTF-8 measured/decoded in
-/// TS); ambient classes so `new Headers()` is ordinary user-class construction.
+/// Web-platform value classes — `FormData`/`Blob`/`File`/`Request`/`Response`
+/// — rts-shared backend utilities (no native syntax). Pure `.ts` value holders
+/// (insertion-ordered parallel arrays; UTF-8 measured/decoded in TS). `Headers`
+/// is NOT here (DRAIN_MOTOR §11): it is a Rust `#[rtse::class]` Registry class
+/// (`rts-std/src/globals/headers`), resolved the same way `URL` is — an
+/// ordinary ambient global, so `new Headers(...)` in `Request`/`Response`
+/// below is unaffected.
 pub const WEBAPI_TS: &str = include_str!("webapi.ts");
 
 /// Web event-model classes — `Event`/`EventTarget`/`AbortSignal`/

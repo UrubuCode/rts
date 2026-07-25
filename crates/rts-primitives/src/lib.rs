@@ -74,10 +74,17 @@ pub const NUMBER_TS: &str = include_str!("number.ts");
 pub const STRING_TS: &str = include_str!("string.ts");
 
 pub mod array;
+pub mod arraybuffer;
 pub mod boolean;
 pub mod error;
+pub mod finalization_registry;
 pub mod function;
 pub mod number;
 pub mod object;
 pub mod promise;
+pub mod proxy;
+pub mod reflect;
+pub mod regexp;
 pub mod string;
+pub mod symbol;
+pub mod weakref;

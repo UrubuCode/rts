@@ -258,8 +258,12 @@ engine** — only metadata in the Registry.
   `Symbol`, `BigInt`, `Proxy`, `Reflect`. **`Symbol` is PRIMORDIAL** — a
   fundamental language built-in with a unique primitive type and
   `typeof x === "symbol"`. The engine MAY name it (route `Symbol(desc)` /
-  `Symbol.for` / `.description` directly); its impl + spec metadata still live
-  in `rts-shared` (`globals/symbol`), like every primitive's impl.
+  `Symbol.for` / `.description` directly); its impl + spec metadata live in
+  `rts-primitives` (`src/symbol`) — PRIMORDIAL impls belong in `rts-primitives`,
+  not `rts-shared` (owner directive 2026-07-24; the earlier `rts-shared/globals/
+  symbol` placement was a layering mistake, now corrected). Reflect/Proxy impls
+  are mid-relocation to `rts-primitives` too (blocked on moving the shared
+  property-descriptor helpers `is_non_writable/enumerable/configurable` first).
   (Reclassified 2026-06-26 — was Registry-only.) **Reclassified 2026-07-03
   (owner decision) — also PRIMORDIAL**: `BigInt` (new primitive type,
   `typeof "bigint"`, native `123n` syntax the generic operators tag-dispatch),

@@ -195,7 +195,21 @@ fn build_registry() -> Registry {
 /// The leaked, process-lifetime Registry. Built on first use.
 fn registry() -> &'static Registry {
     static REG: OnceLock<&'static Registry> = OnceLock::new();
-    REG.get_or_init(|| Box::leak(Box::new(build_registry())))
+    REG.get_or_init(|| {
+        let r: &'static Registry = Box::leak(Box::new(build_registry()));
+        // Seed the runtime class hierarchy with each `#[rtse::class("Child",
+        // extends = "Parent")]` link so `x instanceof Parent` over a struct-backed
+        // `Entry::Rtse` instance resolves via `class_registry::is_descendant_of`
+        // (self-instanceof needs no seed; only inheritance does). JIT-correct
+        // (codegen + run share the process); AOT would seed via an emitted
+        // `__RTS_MAIN` prologue — a follow-up.
+        for c in r.classes() {
+            if let Some(p) = &c.parent {
+                rts_engine::heap::class_registry::register_parent(&c.name, p);
+            }
+        }
+        r
+    })
 }
 
 /// The embedded stdlib TS sources (engine `include`s), concatenated as one

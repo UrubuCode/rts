@@ -1,14 +1,21 @@
-// Faithful TypeScript web-platform value classes — Headers, FormData, Blob,
-// File, Request, Response — the REAL stdlib for the new engine, written in
-// `.ts` instead of hardcoded in codegen (same pattern as map_set.ts).
+// Faithful TypeScript web-platform value classes — FormData, Blob, File,
+// Request, Response — the REAL stdlib for the new engine, written in `.ts`
+// instead of hardcoded in codegen (same pattern as map_set.ts).
+//
+// `Headers` is NOT here (DRAIN_MOTOR §11, owner 2026-07-24): it moved to a
+// Rust `#[rtse::class]` (`rts-std/src/globals/headers/mod.rs`, wired as a
+// Registry global class) — the loader/engine needs a real Rust impl, `.ts`
+// was only an interim. `Headers` is still an ordinary ambient global class
+// here (resolved data-driven via the Registry, identical to `URL`/
+// `URLSearchParams`), so `Request`/`Response` below construct `new
+// Headers(...)` exactly as before — nothing else in this file changes.
 //
 // These are pure VALUE HOLDERS (no I/O): parallel private arrays keep entries
-// in insertion order; `Headers` lowercases names and combines duplicates with
-// ", " on read (fetch spec), iterating in sorted-name order; `Blob`/`File`
-// carry string / Uint8Array-like parts measured and decoded as UTF-8 (the
-// helpers below); `Request`/`Response` wrap a string body + a `Headers`.
-// `text()` returns the string directly — `await x` passes a non-Promise
-// through, so `await blob.text()` behaves like the spec's resolved Promise.
+// in insertion order; `Blob`/`File` carry string / Uint8Array-like parts
+// measured and decoded as UTF-8 (the helpers below); `Request`/`Response`
+// wrap a string body + a `Headers`. `text()` returns the string directly —
+// `await x` passes a non-Promise through, so `await blob.text()` behaves like
+// the spec's resolved Promise.
 
 // UTF-8 byte length of a JS string (surrogate pairs → 4 bytes).
 function __utf8_len_str(s: string): number {
@@ -76,126 +83,6 @@ function __utf8_decode(bytes: any): string {
     out += String.fromCodePoint(cp);
   }
   return out;
-}
-
-class Headers {
-  #names: string[] = [];
-  #values: string[] = [];
-  // `new Headers()` / `new Headers([[k, v], …])` / `new Headers({ k: v })` /
-  // `new Headers(other)` (anything with `entries()`).
-  constructor(init: any = undefined) {
-    if (init === undefined || init === null) { return; }
-    if (Array.isArray(init)) {
-      for (const pair of init) { this.append(pair[0], pair[1]); }
-      return;
-    }
-    const ks = Object.keys(init);
-    for (let i = 0; i < ks.length; i++) { this.append(ks[i], init[ks[i]]); }
-  }
-  append(name: any, value: any): void {
-    this.#names.push(("" + name).toLowerCase());
-    this.#values.push("" + value);
-  }
-  delete(name: any): void {
-    const n = ("" + name).toLowerCase();
-    const keepN: string[] = [];
-    const keepV: string[] = [];
-    for (let i = 0; i < this.#names.length; i++) {
-      if (this.#names[i] !== n) { keepN.push(this.#names[i]); keepV.push(this.#values[i]); }
-    }
-    this.#names = keepN;
-    this.#values = keepV;
-  }
-  set(name: any, value: any): void {
-    this.delete(name);
-    this.append(name, value);
-  }
-  // Combined value (duplicates joined ", "), `null` on miss (fetch spec).
-  get(name: any): any {
-    const n = ("" + name).toLowerCase();
-    const out: string[] = [];
-    for (let i = 0; i < this.#names.length; i++) {
-      if (this.#names[i] === n) { out.push(this.#values[i]); }
-    }
-    if (out.length === 0) { return null; }
-    return out.join(", ");
-  }
-  has(name: any): boolean {
-    const n = ("" + name).toLowerCase();
-    for (let i = 0; i < this.#names.length; i++) {
-      if (this.#names[i] === n) return true;
-    }
-    return false;
-  }
-  getSetCookie(): string[] {
-    const out: string[] = [];
-    for (let i = 0; i < this.#names.length; i++) {
-      if (this.#names[i] === "set-cookie") { out.push(this.#values[i]); }
-    }
-    return out;
-  }
-  // Iteration order (fetch spec): unique names sorted lexicographically,
-  // duplicate values combined with ", " — EXCEPT `set-cookie`, which yields
-  // one entry per value.
-  keys(): string[] {
-    const uniq: string[] = [];
-    for (let i = 0; i < this.#names.length; i++) {
-      const n = this.#names[i];
-      let seen = false;
-      for (let j = 0; j < uniq.length; j++) {
-        if (uniq[j] === n) { seen = true; break; }
-      }
-      if (!seen) { uniq.push(n); }
-    }
-    uniq.sort();
-    const out: string[] = [];
-    for (let i = 0; i < uniq.length; i++) {
-      if (uniq[i] === "set-cookie") {
-        const sc = this.getSetCookie();
-        for (let j = 0; j < sc.length; j++) { out.push("set-cookie"); }
-      } else {
-        out.push(uniq[i]);
-      }
-    }
-    return out;
-  }
-  entries(): [string, string][] {
-    const out: [string, string][] = [];
-    const uniq: string[] = [];
-    for (let i = 0; i < this.#names.length; i++) {
-      const n = this.#names[i];
-      let seen = false;
-      for (let j = 0; j < uniq.length; j++) {
-        if (uniq[j] === n) { seen = true; break; }
-      }
-      if (!seen) { uniq.push(n); }
-    }
-    uniq.sort();
-    for (let i = 0; i < uniq.length; i++) {
-      const n = uniq[i];
-      if (n === "set-cookie") {
-        const sc = this.getSetCookie();
-        for (let j = 0; j < sc.length; j++) { out.push([n, sc[j]]); }
-      } else {
-        out.push([n, this.get(n)]);
-      }
-    }
-    return out;
-  }
-  values(): string[] {
-    const es = this.entries();
-    const out: string[] = [];
-    for (let i = 0; i < es.length; i++) { out.push(es[i][1]); }
-    return out;
-  }
-  forEach(cb: (v: string, k: string, h: Headers) => void): void {
-    const es = this.entries();
-    for (let i = 0; i < es.length; i++) { cb(es[i][1], es[i][0], this); }
-  }
-  *[Symbol.iterator](): [string, string][] {
-    const es = this.entries();
-    for (let i = 0; i < es.length; i++) { yield es[i]; }
-  }
 }
 
 class FormData {

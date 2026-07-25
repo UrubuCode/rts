@@ -134,6 +134,12 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     ns::globals::date::register_class_spec,
     // `Point` — G1 proof of the `#[rtse::class]` authoring macro (generated glue).
     ns::globals::point::register,
+    ns::globals::point3::register,
+    // `DOMException` — rts-shared universal utility class (no native syntax):
+    // `new DOMException(message?, name?)` + name/message/code getters +
+    // toString. DRAIN_MOTOR §11: reimplemented as `#[rtse::class]`, replacing
+    // the removed ambient `.ts` DOMEXCEPTION_TS prelude.
+    ns::globals::dom_exception::register,
     // Promise is PRIMORDIAL; its class spec carries the static surface
     // (`resolve`/`reject`/`all`/…) + then/catch/finally as registry metadata so the
     // static-call path can resolve `Promise.resolve()` generically.
@@ -154,8 +160,39 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     ns::globals::url::register_urlsp_class_spec,
     // `TextEncoder`/`TextDecoder` — backend/Registry classes (UTF-8, no native
     // syntax): `new TextEncoder().encode(s)` → Uint8Array handle, `decode(h)` → str.
+    // DRAIN_MOTOR: `#[rtse::class]`-migrated (`text_encoding::encoder`/`decoder`);
+    // TextDecoder's `decode` stays hand-written (macro gap: no `MemberFlags::THROWS`
+    // attribute yet) but the ctor is macro-authored.
     ns::globals::text_encoding::register_text_encoder_class_spec,
     ns::globals::text_encoding::register_text_decoder_class_spec,
+    // `Headers` — backend/Registry class (Fetch API multimap, no native syntax):
+    // `new Headers()`/`new Headers(pairs)` + append/set/get/has/delete/
+    // getSetCookie/keys/values/entries/forEach. DRAIN_MOTOR §11 (owner
+    // 2026-07-24 correction): reimplemented as `#[rtse::class]` (ctor/append/
+    // set/get/has/delete/getSetCookie/keys/values are macro-authored; entries
+    // [nested-array F8 gap] + forEach [function-value param gap] stay
+    // hand-written in the same file, like `url::register_urlsp_class_spec`).
+    ns::globals::headers::register_headers_class_spec,
+    // `Event`/`EventTarget` — backend/Registry classes (#63): `new Event(type,
+    // opts?)` + `.type`/`.defaultPrevented`/`.cancelable`/`.bubbles`/`.target`/
+    // `.currentTarget` + preventDefault/stopPropagation; addEventListener(type,
+    // cb, opts?)/removeEventListener/dispatchEvent. DRAIN_MOTOR §11 (owner
+    // 2026-07-24 correction): reimplemented as `#[rtse::class]` at FULL PARITY
+    // with the (now-trimmed) `.ts` polyfill (options `{once}`, spec dispatch
+    // order, `once` removed BEFORE its callback). Unblocked by the macro's
+    // `extends` (composition + forwarding) — see `AbortSignal` below.
+    ns::globals::event_target::register_event_class_spec,
+    ns::globals::event_target::register_event_target_class_spec,
+    // `AbortSignal extends EventTarget` + `AbortController` — `#[rtse::class]`,
+    // `AbortSignal` EMBEDS an `EventTarget` and FORWARDS addEventListener/
+    // removeEventListener (composition + forwarding, no parent-method-on-child
+    // dispatch); `extends = "EventTarget"` links the Registry parent so
+    // `signal instanceof EventTarget` resolves. The default abort/timeout
+    // reason is now a REAL `DOMException` instance (`ns::globals::dom_exception`
+    // is a `#[rtse::class]`, a stable compiled symbol `abort/mod.rs` can call
+    // directly) — see `abort/mod.rs`'s doc comment.
+    ns::globals::abort::register_abort_signal_class_spec,
+    ns::globals::abort::register_abort_controller_class_spec,
     // `EventEmitter` — backend/Registry class: `new EventEmitter([async])` + on/once/
     // off/emit. The listener arg is a function-VALUE the backend invokes via the
     // codegen `__rtsadp_fn_invoke` callback bridge (JIT-installed).
@@ -170,11 +207,14 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     // a Proxy receiver via `resolve_proxy` and invoke `handler.get`/`.set` through
     // the `__rtsadp_fn_invoke` callback bridge), not by a codegen arm.
     ns::globals::proxy::register_proxy_class_spec,
-    // `WeakRef` — Registry class (#217 A1.1): `new WeakRef(target)` → WEAKREF_NEW
-    // (Entry::WeakRef, não traçado pelo coletor), `deref()` → WEAKREF_DEREF (weak
-    // real: undefined após coleta). A ctor recebe o objeto-target (Handle) e o
-    // deref RETORNA um objeto (Handle não-string → JsKind::Object via ret_is_string_handle).
-    ns::globals::weakref::register_weakref_class_spec,
+    // `WeakRef` — Registry class (#217 A1.1), migrada pra `#[rtse::class]` (macro
+    // G1+F1): `new WeakRef(target)` → WEAKREF_NEW (Entry::Rtse, não traçado pelo
+    // coletor — mesma semântica weak do antigo Entry::WeakRef dedicado), `deref()`
+    // → WEAKREF_DEREF (weak real: undefined após coleta).
+    ns::globals::weakref::register,
+    // `FinalizationRegistry` (#685 v0 stub) — migrada pra `#[rtse::class]`.
+    // register/unregister são noops de verdade (sem GC weak real ainda, #217).
+    ns::globals::finalization_registry::register,
     // `ArrayBuffer` + `DataView` — backend/Registry classes (raw bytes, no native
     // syntax): `new ArrayBuffer(n)` + `new DataView(buf)` + get/set<T>(offset[,v]).
     // Os membros do spec agora carregam fn_ptr real (dataview::fp_for) → o harvest
@@ -470,11 +510,6 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
         label: "structuredClone",
         source: rts_runtime::stdlib::STRUCTURED_CLONE_TS,
         why: "deep clone w/ cycle detection",
-    },
-    PreludeTs {
-        label: "DOMException",
-        source: rts_runtime::stdlib::DOMEXCEPTION_TS,
-        why: "web exception class (name/message/legacy code)",
     },
     // performance singleton — `.ts` over the private engine clock bridges (like console).
     PreludeTs {

@@ -18,6 +18,10 @@ edition = "2024"
 # não quebra alvo nenhum — a camada universal continua compilando para wasm.
 cranelift-codegen = "0.131"
 cranelift-frontend = "0.131"
+# Minimal pure-Rust block_on executor — the `#[rtse::asynch]` bridge drives a
+# real Rust `async fn` body to completion synchronously (interim engine async is
+# synchronous). Pure, no C deps, no tokio — keeps the universal layer wasm-safe.
+pollster = "0.3"
 indexmap = "2.14.0"
 regex = "1"
 fancy-regex = "0.13"

@@ -4,6 +4,7 @@
 //! orquestração migram em fatias gateadas (ver `.claude/plans/`).
 
 pub mod class_registry;
+pub mod descriptors;
 pub mod env;
 pub mod fixed;
 pub mod handles;

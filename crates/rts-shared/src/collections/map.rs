@@ -51,7 +51,7 @@ fn decode_symbol_key(k: &str) -> Option<u64> {
 /// `Symbol.iterator` (handle sticky cacheado em globals/symbol/rt).
 fn key_is_well_known_iterator(k: &str) -> bool {
     match decode_symbol_key(k) {
-        Some(h) => h == crate::globals::symbol::__RTS_FN_GL_SYMBOL_ITERATOR(),
+        Some(h) => h == rts_primitives::symbol::__RTS_FN_GL_SYMBOL_ITERATOR(),
         None => false,
     }
 }
@@ -212,8 +212,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_HAS(
         None => return 0,
     };
     // (#218) Proxy: trap `has(target, prop)` ou forward.
-    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(h) {
-        return crate::globals::proxy::ops::dispatch_has(target, handler, key);
+    if let Some((target, handler)) = rts_primitives::proxy::ops::resolve_proxy(h) {
+        return rts_primitives::proxy::ops::dispatch_has(target, handler, key);
     }
     with_map(h, 0, |m| if m.contains_key(key) { 1 } else { 0 })
 }
@@ -226,8 +226,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET(h: U64, key_ptr: *const u8, ke
         None => return 0,
     };
     // (#218) Proxy: dispatch get trap quando handle eh Proxy.
-    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(h) {
-        return crate::globals::proxy::ops::dispatch_get(target, handler, key);
+    if let Some((target, handler)) = rts_primitives::proxy::ops::resolve_proxy(h) {
+        return rts_primitives::proxy::ops::dispatch_get(target, handler, key);
     }
     // (#264) Um OBJETO shape-vec do motor novo: leitura shape-aware via hook.
     if let Some((get, _)) = shaped_object_route(h) {
@@ -262,8 +262,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SET(
         None => return,
     };
     // (#218) Proxy: trap `set(target, prop, value)` ou forward.
-    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(h) {
-        crate::globals::proxy::ops::dispatch_set(target, handler, key, value);
+    if let Some((target, handler)) = rts_primitives::proxy::ops::resolve_proxy(h) {
+        rts_primitives::proxy::ops::dispatch_set(target, handler, key, value);
         return;
     }
     // (#264) Um OBJETO shape-vec do motor novo: escrita shape-aware via hook.
@@ -302,8 +302,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DELETE(
         None => return 0,
     };
     // (#218) Proxy: trap `deleteProperty(target, prop)` ou forward.
-    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(h) {
-        return crate::globals::proxy::ops::dispatch_delete(target, handler, key);
+    if let Some((target, handler)) = rts_primitives::proxy::ops::resolve_proxy(h) {
+        return rts_primitives::proxy::ops::dispatch_delete(target, handler, key);
     }
     // sealed/frozen impedem delete.
     if is_map_sealed(h) {
@@ -326,8 +326,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_HAS(obj_h: U64, key_h: U64) -> Boo
         None => return 0,
     };
     // (cross-runtime #340) Proxy: dispatch `has` trap quando obj_h eh Proxy.
-    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(obj_h) {
-        return crate::globals::proxy::ops::dispatch_has(target, handler, &key);
+    if let Some((target, handler)) = rts_primitives::proxy::ops::resolve_proxy(obj_h) {
+        return rts_primitives::proxy::ops::dispatch_has(target, handler, &key);
     }
     // Vec: index `i` esta "in" array se 0 <= i < length E slot != hole.
     let vec_result: Option<i64> = with_entry(obj_h, |e| match e {
@@ -474,8 +474,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_KH(obj_h: U64, key_h: U64) -> 
         return 0;
     };
     // (cross-runtime #340/#53) Proxy: dispatch `get` trap antes do path raw.
-    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(obj_h) {
-        return crate::globals::proxy::ops::dispatch_get(target, handler, &key);
+    if let Some((target, handler)) = rts_primitives::proxy::ops::resolve_proxy(obj_h) {
+        return rts_primitives::proxy::ops::dispatch_get(target, handler, &key);
     }
     // Vec path: parse key como array index.
     let is_vec = with_entry(obj_h, |e| matches!(e, Some(Entry::Vec(_))));
@@ -540,8 +540,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEY_AT(h: U64, idx: I64) -> Handle
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(h: U64) -> Handle {
     // (#218 phase2) Proxy: trap `ownKeys(target)` ou forward.
-    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(h) {
-        return crate::globals::proxy::ops::dispatch_own_keys(target, handler);
+    if let Some((target, handler)) = rts_primitives::proxy::ops::resolve_proxy(h) {
+        return rts_primitives::proxy::ops::dispatch_own_keys(target, handler);
     }
     // (#394) Set.keys() eh alias de Set.values() em JS.
     if handle_is_set_kind(h) {
@@ -840,119 +840,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_DIRECT(
     0
 }
 
-/// (#264 PR5) Cria novo Map vazio com `__proto__` = proto_handle.
-/// Implementa `Object.create(proto)`. Quando `proto == 0`, equivale a
-/// `Object.create(null)` — slot __proto__ setado explicit como 0 para
-/// que MAP_GET_PROTO retorne null em vez do default Object.prototype.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_OBJECT_CREATE(proto: u64) -> u64 {
-    let h = alloc_entry(Entry::Map(Box::new(IndexMap::new())));
-    with_map_mut(h, (), |m| {
-        m.insert("__proto__".to_string(), proto as i64);
-    });
-    // (#1080-format) Object.create(null) cria objeto sem prototype.
-    // Marca para preservar a semantica mesmo se user setar __proto__
-    // depois (em null-proto objects, __proto__ vira regular property).
-    if proto == 0 {
-        null_proto_set().lock().unwrap().insert(h);
-    }
-    h
-}
-
-fn null_proto_set() -> &'static std::sync::Mutex<std::collections::HashSet<u64>> {
-    static S: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<u64>>> =
-        std::sync::OnceLock::new();
-    S.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
-}
-
-pub fn is_null_proto_handle(handle: u64) -> bool {
-    null_proto_set().lock().unwrap().contains(&handle)
-}
-
-/// (#162) `Object.create(proto, descriptors)` 2-arg variant — aplica
-/// descriptors ao objeto. Cada entry de `descs` deve ser
-/// `{ key: { value, writable?, enumerable?, configurable? } }`.
-/// Para v0, extraimos so o `value` e fazemos MAP_SET. Tambem respeita
-/// `enumerable: false` via mark_non_enumerable. writable/configurable
-/// nao sao enforced ainda.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_OBJECT_APPLY_DESCRIPTORS(target: u64, descs: u64) {
-    let pairs: Vec<(String, i64)> = with_entry(descs, |e| match e {
-        Some(Entry::Map(m)) => m
-            .iter()
-            .filter(|(k, _)| !k.starts_with("__"))
-            .map(|(k, v)| (k.clone(), *v))
-            .collect(),
-        _ => Vec::new(),
-    });
-    for (key, desc_h_i) in pairs {
-        let desc_h = desc_h_i as u64;
-        // Extrai value + enumerable. Sentinel JS para false eh i64::MIN
-        // (TPL coercion convention). enumerable defaulta a true quando
-        // ausente em Object.defineProperty mas a false em Object.create
-        // descriptors — aqui assumimos defineProperty-like (default true).
-        let (value, is_non_enum): (i64, bool) = with_entry(desc_h, |e| match e {
-            Some(Entry::Map(d)) => {
-                let v = d.get("value").copied().unwrap_or(0);
-                let enum_v = d.get("enumerable").copied();
-                let non_enum = matches!(enum_v, Some(x) if x == i64::MIN);
-                (v, non_enum)
-            }
-            _ => (desc_h_i, false),
-        });
-        with_map_mut(target, (), |m| {
-            m.insert(key.clone(), value);
-        });
-        if is_non_enum {
-            mark_non_enumerable(target, &key);
-        }
-    }
-}
-
-/// (#264 PR5) Verifica se `key` existe nas own props de `handle`
-/// (sem seguir __proto__). Implementa \`obj.hasOwnProperty(key)\`.
-/// Retorna 1 se own, 0 caso contrario.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_OBJECT_HAS_OWN_PROPERTY(
-    handle: u64,
-    key_ptr: *const u8,
-    key_len: i64,
-) -> i64 {
-    let Some(key) = str_from_abi(key_ptr, key_len) else {
-        return 0;
-    };
-    // Arrays (Vec): "length" eh own; chaves de indice (parsam como
-    // uint32) sao own quando < length. Demais nao.
-    let vec_result: Option<i64> = with_entry(handle, |e| match e {
-        Some(Entry::Vec(v)) => {
-            if key == "length" {
-                Some(1)
-            } else if let Some(n) = parse_array_index(key) {
-                Some(if (n as usize) < v.len() { 1 } else { 0 })
-            } else {
-                Some(0)
-            }
-        }
-        _ => None,
-    });
-    if let Some(r) = vec_result {
-        return r;
-    }
-    with_map(handle, 0, |m| if m.contains_key(key) { 1 } else { 0 })
-}
-
-/// (cross-runtime #798) `Object.getOwnPropertySymbols(obj)` — retorna
-/// Vec<i64> com handles de Symbol entries (keys `@@sym:<handle>`).
-/// Ordem: insercao no IndexMap.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_SYMBOLS(handle: u64) -> u64 {
-    let syms: Vec<i64> = with_map(handle, Vec::new(), |m| {
-        m.keys()
-            .filter_map(|k| decode_symbol_key(k).map(|h| h as i64))
-            .collect()
-    });
-    alloc_entry(Entry::Vec(Box::new(syms)))
-}
+// (LAYERING FIX 2026-07-24) __RTS_FN_GL_OBJECT_CREATE/APPLY_DESCRIPTORS/
+// HAS_OWN_PROPERTY/GET_OWN_PROPERTY_SYMBOLS + o null-proto tracking MUDARAM
+// para `rts-primitives::object` — Object é PRIMORDIAL, não pertence à camada
+// non-primordial de rts-shared. Ver esse módulo para os corpos.
+pub use rts_primitives::object::is_null_proto_handle;
 
 /// (cross-runtime #753) Resolve um handle de "chave qualquer" para a
 /// representacao canonica em string usada no IndexMap.
@@ -1086,69 +978,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_FOR_EACH(handle: u64, fn_ptr: u64)
     }
 }
 
-/// (cross-runtime #772) `obj.isPrototypeOf(other)` — walk `other.__proto__`
-/// chain procurando `obj`. Retorna 1 se obj aparece na cadeia, 0 caso
-/// contrario. Guard contra ciclos: profundidade maxima 64.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_OBJECT_IS_PROTOTYPE_OF(obj: u64, other: u64) -> i64 {
-    if obj == 0 || other == 0 {
-        return 0;
-    }
-    let mut current = with_map(other, 0u64, |m| {
-        m.get("__proto__").copied().unwrap_or(0) as u64
-    });
-    let mut depth = 0u32;
-    while current != 0 && depth < 64 {
-        if current == obj {
-            return 1;
-        }
-        current = with_map(current, 0u64, |m| {
-            m.get("__proto__").copied().unwrap_or(0) as u64
-        });
-        depth += 1;
-    }
-    0
-}
-
-/// (cross-runtime #788) `obj.propertyIsEnumerable(key)` — true se own
-/// property + enumerable. Inherited (via __proto__) ja' retorna false
-/// porque so' checa own. Para Vec: indices = enumerable, "length" = false.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_OBJECT_PROPERTY_IS_ENUMERABLE(
-    handle: u64,
-    key_ptr: *const u8,
-    key_len: i64,
-) -> i64 {
-    let Some(key) = str_from_abi(key_ptr, key_len) else {
-        return 0;
-    };
-    let vec_result: Option<i64> = with_entry(handle, |e| match e {
-        Some(Entry::Vec(v)) => {
-            // "length" eh own mas non-enumerable em arrays.
-            if key == "length" {
-                Some(0)
-            } else if let Some(n) = parse_array_index(key) {
-                Some(if (n as usize) < v.len() { 1 } else { 0 })
-            } else {
-                Some(0)
-            }
-        }
-        _ => None,
-    });
-    if let Some(r) = vec_result {
-        return r;
-    }
-    // Map: own + enumerable. defineProperty com enumerable:false marca via
-    // is_non_enumerable.
-    let has_own = with_map(handle, false, |m| m.contains_key(key));
-    if !has_own {
-        return 0;
-    }
-    if is_non_enumerable(handle, key) {
-        return 0;
-    }
-    1
-}
+// (LAYERING FIX 2026-07-24) __RTS_FN_GL_OBJECT_IS_PROTOTYPE_OF/
+// PROPERTY_IS_ENUMERABLE MUDARAM para `rts-primitives::object` (Object é
+// PRIMORDIAL).
 
 /// (#264 PR4) Retorna valor de `key` seguindo cadeia `__proto__`.
 /// Se a key nao existe no map, le `__proto__` (handle de outro Map) e
@@ -1169,8 +1001,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN(
     };
     // (#218) Proxy: se handle for Entry::Proxy, dispara trap `get` no handler
     // ou faz forward para target. Trap recebe (target, key_handle).
-    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(handle) {
-        return crate::globals::proxy::ops::dispatch_get(target, handler, key);
+    if let Some((target, handler)) = rts_primitives::proxy::ops::resolve_proxy(handle) {
+        return rts_primitives::proxy::ops::dispatch_get(target, handler, key);
     }
     // (cross-runtime #745) Entry::ErrorObj — quando o handle e' Error e
     // a key e' name/message/stack, retorna string handle alocado.
@@ -1274,8 +1106,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DELETE_AUTO(handle: u64, key_handl
         _ => None,
     });
     let Some(key) = key_owned else { return 1 };
-    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(handle) {
-        return crate::globals::proxy::ops::dispatch_delete(target, handler, &key);
+    if let Some((target, handler)) = rts_primitives::proxy::ops::resolve_proxy(handle) {
+        return rts_primitives::proxy::ops::dispatch_delete(target, handler, &key);
     }
     if is_map_sealed(handle) {
         return 0;
@@ -1502,8 +1334,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
     // (#218 phase2 / #98) Proxy: trap `ownKeys` + filtragem por enumeravel
     // via trap `getOwnPropertyDescriptor` por chave (ECMA-262
     // OrdinaryOwnPropertyKeys). Reflect.ownKeys usa dispatch_own_keys cru.
-    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(handle) {
-        return crate::globals::proxy::ops::dispatch_own_keys_enumerable(target, handler);
+    if let Some((target, handler)) = rts_primitives::proxy::ops::resolve_proxy(handle) {
+        return rts_primitives::proxy::ops::dispatch_own_keys_enumerable(target, handler);
     }
     // (#253) StringBox unwrap antes do dispatch.
     let unwrap: Option<u64> = with_entry(handle, |e| match e {
@@ -1772,8 +1604,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_IS_SEALED(handle: u64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO(handle: u64) -> u64 {
     // (#218 phase2) Proxy: trap `getPrototypeOf` ou forward.
-    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(handle) {
-        return crate::globals::proxy::ops::dispatch_get_proto(target, handler);
+    if let Some((target, handler)) = rts_primitives::proxy::ops::resolve_proxy(handle) {
+        return rts_primitives::proxy::ops::dispatch_get_proto(target, handler);
     }
     // (#1080-format) Object.create(null) handles tem proto = null mesmo
     // que .__proto__ slot tenha sido sobrescrito pelo user (regular prop).
@@ -1837,79 +1669,16 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO(handle: u64) -> u64 {
     }
 }
 
-/// Set global de (handle, key) marcados como nao-enumeravel via
-/// `Object.defineProperty(obj, key, { enumerable: false, ... })`. Usado
-/// por Object.keys/values/entries e for-in para filtrar.
-fn non_enumerable_set() -> &'static Mutex<HashSet<(u64, String)>> {
-    static S: OnceLock<Mutex<HashSet<(u64, String)>>> = OnceLock::new();
-    S.get_or_init(|| Mutex::new(HashSet::new()))
-}
-
-pub(crate) fn is_non_enumerable(handle: u64, key: &str) -> bool {
-    non_enumerable_set()
-        .lock()
-        .unwrap()
-        .contains(&(handle, key.to_string()))
-}
-
-/// (cross-runtime #795) Tracking de writable=false definido via
-/// Object.defineProperty / Reflect.defineProperty. Usado pelo
-/// `Reflect.getOwnPropertyDescriptor` pra retornar writable correto.
-fn non_writable_set() -> &'static Mutex<HashSet<(u64, String)>> {
-    static S: OnceLock<Mutex<HashSet<(u64, String)>>> = OnceLock::new();
-    S.get_or_init(|| Mutex::new(HashSet::new()))
-}
-
-pub(crate) fn is_non_writable(handle: u64, key: &str) -> bool {
-    non_writable_set()
-        .lock()
-        .unwrap()
-        .contains(&(handle, key.to_string()))
-}
-
-pub(crate) fn mark_non_writable(handle: u64, key: &str) {
-    non_writable_set()
-        .lock()
-        .unwrap()
-        .insert((handle, key.to_string()));
-}
-
-pub(crate) fn unmark_non_writable(handle: u64, key: &str) {
-    non_writable_set()
-        .lock()
-        .unwrap()
-        .remove(&(handle, key.to_string()));
-}
-
-/// (#1073) Tracking de configurable=false. Default JS para
-/// Object.defineProperty (sem flag) eh false; mas RTS so' marca
-/// quando explicitamente false para compat com object literal
-/// (campo de literal eh configurable=true).
-fn non_configurable_set() -> &'static Mutex<HashSet<(u64, String)>> {
-    static S: OnceLock<Mutex<HashSet<(u64, String)>>> = OnceLock::new();
-    S.get_or_init(|| Mutex::new(HashSet::new()))
-}
-
-pub(crate) fn is_non_configurable(handle: u64, key: &str) -> bool {
-    non_configurable_set()
-        .lock()
-        .unwrap()
-        .contains(&(handle, key.to_string()))
-}
-
-pub(crate) fn mark_non_configurable(handle: u64, key: &str) {
-    non_configurable_set()
-        .lock()
-        .unwrap()
-        .insert((handle, key.to_string()));
-}
-
-pub(crate) fn mark_non_enumerable(handle: u64, key: &str) {
-    non_enumerable_set()
-        .lock()
-        .unwrap()
-        .insert((handle, key.to_string()));
-}
+// (LAYERING FIX 2026-07-24) O tracking de descriptor flags (non-enumerable/
+// non-writable/non-configurable) MUDOU para `rts_engine::heap::descriptors`
+// — é semântica engine-level ([[DefineOwnProperty]]), não algo específico do
+// backing store Map desta crate, e `reflect`/`proxy` (primordiais) precisavam
+// consultar o mesmo estado sem uma dependência rts-primitives → rts-shared.
+// Aliases locais preservam as chamadas existentes neste arquivo.
+use rts_engine::heap::descriptors::{
+    is_non_configurable, is_non_enumerable, is_non_writable, mark_non_configurable,
+    mark_non_enumerable, mark_non_writable, unmark_non_writable,
+};
 
 // ── Shims extern-C p/ desacoplar `globals::function` (Fase 2.3) ───────────
 // `with_map_mut`/`mark_non_enumerable` são `pub(crate)` (não atravessam crate).
@@ -2000,17 +1769,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY(
         return obj;
     }
     if matches!(is_enumerable, Some(false)) {
-        non_enumerable_set()
-            .lock()
-            .unwrap()
-            .insert((obj, key_str.clone()));
+        mark_non_enumerable(obj, &key_str);
     } else {
         // Se redefiniu com enumerable=true (ou ausente, default keep),
         // remove marca antiga.
-        non_enumerable_set()
-            .lock()
-            .unwrap()
-            .remove(&(obj, key_str.clone()));
+        rts_engine::heap::descriptors::unmark_non_enumerable(obj, &key_str);
     }
     if matches!(is_writable, Some(false)) {
         mark_non_writable(obj, &key_str);

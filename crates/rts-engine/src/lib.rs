@@ -58,6 +58,14 @@ pub use member::{FnPtr, Member, VarKind, NativeEmit};
 pub use registry::{Class, Module, Registry};
 pub use sig::Sig;
 
+/// Drive a `Future` to completion synchronously. The `#[rtse::asynch]` bridge
+/// calls this to run a class's real Rust `async fn` body to a value (interim
+/// engine async is synchronous), which is then wrapped in a settled JS Promise.
+/// Pure pollster executor — no tokio, no C, wasm-safe.
+pub fn block_on<F: core::future::Future>(fut: F) -> F::Output {
+    pollster::block_on(fut)
+}
+
 // Vocabulário ABI estável (antes o crate `rts-abi`, agora dobrado em `abi`).
 // Re-exportado na raiz para os crates de camada e o codegen.
 pub use abi::{

@@ -64,6 +64,7 @@ impl Engine {
             doc: String::new(),
             members: Vec::new(),
             instanceof_predicate: None,
+            parent: None,
         }
     }
 
@@ -278,6 +279,7 @@ pub struct ClassBuilder<'e> {
     doc: String,
     members: Vec<Member>,
     instanceof_predicate: Option<String>,
+    parent: Option<String>,
 }
 
 impl ClassBuilder<'_> {
@@ -364,12 +366,20 @@ impl ClassBuilder<'_> {
         self
     }
 
+    /// Declara a classe base: `#[rtse::class("Child", extends = "Parent")]`. Liga
+    /// a cadeia de protótipo p/ `x instanceof Parent` sobre um `Child` no codegen.
+    pub fn extends(mut self, parent: &str) -> Self {
+        self.parent = Some(parent.to_string());
+        self
+    }
+
     pub fn done(self) {
         self.engine.registry.insert_class(Class {
             name: self.name,
             doc: self.doc,
             members: self.members,
             instanceof_predicate: self.instanceof_predicate,
+            parent: self.parent,
         });
     }
 }

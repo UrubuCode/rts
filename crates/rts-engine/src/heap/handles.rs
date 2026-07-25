@@ -481,7 +481,15 @@ pub enum Entry {
     /// `with_rtse`). This is what lets an arbitrary Rust struct be a class
     /// instance (Date uses a dedicated `DateMs` variant; the macro-authored
     /// classes use this one). Send+Sync so it crosses shards like every Entry.
-    Rtse(Box<dyn std::any::Any + Send + Sync>),
+    Rtse {
+        /// The JS class name (`"WeakRef"`, `"Headers"`, …), a `'static` literal from
+        /// the `#[rtse::class]`. Carried so `x instanceof C` can consult the class
+        /// hierarchy (`class_registry::is_descendant_of`) for a struct-backed
+        /// instance — the concrete `Box<dyn Any>` alone has no JS identity. `""` for
+        /// a class-less allocation.
+        class: &'static str,
+        data: Box<dyn std::any::Any + Send + Sync>,
+    },
     /// EventEmitter primitivo do namespace `events` (rts:events). Armazena
     /// listeners por nome de evento como function pointers (i64 raw).
     /// Distinto do `EventEmitter` global acima — coexistem.
@@ -502,20 +510,6 @@ pub enum Entry {
     /// chamada cria handle unico — comparacao por identidade de handle.
     /// Symbol.for usa registry separado pra retornar mesmo handle.
     Symbol { description: Option<String> },
-    /// WeakMap (#217 v0). v0 comporta como Map forte sem coleta automatica
-    /// quando a key e' freed — Box<HashMap<u64,i64>> indexado por handle.
-    WeakMap(Box<std::collections::HashMap<u64, i64>>),
-    /// WeakSet (#217 v0). v0 comporta como Set forte sem coleta automatica.
-    WeakSet(Box<std::collections::HashSet<u64>>),
-    /// WeakRef (#685 v0). Armazena handle do target (strong ref por enquanto).
-    /// `deref()` retorna o handle armazenado.
-    WeakRef(u64),
-    /// FinalizationRegistry (#685 v0). Stub — armazena callback handle e lista
-    /// (target, heldValue) sem nunca disparar callback (sem GC weak real).
-    FinalizationRegistry {
-        callback: u64,
-        entries: Vec<(u64, i64)>,
-    },
     /// Proxy (#218). `target` e' o objeto subjacente, `handler` e' um Map
     /// com traps `get`, `set`, `has`, `deleteProperty` (handles de Function
     /// reificadas). Quando ausente, MAP_GET_CHAIN/MAP_SET/etc fazem fallback
@@ -1527,16 +1521,30 @@ pub fn free_handle(handle: u64) -> bool {
 }
 
 /// Allocate a generic struct-backed instance (`#[rtse::class]` state), returning
-/// its handle. The struct is boxed as `dyn Any` and recovered by `with_rtse`.
-pub fn alloc_rtse<T: std::any::Any + Send + Sync>(v: T) -> u64 {
-    alloc_entry(Entry::Rtse(Box::new(v)))
+/// its handle. `class` is the JS class name (a `'static` literal — `""` if
+/// class-less), carried for `instanceof`. The struct is boxed as `dyn Any` and
+/// recovered by `with_rtse`.
+pub fn alloc_rtse<T: std::any::Any + Send + Sync>(class: &'static str, v: T) -> u64 {
+    alloc_entry(Entry::Rtse {
+        class,
+        data: Box::new(v),
+    })
+}
+
+/// The JS class name behind an `Entry::Rtse` handle (for `instanceof` via the
+/// class hierarchy), or `None` for a dead / non-Rtse handle.
+pub fn rtse_class_of(handle: u64) -> Option<&'static str> {
+    with_entry(handle, |e| match e {
+        Some(Entry::Rtse { class, .. }) => Some(*class),
+        _ => None,
+    })
 }
 
 /// Immutable access to the `T` behind an `Entry::Rtse` handle. A dead handle or a
 /// wrong-type / non-Rtse entry calls `f(None)` (never faults).
 pub fn with_rtse<T: std::any::Any, R>(handle: u64, f: impl FnOnce(Option<&T>) -> R) -> R {
     with_entry(handle, |e| match e {
-        Some(Entry::Rtse(b)) => f(b.downcast_ref::<T>()),
+        Some(Entry::Rtse { data, .. }) => f(data.downcast_ref::<T>()),
         _ => f(None),
     })
 }
@@ -1545,7 +1553,7 @@ pub fn with_rtse<T: std::any::Any, R>(handle: u64, f: impl FnOnce(Option<&T>) ->
 /// methods). Same `None`-mapping as [`with_rtse`].
 pub fn with_rtse_mut<T: std::any::Any, R>(handle: u64, f: impl FnOnce(Option<&mut T>) -> R) -> R {
     with_entry_mut(handle, |e| match e {
-        Some(Entry::Rtse(b)) => f(b.downcast_mut::<T>()),
+        Some(Entry::Rtse { data, .. }) => f(data.downcast_mut::<T>()),
         _ => f(None),
     })
 }

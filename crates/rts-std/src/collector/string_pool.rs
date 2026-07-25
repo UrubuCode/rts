@@ -104,12 +104,13 @@ pub extern "C" fn __RTS_FN_NS_GC_IS_REGEX(handle: u64) -> i64 {
     })
 }
 
-/// instanceof Map/Set/WeakMap/WeakSet/Object — handle aponta para Entry::Map
-/// ou WeakMap/WeakSet (todos sao map-like). Object aceita qualquer Map.
+/// instanceof Map/Object — handle aponta para Entry::Map (Object aceita
+/// qualquer Map). WeakMap/WeakSet sao classes `.ts` (arrays de PolyValue),
+/// nao Entry variants — nao map-like por handle.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_IS_MAP_LIKE(handle: u64) -> i64 {
     with_entry(handle, |entry| match entry {
-        Some(Entry::Map(_)) | Some(Entry::WeakMap(_)) => 1,
+        Some(Entry::Map(_)) => 1,
         _ => 0,
     })
 }
@@ -1004,7 +1005,6 @@ pub extern "C" fn __RTS_FN_RT_OBJECT_TO_STRING(value: i64, tag: i64) -> u64 {
                     Some(Entry::DateMs(_)) => "Date",
                     Some(Entry::Regex(_)) => "RegExp",
                     Some(Entry::Function(_)) => "Function",
-                    Some(Entry::WeakMap(_)) => "WeakMap",
                     Some(Entry::String(b)) => {
                         if b.as_slice() == b"undefined" {
                             "Undefined"
@@ -1167,7 +1167,7 @@ fn inspect_handle(h: u64, depth: usize) -> String {
             // (preserva mesmo se user setar __proto__ depois) ou slot
             // __proto__ existe com valor 0. Node/Bun imprimem como
             // `[Object: null prototype] {...}`.
-            let is_null_proto = rts_shared::collections::map::is_null_proto_handle(h)
+            let is_null_proto = rts_primitives::object::is_null_proto_handle(h)
                 || entries
                     .iter()
                     .any(|(k, v)| k == b"__proto__" && *v == 0);

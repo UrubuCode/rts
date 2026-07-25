@@ -623,33 +623,12 @@ fn read_bytes_at<const N: usize>(handle: u64, offset: i64) -> Option<[u8; N]> {
     })
 }
 
-/// `new ArrayBuffer(size)` — aloca um buffer de bytes zerado.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ARRAY_BUFFER_NEW(size: i64) -> u64 {
-    __RTS_FN_NS_BUFFER_ALLOC(size)
-}
-
-/// `arrayBuffer.slice(start, end)` — novo ArrayBuffer com a cópia dos bytes
-/// no range [start, end). Indices negativos contam do fim (JS spec). `end`
-/// omitido (sentinela i64::MIN) = ate o fim.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ARRAY_BUFFER_SLICE(handle: u64, start: i64, end: i64) -> u64 {
-    let bytes: Vec<u8> = with_buffer(handle, Vec::new(), |b| {
-        let len = b.len() as i64;
-        let norm = |i: i64| -> i64 {
-            let v = if i < 0 { len + i } else { i };
-            v.clamp(0, len)
-        };
-        let s = norm(start);
-        let e = if end == i64::MIN { len } else { norm(end) };
-        if e <= s {
-            Vec::new()
-        } else {
-            b[s as usize..e as usize].to_vec()
-        }
-    });
-    alloc_entry(Entry::Buffer(bytes))
-}
+// (LAYERING FIX 2026-07-24) __RTS_FN_GL_ARRAY_BUFFER_NEW/SLICE MUDARAM para
+// `rts-primitives::arraybuffer` (ArrayBuffer é PRIMORDIAL — modela o memory
+// model cru; ver CLAUDE.md doctrine).
+pub use rts_primitives::arraybuffer::{
+    __RTS_FN_GL_ARRAY_BUFFER_NEW, __RTS_FN_GL_ARRAY_BUFFER_SLICE,
+};
 
 /// `new DataView(buffer)` — view sobre o ArrayBuffer (byteOffset 0). O
 /// handle do DataView eh o proprio handle do buffer (sem offset/length

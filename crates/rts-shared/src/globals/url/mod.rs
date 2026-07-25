@@ -1,15 +1,29 @@
 //! `url` — WHATWG URL + URLSearchParams.
 //!
-//! Migrado do `#[rts_namespace]` + `#[rts_class]` (macro) pro modelo builder
-//! hand-written do `rts-engine` (rumo à remoção da `rts-macro`). Todos os
-//! membros são `external`: os externs `__RTS_FN_GL_URL_*` / `__RTS_FN_GL_USP_*`
-//! ficam em `instance.rs` intactos. Aqui só publicamos o `SPEC` (namespace url)
-//! + os dois `*_CLASS_SPEC` (URL + URLSearchParams) — sem reemitir extern, com
-//! `fn_ptr` null.
+//! `URL` (DRAIN_MOTOR §8-9): stays fully hand-written in `instance.rs` — the
+//! WHATWG URL API is almost entirely MUTABLE `String` properties
+//! (`url.protocol = "http:"`, `url.pathname = "/x"`, …), and today's
+//! `#[rtse::class]` macro only generates an `InstanceSetter` for a SCALAR
+//! `#[rtse::variable]` field (`f64`/`i64`/`i32`/`bool`) — there is no
+//! `String`-typed instance-setter authoring path yet (a real gap; see the
+//! doc-comment on `register_url_class_spec`). `URL`'s READONLY getters (`href`,
+//! `host`, …) already resolve as 0-arg `InstanceMethod`s, same as a macro
+//! `#[rtse::method]` would emit — only the setters block a full migration.
+//!
+//! `URLSearchParams` (`search_params.rs`): migrated. Ctor + get/has/set/delete/
+//! append/sort/toString/size are `#[rtse::class]`-authored (idiomatic Rust,
+//! `Entry::Rtse<UrlSearchParams>` storage) — no `String` PROPERTY setters are
+//! needed here (its whole JS surface is METHOD calls), so the macro's
+//! `InstanceMethod`-only authoring is sufficient. `getAll`/`keys`/`values`/
+//! `entries` (return a classified `string[]`/`[string,string][]` — F8, not
+//! landed) and `forEach` (a function-VALUE callback param — no `PolyValue`
+//! param support) stay hand-written in `search_params.rs`, reading the same
+//! struct via `with_rtse`.
 
 pub mod instance;
+pub mod search_params;
 
-use rts_engine::{AbiType, DefaultArg, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 /// Endereço real do extern `__RTS_FN_GL_URL_*` / `__RTS_FN_GL_USP_*` (vivem em
 /// `instance.rs`, neste mesmo crate). Os membros eram `external` (fn_ptr null) e
@@ -45,20 +59,16 @@ fn fp_for(symbol: &str) -> *const u8 {
         "__RTS_FN_GL_URL_SET_HREF" => instance::__RTS_FN_GL_URL_SET_HREF as *const u8,
         "__RTS_FN_GL_URL_TO_STRING" => instance::__RTS_FN_GL_URL_TO_STRING as *const u8,
         "__RTS_FN_GL_URL_USERNAME" => instance::__RTS_FN_GL_URL_USERNAME as *const u8,
-        "__RTS_FN_GL_USP_APPEND" => instance::__RTS_FN_GL_USP_APPEND as *const u8,
-        "__RTS_FN_GL_USP_DELETE" => instance::__RTS_FN_GL_USP_DELETE as *const u8,
-        "__RTS_FN_GL_USP_ENTRIES" => instance::__RTS_FN_GL_USP_ENTRIES as *const u8,
-        "__RTS_FN_GL_USP_FOR_EACH" => instance::__RTS_FN_GL_USP_FOR_EACH as *const u8,
-        "__RTS_FN_GL_USP_SIZE" => instance::__RTS_FN_GL_USP_SIZE as *const u8,
-        "__RTS_FN_GL_USP_GET" => instance::__RTS_FN_GL_USP_GET as *const u8,
-        "__RTS_FN_GL_USP_GET_ALL" => instance::__RTS_FN_GL_USP_GET_ALL as *const u8,
-        "__RTS_FN_GL_USP_HAS" => instance::__RTS_FN_GL_USP_HAS as *const u8,
-        "__RTS_FN_GL_USP_KEYS" => instance::__RTS_FN_GL_USP_KEYS as *const u8,
-        "__RTS_FN_GL_USP_NEW" => instance::__RTS_FN_GL_USP_NEW as *const u8,
-        "__RTS_FN_GL_USP_SET" => instance::__RTS_FN_GL_USP_SET as *const u8,
-        "__RTS_FN_GL_USP_SORT" => instance::__RTS_FN_GL_USP_SORT as *const u8,
-        "__RTS_FN_GL_USP_TO_STRING" => instance::__RTS_FN_GL_USP_TO_STRING as *const u8,
-        "__RTS_FN_GL_USP_VALUES" => instance::__RTS_FN_GL_USP_VALUES as *const u8,
+        // URLSearchParams: get/has/set/delete/append/sort/toString/size/new are
+        // now `#[rtse::class]`-authored (search_params.rs) — their `fn_ptr` is
+        // wired directly by the macro, not looked up here. Only the residual
+        // hand-written members (array-return / callback-param macro gaps) still
+        // route through `fp_for`.
+        "__RTS_FN_GL_USP_GET_ALL" => search_params::__RTS_FN_GL_USP_GET_ALL as *const u8,
+        "__RTS_FN_GL_USP_KEYS" => search_params::__RTS_FN_GL_USP_KEYS as *const u8,
+        "__RTS_FN_GL_USP_VALUES" => search_params::__RTS_FN_GL_USP_VALUES as *const u8,
+        "__RTS_FN_GL_USP_ENTRIES" => search_params::__RTS_FN_GL_USP_ENTRIES as *const u8,
+        "__RTS_FN_GL_USP_FOR_EACH" => search_params::__RTS_FN_GL_USP_FOR_EACH as *const u8,
         _ => core::ptr::null(),
     }
 }
@@ -475,84 +485,32 @@ pub fn register_url_class_spec(e: &mut Engine) {
         .done();
 }
 
-/// Registra a classe global `URLSearchParams` no motor (hand-written, sem macro).
+/// Registra a classe global `URLSearchParams`. Ctor + get/has/set/delete/
+/// append/sort/toString/size vêm do `#[rtse::class]` em `search_params.rs`
+/// (autoria idiomática, macro G4+F1+F4). `getAll`/`keys`/`values`/`entries`/
+/// `forEach` são gaps do macro hoje (retorno `string[]`/`[k,v][]` classificado
+/// = F8; `forEach` recebe uma função-VALOR, sem suporte a `PolyValue` como
+/// param) — ficam hand-written (mesmo `Entry::Rtse<UrlSearchParams>`), e são
+/// ANEXADOS aqui porque `ClassBuilder::done()` SUBSTITUI (não funde) a entrada
+/// anterior no Registry: lemos de volta os membros que o macro já registrou e
+/// os re-emitimos junto dos residuais numa única `.done()`.
 pub fn register_urlsp_class_spec(e: &mut Engine) {
-    e.class("URLSearchParams")
-        .doc("WHATWG URLSearchParams API minimal — get/has/set/delete/toString.")
-        .member(m(
-            "new",
-            MemberKind::Constructor,
-            Sig::with_defaults(
-                vec![AbiType::StrPtr],
-                AbiType::Handle,
-                vec![DefaultArg::Undefined],
-            ),
-            "__RTS_FN_GL_USP_NEW",
-            "new URLSearchParams(init?: string): URLSearchParams",
-            "new URLSearchParams(init?) — init e' string \"a=1&b=2\".",
-            true,
-        ))
-        .member(m(
-            "get",
-            MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Handle),
-            "__RTS_FN_GL_USP_GET",
-            "get(key: string): string | null",
-            "Retorna handle de string com value, ou 0 (undefined) se ausente.",
-            true,
-        ))
-        .member(m(
-            "has",
-            MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Bool),
-            "__RTS_FN_GL_USP_HAS",
-            "has(key: string): boolean",
-            "True se key existe.",
-            true,
-        ))
-        .member(m(
-            "set",
-            MemberKind::InstanceMethod,
-            Sig::new(
-                vec![AbiType::Handle, AbiType::StrPtr, AbiType::StrPtr],
-                AbiType::Handle,
-            ),
-            "__RTS_FN_GL_USP_SET",
-            "set(key: string, value: string): void",
-            "Substitui ou adiciona pair. Retorna self.",
-            false,
-        ))
-        .member(m(
-            "delete",
-            MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Handle),
-            "__RTS_FN_GL_USP_DELETE",
-            "delete(key: string): void",
-            "Remove pair. Retorna self.",
-            false,
-        ))
-        .member(m(
-            "toString",
-            MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle], AbiType::Handle),
-            "__RTS_FN_GL_USP_TO_STRING",
-            "toString(): string",
-            "Serializa como 'a=1&b=2'.",
-            true,
-        ))
-        .member(m(
-            "append",
-            MemberKind::InstanceMethod,
-            Sig::new(
-                vec![AbiType::Handle, AbiType::StrPtr, AbiType::StrPtr],
-                AbiType::Handle,
-            ),
-            "__RTS_FN_GL_USP_APPEND",
-            "append(key: string, value: string): void",
-            "Append (v0 limitacao: equivalente a set — sem multi-value).",
-            false,
-        ))
-        .member(m(
+    // 1) Macro-authored ctor/instance methods (search_params.rs::register).
+    search_params::register(e);
+    let macro_members: Vec<Member> = e
+        .registry()
+        .class("URLSearchParams")
+        .map(|c| c.members.clone())
+        .unwrap_or_default();
+    // 2) Re-open the class, replay the macro members, then append the residual
+    // hand-written ones.
+    let mut cb = e
+        .class("URLSearchParams")
+        .doc("WHATWG URLSearchParams API — get/has/set/delete/append/sort/toString/size (rtse-authored) + getAll/keys/values/entries/forEach (hand-written: array-return/callback-param macro gaps).");
+    for mem in macro_members {
+        cb = cb.member(mem);
+    }
+    cb.member(m(
             "getAll",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Handle),
@@ -580,15 +538,6 @@ pub fn register_urlsp_class_spec(e: &mut Engine) {
             true,
         ))
         .member(m(
-            "sort",
-            MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle], AbiType::Handle),
-            "__RTS_FN_GL_USP_SORT",
-            "sort(): void",
-            "Sort entries by key name (estavel, JS spec).",
-            false,
-        ))
-        .member(m(
             "entries",
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle], AbiType::Handle),
@@ -604,15 +553,6 @@ pub fn register_urlsp_class_spec(e: &mut Engine) {
             "__RTS_FN_GL_USP_FOR_EACH",
             "forEach(callback: (value: string, key: string, searchParams: URLSearchParams) => void): void",
             "Invoca callback(value, key, self) por par (snapshot).",
-            false,
-        ))
-        .member(m(
-            "size",
-            MemberKind::InstanceGetter,
-            Sig::new(vec![AbiType::Handle], AbiType::I64),
-            "__RTS_FN_GL_USP_SIZE",
-            "size: number",
-            "Numero de pares (getter, WHATWG v19+).",
             false,
         ))
         .done();

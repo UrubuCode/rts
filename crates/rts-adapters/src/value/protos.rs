@@ -462,6 +462,24 @@ pub extern "C" fn __rtsadp_instanceof_walk(obj_word: u64, class_name_word: u64) 
     if !(v.is_object() || v.is_function()) {
         return PolyValue::bool(false).raw();
     }
+    // A struct-backed `#[rtse::class]` instance (`Entry::Rtse`) carries its JS class
+    // name. `x instanceof C` is true iff that class IS `C` or DESCENDS from it
+    // (`class_registry::is_descendant_of`, populated from the Registry's `extends`).
+    // Only a POSITIVE match short-circuits — on no match we FALL THROUGH to the
+    // prototype walk so `rtseInstance instanceof Object` (and any real proto
+    // relationship) still resolves.
+    if let Some(h) = rts_engine::heap::poly::poly_handle_normalize(obj_word) {
+        if let Some(cls) = rts_engine::heap::handles::rtse_class_of(h) {
+            if let Some(target_name) = rts_engine::heap::handles::read_string_handle(
+                rts_engine::heap::poly::poly_handle_normalize(class_name_word)
+                    .unwrap_or(class_name_word),
+            ) {
+                if rts_engine::heap::class_registry::is_descendant_of(cls, &target_name) {
+                    return PolyValue::bool(true).raw();
+                }
+            }
+        }
+    }
     let target = __rtsadp_class_proto(class_name_word);
     let found = walk_proto_chain(obj_word, |p| p == target);
     PolyValue::bool(found).raw()

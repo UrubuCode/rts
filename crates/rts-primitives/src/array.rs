@@ -1,180 +1,60 @@
-//! Spec da classe primordial `Array` (metadata pura — fn_ptr null, símbolos
-//! `__RTS_FN_NS_COLLECTIONS_VEC_*`). Os corpos `#[no_mangle]` ficam em
-//! `rts-shared/collections/vec.rs`; aqui só a declaração de membros que o motor
-//! resolve via Registry. Movida de `rts-shared/collections` na Fase 2 (Array é
-//! primordial). Crate só depende de `rts-engine`.
+//! Spec + impl (parcial) da classe primordial `Array`. A maioria dos corpos
+//! `#[no_mangle]` (símbolos `__RTS_FN_NS_COLLECTIONS_VEC_*`) ficam em
+//! `rts-shared/collections/vec.rs` — dispatch real de `arr.method()` é
+//! hardcoded no front-end (`crates/rts-codegen-new/src/front/run/`). O builder
+//! `register_array_class_spec` foi removido em DRAIN_MOTOR: nunca era chamado
+//! por nenhum path de REGISTER/populate do motor.
+//!
+//! (LAYERING FIX 2026-07-24) As 2 fns abaixo (`__RTS_FN_GL_ARRAY_FROM_LENGTH`/
+//! `__RTS_FN_GL_ARRAY_NEW_WITH_LENGTH`) MUDARAM de `rts-shared/collections/
+//! vec.rs` pra cá — não tocam nenhum estado/Entry non-primordial (só
+//! `Entry::Vec`, definido em `rts-engine`), então cabem aqui sem puxar
+//! rts-shared. `__RTS_FN_GL_ARRAY_FROM_VEC` FICOU em rts-shared: depende de
+//! `handle_is_set_kind`/`handle_is_map_kind`/`set_element_from_pair`
+//! (Map/Set — non-primordial) e do generator-drain de `gc_surface`; mover
+//! puxaria uma dependência rts-primitives → rts-shared (proibida).
 
-/// Registra a classe global `Array` (receiver = handle de Vec). Só os métodos
-/// LIMPOS recv-only (sem callback/variádico/arg-overload): pop/shift (retorno
-/// ambíguo — elemento ou undefined), reverse/toReversed/values/keys/entries.
-/// O codegen resolve `arr.method()` pelo Registry, sem braço hardcoded; métodos
-/// ausentes (push/sort/map/...) caem de volta no array builtin. `.length`/`.size`
-/// vão pelo handle-length genérico (ver rc_for_size em members.rs). fn_ptr null:
-/// símbolos resolvem via a registração do namespace `collections`.
-pub fn register_array_class_spec(e: &mut rts_engine::Engine) {
-    use rts_engine::{AbiType, DefaultArg, FnPtr, Member, MemberFlags, MemberKind, Sig};
-    fn m(name: &str, sig: Sig, symbol: &str, flags: MemberFlags) -> Member {
-        Member {
-            name: name.to_string(),
-            kind: MemberKind::InstanceMethod,
-            sig,
-            symbol: symbol.to_string(),
-            fn_ptr: FnPtr(core::ptr::null::<u8>()),
-            flags,
-            aliases: Vec::new(),
-            variadic: false,
-            ts_signature: String::new(),
-            doc: String::new(),
-            pure: false,
-            emit: None,
+use rts_engine::heap::handles::{Entry, alloc_entry};
+
+/// Mesmo limite de `rts-shared::collections::vec::VEC_MAX_LEN` — evita OOM em
+/// `new Array(len)`/`Array.from({length})` com `len` hostil.
+const VEC_MAX_LEN: i64 = 1_000_000;
+
+/// (#780/#786) `new Array(len)` — cria Vec preenchido com sentinel de HOLE
+/// `i64::MIN + 4` (cross-runtime #1533): JS spec cria slots vazios (holes),
+/// nao undefined — `0 in new Array(3)` eh false. Leitura `a[0] === undefined`
+/// continua true (codegen trata MIN+4 como undefined-equivalente). Limitado
+/// ao `VEC_MAX_LEN` pra evitar OOM.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_ARRAY_NEW_WITH_LENGTH(len: i64) -> u64 {
+    let len = len.max(0).min(VEC_MAX_LEN) as usize;
+    let v = vec![i64::MIN + 4; len];
+    alloc_entry(Entry::Vec(Box::new(v)))
+}
+
+/// (#208) `Array.from({length: n}, fn?)` — gera Vec [fn(0), fn(1), ...].
+/// Se fn_ptr == 0, gera [0, 1, ..., n-1] (sem mapeamento).
+/// fn_ptr e' `extern "C" fn(item: i64, idx: i64) -> i64`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_LENGTH(n: i64, fn_ptr: u64) -> u64 {
+    if n < 0 || n > VEC_MAX_LEN {
+        return alloc_entry(Entry::Vec(Box::new(Vec::new())));
+    }
+    let n = n as usize;
+    let mut out: Vec<i64> = Vec::with_capacity(n);
+    if fn_ptr == 0 {
+        for i in 0..n {
+            out.push(i as i64);
+        }
+    } else {
+        // SAFETY: fn_ptr e' `extern "C" fn(i64, i64) -> i64`.
+        // Em JS Array.from(arrayLike, mapFn) chama mapFn(undefined, idx)
+        // pra cada slot vazio. Aqui passamos (idx, idx) pra simplificar
+        // — mapper tipico em RTS recebe `(_, i) => ...` e usa so' i.
+        let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
+        for i in 0..n {
+            out.push(f(i as i64, i as i64));
         }
     }
-    let h = || Sig::new(vec![AbiType::Handle], AbiType::Handle);
-    let amb = || Sig::new(vec![AbiType::Handle], AbiType::I64);
-    // start? = 0, end? = i64::MIN (sentinela "até o fim") — defaults reais no
-    // Registry em vez de hardcoded no codegen.
-    let range3 = || {
-        Sig::with_defaults(
-            vec![AbiType::Handle, AbiType::I64, AbiType::I64, AbiType::I64],
-            AbiType::Handle,
-            vec![
-                DefaultArg::Required,
-                DefaultArg::Required,
-                DefaultArg::Int(0),
-                DefaultArg::Int(i64::MIN),
-            ],
-        )
-    };
-    // slice(start? = 0, end? = i64::MIN).
-    let range2 = || {
-        Sig::with_defaults(
-            vec![AbiType::Handle, AbiType::I64, AbiType::I64],
-            AbiType::Handle,
-            vec![
-                DefaultArg::Required,
-                DefaultArg::Int(0),
-                DefaultArg::Int(i64::MIN),
-            ],
-        )
-    };
-    let mut slice_member = m(
-        "slice",
-        range2(),
-        "__RTS_FN_NS_COLLECTIONS_VEC_SLICE",
-        MemberFlags::NONE,
-    );
-    slice_member.aliases = vec!["subarray".to_string()];
-    // concat(...args) variádico: o emitter genérico empacota todos os args num
-    // Vec<i64> de handles e chama VEC_CONCAT_VARIADIC(recv, vec).
-    let mut concat_member = m(
-        "concat",
-        Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
-        "__RTS_FN_NS_COLLECTIONS_VEC_CONCAT_VARIADIC",
-        MemberFlags::NONE,
-    );
-    concat_member.variadic = true;
-    let mut unshift_member = m(
-        "unshift",
-        Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::I64),
-        "__RTS_FN_NS_COLLECTIONS_VEC_UNSHIFT_VARIADIC",
-        MemberFlags::NONE,
-    );
-    unshift_member.variadic = true;
-    // splice/toSpliced: empacota TODOS os args [start, count?, ...items] num Vec;
-    // o runtime AUTO desempacota. splice mutaciona + devolve removidos;
-    // toSpliced devolve cópia nova.
-    let mut splice_member = m(
-        "splice",
-        Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
-        "__RTS_FN_NS_COLLECTIONS_VEC_SPLICE_AUTO",
-        MemberFlags::NONE,
-    );
-    splice_member.variadic = true;
-    let mut tospliced_member = m(
-        "toSpliced",
-        Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
-        "__RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_AUTO",
-        MemberFlags::NONE,
-    );
-    tospliced_member.variadic = true;
-    let mut length_member = m(
-        "length",
-        Sig::new(vec![AbiType::Handle], AbiType::I64),
-        "__RTS_FN_NS_COLLECTIONS_VEC_LEN",
-        MemberFlags::NONE,
-    );
-    length_member.aliases = vec!["size".to_string()];
-    // Comparator opcional (sort/toSorted) = default 0 → ordem default no runtime.
-    // O arg fn é coergido pro func_addr pelo emitter genérico (ident de user fn
-    // OU arrow inline hoisteada).
-    let cb_opt = |sym: &str| {
-        m(
-            "x",
-            Sig::with_defaults(
-                vec![AbiType::Handle, AbiType::I64],
-                AbiType::Handle,
-                vec![DefaultArg::Required, DefaultArg::Int(0)],
-            ),
-            sym,
-            MemberFlags::NONE,
-        )
-    };
-    let mut sort_member = cb_opt("__RTS_FN_NS_COLLECTIONS_VEC_SORT");
-    sort_member.name = "sort".to_string();
-    let mut tosorted_member = cb_opt("__RTS_FN_NS_COLLECTIONS_VEC_TO_SORTED");
-    tosorted_member.name = "toSorted".to_string();
-    e.class("Array")
-        .doc("Array — métodos sem callback (pop/shift/reverse/toReversed/values/keys/entries/fill/copyWithin/with).")
-        .member(m("at", Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64), "__RTS_FN_NS_COLLECTIONS_VEC_AT_AUTO", MemberFlags::AMBIGUOUS_RET))
-        .member(m("pop", amb(), "__RTS_FN_NS_COLLECTIONS_VEC_POP", MemberFlags::AMBIGUOUS_RET))
-        .member(m("shift", amb(), "__RTS_FN_NS_COLLECTIONS_VEC_SHIFT", MemberFlags::AMBIGUOUS_RET))
-        .member(m("reverse", h(), "__RTS_FN_NS_COLLECTIONS_VEC_REVERSE", MemberFlags::NONE))
-        .member(m("toReversed", h(), "__RTS_FN_NS_COLLECTIONS_VEC_TO_REVERSED", MemberFlags::NONE))
-        .member(m("values", h(), "__RTS_FN_NS_COLLECTIONS_VEC_VALUES", MemberFlags::NONE))
-        .member(m("keys", h(), "__RTS_FN_NS_COLLECTIONS_VEC_KEYS", MemberFlags::NONE))
-        .member(m("entries", h(), "__RTS_FN_NS_COLLECTIONS_VEC_ENTRIES", MemberFlags::NONE))
-        .member(m(
-            "join",
-            Sig::with_defaults(
-                vec![AbiType::Handle, AbiType::Handle],
-                AbiType::Handle,
-                vec![DefaultArg::Required, DefaultArg::Int(0)],
-            ),
-            "__RTS_FN_NS_COLLECTIONS_VEC_JOIN",
-            MemberFlags::NONE,
-        ))
-        .member(m("clear", Sig::new(vec![AbiType::Handle], AbiType::Void), "__RTS_FN_NS_COLLECTIONS_VEC_CLEAR", MemberFlags::NONE))
-        .member(slice_member)
-        .member(concat_member)
-        .member(unshift_member)
-        .member(length_member)
-        .member(m("flat", Sig::with_defaults(
-            vec![AbiType::Handle, AbiType::I64],
-            AbiType::Handle,
-            vec![DefaultArg::Required, DefaultArg::Int(1)],
-        ), "__RTS_FN_NS_COLLECTIONS_VEC_FLAT_DEPTH", MemberFlags::NONE))
-        .member(splice_member)
-        .member(tospliced_member)
-        .member(sort_member)
-        .member(tosorted_member)
-        .member(m("flatMap", Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_VEC_FLAT_MAP", MemberFlags::NONE))
-        .member(m("findLast", Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64), "__RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST", MemberFlags::AMBIGUOUS_RET))
-        .member(m("findLastIndex", Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::I64), "__RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST_INDEX", MemberFlags::NONE))
-        // #305 iterator helpers eager: take(n)=slice(0,n) [runtime], drop(n)=
-        // slice(n,fim) e toArray()=slice(0,fim) [VEC_SLICE via defaults].
-        .member(m("take", Sig::new(vec![AbiType::Handle, AbiType::I64], AbiType::Handle), "__RTS_FN_NS_COLLECTIONS_VEC_TAKE", MemberFlags::NONE))
-        .member(m("drop", Sig::with_defaults(
-            vec![AbiType::Handle, AbiType::I64, AbiType::I64], AbiType::Handle,
-            vec![DefaultArg::Required, DefaultArg::Required, DefaultArg::Int(i64::MIN)],
-        ), "__RTS_FN_NS_COLLECTIONS_VEC_SLICE", MemberFlags::NONE))
-        .member(m("toArray", range2(), "__RTS_FN_NS_COLLECTIONS_VEC_SLICE", MemberFlags::NONE))
-        .member(m("fill", range3(), "__RTS_FN_NS_COLLECTIONS_VEC_FILL", MemberFlags::NONE))
-        .member(m("copyWithin", range3(), "__RTS_FN_NS_COLLECTIONS_VEC_COPY_WITHIN", MemberFlags::NONE))
-        .member(m(
-            "with",
-            Sig::new(vec![AbiType::Handle, AbiType::I64, AbiType::I64], AbiType::Handle),
-            "__RTS_FN_NS_COLLECTIONS_VEC_WITH",
-            MemberFlags::NONE,
-        ))
-        .done();
+    alloc_entry(Entry::Vec(Box::new(out)))
 }

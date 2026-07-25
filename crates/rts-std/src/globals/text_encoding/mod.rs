@@ -1,16 +1,22 @@
 //! `text_encoding` — TextEncoder / TextDecoder / atob / btoa / structuredClone
 //! / queueMicrotask.
 //!
-//! Migrado do `#[rts_namespace]` + `#[rts_class]` (macro) pro modelo builder
-//! hand-written do `rts-engine` (rumo à remoção da `rts-macro`). Todos os
-//! membros são `external`: os externs `__RTS_FN_GL_TEXTENC_*` /
-//! `__RTS_FN_GL_TEXTDEC_*` ficam em `instance.rs` intactos; aqui só
-//! registramos a namespace `SPEC` + os dois `*_CLASS_SPEC` (fn_ptr null, sem
-//! reemitir `#[no_mangle]`).
+//! The `text_encoding` NAMESPACE (free `encode`/`decode`/`atob`/`btoa`/
+//! `structuredClone`/`queueMicrotask` functions) stays hand-written — its externs
+//! live in `instance.rs`.
+//!
+//! The `TextEncoder`/`TextDecoder` global CLASSES (DRAIN_MOTOR §8-9) are fully
+//! `#[rtse::class]`-authored: `encoder.rs` (TextEncoder) and `decoder.rs`
+//! (TextDecoder — `decode` uses `#[rtse::method(throws, ...)]`, the `throws`
+//! keyword that sets `MemberFlags::THROWS` on the generated Member so the
+//! `fatal` TypeError path still routes through `try/catch`). No hand-written
+//! residual members remain for either class.
 
+pub mod decoder;
+pub mod encoder;
 pub mod instance;
 
-use rts_engine::{AbiType, DefaultArg, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 /// Membro de namespace/classe global (helper hand-written, espelha a macro).
 #[allow(clippy::too_many_arguments)]
@@ -108,96 +114,16 @@ pub fn register(e: &mut Engine) {
         .done();
 }
 
-/// Registra a classe global `TextEncoder` no motor (hand-written, sem macro).
-/// Membros `external` (fn_ptr null).
+/// Registra a classe global `TextEncoder` — inteiramente `#[rtse::class]`
+/// (`encoder.rs`): ctor + `encode` + `encodeInto` cabem 100% na superfície do
+/// macro (Handle/&str param+return), sem gap.
 pub fn register_text_encoder_class_spec(e: &mut Engine) {
-    e.class("TextEncoder")
-        .doc("TextEncoder — encode string para UTF-8 Uint8Array.")
-        .member(m(
-            "new",
-            MemberKind::Constructor,
-            Sig::new(Vec::new(), AbiType::Handle),
-            "__RTS_FN_GL_TEXTENC_NEW",
-            "new TextEncoder()",
-            "new TextEncoder() — sem args (sempre UTF-8).",
-            core::ptr::null::<u8>(),
-            true,
-        ))
-        .member(m(
-            "encode",
-            MemberKind::InstanceMethod,
-            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Handle),
-            "__RTS_FN_GL_TEXTENC_ENCODE_INSTANCE",
-            "encode(text: string): Uint8Array",
-            "encoder.encode(text) — UTF-8 bytes como Buffer handle.",
-            core::ptr::null::<u8>(),
-            true,
-        ))
-        .member(m(
-            "encodeInto",
-            MemberKind::InstanceMethod,
-            Sig::new(
-                vec![AbiType::Handle, AbiType::StrPtr, AbiType::Handle],
-                AbiType::Handle,
-            ),
-            "__RTS_FN_GL_TEXTENC_ENCODE_INTO",
-            "encodeInto(src: string, dest: Uint8Array): TextEncoderEncodeIntoResult",
-            "encoder.encodeInto(src, dest) — escreve UTF-8 em dest (só code points inteiros que cabem); retorna {read, written}.",
-            core::ptr::null::<u8>(),
-            false,
-        ))
-        .done();
+    encoder::register(e);
 }
 
-/// Registra a classe global `TextDecoder` no motor (hand-written, sem macro).
-/// Membros `external` (fn_ptr null).
+/// Registra a classe global `TextDecoder` — inteiramente `#[rtse::class]`
+/// (`decoder.rs`): ctor + `decode` (com `throws`) cabem 100% na superfície do
+/// macro, sem workaround de leitura-e-anexo.
 pub fn register_text_decoder_class_spec(e: &mut Engine) {
-    e.class("TextDecoder")
-        .doc("TextDecoder — decode Uint8Array UTF-8 para string.")
-        .member(m(
-            "new",
-            MemberKind::Constructor,
-            // `label` and the `{fatal, ignoreBOM}` options bag are both OPTIONAL
-            // (`new TextDecoder()` valid); default them to `undefined` so the
-            // generic ctor resolver admits 0/1/2-arg calls. UTF-8 only — the
-            // label is accepted and ignored; the options land in instance state.
-            Sig::with_defaults(
-                vec![AbiType::StrPtr, AbiType::Handle],
-                AbiType::Handle,
-                vec![DefaultArg::Undefined, DefaultArg::Undefined],
-            ),
-            "__RTS_FN_GL_TEXTDEC_NEW",
-            "new TextDecoder(label?: string, options?: TextDecoderOptions)",
-            "new TextDecoder(label?, {fatal?, ignoreBOM?}?) — so' UTF-8; options guardadas na instância.",
-            core::ptr::null::<u8>(),
-            true,
-        ))
-        .member({
-            let mut mem = m(
-                "decode",
-                MemberKind::InstanceMethod,
-                // `buf` optional (a no-arg call FLUSHES a streaming decoder) and
-                // an optional `{stream}` options bag; defaults cover ALL sig
-                // slots (receiver included — the front drops slot 0).
-                Sig::with_defaults(
-                    vec![AbiType::Handle, AbiType::Handle, AbiType::Handle],
-                    AbiType::Handle,
-                    vec![
-                        DefaultArg::Undefined,
-                        DefaultArg::Undefined,
-                        DefaultArg::Undefined,
-                    ],
-                ),
-                "__RTS_FN_GL_TEXTDEC_DECODE_INSTANCE",
-                "decode(buf?: Uint8Array, options?: TextDecodeOptions): string",
-                "decoder.decode(buf?, {stream?}?) — BOM por stream, carry de UTF-8 dividido, fatal lança TypeError.",
-                core::ptr::null::<u8>(),
-                false,
-            );
-            // `{fatal: true}` rejeita input malformado com TypeError pendente —
-            // o front emite o post-call error check ao ver esta flag.
-            mem.flags = MemberFlags::THROWS;
-            mem
-        })
-        .done();
+    decoder::register(e);
 }

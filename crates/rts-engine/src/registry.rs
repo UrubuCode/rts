@@ -43,6 +43,12 @@ pub struct Class {
     /// Registry, sem nomear a classe no motor. `None` = sem predicado próprio
     /// (primordiais nomeadas pelo motor, ou classes que nunca casam).
     pub instanceof_predicate: Option<String>,
+    /// Nome da classe base (`#[rtse::class("Child", extends = "Parent")]`). O
+    /// codegen sobe a cadeia p/ `x instanceof Parent` sobre um `Child`. Os MÉTODOS
+    /// herdados NÃO vêm por cadeia (o modelo `Entry::Rtse` downcasta ao tipo
+    /// concreto — um método do pai não opera sobre a box do filho): o filho compõe
+    /// o pai num campo e ENCAMINHA os métodos (autoria), como o Rust idiomático.
+    pub parent: Option<String>,
 }
 
 impl Class {

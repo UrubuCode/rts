@@ -9,6 +9,7 @@ edition = "2024"
 # Specs declarativas (fn_ptr/símbolo); impls `#[no_mangle]` resolvem por link.
 [dependencies]
 rts-engine = { path = "../rts-engine" }
+rtse = { package = "rts-macro", path = "../rts-macro" }
 anyhow = "1.0"
 indexmap = "2.14.0"
 serde_json = { version = "1.0", features = ["preserve_order"] }

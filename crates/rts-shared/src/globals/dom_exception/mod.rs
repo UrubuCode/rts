@@ -1,210 +1,157 @@
-//! `DOMException` global class (#77).
+//! `DOMException` — the web platform's exception class (#77). NOT a
+//! primordial (no native syntax); a rts-shared universal utility class, same
+//! bucket as `Point`/`URL`.
 //!
-//! new DOMException(message, name) com fields message, name, code (legacy
-//! numeric code mapeado pelo name padrao). Migrado do `#[rts_class]` (macro)
-//! pro modelo builder hand-written do `rts-engine` (rumo à remoção da
-//! `rts-macro`). Os externs `__RTS_FN_GL_DOM_EXCEPTION_*` +
-//! `register_dom_exception_class_spec()` são escritos à mão. Símbolos/spec
-//! usam o prefixo `DOM_EXCEPTION`.
+//! DRAIN_MOTOR §11 (owner 2026-07-24 correction): reimplemented as
+//! `#[rtse::class]`, replacing the ambient `.ts` `DOMEXCEPTION_TS` prelude
+//! (`rts-shared/src/stdlib/domexception.ts`, now removed) AND the earlier
+//! hand-written builder that was superseded by it (recovered from git history
+//! via `git show HEAD:crates/rts-shared/src/globals/dom_exception/mod.rs` for
+//! the exact legacy code table). One representation now: `Entry::Rtse`
+//! (same pattern as `Point`/`Headers`/`TextDecoder`), no more `Entry::Map`
+//! tagged with `__rts_class`.
+//!
+//! `new DOMException(message?, name?)` — both args optional (`ctor(optional =
+//! 2)`, arity window `[0,2]`); an omitted `&str` arrives as the empty-string
+//! sentinel, which the ctor body treats as "absent" exactly like the deleted
+//! hand-written builder did (`name.is_empty()` → default `"Error"`) — the same
+//! conflation between "omitted" and "explicit empty string" the prior Rust
+//! and `.ts` versions both had (documented gap, not a regression).
 
-use indexmap::IndexMap;
+use rts_engine::abi::ty::Handle;
 
-use rts_engine::abi::ty::{Handle, I64};
-use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+/// `message`/`name` are plain Rust `String` fields — `#[rtse::variable]` only
+/// covers scalar (f64/i64/i32/bool) fields, so the string-valued getters below
+/// are hand-authored `#[rtse::getter]`s (same technique as `Point::tag`).
+#[rtse::class("DOMException")]
+#[derive(Clone)]
+pub struct DomException {
+    message: String,
+    name: String,
+}
 
-use rts_engine::heap::handles::{Entry, alloc_entry, with_entry};
+#[rtse::class("DOMException")]
+impl DomException {
+    /// `new DOMException(message = "", name = "Error")`.
+    #[rtse::ctor(optional = 2)]
+    fn new(message: &str, name: &str) -> Self {
+        let name = if name.is_empty() { "Error" } else { name };
+        DomException {
+            message: message.to_string(),
+            name: name.to_string(),
+        }
+    }
 
-/// Legacy numeric code para nomes padrao do WebIDL.
-fn code_for_name(name: &str) -> i64 {
-    match name {
-        "IndexSizeError" => 1,
-        "HierarchyRequestError" => 3,
-        "WrongDocumentError" => 4,
-        "InvalidCharacterError" => 5,
-        "NoModificationAllowedError" => 7,
-        "NotFoundError" => 8,
-        "NotSupportedError" => 9,
-        "InUseAttributeError" => 10,
-        "InvalidStateError" => 11,
-        "SyntaxError" => 12,
-        "InvalidModificationError" => 13,
-        "NamespaceError" => 14,
-        "InvalidAccessError" => 15,
-        "TypeMismatchError" => 17,
-        "SecurityError" => 18,
-        "NetworkError" => 19,
-        "AbortError" => 20,
-        "URLMismatchError" => 21,
-        "QuotaExceededError" => 22,
-        "TimeoutError" => 23,
-        "InvalidNodeTypeError" => 24,
-        "DataCloneError" => 25,
-        _ => 0,
+    #[rtse::getter]
+    fn message(self: &DomException) -> String {
+        self.message.clone()
+    }
+
+    #[rtse::getter]
+    fn name(self: &DomException) -> String {
+        self.name.clone()
+    }
+
+    /// The LEGACY numeric code for the spec-listed names; `0` for everything
+    /// else (`AbortError` included — it has no legacy code). Ported verbatim
+    /// from the deleted hand-written `code_for_name` (git history) / the `.ts`
+    /// `get code()` — same table, same order.
+    #[rtse::getter]
+    fn code(self: &DomException) -> i64 {
+        match self.name.as_str() {
+            "IndexSizeError" => 1,
+            "HierarchyRequestError" => 3,
+            "WrongDocumentError" => 4,
+            "InvalidCharacterError" => 5,
+            "NoModificationAllowedError" => 7,
+            "NotFoundError" => 8,
+            "NotSupportedError" => 9,
+            "InUseAttributeError" => 10,
+            "InvalidStateError" => 11,
+            "SyntaxError" => 12,
+            "InvalidModificationError" => 13,
+            "NamespaceError" => 14,
+            "InvalidAccessError" => 15,
+            "TypeMismatchError" => 17,
+            "SecurityError" => 18,
+            "NetworkError" => 19,
+            "AbortError" => 20,
+            "URLMismatchError" => 21,
+            "QuotaExceededError" => 22,
+            "TimeoutError" => 23,
+            "InvalidNodeTypeError" => 24,
+            "DataCloneError" => 25,
+            _ => 0,
+        }
+    }
+
+    #[rtse::method(name = "toString")]
+    fn to_string(self: &DomException) -> String {
+        format!("{}: {}", self.name, self.message)
     }
 }
 
-/// Constroi o objeto DOMException (Map com message/name/code/__rts_class).
-fn build(msg: &str, name: &str) -> u64 {
-    let name_final = if name.is_empty() { "Error" } else { name };
-    let msg_h = alloc_entry(Entry::String(msg.as_bytes().to_vec())) as i64;
-    let name_h = alloc_entry(Entry::String(name_final.as_bytes().to_vec())) as i64;
-    let mut m: IndexMap<String, i64> = IndexMap::new();
-    m.insert("message".to_string(), msg_h);
-    m.insert("name".to_string(), name_h);
-    m.insert("code".to_string(), code_for_name(name_final));
-    m.insert("__rts_class".to_string(), {
-        alloc_entry(Entry::String(b"DOMException".to_vec())) as i64
-    });
-    alloc_entry(Entry::Map(Box::new(m)))
+/// Constructs a real `DOMException(message, name)` instance and returns its
+/// `Handle` — a stable extern any other crate that links against
+/// `rts-shared` (e.g. `rts-std`'s `abort` module) can call directly, since
+/// this class is a normal compiled Rust symbol (`__RTS_FN_GL_DOMEXCEPTION_NEW`),
+/// not an ambient per-program `.ts` class. See `rts-std/src/globals/abort/mod.rs`'s
+/// `default_abort_reason` for the caller.
+pub fn new_dom_exception(message: &str, name: &str) -> Handle {
+    __RTS_FN_GL_DOMEXCEPTION_NEW(
+        message.as_ptr() as i64,
+        message.len() as i64,
+        name.as_ptr() as i64,
+        name.len() as i64,
+    )
 }
 
-/// new DOMException()
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DOM_EXCEPTION_NEW_EMPTY() -> Handle {
-    build("", "")
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rts_engine::heap::handles::alloc_rtse;
 
-/// new DOMException(message)
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DOM_EXCEPTION_NEW_MSG(
-    message_ptr: *const u8,
-    message_len: i64,
-) -> Handle {
-    let message = unsafe { rts_engine::abi::str_abi::from_abi(message_ptr, message_len) };
-    build(message.unwrap_or(""), "")
-}
-
-/// new DOMException(message, name)
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DOM_EXCEPTION_NEW(
-    message_ptr: *const u8,
-    message_len: i64,
-    name_ptr: *const u8,
-    name_len: i64,
-) -> Handle {
-    let message = unsafe { rts_engine::abi::str_abi::from_abi(message_ptr, message_len) };
-    let name = unsafe { rts_engine::abi::str_abi::from_abi(name_ptr, name_len) };
-    build(message.unwrap_or(""), name.unwrap_or(""))
-}
-
-/// exception.name
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DOM_EXCEPTION_NAME(h: Handle) -> Handle {
-    with_entry(h, |e| match e {
-        Some(Entry::Map(m)) => m.get("name").copied().unwrap_or(0) as u64,
-        _ => 0,
-    })
-}
-
-/// exception.message
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DOM_EXCEPTION_MESSAGE(h: Handle) -> Handle {
-    with_entry(h, |e| match e {
-        Some(Entry::Map(m)) => m.get("message").copied().unwrap_or(0) as u64,
-        _ => 0,
-    })
-}
-
-/// exception.code — legacy WebIDL numeric code.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DOM_EXCEPTION_CODE(h: Handle) -> I64 {
-    with_entry(h, |e| match e {
-        Some(Entry::Map(m)) => m.get("code").copied().unwrap_or(0),
-        _ => 0,
-    })
-}
-
-/// Membro de classe global (helper hand-written, espelha `leak_class` da macro).
-#[allow(clippy::too_many_arguments)]
-fn m(
-    name: &str,
-    kind: MemberKind,
-    sig: Sig,
-    symbol: &str,
-    ts: &str,
-    doc: &str,
-    fp: *const u8,
-    pure: bool,
-) -> Member {
-    Member {
-        name: name.to_string(),
-        kind,
-        sig,
-        symbol: symbol.to_string(),
-        fn_ptr: FnPtr(fp),
-        flags: MemberFlags::NONE,
-        aliases: Vec::new(),
-        variadic: false,
-        ts_signature: ts.to_string(),
-        doc: doc.to_string(),
-        pure,
-        emit: None,
+    fn h(message: &str, name: &str) -> u64 {
+        alloc_rtse(
+            "DOMException",
+            DomException {
+                message: message.to_string(),
+                name: name.to_string(),
+            },
+        )
     }
-}
 
-/// Registra a classe global `DOMException` no motor (hand-written, sem macro).
-pub fn register_dom_exception_class_spec(e: &mut Engine) {
-    e.class("DOMException")
-        .doc("DOMException — WebIDL legacy exception class com name/message/code.")
-        .member(m(
-            "new",
-            MemberKind::Constructor,
-            Sig::new(Vec::new(), AbiType::Handle),
-            "__RTS_FN_GL_DOM_EXCEPTION_NEW_EMPTY",
-            "new DOMException()",
-            "new DOMException()",
-            __RTS_FN_GL_DOM_EXCEPTION_NEW_EMPTY as *const u8,
-            true,
-        ))
-        .member(m(
-            "new",
-            MemberKind::Constructor,
-            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
-            "__RTS_FN_GL_DOM_EXCEPTION_NEW_MSG",
-            "new DOMException(message: string)",
-            "new DOMException(message)",
-            __RTS_FN_GL_DOM_EXCEPTION_NEW_MSG as *const u8,
-            true,
-        ))
-        .member(m(
-            "new",
-            MemberKind::Constructor,
-            Sig::new(vec![AbiType::StrPtr, AbiType::StrPtr], AbiType::Handle),
-            "__RTS_FN_GL_DOM_EXCEPTION_NEW",
-            "new DOMException(message: string, name: string)",
-            "new DOMException(message, name)",
-            __RTS_FN_GL_DOM_EXCEPTION_NEW as *const u8,
-            true,
-        ))
-        .member(m(
-            "name",
-            MemberKind::InstanceGetter,
-            Sig::new(vec![AbiType::Handle], AbiType::Handle),
-            "__RTS_FN_GL_DOM_EXCEPTION_NAME",
-            "readonly name: string",
-            "exception.name",
-            __RTS_FN_GL_DOM_EXCEPTION_NAME as *const u8,
-            true,
-        ))
-        .member(m(
-            "message",
-            MemberKind::InstanceGetter,
-            Sig::new(vec![AbiType::Handle], AbiType::Handle),
-            "__RTS_FN_GL_DOM_EXCEPTION_MESSAGE",
-            "readonly message: string",
-            "exception.message",
-            __RTS_FN_GL_DOM_EXCEPTION_MESSAGE as *const u8,
-            true,
-        ))
-        .member(m(
-            "code",
-            MemberKind::InstanceGetter,
-            Sig::new(vec![AbiType::Handle], AbiType::I64),
-            "__RTS_FN_GL_DOM_EXCEPTION_CODE",
-            "readonly code: number",
-            "exception.code — legacy WebIDL numeric code.",
-            __RTS_FN_GL_DOM_EXCEPTION_CODE as *const u8,
-            true,
-        ))
-        .done();
+    fn string_of(handle: u64) -> String {
+        rts_engine::heap::handles::with_entry(handle, |e| match e {
+            Some(rts_engine::heap::handles::Entry::String(b)) => {
+                String::from_utf8_lossy(b).into_owned()
+            }
+            _ => String::new(),
+        })
+    }
+
+    #[test]
+    fn code_maps_known_names() {
+        let e = h("boom", "AbortError");
+        assert_eq!(__RTS_FN_GL_DOMEXCEPTION_CODE(e), 20);
+        let e = h("boom", "SyntaxError");
+        assert_eq!(__RTS_FN_GL_DOMEXCEPTION_CODE(e), 12);
+    }
+
+    #[test]
+    fn code_defaults_to_zero() {
+        let e = h("boom", "SomethingElse");
+        assert_eq!(__RTS_FN_GL_DOMEXCEPTION_CODE(e), 0);
+    }
+
+    #[test]
+    fn ctor_defaults_name_to_error_and_to_string() {
+        let handle = new_dom_exception("oops", "");
+        assert_eq!(string_of(__RTS_FN_GL_DOMEXCEPTION_NAME(handle)), "Error");
+        assert_eq!(string_of(__RTS_FN_GL_DOMEXCEPTION_MESSAGE(handle)), "oops");
+        assert_eq!(
+            string_of(__RTS_FN_GL_DOMEXCEPTION_TO_STRING(handle)),
+            "Error: oops"
+        );
+    }
 }

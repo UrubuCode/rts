@@ -66,6 +66,16 @@ pub extern "C" fn __RTS_FN_NS_GC_CLASS_REGISTER_PARENT(
     }
 }
 
+/// Registra `child extends parent` (lado-Rust; idempotente). O MESMO mapa que o
+/// extern `__RTS_FN_NS_GC_CLASS_REGISTER_PARENT` escreve — usado pelo codegen p/
+/// semear os `extends` das classes `#[rtse::class]` (dado do Registry) no startup.
+pub fn register_parent(child: &str, parent: &str) {
+    ensure_init();
+    if let Ok(mut m) = registry().lock() {
+        m.insert(child.to_string(), parent.to_string());
+    }
+}
+
 /// Retorna true se `name` eh `ancestor` ou tem `ancestor` na cadeia
 /// `extends` (transitivamente).
 pub fn is_descendant_of(name: &str, ancestor: &str) -> bool {

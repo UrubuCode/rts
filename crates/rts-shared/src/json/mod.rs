@@ -307,12 +307,12 @@ fn stringify_with_visited(
     // `ownKeys` + `getOwnPropertyDescriptor`, e le cada valor via trap
     // `get` (mesmo trace de Bun/Node). Resolvemos pra um objeto plano
     // {key: value} e serializamos recursivamente.
-    if let Some((target, handler)) = crate::globals::proxy::ops::resolve_proxy(handle) {
+    if let Some((target, handler)) = rts_primitives::proxy::ops::resolve_proxy(handle) {
         if !visited.insert(handle) {
             *circular = true;
             return None;
         }
-        let keys_vec = crate::globals::proxy::ops::dispatch_own_keys_enumerable(target, handler);
+        let keys_vec = rts_primitives::proxy::ops::dispatch_own_keys_enumerable(target, handler);
         let key_strs: Vec<String> = with_entry(keys_vec, |e| match e {
             Some(Entry::Vec(v)) => v
                 .iter()
@@ -329,7 +329,7 @@ fn stringify_with_visited(
         out.push('{');
         let mut first = true;
         for k in key_strs {
-            let val = crate::globals::proxy::ops::dispatch_get(target, handler, &k);
+            let val = rts_primitives::proxy::ops::dispatch_get(target, handler, &k);
             if is_undefined_value(val) {
                 continue;
             }
