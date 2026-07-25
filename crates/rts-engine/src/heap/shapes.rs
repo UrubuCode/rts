@@ -274,6 +274,26 @@ pub fn global_shape_keys(id: GlobalShapeId) -> Option<Vec<String>> {
     reg.keys.get(idx as usize).cloned()
 }
 
+/// The SLOT INDEX of `key` in a global shape, resolved UNDER the lock — no clone.
+///
+/// `global_shape_keys` hands back an owned `Vec<String>`, so every property read
+/// through the dynamic path (`__rtsadp_obj_get` → `resolve_slot`) allocated one
+/// `String` PER FIELD of the class just to find one of them, on top of taking the
+/// global mutex. Measured on a 5-field class: ~1.4 µs per field read, with the
+/// cost growing with the class's field COUNT — 500 objects × ~10 reads blew a
+/// 60 fps frame budget before any real work happened.
+///
+/// This compares in place and returns just the index.
+pub fn global_shape_slot_of(id: GlobalShapeId, key: &str) -> Option<usize> {
+    let idx = id.checked_sub(GLOBAL_SHAPE_BASE)?;
+    let reg = registry().lock().expect("global shape registry poisoned");
+    // Busca sob o lock, SEM clonar (que era o custo dominante). Um índice
+    // nome→slot chegou a ser tentado, mas divergiu do `keys` em execução
+    // paralela da suíte (21 falhas vs 9) — a lista é a fonte de verdade única.
+    let keys = reg.keys.get(idx as usize)?;
+    keys.iter().position(|k| k == key)
+}
+
 /// INT32 tag of the PolyValue NaN-box (shape ids ride slot 0 as boxed INT32).
 const POLY_TAG_INT32: u64 = 1;
 /// Singleton tag + payloads (mirrors `rts-adapters::value::layout` — frozen ABI).

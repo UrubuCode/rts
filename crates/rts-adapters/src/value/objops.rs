@@ -43,7 +43,7 @@ use rts_runtime::namespaces::collections::vec as rt_vec;
 use rts_runtime::namespaces::gc::handles as rt_handles;
 use rts_runtime::namespaces::globals::proxy as rt_proxy;
 
-use crate::shape::global_shape_keys;
+use crate::shape::{global_shape_keys, global_shape_slot_of};
 
 use super::inspect::looks_like_object;
 use super::{PolyValue, abi_adapter};
@@ -130,14 +130,25 @@ fn resolve_slot(obj_word: u64, key_str_handle: u64) -> Option<(u64, i64)> {
     if !obj.is_object() || !looks_like_object(obj) {
         return None;
     }
-    let key = key_text(key_str_handle);
     let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
     let slot0 = PolyValue::from_raw(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 0) as u64);
-    let keys = slot0
-        .is_int32()
-        .then(|| global_shape_keys(slot0.as_i32() as u32))
-        .flatten()?;
-    let idx = keys.iter().position(|k| *k == key)? as i64;
+    if !slot0.is_int32() {
+        return None;
+    }
+    // Resolve o slot SEM clonar a lista de chaves do shape e SEM alocar a chave.
+    // Antes: `key_text` (malloc da chave) + `global_shape_keys` (mutex global +
+    // clone de UMA String POR CAMPO da classe) + busca linear — tudo POR ACESSO
+    // a campo. Medido: ~1,4 µs por leitura, crescendo com o nº de campos.
+    // `with_key_str` empresta os bytes da chave; `global_shape_slot_of` compara
+    // dentro do lock e devolve só o índice.
+    let shape = slot0.as_i32() as u32;
+    // Chave STRING (o caso dominante): empresta os bytes, sem alocar.
+    // Qualquer outra (symbol, número, bool) precisa da normalização completa do
+    // `key_text` — devolver None aqui quebrava `obj[0]` e `obj[Symbol.x]`.
+    let idx = match with_key_str(key_str_handle, |k| global_shape_slot_of(shape, k)) {
+        Some(hit) => hit?,
+        None => global_shape_slot_of(shape, &key_text(key_str_handle))?,
+    } as i64;
     Some((handle, idx))
 }
 
@@ -172,6 +183,22 @@ fn canonical_property_key(key_word: u64) -> u64 {
 /// pool; a non-string (a defensively-passed number/bool) is rendered through the
 /// engine's own ToString so a numeric computed key (`o["0"]` vs `o[0]`) coerces
 /// identically to JS property-key stringification.
+/// Empresta o TEXTO de uma chave STRING sem alocar, e roda `f` sobre ele.
+///
+/// `key_text` devolve uma `String` NOVA (um malloc por chamada), e o caminho de
+/// leitura de propriedade a chamava várias vezes por acesso. Para o caso comum —
+/// chave string simples — basta emprestar os bytes do pool. Devolve `None`
+/// quando a chave não é uma string (symbol, objeto), caso em que o chamador deve
+/// usar `key_text`, que trata a normalização completa.
+fn with_key_str<R>(key_str_handle: u64, f: impl FnOnce(&str) -> R) -> Option<R> {
+    let k = PolyValue::from_raw(key_str_handle);
+    if !k.is_string() {
+        return None;
+    }
+    let h = abi_adapter::real_handle_of(k);
+    abi_adapter::with_handle_bytes(h, |bytes| std::str::from_utf8(bytes).ok().map(f))
+}
+
 fn key_text(key_str_handle: u64) -> String {
     let k = PolyValue::from_raw(key_str_handle);
     if k.is_string() {
