@@ -22,6 +22,7 @@ pub use rts_std::globals::events;
 pub use rts_std::globals::fetch;
 pub use rts_std::globals::form_data;
 pub use rts_std::globals::headers;
+pub use rts_std::globals::streams;
 pub use rts_primitives::finalization_registry;
 pub use rts_primitives::function;
 pub use rts_shared::globals::global_this;

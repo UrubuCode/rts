@@ -21,6 +21,12 @@
 
 /// Runtime resource handle (`HandleTable` u64: gen + slot).
 pub type Handle = u64;
+/// A raw NaN-boxed `PolyValue` word (an arbitrary JS value: inline int/float/
+/// singleton or a boxed str/object/function handle) carried across the ABI
+/// UNCHANGED — the `any` type. Distinct from `Handle` (a HandleTable handle) and
+/// `U64` (coerces to an integer): a `Poly` value is stored/returned as the boxed
+/// word as-is (no marshalling). `AbiType::PolyValue`.
+pub type Poly = u64;
 /// Raw unsigned 64-bit value (counts, sizes, opaque pointers).
 pub type U64 = u64;
 /// Native signed 64-bit integer.

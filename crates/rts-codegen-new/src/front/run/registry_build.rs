@@ -209,6 +209,22 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     // directly) — see `abort/mod.rs`'s doc comment.
     ns::globals::abort::register_abort_signal_class_spec,
     ns::globals::abort::register_abort_controller_class_spec,
+    // Web Streams (9 classes) — `#[rtse::class]`, DRAIN_MOTOR §11: replaces the
+    // interim `STREAMS_TS` prelude. `ReadableStream`/`ReadableStreamDefault{Reader,
+    // Controller}`/`WritableStream`/`WritableStreamDefaultWriter`/`TransformStream`/
+    // `TextEncoderStream`/`TextDecoderStream` at parity with the live `.ts` they
+    // replace (sync — no `Promise` wrap, matching the `.ts`'s non-`Promise` `await`
+    // passthrough model); `CompressionStream` (gzip/deflate via `flate2`) restored
+    // from the pre-drain git history (the `.ts` never had it).
+    ns::globals::streams::register_controller_class_spec,
+    ns::globals::streams::register_reader_class_spec,
+    ns::globals::streams::register_readable_stream_class_spec,
+    ns::globals::streams::register_writer_class_spec,
+    ns::globals::streams::register_writable_stream_class_spec,
+    ns::globals::streams::register_transform_stream_class_spec,
+    ns::globals::streams::register_text_encoder_stream_class_spec,
+    ns::globals::streams::register_text_decoder_stream_class_spec,
+    ns::globals::streams::register_compression_stream_class_spec,
     // `EventEmitter` — backend/Registry class: `new EventEmitter([async])` + on/once/
     // off/emit. The listener arg is a function-VALUE the backend invokes via the
     // codegen `__rtsadp_fn_invoke` callback bridge (JIT-installed).
@@ -558,13 +574,8 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
         source: rts_runtime::stdlib::EVENTS_TS,
         why: "Event/EventTarget/AbortSignal/AbortController/MessageChannel",
     },
-    // Web Streams — after web-api (Blob.stream() builds a ReadableStream; the
-    // UTF-8 helpers live in webapi.ts; the merged prelude is one program).
-    PreludeTs {
-        label: "streams",
-        source: rts_runtime::stdlib::STREAMS_TS,
-        why: "ReadableStream/WritableStream/TransformStream/TextEncoder/DecoderStream",
-    },
+    // Web Streams — now `#[rtse::class]` Rust (DRAIN_MOTOR §11), registered
+    // above via `ns::globals::streams::register_*` — no longer a `.ts` prelude.
     // node:stream — Node's Readable/Writable/Duplex/Transform/PassThrough + the
     // orchestration fns + consumers + promises. Ambient `.ts` (like Map/Set); split
     // into cohesive files included IN ORDER (base classes before dependents). After

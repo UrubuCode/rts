@@ -72,8 +72,7 @@ pub const WEBAPI_TS: &str = include_str!("webapi.ts");
 /// rides the real setTimeout queue; MessagePort delivers via queueMicrotask.
 pub const EVENTS_TS: &str = include_str!("events.ts");
 
-/// Web Streams — `ReadableStream`/`WritableStream`/`TransformStream`/
-/// `TextEncoderStream`/`TextDecoderStream` — rts-shared backend utilities (no
-/// native syntax). Pure `.ts` queues with lazy `pipeThrough` forwarding;
-/// `await reader.read()` rides the non-Promise `await` passthrough.
-pub const STREAMS_TS: &str = include_str!("streams.ts");
+// Web Streams (`ReadableStream`/`WritableStream`/`TransformStream`/
+// `TextEncoderStream`/`TextDecoderStream`) moved to `#[rtse::class]` Rust
+// (DRAIN_MOTOR §11, `crates/rts-std/src/globals/streams/`) — `STREAMS_TS`
+// removed, `streams.ts` deleted.

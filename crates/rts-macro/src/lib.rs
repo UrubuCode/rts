@@ -422,6 +422,12 @@ fn str_tuple_arity(ty: &Type) -> Option<usize> {
     Some(t.elems.len())
 }
 
+/// Is this a `Poly` (`any`) type? A NaN-boxed PolyValue word crosses the ABI
+/// UNCHANGED (`AbiType::PolyValue`) — an arbitrary JS value (weakmap value, etc.).
+fn is_poly_ty(ty: &Type) -> bool {
+    matches!(ty, Type::Path(p) if p.path.segments.last().is_some_and(|s| s.ident == "Poly"))
+}
+
 /// Is this param type `&str`?
 fn is_str_param(ty: &Type) -> bool {
     matches!(ty, Type::Reference(r) if matches!(&*r.elem, Type::Path(p) if p.path.is_ident("str")))
@@ -578,6 +584,16 @@ fn gen_member(
             idx += 1;
             continue;
         }
+        if is_poly_ty(&pt.ty) {
+            // `Poly` (`any`): the raw NaN-boxed PolyValue word, ABI-unchanged.
+            let pid = format_ident!("__a{}", idx);
+            ext_params.push(quote!(#pid: u64));
+            call_args.push(quote!(#pid));
+            arg_abis.push(quote!(::rts_engine::AbiType::PolyValue));
+            ts_params.push(format!("a{idx}: any"));
+            idx += 1;
+            continue;
+        }
         let Some((abi, ext_ty, ts)) = scalar(&pt.ty) else {
             return Err(syn::Error::new_spanned(
                 &pt.ty,
@@ -626,6 +642,13 @@ fn gen_member(
                 quote!(::rts_engine::AbiType::Handle),
                 quote!(u64),
                 is_handle_ty(t).unwrap().into(),
+                Box::new(|b| quote!(#b)),
+            ),
+            Some(t) if is_poly_ty(t) => (
+                // `Poly` (`any`): return the raw NaN-boxed word untouched.
+                quote!(::rts_engine::AbiType::PolyValue),
+                quote!(u64),
+                "any".into(),
                 Box::new(|b| quote!(#b)),
             ),
             Some(t) if is_string_ret(t) => (

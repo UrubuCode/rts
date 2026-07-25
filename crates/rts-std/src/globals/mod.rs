@@ -20,8 +20,9 @@
 //! ordem de dispatch, `once` removido ANTES do callback, `!defaultPrevented`) —
 //! o macro ganhou `extends` (composição+forwarding) que destravou isso.
 //! `events.ts` teve as 4 classes removidas (MessageChannel/MessagePort ficam).
-//! `message_channel`/`readable_stream` seguem apenas `.ts` (fora de escopo desta
-//! sessão).
+//! `message_channel` segue apenas `.ts` (fora de escopo desta sessão).
+//! `streams` (Web Streams, 9 classes) REIMPLEMENTADO (§11): substitui o
+//! `.ts` interino (`STREAMS_TS`) — ver `streams/mod.rs`.
 
 pub mod abort;
 pub mod blob;
@@ -31,6 +32,7 @@ pub mod form_data;
 pub mod performance;
 pub mod events;
 pub mod headers;
+pub mod streams;
 pub mod text_encoding;
 pub mod timers;
 pub mod imgdec;
