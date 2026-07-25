@@ -56,6 +56,12 @@ pub extern "C" fn __RTS_FN_NS_GC_HANDLE_LEN(handle: u64) -> i64 {
     with_entry(handle, |entry| match entry {
         // JS spec: String.length = number of UTF-16 code units, not bytes.
         Some(Entry::String(b)) => {
+            // FAST PATH ASCII: nº de bytes == nº de code units. `encode_utf16()
+            // .count()` percorria a string INTEIRA a cada leitura de `.length`,
+            // o que num `while (i < s.length)` custa O(n²).
+            if b.is_ascii() {
+                return b.len() as i64;
+            }
             match std::str::from_utf8(b) {
                 Ok(s) => s.encode_utf16().count() as i64,
                 Err(_) => b.len() as i64,

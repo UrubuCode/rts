@@ -233,6 +233,12 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// (a `new C()` result, a `: C`-annotated param, or `this` inside a method).
     /// Drives static `instance.method(args)` dispatch; absent ⇒ method calls bail.
     pub local_classes: HashMap<String, String>,
+    /// Local de ARRAY → nome da CLASSE dos seus elementos (`const arr: P[]`).
+    /// Sem isto, `const o = arr[i]` nascia sem shape e todo `o.campo` caía no
+    /// caminho dinâmico (`__rtsadp_obj_get`, ~1 µs por leitura) em vez do fast
+    /// path de slot constante. O element-type vem da anotação, preservada pelo
+    /// HIR como `Array(Class(id))`.
+    pub local_elem_classes: HashMap<String, String>,
     /// Name → the user CLASS a local holds as a VALUE (`const C = Box` → `C`→`Box`).
     /// Distinct from `local_classes` (which holds an INSTANCE's class): here the
     /// local IS the class/constructor itself, so `new C(args)` constructs `Box`
@@ -452,6 +458,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             cell_locals,
             hoisted_cells: std::collections::HashSet::new(),
             local_classes: HashMap::new(),
+            local_elem_classes: HashMap::new(),
             local_class_refs: HashMap::new(),
             generator_locals: HashMap::new(),
             global_instance_classes: HashMap::new(),

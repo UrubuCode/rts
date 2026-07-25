@@ -34,7 +34,7 @@ pub type SlotIdx = u32;
 // `crate::shape::*` / `rts_adapters::shape::*` path keeps working.
 pub use rts_engine::heap::shapes::{
     GLOBAL_SHAPE_BASE, GlobalShapeId, error_class_info, global_shape_count, global_shape_keys,
-    intern_class_shape, intern_global_shape, register_error_class, reset_global_shapes,
+    global_shape_slot_of, intern_class_shape, intern_global_shape, register_error_class, reset_global_shapes,
 };
 
 /// A hidden class: the layout shared by all objects built the same way. In this

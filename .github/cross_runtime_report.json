@@ -1188,7 +1188,7 @@
   "status": "rts_diverge",
   "bun": "pairs=a:1|b:2\ndup_size=2\ndup_keys=a,b\ndup_get_a=3\ncopy=x:10|y:20\ncopy_is_distinct=false\nsrc_unaffected=2:3\ncopy_x_stable=10\nfrom_entries=p,q\nempty_arr=0\nno_arg=0\nnull_arg=0\nundef_arg=0\nextra_ignored=v:1\nmissing_val=true:undefined\nfrom_set=s,t\nfrom_gen=g1:1|g2:2\nfrom_obj_entries=o1:1|o2:2\nmixed_size=5\nmixed_1=num:str\nmixed_bool=bool\nmixed_obj=obj\nmixed_null=null\nset_arr=3,1,2\nset_str=h,e,l,o\nset_from_set=1,2\nset_from_map_keys=a,b\nset_empty=0:0:0\nset_from_gen=1,2",
   "node": "pairs=a:1|b:2\ndup_size=2\ndup_keys=a,b\ndup_get_a=3\ncopy=x:10|y:20\ncopy_is_distinct=false\nsrc_unaffected=2:3\ncopy_x_stable=10\nfrom_entries=p,q\nempty_arr=0\nno_arg=0\nnull_arg=0\nundef_arg=0\nextra_ignored=v:1\nmissing_val=true:undefined\nfrom_set=s,t\nfrom_gen=g1:1|g2:2\nfrom_obj_entries=o1:1|o2:2\nmixed_size=5\nmixed_1=num:str\nmixed_bool=bool\nmixed_obj=obj\nmixed_null=null\nset_arr=3,1,2\nset_str=h,e,l,o\nset_from_set=1,2\nset_from_map_keys=a,b\nset_empty=0:0:0\nset_from_gen=1,2",
-  "rts": "pairs=a:1|b:2\ndup_size=2\ndup_keys=a,b\ndup_get_a=3\ncopy=undefined:undefined|x:y|10:20\ncopy_is_distinct=false\nsrc_unaffected=2:4\ncopy_x_stable=y\nfrom_entries=p,q\nempty_arr=0\nno_arg=0\nnull_arg=0\nundef_arg=0\nextra_ignored=v:1\nmissing_val=true:undefined\nfrom_set=,s,1\nfrom_gen=g1:1|g2:2\nfrom_obj_entries=o1:1|o2:2\nmixed_size=5\nmixed_1=num:str\nmixed_bool=bool\nmixed_obj=obj\nmixed_null=null\nset_arr=3,1,2\nset_str=\nset_from_set=\nset_from_map_keys=a,b\nset_empty=0:0:0\nset_from_gen=1,2"
+  "rts": "pairs=a:1|b:2\ndup_size=2\ndup_keys=a,b\ndup_get_a=3\ncopy=undefined:undefined|x:y|10:20|-1:-1\ncopy_is_distinct=false\nsrc_unaffected=2:5\ncopy_x_stable=y\nfrom_entries=p,q\nempty_arr=0\nno_arg=0\nnull_arg=0\nundef_arg=0\nextra_ignored=v:1\nmissing_val=true:undefined\nfrom_set=,s,1,1,-1\nfrom_gen=g1:1|g2:2\nfrom_obj_entries=o1:1|o2:2\nmixed_size=5\nmixed_1=num:str\nmixed_bool=bool\nmixed_obj=obj\nmixed_null=null\nset_arr=3,1,2\nset_str=\nset_from_set=\nset_from_map_keys=a,b\nset_empty=0:0:0\nset_from_gen=1,2"
 }
 ,
 {
@@ -1204,7 +1204,7 @@
   "status": "rts_diverge",
   "bun": "obj_keys=odd,even\nobj_even=2,4\nobj_odd=1,3,5\nobj_num_keys=0,1\nobj_key_types=string,string\nobj_get_0=2,4:2,4\nobj_proto_null=true\nobj_no_tostring=undefined\nmap_keys=1,0\nmap_key_types=number,number\nmap_get_num=2,4\nmap_get_str_miss=undefined\nmap_obj_size=2\nmap_obj_A=4,5\nmap_obj_B=1,2,3\nmap_obj_key_names=B,A\nmap_obj_fresh_key_miss=undefined\nsvz_size=2\nsvz_zero=1,2\nsvz_key_1_div=Infinity\nsvz_nan=3\nobj_coerced_keys=0|NaN|undefined|null\ncb_args=a@0,b@1\nobj_cb_args=a@0,b@1\norder=3,1,2\ngroups=3+3|1+1|2\nbool_keys=false,true:types=boolean,boolean\nbool_true=3,4,5\nempty_map=0\nempty_obj=0\nfrom_set=1,0:odd=1,3\nvalues_are_arrays=true",
   "node": "obj_keys=odd,even\nobj_even=2,4\nobj_odd=1,3,5\nobj_num_keys=0,1\nobj_key_types=string,string\nobj_get_0=2,4:2,4\nobj_proto_null=true\nobj_no_tostring=undefined\nmap_keys=1,0\nmap_key_types=number,number\nmap_get_num=2,4\nmap_get_str_miss=undefined\nmap_obj_size=2\nmap_obj_A=4,5\nmap_obj_B=1,2,3\nmap_obj_key_names=B,A\nmap_obj_fresh_key_miss=undefined\nsvz_size=2\nsvz_zero=1,2\nsvz_key_1_div=Infinity\nsvz_nan=3\nobj_coerced_keys=0|NaN|undefined|null\ncb_args=a@0,b@1\nobj_cb_args=a@0,b@1\norder=3,1,2\ngroups=3+3|1+1|2\nbool_keys=false,true:types=boolean,boolean\nbool_true=3,4,5\nempty_map=0\nempty_obj=0\nfrom_set=1,0:odd=1,3\nvalues_are_arrays=true",
-  "rts": "obj_keys=odd,even\nobj_even=2,4\nobj_odd=1,3,5\nobj_num_keys=0,1\nobj_key_types=string,string\nobj_get_0=2,4:2,4\nobj_proto_null=false\nobj_no_tostring=undefined\nmap_keys=1,0\nmap_key_types=number,number\nmap_get_num=2,4\nmap_get_str_miss=undefined\nmap_obj_size=2\nmap_obj_A=4,5\nmap_obj_B=1,2,3\nmap_obj_key_names=B,A\nmap_obj_fresh_key_miss=undefined\nsvz_size=2\nsvz_zero=1,2\nsvz_key_1_div=-Infinity\nsvz_nan=3\nobj_coerced_keys=0|NaN|undefined|null\ncb_args=a@0,b@1\nobj_cb_args=a@0,b@1\norder=3,1,2\ngroups=3+3|1+1|2\nbool_keys=false,true:types=boolean,boolean\nbool_true=3,4,5\nempty_map=0\nempty_obj=0\nfrom_set=0,NaN:odd=undefined\nvalues_are_arrays=false"
+  "rts": "obj_keys=odd,even\nobj_even=2,4\nobj_odd=1,3,5\nobj_num_keys=0,1\nobj_key_types=string,string\nobj_get_0=2,4:2,4\nobj_proto_null=false\nobj_no_tostring=undefined\nmap_keys=1,0\nmap_key_types=number,number\nmap_get_num=2,4\nmap_get_str_miss=undefined\nmap_obj_size=2\nmap_obj_A=4,5\nmap_obj_B=1,2,3\nmap_obj_key_names=B,A\nmap_obj_fresh_key_miss=undefined\nsvz_size=2\nsvz_zero=1,2\nsvz_key_1_div=-Infinity\nsvz_nan=3\nobj_coerced_keys=0|NaN|undefined|null\ncb_args=a@0,b@1\nobj_cb_args=a@0,b@1\norder=3,1,2\ngroups=3+3|1+1|2\nbool_keys=false,true:types=boolean,boolean\nbool_true=3,4,5\nempty_map=0\nempty_obj=0\nfrom_set=0,NaN,1:odd=7\nvalues_are_arrays=true"
 }
 ,
 {
@@ -1236,7 +1236,7 @@
   "status": "rts_diverge",
   "bun": "add_returns_self=true\nadd_returns_set=true\nchain=1,2,3\nchain_size=3\nchain_dup=1,2:size=2\ninline=a,b\nchain_size_inline=2\nset_returns_self=true\nset_returns_map=true\nmap_chain=a:1|b:2|c:3\nchain_overwrite=a,b:a=99\nchain_get=5\nset_delete_hit=true\nset_delete_miss=false\nmap_delete_hit=true\nmap_delete_miss=false\nset_clear=undefined:size=0\nmap_clear=undefined:size=0\nset_has=true:false\nmap_has=true:false\nmixed_chain_size=6\nmixed_has=truetruetruetruetruetrue\nfeed_keys=x,y\nnested=1,2,3",
   "node": "add_returns_self=true\nadd_returns_set=true\nchain=1,2,3\nchain_size=3\nchain_dup=1,2:size=2\ninline=a,b\nchain_size_inline=2\nset_returns_self=true\nset_returns_map=true\nmap_chain=a:1|b:2|c:3\nchain_overwrite=a,b:a=99\nchain_get=5\nset_delete_hit=true\nset_delete_miss=false\nmap_delete_hit=true\nmap_delete_miss=false\nset_clear=undefined:size=0\nmap_clear=undefined:size=0\nset_has=true:false\nmap_has=true:false\nmixed_chain_size=6\nmixed_has=truetruetruetruetruetrue\nfeed_keys=x,y\nnested=1,2,3",
-  "rts": "add_returns_self=true\nadd_returns_set=true\nchain=1,2,3\nchain_size=3\nchain_dup=1,2:size=2\ninline=a,b\nchain_size_inline=2\nset_returns_self=true\nset_returns_map=true\nmap_chain=a:1|b:2|c:3\nchain_overwrite=a,b:a=99\nchain_get=5\nset_delete_hit=true\nset_delete_miss=false\nmap_delete_hit=true\nmap_delete_miss=false\nset_clear=undefined:size=0\nmap_clear=undefined:size=0\nset_has=true:false\nmap_has=true:false\nmixed_chain_size=6\nmixed_has=truetruetruetruetruetrue\nfeed_keys=x,y\nnested=1073741838,1,2,3"
+  "rts": "add_returns_self=true\nadd_returns_set=true\nchain=1,2,3\nchain_size=3\nchain_dup=1,2:size=2\ninline=a,b\nchain_size_inline=2\nset_returns_self=true\nset_returns_map=true\nmap_chain=a:1|b:2|c:3\nchain_overwrite=a,b:a=99\nchain_get=5\nset_delete_hit=true\nset_delete_miss=false\nmap_delete_hit=true\nmap_delete_miss=false\nset_clear=undefined:size=0\nmap_clear=undefined:size=0\nset_has=true:false\nmap_has=true:false\nmixed_chain_size=6\nmixed_has=truetruetruetruetruetrue\nfeed_keys=x,y\nnested=1073741838,1,2,-1,0,1,-1,-1,-1,-1,-1,-1,-1,7,3"
 }
 ,
 {
@@ -3852,7 +3852,7 @@
   "status": "rts_diverge",
   "bun": "one=3\ntwo=5\nall=a,b\nasync=9",
   "node": "one=3\ntwo=5\nall=a,b\nasync=9",
-  "rts": "one=3\ntwo=4\nall=1.39067116157037e-309,1.390671161570375e-309\nasync=9"
+  "rts": "one=3\ntwo=4\nall=1.39067116157041e-309,1.390671161570415e-309\nasync=9"
 }
 ,
 {
@@ -3884,7 +3884,7 @@
   "status": "rts_diverge",
   "bun": "AggregateError\na,b,c",
   "node": "AggregateError\na,b,c",
-  "rts": "String"
+  "rts": ""
 }
 ,
 {
