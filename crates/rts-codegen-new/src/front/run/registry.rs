@@ -266,10 +266,82 @@ fn flat_call(m: &'static Member) -> ResolvedCall {
     }
 }
 
+/// The KIND a bare top-level builtin name resolves to. Three DISJOINT builtin
+/// namespaces (a runtime/Registry class, an importable module, a global-scope
+/// member) — the ONE decision the lowering used to spread across
+/// `registry().class(x).is_some()` / `.module(x)` / `.global(x)` call-site
+/// chains. Centralizing it here is the F2 seam: one resolver returns the kind,
+/// callers branch on the tag (doctrine-OK — a GENERATED name→kind decision, not
+/// the engine hand-hardcoding non-primordial class names in control flow).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NameKind {
+    /// A registered runtime/Registry class (`new RegExp()`, `new URL()`, …).
+    Class,
+    /// A registered importable namespace/module (`rts:<ns>` / `node:<ns>`).
+    Module,
+    /// A registered global-scope member (bare ident, no import).
+    Global,
+}
+
+/// One resolved builtin name: its [`NameKind`]. `idx` is RESERVED for the future
+/// perfect-hash SoA layout (F2 research verdict: a compile-time `phf`/CHD table
+/// keyed by qualified name, indexing a struct-of-arrays) — today the name itself
+/// keys the Registry HashMaps so `idx` is 0. It rides in the return type NOW so
+/// the backend (HashMap today → `phf` when a profile shows this hot) is a
+/// swappable impl detail behind a STABLE `resolve()` signature.
+#[derive(Clone, Copy)]
+pub struct Resolved {
+    pub kind: NameKind,
+    pub idx: u32,
+}
+
+/// Longest registered builtin key (class name / module bare-name / global name),
+/// computed once. The adversarial dynamic path (`globalThis[hugeGarbageString]`)
+/// is rejected in O(1) when the query exceeds this — no lookup, no full-string
+/// hash of attacker input (F2 knock-down agent a7761f80's length-guard).
+fn max_key_len() -> usize {
+    static MAX: OnceLock<usize> = OnceLock::new();
+    *MAX.get_or_init(|| {
+        let r = registry();
+        let classes = r.classes().map(|c| c.name.len());
+        let modules = r.modules().map(|m| m.name.len());
+        classes.chain(modules).max().unwrap_or(0).max(32)
+    })
+}
+
+/// The ONE name→kind resolver. Replaces the scattered
+/// `registry().class(x).is_some()` / `.module(x)` / `.global(x)` predicate chains
+/// in the lowering: callers ask ONCE and branch on [`NameKind`]. Length-guarded
+/// (O(1) reject of over-long adversarial queries) then consults the three
+/// disjoint Registry tables. Backend swappable to a perfect hash without touching
+/// this signature (F2 research verdict).
+///
+/// LAYERING (F2 knock-down agent 5): at RUNTIME this is the BUILTIN FALLBACK only
+/// — the live `[[Get]]`/scope walk (mutable `globalThis`, shadowing, Proxy, proto
+/// chain) runs FIRST; `resolve()` answers "is this a builtin we ship" when that
+/// walk reaches a not-yet-materialized ambient global. It is NOT a substitute for
+/// a live property lookup.
+pub fn resolve(name: &str) -> Option<Resolved> {
+    if name.is_empty() || name.len() > max_key_len() {
+        return None;
+    }
+    let r = registry();
+    if r.class(name).is_some() {
+        return Some(Resolved { kind: NameKind::Class, idx: 0 });
+    }
+    if r.module(name).is_some() {
+        return Some(Resolved { kind: NameKind::Module, idx: 0 });
+    }
+    if r.global(name).is_some() {
+        return Some(Resolved { kind: NameKind::Global, idx: 0 });
+    }
+    None
+}
+
 /// Whether the Registry knows `class` as a RUNTIME/Registry class the engine can
 /// construct + dispatch through here.
 pub fn has_class(class: &str) -> bool {
-    registry().class(class).is_some()
+    matches!(resolve(class), Some(Resolved { kind: NameKind::Class, .. }))
 }
 
 /// Every `(symbol, fn_ptr)` of the registered namespace `rts:<ns>` whose member
@@ -316,7 +388,7 @@ pub fn all_jit_symbols() -> Vec<(&'static str, *const u8)> {
 /// the embedded prelude and route it through [`namespace_member`]. Empty `ns`
 /// (bare `"rts"`) is not a namespace.
 pub fn has_namespace(ns: &str) -> bool {
-    !ns.is_empty() && registry().module(ns).is_some()
+    matches!(resolve(ns), Some(Resolved { kind: NameKind::Module, .. }))
 }
 
 /// Resolve `class.method(argc)` as an INSTANCE method to its [`ResolvedCall`].
