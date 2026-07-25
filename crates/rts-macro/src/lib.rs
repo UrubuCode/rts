@@ -37,8 +37,12 @@
 //!    (drops the shard lock; write-back for `&mut self`) so a body touching a 2nd
 //!    handle can't self-deadlock — the struct must be `Clone`.
 //!  - Dotted class names (`Intl.NumberFormat`) sanitize `.`→`_` in symbols.
-//! Open gaps: nested-array return (`[string,string][]`), PolyValue (`any`) params/
-//! returns, `#[rtse::symbol]` (well-known), constants, `global(descriptor)`.
+//!  - Symbol member/field names are VERBATIM (case-preserved), not uppercased, so
+//!    `fn Foo` vs `fn foo` stay distinct symbols. Consumers link by the exact name.
+//!  - `-> Option<Self>` (fallible ctor/factory → JS null on `None`) and
+//!    `-> Option<String>` (nullable string → JS null, ts `string | null`).
+//! Open gaps: `#[rtse::symbol]` (well-known), constants, `global(descriptor)`, a
+//! per-param custom omitted-default sentinel (Date's `i64::MIN` "keep current").
 
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
