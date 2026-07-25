@@ -1537,10 +1537,10 @@
 ,
 {
   "name": "288_abortsignal_timeout_any",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "a=true:a\nc=true:a",
   "node": "a=true:a\nc=true:a",
-  "rts": "a=true:a\nc=true:a"
+  "rts": "a=true:[object Object]\nc=false:null"
 }
 ,
 {
@@ -1561,18 +1561,18 @@
 ,
 {
   "name": "62_abort_controller",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "before=false\nafter=true\nreason=stop\nseen=event:true",
   "node": "before=false\nafter=true\nreason=stop\nseen=event:true",
-  "rts": "before=false\nafter=true\nreason=stop\nseen=event:true"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
   "name": "63_event_target",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "ok=true\nlog=a:ping,b",
   "node": "ok=true\nlog=a:ping,b",
-  "rts": "ok=true\nlog=a:ping,b"
+  "rts": "ok=true\nlog=a:undefined,b"
 }
 ,
 {
@@ -1585,10 +1585,10 @@
 ,
 {
   "name": "84_abortsignal_advanced",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "ab=true:x\nto=true:TimeoutError",
   "node": "ab=true:x\nto=true:TimeoutError",
-  "rts": "ab=true:x\nto=true:TimeoutError"
+  "rts": "ab=true:[object Object]\nto=true:undefined"
 }
 ,
 {
@@ -1980,7 +1980,7 @@
   "status": "rts_diverge",
   "bun": "{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return",
   "node": "{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return",
-  "rts": "{\"value\":1073741897,\"done\":false}\n{\"value\":{\"message\":\"E\",\"name\":\"Error\",\"stack\":\"\"},\"done\":true}\n{\"value\":\"R\",\"done\":true}"
+  "rts": "{\"value\":1073741888,\"done\":false}\n{\"value\":{\"message\":\"E\",\"name\":\"Error\",\"stack\":\"\"},\"done\":true}\n{\"value\":\"R\",\"done\":true}"
 }
 ,
 {
@@ -3852,7 +3852,7 @@
   "status": "rts_diverge",
   "bun": "one=3\ntwo=5\nall=a,b\nasync=9",
   "node": "one=3\ntwo=5\nall=a,b\nasync=9",
-  "rts": "one=3\ntwo=4\nall=1.39067116157041e-309,1.390671161570415e-309\nasync=9"
+  "rts": "one=3\ntwo=4\nall=1.390671161570025e-309,1.39067116157003e-309\nasync=9"
 }
 ,
 {
@@ -3884,7 +3884,7 @@
   "status": "rts_diverge",
   "bun": "AggregateError\na,b,c",
   "node": "AggregateError\na,b,c",
-  "rts": ""
+  "rts": "String"
 }
 ,
 {
@@ -4073,10 +4073,10 @@
 ,
 {
   "name": "86_blob_stream",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "bytes=97,98",
   "node": "bytes=97,98",
-  "rts": "bytes=97,98"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -5385,10 +5385,10 @@
 ,
 {
   "name": "289_headers_getsetcookie",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "type=function\nvals=a=1|b=2",
   "node": "type=function\nvals=a=1|b=2",
-  "rts": "type=function\nvals=a=1|b=2"
+  "rts": "type=object\nvals=a=1|b=2"
 }
 ,
 {
@@ -5401,18 +5401,18 @@
 ,
 {
   "name": "73_headers",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "get=1, 3\nentries=x-a=1, 3|x-b=2",
   "node": "get=1, 3\nentries=x-a=1, 3|x-b=2",
-  "rts": "get=1, 3\nentries=x-a=1, 3|x-b=2"
+  "rts": "get=3\nentries=x-a=3"
 }
 ,
 {
   "name": "74_blob_basics",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "size=3\ntext=hi!",
   "node": "size=3\ntext=hi!",
-  "rts": "size=3\ntext=hi!"
+  "rts": "size=3\ntext=hi"
 }
 ,
 {
@@ -5425,10 +5425,10 @@
 ,
 {
   "name": "85_request_response",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi",
   "node": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi",
-  "rts": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
+  "rts": "ct=undefined\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":679,"pass":479,"rts_diverge":97,"bun_node_diverge":18,"errors":85,"rejected":0}}
+],"summary":{"total":679,"pass":470,"rts_diverge":104,"bun_node_diverge":18,"errors":87,"rejected":0}}
