@@ -8,8 +8,9 @@
 //!
 //! ## Por que substitui o `rts-macro`
 //!
-//! O modelo antigo (`rts-macro` + arrays `SPECS`/`GLOBAL_CLASS_SPECS` + a lista
-//! `add_fn!` do JIT) tinha **três fontes de verdade à mão** se desincronizando
+//! O modelo antigo (arrays `SPECS`/`GLOBAL_CLASS_SPECS` estáticos + a lista
+//! `add_fn!` do JIT, todos deletados no cutover) tinha **três fontes de verdade
+//! à mão** se desincronizando
 //! (ver `docs/specs/rts-engine-dispatch.md` §4). O builder unifica isso: cada item é registrado
 //! **uma vez**, carregando o **ponteiro de função nativo** (que dobra como
 //! símbolo do JIT) + a assinatura ABI. Builtins e módulos externos (`.dll`/
@@ -69,6 +70,6 @@ pub fn block_on<F: core::future::Future>(fut: F) -> F::Output {
 // Vocabulário ABI estável (antes o crate `rts-abi`, agora dobrado em `abi`).
 // Re-exportado na raiz para os crates de camada e o codegen.
 pub use abi::{
-    AbiType, DefaultArg, GlobalClassSpec, JsErrorKind, MemberFlags, MemberKind,
+    AbiType, DefaultArg, JsErrorKind, MemberFlags, MemberKind,
     NamespaceMember, NamespaceSpec, concat_members,
 };

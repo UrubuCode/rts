@@ -153,7 +153,7 @@ pub enum MemberKind {
     ///
     /// `args` describes the constructor parameters; `returns` is always
     /// `AbiType::Handle` (the newly allocated instance handle).
-    /// Multiple `Constructor` members in the same `GlobalClassSpec` are
+    /// Multiple `Constructor` members on the same registered `Class` are
     /// distinguished by `args.len()` (overload by arity).
     Constructor,
     /// Instance method — first ABI argument is always the `Handle` of the

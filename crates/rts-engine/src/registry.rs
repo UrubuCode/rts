@@ -53,9 +53,8 @@ pub struct Class {
 
 impl Class {
     /// Resolve um método de instância por nome (ou alias) e aridade da chamada,
-    /// honrando overloads + variádicos. Mesma lógica de
-    /// `GlobalClassSpec::resolve_instance_method` (docs/specs/rts-engine-dispatch.md §4.3): aridade
-    /// exata → aceita-via-variádico → first-by-name.
+    /// honrando overloads + variádicos (docs/specs/rts-engine-dispatch.md §4.3):
+    /// aridade exata → aceita-via-variádico → first-by-name.
     pub fn resolve_instance_method(&self, name: &str, n_args: usize) -> Option<&Member> {
         let named =
             |m: &&Member| matches!(m.kind, MemberKind::InstanceMethod) && m.matches_name(name);
