@@ -1,34 +1,24 @@
-// Faithful TypeScript web-platform value classes — FormData, Blob, File,
-// Request, Response — the REAL stdlib for the new engine, written in `.ts`
-// instead of hardcoded in codegen (same pattern as map_set.ts).
+// Faithful TypeScript web-platform value classes — Request, Response — the
+// REAL stdlib for the new engine, written in `.ts` instead of hardcoded in
+// codegen (same pattern as map_set.ts).
 //
-// `Headers` is NOT here (DRAIN_MOTOR §11, owner 2026-07-24): it moved to a
-// Rust `#[rtse::class]` (`rts-std/src/globals/headers/mod.rs`, wired as a
-// Registry global class) — the loader/engine needs a real Rust impl, `.ts`
-// was only an interim. `Headers` is still an ordinary ambient global class
-// here (resolved data-driven via the Registry, identical to `URL`/
+// `Headers`/`Blob`/`File`/`FormData` are NOT here (DRAIN_MOTOR §11, owner
+// 2026-07-24): they moved to Rust `#[rtse::class]` (`rts-std/src/globals/
+// headers/mod.rs`, `blob/{blob,file}.rs`, `form_data/mod.rs`, wired as
+// Registry global classes) — the loader/engine needs a real Rust impl, `.ts`
+// was only an interim. They're still ordinary ambient global classes
+// (resolved data-driven via the Registry, identical to `URL`/
 // `URLSearchParams`), so `Request`/`Response` below construct `new
 // Headers(...)` exactly as before — nothing else in this file changes.
 //
-// These are pure VALUE HOLDERS (no I/O): parallel private arrays keep entries
-// in insertion order; `Blob`/`File` carry string / Uint8Array-like parts
-// measured and decoded as UTF-8 (the helpers below); `Request`/`Response`
-// wrap a string body + a `Headers`. `text()` returns the string directly —
-// `await x` passes a non-Promise through, so `await blob.text()` behaves like
-// the spec's resolved Promise.
-
-// UTF-8 byte length of a JS string (surrogate pairs → 4 bytes).
-function __utf8_len_str(s: string): number {
-  let n = 0;
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    if (c < 0x80) { n += 1; }
-    else if (c < 0x800) { n += 2; }
-    else if (c >= 0xd800 && c < 0xdc00 && i + 1 < s.length) { n += 4; i++; }
-    else { n += 3; }
-  }
-  return n;
-}
+// These are pure VALUE HOLDERS (no I/O): `Request`/`Response` wrap a string
+// body + a `Headers`. `text()` returns the string directly — `await x` passes
+// a non-Promise through, so `await response.text()` behaves like the spec's
+// resolved Promise.
+//
+// `__utf8_decode`/`__utf8_encode` below are kept — `streams.ts` and the
+// `node:stream`/`node:fs` preludes still use them (they predate `Blob`, which
+// used to reuse them too).
 
 // Encode a JS string into UTF-8 bytes (a plain number[] — the byte-source
 // counterpart of `__utf8_decode`; surrogate pairs → 4 bytes).
@@ -85,145 +75,13 @@ function __utf8_decode(bytes: any): string {
   return out;
 }
 
-class FormData {
-  #names: string[] = [];
-  #values: any[] = [];
-  append(name: any, value: any): void {
-    this.#names.push("" + name);
-    this.#values.push("" + value);
-  }
-  delete(name: any): void {
-    const n = "" + name;
-    const keepN: string[] = [];
-    const keepV: any[] = [];
-    for (let i = 0; i < this.#names.length; i++) {
-      if (this.#names[i] !== n) { keepN.push(this.#names[i]); keepV.push(this.#values[i]); }
-    }
-    this.#names = keepN;
-    this.#values = keepV;
-  }
-  set(name: any, value: any): void {
-    const n = "" + name;
-    // `set` replaces the FIRST entry in place and drops the rest (spec).
-    let first = -1;
-    for (let i = 0; i < this.#names.length; i++) {
-      if (this.#names[i] === n) { first = i; break; }
-    }
-    if (first < 0) { this.append(name, value); return; }
-    const keepN: string[] = [];
-    const keepV: any[] = [];
-    for (let i = 0; i < this.#names.length; i++) {
-      if (i === first) { keepN.push(n); keepV.push("" + value); }
-      else if (this.#names[i] !== n) { keepN.push(this.#names[i]); keepV.push(this.#values[i]); }
-    }
-    this.#names = keepN;
-    this.#values = keepV;
-  }
-  get(name: any): any {
-    const n = "" + name;
-    for (let i = 0; i < this.#names.length; i++) {
-      if (this.#names[i] === n) return this.#values[i];
-    }
-    return null;
-  }
-  getAll(name: any): any[] {
-    const n = "" + name;
-    const out: any[] = [];
-    for (let i = 0; i < this.#names.length; i++) {
-      if (this.#names[i] === n) { out.push(this.#values[i]); }
-    }
-    return out;
-  }
-  has(name: any): boolean {
-    const n = "" + name;
-    for (let i = 0; i < this.#names.length; i++) {
-      if (this.#names[i] === n) return true;
-    }
-    return false;
-  }
-  keys(): string[] {
-    const out: string[] = [];
-    for (let i = 0; i < this.#names.length; i++) { out.push(this.#names[i]); }
-    return out;
-  }
-  values(): any[] {
-    const out: any[] = [];
-    for (let i = 0; i < this.#values.length; i++) { out.push(this.#values[i]); }
-    return out;
-  }
-  entries(): [string, any][] {
-    const out: [string, any][] = [];
-    for (let i = 0; i < this.#names.length; i++) { out.push([this.#names[i], this.#values[i]]); }
-    return out;
-  }
-  forEach(cb: (v: any, k: string, fd: FormData) => void): void {
-    for (let i = 0; i < this.#names.length; i++) { cb(this.#values[i], this.#names[i], this); }
-  }
-  *[Symbol.iterator](): [string, any][] {
-    for (let i = 0; i < this.#names.length; i++) { yield [this.#names[i], this.#values[i]]; }
-  }
-}
-
-class Blob {
-  // Parts normalized at construction: each part becomes a STRING (its decoded
-  // text) — size/text derive from it. A string part stays as-is; a
-  // Uint8Array-like part (`.length` + numeric indexing) is UTF-8-decoded.
-  #text: string = "";
-  #type: string = "";
-  constructor(parts: any = undefined, opts: any = undefined) {
-    if (parts !== undefined && parts !== null) {
-      for (const p of parts) {
-        if (typeof p === "string") { this.#text += p; }
-        else { this.#text += __utf8_decode(p); }
-      }
-    }
-    if (opts !== undefined && opts !== null) {
-      const t = opts.type;
-      if (t !== undefined) { this.#type = ("" + t).toLowerCase(); }
-    }
-  }
-  get size(): number { return __utf8_len_str(this.#text); }
-  get type(): string { return this.#type; }
-  text(): string { return this.#text; }
-  // `blob.stream()` — a ReadableStream (streams.ts prelude) queuing ONE chunk
-  // with the blob's UTF-8 bytes, already closed.
-  stream(): any {
-    const rs = new ReadableStream();
-    const ctl = rs.__ctl;
-    ctl.enqueue(__utf8_encode(this.#text));
-    ctl.close();
-    return rs;
-  }
-  arrayBuffer(): any { return __utf8_encode(this.#text); }
-  slice(start: number = 0, end: number = -1, contentType: any = undefined): Blob {
-    let s = this.#text;
-    // Blob.slice indexes BYTES; this interim slices code units of the decoded
-    // text — exact for ASCII payloads.
-    if (end === -1) { end = s.length; }
-    const piece = s.slice(start, end);
-    const b = new Blob([piece]);
-    if (contentType !== undefined) { return new Blob([piece], { type: contentType }); }
-    return b;
-  }
-}
-
-class File extends Blob {
-  name: string;
-  lastModified: number;
-  constructor(parts: any, name: any, opts: any = undefined) {
-    super(parts, opts);
-    this.name = "" + name;
-    let lm = 0;
-    if (opts !== undefined && opts !== null) {
-      const v = opts.lastModified;
-      if (v !== undefined) { lm = v; }
-      else { lm = Date.now(); }
-    } else {
-      lm = Date.now();
-    }
-    this.lastModified = lm;
-  }
-}
+// `FormData`/`Blob`/`File` used to live here as pure `.ts` value holders.
+// DRAIN_MOTOR §11 (owner 2026-07-24): reimplemented as `#[rtse::class]` Rust
+// (`rts-std/src/globals/form_data/mod.rs`, `rts-std/src/globals/blob/{blob,file}.rs`),
+// wired as ordinary Registry global classes (identical pattern to `Headers`,
+// which left this file the same way) — removed here now that the Rust impl
+// is at parity. `__utf8_decode`/`__utf8_encode`/`__utf8_len_str` above stay:
+// `streams.ts` and the `node:stream`/`node:fs` preludes still use them.
 
 class Response {
   #body: string = "";

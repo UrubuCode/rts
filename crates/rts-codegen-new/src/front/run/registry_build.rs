@@ -173,6 +173,22 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     // [nested-array F8 gap] + forEach [function-value param gap] stay
     // hand-written in the same file, like `url::register_urlsp_class_spec`).
     ns::globals::headers::register_headers_class_spec,
+    // `Blob`/`File extends Blob` — backend/Registry classes (#74/#75): `new
+    // Blob(parts?, opts?)` + size/type/text()/arrayBuffer()/slice();
+    // `File(parts, name, opts?)` adds name/lastModified. DRAIN_MOTOR §11 (owner
+    // 2026-07-24 correction): reimplemented as `#[rtse::class]` at parity with
+    // the LIVE `.ts` (`webapi.ts`) — ctor/size/type/text are macro-authored;
+    // arrayBuffer/slice stay hand-written (F8 doesn't cover `Vec<i64>`/`Self`
+    // returns). `File` embeds a `Blob` + forwards (composition, `extends =
+    // "Blob"` for `instanceof`).
+    ns::globals::blob::register_blob_class_spec,
+    ns::globals::blob::register_file_class_spec,
+    // `FormData` — backend/Registry class (#72): case-sensitive multimap,
+    // append/set/delete/get/has/getAll/keys/values (macro-authored, getAll/
+    // keys/values via F8 flat `Vec<String>`) + entries/forEach (hand-written
+    // residual, same gaps as `Headers`). DRAIN_MOTOR §11 (owner 2026-07-24
+    // correction): reimplemented as `#[rtse::class]`.
+    ns::globals::form_data::register_form_data_class_spec,
     // `Event`/`EventTarget` — backend/Registry classes (#63): `new Event(type,
     // opts?)` + `.type`/`.defaultPrevented`/`.cancelable`/`.bubbles`/`.target`/
     // `.currentTarget` + preventDefault/stopPropagation; addEventListener(type,
@@ -526,10 +542,14 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
     },
     // Web-platform value classes — pure `.ts` holders; after Object/JSON (their
     // ctors read `Object.keys` + `JSON.parse` from the merged prelude).
+    // Headers/Blob/File/FormData are Registry classes now (see the
+    // `ns::globals::{headers,blob,form_data}` registration above) — this file
+    // only still holds `Request`/`Response` + the `__utf8_*` helpers `streams.ts`
+    // depends on.
     PreludeTs {
         label: "web-api",
         source: rts_runtime::stdlib::WEBAPI_TS,
-        why: "Headers/FormData/Blob/File/Request/Response",
+        why: "Request/Response + __utf8_* helpers",
     },
     // Web event model — after timers (AbortSignal.timeout → setTimeout;
     // MessagePort → queueMicrotask) and DOMException (abort/timeout reasons).
