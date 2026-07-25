@@ -120,7 +120,8 @@ fn gen_impl(class_name: String, extends: Option<String>, mut imp: ItemImpl) -> T
         let Some(kind) = take_kind(&mut f.attrs) else {
             continue;
         };
-        match gen_member(&class_name, &class_upper, &self_ty, &f.sig, kind) {
+        let doc = extract_doc(&f.attrs);
+        match gen_member(&class_name, &class_upper, &self_ty, &f.sig, kind, doc) {
             Ok((ext, mem, id)) => {
                 externs.push(ext);
                 members.push(mem);
@@ -168,7 +169,8 @@ fn gen_struct(class_name: String, mut s: syn::ItemStruct) -> TokenStream {
                 continue;
             };
             let fname = f.ident.clone().unwrap();
-            match gen_field(&class_name, &class_upper, &self_ty, &fname, &f.ty, readonly) {
+            let fdoc = extract_doc(&f.attrs);
+            match gen_field(&class_name, &class_upper, &self_ty, &fname, &f.ty, readonly, fdoc) {
                 Ok((exts, mems, ids)) => {
                     externs.extend(exts);
                     members.extend(mems);
@@ -422,6 +424,29 @@ fn str_tuple_arity(ty: &Type) -> Option<usize> {
     Some(t.elems.len())
 }
 
+/// Harvest the Rust `///` doc comments of an item (syn lowers each to a
+/// `#[doc = "..."]` attribute) into one string — flows into `Member.doc`, which
+/// the `.d.ts` generator emits. Leading space (from `/// text`) is trimmed.
+fn extract_doc(attrs: &[syn::Attribute]) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    for a in attrs {
+        if !a.path().is_ident("doc") {
+            continue;
+        }
+        if let syn::Meta::NameValue(nv) = &a.meta {
+            if let syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Str(s),
+                ..
+            }) = &nv.value
+            {
+                let v = s.value();
+                lines.push(v.strip_prefix(' ').unwrap_or(&v).to_string());
+            }
+        }
+    }
+    lines.join("\n")
+}
+
 /// Is this a `Poly` (`any`) type? A NaN-boxed PolyValue word crosses the ABI
 /// UNCHANGED (`AbiType::PolyValue`) — an arbitrary JS value (weakmap value, etc.).
 fn is_poly_ty(ty: &Type) -> bool {
@@ -455,6 +480,7 @@ fn gen_member(
     self_ty: &Type,
     sig: &syn::Signature,
     kind: Kind,
+    doc: String,
 ) -> syn::Result<(
     proc_macro2::TokenStream,
     proc_macro2::TokenStream,
@@ -977,7 +1003,7 @@ fn gen_member(
             aliases: ::std::vec::Vec::new(),
             variadic: false,
             ts_signature: #ts_sig.into(),
-            doc: ::std::string::String::new(),
+            doc: #doc.into(),
             pure: false,
             emit: ::core::option::Option::None,
         })
@@ -1023,6 +1049,7 @@ fn gen_field(
     fname: &proc_macro2::Ident,
     fty: &Type,
     readonly: bool,
+    doc: String,
 ) -> syn::Result<FieldGen> {
     let Some((abi, ext_ty, ts)) = scalar(fty) else {
         return Err(syn::Error::new_spanned(
@@ -1061,7 +1088,7 @@ fn gen_field(
             aliases: ::std::vec::Vec::new(),
             variadic: false,
             ts_signature: #get_ts.into(),
-            doc: ::std::string::String::new(),
+            doc: #doc.into(),
             pure: true,
             emit: ::core::option::Option::None,
         })

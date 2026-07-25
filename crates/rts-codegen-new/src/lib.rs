@@ -103,3 +103,10 @@ pub mod timing;
 // that adds back the Cranelift emit side.
 pub use rts_adapters::{dispatch, ic, repr, shape, state};
 pub mod value;
+
+/// Generate the `rts.d.ts` declaration text from the live engine Registry
+/// (classes + `rts:`/`node:` modules, using each `Member.ts_signature` + the
+/// `///` docs the `#[rtse::class]` macro now captures). Powers `rts emit-types`.
+pub fn emit_dts() -> String {
+    front::run::registry::generate_dts()
+}
