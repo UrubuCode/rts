@@ -1204,7 +1204,7 @@
   "status": "rts_diverge",
   "bun": "obj_keys=odd,even\nobj_even=2,4\nobj_odd=1,3,5\nobj_num_keys=0,1\nobj_key_types=string,string\nobj_get_0=2,4:2,4\nobj_proto_null=true\nobj_no_tostring=undefined\nmap_keys=1,0\nmap_key_types=number,number\nmap_get_num=2,4\nmap_get_str_miss=undefined\nmap_obj_size=2\nmap_obj_A=4,5\nmap_obj_B=1,2,3\nmap_obj_key_names=B,A\nmap_obj_fresh_key_miss=undefined\nsvz_size=2\nsvz_zero=1,2\nsvz_key_1_div=Infinity\nsvz_nan=3\nobj_coerced_keys=0|NaN|undefined|null\ncb_args=a@0,b@1\nobj_cb_args=a@0,b@1\norder=3,1,2\ngroups=3+3|1+1|2\nbool_keys=false,true:types=boolean,boolean\nbool_true=3,4,5\nempty_map=0\nempty_obj=0\nfrom_set=1,0:odd=1,3\nvalues_are_arrays=true",
   "node": "obj_keys=odd,even\nobj_even=2,4\nobj_odd=1,3,5\nobj_num_keys=0,1\nobj_key_types=string,string\nobj_get_0=2,4:2,4\nobj_proto_null=true\nobj_no_tostring=undefined\nmap_keys=1,0\nmap_key_types=number,number\nmap_get_num=2,4\nmap_get_str_miss=undefined\nmap_obj_size=2\nmap_obj_A=4,5\nmap_obj_B=1,2,3\nmap_obj_key_names=B,A\nmap_obj_fresh_key_miss=undefined\nsvz_size=2\nsvz_zero=1,2\nsvz_key_1_div=Infinity\nsvz_nan=3\nobj_coerced_keys=0|NaN|undefined|null\ncb_args=a@0,b@1\nobj_cb_args=a@0,b@1\norder=3,1,2\ngroups=3+3|1+1|2\nbool_keys=false,true:types=boolean,boolean\nbool_true=3,4,5\nempty_map=0\nempty_obj=0\nfrom_set=1,0:odd=1,3\nvalues_are_arrays=true",
-  "rts": "obj_keys=odd,even\nobj_even=2,4\nobj_odd=1,3,5\nobj_num_keys=0,1\nobj_key_types=string,string\nobj_get_0=2,4:2,4\nobj_proto_null=false\nobj_no_tostring=undefined\nmap_keys=1,0\nmap_key_types=number,number\nmap_get_num=2,4\nmap_get_str_miss=undefined\nmap_obj_size=2\nmap_obj_A=4,5\nmap_obj_B=1,2,3\nmap_obj_key_names=B,A\nmap_obj_fresh_key_miss=undefined\nsvz_size=2\nsvz_zero=1,2\nsvz_key_1_div=-Infinity\nsvz_nan=3\nobj_coerced_keys=0|NaN|undefined|null\ncb_args=a@0,b@1\nobj_cb_args=a@0,b@1\norder=3,1,2\ngroups=3+3|1+1|2\nbool_keys=false,true:types=boolean,boolean\nbool_true=3,4,5\nempty_map=0\nempty_obj=0\nfrom_set=0,NaN,1:odd=7\nvalues_are_arrays=true"
+  "rts": "obj_keys=odd,even\nobj_even=2,4\nobj_odd=1,3,5\nobj_num_keys=0,1\nobj_key_types=string,string\nobj_get_0=2,4:2,4\nobj_proto_null=false\nobj_no_tostring=undefined\nmap_keys=1,0\nmap_key_types=number,number\nmap_get_num=2,4\nmap_get_str_miss=undefined\nmap_obj_size=2\nmap_obj_A=4,5\nmap_obj_B=1,2,3\nmap_obj_key_names=B,A\nmap_obj_fresh_key_miss=undefined\nsvz_size=2\nsvz_zero=1,2\nsvz_key_1_div=-Infinity\nsvz_nan=3\nobj_coerced_keys=0|NaN|undefined|null\ncb_args=a@0,b@1\nobj_cb_args=a@0,b@1\norder=3,1,2\ngroups=3+3|1+1|2\nbool_keys=false,true:types=boolean,boolean\nbool_true=3,4,5\nempty_map=0\nempty_obj=0\nfrom_set=1,NaN:odd=1073741837,7\nvalues_are_arrays=true"
 }
 ,
 {
@@ -1236,7 +1236,7 @@
   "status": "rts_diverge",
   "bun": "add_returns_self=true\nadd_returns_set=true\nchain=1,2,3\nchain_size=3\nchain_dup=1,2:size=2\ninline=a,b\nchain_size_inline=2\nset_returns_self=true\nset_returns_map=true\nmap_chain=a:1|b:2|c:3\nchain_overwrite=a,b:a=99\nchain_get=5\nset_delete_hit=true\nset_delete_miss=false\nmap_delete_hit=true\nmap_delete_miss=false\nset_clear=undefined:size=0\nmap_clear=undefined:size=0\nset_has=true:false\nmap_has=true:false\nmixed_chain_size=6\nmixed_has=truetruetruetruetruetrue\nfeed_keys=x,y\nnested=1,2,3",
   "node": "add_returns_self=true\nadd_returns_set=true\nchain=1,2,3\nchain_size=3\nchain_dup=1,2:size=2\ninline=a,b\nchain_size_inline=2\nset_returns_self=true\nset_returns_map=true\nmap_chain=a:1|b:2|c:3\nchain_overwrite=a,b:a=99\nchain_get=5\nset_delete_hit=true\nset_delete_miss=false\nmap_delete_hit=true\nmap_delete_miss=false\nset_clear=undefined:size=0\nmap_clear=undefined:size=0\nset_has=true:false\nmap_has=true:false\nmixed_chain_size=6\nmixed_has=truetruetruetruetruetrue\nfeed_keys=x,y\nnested=1,2,3",
-  "rts": "add_returns_self=true\nadd_returns_set=true\nchain=1,2,3\nchain_size=3\nchain_dup=1,2:size=2\ninline=a,b\nchain_size_inline=2\nset_returns_self=true\nset_returns_map=true\nmap_chain=a:1|b:2|c:3\nchain_overwrite=a,b:a=99\nchain_get=5\nset_delete_hit=true\nset_delete_miss=false\nmap_delete_hit=true\nmap_delete_miss=false\nset_clear=undefined:size=0\nmap_clear=undefined:size=0\nset_has=true:false\nmap_has=true:false\nmixed_chain_size=6\nmixed_has=truetruetruetruetruetrue\nfeed_keys=x,y\nnested=1073741838,1,2,-1,0,1,-1,-1,-1,-1,-1,-1,-1,7,3"
+  "rts": "add_returns_self=true\nadd_returns_set=true\nchain=1,2,3\nchain_size=3\nchain_dup=1,2:size=2\ninline=a,b\nchain_size_inline=2\nset_returns_self=true\nset_returns_map=true\nmap_chain=a:1|b:2|c:3\nchain_overwrite=a,b:a=99\nchain_get=5\nset_delete_hit=true\nset_delete_miss=false\nmap_delete_hit=true\nmap_delete_miss=false\nset_clear=undefined:size=0\nmap_clear=undefined:size=0\nset_has=true:false\nmap_has=true:false\nmixed_chain_size=6\nmixed_has=truetruetruetruetruetrue\nfeed_keys=x,y\nnested=1073741837,1,2,-1,0,1,-1,-1,-1,-1,-1,-1,-1,7,3"
 }
 ,
 {
@@ -1449,10 +1449,10 @@
 ,
 {
   "name": "claude-date-tojson-vs-toisostring",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "valid_iso=2024-01-15T10:30:45.123Z\nvalid_json=2024-01-15T10:30:45.123Z\nvalid_same=true\nstringify=\"2024-01-15T10:30:45.123Z\"\nstringify_nested={\"at\":\"2024-01-15T10:30:45.123Z\"}\nstringify_array=[\"2024-01-15T10:30:45.123Z\",\"2024-01-15T10:30:45.123Z\"]\ninvalid_json=null\ninvalid_json_is_null=true\ninvalid_stringify=null\ninvalid_nested={\"at\":null}\ninvalid_in_array=[null]\niso_threw=true\niso_err_is_range=true\niso_err_name=RangeError\nbad_json_null=true\nbad_iso_threw=true\nbad_iso_name=RangeError\noor_nan=true\noor_json_null=true\nmax_iso=+275760-09-13T00:00:00.000Z\nmax_json=+275760-09-13T00:00:00.000Z\nmin_iso=-271821-04-20T00:00:00.000Z\nneg_year_iso=-000001-01-01T00:00:00.000Z\nbig_year_iso=+012345-01-01T00:00:00.000Z",
   "node": "valid_iso=2024-01-15T10:30:45.123Z\nvalid_json=2024-01-15T10:30:45.123Z\nvalid_same=true\nstringify=\"2024-01-15T10:30:45.123Z\"\nstringify_nested={\"at\":\"2024-01-15T10:30:45.123Z\"}\nstringify_array=[\"2024-01-15T10:30:45.123Z\",\"2024-01-15T10:30:45.123Z\"]\ninvalid_json=null\ninvalid_json_is_null=true\ninvalid_stringify=null\ninvalid_nested={\"at\":null}\ninvalid_in_array=[null]\niso_threw=true\niso_err_is_range=true\niso_err_name=RangeError\nbad_json_null=true\nbad_iso_threw=true\nbad_iso_name=RangeError\noor_nan=true\noor_json_null=true\nmax_iso=+275760-09-13T00:00:00.000Z\nmax_json=+275760-09-13T00:00:00.000Z\nmin_iso=-271821-04-20T00:00:00.000Z\nneg_year_iso=-000001-01-01T00:00:00.000Z\nbig_year_iso=+012345-01-01T00:00:00.000Z",
-  "rts": "valid_iso=2024-01-15T10:30:45.123Z\nvalid_json=2024-01-15T10:30:45.123Z\nvalid_same=true\nstringify=\"2024-01-15T10:30:45.123Z\"\nstringify_nested={\"at\":\"2024-01-15T10:30:45.123Z\"}\nstringify_array=[\"2024-01-15T10:30:45.123Z\",\"2024-01-15T10:30:45.123Z\"]\ninvalid_json=-292275055-05-16T16:47:04.192Z\ninvalid_json_is_null=false\ninvalid_stringify=\"-292275055-05-16T16:47:04.192Z\"\ninvalid_nested={\"at\":\"-292275055-05-16T16:47:04.192Z\"}\ninvalid_in_array=[\"-292275055-05-16T16:47:04.192Z\"]\niso_threw=false\nbad_json_null=false\nbad_iso_threw=false\noor_nan=true\noor_json_null=false\nmax_iso=275760-09-13T00:00:00.000Z\nmax_json=275760-09-13T00:00:00.000Z\nmin_iso=-271821-04-20T00:00:00.000Z\nneg_year_iso=-001-01-01T00:00:00.000Z\nbig_year_iso=12345-01-01T00:00:00.000Z"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -1980,7 +1980,7 @@
   "status": "rts_diverge",
   "bun": "{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return",
   "node": "{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return",
-  "rts": "{\"value\":1073741888,\"done\":false}\n{\"value\":{\"message\":\"E\",\"name\":\"Error\",\"stack\":\"\"},\"done\":true}\n{\"value\":\"R\",\"done\":true}"
+  "rts": "{\"value\":1073741887,\"done\":false}\n{\"value\":{\"message\":\"E\",\"name\":\"Error\",\"stack\":\"\"},\"done\":true}\n{\"value\":\"R\",\"done\":true}"
 }
 ,
 {
@@ -2060,7 +2060,7 @@
   "status": "rts_diverge",
   "bun": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
   "node": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
-  "rts": ""
+  "rts": "undefined"
 }
 ,
 {
@@ -2185,10 +2185,10 @@
 ,
 {
   "name": "292_json_tojson",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"",
   "node": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"",
-  "rts": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\""
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -2201,10 +2201,10 @@
 ,
 {
   "name": "403_json_replacer_array_order",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "{\"c\":3,\"a\":1,\"nested\":{\"a\":8}}\n[{\"c\":3,\"a\":1,\"nested\":{\"a\":8}},{\"c\":5,\"a\":4}]\n{\"1\":\"one\",\"01\":\"zero-one\",\"a\":\"aye\"}",
   "node": "{\"c\":3,\"a\":1,\"nested\":{\"a\":8}}\n[{\"c\":3,\"a\":1,\"nested\":{\"a\":8}},{\"c\":5,\"a\":4}]\n{\"1\":\"one\",\"01\":\"zero-one\",\"a\":\"aye\"}",
-  "rts": "{\"c\":3,\"a\":1,\"nested\":{\"a\":8}}\n[{\"c\":3,\"a\":1,\"nested\":{\"a\":8}},{\"c\":5,\"a\":4}]\n{\"1\":\"one\",\"01\":\"zero-one\",\"a\":\"aye\"}"
+  "rts": "{\"c\":3,\"a\":1}\n[{\"c\":3,\"a\":1},{\"c\":5,\"a\":4}]\n{\"1\":\"one\",\"01\":\"zero-one\",\"a\":\"aye\"}"
 }
 ,
 {
@@ -2281,10 +2281,10 @@
 ,
 {
   "name": "claude-tojson-in-structure",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "date_top=\"2024-01-02T03:04:05.678Z\"\ndate_in_obj={\"when\":\"2024-01-02T03:04:05.678Z\"}\ndate_in_arr=[\"2024-01-02T03:04:05.678Z\"]\ndate_deep={\"a\":{\"b\":[{\"c\":\"2024-01-02T03:04:05.678Z\"}]}}\ndate_two={\"x\":\"2024-01-02T03:04:05.678Z\",\"y\":\"2024-01-02T03:04:05.678Z\"}\nkey_top=\"key:\"\nkey_in_obj={\"myField\":\"key:myField\"}\nkey_in_arr=[\"key:0\",\"key:1\"]\nkey_nested={\"outer\":{\"inner\":\"key:inner\"}}\ndate_iso={\"d\":\"2020-06-15T00:00:00.000Z\"}\nrecursive={\"inner\":\"2024-01-02T03:04:05.678Z\",\"list\":[1,2]}\nchained={\"f\":{}}\nclass_top=\"10 BRL\"\nclass_in_obj={\"price\":\"20 BRL\"}\nclass_in_arr=[\"1 BRL\",\"2 BRL\"]\nret_num={\"v\":42}\nret_null={\"v\":null}\nret_bool={\"v\":true}\nret_arr={\"v\":[1]}\nnot_fn={\"toJSON\":5,\"other\":1}\ninherited={\"b\":\"from_proto\"}\nwith_space=\"{\\n \\\"d\\\": \\\"2024-01-02T03:04:05.678Z\\\"\\n}\"",
   "node": "date_top=\"2024-01-02T03:04:05.678Z\"\ndate_in_obj={\"when\":\"2024-01-02T03:04:05.678Z\"}\ndate_in_arr=[\"2024-01-02T03:04:05.678Z\"]\ndate_deep={\"a\":{\"b\":[{\"c\":\"2024-01-02T03:04:05.678Z\"}]}}\ndate_two={\"x\":\"2024-01-02T03:04:05.678Z\",\"y\":\"2024-01-02T03:04:05.678Z\"}\nkey_top=\"key:\"\nkey_in_obj={\"myField\":\"key:myField\"}\nkey_in_arr=[\"key:0\",\"key:1\"]\nkey_nested={\"outer\":{\"inner\":\"key:inner\"}}\ndate_iso={\"d\":\"2020-06-15T00:00:00.000Z\"}\nrecursive={\"inner\":\"2024-01-02T03:04:05.678Z\",\"list\":[1,2]}\nchained={\"f\":{}}\nclass_top=\"10 BRL\"\nclass_in_obj={\"price\":\"20 BRL\"}\nclass_in_arr=[\"1 BRL\",\"2 BRL\"]\nret_num={\"v\":42}\nret_null={\"v\":null}\nret_bool={\"v\":true}\nret_arr={\"v\":[1]}\nnot_fn={\"toJSON\":5,\"other\":1}\ninherited={\"b\":\"from_proto\"}\nwith_space=\"{\\n \\\"d\\\": \\\"2024-01-02T03:04:05.678Z\\\"\\n}\"",
-  "rts": "date_top=\"2024-01-02T03:04:05.678Z\"\ndate_in_obj={\"when\":\"2024-01-02T03:04:05.678Z\"}\ndate_in_arr=[\"2024-01-02T03:04:05.678Z\"]\ndate_deep={\"a\":{\"b\":[{\"c\":\"2024-01-02T03:04:05.678Z\"}]}}\ndate_two={\"x\":\"2024-01-02T03:04:05.678Z\",\"y\":\"2024-01-02T03:04:05.678Z\"}\nkey_top=\"key:\"\nkey_in_obj={\"myField\":\"key:myField\"}\nkey_in_arr=[\"key:0\",\"key:1\"]\nkey_nested={\"outer\":{\"inner\":\"key:inner\"}}\ndate_iso={\"d\":\"2020-06-15T00:00:00.000Z\"}\nrecursive={\"inner\":\"2024-01-02T03:04:05.678Z\",\"list\":[1,2]}\nchained={\"f\":{}}\nclass_top=\"10 BRL\"\nclass_in_obj={\"price\":\"20 BRL\"}\nclass_in_arr=[\"1 BRL\",\"2 BRL\"]\nret_num={\"v\":42}\nret_null={\"v\":null}\nret_bool={\"v\":true}\nret_arr={\"v\":[1]}\nnot_fn={\"toJSON\":5,\"other\":1}\ninherited={\"b\":\"from_proto\"}\nwith_space=\"{\\n \\\"d\\\": \\\"2024-01-02T03:04:05.678Z\\\"\\n}\""
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -2305,10 +2305,10 @@
 ,
 {
   "name": "codex_json_stringify_propertylist_objects",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "{\"b\":\"B\",\"1\":\"one\",\"a\":\"A\"}\n[{\"b\":2,\"1\":3,\"a\":1}]",
   "node": "{\"b\":\"B\",\"1\":\"one\",\"a\":\"A\"}\n[{\"b\":2,\"1\":3,\"a\":1}]",
-  "rts": "{\"b\":\"B\",\"1\":\"one\",\"a\":\"A\"}\n[{\"b\":2,\"1\":3,\"a\":1}]"
+  "rts": "{\"1\":\"one\",\"a\":\"A\"}\n[{\"1\":3,\"a\":1}]"
 }
 ,
 {
@@ -3249,10 +3249,10 @@
 ,
 {
   "name": "253_object_keys_empty",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "empty=\narr=0,1,2\nstr=0,1\nnum=",
   "node": "empty=\narr=0,1,2\nstr=0,1\nnum=",
-  "rts": "empty=\narr=0,1,2\nstr=0,1\nnum="
+  "rts": "empty=\narr=0,1,2\nstr=\nnum="
 }
 ,
 {
@@ -3521,10 +3521,10 @@
 ,
 {
   "name": "claude-json-tojson-hook",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
   "node": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
-  "rts": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n{}\n7"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -3852,7 +3852,7 @@
   "status": "rts_diverge",
   "bun": "one=3\ntwo=5\nall=a,b\nasync=9",
   "node": "one=3\ntwo=5\nall=a,b\nasync=9",
-  "rts": "one=3\ntwo=4\nall=1.390671161570025e-309,1.39067116157003e-309\nasync=9"
+  "rts": "one=3\ntwo=4\nall=1.39067116156993e-309,1.390671161569936e-309\nasync=9"
 }
 ,
 {
@@ -3884,7 +3884,7 @@
   "status": "rts_diverge",
   "bun": "AggregateError\na,b,c",
   "node": "AggregateError\na,b,c",
-  "rts": "String"
+  "rts": "undefined"
 }
 ,
 {
@@ -4500,7 +4500,7 @@
   "status": "rts_diverge",
   "bun": "first=a-bXcX\nfirst-word=dog cat cat\nno-match=abc\nempty-pattern=-abc\nempty-repl=abX\nwhole=Z\namp=he[ll]o\namp-twice=hellllo\namp-empty-pat=[]abc\nprefix=ab[ab]ef\nprefix-at-start=[]cdef\nsuffix=ab[ef]ef\nsuffix-at-end=abcd[]\ndollar=$\ndollar-amount=$100\ndollar-then-amp=$xy\ngroup1-literal=a$1c\ngroup0-literal=a$0c\nnamed-literal=a$<n>c\nlone-dollar=a$c\ndollar-x=a$xc\ntrailing-dollar=az$c\ncombo=ab<ab|cd|ef>ef\ncombo2=121234545\nnum-repl=a42c\nnum-pattern=a-b1\nfn=abc@1/6abc\nfn-empty=[0@0]abc\nfn-no-expand=a$&c",
   "node": "first=a-bXcX\nfirst-word=dog cat cat\nno-match=abc\nempty-pattern=-abc\nempty-repl=abX\nwhole=Z\namp=he[ll]o\namp-twice=hellllo\namp-empty-pat=[]abc\nprefix=ab[ab]ef\nprefix-at-start=[]cdef\nsuffix=ab[ef]ef\nsuffix-at-end=abcd[]\ndollar=$\ndollar-amount=$100\ndollar-then-amp=$xy\ngroup1-literal=a$1c\ngroup0-literal=a$0c\nnamed-literal=a$<n>c\nlone-dollar=a$c\ndollar-x=a$xc\ntrailing-dollar=az$c\ncombo=ab<ab|cd|ef>ef\ncombo2=121234545\nnum-repl=a42c\nnum-pattern=a-b1\nfn=abc@1/6abc\nfn-empty=[0@0]abc\nfn-no-expand=a$&c",
-  "rts": "first=a-bXcX\nfirst-word=dog cat cat\nno-match=abc\nempty-pattern=-abc\nempty-repl=abX\nwhole=Z\namp=he[$&]o\namp-twice=he$&$&o\namp-empty-pat=[$&]abc\nprefix=ab[$`]ef\nprefix-at-start=[$`]cdef\nsuffix=ab[$']ef\nsuffix-at-end=abcd[$']\ndollar=$$\ndollar-amount=$$100\ndollar-then-amp=$$$&y\ngroup1-literal=a$1c\ngroup0-literal=a$0c\nnamed-literal=a$<n>c\nlone-dollar=a$c\ndollar-x=a$xc\ntrailing-dollar=az$c\ncombo=ab<$`|$&|$'>ef\ncombo2=12$`$&$'45\nnum-repl=a42c\nnum-pattern=a-b1\nfn=abcabc\nfn-empty=abc\nfn-no-expand=abc"
+  "rts": "first=a-bXcX\nfirst-word=dog cat cat\nno-match=abc\nempty-pattern=-abc\nempty-repl=abX\nwhole=Z\namp=he[$&]o\namp-twice=he$&$&o\namp-empty-pat=[$&]abc\nprefix=ab[$`]ef\nprefix-at-start=[$`]cdef\nsuffix=ab[$']ef\nsuffix-at-end=abcd[$']\ndollar=$$\ndollar-amount=$$100\ndollar-then-amp=$$$&y\ngroup1-literal=a$1c\ngroup0-literal=a$0c\nnamed-literal=a$<n>c\nlone-dollar=a$c\ndollar-x=a$xc\ntrailing-dollar=az$c\ncombo=ab<$`|$&|$'>ef\ncombo2=12$`$&$'45\nnum-repl=a42c\nnum-pattern=a-b1\nfn=afunctionabc\nfn-empty=functionabc\nfn-no-expand=afunctionc"
 }
 ,
 {
@@ -4556,7 +4556,7 @@
   "status": "rts_diverge",
   "bun": "ascii wf=true len=3 fixedLen=3 fixed=61,62,63\nempty wf=true len=0 fixedLen=0 fixed=\nbmp wf=true len=4 fixedLen=4 fixed=63,61,66,e9\nvalid-pair wf=true len=2 fixedLen=2 fixed=d83d,de00\npair-in-text wf=true len=4 fixedLen=4 fixed=61,d83d,de00,62\ntwo-pairs wf=true len=4 fixedLen=4 fixed=d83d,de00,d83d,de01\nlone-hi wf=false len=1 fixedLen=1 fixed=fffd\nlone-hi-mid wf=false len=3 fixedLen=3 fixed=61,fffd,62\nlone-hi-end wf=false len=3 fixedLen=3 fixed=61,62,fffd\nlone-hi-start wf=false len=3 fixedLen=3 fixed=fffd,61,62\nlone-lo wf=false len=1 fixedLen=1 fixed=fffd\nlone-lo-mid wf=false len=3 fixedLen=3 fixed=61,fffd,62\nlone-lo-start wf=false len=3 fixedLen=3 fixed=fffd,61,62\nreversed-pair wf=false len=2 fixedLen=2 fixed=fffd,fffd\nhi-then-ascii wf=false len=2 fixedLen=2 fixed=fffd,61\nhi-then-hi wf=false len=2 fixedLen=2 fixed=fffd,fffd\nlo-then-lo wf=false len=2 fixedLen=2 fixed=fffd,fffd\nhi-hi-hi-lo wf=false len=4 fixedLen=4 fixed=fffd,fffd,d83d,de00\nlone-then-pair wf=false len=3 fixedLen=3 fixed=fffd,d83d,de00\npair-then-lone wf=false len=3 fixedLen=3 fixed=d83d,de00,fffd\nhi-min-D800 wf=false len=1 fixedLen=1 fixed=fffd\nhi-max-DBFF wf=false len=1 fixedLen=1 fixed=fffd\nlo-min-DC00 wf=false len=1 fixedLen=1 fixed=fffd\nlo-max-DFFF wf=false len=1 fixedLen=1 fixed=fffd\nmin-pair wf=true len=2 fixedLen=2 fixed=d800,dc00\nmax-pair wf=true len=2 fixedLen=2 fixed=dbff,dfff\nD7FF wf=true len=1 fixedLen=1 fixed=d7ff\nE000 wf=true len=1 fixedLen=1 fixed=e000\nreplacement-char wf=true len=1 fixedLen=1 fixed=fffd\nidempotent=true\nfixed-is-wf=true\nunchanged=true\nlen-preserved=true\nno-mutate=61,d83d,62,de00,63",
   "node": "ascii wf=true len=3 fixedLen=3 fixed=61,62,63\nempty wf=true len=0 fixedLen=0 fixed=\nbmp wf=true len=4 fixedLen=4 fixed=63,61,66,e9\nvalid-pair wf=true len=2 fixedLen=2 fixed=d83d,de00\npair-in-text wf=true len=4 fixedLen=4 fixed=61,d83d,de00,62\ntwo-pairs wf=true len=4 fixedLen=4 fixed=d83d,de00,d83d,de01\nlone-hi wf=false len=1 fixedLen=1 fixed=fffd\nlone-hi-mid wf=false len=3 fixedLen=3 fixed=61,fffd,62\nlone-hi-end wf=false len=3 fixedLen=3 fixed=61,62,fffd\nlone-hi-start wf=false len=3 fixedLen=3 fixed=fffd,61,62\nlone-lo wf=false len=1 fixedLen=1 fixed=fffd\nlone-lo-mid wf=false len=3 fixedLen=3 fixed=61,fffd,62\nlone-lo-start wf=false len=3 fixedLen=3 fixed=fffd,61,62\nreversed-pair wf=false len=2 fixedLen=2 fixed=fffd,fffd\nhi-then-ascii wf=false len=2 fixedLen=2 fixed=fffd,61\nhi-then-hi wf=false len=2 fixedLen=2 fixed=fffd,fffd\nlo-then-lo wf=false len=2 fixedLen=2 fixed=fffd,fffd\nhi-hi-hi-lo wf=false len=4 fixedLen=4 fixed=fffd,fffd,d83d,de00\nlone-then-pair wf=false len=3 fixedLen=3 fixed=fffd,d83d,de00\npair-then-lone wf=false len=3 fixedLen=3 fixed=d83d,de00,fffd\nhi-min-D800 wf=false len=1 fixedLen=1 fixed=fffd\nhi-max-DBFF wf=false len=1 fixedLen=1 fixed=fffd\nlo-min-DC00 wf=false len=1 fixedLen=1 fixed=fffd\nlo-max-DFFF wf=false len=1 fixedLen=1 fixed=fffd\nmin-pair wf=true len=2 fixedLen=2 fixed=d800,dc00\nmax-pair wf=true len=2 fixedLen=2 fixed=dbff,dfff\nD7FF wf=true len=1 fixedLen=1 fixed=d7ff\nE000 wf=true len=1 fixedLen=1 fixed=e000\nreplacement-char wf=true len=1 fixedLen=1 fixed=fffd\nidempotent=true\nfixed-is-wf=true\nunchanged=true\nlen-preserved=true\nno-mutate=61,d83d,62,de00,63",
-  "rts": "ascii wf=true len=3 fixedLen=3 fixed=61,62,63\nempty wf=true len=0 fixedLen=0 fixed=\nbmp wf=true len=4 fixedLen=4 fixed=63,61,66,e9\nvalid-pair wf=true len=0 fixedLen=0 fixed=\npair-in-text wf=true len=2 fixedLen=2 fixed=61,62\ntwo-pairs wf=true len=0 fixedLen=0 fixed=\nlone-hi wf=true len=0 fixedLen=0 fixed=\nlone-hi-mid wf=true len=2 fixedLen=2 fixed=61,62\nlone-hi-end wf=true len=2 fixedLen=2 fixed=61,62\nlone-hi-start wf=true len=2 fixedLen=2 fixed=61,62\nlone-lo wf=true len=0 fixedLen=0 fixed=\nlone-lo-mid wf=true len=2 fixedLen=2 fixed=61,62\nlone-lo-start wf=true len=2 fixedLen=2 fixed=61,62\nreversed-pair wf=true len=0 fixedLen=0 fixed=\nhi-then-ascii wf=true len=1 fixedLen=1 fixed=61\nhi-then-hi wf=true len=0 fixedLen=0 fixed=\nlo-then-lo wf=true len=0 fixedLen=0 fixed=\nhi-hi-hi-lo wf=true len=0 fixedLen=0 fixed=\nlone-then-pair wf=true len=0 fixedLen=0 fixed=\npair-then-lone wf=true len=0 fixedLen=0 fixed=\nhi-min-D800 wf=true len=0 fixedLen=0 fixed=\nhi-max-DBFF wf=true len=0 fixedLen=0 fixed=\nlo-min-DC00 wf=true len=0 fixedLen=0 fixed=\nlo-max-DFFF wf=true len=0 fixedLen=0 fixed=\nmin-pair wf=true len=0 fixedLen=0 fixed=\nmax-pair wf=true len=0 fixedLen=0 fixed=\nD7FF wf=true len=1 fixedLen=1 fixed=d7ff\nE000 wf=true len=1 fixedLen=1 fixed=e000\nreplacement-char wf=true len=1 fixedLen=1 fixed=fffd\nidempotent=false\nfixed-is-wf=undefined\nunchanged=true\nlen-preserved=true\nno-mutate=61,62,63"
+  "rts": "ascii wf=true len=3 fixedLen=3 fixed=61,62,63\nempty wf=true len=0 fixedLen=0 fixed=\nbmp wf=true len=4 fixedLen=4 fixed=63,61,66,e9\nvalid-pair wf=true len=0 fixedLen=0 fixed=\npair-in-text wf=true len=2 fixedLen=2 fixed=61,62\ntwo-pairs wf=true len=0 fixedLen=0 fixed=\nlone-hi wf=true len=0 fixedLen=0 fixed=\nlone-hi-mid wf=true len=2 fixedLen=2 fixed=61,62\nlone-hi-end wf=true len=2 fixedLen=2 fixed=61,62\nlone-hi-start wf=true len=2 fixedLen=2 fixed=61,62\nlone-lo wf=true len=0 fixedLen=0 fixed=\nlone-lo-mid wf=true len=2 fixedLen=2 fixed=61,62\nlone-lo-start wf=true len=2 fixedLen=2 fixed=61,62\nreversed-pair wf=true len=0 fixedLen=0 fixed=\nhi-then-ascii wf=true len=1 fixedLen=1 fixed=61\nhi-then-hi wf=true len=0 fixedLen=0 fixed=\nlo-then-lo wf=true len=0 fixedLen=0 fixed=\nhi-hi-hi-lo wf=true len=0 fixedLen=0 fixed=\nlone-then-pair wf=true len=0 fixedLen=0 fixed=\npair-then-lone wf=true len=0 fixedLen=0 fixed=\nhi-min-D800 wf=true len=0 fixedLen=0 fixed=\nhi-max-DBFF wf=true len=0 fixedLen=0 fixed=\nlo-min-DC00 wf=true len=0 fixedLen=0 fixed=\nlo-max-DFFF wf=true len=0 fixedLen=0 fixed=\nmin-pair wf=true len=0 fixedLen=0 fixed=\nmax-pair wf=true len=0 fixedLen=0 fixed=\nD7FF wf=true len=1 fixedLen=1 fixed=d7ff\nE000 wf=true len=1 fixedLen=1 fixed=e000\nreplacement-char wf=true len=1 fixedLen=1 fixed=fffd\nidempotent=true\nfixed-is-wf=true\nunchanged=true\nlen-preserved=true\nno-mutate=61,62,63"
 }
 ,
 {
@@ -5428,7 +5428,7 @@
   "status": "rts_diverge",
   "bun": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi",
   "node": "ct=application/json\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi",
-  "rts": "ct=undefined\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
+  "rts": "ct=\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":679,"pass":470,"rts_diverge":104,"bun_node_diverge":18,"errors":87,"rejected":0}}
+],"summary":{"total":679,"pass":465,"rts_diverge":105,"bun_node_diverge":18,"errors":91,"rejected":0}}
