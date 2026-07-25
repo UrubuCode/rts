@@ -27,6 +27,13 @@ pub type Handle = u64;
 /// `U64` (coerces to an integer): a `Poly` value is stored/returned as the boxed
 /// word as-is (no marshalling). `AbiType::PolyValue`.
 pub type Poly = u64;
+/// Marker param type: the RECEIVER'S OWN handle, injected by `#[rtse::class]` (not
+/// a JS argument). A method whose body needs its own handle — to return a fresh
+/// instance sharing state, dispatch an event stamping `ev.target`, or hand a child
+/// its parent handle — takes a `self_h: SelfHandle` param; the macro fills it with
+/// the receiver handle and drops it from the JS signature. Lets such methods stay
+/// `#[rtse::method]` (macro-generated symbol) instead of a hand-declared extern.
+pub type SelfHandle = u64;
 /// Raw unsigned 64-bit value (counts, sizes, opaque pointers).
 pub type U64 = u64;
 /// Native signed 64-bit integer.

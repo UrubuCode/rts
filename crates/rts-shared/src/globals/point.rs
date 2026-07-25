@@ -116,4 +116,19 @@ impl Point {
             ("y".to_string(), format!("{}", self.y as i64)),
         ]
     }
+
+    // F1: `SelfHandle` — the body receives its OWN handle (not a JS arg). Lets a
+    // method return itself / dispatch on itself without a hand-declared extern.
+    // JS: `p.selfRef() === p` is true.
+    #[rtse::method(name = "selfRef")]
+    fn self_ref(self: &Point, me: rts_engine::abi::ty::SelfHandle) -> rts_engine::abi::ty::Handle {
+        me
+    }
+
+    // F1: `-> Self` — returns a FRESH instance (alloc'd like a ctor, class-tracked).
+    // JS: `p.withX(9).sum()` uses the new instance.
+    #[rtse::method(name = "withX")]
+    fn with_x(self: &Point, nx: f64) -> Self {
+        Point { x: nx, y: self.y }
+    }
 }

@@ -447,6 +447,21 @@ fn extract_doc(attrs: &[syn::Attribute]) -> String {
     lines.join("\n")
 }
 
+/// Is this a `SelfHandle` param? The macro fills it with the receiver's own
+/// handle (`__recv`) and drops it from the JS signature — for a body that needs
+/// its own handle (return a fresh instance sharing state, dispatch stamping
+/// `ev.target`, hand a child its parent handle).
+fn is_self_handle_param(ty: &Type) -> bool {
+    matches!(ty, Type::Path(p) if p.path.segments.last().is_some_and(|s| s.ident == "SelfHandle"))
+}
+
+/// Is the return type `Self` (a method returning a fresh instance of its OWN
+/// class, e.g. `Blob.slice() -> Blob`)? The macro allocs it as a classed
+/// `Entry::Rtse` (like a ctor) + ts = the class name (return-class tracked).
+fn is_self_ret(ty: &Type) -> bool {
+    matches!(ty, Type::Path(p) if p.path.is_ident("Self"))
+}
+
 /// Is this a `Poly` (`any`) type? A NaN-boxed PolyValue word crosses the ABI
 /// UNCHANGED (`AbiType::PolyValue`) — an arbitrary JS value (weakmap value, etc.).
 fn is_poly_ty(ty: &Type) -> bool {
@@ -583,6 +598,12 @@ fn gen_member(
     let mut idx = 0usize;
     for a in &sig.inputs {
         let FnArg::Typed(pt) = a else { continue };
+        if is_self_handle_param(&pt.ty) {
+            // The receiver's own handle — passed to the body as `__recv`, NOT a JS
+            // arg (no ext param / ts / abi, idx unchanged).
+            call_args.push(quote!(__recv));
+            continue;
+        }
         if is_str_param(&pt.ty) {
             // `&str` crosses as StrPtr = two slots (ptr:i64, len:i64); rebuild the
             // &str from the string-pool pointer the codegen passes.
@@ -677,6 +698,17 @@ fn gen_member(
                 "any".into(),
                 Box::new(|b| quote!(#b)),
             ),
+            Some(t) if is_self_ret(t) => {
+                // `-> Self`: alloc the fresh instance as a classed `Entry::Rtse`,
+                // exactly like the ctor. ts = the class name (return-class tracked).
+                let cls = class.to_string();
+                (
+                    quote!(::rts_engine::AbiType::Handle),
+                    quote!(u64),
+                    class.to_string(),
+                    Box::new(move |b| quote!(::rts_engine::heap::handles::alloc_rtse(#cls, #b))),
+                )
+            }
             Some(t) if is_string_ret(t) => (
                 quote!(::rts_engine::AbiType::Handle),
                 quote!(u64),
@@ -863,41 +895,49 @@ fn gen_member(
     // otherwise). Cost: one clone per call — acceptable, this is the (non-hot)
     // library surface, never the numeric fast path.
     let inner = invoke(quote!(__s));
-    let call = if is_ctor || is_static {
+    // `wrap` (raw Rust return → ABI value) is applied INSIDE the Some-arm, so the
+    // None-arm (dead/invalid handle) returns `Default::default()` of the EXTERN
+    // return type (u64/f64/…, always `Default`) — NOT `Default` of the raw method
+    // return (which for `-> Self`/`-> String` need not be `Default`).
+    let body = if is_ctor || is_static {
         let ty = &self_ty;
-        if is_async {
+        let raw = if is_async {
             quote!(::rts_engine::block_on(<#ty>::#rust_name(#(#call_args),*)))
         } else {
             quote!(<#ty>::#rust_name(#(#call_args),*))
-        }
-    } else if is_mut_recv {
-        quote!({
-            let mut __c: ::core::option::Option<#self_ty> =
-                ::rts_engine::heap::handles::with_rtse::<#self_ty, _>(__recv, |__s| __s.cloned());
-            let __r = match __c.as_mut() {
-                ::core::option::Option::Some(__s) => #inner,
-                ::core::option::Option::None => ::core::default::Default::default(),
-            };
-            if let ::core::option::Option::Some(__c) = __c {
-                ::rts_engine::heap::handles::with_rtse_mut::<#self_ty, _>(__recv, |__slot| {
-                    if let ::core::option::Option::Some(__slot) = __slot {
-                        *__slot = __c;
-                    }
-                });
-            }
-            __r
-        })
+        };
+        wrap(raw)
     } else {
-        quote!({
-            let __c: ::core::option::Option<#self_ty> =
-                ::rts_engine::heap::handles::with_rtse::<#self_ty, _>(__recv, |__s| __s.cloned());
-            match __c.as_ref() {
-                ::core::option::Option::Some(__s) => #inner,
-                ::core::option::Option::None => ::core::default::Default::default(),
-            }
-        })
+        let some = wrap(inner);
+        if is_mut_recv {
+            quote!({
+                let mut __c: ::core::option::Option<#self_ty> =
+                    ::rts_engine::heap::handles::with_rtse::<#self_ty, _>(__recv, |__s| __s.cloned());
+                let __r: #ret_ext_ty = match __c.as_mut() {
+                    ::core::option::Option::Some(__s) => #some,
+                    ::core::option::Option::None => ::core::default::Default::default(),
+                };
+                if let ::core::option::Option::Some(__c) = __c {
+                    ::rts_engine::heap::handles::with_rtse_mut::<#self_ty, _>(__recv, |__slot| {
+                        if let ::core::option::Option::Some(__slot) = __slot {
+                            *__slot = __c;
+                        }
+                    });
+                }
+                __r
+            })
+        } else {
+            quote!({
+                let __c: ::core::option::Option<#self_ty> =
+                    ::rts_engine::heap::handles::with_rtse::<#self_ty, _>(__recv, |__s| __s.cloned());
+                let __r: #ret_ext_ty = match __c.as_ref() {
+                    ::core::option::Option::Some(__s) => #some,
+                    ::core::option::Option::None => ::core::default::Default::default(),
+                };
+                __r
+            })
+        }
     };
-    let body = wrap(call);
 
     let extern_fn = quote! {
         #[unsafe(no_mangle)]
