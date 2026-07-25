@@ -98,7 +98,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let val = self.try_class_method(module, expr, &class, &method, &[])?;
                 return Ok(Some(self.box_value(val)));
             }
-            // A known user class with NEITHER toString nor valueOf → the default
+            // A Registry value-class WRAPPER (`new String(x)`/`new Number(x)`/
+            // `new Boolean(x)` — the ambient `.ts` class was migrated to Rust): its
+            // `toString`/`valueOf` live in the Registry, not `self.classes`. Route
+            // ToPrimitive through the rerouted primitive-class dispatch so
+            // `${new String("x")}` / `String(wrapper)` still call the real method.
+            if let Some(method) = self.registry_primitive_method_of(&class, hint) {
+                let recv = self.lower_expr(module, expr)?;
+                if let Some(val) =
+                    self.try_primitive_class_method(module, recv, &class, &method, &[])?
+                {
+                    return Ok(Some(self.box_value(val)));
+                }
+            }
+            // A known class with NEITHER toString nor valueOf → the default
             // `[object Object]` is correct; let the caller's existing path render it.
             return Ok(None);
         }
@@ -114,6 +127,35 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // caller's default. NOT a guess: arrays join via the runtime `js_to_string`,
         // plain objects render `[object Object]`, Map/Set bail upstream.
         Ok(None)
+    }
+
+    /// Like [`Self::primitive_method_of`] but over a REGISTRY value-class (a
+    /// migrated primitive wrapper: `String`/`Number`/`Boolean`). `toString`-first
+    /// for a string hint, `valueOf`-first for the default hint, other as fallback.
+    /// `None` when the Registry has no such class / neither method.
+    fn registry_primitive_method_of(&self, class: &str, hint: Hint) -> Option<String> {
+        use super::registry;
+        let has = |m: &str| registry::class_member(class, m, 0).is_some();
+        let pick = match hint {
+            // A string hint never reaches `valueOf` when `toString` exists.
+            Hint::String => {
+                if has("toString") {
+                    "toString"
+                } else {
+                    return None;
+                }
+            }
+            Hint::Default => {
+                if has("valueOf") {
+                    "valueOf"
+                } else if has("toString") {
+                    "toString"
+                } else {
+                    return None;
+                }
+            }
+        };
+        Some(pick.to_string())
     }
 
     /// The synthesized method name to call for `ToPrimitive` on `class` under

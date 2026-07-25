@@ -447,15 +447,47 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         method: &str,
         args: &[HirExpr],
     ) -> FrontResult<Option<Val>> {
-        let Some(desc) = self.classes.get(prim_class).cloned() else {
+        // INTERIM: while the ambient `.ts` primitive class still exists, dispatch to
+        // it (the boxed primitive as `this`). Deleted per-primitive as each moves to
+        // a pure-Rust `#[rtse::class("X", value)]`.
+        if let Some(desc) = self.classes.get(prim_class).cloned() {
+            let Some(fn_name) = desc.method_fn(method).map(str::to_string) else {
+                return Ok(None);
+            };
+            let this_word = self.box_value(recv);
+            let val = self.call_synth_fn(module, &fn_name, Some(this_word), args)?;
+            return Ok(Some(val));
+        }
+        // MIGRATED: the `.ts` class is gone — dispatch the primitive receiver WORD
+        // through the REAL Registry value-class (`#[rtse::class("X", value)]`), the
+        // same generic emitter Date/URL use. The value-class methods take a `Poly`
+        // receiver (recv_abi `PolyValue`), so `emit_registry_call` passes the boxed
+        // word verbatim and the Rust body unboxes (autoboxed primitive OR wrapper).
+        // `None` ⇒ the value-class lacks this `(method, arity)` (e.g. the regex /
+        // `slice` / `STRING_ROWS` methods it deliberately excludes) → the caller
+        // continues to its specials / dispatch table, never a guess.
+        let argc = args.len();
+        let Some(call) = super::registry::class_member(prim_class, method, argc) else {
             return Ok(None);
         };
-        let Some(fn_name) = desc.method_fn(method).map(str::to_string) else {
+        if call.flags.contains(rts_engine::abi::MemberFlags::UNSOUND) {
             return Ok(None);
+        }
+        let mut vals: Vec<Val> = Vec::with_capacity(call.arg_abis.len());
+        for a in args {
+            vals.push(self.lower_expr(module, a)?);
+        }
+        for i in argc..call.arg_abis.len() {
+            vals.push(self.default_arg_val(call.default_args.get(i), prim_class, i)?);
+        }
+        let result_kind = match call.ret {
+            rts_engine::abi::AbiType::Handle if call.ret_is_string_handle => JsKind::Str,
+            rts_engine::abi::AbiType::Handle if call.ret_is_array_handle => JsKind::Array,
+            rts_engine::abi::AbiType::Handle => JsKind::Object,
+            rts_engine::abi::AbiType::Bool => JsKind::Bool,
+            _ => JsKind::Number,
         };
-        // The primitive becomes the method's `this` (boxed PolyValue word).
-        let this_word = self.box_value(recv);
-        let val = self.call_synth_fn(module, &fn_name, Some(this_word), args)?;
+        let val = self.emit_registry_call(module, &call, Some(recv), &vals, result_kind)?;
         Ok(Some(val))
     }
 

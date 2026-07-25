@@ -153,7 +153,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// `undefined` sentinel word (the runtime extern reads its NaN form as its own
     /// default). A `Required` / missing entry is a spec bug — BAIL, never
     /// mis-marshal.
-    fn default_arg_val(
+    pub(super) fn default_arg_val(
         &mut self,
         d: Option<&DefaultArg>,
         class: &str,

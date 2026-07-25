@@ -481,10 +481,17 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
         source: rts_runtime::NUMBER_TS,
         why: "num.toFixed/toString(radix)/…",
     },
+    // String — the pure-Rust `#[rtse::class("String", value)]` value-class
+    // (rts-primitives/src/string/value_class.rs) is authored, registered, and
+    // harvested into `runtime_ci` (so dynamic/computed dispatch already resolves
+    // its methods via `dynci::class_tag_of` recognizing a primitive string). This
+    // `.ts` prelude STAYS until the method-AS-VALUE read path (`obj_get(string,
+    // name)` → a bound native fn value, for `typeof s[k]` / `s[k]()` read+invoke)
+    // is implemented — the `.ts` proto currently supplies that method value.
     PreludeTs {
         label: "String",
         source: rts_runtime::STRING_TS,
-        why: "str.toUpperCase/slice/indexOf/…",
+        why: "str.* method-as-value read path (interim, until obj_get synthesizes it)",
     },
     // Global console object (front names nothing; bridges via engine.*).
     PreludeTs {

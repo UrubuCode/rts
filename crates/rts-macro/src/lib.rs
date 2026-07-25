@@ -62,38 +62,55 @@ pub fn class(args: TokenStream, item: TokenStream) -> TokenStream {
         return gen_struct(parsed.name, s);
     }
     match syn::parse::<ItemImpl>(item) {
-        Ok(imp) => gen_impl(parsed.name, parsed.extends, imp),
+        Ok(imp) => gen_impl(parsed.name, parsed.extends, parsed.value, imp),
         Err(e) => e.to_compile_error().into(),
     }
 }
 
-/// Parsed `#[rtse::class("Name")]` / `#[rtse::class("Name", extends = "Parent")]`.
+/// Parsed `#[rtse::class("Name")]` / `#[rtse::class("Name", extends = "Parent")]`
+/// / `#[rtse::class("Name", value)]`.
 struct ClassArgs {
     name: String,
     extends: Option<String>,
+    /// A VALUE (primitive) class: instances are not `Entry::Rtse` structs but raw
+    /// primitive words (a `Number` is an inline `f64`, a `Boolean` a `bool`, a
+    /// `String` a string handle). A `#[rtse::method]` on a value class takes the
+    /// receiver as its FIRST typed param (no `self`); the macro marshals the
+    /// receiver word to that type and calls the fn directly (no `with_rtse`).
+    value: bool,
 }
 
 impl syn::parse::Parse for ClassArgs {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let name: syn::LitStr = input.parse()?;
         let mut extends = None;
+        let mut value = false;
         while input.peek(syn::Token![,]) {
             input.parse::<syn::Token![,]>()?;
             if input.is_empty() {
                 break;
             }
             let key: syn::Ident = input.parse()?;
+            // Bare flag `value` (no `= "..."`).
+            if key == "value" && !input.peek(syn::Token![=]) {
+                value = true;
+                continue;
+            }
             input.parse::<syn::Token![=]>()?;
             let val: syn::LitStr = input.parse()?;
             if key == "extends" {
                 extends = Some(val.value());
             } else {
-                return Err(syn::Error::new_spanned(key, "rtse::class: unknown arg (expected `extends`)"));
+                return Err(syn::Error::new_spanned(
+                    key,
+                    "rtse::class: unknown arg (expected `extends` or `value`)",
+                ));
             }
         }
         Ok(ClassArgs {
             name: name.value(),
             extends,
+            value,
         })
     }
 }
@@ -113,7 +130,12 @@ fn keep_static(class_upper: &str, suffix: &str, keep: &[proc_macro2::Ident]) -> 
 
 /// `#[rtse::class]` on the `impl` — ctor/methods + `register` (which calls the
 /// struct's `__rtse_fields_<Class>` to add the field accessors first).
-fn gen_impl(class_name: String, extends: Option<String>, mut imp: ItemImpl) -> TokenStream {
+fn gen_impl(
+    class_name: String,
+    extends: Option<String>,
+    value_class: bool,
+    mut imp: ItemImpl,
+) -> TokenStream {
     let class_upper = class_name.to_uppercase().replace(['.'], "_");
     let self_ty = (*imp.self_ty).clone();
     let mut externs = Vec::new();
@@ -125,7 +147,7 @@ fn gen_impl(class_name: String, extends: Option<String>, mut imp: ItemImpl) -> T
             continue;
         };
         let doc = extract_doc(&f.attrs);
-        match gen_member(&class_name, &class_upper, &self_ty, &f.sig, kind, doc) {
+        match gen_member(&class_name, &class_upper, &self_ty, &f.sig, kind, value_class, doc) {
             Ok((ext, mem, id)) => {
                 externs.push(ext);
                 members.push(mem);
@@ -535,6 +557,7 @@ fn gen_member(
     self_ty: &Type,
     sig: &syn::Signature,
     kind: Kind,
+    value_class: bool,
     doc: String,
 ) -> syn::Result<(
     proc_macro2::TokenStream,
@@ -547,6 +570,10 @@ fn gen_member(
     let is_async = matches!(kind, Kind::Method { is_async: true, .. });
     let is_getter = matches!(kind, Kind::Getter { .. });
     let is_setter = matches!(kind, Kind::Setter { .. });
+    // A VALUE-class instance method: the receiver is a primitive word (the first
+    // typed param), NOT an `Entry::Rtse` struct — marshalled + called directly, no
+    // `with_rtse`. Ctors/statics on a value class stay ordinary (no receiver).
+    let is_value_method = value_class && matches!(kind, Kind::Method { .. });
     let optional = match &kind {
         Kind::Ctor { optional, .. }
         | Kind::Method { optional, .. }
@@ -636,12 +663,59 @@ fn gen_member(
     let mut call_args = Vec::new();
     let mut arg_abis = Vec::new();
     let mut ts_params = Vec::new();
+    // A VALUE-class instance method receives the primitive word as its FIRST typed
+    // param (no `self`). Marshal it to `__recv` of the primitive repr and remember
+    // the ABI (slot 0) + the call expression; the arg loop then SKIPS that param.
+    let mut value_recv_abi: Option<proc_macro2::TokenStream> = None;
+    let mut value_recv_call: Option<proc_macro2::TokenStream> = None;
     if !is_ctor && !is_static {
-        ext_params.push(quote!(__recv: u64));
+        if is_value_method {
+            let recv_ty = sig
+                .inputs
+                .iter()
+                .find_map(|a| if let FnArg::Typed(pt) = a { Some(&*pt.ty) } else { None })
+                .ok_or_else(|| {
+                    syn::Error::new_spanned(
+                        &sig.ident,
+                        "rtse value method: needs a receiver (the first param is the primitive value)",
+                    )
+                })?;
+            let (abi, ext_ty, call) = if is_poly_ty(recv_ty) {
+                // `Poly` receiver: the raw NaN-boxed PolyValue word, verbatim. The
+                // body unboxes it itself (autoboxed primitive OR wrapper object) —
+                // the UNIFORM primitive receiver (`String`/`Number`/`Boolean`:
+                // `xval(word)` handles both the inline primitive and the
+                // `Entry::Rtse` wrapper).
+                (quote!(::rts_engine::AbiType::PolyValue), quote!(u64), quote!(__recv))
+            } else if let Some((abi, ext_ty, _)) = scalar(recv_ty) {
+                let is_bool = matches!(recv_ty, Type::Path(p) if p.path.is_ident("bool"));
+                let call = if is_bool { quote!((__recv != 0)) } else { quote!(__recv) };
+                (abi, ext_ty, call)
+            } else if is_handle_ty(recv_ty).is_some() {
+                (quote!(::rts_engine::AbiType::Handle), quote!(u64), quote!(__recv))
+            } else {
+                return Err(syn::Error::new_spanned(
+                    recv_ty,
+                    "rtse value receiver: must be `Poly` (raw word), f64/i64/i32/bool, or a Handle",
+                ));
+            };
+            ext_params.push(quote!(__recv: #ext_ty));
+            value_recv_abi = Some(abi);
+            value_recv_call = Some(call);
+        } else {
+            ext_params.push(quote!(__recv: u64));
+        }
     }
     let mut idx = 0usize;
+    let mut recv_skipped = false;
     for a in &sig.inputs {
         let FnArg::Typed(pt) = a else { continue };
+        // For a value method the first typed param IS the receiver (already
+        // marshalled above) — not a JS arg.
+        if is_value_method && !recv_skipped {
+            recv_skipped = true;
+            continue;
+        }
         if is_self_handle_param(&pt.ty) {
             // The receiver's own handle — passed to the body as `__recv`, NOT a JS
             // arg (no ext param / ts / abi, idx unchanged).
@@ -990,7 +1064,18 @@ fn gen_member(
     // None-arm (dead/invalid handle) returns `Default::default()` of the EXTERN
     // return type (u64/f64/…, always `Default`) — NOT `Default` of the raw method
     // return (which for `-> Self`/`-> String` need not be `Default`).
-    let body = if is_ctor || is_static {
+    let body = if is_value_method {
+        // Value receiver: call the assoc fn directly with the marshalled primitive
+        // receiver + args — no `Entry::Rtse` lookup, no `with_rtse` lock.
+        let ty = &self_ty;
+        let recv = value_recv_call.as_ref().expect("value method has a receiver");
+        let raw = if is_async {
+            quote!(::rts_engine::block_on(<#ty>::#rust_name(#recv #(, #call_args)*)))
+        } else {
+            quote!(<#ty>::#rust_name(#recv #(, #call_args)*))
+        };
+        wrap(raw)
+    } else if is_ctor || is_static {
         let ty = &self_ty;
         let raw = if is_async {
             quote!(::rts_engine::block_on(<#ty>::#rust_name(#(#call_args),*)))
@@ -1048,9 +1133,14 @@ fn gen_member(
     } else {
         quote!(::rts_engine::MemberKind::InstanceMethod)
     };
-    // Instance methods carry the receiver Handle in arg slot 0; ctor/static do not.
+    // Instance methods carry the receiver in arg slot 0 (a `Handle` for an
+    // `Entry::Rtse` class; the primitive's own ABI for a value class); ctor/static
+    // carry no receiver.
     let sig_args = if is_ctor || is_static {
         quote!(::std::vec![#(#arg_abis),*])
+    } else if is_value_method {
+        let recv_abi = value_recv_abi.as_ref().expect("value method has a receiver abi");
+        quote!(::std::vec![#recv_abi #(, #arg_abis)*])
     } else {
         quote!(::std::vec![::rts_engine::AbiType::Handle #(, #arg_abis)*])
     };
