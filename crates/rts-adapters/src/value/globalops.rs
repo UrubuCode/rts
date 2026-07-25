@@ -229,7 +229,7 @@ pub extern "C" fn __rtsadp_num_is_safe_integer(a: u64) -> u64 {
 pub extern "C" fn __rtsadp_arr_is_array(a: u64) -> u64 {
     let v = PolyValue::from_raw(a);
     // A real array is an OBJECT word over an `Entry::Vec` that is not a keyed
-    // shape. A non-Vec backend instance (`Entry::DateMs`, `Entry::Buffer`, …)
+    // shape. A non-Vec backend instance (`Entry::Rtse` [Date/…], `Entry::Buffer`, …)
     // is NOT an array — the object-and-not-keyed test alone wrongly said `true`
     // for those (a `structuredClone(new Date())` then cloned it as `[]`).
     let is_array = v.is_object() && !super::inspect::looks_like_object(v) && {

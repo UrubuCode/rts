@@ -1,26 +1,47 @@
-//! `Date` global class — constructor and instance method implementations.
+//! `Date` global class — authored as a normal Rust struct + `#[rtse::class]`.
 //!
-//! Each `Date` instance is stored as `Entry::DateMs(i64)` in the HandleTable,
-//! where the i64 is milliseconds since Unix epoch (UTC).
+//! Migrated (DRAIN_MOTOR) from the hand-written `Member` table + per-method
+//! `#[no_mangle] extern "C"` fns (over the bespoke `Entry::DateMs(i64)` storage)
+//! to the `#[rtse::class]` authoring macro. The instance is now a normal Rust
+//! struct (`Date { ms }`) stored via the generic `Entry::Rtse` — the same storage
+//! every macro-authored class uses. All the real date math still runs through the
+//! `date` namespace backend (`crate::date::__RTS_FN_NS_DATE_*`); nothing here
+//! reimplements it.
+//!
+//! Macro-authored here: the four `new Date(...)` ctors (overloaded by arity and,
+//! at arity 1, by arg type — `f64` ms vs `&str` ISO), the `now`/`parse`/`UTC`
+//! statics, every getter (`getTime`/`valueOf`/`getFullYear`/… + the UTC variants
+//! + `getTimezoneOffset`), the string methods (`toISOString`/`toString`/… /
+//! `toJSON`/`toLocale*`), and the single-arg setters (`setTime`/`setDate`/
+//! `setMilliseconds` + the `setUTCDate`/`setUTCMilliseconds` aliases).
+//!
+//! Left hand-written (appended by `super::register_class_spec` via the
+//! class-reopen pattern): the MULTI-COMPONENT setters (`setFullYear(y, mo?, d?)`
+//! …) — they use an `i64::MIN` "keep current" sentinel for omitted args, which is
+//! the OPPOSITE of the macro's `optional=N` (undefined/NaN = "invalidate"), so the
+//! macro cannot express them — plus their UTC aliases and `toGMTString`. See
+//! `super::setters`.
 
-use rts_engine::heap::handles::{Entry, alloc_entry, with_entry};
+use super::fmt;
 
-// ── Helper ────────────────────────────────────────────────────────────────────
-
-fn get_ms(handle: u64) -> i64 {
-    with_entry(handle, |entry| match entry {
-        Some(Entry::DateMs(ms)) => *ms,
-        _ => 0,
-    })
+/// A `Date` instance: milliseconds since the Unix epoch (UTC). A dedicated
+/// `#[rtse::class("Date")]` struct stored via the generic `Entry::Rtse`. `ms` is
+/// `pub` so the runtime-layer consumers that must read a Date's timestamp
+/// directly (JSON snapshot, structuredClone, N-API, the ToPrimitive coercion
+/// trio in `super::coercion`) can `with_rtse::<Date, _>(h, |d| d.ms)`.
+#[rtse::class("Date")]
+#[derive(Clone)]
+pub struct Date {
+    pub ms: i64,
 }
 
-/// Sentinel do estado INVALID DATE no slot `DateMs` (JS: um time value NaN).
-/// `i64::MIN` nunca é um timestamp válido (o range JS é ±8.64e15 ms) — e é o
-/// mesmo valor que `DATE_FROM_ISO` já devolve num parse falho.
-const INVALID_MS: i64 = i64::MIN;
+/// Sentinel for the INVALID DATE state (JS: a NaN time value). `i64::MIN` is never
+/// a valid timestamp (the JS range is ±8.64e15 ms) and is the same value
+/// `DATE_FROM_ISO` returns on a failed parse.
+pub(crate) const INVALID_MS: i64 = i64::MIN;
 
-/// O range de time values válidos da spec (±8.64e15 ms). Fora dele → Invalid.
-fn clamp_time_value(ms: f64) -> i64 {
+/// The spec's valid time-value range (±8.64e15 ms). Outside it → Invalid.
+pub(crate) fn clamp_time_value(ms: f64) -> i64 {
     const MAX: f64 = 8.64e15;
     if ms.is_finite() && ms.abs() <= MAX {
         ms as i64
@@ -29,10 +50,9 @@ fn clamp_time_value(ms: f64) -> i64 {
     }
 }
 
-/// Um componente de setter: o sentinel de OMITIDO (`i64::MIN as f64`, o
-/// `DefaultArg::Int(i64::MIN)` coerced) mantém o campo atual; NaN INVALIDA
-/// (None); um número usa seu truncamento.
-fn keep_f(v: f64, cur: i64) -> Option<i64> {
+/// A setter component: the OMITTED sentinel (`i64::MIN as f64`) keeps the current
+/// field; `NaN` INVALIDATES (`None`); a number uses its truncation.
+pub(crate) fn keep_f(v: f64, cur: i64) -> Option<i64> {
     if v == i64::MIN as f64 {
         Some(cur)
     } else if v.is_nan() {
@@ -42,342 +62,8 @@ fn keep_f(v: f64, cur: i64) -> Option<i64> {
     }
 }
 
-/// Os campos-base de um setter: os do instante atual, ou — num Invalid Date —
-/// os de `t = +0` (spec 21.4.4.*: um setter completo REVIVE a data).
-fn setter_base_parts(handle: u64) -> (i64, i64, i64, i64, i64, i64, i64) {
-    let cur = get_ms(handle);
-    if cur == INVALID_MS {
-        (1970, 0, 1, 0, 0, 0, 0)
-    } else {
-        ms_to_parts(cur)
-    }
-}
-
-/// Fecha um setter: `None` em qualquer componente → estado INVALID + NaN;
-/// senão grava e devolve os ms novos como f64.
-fn finish_setter(handle: u64, parts: Option<(i64, i64, i64, i64, i64, i64, i64)>) -> f64 {
-    use crate::date::__RTS_FN_NS_DATE_FROM_PARTS;
-    match parts {
-        Some((y, mo, d, h, mi, s, ms)) => {
-            let new_ms = __RTS_FN_NS_DATE_FROM_PARTS(y, mo, d, h, mi, s, ms);
-            set_ms(handle, new_ms);
-            new_ms as f64
-        }
-        None => {
-            set_ms(handle, INVALID_MS);
-            f64::NAN
-        }
-    }
-}
-
-// ── Constructors ──────────────────────────────────────────────────────────────
-
-/// `new Date()` — current Unix timestamp in milliseconds.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_NEW_NOW() -> u64 {
-    let ms = crate::date::__RTS_FN_NS_DATE_NOW_MS();
-    alloc_entry(Entry::DateMs(ms))
-}
-
-/// `new Date(ms)` — from explicit milliseconds since epoch.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_NEW_FROM_MS(ms: f64) -> u64 {
-    // NaN / fora do range da spec → INVALID DATE.
-    alloc_entry(Entry::DateMs(clamp_time_value(ms)))
-}
-
-/// `new Date(iso_str)` — from ISO 8601 string (`ptr`/`len` ABI).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_NEW_FROM_ISO(ptr: i64, len: i64) -> u64 {
-    let ms = crate::date::__RTS_FN_NS_DATE_FROM_ISO(ptr as *const u8, len);
-    alloc_entry(Entry::DateMs(ms))
-}
-
-/// `new Date(year, month, day?, hour?, min?, sec?, ms?)` — JS spec
-/// constructor com componentes individuais. Month e' 0-indexed (Janeiro=0).
-/// Componentes ausentes (NaN) recebem default JS: day=1, demais=0.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_NEW_FROM_FIELDS(
-    year: f64,
-    month: f64,
-    day: f64,
-    hour: f64,
-    minute: f64,
-    second: f64,
-    ms: f64,
-) -> u64 {
-    let y = year as i64;
-    let mo = month as i64;
-    let d = if day.is_nan() { 1 } else { day as i64 };
-    let h = if hour.is_nan() { 0 } else { hour as i64 };
-    let mi = if minute.is_nan() { 0 } else { minute as i64 };
-    let s = if second.is_nan() { 0 } else { second as i64 };
-    let frac_ms = if ms.is_nan() { 0 } else { ms as i64 };
-    let total_ms_pretend_utc =
-        crate::date::__RTS_FN_NS_DATE_FROM_PARTS(y, mo, d, h, mi, s, frac_ms);
-    // (cross-runtime #172) `new Date(year, mon, day, ...)` em JS spec
-    // interpreta os componentes como LOCAL time. pack() retorna ms como
-    // se fosse UTC, entao convertemos: utc_ms = local_components_ms -
-    // local_offset_at(date). Ex: 2024-01-01 00:00 local em UTC-3 vira
-    // 2024-01-01 03:00 UTC, ou seja +3h.
-    let local_offset_secs = local_offset_seconds_at(total_ms_pretend_utc);
-    let total_ms = total_ms_pretend_utc - (local_offset_secs as i64) * 1000;
-    alloc_entry(Entry::DateMs(total_ms))
-}
-
-// ── Instance methods ──────────────────────────────────────────────────────────
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_GET_TIME(handle: u64) -> f64 {
-    let ms = get_ms(handle);
-    if ms == INVALID_MS {
-        f64::NAN
-    } else {
-        ms as f64
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_VALUE_OF(handle: u64) -> f64 {
-    __RTS_FN_GL_DATE_GET_TIME(handle)
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_GET_FULL_YEAR(handle: u64) -> i64 {
-    crate::date::__RTS_FN_NS_DATE_YEAR(get_ms(handle))
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_GET_MONTH(handle: u64) -> i64 {
-    crate::date::__RTS_FN_NS_DATE_MONTH(get_ms(handle))
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_GET_DATE(handle: u64) -> i64 {
-    crate::date::__RTS_FN_NS_DATE_DAY(get_ms(handle))
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_GET_HOURS(handle: u64) -> i64 {
-    crate::date::__RTS_FN_NS_DATE_HOUR(get_ms(handle))
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_GET_MINUTES(handle: u64) -> i64 {
-    crate::date::__RTS_FN_NS_DATE_MINUTE(get_ms(handle))
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_GET_SECONDS(handle: u64) -> i64 {
-    crate::date::__RTS_FN_NS_DATE_SECOND(get_ms(handle))
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_GET_MILLISECONDS(handle: u64) -> i64 {
-    crate::date::__RTS_FN_NS_DATE_MILLISECOND(get_ms(handle))
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_GET_DAY(handle: u64) -> i64 {
-    crate::date::__RTS_FN_NS_DATE_WEEKDAY(get_ms(handle))
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_TO_ISO_STRING(handle: u64) -> u64 {
-    crate::date::__RTS_FN_NS_DATE_TO_ISO(get_ms(handle))
-}
-
-/// `Date.prototype.toString()` — formato JS spec:
-/// "Day Mon DD YYYY HH:MM:SS GMT+0000 (Coordinated Universal Time)".
-/// RTS sempre UTC, entao tz fixo.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_TO_STRING(handle: u64) -> u64 {
-    use crate::date::*;
-    let ms = with_entry(handle, |e| match e {
-        Some(Entry::DateMs(v)) => *v,
-        _ => 0,
-    });
-    if ms == INVALID_MS {
-        return alloc_entry(Entry::String(b"Invalid Date".to_vec()));
-    }
-    let year = __RTS_FN_NS_DATE_YEAR(ms);
-    let month = __RTS_FN_NS_DATE_MONTH(ms);
-    let day = __RTS_FN_NS_DATE_DAY(ms);
-    let hour = __RTS_FN_NS_DATE_HOUR(ms);
-    let minute = __RTS_FN_NS_DATE_MINUTE(ms);
-    let second = __RTS_FN_NS_DATE_SECOND(ms);
-    let dow = __RTS_FN_NS_DATE_WEEKDAY(ms);
-    let day_names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    let mon_names = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
-    let s = format!(
-        "{} {} {:02} {:04} {:02}:{:02}:{:02} GMT+0000 (Coordinated Universal Time)",
-        day_names[dow.clamp(0, 6) as usize],
-        // (PR #1204) month e' 0-based (JS spec: getMonth() retorna 0..11).
-        // Antes era `(month.clamp(1, 12) - 1)` assumindo 1-based, errando
-        // o nome do mes: June (5) virava May (4).
-        mon_names[month.clamp(0, 11) as usize],
-        day,
-        year,
-        hour,
-        minute,
-        second,
-    );
-    alloc_entry(Entry::String(s.into_bytes()))
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_TO_LOCALE_DATE_STRING(handle: u64) -> u64 {
-    // Default locale: pt-BR-style `DD/MM/YYYY` (mesmo formato emitido
-    // por Bun em locale padrao do Windows). Sem Intl real, retorna o
-    // formato mais comum em vez do ISO completo. JS spec deixa em aberto
-    // o formato exato — qualquer impl deve gerar string parseable e
-    // estavel pra o user.
-    use crate::date::*;
-    let ms = with_entry(handle, |e| match e {
-        Some(Entry::DateMs(v)) => *v,
-        _ => 0,
-    });
-    let year = __RTS_FN_NS_DATE_YEAR(ms);
-    // getMonth() retorna 0..11; locale strings sao 1-based (01..12).
-    let month = __RTS_FN_NS_DATE_MONTH(ms) + 1;
-    let day = __RTS_FN_NS_DATE_DAY(ms);
-    let s = format!("{:02}/{:02}/{:04}", day, month, year);
-    alloc_entry(Entry::String(s.into_bytes()))
-}
-
-// (#220) UTC getters — RTS armazena ms em UTC, entao getUTCX = getX.
-// Aliases sao providos por completude. Quando houver suporte a tz local,
-// getX vira local e getUTCX continua UTC.
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_GET_UTC_FULL_YEAR(handle: u64) -> i64 {
-    __RTS_FN_GL_DATE_GET_FULL_YEAR(handle)
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_GET_UTC_MONTH(handle: u64) -> i64 {
-    __RTS_FN_GL_DATE_GET_MONTH(handle)
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_GET_UTC_DATE(handle: u64) -> i64 {
-    __RTS_FN_GL_DATE_GET_DATE(handle)
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_GET_UTC_DAY(handle: u64) -> i64 {
-    __RTS_FN_GL_DATE_GET_DAY(handle)
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_GET_UTC_HOURS(handle: u64) -> i64 {
-    __RTS_FN_GL_DATE_GET_HOURS(handle)
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_GET_UTC_MINUTES(handle: u64) -> i64 {
-    __RTS_FN_GL_DATE_GET_MINUTES(handle)
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_GET_UTC_SECONDS(handle: u64) -> i64 {
-    __RTS_FN_GL_DATE_GET_SECONDS(handle)
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_GET_UTC_MILLISECONDS(handle: u64) -> i64 {
-    __RTS_FN_GL_DATE_GET_MILLISECONDS(handle)
-}
-
-/// (#220 / cross-runtime #172) `getTimezoneOffset()` — diferenca minutos
-/// (local - UTC) NEGADA segundo JS spec. Ex: UTC-3 retorna +180.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_GET_TIMEZONE_OFFSET(handle: u64) -> i64 {
-    let ms = with_entry(handle, |e| match e {
-        Some(Entry::DateMs(v)) => *v,
-        _ => 0,
-    });
-    let secs = local_offset_seconds_at(ms);
-    // JS retorna (local - UTC) negado em minutos.
-    -(secs as i64) / 60
-}
-
-/// Retorna offset local em segundos para um timestamp ms-since-epoch.
-/// Best-effort: usa `time::UtcOffset::current_local_offset` (que pode
-/// falhar em ambientes multi-thread). Fallback retorna 0 (UTC).
-pub(crate) fn local_offset_seconds_at(_ms: i64) -> i32 {
-    // Note: ignoramos `ms` (sem DST history precisa) e usamos o offset
-    // atual do sistema. Para a maior parte das fixtures que testam
-    // `new Date(2024, 0, 1)` em ambiente moderno isso eh suficiente.
-    match time::UtcOffset::current_local_offset() {
-        Ok(o) => o.whole_seconds(),
-        Err(_) => 0,
-    }
-}
-
-/// (#552) `toUTCString()` — formato RFC 1123: "Day, DD Mon YYYY HH:MM:SS GMT".
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_TO_UTC_STRING(handle: u64) -> u64 {
-    use crate::date::*;
-    let ms = with_entry(handle, |e| match e {
-        Some(Entry::DateMs(v)) => *v,
-        _ => 0,
-    });
-    let year = __RTS_FN_NS_DATE_YEAR(ms);
-    let month = __RTS_FN_NS_DATE_MONTH(ms);
-    let day = __RTS_FN_NS_DATE_DAY(ms);
-    let hour = __RTS_FN_NS_DATE_HOUR(ms);
-    let minute = __RTS_FN_NS_DATE_MINUTE(ms);
-    let second = __RTS_FN_NS_DATE_SECOND(ms);
-    let dow = __RTS_FN_NS_DATE_WEEKDAY(ms);
-    let day_names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    let mon_names = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
-    let s = format!(
-        "{}, {:02} {} {:04} {:02}:{:02}:{:02} GMT",
-        day_names[dow.clamp(0, 6) as usize],
-        day,
-        // (PR #1204) month e' 0-based (JS spec).
-        mon_names[month.clamp(0, 11) as usize],
-        year,
-        hour,
-        minute,
-        second,
-    );
-    alloc_entry(Entry::String(s.into_bytes()))
-}
-
-/// (#220) `toDateString()` — JS spec format `Sat Jun 15 2024`.
-/// Antes RTS retornava `YYYY-MM-DD` (ISO date), divergindo de Bun/Node
-/// que usam o formato `<weekday> <month> <day> <year>` definido pela spec.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_TO_DATE_STRING(handle: u64) -> u64 {
-    use crate::date::*;
-    let ms = with_entry(handle, |e| match e {
-        Some(Entry::DateMs(v)) => *v,
-        _ => 0,
-    });
-    let year = __RTS_FN_NS_DATE_YEAR(ms);
-    let month = __RTS_FN_NS_DATE_MONTH(ms);
-    let day = __RTS_FN_NS_DATE_DAY(ms);
-    let dow = __RTS_FN_NS_DATE_WEEKDAY(ms);
-    let day_names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    let mon_names = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
-    let s = format!(
-        "{} {} {:02} {:04}",
-        day_names[dow.clamp(0, 6) as usize],
-        mon_names[month.clamp(0, 11) as usize],
-        day,
-        year,
-    );
-    alloc_entry(Entry::String(s.into_bytes()))
-}
-
-// (#220) Date setters — mutate Entry::DateMs in-place.
-// Cada setter le os parts atuais, substitui o slot, recompoe ms,
-// escreve de volta no slot. Retorna novos ms (JS spec).
-
-use rts_engine::heap::handles::with_entry_mut;
-
-fn ms_to_parts(ms: i64) -> (i64, i64, i64, i64, i64, i64, i64) {
+/// The calendar parts of a ms timestamp (year, month, day, hour, min, sec, ms).
+pub(crate) fn ms_to_parts(ms: i64) -> (i64, i64, i64, i64, i64, i64, i64) {
     use crate::date::*;
     (
         __RTS_FN_NS_DATE_YEAR(ms),
@@ -390,231 +76,351 @@ fn ms_to_parts(ms: i64) -> (i64, i64, i64, i64, i64, i64, i64) {
     )
 }
 
-fn set_ms(handle: u64, new_ms: i64) {
-    with_entry_mut(handle, |e| {
-        if let Some(Entry::DateMs(slot)) = e {
-            *slot = new_ms;
-        }
-    });
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_FULL_YEAR(
-    handle: u64,
-    year: f64,
-    month: f64,
-    day: f64,
-) -> f64 {
-    let (_, mo, d, h, mi, s, ms) = setter_base_parts(handle);
-    let parts = (|| {
-        Some((
-            keep_f(year, 0)?,
-            keep_f(month, mo)?,
-            keep_f(day, d)?,
-            h,
-            mi,
-            s,
-            ms,
-        ))
-    })();
-    finish_setter(handle, parts)
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_MONTH(handle: u64, month: f64, day: f64) -> f64 {
-    let (y, _, d, h, mi, s, ms) = setter_base_parts(handle);
-    let parts = (|| Some((y, keep_f(month, 0)?, keep_f(day, d)?, h, mi, s, ms)))();
-    finish_setter(handle, parts)
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_DATE(handle: u64, day: f64) -> f64 {
-    let (y, mo, _, h, mi, s, ms) = setter_base_parts(handle);
-    let parts = (|| Some((y, mo, keep_f(day, 0)?, h, mi, s, ms)))();
-    finish_setter(handle, parts)
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_HOURS(
-    handle: u64,
-    hour: f64,
-    min: f64,
-    sec: f64,
-    msec: f64,
-) -> f64 {
-    let (y, mo, d, _, mi, s, ms) = setter_base_parts(handle);
-    let parts = (|| {
-        Some((
-            y,
-            mo,
-            d,
-            keep_f(hour, 0)?,
-            keep_f(min, mi)?,
-            keep_f(sec, s)?,
-            keep_f(msec, ms)?,
-        ))
-    })();
-    finish_setter(handle, parts)
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_MINUTES(handle: u64, min: f64, sec: f64, msec: f64) -> f64 {
-    let (y, mo, d, h, _, s, ms) = setter_base_parts(handle);
-    let parts = (|| {
-        Some((
-            y,
-            mo,
-            d,
-            h,
-            keep_f(min, 0)?,
-            keep_f(sec, s)?,
-            keep_f(msec, ms)?,
-        ))
-    })();
-    finish_setter(handle, parts)
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_SECONDS(handle: u64, sec: f64, msec: f64) -> f64 {
-    let (y, mo, d, h, mi, _, ms) = setter_base_parts(handle);
-    let parts = (|| Some((y, mo, d, h, mi, keep_f(sec, 0)?, keep_f(msec, ms)?)))();
-    finish_setter(handle, parts)
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_MILLISECONDS(handle: u64, ms_in: f64) -> f64 {
-    let (y, mo, d, h, mi, s, _) = setter_base_parts(handle);
-    let parts = (|| Some((y, mo, d, h, mi, s, keep_f(ms_in, 0)?)))();
-    finish_setter(handle, parts)
-}
-
-/// `setTime(ms)` — substitui timestamp completo. Retorna ms.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_TIME(handle: u64, ms_in: f64) -> f64 {
-    let v = clamp_time_value(ms_in);
-    set_ms(handle, v);
-    if v == INVALID_MS { f64::NAN } else { v as f64 }
-}
-
-/// `toJSON()` — alias de toISOString (JS spec retorna ISO).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_TO_JSON(handle: u64) -> u64 {
-    __RTS_FN_GL_DATE_TO_ISO_STRING(handle)
-}
-
-/// `toLocaleString()` — formato `DD/MM/YYYY, HH:MM:SS` (locale pt-BR
-/// default no Windows, mesmo formato emitido por Bun). Sem Intl real,
-/// retorna o formato mais comum em vez do ISO completo.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_TO_LOCALE_STRING(handle: u64) -> u64 {
-    use crate::date::*;
-    let ms = with_entry(handle, |e| match e {
-        Some(Entry::DateMs(v)) => *v,
-        _ => 0,
-    });
-    let year = __RTS_FN_NS_DATE_YEAR(ms);
-    let month = __RTS_FN_NS_DATE_MONTH(ms) + 1;
-    let day = __RTS_FN_NS_DATE_DAY(ms);
-    let hour = __RTS_FN_NS_DATE_HOUR(ms);
-    let minute = __RTS_FN_NS_DATE_MINUTE(ms);
-    let second = __RTS_FN_NS_DATE_SECOND(ms);
-    let s = format!(
-        "{:02}/{:02}/{:04}, {:02}:{:02}:{:02}",
-        day, month, year, hour, minute, second
-    );
-    alloc_entry(Entry::String(s.into_bytes()))
-}
-
-/// `toLocaleTimeString()` — pega depois do 'T' do ISO.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_TO_LOCALE_TIME_STRING(handle: u64) -> u64 {
-    // Locale time string: `HH:MM:SS` (sem ms nem timezone).
-    use crate::date::*;
-    let ms = with_entry(handle, |e| match e {
-        Some(Entry::DateMs(v)) => *v,
-        _ => 0,
-    });
-    let hour = __RTS_FN_NS_DATE_HOUR(ms);
-    let minute = __RTS_FN_NS_DATE_MINUTE(ms);
-    let second = __RTS_FN_NS_DATE_SECOND(ms);
-    let s = format!("{:02}:{:02}:{:02}", hour, minute, second);
-    alloc_entry(Entry::String(s.into_bytes()))
-}
-
-/// `toTimeString()` — pega depois do 'T' do ISO.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_TO_TIME_STRING(handle: u64) -> u64 {
-    let iso_h = __RTS_FN_GL_DATE_TO_ISO_STRING(handle);
-    let bytes: Vec<u8> = with_entry(iso_h, |e| match e {
-        Some(Entry::String(b)) => b.clone(),
-        _ => Vec::new(),
-    });
-    if let Some(t_pos) = bytes.iter().position(|&b| b == b'T') {
-        alloc_entry(Entry::String(bytes[t_pos + 1..].to_vec()))
-    } else {
-        alloc_entry(Entry::String(bytes))
+/// Local offset in seconds for a ms-since-epoch timestamp. Best-effort: uses the
+/// system's current offset (no DST history). `0` (UTC) on failure.
+pub(crate) fn local_offset_seconds_at(_ms: i64) -> i32 {
+    match time::UtcOffset::current_local_offset() {
+        Ok(o) => o.whole_seconds(),
+        Err(_) => 0,
     }
 }
 
-/// ToString de um heap-entry OPACO (não-Vec/não-Map) — a autoridade fica NESTA
-/// camada (rts-shared), onde as classes não-primordiais moram: o genérico
-/// `to_string` do motor chama isto para um OBJECT word cujo entry não é um
-/// array/objeto keyed; `0` = "não sei" (o caller usa "[object Object]").
-/// Dispatch por ENTRY KIND — nenhum nome de classe no motor.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_OPAQUE_TO_STRING(handle: u64) -> u64 {
-    let kind = with_entry(handle, |e| match e {
-        Some(Entry::DateMs(_)) => 1u8,
-        Some(Entry::Regex(_)) => 2,
-        _ => 0,
-    });
-    match kind {
-        1 => __RTS_FN_GL_DATE_TO_STRING(handle),
-        2 => {
-            let text = with_entry(handle, |e| match e {
-                Some(Entry::Regex(rx)) => {
-                    let src = rx.engine.source();
-                    let src = if src.is_empty() {
-                        "(?:)".to_string()
-                    } else {
-                        src
-                    };
-                    format!("/{}/{}", src, rx.flags)
-                }
-                _ => String::new(),
-            });
-            alloc_entry(Entry::String(text.into_bytes()))
+impl Date {
+    /// The numeric time value (`getTime`/`valueOf`): `NaN` for an Invalid Date.
+    fn time_value(&self) -> f64 {
+        if self.ms == INVALID_MS {
+            f64::NAN
+        } else {
+            self.ms as f64
         }
-        _ => 0,
+    }
+
+    /// The setter base parts: those of the current instant, or — for an Invalid
+    /// Date — those of `t = +0` (spec 21.4.4.*: a complete setter REVIVES it).
+    fn setter_base_parts(&self) -> (i64, i64, i64, i64, i64, i64, i64) {
+        if self.ms == INVALID_MS {
+            (1970, 0, 1, 0, 0, 0, 0)
+        } else {
+            ms_to_parts(self.ms)
+        }
+    }
+
+    /// Close a single-component setter: `None` → INVALID + NaN; else store the
+    /// recomposed ms and return it as `f64`.
+    fn finish_setter(&mut self, parts: Option<(i64, i64, i64, i64, i64, i64, i64)>) -> f64 {
+        match parts {
+            Some((y, mo, d, h, mi, s, ms)) => {
+                let new_ms = crate::date::__RTS_FN_NS_DATE_FROM_PARTS(y, mo, d, h, mi, s, ms);
+                self.ms = new_ms;
+                new_ms as f64
+            }
+            None => {
+                self.ms = INVALID_MS;
+                f64::NAN
+            }
+        }
     }
 }
 
-/// Does this OPAQUE heap-entry expose a NUMERIC ToPrimitive value (a `valueOf` that
-/// returns a number)? `1` = yes (a `Date` — its `valueOf` is the time value), `0` =
-/// no (a `RegExp` / anything else coerces to a number only through its string). The
-/// engine's generic `ToNumber` probes this BEFORE the string-based fallback so
-/// `+date` / `date < date` use the timestamp, while `+/re/` still goes via the
-/// string (→ `NaN`). Dispatch by ENTRY KIND — no class name in the engine.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_OPAQUE_HAS_NUMBER(handle: u64) -> i64 {
-    with_entry(handle, |e| match e {
-        Some(Entry::DateMs(_)) => 1i64,
-        _ => 0,
-    })
-}
+#[rtse::class("Date")]
+impl Date {
+    // ── Constructors (overloaded by arity; arity 1 by arg type) ──────────────
 
-/// The NUMERIC ToPrimitive value of an OPAQUE heap-entry that has one (see
-/// `__RTS_FN_RT_OPAQUE_HAS_NUMBER`). For a `Date` it is the time value in ms (`NaN`
-/// for an Invalid Date, matching `+new Date(NaN)`). Only meaningful when the probe
-/// returned `1`; other kinds return `NaN`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_OPAQUE_TO_NUMBER(handle: u64) -> f64 {
-    let kind = with_entry(handle, |e| match e {
-        Some(Entry::DateMs(_)) => 1u8,
-        _ => 0,
-    });
-    match kind {
-        1 => __RTS_FN_GL_DATE_VALUE_OF(handle),
-        _ => f64::NAN,
+    /// `new Date()` — the current instant.
+    #[rtse::ctor]
+    fn new_now() -> Self {
+        Date {
+            ms: crate::date::__RTS_FN_NS_DATE_NOW_MS(),
+        }
+    }
+
+    /// `new Date(value)` — from ms since epoch. NaN / out-of-range → Invalid.
+    #[rtse::ctor]
+    fn new_from_ms(value: f64) -> Self {
+        Date {
+            ms: clamp_time_value(value),
+        }
+    }
+
+    /// `new Date(dateString)` — from an ISO 8601 string.
+    #[rtse::ctor]
+    fn new_from_iso(s: &str) -> Self {
+        Date {
+            ms: crate::date::__RTS_FN_NS_DATE_FROM_ISO(s.as_ptr(), s.len() as i64),
+        }
+    }
+
+    /// `new Date(year, month, day?, hour?, min?, sec?, ms?)` — component ctor
+    /// (month 0-indexed). Omitted tail components (undefined → NaN) default to
+    /// JS: day=1, rest=0. Components are LOCAL time (cross-runtime #172): the
+    /// packed pretend-UTC ms is converted with the local offset at that date.
+    #[rtse::ctor(optional = 5)]
+    fn new_from_fields(
+        year: f64,
+        month: f64,
+        day: f64,
+        hour: f64,
+        minute: f64,
+        second: f64,
+        ms: f64,
+    ) -> Self {
+        let y = year as i64;
+        let mo = month as i64;
+        let d = if day.is_nan() { 1 } else { day as i64 };
+        let h = if hour.is_nan() { 0 } else { hour as i64 };
+        let mi = if minute.is_nan() { 0 } else { minute as i64 };
+        let s = if second.is_nan() { 0 } else { second as i64 };
+        let frac_ms = if ms.is_nan() { 0 } else { ms as i64 };
+        let pretend_utc = crate::date::__RTS_FN_NS_DATE_FROM_PARTS(y, mo, d, h, mi, s, frac_ms);
+        let local_offset_secs = local_offset_seconds_at(pretend_utc);
+        Date {
+            ms: pretend_utc - (local_offset_secs as i64) * 1000,
+        }
+    }
+
+    // ── Statics ──────────────────────────────────────────────────────────────
+
+    /// `Date.now()` — current ms since epoch (UTC).
+    #[rtse::statical(name = "now")]
+    fn now() -> i64 {
+        crate::date::__RTS_FN_NS_DATE_NOW_MS()
+    }
+
+    /// `Date.parse(s)` — ISO 8601 → ms, or NaN on failure (JS spec).
+    #[rtse::statical(name = "parse")]
+    fn parse(s: &str) -> f64 {
+        crate::date::__RTS_FN_NS_DATE_PARSE_F64(s.as_ptr() as u64, s.len() as i64)
+    }
+
+    /// `Date.UTC(year, month, day?, hour?, min?, sec?, ms?)` — ms since epoch.
+    /// Omitted tail (undefined → NaN) defaults to day=1, rest=0.
+    #[rtse::statical(name = "UTC", optional = 5)]
+    fn utc(year: f64, month: f64, day: f64, hour: f64, minute: f64, second: f64, ms: f64) -> i64 {
+        let y = year as i64;
+        let mo = month as i64;
+        let d = if day.is_nan() { 1 } else { day as i64 };
+        let h = if hour.is_nan() { 0 } else { hour as i64 };
+        let mi = if minute.is_nan() { 0 } else { minute as i64 };
+        let s = if second.is_nan() { 0 } else { second as i64 };
+        let frac_ms = if ms.is_nan() { 0 } else { ms as i64 };
+        crate::date::__RTS_FN_NS_DATE_FROM_PARTS(y, mo, d, h, mi, s, frac_ms)
+    }
+
+    // ── Getters (instance methods called with parens) ─────────────────────────
+
+    /// `getTime()` — ms since epoch (NaN for an Invalid Date).
+    #[rtse::method(name = "getTime")]
+    fn get_time(&self) -> f64 {
+        self.time_value()
+    }
+
+    /// `valueOf()` — same as `getTime()`.
+    #[rtse::method(name = "valueOf")]
+    fn value_of(&self) -> f64 {
+        self.time_value()
+    }
+
+    /// `getFullYear()` — full year (UTC).
+    #[rtse::method(name = "getFullYear")]
+    fn get_full_year(&self) -> i64 {
+        crate::date::__RTS_FN_NS_DATE_YEAR(self.ms)
+    }
+
+    /// `getMonth()` — month 0..11 (UTC).
+    #[rtse::method(name = "getMonth")]
+    fn get_month(&self) -> i64 {
+        crate::date::__RTS_FN_NS_DATE_MONTH(self.ms)
+    }
+
+    /// `getDate()` — day of month 1..31 (UTC).
+    #[rtse::method(name = "getDate")]
+    fn get_date(&self) -> i64 {
+        crate::date::__RTS_FN_NS_DATE_DAY(self.ms)
+    }
+
+    /// `getDay()` — day of week 0..6 (UTC, Sunday=0).
+    #[rtse::method(name = "getDay")]
+    fn get_day(&self) -> i64 {
+        crate::date::__RTS_FN_NS_DATE_WEEKDAY(self.ms)
+    }
+
+    /// `getHours()` — hour 0..23 (UTC).
+    #[rtse::method(name = "getHours")]
+    fn get_hours(&self) -> i64 {
+        crate::date::__RTS_FN_NS_DATE_HOUR(self.ms)
+    }
+
+    /// `getMinutes()` — minute 0..59 (UTC).
+    #[rtse::method(name = "getMinutes")]
+    fn get_minutes(&self) -> i64 {
+        crate::date::__RTS_FN_NS_DATE_MINUTE(self.ms)
+    }
+
+    /// `getSeconds()` — second 0..59 (UTC).
+    #[rtse::method(name = "getSeconds")]
+    fn get_seconds(&self) -> i64 {
+        crate::date::__RTS_FN_NS_DATE_SECOND(self.ms)
+    }
+
+    /// `getMilliseconds()` — millisecond 0..999 (UTC).
+    #[rtse::method(name = "getMilliseconds")]
+    fn get_milliseconds(&self) -> i64 {
+        crate::date::__RTS_FN_NS_DATE_MILLISECOND(self.ms)
+    }
+
+    // RTS stores ms in UTC, so getUTCX == getX (aliases until local-tz support).
+
+    /// `getUTCFullYear()`.
+    #[rtse::method(name = "getUTCFullYear")]
+    fn get_utc_full_year(&self) -> i64 {
+        crate::date::__RTS_FN_NS_DATE_YEAR(self.ms)
+    }
+
+    /// `getUTCMonth()`.
+    #[rtse::method(name = "getUTCMonth")]
+    fn get_utc_month(&self) -> i64 {
+        crate::date::__RTS_FN_NS_DATE_MONTH(self.ms)
+    }
+
+    /// `getUTCDate()`.
+    #[rtse::method(name = "getUTCDate")]
+    fn get_utc_date(&self) -> i64 {
+        crate::date::__RTS_FN_NS_DATE_DAY(self.ms)
+    }
+
+    /// `getUTCDay()`.
+    #[rtse::method(name = "getUTCDay")]
+    fn get_utc_day(&self) -> i64 {
+        crate::date::__RTS_FN_NS_DATE_WEEKDAY(self.ms)
+    }
+
+    /// `getUTCHours()`.
+    #[rtse::method(name = "getUTCHours")]
+    fn get_utc_hours(&self) -> i64 {
+        crate::date::__RTS_FN_NS_DATE_HOUR(self.ms)
+    }
+
+    /// `getUTCMinutes()`.
+    #[rtse::method(name = "getUTCMinutes")]
+    fn get_utc_minutes(&self) -> i64 {
+        crate::date::__RTS_FN_NS_DATE_MINUTE(self.ms)
+    }
+
+    /// `getUTCSeconds()`.
+    #[rtse::method(name = "getUTCSeconds")]
+    fn get_utc_seconds(&self) -> i64 {
+        crate::date::__RTS_FN_NS_DATE_SECOND(self.ms)
+    }
+
+    /// `getUTCMilliseconds()`.
+    #[rtse::method(name = "getUTCMilliseconds")]
+    fn get_utc_milliseconds(&self) -> i64 {
+        crate::date::__RTS_FN_NS_DATE_MILLISECOND(self.ms)
+    }
+
+    /// `getTimezoneOffset()` — (local − UTC) minutes, NEGATED (JS spec). RTS is
+    /// always UTC unless the system reports a local offset.
+    #[rtse::method(name = "getTimezoneOffset")]
+    fn get_timezone_offset(&self) -> i64 {
+        let secs = local_offset_seconds_at(self.ms);
+        -(secs as i64) / 60
+    }
+
+    // ── String methods ────────────────────────────────────────────────────────
+
+    /// `toISOString()` — ISO 8601 UTC.
+    #[rtse::method(name = "toISOString")]
+    fn to_iso_string(&self) -> String {
+        fmt::iso(self.ms)
+    }
+
+    /// `toString()` — JS spec "Day Mon DD YYYY HH:MM:SS GMT+0000 (…)".
+    #[rtse::method(name = "toString")]
+    fn to_string(&self) -> String {
+        fmt::to_string(self.ms)
+    }
+
+    /// `toUTCString()` — RFC 1123.
+    #[rtse::method(name = "toUTCString")]
+    fn to_utc_string(&self) -> String {
+        fmt::utc(self.ms)
+    }
+
+    /// `toDateString()` — `Sat Jun 15 2024`.
+    #[rtse::method(name = "toDateString")]
+    fn to_date_string(&self) -> String {
+        fmt::date_string(self.ms)
+    }
+
+    /// `toTimeString()` — the ISO string's time portion (HH:MM:SS.mmmZ).
+    #[rtse::method(name = "toTimeString")]
+    fn to_time_string(&self) -> String {
+        fmt::time_string(self.ms)
+    }
+
+    /// `toJSON()` — alias of `toISOString()`.
+    #[rtse::method(name = "toJSON")]
+    fn to_json(&self) -> String {
+        fmt::iso(self.ms)
+    }
+
+    /// `toLocaleDateString()` — `DD/MM/YYYY` (no Intl).
+    #[rtse::method(name = "toLocaleDateString")]
+    fn to_locale_date_string(&self) -> String {
+        fmt::locale_date(self.ms)
+    }
+
+    /// `toLocaleString()` — `DD/MM/YYYY, HH:MM:SS` (no Intl).
+    #[rtse::method(name = "toLocaleString")]
+    fn to_locale_string(&self) -> String {
+        fmt::locale(self.ms)
+    }
+
+    /// `toLocaleTimeString()` — `HH:MM:SS`.
+    #[rtse::method(name = "toLocaleTimeString")]
+    fn to_locale_time_string(&self) -> String {
+        fmt::locale_time(self.ms)
+    }
+
+    // ── Single-component setters (macro-expressible) ──────────────────────────
+
+    /// `setTime(ms)` — replace the whole timestamp. Returns the new ms.
+    #[rtse::method(name = "setTime")]
+    fn set_time(&mut self, ms_in: f64) -> f64 {
+        let v = clamp_time_value(ms_in);
+        self.ms = v;
+        if v == INVALID_MS {
+            f64::NAN
+        } else {
+            v as f64
+        }
+    }
+
+    /// `setDate(day)` — replace the day of month (1..31). Returns the new ms.
+    #[rtse::method(name = "setDate")]
+    fn set_date(&mut self, day: f64) -> f64 {
+        let (y, mo, _, h, mi, s, ms) = self.setter_base_parts();
+        let parts = (|| Some((y, mo, keep_f(day, 0)?, h, mi, s, ms)))();
+        self.finish_setter(parts)
+    }
+
+    /// `setMilliseconds(ms)` — replace the millisecond (0..999).
+    #[rtse::method(name = "setMilliseconds")]
+    fn set_milliseconds(&mut self, ms_in: f64) -> f64 {
+        let (y, mo, d, h, mi, s, _) = self.setter_base_parts();
+        let parts = (|| Some((y, mo, d, h, mi, s, keep_f(ms_in, 0)?)))();
+        self.finish_setter(parts)
+    }
+
+    /// `setUTCDate(day)` — RTS is UTC, so identical to `setDate`.
+    #[rtse::method(name = "setUTCDate")]
+    fn set_utc_date(&mut self, day: f64) -> f64 {
+        self.set_date(day)
+    }
+
+    /// `setUTCMilliseconds(ms)` — identical to `setMilliseconds`.
+    #[rtse::method(name = "setUTCMilliseconds")]
+    fn set_utc_milliseconds(&mut self, ms_in: f64) -> f64 {
+        self.set_milliseconds(ms_in)
     }
 }

@@ -461,9 +461,6 @@ pub enum Entry {
     /// distincao entre null/bool/number/string/array/object necessaria
     /// pro stringify nao virar lossy.
     Json(Box<serde_json::Value>),
-    /// `Date` instance — milliseconds since Unix epoch (UTC).
-    /// Created by `new Date()` / `new Date(ms)` in the globals::date module.
-    DateMs(i64),
     /// `Error` instance — message string + name tag + optional cause.
     /// Created by `new Error(msg)` / `new TypeError(msg, { cause })` etc.
     /// `cause` armazena handle do valor passado em options.cause, 0 = sem cause.
@@ -475,8 +472,8 @@ pub enum Entry {
     /// Generic struct-backed instance for a `#[rtse::class]` — the authored Rust
     /// struct boxed as `dyn Any`, downcast to its concrete type at access (via
     /// `with_rtse`). This is what lets an arbitrary Rust struct be a class
-    /// instance (Date uses a dedicated `DateMs` variant; the macro-authored
-    /// classes use this one). Send+Sync so it crosses shards like every Entry.
+    /// instance (every macro-authored class — including `Date` — uses this one).
+    /// Send+Sync so it crosses shards like every Entry.
     Rtse {
         /// The JS class name (`"WeakRef"`, `"Headers"`, …), a `'static` literal from
         /// the `#[rtse::class]`. Carried so `x instanceof C` can consult the class
@@ -1777,7 +1774,7 @@ mod tests {
             alloc_entry(Entry::Map(Box::new(indexmap::IndexMap::new()))),
             alloc_entry(Entry::Env(vec![0i64; 4])),
             alloc_entry(Entry::Json(Box::new(serde_json::Value::Null))),
-            alloc_entry(Entry::DateMs(0)),
+            alloc_entry(Entry::FloatPrim(0.0)),
         ];
         for &h in &handles {
             with_entry(h, |e| assert!(e.is_some()));
@@ -1839,7 +1836,7 @@ mod tests {
         // Captura delta local: isola o contador antes/depois das nossas operacoes.
         // Outros testes paralelos podem mudar o total, mas nosso delta deve ser exato.
         let before = LIVE_HANDLES.load(Ordering::SeqCst);
-        let h = alloc_entry(Entry::DateMs(0));
+        let h = alloc_entry(Entry::FloatPrim(0.0));
         assert_eq!(LIVE_HANDLES.load(Ordering::SeqCst), before + 1);
         free_handle(h);
         assert_eq!(LIVE_HANDLES.load(Ordering::SeqCst), before);

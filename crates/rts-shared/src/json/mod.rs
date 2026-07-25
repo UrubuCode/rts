@@ -374,7 +374,15 @@ fn stringify_with_visited(
         Some(Entry::Map(m)) => Snap::Map(m.iter().map(|(k, v)| (k.clone(), *v)).collect()),
         Some(Entry::Vec(v)) => Snap::Vec(v.as_ref().clone()),
         Some(Entry::Json(j)) => Snap::Json(serde_json::to_string(j.as_ref()).unwrap_or_default()),
-        Some(Entry::DateMs(ms)) => Snap::Date(*ms),
+        // `Date` is a `#[rtse::class]` struct stored via `Entry::Rtse`; read its
+        // ms directly here (downcast inside the same `with_entry` lock — cannot
+        // nest `with_rtse`, which re-locks the shard).
+        Some(Entry::Rtse { class, data }) if *class == "Date" => {
+            match data.downcast_ref::<crate::globals::date::instance::Date>() {
+                Some(d) => Snap::Date(d.ms),
+                None => Snap::Other,
+            }
+        }
         // (cross-runtime #291) Entry::BigFixed tagueia um BigInt em slot de
         // objeto. JS spec: BigInt nao e' serializavel -> sinaliza TypeError.
         Some(Entry::BigFixed(_)) => {

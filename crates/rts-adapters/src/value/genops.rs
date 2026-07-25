@@ -62,7 +62,7 @@ pub(super) fn to_string(v: PolyValue) -> String {
         if is_vec {
             return array_to_string(v);
         }
-        let s = rts_runtime::namespaces::globals::date::instance::__RTS_FN_RT_OPAQUE_TO_STRING(h);
+        let s = rts_runtime::namespaces::globals::date::coercion::__RTS_FN_RT_OPAQUE_TO_STRING(h);
         if s != 0 {
             return abi_adapter::real_handle_to_string(s);
         }
@@ -221,7 +221,7 @@ pub(super) fn to_number(v: PolyValue) -> f64 {
     // falls to ToString then re-parse — `-[]` → -0, `+[5]` → 5, `+[1,2]` → NaN,
     // `+/re/` → NaN.
     if v.is_object() && !super::inspect::looks_like_object(v) {
-        use rts_runtime::namespaces::globals::date::instance as rt_date;
+        use rts_runtime::namespaces::globals::date::coercion as rt_date;
         let h = abi_adapter::real_handle_of(v);
         if rt_date::__RTS_FN_RT_OPAQUE_HAS_NUMBER(h) != 0 {
             return rt_date::__RTS_FN_RT_OPAQUE_TO_NUMBER(h);

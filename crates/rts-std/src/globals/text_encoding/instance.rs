@@ -1,5 +1,21 @@
 use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
 
+/// Is `e` a heap entry `structuredClone` deep-copies (a nested container/value
+/// reachable through a Map/Vec slot)? `Date` is a `#[rtse::class]` struct stored
+/// via `Entry::Rtse`, so it is matched by class name.
+fn is_deep_clonable(e: Option<&Entry>) -> bool {
+    match e {
+        Some(Entry::Map(_))
+        | Some(Entry::Vec(_))
+        | Some(Entry::String(_))
+        | Some(Entry::Buffer(_))
+        | Some(Entry::Json(_))
+        | Some(Entry::Regex(_)) => true,
+        Some(Entry::Rtse { class, .. }) => *class == "Date",
+        _ => false,
+    }
+}
+
 fn str_from_parts(ptr: i64, len: i64) -> &'static str {
     if ptr == 0 || len == 0 {
         return "";
@@ -174,7 +190,14 @@ fn clone_handle_deep(handle: u64, visited: &mut std::collections::HashMap<u64, u
         Some(Entry::Vec(v)) => Some(Entry::Vec(v.clone())),
         Some(Entry::Map(m)) => Some(Entry::Map(m.clone())),
         Some(Entry::Json(j)) => Some(Entry::Json(j.clone())),
-        Some(Entry::DateMs(ms)) => Some(Entry::DateMs(*ms)),
+        // `Date` (a `#[rtse::class]` struct via `Entry::Rtse`) clones into a fresh
+        // handle (distinct identity, like the other value kinds).
+        Some(Entry::Rtse { class, data }) if *class == "Date" => data
+            .downcast_ref::<rts_shared::globals::date::instance::Date>()
+            .map(|d| Entry::Rtse {
+                class: *class,
+                data: Box::new(d.clone()),
+            }),
         // (#1068) RegExp: clona para um novo handle (identidade distinta do
         // original — `structuredClone(re) === re` deve ser `false`).
         Some(Entry::Regex(r)) => Some(Entry::Regex(r.clone())),
@@ -197,18 +220,7 @@ fn clone_handle_deep(handle: u64, visited: &mut std::collections::HashMap<u64, u
             for (k, v) in pairs {
                 let v_u = v as u64;
                 if v_u > 0xFFFF_FFFF {
-                    let v_kind = with_entry(v_u, |e| {
-                        matches!(
-                            e,
-                            Some(Entry::Map(_))
-                                | Some(Entry::Vec(_))
-                                | Some(Entry::String(_))
-                                | Some(Entry::Buffer(_))
-                                | Some(Entry::Json(_))
-                                | Some(Entry::DateMs(_))
-                                | Some(Entry::Regex(_))
-                        )
-                    });
+                    let v_kind = with_entry(v_u, is_deep_clonable);
                     if v_kind {
                         let cloned = clone_handle_deep(v_u, visited);
                         m.insert(k, cloned as i64);
@@ -220,18 +232,7 @@ fn clone_handle_deep(handle: u64, visited: &mut std::collections::HashMap<u64, u
             for slot in v.iter_mut() {
                 let s_u = *slot as u64;
                 if s_u > 0xFFFF_FFFF {
-                    let v_kind = with_entry(s_u, |e| {
-                        matches!(
-                            e,
-                            Some(Entry::Map(_))
-                                | Some(Entry::Vec(_))
-                                | Some(Entry::String(_))
-                                | Some(Entry::Buffer(_))
-                                | Some(Entry::Json(_))
-                                | Some(Entry::DateMs(_))
-                                | Some(Entry::Regex(_))
-                        )
-                    });
+                    let v_kind = with_entry(s_u, is_deep_clonable);
                     if v_kind {
                         *slot = clone_handle_deep(s_u, visited) as i64;
                     }

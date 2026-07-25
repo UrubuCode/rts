@@ -1,9 +1,9 @@
 //! `Date` (P5.16) — REAL `.ts` run end to end, exact captured stdout.
 //!
-//! `Date` is a RUNTIME/Registry class: `new Date(...)` boxes a real `Entry::DateMs`
-//! handle, methods + `Date.now`/`Date.UTC`/`Date.parse` statics dispatch through
-//! real `__rtsadp_date_*` trampolines (mirror of the Map/Set/RegExp P5.3/P5.12
-//! pattern).
+//! `Date` is a RUNTIME/Registry class (a `#[rtse::class("Date")]` struct stored
+//! via the generic `Entry::Rtse`): `new Date(...)` boxes a real handle, methods +
+//! `Date.now`/`Date.UTC`/`Date.parse` statics dispatch through the Registry
+//! (mirror of the Map/Set/RegExp P5.3/P5.12 pattern).
 //!
 //! ms is stored in UTC, so every assertion here uses a FIXED, TZ-independent value
 //! (epoch ms / `Date.UTC` / UTC getters / `toISOString`) — these match bun

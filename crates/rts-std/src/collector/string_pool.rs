@@ -92,13 +92,15 @@ pub extern "C" fn __RTS_FN_NS_GC_IS_VEC(handle: u64) -> i64 {
     })
 }
 
-/// instanceof Date — handle aponta para Entry::DateMs.
+/// instanceof Date — handle aponta para um `Entry::Rtse` de classe "Date"
+/// (o `#[rtse::class("Date")]` struct em rts-shared).
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_IS_DATE(handle: u64) -> i64 {
-    with_entry(handle, |entry| match entry {
-        Some(Entry::DateMs(_)) => 1,
-        _ => 0,
-    })
+    if rts_engine::heap::handles::rtse_class_of(handle) == Some("Date") {
+        1
+    } else {
+        0
+    }
 }
 
 /// instanceof RegExp — handle aponta para Entry::Regex.
@@ -618,7 +620,7 @@ pub extern "C" fn __RTS_FN_RT_TYPEOF_HANDLE(handle: u64) -> u64 {
         // (narrow-storage) float primitivo boxed = número primitivo.
         Some(Entry::FloatPrim(_)) => "number",
         Some(Entry::Vec(_)) | Some(Entry::Map(_)) | Some(Entry::Buffer(_))
-        | Some(Entry::Json(_)) | Some(Entry::DateMs(_))
+        | Some(Entry::Json(_))
         | Some(Entry::PromiseAsync(_)) => "object",
         Some(_) => "object",
         None => {
@@ -1008,7 +1010,7 @@ pub extern "C" fn __RTS_FN_RT_OBJECT_TO_STRING(value: i64, tag: i64) -> u64 {
                             "Object"
                         }
                     }
-                    Some(Entry::DateMs(_)) => "Date",
+                    Some(Entry::Rtse { class, .. }) if *class == "Date" => "Date",
                     Some(Entry::Regex(_)) => "RegExp",
                     Some(Entry::Function(_)) => "Function",
                     Some(Entry::String(b)) => {

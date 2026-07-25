@@ -55,8 +55,19 @@ macro_rules! is_variant {
 }
 
 is_variant!(napi_is_buffer, Entry::Buffer(_));
-is_variant!(napi_is_date, Entry::DateMs(_));
 is_variant!(napi_is_error, Entry::ErrorObj { .. });
+
+/// `napi_is_date` — a `Date` is a `#[rtse::class("Date")]` struct stored via
+/// `Entry::Rtse` (rts-shared), discriminated by class name.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn napi_is_date(
+    _env: napi_env,
+    value: napi_value,
+    result: *mut bool,
+) -> napi_status {
+    let is = rts_engine::heap::handles::rtse_class_of(handle_from_value(value)) == Some("Date");
+    unsafe { write_bool(result, is) }
+}
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn napi_is_promise(
@@ -357,7 +368,7 @@ pub unsafe extern "C" fn napi_coerce_to_object(
     napi_ok
 }
 
-// ── Date (Entry::DateMs) ─────────────────────────────────────────────────────
+// ── Date (Entry::Rtse<Date>) ─────────────────────────────────────────────────
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn napi_create_date(
@@ -368,7 +379,10 @@ pub unsafe extern "C" fn napi_create_date(
     if result.is_null() {
         return napi_invalid_arg;
     }
-    let h = alloc_entry(Entry::DateMs(time as i64));
+    let h = rts_engine::heap::handles::alloc_rtse(
+        "Date",
+        rts_shared::globals::date::instance::Date { ms: time as i64 },
+    );
     unsafe { *result = value_from_handle(h) };
     napi_ok
 }
@@ -382,10 +396,10 @@ pub unsafe extern "C" fn napi_get_date_value(
     if result.is_null() {
         return napi_invalid_arg;
     }
-    let ms = with_entry(handle_from_value(value), |e| match e {
-        Some(Entry::DateMs(ms)) => Some(*ms as f64),
-        _ => None,
-    });
+    let ms = rts_engine::heap::handles::with_rtse::<
+        rts_shared::globals::date::instance::Date,
+        _,
+    >(handle_from_value(value), |d| d.map(|d| d.ms as f64));
     match ms {
         Some(m) => {
             unsafe { *result = m };
@@ -525,7 +539,10 @@ mod tests {
         unsafe { napi_is_buffer(env(), dbl(1.0), &mut b) };
         assert!(!b);
 
-        let date = value_from_handle(alloc_entry(Entry::DateMs(1000)));
+        let date = value_from_handle(rts_engine::heap::handles::alloc_rtse(
+            "Date",
+            rts_shared::globals::date::instance::Date { ms: 1000 },
+        ));
         unsafe { napi_is_date(env(), date, &mut b) };
         assert!(b);
     }
