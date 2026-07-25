@@ -481,17 +481,17 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
         source: rts_runtime::NUMBER_TS,
         why: "num.toFixed/toString(radix)/…",
     },
-    // String — the pure-Rust `#[rtse::class("String", value)]` value-class
-    // (rts-primitives/src/string/value_class.rs) is authored, registered, and
-    // harvested into `runtime_ci` (so dynamic/computed dispatch already resolves
-    // its methods via `dynci::class_tag_of` recognizing a primitive string). This
-    // `.ts` prelude STAYS until the method-AS-VALUE read path (`obj_get(string,
-    // name)` → a bound native fn value, for `typeof s[k]` / `s[k]()` read+invoke)
-    // is implemented — the `.ts` proto currently supplies that method value.
+    // String — the pure-Rust `#[rtse::class("String", value)]` value-class handles
+    // the full INSTANCE surface: proven dispatch (`try_primitive_class_method`),
+    // dynamic/computed CALL + method-AS-VALUE read (`runtime_ci` +
+    // `funcops::prim_method_value`), wrapper ToPrimitive. This `.ts` prelude stays
+    // ONLY for the last 2 gaps before deletion: the VARIADIC statics
+    // `String.fromCharCode`/`fromCodePoint` (need macro variadic-static support)
+    // and string index-property ENUMERATION (`Object.keys("ab")` → "0","1","length").
     PreludeTs {
         label: "String",
         source: rts_runtime::STRING_TS,
-        why: "str.* method-as-value read path (interim, until obj_get synthesizes it)",
+        why: "interim: variadic fromCharCode/fromCodePoint + string index enumeration",
     },
     // Global console object (front names nothing; bridges via engine.*).
     PreludeTs {
@@ -694,6 +694,7 @@ fn populate_runtime_ci(e: &Engine) {
                     m.fn_ptr.0,
                     m.sig.args.clone(),
                     m.sig.returns,
+                    matches!(m.kind, MemberKind::InstanceGetter),
                 );
             }
         }

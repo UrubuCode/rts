@@ -291,6 +291,72 @@ pub extern "C" fn __rtsadp_coerce_fn_value(op: u64) -> u64 {
     PolyValue::from_function_handle(h & super::PAYLOAD_MASK).raw()
 }
 
+/// Uniform thunk for a BOUND primitive/registry METHOD VALUE — the callable a
+/// `s["toUpperCase"]` / `obj[k]` READ yields. `env` is a boxed 2-element
+/// `[recv, name]` array; the thunk dispatches the call through the harvested
+/// `runtime_ci` value-class table (the SAME path a direct `s.method(a)` uses), so
+/// `(s as any)[k]()` and `s.method()` never diverge. A miss throws `TypeError`.
+extern "C" fn prim_method_thunk(env: u64, a0: u64, a1: u64, a2: u64, _a3: u64, _rest: u64) -> u64 {
+    let undef = PolyValue::undefined().raw();
+    let (recv, name) = {
+        let h = rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(
+            PolyValue::from_raw(env).as_handle(),
+        );
+        with_entry(h, |e| match e {
+            Some(Entry::Vec(v)) => (
+                v.first().copied().unwrap_or(0) as u64,
+                v.get(1).copied().unwrap_or(0) as u64,
+            ),
+            _ => (env, undef),
+        })
+    };
+    let js_argc = [a0, a1, a2].iter().filter(|&&w| w != undef).count();
+    super::dynci::try_runtime_ci(recv, name, a0, a1, a2, js_argc).unwrap_or_else(|| {
+        let n = super::abi_adapter::resolve_poly(PolyValue::from_raw(name));
+        super::errslot::throw_js_error("TypeError", &format!("{n} is not a function"));
+        undef
+    })
+}
+
+/// `obj[name]` READ that resolves to a BOUND METHOD VALUE: when `name` is a
+/// `runtime_ci` INSTANCE METHOD of the receiver's class (a primitive string's
+/// `"String"`, a wrapper, an object-backed class), synthesize a real callable
+/// `TAG_FUNCTION` whose `env` carries `[recv, name]` and whose invocation
+/// re-dispatches through `runtime_ci`. Returns `0` (the caller falls through to
+/// its normal property lookup) when the receiver has no such method — so
+/// `typeof s[k] === "function"` and `s[k]()` both work without a `.ts` prototype.
+pub fn prim_method_value(recv: u64, name_word: u64) -> u64 {
+    let Some(class) = super::dynci::class_tag_of_pub(recv) else {
+        return 0;
+    };
+    let name = super::abi_adapter::resolve_poly(PolyValue::from_raw(name_word));
+    if !rts_engine::runtime_ci::has_instance_method(&class, &name) {
+        return 0;
+    }
+    let env_vec = alloc_entry(Entry::Vec(Box::new(vec![recv as i64, name_word as i64])));
+    let env = PolyValue::from_object_handle(env_vec & super::PAYLOAD_MASK).raw();
+    let data = FunctionData {
+        fn_ptr: prim_method_thunk as usize as u64,
+        arity: 3,
+        name: Box::<str>::from(name.as_str()),
+        bound_this: env as i64,
+        has_bound_this: true,
+        bound_args: Vec::new(),
+        is_arrow: false,
+        has_this_param: false,
+        param_kinds: Vec::new(),
+        return_kind: 0,
+        packed_shim: 0,
+        source: None,
+        keep_alive: None,
+        prototype_handle: 0,
+        rest_param_idx: -1,
+        uniform_thunk: true,
+    };
+    let h = alloc_entry(Entry::Function(Box::new(data)));
+    PolyValue::from_function_handle(h & super::PAYLOAD_MASK).raw()
+}
+
 /// Build the `(resolve, reject)` settler FUNCTION-value pair over the promise
 /// `out_handle` (raw) — real callable `TAG_FUNCTION` words whose env carries
 /// the promise handle, exactly what a thenable's `then(res, rej)` expects.

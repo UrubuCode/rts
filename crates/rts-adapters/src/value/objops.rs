@@ -389,16 +389,25 @@ pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
                 // prototype and resurrect `Object.create(null).toString`).
                 Some(0) => PolyValue::undefined().raw(),
                 Some(proto) => __rtsadp_obj_get(proto, key_str_handle),
-                // No recorded link. A PRIMITIVE receiver still has an INTRINSIC
-                // prototype in JS (autoboxing): continue the SAME walk on
-                // `String`/`Number`/`Boolean`.prototype, where the prelude `.ts`
-                // primitive-method libraries publish their methods. This is what
-                // lets a RUNTIME-named member reach a primitive
-                // (`s["to"+"UpperCase"]`), exactly as a static one does.
-                None => match super::protos::intrinsic_proto(obj_word) {
-                    Some(proto) => __rtsadp_obj_get(proto, key_str_handle),
-                    None => PolyValue::undefined().raw(),
-                },
+                // No recorded link. First: a `runtime_ci` INSTANCE METHOD of the
+                // receiver's value-class (a primitive string's `"String"`, a
+                // wrapper, an object-backed class) reads as a BOUND METHOD VALUE —
+                // a real callable that re-dispatches through `runtime_ci`, so
+                // `s["to"+"UpperCase"]` / `typeof s[k]` / `s[k]()` work WITHOUT a
+                // `.ts` prototype (the pure-Rust value-class replaces it).
+                None => {
+                    let mv = super::funcops::prim_method_value(obj_word, key_str_handle);
+                    if mv != 0 {
+                        return mv;
+                    }
+                    // Else the INTRINSIC (autoboxed) prototype — the INTERIM `.ts`
+                    // primitive-method library, still present until every primitive
+                    // is a Rust value-class. `None` proto ⇒ absent property.
+                    match super::protos::intrinsic_proto(obj_word) {
+                        Some(proto) => __rtsadp_obj_get(proto, key_str_handle),
+                        None => PolyValue::undefined().raw(),
+                    }
+                }
             }
         }
     }

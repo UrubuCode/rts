@@ -15,7 +15,7 @@
 //! declared ABI, and calls the real `fn_ptr`. The class comes from the VALUE, so
 //! the engine never names a non-primordial class; it is pure data dispatch.
 
-use rts_engine::runtime_ci::{lookup_ci, CiMethod};
+use rts_engine::runtime_ci::{lookup_ci_ge, CiMethod};
 use rts_engine::AbiType;
 use rts_engine::heap::handles::{with_entry, Entry};
 use rts_runtime::namespaces::gc::handles as rt_handles;
@@ -47,6 +47,12 @@ fn class_tag_of(recv: u64) -> Option<String> {
         Some(Entry::Map(m)) => m.get("__rts_class").map(|&sh| abi_adapter::real_handle_to_string(sh as u64)),
         _ => None,
     })
+}
+
+/// Public view of [`class_tag_of`] — the receiver's runtime class name — for the
+/// method-value synthesis (`funcops::prim_method_value`).
+pub fn class_tag_of_pub(recv: u64) -> Option<String> {
+    class_tag_of(recv)
 }
 
 /// Normalize a boxed PolyValue word to a raw runtime handle for a `Handle`-typed
@@ -97,8 +103,11 @@ fn rebox(ret: AbiType, raw: u64) -> u64 {
 pub fn try_runtime_ci(recv: u64, key: u64, a0: u64, a1: u64, a2: u64, js_argc: usize) -> Option<u64> {
     let class = class_tag_of(recv)?;
     let method = abi_adapter::resolve_poly(PolyValue::from_raw(key));
-    // Full sig arity = receiver + explicit js args.
-    let m: CiMethod = lookup_ci(&class, &method, js_argc + 1)?;
+    // Full sig arity = receiver + explicit js args. `_ge` tolerates a value-class
+    // method with defaulted trailing params (`indexOf(needle, position?)` called
+    // with one arg) — the omitted arg slots (`a1`/`a2`) are already `undefined`,
+    // which each body reads as its own default.
+    let m: CiMethod = lookup_ci_ge(&class, &method, js_argc + 1)?;
     let recv_h = any_handle(recv);
 
     use AbiType::{Bool, Handle, I64, PolyValue as APoly, StrPtr, Void};
