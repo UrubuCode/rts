@@ -1,5 +1,5 @@
 // rts:test — high-level test framework built on top of the test_core ABI.
-// Uses namespace-qualified calls (test_core.*, string.*, fmt.*) so that
+// Uses namespace-qualified calls (test_core.*, fmt.*) so that
 // import stripping during JIT flatten does not break resolution.
 
 // ── Hook storage ──────────────────────────────────────────────────────────────
@@ -81,7 +81,8 @@ export class Matcher {
   // ── String matchers ─────────────────────────────────────────────────────────
 
   toContain(substr: string): void {
-    const pass: boolean = string.contains(this._actual, substr);
+    const a: string = this._actual;
+    const pass: boolean = a.includes(substr);
     if (this._neg ? pass : !pass) {
       const op: string = this._neg ? "not contain" : "contain";
       test_core.case_fail(`Expected "${this._actual}" to ${op} "${substr}"`);
@@ -89,7 +90,8 @@ export class Matcher {
   }
 
   toStartWith(prefix: string): void {
-    const pass: boolean = string.starts_with(this._actual, prefix);
+    const a: string = this._actual;
+    const pass: boolean = a.startsWith(prefix);
     if (this._neg ? pass : !pass) {
       const op: string = this._neg ? "not start with" : "start with";
       test_core.case_fail(`Expected "${this._actual}" to ${op} "${prefix}"`);
@@ -97,7 +99,8 @@ export class Matcher {
   }
 
   toEndWith(suffix: string): void {
-    const pass: boolean = string.ends_with(this._actual, suffix);
+    const a: string = this._actual;
+    const pass: boolean = a.endsWith(suffix);
     if (this._neg ? pass : !pass) {
       const op: string = this._neg ? "not end with" : "end with";
       test_core.case_fail(`Expected "${this._actual}" to ${op} "${suffix}"`);
