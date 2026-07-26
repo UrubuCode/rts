@@ -52,6 +52,7 @@ struct Pipe {
 /// Leitura em voo (read_begin/read_poll): staging mapeando em background.
 struct Pending {
     staging: wgpu::Buffer,
+    src: u64,
     bytes: u64,
     rx: std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
 }
@@ -61,6 +62,10 @@ struct Ctx {
     pipes: HashMap<u64, Pipe>,
     buffers: HashMap<u64, wgpu::Buffer>,
     pending: HashMap<u64, Pending>,
+    /// Stagings REUSADOS por buffer de origem: criar um novo a cada
+    /// read_begin (~60/s) afogava o alocador DX12 progressivamente
+    /// (medido: 298 -> 182 leituras/janela ate congelar a simulacao).
+    stagings: HashMap<u64, wgpu::Buffer>,
     next: u64,
 }
 
@@ -83,6 +88,7 @@ fn with_gpu<R>(default: R, f: impl FnOnce(&mut Ctx) -> R) -> R {
                         pipes: HashMap::new(),
                         buffers: HashMap::new(),
                         pending: HashMap::new(),
+                        stagings: HashMap::new(),
                         next: 1,
                     });
                 }
@@ -325,12 +331,16 @@ pub extern "C" fn __RTS_FN_NS_GPU_READ_BEGIN(gbuf: U64, bytes: I64) -> Handle {
         };
         let n = (bytes as u64).min(buf.size());
         let dev = &c.gpu.device;
-        let staging = dev.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("rts:gpu readback async"),
-            size: n,
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        // reusa o staging deste gbuf (cria so na 1a vez ou se cresceu)
+        let staging = match c.stagings.remove(&gbuf) {
+            Some(st) if st.size() >= n => st,
+            _ => dev.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("rts:gpu readback async"),
+                size: n,
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+        };
         let mut enc = dev.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("rts:gpu read async"),
         });
@@ -346,6 +356,7 @@ pub extern "C" fn __RTS_FN_NS_GPU_READ_BEGIN(gbuf: U64, bytes: I64) -> Handle {
             id,
             Pending {
                 staging,
+                src: gbuf,
                 bytes: n,
                 rx,
             },
@@ -368,12 +379,18 @@ pub extern "C" fn __RTS_FN_NS_GPU_READ_POLL(ticket: U64, dst: U64) -> I64 {
         let done = match c.pending.get(&ticket) {
             Some(p) => match p.rx.try_recv() {
                 Ok(Ok(())) => 1,
-                Ok(Err(_)) => 2,
+                Ok(Err(e)) => {
+                    eprintln!("[rts:gpu] map_async FALHOU: {e:?}");
+                    2
+                }
                 // Empty = ainda em voo; DISCONNECTED = o callback morreu sem
                 // responder — tratar como em-voo travava o ticket PARA SEMPRE
                 // (simulacao congelada com o jogo rodando; visto ao vivo).
                 Err(std::sync::mpsc::TryRecvError::Empty) => 0,
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => 2,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    eprintln!("[rts:gpu] canal do map_async DESCONECTADO sem resposta");
+                    2
+                }
             },
             None => 2,
         };
@@ -382,10 +399,12 @@ pub extern "C" fn __RTS_FN_NS_GPU_READ_POLL(ticket: U64, dst: U64) -> I64 {
         }
         let p = c.pending.remove(&ticket).expect("checado acima");
         if done == 2 {
+            c.stagings.insert(p.src, p.staging);   // devolve p/ reuso
             return -1;
         }
         let out = p.staging.slice(..).get_mapped_range().to_vec();
         p.staging.unmap();
+        c.stagings.insert(p.src, p.staging);       // devolve p/ reuso
         let n = with_entry_mut(dst, |e| match e {
             Some(Entry::Buffer(b)) => {
                 let n = out.len().min(b.len());
