@@ -45,7 +45,6 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     // `rts:test` framework backing namespaces, used ambiently by the embedded bundle
     // (prelude-gated in `method::try_method_dispatch`).
     ns::test::register,
-    ns::globals::string::register,
     // Web Fetch API namespace — `fetch()` + `fetchText(url)` (sync HTTP GET via
     // ureq+TLS). Backs the mini-browser's real page download.
     ns::globals::fetch::register,

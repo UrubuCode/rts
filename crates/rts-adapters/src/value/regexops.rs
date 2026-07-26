@@ -193,11 +193,7 @@ pub extern "C" fn __rtsadp_re_str_match(subj_word: u64, re_word: u64) -> u64 {
 pub extern "C" fn __rtsadp_re_exec(re_word: u64, subj_word: u64) -> u64 {
     use rts_runtime::namespaces::globals::string::search as rt_search;
     let s = handle_str(str_handle(subj_word));
-    let rows = rt_search::__RTS_FN_NS_STRING_MATCH_ALL_REGEX(
-        s.as_ptr(),
-        s.len() as i64,
-        unbox_re(re_word),
-    );
+    let rows = rt_search::match_all_regex(s.as_ptr(), s.len() as i64, unbox_re(re_word));
     let first = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(rows, 0);
     if first == 0 {
         return PolyValue::null().raw();

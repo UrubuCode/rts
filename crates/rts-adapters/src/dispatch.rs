@@ -187,17 +187,17 @@ const STRING_ROWS: &[(&str, usize, MethodSpec)] = &[
     (
         "match",
         1,
-        sm_arr("__RTS_FN_NS_STRING_MATCH_AUTO", &[Handle], Handle),
+        sm_arr("__rtsadp_str_match_auto", &[Handle], Handle),
     ),
     (
         "search",
         1,
-        sm("__RTS_FN_NS_STRING_SEARCH_AUTO", &[Handle], I64),
+        sm("__rtsadp_str_search_auto", &[Handle], I64),
     ),
     (
         "matchAll",
         1,
-        sm_arr("__RTS_FN_NS_STRING_MATCH_ALL_AUTO", &[Handle], Handle),
+        sm_arr("__rtsadp_str_match_all_auto", &[Handle], Handle),
     ),
 ];
 

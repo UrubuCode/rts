@@ -19,7 +19,7 @@ use crate::dom::{parse_html_to_dom, NodeId};
 
 // Aloca uma string no pool de strings GC e devolve seu handle `u64` (o que o TS
 // recebe como `string`). Mesmo padrão de `rts-shared::buffer` /
-// `rts-primitives::string::transform`: a fn é definida em `rts-std`
+// `rts-primitives::string::rt`: a fn é definida em `rts-std`
 // (collector::string_pool, símbolo `__RTS_FN_NS_GC_STRING_NEW`), resolvida no link
 // final do runtime — por isso só um `extern "C"` aqui, sem dep de Cargo (mantém a
 // doutrina "rts-dom depende só de rts-engine"; a resolução é estática no binário).

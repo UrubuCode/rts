@@ -581,7 +581,7 @@ function is a direct `#[no_mangle] extern "C"`.
 ### Active namespaces (40+)
 
 `io`, `fs`, `gc`, `math`, `num`, `bigfloat`, `time`, `env`, `path`, `buffer`,
-`string`, `process`, `os`, `collections`, `hash`, `fmt`, `crypto`, `net`, `tls`,
+`process`, `os`, `collections`, `hash`, `fmt`, `crypto`, `net`, `tls`,
 `thread`, `atomic`, `sync`, `parallel`, `mem`, `hint`, `ptr`, `ffi`, `regex`,
 `runtime`, `test`, `trace`, `alloc`, `json`, `date`, `http_server`,
 `promise`, `events` + `globals/` sub-namespaces. Covers std::* + parallelism +

@@ -1,8 +1,14 @@
-//! Busca em strings: contains / starts_with / ends_with / find.
+//! Regex-backed `String` method helpers (`match`/`matchAll`/`search` +
+//! replace-with-regex machinery) plus the string-vs-regex `_AUTO` dispatchers the
+//! engine's lowering calls for `String.prototype.{match,search,matchAll}`.
 //!
-//! StrPtr no limite ABI ja entrega (ptr, len); codegen expande
-//! automaticamente para dois slots i64. Retorno `Bool` vira i8/i64 na
-//! convencao Cranelift; aqui retornamos i64 direto (0/1).
+//! These are NOT the `rts:string` namespace anymore — that namespace was drained.
+//! The regex helpers are plain `pub fn` (called from the `__rtsadp_str_*_auto`
+//! trampolines below + the adapter's `re.exec`); the three `__rtsadp_str_*_auto`
+//! trampolines are codegen-owned extern symbols the engine emits for a
+//! string-OR-regex pattern argument (runtime `Entry::Regex` probe).
+//!
+//! `StrPtr` at the ABI boundary delivers (ptr, len); the helpers rebuild `&str`.
 
 fn str_from_abi<'a>(ptr: *const u8, len: i64) -> Option<&'a str> {
     if ptr.is_null() || len < 0 {
@@ -13,71 +19,9 @@ fn str_from_abi<'a>(ptr: *const u8, len: i64) -> Option<&'a str> {
     std::str::from_utf8(slice).ok()
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_STRING_CONTAINS(
-    h_ptr: *const u8,
-    h_len: i64,
-    n_ptr: *const u8,
-    n_len: i64,
-) -> i64 {
-    match (str_from_abi(h_ptr, h_len), str_from_abi(n_ptr, n_len)) {
-        (Some(h), Some(n)) => h.contains(n) as i64,
-        _ => 0,
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_STRING_STARTS_WITH(
-    s_ptr: *const u8,
-    s_len: i64,
-    p_ptr: *const u8,
-    p_len: i64,
-) -> i64 {
-    match (str_from_abi(s_ptr, s_len), str_from_abi(p_ptr, p_len)) {
-        (Some(s), Some(p)) => s.starts_with(p) as i64,
-        _ => 0,
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_STRING_ENDS_WITH(
-    s_ptr: *const u8,
-    s_len: i64,
-    p_ptr: *const u8,
-    p_len: i64,
-) -> i64 {
-    match (str_from_abi(s_ptr, s_len), str_from_abi(p_ptr, p_len)) {
-        (Some(s), Some(p)) => s.ends_with(p) as i64,
-        _ => 0,
-    }
-}
-
-/// Indice byte da primeira ocorrencia, ou -1.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_STRING_FIND(
-    s_ptr: *const u8,
-    s_len: i64,
-    n_ptr: *const u8,
-    n_len: i64,
-) -> i64 {
-    match (str_from_abi(s_ptr, s_len), str_from_abi(n_ptr, n_len)) {
-        (Some(s), Some(n)) => match s.find(n) {
-            Some(idx) => idx as i64,
-            None => -1,
-        },
-        _ => -1,
-    }
-}
-
 /// (#208) `str.match(pattern)` — primeiro match, retorna handle de string
 /// com o conteudo encontrado, ou 0 se nao acha. Pattern e' string regex.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_STRING_MATCH(
-    s_ptr: *const u8,
-    s_len: i64,
-    p_ptr: *const u8,
-    p_len: i64,
-) -> u64 {
+pub fn match_str(s_ptr: *const u8, s_len: i64, p_ptr: *const u8, p_len: i64) -> u64 {
     use rts_engine::heap::handles::{alloc_entry, Entry};
     let (Some(s), Some(p)) = (str_from_abi(s_ptr, s_len), str_from_abi(p_ptr, p_len)) else {
         return 0;
@@ -96,12 +40,7 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH(
 /// valido, retorna 0.
 /// - Sem flag `g`: retorna Vec [fullMatch, ...grupos] (ou 0 se nao acha).
 /// - Com flag `g`: retorna Vec flat de todos os fullMatches.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_STRING_MATCH_REGEX(
-    s_ptr: *const u8,
-    s_len: i64,
-    regex_handle: u64,
-) -> u64 {
+pub fn match_regex(s_ptr: *const u8, s_len: i64, regex_handle: u64) -> u64 {
     use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
     let Some(s) = str_from_abi(s_ptr, s_len) else {
         return 0;
@@ -222,12 +161,7 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_REGEX(
 
 /// `str.search(regex_handle)` — index do primeiro match, -1 se nao
 /// acha. Aceita Entry::Regex direto.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_STRING_SEARCH_REGEX(
-    s_ptr: *const u8,
-    s_len: i64,
-    regex_handle: u64,
-) -> i64 {
+pub fn search_regex(s_ptr: *const u8, s_len: i64, regex_handle: u64) -> i64 {
     use rts_engine::heap::handles::{with_entry, Entry};
     let Some(s) = str_from_abi(s_ptr, s_len) else {
         return -1;
@@ -243,75 +177,9 @@ pub extern "C" fn __RTS_FN_NS_STRING_SEARCH_REGEX(
     })
 }
 
-/// `str.replace(/pat/g, replacement)` — substitui todos (g flag) ou
-/// primeiro match. Aceita handle Entry::Regex. Replacement eh string.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_STRING_REPLACE_REGEX(
-    s_ptr: *const u8,
-    s_len: i64,
-    regex_handle: u64,
-    replacement_h: u64,
-) -> u64 {
-    use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
-    let Some(s) = str_from_abi(s_ptr, s_len) else {
-        return 0;
-    };
-    let s_owned = s.to_string();
-
-    // Le replacement string + flag global.
-    let repl = with_entry(replacement_h, |e| match e {
-        Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
-        _ => None,
-    })
-    .unwrap_or_default();
-    // (#1086) JS spec: `$<name>` interpola o named capture group; Rust
-    // regex crate usa `${name}`. Converte sintaxe antes de chamar replace.
-    fn js_to_rust_replacement(s: &str) -> String {
-        let mut out = String::with_capacity(s.len());
-        let bytes = s.as_bytes();
-        let mut i = 0;
-        while i < bytes.len() {
-            if bytes[i] == b'$' && i + 1 < bytes.len() && bytes[i + 1] == b'<' {
-                if let Some(end) = s[i + 2..].find('>') {
-                    out.push_str("${");
-                    out.push_str(&s[i + 2..i + 2 + end]);
-                    out.push('}');
-                    i = i + 2 + end + 1;
-                    continue;
-                }
-            }
-            out.push(bytes[i] as char);
-            i += 1;
-        }
-        out
-    }
-    let repl_rust = js_to_rust_replacement(&repl);
-
-    let out = with_entry(regex_handle, |e| match e {
-        Some(Entry::Regex(rx)) => {
-            if rx.global {
-                Some(rx.engine.replace_all(&s_owned, repl_rust.as_str()))
-            } else {
-                Some(rx.engine.replace_first(&s_owned, repl_rust.as_str()))
-            }
-        }
-        _ => None,
-    });
-    match out {
-        Some(s) => alloc_entry(Entry::String(s.into_bytes())),
-        None => 0,
-    }
-}
-
 /// (#208) `str.search(pattern)` — index do primeiro match, ou -1.
 /// Pattern e' string regex.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_STRING_SEARCH(
-    s_ptr: *const u8,
-    s_len: i64,
-    p_ptr: *const u8,
-    p_len: i64,
-) -> i64 {
+pub fn search_str(s_ptr: *const u8, s_len: i64, p_ptr: *const u8, p_len: i64) -> i64 {
     let (Some(s), Some(p)) = (str_from_abi(s_ptr, s_len), str_from_abi(p_ptr, p_len)) else {
         return -1;
     };
@@ -324,13 +192,7 @@ pub extern "C" fn __RTS_FN_NS_STRING_SEARCH(
 /// (#208) `str.matchAll(pattern)` — retorna handle de Vec<u64> com handles
 /// de strings, um por match. Em JS retorna iterator de RegExpExecArray; em
 /// RTS v0 retorna Vec eager (cada elemento e' o conteudo do match).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_STRING_MATCH_ALL(
-    s_ptr: *const u8,
-    s_len: i64,
-    p_ptr: *const u8,
-    p_len: i64,
-) -> u64 {
+pub fn match_all_str(s_ptr: *const u8, s_len: i64, p_ptr: *const u8, p_len: i64) -> u64 {
     use rts_engine::heap::handles::{alloc_entry, Entry};
     let empty_vec = || alloc_entry(Entry::Vec(Box::new(Vec::new())));
     let (Some(s), Some(p)) = (str_from_abi(s_ptr, s_len), str_from_abi(p_ptr, p_len)) else {
@@ -351,14 +213,9 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_ALL(
 /// Retorna Vec de Maps (JS spec): cada match e' um Map com slots numericos
 /// "0".."N", "length", "index", "input", "groups" (Map de named captures
 /// ou undefined sentinel). Compativel com `m[0]`/`m.groups.name`/`m.index`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_STRING_MATCH_ALL_REGEX(
-    s_ptr: *const u8,
-    s_len: i64,
-    regex_handle: u64,
-) -> u64 {
+/// Também consumido pelo adapter `re.exec`.
+pub fn match_all_regex(s_ptr: *const u8, s_len: i64, regex_handle: u64) -> u64 {
     use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
-    use indexmap::IndexMap;
     let empty_vec = || alloc_entry(Entry::Vec(Box::new(Vec::new())));
     let Some(s) = str_from_abi(s_ptr, s_len) else {
         return empty_vec();
@@ -516,130 +373,11 @@ pub extern "C" fn __RTS_FN_NS_STRING_MATCH_ALL_REGEX(
     alloc_entry(Entry::Vec(Box::new(outer)))
 }
 
-/// `str.replace(regex_handle, fn_handle)` — substitui matches chamando fn
-/// para cada match. fn recebe (match, ...grupos, offset, input) — RTS v0
-/// passa so o match como primeiro arg via invoke_n.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_STRING_REPLACE_REGEX_FN(
-    s_ptr: *const u8,
-    s_len: i64,
-    regex_handle: u64,
-    fn_handle: u64,
-) -> u64 {
-    use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
-    let Some(s) = str_from_abi(s_ptr, s_len) else {
-        return 0;
-    };
-    let s_owned = s.to_string();
-
-    // Coleta matches primeiro para nao ter borrow mutavel simultaneo.
-    let matches: Vec<(usize, usize, Vec<String>)> = with_entry(regex_handle, |e| match e {
-        Some(Entry::Regex(rts_rx)) => {
-            let caps_iter: Vec<_> = if rts_rx.global {
-                rts_rx.engine.captures_all(&s_owned)
-            } else {
-                rts_rx
-                    .engine
-                    .captures(&s_owned)
-                    .map(|c| vec![c])
-                    .unwrap_or_default()
-            };
-            caps_iter
-                .into_iter()
-                .map(|caps| {
-                    let full = caps.groups.first().and_then(|o| o.clone()).unwrap();
-                    let groups: Vec<String> = caps
-                        .groups
-                        .iter()
-                        .map(|o| o.as_ref().map(|m| m.text.clone()).unwrap_or_default())
-                        .collect();
-                    (full.start, full.end, groups)
-                })
-                .collect()
-        }
-        _ => Vec::new(),
-    });
-
-    if matches.is_empty() {
-        return alloc_entry(Entry::String(s_owned.into_bytes()));
-    }
-
-    let mut result = String::new();
-    let mut last_end = 0usize;
-    let bytes = s_owned.as_bytes();
-
-    // Resolve raw fn_ptr: either a Function handle or a direct function pointer.
-    let raw_fn_ptr: u64 = rts_engine::heap::handles::with_entry(fn_handle, |e| match e {
-        Some(Entry::Function(f)) => f.fn_ptr as u64,
-        _ => fn_handle,
-    });
-
-    for (start, end, groups) in &matches {
-        // parte antes do match
-        result.push_str(std::str::from_utf8(&bytes[last_end..*start]).unwrap_or(""));
-
-        // Aloca handles para todos os grupos (match, p1, p2, ...) + offset + input.
-        let group_handles: Vec<i64> = groups
-            .iter()
-            .map(|g| alloc_entry(Entry::String(g.as_bytes().to_vec())) as i64)
-            .collect();
-
-        // Chama callback(match, ...captureGroups, offset, inputString).
-        // JS spec: fn(match, p1, p2, ..., offset, string).
-        let offset_i64 = *start as i64;
-        let input_h = alloc_entry(Entry::String(s_owned.as_bytes().to_vec())) as i64;
-
-        let repl_h = unsafe {
-            match group_handles.len() {
-                1 => {
-                    // sem grupos: fn(match, offset, string)
-                    let f: extern "C" fn(i64, i64, i64) -> i64 =
-                        std::mem::transmute(raw_fn_ptr as usize);
-                    f(group_handles[0], offset_i64, input_h)
-                }
-                2 => {
-                    let f: extern "C" fn(i64, i64, i64, i64) -> i64 =
-                        std::mem::transmute(raw_fn_ptr as usize);
-                    f(group_handles[0], group_handles[1], offset_i64, input_h)
-                }
-                3 => {
-                    let f: extern "C" fn(i64, i64, i64, i64, i64) -> i64 =
-                        std::mem::transmute(raw_fn_ptr as usize);
-                    f(
-                        group_handles[0],
-                        group_handles[1],
-                        group_handles[2],
-                        offset_i64,
-                        input_h,
-                    )
-                }
-                _ => {
-                    // fallback: just match
-                    let f: extern "C" fn(i64) -> i64 = std::mem::transmute(raw_fn_ptr as usize);
-                    f(group_handles[0])
-                }
-            }
-        } as u64;
-
-        // converte o resultado da funcao para string
-        let repl_str: String = with_entry(repl_h, |e| match e {
-            Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
-            _ => String::new(),
-        });
-        result.push_str(&repl_str);
-        last_end = *end;
-    }
-    // parte restante
-    result.push_str(std::str::from_utf8(&bytes[last_end..]).unwrap_or(""));
-    alloc_entry(Entry::String(result.into_bytes()))
-}
-
-// ── _AUTO wrappers (dispatch string-vs-regex no RUNTIME, não no codegen) ──────
-// match/search/matchAll aceitam pattern string OU regex. Em vez de o codegen
-// detectar `Expr::Lit::Regex` em compile-time e escolher o símbolo, estes
-// wrappers recebem HANDLES (recv + pattern), extraem ptr/len e inspecionam
-// `Entry::Regex` em runtime. O codegen chama UM símbolo genérico por método.
-// Bônus: cobrem `text.match(r)` onde `r` é var RegExp (handle), não só literal.
+// ── _AUTO trampolines (dispatch string-vs-regex no RUNTIME, não no codegen) ─────
+// match/search/matchAll aceitam pattern string OU regex. O codegen emite UM
+// símbolo genérico por método (`__rtsadp_str_*_auto`, codegen-owned); estes
+// recebem HANDLES (recv + pattern), extraem ptr/len e inspecionam `Entry::Regex`
+// em runtime. Bônus: cobrem `text.match(r)` onde `r` é var RegExp (handle).
 
 unsafe extern "C" {
     fn __RTS_FN_NS_GC_STRING_PTR(h: u64) -> *const u8;
@@ -654,34 +392,34 @@ fn handle_is_regex(h: u64) -> bool {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_STRING_MATCH_AUTO(recv: u64, pattern: u64) -> u64 {
+pub extern "C" fn __rtsadp_str_match_auto(recv: u64, pattern: u64) -> u64 {
     let (sp, sl) = unsafe { (__RTS_FN_NS_GC_STRING_PTR(recv), __RTS_FN_NS_GC_STRING_LEN(recv)) };
     if handle_is_regex(pattern) {
-        __RTS_FN_NS_STRING_MATCH_REGEX(sp, sl, pattern)
+        match_regex(sp, sl, pattern)
     } else {
         let (pp, pl) = unsafe { (__RTS_FN_NS_GC_STRING_PTR(pattern), __RTS_FN_NS_GC_STRING_LEN(pattern)) };
-        __RTS_FN_NS_STRING_MATCH(sp, sl, pp, pl)
+        match_str(sp, sl, pp, pl)
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_STRING_SEARCH_AUTO(recv: u64, pattern: u64) -> i64 {
+pub extern "C" fn __rtsadp_str_search_auto(recv: u64, pattern: u64) -> i64 {
     let (sp, sl) = unsafe { (__RTS_FN_NS_GC_STRING_PTR(recv), __RTS_FN_NS_GC_STRING_LEN(recv)) };
     if handle_is_regex(pattern) {
-        __RTS_FN_NS_STRING_SEARCH_REGEX(sp, sl, pattern)
+        search_regex(sp, sl, pattern)
     } else {
         let (pp, pl) = unsafe { (__RTS_FN_NS_GC_STRING_PTR(pattern), __RTS_FN_NS_GC_STRING_LEN(pattern)) };
-        __RTS_FN_NS_STRING_SEARCH(sp, sl, pp, pl)
+        search_str(sp, sl, pp, pl)
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_STRING_MATCH_ALL_AUTO(recv: u64, pattern: u64) -> u64 {
+pub extern "C" fn __rtsadp_str_match_all_auto(recv: u64, pattern: u64) -> u64 {
     let (sp, sl) = unsafe { (__RTS_FN_NS_GC_STRING_PTR(recv), __RTS_FN_NS_GC_STRING_LEN(recv)) };
     if handle_is_regex(pattern) {
-        __RTS_FN_NS_STRING_MATCH_ALL_REGEX(sp, sl, pattern)
+        match_all_regex(sp, sl, pattern)
     } else {
         let (pp, pl) = unsafe { (__RTS_FN_NS_GC_STRING_PTR(pattern), __RTS_FN_NS_GC_STRING_LEN(pattern)) };
-        __RTS_FN_NS_STRING_MATCH_ALL(sp, sl, pp, pl)
+        match_all_str(sp, sl, pp, pl)
     }
 }

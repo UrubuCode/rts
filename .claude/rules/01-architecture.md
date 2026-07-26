@@ -167,7 +167,7 @@ Rules:
   "C"`
 
 Active namespaces (40+): `io`, `fs`, `gc`, `math`, `num`, `bigfloat`, `time`,
-`env`, `path`, `buffer`, `string`, `process`, `os`, `collections`, `hash`,
+`env`, `path`, `buffer`, `process`, `os`, `collections`, `hash`,
 `fmt`, `crypto`, `net`, `tls`, `thread`, `atomic`, `sync`, `parallel`, `mem`,
 `hint`, `ptr`, `ffi`, `regex`, `runtime`, `test`, `trace`, `alloc`,
 `json`, `date`, `http_server`, `promise`, `events`, plus the `globals/`
@@ -203,9 +203,6 @@ global JS classes.
   with_ext (pure operations, no I/O)
 - `buffer/` — Vec<u8> via HandleTable: alloc/alloc_zeroed/free/len/ptr,
   read/write u8/i32/i64/f64 little-endian, copy/fill, to_string (UTF-8)
-- `string/` — search (contains/starts_with/ends_with/find), transform
-  (to_upper/to_lower/trim/trim_start/trim_end/repeat), replace/replacen,
-  char_count/byte_len/char_at/char_code_at (Unicode-aware)
 - `process/` — exit/abort, pid, args_count/arg_at (alias of env), spawn (args
   separated by \n), wait (consumes handle), kill. Child handle via
   `Entry::ProcessChild`

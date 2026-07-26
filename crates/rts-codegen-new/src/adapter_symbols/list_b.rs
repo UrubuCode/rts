@@ -706,24 +706,23 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
 
 fn gl_method_symbols() -> Vec<JitSymbol> {
     vec![
-        // String: the non-regex method surface migrated to the primordial `String`
-        // value-class (computed via `strops`) — no GL_STRING symbol to install. Only
-        // the regex-argument family the engine's lowering still emits remains:
-        // match/search/matchAll AUTO (string-or-regex pattern, runtime dispatch) —
-        // live in the primitives `string::search` module, not `rt`.
+        // String: the whole method surface (incl. `fromCharCode`/statics) migrated to
+        // the primordial `String` value-class + `strops` — no `__RTS_FN_*STRING`
+        // symbol to install. Only the codegen-owned string-vs-regex dispatch
+        // trampolines the engine's lowering emits for match/search/matchAll (a
+        // string-OR-regex pattern arg, runtime `Entry::Regex` probe) remain — they
+        // live in the primitives `string::search` module.
         sym(
-            "__RTS_FN_NS_STRING_MATCH_AUTO",
-            rts_runtime::namespaces::globals::string::search::__RTS_FN_NS_STRING_MATCH_AUTO
-                as *const u8,
+            "__rtsadp_str_match_auto",
+            rts_runtime::namespaces::globals::string::search::__rtsadp_str_match_auto as *const u8,
         ),
         sym(
-            "__RTS_FN_NS_STRING_SEARCH_AUTO",
-            rts_runtime::namespaces::globals::string::search::__RTS_FN_NS_STRING_SEARCH_AUTO
-                as *const u8,
+            "__rtsadp_str_search_auto",
+            rts_runtime::namespaces::globals::string::search::__rtsadp_str_search_auto as *const u8,
         ),
         sym(
-            "__RTS_FN_NS_STRING_MATCH_ALL_AUTO",
-            rts_runtime::namespaces::globals::string::search::__RTS_FN_NS_STRING_MATCH_ALL_AUTO
+            "__rtsadp_str_match_all_auto",
+            rts_runtime::namespaces::globals::string::search::__rtsadp_str_match_all_auto
                 as *const u8,
         ),
         // Proxy ctor (#218): `new Proxy(target, handler)` → `Entry::Proxy`. The
@@ -756,10 +755,10 @@ fn test_framework_symbols() -> Vec<JitSymbol> {
     for (name, ptr) in crate::front::run::registry::all_jit_symbols() {
         out.push(sym(name, ptr));
     }
-    // NOTE: the `string` namespace externs (`__RTS_FN_NS_STRING_*`) used to be
-    // hand-listed here because they were declared with a NULL `fn_ptr`. They now
-    // carry their real address at registration (`rts-primitives::string::fp_for`)
-    // so the harvest above installs them — no manual list needed.
+    // NOTE: the `rts:string` namespace (`__RTS_FN_NS_STRING_*`) was DRAINED — its
+    // whole surface moved to the primordial `String` value-class + `strops`. The
+    // only surviving string dispatch symbols are the codegen-owned
+    // `__rtsadp_str_*_auto` trampolines, hand-listed in `gl_method_symbols` above.
     out
 }
 
