@@ -54,6 +54,11 @@ struct Pending {
     staging: wgpu::Buffer,
     src: u64,
     bytes: u64,
+    /// Indice da submissao da copia: o poll espera POR ELE especificamente.
+    /// O PollType::Poll generico parava de processar os maps quando a fila
+    /// nunca ficava quieta (sempre ha submissao nova em voo no modo janela) —
+    /// issue #2007; a espera dirigida por fence e imune a isso.
+    sub: wgpu::SubmissionIndex,
     rx: std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
 }
 
@@ -345,7 +350,7 @@ pub extern "C" fn __RTS_FN_NS_GPU_READ_BEGIN(gbuf: U64, bytes: I64) -> Handle {
             label: Some("rts:gpu read async"),
         });
         enc.copy_buffer_to_buffer(buf, 0, &staging, 0, n);
-        c.gpu.queue.submit([enc.finish()]);
+        let sub = c.gpu.queue.submit([enc.finish()]);
         let (tx, rx) = std::sync::mpsc::channel();
         staging.slice(..).map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
@@ -358,6 +363,7 @@ pub extern "C" fn __RTS_FN_NS_GPU_READ_BEGIN(gbuf: U64, bytes: I64) -> Handle {
                 staging,
                 src: gbuf,
                 bytes: n,
+                sub,
                 rx,
             },
         );
@@ -374,8 +380,16 @@ pub extern "C" fn __RTS_FN_NS_GPU_READ_POLL(ticket: U64, dst: U64) -> I64 {
         if !c.pending.contains_key(&ticket) {
             return -1;
         }
-        // Poll NÃO-bloqueante: avança os callbacks sem esperar a GPU.
-        let _ = c.gpu.device.poll(wgpu::PollType::Poll);
+        // Espera DIRIGIDA pela submissao da copia, com timeout de 1 ms:
+        // pronta -> callbacks disparam agora; nao pronta -> volta em 1 ms.
+        // (O Poll generico congelava sob fila sempre-cheia; issue #2007.)
+        let sub = c.pending.get(&ticket).map(|p| p.sub.clone());
+        if let Some(sub) = sub {
+            let _ = c.gpu.device.poll(wgpu::PollType::Wait {
+                submission_index: Some(sub),
+                timeout: Some(std::time::Duration::from_millis(1)),
+            });
+        }
         let done = match c.pending.get(&ticket) {
             Some(p) => match p.rx.try_recv() {
                 Ok(Ok(())) => 1,
