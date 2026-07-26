@@ -479,26 +479,16 @@ wrap those impls (one source of truth), exactly like `engine.num_*`.
   args with `""` defaults), `replace`/`replaceAll` (STRING search). The bodies
   read `this` AS THE PRIMITIVE string (boxed word → `engine.str_*` does the
   table-load to the real handle).
-- **Irreducible string bridge (`rts:engine`):** 21 new private members in
-  `crates/rts-std/src/engine/mod.rs`, each wrapping the corresponding
-  `__RTS_FN_GL_STRING_*` (handle in/out for strings, `I64` for indices):
-  `str_to_upper`, `str_to_lower`, `str_trim`, `str_trim_start`, `str_trim_end`,
-  `str_char_at`, `str_char_code_at`, `str_at`, `str_repeat`, `str_slice`,
-  `str_substring`, `str_index_of`, `str_last_index_of`, `str_includes`,
-  `str_starts_with`, `str_ends_with`, `str_pad_start`, `str_pad_end`,
-  `str_concat`, `str_replace`, `str_replace_all` (symbols
-  `__RTS_FN_NS_ENGINE_STR_*`). Lowering in `front/run/engineobj.rs`: the
-  bespoke `engine.*` map was GENERALIZED for this family via a small descriptor
-  table (`EngineStr`/`StrArg`/`StrRet` + `engine_str_member`) —
-  `lower_engine_str` marshals receiver→handle, each string arg→handle /
-  number→i64, and reboxes the return (string→`TAG_STR`, number→`Int64`,
-  bool→`Bool`); adding a member is one data line, no new Cranelift code.
-  Sigs in `value/abi_sig.rs`; JIT symbols in `runtime_link.rs::engine_symbols()`.
-  (Design decision: the full refactor to resolve `engine.*` via Registry +
-  `registry_call` was NOT done, because the receiver-less path with a string
-  handle + the privacy gate would add surface/risk to a private namespace; the
-  descriptor table delivers the same "adding a member is data, not code" with
-  low risk.)
+- **Irreducible string bridge (`rts:engine`) — REMOVED:** the `.ts` `class
+  String` (`string.ts`) and its private `engine.str_*` bridge (21 members +
+  `__RTS_FN_NS_ENGINE_STR_*` symbols, `engineobj.rs`
+  `EngineStr`/`StrArg`/`StrRet`/`engine_str_member`/`lower_engine_str`,
+  `abi_sig.rs` sigs) are all deleted. The primordial `String` is now the
+  self-contained pure-Rust value-class
+  (`rts-primitives/src/string/value_class.rs`, `#[rtse::class("String",
+  value)]`): every method computes directly via `strops` and resolves through
+  the Registry, so no `engine.str_*` indirection remains. `engine.str_from_any`
+  (the JS `ToString` bridge over `__rtsadp_to_string`) is unrelated and kept.
 - **Routing + drained rows:** in `try_method_dispatch`, when the receiver is
   `RecvClass::String`, it runs `try_string_regex_method` + `try_string_special`
   (regex and `split`/1-arg `slice`, which the `.ts` class does NOT cover) and

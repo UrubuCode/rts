@@ -47,14 +47,6 @@ unsafe extern "C" {
     fn __RTS_FN_GL_NUMBER_FROM_STR(handle: u64) -> f64;
 }
 
-// The String-method bridge (`engine.str_*`) lives in its own submodule — it wraps
-// the 21 `__RTS_FN_GL_STRING_*` Rust impls so the `.ts` `class String` is one
-// source of truth. Split out to keep this file under the size budget. Re-exported
-// so the `__RTS_FN_NS_ENGINE_STR_*` externs stay reachable by path (the JIT symbol
-// table in `rts-codegen-new::runtime_link` takes their address through the facade).
-mod string;
-pub use string::*;
-
 /// `n.toString(radix)` — number→string in base `radix` (2..36; 10 is plain
 /// decimal). Wraps the Rust radix formatter. The `.ts` `Number.toString` body
 /// calls this; default radix (10) is applied by the `.ts` default-param.
@@ -343,9 +335,6 @@ pub fn register(e: &mut Engine) {
             "num_from_str(s: string): number",
             "Number(str) — string→number parse (NaN on failure). Wraps GL_NUMBER_FROM_STR.",
             __RTS_FN_NS_ENGINE_NUM_FROM_STR as *const u8,
-        ));
-    // ── String method bridge (the irreducible Unicode-aware string logic). The
-    // 21 `engine.str_*` members live in the `string` submodule (each wraps a
-    // `__RTS_FN_GL_STRING_*` impl — one source of truth); add them to the builder.
-    string::register_members(b).done();
+        ))
+        .done();
 }
