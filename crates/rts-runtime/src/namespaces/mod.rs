@@ -28,6 +28,10 @@ pub use rts_input as input;
 /// Resolve via Registry: `ns::egui::register`. `import { Window } from "rts:egui"`.
 /// Ver docs/specs/egui-ui-crate-design.md.
 pub use rts_egui as egui;
+/// `gpu` — compute WGSL sobre o device wgpu compartilhado do `rts-egui`
+/// (headless ou junto do render). Resolve via Registry: `ns::gpu::register`.
+/// `import gpu from "rts:gpu"`.
+pub use rts_egui::compute as gpu;
 pub mod globals;
 pub use rts_std::atomic;
 pub use rts_shared::trace;

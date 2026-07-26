@@ -6,7 +6,7 @@
 //! `endFrame` drena a fila num `CentralPanel`, encerra o pass (`end_pass`),
 //! tesselará as shapes e renderiza/apresenta o frame via o backend ativo.
 
-mod gpu;
+pub(crate) mod gpu;
 pub(crate) mod scene3d;
 mod render;
 

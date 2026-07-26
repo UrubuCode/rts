@@ -126,6 +126,9 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     // `egui` — GUI imediata na crate `rts-egui`. Engine NUNCA nomeia `egui`;
     // resolve via Registry. Loop dirigido pelo TS. Ver egui-ui-crate-design.md.
     ns::egui::register,
+    // `gpu` — compute WGSL no device wgpu compartilhado do `rts-egui` (headless
+    // ou junto do render). shader/buffer/write/bind/dispatch/read.
+    ns::gpu::register,
     // PRIVATE `engine` namespace (arch/time/trace + the str_*/num_*/display/print_line
     // bridges) — prelude-only via the `engineobj` privacy gate.
     ns::engine::register,

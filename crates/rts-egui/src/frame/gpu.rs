@@ -104,11 +104,11 @@ impl Backend {
 }
 
 #[derive(Clone)]
-struct SharedGpu {
-    instance: wgpu::Instance,
-    adapter: wgpu::Adapter,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+pub(crate) struct SharedGpu {
+    pub(crate) instance: wgpu::Instance,
+    pub(crate) adapter: wgpu::Adapter,
+    pub(crate) device: wgpu::Device,
+    pub(crate) queue: wgpu::Queue,
 }
 
 thread_local! {
@@ -118,7 +118,7 @@ thread_local! {
 /// Retorna (clonando os handles) a GPU compartilhada, criando-a UMA vez. O adapter
 /// é pedido sem `compatible_surface` (desktop: pega o GPU default, compatível com
 /// as surfaces de janela criadas depois).
-fn shared_gpu(cfg: GpuConfig) -> Result<SharedGpu, String> {
+pub(crate) fn shared_gpu(cfg: GpuConfig) -> Result<SharedGpu, String> {
     SHARED_GPU.with(|cell| {
         if let Some(g) = cell.borrow().as_ref() {
             return Ok(g.clone());

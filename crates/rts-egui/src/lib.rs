@@ -29,6 +29,9 @@ mod glbackend;
 pub mod render_backend;
 mod widgets;
 mod scene_api;
+// `rts:gpu` — compute WGSL sobre o MESMO device compartilhado do render.
+// `pub` para a facade `rts-runtime` re-exportar (`ns::gpu::register`).
+pub mod compute;
 
 // O DOM (árvore + parser + NodeId) E o ESTADO de estilo vivem no crate `rts-dom`;
 // o egui só os CONSOME (lê e pinta). Aliases para reuso interno: `crate::dom::*`
