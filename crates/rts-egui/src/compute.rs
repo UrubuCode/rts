@@ -369,7 +369,11 @@ pub extern "C" fn __RTS_FN_NS_GPU_READ_POLL(ticket: U64, dst: U64) -> I64 {
             Some(p) => match p.rx.try_recv() {
                 Ok(Ok(())) => 1,
                 Ok(Err(_)) => 2,
-                Err(_) => 0,
+                // Empty = ainda em voo; DISCONNECTED = o callback morreu sem
+                // responder — tratar como em-voo travava o ticket PARA SEMPRE
+                // (simulacao congelada com o jogo rodando; visto ao vivo).
+                Err(std::sync::mpsc::TryRecvError::Empty) => 0,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => 2,
             },
             None => 2,
         };
