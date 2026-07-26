@@ -166,8 +166,11 @@ fn vs_water(
   var o: VOut;
   o.clip = cam.view_proj * vec4<f32>(world, 1.0);
   o.normal = normal;                       // escala uniforme: normal intacta
-  let shade = clamp(ipos.y * 0.09, 0.0, 0.6);
-  o.color = vec4<f32>(0.20 + shade * 0.22, 0.48 + shade * 0.34, 0.92, 1.0);
+  // MESMA fórmula de cor do desenho por partícula antigo (r/b fixos, só o
+  // verde clareia de leve com a altura) — o gradiente forte de antes fazia o
+  // topo parecer OUTRO líquido.
+  let shade = clamp(ipos.y * 0.026, 0.0, 0.16);
+  o.color = vec4<f32>(0.22, 0.494 + shade, 0.894, 1.0);
   o.world = world;
   o.emissive = 0.0;
   o.tex = 0.0;
