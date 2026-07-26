@@ -14,6 +14,12 @@ use rts_engine::heap::handles::{
     Entry, alloc_entry, free_handle, read_string_handle, with_entry, with_entry_mut,
 };
 
+// Raw byte-level string-pool concat (no UTF-8 decode) — defined in rts-std
+// (collector/string_pool), linked in the final runtime archive.
+unsafe extern "C" {
+    fn __RTS_FN_NS_GC_STRING_CONCAT(a: u64, b: u64) -> u64;
+}
+
 /// Read a GC string handle as an owned Rust `String` (empty if not a string).
 /// Used by the `*_AUTO` runtime-dispatch fns' string branch — the primordial
 /// `String` value-class (`rts-primitives::string::strops`) is the one source of
@@ -514,10 +520,9 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_CONCAT_AUTO(recv: u64, other: i64) -> 
         let copy = __RTS_FN_NS_COLLECTIONS_VEC_CONCAT(recv, 0);
         __RTS_FN_NS_COLLECTIONS_VEC_CONCAT_APPEND(copy, other) as i64
     } else {
-        // string concat = byte concat of the two pool strings.
-        let mut r = auto_str(recv);
-        r.push_str(&auto_str(other as u64));
-        alloc_entry(Entry::String(r.into_bytes())) as i64
+        // RAW byte-level pool concat (no UTF-8 decode) — preserves incomplete
+        // multibyte fragments, mirroring the legacy GL_STRING_CONCAT.
+        unsafe { __RTS_FN_NS_GC_STRING_CONCAT(recv, other as u64) as i64 }
     }
 }
 

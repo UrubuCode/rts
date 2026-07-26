@@ -51,6 +51,13 @@
 
 use rts_runtime::namespaces::globals::string::strops;
 
+// Raw byte-level string-pool concat (no UTF-8 decode) — preserves incomplete
+// multibyte fragments. Defined in rts-std (collector/string_pool), linked in the
+// final runtime archive.
+unsafe extern "C" {
+    fn __RTS_FN_NS_GC_STRING_CONCAT(a: u64, b: u64) -> u64;
+}
+
 use super::{PolyValue, abi_adapter, arrayops, genops};
 
 /// The real runtime string handle behind a string PolyValue word (generation
@@ -528,9 +535,13 @@ pub extern "C" fn __rtsadp_dyn_slice(recv: u64, start: u64, end: u64) -> u64 {
 pub extern "C" fn __rtsadp_dyn_concat(recv: u64, other: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
-        let mut r = str_val(recv);
-        r.push_str(&str_arg_val(other));
-        return box_new_str(&r);
+        // RAW byte concat (never UTF-8-decode): a receiver may hold an incomplete
+        // multibyte fragment (e.g. node:string_decoder partial buffers), which a
+        // lossy decode would corrupt to U+FFFD. Mirrors the legacy GL_STRING_CONCAT,
+        // which delegated to this same pool concat.
+        return box_str(unsafe {
+            __RTS_FN_NS_GC_STRING_CONCAT(str_handle(recv), str_arg_handle(other))
+        });
     }
     if is_array_word(recv) {
         return arrayops::__rtsadp_arr_concat(arr_handle(recv), other);
