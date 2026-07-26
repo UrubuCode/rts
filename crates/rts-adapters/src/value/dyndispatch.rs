@@ -49,7 +49,7 @@
 //! the lowering boxes every arg and unboxes the single result word — no per-method
 //! marshaling table.
 
-use rts_runtime::namespaces::globals::string::rt as rt_gl_str;
+use rts_runtime::namespaces::globals::string::strops;
 
 use super::{PolyValue, abi_adapter, arrayops, genops};
 
@@ -66,10 +66,30 @@ fn arr_handle(recv: u64) -> u64 {
     rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(PolyValue::from_raw(recv).as_handle())
 }
 
-/// Box a real string handle (returned by a `__RTS_FN_GL_STRING_*` op) as a string
-/// PolyValue word, reusing the SAME pool bridge the static path uses.
+/// Box a real string handle as a string PolyValue word, reusing the SAME pool
+/// bridge the static path uses.
 fn box_str(handle: u64) -> u64 {
     abi_adapter::poly_from_real_handle(handle).raw()
+}
+
+/// The string receiver as an owned Rust `String`. The character logic's ONE
+/// source of truth is `strops` (the primordial `String` value-class); these dyn
+/// ops read the pool string and mirror the trivial byte/std semantics, delegating
+/// the non-trivial cases (slice/localeCompare/codePointAt) to `strops`.
+fn str_val(recv: u64) -> String {
+    rts_engine::heap::handles::read_string_handle(str_handle(recv)).unwrap_or_default()
+}
+
+/// A method arg, JS-`ToString`'d, read as an owned Rust `String`.
+fn str_arg_val(word: u64) -> String {
+    rts_engine::heap::handles::read_string_handle(str_arg_handle(word)).unwrap_or_default()
+}
+
+/// Allocate an owned string into the pool and box it as a string PolyValue word.
+fn box_new_str(s: &str) -> u64 {
+    box_str(rts_engine::heap::handles::alloc_entry(
+        rts_engine::heap::handles::Entry::String(s.as_bytes().to_vec()),
+    ))
 }
 
 /// Whether a PolyValue word is an ARRAY (a `TAG_OBJECT` that is not a keyed
@@ -289,10 +309,12 @@ fn empty_string_handle() -> u64 {
 pub extern "C" fn __rtsadp_dyn_index_of(recv: u64, needle: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     let idx = if v.is_string() {
-        // String.indexOf wants a string needle: ToString it (JS coerces the arg),
-        // intern in the real pool, call the real op.
-        let needle_h = str_arg_handle(needle);
-        rt_gl_str::__RTS_FN_GL_STRING_INDEX_OF(str_handle(recv), needle_h)
+        // String.indexOf wants a string needle: ToString it (JS coerces the arg);
+        // byte offset (mirrors the legacy op's `s.find`), `-1` when absent.
+        str_val(recv)
+            .find(&str_arg_val(needle))
+            .map(|i| i as i64)
+            .unwrap_or(-1)
     } else if is_array_word(recv) {
         arrayops::__rtsadp_arr_index_of(arr_handle(recv), needle)
     } else {
@@ -307,8 +329,7 @@ pub extern "C" fn __rtsadp_dyn_index_of(recv: u64, needle: u64) -> u64 {
 pub extern "C" fn __rtsadp_dyn_includes(recv: u64, needle: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     let yes = if v.is_string() {
-        let needle_h = str_arg_handle(needle);
-        rt_gl_str::__RTS_FN_GL_STRING_INCLUDES(str_handle(recv), needle_h) != 0
+        str_val(recv).contains(&str_arg_val(needle))
     } else if is_array_word(recv) {
         arrayops::__rtsadp_arr_includes(arr_handle(recv), needle) != 0
     } else {
@@ -492,7 +513,7 @@ pub extern "C" fn __rtsadp_dyn_slice(recv: u64, start: u64, end: u64) -> u64 {
     let s = genops_to_i64(start);
     let e = genops_to_i64(end);
     if v.is_string() {
-        return box_str(rt_gl_str::__RTS_FN_GL_STRING_SLICE(str_handle(recv), s, e));
+        return box_new_str(&strops::slice(&str_val(recv), s, e));
     }
     if is_array_word(recv) {
         return arrayops::__rtsadp_arr_slice(arr_handle(recv), s, e);
@@ -507,11 +528,9 @@ pub extern "C" fn __rtsadp_dyn_slice(recv: u64, start: u64, end: u64) -> u64 {
 pub extern "C" fn __rtsadp_dyn_concat(recv: u64, other: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
-        let other_h = str_arg_handle(other);
-        return box_str(rt_gl_str::__RTS_FN_GL_STRING_CONCAT(
-            str_handle(recv),
-            other_h,
-        ));
+        let mut r = str_val(recv);
+        r.push_str(&str_arg_val(other));
+        return box_new_str(&r);
     }
     if is_array_word(recv) {
         return arrayops::__rtsadp_arr_concat(arr_handle(recv), other);
@@ -638,9 +657,7 @@ pub extern "C" fn __rtsadp_dyn_char_code_at(recv: u64, idx: u64) -> u64 {
 pub extern "C" fn __rtsadp_dyn_to_upper_case(recv: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
-        return box_str(rt_gl_str::__RTS_FN_GL_STRING_TO_UPPER_CASE(str_handle(
-            recv,
-        )));
+        return box_new_str(&str_val(recv).to_uppercase());
     }
     undef()
 }
@@ -650,9 +667,7 @@ pub extern "C" fn __rtsadp_dyn_to_upper_case(recv: u64) -> u64 {
 pub extern "C" fn __rtsadp_dyn_to_lower_case(recv: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
-        return box_str(rt_gl_str::__RTS_FN_GL_STRING_TO_LOWER_CASE(str_handle(
-            recv,
-        )));
+        return box_new_str(&str_val(recv).to_lowercase());
     }
     undef()
 }
@@ -662,7 +677,7 @@ pub extern "C" fn __rtsadp_dyn_to_lower_case(recv: u64) -> u64 {
 pub extern "C" fn __rtsadp_dyn_trim(recv: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
-        return box_str(rt_gl_str::__RTS_FN_GL_STRING_TRIM(str_handle(recv)));
+        return box_new_str(str_val(recv).trim());
     }
     undef()
 }
@@ -670,12 +685,12 @@ pub extern "C" fn __rtsadp_dyn_trim(recv: u64) -> u64 {
 /// `s.localeCompare(other)` — `-1`/`0`/`1` (locale order). String receiver only;
 /// other receivers → `undefined`. The `other` arg is ToString'd (JS coerces it),
 /// so `"a".localeCompare(1)` compares against `"1"`. Reuses the SAME
-/// `__RTS_FN_GL_STRING_LOCALE_COMPARE` impl the proven-string typed row calls.
+/// `strops::locale_compare` the proven-string value-class calls.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_dyn_locale_compare(recv: u64, other: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
-        let r = rt_gl_str::__RTS_FN_GL_STRING_LOCALE_COMPARE(str_handle(recv), str_arg_handle(other));
+        let r = strops::locale_compare(&str_val(recv), &str_arg_val(other));
         return PolyValue::from_i32(r as i32).raw();
     }
     undef()
@@ -683,14 +698,14 @@ pub extern "C" fn __rtsadp_dyn_locale_compare(recv: u64, other: u64) -> u64 {
 
 /// `s.codePointAt(i)` — the Unicode CODE POINT starting at UTF-16 index `i`
 /// (composing a surrogate pair), or `undefined` out of range. String receiver
-/// only; other receivers → `undefined`. Returns the raw PolyValue word verbatim
-/// from `__RTS_FN_GL_STRING_CODE_POINT_AT` (a number word OR `undefined`), the
-/// SAME impl the proven-string typed row calls.
+/// only; other receivers → `undefined`. Returns the raw PolyValue word (a number
+/// word OR `undefined`) from `strops::code_point_at`, the SAME impl the
+/// proven-string value-class calls.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_dyn_code_point_at(recv: u64, idx: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
-        return rt_gl_str::__RTS_FN_GL_STRING_CODE_POINT_AT(str_handle(recv), genops_to_i64(idx));
+        return strops::code_point_at(&str_val(recv), genops_to_i64(idx));
     }
     undef()
 }
@@ -839,10 +854,11 @@ pub extern "C" fn __rtsadp_str_replace_w(recv: u64, pat: u64, rep: u64) -> u64 {
     if let Some(h) = wellknown_hook(pat, "@@replace") {
         return super::funcops::__rtsadp_fn_invoke_method(h, pat, recv, rep, undef, 0);
     }
-    let sh = abi_adapter::real_handle_of(PolyValue::from_raw(genops::__rtsadp_to_string(recv)));
-    let ph = abi_adapter::real_handle_of(PolyValue::from_raw(genops::__rtsadp_to_string(pat)));
-    let rh = abi_adapter::real_handle_of(PolyValue::from_raw(genops::__rtsadp_to_string(rep)));
-    box_str(rt_gl_str::__RTS_FN_GL_STRING_REPLACE(sh, ph, rh))
+    // hook-less: plain string replace of the FIRST occurrence of ToString(pat).
+    let s = str_arg_val(recv);
+    let f = str_arg_val(pat);
+    let t = str_arg_val(rep);
+    box_new_str(&s.replacen(&f, &t, 1))
 }
 
 /// `s.split(sep, limit?)` with an UNPROVEN separator — the `[Symbol.split]`
@@ -1041,11 +1057,7 @@ pub extern "C" fn __rtsadp_dyn_split(recv: u64, sep: u64) -> u64 {
 pub extern "C" fn __rtsadp_dyn_starts_with(recv: u64, needle: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
-        let h = str_arg_handle(needle);
-        return PolyValue::bool(
-            rt_gl_str::__RTS_FN_GL_STRING_STARTS_WITH(str_handle(recv), h) != 0,
-        )
-        .raw();
+        return PolyValue::bool(str_val(recv).starts_with(&str_arg_val(needle))).raw();
     }
     undef()
 }
@@ -1055,9 +1067,7 @@ pub extern "C" fn __rtsadp_dyn_starts_with(recv: u64, needle: u64) -> u64 {
 pub extern "C" fn __rtsadp_dyn_ends_with(recv: u64, needle: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
-        let h = str_arg_handle(needle);
-        return PolyValue::bool(rt_gl_str::__RTS_FN_GL_STRING_ENDS_WITH(str_handle(recv), h) != 0)
-            .raw();
+        return PolyValue::bool(str_val(recv).ends_with(&str_arg_val(needle))).raw();
     }
     undef()
 }
@@ -1068,10 +1078,12 @@ pub extern "C" fn __rtsadp_dyn_repeat(recv: u64, n: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
         let count = genops_to_i64(n);
-        return box_str(rt_gl_str::__RTS_FN_GL_STRING_REPEAT(
-            str_handle(recv),
-            count,
-        ));
+        let r = if count <= 0 {
+            String::new()
+        } else {
+            str_val(recv).repeat(count as usize)
+        };
+        return box_new_str(&r);
     }
     undef()
 }
