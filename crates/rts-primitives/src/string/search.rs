@@ -634,81 +634,6 @@ pub extern "C" fn __RTS_FN_NS_STRING_REPLACE_REGEX_FN(
     alloc_entry(Entry::String(result.into_bytes()))
 }
 
-/// `str.split(regex_handle)` — divide string usando regex.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_STRING_SPLIT_REGEX(recv: u64, regex_handle: u64) -> u64 {
-    __RTS_FN_GL_STRING_SPLIT_REGEX_LIMIT(recv, regex_handle, i64::MAX)
-}
-
-/// `str.split(regex_handle, limit)` — divide string usando regex com limite.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_STRING_SPLIT_REGEX_LIMIT(
-    recv: u64,
-    regex_handle: u64,
-    limit: i64,
-) -> u64 {
-    use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
-    use crate::string::rt::alloc_str;
-    unsafe extern "C" {
-        fn __RTS_FN_NS_COLLECTIONS_VEC_NEW() -> u64;
-        fn __RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle: u64, value: i64);
-    }
-    let s_opt = with_entry(recv, |e| match e {
-        Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
-        _ => None,
-    });
-    let Some(s) = s_opt else {
-        return alloc_entry(Entry::Vec(Box::new(Vec::new())));
-    };
-    let lim = if limit < 0 {
-        usize::MAX
-    } else {
-        limit as usize
-    };
-    // (#1086) JS spec: split com regex que tem capture groups inclui os
-    // matches dos grupos no resultado, intercalados com as partes. Ex:
-    // \"a1b2c3\".split(/(\\d)/) -> [\"a\", \"1\", \"b\", \"2\", \"c\", \"3\", \"\"].
-    let parts: Vec<Option<String>> = with_entry(regex_handle, |e| match e {
-        Some(Entry::Regex(rts_rx)) => {
-            let has_groups = rts_rx.engine.captures_len() > 1;
-            let all_caps = rts_rx.engine.captures_all(&s);
-            // Manual split com (e sem) capture groups intercalados.
-            let mut out: Vec<Option<String>> = Vec::new();
-            let mut last_end = 0usize;
-            for caps in all_caps {
-                if out.len() >= lim {
-                    break;
-                }
-                let full = caps.groups.first().and_then(|o| o.clone()).unwrap();
-                out.push(Some(s[last_end..full.start].to_owned()));
-                if has_groups {
-                    for i in 1..caps.groups.len() {
-                        if out.len() >= lim {
-                            break;
-                        }
-                        out.push(caps.groups[i].as_ref().map(|m| m.text.clone()));
-                    }
-                }
-                last_end = full.end;
-            }
-            if out.len() < lim {
-                out.push(Some(s[last_end..].to_owned()));
-            }
-            out
-        }
-        _ => vec![Some(s.clone())],
-    });
-    let vec_h = unsafe { __RTS_FN_NS_COLLECTIONS_VEC_NEW() };
-    for part in parts {
-        let h: i64 = match part {
-            Some(p) => alloc_str(&p) as i64,
-            None => i64::MIN + 2, // undefined sentinel para grupos nao-participantes
-        };
-        unsafe { __RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec_h, h) };
-    }
-    vec_h
-}
-
 // ── _AUTO wrappers (dispatch string-vs-regex no RUNTIME, não no codegen) ──────
 // match/search/matchAll aceitam pattern string OU regex. Em vez de o codegen
 // detectar `Expr::Lit::Regex` em compile-time e escolher o símbolo, estes
@@ -729,7 +654,7 @@ fn handle_is_regex(h: u64) -> bool {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_STRING_MATCH_AUTO(recv: u64, pattern: u64) -> u64 {
+pub extern "C" fn __RTS_FN_NS_STRING_MATCH_AUTO(recv: u64, pattern: u64) -> u64 {
     let (sp, sl) = unsafe { (__RTS_FN_NS_GC_STRING_PTR(recv), __RTS_FN_NS_GC_STRING_LEN(recv)) };
     if handle_is_regex(pattern) {
         __RTS_FN_NS_STRING_MATCH_REGEX(sp, sl, pattern)
@@ -740,7 +665,7 @@ pub extern "C" fn __RTS_FN_GL_STRING_MATCH_AUTO(recv: u64, pattern: u64) -> u64 
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_STRING_SEARCH_AUTO(recv: u64, pattern: u64) -> i64 {
+pub extern "C" fn __RTS_FN_NS_STRING_SEARCH_AUTO(recv: u64, pattern: u64) -> i64 {
     let (sp, sl) = unsafe { (__RTS_FN_NS_GC_STRING_PTR(recv), __RTS_FN_NS_GC_STRING_LEN(recv)) };
     if handle_is_regex(pattern) {
         __RTS_FN_NS_STRING_SEARCH_REGEX(sp, sl, pattern)
@@ -751,7 +676,7 @@ pub extern "C" fn __RTS_FN_GL_STRING_SEARCH_AUTO(recv: u64, pattern: u64) -> i64
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_STRING_MATCH_ALL_AUTO(recv: u64, pattern: u64) -> u64 {
+pub extern "C" fn __RTS_FN_NS_STRING_MATCH_ALL_AUTO(recv: u64, pattern: u64) -> u64 {
     let (sp, sl) = unsafe { (__RTS_FN_NS_GC_STRING_PTR(recv), __RTS_FN_NS_GC_STRING_LEN(recv)) };
     if handle_is_regex(pattern) {
         __RTS_FN_NS_STRING_MATCH_ALL_REGEX(sp, sl, pattern)

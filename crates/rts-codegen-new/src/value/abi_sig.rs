@@ -998,11 +998,11 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         // `strops` — no GL_STRING extern. Only the regex-argument family remains
         // (its runtime string-vs-regex dispatch the macro cannot yet express):
         // `search` → I64; `match`/`matchAll` → a Vec-of-strings Handle (0 ⇒ null).
-        "__RTS_FN_GL_STRING_SEARCH_AUTO" => SymSig {
+        "__RTS_FN_NS_STRING_SEARCH_AUTO" => SymSig {
             params: &[Handle, Handle],
             ret: I64,
         },
-        "__RTS_FN_GL_STRING_MATCH_AUTO" | "__RTS_FN_GL_STRING_MATCH_ALL_AUTO" => SymSig {
+        "__RTS_FN_NS_STRING_MATCH_AUTO" | "__RTS_FN_NS_STRING_MATCH_ALL_AUTO" => SymSig {
             params: &[Handle, Handle],
             ret: Handle,
         },

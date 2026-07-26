@@ -446,9 +446,8 @@ pub extern "C" fn __rtsadp_str_from_code_point(code: u64) -> u64 {
 /// (`Entry::Vec`) whose elements are STRING PolyValue WORDS (NOT the runtime's
 /// raw-handle convention — so `.length`/`.join`/`[i]` on the result work like any
 /// engine array). `limit < 0` means "no limit". An empty separator splits into
-/// individual chars (JS spec). The bytes go through the REAL pool. This is the
-/// PolyValue-native analogue of `__RTS_FN_GL_STRING_SPLIT` (whose Vec holds raw
-/// handles the engine could not interpret).
+/// individual chars (JS spec). The bytes go through the REAL pool — a
+/// PolyValue-native string split (each substring boxed as a `TAG_STR` word).
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_str_split(recv: u64, sep: u64, limit: i64) -> u64 {
     let s = abi_adapter::real_handle_to_string(recv);

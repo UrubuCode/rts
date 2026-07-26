@@ -1,5 +1,6 @@
 //! P4: data-driven String instance-method dispatch via the Registry mirror —
-//! `recv.method(args)` → the REAL `__RTS_FN_GL_STRING_*` symbol, no switchboard.
+//! `recv.method(args)` → the pure-Rust `String` value-class (computed via
+//! `strops`), no switchboard and no `__RTS_FN_GL_STRING_*` extern.
 
 use super::assert_stdout;
 

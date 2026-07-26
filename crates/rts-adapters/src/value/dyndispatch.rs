@@ -17,7 +17,8 @@
 //! functions (NOT `__RTS_FN_*`). Each takes the receiver as a raw PolyValue WORD
 //! plus PolyValue-word args, branches on the tag in Rust, and calls the REAL
 //! per-class op:
-//! - a STRING receiver (`TAG_STR`) → the real `__RTS_FN_GL_STRING_*` symbol;
+//! - a STRING receiver (`TAG_STR`) → the pure-Rust `String` ops in
+//!   [`rts_primitives::string::strops`] (the value-class source of truth);
 //! - an ARRAY receiver (`TAG_OBJECT` that is NOT a keyed object) → the codegen
 //!   Array trampoline ([`super::arrayops`]);
 //! - a NUMBER receiver (int32/double) → the number formatting (`toString`);
