@@ -10,7 +10,19 @@
 use rts_engine::abi::ty::{Handle, I64, U64};
 use rts_engine::{AbiType, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use rts_engine::heap::handles::{Entry, alloc_entry, free_handle, with_entry, with_entry_mut};
+use rts_engine::heap::handles::{
+    Entry, alloc_entry, free_handle, read_string_handle, with_entry, with_entry_mut,
+};
+
+/// Read a GC string handle as an owned Rust `String` (empty if not a string).
+/// Used by the `*_AUTO` runtime-dispatch fns' string branch — the primordial
+/// `String` value-class (`rts-primitives::string::strops`) is the one source of
+/// truth for the actual character logic; here we only mirror the trivial
+/// byte/UTF-16 semantics the legacy externs had.
+#[inline]
+fn auto_str(h: u64) -> String {
+    read_string_handle(h).unwrap_or_default()
+}
 
 fn with_vec<F, R>(handle: u64, default: R, f: F) -> R
 where
@@ -502,7 +514,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_CONCAT_AUTO(recv: u64, other: i64) -> 
         let copy = __RTS_FN_NS_COLLECTIONS_VEC_CONCAT(recv, 0);
         __RTS_FN_NS_COLLECTIONS_VEC_CONCAT_APPEND(copy, other) as i64
     } else {
-        rts_primitives::string::rt::__RTS_FN_GL_STRING_CONCAT(recv, other as u64) as i64
+        // string concat = byte concat of the two pool strings.
+        let mut r = auto_str(recv);
+        r.push_str(&auto_str(other as u64));
+        alloc_entry(Entry::String(r.into_bytes())) as i64
     }
 }
 
@@ -517,10 +532,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SLICE_AUTO(recv: u64, start: i64, end:
     if is_vec {
         __RTS_FN_NS_COLLECTIONS_VEC_SLICE(recv, start, end)
     } else {
-        // STRING_SLICE nao tem sentinel pra "end of string" — passa i64::MAX
-        // que o clamp(0, count) trata corretamente.
+        // STRING slice: sem sentinel pra "end of string" — passa i64::MAX
+        // que o clamp(0, count) do strops trata corretamente.
         let effective_end = if end == i64::MIN { i64::MAX } else { end };
-        rts_primitives::string::rt::__RTS_FN_GL_STRING_SLICE(recv, start, effective_end)
+        let r = rts_primitives::string::strops::slice(&auto_str(recv), start, effective_end);
+        alloc_entry(Entry::String(r.into_bytes()))
     }
 }
 
@@ -532,7 +548,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INCLUDES_AUTO(recv: u64, needle: i64) 
     if is_vec {
         __RTS_FN_NS_COLLECTIONS_VEC_INCLUDES(recv, needle)
     } else {
-        rts_primitives::string::rt::__RTS_FN_GL_STRING_INCLUDES(recv, needle as u64) as i64
+        auto_str(recv).contains(&auto_str(needle as u64)) as i64
     }
 }
 
@@ -544,7 +560,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_OF_AUTO(recv: u64, needle: i64) 
     if is_vec {
         __RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF(recv, needle)
     } else {
-        rts_primitives::string::rt::__RTS_FN_GL_STRING_INDEX_OF(recv, needle as u64)
+        // byte offset (mirrors the legacy extern's `s.find`).
+        auto_str(recv)
+            .find(&auto_str(needle as u64))
+            .map(|i| i as i64)
+            .unwrap_or(-1)
     }
 }
 
@@ -556,7 +576,11 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_LAST_INDEX_OF_AUTO(recv: u64, needle: 
     if is_vec {
         __RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF(recv, needle)
     } else {
-        rts_primitives::string::rt::__RTS_FN_GL_STRING_LAST_INDEX_OF(recv, needle as u64)
+        // byte offset (mirrors the legacy extern's `s.rfind`).
+        auto_str(recv)
+            .rfind(&auto_str(needle as u64))
+            .map(|i| i as i64)
+            .unwrap_or(-1)
     }
 }
 
