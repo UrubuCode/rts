@@ -449,6 +449,11 @@ pub(crate) fn populate_module(
         super::resident::replay(module, &declared, &to_define)
             .map_err(|e| Unsupported::new(format!("resident replay: {e}")))?;
     }
+    // Phase-0 instrumentation (FUTURE_OPTIMIZATION.md): the whole program has been
+    // lowered — print the repr/alloc histogram. Here rather than in a caller
+    // because BOTH backends funnel through this function (JIT `compile_program`
+    // and AOT `compile_program_aot`). No-op unless `RTS_REPR_STATS` is set.
+    crate::stats::dump();
     Ok(main_id)
 }
 

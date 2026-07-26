@@ -573,6 +573,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let coerced = self.coerce(val, repr)?;
         let var = self.builder.declare_var(cl_type(repr));
         self.builder.def_var(var, coerced);
+        if repr == Repr::Tagged {
+            crate::stats::tagged_binding(name);
+        }
         self.locals.insert(name.to_string(), Local { var, repr });
         // No per-branch shape/class removal needed: `clear_local_classifications`
         // already dropped every prior classification of `name` at the top of the
@@ -598,7 +601,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Bind `name` to a fresh `Tagged` local holding `val.v` (used for
     /// object/array literal locals, whose value is a boxed handle word). The
     /// caller records the heap shape separately.
+    #[track_caller]
     pub(super) fn bind_tagged_local(&mut self, name: &str, val: Val) {
+        crate::stats::tagged_binding(name);
         let var = self.builder.declare_var(cl_type(Repr::Tagged));
         self.builder.def_var(var, val.v);
         self.locals.insert(

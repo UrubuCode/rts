@@ -490,11 +490,21 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             singleton_overrides: std::collections::HashSet::new(),
         };
 
+        // Phase-0 instrumentation: publish this function as the lowering position
+        // before the prologue runs (params bind before the first statement, so
+        // `lower_stmt`'s `note_site` has not fired yet). No-op unless enabled.
+        crate::stats::note_site(&ctx.current_fn, 0, ctx.is_prelude);
+
         // Bind each parameter to a fresh local Variable carrying its ABI repr.
         for (i, (p, &repr)) in func.params.iter().zip(&sig.params).enumerate() {
             let block_val = ctx.builder.block_params(entry)[i];
             let var = ctx.builder.declare_var(cl_type(repr));
             ctx.builder.def_var(var, block_val);
+            // A Tagged param is the untrusted-boundary widening: every use inside
+            // the body pays a tag check the callee cannot avoid.
+            if repr == Repr::Tagged {
+                crate::stats::tagged_binding(&p.name);
+            }
             ctx.locals.insert(p.name.clone(), Local { var, repr });
             // An object-typed param (`o: {x: number}`) is a PROVEN keyed OBJECT
             // whose exact compile-time shape is not known to the callee — route
@@ -791,9 +801,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// - `Tagged` → native number (UNBOX, pure IR) — used at a numeric call
     ///   boundary; the program lowering only does this when the target is proven
     ///   numeric.
+    #[track_caller]
     pub(super) fn coerce(&mut self, val: Val, target: Repr) -> FrontResult<Value> {
         if val.repr == target {
             return Ok(val.v);
+        }
+        // Phase-0 instrumentation: an UNBOX is recorded here; the `→ Tagged` arm's
+        // BOX is recorded inside `box_value` (also `#[track_caller]`, so both
+        // report THIS function's caller — the lowering line that asked for it).
+        if val.repr == Repr::Tagged {
+            crate::stats::unbox(target);
         }
         match (val.repr, target) {
             // numeric widening to double
@@ -849,7 +866,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
     /// BOX an unboxed value into a `Tagged` PolyValue word (pure IR). A `Bool`
     /// (i64 0/1) becomes the `false`/`true` singleton via `select`.
+    #[track_caller]
     pub(super) fn box_value(&mut self, val: Val) -> Value {
+        if val.repr != Repr::Tagged {
+            crate::stats::box_widen(val.repr);
+        }
         match val.repr {
             Repr::Int32 => {
                 let i32v = self.builder.ins().ireduce(types::I32, val.v);
@@ -895,6 +916,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// This serves the codegen-owned `__rtsadp_*` generic operators (all `U64`
     /// slots — PolyValue words in/out); the StrPtr-bearing real symbols are called
     /// through the dedicated [`crate::value::emit_marshal`] helpers.
+    #[track_caller]
     pub(super) fn call_runtime(
         &mut self,
         module: &mut dyn Module,

@@ -21,6 +21,11 @@ use super::lower::{Lowerer, Val};
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Lower a single statement.
     pub(super) fn lower_stmt(&mut self, module: &mut dyn Module, s: &HirStmt) -> FrontResult<()> {
+        // Phase-0 instrumentation (FUTURE_OPTIMIZATION.md): publish the lowering
+        // position for `crate::stats`. Statement granularity is exact for loop
+        // depth — `loop_stack` only changes at statement boundaries. No-op unless
+        // `RTS_REPR_STATS` is set.
+        crate::stats::note_site(&self.current_fn, self.loop_stack.len(), self.is_prelude);
         match s {
             HirStmt::Return(arg) => self.lower_return(module, arg.as_ref()),
             HirStmt::Let { name, ty, init } => self.lower_let(module, name, ty, init.as_ref()),

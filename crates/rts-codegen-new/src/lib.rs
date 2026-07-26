@@ -94,6 +94,7 @@
 
 pub mod adapter_symbols;
 pub mod front;
+pub mod stats;
 pub mod timing;
 // The runtime-side value model (the NaN-box `PolyValue`, hidden-class `shape`s,
 // `ic` cells, data `dispatch`, the `repr` lattice, compile-time `state`) now

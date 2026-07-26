@@ -28,6 +28,13 @@ they were not a guide for the new engine.
   for the weak phase + the generational GC. Goal: better GC + better API/ABI, zero
   old-engine legacy.
 
+- [Future optimization — closing the gap to native Rust](FUTURE_OPTIMIZATION.md)
+  — **Phase 0 LANDED + measured** (`RTS_REPR_STATS=1` → BOX/UNBOX/TAGGED-BINDING/
+  RUNTIME-CALL histogram with the engine `file:line`, in-loop split, alloc sites).
+  First measurement: `bench/objbench.ts` = 17 extern calls per iteration, 1024×
+  native Rust; Monte Carlo = 0 in-loop boxes/calls, faster than Bun. Confirms the
+  gap is NOT Cranelift but heap traffic + generic ops on slot loads. Phases 1–6
+  (escape analysis, per-slot Repr, Tagged widenings, bump alloc, inlining) are plan.
 - [Standard rts:* surface (redesign)](rts-std-surface.md) — **canonical map of the
   new surface**: JS/Web globals + camelCase `rts:<ns>` modules (Rust's std
   exported), what dies/renames/moves, bytes = TypedArrays, comptime

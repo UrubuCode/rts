@@ -300,6 +300,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Bind a catch param to a fresh Tagged local holding the thrown PolyValue
     /// `word` (an `i64` register). Re-declares the name (a catch param shadows).
     fn bind_catch_local(&mut self, name: &str, word: Value) {
+        crate::stats::tagged_binding(name);
         let var = self.builder.declare_var(types::I64);
         self.builder.def_var(var, word);
         self.locals.insert(

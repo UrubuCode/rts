@@ -85,12 +85,18 @@ fn import_func(module: &mut dyn Module, builder: &mut FunctionBuilder, callee: F
 ///
 /// Panics (a codegen bug, not a user error) if `name` is unknown or the arg count
 /// does not match the symbol's slot count — the lowering must marshal correctly.
+#[track_caller]
 pub fn emit_call(
     module: &mut dyn Module,
     builder: &mut FunctionBuilder,
     name: &str,
     args: &[Value],
 ) -> Option<Value> {
+    // Phase-0 instrumentation (FUTURE_OPTIMIZATION.md): every extern call is an
+    // optimization barrier for the egraph. Recorded here (not at the ~40 lowering
+    // call sites) so no emission path can escape the count; `#[track_caller]`
+    // chains back through `Lowerer::call_runtime` to the real lowering line.
+    crate::stats::runtime_call(name);
     let sig = sig_of(name).unwrap_or_else(|| panic!("emit_call: unknown runtime symbol `{name}`"));
     assert_eq!(
         sig.param_slot_count(),
@@ -118,6 +124,7 @@ pub fn emit_call(
 /// already-marshaled `args` (one Cranelift value per slot). Returns the single
 /// result, or `None` for a void return. Used where the symbol's signature comes
 /// from the real `Member.sig`, NOT the hand-written `sig_of` table.
+#[track_caller]
 pub fn emit_call_sig(
     module: &mut dyn Module,
     builder: &mut FunctionBuilder,
@@ -126,6 +133,7 @@ pub fn emit_call_sig(
     params: &[rts_runtime::abi::AbiType],
     ret: rts_runtime::abi::AbiType,
 ) -> Option<Value> {
+    crate::stats::runtime_call(name);
     let cl_sig = super::abi_sig::cranelift_sig_from_abis(module, params, ret);
     let callee = module
         .declare_function(name, Linkage::Import, &cl_sig)

@@ -208,6 +208,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let cursor_var = self.builder.declare_var(cl_type(Repr::Tagged));
         self.builder.def_var(cursor_var, cursor);
 
+        crate::stats::tagged_binding(binding);
         let bind_var = self.builder.declare_var(cl_type(Repr::Tagged));
         self.locals.insert(
             binding.to_string(),
@@ -440,6 +441,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.builder.def_var(idx_var, zero);
         // The per-iteration binding local (fresh Tagged var). Record its shape/class
         // bookkeeping as cleared — it holds an opaque element word.
+        crate::stats::tagged_binding(binding);
         let bind_var = self.builder.declare_var(cl_type(Repr::Tagged));
         self.locals.insert(
             binding.to_string(),
