@@ -49,10 +49,18 @@ struct Pipe {
     binds: Vec<(u32, u64)>,
 }
 
+/// Leitura em voo (read_begin/read_poll): staging mapeando em background.
+struct Pending {
+    staging: wgpu::Buffer,
+    bytes: u64,
+    rx: std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
+}
+
 struct Ctx {
     gpu: SharedGpu,
     pipes: HashMap<u64, Pipe>,
     buffers: HashMap<u64, wgpu::Buffer>,
+    pending: HashMap<u64, Pending>,
     next: u64,
 }
 
@@ -74,6 +82,7 @@ fn with_gpu<R>(default: R, f: impl FnOnce(&mut Ctx) -> R) -> R {
                         gpu,
                         pipes: HashMap::new(),
                         buffers: HashMap::new(),
+                        pending: HashMap::new(),
                         next: 1,
                     });
                 }
@@ -302,6 +311,90 @@ pub extern "C" fn __RTS_FN_NS_GPU_READ(gbuf: U64, dst: U64, bytes: I64) -> I64 {
     })
 }
 
+/// LEITURA ASSÍNCRONA, passo 1: agenda a cópia GPU→staging e o map, SEM
+/// esperar. Devolve um ticket (0 = erro). A física-como-serviço nasce aqui:
+/// o jogo agenda no fim do frame e pergunta nos seguintes com `read_poll`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GPU_READ_BEGIN(gbuf: U64, bytes: I64) -> Handle {
+    if bytes <= 0 {
+        return 0;
+    }
+    with_gpu(0, |c| {
+        let Some(buf) = c.buffers.get(&gbuf) else {
+            return 0;
+        };
+        let n = (bytes as u64).min(buf.size());
+        let dev = &c.gpu.device;
+        let staging = dev.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("rts:gpu readback async"),
+            size: n,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mut enc = dev.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("rts:gpu read async"),
+        });
+        enc.copy_buffer_to_buffer(buf, 0, &staging, 0, n);
+        c.gpu.queue.submit([enc.finish()]);
+        let (tx, rx) = std::sync::mpsc::channel();
+        staging.slice(..).map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
+        let id = c.next;
+        c.next += 1;
+        c.pending.insert(
+            id,
+            Pending {
+                staging,
+                bytes: n,
+                rx,
+            },
+        );
+        id
+    })
+}
+
+/// LEITURA ASSÍNCRONA, passo 2: pergunta SEM bloquear. Pronto → copia para o
+/// rts:buffer `dst`, consome o ticket e devolve os bytes. Ainda em voo → 0.
+/// Erro/ticket inválido → -1.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GPU_READ_POLL(ticket: U64, dst: U64) -> I64 {
+    let data: i64 = with_gpu(-1, |c| {
+        if !c.pending.contains_key(&ticket) {
+            return -1;
+        }
+        // Poll NÃO-bloqueante: avança os callbacks sem esperar a GPU.
+        let _ = c.gpu.device.poll(wgpu::PollType::Poll);
+        let done = match c.pending.get(&ticket) {
+            Some(p) => match p.rx.try_recv() {
+                Ok(Ok(())) => 1,
+                Ok(Err(_)) => 2,
+                Err(_) => 0,
+            },
+            None => 2,
+        };
+        if done == 0 {
+            return 0;
+        }
+        let p = c.pending.remove(&ticket).expect("checado acima");
+        if done == 2 {
+            return -1;
+        }
+        let out = p.staging.slice(..).get_mapped_range().to_vec();
+        p.staging.unmap();
+        let n = with_entry_mut(dst, |e| match e {
+            Some(Entry::Buffer(b)) => {
+                let n = out.len().min(b.len());
+                b[..n].copy_from_slice(&out[..n]);
+                n as i64
+            }
+            _ => -1,
+        });
+        n
+    });
+    data
+}
+
 /// Libera um buffer de GPU. 1 se existia.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GPU_BUFFER_FREE(gbuf: U64) -> I64 {
@@ -417,6 +510,22 @@ pub fn register(e: &mut Engine) {
             "read(gbuf: number, dst: number, bytes: number): number",
             "Espera a GPU e copia bytes do buffer de GPU para um rts:buffer. Bytes lidos, -1 erro.",
             __RTS_FN_NS_GPU_READ as *const u8,
+        ))
+        .member(func(
+            "read_begin",
+            "__RTS_FN_NS_GPU_READ_BEGIN",
+            Sig::new(vec![AbiType::U64, AbiType::I64], AbiType::Handle),
+            "read_begin(gbuf: number, bytes: number): number",
+            "Async read, step 1: schedules the GPU->staging copy WITHOUT waiting; returns a ticket (0 = error). Poll with read_poll.",
+            __RTS_FN_NS_GPU_READ_BEGIN as *const u8,
+        ))
+        .member(func(
+            "read_poll",
+            "__RTS_FN_NS_GPU_READ_POLL",
+            Sig::new(vec![AbiType::U64, AbiType::U64], AbiType::I64),
+            "read_poll(ticket: number, dst: number): number",
+            "Async read, step 2: non-blocking check. Ready -> copies into the rts:buffer dst, consumes the ticket, returns bytes. In flight -> 0. Error -> -1.",
+            __RTS_FN_NS_GPU_READ_POLL as *const u8,
         ))
         .member(func(
             "buffer_free",
