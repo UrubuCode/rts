@@ -197,6 +197,34 @@ pub extern "C" fn __RTS_FN_NS_EGUI_DRAW_MESH(
     with_scene(win, |s, _d| s.queue_draw(mesh, m, col, em, tex.max(0) as u64), ());
 }
 
+/// ÁGUA INSTANCIADA: desenha `count` instâncias da malha `mesh` lendo cada
+/// instância (vec4 f32: xyz centro, w densidade assinada) DIRETO do buffer
+/// `gbuf` do rts:gpu — zero readback, zero FFI por partícula, 1 draw call.
+/// `scale` = raio de desenho. 1 ok, 0 = buffer/janela inválidos.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_EGUI_DRAW_WATER(
+    win: u64,
+    mesh: u64,
+    gbuf: u64,
+    count: i64,
+    scale: f64,
+) -> i64 {
+    if count <= 0 {
+        return 0;
+    }
+    let Some(buf) = crate::compute::buffer_handle(gbuf) else {
+        return 0;
+    };
+    with_scene(
+        win,
+        |s, _| {
+            s.queue_water(mesh, buf.clone(), count as u32, scale as f32);
+            1
+        },
+        0,
+    )
+}
+
 /// Sobe uma imagem RGBA8 (`ptr` → w*h*4 bytes, sRGB) pra VRAM e devolve um id de
 /// textura (>=2) usável em `drawMesh(..., tex=id)`. Fluxo típico: `fs` lê o arquivo,
 /// `imgdec.decode` devolve RGBA + w/h, e isto sobe pra GPU. 0 se inválido/não-wgpu.

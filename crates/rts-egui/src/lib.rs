@@ -365,5 +365,13 @@ pub fn register(e: &mut Engine) {
             "Queues a 3D draw of meshId with a transform (pos/rot euler/scale), color 0xAARRGGBB, emissive flag (0/1), and procedural texture (0=none, 1=world-space checker). Rendered in the scene pass at endFrame. Light is a POINT light at setLight's position; shadows via setShadow.",
             scene_api::__RTS_FN_NS_EGUI_DRAW_MESH as *const u8,
         ))
+        .member(func(
+            "drawWater",
+            "__RTS_FN_NS_EGUI_DRAW_WATER",
+            Sig::new(vec![U64, U64, U64, I64, F64], I64),
+            "drawWater(h: number, meshId: number, gbuf: number, count: number, scale: number): number",
+            "Instanced water: draws `count` instances of meshId reading each instance (vec4 f32: xyz center, w signed density; w<0 = culled shell) DIRECTLY from the rts:gpu buffer `gbuf` — zero readback, one draw call. `scale` is the particle draw radius. 1 ok, 0 invalid buffer/window.",
+            scene_api::__RTS_FN_NS_EGUI_DRAW_WATER as *const u8,
+        ))
         .done();
 }

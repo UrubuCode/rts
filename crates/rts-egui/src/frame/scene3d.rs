@@ -43,6 +43,7 @@ struct Cam {
   cam_up: vec4<f32>,     // xyz = up,      w = tanV
   cam_fwd: vec4<f32>,    // xyz = forward
   light_vp: mat4x4<f32>, // view·proj da LUZ (shadow map)
+  water: vec4<f32>,      // x = escala da partícula de água (render instanciado)
 };
 @group(0) @binding(0) var<uniform> cam: Cam;
 // shadow map (group 1): depth da cena vista da luz + comparison sampler
@@ -148,6 +149,32 @@ fn vs(
   return o;
 }
 
+// ÁGUA INSTANCIADA: instância = UM vec4 direto do storage buffer da física
+// (xyz = centro, w = densidade ASSINADA — w<0 significa "cercada nos 8
+// octantes", invisível de qualquer ângulo). O culling de casca roda AQUI:
+// partícula cercada colapsa em ponto (escala 0) e o rasterizador a descarta
+// sem gerar um fragmento. 1 draw call, zero readback, zero FFI por partícula.
+@vertex
+fn vs_water(
+  @location(0) position: vec3<f32>,
+  @location(1) normal: vec3<f32>,
+  @location(8) uv: vec2<f32>,
+  @location(2) ipos: vec4<f32>,
+) -> VOut {
+  let s = select(cam.water.x, 0.0, ipos.w < 0.0);
+  let world = ipos.xyz + position * s;
+  var o: VOut;
+  o.clip = cam.view_proj * vec4<f32>(world, 1.0);
+  o.normal = normal;                       // escala uniforme: normal intacta
+  let shade = clamp(ipos.y * 0.09, 0.0, 0.6);
+  o.color = vec4<f32>(0.20 + shade * 0.22, 0.48 + shade * 0.34, 0.92, 1.0);
+  o.world = world;
+  o.emissive = 0.0;
+  o.tex = 0.0;
+  o.uv = uv;
+  return o;
+}
+
 @fragment
 fn fs(i: VOut) -> @location(0) vec4<f32> {
   var albedo = i.color.rgb;
@@ -223,6 +250,10 @@ pub struct Scene3D {
     // (mesh, model, color, emissive, tex_flag, tex_id) — tex_flag vai pro shader
     // (0/1/2), tex_id seleciona o bind group da textura no render loop.
     draws: Vec<(u64, [f32; 16], [f32; 4], f32, f32, u64)>,
+    water_pipeline: wgpu::RenderPipeline,
+    /// (mesh, buffer de instâncias [vec4/partícula], count, escala) — drenada
+    /// junto de `draws`. O buffer vem CLONADO do rts:gpu (mesmo device).
+    water_draws: Vec<(u64, wgpu::Buffer, u32, f32)>,
     inst_buf: wgpu::Buffer,
     inst_cap: u64,
     /// Fundo do scene pass: `None` = skybox procedural (default); `Some(rgba)` =
@@ -238,10 +269,10 @@ impl Scene3D {
         });
 
         // uniform: view_proj(16) + light(4) + cam_pos(4) + right(4) + up(4) + fwd(4)
-        //          + light_vp(16) = 52 f32 = 208 bytes
+        //          + light_vp(16) + water(4) = 56 f32 = 224 bytes
         let cam_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("scene3d cam"),
-            size: 208,
+            size: 224,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -469,7 +500,7 @@ impl Scene3D {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("shadow_vs"),
-                buffers: &[vbl, ibl],
+                buffers: &[vbl.clone(), ibl],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: None,
@@ -483,6 +514,53 @@ impl Scene3D {
                 depth_compare: Some(wgpu::CompareFunction::Less),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState { constant: 2, slope_scale: 2.0, clamp: 0.0 },
+            }),
+            multiview_mask: None,
+            multisample: wgpu::MultisampleState::default(),
+            cache: None,
+        });
+
+        // PIPELINE DA ÁGUA INSTANCIADA: mesmo fs/bind groups; instância é UM
+        // vec4 (stride 16) vindo DIRETO do storage buffer da física (rts:gpu).
+        let water_vbl = wgpu::VertexBufferLayout {
+            array_stride: 16,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x4,
+                offset: 0,
+                shader_location: 2,
+            }],
+        };
+        let water_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("scene3d water pipeline"),
+            layout: Some(&mesh_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_water"),
+                buffers: &[vbl.clone(), water_vbl],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: color_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
             }),
             multiview_mask: None,
             multisample: wgpu::MultisampleState::default(),
@@ -525,6 +603,8 @@ impl Scene3D {
             tan_h: 1.0,
             tan_v: 1.0,
             draws: Vec::new(),
+            water_pipeline,
+            water_draws: Vec::new(),
             inst_buf,
             inst_cap: 64,
             bg: None,
@@ -569,6 +649,13 @@ impl Scene3D {
     /// `tex`: 0=nenhuma, 1=xadrez procedural, >=2 = id de textura real (imagem).
     pub fn queue_draw(&mut self, mesh: u64, model: [f32; 16], color: [f32; 4], emissive: f32, tex: u64) {
         self.draws.push((mesh, model, color, emissive, tex_flag(tex), tex));
+    }
+
+    /// ÁGUA INSTANCIADA: desenha `count` instâncias da malha `mesh`, lendo cada
+    /// instância (vec4: xyz centro, w densidade assinada) de `buf` — o storage
+    /// buffer da física (rts:gpu), sem readback. 1 draw call por chamada.
+    pub fn queue_water(&mut self, mesh: u64, buf: wgpu::Buffer, count: u32, scale: f32) {
+        self.water_draws.push((mesh, buf, count, scale));
     }
 
     /// Sobe uma imagem RGBA8 (`w×h`, `rgba` = w*h*4 bytes) pra VRAM e devolve um id
@@ -626,7 +713,7 @@ impl Scene3D {
 
         // uniform: view_proj(16) + light(4) + cam_pos(4) + right(4) + up(4) + fwd(4)
         //          + light_vp(16) = 52 f32
-        let mut cam = [0f32; 52];
+        let mut cam = [0f32; 56];
         cam[..16].copy_from_slice(&self.view_proj);
         cam[16..20].copy_from_slice(&self.light);
         cam[20..23].copy_from_slice(&self.cam_pos);
@@ -636,6 +723,7 @@ impl Scene3D {
         cam[31] = self.tan_v;
         cam[32..35].copy_from_slice(&self.cfwd);
         cam[36..52].copy_from_slice(&self.light_vp);
+        cam[52] = self.water_draws.first().map(|w| w.3).unwrap_or(0.0);
         queue.write_buffer(&self.cam_buf, 0, f32_bytes(&cam));
 
         // instâncias
@@ -746,9 +834,25 @@ impl Scene3D {
                 pass.draw_indexed(0..m.icount, 0, 0..1);
             }
         }
+        // 3. ÁGUA INSTANCIADA: 1 draw call por fila; instâncias direto do
+        // storage buffer da física. Sem sombra própria (v1): a água recebe a
+        // sombra do mundo pelo shadow_factor, mas não a projeta.
+        if !self.water_draws.is_empty() {
+            pass.set_pipeline(&self.water_pipeline);
+            pass.set_bind_group(2, &self.default_tex_bg, &[]);
+            for (mesh_id, buf, count, _scale) in &self.water_draws {
+                if let Some(m) = self.meshes.get(mesh_id) {
+                    pass.set_vertex_buffer(0, m.vbuf.slice(..));
+                    pass.set_vertex_buffer(1, buf.slice(..));
+                    pass.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..m.icount, 0, 0..*count);
+                }
+            }
+        }
         drop(pass);
 
         self.draws.clear();
+        self.water_draws.clear();
         true
     }
 }

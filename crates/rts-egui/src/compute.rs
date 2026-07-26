@@ -143,9 +143,14 @@ pub extern "C" fn __RTS_FN_NS_GPU_BUFFER(bytes: I64) -> Handle {
         let buf = c.gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("rts:gpu storage"),
             size: bytes as u64,
+            // VERTEX: o scene3d pode bindar este buffer como vertex buffer de
+            // instância (render instanciado da água — zero readback). Caminho de
+            // vertex buffer e não storage-no-vertex-stage: downlevel permite 0
+            // storage buffers no estágio vertex, vertex buffer funciona sempre.
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_DST
-                | wgpu::BufferUsages::COPY_SRC,
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::VERTEX,
             mapped_at_creation: false,
         });
         let id = c.next;
@@ -308,6 +313,12 @@ pub extern "C" fn __RTS_FN_NS_GPU_BUFFER_FREE(gbuf: U64) -> I64 {
         }
         i64::from(c.buffers.remove(&gbuf).is_some())
     })
+}
+
+/// Handle CLONADO (Arc) do buffer `id`, para o scene3d bindar direto como
+/// vertex buffer de instância — mesmo device (`shared_gpu`), zero readback.
+pub(crate) fn buffer_handle(id: u64) -> Option<wgpu::Buffer> {
+    with_gpu(None, |c| c.buffers.get(&id).cloned())
 }
 
 /// Nome do adapter (debug/telemetria). Handle de string GC, 0 sem GPU.
