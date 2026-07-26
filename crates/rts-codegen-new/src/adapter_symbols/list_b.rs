@@ -3,7 +3,6 @@
 
 use rts_engine::heap::env as rt_env;
 use rts_runtime::namespaces::globals::proxy::ops as rt_proxy;
-use rts_runtime::namespaces::globals::string::rt as rt_gl_str;
 
 use crate::value::{
     arraycb, ctorval, dyndispatch, errslot, funcops, globalops, globalthis, iterops, objops,
@@ -707,23 +706,9 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
 
 fn gl_method_symbols() -> Vec<JitSymbol> {
     vec![
-        // String class methods the engine's OWN lowering emits DIRECTLY
-        // (try_string_special 1-arg slice/substring/substr + the kept STRING_ROWS
-        // codePointAt/localeCompare). These are NOT harvestable members (the rest of
-        // the String surface routes via the `.ts` class, Rust→Rust), so they are
-        // engine-direct and listed here.
-        sym(
-            "__RTS_FN_GL_STRING_SLICE",
-            rt_gl_str::__RTS_FN_GL_STRING_SLICE as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_STRING_SUBSTRING",
-            rt_gl_str::__RTS_FN_GL_STRING_SUBSTRING as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_STRING_SUBSTR",
-            rt_gl_str::__RTS_FN_GL_STRING_SUBSTR as *const u8,
-        ),
+        // String: the non-regex method surface migrated to the primordial `String`
+        // value-class (computed via `strops`) — no GL_STRING symbol to install. Only
+        // the regex-argument family the engine's lowering still emits remains:
         // match/search/matchAll AUTO (string-or-regex pattern, runtime dispatch) —
         // live in the primitives `string::search` module, not `rt`.
         sym(
@@ -740,14 +725,6 @@ fn gl_method_symbols() -> Vec<JitSymbol> {
             "__RTS_FN_GL_STRING_MATCH_ALL_AUTO",
             rts_runtime::namespaces::globals::string::search::__RTS_FN_GL_STRING_MATCH_ALL_AUTO
                 as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_STRING_CODE_POINT_AT",
-            rt_gl_str::__RTS_FN_GL_STRING_CODE_POINT_AT as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_STRING_LOCALE_COMPARE",
-            rt_gl_str::__RTS_FN_GL_STRING_LOCALE_COMPARE as *const u8,
         ),
         // Proxy ctor (#218): `new Proxy(target, handler)` → `Entry::Proxy`. The
         // get/set TRAPS run inside `__rtsadp_obj_get`/`_set` (engine trampolines,

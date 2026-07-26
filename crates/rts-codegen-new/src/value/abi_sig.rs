@@ -993,63 +993,17 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         },
 
         // ---- REAL global-class instance methods (P4 data-driven dispatch) ----
-        // String methods: slot 0 = receiver (real string Handle); string args are
-        // Handle, index/count args are I64; returns Handle (string) / I64 / Bool.
-        // Verified against rts-primitives/src/string/rt.rs.
-        "__RTS_FN_GL_STRING_TO_UPPER_CASE"
-        | "__RTS_FN_GL_STRING_TO_LOWER_CASE"
-        | "__RTS_FN_GL_STRING_TRIM"
-        | "__RTS_FN_GL_STRING_TRIM_START"
-        | "__RTS_FN_GL_STRING_TRIM_END" => SymSig {
-            params: &[Handle],
-            ret: Handle,
-        },
-        "__RTS_FN_GL_STRING_CHAR_AT" | "__RTS_FN_GL_STRING_AT" | "__RTS_FN_GL_STRING_REPEAT" => {
-            SymSig {
-                params: &[Handle, I64],
-                ret: Handle,
-            }
-        }
-        "__RTS_FN_GL_STRING_SLICE"
-        | "__RTS_FN_GL_STRING_SUBSTRING"
-        | "__RTS_FN_GL_STRING_SUBSTR" => SymSig {
-            params: &[Handle, I64, I64],
-            ret: Handle,
-        },
-        "__RTS_FN_GL_STRING_INDEX_OF" | "__RTS_FN_GL_STRING_LAST_INDEX_OF" => SymSig {
+        // String: the non-regex method surface migrated to the primordial `String`
+        // value-class (`rts-primitives/src/string/value_class.rs`), computed via
+        // `strops` — no GL_STRING extern. Only the regex-argument family remains
+        // (its runtime string-vs-regex dispatch the macro cannot yet express):
+        // `search` → I64; `match`/`matchAll` → a Vec-of-strings Handle (0 ⇒ null).
+        "__RTS_FN_GL_STRING_SEARCH_AUTO" => SymSig {
             params: &[Handle, Handle],
             ret: I64,
         },
-        "__RTS_FN_GL_STRING_INCLUDES"
-        | "__RTS_FN_GL_STRING_STARTS_WITH"
-        | "__RTS_FN_GL_STRING_ENDS_WITH" => SymSig {
-            params: &[Handle, Handle],
-            ret: Bool,
-        },
-        "__RTS_FN_GL_STRING_CHAR_CODE_AT" | "__RTS_FN_GL_STRING_CODE_POINT_AT" => SymSig {
-            params: &[Handle, I64],
-            ret: I64,
-        },
-        "__RTS_FN_GL_STRING_LOCALE_COMPARE" | "__RTS_FN_GL_STRING_SEARCH_AUTO" => SymSig {
-            params: &[Handle, Handle],
-            ret: I64,
-        },
-        // match/matchAll AUTO: (recv handle, pattern handle string-or-regex) →
-        // a Vec-of-strings handle (0 ⇒ JS null).
         "__RTS_FN_GL_STRING_MATCH_AUTO" | "__RTS_FN_GL_STRING_MATCH_ALL_AUTO" => SymSig {
             params: &[Handle, Handle],
-            ret: Handle,
-        },
-        "__RTS_FN_GL_STRING_REPLACE" | "__RTS_FN_GL_STRING_REPLACE_ALL" => SymSig {
-            params: &[Handle, Handle, Handle],
-            ret: Handle,
-        },
-        "__RTS_FN_GL_STRING_CONCAT" => SymSig {
-            params: &[Handle, Handle],
-            ret: Handle,
-        },
-        "__RTS_FN_GL_STRING_PAD_START" | "__RTS_FN_GL_STRING_PAD_END" => SymSig {
-            params: &[Handle, I64, Handle],
             ret: Handle,
         },
         // Number methods: slot 0 = receiver (the f64 primitive); digit/radix args

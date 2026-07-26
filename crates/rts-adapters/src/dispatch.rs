@@ -164,38 +164,21 @@ use AbiType::{Bool, Handle, I64, U64};
 /// real string handle. Listed once per supported arity (an arity a real default
 /// covers is listed explicitly so `argc` matches without default injection).
 ///
-/// DRAINED: the bulk of the String method surface (`toUpperCase`/`toLowerCase`/
-/// `trim*`/`charAt`/`charCodeAt`/`at`/`repeat`/`slice`/`substring`/`indexOf`/
-/// `lastIndexOf`/`includes`/`startsWith`/`endsWith`/`padStart`/`padEnd`/`concat`/
-/// `replace`/`replaceAll`) now lives in the prelude `.ts` `class String`
-/// (`rts-primitives/src/string.ts`), routed via
-/// `method::try_primitive_class_method(.., "String", ..)` BEFORE this table. The
-/// `.ts` bodies call the irreducible Rust string impls through the private
-/// `engine.str_*` bridge (one source of truth). The `__RTS_FN_GL_STRING_*` impls +
-/// `register_string_class_spec` stay for the frozen old engine + the `new String(x)`
-/// wrapper path.
+/// DRAINED: the entire non-regex String method surface (`toUpperCase`/
+/// `toLowerCase`/`trim*`/`charAt`/`charCodeAt`/`codePointAt`/`at`/`repeat`/`slice`/
+/// `substring`/`substr`/`indexOf`/`lastIndexOf`/`includes`/`startsWith`/`endsWith`/
+/// `padStart`/`padEnd`/`concat`/`replace`/`replaceAll`/`localeCompare`) now lives
+/// in the primordial `String` value-class (`rts-primitives/src/string/value_class.rs`,
+/// `#[rtse::class("String", value)]`), routed via
+/// `method::try_primitive_class_method(.., "String", ..)` BEFORE this table — each
+/// method computes directly via `strops`, no `__RTS_FN_GL_STRING_*` extern.
 ///
-/// KEPT here (the `.ts` class does NOT cover them, so a proven-string receiver
-/// with one of these still resolves through the generic typed-row path, never a
-/// guess): `codePointAt` (surrogate-pair compose), `localeCompare` (locale order),
-/// and the deprecated 2-arg `substr`. `split` (returns an ARRAY) + the regex-first
-/// methods stay on `method::try_string_special`/`try_string_regex_method` (run
-/// before the prelude class).
+/// KEPT here: only the regex-argument family, whose runtime string-vs-regex
+/// dispatch the value-class macro cannot yet express — `match`/`matchAll` (return a
+/// Vec handle) + `search`. `split` (returns an ARRAY) + the regex-LITERAL first-arg
+/// form stay on `method::try_string_special`/`try_string_regex_method` (run before
+/// the value-class).
 const STRING_ROWS: &[(&str, usize, MethodSpec)] = &[
-    // ---- char code point: index arg, return number ----
-    (
-        "codePointAt",
-        1,
-        // ret PolyValue = a WORD verbatim (número inline OU `undefined` fora
-        // do range — a I64-número não carregava undefined).
-        sm("__RTS_FN_GL_STRING_CODE_POINT_AT", &[I64], AbiType::PolyValue),
-    ),
-    // ---- locale compare: one string arg, return number (-1/0/1) ----
-    (
-        "localeCompare",
-        1,
-        sm("__RTS_FN_GL_STRING_LOCALE_COMPARE", &[Handle], I64),
-    ),
     // ---- match/search/matchAll with a STRING pattern arg: the `_AUTO` symbols
     // dispatch string-vs-regex at runtime (Entry::Regex probe), so ONE row per
     // method covers both; the regex-LITERAL first-arg form short-circuits earlier
@@ -215,12 +198,6 @@ const STRING_ROWS: &[(&str, usize, MethodSpec)] = &[
         "matchAll",
         1,
         sm_arr("__RTS_FN_GL_STRING_MATCH_ALL_AUTO", &[Handle], Handle),
-    ),
-    // ---- deprecated start+count slice (2-arg form) ----
-    (
-        "substr",
-        2,
-        sm("__RTS_FN_GL_STRING_SUBSTR", &[I64, I64], Handle),
     ),
 ];
 

@@ -495,9 +495,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// generic typed-row path (P5.2):
     /// - `split(sep[, limit])` → `__rtsadp_str_split(recvHandle, sepHandle, limit)`,
     ///   returning an ARRAY of boxed string words (a regex separator BAILS — the
-    ///   sep must be a proven string);
-    /// - 1-arg `slice(n)`/`substring(n)`/`substr(n)` → the real 2-arg symbol with a
-    ///   defaulted "to end" bound (`i64::MAX`, which the runtime clamps to length).
+    ///   sep must be a proven string).
+    ///
+    /// (slice/substring/substr — including the 1-arg form — are now covered by the
+    /// primordial `String` value-class via `optional = 1`, no longer specialed here.)
     ///
     /// Returns `Ok(None)` when `method` is not one of these specials (the caller
     /// falls through to the generic row).
@@ -547,27 +548,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let word = ret.expect("__rtsadp_str_split returns a value");
                 Ok(Some(Val::tagged_kind(word, JsKind::Array)))
             }
-            ("slice", 1) | ("substring", 1) | ("substr", 1) => {
-                let start = self.lower_expr(module, &args[0])?;
-                let start_i = self.numeric_to_i64(start)?;
-                // The "to end" default bound: i64::MAX clamps to length in the
-                // runtime (slice/substring) or means "rest" for substr's length.
-                let end = self.builder.ins().iconst(types::I64, i64::MAX);
-                let symbol = match method {
-                    "slice" => "__RTS_FN_GL_STRING_SLICE",
-                    "substring" => "__RTS_FN_GL_STRING_SUBSTRING",
-                    _ => "__RTS_FN_GL_STRING_SUBSTR",
-                };
-                let rh = {
-                    let word = self.box_value(recv);
-                    emit_marshal::emit_table_load(module, self.builder, word)
-                };
-                let ret =
-                    emit_marshal::emit_call(module, self.builder, symbol, &[rh, start_i, end]);
-                let h = ret.expect("string slice returns a handle");
-                let word = emit_marshal::emit_box_real_string(module, self.builder, h);
-                Ok(Some(Val::tagged_kind(word, JsKind::Str)))
-            }
+            // 1-arg slice/substring/substr fall through to the primordial `String`
+            // value-class (its methods declare `optional = 1`, defaulting the
+            // omitted end/length to "to end" in-body) — no GL_STRING hardcode here.
             _ => Ok(None),
         }
     }
