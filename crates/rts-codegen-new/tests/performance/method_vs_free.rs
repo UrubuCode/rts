@@ -51,8 +51,15 @@ fn assert_ratio_under(slow_name: &str, slow: f64, fast_name: &str, fast: f64, ma
 }
 
 /// Corpo compartilhado: 2000 objetos de 3 campos, somados 300 vezes. `call` é o
-/// único trecho que muda entre as variantes.
+/// único trecho que muda entre as variantes. `setup` entra DEPOIS de `ps` ser
+/// preenchido — um `const h = new Holder(ps)` em `extra_decls` referenciava `ps`
+/// antes da declaração e a fonte nem compilava ("unbound identifier `ps`"), o
+/// que fazia o teste falhar pelo motivo errado.
 fn source_with(call: &str, extra_decls: &str) -> String {
+    source_with_setup(call, extra_decls, "")
+}
+
+fn source_with_setup(call: &str, extra_decls: &str, setup: &str) -> String {
     format!(
         r#"
 class P {{ x: number; y: number; z: number;
@@ -61,6 +68,7 @@ class P {{ x: number; y: number; z: number;
 const ps: P[] = [];
 let i = 0;
 while (i < 2000) {{ ps.push(new P()); i = i + 1; }}
+{setup}
 let acc = 0.0;
 let r = 0;
 while (r < 300) {{ acc = acc + {call}; r = r + 1; }}
@@ -140,9 +148,10 @@ console.log(acc);
 #[ignore = "#1999 aberta: falha de propósito. `cargo test --release --test performance -- --ignored`"]
 fn method_field_read_is_not_slower_than_free_function() {
     let free = time_source(&source_with("sumFree(ps)", FREE_FN));
-    let method = time_source(&source_with(
+    let method = time_source(&source_with_setup(
         "h.sum()",
-        &format!("{HOLDER_PLAIN}\nconst h = new Holder(ps);"),
+        HOLDER_PLAIN,
+        "const h = new Holder(ps);",
     ));
     assert_ratio_under("método lendo this.ps", method, "função livre", free, 3.0);
 }
@@ -153,9 +162,10 @@ fn method_field_read_is_not_slower_than_free_function() {
 #[ignore = "#1999 aberta: falha de propósito. `cargo test --release --test performance -- --ignored`"]
 fn annotating_the_local_inside_the_method_recovers_speed() {
     let free = time_source(&source_with("sumFree(ps)", FREE_FN));
-    let hoisted = time_source(&source_with(
+    let hoisted = time_source(&source_with_setup(
         "h.sum()",
-        &format!("{HOLDER_HOISTED}\nconst h = new Holder(ps);"),
+        HOLDER_HOISTED,
+        "const h = new Holder(ps);",
     ));
     assert_ratio_under(
         "método com `const ps: P[] = this.ps`",

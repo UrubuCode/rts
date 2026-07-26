@@ -1093,7 +1093,7 @@ fn remember_class_name(id: crate::ir::ClassId, name: &str) {
     }
 }
 
-fn parse_type_annotation_in(s: &str, scope: &Scope) -> HirType {
+pub fn parse_type_annotation_in(s: &str, scope: &Scope) -> HirType {
     let t = s.trim();
     // arrays primeiro, pra `P[]` resolver o elemento pelo escopo
     if let Some(inner) = t.strip_suffix("[]") {

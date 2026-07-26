@@ -470,18 +470,21 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // é `Class(id)`. Registrar o shape aqui é o que faz `o.campo`
             // alcançar o fast path de slot constante em vez do caminho dinâmico
             // (`__rtsadp_obj_get`: mutex + comparação de string, ~1 µs).
-            HirExprKind::Index { .. } => {
-                match class_of_hir_ty(ty) {
-                    Some(cls) => match self.classes.get(&cls) {
-                        Some(desc) => {
-                            let shape_id = self.shapes.intern(&desc.fields);
-                            let val = self.lower_expr(module, init)?;
-                            self.bind_tagged_local(name, val);
-                            self.local_classes.insert(name.to_string(), cls);
-                            Some(HeapShape::Object(shape_id))
-                        }
-                        None => None,
-                    },
+            // Vale para QUALQUER inicializador cujo TIPO seja uma classe conhecida
+            // — `arr[i]` (elemento de `P[]`), `o.campo` de tipo declarado, ou um
+            // local anotado à mão. O que importa é o tipo, não a forma da
+            // expressão; casar só `Index` deixava de fora o caso igualmente
+            // comum de um campo aninhado (`const t: Transform = o.transform`).
+            _ if class_of_hir_ty(ty).is_some() => {
+                let cls = class_of_hir_ty(ty).unwrap();
+                match self.classes.get(&cls) {
+                    Some(desc) => {
+                        let shape_id = self.shapes.intern(&desc.fields);
+                        let val = self.lower_expr(module, init)?;
+                        self.bind_tagged_local(name, val);
+                        self.local_classes.insert(name.to_string(), cls);
+                        Some(HeapShape::Object(shape_id))
+                    }
                     None => None,
                 }
             }

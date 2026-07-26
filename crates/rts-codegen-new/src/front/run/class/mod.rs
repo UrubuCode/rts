@@ -228,6 +228,11 @@ pub(crate) fn collect_classes(
     let mut table = ClassTable::default();
     let mut funcs: Vec<HirFunc> = Vec::new();
 
+    // Nomes na ORDEM DE DECLARAÇÃO — a mesma em que `build_from_program`
+    // registra as classes no escopo do programa. Os escopos de método/ctor
+    // (ver `synth::scope_with_classes`) precisam atribuir os MESMOS `ClassId`s.
+    let class_names: Vec<String> = classes.iter().map(|c| c.name.clone()).collect();
+
     // Resolve a parent-first processing order (so a child sees its parent's
     // already-built descriptor). An `extends` of a class not in this program (and
     // not an ambient prelude class), or a cycle, bails.
@@ -254,7 +259,7 @@ pub(crate) fn collect_classes(
             ),
             None => None,
         };
-        let (desc, fns) = synth::build_class(decl, parent_desc.as_ref())?;
+        let (desc, fns) = synth::build_class(decl, parent_desc.as_ref(), &class_names)?;
         table.by_name.insert(desc.name.clone(), desc);
         funcs.extend(fns);
     }

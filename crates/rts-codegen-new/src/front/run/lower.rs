@@ -533,6 +533,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     ctx.local_classes.insert(p.name.clone(), class.clone());
                 }
             }
+            // A METHOD's class-typed param: o `HirFunc` sintetizado carrega o
+            // `HirType::Class(id)` REAL (o escopo do método resolve classes de
+            // usuário — issue #1999), mas métodos nunca entram em `param_classes`
+            // (o mapa só varre `Item::Function` top-level). O side-table id→nome
+            // de rts-hir faz a volta.
+            if !ctx.local_classes.contains_key(&p.name) {
+                if let rts_hir::HirType::Class(id) = &p.ty {
+                    if let Some(class) = rts_hir::lower::class_name_of_id(*id) {
+                        if let Some(desc) = classes.get(&class) {
+                            let shape_id = ctx.shapes.intern(&desc.fields);
+                            ctx.local_shapes
+                                .insert(p.name.clone(), HeapShape::Object(shape_id));
+                            ctx.local_classes.insert(p.name.clone(), class);
+                        }
+                    }
+                }
+            }
         }
 
         // The implicit receiver `this` of a constructor/method: bind its class so

@@ -134,12 +134,32 @@ fn collect_ctor_array_fields(
     }
 }
 
+/// Escopo semeado com TODAS as classes do programa, na MESMA ordem em que
+/// `build_from_program` as registra no escopo do programa — `ClassId` é um
+/// contador por-Scope, e o side-table global id→nome (rts-hir) só fica coerente
+/// se todo escopo atribuir os mesmos ids aos mesmos nomes.
+///
+/// Sem isso, o corpo de um método era baixado com um `Scope::new()` VAZIO: toda
+/// anotação de classe (`const p: P = ps[i]`) virava `Unknown`, nenhum local
+/// ganhava shape, e cada `p.campo` caía no caminho dinâmico (`__rtsadp_obj_get`,
+/// mutex + comparação de string) — o laço em método media ~20x a função livre
+/// (issue #1999).
+fn scope_with_classes(class_names: &[String]) -> Scope {
+    let mut s = Scope::new();
+    for n in class_names {
+        s.register_class(n.clone());
+    }
+    s
+}
+
 /// Build the [`ClassDesc`] + the synthesized `HirFunc`s for one class. `parent`
 /// is the already-built descriptor of the superclass (parent-first order), or
-/// `None` for a root class.
+/// `None` for a root class. `class_names` carries EVERY class of the program
+/// (declaration order) so method/ctor bodies resolve class-typed annotations.
 pub(super) fn build_class(
     decl: &ClassDecl,
     parent: Option<&ClassDesc>,
+    class_names: &[String],
 ) -> FrontResult<(ClassDesc, Vec<HirFunc>)> {
     let m = categorize(decl)?;
     let mut out: Vec<HirFunc> = Vec::new();
@@ -152,7 +172,8 @@ pub(super) fn build_class(
     let priv_renames = priv_renames_of(decl, parent);
 
     // --- constructor (forwarding super if the subclass omits one) ---
-    let (ctor_fn, ctor_arity, own_fields) = build_ctor(decl, &m, parent, &mut out, &priv_renames)?;
+    let (ctor_fn, ctor_arity, own_fields) =
+        build_ctor(decl, &m, parent, &mut out, &priv_renames, class_names)?;
 
     // --- FLATTENED field list: parent fields first, then own fields ---
     let mut fields: Vec<String> = parent.map(|p| p.fields.clone()).unwrap_or_default();
@@ -189,7 +210,7 @@ pub(super) fn build_class(
         parent.map(|p| p.field_arrays.clone()).unwrap_or_default();
     for pd in &m.props {
         if let Some(init_expr) = &pd.initializer {
-            let scope = Scope::new();
+            let scope = scope_with_classes(class_names);
             let lowered = rts_hir::lower::lower_swc_expr(init_expr, &scope);
             if matches!(lowered.kind, HirExprKind::Array(_)) {
                 field_arrays.insert(field_slot_name(&pd.name, &priv_renames));
@@ -225,7 +246,7 @@ pub(super) fn build_class(
         parent.map(|p| p.methods.clone()).unwrap_or_default();
     for md in &m.methods {
         let fn_name = method_name(&decl.name, &md.name);
-        out.push(synth_method(decl, md, parent, /*this*/ true)?);
+        out.push(synth_method(decl, md, parent, /*this*/ true, class_names)?);
         methods.insert(md.name.clone(), fn_name);
     }
 
@@ -239,6 +260,7 @@ pub(super) fn build_class(
             parent,
             true,
             getter_name(&decl.name, &g.name),
+            class_names,
         )?);
         accessors.entry(g.name.clone()).or_default().getter =
             Some(getter_name(&decl.name, &g.name));
@@ -250,6 +272,7 @@ pub(super) fn build_class(
             parent,
             true,
             setter_name(&decl.name, &s.name),
+            class_names,
         )?);
         accessors.entry(s.name.clone()).or_default().setter =
             Some(setter_name(&decl.name, &s.name));
@@ -268,12 +291,12 @@ pub(super) fn build_class(
     // --- statics ---
     let mut statics: HashMap<String, String> = HashMap::new();
     for sm in &m.static_methods {
-        out.push(synth_static_method(decl, sm)?);
+        out.push(synth_static_method(decl, sm, class_names)?);
         statics.insert(sm.name.clone(), static_method_name(&decl.name, &sm.name));
     }
     let mut static_fields: HashMap<String, String> = HashMap::new();
     for sp in &m.static_props {
-        out.push(synth_static_field_getter(decl, sp)?);
+        out.push(synth_static_field_getter(decl, sp, class_names)?);
         static_fields.insert(
             sp.name.clone(),
             static_field_getter_name(&decl.name, &sp.name),
@@ -283,7 +306,7 @@ pub(super) fn build_class(
     // zero-arg static method, registered as a static FIELD — the member-read
     // path (`C.version`) already calls a zero-arg getter fn for those.
     for sg in &m.static_getters {
-        out.push(synth_static_method(decl, sg)?);
+        out.push(synth_static_method(decl, sg, class_names)?);
         static_fields.insert(sg.name.clone(), static_method_name(&decl.name, &sg.name));
     }
 
@@ -461,8 +484,9 @@ fn build_ctor(
     parent: Option<&ClassDesc>,
     out: &mut Vec<HirFunc>,
     priv_renames: &std::collections::HashMap<String, String>,
+    class_names: &[String],
 ) -> FrontResult<(String, usize, Vec<String>)> {
-    let mut scope = Scope::new();
+    let mut scope = scope_with_classes(class_names);
 
     // The ctor's user params: the declared ones, OR (no ctor + a parent) the
     // parent's ctor arity forwarded under synthetic names `__a0..`.
@@ -476,7 +500,7 @@ fn build_ctor(
                 let ty = p
                     .type_annotation
                     .as_deref()
-                    .map(rts_hir::lower::parse_type_annotation)
+                    .map(|a| rts_hir::lower::parse_type_annotation_in(a, &scope))
                     .unwrap_or(HirType::Unknown);
                 scope.define(&p.name, ty.clone());
                 let default_expr = p
@@ -625,6 +649,7 @@ fn synth_method(
     md: &MethodDecl,
     parent: Option<&ClassDesc>,
     with_this: bool,
+    class_names: &[String],
 ) -> FrontResult<HirFunc> {
     synth_method_named(
         decl,
@@ -632,6 +657,7 @@ fn synth_method(
         parent,
         with_this,
         method_name(&decl.name, &md.name),
+        class_names,
     )
 }
 
@@ -644,8 +670,9 @@ fn synth_method_named(
     parent: Option<&ClassDesc>,
     with_this: bool,
     fn_name: String,
+    class_names: &[String],
 ) -> FrontResult<HirFunc> {
-    let mut scope = Scope::new();
+    let mut scope = scope_with_classes(class_names);
     let mut params: Vec<HirParam> = if with_this {
         vec![this_param()]
     } else {
@@ -656,7 +683,7 @@ fn synth_method_named(
         let ty = p
             .type_annotation
             .as_deref()
-            .map(rts_hir::lower::parse_type_annotation)
+            .map(|a| rts_hir::lower::parse_type_annotation_in(a, &scope))
             .unwrap_or(HirType::Unknown);
         scope.define(&p.name, ty.clone());
         let default_expr = p
@@ -679,7 +706,7 @@ fn synth_method_named(
     } else {
         md.return_type
             .as_deref()
-            .map(rts_hir::lower::parse_type_annotation)
+            .map(|a| rts_hir::lower::parse_type_annotation_in(a, &scope))
             .unwrap_or(HirType::Unknown)
     };
     let mut body = rts_hir::lower::lower_stmts(&md.body, &mut scope);
@@ -698,15 +725,19 @@ fn synth_method_named(
 
 /// Synthesize a static method `HirFunc` (NO `this`; name = `__rtsn_static_C_m`).
 /// A `this` reference inside a static method bails (no instance receiver).
-fn synth_static_method(decl: &ClassDecl, md: &MethodDecl) -> FrontResult<HirFunc> {
-    let mut scope = Scope::new();
+fn synth_static_method(
+    decl: &ClassDecl,
+    md: &MethodDecl,
+    class_names: &[String],
+) -> FrontResult<HirFunc> {
+    let mut scope = scope_with_classes(class_names);
     let mut params: Vec<HirParam> = Vec::new();
     for p in &md.parameters {
         // REST (`...xs`, F3b) and DEFAULTED (`y = expr`, F3c) params both allowed.
         let ty = p
             .type_annotation
             .as_deref()
-            .map(rts_hir::lower::parse_type_annotation)
+            .map(|a| rts_hir::lower::parse_type_annotation_in(a, &scope))
             .unwrap_or(HirType::Unknown);
         scope.define(&p.name, ty.clone());
         let default_expr = p
@@ -725,7 +756,7 @@ fn synth_static_method(decl: &ClassDecl, md: &MethodDecl) -> FrontResult<HirFunc
     let ret = md
         .return_type
         .as_deref()
-        .map(rts_hir::lower::parse_type_annotation)
+        .map(|a| rts_hir::lower::parse_type_annotation_in(a, &scope))
         .unwrap_or(HirType::Unknown);
     let body = rts_hir::lower::lower_stmts(&md.body, &mut scope);
     // A `this` in a static method has no instance receiver — refuse it (sound).
@@ -748,8 +779,12 @@ fn synth_static_method(decl: &ClassDecl, md: &MethodDecl) -> FrontResult<HirFunc
 /// Synthesize a zero-arg getter fn returning a static field's initializer
 /// (`__rtsn_sfield_C_f() { return <init>; }`). A static field with no initializer,
 /// or an initializer referencing `this`/other statics, bails.
-fn synth_static_field_getter(decl: &ClassDecl, pd: &PropertyDecl) -> FrontResult<HirFunc> {
-    let scope = Scope::new();
+fn synth_static_field_getter(
+    decl: &ClassDecl,
+    pd: &PropertyDecl,
+    class_names: &[String],
+) -> FrontResult<HirFunc> {
+    let scope = scope_with_classes(class_names);
     // No initializer (`static readonly V: string;` — filled by a `static {}`
     // block / a later write): the getter returns `undefined`. For a USER class
     // the getter is only the fallback — reads prefer the writable static-field
