@@ -401,14 +401,13 @@ pub const FROM_UNSUPPORTED: u64 = PolyValue::empty().raw();
 /// `String.fromCharCode(code)` for ONE code unit — JS truncates to a u16. The
 /// lowering calls this once per argument and concatenates the results through the
 /// generic `+` (real `STRING_CONCAT`), so the variadic form falls out of the
-/// monadic primitive. Returns a string PolyValue WORD. Reuses the runtime's own
-/// `__RTS_FN_GL_STRING_FROM_CHAR_CODE` for the byte production (UTF-16→UTF-8
-/// lossy, lone-surrogate handling), then boxes its handle as a PolyValue.
+/// monadic primitive. Returns a string PolyValue WORD. The byte production
+/// (UTF-16→UTF-8 lossy, lone-surrogate handling) is `strops::from_char_code` —
+/// the ONE source of truth shared with the `String` value-class.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_str_from_char_code(code: u64) -> u64 {
     let n = to_number(PolyValue::from_raw(code)) as i64;
-    let handle = rts_runtime::namespaces::globals::string::rt::__RTS_FN_GL_STRING_FROM_CHAR_CODE(n);
-    abi_adapter::poly_from_real_handle(handle).raw()
+    abi_adapter::intern_poly(&rts_runtime::namespaces::globals::string::strops::from_char_code(n)).raw()
 }
 
 /// `String.fromCharCode(...codes)` over a spread ARRAY (`fromCharCode(...arr)`):
@@ -435,9 +434,7 @@ pub extern "C" fn __rtsadp_str_from_char_code_arr(arr_word: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_str_from_code_point(code: u64) -> u64 {
     let n = to_number(PolyValue::from_raw(code)) as i64;
-    let handle =
-        rts_runtime::namespaces::globals::string::rt::__RTS_FN_GL_STRING_FROM_CODE_POINT(n);
-    abi_adapter::poly_from_real_handle(handle).raw()
+    abi_adapter::intern_poly(&rts_runtime::namespaces::globals::string::strops::from_code_point(n)).raw()
 }
 
 // ===========================================================================
