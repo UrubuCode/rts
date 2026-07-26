@@ -7,11 +7,11 @@
 //! ```
 //!
 //! where `KIND` is one of `FN`, `CONST`, `TYPE`, `SCOPE` is one of `NS`,
-//! `GC`, `ABI`, `GL` (global JS objects/classes), and both `NS` and `NAME`
-//! are uppercase ASCII with digits and
-//! underscores. The convention is enforced at startup by
-//! [`validate_symbol`]; malformed entries in `SPECS` cause immediate panic
-//! during tests and in debug builds.
+//! `GC`, `ABI`, `GL` (global JS objects/classes). The `NAME` segment is ASCII
+//! letters (digits and underscores allowed) and is **case-preserved**: the
+//! `#[rtse::class]` macro emits the member's Rust name verbatim (e.g.
+//! `__RTS_FN_GL_STRING_to_upper_case`) so distinct camelCase members never
+//! collide under an uppercase fold. [`validate_symbol`] checks the shape.
 
 /// Build a symbol name at compile time.
 ///
@@ -62,9 +62,13 @@ pub fn validate_symbol(symbol: &str) -> Result<(), SymbolError> {
     if tail.is_empty() {
         return Err(SymbolError::MissingName);
     }
+    // Case-PRESERVED: allow ASCII letters of either case (plus digits and
+    // underscores). The macro emits member names verbatim, so a mixed-case tail
+    // like `to_upper_case`/`toWellFormed` is valid — uppercase is no longer
+    // required (folding it would collide distinct camelCase members).
     if !tail
         .chars()
-        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+        .all(|c| c.is_ascii_alphabetic() || c.is_ascii_digit() || c == '_')
     {
         return Err(SymbolError::InvalidCharacter);
     }
@@ -112,6 +116,9 @@ mod tests {
         assert!(validate_symbol("__RTS_FN_GC_ARRAY_PUSH").is_ok());
         assert!(validate_symbol("__RTS_CONST_NS_PROCESS_PLATFORM").is_ok());
         assert!(validate_symbol("__RTS_TYPE_ABI_STRING_HANDLE").is_ok());
+        // Case-PRESERVED macro symbols (mixed/lower-case member names) are valid.
+        assert!(validate_symbol("__RTS_FN_GL_STRING_to_upper_case").is_ok());
+        assert!(validate_symbol("__RTS_FN_GL_STRING_toWellFormed").is_ok());
     }
 
     #[test]
@@ -128,8 +135,10 @@ mod tests {
             validate_symbol("__RTS_FN_XX_IO_PRINT"),
             Err(SymbolError::InvalidScope)
         );
+        // A non-alphanumeric, non-underscore char in the NAME is still rejected
+        // (case is no longer part of the rule — mixed case is allowed).
         assert_eq!(
-            validate_symbol("__RTS_FN_NS_IO_print"),
+            validate_symbol("__RTS_FN_NS_IO_PR!NT"),
             Err(SymbolError::InvalidCharacter)
         );
         assert_eq!(

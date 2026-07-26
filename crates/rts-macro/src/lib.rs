@@ -1281,13 +1281,13 @@ fn gen_field(
     let is_bool = matches!(fty, Type::Path(p) if p.path.is_ident("bool"));
     let js_name = to_camel(&fname.to_string());
     // Field name VERBATIM (case-preserved) in the symbol — see `member` above.
-    let field_upper = fname.to_string();
+    let field_name = fname.to_string(); // verbatim (case-preserved)
     let mut externs = Vec::new();
     let mut members = Vec::new();
     let mut keep = Vec::new();
 
     // Getter.
-    let get_sym = format!("__RTS_FN_GL_{class_upper}_GET_{field_upper}");
+    let get_sym = format!("__RTS_FN_GL_{class_upper}_GET_{field_name}");
     let get_id = format_ident!("{}", get_sym);
     let read = quote!(::rts_engine::heap::handles::with_rtse::<#self_ty, _>(__recv, |__s| match __s {
         ::core::option::Option::Some(__s) => __s.#fname,
@@ -1319,7 +1319,7 @@ fn gen_field(
 
     // Setter (unless readonly).
     if !readonly {
-        let set_sym = format!("__RTS_FN_GL_{class_upper}_SET_{field_upper}");
+        let set_sym = format!("__RTS_FN_GL_{class_upper}_SET_{field_name}");
         let set_id = format_ident!("{}", set_sym);
         let val = if is_bool { quote!((__v != 0)) } else { quote!(__v) };
         externs.push(quote! {
