@@ -198,6 +198,43 @@ pub extern "C" fn __RTS_FN_NS_GPU_WRITE(gbuf: U64, src: U64, bytes: I64) -> I64 
     })
 }
 
+/// Escrita PARCIAL com offset: copia `bytes` do rts:buffer `src` (a partir de
+/// `src_off`) para o buffer de GPU `gbuf` (a partir de `dst_off`). 1 ok.
+/// É o que permite "cutucar" UM corpo sem reenviar o estado inteiro (o upload
+/// completo em pleno jogo reescrevia velocidades de todos com valores velhos).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_GPU_WRITE_AT(
+    gbuf: U64,
+    src: U64,
+    src_off: I64,
+    dst_off: I64,
+    bytes: I64,
+) -> I64 {
+    if bytes <= 0 || src_off < 0 || dst_off < 0 {
+        return 0;
+    }
+    let Some(data) = with_entry(src, |e| match e {
+        Some(Entry::Buffer(b)) => {
+            let a = src_off as usize;
+            let fim = a.saturating_add(bytes as usize);
+            if fim <= b.len() { Some(b[a..fim].to_vec()) } else { None }
+        }
+        _ => None,
+    }) else {
+        return 0;
+    };
+    with_gpu(0, |c| {
+        let Some(buf) = c.buffers.get(&gbuf) else {
+            return 0;
+        };
+        if (dst_off as u64) + data.len() as u64 > buf.size() {
+            return 0;
+        }
+        c.gpu.queue.write_buffer(buf, dst_off as u64, &data);
+        1
+    })
+}
+
 /// Liga o buffer `gbuf` ao `@binding(slot)` do `@group(0)` do pipeline. 1 ok.
 ///
 /// Chama-se `bind_buffer` (não `bind`): o lowering intercepta `.bind(` como
@@ -520,6 +557,17 @@ pub fn register(e: &mut Engine) {
             "write(gbuf: number, src: number, bytes: number): number",
             "Sobe bytes de um rts:buffer para o buffer de GPU. 1 ok, 0 erro.",
             __RTS_FN_NS_GPU_WRITE as *const u8,
+        ))
+        .member(func(
+            "write_at",
+            "__RTS_FN_NS_GPU_WRITE_AT",
+            Sig::new(
+                vec![AbiType::U64, AbiType::U64, AbiType::I64, AbiType::I64, AbiType::I64],
+                AbiType::I64,
+            ),
+            "write_at(gbuf: number, src: number, srcOff: number, dstOff: number, bytes: number): number",
+            "Partial write with offsets: copies bytes from the rts:buffer into the GPU buffer at dstOff. Enables poking ONE body without re-uploading full state. 1 ok, 0 error.",
+            __RTS_FN_NS_GPU_WRITE_AT as *const u8,
         ))
         .member(func(
             "bind_buffer",
