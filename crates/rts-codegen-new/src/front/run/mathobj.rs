@@ -11,8 +11,8 @@
 //!    `fabs`/`fmin`/`fmax`, NOT a call) or a real `__RTS_FN_NS_MATH_*` symbol.
 //! 2. `Math.CONST` — `Member` access of a Math constant (`PI`/`E`/…): an f64const.
 //! 3. `Number.method(args)` — the static predicates (`isInteger`/`isFinite`/
-//!    `isNaN`/`isSafeInteger`) via the real `__RTS_FN_GL_NUMBER_IS_*` symbols, and
-//!    `parseInt`/`parseFloat` aliased to the globals; `Number.CONST` constants.
+//!    `isNaN`/`isSafeInteger`) via the real `__rtsm_global_number_is_*` symbols,
+//!    and `parseInt`/`parseFloat` aliased to the globals; `Number.CONST` constants.
 //!
 //! Args are coerced through the engine's numeric path (a proven number rides its
 //! register; a Tagged arg BAILS — these are numeric statics, never `any`). A
@@ -568,13 +568,14 @@ fn number_const(name: &str) -> Option<f64> {
     })
 }
 
-/// The real `__RTS_FN_GL_NUMBER_IS_*` symbol for a Number static predicate.
+/// The real `__rtsm_global_number_is_*` symbol for a Number static predicate
+/// (`#[rtse::statical]`-generated, `rts-primitives/src/number/mod.rs`).
 fn number_predicate(method: &str) -> Option<&'static str> {
     Some(match method {
-        "isInteger" => "__RTS_FN_GL_NUMBER_IS_INTEGER",
-        "isFinite" => "__RTS_FN_GL_NUMBER_IS_FINITE",
-        "isNaN" => "__RTS_FN_GL_NUMBER_IS_NAN",
-        "isSafeInteger" => "__RTS_FN_GL_NUMBER_IS_SAFE_INT",
+        "isInteger" => "__rtsm_global_number_is_integer",
+        "isFinite" => "__rtsm_global_number_is_finite",
+        "isNaN" => "__rtsm_global_number_is_nan",
+        "isSafeInteger" => "__rtsm_global_number_is_safe_integer",
         _ => return None,
     })
 }

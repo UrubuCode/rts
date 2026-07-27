@@ -27,21 +27,22 @@
 //! delegates to the engine's own ToNumber (`__rtsadp_g_number`), never
 //! reimplementing it — see that file for the zero-arg special case.
 //!
-//! ## Statics/constants stay data-driven, formatting stays in Rust
-//! `Number.isNaN`/`isFinite`/`isInteger`/`isSafeInteger` and the 8 numeric
-//! constants (`MAX_SAFE_INTEGER`, …) are ALREADY resolved by a dedicated codegen
-//! fast path (`front/run/mathobj.rs`) that calls the `__RTS_FN_GL_NUMBER_IS_*`
-//! externs directly by symbol for a proven-number arg (falling to the no-coerce
-//! `__rtsadp_num_is_*` trampolines for a Tagged arg — the strict, non-coercing
-//! semantics `Number.isFinite("5") === false` requires). Those externs (in
-//! `statics.rs`) are load-bearing, not legacy. The `Member` entries
-//! `statics::register_number_statics` builds are the Registry-visible mirror of
-//! that same surface (reflection, `.d.ts` generation, and any call site the
-//! codegen fast path does not special-case) — composed onto the SAME "Number"
-//! Registry class entry as this module's macro-generated ctor/methods via
-//! `Registry::insert_class`'s merge-on-second-call (a `#[rtse::class]` `impl`
-//! block cannot carry a `const`, so the 8 `Number.*` constants cannot be
-//! expressed as members of the SAME macro invocation).
+//! ## Statics: predicates here, constants + parseInt/parseFloat in `statics.rs`
+//! `Number.isNaN`/`isFinite`/`isInteger`/`isSafeInteger` are `#[rtse::statical]`
+//! members on `NumberWrapper` below, generating the real `__rtsm_global_number_
+//! is_*` externs. `front/run/mathobj.rs` has a dedicated codegen fast path that
+//! calls those exact symbols directly for a proven-number arg (falling to the
+//! no-coerce `__rtsadp_num_is_*` trampolines for a Tagged arg — the strict,
+//! non-coercing semantics `Number.isFinite("5") === false` requires); the
+//! `Member` entries the macro generates are the Registry-visible mirror of that
+//! same surface (reflection, `.d.ts` generation, and any call site the codegen
+//! fast path does not special-case). The 8 `Number.*` constants are
+//! `#[rtse::constant]` items in `statics.rs` (a `#[rtse::class]` `impl` block
+//! cannot carry a `const`, so they cannot join this module's single impl
+//! block); `parseInt`/`parseFloat` stay hand-written `Member` aliases there
+//! (see that file's doc for why). Both compose onto the SAME "Number" Registry
+//! class entry as this module's macro-generated members via
+//! `Registry::insert_class`'s merge-on-second-call.
 
 mod format;
 mod statics;
@@ -142,5 +143,36 @@ impl NumberWrapper {
     #[rtse::method]
     fn to_exponential(recv: Poly, digits: Option<f64>) -> String {
         to_exponential_str(num_val(recv), digits.unwrap_or(-1.0) as i64)
+    }
+
+    // ── Statics ──────────────────────────────────────────────────────────────
+    // LOAD-BEARING symbols: `front/run/mathobj.rs::number_predicate` calls each
+    // by its exact `__rtsm_global_number_*` name for a proven-number arg (the
+    // no-coerce fast path); `value/abi_sig.rs` carries the matching `SymSig`.
+    // `isNaN`'s JS name needs an explicit override — the default camelizer would
+    // derive `isNan`, not the JS spec's `isNaN`.
+
+    /// `Number.isNaN(value)` — no coercion, unlike the global `isNaN`.
+    #[rtse::statical(name = "isNaN")]
+    fn is_nan(v: f64) -> bool {
+        v.is_nan()
+    }
+
+    /// `Number.isFinite(value)` — no coercion, unlike the global `isFinite`.
+    #[rtse::statical]
+    fn is_finite(v: f64) -> bool {
+        v.is_finite()
+    }
+
+    /// `Number.isInteger(value)`.
+    #[rtse::statical]
+    fn is_integer(v: f64) -> bool {
+        v.is_finite() && v.fract() == 0.0
+    }
+
+    /// `Number.isSafeInteger(value)`.
+    #[rtse::statical]
+    fn is_safe_integer(v: f64) -> bool {
+        v.is_finite() && v.fract() == 0.0 && v.abs() <= 9_007_199_254_740_991.0
     }
 }

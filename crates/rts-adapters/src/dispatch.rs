@@ -212,7 +212,7 @@ const STRING_ROWS: &[(&str, usize, MethodSpec)] = &[
 // `__RTS_FN_GL_NUMBER_*` row per method here. The table is kept (empty) so a
 // numeric receiver with a method the value-class does NOT cover still BAILS
 // explicitly (`resolve_method` → `None`), never a guess. The remaining
-// `__RTS_FN_GL_NUMBER_IS_*` predicates (`rts-primitives/src/number/statics.rs`)
+// `__rtsm_global_number_is_*` predicates (`rts-primitives/src/number/mod.rs`)
 // are load-bearing for `front/run/mathobj.rs`'s `Number.isNaN`/etc fast path,
 // not for this table.
 // ===========================================================================

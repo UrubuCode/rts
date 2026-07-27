@@ -1060,11 +1060,11 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         },
 
         // ---- REAL Number static predicates (P5.4, rts-primitives number) ----
-        // f64 → Bool (extern "C" i64 0/1).
-        "__RTS_FN_GL_NUMBER_IS_INTEGER"
-        | "__RTS_FN_GL_NUMBER_IS_FINITE"
-        | "__RTS_FN_GL_NUMBER_IS_NAN"
-        | "__RTS_FN_GL_NUMBER_IS_SAFE_INT" => SymSig {
+        // f64 → Bool (extern "C" i64 0/1). `#[rtse::statical]`-generated.
+        "__rtsm_global_number_is_integer"
+        | "__rtsm_global_number_is_finite"
+        | "__rtsm_global_number_is_nan"
+        | "__rtsm_global_number_is_safe_integer" => SymSig {
             params: &[F64],
             ret: Bool,
         },
