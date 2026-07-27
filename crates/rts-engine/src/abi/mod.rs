@@ -17,4 +17,4 @@ pub use js_error::JsErrorKind;
 pub use member::{
     DefaultArg, MemberFlags, MemberKind, NamespaceMember, NamespaceSpec, concat_members,
 };
-pub use types::AbiType;
+pub use types::{AbiType, SymbolDesc};

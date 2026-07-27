@@ -4051,6 +4051,7 @@ name = "rts-adapters"
 version = "0.1.0"
 dependencies = [
  "rts-engine",
+ "rts-macro",
  "rts-runtime",
 ]
 

@@ -240,6 +240,7 @@ fn key_text(key_str_handle: u64) -> String {
 /// object at RUNTIME. Returns the stored PolyValue word for a present key, or
 /// `undefined` when the key is absent OR `obj_word` is not a keyed object (an
 /// array / primitive). The lowering routes here only proven-object receivers.
+#[rtse::abi]
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
     // ToPropertyKey must run the key's coercion EXACTLY ONCE (JS 13.3.12): a key

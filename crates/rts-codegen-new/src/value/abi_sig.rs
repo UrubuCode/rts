@@ -1068,3 +1068,42 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
         _ => return None,
     })
 }
+
+#[cfg(test)]
+mod desc_agreement {
+    //! Every symbol carrying `#[rtse::abi]` must agree with this file's
+    //! hand-written table — until the table is deleted and the descriptors ARE
+    //! the source (F0 of `docs/specs/rts-macro-single-source.md`).
+    //!
+    //! This is the guard that did not exist. `abi_sig`'s own doc says it exists
+    //! because "mis-marshaling a single-slot string where the ABI expects two →
+    //! SIGILL", yet nothing checked it against the real `extern "C"` signature;
+    //! the two could drift silently and the failure mode is a runtime SIGILL,
+    //! not a link error. `#[rtse::abi]` derives the descriptor FROM the Rust
+    //! signature, so this test compares derived-truth against hand-written-truth
+    //! and fails the moment they disagree.
+    use super::sig_of;
+    use rts_engine::abi::SymbolDesc;
+
+    /// Assert the hand table agrees with the macro-derived descriptor.
+    fn agree(d: SymbolDesc) {
+        let hand = sig_of(d.name)
+            .unwrap_or_else(|| panic!("`{}` has a SymbolDesc but no abi_sig entry", d.name));
+        assert_eq!(
+            hand.params, d.params,
+            "params disagree for `{}`: abi_sig table vs #[rtse::abi]-derived",
+            d.name
+        );
+        assert_eq!(
+            hand.ret, d.ret,
+            "return disagrees for `{}`: abi_sig table vs #[rtse::abi]-derived",
+            d.name
+        );
+    }
+
+    #[test]
+    fn descriptors_match_the_hand_table() {
+        // Grows as `#[rtse::abi]` is applied to more symbols (F7 drains the rest).
+        agree(rts_adapters::value::objops::OBJ_GET_ABI);
+    }
+}
