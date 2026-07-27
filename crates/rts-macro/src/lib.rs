@@ -45,8 +45,19 @@
 //!  - `-> Option<Self>` (fallible ctor/factory → JS null on `None`) and
 //!    `-> Option<String>` (nullable string → JS null, ts `string | null`).
 //!  - `#[rtse::constant]` — a Rust `const` as a Registry `MemberKind::Constant`.
-//! Open gaps: `#[rtse::symbol]` (well-known), `global(descriptor)`, a per-param
-//! custom omitted-default sentinel (Date's `i64::MIN` "keep current").
+//!  - `#[rtse::symbol(...)]` — stacks on a `#[rtse::method]`/`#[rtse::getter]`/…
+//!    member to key it by SYMBOL instead of a plain string name.
+//!    `#[rtse::symbol("foo")]` → a REGISTRY symbol (`Symbol.for("foo")`,
+//!    string-keyed); `#[rtse::symbol(Symbol::iterator)]` → a WELL-KNOWN symbol
+//!    (`Symbol.iterator`, unique identity) — `Symbol` is emitted verbatim, so
+//!    `rustc` checks the path resolves (see `class::kind::SymbolKey`,
+//!    `rts_primitives::symbol::wellknown::Symbol`). Both forms key the member as
+//!    `@@sym:<name>` / `@@<ident>` — the same `@@`-prefixed spelling the
+//!    engine's computed-key desugar already uses for a `.ts` class's literal
+//!    `[Symbol.iterator]()`, so a Rust member and a `.ts` member resolve through
+//!    ONE protocol path, not two.
+//! Open gaps: `global(descriptor)`, a per-param custom omitted-default sentinel
+//! (Date's `i64::MIN` "keep current").
 //!
 //! # Module map
 //!
@@ -151,6 +162,10 @@ pub fn setter(_a: TokenStream, item: TokenStream) -> TokenStream {
 pub fn instanceof(_a: TokenStream, item: TokenStream) -> TokenStream {
     item
 }
+// `#[rtse::symbol(...)]` is stripped and interpreted by `class::kind::take_symbol_key`
+// while `#[rtse::class]` expands the enclosing impl (same pattern as the other
+// markers above) — this entry only exists so a stray/standalone use still
+// parses instead of erroring "unknown attribute".
 #[proc_macro_attribute]
 pub fn symbol(_a: TokenStream, item: TokenStream) -> TokenStream {
     item

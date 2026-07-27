@@ -34,6 +34,93 @@ use crate::abi::params::{param_of, ret_of};
 use crate::abi::scope::{AbiArgs, symbol_for};
 use crate::naming::{abi_const_name, to_camel};
 
+/// Parse and STRIP a `#[default(...)]` attribute from one parameter's attrs,
+/// returning the [`DefaultArg`](rts_engine::DefaultArg)-shaped token stream to
+/// embed in the generated `Sig`. Written once, next to the parameter it
+/// defaults — the single-source spot an author reads to know a call omitting
+/// this argument is legal and what it is padded with.
+///
+/// ```ignore
+/// #[rtse::function(module = "node:fs")]
+/// fn read_file(path: &str, #[default("utf8")] encoding: Poly) -> Poly { … }
+/// ```
+///
+/// Accepted forms (parsed from the token inside the parens):
+///  - `#[default(undefined)]` / `#[default(null)]` — the JS singletons.
+///  - `#[default(nan)]` / `#[default(infinity)]` — the two `f64` sentinels
+///    that read awkwardly as a bare float literal.
+///  - `#[default(true)]` / `#[default(false)]` — a boolean literal.
+///  - `#[default(10)]` — an integer literal → `DefaultArg::Int`.
+///  - `#[default(1.5)]` — a float literal → `DefaultArg::Float`.
+///  - `#[default("utf8")]` — a string literal → `DefaultArg::Str`, materialized
+///    at the call site through the ordinary string-construction path (never a
+///    hand-baked handle).
+///
+/// The attribute is purely a macro-time marker: it is REMOVED from `pt.attrs`
+/// before the parameter is re-emitted, so it never reaches rustc as a real
+/// attribute on the generated `extern "C"` (or wrapped) function.
+fn take_default(pt: &mut syn::PatType) -> syn::Result<Option<proc_macro2::TokenStream>> {
+    let Some(idx) = pt.attrs.iter().position(|a| a.path().is_ident("default")) else {
+        return Ok(None);
+    };
+    let attr = pt.attrs.remove(idx);
+    let syn::Meta::List(list) = &attr.meta else {
+        return Err(syn::Error::new_spanned(
+            &attr,
+            "#[default(...)]: expected a parenthesized value, e.g. `#[default(\"utf8\")]`",
+        ));
+    };
+    let toks = list.tokens.clone();
+    if let Ok(ident) = syn::parse2::<syn::Ident>(toks.clone()) {
+        let name = ident.to_string();
+        return Ok(Some(match name.as_str() {
+            "undefined" => quote!(::rts_engine::DefaultArg::Undefined),
+            "null" => quote!(::rts_engine::DefaultArg::Null),
+            "nan" => quote!(::rts_engine::DefaultArg::Float(f64::NAN)),
+            "infinity" => quote!(::rts_engine::DefaultArg::Float(f64::INFINITY)),
+            "true" => quote!(::rts_engine::DefaultArg::Bool(true)),
+            "false" => quote!(::rts_engine::DefaultArg::Bool(false)),
+            _ => {
+                return Err(syn::Error::new_spanned(
+                    &attr,
+                    "#[default(...)]: unknown keyword — expected `undefined`, `null`, `nan`, \
+                     `infinity`, `true`, or `false`, or a literal",
+                ));
+            }
+        }));
+    }
+    let lit: syn::Lit = syn::parse2(toks).map_err(|_| {
+        syn::Error::new_spanned(
+            &attr,
+            "#[default(...)]: expected a keyword or a literal (int/float/string/bool)",
+        )
+    })?;
+    Ok(Some(match lit {
+        syn::Lit::Str(s) => {
+            let v = s.value();
+            quote!(::rts_engine::DefaultArg::Str(#v))
+        }
+        syn::Lit::Int(n) => {
+            let v: i64 = n.base10_parse()?;
+            quote!(::rts_engine::DefaultArg::Int(#v))
+        }
+        syn::Lit::Float(f) => {
+            let v: f64 = f.base10_parse()?;
+            quote!(::rts_engine::DefaultArg::Float(#v))
+        }
+        syn::Lit::Bool(b) => {
+            let v = b.value;
+            quote!(::rts_engine::DefaultArg::Bool(#v))
+        }
+        other => {
+            return Err(syn::Error::new_spanned(
+                other,
+                "#[default(...)]: unsupported literal kind",
+            ));
+        }
+    }))
+}
+
 pub(crate) fn expand(a: TokenStream, item: TokenStream) -> TokenStream {
     let mut func = syn::parse_macro_input!(item as syn::ItemFn);
     let args = match syn::parse::<AbiArgs>(a) {
@@ -65,8 +152,12 @@ pub(crate) fn expand(a: TokenStream, item: TokenStream) -> TokenStream {
     let mut ext_params: Vec<proc_macro2::TokenStream> = Vec::new();
     let mut call_args: Vec<proc_macro2::TokenStream> = Vec::new();
     let mut ts_params: Vec<String> = Vec::new();
+    // Parallel to `abis`: `None` until the first `#[default(...)]` is seen, then
+    // every SUBSEQUENT slot must also carry one (a required param cannot follow
+    // an optional one) — enforced right after the loop.
+    let mut defaults: Vec<Option<proc_macro2::TokenStream>> = Vec::new();
     let mut wrap = false;
-    for (idx, arg) in func.sig.inputs.iter().enumerate() {
+    for (idx, arg) in func.sig.inputs.iter_mut().enumerate() {
         let syn::FnArg::Typed(pt) = arg else {
             return syn::Error::new_spanned(
                 arg,
@@ -75,6 +166,11 @@ pub(crate) fn expand(a: TokenStream, item: TokenStream) -> TokenStream {
             .to_compile_error()
             .into();
         };
+        let default = match take_default(pt) {
+            Ok(d) => d,
+            Err(e) => return e.to_compile_error().into(),
+        };
+        defaults.push(default);
         let Some(p) = param_of(&pt.ty, idx) else {
             return syn::Error::new_spanned(
                 &pt.ty,
@@ -94,6 +190,33 @@ pub(crate) fn expand(a: TokenStream, item: TokenStream) -> TokenStream {
         call_args.push(p.call);
         wrap |= p.needs_wrapper;
     }
+
+    // A `#[default(...)]` param must not be followed by a plain required one —
+    // JS optional-tail semantics, same rule the engine's arity window assumes
+    // (`required_args` reads the leading run of `DefaultArg::Required`).
+    let first_default = defaults.iter().position(Option::is_some);
+    if let Some(start) = first_default {
+        if let Some(gap) = defaults[start..].iter().position(Option::is_none) {
+            let bad = &func.sig.inputs[start + gap];
+            return syn::Error::new_spanned(
+                bad,
+                "#[rtse::function]: a required parameter cannot follow a `#[default(...)]` one",
+            )
+            .to_compile_error()
+            .into();
+        }
+    }
+    let default_args: Vec<proc_macro2::TokenStream> = if first_default.is_some() {
+        defaults
+            .iter()
+            .map(|d| match d {
+                Some(t) => t.clone(),
+                None => quote!(::rts_engine::DefaultArg::Required),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     let Some(ret) = ret_of(&func.sig.output) else {
         return syn::Error::new_spanned(
@@ -158,7 +281,11 @@ pub(crate) fn expand(a: TokenStream, item: TokenStream) -> TokenStream {
             ::rts_engine::Member {
                 name: #js_name.into(),
                 kind: ::rts_engine::MemberKind::Function,
-                sig: ::rts_engine::Sig::new(::std::vec![#(#abis),*], #ret_abi),
+                sig: ::rts_engine::Sig::with_defaults(
+                    ::std::vec![#(#abis),*],
+                    #ret_abi,
+                    ::std::vec![#(#default_args),*],
+                ),
                 symbol: #sym.into(),
                 fn_ptr: ::rts_engine::FnPtr(#extern_ident as *const u8),
                 flags: ::rts_engine::MemberFlags::NONE,

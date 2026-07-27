@@ -203,7 +203,7 @@ mod tests {
     fn decode_plain_bytes() {
         let d = dec(false);
         let buf = alloc_entry(Entry::Buffer(b"hi".to_vec()));
-        let sh = __RTS_FN_GL_TEXTDECODER_decode(d, buf, 0);
+        let sh = __rtsm_global_textdecoder_decode(d, buf, 0);
         let s = with_entry(sh, |e| match e {
             Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
             _ => String::new(),
@@ -215,7 +215,7 @@ mod tests {
     fn decode_strips_bom_once() {
         let d = dec(false);
         let buf = alloc_entry(Entry::Buffer([0xEFu8, 0xBB, 0xBF, b'x'].to_vec()));
-        let sh = __RTS_FN_GL_TEXTDECODER_decode(d, buf, 0);
+        let sh = __rtsm_global_textdecoder_decode(d, buf, 0);
         let s = with_entry(sh, |e| match e {
             Some(Entry::String(b)) => String::from_utf8_lossy(b).into_owned(),
             _ => String::new(),

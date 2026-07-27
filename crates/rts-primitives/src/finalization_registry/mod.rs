@@ -54,10 +54,10 @@ mod tests {
     #[test]
     fn register_unregister_roundtrip() {
         let cb = alloc_entry(Entry::String(b"cb".to_vec()));
-        let reg = __RTS_FN_GL_FINALIZATIONREGISTRY_new(cb);
+        let reg = __rtsm_global_finalizationregistry_new(cb);
         let target = 0xdeadbeef;
-        __RTS_FN_GL_FINALIZATIONREGISTRY_register(reg, target, 7);
-        assert_eq!(__RTS_FN_GL_FINALIZATIONREGISTRY_unregister(reg, target), 1);
-        assert_eq!(__RTS_FN_GL_FINALIZATIONREGISTRY_unregister(reg, target), 0);
+        __rtsm_global_finalizationregistry_register(reg, target, 7);
+        assert_eq!(__rtsm_global_finalizationregistry_unregister(reg, target), 1);
+        assert_eq!(__rtsm_global_finalizationregistry_unregister(reg, target), 0);
     }
 }

@@ -16,7 +16,7 @@ use quote::{format_ident, quote};
 use syn::{ImplItem, ItemImpl, Type};
 
 use crate::abi::scope::{Scope, symbol_for};
-use kind::{take_kind, take_variable};
+use kind::{take_kind, take_symbol_key, take_variable};
 
 /// The linker symbol of one member of a global class, DERIVED by the same rule
 /// `#[rtse::abi]` uses (`rts_abi::scope::symbol_for`) — a class member is exactly
@@ -141,8 +141,20 @@ fn gen_impl(
         let Some(kind) = take_kind(&mut f.attrs) else {
             continue;
         };
+        let symbol_key = match take_symbol_key(&mut f.attrs) {
+            Ok(k) => k,
+            Err(e) => return e.to_compile_error().into(),
+        };
         let doc = extract_doc(&f.attrs);
-        match member::gen_member(&class_name, &self_ty, &f.sig, kind, value_class, doc) {
+        match member::gen_member(
+            &class_name,
+            &self_ty,
+            &f.sig,
+            kind,
+            symbol_key,
+            value_class,
+            doc,
+        ) {
             Ok((ext, mem, id)) => {
                 externs.push(ext);
                 members.push(mem);

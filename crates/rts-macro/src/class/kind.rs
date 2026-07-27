@@ -181,6 +181,60 @@ fn method_args(a: &syn::Attribute) -> MethodArgs {
     out
 }
 
+/// A parsed `#[rtse::symbol(...)]` marker — stacks alongside `#[rtse::method]`/
+/// `#[rtse::getter]`/etc (it does not select the member KIND, only its KEY).
+///
+/// - `Registry(name)` — `#[rtse::symbol("foo")]`. Keyed like `Symbol.for("foo")`:
+///   a string-keyed registry symbol, not a unique identity.
+/// - `WellKnown(path)` — `#[rtse::symbol(Symbol::iterator)]`. `path` is emitted
+///   VERBATIM into the generated extern body (`#path.handle()`), so a typo is a
+///   rustc error at the site that declares the member, not a silent runtime
+///   miss (see `rts_primitives::symbol::wellknown::Symbol`).
+pub(crate) enum SymbolKey {
+    Registry(String),
+    WellKnown(syn::Path),
+}
+
+enum SymbolArg {
+    Str(String),
+    Path(syn::Path),
+}
+
+impl syn::parse::Parse for SymbolArg {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        if input.peek(syn::LitStr) {
+            let s: syn::LitStr = input.parse()?;
+            Ok(SymbolArg::Str(s.value()))
+        } else {
+            let p: syn::Path = input.parse()?;
+            Ok(SymbolArg::Path(p))
+        }
+    }
+}
+
+/// Detect + strip a `#[rtse::symbol("key")]` / `#[rtse::symbol(Path::to::const)]`
+/// on an impl fn. `None` = not symbol-keyed (an ordinary named member).
+pub(crate) fn take_symbol_key(attrs: &mut Vec<syn::Attribute>) -> syn::Result<Option<SymbolKey>> {
+    let mut found = None;
+    let mut err = None;
+    attrs.retain(|a| {
+        let segs = &a.path().segments;
+        if segs.len() == 2 && segs[0].ident == "rtse" && segs[1].ident == "symbol" {
+            match a.parse_args::<SymbolArg>() {
+                Ok(SymbolArg::Str(s)) => found = Some(SymbolKey::Registry(s)),
+                Ok(SymbolArg::Path(p)) => found = Some(SymbolKey::WellKnown(p)),
+                Err(e) => err = Some(e),
+            }
+            return false;
+        }
+        true
+    });
+    if let Some(e) = err {
+        return Err(e);
+    }
+    Ok(found)
+}
+
 /// Detect + strip a `#[rtse::variable]` / `#[rtse::variable(readonly)]` on a field.
 /// `Some(readonly)` when present; `None` = a plain field (not exposed).
 pub(crate) fn take_variable(attrs: &mut Vec<syn::Attribute>) -> Option<bool> {

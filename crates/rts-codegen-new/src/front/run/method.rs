@@ -478,7 +478,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             vals.push(self.lower_expr(module, a)?);
         }
         for i in argc..call.arg_abis.len() {
-            vals.push(self.default_arg_val(call.default_args.get(i), prim_class, i)?);
+            vals.push(self.default_arg_val(module, call.default_args.get(i), prim_class, i)?);
         }
         let result_kind = match call.ret {
             rts_engine::abi::AbiType::Handle if call.ret_is_string_handle => JsKind::Str,
