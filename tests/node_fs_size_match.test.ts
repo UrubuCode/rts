@@ -1,7 +1,8 @@
 import { describe, test, expect } from "rts:test";
 import {
   writeFileSync,
-  sizeSync,
+  statSync,
+  existsSync,
   rmSync,
 } from "node:fs";
 
@@ -10,31 +11,36 @@ function print(value: string): void {
   __rtsCapturedOutput += value + "\n";
 }
 
-// #453 — sizeSync deve refletir o conteudo escrito por writeFileSync,
-// inclusive em append-style overwrites de tamanhos diferentes.
+// #453 — o tamanho reportado deve refletir o conteudo escrito por writeFileSync,
+// inclusive em overwrites de tamanhos diferentes.
+//
+// Migrado de `sizeSync(path)` para `statSync(path).size`: `sizeSync` era uma API
+// so-do-RTS, foi drenada, e o Node NAO a tem — o tamanho de um arquivo se le pelo
+// `Stats`. O caso "arquivo inexistente" muda de forma junto: `sizeSync` devolvia
+// -1, enquanto no Node `statSync` de um caminho ausente LANCA; a pergunta "ainda
+// existe?" se faz com `existsSync`, que e como um programa real a escreve.
 
 const PATH = "__rts_size_match.txt";
 
 writeFileSync(PATH, "hi");
-const s1 = sizeSync(PATH);
+const s1 = statSync(PATH).size;
 print(`${s1}`);
 
 writeFileSync(PATH, "longer-content-here");
-const s2 = sizeSync(PATH);
+const s2 = statSync(PATH).size;
 print(`${s2}`);
 
 writeFileSync(PATH, "");
-const s3 = sizeSync(PATH);
+const s3 = statSync(PATH).size;
 print(`${s3}`);
 
 rmSync(PATH);
 
-// sizeSync de arquivo inexistente: -1
-const s4 = sizeSync(PATH);
-print(`${s4}`);
+// removido: nao existe mais.
+print(`${existsSync(PATH)}`);
 
 describe("fixture:node_fs_size_match", () => {
-  test("size after write/overwrite/empty/missing", () => {
-    expect(__rtsCapturedOutput).toBe("2\n19\n0\n-1\n");
+  test("size after write/overwrite/empty, then gone", () => {
+    expect(__rtsCapturedOutput).toBe("2\n19\n0\nfalse\n");
   });
 });

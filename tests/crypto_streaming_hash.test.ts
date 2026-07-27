@@ -3,7 +3,12 @@
 
 import { describe, test, expect } from "rts:test";
 import { crypto } from "rts";
-import { createHash, hashUpdate, hashDigestHex, hashDigestBase64 } from "node:crypto";
+import { createHash } from "node:crypto";
+
+// Os helpers soltos `hashUpdate`/`hashDigestHex`/`hashDigestBase64` eram atalhos
+// so-do-RTS e foram drenados: no Node o hash e ENCADEADO —
+// `createHash(alg).update(data).digest(enc)`. Os primitivos crus continuam
+// disponiveis em `rts.crypto.hash_*` (usados na primeira metade do arquivo).
 
 // Vetor de teste oficial: sha256("hello world")
 const KNOWN_HEX =
@@ -41,16 +46,19 @@ const hBad = crypto.hash_new("md5");
 const hBad_digest = crypto.hash_digest_hex(hBad);
 const hBad_empty: i64 = hBad_digest.length;
 
-// 6. node:crypto.createHash hex
-const h6 = createHash("sha256");
-hashUpdate(h6, "hello world");
-const hex6 = hashDigestHex(h6);
+// 6. node:crypto encadeado, hex
+const hex6 = createHash("sha256").update("hello world").digest("hex");
 
-// 7. node:crypto base64 — base64 conhecido pra "hello world"
-const h7 = createHash("sha256");
-hashUpdate(h7, "hello world");
-const b64_7 = hashDigestBase64(h7);
+// 7. node:crypto encadeado, base64
+const b64_7 = createHash("sha256").update("hello world").digest("base64");
 const KNOWN_B64 = "uU0nuZNNPgilLlLX2n2r+sSE7+N6U4DukIj3rOLvzek=";
+
+// 8. update INCREMENTAL na API do Node: 3 chamadas devem dar o mesmo hash.
+const hex8 = createHash("sha256")
+    .update("hello")
+    .update(" ")
+    .update("world")
+    .digest("hex");
 
 describe("crypto_streaming_hash", () => {
     test("sha256(hello world) one-shot hex", () =>
@@ -67,4 +75,6 @@ describe("crypto_streaming_hash", () => {
         expect(hex6).toBe(KNOWN_HEX));
     test("node:crypto.createHash base64 known", () =>
         expect(b64_7).toBe(KNOWN_B64));
+    test("node:crypto update incremental bate com one-shot", () =>
+        expect(hex8).toBe(KNOWN_HEX));
 });
