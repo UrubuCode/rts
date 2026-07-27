@@ -86,6 +86,10 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             rt_payload::__rtsn_vec_set_by_payload as *const u8,
         ),
         sym(
+            "__rtsn_vec_push_by_payload",
+            rt_payload::__rtsn_vec_push_by_payload as *const u8,
+        ),
+        sym(
             "__rtsn_vec_len_by_payload",
             rt_payload::__rtsn_vec_len_by_payload as *const u8,
         ),
