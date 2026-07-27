@@ -620,7 +620,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 /// param is required (`required == total`). The `[required, total]` window is the
 /// arity a ctor/static admits — the spec-data replacement for hardcoded arity
 /// literals.
-fn required_args(default_args: &[DefaultArg], total: usize) -> usize {
+pub(super) fn required_args(default_args: &[DefaultArg], total: usize) -> usize {
     if default_args.is_empty() {
         total
     } else {

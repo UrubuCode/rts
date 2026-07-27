@@ -148,9 +148,11 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     // static-call path can resolve `Promise.resolve()` generically.
     ns::globals::promise::register_promise_class_spec,
     ns::globals::regexp::register_regexp_class_spec,
-    // Error is NOT here — it is a `.ts` prelude (ERROR_TS). Boolean/Number/String
-    // class specs let the `new X(..)` WRAPPER ctor resolve through the Registry.
-    ns::globals::boolean::register_boolean_class_spec,
+    // Error is NOT here — it is a `.ts` prelude (ERROR_TS). Number/String class
+    // specs let the `new X(..)` WRAPPER ctor resolve through the Registry.
+    // Boolean is a pure-Rust `#[rtse::class("Boolean", value)]` value-class
+    // (`boolean.rs`, no `.ts` prelude) — its macro-generated `register` fn.
+    ns::globals::boolean::register,
     ns::globals::number::register_number_class_spec,
     ns::globals::string::register_string_class_spec,
     // `URL` — backend/Registry class (WHATWG parser, no native syntax): `new URL(s)`
@@ -478,12 +480,9 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
         source: rts_runtime::OBJECT_TS,
         why: "hasOwnProperty/toString/valueOf",
     },
+    // Boolean — MIGRATED to a pure-Rust `#[rtse::class("Boolean", value)]`
+    // (rts-primitives/src/boolean.rs); NO `.ts` prelude (same drain as String).
     // PRIMITIVE method libs (receiver boxed as `this`).
-    PreludeTs {
-        label: "Boolean",
-        source: rts_runtime::BOOLEAN_TS,
-        why: "bool.toString/valueOf",
-    },
     PreludeTs {
         label: "Number",
         source: rts_runtime::NUMBER_TS,

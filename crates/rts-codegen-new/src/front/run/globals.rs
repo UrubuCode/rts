@@ -48,6 +48,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if self.local(name).is_some() || self.sigs.contains_key(name) {
             return Ok(None);
         }
+        // A registered class declaring `#[rtse::functioncall]` (the call-WITHOUT-
+        // `new` protocol member, `MemberKind::CallWithoutNew`) owns its bare-call
+        // behaviour as DATA — resolved generically here, no class name in control
+        // flow. `None` (no such member) falls through unchanged to the match below
+        // (today: every class but the ones migrated to declare one).
+        if let Some(rc) = super::registry::class_functioncall(name) {
+            return self.lower_class_functioncall(module, name, &rc, args).map(Some);
+        }
         match name {
             "Number" => {
                 // `Number()` with NO arg is `+0` (JS spec).
@@ -155,6 +163,46 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 .map(Some),
             _ => Ok(None),
         }
+    }
+
+    /// Lower `Class(args)` — the call-WITHOUT-`new` protocol member a class
+    /// declares via `#[rtse::functioncall]` — as an ordinary FLAT call (args
+    /// marshalled like a static call, no receiver slot). Mirrors
+    /// `Lowerer::resolve_static_via_registry`'s arity-window + default-padding
+    /// logic, minus the overload search (a class declares AT MOST one
+    /// functioncall member).
+    fn lower_class_functioncall(
+        &mut self,
+        module: &mut dyn Module,
+        class: &str,
+        call: &super::registry::ResolvedCall,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        use rts_engine::abi::AbiType;
+        let total = call.arg_abis.len();
+        let argc = args.len();
+        let required = super::registryclass::required_args(&call.default_args, total);
+        if argc < required || argc > total {
+            return unsupported!(
+                "`{class}({argc} args)` — the functioncall overload accepts \
+                 {required}..={total} arg(s)"
+            );
+        }
+        let mut vals: Vec<Val> = Vec::with_capacity(total);
+        for a in args {
+            vals.push(self.lower_expr(module, a)?);
+        }
+        for i in argc..total {
+            vals.push(self.default_arg_val(module, call.default_args.get(i), class, i)?);
+        }
+        let result_kind = match call.ret {
+            AbiType::Handle if call.ret_is_string_handle => JsKind::Str,
+            AbiType::Handle if call.ret_is_array_handle => JsKind::Array,
+            AbiType::Handle => JsKind::Object,
+            AbiType::Bool => JsKind::Bool,
+            _ => JsKind::Number,
+        };
+        self.emit_registry_call(module, call, None, &vals, result_kind)
     }
 
     /// Lower a string→string GLOBAL function (`encodeURIComponent`/`btoa`/…): the
