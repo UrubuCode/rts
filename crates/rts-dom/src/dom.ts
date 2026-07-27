@@ -52,6 +52,48 @@ class Event {
   preventDefault(): void { this._prevented = 1; }
 }
 
+// A AÇÃO DEFAULT de um clique, depois que os listeners rodaram e ninguém
+// cancelou. É a tabela que o HTML define para "o que acontece se a página não
+// interferir", e vale para clique por nó (`el.click()`) e por coordenada
+// (`doc.clickAt`) — daí viver numa função só.
+//
+// Devolve a URL a navegar, ou "" quando a ação default não navega (alternar um
+// checkbox, por exemplo, é ação default e não gera navegação).
+function __acaoDefaultDoClique(h: i64, node: number): string {
+  const tag = dom.tagName(h, node).toLowerCase();
+  const tipo = dom.getAttribute(h, node, "type").toLowerCase();
+
+  // 1. checkbox / radio: alterna (e dispara `change`).
+  if (tag === "input" && (tipo === "checkbox" || tipo === "radio")) {
+    const agora = dom.isChecked(h, node) !== 0;
+    const novo = tipo === "radio" ? true : !agora;
+    dom.setChecked(h, node, novo ? 1 : 0);
+    __dispatchCancelable(h, node, "change", 1);
+    return "";
+  }
+
+  // 2. submit: dispara `submit` NO FORM; se ninguém cancelar, a ação default é
+  //    ir para o `action` do form (GET/POST é decisão de quem navega).
+  const ehSubmit = tipo === "submit"
+    || (tag === "button" && (tipo.length === 0 || tipo === "submit"));
+  if (ehSubmit) {
+    const form = dom.closest(h, node, "form");
+    if (form !== __DOM_NONE) {
+      const cancelado = __dispatchCancelable(h, form, "submit", 1);
+      if (cancelado !== 0) return "";
+      const action = dom.getAttribute(h, form, "action");
+      return action;
+    }
+    return "";
+  }
+
+  // 3. <a href>: navegar. `closest` sobe a árvore — clicar num <span> dentro
+  //    do link também navega.
+  const anchor = dom.closest(h, node, "a");
+  if (anchor === __DOM_NONE) return "";
+  return dom.getAttribute(h, anchor, "href");
+}
+
 // Despacho de evento com CALLBACKS: coleta os pares (nó, fn-word) do Rust
 // (`dispatchCollect` — alvo primeiro, depois bubbling), COPIA tudo para arrays
 // locais (um callback pode re-despachar e sobrescrever o scratch do Dom) e invoca
@@ -434,9 +476,7 @@ class Element {
   click(): string {
     const prevented = __dispatchCancelable(this._dom, this._node, "click", 1);
     if (prevented !== 0) return "";
-    const anchor = dom.closest(this._dom, this._node, "a");
-    if (anchor === __DOM_NONE) return "";
-    return dom.getAttribute(this._dom, anchor, "href");
+    return __acaoDefaultDoClique(this._dom, this._node);
   }
 
   // `el.focus()` — dá o foco a este campo (passa a receber o texto digitado).
@@ -469,9 +509,34 @@ class Element {
     return dom.inputValue(this._dom, this._node);
   }
 
-  // `el.value` — o valor corrente de um campo de formulário.
+  // `el.value` — o valor corrente de um campo de formulário. A fonte muda com a
+  // tag: `value=` num `<input>`, o texto filho num `<textarea>`, a `<option>`
+  // marcada num `<select>` — o Rust resolve isso.
   get value(): string {
     return dom.inputValue(this._dom, this._node);
+  }
+
+  // `el.checked` — estado de um checkbox/radio.
+  get checked(): boolean {
+    return dom.isChecked(this._dom, this._node) !== 0;
+  }
+
+  set checked(on: boolean) {
+    dom.setChecked(this._dom, this._node, on ? 1 : 0);
+  }
+
+  // `el.toggle()` — alterna um checkbox e dispara `change` (o evento que um
+  // formulário escuta). Num radio, marca e limpa os irmãos de mesmo `name`.
+  // Devolve o estado resultante.
+  toggle(): boolean {
+    const tipo = dom.getAttribute(this._dom, this._node, "type").toLowerCase();
+    const agora = dom.isChecked(this._dom, this._node) !== 0;
+    // Um radio marcado NÃO desmarca ao ser clicado de novo (regra do HTML);
+    // um checkbox alterna.
+    const novo = tipo === "radio" ? true : !agora;
+    dom.setChecked(this._dom, this._node, novo ? 1 : 0);
+    __dispatchCancelable(this._dom, this._node, "change", 1);
+    return novo;
   }
   // `el.nodeId` — o NodeId cru deste elemento (p/ comparar no switch do polling).
   get nodeId(): number {
@@ -734,9 +799,7 @@ class Mouse {
     if (alvo === __DOM_NONE) return "";
     const prevented = __dispatchCancelable(this._dom, alvo, "click", 1);
     if (prevented !== 0) return "";
-    const anchor = dom.closest(this._dom, alvo, "a");
-    if (anchor === __DOM_NONE) return "";
-    return dom.getAttribute(this._dom, anchor, "href");
+    return __acaoDefaultDoClique(this._dom, alvo);
   }
 
   // `mouse.elementUnder()` — o elemento sob o cursor agora (`null` se nenhum).
@@ -866,11 +929,7 @@ class Document {
     if (n === __DOM_NONE) return "";
     const prevented = __dispatchCancelable(this._dom, n, "click", 1);
     if (prevented !== 0) return "";
-    // Ação default do clique: se o alvo está DENTRO de um <a href>, navegar.
-    // `closest` sobe a árvore — clicar no <span> dentro do link também navega.
-    const anchor = dom.closest(this._dom, n, "a");
-    if (anchor === __DOM_NONE) return "";
-    return dom.getAttribute(this._dom, anchor, "href");
+    return __acaoDefaultDoClique(this._dom, n);
   }
 
   // ── AUTOMAÇÃO por SELETOR — o caminho ergonômico (estilo Puppeteer) ──────────

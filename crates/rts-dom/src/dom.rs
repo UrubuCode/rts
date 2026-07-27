@@ -247,6 +247,10 @@ pub struct Dom {
     /// AQUI, não no atributo. O layout lê daqui (fallback: atributo `value`, senão o
     /// `placeholder`). DERIVADO — fora do `PartialEq`.
     input_values: HashMap<NodeIdx, String>,
+    /// Estado EDITÁVEL de checkbox/radio. Separado do atributo `checked` do HTML
+    /// pelo mesmo motivo de `input_values`: o atributo é o valor INICIAL, e mexer
+    /// no controle não o reescreve (é assim no browser).
+    checked_states: HashMap<NodeIdx, bool>,
     /// Imagem decodificada de cada `<img>` (pixels RGBA já prontos): `(handle do
     /// Buffer, offset dos pixels, w, h)`. Setado pelo browser via `setImage` depois
     /// de baixar+decodificar; o layout emite `DisplayItem::Image`. DERIVADO, fora do Eq.
@@ -303,6 +307,7 @@ impl Dom {
             viewport: std::cell::Cell::new((1280.0, 800.0)),
             memo_viewport: std::cell::Cell::new((1280.0f32.to_bits(), 800.0f32.to_bits())),
             input_values: HashMap::new(),
+            checked_states: HashMap::new(),
             image_pixels: HashMap::new(),
             focused_input: None,
         }
@@ -316,7 +321,115 @@ impl Dom {
         if let Some(v) = self.input_values.get(&id) {
             return v.clone();
         }
-        self.node(id).attr("value").unwrap_or("").to_string()
+        // De onde vem o valor INICIAL depende da tag — os três controles de
+        // formulário guardam o valor em lugares diferentes, e ler `value=` em
+        // todos devolvia string vazia para dois deles:
+        //
+        //   <input value="x">        → o atributo (o caso comum)
+        //   <textarea>x</textarea>   → o TEXTO filho (textarea não tem `value=`)
+        //   <select><option selected> → o `value` da OPTION marcada; sem nenhuma
+        //                               marcada, o da primeira (regra do HTML)
+        let tag = match &self.node(id).kind {
+            NodeKind::Element { tag } => tag.to_ascii_lowercase(),
+            _ => String::new(),
+        };
+        match tag.as_str() {
+            "textarea" => {
+                let mut t = String::new();
+                self.collect_text_into(id, &mut t);
+                t
+            }
+            "select" => self.selected_option_value(id),
+            _ => self.node(id).attr("value").unwrap_or("").to_string(),
+        }
+    }
+
+    /// O `value` da `<option>` selecionada de um `<select>`.
+    ///
+    /// Ordem do HTML: a primeira `<option selected>`; na falta de qualquer uma,
+    /// a PRIMEIRA option (um `<select>` sem `selected` explícito já nasce com a
+    /// primeira escolhida). Uma option sem `value=` vale pelo seu texto, também
+    /// como na spec.
+    fn selected_option_value(&self, id: NodeIdx) -> String {
+        let mut primeira: Option<NodeIdx> = None;
+        let mut marcada: Option<NodeIdx> = None;
+        self.walk_options(id, &mut |opt, dom| {
+            if primeira.is_none() {
+                primeira = Some(opt);
+            }
+            if marcada.is_none() && dom.node(opt).attr("selected").is_some() {
+                marcada = Some(opt);
+            }
+        });
+        let alvo = marcada.or(primeira);
+        match alvo {
+            Some(o) => match self.node(o).attr("value") {
+                Some(v) => v.to_string(),
+                // Sem `value=`, o valor de uma option É o seu texto.
+                None => {
+                    let mut t = String::new();
+                    self.collect_text_into(o, &mut t);
+                    t
+                }
+            },
+            None => String::new(),
+        }
+    }
+
+    /// Visita cada `<option>` descendente de `id`, em ordem de documento.
+    /// Recursivo porque um `<select>` pode agrupar em `<optgroup>`.
+    fn walk_options(&self, id: NodeIdx, f: &mut impl FnMut(NodeIdx, &Self)) {
+        for &c in &self.node(id).children {
+            if let NodeKind::Element { tag } = &self.node(c).kind {
+                if tag.eq_ignore_ascii_case("option") {
+                    f(c, self);
+                } else {
+                    self.walk_options(c, f);
+                }
+            }
+        }
+    }
+
+    /// `true` se um `<input type=checkbox|radio>` está marcado.
+    ///
+    /// Estado EDITÁVEL: um clique alterna, e a partir daí o que vale é o estado
+    /// guardado — o atributo `checked` do HTML é só o valor inicial (é assim no
+    /// browser: mexer no controle não reescreve o atributo).
+    pub fn is_checked(&self, id: NodeIdx) -> bool {
+        if let Some(v) = self.checked_states.get(&id) {
+            return *v;
+        }
+        self.node(id).attr("checked").is_some()
+    }
+
+    /// Marca/desmarca um checkbox. Num RADIO, marcar desmarca os irmãos de mesmo
+    /// `name` — o comportamento que faz um grupo de rádio ser exclusivo.
+    pub fn set_checked(&mut self, id: NodeIdx, on: bool) {
+        let eh_radio = self
+            .node(id)
+            .attr("type")
+            .is_some_and(|t| t.eq_ignore_ascii_case("radio"));
+        if eh_radio && on {
+            let grupo = self.node(id).attr("name").map(|s| s.to_string());
+            if let Some(nome) = grupo {
+                let irmaos: Vec<NodeIdx> = self
+                    .nodes
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, n)| {
+                        *i != id
+                            && matches!(&n.kind, NodeKind::Element { tag } if tag.eq_ignore_ascii_case("input"))
+                            && n.attrs.iter().any(|a| a.name.eq_ignore_ascii_case("name") && a.value == nome)
+                    })
+                    .map(|(i, _)| i)
+                    .collect();
+                for irmao in irmaos {
+                    self.checked_states.insert(irmao, false);
+                }
+            }
+        }
+        self.checked_states.insert(id, on);
+        self.touch();
     }
 
     /// `true` se o input está vazio (nada digitado e sem `value=`) — o layout então

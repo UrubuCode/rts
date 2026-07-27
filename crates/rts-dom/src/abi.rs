@@ -580,6 +580,30 @@ pub extern "C" fn __RTS_FN_NS_DOM_INPUT_VALUE(h: u64, id: i64) -> u64 {
     intern(&v)
 }
 
+/// `isChecked(dom, node)` → 1 se um `<input type=checkbox|radio>` está marcado.
+/// Lê o estado EDITÁVEL (o que o usuário alternou); na ausência dele, o atributo
+/// `checked` do HTML, que é só o valor inicial.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_IS_CHECKED(h: u64, id: i64) -> i64 {
+    let Some(node) = NodeId::from_abi(id) else { return 0 };
+    with(h, |dom| {
+        dom.resolve(node).map(|idx| i64::from(dom.is_checked(idx))).unwrap_or(0)
+    })
+    .unwrap_or(0)
+}
+
+/// `setChecked(dom, node, on)` — marca/desmarca. Num RADIO, marcar desmarca os
+/// irmãos de mesmo `name` (é o que faz um grupo ser exclusivo).
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_SET_CHECKED(h: u64, id: i64, on: i64) {
+    let Some(node) = NodeId::from_abi(id) else { return };
+    with_mut(h, |dom| {
+        if let Some(idx) = dom.resolve(node) {
+            dom.set_checked(idx, on != 0);
+        }
+    });
+}
+
 // ── Leitura de conteúdo: STRING de volta pro TS (handle do pool GC) ──────────────
 // A ABI proíbe `StrPtr` de RETORNO (só de arg). A forma de devolver string é
 // internar no pool GC (`intern`) e retornar o handle `u64`; no register() esse
@@ -2078,8 +2102,24 @@ pub fn register(e: &mut Engine) {
             "inputValue", "__RTS_FN_NS_DOM_INPUT_VALUE",
             Sig::new(vec![Handle, I64], AbiType::Handle),
             "inputValue(dom: number, node: number): string",
-            "current text of the input (typed value or value= attribute); '' if not an input.",
+            "Current value of a form control: the typed text, else the source of \
+             truth for its tag — value= for <input>, the child text for <textarea>, \
+             the selected <option> for <select>. '' if not a control.",
             __RTS_FN_NS_DOM_INPUT_VALUE as *const u8,
+        ))
+        .member(func(
+            "isChecked", "__RTS_FN_NS_DOM_IS_CHECKED",
+            Sig::new(vec![Handle, I64], I64),
+            "isChecked(dom: number, node: number): number",
+            "1 if a checkbox/radio is checked (edited state, else the checked= attribute).",
+            __RTS_FN_NS_DOM_IS_CHECKED as *const u8,
+        ))
+        .member(func(
+            "setChecked", "__RTS_FN_NS_DOM_SET_CHECKED",
+            Sig::new(vec![Handle, I64, I64], AbiType::Void),
+            "setChecked(dom: number, node: number, on: number): void",
+            "Check/uncheck. On a RADIO, checking clears the same-name siblings.",
+            __RTS_FN_NS_DOM_SET_CHECKED as *const u8,
         ))
         .member(func(
             "getAttribute",
