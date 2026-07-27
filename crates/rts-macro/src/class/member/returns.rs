@@ -124,36 +124,49 @@ pub(crate) fn build_return(sig: &syn::Signature, class: &str, is_ctor: bool) -> 
                 ret_class,
             )
         }
-        // `-> SomeOtherClass` / `-> Option<SomeOtherClass>`: an instance of a
-        // DIFFERENT registered class (`node:fs::createReadStream() ->
-        // StreamReader`, `url.searchParams -> URLSearchParams`). The class name
-        // comes from `SomeOtherClass::RTSE_CLASS` (a `#[rtse::class("Name")]`-
-        // emitted associated const) — a RUNTIME expression read when the entry
-        // fn builds the `Member`, so the JS name has exactly one source, and a
-        // typo'd type is a `rustc` unresolved-path error at THIS site. The
-        // nullable form reuses `Option<Self>`'s null-on-`None` convention.
+        // `-> SomeOtherType` / `-> Option<SomeOtherType>`: an instance of a
+        // DIFFERENT registered type (`node:fs::createReadStream() ->
+        // StreamReader`, `url.searchParams -> URLSearchParams`, or a plain-object
+        // `#[rtse::type]` record like `fs.stat() -> Stats`). Marshalling goes
+        // through the UNIFORM `RtseReturn::__rtse_into_handle` trait both
+        // `#[rtse::class]` and `#[rtse::type]` implement — this call site does not
+        // need to know which kind `SomeOtherType` is. `ret_class` (JS class name
+        // for return-class tracking, so a chained `.prop`/`.method()` on the
+        // result resolves) still reads `RTSE_CLASS` — both macros emit that
+        // const, but `#[rtse::type]` emits it EMPTY (`""`, the same "class-less"
+        // sentinel `alloc_rtse`'s own `class` param already uses) since a
+        // plain-object record has no class identity to track. The empty-check
+        // below turns that into `None` at the ONE place both cases meet, so a
+        // typo'd type is still a `rustc` unresolved-path error, not a silent miss.
+        // The nullable form reuses `Option<Self>`'s null-on-`None` convention.
         Some(t) if is_other_class_ret(t).is_some() => {
             // OWNED before it enters the boxed closure: `t` borrows from `sig`, while
 
             // the wrap closure in `RetInfo` is `Box<dyn Fn>` and must be `'static`.
 
             let cls_ty = is_other_class_ret(t).unwrap().clone();
-            let ret_class =
-                quote!(::core::option::Option::Some(<#cls_ty>::RTSE_CLASS.to_string()));
+            let ret_class = quote!(if <#cls_ty>::RTSE_CLASS.is_empty() {
+                ::core::option::Option::None
+            } else {
+                ::core::option::Option::Some(<#cls_ty>::RTSE_CLASS.to_string())
+            });
             (
                 quote!(::rts_engine::AbiType::Handle),
                 quote!(u64),
                 "object".into(),
                 Box::new(move |b| {
-                    quote!(::rts_engine::heap::handles::alloc_rtse(<#cls_ty>::RTSE_CLASS, #b))
+                    quote!(::rts_engine::heap::handles::RtseReturn::__rtse_into_handle(#b))
                 }),
                 ret_class,
             )
         }
         Some(t) if is_option_other_class_ret(t).is_some() => {
             let cls_ty = is_option_other_class_ret(t).unwrap().clone();
-            let ret_class =
-                quote!(::core::option::Option::Some(<#cls_ty>::RTSE_CLASS.to_string()));
+            let ret_class = quote!(if <#cls_ty>::RTSE_CLASS.is_empty() {
+                ::core::option::Option::None
+            } else {
+                ::core::option::Option::Some(<#cls_ty>::RTSE_CLASS.to_string())
+            });
             (
                 quote!(::rts_engine::AbiType::Handle),
                 quote!(u64),
@@ -161,7 +174,7 @@ pub(crate) fn build_return(sig: &syn::Signature, class: &str, is_ctor: bool) -> 
                 Box::new(move |b| {
                     quote!(match #b {
                         ::core::option::Option::Some(__v) =>
-                            ::rts_engine::heap::handles::alloc_rtse(<#cls_ty>::RTSE_CLASS, __v),
+                            ::rts_engine::heap::handles::RtseReturn::__rtse_into_handle(__v),
                         ::core::option::Option::None => 0u64,
                     })
                 }),

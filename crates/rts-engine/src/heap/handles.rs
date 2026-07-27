@@ -1539,6 +1539,19 @@ pub fn free_handle(handle: u64) -> bool {
         .free(handle)
 }
 
+/// Marshal a `#[rtse::class]`- or `#[rtse::type]`-declared Rust value into the
+/// raw HandleTable handle used when it is RETURNED (`-> Self`, `-> OtherType`).
+/// Both authoring macros implement this UNIFORMLY so `#[rtse::method] fn f() ->
+/// X` works identically whether `X` carries JS class identity (`#[rtse::class]`
+/// — alloc'd as `Entry::Rtse`, `instanceof`-able) or is a plain-object record
+/// (`#[rtse::type]` — alloc'd as a shaped object, `typeof` `"object"`, no
+/// class): the return-marshalling call site (`rts-macro`'s
+/// `class::member::returns`) never needs to know which kind of type it is
+/// returning, only that `X: RtseReturn`.
+pub trait RtseReturn {
+    fn __rtse_into_handle(self) -> u64;
+}
+
 /// Allocate a generic struct-backed instance (`#[rtse::class]` state), returning
 /// its handle. `class` is the JS class name (a `'static` literal — `""` if
 /// class-less), carried for `instanceof`. The struct is boxed as `dyn Any` and

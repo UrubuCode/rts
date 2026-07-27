@@ -286,14 +286,16 @@ pub(crate) fn expand(a: TokenStream, item: TokenStream) -> TokenStream {
         Vec::new()
     };
 
-    // `-> SomeClass` / `-> Option<SomeClass>`: the function returns a fresh
-    // instance of a `#[rtse::class("Name")]`-declared class BY VALUE (e.g.
-    // `fn create_read_stream(path: &str) -> StreamReader`). Boxed into a classed
-    // `Entry::Rtse` (same allocation `-> Self` uses on a class ctor), and the
-    // class name is read from `SomeClass::RTSE_CLASS` — an associated const
-    // `#[rtse::class]` emits on the type — so a typo'd type here is a `rustc`
-    // unresolved-path error, not a silent runtime miss. `RTSE_CLASS` also fills
-    // `Member.ret_class` as DATA, not a `ts_signature` string to re-parse.
+    // `-> SomeType` / `-> Option<SomeType>`: the function returns a fresh
+    // instance of a `#[rtse::class("Name")]`-declared class OR an
+    // `#[rtse::type]`-declared plain-object record BY VALUE (e.g.
+    // `fn create_read_stream(path: &str) -> StreamReader`, `fn stat(path: &str)
+    // -> Stats`). Marshalled via the UNIFORM `RtseReturn::__rtse_into_handle`
+    // trait both macros implement — this call site does not need to know which
+    // kind `SomeType` is. `SomeType::RTSE_CLASS` — an associated const BOTH
+    // macros emit (empty `""` for a class-less record) — fills `Member.ret_class`
+    // as DATA (`None` when empty), so a typo'd type here is still a `rustc`
+    // unresolved-path error, not a silent runtime miss.
     let class_ret = crate::types::ret_ty(&func.sig).and_then(|t| {
         if let Some(ct) = crate::types::is_other_class_ret(t) {
             Some((ct.clone(), false))
@@ -309,18 +311,23 @@ pub(crate) fn expand(a: TokenStream, item: TokenStream) -> TokenStream {
         let conv = if *nullable {
             quote!(match __r {
                 ::core::option::Option::Some(__v) =>
-                    ::rts_engine::heap::handles::alloc_rtse(<#cls_ty>::RTSE_CLASS, __v),
+                    ::rts_engine::heap::handles::RtseReturn::__rtse_into_handle(__v),
                 ::core::option::Option::None => 0u64,
             })
         } else {
-            quote!(::rts_engine::heap::handles::alloc_rtse(<#cls_ty>::RTSE_CLASS, __r))
+            quote!(::rts_engine::heap::handles::RtseReturn::__rtse_into_handle(__r))
         };
+        let ret_class_tok = quote!(if <#cls_ty>::RTSE_CLASS.is_empty() {
+            ::core::option::Option::None
+        } else {
+            ::core::option::Option::Some(<#cls_ty>::RTSE_CLASS.to_string())
+        });
         (
             quote!(::rts_engine::abi::AbiType::Handle),
             quote!(u64),
             "object".to_string(),
             Some(conv),
-            quote!(::core::option::Option::Some(<#cls_ty>::RTSE_CLASS.to_string())),
+            ret_class_tok,
         )
     } else {
         let Some(ret) = ret_of(&func.sig.output) else {

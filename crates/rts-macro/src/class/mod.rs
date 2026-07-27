@@ -187,6 +187,16 @@ fn gen_impl(
             /// `rts-primitives/src/symbol/wellknown.rs`.
             pub const RTSE_CLASS: &'static str = #class_name;
         }
+        /// Marshal a fresh `#self_ty` returned by ANOTHER member (`-> #self_ty`)
+        /// into its classed `Entry::Rtse` handle — the same allocation a ctor / a
+        /// `-> Self` method uses. Implemented uniformly with `#[rtse::type]`'s
+        /// `RtseReturn` impl (a plain-object record) so `class::member::returns`
+        /// has one call for both.
+        impl ::rts_engine::heap::handles::RtseReturn for #self_ty {
+            fn __rtse_into_handle(self) -> u64 {
+                ::rts_engine::heap::handles::alloc_rtse(#class_name, self)
+            }
+        }
         /// Register this class + members into the engine Registry. Add to `REGISTER`.
         pub fn register(e: &mut ::rts_engine::Engine) {
             #fields_fn(e.class(#class_name))

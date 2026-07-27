@@ -89,6 +89,7 @@ mod constant;
 mod function;
 mod naming;
 mod types;
+mod typerec;
 
 /// `#[rtse::class("Name")]` — on the STRUCT (fields via `#[rtse::variable]`) OR on
 /// the `impl` block (ctor/methods). See the crate doc for the full picture;
@@ -123,6 +124,16 @@ pub fn constant(a: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn function(a: TokenStream, item: TokenStream) -> TokenStream {
     function::expand(a, item)
+}
+
+/// `#[rtse::type]` — a plain Rust struct that marshals to a PLAIN JS OBJECT (a
+/// record: `typeof` `"object"`, own enumerable fields, no class identity — no
+/// `new`, no `instanceof`, no Registry class) when returned to JS. Distinct
+/// from `#[rtse::class]`. See the `typerec` module doc for the full field-type
+/// list and the shared `RtseReturn` return-path mechanism.
+#[proc_macro_attribute]
+pub fn r#type(a: TokenStream, item: TokenStream) -> TokenStream {
+    typerec::expand(a, item)
 }
 
 // Standalone marker attrs (inert — `#[rtse::class]` on the impl strips them).

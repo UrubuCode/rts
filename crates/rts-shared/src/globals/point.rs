@@ -131,4 +131,36 @@ impl Point {
     fn with_x(self: &Point, nx: f64) -> Self {
         Point { x: nx, y: self.y }
     }
+
+    /// `#[rtse::type]` proof: returns a plain DATA RECORD (see [`PointInfo`]),
+    /// not a class instance. JS: `p.info().label`, `Object.keys(p.info())`.
+    ///
+    /// NB it lives in THIS impl block on purpose — two `#[rtse::class("X")]`
+    /// blocks in one module collide, because each emits its own `register` and
+    /// `__RTSE_KEEP_*`. A class's members must be declared in a single block.
+    #[rtse::method(name = "info")]
+    fn info(self: &Point) -> PointInfo {
+        PointInfo {
+            x: self.x,
+            y: self.y,
+            label: format!("({},{})", self.x, self.y),
+            is_origin: self.x == 0.0 && self.y == 0.0,
+        }
+    }
+}
+
+/// `#[rtse::type]` proof — a plain DATA RECORD, not a class. Returned to JS as an
+/// ORDINARY OBJECT: `typeof` is `"object"`, the fields are OWN properties, and
+/// `Object.keys` lists them in declaration order. It registers no Registry class,
+/// has no constructor and no `instanceof` identity — that is the whole distinction
+/// from `#[rtse::class]`, which boxes opaquely as `Entry::Rtse`.
+///
+/// Field names go through the same `to_camel` rule members use, so `is_origin`
+/// surfaces as `isOrigin`.
+#[rtse::r#type]
+pub struct PointInfo {
+    x: f64,
+    y: f64,
+    label: String,
+    is_origin: bool,
 }

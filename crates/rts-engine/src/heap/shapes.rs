@@ -494,10 +494,37 @@ pub fn alloc_shaped_object(keys: &[&str], values: &[i64]) -> u64 {
 pub fn alloc_shaped_object_owned(keys: Vec<String>, values: &[i64]) -> u64 {
     debug_assert_eq!(keys.len(), values.len());
     let id = intern_global_shape(&keys);
+    alloc_shaped_object_with_id(id, values)
+}
+
+/// [`alloc_shaped_object`] for an ALREADY-INTERNED shape id — the hot-path form.
+/// Used by `#[rtse::type]`-generated return code, which interns its shape ONCE
+/// (cached in a `OnceLock` at the call site) instead of re-hashing the key list
+/// on every call.
+pub fn alloc_shaped_object_with_id(id: GlobalShapeId, values: &[i64]) -> u64 {
     let mut slots: Vec<i64> = Vec::with_capacity(values.len() + 1);
     slots.push(shape_id_word(id) as i64);
     slots.extend_from_slice(values);
     alloc_entry(Entry::Vec(Box::new(slots)))
+}
+
+/// The PolyValue word of a plain `f64` field/value: an inline double is already
+/// its own word EXCEPT a NaN must canonicalize to the positive qNaN
+/// (`f64::NAN`, sign bit 0) so it can never collide with the boxed-word space
+/// (`POLY_BOX_BASE` requires the sign bit set) — mirrors
+/// `rts-adapters::value::PolyValue::from_f64`.
+pub fn f64_word(x: f64) -> u64 {
+    if x.is_nan() { f64::NAN.to_bits() } else { x.to_bits() }
+}
+
+/// The PolyValue word of an `i64` field/value: boxed INT32 when it fits (the
+/// same representation an integer literal gets), else a plain JS number
+/// (`f64`, like any integer outside the safe/i32 range already behaves in JS).
+pub fn int_word(n: i64) -> u64 {
+    match i32::try_from(n) {
+        Ok(i) => POLY_BOX_BASE | (POLY_TAG_INT32 << POLY_TAG_SHIFT) | (i as u32 as u64),
+        Err(_) => f64_word(n as f64),
+    }
 }
 
 #[cfg(test)]
