@@ -443,16 +443,37 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// `is_object(v)` as IR: `(v & BOX_BASE) == BOX_BASE && tag(v) == TAG_OBJECT`.
     /// A boxed-object word reads its slot 0; any other word does not (so a number /
     /// string / singleton receiver routes to the `undefined` default).
+    /// `true` quando o receptor é um valor de HEAP com propriedades — objeto **ou
+    /// função**.
+    ///
+    /// Aceitar FUNCTION não é cosmético: sem isso, `new Function("a","return a").name`
+    /// devolvia `undefined` onde o Node dá `"anonymous"`. O caminho é este — alguma
+    /// classe do prelúdio declara um getter `name`, então `try_user_getter_dynamic`
+    /// assume o acesso; uma função tem tag FUNCTION (5), não OBJECT (4), caía no ramo
+    /// "não-objeto" e saía com `undefined` ANTES de alcançar o fall-through
+    /// `__rtsadp_obj_get`, que lê o nome corretamente (`objops.rs` trata receptor-
+    /// função explicitamente). O sintoma valia para QUALQUER propriedade cujo nome
+    /// colida com um getter declarado (`name`, `size`, `flags`…) sobre um valor-função;
+    /// o acesso dinâmico `f["na"+"me"]` acertava por ir direto ao runtime.
+    ///
+    /// Continua excluindo primitivos: `(5).size` segue lendo `undefined`, que é o
+    /// comportamento JS correto e o motivo de o gate existir.
     fn emit_is_object(&mut self, v: Value) -> Value {
         let boxed = value::emit_is_boxed(self.builder, v);
         let shifted = self.builder.ins().ushr_imm(v, value::TAG_SHIFT as i64);
         let tag = self.builder.ins().band_imm(shifted, value::TAG_MASK as i64);
-        let want = self
+        let want_obj = self
             .builder
             .ins()
             .iconst(types::I64, value::TAG_OBJECT as i64);
-        let is_obj_tag = self.builder.ins().icmp(IntCC::Equal, tag, want);
-        self.builder.ins().band(boxed, is_obj_tag)
+        let want_fn = self
+            .builder
+            .ins()
+            .iconst(types::I64, value::TAG_FUNCTION as i64);
+        let is_obj_tag = self.builder.ins().icmp(IntCC::Equal, tag, want_obj);
+        let is_fn_tag = self.builder.ins().icmp(IntCC::Equal, tag, want_fn);
+        let is_heap = self.builder.ins().bor(is_obj_tag, is_fn_tag);
+        self.builder.ins().band(boxed, is_heap)
     }
 }
 
