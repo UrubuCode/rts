@@ -1,24 +1,18 @@
-//! `Number`'s 8 numeric constants (`MAX_SAFE_INTEGER`, `EPSILON`, …) plus the
-//! `parseInt`/`parseFloat` aliases onto the `fmt` namespace's real parser
-//! externs. Split out of `mod.rs` (the value-class ctor/methods/predicates) for
-//! the file-size ceiling. See `mod.rs`'s module doc for how this composes onto
-//! the SAME "Number" Registry class entry as the macro-generated members.
+//! `Number`'s 8 numeric constants (`MAX_SAFE_INTEGER`, `EPSILON`, …). Split out
+//! of `mod.rs` (the value-class ctor/methods/predicates) for the file-size
+//! ceiling. See `mod.rs`'s module doc for how this composes onto the SAME
+//! "Number" Registry class entry as the macro-generated members.
 //!
 //! The 8 constants are `#[rtse::constant(global = "Number", value = "…")]` —
 //! each emits its own `<name>_member()` fn, composed through `.member(...)`
 //! below (a `#[rtse::class]` `impl` block cannot carry a `const`, so these
 //! cannot join the ctor/methods/statics in `mod.rs`'s single impl block).
 //!
-//! `parseInt`/`parseFloat` stay hand-written `Member` literals: they have a
-//! NULL `fn_ptr` and point at ANOTHER namespace's symbol
-//! (`__RTS_FN_NS_FMT_PARSE_I64`/`_F64`) rather than a body of their own, so
-//! neither `#[rtse::statical]` (which generates a body + symbol here) nor
-//! `#[rtse::constant]` (a zero-arg getter) fits — there is nothing to generate.
-//! The live call path is `front/run/mathobj.rs`'s `"Number"` arm, which aliases
-//! the global `parseInt`/`parseFloat` directly; these two `Member`s exist for
-//! reflection/`.d.ts` only.
+//! `parseInt`/`parseFloat` are now `#[rtse::statical]` members in `mod.rs`'s
+//! single impl block (real bodies, no more hand-written NULL-`fn_ptr` alias
+//! `Member`s) — see that file's `parse.rs`-backed statics section.
 
-use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::Engine;
 
 /// `Number.MAX_SAFE_INTEGER` — 2^53 - 1.
 #[rtse::constant(global = "Number", value = "MAX_SAFE_INTEGER")]
@@ -52,30 +46,9 @@ pub const NEGATIVE_INFINITY: f64 = f64::NEG_INFINITY;
 #[rtse::constant(global = "Number", value = "NaN")]
 pub const NAN: f64 = f64::NAN;
 
-/// Registry-member builder helper for the two hand-written aliases below (see
-/// this module's doc for why `parseInt`/`parseFloat` cannot be macro-generated).
-#[allow(clippy::too_many_arguments)]
-fn m(name: &str, kind: MemberKind, sig: Sig, symbol: &str, ts: &str, doc: &str, fp: *const u8) -> Member {
-    Member {
-        name: name.to_string(),
-        kind,
-        sig,
-        symbol: symbol.to_string(),
-        fn_ptr: FnPtr(fp),
-        flags: MemberFlags::NONE,
-        aliases: Vec::new(),
-        variadic: false,
-        ts_signature: ts.to_string(),
-        doc: doc.to_string(),
-        pure: true,
-        ret_class: None,
-        emit: None,
-    }
-}
-
-/// Register `Number`'s 8 constants + the `parseInt`/`parseFloat` aliases.
-/// Composed onto the SAME "Number" Registry class entry as
-/// `NumberWrapper::register`'s macro-generated ctor/methods/statics via
+/// Register `Number`'s 8 constants. Composed onto the SAME "Number" Registry
+/// class entry as `NumberWrapper::register`'s macro-generated ctor/methods/
+/// statics (which now also carries `parseInt`/`parseFloat`) via
 /// `Registry::insert_class`'s merge-on-second-call. Call this AND
 /// `super::register` — order does not matter (see
 /// `registry_build.rs::REGISTER`'s doc).
@@ -89,24 +62,6 @@ pub fn register_number_statics(e: &mut Engine) {
         .member(positive_infinity_member())
         .member(negative_infinity_member())
         .member(nan_member())
-        .member(m(
-            "parseInt",
-            MemberKind::StaticMethod,
-            Sig::new(vec![AbiType::StrPtr], AbiType::I64),
-            "__RTS_FN_NS_FMT_PARSE_I64",
-            "parseInt(s: string): number",
-            "Number.parseInt(s) — delegates to the fmt namespace extern (front/run/mathobj.rs aliases the global parseInt for the live call path).",
-            core::ptr::null::<u8>(),
-        ))
-        .member(m(
-            "parseFloat",
-            MemberKind::StaticMethod,
-            Sig::new(vec![AbiType::StrPtr], AbiType::F64),
-            "__RTS_FN_NS_FMT_PARSE_F64",
-            "parseFloat(s: string): number",
-            "Number.parseFloat(s) — delegates to the fmt namespace extern (front/run/mathobj.rs aliases the global parseFloat for the live call path).",
-            core::ptr::null::<u8>(),
-        ))
         .done();
 }
 

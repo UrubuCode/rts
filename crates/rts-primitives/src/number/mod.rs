@@ -45,6 +45,7 @@
 //! `Registry::insert_class`'s merge-on-second-call.
 
 mod format;
+mod parse;
 mod statics;
 
 pub use statics::{number_const_value, register_number_statics};
@@ -174,5 +175,31 @@ impl NumberWrapper {
     #[rtse::statical]
     fn is_safe_integer(v: f64) -> bool {
         v.is_finite() && v.fract() == 0.0 && v.abs() <= 9_007_199_254_740_991.0
+    }
+
+    // ── parseInt / parseFloat ────────────────────────────────────────────────
+    // LOAD-BEARING symbols: `rts-adapters::value::globalops`'s
+    // `__rtsadp_g_parse_int`/`_g_parse_float` (backing BOTH `Number.parseInt`/
+    // `parseFloat` and the bare global `parseInt`/`parseFloat` the codegen
+    // lowers directly) call these exact `__rtsm_global_number_parse_*` symbols
+    // rather than carrying their own copy — this is the ONE JS-correct
+    // implementation. `radix` absent (or `0`, either way) means auto-detect
+    // (hex on a `0x` prefix, else base 10).
+
+    /// `Number.parseInt(s, radix?)` — ToString the value, trim leading
+    /// whitespace, an optional sign, an optional `0x`/`0X` prefix when radix is
+    /// 16 or auto, then consume the longest run of digits valid in the
+    /// (defaulted) radix. No leading digit → `NaN`.
+    #[rtse::statical]
+    fn parse_int(s: &str, radix: Option<f64>) -> f64 {
+        parse::parse_int_str(s, radix.map(|r| r as i64).unwrap_or(0))
+    }
+
+    /// `Number.parseFloat(s)` — trim leading whitespace, then parse the
+    /// longest leading run that is a valid JS float literal. Trailing garbage
+    /// is ignored (`parseFloat("3.14x")` → `3.14`). No leading float → `NaN`.
+    #[rtse::statical]
+    fn parse_float(s: &str) -> f64 {
+        parse::parse_float_str(s)
     }
 }

@@ -3,9 +3,6 @@
 //! Migrado pro modelo builder do `rts-engine` (Fase 2; ver `namespaces/hint`).
 //! `parse_*` carregam um sentinela de erro (i64::MIN / NaN / -1) também emitido
 //! em null/UTF-8 inválido; `fmt_*` retornam handles de string GC.
-//!
-//! `__RTS_FN_NS_FMT_PARSE_INT_RADIX` NÃO é membro — backa o `parseInt(s, radix)`
-//! do codegen — então fica como extern simples.
 
 use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, sig};
 
@@ -13,13 +10,29 @@ use rts_engine::abi::str_abi::from_abi;
 
 unsafe extern "C" {
     fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
+    // `parseFloat`'s real JS-correct body now lives in `rts-primitives`
+    // (`number/parse.rs`, exposed via the `#[rtse::statical]`
+    // `Number.parseFloat` member) — reached here the same way any cross-crate
+    // `__rtsm_*`/`__rtsadp_*` symbol is, a forward decl resolved at final link
+    // (rts-shared does not gain a Cargo dep on rts-primitives). `parseInt` is
+    // NOT reused here — see `__RTS_FN_NS_FMT_PARSE_I64`'s doc for why its
+    // contract genuinely differs and stays its own body.
+    fn __rtsm_global_number_parse_float(ptr: i64, len: i64) -> f64;
 }
 
 fn intern(s: &str) -> u64 {
     unsafe { __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64) }
 }
 
-/// Parses an integer. Returns i64::MIN on error.
+/// Parses an integer with `rts:fmt`'s OWN contract — a plain `i64` return with
+/// sentinel `i64::MIN` on failure — NOT the JS `parseFloat`/`NaN` contract.
+/// This is a distinct, documented behaviour from `Number.parseInt` (which
+/// returns a possibly-fractional `f64` and truncates rather than rejecting
+/// `"3.9"` as a parse failure): this entry point strictly parses `s` as a
+/// base-10 (whitespace-trimmed) integer literal via `str::parse`, so `"3.9"`
+/// or `"42abc"` are BOTH errors here even though `Number.parseInt` accepts
+/// them. Kept as its own body (not delegated) — the two contracts genuinely
+/// differ, so unifying them would silently change `rts:fmt`'s behaviour.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_FMT_PARSE_I64(ptr: *const u8, len: i64) -> i64 {
     let Some(s) = (unsafe { from_abi(ptr, len) }) else {
@@ -28,61 +41,15 @@ pub extern "C" fn __RTS_FN_NS_FMT_PARSE_I64(ptr: *const u8, len: i64) -> i64 {
     s.trim().parse::<i64>().unwrap_or(i64::MIN)
 }
 
-/// Parses a float. Returns NaN on error.
+/// Parses a float using the real JS `parseFloat` grammar (leading run,
+/// trailing garbage ignored) — same contract as `Number.parseFloat`, so this
+/// delegates to the single shared implementation in `rts-primitives`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_FMT_PARSE_F64(ptr: *const u8, len: i64) -> f64 {
     let Some(s) = (unsafe { from_abi(ptr, len) }) else {
         return f64::NAN;
     };
-    let trimmed = s.trim_start();
-    if let Ok(v) = trimmed.trim_end().parse::<f64>() {
-        return v;
-    }
-    // JS parseFloat: maior prefixo numérico válido, ignora o resto.
-    let bytes = trimmed.as_bytes();
-    let mut i = 0usize;
-    if i < bytes.len() && (bytes[i] == b'+' || bytes[i] == b'-') {
-        i += 1;
-    }
-    let rest = &trimmed[i..];
-    if rest.starts_with("Infinity") {
-        let v = f64::INFINITY;
-        return if trimmed.as_bytes().first() == Some(&b'-') {
-            -v
-        } else {
-            v
-        };
-    }
-    let mut seen_digit = false;
-    while i < bytes.len() && bytes[i].is_ascii_digit() {
-        i += 1;
-        seen_digit = true;
-    }
-    if i < bytes.len() && bytes[i] == b'.' {
-        i += 1;
-        while i < bytes.len() && bytes[i].is_ascii_digit() {
-            i += 1;
-            seen_digit = true;
-        }
-    }
-    if !seen_digit {
-        return f64::NAN;
-    }
-    if i < bytes.len() && (bytes[i] == b'e' || bytes[i] == b'E') {
-        let mut j = i + 1;
-        if j < bytes.len() && (bytes[j] == b'+' || bytes[j] == b'-') {
-            j += 1;
-        }
-        let mut exp_digit = false;
-        while j < bytes.len() && bytes[j].is_ascii_digit() {
-            j += 1;
-            exp_digit = true;
-        }
-        if exp_digit {
-            i = j;
-        }
-    }
-    trimmed[..i].parse::<f64>().unwrap_or(f64::NAN)
+    unsafe { __rtsm_global_number_parse_float(s.as_ptr() as i64, s.len() as i64) }
 }
 
 /// Parses 'true'/'false'/'1'/'0' (case-insensitive). Returns -1 on error.
@@ -139,70 +106,6 @@ pub extern "C" fn __RTS_FN_NS_FMT_FMT_OCT(value: i64) -> u64 {
 pub extern "C" fn __RTS_FN_NS_FMT_FMT_F64_PREC(value: f64, precision: i32) -> u64 {
     let prec = precision.max(0) as usize;
     intern(&format!("{value:.prec$}"))
-}
-
-/// `parseInt(s, radix?)` — JS spec. NOT a namespace member; backs the codegen
-/// `parseInt` builtin directly. Returns i64::MIN sentinel on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FMT_PARSE_INT_RADIX(ptr: *const u8, len: i64, radix: i64) -> i64 {
-    let Some(s) = (unsafe { from_abi(ptr, len) }) else {
-        return i64::MIN;
-    };
-    let bytes = s.as_bytes();
-    let mut i = 0usize;
-    while i < bytes.len() && (bytes[i] as char).is_whitespace() {
-        i += 1;
-    }
-    if i >= bytes.len() {
-        return i64::MIN;
-    }
-    let negative = match bytes[i] {
-        b'+' => {
-            i += 1;
-            false
-        }
-        b'-' => {
-            i += 1;
-            true
-        }
-        _ => false,
-    };
-    if i >= bytes.len() {
-        return i64::MIN;
-    }
-    let mut effective_radix: u32 = if radix == 0 { 10 } else { radix as u32 };
-    if (radix == 0 || radix == 16)
-        && i + 1 < bytes.len()
-        && bytes[i] == b'0'
-        && (bytes[i + 1] == b'x' || bytes[i + 1] == b'X')
-    {
-        effective_radix = 16;
-        i += 2;
-    }
-    if !(2..=36).contains(&effective_radix) {
-        return i64::MIN;
-    }
-    let mut acc: i64 = 0;
-    let mut any_digit = false;
-    while i < bytes.len() {
-        let c = bytes[i] as char;
-        let Some(d) = c.to_digit(effective_radix) else {
-            break;
-        };
-        let Some(next) = acc
-            .checked_mul(effective_radix as i64)
-            .and_then(|v| v.checked_add(d as i64))
-        else {
-            return i64::MIN;
-        };
-        acc = next;
-        any_digit = true;
-        i += 1;
-    }
-    if !any_digit {
-        return i64::MIN;
-    }
-    if negative { -acc } else { acc }
 }
 
 fn pure_func(
@@ -358,29 +261,4 @@ pub fn register_node_util(e: &mut Engine) {
             __RTS_FN_NS_FMT_PARSE_I64 as *const u8,
         ))
         .done();
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn p(s: &str, radix: i64) -> i64 {
-        __RTS_FN_NS_FMT_PARSE_INT_RADIX(s.as_ptr(), s.len() as i64, radix)
-    }
-
-    #[test]
-    fn radix_10_default() {
-        assert_eq!(p("100", 0), 100);
-        assert_eq!(p("100", 10), 100);
-        assert_eq!(p("-42", 0), -42);
-        assert_eq!(p("+42", 0), 42);
-    }
-
-    #[test]
-    fn radix_16_hex() {
-        assert_eq!(p("FF", 16), 255);
-        assert_eq!(p("ff", 16), 255);
-        assert_eq!(p("0xFF", 16), 255);
-        assert_eq!(p("0xff", 0), 255);
-    }
 }

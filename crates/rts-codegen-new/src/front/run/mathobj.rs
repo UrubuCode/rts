@@ -379,7 +379,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         method: &str,
         args: &[HirExpr],
     ) -> FrontResult<Val> {
-        // `Number.parseInt`/`parseFloat` are exact aliases of the global functions.
+        // `Number.parseInt`/`parseFloat` are exact aliases of the global functions
+        // — this stays a codegen special case (not a fall to the generic
+        // Registry `resolve_method` path) even though the "Number" `Member`s
+        // now carry real bodies (`rts-primitives/src/number/mod.rs`'s
+        // `#[rtse::statical] parse_int`/`parse_float`, no longer NULL-`fn_ptr`
+        // aliases): both target the exact same `__rtsadp_g_parse_int`/
+        // `_g_parse_float` trampolines the bare global `parseInt`/`parseFloat`
+        // use, so removing this arm would only be a routing change with no
+        // observable difference IF the generic path marshals a `StrPtr` +
+        // optional-`f64` static method identically — unverified without a
+        // build, so kept as the known-good path rather than removed
+        // speculatively.
         match method {
             "parseInt" => return self.parse_int_call(module, args),
             "parseFloat" => {

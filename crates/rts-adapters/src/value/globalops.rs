@@ -22,6 +22,19 @@ use rts_runtime::namespaces::gc::handles as rt_handles;
 use super::genops::{to_boolean, to_number};
 use super::{PolyValue, abi_adapter, genops};
 
+// `Number.parseInt`/`parseFloat`'s real JS-correct bodies live in
+// `rts-primitives` (owner directive: a primordial's implementation belongs at
+// the bottom of the chain any consumer can reach). `rts-adapters` does not
+// depend on `rts-primitives` in Cargo (would invert the crate graph), so this
+// reaches the `#[rtse::statical]`-generated symbols the same way
+// `rts-primitives`'s OWN value-classes reach `rts-adapters` coercion helpers
+// (e.g. `number/mod.rs`'s `__rtsadp_g_number` decl): a forward `extern "C"`
+// resolved at final link.
+unsafe extern "C" {
+    fn __rtsm_global_number_parse_int(ptr: i64, len: i64, radix: f64) -> f64;
+    fn __rtsm_global_number_parse_float(ptr: i64, len: i64) -> f64;
+}
+
 /// Box a fresh real Vec handle as a `TAG_OBJECT` array PolyValue word (the engine's
 /// array representation), matching [`super::arrayops`]'s `slice` result.
 fn box_vec_as_array(vec_handle: u64) -> u64 {
@@ -143,10 +156,11 @@ pub extern "C" fn __rtsadp_g_boolean(a: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_g_parse_int(value: u64, radix: u64) -> u64 {
     let s = poly_to_string(value);
-    // `radix` is a raw PolyValue WORD — ToNumber it (NaN/non-integer → 0 = auto).
+    // `radix` is a raw PolyValue WORD — ToNumber it (NaN/non-integer → auto,
+    // the extern's absent-radix sentinel).
     let r = to_number(PolyValue::from_raw(radix));
-    let radix_i = if r.is_finite() { r as i64 } else { 0 };
-    let f = parse_int_str(&s, radix_i);
+    let radix_f = if r.is_finite() { r } else { f64::NAN };
+    let f = unsafe { __rtsm_global_number_parse_int(s.as_ptr() as i64, s.len() as i64, radix_f) };
     genops::number_result(f).raw()
 }
 
@@ -157,7 +171,8 @@ pub extern "C" fn __rtsadp_g_parse_int(value: u64, radix: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_g_parse_float(value: u64) -> u64 {
     let s = poly_to_string(value);
-    genops::number_result(parse_float_str(&s)).raw()
+    let f = unsafe { __rtsm_global_number_parse_float(s.as_ptr() as i64, s.len() as i64) };
+    genops::number_result(f).raw()
 }
 
 /// `isNaN(x)` — JS global: `Number.isNaN(ToNumber(x))`. Returns a PolyValue bool.
@@ -602,99 +617,4 @@ fn poly_to_string(v: u64) -> String {
         let s_word = genops::__rtsadp_to_string(v);
         abi_adapter::resolve_poly(PolyValue::from_raw(s_word))
     }
-}
-
-/// JS `parseInt(s, radix)` returning the parsed `f64` (`NaN` on failure). `radix`
-/// 0 = auto (16 with a `0x` prefix, else 10); 2..=36 fixes the base. Leading
-/// whitespace + an optional sign are consumed; the longest valid-digit run is
-/// parsed; trailing garbage is ignored.
-fn parse_int_str(s: &str, radix: i64) -> f64 {
-    let t = s.trim_start();
-    let (neg, rest) = match t.strip_prefix('-') {
-        Some(r) => (true, r),
-        None => (false, t.strip_prefix('+').unwrap_or(t)),
-    };
-    let mut base = radix;
-    let mut digits = rest;
-    if base == 16 || base == 0 {
-        if let Some(r) = digits
-            .strip_prefix("0x")
-            .or_else(|| digits.strip_prefix("0X"))
-        {
-            digits = r;
-            base = 16;
-        }
-    }
-    if base == 0 {
-        base = 10;
-    }
-    if !(2..=36).contains(&base) {
-        return f64::NAN;
-    }
-    let radix_u = base as u32;
-    let valid: String = digits
-        .chars()
-        .take_while(|c| c.to_digit(radix_u).is_some())
-        .collect();
-    if valid.is_empty() {
-        return f64::NAN;
-    }
-    // Accumulate in f64 to keep large magnitudes (JS parseInt returns a double).
-    let mut acc = 0.0f64;
-    for c in valid.chars() {
-        acc = acc * base as f64 + c.to_digit(radix_u).unwrap() as f64;
-    }
-    if neg { -acc } else { acc }
-}
-
-/// JS `parseFloat(s)` returning the parsed `f64` (`NaN` on no leading float). The
-/// longest leading run matching a JS float literal is parsed; trailing garbage is
-/// ignored. `Infinity`/`+Infinity`/`-Infinity` are recognized.
-fn parse_float_str(s: &str) -> f64 {
-    let t = s.trim_start();
-    for spell in ["Infinity", "+Infinity"] {
-        if t.starts_with(spell) {
-            return f64::INFINITY;
-        }
-    }
-    if t.starts_with("-Infinity") {
-        return f64::NEG_INFINITY;
-    }
-    let bytes = t.as_bytes();
-    let mut end = 0usize;
-    // optional sign
-    if end < bytes.len() && (bytes[end] == b'+' || bytes[end] == b'-') {
-        end += 1;
-    }
-    let mut saw_digit = false;
-    while end < bytes.len() && bytes[end].is_ascii_digit() {
-        end += 1;
-        saw_digit = true;
-    }
-    if end < bytes.len() && bytes[end] == b'.' {
-        end += 1;
-        while end < bytes.len() && bytes[end].is_ascii_digit() {
-            end += 1;
-            saw_digit = true;
-        }
-    }
-    if !saw_digit {
-        return f64::NAN;
-    }
-    // optional exponent
-    if end < bytes.len() && (bytes[end] == b'e' || bytes[end] == b'E') {
-        let mut e = end + 1;
-        if e < bytes.len() && (bytes[e] == b'+' || bytes[e] == b'-') {
-            e += 1;
-        }
-        let mut saw_exp = false;
-        while e < bytes.len() && bytes[e].is_ascii_digit() {
-            e += 1;
-            saw_exp = true;
-        }
-        if saw_exp {
-            end = e;
-        }
-    }
-    t[..end].parse::<f64>().unwrap_or(f64::NAN)
 }
