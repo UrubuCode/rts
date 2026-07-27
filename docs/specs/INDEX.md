@@ -87,6 +87,10 @@ they were not a guide for the new engine.
   await + Promise + Function class subsystem (reference). **The new engine
   has interim SYNCHRONOUS async** (event loop / real suspension are a clean redesign,
   `#207`) — this doc describes the previous Promise-centric model.
+- [`rts:serde` — deep binary serialization (the RTS pickle)](serde-pickle.md) —
+  RTSP v1 wire format (memo back-references: cycles + shared identity), class
+  instances / Map/Set / functions-by-reference, ExtCodec + revive hooks,
+  golden-file format freeze. Shipped (PRs #2008/#2009).
 - [`.node` support (Node native addons)](node-format/README.md) — Study of the
   N-API → `HandleTable` ABI without V8. Implemented in `crates/rts-napi/`.
 - [N-API then-chained crash study](napi-then-chained-crash-study.md) — Technical
