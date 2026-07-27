@@ -2777,6 +2777,31 @@ fn layout_inline_flow(
                 letter_spacing: ls,
                 decoration: seg.deco,
             });
+            // RECT DO INLINE (`<a>`, `<span>`, `<strong>`…): sem isto um link no
+            // meio de um parágrafo não é clicável — `node_rects` só tinha blocos, o
+            // hit-test resolvia para o `<p>` e a navegação nunca disparava numa
+            // página real (onde `<a>` é inline por padrão).
+            //
+            // Um inline que quebra em várias linhas gera VÁRIOS segmentos; UNIMOS
+            // os rects do mesmo dono (bounding box), em vez de sobrescrever, porque
+            // sobrescrever deixaria só o último pedaço clicável. A união é uma
+            // aproximação declarada: o browser mantém um rect POR linha, então um
+            // link quebrado em duas linhas tem aqui uma caixa que cobre também o
+            // vão entre elas. Suficiente para hit-test de clique; insuficiente para
+            // `getClientRects()` fiel, que não existe ainda.
+            if let Some(o) = seg.owner {
+                let r = Rect::new(seg_x, cy, w, line_h);
+                list.node_rects
+                    .entry(o)
+                    .and_modify(|e| {
+                        let x0 = e.x.min(r.x);
+                        let y0 = e.y.min(r.y);
+                        let x1 = (e.x + e.w).max(r.x + r.w);
+                        let y1 = (e.y + e.h).max(r.y + r.h);
+                        *e = Rect::new(x0, y0, x1 - x0, y1 - y0);
+                    })
+                    .or_insert(r);
+            }
             seg_x += w;
         }
         cy += line_h;
@@ -2798,6 +2823,16 @@ struct InlineRun {
     widget: Option<NodeIdx>,
     ww: f32,
     wh: f32,
+    /// O ELEMENTO inline mais interno que contém este run (`<a>`, `<span>`,
+    /// `<strong>`…), ou `None` quando o texto é filho direto do bloco.
+    ///
+    /// Existe para o HIT-TEST: sem isto, um `<a>` no meio de um parágrafo não tem
+    /// entrada em `node_rects` e um clique nele não acha nada — o alvo resolvido
+    /// seria o `<p>` inteiro, e a navegação por link nunca dispararia numa página
+    /// real (onde `<a>` é inline por padrão). Guardar o dono por RUN, e não por
+    /// elemento, é o que permite um `<a>` que quebra em duas linhas registrar um
+    /// rect por linha — que é como o browser trata inline (vários rects, não um).
+    owner: Option<NodeIdx>,
 }
 
 /// Coleta os RUNS de texto de `id` em ordem de documento, cada um com a COR efetiva
@@ -2820,6 +2855,7 @@ fn collect_runs(
         decoration_code(parent_css),
         parent_css.text_transform,
         parent_css.bold.unwrap_or(false),
+        None,
         &mut runs,
     );
     return runs;
@@ -2832,6 +2868,7 @@ fn collect_runs(
         inherited_deco: u8,
         inherited_tt: Option<crate::style::TextTransform>,
         inherited_bold: bool,
+        owner: Option<NodeIdx>,
         out: &mut Vec<InlineRun>,
     ) {
         match &dom.node(id).kind {
@@ -2848,6 +2885,7 @@ fn collect_runs(
                     widget: None,
                     ww: 0.0,
                     wh: 0.0,
+                    owner,
                 });
             }
             NodeKind::Element { tag } => {
@@ -2879,6 +2917,7 @@ fn collect_runs(
                         widget: Some(id),
                         ww,
                         wh,
+                        owner,
                     });
                     return;
                 }
@@ -2893,7 +2932,9 @@ fn collect_runs(
                     _ => inherited_deco,
                 };
                 for &c in &dom.node(id).children {
-                    walk(dom, ctx, c, color, deco, tt, bold, out);
+                    // ESTE elemento passa a ser o dono dos runs dos filhos — o mais
+                    // interno vence, que e o alvo certo de um clique.
+                    walk(dom, ctx, c, color, deco, tt, bold, Some(id), out);
                 }
             }
             _ => {}
@@ -2928,6 +2969,9 @@ struct Segment {
     widget: Option<NodeIdx>,
     ww: f32,
     wh: f32,
+    /// Elemento inline dono deste pedaco (ver `InlineRun::owner`) — propagado ate
+    /// a emissao, que registra o rect do segmento em `node_rects` para o hit-test.
+    owner: Option<NodeIdx>,
 }
 
 /// Quebra uma sequência de RUNS coloridos em LINHAS por palavra (word-wrap), juntando
@@ -2970,6 +3014,7 @@ fn wrap_runs(
                 widget: Some(w_idx),
                 ww: run.ww,
                 wh: run.wh,
+                owner: run.owner,
             });
             cur_w += if pending_space && !at_line_start { space_w + run.ww } else { run.ww };
             at_line_start = false;
@@ -3005,6 +3050,10 @@ fn wrap_runs(
                     && last.color == run.color
                     && last.bold == run.bold
                     && last.deco == run.deco
+                    // owner IGUAL tambem: fundir o texto de um <a> com o texto
+                    // vizinho fora dele daria ao link um rect que invade o que
+                    // nao e link — e o clique ao lado navegaria.
+                    && last.owner == run.owner
                 {
                     last.text.push_str(&piece);
                 } else {
@@ -3016,6 +3065,7 @@ fn wrap_runs(
                         widget: None,
                         ww: 0.0,
                         wh: 0.0,
+                        owner: run.owner,
                     });
                 }
             } else {
@@ -3027,6 +3077,7 @@ fn wrap_runs(
                     widget: None,
                     ww: 0.0,
                     wh: 0.0,
+                    owner: run.owner,
                 });
             }
             cur_w += if sep { space_w + ww } else { ww };
@@ -3046,6 +3097,7 @@ fn wrap_runs(
             widget: None,
             ww: 0.0,
             wh: 0.0,
+            owner: None,
         }]);
     }
     lines

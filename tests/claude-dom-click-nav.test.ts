@@ -15,11 +15,10 @@ const VW = 800;
 // Página: um link com <span> dentro (o clique cai no span, deve achar o <a>),
 // um botão com listener, e um link que cancela a navegação.
 //
-// `display:block` nos três é NECESSÁRIO hoje: só elementos de BLOCO entram em
-// `node_rects` (o layout documenta: "nós inline/texto não entram — um inline teria
-// múltiplos rects, fase futura"), e sem rect não há hit-test. Como `<a>`/`<button>`/
-// `<span>` são inline por padrão, um clique neles num HTML real ainda não acha o
-// alvo. Está declarado como limitação conhecida, não contornado em silêncio.
+// `display:block` aqui é para testar o aninhamento <a> > <span> com rects
+// IDÊNTICOS (o caso que exigiu o desempate por profundidade no hit-test). O caso
+// INLINE — `<a>` no meio de um parágrafo, que é como uma página real escreve — é
+// coberto pelo describe seguinte.
 const html = "<html><head><style>"
   + "a { display: block; } button { display: block; } span { display: block; }"
   + "</style></head><body>"
@@ -88,6 +87,42 @@ const spaMarked = wrap === null ? "" : wrap.getAttribute("data-spa");
 
 // 5) clique no vazio não acha nada
 const emptyHref = doc.clickAt(5, 3000, VW);
+
+// ── Link INLINE (o caso de uma página real: <a> sem display:block) ─────────────
+// Um `<a>` no meio de um parágrafo agora tem rect próprio em `node_rects`, então
+// o clique o encontra e navega — e o clique AO LADO dele, no mesmo parágrafo, não.
+const htmlInline = "<html><body>"
+  + "<p id='par'>Antes do <a id='il' href='/destino-inline'>link aqui</a> e depois.</p>"
+  + "</body></html>";
+const docIn = parseDocument(htmlInline);
+
+// Acha uma coordenada DENTRO do <a> varrendo a linha do parágrafo.
+function xDoLink(): number {
+  let x = 0;
+  while (x < 600) {
+    const e = docIn.elementFromPoint(x, 20, VW);
+    if (e !== null && e.getAttribute("id") === "il") return x;
+    x = x + 4;
+  }
+  return -1;
+}
+const xLink = xDoLink();
+const hrefInline = xLink < 0 ? "" : docIn.clickAt(xLink, 20, VW);
+const hrefAoLado = docIn.clickAt(2, 20, VW);
+
+describe("clique em link INLINE (página real)", () => {
+  test("o <a> inline tem caixa própria e é encontrado", () => {
+    expect(xLink >= 0).toBe(true);
+  });
+
+  test("clicar no link inline navega", () => {
+    expect(hrefInline).toBe("/destino-inline");
+  });
+
+  test("clicar no texto AO LADO do link não navega", () => {
+    expect(hrefAoLado).toBe("");
+  });
+});
 
 describe("clique: hit-test + evento + ação default", () => {
   test("elementFromPoint devolve o nó mais profundo", () => {
