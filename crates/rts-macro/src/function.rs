@@ -121,9 +121,52 @@ fn take_default(pt: &mut syn::PatType) -> syn::Result<Option<proc_macro2::TokenS
     }))
 }
 
+/// Parse and STRIP a `#[ts("…")]` attribute overriding the DERIVED TS return
+/// type.
+///
+/// The derivation ([`ts_of`]) maps the ABI type, which is all it can see — and
+/// for `Handle` that is genuinely ambiguous. The engine reboxes a `Handle`
+/// return by what the `ts_signature` DECLARES (`registry.rs`:
+/// `ts_returns_string` / `ts_returns_array` / `ts_returns_object`), so the same
+/// `-> Handle` is a string, an array, an object, or an OPAQUE key depending on
+/// what the member means. `rts:gpu`'s `shader()` returns a pipeline handle the
+/// script treats as a plain `number`; derived as `object` it reboxes into `[]`
+/// and every later call gets an invalid handle.
+///
+/// So the ambiguity is resolved where the answer is known — on the declaration:
+///
+/// ```ignore
+/// #[rtse::function(module = "rts:gpu", value = "shader")]
+/// #[ts("number")]
+/// fn shader(wgsl: &str) -> Handle { … }
+/// ```
+///
+/// Only the RETURN type is overridable: parameter TS names are cosmetic (they
+/// appear in the generated `.d.ts`), while the return type drives real reboxing
+/// behavior. Purely a macro-time marker, removed before the function is
+/// re-emitted — and invisible to `rts-symbol-baker`, which keys on the naming
+/// attribute's path alone.
+fn take_ts_override(attrs: &mut Vec<syn::Attribute>) -> syn::Result<Option<String>> {
+    let Some(idx) = attrs.iter().position(|a| a.path().is_ident("ts")) else {
+        return Ok(None);
+    };
+    let attr = attrs.remove(idx);
+    let lit: syn::LitStr = attr.parse_args().map_err(|_| {
+        syn::Error::new_spanned(
+            &attr,
+            "#[ts(...)]: expected a TS type as a string, e.g. `#[ts(\"number\")]`",
+        )
+    })?;
+    Ok(Some(lit.value()))
+}
+
 pub(crate) fn expand(a: TokenStream, item: TokenStream) -> TokenStream {
     let mut func = syn::parse_macro_input!(item as syn::ItemFn);
     let args = match syn::parse::<AbiArgs>(a) {
+        Ok(v) => v,
+        Err(e) => return e.to_compile_error().into(),
+    };
+    let ts_override = match take_ts_override(&mut func.attrs) {
         Ok(v) => v,
         Err(e) => return e.to_compile_error().into(),
     };
@@ -228,9 +271,10 @@ pub(crate) fn expand(a: TokenStream, item: TokenStream) -> TokenStream {
         .into();
     };
     wrap |= ret.needs_wrapper;
-    let ret_ts = match &func.sig.output {
-        syn::ReturnType::Default => "void".to_string(),
-        syn::ReturnType::Type(_, t) => ts_of(t),
+    let ret_ts = match (ts_override, &func.sig.output) {
+        (Some(t), _) => t,
+        (None, syn::ReturnType::Default) => "void".to_string(),
+        (None, syn::ReturnType::Type(_, t)) => ts_of(t),
     };
 
     let ret_abi = ret.abi;

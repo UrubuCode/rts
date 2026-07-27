@@ -9,10 +9,12 @@ fn open_write_close() {
         eprintln!("sem device de saída — pulando (não é falha do código)");
         return;
     }
-    let sr = audio::__RTS_FN_NS_AUDIO_SAMPLE_RATE(h);
-    let ch = audio::__RTS_FN_NS_AUDIO_CHANNELS(h);
+    // Os símbolos ABI seguem a convenção derivada pelo `#[rtse::function]`
+    // (`__rtsm_<module>_<value>`), não mais o `__RTS_FN_NS_*` hand-written.
+    let sr = audio::__rtsm_audio_sample_rate(h);
+    let ch = audio::__rtsm_audio_channels(h);
     eprintln!("sr={sr} ch={ch}");
     assert!(sr > 0 && ch > 0);
-    audio::__RTS_FN_NS_AUDIO_CLOSE(h);
+    audio::__rtsm_audio_close(h);
     eprintln!("closed ok");
 }

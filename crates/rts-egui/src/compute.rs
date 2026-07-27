@@ -38,7 +38,7 @@ use std::collections::HashMap;
 
 use rts_engine::abi::ty::{Handle, I64, U64};
 use rts_engine::heap::handles::{Entry, with_entry, with_entry_mut};
-use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::Engine;
 
 use crate::frame::gpu::{GpuConfig, SharedGpu, shared_gpu};
 
@@ -107,19 +107,18 @@ fn with_gpu<R>(default: R, f: impl FnOnce(&mut Ctx) -> R) -> R {
     })
 }
 
-/// 1 se há GPU utilizável (cria o device na primeira consulta).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GPU_AVAILABLE() -> I64 {
+/// 1 se há GPU utilizável (cria o device headless na primeira consulta).
+#[rtse::function(module = "rts:gpu", value = "available")]
+pub fn available() -> I64 {
     with_gpu(0, |_| 1)
 }
 
-/// Compila um kernel WGSL (entry point `main`). Handle do pipeline, 0 em erro
-/// de validação (mensagem no stderr).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GPU_SHADER(src_ptr: *const u8, src_len: i64) -> Handle {
-    let Some(src) = (unsafe { rts_engine::abi::str_abi::from_abi(src_ptr, src_len) }) else {
-        return 0;
-    };
+/// Compila um kernel WGSL (entry point `main`). Handle do pipeline; 0 = erro de
+/// validação (mensagem no stderr).
+#[rtse::function(module = "rts:gpu", value = "shader")]
+#[ts("number")]
+pub fn shader(wgsl: &str) -> Handle {
+    let src = wgsl;
     with_gpu(0, |c| {
         let dev = &c.gpu.device;
         // Error scope: WGSL inválido vira Err aqui em vez de panic global.
@@ -153,9 +152,10 @@ pub extern "C" fn __RTS_FN_NS_GPU_SHADER(src_ptr: *const u8, src_len: i64) -> Ha
     })
 }
 
-/// Storage buffer de `bytes` na GPU. Handle, 0 em erro.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GPU_BUFFER(bytes: I64) -> Handle {
+/// Storage buffer na GPU. Handle; 0 = erro.
+#[rtse::function(module = "rts:gpu", value = "buffer")]
+#[ts("number")]
+pub fn buffer(bytes: I64) -> Handle {
     if bytes <= 0 {
         return 0;
     }
@@ -180,9 +180,9 @@ pub extern "C" fn __RTS_FN_NS_GPU_BUFFER(bytes: I64) -> Handle {
     })
 }
 
-/// Sobe `bytes` do `rts:buffer` `src` para o buffer de GPU. 1 ok, 0 erro.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GPU_WRITE(gbuf: U64, src: U64, bytes: I64) -> I64 {
+/// Sobe bytes de um rts:buffer para o buffer de GPU. 1 ok, 0 erro.
+#[rtse::function(module = "rts:gpu", value = "write")]
+pub fn write(gbuf: U64, src: U64, bytes: I64) -> I64 {
     let Some(data) = with_entry(src, |e| match e {
         Some(Entry::Buffer(b)) => Some(b[..(bytes as usize).min(b.len())].to_vec()),
         _ => None,
@@ -198,18 +198,11 @@ pub extern "C" fn __RTS_FN_NS_GPU_WRITE(gbuf: U64, src: U64, bytes: I64) -> I64 
     })
 }
 
-/// Escrita PARCIAL com offset: copia `bytes` do rts:buffer `src` (a partir de
-/// `src_off`) para o buffer de GPU `gbuf` (a partir de `dst_off`). 1 ok.
-/// É o que permite "cutucar" UM corpo sem reenviar o estado inteiro (o upload
-/// completo em pleno jogo reescrevia velocidades de todos com valores velhos).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GPU_WRITE_AT(
-    gbuf: U64,
-    src: U64,
-    src_off: I64,
-    dst_off: I64,
-    bytes: I64,
-) -> I64 {
+/// Partial write with offsets: copies bytes from the rts:buffer into the GPU
+/// buffer at dstOff. Enables poking ONE body without re-uploading full state.
+/// 1 ok, 0 error.
+#[rtse::function(module = "rts:gpu", value = "write_at")]
+pub fn write_at(gbuf: U64, src: U64, src_off: I64, dst_off: I64, bytes: I64) -> I64 {
     if bytes <= 0 || src_off < 0 || dst_off < 0 {
         return 0;
     }
@@ -235,14 +228,14 @@ pub extern "C" fn __RTS_FN_NS_GPU_WRITE_AT(
     })
 }
 
-/// Liga o buffer `gbuf` ao `@binding(slot)` do `@group(0)` do pipeline. 1 ok.
+/// Liga o buffer ao @binding(slot) do @group(0) do pipeline. 1 ok.
 ///
 /// Chama-se `bind_buffer` (não `bind`): o lowering intercepta `.bind(` como
 /// `Function.prototype.bind` ANTES de resolver membro de namespace, e o script
 /// morre com "unbound identifier `gpu`". Membro de namespace não pode se chamar
 /// `bind`/`call`/`apply` enquanto isso for assim.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GPU_BIND(pipe: U64, slot: I64, gbuf: U64) -> I64 {
+#[rtse::function(module = "rts:gpu", value = "bind_buffer")]
+pub fn bind_buffer(pipe: U64, slot: I64, gbuf: U64) -> I64 {
     with_gpu(0, |c| {
         if !c.buffers.contains_key(&gbuf) {
             return 0;
@@ -256,10 +249,9 @@ pub extern "C" fn __RTS_FN_NS_GPU_BIND(pipe: U64, slot: I64, gbuf: U64) -> I64 {
     })
 }
 
-/// Submete `gx × gy × gz` workgroups do pipeline. NÃO espera a GPU terminar —
-/// `read` é quem sincroniza. 1 ok, 0 erro.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GPU_DISPATCH(pipe: U64, gx: I64, gy: I64, gz: I64) -> I64 {
+/// Submete gx*gy*gz workgroups (assíncrono — `read` sincroniza). 1 ok.
+#[rtse::function(module = "rts:gpu", value = "dispatch")]
+pub fn dispatch(pipe: U64, gx: I64, gy: I64, gz: I64) -> I64 {
     if gx <= 0 || gy <= 0 || gz <= 0 {
         return 0;
     }
@@ -307,10 +299,10 @@ pub extern "C" fn __RTS_FN_NS_GPU_DISPATCH(pipe: U64, gx: I64, gy: I64, gz: I64)
     })
 }
 
-/// Lê `bytes` do buffer de GPU para o `rts:buffer` `dst`. SINCRONIZA (espera
-/// todo trabalho submetido terminar). Bytes lidos, -1 erro.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GPU_READ(gbuf: U64, dst: U64, bytes: I64) -> I64 {
+/// Espera a GPU e copia bytes do buffer de GPU para um rts:buffer. Bytes lidos,
+/// -1 erro.
+#[rtse::function(module = "rts:gpu", value = "read")]
+pub fn read(gbuf: U64, dst: U64, bytes: I64) -> I64 {
     if bytes <= 0 {
         return -1;
     }
@@ -359,11 +351,14 @@ pub extern "C" fn __RTS_FN_NS_GPU_READ(gbuf: U64, dst: U64, bytes: I64) -> I64 {
     })
 }
 
-/// LEITURA ASSÍNCRONA, passo 1: agenda a cópia GPU→staging e o map, SEM
-/// esperar. Devolve um ticket (0 = erro). A física-como-serviço nasce aqui:
-/// o jogo agenda no fim do frame e pergunta nos seguintes com `read_poll`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GPU_READ_BEGIN(gbuf: U64, bytes: I64) -> Handle {
+/// Async read, step 1: schedules the GPU->staging copy WITHOUT waiting; returns
+/// a ticket (0 = error). Poll with read_poll.
+///
+/// A física-como-serviço nasce aqui: o jogo agenda no fim do frame e pergunta
+/// nos seguintes com `read_poll`.
+#[rtse::function(module = "rts:gpu", value = "read_begin")]
+#[ts("number")]
+pub fn read_begin(gbuf: U64, bytes: I64) -> Handle {
     if bytes <= 0 {
         return 0;
     }
@@ -408,11 +403,10 @@ pub extern "C" fn __RTS_FN_NS_GPU_READ_BEGIN(gbuf: U64, bytes: I64) -> Handle {
     })
 }
 
-/// LEITURA ASSÍNCRONA, passo 2: pergunta SEM bloquear. Pronto → copia para o
-/// rts:buffer `dst`, consome o ticket e devolve os bytes. Ainda em voo → 0.
-/// Erro/ticket inválido → -1.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GPU_READ_POLL(ticket: U64, dst: U64) -> I64 {
+/// Async read, step 2: non-blocking check. Ready -> copies into the rts:buffer
+/// dst, consumes the ticket, returns bytes. In flight -> 0. Error -> -1.
+#[rtse::function(module = "rts:gpu", value = "read_poll")]
+pub fn read_poll(ticket: U64, dst: U64) -> I64 {
     let data: i64 = with_gpu(-1, |c| {
         if !c.pending.contains_key(&ticket) {
             return -1;
@@ -469,9 +463,9 @@ pub extern "C" fn __RTS_FN_NS_GPU_READ_POLL(ticket: U64, dst: U64) -> I64 {
     data
 }
 
-/// Libera um buffer de GPU. 1 se existia.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GPU_BUFFER_FREE(gbuf: U64) -> I64 {
+/// Libera um buffer de GPU (e o desliga de todos os pipelines). 1 se existia.
+#[rtse::function(module = "rts:gpu", value = "buffer_free")]
+pub fn buffer_free(gbuf: U64) -> I64 {
     with_gpu(0, |c| {
         // Também some dos binds de todo pipeline — um dispatch posterior com o
         // slot vazio falha a validação em vez de usar buffer morto.
@@ -488,9 +482,13 @@ pub(crate) fn buffer_handle(id: u64) -> Option<wgpu::Buffer> {
     with_gpu(None, |c| c.buffers.get(&id).cloned())
 }
 
-/// Nome do adapter (debug/telemetria). Handle de string GC, 0 sem GPU.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GPU_ADAPTER_NAME() -> Handle {
+/// Nome do adapter de GPU em uso (debug).
+///
+/// Retorno `Handle` (não o alias `U64`): só `Handle` + ts `: string` faz o motor
+/// reboxar como TAG_STR — com `U64` o script receberia o inteiro cru.
+#[rtse::function(module = "rts:gpu", value = "adapter_name")]
+#[ts("string")]
+pub fn adapter_name() -> Handle {
     unsafe extern "C" {
         fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
     }
@@ -501,132 +499,25 @@ pub extern "C" fn __RTS_FN_NS_GPU_ADAPTER_NAME() -> Handle {
     })
 }
 
-// ---------------------------------------------------------------------------
-// Registro (builder hand-written, padrão rts:audio)
-// ---------------------------------------------------------------------------
-
-fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
-    Member {
-        name: name.to_string(),
-        kind: MemberKind::Function,
-        sig,
-        symbol: symbol.to_string(),
-        fn_ptr: FnPtr(fp),
-        flags: MemberFlags::NONE,
-        aliases: Vec::new(),
-        variadic: false,
-        ts_signature: ts.to_string(),
-        doc: doc.to_string(),
-        pure: false,
-        emit: None,
-    }
-}
-
 /// Registra a namespace `gpu` no motor.
+///
+/// Closure-scoped (`e.module`) + `.registry(<fn>_entry())`: cada membro carrega
+/// nome JS, assinatura ABI, símbolo e fn-ptr DERIVADOS da própria fn Rust pelo
+/// `#[rtse::function]`, então não há tabela paralela para dessincronizar.
 pub fn register(e: &mut Engine) {
-    e.ns("gpu")
-        .doc("Compute WGSL na GPU compartilhada do runtime (headless ou junto do render).")
-        .member(func(
-            "available",
-            "__RTS_FN_NS_GPU_AVAILABLE",
-            Sig::new(Vec::new(), AbiType::I64),
-            "available(): number",
-            "1 se há GPU utilizável (cria o device headless na primeira consulta).",
-            __RTS_FN_NS_GPU_AVAILABLE as *const u8,
-        ))
-        .member(func(
-            "shader",
-            "__RTS_FN_NS_GPU_SHADER",
-            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
-            "shader(wgsl: string): number",
-            "Compila um kernel WGSL (entry point `main`). Handle do pipeline; 0 = erro de validação (stderr).",
-            __RTS_FN_NS_GPU_SHADER as *const u8,
-        ))
-        .member(func(
-            "buffer",
-            "__RTS_FN_NS_GPU_BUFFER",
-            Sig::new(vec![AbiType::I64], AbiType::Handle),
-            "buffer(bytes: number): number",
-            "Storage buffer na GPU. Handle; 0 = erro.",
-            __RTS_FN_NS_GPU_BUFFER as *const u8,
-        ))
-        .member(func(
-            "write",
-            "__RTS_FN_NS_GPU_WRITE",
-            Sig::new(vec![AbiType::U64, AbiType::U64, AbiType::I64], AbiType::I64),
-            "write(gbuf: number, src: number, bytes: number): number",
-            "Sobe bytes de um rts:buffer para o buffer de GPU. 1 ok, 0 erro.",
-            __RTS_FN_NS_GPU_WRITE as *const u8,
-        ))
-        .member(func(
-            "write_at",
-            "__RTS_FN_NS_GPU_WRITE_AT",
-            Sig::new(
-                vec![AbiType::U64, AbiType::U64, AbiType::I64, AbiType::I64, AbiType::I64],
-                AbiType::I64,
-            ),
-            "write_at(gbuf: number, src: number, srcOff: number, dstOff: number, bytes: number): number",
-            "Partial write with offsets: copies bytes from the rts:buffer into the GPU buffer at dstOff. Enables poking ONE body without re-uploading full state. 1 ok, 0 error.",
-            __RTS_FN_NS_GPU_WRITE_AT as *const u8,
-        ))
-        .member(func(
-            "bind_buffer",
-            "__RTS_FN_NS_GPU_BIND",
-            Sig::new(vec![AbiType::U64, AbiType::I64, AbiType::U64], AbiType::I64),
-            "bind_buffer(pipe: number, slot: number, gbuf: number): number",
-            "Liga o buffer ao @binding(slot) do @group(0) do pipeline. 1 ok.",
-            __RTS_FN_NS_GPU_BIND as *const u8,
-        ))
-        .member(func(
-            "dispatch",
-            "__RTS_FN_NS_GPU_DISPATCH",
-            Sig::new(
-                vec![AbiType::U64, AbiType::I64, AbiType::I64, AbiType::I64],
-                AbiType::I64,
-            ),
-            "dispatch(pipe: number, gx: number, gy: number, gz: number): number",
-            "Submete gx*gy*gz workgroups (assíncrono — `read` sincroniza). 1 ok.",
-            __RTS_FN_NS_GPU_DISPATCH as *const u8,
-        ))
-        .member(func(
-            "read",
-            "__RTS_FN_NS_GPU_READ",
-            Sig::new(vec![AbiType::U64, AbiType::U64, AbiType::I64], AbiType::I64),
-            "read(gbuf: number, dst: number, bytes: number): number",
-            "Espera a GPU e copia bytes do buffer de GPU para um rts:buffer. Bytes lidos, -1 erro.",
-            __RTS_FN_NS_GPU_READ as *const u8,
-        ))
-        .member(func(
-            "read_begin",
-            "__RTS_FN_NS_GPU_READ_BEGIN",
-            Sig::new(vec![AbiType::U64, AbiType::I64], AbiType::Handle),
-            "read_begin(gbuf: number, bytes: number): number",
-            "Async read, step 1: schedules the GPU->staging copy WITHOUT waiting; returns a ticket (0 = error). Poll with read_poll.",
-            __RTS_FN_NS_GPU_READ_BEGIN as *const u8,
-        ))
-        .member(func(
-            "read_poll",
-            "__RTS_FN_NS_GPU_READ_POLL",
-            Sig::new(vec![AbiType::U64, AbiType::U64], AbiType::I64),
-            "read_poll(ticket: number, dst: number): number",
-            "Async read, step 2: non-blocking check. Ready -> copies into the rts:buffer dst, consumes the ticket, returns bytes. In flight -> 0. Error -> -1.",
-            __RTS_FN_NS_GPU_READ_POLL as *const u8,
-        ))
-        .member(func(
-            "buffer_free",
-            "__RTS_FN_NS_GPU_BUFFER_FREE",
-            Sig::new(vec![AbiType::U64], AbiType::I64),
-            "buffer_free(gbuf: number): number",
-            "Libera um buffer de GPU (e o desliga de todos os pipelines). 1 se existia.",
-            __RTS_FN_NS_GPU_BUFFER_FREE as *const u8,
-        ))
-        .member(func(
-            "adapter_name",
-            "__RTS_FN_NS_GPU_ADAPTER_NAME",
-            Sig::new(Vec::new(), AbiType::Handle),
-            "adapter_name(): string",
-            "Nome do adapter de GPU em uso (debug).",
-            __RTS_FN_NS_GPU_ADAPTER_NAME as *const u8,
-        ))
-        .done();
+    e.module("rts:gpu", |m| {
+        m.doc("Compute WGSL na GPU compartilhada do runtime (headless ou junto do render).");
+        m.registry(available_entry());
+        m.registry(shader_entry());
+        m.registry(buffer_entry());
+        m.registry(write_entry());
+        m.registry(write_at_entry());
+        m.registry(bind_buffer_entry());
+        m.registry(dispatch_entry());
+        m.registry(read_entry());
+        m.registry(read_begin_entry());
+        m.registry(read_poll_entry());
+        m.registry(buffer_free_entry());
+        m.registry(adapter_name_entry());
+    });
 }

@@ -16,3 +16,7 @@ edition = "2024"
 
 [dependencies]
 rts-engine = { path = "../rts-engine" }
+# `#[rtse::function]` authoring macro (F7): cada membro do namespace `input` é
+# declarado UMA vez, na própria fn Rust — símbolo, assinatura ABI, ts_signature
+# e fn-ptr saem derivados dela. Ver docs/specs/rts-macro-single-source.md.
+rtse = { package = "rts-macro", path = "../rts-macro" }

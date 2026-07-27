@@ -175,6 +175,7 @@ Audited against `crates/rts-macro/src/lib.rs` (1414 lines) as of 2026-07-27:
 | Callback params | absent | `arr_map`/`filter`/`reduce` — invoke a handle as a function |
 | `Vec<Poly>` / iterator returns | only `String`/`Handle`/tuple-of-`String` | `arr_entries`/`values`/`keys` |
 | `#[rtse::symbol("iterator")]` | inert marker only | a Rust class joining the iteration protocol — unblocks `Map`/`Set` in Rust |
+| `#[ts("…")]` return-type override | **landed (F7)** | a `Handle` return the engine must rebox as `string`/`number` rather than the derived `object` |
 
 ### The default-argument gap, specifically
 
@@ -242,6 +243,28 @@ is what lets an intrinsic have an inline-IR path with the engine naming nothing.
 **F7 — drain hand-written `extern "C"`, group by group**, each with the coverage
 guard `adapter_symbols` already has. The object/array family (~120 symbols) goes
 LAST: biggest, hottest, and it depends on F0 and F6.
+
+*Drained so far (2026-07-27):* `rts:gpu` (12), `input` (20), `audio` (12) — the
+three groups with no variadic member and no intrinsic, so none of them waited on
+F6. Two gaps surfaced and were closed as part of that first pass:
+
+- **`rts-symbol-baker` did not recognize `#[rtse::function]`.** It keyed on
+  `#[rtse::abi]` / `no_mangle` only, so a migrated group vanished from the baked
+  table — silently, since `cargo check` neither links nor sees the generated
+  externs. Both attributes name their symbol through the same grammar, so
+  `scan/mod.rs` now recognizes either (`rtse_naming_attr`).
+- **`#[ts("…")]` — an explicit TS return type.** The derivation maps the ABI
+  type, and for `Handle` that is genuinely ambiguous: the engine reboxes a
+  `Handle` return by what the `ts_signature` DECLARES (`registry.rs`:
+  `ts_returns_string`/`_array`/`_object`). `rts:gpu`'s `shader()` returns an
+  opaque pipeline key the script treats as a `number`; derived as `object` it
+  reboxed into `[]` and every later call got an invalid handle (observed, then
+  fixed). `input.textInput` is the mirror case — `Handle` + `#[ts("string")]` is
+  what makes it a real string instead of a raw integer. Only the RETURN type is
+  overridable; parameter TS names are cosmetic.
+
+A migrated group's fns must be `pub`: the macro preserves the source visibility,
+and a private one is unreachable from an integration test in `tests/`.
 
 ## Non-goals
 

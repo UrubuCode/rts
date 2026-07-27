@@ -4149,6 +4149,7 @@ dependencies = [
  "rts-dom",
  "rts-engine",
  "rts-input",
+ "rts-macro",
  "rts-render",
  "wgpu",
  "winit",
@@ -4184,6 +4185,7 @@ name = "rts-input"
 version = "0.1.0"
 dependencies = [
  "rts-engine",
+ "rts-macro",
 ]
 
 [[package]]

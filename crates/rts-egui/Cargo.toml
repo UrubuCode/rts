@@ -13,6 +13,10 @@ edition = "2024"
 
 [dependencies]
 rts-engine = { path = "../rts-engine" }
+# `#[rtse::function]` authoring macro (F7): o namespace `rts:gpu` declara cada
+# membro UMA vez, na própria fn Rust — símbolo, assinatura ABI e fn-ptr saem
+# derivados dela. Ver docs/specs/rts-macro-single-source.md.
+rtse = { package = "rts-macro", path = "../rts-macro" }
 # DOM retido: o egui CONSOME o tipo `Dom` do crate `rts-dom` (parser + árvore +
 # NodeId) e só adiciona o RENDER. O DOM não vive mais aqui.
 rts-dom = { path = "../rts-dom" }

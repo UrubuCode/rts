@@ -132,9 +132,9 @@ fn visit_items(items: &[syn::Item], origin: &str, out: &mut Vec<Declaration>) ->
 /// The linker symbol this function exports, if it exports one.
 fn symbol_of(f: &syn::ItemFn) -> Result<Option<String>> {
     let name = f.sig.ident.to_string();
-    if let Some(attr) = f.attrs.iter().find(|a| is_rtse_abi(a)) {
-        let naming = parse_naming(attr)
-            .with_context(|| format!("#[rtse::abi] on `{name}`"))?;
+    if let Some((attr, which)) = f.attrs.iter().find_map(|a| rtse_naming_attr(a).map(|w| (a, w))) {
+        let naming =
+            parse_naming(attr).with_context(|| format!("#[rtse::{which}] on `{name}`"))?;
         return Ok(Some(symbol_for(&naming, &name)));
     }
     if has_no_mangle(&f.attrs) && name.starts_with("__") {
@@ -144,14 +144,26 @@ fn symbol_of(f: &syn::ItemFn) -> Result<Option<String>> {
     Ok(None)
 }
 
-fn is_rtse_abi(a: &syn::Attribute) -> bool {
+/// Which naming-carrying `#[rtse::…]` attribute this is, if any.
+///
+/// `#[rtse::abi]` and `#[rtse::function]` name their symbol through the SAME
+/// grammar (both parse into `rts_macro`'s `AbiArgs` and derive via
+/// [`symbol_for`]), so both are recognized here rather than each getting its own
+/// near-identical branch. The difference between them is what ELSE the macro
+/// emits — a `Member` entry for `function`, nothing for `abi` — which does not
+/// concern the baker: it bakes linker symbols, and both export exactly one.
+fn rtse_naming_attr(a: &syn::Attribute) -> Option<&'static str> {
     let segs: Vec<String> = a
         .path()
         .segments
         .iter()
         .map(|s| s.ident.to_string())
         .collect();
-    matches!(segs.as_slice(), [x, y] if x == "rtse" && y == "abi")
+    match segs.as_slice() {
+        [x, y] if x == "rtse" && y == "abi" => Some("abi"),
+        [x, y] if x == "rtse" && y == "function" => Some("function"),
+        _ => None,
+    }
 }
 
 /// `#[no_mangle]` in either spelling — bare, or wrapped as `#[unsafe(no_mangle)]`
@@ -177,12 +189,14 @@ fn cfgs_of(attrs: &[syn::Attribute]) -> Vec<String> {
         .collect()
 }
 
-/// Parse `#[rtse::abi(...)]` arguments into the shared [`Naming`].
+/// Parse the arguments of `#[rtse::abi(...)]` / `#[rtse::function(...)]` into
+/// the shared [`Naming`].
 ///
-/// The grammar mirrors `rts-macro`'s `abi::scope::AbiArgs`; only the SEMANTICS
-/// are shared (the macro owns the `syn::parse::Parse` impl because a foreign
-/// trait needs a local type). Any divergence here is a parse error, not a wrong
-/// name — the derivation itself is called, never copied.
+/// The grammar mirrors `rts-macro`'s `abi::scope::AbiArgs` — which BOTH macros
+/// parse with, so one implementation here covers both; only the SEMANTICS are
+/// shared (the macro owns the `syn::parse::Parse` impl because a foreign trait
+/// needs a local type). Any divergence here is a parse error, not a wrong name —
+/// the derivation itself is called, never copied.
 fn parse_naming(attr: &syn::Attribute) -> Result<Naming> {
     if matches!(attr.meta, syn::Meta::Path(_)) {
         return Ok(Naming::Verbatim);
@@ -210,7 +224,10 @@ fn parse_naming(attr: &syn::Attribute) -> Result<Naming> {
                 ("abi", None) => scope = Some(Scope::Abi),
                 ("value", Some(v)) => value = Some(v),
                 _ => {
-                    return Err(syn::Error::new_spanned(&key, "unsupported #[rtse::abi] arg"));
+                    return Err(syn::Error::new_spanned(
+                        &key,
+                        "unsupported #[rtse::abi] / #[rtse::function] arg",
+                    ));
                 }
             }
             if input.peek(syn::Token![,]) {
@@ -221,7 +238,7 @@ fn parse_naming(attr: &syn::Attribute) -> Result<Naming> {
         }
         match scope {
             Some(scope) => Ok(Naming::Scoped { scope, value }),
-            None => Err(input.error("#[rtse::abi]: missing scope")),
+            None => Err(input.error("#[rtse::abi] / #[rtse::function]: missing scope")),
         }
     })?;
     Ok(parsed)
@@ -249,6 +266,16 @@ mod tests {
     fn derives_from_rtse_abi_scope() {
         let d = syms(r#"#[rtse::abi(module = "node:fs", value = "readFileSync")] pub fn r() {}"#);
         assert_eq!(d[0].symbol, "__rtsm_node_fs_readFileSync");
+    }
+
+    #[test]
+    fn derives_from_rtse_function_scope() {
+        // A free function declared with `#[rtse::function]` exports exactly one
+        // linker symbol, named by the same rule `#[rtse::abi]` uses. Without this
+        // the baked table silently omits it and the JIT resolves nothing.
+        let d = syms(r#"#[rtse::function(module = "rts:gpu", value = "read_poll")] fn rp() {}"#);
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].symbol, "__rtsm_rts_gpu_read_poll");
     }
 
     #[test]

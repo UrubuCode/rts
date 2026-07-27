@@ -10,8 +10,9 @@
 //! and only `Send + Sync` state (ring + atomics) lives in the handle map; the
 //! extern boundary sees only an opaque u64. See `docs/specs/audio.md`.
 //!
-//! Migrado do `#[rts_namespace]` pro modelo builder hand-written do `rts-engine`
-//! (rumo à remoção da `rts-macro`; ver pilotos hint/hash/ptr/mem/runtime).
+//! Os membros ABI são declarados com `#[rtse::function]` (F7 de
+//! `docs/specs/rts-macro-single-source.md`): símbolo, assinatura, `ts_signature`
+//! e fn-ptr saem derivados da própria fn Rust.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -20,7 +21,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use cpal::SampleFormat;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rts_engine::abi::ty::{Bool, F64, Handle, I64, U64};
-use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::Engine;
 
 use rts_engine::heap::handles::{Entry, with_entry};
 
@@ -249,24 +250,33 @@ pub fn close(handle: u64) {
 }
 
 // ---------------------------------------------------------------------------
-// extern "C" ABI symbols (hand-written, sem macro)
+// ABI members (`#[rtse::function]` — F7 of docs/specs/rts-macro-single-source.md)
+//
+// Cada membro e declarado UMA vez: simbolo do linker, assinatura ABI,
+// ts_signature e fn-ptr saem DERIVADOS da propria fn Rust, entao nao ha tabela
+// paralela para dessincronizar.
 // ---------------------------------------------------------------------------
 
 /// Default output device sample rate (Hz), or 0 if unavailable.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_AUDIO_DEFAULT_SAMPLE_RATE() -> I64 {
+#[rtse::function(module = "audio", value = "default_sample_rate")]
+pub fn default_sample_rate() -> I64 {
     default_output_config().0 as i64
 }
 
 /// Default output device channel count, or 0 if unavailable.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_AUDIO_DEFAULT_CHANNELS() -> I64 {
+#[rtse::function(module = "audio", value = "default_channels")]
+pub fn default_channels() -> I64 {
     default_output_config().1 as i64
 }
 
-/// Opens an output stream. 0/0 args use the device default; capacity 0 ≈ 500ms.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_AUDIO_OPEN_OUTPUT(sample_rate: I64, channels: I64, capacity_frames: I64) -> Handle {
+/// Opens an output stream. 0/0 args use the device default; capacity 0 = ~500ms.
+///
+/// Retorno `Handle` com `#[ts("number")]`: a chave do stream e opaca e o TS a
+/// trata como numero. Derivado (`object`) o motor reboxaria como objeto e todo
+/// `audio.*(handle)` seguinte receberia um handle invalido.
+#[rtse::function(module = "audio", value = "open_output")]
+#[ts("number")]
+pub fn open_output_abi(sample_rate: I64, channels: I64, capacity_frames: I64) -> Handle {
     let sr = sample_rate.max(0) as u32;
     let ch = channels.clamp(0, u16::MAX as i64) as u16;
     let cap = capacity_frames.max(0) as usize;
@@ -274,26 +284,26 @@ pub extern "C" fn __RTS_FN_NS_AUDIO_OPEN_OUTPUT(sample_rate: I64, channels: I64,
 }
 
 /// Effective stream sample rate (may differ from requested). 0 if invalid.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_AUDIO_SAMPLE_RATE(handle: U64) -> I64 {
+#[rtse::function(module = "audio", value = "sample_rate")]
+pub fn sample_rate(handle: U64) -> I64 {
     with_stream(handle, 0, |s| s.sample_rate as i64)
 }
 
 /// Effective stream channel count. 0 if invalid.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_AUDIO_CHANNELS(handle: U64) -> I64 {
+#[rtse::function(module = "audio", value = "channels")]
+pub fn channels(handle: U64) -> I64 {
     with_stream(handle, 0, |s| s.channels as i64)
 }
 
 /// Is the stream alive? 1 = yes, 0 = no.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_AUDIO_IS_OPEN(handle: U64) -> Bool {
+#[rtse::function(module = "audio", value = "is_open")]
+pub fn is_open(handle: U64) -> Bool {
     with_stream(handle, 0, |_| 1)
 }
 
 /// Free frames in the ring (room for `write` without backpressure). -1 if invalid.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_AUDIO_AVAILABLE_FRAMES(handle: U64) -> I64 {
+#[rtse::function(module = "audio", value = "available_frames")]
+pub fn available_frames(handle: U64) -> I64 {
     with_stream(handle, -1, |s| {
         let queued_samples = s.ring.lock().unwrap().len();
         let queued_frames = queued_samples / s.channels.max(1) as usize;
@@ -302,8 +312,8 @@ pub extern "C" fn __RTS_FN_NS_AUDIO_AVAILABLE_FRAMES(handle: U64) -> I64 {
 }
 
 /// Frames currently queued in the ring. -1 if invalid.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_AUDIO_QUEUED_FRAMES(handle: U64) -> I64 {
+#[rtse::function(module = "audio", value = "queued_frames")]
+pub fn queued_frames(handle: U64) -> I64 {
     with_stream(handle, -1, |s| {
         let queued_samples = s.ring.lock().unwrap().len();
         (queued_samples / s.channels.max(1) as usize) as i64
@@ -312,8 +322,8 @@ pub extern "C" fn __RTS_FN_NS_AUDIO_QUEUED_FRAMES(handle: U64) -> I64 {
 
 /// Pushes f32 samples (interleaved) from `buffer_handle` into the ring.
 /// Returns the SAMPLES accepted (may be < n_samples under backpressure).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_AUDIO_WRITE(handle: U64, buffer_handle: U64, n_samples: I64) -> I64 {
+#[rtse::function(module = "audio", value = "write")]
+pub fn write(handle: U64, buffer_handle: U64, n_samples: I64) -> I64 {
     if n_samples <= 0 {
         return 0;
     }
@@ -352,8 +362,8 @@ pub extern "C" fn __RTS_FN_NS_AUDIO_WRITE(handle: U64, buffer_handle: U64, n_sam
 }
 
 /// Sets the master gain (multiplied per sample on the RT callback). Clamped [0, 4].
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_AUDIO_MASTER_VOLUME(handle: U64, gain: F64) {
+#[rtse::function(module = "audio", value = "master_volume")]
+pub fn master_volume(handle: U64, gain: F64) {
     let g = (gain as f32).clamp(0.0, 4.0);
     with_stream(handle, (), |s| {
         *s.master_gain.lock().unwrap() = g;
@@ -361,138 +371,32 @@ pub extern "C" fn __RTS_FN_NS_AUDIO_MASTER_VOLUME(handle: U64, gain: F64) {
 }
 
 /// Total underruns since open (device asked for data with an empty ring). -1 if invalid.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_AUDIO_UNDERRUNS(handle: U64) -> I64 {
+#[rtse::function(module = "audio", value = "underruns")]
+pub fn underruns(handle: U64) -> I64 {
     with_stream(handle, -1, |s| s.underruns.load(Ordering::Relaxed) as i64)
 }
 
 /// Closes the stream and frees the device. Repeated calls are no-ops.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_AUDIO_CLOSE(handle: U64) {
+#[rtse::function(module = "audio", value = "close")]
+pub fn close_abi(handle: U64) {
     close(handle);
 }
 
-// ---------------------------------------------------------------------------
-// Builder registration (Fase 2 — hand-written, sem macro)
-// ---------------------------------------------------------------------------
-
-/// Função `audio.f(args)`.
-fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
-    Member {
-        name: name.to_string(),
-        kind: MemberKind::Function,
-        sig,
-        symbol: symbol.to_string(),
-        fn_ptr: FnPtr(fp),
-        flags: MemberFlags::NONE,
-        aliases: Vec::new(),
-        variadic: false,
-        ts_signature: ts.to_string(),
-        doc: doc.to_string(),
-        pure: false,
-        emit: None,
-    }
-}
-
-/// Registra a namespace `audio` no motor (Fase 2 — hand-written, sem macro).
+/// Registra a namespace `audio` no motor.
 pub fn register(e: &mut Engine) {
-    e.ns("audio")
-        .doc("Low-level audio device I/O (cpal). Samples flow as f32 LE bytes in a Buffer.")
-        .member(func(
-            "default_sample_rate",
-            "__RTS_FN_NS_AUDIO_DEFAULT_SAMPLE_RATE",
-            Sig::new(Vec::new(), AbiType::I64),
-            "default_sample_rate(): number",
-            "Default output device sample rate (Hz), or 0 if unavailable.",
-            __RTS_FN_NS_AUDIO_DEFAULT_SAMPLE_RATE as *const u8,
-        ))
-        .member(func(
-            "default_channels",
-            "__RTS_FN_NS_AUDIO_DEFAULT_CHANNELS",
-            Sig::new(Vec::new(), AbiType::I64),
-            "default_channels(): number",
-            "Default output device channel count, or 0 if unavailable.",
-            __RTS_FN_NS_AUDIO_DEFAULT_CHANNELS as *const u8,
-        ))
-        .member(func(
-            "open_output",
-            "__RTS_FN_NS_AUDIO_OPEN_OUTPUT",
-            Sig::new(vec![AbiType::I64, AbiType::I64, AbiType::I64], AbiType::Handle),
-            "open_output(sample_rate: number, channels: number, capacity_frames: number): number",
-            "Opens an output stream. 0/0 args use the device default; capacity 0 ≈ 500ms.",
-            __RTS_FN_NS_AUDIO_OPEN_OUTPUT as *const u8,
-        ))
-        .member(func(
-            "sample_rate",
-            "__RTS_FN_NS_AUDIO_SAMPLE_RATE",
-            Sig::new(vec![AbiType::U64], AbiType::I64),
-            "sample_rate(handle: number): number",
-            "Effective stream sample rate (may differ from requested). 0 if invalid.",
-            __RTS_FN_NS_AUDIO_SAMPLE_RATE as *const u8,
-        ))
-        .member(func(
-            "channels",
-            "__RTS_FN_NS_AUDIO_CHANNELS",
-            Sig::new(vec![AbiType::U64], AbiType::I64),
-            "channels(handle: number): number",
-            "Effective stream channel count. 0 if invalid.",
-            __RTS_FN_NS_AUDIO_CHANNELS as *const u8,
-        ))
-        .member(func(
-            "is_open",
-            "__RTS_FN_NS_AUDIO_IS_OPEN",
-            Sig::new(vec![AbiType::U64], AbiType::Bool),
-            "is_open(handle: number): boolean",
-            "Is the stream alive? 1 = yes, 0 = no.",
-            __RTS_FN_NS_AUDIO_IS_OPEN as *const u8,
-        ))
-        .member(func(
-            "available_frames",
-            "__RTS_FN_NS_AUDIO_AVAILABLE_FRAMES",
-            Sig::new(vec![AbiType::U64], AbiType::I64),
-            "available_frames(handle: number): number",
-            "Free frames in the ring (room for `write` without backpressure). -1 if invalid.",
-            __RTS_FN_NS_AUDIO_AVAILABLE_FRAMES as *const u8,
-        ))
-        .member(func(
-            "queued_frames",
-            "__RTS_FN_NS_AUDIO_QUEUED_FRAMES",
-            Sig::new(vec![AbiType::U64], AbiType::I64),
-            "queued_frames(handle: number): number",
-            "Frames currently queued in the ring. -1 if invalid.",
-            __RTS_FN_NS_AUDIO_QUEUED_FRAMES as *const u8,
-        ))
-        .member(func(
-            "write",
-            "__RTS_FN_NS_AUDIO_WRITE",
-            Sig::new(vec![AbiType::U64, AbiType::U64, AbiType::I64], AbiType::I64),
-            "write(handle: number, buffer_handle: number, n_samples: number): number",
-            "Pushes f32 samples (interleaved) from `buffer_handle` into the ring.\nReturns the SAMPLES accepted (may be < n_samples under backpressure).",
-            __RTS_FN_NS_AUDIO_WRITE as *const u8,
-        ))
-        .member(func(
-            "master_volume",
-            "__RTS_FN_NS_AUDIO_MASTER_VOLUME",
-            Sig::new(vec![AbiType::U64, AbiType::F64], AbiType::Void),
-            "master_volume(handle: number, gain: number): void",
-            "Sets the master gain (multiplied per sample on the RT callback). Clamped [0, 4].",
-            __RTS_FN_NS_AUDIO_MASTER_VOLUME as *const u8,
-        ))
-        .member(func(
-            "underruns",
-            "__RTS_FN_NS_AUDIO_UNDERRUNS",
-            Sig::new(vec![AbiType::U64], AbiType::I64),
-            "underruns(handle: number): number",
-            "Total underruns since open (device asked for data with an empty ring). -1 if invalid.",
-            __RTS_FN_NS_AUDIO_UNDERRUNS as *const u8,
-        ))
-        .member(func(
-            "close",
-            "__RTS_FN_NS_AUDIO_CLOSE",
-            Sig::new(vec![AbiType::U64], AbiType::Void),
-            "close(handle: number): void",
-            "Closes the stream and frees the device. Repeated calls are no-ops.",
-            __RTS_FN_NS_AUDIO_CLOSE as *const u8,
-        ))
-        .done();
+    e.module("audio", |m| {
+        m.doc("Low-level audio device I/O (cpal). Samples flow as f32 LE bytes in a Buffer.");
+        m.registry(default_sample_rate_entry());
+        m.registry(default_channels_entry());
+        m.registry(open_output_abi_entry());
+        m.registry(sample_rate_entry());
+        m.registry(channels_entry());
+        m.registry(is_open_entry());
+        m.registry(available_frames_entry());
+        m.registry(queued_frames_entry());
+        m.registry(write_entry());
+        m.registry(master_volume_entry());
+        m.registry(underruns_entry());
+        m.registry(close_abi_entry());
+    });
 }
