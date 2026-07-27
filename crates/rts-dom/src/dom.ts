@@ -416,6 +416,63 @@ class Element {
   dispatchEventNoBubble(type: string): number {
     return __dispatchWithCallbacks(this._dom, this._node, type, 0);
   }
+
+  // ── AUTOMAÇÃO: dirigir a página por código, sem mouse/teclado reais ──────────
+  //
+  // É o que faz este DOM servir de ferramenta de automação (o papel que hoje se
+  // pede a um browser externo + Puppeteer): o script ABRE a página, ACHA os
+  // elementos por seletor e AGE sobre eles — tudo no processo, headless, sem
+  // janela nem backend de input.
+
+  // `el.click()` — clica NESTE elemento programaticamente: despacha `click` com
+  // bubbling e executa a AÇÃO DEFAULT se ninguém cancelar. Devolve o href a
+  // navegar (vazio = nada), igual a `document.clickAt`.
+  //
+  // Não passa por hit-test: o alvo é este nó, dito por seletor. Um elemento sem
+  // caixa (inline sem layout, `display:none`) continua clicável por código —
+  // como no browser, onde `el.click()` funciona em elemento oculto.
+  click(): string {
+    const prevented = __dispatchCancelable(this._dom, this._node, "click", 1);
+    if (prevented !== 0) return "";
+    const anchor = dom.closest(this._dom, this._node, "a");
+    if (anchor === __DOM_NONE) return "";
+    return dom.getAttribute(this._dom, anchor, "href");
+  }
+
+  // `el.focus()` — dá o foco a este campo (passa a receber o texto digitado).
+  focus(): void {
+    dom.focusInput(this._dom, this._node);
+  }
+
+  // `el.type(texto)` — foca este campo e digita `texto` nele, como um usuário.
+  // Devolve o valor resultante. Dispara `input` (o evento que um handler de
+  // formulário escuta), depois de escrever — a ordem do browser.
+  type(text: string): string {
+    dom.focusInput(this._dom, this._node);
+    dom.inputFeedText(this._dom, text);
+    __dispatchCancelable(this._dom, this._node, "input", 1);
+    return dom.inputValue(this._dom, this._node);
+  }
+
+  // `el.clear()` — apaga o conteúdo deste campo (backspace até esvaziar).
+  clear(): string {
+    dom.focusInput(this._dom, this._node);
+    let guard = 0;
+    // guard: um campo gigante não pode travar o processo num laço sem teto.
+    while (guard < 10000) {
+      const v = dom.inputValue(this._dom, this._node);
+      if (v.length === 0) break;
+      dom.inputBackspace(this._dom);
+      guard = guard + 1;
+    }
+    __dispatchCancelable(this._dom, this._node, "input", 1);
+    return dom.inputValue(this._dom, this._node);
+  }
+
+  // `el.value` — o valor corrente de um campo de formulário.
+  get value(): string {
+    return dom.inputValue(this._dom, this._node);
+  }
   // `el.nodeId` — o NodeId cru deste elemento (p/ comparar no switch do polling).
   get nodeId(): number {
     return this._node;
@@ -601,6 +658,175 @@ class Element {
 // O `document` — fachada da árvore. No browser é a página; aqui embrulha um handle
 // de DOM do `rts:dom`. `parseHtml`/`createElement`/`querySelector` são métodos
 // (regra 2 para os que retornam `| null`).
+// MOUSE VIRTUAL — dirige a página por coordenada, sem dispositivo real.
+//
+// Existe para automação: reproduzir o GESTO (mover até um ponto, apertar, soltar)
+// em vez de agir direto num nó. É o que permite testar hover, menus que abrem no
+// `mouseover`, e hit-test — coisas que `el.click()` não exercita porque pula a
+// geometria.
+//
+// Mantém o último nó sob o cursor para emitir `mouseout`/`mouseover` na TRANSIÇÃO,
+// como o browser: mover dentro do mesmo elemento não redispara `mouseover`.
+class Mouse {
+  _dom: number;
+  _x: number;
+  _y: number;
+  _vw: number;
+  _over: number;
+
+  constructor(dom_handle: number) {
+    this._dom = dom_handle;
+    this._x = 0;
+    this._y = 0;
+    this._vw = 1280;
+    this._over = __DOM_NONE;
+  }
+
+  // Largura de viewport usada no hit-test (o layout depende dela).
+  viewport(w: number): void {
+    this._vw = w;
+  }
+
+  get x(): number { return this._x; }
+  get y(): number { return this._y; }
+
+  // `mouse.move(x, y)` — move o cursor. Emite `mouseout` no nó que deixou e
+  // `mouseover` no que entrou (só na transição). Devolve o NodeId sob o cursor.
+  move(x: number, y: number): number {
+    this._x = x;
+    this._y = y;
+    const alvo = dom.nodeAt(this._dom, this._vw, x, y);
+    if (alvo !== this._over) {
+      if (this._over !== __DOM_NONE) {
+        __dispatchCancelable(this._dom, this._over, "mouseout", 1);
+      }
+      if (alvo !== __DOM_NONE) {
+        __dispatchCancelable(this._dom, alvo, "mouseover", 1);
+      }
+      this._over = alvo;
+    }
+    if (alvo !== __DOM_NONE) {
+      __dispatchCancelable(this._dom, alvo, "mousemove", 1);
+    }
+    return alvo;
+  }
+
+  // `mouse.down()` / `mouse.up()` — os dois lados de um clique, para automação
+  // que precisa da sequência (arrastar, testar `:active`).
+  down(): number {
+    if (this._over === __DOM_NONE) return 0;
+    return __dispatchCancelable(this._dom, this._over, "mousedown", 1);
+  }
+
+  up(): number {
+    if (this._over === __DOM_NONE) return 0;
+    return __dispatchCancelable(this._dom, this._over, "mouseup", 1);
+  }
+
+  // `mouse.click(x, y)` — a sequência COMPLETA de um clique real:
+  // move → mousedown → mouseup → click (+ ação default do link).
+  // Devolve o href a navegar, "" se nada.
+  click(x: number, y: number): string {
+    this.move(x, y);
+    this.down();
+    this.up();
+    const alvo = this._over;
+    if (alvo === __DOM_NONE) return "";
+    const prevented = __dispatchCancelable(this._dom, alvo, "click", 1);
+    if (prevented !== 0) return "";
+    const anchor = dom.closest(this._dom, alvo, "a");
+    if (anchor === __DOM_NONE) return "";
+    return dom.getAttribute(this._dom, anchor, "href");
+  }
+
+  // `mouse.elementUnder()` — o elemento sob o cursor agora (`null` se nenhum).
+  elementUnder(): Element | null {
+    const n = this._over;
+    if (n === __DOM_NONE) return null;
+    return new Element(this._dom, n);
+  }
+}
+
+// TECLADO VIRTUAL — o par do [`Mouse`] para automação.
+//
+// Sem ele metade dos fluxos de uma página fica intestável: Enter que submete um
+// formulário, Escape que fecha um modal, Tab que anda entre campos, atalho de
+// aplicação. `el.type()` escreve texto; isto entrega TECLAS, que é outra coisa —
+// uma tecla pode não produzir caractere nenhum e ainda assim disparar lógica.
+//
+// As teclas vão ao elemento FOCADO (`focusInput`), como no browser; sem foco, ao
+// `<body>`, para que um handler global (o caso de atalho de app) ainda receba.
+class Keyboard {
+  _dom: number;
+
+  constructor(dom_handle: number) {
+    this._dom = dom_handle;
+  }
+
+  // O alvo de uma tecla: o campo focado, senão o body (handler global).
+  _alvo(): number {
+    const foco = dom.focusedInput(this._dom);
+    if (foco !== __DOM_NONE) return foco;
+    const body = dom.querySelector(this._dom, "body");
+    return body;
+  }
+
+  // `keyboard.press("Enter")` — a sequência de uma tecla: `keydown` → (se
+  // produz caractere e ninguém cancelou o keydown, insere) → `keyup`.
+  // Devolve 1 se o `keydown` foi cancelado com `preventDefault()`.
+  //
+  // Respeitar o cancelamento é o que faz máscara de input funcionar: um handler
+  // que valida a tecla e chama `preventDefault()` impede o caractere de entrar,
+  // exatamente como no browser.
+  press(key: string): number {
+    const alvo = this._alvo();
+    if (alvo === __DOM_NONE) return 0;
+    const cancelado = __dispatchCancelable(this._dom, alvo, "keydown", 1);
+    if (cancelado === 0) {
+      // Ação default da tecla: as que produzem caractere escrevem no campo
+      // focado; Backspace apaga. As demais (Enter/Tab/Escape/setas) não têm
+      // ação default aqui — quem quiser reagir escuta o `keydown`.
+      const foco = dom.focusedInput(this._dom);
+      if (foco !== __DOM_NONE) {
+        if (key === "Backspace") {
+          dom.inputBackspace(this._dom);
+          __dispatchCancelable(this._dom, foco, "input", 1);
+        } else if (key.length === 1) {
+          dom.inputFeedText(this._dom, key);
+          __dispatchCancelable(this._dom, foco, "input", 1);
+        }
+      }
+    }
+    __dispatchCancelable(this._dom, alvo, "keyup", 1);
+    return cancelado;
+  }
+
+  // `keyboard.typeText("abc")` — digita caractere a caractere, cada um com o
+  // ciclo completo de tecla. Mais lento que `el.type()`, e é esse o ponto:
+  // exercita o handler por tecla (autocomplete, máscara, contador de caracteres).
+  typeText(text: string): void {
+    let i = 0;
+    while (i < text.length) {
+      this.press(text.charAt(i));
+      i = i + 1;
+    }
+  }
+
+  // `keyboard.down(key)` / `.up(key)` — os lados separados, para atalhos e para
+  // testar tecla mantida pressionada. Devolve 1 se cancelado.
+  down(key: string): number {
+    const alvo = this._alvo();
+    if (alvo === __DOM_NONE) return 0;
+    return __dispatchCancelable(this._dom, alvo, "keydown", 1);
+  }
+
+  up(key: string): number {
+    const alvo = this._alvo();
+    if (alvo === __DOM_NONE) return 0;
+    return __dispatchCancelable(this._dom, alvo, "keyup", 1);
+  }
+}
+
 class Document {
   _dom: number;
 
@@ -645,6 +871,62 @@ class Document {
     const anchor = dom.closest(this._dom, n, "a");
     if (anchor === __DOM_NONE) return "";
     return dom.getAttribute(this._dom, anchor, "href");
+  }
+
+  // ── AUTOMAÇÃO por SELETOR — o caminho ergonômico (estilo Puppeteer) ──────────
+  //
+  // `clickAt` age por coordenada (o que um mouse faz); estes agem por SELETOR (o
+  // que um script de automação quer escrever). Ambos terminam no mesmo dispatch.
+
+  // `doc.click(seletor)` — clica no primeiro elemento que casa. Devolve o href a
+  // navegar, ou "" (não achou / cancelado / não é link).
+  click(sel: string): string {
+    const el = this.querySelector(sel);
+    if (el === null) return "";
+    return el.click();
+  }
+
+  // `doc.type(seletor, texto)` — digita num campo. Devolve o valor resultante.
+  type(sel: string, text: string): string {
+    const el = this.querySelector(sel);
+    if (el === null) return "";
+    return el.type(text);
+  }
+
+  // `doc.valueOf(seletor)` — lê o valor de um campo ("" se não achou).
+  valueOfField(sel: string): string {
+    const el = this.querySelector(sel);
+    if (el === null) return "";
+    return el.value;
+  }
+
+  // `doc.textOf(seletor)` — lê o texto visível de um elemento ("" se não achou).
+  // O par natural do `type`/`click` num script de automação: agir e depois
+  // conferir o que a página mostra.
+  textOf(sel: string): string {
+    const el = this.querySelector(sel);
+    if (el === null) return "";
+    return el.textContent;
+  }
+
+  // `doc.exists(seletor)` — o seletor casa com algum elemento?
+  exists(sel: string): boolean {
+    return this.querySelector(sel) !== null;
+  }
+
+  // `doc.mouse` — o dispositivo virtual: move/click por COORDENADA, para
+  // automação que precisa reproduzir o gesto (testar hover, hit-test, um menu
+  // que abre no `mouseover`) em vez de agir direto no nó.
+  get mouse(): Mouse {
+    return new Mouse(this._dom);
+  }
+
+  // `doc.keyboard` — o teclado virtual (Enter, Escape, Tab, atalhos, digitação
+  // tecla-a-tecla). Par do `mouse`: juntos simulam um USUÁRIO, não uma chamada
+  // de API — a diferença que faz a automação exercitar os mesmos caminhos que a
+  // pessoa exercitaria.
+  get keyboard(): Keyboard {
+    return new Keyboard(this._dom);
   }
 
   querySelectorAll(sel: string): Element[] {
