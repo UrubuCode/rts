@@ -208,9 +208,9 @@ rather than inferring it from the name.
 ### Per-slot `Repr`: unbox at the USE, never at the READ
 
 A prototype of this (a per-class `field_numbers` set + unbox in `lower_arith`)
-was built, measured at **1.62×** on `bench/field_arith.ts`, and then discarded in
-favour of doing it properly through the `Shape` — but it found a trap that the
-real implementation must not walk into.
+was built, measured at **1.62×**, and then discarded in favour of doing it
+properly through the `Shape` — but it found a trap that the real implementation
+must not walk into.
 
 **Unboxing at the READ site is wrong.** A field declared `n: number` that the
 constructor never assigns still holds `undefined`, and `console.log(z.n)` must
@@ -228,9 +228,13 @@ decode at the point of consumption. It does not license rewriting every read as
 a native-typed load. The two differ exactly on the values a JS program can
 observe before they are used.
 
-`bench/field_arith.ts` is kept as the benchmark for this axis — one construction
-then a hot loop of pure field arithmetic, deliberately isolating it from the
-allocation traffic that dominates `objbench.ts` and masks it.
+**Measure this axis on the right shape of program.** The same change measured
+~6% on `objbench.ts` and 1.62× on a loop doing only field arithmetic after a
+single construction. `objbench.ts` is dominated by allocation traffic, which
+masks the arithmetic entirely — so a benchmark that constructs in the loop will
+report that per-slot `Repr` is not worth doing. Build the isolating case (one
+construction, then a hot loop of pure `p.x * p.y`-style work) before concluding
+anything about this phase.
 
 ## Phase 1 — close the conservative `Tagged` widenings (Axis A)
 
