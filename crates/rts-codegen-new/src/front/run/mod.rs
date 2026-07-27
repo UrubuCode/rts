@@ -5,14 +5,14 @@
 //! polymorphic path + `console.log` — through
 //!
 //! ```text
-//! TS --swc--> rts-ast --rts-hir--> {HirFunc...} + __rtsn_main
+//! TS --swc--> rts-ast --rts-hir--> {HirFunc...} + __rts_startup
 //!         --run::lower--> Cranelift module --JIT--> execute --> captured stdout
 //! ```
 //!
 //! [`run_source`] is the entry: it parses the whole `Program`, lowers every
-//! top-level function to HIR and synthesizes a `__rtsn_main` from the top-level
+//! top-level function to HIR and synthesizes a `__rts_startup` from the top-level
 //! statements, JITs the module with the runtime symbols installed, resets the
-//! console capture buffer, calls `__rtsn_main`, and returns what it printed.
+//! console capture buffer, calls `__rts_startup`, and returns what it printed.
 //!
 //! If ANY function or the main body hits an unsupported construct the whole run
 //! returns `Err(Unsupported)` — the program never runs partially, and never
@@ -100,7 +100,7 @@ use super::error::{FrontResult, Unsupported};
 
 /// Parse, lower, JIT, and RUN `src` against the REAL runtime. `console.log`
 /// output goes to the process's real stdout via `__RTS_FN_NS_IO_PRINT`. Returns
-/// `Ok(())` once `__rtsn_main` finishes (the bun fixture harness validates true
+/// `Ok(())` once `__rts_startup` finishes (the bun fixture harness validates true
 /// end-to-end stdout against `bun`).
 ///
 /// Errors:
@@ -133,7 +133,7 @@ pub fn run_source(src: &str) -> FrontResult<()> {
 
 /// `rts ir -e` — build + JIT-compile `src` (a single source string, no disk
 /// imports) with the per-function Cranelift IR dump enabled, WITHOUT running
-/// `__rtsn_main`. The string-source twin of [`module_entry::dump_ir_path`].
+/// `__rts_startup`. The string-source twin of [`module_entry::dump_ir_path`].
 pub fn dump_ir_source(src: &str) -> FrontResult<()> {
     let prog = build_with_includes(src)?;
     module_jit::set_dump_ir(true);
@@ -424,9 +424,9 @@ pub fn render_source_with_prelude(prelude_src: &str, user_src: &str) -> FrontRes
 ///
 /// The prelude MAY carry top-level statements (module-level `let`/`const`
 /// initializers, e.g. the `rts:test` bundle's hook-slot globals `let
-/// _before_all_fn = 0`): they are PREPENDED to the user's `__rtsn_main` body so
+/// _before_all_fn = 0`): they are PREPENDED to the user's `__rts_startup` body so
 /// they run FIRST (initialization order: prelude then user). The combined main is
-/// the single `__rtsn_main`; module-level mutable globals are recomputed over it so
+/// the single `__rts_startup`; module-level mutable globals are recomputed over it so
 /// a prelude top-level `let` written from a prelude function (the hook setters)
 /// becomes a shared cell exactly like a user one.
 fn merge_programs(
@@ -490,7 +490,7 @@ fn merge_programs(
     param_classes.extend(user.param_classes);
 
     // MAIN: prepend the prelude's top-level statements (its initializers) ahead of
-    // the user's, in ONE `__rtsn_main`. Run order is prelude-first, so a prelude
+    // the user's, in ONE `__rts_startup`. Run order is prelude-first, so a prelude
     // module-global is initialized before any user code observes it.
     let mut main = user.main;
     if !prelude.main.body.is_empty() {
@@ -557,7 +557,7 @@ fn merge_programs(
 }
 
 /// A lowered program ready to JIT: the user functions (incl. synthesized class
-/// constructors/methods + extracted arrows), the synthesized `__rtsn_main`, the
+/// constructors/methods + extracted arrows), the synthesized `__rts_startup`, the
 /// class table, and the synthesized-fn → owning-class map (for binding `this`).
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct LoweredProgram {
@@ -594,7 +594,7 @@ pub(crate) struct LoweredProgram {
     pub forced_globals: std::collections::HashSet<String>,
     /// PRIVACY GATE (engine namespace): the set of function names that came from
     /// the engine's PRELUDE (embedded TS includes). Only these functions may name
-    /// the PRIVATE `engine.*` global; a user function (incl. `__rtsn_main`) that
+    /// the PRIVATE `engine.*` global; a user function (incl. `__rts_startup`) that
     /// references it bails explicitly. Empty for a user-only program (no prelude),
     /// so the gate denies `engine.*` everywhere unless a prelude is present.
     pub prelude_fns: std::collections::HashSet<String>,
@@ -623,20 +623,20 @@ pub(crate) struct LoweredProgram {
     /// serialized.
     #[serde(skip)]
     pub resident_import_names: std::collections::HashSet<String>,
-    /// WHOLE-PROGRAM CACHE (extends slice 2): when true, `__rtsn_main` is ALSO
+    /// WHOLE-PROGRAM CACHE (extends slice 2): when true, `__rts_startup` is ALSO
     /// defined from the baked machine code (not compiled from IR) — the cache
     /// replays the entire program including its entry. Transient.
     #[serde(skip)]
     pub resident_main: bool,
 }
 
-/// Parse `src` and lower it to (user functions, synthesized `__rtsn_main`).
+/// Parse `src` and lower it to (user functions, synthesized `__rts_startup`).
 ///
 /// All top-level functions are lowered into a single shared HIR scope first (so
 /// each function's signature is registered for the others — and for the main
 /// body — to resolve cross-calls and return types), then the top-level
 /// statements are lowered against that same scope and wrapped as the body of a
-/// synthetic void function named `__rtsn_main`.
+/// synthetic void function named `__rts_startup`.
 fn build_program(src: &str, arrow_ns: &str) -> FrontResult<LoweredProgram> {
     // Namespace hoisted `__fnprop_N` names by the same key as extracted arrows, so
     // the SEPARATELY-parsed prelude and user builds never collide on `__fnprop_0`
@@ -817,7 +817,7 @@ fn build_from_program(
         // `C.#priv` access inside one must pass the private-name re-check. They
         // are therefore synthesized as STATIC fns (`__rtsn_static_<C>_init<i>` —
         // the `enclosing_class` prefix parse recovers `<C>`), called from the
-        // static prelude in declaration order — not inlined into `__rtsn_main`
+        // static prelude in declaration order — not inlined into `__rts_startup`
         // (whose enclosing class is None, which refused the access).
         for (i, (_pos, stmts)) in c.static_init_blocks.iter().enumerate() {
             let fn_name = format!("__rtsn_static_{}_init{}", c.name, i);
@@ -850,7 +850,7 @@ fn build_from_program(
     };
 
     let mut main = HirFunc {
-        name: "__rtsn_main".to_string(),
+        name: "__rts_startup".to_string(),
         params: Vec::new(),
         ret: HirType::Void,
         body,

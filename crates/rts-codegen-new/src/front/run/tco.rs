@@ -15,7 +15,7 @@
 //! callee — never a member/method callee, per the `tco_method_chain_not_tail`
 //! regression) AND both endpoints are safe to re-conv:
 //!
-//! - not `__rtsn_main` (the host calls it as `extern "C" fn()`);
+//! - not `__rts_startup` (the host calls it as `extern "C" fn()`);
 //! - not `async` (its inner fn's ptr crosses to the runtime);
 //! - not a generator constructor (lazy or eager);
 //! - never named as an argument to `getPointer(..)` / `__RTS_GEN_SM_NEW(..)`
@@ -64,7 +64,7 @@ pub(crate) fn compute_tail_set(
         let Some(sig) = sigs.get(name) else {
             return false;
         };
-        name != "__rtsn_main"
+        name != "__rts_startup"
             && !sig.is_async
             && !sig.ret_lazy_gen
             && !sig.ret_eager_gen

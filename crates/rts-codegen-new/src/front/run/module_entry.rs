@@ -90,7 +90,7 @@ pub fn run_path(entry: &Path) -> FrontResult<()> {
 
 /// `rts ir` — build + JIT-compile the whole program reachable from `entry` with
 /// the per-function Cranelift IR dump enabled (each successfully-lowered function
-/// prints to stderr), WITHOUT running `__rtsn_main`. Errors are the same set as
+/// prints to stderr), WITHOUT running `__rts_startup`. Errors are the same set as
 /// [`run_path`] (resolver/parse/unsupported); on a bail the functions already
 /// lowered before the failing one have still been printed — useful to see how far
 /// the lowering got.

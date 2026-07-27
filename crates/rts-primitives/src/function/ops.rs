@@ -1164,7 +1164,7 @@ pub fn registered_fn_kinds(fn_ptr: u64) -> Option<(Vec<u8>, u8)> {
 }
 
 /// Registra a ABI (param_kinds + return_kind) de uma user fn pelo seu endereço.
-/// Emitido pelo codegen no início de `__RTS_MAIN` para cada fn address-taken.
+/// Emitido pelo codegen no início de `__rts_startup` para cada fn address-taken.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_RT_REGISTER_FN_KINDS(
     fn_ptr: u64,

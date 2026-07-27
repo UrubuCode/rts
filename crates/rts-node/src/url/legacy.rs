@@ -5,13 +5,13 @@
 use super::words::{null_w, object, str_word};
 
 unsafe extern "C" {
-    fn __RTS_FN_GL_URL_new_with_base(
+    fn __rtsm_global_url_new_with_base(
         rel_ptr: i64,
         rel_len: i64,
         base_ptr: i64,
         base_len: i64,
     ) -> u64;
-    fn __RTS_FN_GL_URL_href(h: u64) -> u64;
+    fn __rtsm_global_url_href(h: u64) -> u64;
 }
 
 /// A parsed legacy urlObject (fields are `None` when absent).
@@ -76,14 +76,14 @@ pub fn parse(url: &str, parse_query: bool, slashes_denote_host: bool) -> u64 {
 /// `url.resolve(from, to)` — WHATWG base resolution (`new URL(to, from).href`).
 pub fn resolve(from: &str, to: &str) -> String {
     let h = unsafe {
-        __RTS_FN_GL_URL_new_with_base(
+        __rtsm_global_url_new_with_base(
             to.as_ptr() as i64,
             to.len() as i64,
             from.as_ptr() as i64,
             from.len() as i64,
         )
     };
-    let sh = unsafe { __RTS_FN_GL_URL_href(h) };
+    let sh = unsafe { __rtsm_global_url_href(h) };
     rts_engine::heap::handles::read_string_handle(sh).unwrap_or_else(|| to.to_string())
 }
 

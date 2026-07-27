@@ -1,7 +1,7 @@
 //! Function ABI signatures for the whole-program lowering.
 //!
 //! Increment 4 compiles a *module* of user functions plus a synthesized
-//! `__rtsn_main` for the top-level code, and cross-function calls must agree on
+//! `__rts_startup` for the top-level code, and cross-function calls must agree on
 //! the ABI at each boundary. The rule (design pilar 2): a parameter / return is
 //! carried UNBOXED in its native register when the front-end proves it
 //! monomorphic-numeric (via the repr lattice [`crate::front::repr_map::repr_of`]),
@@ -22,7 +22,7 @@ use super::lower::cl_type;
 
 /// The chosen ABI representation of every parameter and the return of one user
 /// function. A `None` return repr means the function returns no value (`void` —
-/// used for `__rtsn_main`).
+/// used for `__rts_startup`).
 #[derive(Clone, Debug)]
 pub struct FnSig {
     pub name: String,
@@ -254,10 +254,10 @@ impl FnSig {
         }
     }
 
-    /// The synthesized top-level `__rtsn_main`: no params, no return.
+    /// The synthesized top-level `__rts_startup`: no params, no return.
     pub fn main_sig() -> FnSig {
         FnSig {
-            name: "__rtsn_main".to_string(),
+            name: "__rts_startup".to_string(),
             params: Vec::new(),
             ret: None,
             is_async: false,

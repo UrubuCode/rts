@@ -141,7 +141,7 @@ impossibility is different, and simpler:
 
 **What CAN stay in TS:**
 - The iteration structure — the `while`, the exit test, the sequence of calls.
-  It runs at top-level, on the main thread (the JIT calls `__rtsn_main` synchronously, directly, without
+  It runs at top-level, on the main thread (the JIT calls `__rts_startup` synchronously, directly, without
   spawn — `crates/rts-codegen-new/src/front/run/module_jit.rs`).
 - The stop condition (a `bool`/`i64` returned by a primitive).
 - The application logic over the widgets' returns (app state in TS variables).

@@ -26,6 +26,11 @@ pub struct Module {
     /// Load-order preference (higher loads earlier). Lets embedded stdlib that
     /// depends on another namespace order its load. Default 0.
     pub load_order: i32,
+    /// A JS-visible NAMESPACE OBJECT this module publishes (`fs.readFile(...)`,
+    /// reachable with no import), DISTINCT from the import specifier
+    /// (`"node:fs"`). `None` = the module has no bare-namespace surface — the
+    /// common case. See [`ModuleBuilder::namespace`]/[`ModuleScope::namespace`].
+    pub namespace: Option<String>,
 }
 
 /// Uma classe global (`new Date()`, `d.getFullYear()`) — sem import.
@@ -93,6 +98,11 @@ pub struct Registry {
     /// p/ saída DETERMINÍSTICA (HashMap::values() varia run-a-run → quebra o
     /// `rts.d.ts` byte-idêntico). Chave reinserida não duplica.
     module_order: Vec<String>,
+    /// Namespace OBJECT name → module key (`"<scheme>:<name>"`). Populated when
+    /// a module declares [`Module::namespace`]. Distinct from `modules`'s own
+    /// key: a namespace is a bare, importless JS surface, a module key is an
+    /// import specifier.
+    namespaces: HashMap<String, String>,
     /// Classes globais por nome JS.
     classes: HashMap<String, Class>,
     /// Ordem de inserção das classes (mesma razão de `module_order`).
@@ -128,6 +138,12 @@ impl Registry {
     /// Resolve uma classe global por nome.
     pub fn class(&self, name: &str) -> Option<&Class> {
         self.classes.get(name)
+    }
+
+    /// Resolve a module by its published NAMESPACE OBJECT name (`fs` in
+    /// `fs.readFile(...)`), distinct from its import specifier.
+    pub fn namespace(&self, name: &str) -> Option<&Module> {
+        self.modules.get(self.namespaces.get(name)?)
     }
 
     /// Resolve um membro de escopo global (bare ident).
@@ -182,6 +198,9 @@ impl Registry {
             }
         }
         let key = format!("{}:{}", module.scheme, module.name);
+        if let Some(ns) = &module.namespace {
+            self.namespaces.insert(ns.clone(), key.clone());
+        }
         if self.modules.insert(key.clone(), module).is_none() {
             self.module_order.push(key); // 1ª inserção → entra na ordem
         }

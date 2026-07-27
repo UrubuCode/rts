@@ -11,16 +11,16 @@ unsafe extern "C" {
     fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
     // WHATWG URL (runtime layer, globals/url). `ptr`/`len` are the i64-cast
     // string parts the URL externs already accept; getters take a URL handle.
-    fn __RTS_FN_GL_URL_new(ptr: i64, len: i64) -> u64;
-    fn __RTS_FN_GL_URL_href(h: u64) -> u64;
-    fn __RTS_FN_GL_URL_protocol(h: u64) -> u64;
-    fn __RTS_FN_GL_URL_hostname(h: u64) -> u64;
-    fn __RTS_FN_GL_URL_port(h: u64) -> u64;
-    fn __RTS_FN_GL_URL_pathname(h: u64) -> u64;
-    fn __RTS_FN_GL_URL_search(h: u64) -> u64;
-    fn __RTS_FN_GL_URL_hash(h: u64) -> u64;
-    fn __RTS_FN_GL_URL_username(h: u64) -> u64;
-    fn __RTS_FN_GL_URL_password(h: u64) -> u64;
+    fn __rtsm_global_url_new(ptr: i64, len: i64) -> u64;
+    fn __rtsm_global_url_href(h: u64) -> u64;
+    fn __rtsm_global_url_protocol(h: u64) -> u64;
+    fn __rtsm_global_url_hostname(h: u64) -> u64;
+    fn __rtsm_global_url_port(h: u64) -> u64;
+    fn __rtsm_global_url_pathname(h: u64) -> u64;
+    fn __rtsm_global_url_search(h: u64) -> u64;
+    fn __rtsm_global_url_hash(h: u64) -> u64;
+    fn __rtsm_global_url_username(h: u64) -> u64;
+    fn __rtsm_global_url_password(h: u64) -> u64;
 }
 
 /// Intern a Rust string as a GC string handle.
@@ -30,7 +30,7 @@ pub fn intern(s: &str) -> u64 {
 
 /// Construct a real WHATWG `URL` from a string, returning its handle.
 pub fn url_new(s: &str) -> u64 {
-    unsafe { __RTS_FN_GL_URL_new(s.as_ptr() as i64, s.len() as i64) }
+    unsafe { __rtsm_global_url_new(s.as_ptr() as i64, s.len() as i64) }
 }
 
 /// Read a `URL` component (getter extern) as a Rust string.
@@ -42,15 +42,15 @@ macro_rules! url_getter {
         }
     };
 }
-url_getter!(url_href, __RTS_FN_GL_URL_href);
-url_getter!(url_protocol, __RTS_FN_GL_URL_protocol);
-url_getter!(url_hostname, __RTS_FN_GL_URL_hostname);
-url_getter!(url_port, __RTS_FN_GL_URL_port);
-url_getter!(url_pathname, __RTS_FN_GL_URL_pathname);
-url_getter!(url_search, __RTS_FN_GL_URL_search);
-url_getter!(url_hash, __RTS_FN_GL_URL_hash);
-url_getter!(url_username, __RTS_FN_GL_URL_username);
-url_getter!(url_password, __RTS_FN_GL_URL_password);
+url_getter!(url_href, __rtsm_global_url_href);
+url_getter!(url_protocol, __rtsm_global_url_protocol);
+url_getter!(url_hostname, __rtsm_global_url_hostname);
+url_getter!(url_port, __rtsm_global_url_port);
+url_getter!(url_pathname, __rtsm_global_url_pathname);
+url_getter!(url_search, __rtsm_global_url_search);
+url_getter!(url_hash, __rtsm_global_url_hash);
+url_getter!(url_username, __rtsm_global_url_username);
+url_getter!(url_password, __rtsm_global_url_password);
 
 /// The href of a `write`-style argument that is EITHER a URL string
 /// (`Entry::String`) or a live `URL` instance (any other handle → read its

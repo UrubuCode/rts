@@ -16,9 +16,11 @@ pub mod guards;
 pub mod handles;
 pub mod js_error;
 pub mod member;
+pub mod scope;
 pub mod signature;
 pub mod str_abi;
 pub mod symbols;
+pub mod table;
 pub mod ty;
 pub mod types;
 
@@ -26,4 +28,6 @@ pub use js_error::JsErrorKind;
 pub use member::{
     DefaultArg, MemberFlags, MemberKind, NamespaceMember, NamespaceSpec, concat_members,
 };
+pub use scope::{Naming, Scope, symbol_for};
+pub use table::SymbolEntry;
 pub use types::{AbiType, SymbolDesc};

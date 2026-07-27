@@ -58,7 +58,7 @@ pub(crate) fn declare_func_dedup(
 /// on every call — it does not dedup — so the runtime-call boundary (this module,
 /// hit once per `__RTS_FN_*`/`__rtsadp_*` call) emitted one redundant
 /// `sigK =`/`fnK =` preamble entry per call site. A single `console.log` lowered
-/// ~600 runtime calls into `__rtsn_main`, inflating the preamble to ~1500 decls
+/// ~600 runtime calls into `__rts_startup`, inflating the preamble to ~1500 decls
 /// for a few hundred distinct symbols. A `FuncRef` is reusable across every `call`
 /// in the same function, so scan the already-imported `ext_funcs` (keyed by the
 /// deduped `UserExternalName{namespace:0, index:FuncId}`) and reuse the match. The

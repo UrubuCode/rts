@@ -16,7 +16,7 @@
 //! abort/timeout reason is `new DOMException(msg, name)` — now a REAL
 //! `DOMException` instance. `DOMException` moved from an ambient per-program
 //! `.ts` class to a `#[rtse::class]` (`rts-shared/src/globals/dom_exception`),
-//! which is a normal compiled Rust symbol (`__RTS_FN_GL_DOMEXCEPTION_NEW`) —
+//! which is a normal compiled Rust symbol (`__rtsm_global_domexception_new`) —
 //! [`default_abort_reason`] below calls `rts_shared::globals::dom_exception::
 //! new_dom_exception` directly (an ordinary Cargo dependency call, `rts-std`
 //! already depends on `rts-shared`), so `signal.reason instanceof

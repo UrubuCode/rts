@@ -254,7 +254,7 @@ type CallbackFn = unsafe extern "C" fn(i64) -> i64;
 
 /// (cross-runtime #56) Microtask queue thread-local. queueMicrotask
 /// enfileira o callback; ele eh drenado no fim do task corrente (top-level
-/// __RTS_MAIN ou apos um await).
+/// __rts_startup ou apos um await).
 ///
 /// Suporta dois tipos:
 /// - `Bare(fp)`: queueMicrotask(cb) — invoca fp() sem args.

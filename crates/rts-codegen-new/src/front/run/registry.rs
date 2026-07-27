@@ -202,7 +202,7 @@ fn registry() -> &'static Registry {
         // `Entry::Rtse` instance resolves via `class_registry::is_descendant_of`
         // (self-instanceof needs no seed; only inheritance does). JIT-correct
         // (codegen + run share the process); AOT would seed via an emitted
-        // `__RTS_MAIN` prologue — a follow-up.
+        // `__rts_startup` prologue — a follow-up.
         for c in r.classes() {
             if let Some(p) = &c.parent {
                 rts_engine::heap::class_registry::register_parent(&c.name, p);

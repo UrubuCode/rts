@@ -99,7 +99,7 @@ call edges**: every name a reachable body mentions (identifier, method, property
 object key, `new C`, and every string literal — a dynamic `obj[k]` can only name
 a member the program spells out somewhere) is treated as a potential edge. A
 matched class name keeps the whole class plus its ancestors. User functions and
-`__rtsn_main` are always roots and are never pruned.
+`__rts_startup` are always roots and are never pruned.
 
 The statement and expression walkers are written out variant by variant with **no
 `_ =>` arm**, on purpose: a name the walk misses is a function pruned while still

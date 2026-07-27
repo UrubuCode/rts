@@ -4207,6 +4207,7 @@ version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
+ "rts-abi",
  "syn",
 ]
 
@@ -4348,6 +4349,17 @@ dependencies = [
  "tokio",
  "ureq 2.12.1",
  "webpki-roots 1.0.6",
+]
+
+[[package]]
+name = "rts-symbol-baker"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "proc-macro2",
+ "quote",
+ "rts-abi",
+ "syn",
 ]
 
 [[package]]

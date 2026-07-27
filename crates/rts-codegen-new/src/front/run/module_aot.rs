@@ -7,7 +7,7 @@
 //! adapter trampoline is left as an `Import` here — the linker resolves them at
 //! final link against the `rts-runtime` + `rts-adapters` staticlibs.
 //!
-//! The emitted `main` (the CRT entry) calls `__rtsn_main` (the lowered top-level)
+//! The emitted `main` (the CRT entry) calls `__rts_startup` (the lowered top-level)
 //! and then `__RTS_FN_RT_RUN_EVENT_LOOP` (drains pending microtasks/timers so an
 //! AOT binary matches `rts run`), and returns `0`.
 
@@ -30,8 +30,8 @@ pub(crate) fn compile_program_aot(prog: &super::LoweredProgram) -> FrontResult<V
     // after so a later same-thread JIT build keeps the fast bake.
     super::aot_str::set_aot_mode(true);
     let result: FrontResult<()> = (|| {
-        // Declare + define every user fn + __rtsn_main + thunks (the SAME path the
-        // JIT uses). `__rtsn_main` is Local; the `main` shim below calls it in-object.
+        // Declare + define every user fn + __rts_startup + thunks (the SAME path the
+        // JIT uses). `__rts_startup` is Local; the `main` shim below calls it in-object.
         let main_id = super::module_jit::populate_module(&mut module, prog)?;
         // SHAPE SEED (AOT-only): `populate_module` interned every shape id this
         // program bakes as an immediate; export the id→keys registry into a data
@@ -71,7 +71,7 @@ pub(crate) fn compile_replay_aot(m: &super::bake::PreludeManifest) -> FrontResul
 
     let mut module = make_object_module()?;
     let result: FrontResult<()> = super::resident::with_replay_manifest(m.clone(), || {
-        // populate replays EVERY fn (incl `__rtsn_main`) from the baked bytes into
+        // populate replays EVERY fn (incl `__rts_startup`) from the baked bytes into
         // the ObjectModule; its Import externs + data + relocs are written to the
         // object for the LINKER to resolve (the ±2 GB JIT far-call limit does not
         // apply — the linker + final layout handle reach).
@@ -148,11 +148,11 @@ fn emit_shape_seed_data(module: &mut ObjectModule) -> FrontResult<ShapeSeed> {
 }
 
 /// Emit `extern "C" int main(void)` that SEEDS the shape registry, calls the
-/// lowered top-level (`__rtsn_main`, `rtsn_main_id`), then
+/// lowered top-level (`__rts_startup`, `rts_startup_id`), then
 /// `__RTS_FN_RT_RUN_EVENT_LOOP`, returning 0.
 fn emit_main_entry(
     module: &mut ObjectModule,
-    rtsn_main_id: cranelift_module::FuncId,
+    rts_startup_id: cranelift_module::FuncId,
     seed: ShapeSeed,
 ) -> FrontResult<()> {
     // Runtime bootstrap, resolved at link time (ONE generic `RT`-scope symbol, no
@@ -231,8 +231,8 @@ fn emit_main_entry(
         let boot_ref = module.declare_func_in_func(boot_id, fb.func);
         fb.ins().call(boot_ref, &[]);
 
-        let rtsn_main_ref = module.declare_func_in_func(rtsn_main_id, fb.func);
-        fb.ins().call(rtsn_main_ref, &[]);
+        let rts_startup_ref = module.declare_func_in_func(rts_startup_id, fb.func);
+        fb.ins().call(rts_startup_ref, &[]);
         let evloop_ref = module.declare_func_in_func(evloop_id, fb.func);
         fb.ins().call(evloop_ref, &[]);
 

@@ -6,8 +6,12 @@
 //! param type, ts type-name)?" Kept separate from `class::member` (which only
 //! orchestrates: loop over params, call these, assemble the `Sig`) so the type
 //! vocabulary can grow (new marshalled shapes) without touching the expansion
-//! logic, and so `#[rtse::abi]` (in `abi.rs`) can reuse the same scalar mapping
-//! without depending on the class-expansion module.
+//! logic, and so `#[rtse::abi]` (in `abi/`) can reuse the shared predicates
+//! (`is_str_param`, …) without depending on the class-expansion module.
+//! `#[rtse::abi]`'s own single-slot table lives in `abi/params.rs`: an ABI
+//! symbol is a raw intrinsic-shaped fn with no receiver and no ts surface, so
+//! it needs the ABI word only — not the extern-repr + ts triple `scalar()`
+//! returns for a class member.
 
 use syn::{ReturnType, Type};
 
@@ -143,25 +147,4 @@ pub(crate) fn ret_ty(sig: &syn::Signature) -> Option<&Type> {
         ReturnType::Default => None,
         ReturnType::Type(_, t) => Some(t),
     }
-}
-
-/// Map a Rust parameter/return type to its `AbiType` token for `#[rtse::abi]`,
-/// or `None` when the type has no single-slot ABI spelling (pointers — see the
-/// `#[rtse::abi]` doc). Deliberately narrower than `scalar()` above (no `&str`,
-/// no `Handle`/`Poly`): an ABI symbol is a raw intrinsic-shaped fn, not a class
-/// member, so it only needs the plain scalar words for now (StrPtr pairs are an
-/// explicit opt-in not yet implemented, per the doc on `abi::expand`).
-pub(crate) fn abi_ty_of(ty: &syn::Type) -> Option<proc_macro2::TokenStream> {
-    let syn::Type::Path(p) = ty else { return None };
-    let name = p.path.segments.last()?.ident.to_string();
-    let v = match name.as_str() {
-        "u64" => "U64",
-        "i64" => "I64",
-        "i32" => "I32",
-        "f64" => "F64",
-        "bool" => "Bool",
-        _ => return None,
-    };
-    let id = proc_macro2::Ident::new(v, proc_macro2::Span::call_site());
-    Some(quote::quote!(::rts_engine::abi::AbiType::#id))
 }

@@ -46,7 +46,7 @@ pub use rts_shared::stdlib::CONSOLE_TS;
 pub mod namespaces;
 
 /// One-time runtime bootstrap, called once at program startup before the lowered
-/// top-level (`__rtsn_main`). The AOT `main` shim calls this symbol; the JIT path
+/// top-level (`__rts_startup`). The AOT `main` shim calls this symbol; the JIT path
 /// calls [`runtime_init`] directly host-side.
 ///
 /// It lives in the FACADE (not `rts-std`) because it wires TWO subsystems from
@@ -77,7 +77,7 @@ pub fn runtime_init() {
     }
 }
 
-/// `extern "C"` entry the AOT `main` shim calls before `__rtsn_main`.
+/// `extern "C"` entry the AOT `main` shim calls before `__rts_startup`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_RT_INIT() {
     runtime_init();
@@ -85,7 +85,7 @@ pub extern "C" fn __RTS_FN_RT_INIT() {
 
 /// Seed the AOT binary's global shape + error-class registries from the blob the
 /// codegen embedded (`rts_engine::heap::shapes::export_seed_blob`). Called by the
-/// AOT `main` shim BEFORE `__rtsn_main`. Without it the registry is EMPTY in the
+/// AOT `main` shim BEFORE `__rts_startup`. Without it the registry is EMPTY in the
 /// separate AOT process and every DYNAMIC shape read (`obj_get` on a Tagged/`any`
 /// receiver, `console.log(obj)`, catch-bound `e.name`, `new Number(x).valueOf()`)
 /// misses on its baked shape id and returns `undefined`. JIT does not need this —

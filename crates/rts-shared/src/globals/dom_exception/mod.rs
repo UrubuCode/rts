@@ -94,11 +94,11 @@ impl DomException {
 /// Constructs a real `DOMException(message, name)` instance and returns its
 /// `Handle` — a stable extern any other crate that links against
 /// `rts-shared` (e.g. `rts-std`'s `abort` module) can call directly, since
-/// this class is a normal compiled Rust symbol (`__RTS_FN_GL_DOMEXCEPTION_new`),
+/// this class is a normal compiled Rust symbol (`__rtsm_global_domexception_new`),
 /// not an ambient per-program `.ts` class. See `rts-std/src/globals/abort/mod.rs`'s
 /// `default_abort_reason` for the caller.
 pub fn new_dom_exception(message: &str, name: &str) -> Handle {
-    __RTS_FN_GL_DOMEXCEPTION_new(
+    __rtsm_global_domexception_new(
         message.as_ptr() as i64,
         message.len() as i64,
         name.as_ptr() as i64,
@@ -133,24 +133,24 @@ mod tests {
     #[test]
     fn code_maps_known_names() {
         let e = h("boom", "AbortError");
-        assert_eq!(__RTS_FN_GL_DOMEXCEPTION_code(e), 20);
+        assert_eq!(__rtsm_global_domexception_code(e), 20);
         let e = h("boom", "SyntaxError");
-        assert_eq!(__RTS_FN_GL_DOMEXCEPTION_code(e), 12);
+        assert_eq!(__rtsm_global_domexception_code(e), 12);
     }
 
     #[test]
     fn code_defaults_to_zero() {
         let e = h("boom", "SomethingElse");
-        assert_eq!(__RTS_FN_GL_DOMEXCEPTION_code(e), 0);
+        assert_eq!(__rtsm_global_domexception_code(e), 0);
     }
 
     #[test]
     fn ctor_defaults_name_to_error_and_to_string() {
         let handle = new_dom_exception("oops", "");
-        assert_eq!(string_of(__RTS_FN_GL_DOMEXCEPTION_name(handle)), "Error");
-        assert_eq!(string_of(__RTS_FN_GL_DOMEXCEPTION_message(handle)), "oops");
+        assert_eq!(string_of(__rtsm_global_domexception_name(handle)), "Error");
+        assert_eq!(string_of(__rtsm_global_domexception_message(handle)), "oops");
         assert_eq!(
-            string_of(__RTS_FN_GL_DOMEXCEPTION_to_string(handle)),
+            string_of(__rtsm_global_domexception_to_string(handle)),
             "Error: oops"
         );
     }

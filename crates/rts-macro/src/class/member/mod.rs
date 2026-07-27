@@ -21,7 +21,6 @@ use crate::types::{is_handle_ty, ret_ty};
 
 pub(crate) fn gen_member(
     class: &str,
-    class_upper: &str,
     self_ty: &Type,
     sig: &syn::Signature,
     kind: Kind,
@@ -118,12 +117,12 @@ pub(crate) fn gen_member(
         }
     }
 
-    // The Rust fn name is used VERBATIM (case-preserved) in the symbol — NOT
-    // uppercased — so two members differing only by case (`fn Foo` vs `fn foo`)
-    // stay distinct symbols instead of colliding. Consumers link by the exact
-    // name; the engine reads `Member.symbol`, so it is case-agnostic regardless.
+    // `__rtsm_global_<class>_<member>` — derived by the ONE rule in `abi::scope`
+    // (a class member IS the `global = "<Class>"` scope). The Rust fn name is used
+    // VERBATIM (case-preserved) as `<member>`, so two members differing only by
+    // case (`fn Foo` vs `fn foo`) stay distinct symbols instead of colliding.
     let member = rust_name.to_string();
-    let symbol = format!("__RTS_FN_GL_{class_upper}_{member}");
+    let symbol = crate::class::class_symbol(class, &member);
     let extern_ident = format_ident!("{}", symbol);
 
     let p = params::build_params(sig, is_ctor, is_static, is_value_method)?;

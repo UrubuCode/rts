@@ -662,7 +662,7 @@ AtomicBool. Str cannot be a var (becomes Handle).
   READONLY → hard error. The same arm covers builtin `InstanceSetter`.
 - **GC root** (Handle var): emit a thunk only for `Type==Handle` into a
   `GC_VAR_ROOTS` slice, drained in main() **before the 1st GC tick** in JIT **AND** in the
-  AOT `__RTS_MAIN` prologue (emit.rs today has **zero** global-root — a new path).
+  AOT `__rts_startup` prologue (emit.rs today has **zero** global-root — a new path).
 
 ### 9.5 Enforcement vs cosmetic — readonly yes, private redesigned
 
@@ -692,7 +692,7 @@ Track A (low risk, WITHOUT linkme — do first)
       #[rts_var(kind,Type,default)] (atomic + GET/SET + member(s)). Test 6/6. (1af5bea0)
   A3  codegen: VarGetter read (members.rs:1006) ; VarSetter/InstanceSetter write-path arm
       (+ readonly hard-error) ; replace hardcoded pathname/lastIndex with InstanceSetter.
-  A4  GC_VAR_ROOTS drain (JIT + AOT __RTS_MAIN), Handle only. Fixture: var read+write+readonly-reject.
+  A4  GC_VAR_ROOTS drain (JIT + AOT __rts_startup), Handle only. Fixture: var read+write+readonly-reject.
 
 Track B (gated by the F0 MSVC/COFF spike)
   F0  spike: 1 trivial #[distributed_slice], AOT MSVC build, assert rlib→bin survival.
@@ -845,7 +845,7 @@ signature** — that is what closes the `fn_ptr` hole (§10.7).
   runtime. Needs inventing from scratch: per-callee import slot +
   **`call_indirect`** (codegen has **ZERO** `call_indirect` today; replicate the
   StrPtr 2-slot expansion + `declare_value_needs_stack_map`) + a `dlopen`
-  initializer before `__RTS_MAIN` + a static `dylib` namespace in the archive +
+  initializer before `__rts_startup` + a static `dylib` namespace in the archive +
   a **trap-stub on an unfilled slot** (otherwise ACCESS_VIOLATION — honesty
   floor). MIR does no indirect (`TailCallIndirect` unimplemented). **NO-GO on
   shipping AOT** until that exists + is proven. JIT-first validates the ABI cheaply.
@@ -907,7 +907,7 @@ JIT-first (real, days):
   S8  rts_plugin_entry!{} + cfg(rts_plugin) arm in the macro. Reference plugin (crc32) + test.
 AOT (greenfield, gated):
   S9  call-site fork by SpecOrigin → import-slot + call_indirect (StrPtr 2-slot + stack map),
-      dlopen initializer before __RTS_MAIN, static dylib namespace, trap-stub. NO-GO until proven.
+      dlopen initializer before __rts_startup, static dylib namespace, trap-stub. NO-GO until proven.
 Parallel (prerequisite of the genericity thesis):
   E2-E4  drain builtins.rs into rows + gc_root_set + portable cross-thread scan.
 ```

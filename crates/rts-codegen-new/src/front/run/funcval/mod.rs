@@ -144,7 +144,7 @@ pub fn module_globals(
 /// (`const PER_WORKER = N / W` used inside a worker fn), not because anything
 /// mutates them.
 ///
-/// Their value is fixed once `__rtsn_main`'s initializer has run, so a function
+/// Their value is fixed once `__rts_startup`'s initializer has run, so a function
 /// may read the cell ONCE at entry and reuse the value for every later read in
 /// that body — instead of a `GCELL_GET` extern call per access. That matters
 /// enormously in a hot loop: a loop bound read from a module const was costing a

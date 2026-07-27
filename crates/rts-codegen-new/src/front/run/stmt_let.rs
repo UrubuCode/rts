@@ -55,7 +55,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // cell by id (`gcell_id` resolves it once `name` is not a local). Shape
         // tracking is dropped (a from-a-function-mutated var is opaque anyway).
         //
-        // ONLY in `__rtsn_main`: a same-spelled `let` inside a FUNCTION declares a
+        // ONLY in `__rts_startup`: a same-spelled `let` inside a FUNCTION declares a
         // fresh LOCAL that shadows the global (JS scoping) — routing it to the cell
         // made the prelude's `Console.__format` local `let out` CLOBBER a user
         // gcell named `out` (every console.log corrupted the captured variable).

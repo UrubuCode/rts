@@ -224,7 +224,7 @@ fn run_children_parallel(
     let next = AtomicUsize::new(0);
     // Inherited by every child: `RUST_BACKTRACE` gives a native backtrace on a
     // codegen/runtime crash (without it a segfault is a bare exit code), and
-    // `RTS_TEST_TRACE_STAGES` prints `[trace] invoking __RTS_MAIN` so a crash
+    // `RTS_TEST_TRACE_STAGES` prints `[trace] invoking __rts_startup` so a crash
     // says exactly where it died (#314). A user-set RUST_BACKTRACE is kept.
     let backtrace = std::env::var("RUST_BACKTRACE").unwrap_or_else(|_| "1".to_string());
     let timeout = child_timeout();

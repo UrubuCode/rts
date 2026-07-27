@@ -2,8 +2,8 @@
 //! timers + promises fire-and-forget pendentes após o task corrente (top-level).
 //!
 //! O caminho JIT (`rts-codegen::pipeline::run_jit`) chama isto host-side depois
-//! de `__RTS_MAIN`. O binário AOT (`rts compile`) NÃO tinha event loop — o shim
-//! `main` só chamava `__RTS_MAIN` e saía, então `await`/`.then`/`queueMicrotask`/
+//! de `__rts_startup`. O binário AOT (`rts compile`) NÃO tinha event loop — o shim
+//! `main` só chamava `__rts_startup` e saía, então `await`/`.then`/`queueMicrotask`/
 //! `setTimeout` nunca disparavam. Agora o shim AOT chama
 //! `__RTS_FN_RT_RUN_EVENT_LOOP` (este extern) antes do return, fechando o gap.
 

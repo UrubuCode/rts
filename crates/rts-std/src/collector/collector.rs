@@ -140,7 +140,7 @@ pub fn collect_debt() {}
 
 // ─── Runtime bootstrap (JIT host-side + AOT main shim) ───────────────────────
 
-/// One-time runtime bootstrap, run once at program startup BEFORE `__rtsn_main`.
+/// One-time runtime bootstrap, run once at program startup BEFORE `__rts_startup`.
 ///
 /// Wires the two things the automatic GC needs that nothing else does anymore:
 ///

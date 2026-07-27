@@ -54,7 +54,7 @@ fn build() -> Engine {
         .done();
 
     // global bare: isNaN(x)
-    e.global()
+    e.global_fluent()
         .function("isNaN", toy_is_nan as *const u8, sig!(F64 => Bool));
 
     e

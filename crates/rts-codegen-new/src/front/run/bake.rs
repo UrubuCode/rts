@@ -160,7 +160,7 @@ pub fn bake_prelude() -> FrontResult<BakedPrelude> {
     // Compile the prelude into a THROWAWAY JIT module, capturing every function's
     // machine bytes + relocs and every string blob. AOT string mode ON so string
     // literals become replayable DATA objects (a JIT-baked handle would be invalid
-    // in the run process). Skip `__rtsn_main` — the user build compiles the merged
+    // in the run process). Skip `__rts_startup` — the user build compiles the merged
     // main (prelude init prepended).
     let (funcs, data) = super::aot_str::with_aot_mode(|| capture_compiled(&program, true))?;
 
@@ -178,7 +178,7 @@ pub fn bake_prelude() -> FrontResult<BakedPrelude> {
 
 /// Compile `prog` into a scratch JIT module with capture on, returning the baked
 /// functions (relocs symbolized) + the string blobs. `skip_main` drops
-/// `__rtsn_main` (the prelude bake — the user build compiles the merged main); the
+/// `__rts_startup` (the prelude bake — the user build compiles the merged main); the
 /// whole-program cache keeps it as the entry.
 fn capture_compiled(
     prog: &LoweredProgram,
@@ -201,7 +201,7 @@ fn capture_compiled(
         // fn name even for a THUNK (whose real symbol is `<base>__rtsn_thunk`), and
         // the replay keys baked fns by their true symbol name.
         let name = decls.get_function_decl(e.id).linkage_name(e.id).into_owned();
-        if skip_main && name == "__rtsn_main" {
+        if skip_main && name == "__rts_startup" {
             continue;
         }
         let mut relocs = Vec::with_capacity(e.relocs.len());
@@ -222,14 +222,14 @@ fn capture_compiled(
     Ok((funcs, data))
 }
 
-/// Bake a WHOLE already-lowered program (prelude + user, INCLUDING `__rtsn_main`)
+/// Bake a WHOLE already-lowered program (prelude + user, INCLUDING `__rts_startup`)
 /// to a replayable manifest — the whole-program JIT code cache. `prelude_hash`
 /// carries the CACHE KEY (the program's own text/version hash), computed by the
 /// caller. MUST run on a quiescent shape registry state matching the program's
 /// (the caller resets + builds `prog`, leaving its shapes interned).
 pub(crate) fn bake_program(prog: &LoweredProgram, cache_key: u64) -> FrontResult<PreludeManifest> {
     let gcell_count = prog.gcells.values().copied().max().map(|m| m + 1).unwrap_or(0);
-    // Keep `__rtsn_main` — it is the entry the cache replays and runs.
+    // Keep `__rts_startup` — it is the entry the cache replays and runs.
     let (funcs, data) = super::aot_str::with_aot_mode(|| capture_compiled(prog, false))?;
     Ok(PreludeManifest {
         prelude_hash: cache_key,

@@ -36,13 +36,17 @@
 //!  - Instance methods CLONE the receiver out of the HandleTable before the body
 //!    (drops the shard lock; write-back for `&mut self`) so a body touching a 2nd
 //!    handle can't self-deadlock — the struct must be `Clone`.
-//!  - Dotted class names (`Intl.NumberFormat`) sanitize `.`→`_` in symbols.
-//!  - Symbol member/field names are VERBATIM (case-preserved), not uppercased, so
-//!    `fn Foo` vs `fn foo` stay distinct symbols. Consumers link by the exact name.
+//!  - Class-member symbols follow the ONE convention derived in `abi::scope`:
+//!    `__rtsm_global_<class>_<member>`. The class segment is lower-cased and
+//!    `_`-joined (`Intl.NumberFormat` → `intl_numberformat`); the member segment
+//!    is VERBATIM (case-preserved), so `fn Foo` vs `fn foo` stay distinct. A
+//!    `#[rtse::variable]` field's accessors suffix the pair: `…_<field>__get` /
+//!    `…_<field>__set`.
 //!  - `-> Option<Self>` (fallible ctor/factory → JS null on `None`) and
 //!    `-> Option<String>` (nullable string → JS null, ts `string | null`).
-//! Open gaps: `#[rtse::symbol]` (well-known), constants, `global(descriptor)`, a
-//! per-param custom omitted-default sentinel (Date's `i64::MIN` "keep current").
+//!  - `#[rtse::constant]` — a Rust `const` as a Registry `MemberKind::Constant`.
+//! Open gaps: `#[rtse::symbol]` (well-known), `global(descriptor)`, a per-param
+//! custom omitted-default sentinel (Date's `i64::MIN` "keep current").
 //!
 //! # Module map
 //!
@@ -52,7 +56,15 @@
 //! and expansion are delegated to submodules that hold no proc-macro items of
 //! their own:
 //!  - `class` — `#[rtse::class]` expansion (impl form + struct form).
-//!  - `abi` — `#[rtse::abi]` expansion (extern-C symbol + `SymbolDesc` const).
+//!  - `abi` — `#[rtse::abi]` expansion: `abi::scope` parses the declared scope
+//!    and DERIVES the linker symbol (`__rtsm_` module / `__rtsn_` native /
+//!    `__rtsa_` ABI-contract); `abi::params` maps the Rust signature to ABI
+//!    slots; `abi::expand` emits the symbol + its `SymbolDesc` const.
+//!  - `constant` — `#[rtse::constant]` expansion: a Rust `const` → getter symbol
+//!    + `SymbolDesc` + a `Member` the owning declaration pushes with `.member()`.
+//!  - `function` — `#[rtse::function]` expansion: a FREE function (no receiver,
+//!    no class) → extern symbol + `SymbolDesc` + a `Member` pushed with
+//!    `.registry(...)` on the closure-scoped `ModuleScope`.
 //!  - `types` — Rust-type → `AbiType`/ts-type mapping shared by both.
 //!  - `naming` — symbol/const name derivation (`to_camel`, `abi_const_name`).
 //! The inert marker attributes (`method`, `ctor`, …) are trivial passthroughs and
@@ -62,6 +74,8 @@ use proc_macro::TokenStream;
 
 mod abi;
 mod class;
+mod constant;
+mod function;
 mod naming;
 mod types;
 
@@ -74,11 +88,30 @@ pub fn class(args: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 /// `#[rtse::abi]` — emit a `SymbolDesc` const next to an `extern "C"` symbol,
-/// with the ABI shape derived from the Rust signature. See `abi::expand`'s doc
-/// for the full rationale.
+/// with BOTH the linker name (from the declared scope: `module`/`global`/
+/// `native`/`abi`) and the ABI shape derived from the Rust signature. See the
+/// `abi` module doc for the naming convention and the parameter-kind table.
 #[proc_macro_attribute]
 pub fn abi(a: TokenStream, item: TokenStream) -> TokenStream {
     abi::expand(a, item)
+}
+
+/// `#[rtse::constant]` — expose a Rust `const` as a Registry constant, reachable
+/// as `import { exemplo } from "<module>"` or as the bare global `exemplo`. Takes
+/// the same scope arguments as `#[rtse::abi]`; see the `constant` module doc for
+/// the emitted items, the ident→JS-name rule, and the supported types.
+#[proc_macro_attribute]
+pub fn constant(a: TokenStream, item: TokenStream) -> TokenStream {
+    constant::expand(a, item)
+}
+
+/// `#[rtse::function]` — a FREE function member (no receiver, no class): `import
+/// { readFile } from "node:fs"`. Takes the same scope arguments as
+/// `#[rtse::abi]`/`#[rtse::constant]`; see the `function` module doc for the
+/// emitted items and why the Registry entry is a `fn`, not a `const`.
+#[proc_macro_attribute]
+pub fn function(a: TokenStream, item: TokenStream) -> TokenStream {
+    function::expand(a, item)
 }
 
 // Standalone marker attrs (inert — `#[rtse::class]` on the impl strips them).
