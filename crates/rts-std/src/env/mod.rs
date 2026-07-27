@@ -111,6 +111,7 @@ fn func(name: &str, symbol: &str, sig: rts_engine::Sig, ts: &str, doc: &str, fp:
         variadic: false,
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
+        ret_class: None,
         pure: false,
         emit: None,
     }

@@ -252,6 +252,7 @@ fn static_member(name: &str, sig: Sig, symbol: &str, fp: *const u8, ts: &str, do
         variadic: false,
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
+        ret_class: None,
         pure: false,
         emit: None,
     }

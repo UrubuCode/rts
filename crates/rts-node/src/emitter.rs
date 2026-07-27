@@ -311,6 +311,7 @@ fn member(name: &str, args: Vec<AbiType>, ret: AbiType, symbol: &str, ts: &str, 
         variadic: false,
         ts_signature: ts.to_string(),
         doc: String::new(),
+        ret_class: None,
         pure: false,
         emit: None,
     }

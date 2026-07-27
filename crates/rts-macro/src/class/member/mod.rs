@@ -172,7 +172,7 @@ pub(crate) fn gen_member(
 
     // Return marshalling (+ the F3 async re-wrap into a settled Promise).
     let ret = returns::build_return(sig, class, is_ctor)?;
-    let (ret_abi, ret_ext_ty, ret_ts, wrap) = if is_async {
+    let (ret_abi, ret_ext_ty, ret_ts, wrap, ret_class_tok) = if is_async {
         returns::wrap_async(sig, ret)?
     } else {
         ret
@@ -273,6 +273,14 @@ pub(crate) fn gen_member(
         Some(c) if ret_is_handle => c.clone(),
         _ => ret_ts,
     };
+    // `#[rtse::method(returns = "Class")]` is a compile-time-known class name
+    // too (just spelled as a string literal, not a `RTSE_CLASS` path) — promote
+    // it into `Member.ret_class` the same as a type-inferred class return, so it
+    // stops depending on `ts_signature` re-parsing at the consumer.
+    let ret_class_tok = match &returns_class {
+        Some(c) if ret_is_handle => quote!(::core::option::Option::Some(#c.to_string())),
+        _ => ret_class_tok,
+    };
     // A private member has NO ts_signature (kept out of `rts.d.ts`).
     let ts_sig = if private {
         String::new()
@@ -309,6 +317,7 @@ pub(crate) fn gen_member(
             doc: #doc.into(),
             pure: false,
             emit: ::core::option::Option::None,
+            ret_class: #ret_class_tok,
         })
     };
 

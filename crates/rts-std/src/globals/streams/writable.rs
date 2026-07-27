@@ -163,6 +163,7 @@ pub fn register_writable_stream_class_spec(e: &mut Engine) {
         variadic: false,
         ts_signature: "getWriter(): WritableStreamDefaultWriter".into(),
         doc: String::new(),
+        ret_class: None,
         pure: false,
         emit: None,
     })

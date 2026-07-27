@@ -233,6 +233,7 @@ fn m(
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
         pure,
+        ret_class: None,
         emit: None,
     }
 }
@@ -462,6 +463,7 @@ pub fn register_number_class_spec(e: &mut Engine) {
             variadic: false,
             ts_signature: "valueOf(): number".to_string(),
             doc: "n.valueOf() — primitive identity ou unbox NumberBox.".to_string(),
+            ret_class: None,
             pure: true,
             emit: None,
         })

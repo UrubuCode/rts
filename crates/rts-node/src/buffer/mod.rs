@@ -38,6 +38,7 @@ fn member(name: &str, kind: MemberKind, args: Vec<AbiType>, ret: AbiType, symbol
         variadic: false,
         ts_signature: ts.to_string(),
         doc: String::new(),
+        ret_class: None,
         pure: false,
         emit: None,
     }

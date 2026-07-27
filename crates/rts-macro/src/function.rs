@@ -218,23 +218,65 @@ pub(crate) fn expand(a: TokenStream, item: TokenStream) -> TokenStream {
         Vec::new()
     };
 
-    let Some(ret) = ret_of(&func.sig.output) else {
-        return syn::Error::new_spanned(
-            &func.sig.output,
-            "#[rtse::function]: no ABI spelling for this return type — a string result is \
-             returned as a `Handle`, not `&str`.",
-        )
-        .to_compile_error()
-        .into();
-    };
-    wrap |= ret.needs_wrapper;
-    let ret_ts = match &func.sig.output {
-        syn::ReturnType::Default => "void".to_string(),
-        syn::ReturnType::Type(_, t) => ts_of(t),
-    };
+    // `-> SomeClass` / `-> Option<SomeClass>`: the function returns a fresh
+    // instance of a `#[rtse::class("Name")]`-declared class BY VALUE (e.g.
+    // `fn create_read_stream(path: &str) -> StreamReader`). Boxed into a classed
+    // `Entry::Rtse` (same allocation `-> Self` uses on a class ctor), and the
+    // class name is read from `SomeClass::RTSE_CLASS` — an associated const
+    // `#[rtse::class]` emits on the type — so a typo'd type here is a `rustc`
+    // unresolved-path error, not a silent runtime miss. `RTSE_CLASS` also fills
+    // `Member.ret_class` as DATA, not a `ts_signature` string to re-parse.
+    let class_ret = crate::types::ret_ty(&func.sig).and_then(|t| {
+        if let Some(ct) = crate::types::is_other_class_ret(t) {
+            Some((ct.clone(), false))
+        } else {
+            crate::types::is_option_other_class_ret(t).map(|ct| (ct.clone(), true))
+        }
+    });
 
-    let ret_abi = ret.abi;
-    let ret_ext_ty = ret.ext_ty.clone();
+    let (ret_abi, ret_ext_ty, ret_ts, ret_convert, ret_class_tok) = if let Some((cls_ty, nullable)) =
+        &class_ret
+    {
+        wrap = true;
+        let conv = if *nullable {
+            quote!(match __r {
+                ::core::option::Option::Some(__v) =>
+                    ::rts_engine::heap::handles::alloc_rtse(<#cls_ty>::RTSE_CLASS, __v),
+                ::core::option::Option::None => 0u64,
+            })
+        } else {
+            quote!(::rts_engine::heap::handles::alloc_rtse(<#cls_ty>::RTSE_CLASS, __r))
+        };
+        (
+            quote!(::rts_engine::abi::AbiType::Handle),
+            quote!(u64),
+            "object".to_string(),
+            Some(conv),
+            quote!(::core::option::Option::Some(<#cls_ty>::RTSE_CLASS.to_string())),
+        )
+    } else {
+        let Some(ret) = ret_of(&func.sig.output) else {
+            return syn::Error::new_spanned(
+                &func.sig.output,
+                "#[rtse::function]: no ABI spelling for this return type — a string result is \
+                 returned as a `Handle`, not `&str`.",
+            )
+            .to_compile_error()
+            .into();
+        };
+        wrap |= ret.needs_wrapper;
+        let ts = match &func.sig.output {
+            syn::ReturnType::Default => "void".to_string(),
+            syn::ReturnType::Type(_, t) => ts_of(t),
+        };
+        (
+            ret.abi,
+            ret.ext_ty,
+            ts,
+            ret.convert,
+            quote!(::core::option::Option::None),
+        )
+    };
     let const_ident = proc_macro2::Ident::new(&abi_const_name(&sym), rust_name.span());
     let extern_ident = proc_macro2::Ident::new(&sym, rust_name.span());
     let entry_fn = format_ident!("{}_entry", rust_name.to_string().to_lowercase());
@@ -249,7 +291,7 @@ pub(crate) fn expand(a: TokenStream, item: TokenStream) -> TokenStream {
         func.vis = syn::Visibility::Inherited;
         func.attrs.push(syn::parse_quote!(#[inline(always)]));
         let call = quote!(#inner_ident(#(#call_args),*));
-        let body = match ret.convert {
+        let body = match ret_convert {
             Some(conv) => quote!({ let __r = #call; #conv }),
             None => quote!({ #call }),
         };
@@ -295,6 +337,7 @@ pub(crate) fn expand(a: TokenStream, item: TokenStream) -> TokenStream {
                 doc: #doc.into(),
                 pure: false,
                 emit: ::core::option::Option::None,
+                ret_class: #ret_class_tok,
             }
         }
     }

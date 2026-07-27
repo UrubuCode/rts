@@ -160,6 +160,7 @@ fn str_func(name: &str, symbol: &str, ts: &str, doc: &str, fp: *const u8) -> Mem
         variadic: false,
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
+        ret_class: None,
         pure: false,
         emit: None,
     }
@@ -185,6 +186,7 @@ pub(super) fn func(
         variadic: false,
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
+        ret_class: None,
         pure: false,
         emit: None,
     }

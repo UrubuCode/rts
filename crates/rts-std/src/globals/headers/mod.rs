@@ -235,6 +235,7 @@ pub fn register_headers_class_spec(e: &mut rts_engine::Engine) {
         variadic: false,
         ts_signature: "entries(): IterableIterator<[string, string]>".to_string(),
         doc: "h.entries() — Vec de [name_handle, joined_value_handle].".to_string(),
+        ret_class: None,
         pure: true,
         emit: None,
     })
@@ -255,6 +256,7 @@ pub fn register_headers_class_spec(e: &mut rts_engine::Engine) {
                 .to_string(),
         doc: "h.forEach(callback) — invoca callback(value, key, self) por par (snapshot)."
             .to_string(),
+        ret_class: None,
         pure: false,
         emit: None,
     })

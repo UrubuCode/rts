@@ -37,7 +37,9 @@ pub(crate) fn simple_member(
         variadic: false,
         ts_signature: String::new(),
         doc: String::new(),
+        ret_class: None,
         pure: false,
+        
         emit: None,
     }
 }

@@ -31,6 +31,7 @@ fn f(name: &str, symbol: &str, args: Vec<AbiType>, ts: &str, fp: *const u8) -> M
         variadic: false,
         ts_signature: ts.to_string(),
         doc: String::new(),
+        ret_class: None,
         pure: false,
         emit: None,
     }

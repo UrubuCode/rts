@@ -169,6 +169,16 @@ fn ts_returns_nullable_string(ts: &str) -> bool {
 /// (`object | undefined`), generics, and getters with no `):`. The caller must
 /// still check the name against the registered classes before trusting it — this
 /// only filters the SHAPE of the annotation, never invents a class.
+/// The member's return class: prefer `Member.ret_class` (the macro-emitted DATA
+/// field — compiler-checked at the `#[rtse::*]` declaration site, see
+/// `Member::ret_class` doc), fall back to parsing `ts_signature` for members not
+/// yet migrated. The single seam every `ret_class` consumer in this file goes
+/// through, so the preference order is asserted once, not re-derived per call
+/// site.
+fn member_ret_class(m: &Member) -> Option<String> {
+    m.ret_class.clone().or_else(|| ts_return_class(&m.ts_signature))
+}
+
 fn ts_return_class(ts: &str) -> Option<String> {
     let ret = ts_ret_text(ts)?;
     // A GENERIC return (`Promise<T>`) names the class before the `<`.
@@ -242,7 +252,10 @@ fn instance_call(m: &'static Member) -> ResolvedCall {
         ret_is_array_handle: ts_returns_array(&m.ts_signature),
         ret_is_object_handle: ts_returns_object(&m.ts_signature),
         ret_is_nullable_string: ts_returns_nullable_string(&m.ts_signature),
-        ret_class: ts_return_class(&m.ts_signature),
+        // Prefer the macro-emitted DATA field over the `ts_signature` string
+        // parse — see `Member::ret_class` doc. The string parse remains the
+        // fallback for members not yet migrated to declare the type directly.
+        ret_class: member_ret_class(m),
         emit: m.emit,
     }
 }
@@ -261,7 +274,10 @@ fn flat_call(m: &'static Member) -> ResolvedCall {
         ret_is_array_handle: ts_returns_array(&m.ts_signature),
         ret_is_object_handle: ts_returns_object(&m.ts_signature),
         ret_is_nullable_string: ts_returns_nullable_string(&m.ts_signature),
-        ret_class: ts_return_class(&m.ts_signature),
+        // Prefer the macro-emitted DATA field over the `ts_signature` string
+        // parse — see `Member::ret_class` doc. The string parse remains the
+        // fallback for members not yet migrated to declare the type directly.
+        ret_class: member_ret_class(m),
         emit: m.emit,
     }
 }
@@ -409,7 +425,10 @@ pub fn class_member_ret_class(class: &str, method: &str) -> Option<String> {
     c.members
         .iter()
         .filter(|m| matches!(m.kind, MemberKind::InstanceMethod) && m.matches_name(method))
-        .find_map(|m| ts_return_class(&m.ts_signature))
+        // Prefer the macro-emitted DATA field (`Member.ret_class`, compiler-
+        // checked at the declaration site) over re-parsing `ts_signature`; fall
+        // back to the string parse for members not yet migrated.
+        .find_map(member_ret_class)
         .filter(|rc| has_class(rc))
 }
 
@@ -424,7 +443,7 @@ pub fn class_getter_ret_class(class: &str, prop: &str) -> Option<String> {
     let m = c
         .instance_getter(prop)
         .or_else(|| c.resolve_instance_method(prop, 0))?;
-    ts_return_class(&m.ts_signature).filter(|rc| has_class(rc))
+    member_ret_class(m).filter(|rc| has_class(rc))
 }
 
 /// Resolve `inst.prop` as an INSTANCE GETTER (a `MemberKind::InstanceGetter`, read
@@ -709,4 +728,52 @@ pub(crate) fn generate_dts() -> String {
         out.push_str("}\n\n");
     }
     out
+}
+
+#[cfg(test)]
+mod ret_class_tests {
+    use super::member_ret_class;
+    use rts_engine::abi::{AbiType, MemberFlags, MemberKind};
+    use rts_engine::{FnPtr, Member, Sig};
+
+    fn member(ret_class: Option<&str>, ts_signature: &str) -> Member {
+        Member {
+            name: "m".into(),
+            kind: MemberKind::InstanceMethod,
+            sig: Sig::new(vec![AbiType::Handle], AbiType::Handle),
+            symbol: "__RTSM_TEST_M".into(),
+            fn_ptr: FnPtr(std::ptr::null()),
+            flags: MemberFlags::NONE,
+            aliases: Vec::new(),
+            variadic: false,
+            ts_signature: ts_signature.into(),
+            doc: String::new(),
+            pure: false,
+            emit: None,
+            ret_class: ret_class.map(str::to_string),
+        }
+    }
+
+    /// The DATA field wins over a DISAGREEING `ts_signature` — the whole point
+    /// of `Member.ret_class`: the macro-checked field is trusted first, the
+    /// string parse is only the fallback for members not yet migrated.
+    #[test]
+    fn data_field_wins_over_disagreeing_ts_signature() {
+        let m = member(Some("StreamReader"), "m(): SomethingElse");
+        assert_eq!(member_ret_class(&m), Some("StreamReader".to_string()));
+    }
+
+    /// No data field set → falls back to parsing `ts_signature`, preserving
+    /// the un-migrated path.
+    #[test]
+    fn falls_back_to_ts_signature_when_data_field_absent() {
+        let m = member(None, "m(): LegacyClass");
+        assert_eq!(member_ret_class(&m), Some("LegacyClass".to_string()));
+    }
+
+    #[test]
+    fn no_class_either_way_is_none() {
+        let m = member(None, "m(): void");
+        assert_eq!(member_ret_class(&m), None);
+    }
 }

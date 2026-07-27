@@ -23,6 +23,7 @@ pub fn register(e: &mut Engine) {
             variadic: false,
             ts_signature: "parse(text: string): unknown".to_string(),
             doc: "Parses a JSON5 string (comments, trailing commas, unquoted keys, etc.). Returns opaque handle; 0 on error.".to_string(),
+            ret_class: None,
             pure: false,
             emit: None,
         })
@@ -37,6 +38,7 @@ pub fn register(e: &mut Engine) {
             variadic: false,
             ts_signature: "stringify(value: unknown): string".to_string(),
             doc: "Serializes a JSON5 handle to compact JSON form (subset compativel).".to_string(),
+            ret_class: None,
             pure: false,
             emit: None,
         })

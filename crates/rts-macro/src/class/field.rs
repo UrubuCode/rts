@@ -77,6 +77,7 @@ pub(crate) fn gen_field(
             doc: #doc.into(),
             pure: true,
             emit: ::core::option::Option::None,
+            ret_class: ::core::option::Option::None,
         })
     });
     keep.push(get_id);
@@ -111,6 +112,7 @@ pub(crate) fn gen_field(
                 doc: ::std::string::String::new(),
                 pure: false,
                 emit: ::core::option::Option::None,
+                ret_class: ::core::option::Option::None,
             })
         });
         keep.push(set_id);
