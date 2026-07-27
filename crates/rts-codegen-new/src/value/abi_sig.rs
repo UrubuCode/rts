@@ -328,6 +328,23 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, I64],
             ret: I64,
         },
+        // Fused payload-addressed slot access: takes the 48-bit PolyValue payload
+        // straight, instead of POLY_TO_HANDLE first. Same shapes as the VEC_*
+        // entries above except the leading arg is a payload, not a handle — and
+        // SET returns i64 (1/0) rather than Void, so a caller can tell a rejected
+        // slot from a stored one.
+        "__rtsn_vec_get_by_payload" => SymSig {
+            params: &[U64, I64],
+            ret: I64,
+        },
+        "__rtsn_vec_set_by_payload" => SymSig {
+            params: &[U64, I64, I64],
+            ret: I64,
+        },
+        "__rtsn_vec_len_by_payload" => SymSig {
+            params: &[U64],
+            ret: I64,
+        },
         "__RTS_FN_NS_COLLECTIONS_VEC_LEN" => SymSig {
             params: &[U64],
             ret: I64,

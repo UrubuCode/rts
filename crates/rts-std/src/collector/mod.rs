@@ -27,6 +27,7 @@ pub use rts_engine::collector::{debug, global_roots, scan, stack_map_registry, t
 /// (`rts_engine::heap::handles`, Fase 1a). Facade → `super::handles` (dos siblings)
 /// + `rts_engine::heap::handles::*` (consumidores) seguem resolvendo.
 pub use rts_engine::heap::handles;
+pub use rts_engine::heap::payload_ops;
 /// Alocadores/helpers do heap migrados pro motor (env-record, this-slot,
 /// tagged-raw, class-registry). Facade → `crate::namespaces::gc::<X>::*` +
 /// `super::<X>` (siblings) seguem resolvendo. `closure`/`instance` (gc.closure_*/

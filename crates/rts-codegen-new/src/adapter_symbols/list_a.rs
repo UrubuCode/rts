@@ -3,6 +3,7 @@
 
 use rts_runtime::namespaces::gc::collector as rt_gcoll;
 use rts_runtime::namespaces::gc::handles as rt_handles;
+use rts_runtime::namespaces::gc::payload_ops as rt_payload;
 use rts_runtime::namespaces::gc::string_pool as rt_str;
 
 use crate::value::{abi_adapter, arrayops, genops, genops_arith, globalops, inspect};
@@ -71,6 +72,22 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
         sym(
             "__RTS_FN_NS_GC_POLY_TO_HANDLE",
             rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE as *const u8,
+        ),
+        // ---- fused payload-addressed slot access (__rtsn_*, engine heap) ----
+        // One shard lock per field touch instead of two. Replaces the
+        // POLY_TO_HANDLE + VEC_GET pair, whose generation round-trip validated a
+        // value against itself; see `rts_engine::heap::payload_ops`.
+        sym(
+            "__rtsn_vec_get_by_payload",
+            rt_payload::__rtsn_vec_get_by_payload as *const u8,
+        ),
+        sym(
+            "__rtsn_vec_set_by_payload",
+            rt_payload::__rtsn_vec_set_by_payload as *const u8,
+        ),
+        sym(
+            "__rtsn_vec_len_by_payload",
+            rt_payload::__rtsn_vec_len_by_payload as *const u8,
         ),
         // ---- codegen-owned adapter trampolines (__rtsadp_*) ----
         sym("__rtsadp_add", genops::__rtsadp_add as *const u8),
