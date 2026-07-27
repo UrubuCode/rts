@@ -12,6 +12,8 @@ crate-type = ["rlib", "staticlib"]
 [dependencies]
 rts-runtime = { path = "../rts-runtime" }
 rts-engine = { path = "../rts-engine" }
+# `#[rtse::abi]`-generated `SymbolDesc` consts reference `::rts_abi::` directly.
+rts-abi = { path = "../rts-abi" }
 # `#[rtse::abi]` — emits the `SymbolDesc` const beside each codegen-owned
 # `__rtsadp_*` trampoline, with the ABI shape derived from the Rust signature.
 # See docs/specs/rts-macro-single-source.md (F0).

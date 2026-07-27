@@ -1,0 +1,19 @@
+[package]
+name = "rts-abi"
+version = "0.1.0"
+edition = "2024"
+
+# The ABI CONTRACT, standing alone.
+#
+# This is the vocabulary every layer agrees on — `AbiType`, `SymbolDesc`,
+# `NamespaceMember`, the `__RTS_*` symbol convention, signature lowering. It used
+# to live inside `rts-engine`, which forced anything wanting to NAME a symbol to
+# depend on the whole heap/GC/Registry crate. Splitting it out means the codegen
+# can depend on the contract without depending on an implementation of it, which
+# is the precondition for `rts-macro` becoming the single source of truth for
+# symbols (docs/specs/rts-macro-single-source.md).
+#
+# DEPENDENCY-FREE ON PURPOSE. This crate must sit at the bottom of the graph: the
+# macro output references it, the engine references it, the codegen references
+# it. Anything it pulled in would be pulled into all three.
+[dependencies]
