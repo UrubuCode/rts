@@ -125,13 +125,31 @@ impl MemberFlags {
 /// Default policy for one argument of a [`NamespaceMember`], used by the engine
 /// resolver/emitter to accept calls that omit trailing optional arguments and
 /// to synthesise the value the runtime fn expects in their place.
+///
+/// This is an ENUM, not a raw `PolyValue` `u64`, even though every variant
+/// ultimately lowers to one: a `PolyValue` singleton (`undefined`/`null`/
+/// `true`/`false`) IS `const fn`-constructible (see
+/// `rts_adapters::value::PolyValue::{undefined,null,bool}`), so a raw bit
+/// pattern would work for those cases. The `Str` case is what rules it out —
+/// a string default has no `PolyValue` bit pattern at all (a real string lives
+/// in the GC string pool behind a `Handle`, materialized at each program run).
+/// Baking a fake handle into a `&'static` table would either dangle or require
+/// a second allocation-time fixup pass. Keeping the descriptor as a small enum
+/// lets the emitter materialize a string default through the engine's ordinary
+/// string-construction path (`emit_str_const_word`) — the exact path a string
+/// LITERAL in source takes — while every other variant still lowers to a
+/// `PolyValue` bit pattern with zero runtime work. One mechanism, one type,
+/// still `'static`/`Copy`/const-table-friendly.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DefaultArg {
     /// The caller must supply this argument; omitting it is an arity error.
     Required,
     /// Optional integer/handle/bool argument; `value` is injected when omitted.
     Int(i64),
-    /// Optional float argument; `value` is injected when omitted.
+    /// Optional float argument; `value` is injected when omitted. `f64::NAN` /
+    /// `f64::INFINITY` are ordinary bit patterns of this variant — no separate
+    /// `NaN` case is needed (`NaN = radix as f64` style defaults, `x = NaN`,
+    /// `limit = Infinity`).
     Float(f64),
     /// Omitted arg defaults to JS `undefined`: codegen injects the `undefined`
     /// sentinel word and the runtime extern interprets the resulting NaN/sentinel
@@ -139,6 +157,17 @@ pub enum DefaultArg {
     /// component as day=1/rest=0. Lets a spec express "pad the tail with
     /// `undefined`" as DATA instead of a hardcoded codegen padding.
     Undefined,
+    /// Omitted arg defaults to JS `null` — distinct from `Undefined`: JS code
+    /// can observe `arg === null` vs `arg === undefined` on the SAME omitted
+    /// parameter (e.g. a `parent: object | null = null` constructor arg).
+    Null,
+    /// Omitted arg defaults to a JS boolean literal (`fatal = false`, `raw =
+    /// true`).
+    Bool(bool),
+    /// Omitted arg defaults to a JS string literal (`encoding = "utf8"`). The
+    /// emitter materializes a REAL string handle through the same path a
+    /// string literal in source takes — never a hand-baked handle.
+    Str(&'static str),
 }
 
 /// Whether a member is a function, constant, constructor, or instance method.
@@ -215,4 +244,72 @@ pub struct NamespaceSpec {
     /// Members of this namespace. Order is stable and significant for
     /// reproducible codegen.
     pub members: &'static [NamespaceMember],
+}
+
+#[cfg(test)]
+mod default_arg_tests {
+    use super::DefaultArg;
+
+    /// `Undefined` and `Null` are DISTINCT variants — the descriptor can express
+    /// both JS defaults on the same omitted parameter, which a positional-index
+    /// scheme could not (it only ever meant "the zero value", picked by the
+    /// runtime extern, not by the descriptor).
+    #[test]
+    fn undefined_and_null_are_distinct() {
+        assert_ne!(DefaultArg::Undefined, DefaultArg::Null);
+    }
+
+    /// A `NaN` default is an ordinary `Float` bit pattern — no dedicated variant
+    /// needed. `f64::NAN != f64::NAN` so two `NaN` defaults do not compare equal
+    /// under derived `PartialEq`; that is standard float semantics, not a
+    /// representation bug (the descriptor is never hashed/deduped by value).
+    #[test]
+    fn nan_default_is_a_float_variant() {
+        let d = DefaultArg::Float(f64::NAN);
+        match d {
+            DefaultArg::Float(f) => assert!(f.is_nan()),
+            _ => panic!("expected DefaultArg::Float"),
+        }
+    }
+
+    /// `Infinity` likewise needs no dedicated variant.
+    #[test]
+    fn infinity_default_is_a_float_variant() {
+        assert_eq!(DefaultArg::Float(f64::INFINITY), DefaultArg::Float(f64::INFINITY));
+    }
+
+    /// A numeric default (`radix = 10`) round-trips through `Int`.
+    #[test]
+    fn numeric_int_default() {
+        assert_eq!(DefaultArg::Int(10), DefaultArg::Int(10));
+        assert_ne!(DefaultArg::Int(10), DefaultArg::Int(16));
+    }
+
+    /// A string default (`encoding = "utf8"`) is representable directly — the
+    /// case that ruled out a raw `PolyValue` bit pattern for this table (see the
+    /// doc comment on `DefaultArg`).
+    #[test]
+    fn string_default_is_representable() {
+        assert_eq!(DefaultArg::Str("utf8"), DefaultArg::Str("utf8"));
+        assert_ne!(DefaultArg::Str("utf8"), DefaultArg::Str("ascii"));
+    }
+
+    /// `required_args`-style logic (mirrored here, not re-exported — the real
+    /// one lives in the codegen crate) reads the LEADING run of `Required`. The
+    /// receiver-offset rule (`registry.rs::instance_call`) relies on this being
+    /// stable after slicing `[1..]` off an instance method's `default_args`.
+    #[test]
+    fn leading_required_run_survives_receiver_slice() {
+        // As declared on the `Sig` (receiver in slot 0, two explicit params,
+        // the second one defaulted):
+        let all = [DefaultArg::Required, DefaultArg::Required, DefaultArg::Str("utf8")];
+        // After `instance_call` drops the receiver slot:
+        let explicit = &all[1..];
+        let required = explicit
+            .iter()
+            .take_while(|d| matches!(d, DefaultArg::Required))
+            .count();
+        assert_eq!(required, 1);
+        assert_eq!(explicit[1], DefaultArg::Str("utf8"));
+    }
 }

@@ -15,7 +15,29 @@ use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{ImplItem, ItemImpl, Type};
 
-use kind::{take_kind, take_variable};
+use crate::abi::scope::{Scope, symbol_for};
+use kind::{take_kind, take_symbol_key, take_variable};
+
+/// The linker symbol of one member of a global class, DERIVED by the same rule
+/// `#[rtse::abi]` uses (`rts_abi::scope::symbol_for`) — a class member is exactly
+/// the `global = "<Class>"` scope: `__rtsm_global_<class>_<value>`.
+///
+/// `value` is the Rust member/field spelling VERBATIM (case-preserved), so two
+/// members differing only by case stay distinct symbols. Only the class segment
+/// is lower-cased and `_`-joined (`Intl.NumberFormat` → `intl_numberformat`).
+///
+/// Restating the rule here instead of calling `symbol_for` is the drift this
+/// campaign exists to delete — there is one derivation (in `rts-abi`), and this
+/// is a call into it.
+pub(crate) fn class_symbol(class: &str, value: &str) -> String {
+    symbol_for(
+        &rts_abi::scope::Naming::Scoped {
+            scope: Scope::Global(Some(class.to_string())),
+            value: Some(value.to_string()),
+        },
+        value,
+    )
+}
 
 /// `#[rtse::class("Name")]` — on the STRUCT (fields via `#[rtse::variable]`) OR on
 /// the `impl` block (ctor/methods). Both are required for a class with fields: the
@@ -84,6 +106,11 @@ impl syn::parse::Parse for ClassArgs {
 }
 
 /// A `#[used]` static forcing `keep`'s extern addresses into the AOT archive.
+///
+/// `class_upper` here names a RUST ITEM (this static, and `__rtse_fields_<Class>`),
+/// not a linker symbol — it never reaches a consumer by name and is not part of the
+/// `__rtsm_`/`__rtsn_`/`__rtsa_` convention. Upper-case is kept because these are
+/// Rust `static`/`fn` idents whose casing follows Rust, not JS.
 fn keep_static(class_upper: &str, suffix: &str, keep: &[proc_macro2::Ident]) -> proc_macro2::TokenStream {
     if keep.is_empty() {
         return quote!();
@@ -114,8 +141,20 @@ fn gen_impl(
         let Some(kind) = take_kind(&mut f.attrs) else {
             continue;
         };
+        let symbol_key = match take_symbol_key(&mut f.attrs) {
+            Ok(k) => k,
+            Err(e) => return e.to_compile_error().into(),
+        };
         let doc = extract_doc(&f.attrs);
-        match member::gen_member(&class_name, &class_upper, &self_ty, &f.sig, kind, value_class, doc) {
+        match member::gen_member(
+            &class_name,
+            &self_ty,
+            &f.sig,
+            kind,
+            symbol_key,
+            value_class,
+            doc,
+        ) {
             Ok((ext, mem, id)) => {
                 externs.push(ext);
                 members.push(mem);
@@ -164,7 +203,7 @@ fn gen_struct(class_name: String, mut s: syn::ItemStruct) -> TokenStream {
             };
             let fname = f.ident.clone().unwrap();
             let fdoc = extract_doc(&f.attrs);
-            match field::gen_field(&class_name, &class_upper, &self_ty, &fname, &f.ty, readonly, fdoc) {
+            match field::gen_field(&class_name, &self_ty, &fname, &f.ty, readonly, fdoc) {
                 Ok((exts, mems, ids)) => {
                     externs.extend(exts);
                     members.extend(mems);

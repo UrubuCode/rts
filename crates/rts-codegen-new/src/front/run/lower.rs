@@ -256,7 +256,7 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     pub global_instance_classes: HashMap<String, String>,
     /// Interns object-literal shapes (compile-time key→slot maps) for this fn.
     pub shapes: ShapeTable,
-    /// The function's return repr, or `None` for a `void` body (`__rtsn_main`).
+    /// The function's return repr, or `None` for a `void` body (`__rts_startup`).
     pub ret: Option<Repr>,
     /// True once the current block has emitted a terminator.
     pub block_terminated: bool,
@@ -310,7 +310,7 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     pub gcells: &'c HashMap<String, u32>,
     /// The gcell ids that are NEVER written after their top-level initializer
     /// (`funcval::immutable_gcells`) — a module `const` promoted to a cell only
-    /// because some function READS it. Their value is fixed once `__rtsn_main`
+    /// because some function READS it. Their value is fixed once `__rts_startup`
     /// has run, so this function may load each ONCE and reuse it
     /// ([`Self::gcell_cache`]) instead of an extern `GCELL_GET` per access.
     pub immutable_gcells: &'c std::collections::HashSet<u32>,
@@ -378,23 +378,23 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     pub classes: &'c super::class::ClassTable,
     /// PRIVACY GATE: whether the function being lowered came from the engine's
     /// PRELUDE (embedded TS includes). Only a prelude-origin function may name the
-    /// PRIVATE `engine.*` ambient global; in a user function (incl. `__rtsn_main`)
+    /// PRIVATE `engine.*` ambient global; in a user function (incl. `__rts_startup`)
     /// any `engine.*` reference bails explicitly (see [`super::engineobj`]).
     pub is_prelude: bool,
-    /// Whether THIS function is the synthesized `__rtsn_main`. A module-level
+    /// Whether THIS function is the synthesized `__rts_startup`. A module-level
     /// `let` in main initializes its promoted GCELL; the same-spelled `let`
     /// inside ANY function declares a fresh LOCAL that shadows the global
     /// (without this a prelude-internal `let out` clobbered a user gcell).
     pub is_main: bool,
     /// Lexical block nesting depth while lowering (0 = not yet in the body;
     /// `lower_block` bumps it, so the function's OUTERMOST body statements are at
-    /// depth 1 and anything inside a loop/if/try/block is ≥2). In `__rtsn_main`
+    /// depth 1 and anything inside a loop/if/try/block is ≥2). In `__rts_startup`
     /// the promoted-global GCELL divert of a `let`/`const` must apply ONLY to the
     /// top-level declaration (depth 1) — a same-spelled `let` NESTED in a loop is
     /// a fresh block-scoped local that must SHADOW the global, not alias its cell
     /// (otherwise a loop-body `const x` corrupts a top-level `x` across scopes).
     pub block_depth: u32,
-    /// The NAME of the function being lowered (`__rtsn_main`, `__rtsn_ctor_C`,
+    /// The NAME of the function being lowered (`__rts_startup`, `__rtsn_ctor_C`,
     /// `__rtsn_method_C_m`, `__rtsn_static_C_m`, …). Drives the TS access-surface
     /// re-checks: a `readonly` field write is allowed only inside a
     /// `__rtsn_ctor_*`, and a static method's enclosing class is recovered from
@@ -413,7 +413,7 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// (`console.table = fn`): `(gcell name, prop)`. A later `name.prop(..)`
     /// call in the same function dispatches DYNAMICALLY (own-prop fn word if
     /// set, else the class method). Per-function by design — the test corpus
-    /// overrides and calls at the top level (one `__rtsn_main` pass).
+    /// overrides and calls at the top level (one `__rts_startup` pass).
     pub singleton_overrides: std::collections::HashSet<(String, String)>,
 }
 
@@ -507,7 +507,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             globalthis_class_refs,
             classes,
             is_prelude,
-            is_main: func.name == "__rtsn_main",
+            is_main: func.name == "__rts_startup",
             block_depth: 0,
             current_fn: func.name.clone(),
             builtins,

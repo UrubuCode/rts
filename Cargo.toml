@@ -22,6 +22,7 @@ members = [
     "crates/rts-macro",
     "crates/rts-codegen-new",
     "crates/rts-prelude-baker",
+    "crates/rts-symbol-baker",
     "crates/rts-cli",
 ]
 resolver = "2"

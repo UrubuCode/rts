@@ -121,7 +121,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
         // Pad the omitted tail with the chosen ctor's spec defaults.
         for i in argc..call.arg_abis.len() {
-            vals.push(self.default_arg_val(call.default_args.get(i), class, i)?);
+            vals.push(self.default_arg_val(module, call.default_args.get(i), class, i)?);
         }
         // A ctor whose spec declares an ARRAY return (`new Uint8Array(..):
         // number[]` — the Vec-backed typed arrays) reboxes as a plain JS array
@@ -151,10 +151,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Materialise one spec [`DefaultArg`] as the padding [`Val`] for an omitted
     /// trailing arg. `Int`→`iconst I64`, `Float`→`f64const`, `Undefined`→the
     /// `undefined` sentinel word (the runtime extern reads its NaN form as its own
-    /// default). A `Required` / missing entry is a spec bug — BAIL, never
-    /// mis-marshal.
+    /// default), `Null`/`Bool`→the matching `PolyValue` singleton, `Str`→a REAL
+    /// string handle materialized through the ordinary string-literal path (never
+    /// a hand-baked handle). A `Required` / missing entry is a spec bug — BAIL,
+    /// never mis-marshal.
     pub(super) fn default_arg_val(
         &mut self,
+        module: &mut dyn Module,
         d: Option<&DefaultArg>,
         class: &str,
         i: usize,
@@ -175,6 +178,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // slot to "" (not the "undefined" text); numeric slots decode
                 // the sentinel NaN as before.
                 Val::tagged_kind(w, JsKind::Undefined)
+            }
+            Some(DefaultArg::Null) => {
+                let n = value::PolyValue::null().raw() as i64;
+                let w = self.builder.ins().iconst(types::I64, n);
+                Val::tagged_kind(w, JsKind::Null)
+            }
+            Some(DefaultArg::Bool(b)) => {
+                let n = value::PolyValue::bool(*b).raw() as i64;
+                let w = self.builder.ins().iconst(types::I64, n);
+                Val::tagged_kind(w, JsKind::Bool)
+            }
+            Some(DefaultArg::Str(s)) => {
+                // Same path a string LITERAL in source takes — a real GC string
+                // handle boxed as `TAG_STR`, not a hand-baked bit pattern.
+                let w = self.emit_str_const_word(module, s)?;
+                Val::tagged_kind(w, JsKind::Str)
             }
             _ => {
                 return unsupported!("`{class}(..)` — argument {i} has no spec default");
@@ -221,7 +240,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // method with optional args — `d.setUTCHours(h)` on the 4-slot spec):
         // the same data-driven fill the ctor/static paths already apply.
         for i in args.len()..call.arg_abis.len() {
-            vals.push(self.default_arg_val(call.default_args.get(i), class, i)?);
+            vals.push(self.default_arg_val(module, call.default_args.get(i), class, i)?);
         }
         // A `Handle` return is a STRING handle only when the spec's ts-signature
         // says so (`ret_is_string_handle`, e.g. Date.toISOString → string);
@@ -402,7 +421,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // slot is always a default here (argc ≥ required), so a `Required` /
         // missing entry would be a spec bug — BAIL rather than mis-marshal.
         for i in argc..total {
-            vals.push(self.default_arg_val(call.default_args.get(i), name, i)?);
+            vals.push(self.default_arg_val(module, call.default_args.get(i), name, i)?);
         }
         // Same data-driven Handle-return classification as the instance path:
         // a string only when the ts-signature says so, an array when it
@@ -549,7 +568,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // path) and classify the Handle return by the spec's flags.
             let mut vals = argvals.to_vec();
             for i in argc..call.arg_abis.len() {
-                vals.push(self.default_arg_val(call.default_args.get(i), class, i)?);
+                vals.push(self.default_arg_val(module, call.default_args.get(i), class, i)?);
             }
             let result_kind = match call.ret {
                 AbiType::Handle if call.ret_is_string_handle => JsKind::Str,

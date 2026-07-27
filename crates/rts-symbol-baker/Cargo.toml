@@ -1,0 +1,29 @@
+[package]
+name = "rts-symbol-baker"
+version = "0.1.0"
+edition = "2024"
+
+# Bakes the RTS symbol table: scans the runtime crates' SOURCES for exported
+# `extern "C"` declarations and emits ONE ordered, generated `.rs` carrying every
+# symbol for the JIT (name -> fn-ptr) and for the AOT (the declaration list).
+#
+# It is a source-scanning binary rather than a proc-macro because a proc-macro
+# sees one item at a time and cannot collect across crates, and rather than a
+# distributed slice (`linkme`/`inventory`) because those order entries at LINK
+# time, non-deterministically — which defeats the whole point of an ORDERED
+# table. See `src/lib.rs` for the full rationale.
+[[bin]]
+name = "rts-symbol-baker"
+path = "src/main.rs"
+
+[lib]
+name = "rts_symbol_baker"
+path = "src/lib.rs"
+
+[dependencies]
+# The naming rule is SHARED with `#[rtse::abi]`, never re-implemented here.
+rts-abi = { path = "../rts-abi" }
+syn = { version = "2", features = ["full", "parsing", "printing"] }
+proc-macro2 = "1"
+quote = "1"
+anyhow = "1.0"

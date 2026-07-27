@@ -200,8 +200,8 @@ pub(super) fn append_members(mut cb: ClassBuilder) -> ClassBuilder {
     // `toGMTString` — deprecated alias of the macro-authored `toUTCString`.
     cb = cb.member(m(
         "toGMTString",
-        "__RTS_FN_GL_DATE_to_utc_string",
-        super::instance::__RTS_FN_GL_DATE_to_utc_string as *const u8,
+        "__rtsm_global_date_to_utc_string",
+        super::instance::__rtsm_global_date_to_utc_string as *const u8,
         Sig::new(vec![AbiType::Handle], AbiType::Handle),
         "toGMTString(): string",
         "Deprecated alias of toUTCString.",

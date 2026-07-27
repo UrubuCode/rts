@@ -48,7 +48,7 @@ use rts_ast::ast::{Item, Statement};
 /// bodies are not paired (their placeholders bail at lowering, as before).
 ///
 /// `program` is the freshly parsed AST (`build_program` already parsed it; we take
-/// a reference to the same items). `main_body` is the synthesized `__rtsn_main`
+/// a reference to the same items). `main_body` is the synthesized `__rts_startup`
 /// body; `funcs` are the lowered user functions (looked up by name).
 pub(crate) fn desugar(
     program: &rts_ast::ast::Program,

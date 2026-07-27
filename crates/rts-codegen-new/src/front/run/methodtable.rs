@@ -21,7 +21,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// For every user class: `proto = __rtsadp_class_proto_init(name, parent)`
     /// (idempotent — the same call `new` makes), then one
     /// `__rtsadp_obj_set(proto, name, reified-method-word)` per method. Runs
-    /// once, at the `__rtsn_main` prologue (JIT and AOT alike — `func_addr` is
+    /// once, at the `__rts_startup` prologue (JIT and AOT alike — `func_addr` is
     /// relocatable). An async method (no reifiable thunk) is skipped: the
     /// dynamic read keeps its honest `undefined` for those.
     pub(super) fn emit_method_table_registrations(

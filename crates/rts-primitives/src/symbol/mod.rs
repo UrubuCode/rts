@@ -1,10 +1,13 @@
-//! `Symbol` global class (#216) — primitivo unico opaco.
+//! `Symbol` global class (#216) — the single opaque primitive.
 //!
-//! Migrado do `#[rts_class]` (macro) pro modelo builder hand-written do
-//! `rts-engine` (rumo à remoção da `rts-macro`). Os externs
-//! `__RTS_FN_GL_SYMBOL_*` + `register_symbol_class_spec()` são escritos à mão.
-//! `__RTS_FN_RT_TO_PRIMITIVE` + os well-known helpers nao sao membros da classe
-//! — ficam como free fns abaixo, chamados pelo codegen por simbolo.
+//! Hand-written builder registration (`register_symbol_class_spec()`) for the
+//! `Symbol` global itself; `well_known.rs` is the compile-time-checked source
+//! for the well-known set that `#[rtse::symbol(Symbol::iterator)]` (rts-macro)
+//! points at. `__RTS_FN_RT_TO_PRIMITIVE` + the well-known externs are not
+//! `Member`s of the class — they are free fns below, called by codegen by
+//! symbol.
+
+pub mod wellknown;
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -27,10 +30,15 @@ fn registry() -> &'static Mutex<HashMap<String, u64>> {
     REG.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-// (#216) Well-known symbols: handles cacheados, criados sob demanda.
-// Cada um tem description "Symbol.iterator", "Symbol.asyncIterator", etc,
-// e e' garantido retornar mesmo handle em chamadas subsequentes.
-fn well_known_handle(name: &str) -> u64 {
+// (#216) Well-known symbols: cached handles, allocated on demand.
+// Each has description "Symbol.iterator", "Symbol.asyncIterator", etc,
+// and is guaranteed to return the same handle on subsequent calls.
+//
+// The `name` list here is the RUNTIME side of the well-known set; the
+// COMPILE-TIME-checked side is `wellknown::Symbol`'s associated consts (each
+// `WellKnown { key }` calls back into this fn). Keep the two in lockstep —
+// this is the only place a well-known name string is written.
+pub(crate) fn well_known_handle(name: &str) -> u64 {
     static CACHE: OnceLock<Mutex<HashMap<&'static str, u64>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
 
@@ -361,9 +369,78 @@ pub extern "C" fn __RTS_FN_RT_TO_PRIMITIVE(obj: i64, hint_code: i32) -> i64 {
     unsafe { __RTS_FN_RT_INVOKE_AUTO(method, obj, args) }
 }
 
+// ── `#[rtse::symbol]` demo/test class ────────────────────────────────────────
+//
+// Exercises both forms end-to-end through the real macro expansion (not just
+// the runtime `well_known_handle` table): a well-known-symbol member and a
+// registry-symbol member on the same class, asserting their Registry `Member`
+// keys are distinct and correctly prefixed. `#[cfg(test)]` only — this class is
+// never registered into `REGISTER`.
+#[cfg(test)]
+#[rtse::class("__RtseSymbolKeyDemo")]
+#[derive(Clone)]
+struct RtseSymbolKeyDemo;
+
+#[cfg(test)]
+#[rtse::class("__RtseSymbolKeyDemo")]
+impl RtseSymbolKeyDemo {
+    #[rtse::ctor]
+    fn new() -> Self {
+        RtseSymbolKeyDemo
+    }
+
+    /// `[Symbol.iterator]()` — well-known form, path-checked at compile time.
+    #[rtse::method]
+    #[rtse::symbol(wellknown::Symbol::iterator)]
+    fn iter_method(self: &RtseSymbolKeyDemo) -> Handle {
+        0
+    }
+
+    /// `[Symbol.for("demoKey")]()` — registry form, string-keyed.
+    #[rtse::method]
+    #[rtse::symbol("demoKey")]
+    fn registry_method(self: &RtseSymbolKeyDemo) -> Handle {
+        0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn demo_member_names() -> Vec<String> {
+        let mut e = Engine::new();
+        register(&mut e);
+        e.registry()
+            .class("__RtseSymbolKeyDemo")
+            .expect("registered above")
+            .members
+            .iter()
+            .map(|m| m.name.clone())
+            .collect()
+    }
+
+    #[test]
+    fn well_known_symbol_member_keyed_at_sign_at_sign_ident() {
+        let names = demo_member_names();
+        assert!(names.contains(&"@@iterator".to_string()), "{names:?}");
+    }
+
+    #[test]
+    fn registry_symbol_member_keyed_sym_prefix() {
+        let names = demo_member_names();
+        assert!(names.contains(&"@@sym:demoKey".to_string()), "{names:?}");
+    }
+
+    #[test]
+    fn well_known_and_registry_symbol_keys_are_distinct() {
+        let names = demo_member_names();
+        let wk = names.iter().find(|n| n.starts_with("@@") && !n.starts_with("@@sym:"));
+        let reg = names.iter().find(|n| n.starts_with("@@sym:"));
+        assert_ne!(wk, None);
+        assert_ne!(reg, None);
+        assert_ne!(wk, reg);
+    }
 
     #[test]
     fn distinct_symbols_different_handles() {

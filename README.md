@@ -315,7 +315,7 @@ Want to see exactly what Cranelift is generating?
 rts ir file.ts 2>&1 | head -50
 ```
 
-Prints the IR of every user fn + `__RTS_MAIN` without executing. Great for hunting
+Prints the IR of every user fn + `__rts_startup` without executing. Great for hunting
 redundant loads/stores in hot loops, unnecessary extern calls, and
 intrinsic opportunities. See `CLAUDE.md` § Codegen debugging.
 

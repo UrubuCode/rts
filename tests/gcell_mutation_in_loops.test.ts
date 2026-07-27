@@ -4,7 +4,7 @@ import { describe, test, expect } from "rts:test";
 // (the counters must advance). The mutation scan used to SKIP those statement
 // kinds, which could mis-classify a written gcell as immutable → memoized → read
 // stale. This is the diagnosed cause of #1978; note the FULL #1978 failure is
-// scale-dependent (only reproduces in a huge __rtsn_main) so these minimal cases
+// scale-dependent (only reproduces in a huge __rts_startup) so these minimal cases
 // pass with or without the fix — they guard the patterns going forward, they are
 // not a minimal reproduction of #1978.
 

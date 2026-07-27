@@ -8,6 +8,7 @@ pub mod descriptors;
 pub mod env;
 pub mod fixed;
 pub mod handles;
+pub mod payload_ops;
 pub mod poly;
 pub mod shapes;
 pub mod tagged_raw;

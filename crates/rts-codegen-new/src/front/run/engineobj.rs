@@ -12,7 +12,7 @@
 //! The engine has no import resolver — ambient globals are recognized BY NAME at
 //! lowering time. `engine` is PRIVATE: only a PRELUDE-origin function (a function
 //! that came from the engine's embedded TS includes — [`Lowerer::is_prelude`]) may
-//! resolve it. A USER function (including the synthesized `__rtsn_main`) that names
+//! resolve it. A USER function (including the synthesized `__rts_startup`) that names
 //! `engine.*` gets an EXPLICIT `Unsupported` bail (the honest deny — never a
 //! silent allow, never a wrong value). A user local/class named `engine` shadows
 //! the global and is handled by the normal local/class paths before this is

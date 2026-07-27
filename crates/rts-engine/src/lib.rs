@@ -53,7 +53,10 @@ mod member;
 mod registry;
 mod sig;
 
-pub use builder::{ClassBuilder, Engine, GlobalBuilder, ModuleBuilder};
+pub use builder::{
+    ClassBuilder, Engine, GlobalBuilder, GlobalRegistryItem, GlobalScope, ModuleBuilder,
+    ModuleScope, RegistryItem,
+};
 pub use collector::{GcPayload, Traceable};
 pub use member::{FnPtr, Member, VarKind, NativeEmit};
 pub use registry::{Class, Module, Registry};

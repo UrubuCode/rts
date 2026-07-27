@@ -279,7 +279,7 @@ fn check_supported(decl: &ClassDecl) -> FrontResult<()> {
     // TS-only compile error the engine does not re-check.
     //
     // `static {}` init blocks are SUPPORTED: their statements run at the head of
-    // `__rtsn_main` (prepended by `build_from_program`, after the class's own
+    // `__rts_startup` (prepended by `build_from_program`, after the class's own
     // static-field cell inits), writing the writable static-field cells.
     for m in &decl.members {
         match m {

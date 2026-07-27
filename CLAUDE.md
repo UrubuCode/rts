@@ -915,7 +915,7 @@ failures — `target/release/rts.exe` may be stale after merges.
 ### `rts ir` for perf
 
 `target/release/rts.exe ir file.ts 2>&1 | head -100` prints full Cranelift IR
-per user fn + `__RTS_MAIN` (stderr, no execution). Use when suspecting
+per user fn + `__rts_startup` (stderr, no execution). Use when suspecting
 inefficient codegen: redundant load/store in hot loops (vars not promoted to
 Cranelift Variables), duplicated lowered subexpressions
 (try_operator_overload/try_bin_imm lowering before checking use), unneeded

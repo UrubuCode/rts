@@ -1078,6 +1078,32 @@ impl HandleTable {
     /// the index is out of range or the slot is `Free`. Used by
     /// [`__RTS_FN_NS_GC_POLY_TO_HANDLE`] to reconstruct the generation that a
     /// NaN-boxed PolyValue payload dropped. Read-only; no allocation.
+    /// The entry at a raw slot index, WITHOUT a generation check — `None` for an
+    /// out-of-range or freed slot.
+    ///
+    /// Sound only for a caller holding a live 48-bit payload, which is exactly
+    /// the fused payload-addressed path in [`crate::heap::payload_ops`]. Skipping
+    /// the check loses nothing there: the unfused pair reconstructs the handle
+    /// from the generation it just read off this same slot, so its comparison is
+    /// against itself and can only succeed. The freed/out-of-range rejection —
+    /// the only condition that pair actually catches — is kept here.
+    pub(crate) fn entry_at(&self, table_slot: usize) -> Option<&Entry> {
+        let slot = self.slots.get(table_slot)?;
+        if matches!(slot.entry, Entry::Free) {
+            return None;
+        }
+        Some(&slot.entry)
+    }
+
+    /// Mutable sibling of [`Self::entry_at`], with the same soundness argument.
+    pub(crate) fn entry_at_mut(&mut self, table_slot: usize) -> Option<&mut Entry> {
+        let slot = self.slots.get_mut(table_slot)?;
+        if matches!(slot.entry, Entry::Free) {
+            return None;
+        }
+        Some(&mut slot.entry)
+    }
+
     pub(crate) fn slot_generation(&self, table_slot: usize) -> Option<u16> {
         let slot = self.slots.get(table_slot)?;
         if matches!(slot.entry, Entry::Free) {

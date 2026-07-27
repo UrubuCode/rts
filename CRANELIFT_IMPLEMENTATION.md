@@ -621,7 +621,7 @@ scope here.
     (unpruned), emits `prelude.o` with `Linkage::Export` (a `BAKE_EXPORT`
     thread-local `populate_module`/`thunk` consult) + a `PreludeManifest` (whole
     lowered prelude, shape snapshot, error-class snapshot, exported-symbol set,
-    gcell count, prelude-text hash). Prelude `__rtsn_main` → `__rtsn_prelude_main`
+    gcell count, prelude-text hash). Prelude `__rts_startup` → `__rtsn_prelude_main`
     (no collision with the user main). A `#[ignore]` determinism test proves the
     id-bearing data (shapes, gcell ids, symbols) is byte-identical across bakes.
     Bakes **1735 fns / 82 shapes / 8 gcells** → ~1.4 MB object. Adversarially
@@ -655,7 +655,7 @@ scope here.
     re-derivation). Shape ids already line up via the slice-1 cache; gcell ids are
     ASSERTED equal (fall back on mismatch — proven equal in-process by
     `resident_gcell_ids_match_merged`). The prelude's few init statements still
-    compile into the user `__rtsn_main` (so no `__rtsn_prelude_main` call and no
+    compile into the user `__rts_startup` (so no `__rtsn_prelude_main` call and no
     gcell offset are needed — the merge numbers prelude gcells first).
 
     **MEASURED to ENGAGE:** on a real `rts run` of a prelude-heavy smoke (console /
@@ -752,7 +752,7 @@ scope here.
     **EXTENSION — whole-program JIT cache (`RTS_JIT_CACHE=1`).** The same
     `define_function_bytes` replay generalizes from the prelude to ANY program: a
     compiled program is baked to a manifest (`bake::bake_program`, whole program incl
-    `__rtsn_main`, aot_str strings) and re-run PURELY by replaying its machine code
+    `__rts_startup`, aot_str strings) and re-run PURELY by replaying its machine code
     (`module_jit::compile_replay` — declare + define_function_bytes + finalize, no
     parse/lower/compile). `progcache` is a per-file disk cache keyed by the program
     source + prelude text + version: a HIT replays; a MISS builds + bakes + stores.

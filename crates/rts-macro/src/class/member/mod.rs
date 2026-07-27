@@ -15,16 +15,16 @@ mod returns;
 use quote::{format_ident, quote};
 use syn::{FnArg, Type};
 
-use crate::class::kind::Kind;
+use crate::class::kind::{Kind, SymbolKey};
 use crate::naming::to_camel;
 use crate::types::{is_handle_ty, ret_ty};
 
 pub(crate) fn gen_member(
     class: &str,
-    class_upper: &str,
     self_ty: &Type,
     sig: &syn::Signature,
     kind: Kind,
+    symbol_key: Option<SymbolKey>,
     value_class: bool,
     doc: String,
 ) -> syn::Result<(
@@ -90,6 +90,48 @@ pub(crate) fn gen_member(
             false,
         ),
     };
+    // `#[rtse::symbol(...)]` overrides the member's KEY, not its kind: the JS
+    // name a caller writes (`method`/`getter`/…) still picks the extern shape,
+    // but the Registry name this member resolves under stops being a plain
+    // string. Both forms are spelled `@@...` — the SAME internal convention the
+    // engine's computed-key desugar already uses for a `.ts` class's literal
+    // `[Symbol.iterator]()` (`front/run/desugar/objmethod/collect.rs`), so a
+    // Rust-declared member and a `.ts`-declared member resolve through one path,
+    // not two. `Symbol.for("foo")` (registry symbol, string-keyed) and
+    // `Symbol.iterator` (well-known, unique identity) are DIFFERENT JS values,
+    // so they get different key prefixes: `@@sym:` vs `@@`.
+    // `name_tok` is the expression the `Member.name` field is built from. For
+    // a plain/registry-keyed member it's a compile-time string literal; for a
+    // well-known symbol it's `#path.member_key()` — a RUNTIME expression that
+    // reads `WellKnown.key` off the const, so the JS key comes from exactly one
+    // place (`Symbol::matcher`'s `key: "match"`) even though the Rust ident
+    // (`matcher`) differs from the JS name (`match`, a reserved word).
+    let (js_name, name_tok, well_known_check) = match &symbol_key {
+        None => {
+            let tok = quote!(#js_name.into());
+            (js_name, tok, None)
+        }
+        Some(SymbolKey::Registry(name)) => {
+            let key = format!("@@sym:{name}");
+            let tok = quote!(#key.into());
+            (key, tok, None)
+        }
+        Some(SymbolKey::WellKnown(path)) => {
+            // `#path.handle()` / `#path.member_key()` are emitted VERBATIM: if
+            // `path` does not resolve to a real `WellKnown` const (a typo'd
+            // `Symbol::iteratorr`), this line fails to compile — the check a
+            // stringly lookup could not give.
+            let check = quote!(let _: u64 = #path.handle(););
+            let tok = quote!(#path.member_key());
+            // Placeholder for the (unused-when-private) ts_sig formatting below;
+            // the real key is `name_tok`, derived from `WellKnown.key` above.
+            (String::new(), tok, Some(check))
+        }
+    };
+    // A symbol-keyed member has no textual JS name to publish — it is reached by
+    // `obj[Symbol.iterator]`, never `obj.iterator`, so it is kept out of `rts.d.ts`
+    // the same way a `#[rtse::private]` member is.
+    let private = private || symbol_key.is_some();
     // getter/setter arity guards (the engine expects getter `(recv)->T`, setter
     // `(recv, v)->void`).
     let n_typed = sig
@@ -118,12 +160,12 @@ pub(crate) fn gen_member(
         }
     }
 
-    // The Rust fn name is used VERBATIM (case-preserved) in the symbol — NOT
-    // uppercased — so two members differing only by case (`fn Foo` vs `fn foo`)
-    // stay distinct symbols instead of colliding. Consumers link by the exact
-    // name; the engine reads `Member.symbol`, so it is case-agnostic regardless.
+    // `__rtsm_global_<class>_<member>` — derived by the ONE rule in `abi::scope`
+    // (a class member IS the `global = "<Class>"` scope). The Rust fn name is used
+    // VERBATIM (case-preserved) as `<member>`, so two members differing only by
+    // case (`fn Foo` vs `fn foo`) stay distinct symbols instead of colliding.
     let member = rust_name.to_string();
-    let symbol = format!("__RTS_FN_GL_{class_upper}_{member}");
+    let symbol = crate::class::class_symbol(class, &member);
     let extern_ident = format_ident!("{}", symbol);
 
     let p = params::build_params(sig, is_ctor, is_static, is_value_method)?;
@@ -155,6 +197,7 @@ pub(crate) fn gen_member(
     let extern_fn = quote! {
         #[unsafe(no_mangle)]
         pub extern "C" fn #extern_ident(#(#ext_params),*) -> #ret_ext_ty {
+            #well_known_check
             #body
         }
     };
@@ -254,7 +297,7 @@ pub(crate) fn gen_member(
 
     let member = quote! {
         .member(::rts_engine::Member {
-            name: #js_name.into(),
+            name: #name_tok,
             kind: #kind_tok,
             sig: #sig_build,
             symbol: #symbol.into(),

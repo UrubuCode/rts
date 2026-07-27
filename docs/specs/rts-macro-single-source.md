@@ -210,9 +210,31 @@ from codegen control flow by this work.
 **F5 — default-arg semantics on `PolyValue`.** Unblocks the specific-string and
 nullish defaults.
 
-**F5b — `#[rtse::symbol("iterator")]`.** Well-known-symbol members, so a
-Rust-implemented class can be iterated. Then `Map`/`Set` become candidates to
-move out of `rts-shared/src/stdlib/map_set.ts` into Rust.
+**F5b — `#[rtse::symbol(...)]`.** DONE (2026-07-27), corrected from the original
+text here: `#[rtse::symbol("iterator")]` (a string) is a REGISTRY symbol —
+`Symbol.for("iterator")`, string-keyed — NOT the well-known iteration protocol.
+`Symbol.for("iterator")` and `Symbol.iterator` are different JS values (a class
+declaring `[Symbol.for('iterator')]` is not iterable by `for…of`); the original
+wording here conflated them. The well-known form is
+`#[rtse::symbol(Symbol::iterator)]` — a Rust PATH into
+`rts_primitives::symbol::wellknown::Symbol`'s associated consts, emitted
+verbatim into the generated member so a typo is a compile error, not a silent
+runtime miss (the same drift-to-compile-error trade `#[rtse::abi]` made for
+signatures). Both forms key the member `@@sym:<name>` / `@@<key>` — the same
+`@@`-prefixed spelling the engine's computed-key desugar already uses for a
+`.ts` class's literal `[Symbol.iterator]()`
+(`front/run/desugar/objmethod/collect.rs`), so a Rust-declared member and a
+`.ts`-declared member resolve through one protocol path. The well-known key is
+NOT derived syntactically from the Rust path's last segment — it is read at
+registration time from `WellKnown::member_key()` (`#path.member_key()`, a
+runtime expression, not a compile-time string literal), which formats
+`@@<WellKnown.key>`. This matters because a Rust ident can differ from its JS
+name when the JS name is a Rust keyword: `Symbol::matcher` (Rust) has
+`key: "match"`, so it registers as `@@match`, not the wrong `@@matcher` a
+syntactic ident-to-key derivation would produce. `WellKnown.key` is the single
+source of the JS key; the macro never re-derives it. This makes a
+Rust-implemented class iterable; `Map`/`Set` become candidates to move out of
+`rts-shared/src/stdlib/map_set.ts` into Rust.
 
 **F6 — variadic, then `NativeEmit`.** `NativeEmit` last of these two because it
 is what lets an intrinsic have an inline-IR path with the engine naming nothing.

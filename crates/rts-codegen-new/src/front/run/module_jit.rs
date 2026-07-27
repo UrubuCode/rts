@@ -1,12 +1,12 @@
 //! Whole-module JIT: compile every user function plus the synthesized
-//! `__rtsn_main` into ONE `JITModule`, resolve inter-function calls, install the
-//! runtime symbols, finalize, and return the `__rtsn_main` entry pointer.
+//! `__rts_startup` into ONE `JITModule`, resolve inter-function calls, install the
+//! runtime symbols, finalize, and return the `__rts_startup` entry pointer.
 //!
 //! This is the increment-4 generalization of the single-function harness
 //! ([`crate::front::jit`]): the lowering emits Cranelift
 //! `call`s between user functions (and to the `console.log` / generic-op
 //! externs), so all definitions must live in the same module with a shared
-//! symbol space. The host calls `__rtsn_main` (a `fn()` — it returns nothing and
+//! symbol space. The host calls `__rts_startup` (a `fn()` — it returns nothing and
 //! prints into the capture buffer).
 
 use std::collections::HashMap;
@@ -39,14 +39,14 @@ pub fn set_dump_ir(on: bool) {
 }
 
 /// A finalized module: keeps the `JITModule` mapped and carries the
-/// `__rtsn_main` entry pointer.
+/// `__rts_startup` entry pointer.
 pub struct Program {
     _module: JITModule,
     main: *const u8,
 }
 
 impl Program {
-    /// Run `__rtsn_main` (it prints into the console capture buffer). Unsafe-free
+    /// Run `__rts_startup` (it prints into the console capture buffer). Unsafe-free
     /// at the call site: the entry is an `extern "C" fn()`.
     pub fn run_main(&self) {
         let f: extern "C" fn() = unsafe { std::mem::transmute(self.main) };
@@ -99,7 +99,7 @@ pub(super) fn make_module() -> JITModule {
 
 /// WHOLE-PROGRAM CACHE (extends slice 2): compile a program ENTIRELY from a baked
 /// manifest — declare every fn from the manifest's `program`, define ALL of them
-/// (incl `__rtsn_main`) from the baked machine bytes, and finalize. Skips
+/// (incl `__rts_startup`) from the baked machine bytes, and finalize. Skips
 /// parse+lower (the manifest carries the lowered program) AND machine-compile (the
 /// bytes are replayed), leaving only declare + define_function_bytes + finalize.
 ///
@@ -117,12 +117,12 @@ pub(crate) fn compile_replay(m: &super::bake::PreludeManifest) -> FrontResult<Pr
 
 /// Compile a whole program: the user functions `funcs` plus a `main` HirFunc
 /// (synthesized from the top-level statements). Returns the live module + the
-/// `__rtsn_main` entry pointer.
+/// `__rts_startup` entry pointer.
 ///
 /// On ANY function (or main) hitting an unsupported construct, returns the
 /// `Unsupported` — the module is dropped and nothing runs (no partial program).
 pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Program> {
-    // Bootstrap the runtime on THIS thread (the one that will run `__rtsn_main`):
+    // Bootstrap the runtime on THIS thread (the one that will run `__rts_startup`):
     // GC tick hook + main-thread registration + UI render/input backend install.
     // The OLD engine's deleted `jit.rs` did the GC part; the AOT `main` shim does
     // the equivalent via `__RTS_FN_RT_INIT`. Same facade entry both paths use.
@@ -149,9 +149,9 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
     })
 }
 
-/// Declare + define every user function, `__rtsn_main`, and the value/new-thunks
+/// Declare + define every user function, `__rts_startup`, and the value/new-thunks
 /// into `module` — JIT **or** AOT, anything implementing [`Module`]. Returns the
-/// `__rtsn_main` [`FuncId`]. Does NOT finalize: the JIT caller
+/// `__rts_startup` [`FuncId`]. Does NOT finalize: the JIT caller
 /// ([`compile_program`]) runs `finalize_definitions` + `get_finalized_function`;
 /// the AOT caller ([`super::module_aot`]) runs `finish()` to emit the object.
 ///
@@ -350,7 +350,7 @@ pub(crate) fn populate_module(
             program_assigns_prototype,
         )?);
     }
-    // 4. Build main (the top-level body). `__rtsn_main` is USER code — never
+    // 4. Build main (the top-level body). `__rts_startup` is USER code — never
     //    prelude — so it cannot name the PRIVATE `engine.*` global. SKIPPED for the
     //    whole-program cache (`resident_main`): main is defined from baked bytes too.
     if !prog.resident_main {
@@ -455,7 +455,7 @@ pub(crate) fn populate_module(
                 }
             }
         }
-        // WHOLE-PROGRAM CACHE: `__rtsn_main` is also replayed from bytes.
+        // WHOLE-PROGRAM CACHE: `__rts_startup` is also replayed from bytes.
         if prog.resident_main {
             declared.insert(main_sig.name.clone(), main_id);
             to_define.insert(main_sig.name.clone());

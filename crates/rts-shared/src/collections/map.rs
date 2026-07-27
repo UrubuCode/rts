@@ -862,7 +862,7 @@ fn key_handle_to_string(key_h: u64) -> Option<String> {
 
 /// (#1114) Registry de methods declarados por classe. Populado pelo
 /// codegen via __RTS_FN_NS_COLLECTIONS_REGISTER_CLASS_METHOD no inicio
-/// de __RTS_MAIN; consultado pelo `in` operator (OBJ_HAS).
+/// de __rts_startup; consultado pelo `in` operator (OBJ_HAS).
 fn class_method_registry()
 -> &'static std::sync::Mutex<std::collections::HashMap<String, std::collections::HashSet<String>>> {
     static R: std::sync::OnceLock<

@@ -1,39 +1,33 @@
 //! Symbol naming convention for the ABI boundary.
 //!
-//! All exported runtime entry points use the form:
+//! Every exported runtime entry point takes one of four forms (owner decision,
+//! 2026-07-27):
 //!
 //! ```text
-//! __RTS_<KIND>_<SCOPE>_<NS>_<NAME>
+//! __rtsm_<module>_<value>          module symbol    __rtsm_io_print, __rtsm_node_fs_readFile
+//! __rtsm_global_<class>_<value>    global class     __rtsm_global_string_toUpperCase
+//! __rtsm_global_<value>            bare global      __rtsm_global_parseInt
+//! __rtsn_<value>                   NATIVE           Rust helpers compensating what Cranelift
+//!                                                   lacks (arithmetic/computation LLVM has).
+//!                                                   The `n` is NATIVE — it is NOT "node".
+//! __rtsa_<value>                   ABI              the codegen<->runtime contract.
 //! ```
 //!
-//! where `KIND` is one of `FN`, `CONST`, `TYPE`, `SCOPE` is one of `NS`,
-//! `GC`, `ABI`, `GL` (global JS objects/classes). The `NAME` segment is ASCII
-//! letters (digits and underscores allowed) and is **case-preserved**: the
-//! `#[rtse::class]` macro emits the member's Rust name verbatim (e.g.
-//! `__RTS_FN_GL_STRING_to_upper_case`) so distinct camelCase members never
-//! collide under an uppercase fold. [`validate_symbol`] checks the shape.
-
-/// Build a symbol name at compile time.
-///
-/// ```ignore
-/// const SYM: &str = rts_sym!(FN NS IO PRINT);
-/// assert_eq!(SYM, "__RTS_FN_NS_IO_PRINT");
-/// ```
-#[macro_export]
-macro_rules! rts_sym {
-    (FN NS $ns:ident $name:ident) => {
-        concat!("__RTS_FN_NS_", stringify!($ns), "_", stringify!($name))
-    };
-    (FN GC $name:ident) => {
-        concat!("__RTS_FN_GC_", stringify!($name))
-    };
-    (FN ABI $name:ident) => {
-        concat!("__RTS_FN_ABI_", stringify!($name))
-    };
-    (CONST NS $ns:ident $name:ident) => {
-        concat!("__RTS_CONST_NS_", stringify!($ns), "_", stringify!($name))
-    };
-}
+//! Three rules define the shape:
+//!
+//! - Segments are joined with `_`, NEVER a hyphen. A module specifier is
+//!   normalized into segments (`node:fs` → `node_fs`).
+//! - There are no uppercase block segments. `FN`, `NS`, `GL`, `GC` and `CONST`
+//!   are gone — the prefix carries everything they used to encode, and the
+//!   superseded `__RTS_<KIND>_<SCOPE>_<NS>_<NAME>` form is rejected outright
+//!   ([`SymbolError::LegacyForm`]).
+//! - The trailing `<value>` segment is the JS member spelling VERBATIM
+//!   (`readFileSync`, `toUpperCase`). Case is deliberately preserved: folding it
+//!   collides distinct JS members that differ only by case.
+//!
+//! Symbols are not written by hand — `#[rtse::abi]` derives them from a declared
+//! scope (see `rts-macro`'s `abi::scope`). [`validate_symbol`] checks the shape
+//! of a name that reaches the Registry from anywhere else.
 
 /// Returns `Ok(())` when `symbol` matches the canonical format.
 ///
@@ -41,56 +35,51 @@ macro_rules! rts_sym {
 /// tests and debug assertions. Performance is irrelevant — validation runs
 /// once during `SPECS` iteration at startup.
 pub fn validate_symbol(symbol: &str) -> Result<(), SymbolError> {
-    let rest = symbol
-        .strip_prefix("__RTS_")
-        .ok_or(SymbolError::MissingPrefix)?;
-
-    let mut parts = rest.splitn(2, '_');
-    let kind = parts.next().ok_or(SymbolError::MissingKind)?;
-    if !matches!(kind, "FN" | "CONST" | "TYPE") {
-        return Err(SymbolError::InvalidKind);
+    if symbol.starts_with("__RTS_") {
+        return Err(SymbolError::LegacyForm);
     }
+    let (tail, min_segments) = if let Some(t) = symbol.strip_prefix("__rtsm_") {
+        // A module symbol always carries a scope AND a value (`io` + `print`);
+        // a bare `__rtsm_print` names no module and is not resolvable.
+        (t, 2)
+    } else if let Some(t) = symbol
+        .strip_prefix("__rtsn_")
+        .or_else(|| symbol.strip_prefix("__rtsa_"))
+    {
+        (t, 1)
+    } else {
+        return Err(SymbolError::MissingPrefix);
+    };
 
-    let rest = parts.next().ok_or(SymbolError::MissingScope)?;
-    let mut parts = rest.splitn(2, '_');
-    let scope = parts.next().ok_or(SymbolError::MissingScope)?;
-    if !matches!(scope, "NS" | "GC" | "ABI" | "GL") {
-        return Err(SymbolError::InvalidScope);
-    }
-
-    let tail = parts.next().ok_or(SymbolError::MissingName)?;
     if tail.is_empty() {
         return Err(SymbolError::MissingName);
     }
-    // Case-PRESERVED: allow ASCII letters of either case (plus digits and
-    // underscores). The macro emits member names verbatim, so a mixed-case tail
-    // like `to_upper_case`/`toWellFormed` is valid — uppercase is no longer
-    // required (folding it would collide distinct camelCase members).
+    // Case-PRESERVED: ASCII letters of either case, digits, and `_` as the
+    // segment separator. Nothing else — a hyphen or a `:` means the scope was
+    // not normalized into segments.
     if !tail
         .chars()
-        .all(|c| c.is_ascii_alphabetic() || c.is_ascii_digit() || c == '_')
+        .all(|c| c.is_ascii_alphanumeric() || c == '_')
     {
         return Err(SymbolError::InvalidCharacter);
+    }
+    if tail.split('_').filter(|s| !s.is_empty()).count() < min_segments {
+        return Err(SymbolError::MissingName);
     }
 
     Ok(())
 }
 
-/// Nome do entry point sintetico do top-level (`__RTS_MAIN`).
-///
-/// Centralizado para evitar drift entre codegen, JIT loader, eval_jit e
-/// pipeline (#283). Mudar aqui propaga pra todos os call sites.
-pub const ENTRY_POINT: &str = "__RTS_MAIN";
-
 /// Structured error produced by [`validate_symbol`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolError {
+    /// Not one of `__rtsm_` / `__rtsn_` / `__rtsa_`.
     MissingPrefix,
-    MissingKind,
-    InvalidKind,
-    MissingScope,
-    InvalidScope,
+    /// The superseded `__RTS_<KIND>_<SCOPE>_<NS>_<NAME>` convention.
+    LegacyForm,
+    /// Nothing after the prefix, or a module symbol with no scope segment.
     MissingName,
+    /// A character outside `[A-Za-z0-9_]` — typically an unnormalized `:`/`-`.
     InvalidCharacter,
 }
 
@@ -99,51 +88,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn macro_emits_expected_format() {
-        const S: &str = rts_sym!(FN NS IO PRINT);
-        assert_eq!(S, "__RTS_FN_NS_IO_PRINT");
-
-        const C: &str = rts_sym!(CONST NS PROCESS PLATFORM);
-        assert_eq!(C, "__RTS_CONST_NS_PROCESS_PLATFORM");
-
-        const G: &str = rts_sym!(FN GC STRING_NEW);
-        assert_eq!(G, "__RTS_FN_GC_STRING_NEW");
+    fn validates_canonical_names() {
+        assert!(validate_symbol("__rtsm_io_print").is_ok());
+        assert!(validate_symbol("__rtsm_node_fs_readFileSync").is_ok());
+        assert!(validate_symbol("__rtsm_global_string_toUpperCase").is_ok());
+        assert!(validate_symbol("__rtsm_global_parseInt").is_ok());
+        assert!(validate_symbol("__rtsn_fmod").is_ok());
+        assert!(validate_symbol("__rtsa_obj_get").is_ok());
     }
 
     #[test]
-    fn validates_canonical_names() {
-        assert!(validate_symbol("__RTS_FN_NS_IO_PRINT").is_ok());
-        assert!(validate_symbol("__RTS_FN_GC_ARRAY_PUSH").is_ok());
-        assert!(validate_symbol("__RTS_CONST_NS_PROCESS_PLATFORM").is_ok());
-        assert!(validate_symbol("__RTS_TYPE_ABI_STRING_HANDLE").is_ok());
-        // Case-PRESERVED macro symbols (mixed/lower-case member names) are valid.
-        assert!(validate_symbol("__RTS_FN_GL_STRING_to_upper_case").is_ok());
-        assert!(validate_symbol("__RTS_FN_GL_STRING_toWellFormed").is_ok());
+    fn rejects_the_superseded_convention() {
+        assert_eq!(
+            validate_symbol("__RTS_FN_NS_IO_PRINT"),
+            Err(SymbolError::LegacyForm)
+        );
+        assert_eq!(
+            validate_symbol("__RTS_FN_GL_STRING_toUpperCase"),
+            Err(SymbolError::LegacyForm)
+        );
     }
 
     #[test]
     fn rejects_malformed_names() {
+        assert_eq!(validate_symbol("rtsm_io_print"), Err(SymbolError::MissingPrefix));
         assert_eq!(
-            validate_symbol("rts_fn_ns_io_print"),
+            validate_symbol("__rtsadp_obj_get"),
             Err(SymbolError::MissingPrefix)
         );
+        assert_eq!(validate_symbol("__rtsa_"), Err(SymbolError::MissingName));
+        // A module symbol needs a scope segment as well as a value.
+        assert_eq!(validate_symbol("__rtsm_print"), Err(SymbolError::MissingName));
+        // A specifier that was not normalized into `_` segments.
         assert_eq!(
-            validate_symbol("__RTS_foo_NS_IO_PRINT"),
-            Err(SymbolError::InvalidKind)
-        );
-        assert_eq!(
-            validate_symbol("__RTS_FN_XX_IO_PRINT"),
-            Err(SymbolError::InvalidScope)
-        );
-        // A non-alphanumeric, non-underscore char in the NAME is still rejected
-        // (case is no longer part of the rule — mixed case is allowed).
-        assert_eq!(
-            validate_symbol("__RTS_FN_NS_IO_PR!NT"),
+            validate_symbol("__rtsm_node:fs_readFile"),
             Err(SymbolError::InvalidCharacter)
         );
         assert_eq!(
-            validate_symbol("__RTS_FN_NS_"),
-            Err(SymbolError::MissingName)
+            validate_symbol("__rtsm_io_pr!nt"),
+            Err(SymbolError::InvalidCharacter)
         );
     }
 }

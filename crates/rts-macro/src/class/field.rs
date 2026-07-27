@@ -19,8 +19,7 @@ pub(crate) type FieldGen = (
 /// Generate the getter (and setter unless `readonly`) extern + Member for one
 /// `#[rtse::variable]` scalar field.
 pub(crate) fn gen_field(
-    _class: &str,
-    class_upper: &str,
+    class: &str,
     self_ty: &Type,
     fname: &proc_macro2::Ident,
     fty: &Type,
@@ -37,12 +36,22 @@ pub(crate) fn gen_field(
     let js_name = to_camel(&fname.to_string());
     // Field name VERBATIM (case-preserved) in the symbol — see `member` above.
     let field_name = fname.to_string(); // verbatim (case-preserved)
+    // An accessor pair needs two symbols for ONE JS property, so the accessor
+    // marker is a `__get`/`__set` SUFFIX after the verbatim field name:
+    // `__rtsm_global_url_href__get`. A suffix (not a `get_` prefix) is what makes
+    // the encoding collision-free — the derivation is injective. A prefix form
+    // (`..._get_href`) collides with the ordinary member symbol of a method
+    // written `fn get_href`, which is a completely normal Rust spelling; with the
+    // suffix that method lands on `..._get_href` and the field's getter on
+    // `..._href__get`, which can only be reached by a method literally named
+    // `href__get` — a double-underscore-suffixed ident, reserved here for
+    // macro-generated boundaries and never a JS member spelling.
     let mut externs = Vec::new();
     let mut members = Vec::new();
     let mut keep = Vec::new();
 
     // Getter.
-    let get_sym = format!("__RTS_FN_GL_{class_upper}_GET_{field_name}");
+    let get_sym = crate::class::class_symbol(class, &format!("{field_name}__get"));
     let get_id = format_ident!("{}", get_sym);
     let read = quote!(::rts_engine::heap::handles::with_rtse::<#self_ty, _>(__recv, |__s| match __s {
         ::core::option::Option::Some(__s) => __s.#fname,
@@ -74,7 +83,7 @@ pub(crate) fn gen_field(
 
     // Setter (unless readonly).
     if !readonly {
-        let set_sym = format!("__RTS_FN_GL_{class_upper}_SET_{field_name}");
+        let set_sym = crate::class::class_symbol(class, &format!("{field_name}__set"));
         let set_id = format_ident!("{}", set_sym);
         let val = if is_bool { quote!((__v != 0)) } else { quote!(__v) };
         externs.push(quote! {

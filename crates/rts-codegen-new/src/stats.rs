@@ -83,7 +83,7 @@ struct Key {
     kind: Kind,
     /// Engine source position that made the decision (`#[track_caller]`).
     site: (&'static str, u32),
-    /// The user function being lowered (`__rtsn_main`, `__rtsn_method_C_m`, …).
+    /// The user function being lowered (`__rts_startup`, `__rtsn_method_C_m`, …).
     user_fn: String,
     /// Whether the lowering was inside at least one enclosing loop.
     in_loop: bool,

@@ -14,7 +14,7 @@
 //! ## The rule (conservative by construction)
 //!
 //! A prelude function is KEPT when it is reachable from the roots; everything
-//! else is dropped. USER functions and `__rtsn_main` are ALWAYS roots and are
+//! else is dropped. USER functions and `__rts_startup` are ALWAYS roots and are
 //! never pruned — this pass only ever removes prelude-origin functions.
 //!
 //! Reachability is computed over NAMES, not call edges, because dispatch is not

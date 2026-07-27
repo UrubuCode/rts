@@ -213,7 +213,7 @@ To inspect the Cranelift IR generated for any program before define+compile, use
 target/release/rts.exe ir file.ts 2>&1 | head -100
 ```
 
-Prints the full IR of each `user fn` plus `__RTS_MAIN` (top-level). Output goes
+Prints the full IR of each `user fn` plus `__rts_startup` (top-level). Output goes
 to stderr. Does not execute the program.
 
 **Use `-e`/`eval` for snippets** — avoids leaving temp files around the project.

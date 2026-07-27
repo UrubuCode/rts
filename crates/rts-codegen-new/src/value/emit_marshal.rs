@@ -58,7 +58,7 @@ pub(crate) fn declare_func_dedup(
 /// on every call — it does not dedup — so the runtime-call boundary (this module,
 /// hit once per `__RTS_FN_*`/`__rtsadp_*` call) emitted one redundant
 /// `sigK =`/`fnK =` preamble entry per call site. A single `console.log` lowered
-/// ~600 runtime calls into `__rtsn_main`, inflating the preamble to ~1500 decls
+/// ~600 runtime calls into `__rts_startup`, inflating the preamble to ~1500 decls
 /// for a few hundred distinct symbols. A `FuncRef` is reusable across every `call`
 /// in the same function, so scan the already-imported `ext_funcs` (keyed by the
 /// deduped `UserExternalName{namespace:0, index:FuncId}`) and reuse the match. The
@@ -284,20 +284,35 @@ pub fn emit_vec_push(
     );
 }
 
-/// `VEC_GET(realHandleOf(obj_word), index)` → the i64 slot word (a PolyValue
+/// One 48-bit PolyValue payload, ready for the fused payload-addressed heap
+/// entry points. Just the tag/header masked off — no call, no lock.
+fn emit_payload(builder: &mut FunctionBuilder, poly_word: Value) -> Value {
+    let mask = builder.ins().iconst(types::I64, PAYLOAD_MASK as i64);
+    builder.ins().band(poly_word, mask)
+}
+
+/// `__rtsn_vec_get_by_payload(payload, index)` → the i64 slot word (a PolyValue
 /// word, or `0` out of range — the caller maps that to `undefined`).
+///
+/// This used to be `POLY_TO_HANDLE` followed by `VEC_GET`: one call to read the
+/// slot's generation and build a handle, then a second call to decode that
+/// generation back out and compare it against the very slot it was read from.
+/// Two calls, two shard locks and two optimization barriers to validate a value
+/// against itself — see `rts_engine::heap::payload_ops` for the full argument
+/// and for what the pair genuinely caught (a freed or out-of-range slot, which
+/// the fused entry point still rejects).
 pub fn emit_vec_get(
     module: &mut dyn Module,
     builder: &mut FunctionBuilder,
     obj_word: Value,
     index: Value,
 ) -> Value {
-    let handle = emit_table_load(module, builder, obj_word);
+    let payload = emit_payload(builder, obj_word);
     emit_call(
         module,
         builder,
-        "__RTS_FN_NS_COLLECTIONS_VEC_GET",
-        &[handle, index],
+        "__rtsn_vec_get_by_payload",
+        &[payload, index],
     )
     .expect("VEC_GET returns a value")
 }
@@ -318,7 +333,8 @@ pub fn emit_hole_to_undef(builder: &mut FunctionBuilder, word: Value) -> Value {
     builder.ins().select(is_hole, undef, word)
 }
 
-/// `VEC_SET(realHandleOf(obj_word), index, value_word)` — overwrite one slot.
+/// `__rtsn_vec_set_by_payload(payload, index, value_word)` — overwrite one slot.
+/// Fused for the same reason as [`emit_vec_get`].
 pub fn emit_vec_set(
     module: &mut dyn Module,
     builder: &mut FunctionBuilder,
@@ -326,29 +342,24 @@ pub fn emit_vec_set(
     index: Value,
     value_word: Value,
 ) {
-    let handle = emit_table_load(module, builder, obj_word);
+    let payload = emit_payload(builder, obj_word);
     emit_call(
         module,
         builder,
-        "__RTS_FN_NS_COLLECTIONS_VEC_SET",
-        &[handle, index, value_word],
+        "__rtsn_vec_set_by_payload",
+        &[payload, index, value_word],
     );
 }
 
-/// `VEC_LEN(realHandleOf(obj_word))` → element count (i64).
+/// `__rtsn_vec_len_by_payload(payload)` → element count (i64).
 pub fn emit_vec_len(
     module: &mut dyn Module,
     builder: &mut FunctionBuilder,
     obj_word: Value,
 ) -> Value {
-    let handle = emit_table_load(module, builder, obj_word);
-    emit_call(
-        module,
-        builder,
-        "__RTS_FN_NS_COLLECTIONS_VEC_LEN",
-        &[handle],
-    )
-    .expect("VEC_LEN returns a value")
+    let payload = emit_payload(builder, obj_word);
+    emit_call(module, builder, "__rtsn_vec_len_by_payload", &[payload])
+        .expect("VEC_LEN returns a value")
 }
 
 /// Emit a `console.*`-style line print of one string PolyValue: table-load to

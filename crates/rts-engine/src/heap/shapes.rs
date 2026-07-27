@@ -180,7 +180,7 @@ pub fn seed_error_classes(snapshot: Vec<(String, GlobalShapeId, Vec<String>)>) {
 // class of bug as the string-pool handles (fixed by making key immediates
 // AOT-safe): a compile-time value baked into code that means nothing in the AOT
 // process. Here the fix transfers the id→keys registry itself: the AOT `main` shim
-// embeds this blob and calls `__RTS_FN_RT_SEED_SHAPES` before `__rtsn_main`.
+// embeds this blob and calls `__RTS_FN_RT_SEED_SHAPES` before `__rts_startup`.
 //
 // Format (little-endian, length-prefixed; a PRIVATE contract — both sides are this
 // module): u32 num_shapes, then per shape { u32 num_keys, per key { u32 len, bytes }};
