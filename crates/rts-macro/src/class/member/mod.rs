@@ -35,6 +35,7 @@ pub(crate) fn gen_member(
     let rust_name = sig.ident.clone();
     let is_ctor = matches!(kind, Kind::Ctor { .. });
     let is_static = matches!(kind, Kind::Static { .. });
+    let is_functioncall = matches!(kind, Kind::FunctionCall { .. });
     let is_async = matches!(kind, Kind::Method { is_async: true, .. });
     let is_getter = matches!(kind, Kind::Getter { .. });
     let is_setter = matches!(kind, Kind::Setter { .. });
@@ -42,10 +43,15 @@ pub(crate) fn gen_member(
     // typed param), NOT an `Entry::Rtse` struct — marshalled + called directly, no
     // `with_rtse`. Ctors/statics on a value class stay ordinary (no receiver).
     let is_value_method = value_class && matches!(kind, Kind::Method { .. });
+    // `#[rtse::functioncall]` has no receiver — everywhere the param/body/
+    // sig-args builders branch on "no implicit `this`" it is treated exactly
+    // like `static`.
+    let is_no_recv = is_static || is_functioncall;
     let optional = match &kind {
         Kind::Ctor { optional, .. }
         | Kind::Method { optional, .. }
-        | Kind::Static { optional, .. } => *optional,
+        | Kind::Static { optional, .. }
+        | Kind::FunctionCall { optional, .. } => *optional,
         Kind::Getter { .. } | Kind::Setter { .. } => 0,
     };
     let throws = matches!(
@@ -53,6 +59,7 @@ pub(crate) fn gen_member(
         Kind::Ctor { throws: true, .. }
             | Kind::Method { throws: true, .. }
             | Kind::Static { throws: true, .. }
+            | Kind::FunctionCall { throws: true, .. }
     );
     // A `returns = "Class"` names the class a `Handle` return carries, so the ts
     // return says `: Class` and the engine's return-class tracking classifies the
@@ -60,11 +67,16 @@ pub(crate) fn gen_member(
     let returns_class: Option<String> = match &kind {
         Kind::Method { returns, .. }
         | Kind::Static { returns, .. }
-        | Kind::Getter { returns, .. } => returns.clone(),
+        | Kind::Getter { returns, .. }
+        | Kind::FunctionCall { returns, .. } => returns.clone(),
         _ => None,
     };
     let (js_name, readonly, private) = match &kind {
         Kind::Ctor { .. } => ("new".to_string(), false, false),
+        // No textual JS name — reached only via the engine's call-without-`new`
+        // protocol query (`registry::class_functioncall`), never `obj.call(...)`,
+        // so it is kept out of `rts.d.ts` like a symbol-keyed member.
+        Kind::FunctionCall { .. } => ("call".to_string(), false, true),
         Kind::Method {
             name,
             readonly,
@@ -168,7 +180,7 @@ pub(crate) fn gen_member(
     let symbol = crate::class::class_symbol(class, &member);
     let extern_ident = format_ident!("{}", symbol);
 
-    let p = params::build_params(sig, is_ctor, is_static, is_value_method)?;
+    let p = params::build_params(sig, is_ctor, is_no_recv, is_value_method)?;
 
     // Return marshalling (+ the F3 async re-wrap into a settled Promise).
     let ret = returns::build_return(sig, class, is_ctor)?;
@@ -185,7 +197,7 @@ pub(crate) fn gen_member(
         &p.call_args,
         is_value_method,
         is_ctor,
-        is_static,
+        is_no_recv,
         is_async,
         p.value_recv_call.as_ref(),
         wrap.as_ref(),
@@ -204,6 +216,8 @@ pub(crate) fn gen_member(
 
     let kind_tok = if is_ctor {
         quote!(::rts_engine::MemberKind::Constructor)
+    } else if is_functioncall {
+        quote!(::rts_engine::MemberKind::CallWithoutNew)
     } else if is_static {
         quote!(::rts_engine::MemberKind::StaticMethod)
     } else if is_getter {
@@ -217,7 +231,7 @@ pub(crate) fn gen_member(
     // `Entry::Rtse` class; the primitive's own ABI for a value class); ctor/static
     // carry no receiver.
     let arg_abis = &p.arg_abis;
-    let sig_args = if is_ctor || is_static {
+    let sig_args = if is_ctor || is_no_recv {
         quote!(::std::vec![#(#arg_abis),*])
     } else if is_value_method {
         let recv_abi = p.value_recv_abi.as_ref().expect("value method has a receiver abi");
@@ -240,7 +254,7 @@ pub(crate) fn gen_member(
     } else {
         let required_params = nparams - optional;
         let mut defs: Vec<proc_macro2::TokenStream> = Vec::new();
-        if !is_ctor && !is_static {
+        if !is_ctor && !is_no_recv {
             defs.push(quote!(::rts_engine::DefaultArg::Required)); // receiver
         }
         for _ in 0..required_params {

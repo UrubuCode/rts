@@ -483,6 +483,18 @@ pub fn class_static_any(class: &str, method: &str) -> Option<ResolvedCall> {
     Some(flat_call(m))
 }
 
+/// Resolve `Class(args)` — the call-WITHOUT-`new` protocol member
+/// (`MemberKind::CallWithoutNew`, `#[rtse::functioncall]`) — to its
+/// [`ResolvedCall`]. `None` when the class declares no such member (F4:
+/// this is what lets the `globals.rs` hardcode for `Boolean`/`String`/`Number`
+/// dispatch to a `.ts` prelude factory instead — a class declaring
+/// `#[rtse::functioncall]` resolves here, DATA not a name in codegen).
+pub fn class_functioncall(class: &str) -> Option<ResolvedCall> {
+    let c = registry().class(class)?;
+    let m = c.members.iter().find(|m| matches!(m.kind, MemberKind::CallWithoutNew))?;
+    Some(flat_call(m))
+}
+
 /// A zero-arg STATIC CONSTANT member of a Registry class (`Symbol.iterator`,
 /// well-known symbols): `MemberKind::Constant` on the class spec, read as a
 /// member (not called). Resolved to its zero-arg getter call.

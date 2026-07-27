@@ -41,6 +41,16 @@ pub(crate) enum Kind {
     Setter {
         name: Option<String>,
     },
+    /// `#[rtse::functioncall]` — the class's call-WITHOUT-`new` behaviour
+    /// (`Boolean(x)` vs `new Boolean(x)`). No receiver, same shape as
+    /// `#[rtse::statical]`; kept as its own `Kind` (not folded into `Static`)
+    /// because it is a semantically distinct protocol member the engine looks
+    /// up by KIND, not by name — a class may declare at most one.
+    FunctionCall {
+        optional: usize,
+        throws: bool,
+        returns: Option<String>,
+    },
 }
 
 /// Remove and classify the `#[rtse::ctor]`/`#[rtse::method(...)]`/`#[rtse::private]`
@@ -122,6 +132,15 @@ pub(crate) fn take_kind(attrs: &mut Vec<syn::Attribute>) -> Option<Kind> {
                 "setter" => {
                     let m = method_args(a);
                     kind = Some(Kind::Setter { name: m.name });
+                    return false;
+                }
+                "functioncall" => {
+                    let m = method_args(a);
+                    kind = Some(Kind::FunctionCall {
+                        optional: m.optional,
+                        throws: m.throws,
+                        returns: m.returns,
+                    });
                     return false;
                 }
                 _ => {}

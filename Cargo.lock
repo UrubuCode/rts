@@ -4208,6 +4208,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rts-abi",
+ "rts-engine",
  "syn",
 ]
 
