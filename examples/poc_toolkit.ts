@@ -29,13 +29,12 @@ import {
   os,
   path,
   process,
-  string,
   time,
 } from "rts";
 
 // ── 1. Info de ambiente ─────────────────────────────────────────────
 function section(title: string): void {
-  io.print(`\n── ${string.to_upper(title)} ──`);
+  io.print(`\n── ${title.toUpperCase()} ──`);
 }
 
 function showEnv(): void {
@@ -120,12 +119,12 @@ function tally(tokens: string, counts: u64): void {
   // Comparacao via code-point (i64) porque string == string ainda
   // compara handles, nao conteudo (issue follow-up).
   const SPACE: i32 = 32;
-  const n: i32 = string.char_count(tokens);
+  const n: i32 = Array.from(tokens).length;
   let word = "";
   let wordLen: i32 = 0;
   let i: i32 = 0;
   while (i < n) {
-    const code = string.char_code_at(tokens, i);
+    const code = tokens.charCodeAt(i);
     if (code == SPACE) {
       if (wordLen > 0) {
         const prev = collections.map_get(counts, word);
@@ -134,7 +133,7 @@ function tally(tokens: string, counts: u64): void {
         wordLen = 0;
       }
     } else {
-      word = word + string.char_at(tokens, i);
+      word = word + tokens.charAt(i);
       wordLen += 1;
     }
     i += 1;

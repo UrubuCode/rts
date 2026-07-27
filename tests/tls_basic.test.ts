@@ -1,6 +1,6 @@
 // HTTPS via tls — handshake + GET contra api.github.com.
 import { describe, test, expect } from "rts:test";
-import { net, tls, buffer, string, thread } from "rts";
+import { net, tls, buffer, thread } from "rts";
 
 describe("fixture:tls_basic", () => {
   test("handshake TLS + GET HTTPS retorna 200", () => {
@@ -32,7 +32,7 @@ describe("fixture:tls_basic", () => {
     tls.close(stream);
 
     const raw = buffer.to_string(buf);
-    const has200 = string.starts_with(raw, "HTTP/1.1 200");
+    const has200 = raw.startsWith("HTTP/1.1 200");
     buffer.free(buf);
 
     // CI as vezes nao consegue completar handshake (network restritivo,

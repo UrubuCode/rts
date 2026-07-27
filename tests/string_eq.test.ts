@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, string } from "rts";
+import { io } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -14,9 +14,9 @@ print(`a == b: ${a == b}`);
 print(`a == c: ${a == c}`);
 print(`a != c: ${a != c}`);
 
-// 2. char_at retorna string handle — comparacao por conteudo
+// 2. charAt retorna string handle — comparacao por conteudo
 const s = "abc";
-const ch = string.char_at(s, 1);
+const ch = s.charAt(1);
 print(`ch == "b": ${ch == "b"}`);
 print(`ch == "x": ${ch == "x"}`);
 

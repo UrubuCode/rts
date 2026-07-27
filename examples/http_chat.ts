@@ -9,7 +9,7 @@
 //   target/release/rts.exe run examples/http_chat.ts
 //   abra http://127.0.0.1:8080/ em 2+ abas
 
-import { http_server, io, sync, string } from "rts";
+import { http_server, io, sync } from "rts";
 
 // Estado global. seq deriva de buffer (conta '\n') sob mutex —
 // evita race entre threads tokio do actix.
@@ -41,7 +41,7 @@ function handler(req: i64): void {
 
   // /api/poll/<since> — since como parte do path
   // (req.path() do actix nao inclui query string).
-  if (string.starts_with(path, "/api/poll/")) {
+  if (path.startsWith("/api/poll/")) {
     handlePoll(req, path);
     return;
   }
@@ -62,7 +62,7 @@ function handler(req: i64): void {
 
 function addMessage(body: string): void {
   // body = "user|text"
-  const sep = string.find(body, "|");
+  const sep = body.indexOf("|");
   let user = "anon";
   let text = body;
   if (sep > 0) {
@@ -70,10 +70,10 @@ function addMessage(body: string): void {
     text = body.slice(sep + 1);
   }
   // Sanitiza tab/newline (delimitadores).
-  user = string.replace(user, "\t", " ");
-  user = string.replace(user, "\n", " ");
-  text = string.replace(text, "\t", " ");
-  text = string.replace(text, "\n", " ");
+  user = user.replaceAll("\t", " ");
+  user = user.replaceAll("\n", " ");
+  text = text.replaceAll("\t", " ");
+  text = text.replaceAll("\n", " ");
 
   sync.mutex_lock(lock);
   seq = seq + 1;
@@ -96,12 +96,12 @@ function addMessage(body: string): void {
 function handlePoll(req: i64, path: string): void {
   let since: i64 = 0;
   const prefix: i64 = 10; // len("/api/poll/")
-  if (string.byte_len(path) > prefix) {
+  if (new TextEncoder().encode(path).length > prefix) {
     since = parseI64(path.slice(prefix));
   }
 
   sync.mutex_lock(lock);
-  const totalLen = string.byte_len(buffer);
+  const totalLen = new TextEncoder().encode(buffer).length;
   if (since > totalLen) {
     // Cliente esta a frente — sinal de que o server reiniciou e perdeu
     // estado. Devolve 205 Reset Content (semantica: cliente deve
@@ -124,9 +124,9 @@ function handlePoll(req: i64, path: string): void {
 function parseI64(s: string): i64 {
   let n: i64 = 0;
   let i: i64 = 0;
-  const len = string.byte_len(s);
+  const len = new TextEncoder().encode(s).length;
   while (i < len) {
-    const c = string.char_code_at(s, i);
+    const c = s.charCodeAt(i);
     if (c < 48 || c > 57) break;
     n = n * 10 + (c - 48);
     i = i + 1;
@@ -410,8 +410,8 @@ function renderHome(): string {
       }
     }
 
-    // Calcula byte-length de uma string em UTF-8 — equivalente ao
-    // string.byte_len() do RTS no server.
+    // Calcula byte-length de uma string em UTF-8 — a mesma expressao que o
+    // server usa agora (o namespace rts:string foi drenado).
     function utf8Len(s) {
       return new TextEncoder().encode(s).length;
     }

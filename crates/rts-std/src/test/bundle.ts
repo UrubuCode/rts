@@ -1,6 +1,19 @@
 // rts:test — high-level test framework built on top of the test_core ABI.
-// Uses namespace-qualified calls (test_core.*, fmt.*) so that
-// import stripping during JIT flatten does not break resolution.
+//
+// Uses namespace-qualified calls (test_core.*, fmt.*) so that import stripping
+// during JIT flatten does not break resolution.
+//
+// DANGER: every namespace named here MUST still exist in `abi::SPECS`. There is
+// no import statement, so removing a namespace cannot be caught by grepping for
+// importers — it surfaces only as a lowering bail, and a bail in THIS file kills
+// EVERY program that reaches it, reporting a Matcher method as the culprit rather
+// than the real cause. That is what draining `rts:string` did (commit 5c0b0e02,
+// whose message states "No .ts imported it"): the suite went 737/737 red.
+// `tests/rts_test_matchers.test.ts` now covers every matcher, so the next such
+// break fails a test that names the framework.
+//
+// String matchers use the primordial String value-class methods
+// (`.includes`/`.startsWith`/`.endsWith`), not a free-function namespace.
 
 // ── Hook storage ──────────────────────────────────────────────────────────────
 let _before_all_fn: i64 = 0;

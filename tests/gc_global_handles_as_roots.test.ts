@@ -4,21 +4,20 @@
 // com estado em memoria sem perder dados.
 
 import { describe, test, expect } from "rts:test";
-import { string } from "rts";
 
 // 1. String global mutavel cresce em loop sem perder dados
 let buffer = "";
 for (let i = 0; i < 200; i++) {
     buffer = buffer + "x";
 }
-const buffer_len: i64 = string.byte_len(buffer);
+const buffer_len: i64 = new TextEncoder().encode(buffer).length;
 
 // 2. String global em concatenacoes diversas
 let log = "";
 for (let i = 0; i < 50; i++) {
     log = log + "[" + i + "]";
 }
-const log_len: i64 = string.byte_len(log);
+const log_len: i64 = new TextEncoder().encode(log).length;
 
 // 3. Map global preserva entries (com chaves estaticas — chaves
 // dinamicas em loop e' issue separada de codegen).
@@ -46,7 +45,7 @@ function append(s: string): void {
 for (let i = 0; i < 100; i++) {
     append("step" + i);
 }
-const counter_len: i64 = string.byte_len(counter_str);
+const counter_len: i64 = new TextEncoder().encode(counter_str).length;
 
 describe("gc_global_handles_as_roots", () => {
     test("global string buffer 200x", () => expect(buffer_len).toBe(200));

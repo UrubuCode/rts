@@ -14,7 +14,7 @@
 //   abra http://127.0.0.1:8080/  no browser
 //   Ctrl+C pra parar
 
-import { net, buffer, string, io, thread } from "rts";
+import { net, buffer, io, thread } from "rts";
 
 const ADDR = "127.0.0.1:8080";
 
@@ -55,10 +55,10 @@ function handleRequest(client: i64): void {
   buffer.free(buf);
 
   // Parse linha 1: "METHOD PATH HTTP/1.1"
-  const sp1 = string.find(raw, " ");
+  const sp1 = raw.indexOf(" ");
   const method = sp1 > 0 ? raw.slice(0, sp1) : "GET";
   const rest = raw.slice(sp1 + 1);
-  const sp2 = string.find(rest, " ");
+  const sp2 = rest.indexOf(" ");
   const path = sp2 > 0 ? rest.slice(0, sp2) : "/";
 
   io.print("[req] " + method + " " + path);
@@ -151,7 +151,7 @@ function render404(path: string): string {
 
 function sendResponse(client: i64, status: number, contentType: string, body: string): void {
   const statusText = statusReason(status);
-  const contentLen = string.byte_len(body);
+  const contentLen = new TextEncoder().encode(body).length;
   let header = "";
   header = header + "HTTP/1.1 " + status + " " + statusText + "\r\n";
   header = header + "Content-Type: " + contentType + "\r\n";

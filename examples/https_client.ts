@@ -6,7 +6,7 @@
 // Uso:
 //   target/release/rts.exe run examples/https_client.ts
 
-import { net, tls, buffer, string, io, gc, thread } from "rts";
+import { net, tls, buffer, io, gc, thread } from "rts";
 
 const HOST = "api.github.com";
 const PATH = "/";
@@ -36,7 +36,7 @@ function main(): void {
   req = req + "Connection: close\r\n";
   req = req + "\r\n";
 
-  io.print("→ enviando request (" + string.byte_len(req) + " bytes plain)");
+  io.print("→ enviando request (" + new TextEncoder().encode(req).length + " bytes plain)");
   const sent = tls.send(stream, req);
   if (sent < 0) {
     io.eprint("FALHOU: tls.send\n");
@@ -60,12 +60,12 @@ function main(): void {
   }
 
   const raw = buffer.to_string(buf);
-  const eol1 = string.find(raw, "\r\n");
+  const eol1 = raw.indexOf("\r\n");
   io.print("");
   io.print("─── STATUS ───────────────────────────────");
   io.print(sliceTo(raw, eol1));
 
-  const sep = string.find(raw, "\r\n\r\n");
+  const sep = raw.indexOf("\r\n\r\n");
   if (sep > 0) {
     io.print("─── HEADERS ──────────────────────────────");
     io.print(sliceFromTo(raw, eol1 + 2, sep));
@@ -91,12 +91,12 @@ main();
 
 function sliceTo(s: string, end: number): string {
   let out = "";
-  for (let i = 0; i < end; i = i + 1) out = out + string.char_at(s, i);
+  for (let i = 0; i < end; i = i + 1) out = out + s.charAt(i);
   return out;
 }
 
 function sliceFromTo(s: string, start: number, end: number): string {
   let out = "";
-  for (let i = start; i < end; i = i + 1) out = out + string.char_at(s, i);
+  for (let i = start; i < end; i = i + 1) out = out + s.charAt(i);
   return out;
 }

@@ -8,7 +8,7 @@
 //
 // Sites HTTPS-only nao funcionam — TLS sera coberto na issue #234.
 
-import { net, buffer, string, io, gc, thread } from "rts";
+import { net, buffer, io, gc, thread } from "rts";
 
 const HOST = "httpforever.com";
 
@@ -38,7 +38,7 @@ function main(): void {
   req = req + "Connection: close\r\n";
   req = req + "\r\n";
 
-  io.print("→ enviando request (" + string.byte_len(req) + " bytes)");
+  io.print("→ enviando request (" + new TextEncoder().encode(req).length + " bytes)");
   const sent = net.tcp_send(stream, req);
   if (sent < 0) {
     io.eprint("FALHOU: send\n");
@@ -67,13 +67,13 @@ function main(): void {
 
   const raw = buffer.to_string(buf);
 
-  const eol1 = string.find(raw, "\r\n");
+  const eol1 = raw.indexOf("\r\n");
   const statusLine = sliceTo(raw, eol1);
   io.print("");
   io.print("─── STATUS ───────────────────────────────");
   io.print(statusLine);
 
-  const sep = string.find(raw, "\r\n\r\n");
+  const sep = raw.indexOf("\r\n\r\n");
   if (sep < 0) {
     io.eprint("FALHOU: nao achou fim dos headers\n");
     buffer.free(buf);
@@ -106,7 +106,7 @@ main();
 function sliceTo(s: string, end: number): string {
   let out = "";
   for (let i = 0; i < end; i = i + 1) {
-    out = out + string.char_at(s, i);
+    out = out + s.charAt(i);
   }
   return out;
 }
@@ -114,7 +114,7 @@ function sliceTo(s: string, end: number): string {
 function sliceFromTo(s: string, start: number, end: number): string {
   let out = "";
   for (let i = start; i < end; i = i + 1) {
-    out = out + string.char_at(s, i);
+    out = out + s.charAt(i);
   }
   return out;
 }

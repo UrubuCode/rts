@@ -1,5 +1,4 @@
 import { describe, test, expect } from "rts:test";
-import { string } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -14,22 +13,22 @@ function print(value: string): void {
 
 // Caso 1: literal repetido com tab (caso original que motivou fix)
 const r1 = "x" + "\t" + "y" + "\t" + "z";
-print("r1=" + string.byte_len(r1) + ":" + r1);
+print("r1=" + new TextEncoder().encode(r1).length + ":" + r1);
 
 // Caso 2: variavel + literais repetidos (caso do http_chat)
 const id: i64 = 1;
 const user = "a";
 const text = "abc";
 const r2 = id + "\t" + user + "\t" + text + "\n";
-print("r2=" + string.byte_len(r2));
+print("r2=" + new TextEncoder().encode(r2).length);
 
 // Caso 3: literais identicos repetidos (mesmo conteudo)
 const r3 = "a" + "1" + "b" + "1" + "c";
-print("r3=" + string.byte_len(r3) + ":" + r3);
+print("r3=" + new TextEncoder().encode(r3).length + ":" + r3);
 
 // Caso 4: 2 literais distintos repetidos alternados
 const r4 = "x" + "Y" + "x" + "Y" + "z";
-print("r4=" + string.byte_len(r4) + ":" + r4);
+print("r4=" + new TextEncoder().encode(r4).length + ":" + r4);
 
 describe("string concat with repeated literals (#chat-tab fix)", () => {
   test("preserva todos os literais", () => {

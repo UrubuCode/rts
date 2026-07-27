@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, i32, string } from "rts";
+import { io, i32 } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -19,11 +19,11 @@ print("hello" + " " + "world");
 // 2. String vazia — preserva, nao some
 print("[" + "" + "]");
 print("" + "x" + "");
-print("blen=" + string.byte_len("" + "" + ""));   // blen=0
+print("blen=" + new TextEncoder().encode("" + "" + "").length);   // blen=0
 
 // 3. Cadeia longa — varias concatenacoes consecutivas
 const s1 = "a" + "b" + "c" + "d" + "e" + "f" + "g";
-print(`len=${string.byte_len(s1)} val=${s1}`);
+print(`len=${new TextEncoder().encode(s1).length} val=${s1}`);
 
 // 4. Concat dentro de loop acumula corretamente
 let acc: string = "";
@@ -31,7 +31,7 @@ for (let i = 0; i < 5; i = i + 1) {
   acc = acc + i + ",";
 }
 print(acc);                          // "0,1,2,3,4,"
-print(`len=${string.byte_len(acc)}`);// 10
+print(`len=${new TextEncoder().encode(acc).length}`);// 10
 
 // 5. Mistura tipos coerce para string (number + string segue ordem AST)
 const r1 = 1 + 2 + "x";              // "3x"  (1+2=3 number, depois "3"+"x")

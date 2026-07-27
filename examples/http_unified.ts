@@ -5,7 +5,7 @@
 // Uso:
 //   target/release/rts.exe run examples/http_unified.ts
 
-import { net, tls, buffer, string, thread, io } from "rts";
+import { net, tls, buffer, thread, io } from "rts";
 
 const RECV_BUFFER_SIZE = 8192;
 
@@ -93,16 +93,16 @@ function doRequestTls(tcp: number, u: ParsedUrl): Response {
 }
 
 function parseResponse(raw: string, totalBytes: number): Response {
-  const eol1 = string.find(raw, "\r\n");
+  const eol1 = raw.indexOf("\r\n");
   if (eol1 < 0) return new Response(0, "no status line", "", "");
   const statusLine = sliceTo(raw, eol1);
-  const sp1 = string.find(statusLine, " ");
+  const sp1 = statusLine.indexOf(" ");
   const rest = sliceFrom(statusLine, sp1 + 1);
-  const sp2 = string.find(rest, " ");
+  const sp2 = rest.indexOf(" ");
   const codeStr = sliceTo(rest, sp2);
   const reason = sliceFrom(rest, sp2 + 1);
   const status = parseIntStr(codeStr);
-  const sep = string.find(raw, "\r\n\r\n");
+  const sep = raw.indexOf("\r\n\r\n");
   if (sep < 0) return new Response(status, reason, "", "");
   const headersRaw = sliceFromTo(raw, eol1 + 2, sep);
   const bodyStart = sep + 4;
@@ -111,11 +111,11 @@ function parseResponse(raw: string, totalBytes: number): Response {
 }
 
 function parseUrl(url: string): ParsedUrl {
-  const sepScheme = string.find(url, "://");
+  const sepScheme = url.indexOf("://");
   if (sepScheme < 0) return new ParsedUrl("http", url, 80, "/");
   const scheme = sliceTo(url, sepScheme);
   const rest = sliceFrom(url, sepScheme + 3);
-  const slash = string.find(rest, "/");
+  const slash = rest.indexOf("/");
   let hostPort = rest;
   let path = "/";
   if (slash >= 0) {
@@ -124,7 +124,7 @@ function parseUrl(url: string): ParsedUrl {
   }
   let host = hostPort;
   let port = scheme == "https" ? 443 : 80;
-  const colon = string.find(hostPort, ":");
+  const colon = hostPort.indexOf(":");
   if (colon >= 0) {
     host = sliceTo(hostPort, colon);
     port = parseIntStr(sliceFrom(hostPort, colon + 1));
@@ -137,9 +137,10 @@ function show(url: string): void {
   io.print("→ " + url);
   const r = fetch(url);
   io.print("  status: " + r.status + " " + r.statusText);
-  // OBS: string.byte_len em vez de .length (strings vindas de buffer
-  // podem conter \0 e .length para na primeira ocorrencia — bug #235).
-  const bodyLen = string.byte_len(r.body);
+  // OBS: TextEncoder().encode().length em vez de .length (strings vindas de
+  // buffer podem conter \0 e .length para na primeira ocorrencia — bug #235).
+  // Era string.byte_len ate o namespace rts:string ser drenado.
+  const bodyLen = new TextEncoder().encode(r.body).length;
   io.print("  body length: " + bodyLen + " bytes");
   if (bodyLen > 0) {
     const previewLen = bodyLen > 200 ? 200 : bodyLen;
@@ -154,9 +155,9 @@ io.print("✓ mesma API, dois protocolos");
 
 function parseIntStr(s: string): number {
   let n = 0;
-  const len = string.char_count(s);
+  const len = Array.from(s).length;
   for (let i = 0; i < len; i = i + 1) {
-    const c = string.char_code_at(s, i);
+    const c = s.charCodeAt(i);
     if (c < 48 || c > 57) break;
     n = n * 10 + (c - 48);
   }
@@ -164,17 +165,17 @@ function parseIntStr(s: string): number {
 }
 function sliceTo(s: string, end: number): string {
   let out = "";
-  for (let i = 0; i < end; i = i + 1) out = out + string.char_at(s, i);
+  for (let i = 0; i < end; i = i + 1) out = out + s.charAt(i);
   return out;
 }
 function sliceFrom(s: string, start: number): string {
   let out = "";
-  const n = string.char_count(s);
-  for (let i = start; i < n; i = i + 1) out = out + string.char_at(s, i);
+  const n = Array.from(s).length;
+  for (let i = start; i < n; i = i + 1) out = out + s.charAt(i);
   return out;
 }
 function sliceFromTo(s: string, start: number, end: number): string {
   let out = "";
-  for (let i = start; i < end; i = i + 1) out = out + string.char_at(s, i);
+  for (let i = start; i < end; i = i + 1) out = out + s.charAt(i);
   return out;
 }
