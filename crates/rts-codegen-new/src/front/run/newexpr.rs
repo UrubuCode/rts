@@ -145,46 +145,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         //          prototype walk (own-key reads never touch this). The one-time
         //          init also wires `constructor.name` + the extends chain up to
         //          the Object.prototype root. ----
-        let k_word = self.emit_str_const_word(module, class)?;
-        let parent_word = match &desc.parent {
-            Some(p) => self.emit_str_const_word(module, p)?,
-            None => self
-                .builder
-                .ins()
-                .iconst(types::I64, value::PolyValue::undefined().raw() as i64),
+        // HOISTED (see `class::protohoist`): the wiring above the `obj_set_proto`
+        // depends only on the CLASS and is idempotent, so the entry-block prologue
+        // already ran it once for every class this function `new`s. Only the
+        // per-INSTANCE link stays here. A class the prescan did not reach (a
+        // dynamic path) still wires inline, exactly as before.
+        let proto = match self.class_proto_cache.get(class) {
+            Some(&var) => self.builder.use_var(var),
+            None => self.emit_class_proto_wiring(module, class)?,
         };
-        let proto = self
-            .call_runtime(module, "__rtsadp_class_proto_init", &[k_word, parent_word])?
-            .expect("__rtsadp_class_proto_init returns a word");
         self.call_runtime(module, "__rtsadp_obj_set_proto", &[obj_word, proto])?;
-
-        // Publish the class's PLAIN methods as PROTO slots (reified fn words) —
-        // this is what makes DYNAMIC dispatch on a Tagged receiver fully
-        // polymorphic: `x.forEach(cb)` on an `any` holding a `.ts` Set/Map (or
-        // any user class) resolves through the obj_get chain walk + method
-        // invoke, with ZERO engine knowledge of the class's layout or name.
-        // Well-known `@@*` methods ride the same publish (the iteration /
-        // coercion protocols read them). Generators/async are excluded — their
-        // call protocol is the lazy state machine, not a plain fn value; the
-        // compile-time class-iterator arm serves those.
-        {
-            let wk: Vec<(String, String)> = desc
-                .methods
-                .iter()
-                .filter(|(_, f)| {
-                    self.sigs
-                        .get(f.as_str())
-                        .is_some_and(|s| !s.is_async && !s.ret_lazy_gen)
-                })
-                .map(|(n, f)| (n.clone(), f.clone()))
-                .collect();
-            for (slot, fn_name) in wk {
-                let f = self.reify_method(module, &fn_name)?;
-                let fw = self.box_value(f);
-                let key_w = self.emit_str_const_word(module, &slot)?;
-                self.call_runtime(module, "__rtsadp_obj_set", &[proto, key_w, fw])?;
-            }
-        }
 
         // ---- 3. intern this fn's OBJECT shape (key list = the class fields) and
         //         yield the instance word as a TAG_OBJECT PolyValue ----
@@ -194,6 +164,94 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             class.to_string(),
             shape_id,
         ))
+    }
+
+    /// Wire class `class`'s SHARED prototype and return its word: the one-time
+    /// `__rtsadp_class_proto_init` (which also sets `constructor.name` and links
+    /// the extends chain up to the `Object.prototype` root) followed by publishing
+    /// the class's PLAIN methods as proto slots.
+    ///
+    /// Publishing the methods is what makes DYNAMIC dispatch on a Tagged receiver
+    /// fully polymorphic: `x.forEach(cb)` on an `any` holding a `.ts` Set/Map (or
+    /// any user class) resolves through the obj_get chain walk + method invoke,
+    /// with ZERO engine knowledge of the class's layout or name. Well-known `@@*`
+    /// methods ride the same publish (the iteration / coercion protocols read
+    /// them). Generators/async are excluded — their call protocol is the lazy
+    /// state machine, not a plain fn value; the compile-time class-iterator arm
+    /// serves those.
+    ///
+    /// Every effect here is per-CLASS and idempotent, which is what lets
+    /// [`Self::hoist_class_protos`] run it once in the entry block instead of on
+    /// every construction.
+    pub(super) fn emit_class_proto_wiring(
+        &mut self,
+        module: &mut dyn Module,
+        class: &str,
+    ) -> FrontResult<Value> {
+        let parent = self.classes.get(class).and_then(|d| d.parent.clone());
+        let k_word = self.emit_str_const_word(module, class)?;
+        let parent_word = match parent {
+            Some(p) => self.emit_str_const_word(module, &p)?,
+            None => self
+                .builder
+                .ins()
+                .iconst(types::I64, value::PolyValue::undefined().raw() as i64),
+        };
+        let proto = self
+            .call_runtime(module, "__rtsadp_class_proto_init", &[k_word, parent_word])?
+            .expect("__rtsadp_class_proto_init returns a word");
+
+        let wk: Vec<(String, String)> = match self.classes.get(class) {
+            Some(desc) => desc
+                .methods
+                .iter()
+                .filter(|(_, f)| {
+                    self.sigs
+                        .get(f.as_str())
+                        .is_some_and(|s| !s.is_async && !s.ret_lazy_gen)
+                })
+                .map(|(n, f)| (n.clone(), f.clone()))
+                .collect(),
+            None => Vec::new(),
+        };
+        for (slot, fn_name) in wk {
+            let f = self.reify_method(module, &fn_name)?;
+            let fw = self.box_value(f);
+            let key_w = self.emit_str_const_word(module, &slot)?;
+            self.call_runtime(module, "__rtsadp_obj_set", &[proto, key_w, fw])?;
+        }
+        Ok(proto)
+    }
+
+    /// ENTRY-BLOCK PROLOGUE: wire the prototype of every class this body `new`s,
+    /// once, and park each word in a Variable ([`Lowerer::class_proto_cache`]).
+    ///
+    /// The entry block dominates every `new`, so the per-construction path can
+    /// then just `use_var` — turning `1 + method_count` extern calls per
+    /// CONSTRUCTION into the same number per FUNCTION. Measured on
+    /// `bench/objbench.ts` (3M constructions in a loop) via `RTS_REPR_STATS=1`.
+    ///
+    /// Runs the wiring even for a `new` behind a never-taken branch. Not
+    /// observable: it runs no user code — it materializes the shared prototype
+    /// (already reachable as `C.prototype`) and links the extends chain, so only
+    /// the moment of creation moves. See `class::protohoist` for the full argument.
+    pub(super) fn hoist_class_protos(
+        &mut self,
+        module: &mut dyn Module,
+        body: &[rts_hir::HirStmt],
+    ) -> FrontResult<()> {
+        for class in super::class::protohoist::constructed_classes(body) {
+            // Only user classes reach the proto path; a `new Map()` / `new Date()`
+            // is a Registry construction with no ClassDesc and no proto wiring.
+            if self.classes.get(&class).is_none() {
+                continue;
+            }
+            let proto = self.emit_class_proto_wiring(module, &class)?;
+            let var = self.builder.declare_var(types::I64);
+            self.builder.def_var(var, proto);
+            self.class_proto_cache.insert(class, var);
+        }
+        Ok(())
     }
 
     /// Whether `name` is a FUNCTION usable as a constructor via `new name()` —

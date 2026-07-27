@@ -143,6 +143,68 @@ Zero boxes, zero unboxes, zero Tagged bindings inside the loop. This is the
 
 ---
 
+## Hoisting the per-class prototype wiring ✅ LANDED
+
+The first optimization Phase 0 pointed at, and the one whose size Phase 0 got
+wrong in the useful direction.
+
+`new C(args)` emitted, per construction:
+
+```text
+proto = __rtsadp_class_proto_init(<class>, <parent>)   // per CLASS, idempotent
+for each method m: __rtsadp_obj_set(proto, "m", <reify m>)   // per CLASS
+__rtsadp_obj_set_proto(instance, proto)                // per INSTANCE
+```
+
+Only the last line is per-instance. The rest depends solely on the class — a
+compile-time constant — yet ran on every `new`, and `reify` **allocates** an
+`Entry::Function` each time. `bench/objbench.ts` under-reported the cost because
+its class has no methods (2 of 17 in-loop calls); a class with 4 methods pays
+**9** per construction.
+
+`crates/rts-codegen-new/src/front/run/class/protohoist.rs` prescans the body for
+the classes it constructs, and `lower_function`'s prologue wires each one ONCE in
+the entry block (which dominates every `new`), parking the proto word in a
+Cranelift `Variable` — the same trick `gcell_cache` uses, for the same reason
+(reusing an effectful call's result across blocks makes egraph elaboration
+panic). A lazy first-use cache does NOT work here: when the first use is inside
+the loop, its defining call still runs every iteration.
+
+Measured on `bench/objbench_methods.ts` (1M constructions of a 4-method class):
+
+| | in-loop calls | time (median of 3) |
+|---|---|---|
+| before | 21 | 7332 ms |
+| after | 12 | ~620 ms |
+
+**≈11×.** `bench/monte_carlo_pi.ts` unchanged (it constructs nothing).
+
+### The gate — and why the first version was wrong
+
+The first version hoisted unconditionally, on the stated premise that
+`class_proto_init` is idempotent so the moment of the call cannot matter. That
+premise was false, and the runtime says so in its own comment: the chain link is
+guarded by `if proto_of(proto).is_none()` because it must *"NEVER overwrite a
+[[Prototype]] the user already wired (`F.prototype = Object.create(Base.prototype)`
+runs before the first `new F()`)"*. The init is **order-dependent by design** —
+it defers the decision to the first construction precisely so an earlier
+prototype replacement survives.
+
+Hoisting to the entry block runs it BEFORE such an assignment, so the guard sees
+an unlinked proto, wires the default root, and the program's replacement never
+reaches the instances. It regressed `tests/fn_prototype_set_explicit.test.ts`
+(`legs`/`barks` read `undefined`) — caught by the suite, not by review.
+
+So the hoist is gated program-wide: if ANY function writes through a `.prototype`
+member, no function hoists and every `new` wires inline as before. Program-wide
+because the write and the `new` need not share a function. Conservative in the
+only safe direction — a missed hoist costs speed, never correctness.
+`tests/class_proto_hoist_gate.test.ts` pins both halves in one program.
+
+**The transferable lesson:** "idempotent" is not the same as "order-independent".
+Before hoisting anything out of a loop, read the callee for order dependence
+rather than inferring it from the name.
+
 ## Phase 1 — close the conservative `Tagged` widenings (Axis A)
 
 `Repr::join` is deliberately total and pessimistic
@@ -317,8 +379,9 @@ Phase 0 ✅ → hoist loop-invariant `new` work → Phase 4a (per-slot Repr on S
           → Phase 2 (escape analysis) → Phase 1 (Tagged widenings) → 3 → 5
 ```
 
-- **Hoist `class_proto_init`/`obj_set_proto` out of the loop** — 2 of 17 in-loop
-  calls, no new analysis needed. Do it first because it is nearly free.
+- ~~**Hoist `class_proto_init`/`obj_set_proto` out of the loop**~~ ✅ **LANDED.**
+  See "Hoisting the per-class prototype wiring" below — measured **~11×** on a
+  4-method class, far above the 2-of-17 the methodless `objbench.ts` suggested.
 - **Phase 4a, per-slot `Repr` on `Shape`** — turns `__rtsadp_add`/`__rtsadp_mul`
   back into `fadd`/`fmul` for every proven-typed field read. Smaller than full
   dense containers and pays off on all object code, not just arrays.

@@ -325,6 +325,24 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// supported way to make a value live across blocks; the builder inserts
     /// whatever block params it needs.
     pub gcell_cache: HashMap<u32, cranelift_frontend::Variable>,
+    /// Class name → a Variable holding that class's SHARED prototype word, wired
+    /// ONCE in this function's entry block instead of on every `new C()`.
+    ///
+    /// `__rtsadp_class_proto_init(class, parent)` + the per-method
+    /// `__rtsadp_obj_set(proto, …)` publish depend only on the CLASS (a
+    /// compile-time constant) and are idempotent, but they used to run per
+    /// CONSTRUCTION — so a loop building N instances repeated them N times. The
+    /// classes are collected before lowering by
+    /// [`super::class::protohoist::constructed_classes`] and wired at entry, which
+    /// dominates every `new`; the per-`new` path keeps only the genuinely
+    /// per-instance `__rtsadp_obj_set_proto(instance, proto)`.
+    ///
+    /// A Variable rather than the raw call result for the same reason as
+    /// [`Self::gcell_cache`]: the init is an effectful call, and reusing such a
+    /// result directly across blocks makes Cranelift's egraph elaboration panic.
+    /// Absent entry ⇒ the class was not prescanned (a dynamic/unmodeled path);
+    /// the `new` falls back to wiring inline, exactly as before.
+    pub class_proto_cache: HashMap<String, cranelift_frontend::Variable>,
     /// Per-function memoization of `module.declare_func_in_func(fid, …)`. Each
     /// call to that helper imports a FRESH `SigRef` + `FuncRef` into the current
     /// `ir::Function` — it does NOT dedup — so N call sites of the same callee
@@ -443,6 +461,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         builtins: &'c HashMap<String, (String, String)>,
         cell_locals: std::collections::HashSet<String>,
         param_classes: HashMap<String, String>,
+        // Program-wide: does ANY function write through a `.prototype` member?
+        // When true the class-prototype hoist is disabled everywhere — the
+        // runtime's `class_proto_init` defers its chain link to the first `new`
+        // ON PURPOSE, so hoisting past a prototype replacement loses it. See
+        // `class::protohoist`.
+        program_assigns_prototype: bool,
     ) -> FrontResult<()> {
         let entry = builder.create_block();
         builder.append_block_params_for_function_params(entry);
@@ -476,6 +500,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             gcells,
             immutable_gcells,
             gcell_cache: HashMap::new(),
+            class_proto_cache: HashMap::new(),
             func_ref_cache: HashMap::new(),
             ta_view_base_len: HashMap::new(),
             gcell_classes,
@@ -645,6 +670,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // → `__rtsadp_method_table_add` counterpart in rts-adapters).
         if ctx.is_main {
             ctx.emit_method_table_registrations(module)?;
+        }
+
+        // CLASS-PROTOTYPE prologue: wire, ONCE and here in the entry block, the
+        // shared prototype of every class this body constructs. `class_proto_init`
+        // + the per-method proto publish depend only on the class and are
+        // idempotent, but ran on EVERY `new` — so a loop building N instances
+        // repeated them N times. The entry block dominates every `new`, so the
+        // construction path becomes a `use_var` plus the genuinely per-instance
+        // `obj_set_proto`. See `class::protohoist`.
+        if !program_assigns_prototype {
+            ctx.hoist_class_protos(module, &func.body)?;
         }
 
         ctx.lower_block(module, &func.body)?;

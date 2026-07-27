@@ -171,6 +171,18 @@ pub(crate) fn populate_module(
     // Never-written module globals: their reads hoist to each function's entry
     // instead of an extern GCELL_GET per access (see `funcval::immutable_gcells`).
     let immutable_gcells = super::funcval::immutable_gcells(funcs, main, gcells);
+    // PROGRAM-WIDE prototype-assignment gate. `__rtsadp_class_proto_init` defers
+    // its [[Prototype]] chain link to the FIRST `new` on purpose, so a
+    // `F.prototype = Object.create(Base.prototype)` executed beforehand survives.
+    // The entry-block hoist in `class::protohoist` would run the init ahead of
+    // that assignment and lose it, so any `.prototype` write ANYWHERE disables the
+    // hoist for the whole program — the write and the `new` need not share a
+    // function. Costs the optimization on prototype-manipulating programs; never
+    // correctness.
+    let program_assigns_prototype = super::class::protohoist::assigns_prototype(&main.body)
+        || funcs
+            .iter()
+            .any(|f| super::class::protohoist::assigns_prototype(&f.body));
     let gcell_classes = &prog.gcell_classes;
     let prelude_fns = &prog.prelude_fns;
     let builtins = &prog.builtins;
@@ -335,6 +347,7 @@ pub(crate) fn populate_module(
             is_prelude,
             builtins,
             param_classes,
+            program_assigns_prototype,
         )?);
     }
     // 4. Build main (the top-level body). `__rtsn_main` is USER code — never
@@ -360,6 +373,7 @@ pub(crate) fn populate_module(
         false,
         builtins,
         param_classes,
+        program_assigns_prototype,
     )?);
     }
 

@@ -244,6 +244,10 @@ pub(super) fn build_one(
     is_prelude: bool,
     builtins: &HashMap<String, (String, String)>,
     param_classes: &HashMap<String, HashMap<String, String>>,
+    // Program-wide: does ANY function write through a `.prototype` member? When
+    // true the class-prototype hoist is disabled everywhere (see
+    // `class::protohoist` — the runtime init is order-dependent by design).
+    program_assigns_prototype: bool,
 ) -> FrontResult<Pending> {
     let mut ctx = module.make_context();
     ctx.func.signature = sig.to_cranelift(module);
@@ -272,6 +276,7 @@ pub(super) fn build_one(
             builtins,
             cell_locals,
             param_cls,
+            program_assigns_prototype,
         );
         match res {
             Ok(()) => fb.finalize(),

@@ -51,6 +51,7 @@ use crate::front::error::{FrontResult, Unsupported};
 mod dispatch;
 mod inherit;
 mod litshape;
+pub(in crate::front::run) mod protohoist;
 pub(crate) mod synth;
 mod vdispatch;
 mod walk;
