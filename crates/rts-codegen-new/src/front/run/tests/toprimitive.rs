@@ -162,3 +162,51 @@ fn no_to_string_class_renders_object_object() {
         "v=[object Object]\n",
     );
 }
+
+// ---------------------------------------------------------------------------
+// Wrapper OBJECTS of Rust value-classes (`#[rtse::class(.., value)]`).
+//
+// `String`/`Boolean` (and, once converted, `Number`) are no longer ambient
+// `.ts` classes — their instance class is tracked via `global_instance_class`
+// (Registry-backed), not `static_instance_class` (`self.classes`, user
+// classes only). Before the fix, ToPrimitive only asked `static_instance_class`,
+// so `String(new String("z"))` fell straight to `[object Object]`.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn string_wrapper_to_string_via_var() {
+    assert_stdout(
+        r#"let s = new String("z"); console.log(String(s));"#,
+        "z\n",
+    );
+}
+
+#[test]
+fn string_wrapper_to_string_inline_new() {
+    assert_stdout(r#"console.log(String(new String("q")));"#, "q\n");
+}
+
+#[test]
+fn boolean_wrapper_to_string_via_var() {
+    assert_stdout(
+        r#"let b = new Boolean(false); console.log(String(b));"#,
+        "false\n",
+    );
+}
+
+#[test]
+fn boolean_wrapper_in_template() {
+    assert_stdout(r#"console.log(`${new Boolean(true)}`);"#, "true\n");
+}
+
+#[test]
+fn boolean_wrapper_plus_empty_string() {
+    assert_stdout(r#"console.log(new Boolean(false) + "");"#, "false\n");
+}
+
+#[test]
+fn number_wrapper_to_string_still_works() {
+    // `Number` is still the ambient `.ts` prelude class — this pins the
+    // pre-existing correct case so a future conversion has a regression guard.
+    assert_stdout(r#"console.log(String(new Number(5)));"#, "5\n");
+}

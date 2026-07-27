@@ -199,6 +199,32 @@ pub(crate) fn is_option_other_class_ret(ty: &Type) -> Option<&Type> {
     is_other_class_ret(inner)
 }
 
+/// Generic `Option<T>` unwrap for a PARAMETER position (not a return — those go
+/// through `is_option_self_ret`/`is_option_string_ret`/`is_option_other_class_ret`,
+/// each with a return-specific alloc/null convention). `T` marshals to the
+/// EXACT SAME `AbiType` as bare `T`; the only difference an `Option<T>` param
+/// makes is (1) it joins the member's trailing optional-arity window (same
+/// window `optional = N` populates) and (2) the generated extern wrapper turns
+/// the incoming word into `Option<T>` — `None` when the word is the "absent"
+/// sentinel `DefaultArg::Undefined` already injects at the call site for that
+/// `AbiType` (NaN for `F64`, `0` for `Handle`/`U64`, `""` for `StrPtr`), `Some`
+/// otherwise. Callers decide, per inner type, whether that sentinel exists —
+/// see `params::build_params`'s optional-param branch.
+pub(crate) fn option_inner(ty: &Type) -> Option<&Type> {
+    let Type::Path(p) = ty else { return None };
+    let seg = p.path.segments.last()?;
+    if seg.ident != "Option" {
+        return None;
+    }
+    let syn::PathArguments::AngleBracketed(a) = &seg.arguments else {
+        return None;
+    };
+    match a.args.first()? {
+        syn::GenericArgument::Type(t) => Some(t),
+        _ => None,
+    }
+}
+
 pub(crate) fn ret_ty(sig: &syn::Signature) -> Option<&Type> {
     match &sig.output {
         ReturnType::Default => None,

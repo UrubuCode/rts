@@ -33,6 +33,7 @@ use quote::{format_ident, quote};
 use crate::abi::params::{param_of, ret_of};
 use crate::abi::scope::{AbiArgs, symbol_for};
 use crate::naming::{abi_const_name, to_camel};
+use crate::types::option_inner;
 
 /// Parse and STRIP a `#[default(...)]` attribute from one parameter's attrs,
 /// returning the [`DefaultArg`](rts_engine::DefaultArg)-shaped token stream to
@@ -121,6 +122,34 @@ fn take_default(pt: &mut syn::PatType) -> syn::Result<Option<proc_macro2::TokenS
     }))
 }
 
+/// Wrap a marshalled-value expression (`raw`, already the bare-`T` call
+/// expression `param_of` built) into `Option<T>`, `None` when `raw` equals the
+/// "absent" sentinel `DefaultArg::Undefined` injects at the call site for that
+/// `AbiType` — the same per-type sentinel `class::member::params` uses (NaN for
+/// `f64`, `0` for `Handle`/`U64`, `""` for `&str`). `None` return = this type has
+/// no established sentinel (i64/i32/bool/Poly); the caller reports it.
+fn option_wrap_call(ty: &syn::Type, raw: &proc_macro2::TokenStream) -> Option<proc_macro2::TokenStream> {
+    if crate::types::is_str_param(ty) {
+        return Some(quote!({
+            let __s: &str = #raw;
+            if __s.is_empty() { ::core::option::Option::None } else { ::core::option::Option::Some(__s) }
+        }));
+    }
+    if crate::types::is_handle_ty(ty).is_some() {
+        return Some(quote!({
+            let __h = #raw;
+            if __h == 0 { ::core::option::Option::None } else { ::core::option::Option::Some(__h) }
+        }));
+    }
+    if matches!(ty, syn::Type::Path(p) if p.path.is_ident("f64") || p.path.is_ident("F64")) {
+        return Some(quote!({
+            let __f = #raw;
+            if __f.is_nan() { ::core::option::Option::None } else { ::core::option::Option::Some(__f) }
+        }));
+    }
+    None
+}
+
 pub(crate) fn expand(a: TokenStream, item: TokenStream) -> TokenStream {
     let mut func = syn::parse_macro_input!(item as syn::ItemFn);
     let args = match syn::parse::<AbiArgs>(a) {
@@ -152,9 +181,9 @@ pub(crate) fn expand(a: TokenStream, item: TokenStream) -> TokenStream {
     let mut ext_params: Vec<proc_macro2::TokenStream> = Vec::new();
     let mut call_args: Vec<proc_macro2::TokenStream> = Vec::new();
     let mut ts_params: Vec<String> = Vec::new();
-    // Parallel to `abis`: `None` until the first `#[default(...)]` is seen, then
-    // every SUBSEQUENT slot must also carry one (a required param cannot follow
-    // an optional one) — enforced right after the loop.
+    // Parallel to `abis`: `None` until the first optional slot is seen (either a
+    // `#[default(...)]` or an `Option<T>` param), then every SUBSEQUENT slot
+    // must also be optional — enforced right after the loop.
     let mut defaults: Vec<Option<proc_macro2::TokenStream>> = Vec::new();
     let mut wrap = false;
     for (idx, arg) in func.sig.inputs.iter_mut().enumerate() {
@@ -166,12 +195,28 @@ pub(crate) fn expand(a: TokenStream, item: TokenStream) -> TokenStream {
             .to_compile_error()
             .into();
         };
-        let default = match take_default(pt) {
+        let explicit_default = match take_default(pt) {
             Ok(d) => d,
             Err(e) => return e.to_compile_error().into(),
         };
+        // `Option<T>` (type) and `#[default(v)]` (attribute) COMPOSE: `Option<T>`
+        // says "may be absent" and picks the arity window + the `Option<T>`
+        // Rust-side value; `#[default(v)]` says "and pad omitted calls with `v`"
+        // instead of the JS `undefined` sentinel — so `#[default("utf8")]
+        // enc: Option<Poly>` reads `Some("utf8")` when the caller omits `enc`,
+        // `None` only if the caller passes an explicit `undefined`. Without an
+        // explicit default, an `Option<T>` param still gets `DefaultArg::Undefined`
+        // automatically — no attribute needed to make it optional.
+        let is_optional = option_inner(&pt.ty).is_some();
+        let marshal_ty: std::borrow::Cow<syn::Type> = match option_inner(&pt.ty) {
+            Some(inner) => std::borrow::Cow::Owned(inner.clone()),
+            None => std::borrow::Cow::Borrowed(&*pt.ty),
+        };
+        let default = explicit_default
+            .clone()
+            .or_else(|| is_optional.then(|| quote!(::rts_engine::DefaultArg::Undefined)));
         defaults.push(default);
-        let Some(p) = param_of(&pt.ty, idx) else {
+        let Some(p) = param_of(&marshal_ty, idx) else {
             return syn::Error::new_spanned(
                 &pt.ty,
                 "#[rtse::function]: no ABI spelling for this parameter type — one of `Handle`, \
@@ -180,27 +225,50 @@ pub(crate) fn expand(a: TokenStream, item: TokenStream) -> TokenStream {
             .to_compile_error()
             .into();
         };
+        let call = if is_optional {
+            let Some(wrapped) = option_wrap_call(&marshal_ty, &p.call) else {
+                return syn::Error::new_spanned(
+                    &pt.ty,
+                    "#[rtse::function]: `Option<T>` is only supported for f64/&str/Handle/U64 \
+                     params (no absent-sentinel convention for i64/i32/bool/Poly) — use \
+                     `#[default(...)]` on the bare type instead",
+                )
+                .to_compile_error()
+                .into();
+            };
+            wrap = true;
+            wrapped
+        } else {
+            p.call
+        };
         let pname = match &*pt.pat {
             syn::Pat::Ident(i) => i.ident.to_string(),
             _ => format!("arg{idx}"),
         };
-        ts_params.push(format!("{pname}: {}", ts_of(&pt.ty)));
+        let ts_ty = ts_of(&marshal_ty);
+        ts_params.push(if is_optional {
+            format!("{pname}?: {ts_ty}")
+        } else {
+            format!("{pname}: {ts_ty}")
+        });
         abis.push(p.abi);
         ext_params.extend(p.ext);
-        call_args.push(p.call);
+        call_args.push(call);
         wrap |= p.needs_wrapper;
     }
 
-    // A `#[default(...)]` param must not be followed by a plain required one —
-    // JS optional-tail semantics, same rule the engine's arity window assumes
-    // (`required_args` reads the leading run of `DefaultArg::Required`).
+    // An optional param (explicit default OR `Option<T>`) must not be followed
+    // by a plain required one — JS optional-tail semantics, same rule the
+    // engine's arity window assumes (`required_args` reads the leading run of
+    // `DefaultArg::Required`).
     let first_default = defaults.iter().position(Option::is_some);
     if let Some(start) = first_default {
         if let Some(gap) = defaults[start..].iter().position(Option::is_none) {
             let bad = &func.sig.inputs[start + gap];
             return syn::Error::new_spanned(
                 bad,
-                "#[rtse::function]: a required parameter cannot follow a `#[default(...)]` one",
+                "#[rtse::function]: a required parameter cannot follow an optional one \
+                 (`#[default(...)]` or `Option<T>`)",
             )
             .to_compile_error()
             .into();

@@ -181,6 +181,10 @@ pub(crate) fn gen_member(
     let extern_ident = format_ident!("{}", symbol);
 
     let p = params::build_params(sig, is_ctor, is_no_recv, is_value_method)?;
+    // `optional = N` (attribute) and `Option<T>` (type, see `types::option_inner`)
+    // are two spellings of the SAME arity window — fold whichever is larger so a
+    // member using either (or, in principle, both) gets one consistent window.
+    let optional = optional.max(p.option_count);
 
     // Return marshalling (+ the F3 async re-wrap into a settled Promise).
     let ret = returns::build_return(sig, class, is_ctor)?;

@@ -168,6 +168,15 @@ pub(crate) struct MethodArgs {
 /// window `[total-N, total]`) and injects the `undefined` sentinel word, which
 /// the extern reads as its own "absent" value (`""` for `&str`, NaN for `f64`,
 /// 0/undefined for a handle) — the same convention the hand-written externs use.
+///
+/// **Superseded by `Option<T>` in parameter position** (see
+/// `types::option_inner` + `member::params::build_params`): a trailing
+/// `Option<T>` param declares the SAME arity window as a COUNT, but says WHICH
+/// param is optional (adding a param no longer silently shifts what the count
+/// refers to) and the generated wrapper hands the body a real `Option<T>`
+/// instead of a raw sentinel word to decode by hand. `optional = N` keeps
+/// working (existing call sites; not migrated in this change) — prefer
+/// `Option<T>` for new members.
 fn method_args(a: &syn::Attribute) -> MethodArgs {
     let mut out = MethodArgs::default();
     let _ = a.parse_nested_meta(|m| {
