@@ -191,22 +191,10 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[StrPtr, StrPtr, I64, I64],
             ret: Void,
         },
-        // engine.num_* — the irreducible numeric FORMATTING bridge: (n: F64,
-        // arg: I64) -> a GC string handle. Each wraps a `__RTS_FN_GL_NUMBER_*`
-        // formatter; the `.ts` `class Number` methods call these.
-        "__RTS_FN_NS_ENGINE_NUM_TO_STRING_RADIX"
-        | "__RTS_FN_NS_ENGINE_NUM_TO_FIXED"
-        | "__RTS_FN_NS_ENGINE_NUM_TO_PRECISION"
-        | "__RTS_FN_NS_ENGINE_NUM_TO_EXPONENTIAL" => SymSig {
-            params: &[F64, I64],
-            ret: Handle,
-        },
-        // engine.num_from_str — string→number parse bridge: (s: Handle) -> F64.
-        // Wraps `__RTS_FN_GL_NUMBER_FROM_STR`; the `.ts` `NumberFactory` calls it.
-        "__RTS_FN_NS_ENGINE_NUM_FROM_STR" => SymSig {
-            params: &[Handle],
-            ret: F64,
-        },
+        // engine.num_* / engine.num_from_str no longer exist — Number moved to a
+        // pure-Rust `#[rtse::class("Number", value)]` value-class
+        // (`rts-primitives/src/number/mod.rs`); the formatting bodies compute
+        // directly in Rust instead of bridging through a `.ts` prelude.
         // engine.fs_read_bytes / fs_write_bytes / fs_append_bytes — the PRIVATE
         // file-IO bridge for the `.ts` ReadStream/WriteStream prelude. All-words in
         // (path word, data word), a word out (Uint8Array for read, byte-count
@@ -1027,15 +1015,10 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[Handle, Handle],
             ret: Handle,
         },
-        // Number methods: slot 0 = receiver (the f64 primitive); digit/radix args
-        // are I64; returns a string Handle.
-        "__RTS_FN_GL_NUMBER_TO_FIXED"
-        | "__RTS_FN_GL_NUMBER_TO_PRECISION"
-        | "__RTS_FN_GL_NUMBER_TO_EXPONENTIAL"
-        | "__RTS_FN_GL_NUMBER_TO_STRING_RADIX" => SymSig {
-            params: &[F64, I64],
-            ret: Handle,
-        },
+        // Number's toFixed/toPrecision/toExponential/toString(radix) are now
+        // value-class METHODS computed directly in Rust (`rts-primitives/src/
+        // number/mod.rs` + `format.rs`) — no `__RTS_FN_GL_NUMBER_TO_*` symbol
+        // called by name anymore.
 
         // ---- REAL Math namespace symbols (P5.4, rts-shared math) ----
         // 1-arg f64 → f64.

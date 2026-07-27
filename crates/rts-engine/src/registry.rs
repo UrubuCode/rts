@@ -219,6 +219,14 @@ impl Registry {
         self.modules.insert(key, module);
     }
 
+    /// Register a class's members. A SECOND call for the same class name MERGES
+    /// (appends `members`, fills `doc`/`instanceof_predicate`/`parent` only where
+    /// the existing entry has none) instead of replacing — this lets a class be
+    /// composed from more than one register call (e.g. a `#[rtse::class]`-derived
+    /// `register` for ctor/methods plus a hand-written call adding constant
+    /// `Member`s, which the class macro's `impl` block cannot express since a
+    /// Rust `const` item is not a `Fn`). Every pre-existing single-call class
+    /// keeps identical behaviour (nothing to merge into on the first call).
     pub(crate) fn insert_class(&mut self, class: Class) {
         for m in &class.members {
             if !m.fn_ptr.0.is_null() {
@@ -226,7 +234,19 @@ impl Registry {
             }
         }
         let name = class.name.clone();
-        if self.classes.insert(name.clone(), class).is_none() {
+        if let Some(existing) = self.classes.get_mut(&name) {
+            existing.members.extend(class.members);
+            if existing.doc.is_empty() {
+                existing.doc = class.doc;
+            }
+            if existing.instanceof_predicate.is_none() {
+                existing.instanceof_predicate = class.instanceof_predicate;
+            }
+            if existing.parent.is_none() {
+                existing.parent = class.parent;
+            }
+        } else {
+            self.classes.insert(name.clone(), class);
             self.class_order.push(name);
         }
     }

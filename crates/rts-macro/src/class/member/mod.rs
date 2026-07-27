@@ -207,6 +207,8 @@ pub(crate) fn gen_member(
         wrap.as_ref(),
         is_mut_recv,
         &ret_ext_ty,
+        &p.setup,
+        &p.teardown,
     );
 
     let ext_params = &p.ext_params;

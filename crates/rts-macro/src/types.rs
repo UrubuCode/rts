@@ -172,6 +172,23 @@ fn is_class_like_ident(ty: &Type) -> Option<&syn::Ident> {
     Some(&seg.ident)
 }
 
+/// A class-typed PARAMETER passed by reference: `&T` / `&mut T` where `T` looks
+/// like a registered class (see `is_class_like_ident`). Returns `(T, is_mut)`.
+/// Composes with `option_inner` — callers strip `Option<...>` first, so
+/// `Option<&T>` reaches here as `&T`.
+pub(crate) fn is_class_ref_param(ty: &Type) -> Option<(&Type, bool)> {
+    let Type::Reference(r) = ty else { return None };
+    is_class_like_ident(&r.elem)?;
+    Some((&*r.elem, r.mutability.is_some()))
+}
+
+/// A class-typed PARAMETER passed by value: `T` (not `&T`), where `T` looks like
+/// a registered class. Used for `fn f(a: Point, b: Point)`.
+pub(crate) fn is_class_value_param(ty: &Type) -> Option<&Type> {
+    is_class_like_ident(ty)?;
+    Some(ty)
+}
+
 /// `-> SomeClass` where `SomeClass` is not `Self` — a member returning an
 /// INSTANCE OF ANOTHER registered class (`node:fs::createReadStream() ->
 /// StreamReader`, `url.searchParams -> URLSearchParams`). Returns the type's

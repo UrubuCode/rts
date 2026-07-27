@@ -25,16 +25,9 @@ pub use rts_primitives::ERROR_TS;
 /// the facade (`rts_runtime::OBJECT_TS`). Included as a declarations-only prelude;
 /// an object-receiver method call routes into its ambient `class Object`.
 pub use rts_primitives::OBJECT_TS;
-// Boolean is now a pure-Rust `#[rtse::class("Boolean", value)]` value-class
-// (`rts-primitives/src/boolean.rs`) — there is no `BOOLEAN_TS` prelude anymore
-// (same drain as String).
-/// Embedded TS source of the PRIMORDIAL `Number.prototype` methods, re-exported
-/// from `rts-primitives` so the new engine reaches it through the facade
-/// (`rts_runtime::NUMBER_TS`). Included as a declarations-only prelude; a
-/// primitive-number method call routes into its ambient `class Number`. The
-/// irreducible numeric formatting stays in Rust and is bridged via the private
-/// `engine.num_*` helpers the `.ts` bodies call.
-pub use rts_primitives::NUMBER_TS;
+// Boolean/Number are now pure-Rust `#[rtse::class(.., value)]` value-classes
+// (`rts-primitives/src/boolean.rs`, `src/number/mod.rs`) — there is no
+// `BOOLEAN_TS`/`NUMBER_TS` prelude anymore (same drain as String).
 /// Embedded TS source of the global `console` object, re-exported from
 /// `rts-shared` (it is a NON-primordial backend utility, not a primordial) so the
 /// new engine reaches it through the facade (`rts_runtime::CONSOLE_TS`). Included

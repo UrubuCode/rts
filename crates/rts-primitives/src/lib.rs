@@ -42,18 +42,16 @@ pub const OBJECT_TS: &str = include_str!("object.ts");
 // (`registry::class_functioncall`). The macro generates every Boolean symbol;
 // nothing hardcoded in the engine.
 
-/// Embedded TypeScript source of the PRIMORDIAL `Number.prototype` methods
-/// (`valueOf`/`toString`/`toFixed`/`toPrecision`/`toExponential`/`toLocaleString`).
-/// `number` is a PRIMITIVE (native literal syntax), so the VALUE stays unboxed —
-/// only the METHOD library moves here. A method called on a PRIMITIVE number
-/// receiver (`(5).toFixed(2)`) is routed into this ambient `class Number`'s method
-/// with the primitive BOXED as `this` (shape-based dispatch, NOT JS prototypes).
-/// The irreducible numeric FORMATTING stays in Rust (`number.rs`,
-/// `__RTS_FN_GL_NUMBER_*`) and is re-exposed PRIVATELY via the `engine.num_*`
-/// helpers the bodies call — one source of truth. Boolean/String already moved
-/// to a pure-Rust value-class; Number is next. The wrapper object `new
-/// Number(x)` stays the engine's wrapper trampoline.
-pub const NUMBER_TS: &str = include_str!("number.ts");
+// Number is now a pure-Rust `#[rtse::class("Number", value)]` value-class
+// (`number/mod.rs`) — the `.ts` prelude (`NUMBER_TS`) was DELETED, following the
+// SAME migration Boolean/String proved. Instance dispatch: proven
+// (`try_primitive_class_method`, MIGRATED branch); the `Number(x)` call-without-
+// `new` form stays on `front/run/globals.rs`'s `"Number"` arm (see
+// `number/mod.rs`'s module doc for why it does NOT declare
+// `#[rtse::functioncall]`, unlike Boolean). The macro generates every Number
+// ctor/instance-method symbol; statics/constants (`isNaN`/`MAX_SAFE_INTEGER`/…)
+// are hand-written in `number/statics.rs` (a `const` cannot live in a
+// `#[rtse::class]` `impl` block) and merge onto the same Registry class entry.
 
 // String is now a pure-Rust `#[rtse::class("String", value)]` value-class
 // (`string/value_class.rs` + `string/strops.rs`) — the `.ts` prelude (`STRING_TS`)

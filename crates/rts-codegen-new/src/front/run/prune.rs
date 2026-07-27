@@ -98,10 +98,9 @@ use super::class::ClassTable;
 const ENGINE_CALLED_PRELUDE_FNS: &[&str] = &[
     // `Object(x)` / `new Object(x)` → `ObjectFactory(x)` (globals.rs, newexpr.rs)
     "ObjectFactory",
-    // `Number(x)` called as a conversion. `StringFactory` no longer exists
-    // (String moved to a pure-Rust value-class); `BooleanFactory` likewise
-    // (Boolean moved — see `rts-primitives/src/boolean.rs`).
-    "NumberFactory",
+    // `StringFactory`/`BooleanFactory`/`NumberFactory` no longer exist — String/
+    // Boolean/Number all moved to pure-Rust value-classes (`rts-primitives/src/
+    // string/value_class.rs`, `boolean.rs`, `number/mod.rs`).
     // `Object.groupBy(..)` → `__object_group_by(..)` (objstatic.rs)
     "__object_group_by",
 ];

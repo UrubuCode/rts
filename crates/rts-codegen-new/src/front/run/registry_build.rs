@@ -148,12 +148,17 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     // static-call path can resolve `Promise.resolve()` generically.
     ns::globals::promise::register_promise_class_spec,
     ns::globals::regexp::register_regexp_class_spec,
-    // Error is NOT here — it is a `.ts` prelude (ERROR_TS). Number/String class
-    // specs let the `new X(..)` WRAPPER ctor resolve through the Registry.
-    // Boolean is a pure-Rust `#[rtse::class("Boolean", value)]` value-class
-    // (`boolean.rs`, no `.ts` prelude) — its macro-generated `register` fn.
+    // Error is NOT here — it is a `.ts` prelude (ERROR_TS). String's class spec
+    // lets the `new String(..)` WRAPPER ctor resolve through the Registry.
+    // Boolean/Number are pure-Rust `#[rtse::class(.., value)]` value-classes
+    // (`boolean.rs`, `number/mod.rs`, no `.ts` prelude) — their macro-generated
+    // `register` fn. Number's statics/constants (isNaN/MAX_SAFE_INTEGER/…) are
+    // hand-written (a `#[rtse::class]` `impl` block cannot carry a `const`) and
+    // MERGE onto the same "Number" Registry class entry via a second call —
+    // see `number/statics.rs`'s module doc.
     ns::globals::boolean::register,
-    ns::globals::number::register_number_class_spec,
+    ns::globals::number::register,
+    ns::globals::number::register_number_statics,
     ns::globals::string::register_string_class_spec,
     // `URL` — backend/Registry class (WHATWG parser, no native syntax): `new URL(s)`
     // + getters (href/hostname/pathname/…) resolve generically via registryclass.
@@ -480,14 +485,9 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
         source: rts_runtime::OBJECT_TS,
         why: "hasOwnProperty/toString/valueOf",
     },
-    // Boolean — MIGRATED to a pure-Rust `#[rtse::class("Boolean", value)]`
-    // (rts-primitives/src/boolean.rs); NO `.ts` prelude (same drain as String).
-    // PRIMITIVE method libs (receiver boxed as `this`).
-    PreludeTs {
-        label: "Number",
-        source: rts_runtime::NUMBER_TS,
-        why: "num.toFixed/toString(radix)/…",
-    },
+    // Boolean/Number — MIGRATED to pure-Rust `#[rtse::class(.., value)]`
+    // value-classes (rts-primitives/src/boolean.rs, src/number/mod.rs); NO `.ts`
+    // prelude (same drain as String).
     // String — MIGRATED to a pure-Rust `#[rtse::class("String", value)]`
     // (rts-primitives/src/string/value_class.rs); NO `.ts` prelude. Instance surface
     // via the value-class (proven `try_primitive_class_method` + dynamic/computed +

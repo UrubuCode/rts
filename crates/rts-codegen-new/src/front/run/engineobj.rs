@@ -96,12 +96,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if method == "trace_push" {
             return self.lower_engine_trace_push(module, args);
         }
-        // `num_from_str(s)` — the string→number bridge (1 string arg → f64), used
-        // by the `.ts` `NumberFactory` for the ToNumber string case. Shape differs
-        // from the `num_*` formatters (1 arg in, F64 out), so it has its own arm.
-        if method == "num_from_str" {
-            return self.lower_engine_num_from_str(module, args);
-        }
         // `fs_read_bytes(path)` / `fs_write_bytes(path, data)` / `fs_append_bytes(
         // path, data)` — the PRIVATE file-IO bridge for the `.ts` ReadStream/
         // WriteStream prelude. All-words in, a word out (a `Uint8Array` for read, a
@@ -331,14 +325,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 Repr::Tagged,
             );
         }
-        // The numeric-format bridge (`num_to_fixed`/`num_to_precision`/
-        // `num_to_exponential`/`num_to_string_radix`): each takes (n, arg) — a
-        // number receiver + an int arg — and returns a GC string handle. They wrap
-        // the irreducible Rust formatters (one source of truth); the `.ts`
-        // `class Number` methods call them.
-        if let Some(symbol) = engine_num_member(method) {
-            return self.lower_engine_num(module, symbol, args);
-        }
         // `engine.tsa_raw(cooked, raw)` — pair a tagged template's cooked
         // strings array with its RAW strings array (the `.raw` property read)
         // and yield the cooked array (the tag call's first arg).
@@ -412,50 +398,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             crate::value::PolyValue::undefined().raw() as i64,
         );
         Ok(Val::tagged_kind(undef, JsKind::Undefined))
-    }
-
-    /// Lower an `engine.num_*(n, arg)` numeric-format call: marshal the number
-    /// receiver to `F64` and the int arg to `I64`, call the wrapping extern, and
-    /// box the returned string handle as a `TAG_STR` PolyValue. Both args come from
-    /// the `.ts` `class Number` method (`this` + the digits/radix param); a `this`
-    /// boxed-number word coerces to `F64` via the tag-selecting decode, and the
-    /// (possibly-defaulted) int param coerces to `I64`.
-    fn lower_engine_num(
-        &mut self,
-        module: &mut dyn Module,
-        symbol: &'static str,
-        args: &[HirExpr],
-    ) -> FrontResult<Val> {
-        if args.len() != 2 {
-            return unsupported!("engine.num_* expects 2 args (n, arg), got {}", args.len());
-        }
-        let n = self.lower_expr(module, &args[0])?;
-        let n_f64 = self.coerce(n, Repr::Float64)?;
-        let a = self.lower_expr(module, &args[1])?;
-        let a_i64 = self.coerce(a, Repr::Int64)?;
-        let res = self.call_runtime(module, symbol, &[n_f64, a_i64])?;
-        let h = res.expect("engine.num_* returns a string handle");
-        let w = emit_marshal::emit_box_real_string(module, self.builder, h);
-        Ok(Val::tagged_kind(w, JsKind::Str))
-    }
-
-    /// Lower `engine.num_from_str(s)` — marshal the string arg to its real GC
-    /// handle, call the Rust parser, and return the parsed f64 (Float64 repr).
-    fn lower_engine_num_from_str(
-        &mut self,
-        module: &mut dyn Module,
-        args: &[HirExpr],
-    ) -> FrontResult<Val> {
-        if args.len() != 1 {
-            return unsupported!("engine.num_from_str expects 1 arg (s), got {}", args.len());
-        }
-        let s = self.lower_expr(module, &args[0])?;
-        let s_word = self.box_value(s);
-        let s_handle = emit_marshal::emit_table_load(module, self.builder, s_word);
-        let res = self
-            .call_runtime(module, "__RTS_FN_NS_ENGINE_NUM_FROM_STR", &[s_handle])?
-            .expect("engine.num_from_str returns an f64");
-        Ok(Val::new(res, Repr::Float64))
     }
 
     /// Lower `engine.obj_has(self, key)` — shape-aware own-property membership.
@@ -651,19 +593,6 @@ fn engine_member(method: &str) -> Option<(&'static str, EngRet)> {
         "trace_capture" => ("__RTS_FN_NS_ENGINE_TRACE_CAPTURE", EngRet::Str),
         "trace_pop" => ("__RTS_FN_NS_ENGINE_TRACE_POP", EngRet::Void),
         "trace_print" => ("__RTS_FN_NS_ENGINE_TRACE_PRINT", EngRet::Void),
-        _ => return None,
-    })
-}
-
-/// Resolve an `engine.num_*` numeric-format member name to its real symbol. Each
-/// takes `(n: number, arg: number) => string` and wraps a `__RTS_FN_GL_NUMBER_*`
-/// formatter (the irreducible-format bridge for the `.ts` `class Number`).
-fn engine_num_member(method: &str) -> Option<&'static str> {
-    Some(match method {
-        "num_to_string_radix" => "__RTS_FN_NS_ENGINE_NUM_TO_STRING_RADIX",
-        "num_to_fixed" => "__RTS_FN_NS_ENGINE_NUM_TO_FIXED",
-        "num_to_precision" => "__RTS_FN_NS_ENGINE_NUM_TO_PRECISION",
-        "num_to_exponential" => "__RTS_FN_NS_ENGINE_NUM_TO_EXPONENTIAL",
         _ => return None,
     })
 }

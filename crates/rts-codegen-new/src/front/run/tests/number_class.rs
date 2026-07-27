@@ -1,11 +1,12 @@
-//! The PRIMORDIAL `Number.prototype` methods as a `.ts` prelude class
-//! (`rts-primitives/src/number.ts`). A method called on a PRIMITIVE number
-//! receiver (`(5).toFixed(2)`, `(255).toString(16)`, `(42).valueOf()`) is routed
-//! into the ambient `class Number` with the primitive BOXED as `this` (shape-based
-//! dispatch — the engine resolves `(method, arity)` on the class at compile time,
-//! NOT JS prototypes). This reuses the boolean primitive→prelude mechanism. The
-//! `.ts` bodies call the PRIVATE `engine.num_*` formatters (the irreducible Rust
-//! float→string / radix / toFixed/toPrecision/toExponential — one source of truth).
+//! The PRIMORDIAL `Number.prototype` methods as a pure-Rust
+//! `#[rtse::class("Number", value)]` value-class (`rts-primitives/src/number/
+//! mod.rs`). A method called on a PRIMITIVE number receiver (`(5).toFixed(2)`,
+//! `(255).toString(16)`, `(42).valueOf()`) is routed into the "Number" Registry
+//! class with the primitive BOXED as `this` (shape-based dispatch — the engine
+//! resolves `(method, arity)` on the class at compile time, NOT JS prototypes).
+//! This reuses the Boolean/String value-class mechanism. The formatting bodies
+//! compute directly in Rust (`number/format.rs` — the irreducible float→string /
+//! radix / toFixed/toPrecision/toExponential logic, one source of truth).
 //!
 //! Each test runs a REAL `.ts` program end to end and asserts EXACT captured
 //! stdout — the honesty floor (no hardcoding, real output).
@@ -97,9 +98,9 @@ fn number_in_string_concat() {
 }
 
 // ---------------------------------------------------------------------------
-// `Number(x)` FACTORY (no `new`) — the `.ts` `NumberFactory` returns a PRIMITIVE
-// number (typeof === "number"). JS ToNumber: number→itself, string→parsed,
-// boolean→1/0, null→0.
+// `Number(x)` (no `new`) — `front/run/globals.rs`'s `"Number"` arm delegates to
+// the engine's own ToNumber, returning a PRIMITIVE number (typeof === "number").
+// JS ToNumber: number→itself, string→parsed, boolean→1/0, null→0.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -128,10 +129,10 @@ fn factory_null_to_zero() {
 }
 
 // ---------------------------------------------------------------------------
-// `new Number(x)` WRAPPER — now the `.ts` `class Number` constructed via the
-// normal user-class path (a shape-based object, typeof === "object"). Its methods
-// route to the SAME `.ts` bodies as the primitive autobox path (dual `this`),
-// reading the primitive from the `__prim` slot.
+// `new Number(x)` WRAPPER — the value-class ctor (`Entry::Rtse` classed
+// "Number", typeof === "object"). Its methods route to the SAME Rust bodies as
+// the primitive autobox path (dual `this`), reading the primitive from the
+// `prim` slot.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -163,6 +164,6 @@ fn wrapper_to_string_radix() {
 
 #[test]
 fn wrapper_from_string_arg() {
-    // The ctor runs `NumberFactory`, so a string arg is parsed too.
+    // The ctor runs the engine's own ToNumber, so a string arg is parsed too.
     assert_stdout(r#"console.log(new Number("9").valueOf());"#, "9\n");
 }

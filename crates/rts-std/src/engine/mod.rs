@@ -35,52 +35,19 @@ unsafe extern "C" {
     fn __RTS_FN_NS_TRACE_POP_FRAME();
     fn __RTS_FN_NS_TRACE_CAPTURE() -> u64;
     fn __RTS_FN_NS_TRACE_PRINT();
-    // Number formatters (rts-primitives number.rs) — the irreducible numeric
-    // FORMATTING (float→string, radix, toFixed/toPrecision/toExponential). The
-    // `engine.num_*` members below WRAP these so the `.ts` `class Number` method
-    // bodies call the SAME Rust formatters (one source of truth) instead of
-    // reimplementing them.
+    // `Number`'s radix formatter (`rts-primitives/src/number/format.rs`) — the
+    // ONE Number formatter still needed outside the value-class method dispatch:
+    // `rts-adapters`'s `__rtsadp_dyn_to_string_radix` (DYNAMIC/unproven-receiver
+    // `x.toString(radix)`) calls the bridge below directly.
     fn __RTS_FN_GL_NUMBER_TO_STRING_RADIX(v: f64, radix: i64) -> u64;
-    fn __RTS_FN_GL_NUMBER_TO_FIXED(v: f64, digits: i64) -> u64;
-    fn __RTS_FN_GL_NUMBER_TO_PRECISION(v: f64, digits: i64) -> u64;
-    fn __RTS_FN_GL_NUMBER_TO_EXPONENTIAL(v: f64, digits: i64) -> u64;
-    fn __RTS_FN_GL_NUMBER_FROM_STR(handle: u64) -> f64;
 }
 
-/// `n.toString(radix)` — number→string in base `radix` (2..36; 10 is plain
-/// decimal). Wraps the Rust radix formatter. The `.ts` `Number.toString` body
-/// calls this; default radix (10) is applied by the `.ts` default-param.
+/// `x.toString(radix)` on a DYNAMIC (unproven-type) receiver — wraps the Number
+/// value-class's radix formatter. Called directly (a plain Rust fn, not a
+/// Registry member) by `rts-adapters`'s `__rtsadp_dyn_to_string_radix`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_ENGINE_NUM_TO_STRING_RADIX(v: f64, radix: i64) -> Handle {
     unsafe { __RTS_FN_GL_NUMBER_TO_STRING_RADIX(v, radix) }
-}
-
-/// `n.toFixed(digits)` — fixed-point string. Wraps the Rust formatter.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ENGINE_NUM_TO_FIXED(v: f64, digits: i64) -> Handle {
-    unsafe { __RTS_FN_GL_NUMBER_TO_FIXED(v, digits) }
-}
-
-/// `n.toPrecision(digits)` — significant-digits string (digits <= 0 ⇒ plain
-/// toString). Wraps the Rust formatter.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ENGINE_NUM_TO_PRECISION(v: f64, digits: i64) -> Handle {
-    unsafe { __RTS_FN_GL_NUMBER_TO_PRECISION(v, digits) }
-}
-
-/// `n.toExponential(digits)` — exponential-notation string (digits < 0 ⇒ auto
-/// mantissa). Wraps the Rust formatter.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ENGINE_NUM_TO_EXPONENTIAL(v: f64, digits: i64) -> Handle {
-    unsafe { __RTS_FN_GL_NUMBER_TO_EXPONENTIAL(v, digits) }
-}
-
-/// `Number(str)` — parse a string handle to f64 (NaN on failure; "" ⇒ 0). Wraps
-/// the Rust parser (one source of truth). The `.ts` `NumberFactory` calls this
-/// for the string case of ToNumber.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ENGINE_NUM_FROM_STR(handle: Handle) -> f64 {
-    unsafe { __RTS_FN_GL_NUMBER_FROM_STR(handle) }
 }
 
 /// CPU architecture string handle ('x86_64', 'aarch64', …). Wraps `os.arch`.
@@ -293,50 +260,6 @@ pub fn register(e: &mut Engine) {
             "trace_print(): void",
             "Print the current trace stack to stderr. Wraps trace.print.",
             __RTS_FN_NS_ENGINE_TRACE_PRINT as *const u8,
-        ))
-        // ── Number formatters (the irreducible numeric FORMATTING bridge). Each
-        // wraps the existing Rust `__RTS_FN_GL_NUMBER_*` formatter so the `.ts`
-        // `class Number` method bodies call them (one source of truth). Shape:
-        // (n: number, arg: number) => string.
-        .member(func(
-            "num_to_string_radix",
-            "__RTS_FN_NS_ENGINE_NUM_TO_STRING_RADIX",
-            sig!(F64, I64 => Handle),
-            "num_to_string_radix(n: number, radix: number): string",
-            "n.toString(radix) — number→string in base radix. Wraps GL_NUMBER_TO_STRING_RADIX.",
-            __RTS_FN_NS_ENGINE_NUM_TO_STRING_RADIX as *const u8,
-        ))
-        .member(func(
-            "num_to_fixed",
-            "__RTS_FN_NS_ENGINE_NUM_TO_FIXED",
-            sig!(F64, I64 => Handle),
-            "num_to_fixed(n: number, digits: number): string",
-            "n.toFixed(digits) — fixed-point string. Wraps GL_NUMBER_TO_FIXED.",
-            __RTS_FN_NS_ENGINE_NUM_TO_FIXED as *const u8,
-        ))
-        .member(func(
-            "num_to_precision",
-            "__RTS_FN_NS_ENGINE_NUM_TO_PRECISION",
-            sig!(F64, I64 => Handle),
-            "num_to_precision(n: number, digits: number): string",
-            "n.toPrecision(digits) — significant-digits string. Wraps GL_NUMBER_TO_PRECISION.",
-            __RTS_FN_NS_ENGINE_NUM_TO_PRECISION as *const u8,
-        ))
-        .member(func(
-            "num_to_exponential",
-            "__RTS_FN_NS_ENGINE_NUM_TO_EXPONENTIAL",
-            sig!(F64, I64 => Handle),
-            "num_to_exponential(n: number, digits: number): string",
-            "n.toExponential(digits) — exponential-notation string. Wraps GL_NUMBER_TO_EXPONENTIAL.",
-            __RTS_FN_NS_ENGINE_NUM_TO_EXPONENTIAL as *const u8,
-        ))
-        .member(func(
-            "num_from_str",
-            "__RTS_FN_NS_ENGINE_NUM_FROM_STR",
-            sig!(Handle => F64),
-            "num_from_str(s: string): number",
-            "Number(str) — string→number parse (NaN on failure). Wraps GL_NUMBER_FROM_STR.",
-            __RTS_FN_NS_ENGINE_NUM_FROM_STR as *const u8,
         ))
         .done();
 }

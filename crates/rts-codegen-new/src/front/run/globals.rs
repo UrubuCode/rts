@@ -58,19 +58,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
         match name {
             "Number" => {
-                // `Number()` with NO arg is `+0` (JS spec).
+                // `Number()` with NO arg is `+0` (JS spec) — the distinction from
+                // `Number(undefined)` (`NaN`) is only visible here, at the AST
+                // (argument COUNT), so `Number` deliberately does NOT declare
+                // `#[rtse::functioncall]` (see `rts-primitives/src/number/mod.rs`'s
+                // module doc): the generic functioncall protocol pads a missing
+                // trailing arg with the SAME `undefined` word an explicit
+                // `Number(undefined)` produces, which would collapse this case.
                 if args.is_empty() {
                     let zero = self.builder.ins().iconst(types::I64, 0);
                     return Ok(Some(Val::new(zero, Repr::Int64)));
                 }
-                // `Number(x)` (no `new`) → the prelude `.ts` `NumberFactory` (a
-                // PRIMITIVE number result), so the `.ts` class owns BOTH JS forms
-                // (this + `new Number(x)`). Falls back to the codegen coercion
-                // trampoline only if the prelude factory is absent (defensive).
-                if args.len() == 1 && self.sigs.contains_key("NumberFactory") {
-                    let v = self.call_synth_fn(module, "NumberFactory", None, args)?;
-                    return Ok(Some(v));
-                }
+                // `Number(x)` (no `new`) → the engine's own ToNumber
+                // (`__rtsadp_g_number`), never reimplemented here.
                 self.coerce_call(module, "__rtsadp_g_number", args, JsKind::Number)
                     .map(Some)
             }

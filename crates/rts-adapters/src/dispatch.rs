@@ -205,16 +205,16 @@ const STRING_ROWS: &[(&str, usize, MethodSpec)] = &[
 // Number — instance methods (receiver = the f64 primitive, slot 0).
 //
 // DRAINED: the Number method surface (`toFixed`/`toPrecision`/`toExponential`/
-// `toString(radix)` + `valueOf`/`toLocaleString`) now lives in the prelude `.ts`
-// `class Number` (`rts-primitives/src/number.ts`), routed via
-// `method::try_primitive_class_method(.., "Number", ..)` BEFORE this table. The
-// `.ts` bodies call the irreducible Rust formatters through the private
-// `engine.num_*` bridge (one source of truth) — so the engine no longer carries a
-// hardcoded `__RTS_FN_GL_NUMBER_*` row per method here. The table is kept (empty)
-// so a numeric receiver with a method the `.ts` class does NOT cover still BAILS
-// explicitly (`resolve_method` → `None`), never a guess. The `__RTS_FN_GL_NUMBER_*`
-// formatters + `register_number_class_spec` stay for the frozen old engine + the
-// `new Number(x)` wrapper path.
+// `toString(radix)` + `valueOf`/`toLocaleString`) is now a pure-Rust
+// `#[rtse::class("Number", value)]` value-class (`rts-primitives/src/number/
+// mod.rs`), routed via `method::try_primitive_class_method(.., "Number", ..)`
+// BEFORE this table — the macro generates every symbol, no hardcoded
+// `__RTS_FN_GL_NUMBER_*` row per method here. The table is kept (empty) so a
+// numeric receiver with a method the value-class does NOT cover still BAILS
+// explicitly (`resolve_method` → `None`), never a guess. The remaining
+// `__RTS_FN_GL_NUMBER_IS_*` predicates (`rts-primitives/src/number/statics.rs`)
+// are load-bearing for `front/run/mathobj.rs`'s `Number.isNaN`/etc fast path,
+// not for this table.
 // ===========================================================================
 
 /// Number instance-method rows. EMPTY — drained to the prelude `.ts` `class

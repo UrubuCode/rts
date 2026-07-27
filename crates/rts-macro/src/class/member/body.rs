@@ -64,13 +64,23 @@ pub(crate) fn build_body(
     wrap: &dyn Fn(proc_macro2::TokenStream) -> proc_macro2::TokenStream,
     is_mut_recv: bool,
     ret_ext_ty: &proc_macro2::TokenStream,
+    setup: &[proc_macro2::TokenStream],
+    teardown: &[proc_macro2::TokenStream],
 ) -> proc_macro2::TokenStream {
+    // Class-typed non-receiver params are cloned out of their handles BEFORE the
+    // call (`setup`, see `params.rs`) — same reason the receiver is cloned out
+    // (avoid self-deadlock on the per-shard `Mutex` if the body touches another
+    // handle), each `return`-ing the extern fn's default on a dead/wrong-class
+    // handle so this composes with every receiver shape below. `teardown` (one
+    // per `&mut T` param) runs AFTER the call, writing the mutated clone back —
+    // same write-back the mut receiver does further down.
     let invoke = |recv: proc_macro2::TokenStream| {
-        if is_async {
+        let call = if is_async {
             quote!(::rts_engine::block_on(#recv.#rust_name(#(#call_args),*)))
         } else {
             quote!(#recv.#rust_name(#(#call_args),*))
-        }
+        };
+        quote!({ #(#setup)* let __pr = #call; #(#teardown)* __pr })
     };
     // Instance dispatch CLONES the receiver OUT of the HandleTable (which drops the
     // per-shard `Mutex` guard) BEFORE running the body, then — for `&mut self` —
@@ -93,7 +103,7 @@ pub(crate) fn build_body(
         } else {
             quote!(<#ty>::#rust_name(#recv #(, #call_args)*))
         };
-        wrap(raw)
+        wrap(quote!({ #(#setup)* let __pr = #raw; #(#teardown)* __pr }))
     } else if is_ctor || is_static {
         let ty = self_ty;
         let raw = if is_async {
@@ -101,7 +111,7 @@ pub(crate) fn build_body(
         } else {
             quote!(<#ty>::#rust_name(#(#call_args),*))
         };
-        wrap(raw)
+        wrap(quote!({ #(#setup)* let __pr = #raw; #(#teardown)* __pr }))
     } else {
         let some = wrap(inner);
         if is_mut_recv {

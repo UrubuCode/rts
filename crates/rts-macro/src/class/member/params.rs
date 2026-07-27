@@ -10,7 +10,10 @@
 use quote::{format_ident, quote};
 use syn::{FnArg, Type};
 
-use crate::types::{is_handle_ty, is_poly_ty, is_self_handle_param, is_str_param, option_inner, scalar};
+use crate::types::{
+    is_class_ref_param, is_class_value_param, is_handle_ty, is_poly_ty, is_self_handle_param,
+    is_str_param, option_inner, scalar,
+};
 
 /// Everything the param loop produces: the extern-C param list, the call-site
 /// arguments passed to the wrapped Rust fn, the `AbiType` vector for the `Sig`,
@@ -25,6 +28,18 @@ pub(crate) struct ParamsInfo {
     pub(crate) ts_params: Vec<String>,
     pub(crate) value_recv_abi: Option<proc_macro2::TokenStream>,
     pub(crate) value_recv_call: Option<proc_macro2::TokenStream>,
+    /// Statements to run BEFORE the call, one per class-typed non-receiver
+    /// parameter — clones the `T` out of its `Entry::Rtse` handle (same
+    /// clone-out `with_rtse` uses for the receiver, see `body.rs`) into a local
+    /// `__c{idx}` binding, `return`-ing the extern fn's default on a dead/
+    /// wrong-class handle. `call_args` for that param then just references
+    /// `__c{idx}` (by value, `&__c{idx}`, or `&mut __c{idx}`).
+    pub(crate) setup: Vec<proc_macro2::TokenStream>,
+    /// Statements to run AFTER the call, one per `&mut T` class-typed
+    /// non-receiver param — writes the (possibly mutated) clone back into its
+    /// handle via `with_rtse_mut`, mirroring the receiver's own mut write-back
+    /// in `body.rs`. `&T`/by-value class params have no teardown.
+    pub(crate) teardown: Vec<proc_macro2::TokenStream>,
     /// Count of trailing params declared `Option<T>` (the type-driven spelling
     /// of optionality — see `types::option_inner`). `gen_member` folds this into
     /// the same arity window `#[rtse::method(optional = N)]` populates via
@@ -51,6 +66,8 @@ pub(crate) fn build_params(
     let mut ts_params = Vec::new();
     let mut value_recv_abi: Option<proc_macro2::TokenStream> = None;
     let mut value_recv_call: Option<proc_macro2::TokenStream> = None;
+    let mut setup: Vec<proc_macro2::TokenStream> = Vec::new();
+    let mut teardown: Vec<proc_macro2::TokenStream> = Vec::new();
     if !is_ctor && !is_static {
         if is_value_method {
             let recv_ty = sig
@@ -187,10 +204,92 @@ pub(crate) fn build_params(
             idx += 1;
             continue;
         }
+        // A class-typed param (`&T` / `&mut T` / `T`, `T` another `#[rtse::class]`
+        // struct): crosses as a `Handle`, clone-out via `with_rtse` before the
+        // call (see `setup` doc). `&mut T` gets its OWN clone — never the same
+        // memory as the receiver's or another `&mut T` param's clone, even when
+        // both handles are identical, so there is no Rust-level aliasing. The
+        // tradeoff (documented, not silent): if the SAME handle is passed twice
+        // as `&mut` (or once as `&mut` and once as the receiver), each clone is
+        // independent and only the mutation on the param that is written back
+        // LAST survives — this macro does not (and cannot, without re-locking
+        // the shard) reconcile concurrent mutable views of one handle.
+        if let Some((cls_ty, is_mut)) = is_class_ref_param(ty) {
+            let pid = format_ident!("__a{}", idx);
+            let cvar = format_ident!("__c{}", idx);
+            ext_params.push(quote!(#pid: u64));
+            let mutkw = if is_mut { quote!(mut) } else { quote!() };
+            if is_optional {
+                setup.push(quote!(
+                    let #mutkw #cvar: ::core::option::Option<#cls_ty> = if #pid == 0 {
+                        ::core::option::Option::None
+                    } else {
+                        match ::rts_engine::heap::handles::with_rtse::<#cls_ty, _>(#pid, |__s| __s.cloned()) {
+                            ::core::option::Option::Some(__v) => ::core::option::Option::Some(__v),
+                            ::core::option::Option::None => return ::core::default::Default::default(),
+                        }
+                    };
+                ));
+                call_args.push(if is_mut { quote!(#cvar.as_mut()) } else { quote!(#cvar.as_ref()) });
+                if is_mut {
+                    teardown.push(quote!(
+                        if let ::core::option::Option::Some(__v) = #cvar {
+                            ::rts_engine::heap::handles::with_rtse_mut::<#cls_ty, _>(#pid, |__slot| {
+                                if let ::core::option::Option::Some(__slot) = __slot { *__slot = __v; }
+                            });
+                        }
+                    ));
+                }
+            } else {
+                setup.push(quote!(
+                    let #mutkw #cvar: #cls_ty =
+                        match ::rts_engine::heap::handles::with_rtse::<#cls_ty, _>(#pid, |__s| __s.cloned()) {
+                            ::core::option::Option::Some(__v) => __v,
+                            ::core::option::Option::None => return ::core::default::Default::default(),
+                        };
+                ));
+                call_args.push(if is_mut { quote!(&mut #cvar) } else { quote!(&#cvar) });
+                if is_mut {
+                    teardown.push(quote!(
+                        ::rts_engine::heap::handles::with_rtse_mut::<#cls_ty, _>(#pid, |__slot| {
+                            if let ::core::option::Option::Some(__slot) = __slot { *__slot = #cvar; }
+                        });
+                    ));
+                }
+            }
+            arg_abis.push(quote!(::rts_engine::AbiType::Handle));
+            ts_params.push(format!("a{idx}: object"));
+            idx += 1;
+            continue;
+        }
+        if !is_optional {
+            if let Some(cls_ty) = is_class_value_param(ty) {
+                let pid = format_ident!("__a{}", idx);
+                let cvar = format_ident!("__c{}", idx);
+                ext_params.push(quote!(#pid: u64));
+                setup.push(quote!(
+                    let #cvar: #cls_ty =
+                        match ::rts_engine::heap::handles::with_rtse::<#cls_ty, _>(#pid, |__s| __s.cloned()) {
+                            ::core::option::Option::Some(__v) => __v,
+                            ::core::option::Option::None => return ::core::default::Default::default(),
+                        };
+                ));
+                call_args.push(quote!(#cvar));
+                arg_abis.push(quote!(::rts_engine::AbiType::Handle));
+                ts_params.push(format!("a{idx}: object"));
+                idx += 1;
+                continue;
+            }
+        } else if is_class_value_param(ty).is_some() {
+            return Err(syn::Error::new_spanned(
+                &pt.ty,
+                "rtse: `Option<T>` by-value class param is not supported — use `Option<&T>`",
+            ));
+        }
         let Some((abi, ext_ty, ts)) = scalar(ty) else {
             return Err(syn::Error::new_spanned(
                 ty,
-                "rtse: param must be f64/i64/i32/bool/&str/Handle/U64",
+                "rtse: param must be f64/i64/i32/bool/&str/Handle/U64/&T (class)",
             ));
         };
         let is_f64 = matches!(ty, Type::Path(p) if p.path.is_ident("f64"));
@@ -227,6 +326,8 @@ pub(crate) fn build_params(
         ts_params,
         value_recv_abi,
         value_recv_call,
+        setup,
+        teardown,
         option_count,
     })
 }
