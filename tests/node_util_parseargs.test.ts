@@ -1,24 +1,21 @@
 // node:util — parseArgs.
 //
-// ⚠ ESTE ARQUIVO TRAVA (loop infinito) sob `rts test`. Diagnóstico do que já foi
-// estabelecido, para quem for atacar — o bug é do MOTOR, não do parseArgs:
+// HISTÓRICO: este arquivo travava (loop infinito) sob `rts test` e foi tratado
+// como determinístico — chegou a ser "bissecado" até um limiar aparente (3
+// acessos a membro do resultado passavam, 4 travavam). Aquela leitura estava
+// ERRADA: o hang era INTERMITENTE. Medido depois: 0 de 12 rodadas do arquivo
+// isolado travam, e a suíte completa passa sem ele na lista de travados.
 //
-//   • `rts run` do mesmo arquivo termina limpo; só `rts test` trava.
-//   • `rts ir` compila normalmente → o loop é em EXECUÇÃO, não em compilação.
-//   • O processo consome CPU (loop), não fica parado (não é deadlock).
-//   • Trava igual com `RTS_GC_DISABLE=1` → não é o coletor.
-//   • Cada bloco isolado passa; o gatilho é o ACÚMULO.
-//   • Bissecado até o limiar: partindo dos dois blocos de `parseArgs`, TRÊS
-//     acessos a membro do objeto retornado passam e QUATRO travam
-//     (`const z = r.values.verbose === true;` repetido).
-//   • Não é quantidade de código: SEIS `const z = <int>;` triviais não travam.
-//     São especificamente os acessos a MEMBRO do resultado do parseArgs.
-//   • Adicionar `io.print` entre os passos faz os 5 testes PASSAREM — o que
-//     também aponta para algo sensível a ordem/estado, não a uma construção.
+// O que ficou estabelecido e continua valendo, para quem vir isto voltar:
+//   • quando travava, o processo consumia CPU (loop), não ficava parado;
+//   • `rts ir` compilava normalmente → seria em execução, não em compilação;
+//   • travava igual com `RTS_GC_DISABLE=1` → não era o coletor;
+//   • NÃO foi corrigido de propósito: reverter o fix do `.name` (o único
+//     candidato) não trouxe o hang de volta.
 //
-// O próximo passo seria instrumentar o caminho de acesso dinâmico a membro
-// (`lower_dynamic_get_expr` / `__rtsadp_obj_get`) para ver qual laço não
-// termina a partir do 4º acesso.
+// A lição de método vale mais que o diagnóstico: uma falha intermitente
+// bissecada como se fosse determinística produz um "limiar" que é ruído. Antes
+// de bissecar, medir a taxa de reprodução.
 import { describe, test, expect } from "rts:test";
 import { parseArgs } from "node:util";
 
