@@ -16,3 +16,9 @@ syn = { version = "2", features = ["full"] }
 quote = "1"
 proc-macro2 = "1"
 rts-abi = { path = "../rts-abi" }
+
+[dev-dependencies]
+# Integration tests exercise the generated code, which references
+# `::rts_engine::*` paths (Member/MemberKind/Sig/…) — dev-only, no cycle (the
+# macro crate itself only depends on rts-abi).
+rts-engine = { path = "../rts-engine" }

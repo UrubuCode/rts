@@ -25,11 +25,9 @@ pub use rts_primitives::ERROR_TS;
 /// the facade (`rts_runtime::OBJECT_TS`). Included as a declarations-only prelude;
 /// an object-receiver method call routes into its ambient `class Object`.
 pub use rts_primitives::OBJECT_TS;
-/// Embedded TS source of the PRIMORDIAL `Boolean.prototype` methods, re-exported
-/// from `rts-primitives` so the new engine reaches it through the facade
-/// (`rts_runtime::BOOLEAN_TS`). Included by the engine as a declarations-only
-/// prelude; a primitive-bool method call routes into its ambient `class Boolean`.
-pub use rts_primitives::BOOLEAN_TS;
+// Boolean is now a pure-Rust `#[rtse::class("Boolean", value)]` value-class
+// (`rts-primitives/src/boolean.rs`) — there is no `BOOLEAN_TS` prelude anymore
+// (same drain as String).
 /// Embedded TS source of the PRIMORDIAL `Number.prototype` methods, re-exported
 /// from `rts-primitives` so the new engine reaches it through the facade
 /// (`rts_runtime::NUMBER_TS`). Included as a declarations-only prelude; a

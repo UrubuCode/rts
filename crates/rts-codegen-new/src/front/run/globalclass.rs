@@ -204,7 +204,25 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 .try_registry_instance_method(module, &class, object, method, args)
                 .map(Some);
         }
-        let meta = class_meta(&class).expect("recorded global class must resolve");
+        // A recorded global class WITHOUT a hand-written meta table is not an
+        // error — it is a class that lives entirely in the Registry (every
+        // `#[rtse::class]`, and every value-class since the primordials began
+        // migrating). `is_pure_registry_class` above catches most of them, but a
+        // receiver reaching here through a different tracking path (a gcell-
+        // promoted top-level binding read from inside a closure) still lands on a
+        // class the meta table never described.
+        //
+        // This used to `expect("recorded global class must resolve")` and PANIC.
+        // Reproduce the old behaviour with:
+        //
+        //     const n = new Number(5);
+        //     const f = () => n.toString();
+        //
+        // Falling through lets the ordinary Registry/method dispatch resolve it,
+        // which is what the non-closure spelling of the same program already did.
+        let Some(meta) = class_meta(&class) else {
+            return Ok(None);
+        };
         let Some(&(_, arity, symbol)) = meta
             .methods
             .iter()

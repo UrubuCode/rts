@@ -111,6 +111,18 @@ pub struct Member {
     /// implementação nativa. O emitter é um caminho rápido opcional, não a única
     /// definição do membro.
     pub emit: Option<NativeEmit>,
+
+    /// The RETURN CLASS, as DATA rather than a `ts_signature` string to
+    /// re-parse. `Some("StreamReader")` for a member whose Rust return type
+    /// names a registered class (`-> StreamReader`, `-> Self`, `-> Option<Self>`,
+    /// or `#[rtse::method(returns = "Class")]`) — set by the `rtse` macros at
+    /// expansion time so a typo'd class name is a `rustc` unresolved-path error,
+    /// not a silently-dropped string match. `None` when the return carries no
+    /// class identity (void/scalar/string/plain `Handle`/`Vec<T>`/…). Consumers
+    /// (`crates/rts-codegen-new/src/front/run/registry.rs`) prefer this field
+    /// over parsing `ts_signature`, falling back to the string parse only for
+    /// members that have not been migrated to declare it.
+    pub ret_class: Option<String>,
 }
 
 impl Member {

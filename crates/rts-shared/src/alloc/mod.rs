@@ -91,6 +91,7 @@ fn func(
         variadic: false,
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
+        ret_class: None,
         pure: false,
         emit: None,
     }

@@ -116,6 +116,25 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(None);
         }
 
+        // ---- Registry/global-class instance (e.g. a Rust value-class WRAPPER
+        // like `String`/`Boolean` once migrated off the ambient `.ts` prelude) ----
+        // `static_instance_class` only tracks USER classes (`self.classes`); a
+        // Registry class instance is tracked separately via
+        // `global_instance_class` (New/Ident/chained-receiver, data-driven off
+        // the Registry) — ask it too, generically, for ANY Registry class with a
+        // `toString`/`valueOf` member, never naming one here.
+        if let Some(class) = self.global_instance_class(expr) {
+            if let Some(method) = self.registry_primitive_method_of(&class, hint) {
+                let recv = self.lower_expr(module, expr)?;
+                if let Some(val) =
+                    self.try_primitive_class_method(module, recv, &class, &method, &[])?
+                {
+                    return Ok(Some(self.box_value(val)));
+                }
+            }
+            return Ok(None);
+        }
+
         // NOTE: an `.ts` Error instance is a USER class (prelude `Error.ts`), so its
         // `toString()` (`"name: message"`) is resolved by the user-class branch
         // above — no `__rtsadp_err_to_string` trampoline. A thrown-then-caught error
@@ -201,7 +220,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// to take the ToPrimitive path instead of the whole-object bail.
     pub(super) fn has_object_toprimitive(&self, expr: &HirExpr) -> bool {
         if let Some(class) = self.static_instance_class(expr) {
-            return self.primitive_method_of(&class, Hint::Default).is_some();
+            return self.primitive_method_of(&class, Hint::Default).is_some()
+                || self.registry_primitive_method_of(&class, Hint::Default).is_some();
+        }
+        if let Some(class) = self.global_instance_class(expr) {
+            return self.registry_primitive_method_of(&class, Hint::Default).is_some();
         }
         false
     }

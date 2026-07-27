@@ -39,6 +39,7 @@ pub fn register_proxy_class_spec(e: &mut Engine) {
             variadic: false,
             ts_signature: "new (target: object, handler: ProxyHandler<object>): any".to_string(),
             doc: "new Proxy(target, handler) — cria Entry::Proxy.".to_string(),
+            ret_class: None,
             pure: false,
             emit: None,
         })

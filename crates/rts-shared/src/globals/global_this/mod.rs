@@ -27,6 +27,7 @@ pub fn register(e: &mut Engine) {
             variadic: false,
             ts_signature: "undefined: undefined".to_string(),
             doc: "The undefined value (0 in RTS).".to_string(),
+            ret_class: None,
             pure: true,
             emit: None,
         })

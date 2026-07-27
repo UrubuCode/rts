@@ -75,6 +75,7 @@ fn m(
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
         pure,
+        ret_class: None,
         emit: None,
     }
 }

@@ -208,6 +208,14 @@ pub enum MemberKind {
     /// `fn(value: T)`. Absent for `const` variables, making the write a hard
     /// codegen error.
     VarSetter,
+    /// A class's call-WITHOUT-`new` behaviour — `ClassName(args)`, as opposed
+    /// to `Constructor` (`new ClassName(args)`). No receiver, same ABI shape as
+    /// `StaticMethod`. JS primitive wrappers (`Boolean`/`String`/`Number`) are
+    /// the canonical example: `new Boolean(x)` allocates a wrapper object,
+    /// `Boolean(x)` performs a primitive coercion — two DIFFERENT operations a
+    /// class declares independently (`#[rtse::functioncall]`). At most one per
+    /// class.
+    CallWithoutNew,
 }
 
 /// Concatenates two member slices into one fixed-size array at const time.

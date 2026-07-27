@@ -107,6 +107,23 @@ pub extern "C" fn __rtsn_vec_set_by_payload(poly48: u64, index: i64, value: i64)
     })
 }
 
+/// Append `value`, returning 1 on success and 0 for an invalid slot / non-vec.
+///
+/// The growth happens INSIDE the lock scope, exactly as the fused setter's
+/// `resize` does, so a reallocation of the backing buffer cannot be observed by
+/// anything holding a stale pointer — no pointer survives the call boundary in
+/// either direction.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsn_vec_push_by_payload(poly48: u64, value: i64) -> i64 {
+    with_payload_slot_mut(poly48, |entry| match entry {
+        Some(Entry::Vec(v)) => {
+            v.push(value);
+            1
+        }
+        _ => 0,
+    })
+}
+
 /// Length of the vec at `poly48`, or -1 for an invalid slot / non-vec.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsn_vec_len_by_payload(poly48: u64) -> i64 {

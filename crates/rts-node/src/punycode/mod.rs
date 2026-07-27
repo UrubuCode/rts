@@ -42,6 +42,7 @@ fn make(
         variadic: false,
         ts_signature: ts.to_string(),
         doc: String::new(),
+        ret_class: None,
         pure: false,
         emit: None,
     }

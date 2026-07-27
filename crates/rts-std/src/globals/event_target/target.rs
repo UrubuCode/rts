@@ -173,6 +173,7 @@ pub fn register_event_target_class_spec(e: &mut Engine) {
         ts_signature: "dispatchEvent(event: Event): boolean".to_string(),
         doc: "target.dispatchEvent(ev) — synchronous, spec-order dispatch; returns !ev.defaultPrevented."
             .to_string(),
+        ret_class: None,
         pure: false,
         emit: None,
     })

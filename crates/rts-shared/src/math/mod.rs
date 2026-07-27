@@ -490,6 +490,7 @@ fn func(
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
         pure,
+        ret_class: None,
         emit: None,
     }
 }
@@ -507,6 +508,7 @@ fn cst(name: &str, symbol: &str, ts: &str, doc: &str, fp: *const u8) -> Member {
         variadic: false,
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
+        ret_class: None,
         pure: true,
         emit: None,
     }
@@ -598,6 +600,7 @@ fn alias(
         variadic: false,
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
+        ret_class: None,
         pure: false,
         emit: None,
     }

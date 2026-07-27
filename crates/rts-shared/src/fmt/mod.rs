@@ -224,6 +224,7 @@ fn pure_func(
         variadic: false,
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
+        ret_class: None,
         pure: true,
         emit: None,
     }

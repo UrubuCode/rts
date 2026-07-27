@@ -34,16 +34,13 @@ pub const ERROR_TS: &str = include_str!("error.ts");
 /// transparent to this instance-only class.
 pub const OBJECT_TS: &str = include_str!("object.ts");
 
-/// Embedded TypeScript source of the PRIMORDIAL `Boolean.prototype` methods
-/// (`toString`/`valueOf`). The new engine `include`s this declarations-only
-/// prelude: a method called on a PRIMITIVE bool receiver (`true.toString()`) is
-/// routed into this ambient `class Boolean`'s method with the primitive BOXED as
-/// `this` (shape-based dispatch, NOT JS prototypes — the engine resolves the
-/// method on the class at compile time). The method bodies read `this` AS THE
-/// PRIMITIVE boolean. This file is the PROVER of the primitive → prelude-`.ts`-
-/// class method-dispatch mechanism (String/Number follow the same pattern). The
-/// wrapper object `new Boolean(x)` stays the engine's wrapper trampoline.
-pub const BOOLEAN_TS: &str = include_str!("boolean.ts");
+// Boolean is now a pure-Rust `#[rtse::class("Boolean", value)]` value-class
+// (`boolean.rs`) — the `.ts` prelude (`BOOLEAN_TS`) was DELETED, following the
+// SAME migration `String` proved (`string/value_class.rs`). Instance dispatch:
+// proven (`try_primitive_class_method`, MIGRATED branch) + the `Boolean(x)`
+// call-without-`new` form via `#[rtse::functioncall]`
+// (`registry::class_functioncall`). The macro generates every Boolean symbol;
+// nothing hardcoded in the engine.
 
 /// Embedded TypeScript source of the PRIMORDIAL `Number.prototype` methods
 /// (`valueOf`/`toString`/`toFixed`/`toPrecision`/`toExponential`/`toLocaleString`).
@@ -53,9 +50,9 @@ pub const BOOLEAN_TS: &str = include_str!("boolean.ts");
 /// with the primitive BOXED as `this` (shape-based dispatch, NOT JS prototypes).
 /// The irreducible numeric FORMATTING stays in Rust (`number.rs`,
 /// `__RTS_FN_GL_NUMBER_*`) and is re-exposed PRIVATELY via the `engine.num_*`
-/// helpers the bodies call — one source of truth. Same pattern as `BOOLEAN_TS`;
-/// `String` follows next. The wrapper object `new Number(x)` stays the engine's
-/// wrapper trampoline.
+/// helpers the bodies call — one source of truth. Boolean/String already moved
+/// to a pure-Rust value-class; Number is next. The wrapper object `new
+/// Number(x)` stays the engine's wrapper trampoline.
 pub const NUMBER_TS: &str = include_str!("number.ts");
 
 // String is now a pure-Rust `#[rtse::class("String", value)]` value-class

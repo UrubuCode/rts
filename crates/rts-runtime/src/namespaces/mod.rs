@@ -99,6 +99,7 @@ pub use rts_std::promise;
 pub use rts_std::promise_slot;
 pub use rts_shared::ptr;
 pub use rts_shared::regex;
+pub use rts_shared::serde_ns as serde;
 pub use rts_std::runtime;
 // string movido para globals/string
 pub use rts_std::sync;

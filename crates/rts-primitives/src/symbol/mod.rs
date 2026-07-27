@@ -199,6 +199,7 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
             variadic: false,
             ts_signature: "new Symbol(description?: string): symbol".to_string(),
             doc: "Creates a new unique Symbol with optional description string.".to_string(),
+            ret_class: None,
             pure: false,
             emit: None,
         })
@@ -214,6 +215,7 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
             ts_signature: "for(key: string): symbol".to_string(),
             doc: "Returns a registered symbol by key — same key always returns same handle."
                 .to_string(),
+            ret_class: None,
             pure: false,
             emit: None,
         })
@@ -229,6 +231,7 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
             ts_signature: "keyFor(sym: symbol): string | undefined".to_string(),
             doc: "Returns the key for a registered symbol, or 0 (undefined) if not registered."
                 .to_string(),
+            ret_class: None,
             pure: true,
             emit: None,
         })
@@ -243,6 +246,7 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
             variadic: false,
             ts_signature: "description: string | undefined".to_string(),
             doc: "Returns the symbol's description string, or 0 if none.".to_string(),
+            ret_class: None,
             pure: true,
             emit: None,
         })
@@ -257,6 +261,7 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
             variadic: false,
             ts_signature: "toString(): string".to_string(),
             doc: "Returns 'Symbol(description)' string.".to_string(),
+            ret_class: None,
             pure: true,
             emit: None,
         })
@@ -271,6 +276,7 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
             variadic: false,
             ts_signature: "readonly iterator: unique symbol".to_string(),
             doc: "Symbol.iterator — well-known symbol pra iteration protocol.".to_string(),
+            ret_class: None,
             pure: true,
             emit: None,
         })
@@ -285,6 +291,7 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
             variadic: false,
             ts_signature: "readonly asyncIterator: unique symbol".to_string(),
             doc: "Symbol.asyncIterator — async iteration protocol.".to_string(),
+            ret_class: None,
             pure: true,
             emit: None,
         })
@@ -299,6 +306,7 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
             variadic: false,
             ts_signature: "readonly hasInstance: unique symbol".to_string(),
             doc: "Symbol.hasInstance — controla instanceof.".to_string(),
+            ret_class: None,
             pure: true,
             emit: None,
         })
@@ -313,6 +321,7 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
             variadic: false,
             ts_signature: "readonly toPrimitive: unique symbol".to_string(),
             doc: "Symbol.toPrimitive — controla coercao.".to_string(),
+            ret_class: None,
             pure: true,
             emit: None,
         })
@@ -327,6 +336,7 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
             variadic: false,
             ts_signature: "readonly toStringTag: unique symbol".to_string(),
             doc: "Symbol.toStringTag — customiza Object.prototype.toString.".to_string(),
+            ret_class: None,
             pure: true,
             emit: None,
         })

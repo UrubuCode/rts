@@ -98,10 +98,10 @@ use super::class::ClassTable;
 const ENGINE_CALLED_PRELUDE_FNS: &[&str] = &[
     // `Object(x)` / `new Object(x)` → `ObjectFactory(x)` (globals.rs, newexpr.rs)
     "ObjectFactory",
-    // `String(x)` / `Number(x)` / `Boolean(x)` called as conversions
-    "StringFactory",
+    // `Number(x)` called as a conversion. `StringFactory` no longer exists
+    // (String moved to a pure-Rust value-class); `BooleanFactory` likewise
+    // (Boolean moved — see `rts-primitives/src/boolean.rs`).
     "NumberFactory",
-    "BooleanFactory",
     // `Object.groupBy(..)` → `__object_group_by(..)` (objstatic.rs)
     "__object_group_by",
 ];
@@ -117,7 +117,13 @@ pub(super) fn prune_prelude(prog: &mut LoweredProgram) {
     }
     let before = prog.funcs.len();
 
-    let index = Index::build(&prog.funcs, &prog.classes, &prog.fn_this_class);
+    // Sub-phase timing: `prune prelude` measures ~8 ms of the ~54 ms startup and
+    // the suspicion is that `Index::build`'s two `to_string()` per edge dominate.
+    // Split it so the next optimization is aimed by measurement rather than by
+    // reading the code and guessing which half is hot.
+    let index = crate::timing::phase("  prune: index build", || {
+        Index::build(&prog.funcs, &prog.classes, &prog.fn_this_class)
+    });
     let mut keep: HashSet<String> = HashSet::new();
     let mut queue: Vec<String> = Vec::new();
 
@@ -185,6 +191,7 @@ pub(super) fn prune_prelude(prog: &mut LoweredProgram) {
     // the functions it can reach (which refills the queue). Both `keep` and
     // `seen_mentions` only ever grow, so this terminates.
     let mut seen_mentions: HashSet<String> = HashSet::new();
+    let fixpoint_start = std::time::Instant::now();
     loop {
         // (a) harvest the bodies of everything queued.
         for name in std::mem::take(&mut queue) {
@@ -208,6 +215,8 @@ pub(super) fn prune_prelude(prog: &mut LoweredProgram) {
             }
         }
     }
+
+    crate::timing::report("  prune: fixpoint", fixpoint_start);
 
     // APPLY. Drop unreachable prelude functions and every per-function side map
     // keyed by their names (a stale entry would keep a dropped fn's thunk or
@@ -248,22 +257,27 @@ struct Index<'a> {
     by_name: HashMap<&'a str, &'a HirFunc>,
     /// A mentioned name → every function name it can pull in (itself as a
     /// function, a whole class, or a member across all classes declaring it).
-    edges: HashMap<String, Vec<String>>,
+    /// Borrowed, not owned: see the note in [`Index::build`] — the owned form
+    /// allocated two `String`s per edge and dominated the whole prune pass.
+    edges: HashMap<&'a str, Vec<&'a str>>,
 }
 
 impl<'a> Index<'a> {
     fn build(
         funcs: &'a [HirFunc],
-        classes: &ClassTable,
-        fn_this_class: &HashMap<String, String>,
+        classes: &'a ClassTable,
+        fn_this_class: &'a HashMap<String, String>,
     ) -> Self {
         let by_name: HashMap<&str, &HirFunc> = funcs.iter().map(|f| (f.name.as_str(), f)).collect();
-        let mut edges: HashMap<String, Vec<String>> = HashMap::new();
-        let mut add = |key: &str, val: &str| {
-            edges
-                .entry(key.to_string())
-                .or_default()
-                .push(val.to_string());
+        // Edges BORROW their names from `funcs`/`classes`, which outlive the
+        // index. The owned version allocated two `String`s per edge, and an edge
+        // exists for every function, every class member, and every
+        // class-x-ancestor pair — measured at 7.07 ms of the ~10 ms prune (the
+        // fixpoint that follows is 0.79 ms), i.e. building the index cost 9x what
+        // using it did. Borrowing removes the allocation entirely.
+        let mut edges: HashMap<&'a str, Vec<&'a str>> = HashMap::new();
+        let mut add = |key: &'a str, val: &'a str| {
+            edges.entry(key).or_default().push(val);
         };
 
         // A function name reaches itself.
@@ -277,7 +291,7 @@ impl<'a> Index<'a> {
             let mut cur = Some(desc);
             while let Some(c) = cur {
                 for fname in class_fns(c) {
-                    add(&desc.name, &fname);
+                    add(desc.name.as_str(), fname);
                 }
                 cur = c.parent.as_deref().and_then(|p| classes.get(p));
             }
@@ -285,7 +299,7 @@ impl<'a> Index<'a> {
             // receiver's class is not always statically known, so a mention of
             // `toString` must keep every `toString` in the program.
             for (member, fname) in members_of(desc) {
-                add(&member, &fname);
+                add(member, fname);
             }
         }
         // A synthesized method fn name reaches its OWNING class: the body can
@@ -296,7 +310,7 @@ impl<'a> Index<'a> {
                 let mut cur = Some(desc);
                 while let Some(c) = cur {
                     for f in class_fns(c) {
-                        add(fname, &f);
+                        add(fname.as_str(), f);
                     }
                     cur = c.parent.as_deref().and_then(|p| classes.get(p));
                 }
@@ -317,48 +331,51 @@ impl<'a> Index<'a> {
         };
         names
             .iter()
-            .filter(|n| self.by_name.contains_key(n.as_str()))
-            .cloned()
+            .filter(|n| self.by_name.contains_key(*n))
+            .map(|n| (*n).to_string())
             .collect()
     }
 }
 
 /// Every synthesized function name a class owns (ctor, methods, accessors,
 /// statics, static-field getters).
-fn class_fns(desc: &super::class::ClassDesc) -> Vec<String> {
-    let mut out = vec![desc.ctor.clone()];
-    out.extend(desc.methods.values().cloned());
-    out.extend(desc.statics.values().cloned());
-    out.extend(desc.static_fields.values().cloned());
+/// Borrows from `desc` rather than cloning: the caller holds the `ClassTable`
+/// for the whole index build, and this runs once per class PER ANCESTOR, so the
+/// clones were quadratic in inheritance depth for no benefit.
+fn class_fns(desc: &super::class::ClassDesc) -> Vec<&str> {
+    let mut out = vec![desc.ctor.as_str()];
+    out.extend(desc.methods.values().map(String::as_str));
+    out.extend(desc.statics.values().map(String::as_str));
+    out.extend(desc.static_fields.values().map(String::as_str));
     for acc in desc.accessors.values() {
         if let Some(g) = &acc.getter {
-            out.push(g.clone());
+            out.push(g.as_str());
         }
         if let Some(s) = &acc.setter {
-            out.push(s.clone());
+            out.push(s.as_str());
         }
     }
     out
 }
 
 /// Member NAME → its synthesized function name, for every dispatchable member.
-fn members_of(desc: &super::class::ClassDesc) -> Vec<(String, String)> {
+fn members_of(desc: &super::class::ClassDesc) -> Vec<(&str, &str)> {
     let mut out = Vec::new();
     for (m, f) in &desc.methods {
-        out.push((m.clone(), f.clone()));
+        out.push((m.as_str(), f.as_str()));
     }
     for (m, f) in &desc.statics {
-        out.push((m.clone(), f.clone()));
+        out.push((m.as_str(), f.as_str()));
     }
     for (m, f) in &desc.static_fields {
-        out.push((m.clone(), f.clone()));
+        out.push((m.as_str(), f.as_str()));
     }
     for (m, acc) in &desc.accessors {
         if let Some(g) = &acc.getter {
-            out.push((m.clone(), g.clone()));
+            out.push((m.as_str(), g.as_str()));
         }
         if let Some(s) = &acc.setter {
-            out.push((m.clone(), s.clone()));
+            out.push((m.as_str(), s.as_str()));
         }
     }
     out

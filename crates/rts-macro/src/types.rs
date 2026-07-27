@@ -142,9 +142,176 @@ pub(crate) fn is_string_ret(ty: &Type) -> bool {
     }
 }
 
+/// Is this a plain single-segment `Type::Path` whose ident LOOKS like a class
+/// name (starts uppercase, alphanumeric/`_`) and is none of the other
+/// recognized special spellings (`Self`/`Handle`/`U64`/`Poly`/`String`/`Vec`/
+/// `Option`, plus the UPPERCASE ABI SCALAR ALIASES `I64`/`F64`/`I32`/`Bool` the
+/// drained namespaces spell their signatures with — `fn mouse_x(..) -> F64` is a
+/// number, not a class named `F64`)? Used to detect `-> SomeClass` /
+/// `Option<SomeClass>` returns where
+/// `SomeClass` is expected to carry a `#[rtse::class("Name")]`-declared
+/// `SomeClass::RTSE_CLASS` associated const (checked by `#path::RTSE_CLASS`,
+/// verbatim, in the generated code — an unresolved path is a `rustc` error at
+/// this site, not a silent runtime miss). Callers must place this check AFTER
+/// the more specific predicates (`is_self_ret`, `scalar`, …) in their match, so
+/// those take priority.
+fn is_class_like_ident(ty: &Type) -> Option<&syn::Ident> {
+    let Type::Path(p) = ty else { return None };
+    if p.path.segments.len() != 1 {
+        return None;
+    }
+    let seg = p.path.segments.last()?;
+    let name = seg.ident.to_string();
+    let first = name.chars().next()?;
+    if !first.is_ascii_uppercase() {
+        return None;
+    }
+    if matches!(
+        name.as_str(),
+        "Self"
+            | "SelfHandle"
+            | "Handle"
+            | "U64"
+            | "I64"
+            | "I32"
+            | "F64"
+            | "Poly"
+            | "String"
+            | "Vec"
+            | "Option"
+            | "Bool"
+    ) {
+        return None;
+    }
+    Some(&seg.ident)
+}
+
+/// `-> SomeClass` where `SomeClass` is not `Self` — a member returning an
+/// INSTANCE OF ANOTHER registered class (`node:fs::createReadStream() ->
+/// StreamReader`, `url.searchParams -> URLSearchParams`). Returns the type's
+/// path so the caller can emit `#ty::RTSE_CLASS` verbatim.
+pub(crate) fn is_other_class_ret(ty: &Type) -> Option<&Type> {
+    is_class_like_ident(ty)?;
+    Some(ty)
+}
+
+/// `-> Option<SomeClass>` (not `Option<Self>`) — a nullable other-class return.
+/// Returns the OUTER `Option<...>` type's inner type argument (the class type)
+/// so the caller can emit `#inner::RTSE_CLASS`.
+pub(crate) fn is_option_other_class_ret(ty: &Type) -> Option<&Type> {
+    let Type::Path(p) = ty else { return None };
+    let seg = p.path.segments.last()?;
+    if seg.ident != "Option" {
+        return None;
+    }
+    let syn::PathArguments::AngleBracketed(a) = &seg.arguments else {
+        return None;
+    };
+    let syn::GenericArgument::Type(inner) = a.args.first()? else {
+        return None;
+    };
+    is_other_class_ret(inner)
+}
+
+/// Generic `Option<T>` unwrap for a PARAMETER position (not a return — those go
+/// through `is_option_self_ret`/`is_option_string_ret`/`is_option_other_class_ret`,
+/// each with a return-specific alloc/null convention). `T` marshals to the
+/// EXACT SAME `AbiType` as bare `T`; the only difference an `Option<T>` param
+/// makes is (1) it joins the member's trailing optional-arity window (same
+/// window `optional = N` populates) and (2) the generated extern wrapper turns
+/// the incoming word into `Option<T>` — `None` when the word is the "absent"
+/// sentinel `DefaultArg::Undefined` already injects at the call site for that
+/// `AbiType` (NaN for `F64`, `0` for `Handle`/`U64`, `""` for `StrPtr`), `Some`
+/// otherwise. Callers decide, per inner type, whether that sentinel exists —
+/// see `params::build_params`'s optional-param branch.
+pub(crate) fn option_inner(ty: &Type) -> Option<&Type> {
+    let Type::Path(p) = ty else { return None };
+    let seg = p.path.segments.last()?;
+    if seg.ident != "Option" {
+        return None;
+    }
+    let syn::PathArguments::AngleBracketed(a) = &seg.arguments else {
+        return None;
+    };
+    match a.args.first()? {
+        syn::GenericArgument::Type(t) => Some(t),
+        _ => None,
+    }
+}
+
 pub(crate) fn ret_ty(sig: &syn::Signature) -> Option<&Type> {
     match &sig.output {
         ReturnType::Default => None,
         ReturnType::Type(_, t) => Some(t),
+    }
+}
+
+#[cfg(test)]
+mod class_ret_tests {
+    use super::{is_option_other_class_ret, is_other_class_ret};
+    use syn::parse_quote;
+
+    #[test]
+    fn plain_class_type_detected() {
+        let ty: syn::Type = parse_quote!(StreamReader);
+        assert!(is_other_class_ret(&ty).is_some());
+    }
+
+    #[test]
+    fn option_class_type_detected_and_unwraps_inner() {
+        let ty: syn::Type = parse_quote!(Option<StreamReader>);
+        let inner = is_option_other_class_ret(&ty).expect("Option<Class> should match");
+        let want: syn::Type = parse_quote!(StreamReader);
+        assert_eq!(quote::quote!(#inner).to_string(), quote::quote!(#want).to_string());
+    }
+
+    #[test]
+    fn special_spellings_are_not_class_like() {
+        let tys: [syn::Type; 7] = [
+            parse_quote!(Handle),
+            parse_quote!(U64),
+            parse_quote!(Poly),
+            parse_quote!(String),
+            parse_quote!(Bool),
+            parse_quote!(Self),
+            parse_quote!(SelfHandle),
+        ];
+        for ty in &tys {
+            assert!(is_other_class_ret(ty).is_none(), "should not be class-like");
+        }
+    }
+
+    /// The UPPERCASE ABI scalar aliases (`type I64 = i64`, `type F64 = f64`, …)
+    /// are how the drained namespaces spell their signatures — `-> F64` is a
+    /// number, not a class. They start uppercase, so only the exception list
+    /// keeps them out of the class-return path; without it every `-> I64`
+    /// member expands to `I64::RTSE_CLASS` and the crate stops compiling.
+    #[test]
+    fn uppercase_abi_scalar_aliases_are_not_class_like() {
+        let tys: [syn::Type; 4] = [
+            parse_quote!(I64),
+            parse_quote!(F64),
+            parse_quote!(I32),
+            parse_quote!(Bool),
+        ];
+        for ty in &tys {
+            assert!(
+                is_other_class_ret(ty).is_none(),
+                "ABI scalar alias must not be class-like: {}",
+                quote::quote!(#ty)
+            );
+        }
+    }
+
+    #[test]
+    fn lowercase_scalars_are_not_class_like() {
+        let ty: syn::Type = parse_quote!(f64);
+        assert!(is_other_class_ret(&ty).is_none());
+    }
+
+    #[test]
+    fn vec_is_not_class_like() {
+        let ty: syn::Type = parse_quote!(Vec<StreamReader>);
+        assert!(is_other_class_ret(&ty).is_none());
     }
 }

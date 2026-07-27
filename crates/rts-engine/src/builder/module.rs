@@ -176,7 +176,9 @@ pub(crate) fn push_variable(
         variadic: false,
         ts_signature: String::new(),
         doc: String::new(),
+        ret_class: None,
         pure: false,
+        
         emit: None,
     };
     getter.ts_signature = format!("{name}: {}", ts_of(ty));
@@ -194,7 +196,9 @@ pub(crate) fn push_variable(
                 variadic: false,
                 ts_signature: String::new(),
                 doc: String::new(),
+                ret_class: None,
                 pure: false,
+                
                 emit: None,
             });
         }

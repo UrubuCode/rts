@@ -27,6 +27,7 @@ fn ext(name: &str, symbol: &str, ts: &str, doc: &str) -> Member {
         variadic: false,
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
+        ret_class: None,
         pure: false,
         emit: None,
     }

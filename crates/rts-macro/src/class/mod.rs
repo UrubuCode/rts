@@ -176,6 +176,17 @@ fn gen_impl(
         #imp
         #(#externs)*
         #keep_tok
+        impl #self_ty {
+            /// The JS class name this type registers under — the SINGLE SOURCE a
+            /// member returning `-> #self_ty` from ANOTHER class (a free
+            /// `#[rtse::function]` or a method on a different `#[rtse::class]`)
+            /// reads via `#self_ty::RTSE_CLASS` to fill `Member.ret_class`. A
+            /// misspelled type at the use site is then a `rustc` unresolved-path
+            /// error, not a silently-dropped `ts_signature` string match. Same
+            /// shape as `WellKnown::member_key()` in
+            /// `rts-primitives/src/symbol/wellknown.rs`.
+            pub const RTSE_CLASS: &'static str = #class_name;
+        }
         /// Register this class + members into the engine Registry. Add to `REGISTER`.
         pub fn register(e: &mut ::rts_engine::Engine) {
             #fields_fn(e.class(#class_name))

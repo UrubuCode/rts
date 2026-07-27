@@ -22,6 +22,7 @@ pub fn register(e: &mut Engine) {
             variadic: false,
             ts_signature: "parse(text: string): unknown".to_string(),
             doc: "Parses a JSON string. Returns opaque handle; 0 on error.".to_string(),
+            ret_class: None,
             pure: false,
             emit: None,
         })
@@ -36,6 +37,7 @@ pub fn register(e: &mut Engine) {
             variadic: false,
             ts_signature: "stringify(value: unknown): string".to_string(),
             doc: "Serializes a JSON handle to its compact string form.".to_string(),
+            ret_class: None,
             pure: false,
             emit: None,
         })
@@ -51,6 +53,7 @@ pub fn register(e: &mut Engine) {
             ts_signature: "stringify(value: unknown, _replacer: null, indent: number): string"
                 .to_string(),
             doc: "Pretty-printed serialization with `indent` spaces.".to_string(),
+            ret_class: None,
             pure: false,
             emit: None,
         })

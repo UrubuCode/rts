@@ -275,12 +275,12 @@ pub fn emit_vec_push(
     obj_word: Value,
     value_word: Value,
 ) {
-    let handle = emit_table_load(module, builder, obj_word);
+    let payload = emit_payload(builder, obj_word);
     emit_call(
         module,
         builder,
-        "__RTS_FN_NS_COLLECTIONS_VEC_PUSH",
-        &[handle, value_word],
+        "__rtsn_vec_push_by_payload",
+        &[payload, value_word],
     );
 }
 

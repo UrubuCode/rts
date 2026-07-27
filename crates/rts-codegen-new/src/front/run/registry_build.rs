@@ -106,6 +106,7 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     ns::ws::register,
     ns::json::register,
     ns::protobuf::register,
+    ns::serde::register,
     ns::promise::register,
     ns::thread::register,
     ns::ffi::register,
@@ -147,9 +148,11 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     // static-call path can resolve `Promise.resolve()` generically.
     ns::globals::promise::register_promise_class_spec,
     ns::globals::regexp::register_regexp_class_spec,
-    // Error is NOT here — it is a `.ts` prelude (ERROR_TS). Boolean/Number/String
-    // class specs let the `new X(..)` WRAPPER ctor resolve through the Registry.
-    ns::globals::boolean::register_boolean_class_spec,
+    // Error is NOT here — it is a `.ts` prelude (ERROR_TS). Number/String class
+    // specs let the `new X(..)` WRAPPER ctor resolve through the Registry.
+    // Boolean is a pure-Rust `#[rtse::class("Boolean", value)]` value-class
+    // (`boolean.rs`, no `.ts` prelude) — its macro-generated `register` fn.
+    ns::globals::boolean::register,
     ns::globals::number::register_number_class_spec,
     ns::globals::string::register_string_class_spec,
     // `URL` — backend/Registry class (WHATWG parser, no native syntax): `new URL(s)`
@@ -314,6 +317,7 @@ fn register_typed_array_class_specs(e: &mut Engine) {
             variadic: false,
             ts_signature: ts.to_string(),
             doc: "TypedArray instance surface (works on both the Vec-backed and the buffer-VIEW representations).".to_string(),
+            ret_class: None,
             pure: false,
             emit: None,
         }
@@ -331,6 +335,7 @@ fn register_typed_array_class_specs(e: &mut Engine) {
                 variadic: false,
                 ts_signature: format!("new {class}(src: number | number[] | ArrayBuffer): number[]"),
                 doc: "Typed-array constructor (length → zeros; array → wrapped copy; ArrayBuffer → live view).".to_string(),
+                ret_class: None,
                 pure: false,
                 emit: None,
             })
@@ -373,6 +378,7 @@ fn register_typed_array_class_specs(e: &mut Engine) {
                 variadic: false,
                 ts_signature: "length: number".to_string(),
                 doc: "Element count (tag-dispatched: Vec length or buffer bytes / elem width).".to_string(),
+                ret_class: None,
                 pure: true,
                 emit: None,
             })
@@ -404,6 +410,7 @@ fn register_typed_array_class_specs(e: &mut Engine) {
             variadic: false,
             ts_signature: format!("{name}(bits: number, v: bigint): bigint"),
             doc: "N-bit wrap (i64 interim BigInt model, #219).".to_string(),
+            ret_class: None,
             pure: true,
             emit: None,
         });
@@ -440,6 +447,7 @@ fn register_typed_array_class_specs(e: &mut Engine) {
             variadic: false,
             ts_signature: format!("{name}(...): number"),
             doc: "Atomics level A (single-threaded RMW).".to_string(),
+            ret_class: None,
             pure: false,
             emit: None,
         });
@@ -472,12 +480,9 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
         source: rts_runtime::OBJECT_TS,
         why: "hasOwnProperty/toString/valueOf",
     },
+    // Boolean — MIGRATED to a pure-Rust `#[rtse::class("Boolean", value)]`
+    // (rts-primitives/src/boolean.rs); NO `.ts` prelude (same drain as String).
     // PRIMITIVE method libs (receiver boxed as `this`).
-    PreludeTs {
-        label: "Boolean",
-        source: rts_runtime::BOOLEAN_TS,
-        why: "bool.toString/valueOf",
-    },
     PreludeTs {
         label: "Number",
         source: rts_runtime::NUMBER_TS,

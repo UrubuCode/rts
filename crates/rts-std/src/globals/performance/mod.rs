@@ -51,6 +51,7 @@ pub fn register(e: &mut Engine) {
             ts_signature: "now(): number".to_string(),
             doc: "performance.now() — tempo monotônico em milissegundos (precisão sub-ms)."
                 .to_string(),
+            ret_class: None,
             pure: false,
             emit: None,
         })
@@ -66,6 +67,7 @@ pub fn register(e: &mut Engine) {
             ts_signature: "timeOrigin: number".to_string(),
             doc: "performance.timeOrigin — Unix timestamp em ms do início do processo."
                 .to_string(),
+            ret_class: None,
             pure: true,
             emit: None,
         })

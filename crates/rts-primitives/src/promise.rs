@@ -22,6 +22,7 @@ fn m(name: &str, kind: MemberKind, sig: Sig, symbol: &str, ts: &str, doc: &str, 
         ts_signature: ts.to_string(),
         doc: doc.to_string(),
         pure,
+        ret_class: None,
         emit: None,
     }
 }

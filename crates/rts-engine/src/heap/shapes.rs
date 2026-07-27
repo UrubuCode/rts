@@ -77,6 +77,10 @@ pub fn reset_global_shapes() {
     if let Ok(mut t) = error_classes().lock() {
         t.clear();
     }
+    if let Ok(mut t) = class_shapes().lock() {
+        t.by_name.clear();
+        t.by_id.clear();
+    }
 }
 
 /// PRIMORDIAL error-class registry: `name` → (instance shape-id, flattened
@@ -98,6 +102,74 @@ pub fn register_error_class(name: &str, shape: GlobalShapeId, fields: &[String])
 /// not lowered in this process — e.g. an AOT binary).
 pub fn error_class_info(name: &str) -> Option<(GlobalShapeId, Vec<String>)> {
     error_classes().lock().ok()?.get(name).cloned()
+}
+
+/// GENERIC class-shape registry: `class name ↔ instance shape id`, for every
+/// user/prelude `class` declaration (the Error-family table above predates this
+/// and stays — it also carries the field layout error trampolines need). The
+/// consumer is the pickle (`heap::pickle`): the encoder asks "which class is
+/// this shape?" ([`class_name_of_shape`]) and the decoder asks "which shape does
+/// this class have HERE?" ([`class_shape_of`]) — reviving with the DESTINATION
+/// program's shape id is what makes `instanceof` (a baked shape-id compare)
+/// work on a revived instance.
+struct ClassShapes {
+    by_name: HashMap<String, GlobalShapeId>,
+    by_id: HashMap<GlobalShapeId, String>,
+}
+
+fn class_shapes() -> &'static Mutex<ClassShapes> {
+    static T: OnceLock<Mutex<ClassShapes>> = OnceLock::new();
+    T.get_or_init(|| {
+        Mutex::new(ClassShapes {
+            by_name: HashMap::new(),
+            by_id: HashMap::new(),
+        })
+    })
+}
+
+/// Record one `class` declaration's name ↔ instance-shape pair. Last
+/// declaration wins by name (flat name space — a duplicated class name across
+/// modules revives as the LAST one registered, a documented limitation).
+pub fn register_class_shape(name: &str, shape: GlobalShapeId) {
+    if name.is_empty() {
+        return;
+    }
+    if let Ok(mut t) = class_shapes().lock() {
+        t.by_name.insert(name.to_string(), shape);
+        t.by_id.insert(shape, name.to_string());
+    }
+}
+
+/// The instance shape id of class `name` in THIS process, or `None` when no
+/// such class was lowered here.
+pub fn class_shape_of(name: &str) -> Option<GlobalShapeId> {
+    class_shapes().lock().ok()?.by_name.get(name).copied()
+}
+
+/// The class name owning shape `id`, or `None` for a plain object-literal shape.
+pub fn class_name_of_shape(id: GlobalShapeId) -> Option<String> {
+    class_shapes().lock().ok()?.by_id.get(&id).cloned()
+}
+
+/// Snapshot the class-shape registry for the prelude cache. Paired with
+/// [`seed_class_shapes`].
+pub fn export_class_shapes() -> Vec<(String, GlobalShapeId)> {
+    class_shapes()
+        .lock()
+        .map(|t| t.by_name.iter().map(|(n, id)| (n.clone(), *id)).collect())
+        .unwrap_or_default()
+}
+
+/// Re-seed the class-shape registry from an [`export_class_shapes`] snapshot.
+pub fn seed_class_shapes(snapshot: Vec<(String, GlobalShapeId)>) {
+    if let Ok(mut t) = class_shapes().lock() {
+        t.by_name.clear();
+        t.by_id.clear();
+        for (name, id) in snapshot {
+            t.by_id.insert(id, name.clone());
+            t.by_name.insert(name, id);
+        }
+    }
 }
 
 /// The number of interned global shapes (leak-test probe).
@@ -229,6 +301,15 @@ pub fn export_seed_blob() -> Vec<u8> {
             wr_str(&mut out, f);
         }
     }
+    // Class-shape section (appended AFTER the original two — a blob written by
+    // an older binary simply ends here, and `seed_from_blob` treats the missing
+    // section as empty instead of misparsing).
+    let classes = export_class_shapes();
+    wr_u32(&mut out, classes.len() as u32);
+    for (name, id) in &classes {
+        wr_str(&mut out, name);
+        wr_u32(&mut out, *id);
+    }
     out
 }
 
@@ -261,9 +342,21 @@ pub fn seed_from_blob(bytes: &[u8]) {
         }
         errs.push((name, id, fields));
     }
+    // Class-shape section — absent in a blob written before it existed.
+    let mut classes: Vec<(String, GlobalShapeId)> = Vec::new();
+    if p + 4 <= bytes.len() {
+        let num_classes = rd_u32(bytes, &mut p) as usize;
+        classes.reserve(num_classes);
+        for _ in 0..num_classes {
+            let name = rd_str(bytes, &mut p);
+            let id = rd_u32(bytes, &mut p);
+            classes.push((name, id));
+        }
+    }
     reset_global_shapes();
     seed_global_shapes(shapes);
     seed_error_classes(errs);
+    seed_class_shapes(classes);
 }
 
 /// The ordered keys of a [`GlobalShapeId`], or `None` if the id was never

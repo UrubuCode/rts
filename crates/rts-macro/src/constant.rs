@@ -131,6 +131,7 @@ pub(crate) fn expand(a: TokenStream, item: TokenStream) -> TokenStream {
                 doc: #doc.into(),
                 pure: true,
                 emit: ::core::option::Option::None,
+                ret_class: ::core::option::Option::None,
             }
         }
     }

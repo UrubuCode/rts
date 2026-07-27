@@ -199,6 +199,9 @@ pub fn install_async_error_hook() {
     );
     // THENABLE probe (Promise/A+ assimilation) - same dep-direction pattern.
     rts_runtime::namespaces::promise_slot::set_thenable_hook(__rtsadp_thenable_then);
+    // Pickle class-revive: proto attachment for deserialized class instances
+    // (the proto tables live HERE, above the engine's decoder).
+    rts_engine::heap::pickle::set_class_revive_hook(super::protos::pickle_class_revive);
 }
 
 /// AOT bootstrap entry: the generated `main` shim calls this right after
