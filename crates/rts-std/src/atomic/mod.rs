@@ -5,13 +5,14 @@
 //! estabilizar o endereco enquanto o slot da HandleTable viver; o lock do shard
 //! e liberado ANTES da operacao atomica (lock-free apos o lookup).
 //!
-//! Migrado do `#[rts_namespace]` pro modelo builder hand-written do `rts-engine`
-//! (rumo à remoção da `rts-macro`; ver pilotos hint/hash/ptr/mem/runtime).
+//! Os membros ABI sao declarados com `#[rtse::function]` (F7 de
+//! `docs/specs/rts-macro-single-source.md`): simbolo, assinatura,
+//! `ts_signature` e fn-ptr saem derivados da fn Rust.
 
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering, fence};
 
 use rts_engine::abi::ty::{Bool, F64, Handle, I64, U64};
-use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::Engine;
 
 use rts_engine::heap::handles::{Entry, alloc_entry, with_entry};
 
@@ -80,62 +81,67 @@ atomic_accessor!(with_atomic_bool, BOOL_PTR_MEMO, AtomicBool, AtomicBool);
 atomic_accessor!(with_atomic_f64, F64_PTR_MEMO, AtomicU64, AtomicF64);
 
 /// Aloca um AtomicI64 inicializado com `value` e retorna o handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_I64_NEW(value: I64) -> Handle {
+///
+/// `#[ts("number")]`: o handle e uma chave OPACA que o TS trata como numero.
+/// Derivado (`object`) o motor reboxaria como objeto e todo `atomic.i64_*(h)`
+/// seguinte receberia um handle invalido.
+#[rtse::function(module = "atomic", value = "i64_new")]
+#[ts("number")]
+pub fn i64_new(value: I64) -> Handle {
     alloc_entry(Entry::AtomicI64(Box::new(AtomicI64::new(value))))
 }
 
 /// Le o valor atual do AtomicI64 (SeqCst). 0 se handle invalido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_I64_LOAD(handle: U64) -> I64 {
+#[rtse::function(module = "atomic", value = "i64_load")]
+pub fn i64_load(handle: U64) -> I64 {
     with_atomic_i64(handle, 0, |a| a.load(Ordering::SeqCst))
 }
 
 /// Escreve `value` no AtomicI64 (SeqCst). No-op se handle invalido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_I64_STORE(handle: U64, value: I64) {
+#[rtse::function(module = "atomic", value = "i64_store")]
+pub fn i64_store(handle: U64, value: I64) {
     with_atomic_i64(handle, (), |a| a.store(value, Ordering::SeqCst));
 }
 
 /// Soma `delta` e retorna o valor anterior. 0 se handle invalido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_I64_FETCH_ADD(handle: U64, delta: I64) -> I64 {
+#[rtse::function(module = "atomic", value = "i64_fetch_add")]
+pub fn i64_fetch_add(handle: U64, delta: I64) -> I64 {
     with_atomic_i64(handle, 0, |a| a.fetch_add(delta, Ordering::SeqCst))
 }
 
 /// Subtrai `delta` e retorna o valor anterior. 0 se handle invalido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_I64_FETCH_SUB(handle: U64, delta: I64) -> I64 {
+#[rtse::function(module = "atomic", value = "i64_fetch_sub")]
+pub fn i64_fetch_sub(handle: U64, delta: I64) -> I64 {
     with_atomic_i64(handle, 0, |a| a.fetch_sub(delta, Ordering::SeqCst))
 }
 
 /// AND bit-a-bit com `mask` e retorna o valor anterior. 0 se handle invalido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_I64_FETCH_AND(handle: U64, mask: I64) -> I64 {
+#[rtse::function(module = "atomic", value = "i64_fetch_and")]
+pub fn i64_fetch_and(handle: U64, mask: I64) -> I64 {
     with_atomic_i64(handle, 0, |a| a.fetch_and(mask, Ordering::SeqCst))
 }
 
 /// OR bit-a-bit com `mask` e retorna o valor anterior. 0 se handle invalido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_I64_FETCH_OR(handle: U64, mask: I64) -> I64 {
+#[rtse::function(module = "atomic", value = "i64_fetch_or")]
+pub fn i64_fetch_or(handle: U64, mask: I64) -> I64 {
     with_atomic_i64(handle, 0, |a| a.fetch_or(mask, Ordering::SeqCst))
 }
 
 /// XOR bit-a-bit com `mask` e retorna o valor anterior. 0 se handle invalido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_I64_FETCH_XOR(handle: U64, mask: I64) -> I64 {
+#[rtse::function(module = "atomic", value = "i64_fetch_xor")]
+pub fn i64_fetch_xor(handle: U64, mask: I64) -> I64 {
     with_atomic_i64(handle, 0, |a| a.fetch_xor(mask, Ordering::SeqCst))
 }
 
 /// Troca o valor por `value` e retorna o valor anterior. 0 se handle invalido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_I64_SWAP(handle: U64, value: I64) -> I64 {
+#[rtse::function(module = "atomic", value = "i64_swap")]
+pub fn i64_swap(handle: U64, value: I64) -> I64 {
     with_atomic_i64(handle, 0, |a| a.swap(value, Ordering::SeqCst))
 }
 
 /// Compare-and-swap. Se valor atual == `expected`, escreve `new`. Retorna o valor anterior.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_I64_CAS(handle: U64, expected: I64, new_value: I64) -> I64 {
+#[rtse::function(module = "atomic", value = "i64_cas")]
+pub fn i64_cas(handle: U64, expected: I64, new_value: I64) -> I64 {
     with_atomic_i64(handle, 0, |a| {
         match a.compare_exchange(expected, new_value, Ordering::SeqCst, Ordering::SeqCst) {
             Ok(prev) | Err(prev) => prev,
@@ -144,50 +150,52 @@ pub extern "C" fn __RTS_FN_NS_ATOMIC_I64_CAS(handle: U64, expected: I64, new_val
 }
 
 /// Aloca um AtomicBool inicializado com `value` e retorna o handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_BOOL_NEW(value: Bool) -> Handle {
+#[rtse::function(module = "atomic", value = "bool_new")]
+#[ts("number")]
+pub fn bool_new(value: Bool) -> Handle {
     alloc_entry(Entry::AtomicBool(Box::new(AtomicBool::new(value != 0))))
 }
 
 /// Le o valor atual do AtomicBool (SeqCst). false se handle invalido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_BOOL_LOAD(handle: U64) -> Bool {
+#[rtse::function(module = "atomic", value = "bool_load")]
+pub fn bool_load(handle: U64) -> Bool {
     with_atomic_bool(handle, 0, |a| a.load(Ordering::SeqCst) as i64)
 }
 
 /// Escreve `value` no AtomicBool (SeqCst). No-op se handle invalido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_BOOL_STORE(handle: U64, value: Bool) {
+#[rtse::function(module = "atomic", value = "bool_store")]
+pub fn bool_store(handle: U64, value: Bool) {
     with_atomic_bool(handle, (), |a| a.store(value != 0, Ordering::SeqCst));
 }
 
 /// Troca o valor por `value` e retorna o valor anterior. false se handle invalido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_BOOL_SWAP(handle: U64, value: Bool) -> Bool {
+#[rtse::function(module = "atomic", value = "bool_swap")]
+pub fn bool_swap(handle: U64, value: Bool) -> Bool {
     with_atomic_bool(handle, 0, |a| a.swap(value != 0, Ordering::SeqCst) as i64)
 }
 
 /// Aloca um AtomicF64 inicializado com `value` e retorna o handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_F64_NEW(value: F64) -> Handle {
+#[rtse::function(module = "atomic", value = "f64_new")]
+#[ts("number")]
+pub fn f64_new(value: F64) -> Handle {
     alloc_entry(Entry::AtomicF64(Box::new(AtomicU64::new(value.to_bits()))))
 }
 
 /// Le o valor atual do AtomicF64 (SeqCst). 0.0 se handle invalido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_F64_LOAD(handle: U64) -> F64 {
+#[rtse::function(module = "atomic", value = "f64_load")]
+pub fn f64_load(handle: U64) -> F64 {
     with_atomic_f64(handle, 0.0, |a| f64::from_bits(a.load(Ordering::SeqCst)))
 }
 
 /// Escreve `value` no AtomicF64 (SeqCst). No-op se handle invalido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_F64_STORE(handle: U64, value: F64) {
+#[rtse::function(module = "atomic", value = "f64_store")]
+pub fn f64_store(handle: U64, value: F64) {
     with_atomic_f64(handle, (), |a| a.store(value.to_bits(), Ordering::SeqCst));
 }
 
 /// Soma `delta` e retorna o valor anterior (loop CAS internamente). 0.0 se handle invalido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_F64_FETCH_ADD(handle: U64, delta: F64) -> F64 {
+#[rtse::function(module = "atomic", value = "f64_fetch_add")]
+pub fn f64_fetch_add(handle: U64, delta: F64) -> F64 {
     with_atomic_f64(handle, 0.0, |a| {
         let mut prev_bits = a.load(Ordering::Relaxed);
         loop {
@@ -207,228 +215,56 @@ pub extern "C" fn __RTS_FN_NS_ATOMIC_F64_FETCH_ADD(handle: U64, delta: F64) -> F
 }
 
 /// Troca o valor por `value` e retorna o valor anterior. 0.0 se handle invalido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_F64_SWAP(handle: U64, value: F64) -> F64 {
+#[rtse::function(module = "atomic", value = "f64_swap")]
+pub fn f64_swap(handle: U64, value: F64) -> F64 {
     with_atomic_f64(handle, 0.0, |a| {
         f64::from_bits(a.swap(value.to_bits(), Ordering::SeqCst))
     })
 }
 
 /// Memory fence Acquire.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_FENCE_ACQUIRE() {
+#[rtse::function(module = "atomic", value = "fence_acquire")]
+pub fn fence_acquire() {
     fence(Ordering::Acquire);
 }
 
 /// Memory fence Release.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_FENCE_RELEASE() {
+#[rtse::function(module = "atomic", value = "fence_release")]
+pub fn fence_release() {
     fence(Ordering::Release);
 }
 
 /// Memory fence SeqCst.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ATOMIC_FENCE_SEQ_CST() {
+#[rtse::function(module = "atomic", value = "fence_seq_cst")]
+pub fn fence_seq_cst() {
     fence(Ordering::SeqCst);
 }
 
-/// Função `atomic.f(args)`.
-fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
-    Member {
-        name: name.to_string(),
-        kind: MemberKind::Function,
-        sig,
-        symbol: symbol.to_string(),
-        fn_ptr: FnPtr(fp),
-        flags: MemberFlags::NONE,
-        aliases: Vec::new(),
-        variadic: false,
-        ts_signature: ts.to_string(),
-        doc: doc.to_string(),
-        pure: false,
-        emit: None,
-    }
-}
-
-/// Registra a namespace `atomic` no motor (Fase 2 — hand-written, sem macro).
+/// Registra a namespace `atomic` no motor.
 pub fn register(e: &mut Engine) {
-    e.ns("atomic")
-        .doc("Primitivas atomicas (AtomicI64, AtomicBool, fences) baseadas em std::sync::atomic.")
-        .member(func(
-            "i64_new",
-            "__RTS_FN_NS_ATOMIC_I64_NEW",
-            Sig::new(vec![AbiType::I64], AbiType::Handle),
-            "i64_new(value: number): number",
-            "Aloca um AtomicI64 inicializado com `value` e retorna o handle.",
-            __RTS_FN_NS_ATOMIC_I64_NEW as *const u8,
-        ))
-        .member(func(
-            "i64_load",
-            "__RTS_FN_NS_ATOMIC_I64_LOAD",
-            Sig::new(vec![AbiType::U64], AbiType::I64),
-            "i64_load(handle: number): number",
-            "Le o valor atual do AtomicI64 (SeqCst). 0 se handle invalido.",
-            __RTS_FN_NS_ATOMIC_I64_LOAD as *const u8,
-        ))
-        .member(func(
-            "i64_store",
-            "__RTS_FN_NS_ATOMIC_I64_STORE",
-            Sig::new(vec![AbiType::U64, AbiType::I64], AbiType::Void),
-            "i64_store(handle: number, value: number): void",
-            "Escreve `value` no AtomicI64 (SeqCst). No-op se handle invalido.",
-            __RTS_FN_NS_ATOMIC_I64_STORE as *const u8,
-        ))
-        .member(func(
-            "i64_fetch_add",
-            "__RTS_FN_NS_ATOMIC_I64_FETCH_ADD",
-            Sig::new(vec![AbiType::U64, AbiType::I64], AbiType::I64),
-            "i64_fetch_add(handle: number, delta: number): number",
-            "Soma `delta` e retorna o valor anterior. 0 se handle invalido.",
-            __RTS_FN_NS_ATOMIC_I64_FETCH_ADD as *const u8,
-        ))
-        .member(func(
-            "i64_fetch_sub",
-            "__RTS_FN_NS_ATOMIC_I64_FETCH_SUB",
-            Sig::new(vec![AbiType::U64, AbiType::I64], AbiType::I64),
-            "i64_fetch_sub(handle: number, delta: number): number",
-            "Subtrai `delta` e retorna o valor anterior. 0 se handle invalido.",
-            __RTS_FN_NS_ATOMIC_I64_FETCH_SUB as *const u8,
-        ))
-        .member(func(
-            "i64_fetch_and",
-            "__RTS_FN_NS_ATOMIC_I64_FETCH_AND",
-            Sig::new(vec![AbiType::U64, AbiType::I64], AbiType::I64),
-            "i64_fetch_and(handle: number, mask: number): number",
-            "AND bit-a-bit com `mask` e retorna o valor anterior. 0 se handle invalido.",
-            __RTS_FN_NS_ATOMIC_I64_FETCH_AND as *const u8,
-        ))
-        .member(func(
-            "i64_fetch_or",
-            "__RTS_FN_NS_ATOMIC_I64_FETCH_OR",
-            Sig::new(vec![AbiType::U64, AbiType::I64], AbiType::I64),
-            "i64_fetch_or(handle: number, mask: number): number",
-            "OR bit-a-bit com `mask` e retorna o valor anterior. 0 se handle invalido.",
-            __RTS_FN_NS_ATOMIC_I64_FETCH_OR as *const u8,
-        ))
-        .member(func(
-            "i64_fetch_xor",
-            "__RTS_FN_NS_ATOMIC_I64_FETCH_XOR",
-            Sig::new(vec![AbiType::U64, AbiType::I64], AbiType::I64),
-            "i64_fetch_xor(handle: number, mask: number): number",
-            "XOR bit-a-bit com `mask` e retorna o valor anterior. 0 se handle invalido.",
-            __RTS_FN_NS_ATOMIC_I64_FETCH_XOR as *const u8,
-        ))
-        .member(func(
-            "i64_swap",
-            "__RTS_FN_NS_ATOMIC_I64_SWAP",
-            Sig::new(vec![AbiType::U64, AbiType::I64], AbiType::I64),
-            "i64_swap(handle: number, value: number): number",
-            "Troca o valor por `value` e retorna o valor anterior. 0 se handle invalido.",
-            __RTS_FN_NS_ATOMIC_I64_SWAP as *const u8,
-        ))
-        .member(func(
-            "i64_cas",
-            "__RTS_FN_NS_ATOMIC_I64_CAS",
-            Sig::new(vec![AbiType::U64, AbiType::I64, AbiType::I64], AbiType::I64),
-            "i64_cas(handle: number, expected: number, new_value: number): number",
-            "Compare-and-swap. Se valor atual == `expected`, escreve `new`. Retorna o valor anterior.",
-            __RTS_FN_NS_ATOMIC_I64_CAS as *const u8,
-        ))
-        .member(func(
-            "bool_new",
-            "__RTS_FN_NS_ATOMIC_BOOL_NEW",
-            Sig::new(vec![AbiType::Bool], AbiType::Handle),
-            "bool_new(value: boolean): number",
-            "Aloca um AtomicBool inicializado com `value` e retorna o handle.",
-            __RTS_FN_NS_ATOMIC_BOOL_NEW as *const u8,
-        ))
-        .member(func(
-            "bool_load",
-            "__RTS_FN_NS_ATOMIC_BOOL_LOAD",
-            Sig::new(vec![AbiType::U64], AbiType::Bool),
-            "bool_load(handle: number): boolean",
-            "Le o valor atual do AtomicBool (SeqCst). false se handle invalido.",
-            __RTS_FN_NS_ATOMIC_BOOL_LOAD as *const u8,
-        ))
-        .member(func(
-            "bool_store",
-            "__RTS_FN_NS_ATOMIC_BOOL_STORE",
-            Sig::new(vec![AbiType::U64, AbiType::Bool], AbiType::Void),
-            "bool_store(handle: number, value: boolean): void",
-            "Escreve `value` no AtomicBool (SeqCst). No-op se handle invalido.",
-            __RTS_FN_NS_ATOMIC_BOOL_STORE as *const u8,
-        ))
-        .member(func(
-            "bool_swap",
-            "__RTS_FN_NS_ATOMIC_BOOL_SWAP",
-            Sig::new(vec![AbiType::U64, AbiType::Bool], AbiType::Bool),
-            "bool_swap(handle: number, value: boolean): boolean",
-            "Troca o valor por `value` e retorna o valor anterior. false se handle invalido.",
-            __RTS_FN_NS_ATOMIC_BOOL_SWAP as *const u8,
-        ))
-        .member(func(
-            "f64_new",
-            "__RTS_FN_NS_ATOMIC_F64_NEW",
-            Sig::new(vec![AbiType::F64], AbiType::Handle),
-            "f64_new(value: number): number",
-            "Aloca um AtomicF64 inicializado com `value` e retorna o handle.",
-            __RTS_FN_NS_ATOMIC_F64_NEW as *const u8,
-        ))
-        .member(func(
-            "f64_load",
-            "__RTS_FN_NS_ATOMIC_F64_LOAD",
-            Sig::new(vec![AbiType::U64], AbiType::F64),
-            "f64_load(handle: number): number",
-            "Le o valor atual do AtomicF64 (SeqCst). 0.0 se handle invalido.",
-            __RTS_FN_NS_ATOMIC_F64_LOAD as *const u8,
-        ))
-        .member(func(
-            "f64_store",
-            "__RTS_FN_NS_ATOMIC_F64_STORE",
-            Sig::new(vec![AbiType::U64, AbiType::F64], AbiType::Void),
-            "f64_store(handle: number, value: number): void",
-            "Escreve `value` no AtomicF64 (SeqCst). No-op se handle invalido.",
-            __RTS_FN_NS_ATOMIC_F64_STORE as *const u8,
-        ))
-        .member(func(
-            "f64_fetch_add",
-            "__RTS_FN_NS_ATOMIC_F64_FETCH_ADD",
-            Sig::new(vec![AbiType::U64, AbiType::F64], AbiType::F64),
-            "f64_fetch_add(handle: number, delta: number): number",
-            "Soma `delta` e retorna o valor anterior (loop CAS internamente). 0.0 se handle invalido.",
-            __RTS_FN_NS_ATOMIC_F64_FETCH_ADD as *const u8,
-        ))
-        .member(func(
-            "f64_swap",
-            "__RTS_FN_NS_ATOMIC_F64_SWAP",
-            Sig::new(vec![AbiType::U64, AbiType::F64], AbiType::F64),
-            "f64_swap(handle: number, value: number): number",
-            "Troca o valor por `value` e retorna o valor anterior. 0.0 se handle invalido.",
-            __RTS_FN_NS_ATOMIC_F64_SWAP as *const u8,
-        ))
-        .member(func(
-            "fence_acquire",
-            "__RTS_FN_NS_ATOMIC_FENCE_ACQUIRE",
-            Sig::new(Vec::new(), AbiType::Void),
-            "fence_acquire(): void",
-            "Memory fence Acquire.",
-            __RTS_FN_NS_ATOMIC_FENCE_ACQUIRE as *const u8,
-        ))
-        .member(func(
-            "fence_release",
-            "__RTS_FN_NS_ATOMIC_FENCE_RELEASE",
-            Sig::new(Vec::new(), AbiType::Void),
-            "fence_release(): void",
-            "Memory fence Release.",
-            __RTS_FN_NS_ATOMIC_FENCE_RELEASE as *const u8,
-        ))
-        .member(func(
-            "fence_seq_cst",
-            "__RTS_FN_NS_ATOMIC_FENCE_SEQ_CST",
-            Sig::new(Vec::new(), AbiType::Void),
-            "fence_seq_cst(): void",
-            "Memory fence SeqCst.",
-            __RTS_FN_NS_ATOMIC_FENCE_SEQ_CST as *const u8,
-        ))
-        .done();
+    e.module("atomic", |m| {
+        m.doc("Primitivas atomicas (AtomicI64, AtomicBool, fences) baseadas em std::sync::atomic.");
+        m.registry(i64_new_entry());
+        m.registry(i64_load_entry());
+        m.registry(i64_store_entry());
+        m.registry(i64_fetch_add_entry());
+        m.registry(i64_fetch_sub_entry());
+        m.registry(i64_fetch_and_entry());
+        m.registry(i64_fetch_or_entry());
+        m.registry(i64_fetch_xor_entry());
+        m.registry(i64_swap_entry());
+        m.registry(i64_cas_entry());
+        m.registry(bool_new_entry());
+        m.registry(bool_load_entry());
+        m.registry(bool_store_entry());
+        m.registry(bool_swap_entry());
+        m.registry(f64_new_entry());
+        m.registry(f64_load_entry());
+        m.registry(f64_store_entry());
+        m.registry(f64_fetch_add_entry());
+        m.registry(f64_swap_entry());
+        m.registry(fence_acquire_entry());
+        m.registry(fence_release_entry());
+        m.registry(fence_seq_cst_entry());
+    });
 }

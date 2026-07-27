@@ -244,9 +244,24 @@ is what lets an intrinsic have an inline-IR path with the engine naming nothing.
 guard `adapter_symbols` already has. The object/array family (~120 symbols) goes
 LAST: biggest, hottest, and it depends on F0 and F6.
 
-*Drained so far (2026-07-27):* `rts:gpu` (12), `input` (20), `audio` (12) — the
-three groups with no variadic member and no intrinsic, so none of them waited on
-F6. Two gaps surfaced and were closed as part of that first pass:
+*Drained so far (2026-07-27):* `rts:gpu` (12), `input` (20), `audio` (12),
+`atomic` (22), `ptr` (14), `mem` (10), `path` (8) — 98 symbols.
+
+A survey while picking the second batch corrected an assumption in this doc: NO
+group in the tree declares `variadic: true` or carries an `Intrinsic`/`emit`
+outside the codegen itself. F6 therefore does not gate the drain the way the
+phase order implies — the object/array family goes last for its SIZE and because
+it is the hottest path, not because it is blocked. Everything else is
+mechanically available now.
+
+`mem` is the first group needing BOTH macros: its `size_of_*`/`align_of_*` are
+`MemberKind::Constant` (read as `mem.size_of_i64`, no parens), which
+`#[rtse::function]` cannot express, so they became real Rust `const`s under
+`#[rtse::constant]` — that macro emits the zero-arg getter the constant kind
+requires. Registration mixes `m.member(<name>_member())` for those with
+`m.registry(<name>_entry())` for the functions.
+
+Two gaps surfaced in the first pass and were closed there:
 
 - **`rts-symbol-baker` did not recognize `#[rtse::function]`.** It keyed on
   `#[rtse::abi]` / `no_mangle` only, so a migrated group vanished from the baked

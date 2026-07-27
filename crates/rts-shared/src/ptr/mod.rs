@@ -4,25 +4,28 @@
 //! validez/alinhamento/lifetime. Use com `buffer.ptr(handle)` para ler/escrever
 //! buffers. Enderecos viajam como i64.
 //!
-//! Migrado pro modelo builder do `rts-engine` (Fase 2; ver `namespaces/hint`).
+//! Os membros ABI sao declarados com `#[rtse::function]` (F7 de
+//! `docs/specs/rts-macro-single-source.md`): simbolo, assinatura, `ts_signature`
+//! e fn-ptr saem derivados da fn Rust.
 
-use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, sig};
+use rts_engine::abi::ty::{Bool, F64, I64};
+use rts_engine::Engine;
 
 /// Retorna ponteiro nulo (0).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_NULL() -> i64 {
+#[rtse::function(module = "ptr", value = "null")]
+pub fn null() -> I64 {
     0
 }
 
 /// True se ptr == 0.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_IS_NULL(p: i64) -> i64 {
+#[rtse::function(module = "ptr", value = "is_null")]
+pub fn is_null(p: I64) -> Bool {
     if p == 0 { 1 } else { 0 }
 }
 
 /// Le i64 do endereco. UNSAFE: caller garante validade/alinhamento.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_READ_I64(p: i64) -> i64 {
+#[rtse::function(module = "ptr", value = "read_i64")]
+pub fn read_i64(p: I64) -> I64 {
     if p == 0 {
         return 0;
     }
@@ -30,8 +33,8 @@ pub extern "C" fn __RTS_FN_NS_PTR_READ_I64(p: i64) -> i64 {
 }
 
 /// Le i32 do endereco e estende para i64.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_READ_I32(p: i64) -> i64 {
+#[rtse::function(module = "ptr", value = "read_i32")]
+pub fn read_i32(p: I64) -> I64 {
     if p == 0 {
         return 0;
     }
@@ -40,8 +43,8 @@ pub extern "C" fn __RTS_FN_NS_PTR_READ_I32(p: i64) -> i64 {
 }
 
 /// Le u8 do endereco e estende para i64 (0..255).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_READ_U8(p: i64) -> i64 {
+#[rtse::function(module = "ptr", value = "read_u8")]
+pub fn read_u8(p: I64) -> I64 {
     if p == 0 {
         return 0;
     }
@@ -50,8 +53,8 @@ pub extern "C" fn __RTS_FN_NS_PTR_READ_U8(p: i64) -> i64 {
 }
 
 /// Le f64 do endereco.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_READ_F64(p: i64) -> f64 {
+#[rtse::function(module = "ptr", value = "read_f64")]
+pub fn read_f64(p: I64) -> F64 {
     if p == 0 {
         return 0.0;
     }
@@ -59,8 +62,8 @@ pub extern "C" fn __RTS_FN_NS_PTR_READ_F64(p: i64) -> f64 {
 }
 
 /// Escreve i64 no endereco.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_WRITE_I64(p: i64, value: i64) {
+#[rtse::function(module = "ptr", value = "write_i64")]
+pub fn write_i64(p: I64, value: I64) {
     if p == 0 {
         return;
     }
@@ -68,8 +71,8 @@ pub extern "C" fn __RTS_FN_NS_PTR_WRITE_I64(p: i64, value: i64) {
 }
 
 /// Escreve i32 (low 32 bits) no endereco.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_WRITE_I32(p: i64, value: i64) {
+#[rtse::function(module = "ptr", value = "write_i32")]
+pub fn write_i32(p: I64, value: I64) {
     if p == 0 {
         return;
     }
@@ -77,8 +80,8 @@ pub extern "C" fn __RTS_FN_NS_PTR_WRITE_I32(p: i64, value: i64) {
 }
 
 /// Escreve u8 (low 8 bits) no endereco.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_WRITE_U8(p: i64, value: i64) {
+#[rtse::function(module = "ptr", value = "write_u8")]
+pub fn write_u8(p: I64, value: I64) {
     if p == 0 {
         return;
     }
@@ -86,8 +89,8 @@ pub extern "C" fn __RTS_FN_NS_PTR_WRITE_U8(p: i64, value: i64) {
 }
 
 /// Escreve f64 no endereco.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_WRITE_F64(p: i64, value: f64) {
+#[rtse::function(module = "ptr", value = "write_f64")]
+pub fn write_f64(p: I64, value: F64) {
     if p == 0 {
         return;
     }
@@ -95,8 +98,8 @@ pub extern "C" fn __RTS_FN_NS_PTR_WRITE_F64(p: i64, value: f64) {
 }
 
 /// memmove: copia n bytes de src para dst (overlapping ok).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_COPY(dst: i64, src: i64, n: i64) {
+#[rtse::function(module = "ptr", value = "copy")]
+pub fn copy(dst: I64, src: I64, n: I64) {
     if dst == 0 || src == 0 || n <= 0 {
         return;
     }
@@ -104,8 +107,8 @@ pub extern "C" fn __RTS_FN_NS_PTR_COPY(dst: i64, src: i64, n: i64) {
 }
 
 /// memcpy: copia n bytes (regioes nao podem se sobrepor).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_COPY_NONOVERLAPPING(dst: i64, src: i64, n: i64) {
+#[rtse::function(module = "ptr", value = "copy_nonoverlapping")]
+pub fn copy_nonoverlapping(dst: I64, src: I64, n: I64) {
     if dst == 0 || src == 0 || n <= 0 {
         return;
     }
@@ -113,8 +116,8 @@ pub extern "C" fn __RTS_FN_NS_PTR_COPY_NONOVERLAPPING(dst: i64, src: i64, n: i64
 }
 
 /// memset: preenche n bytes com value (low 8 bits).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_WRITE_BYTES(dst: i64, value: i64, n: i64) {
+#[rtse::function(module = "ptr", value = "write_bytes")]
+pub fn write_bytes(dst: I64, value: I64, n: I64) {
     if dst == 0 || n <= 0 {
         return;
     }
@@ -122,150 +125,28 @@ pub extern "C" fn __RTS_FN_NS_PTR_WRITE_BYTES(dst: i64, value: i64, n: i64) {
 }
 
 /// Adiciona n bytes ao ptr.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_OFFSET(p: i64, n: i64) -> i64 {
+#[rtse::function(module = "ptr", value = "offset")]
+pub fn offset(p: I64, n: I64) -> I64 {
     p.wrapping_add(n)
 }
 
-fn func(
-    name: &str,
-    symbol: &str,
-    sig: rts_engine::Sig,
-    ts: &str,
-    doc: &str,
-    fp: *const u8,
-) -> Member {
-    Member {
-        name: name.to_string(),
-        kind: MemberKind::Function,
-        sig,
-        symbol: symbol.to_string(),
-        fn_ptr: FnPtr(fp),
-        flags: MemberFlags::NONE,
-        aliases: Vec::new(),
-        variadic: false,
-        ts_signature: ts.to_string(),
-        doc: doc.to_string(),
-        pure: false,
-        emit: None,
-    }
-}
-
-/// Registra a namespace `ptr` no motor (Fase 2).
+/// Registra a namespace `ptr` no motor.
 pub fn register(e: &mut Engine) {
-    e.ns("ptr")
-        .doc("Operacoes raw sobre ponteiros (std::ptr). UNSAFE — caller verifica validez.")
-        .member(func(
-            "null",
-            "__RTS_FN_NS_PTR_NULL",
-            sig!(=> I64),
-            "null(): number",
-            "Retorna ponteiro nulo (0).",
-            __RTS_FN_NS_PTR_NULL as *const u8,
-        ))
-        .member(func(
-            "is_null",
-            "__RTS_FN_NS_PTR_IS_NULL",
-            sig!(I64 => Bool),
-            "is_null(p: number): boolean",
-            "True se ptr == 0.",
-            __RTS_FN_NS_PTR_IS_NULL as *const u8,
-        ))
-        .member(func(
-            "read_i64",
-            "__RTS_FN_NS_PTR_READ_I64",
-            sig!(I64 => I64),
-            "read_i64(p: number): number",
-            "Le i64 do endereco. UNSAFE: caller garante validade/alinhamento.",
-            __RTS_FN_NS_PTR_READ_I64 as *const u8,
-        ))
-        .member(func(
-            "read_i32",
-            "__RTS_FN_NS_PTR_READ_I32",
-            sig!(I64 => I64),
-            "read_i32(p: number): number",
-            "Le i32 do endereco e estende para i64.",
-            __RTS_FN_NS_PTR_READ_I32 as *const u8,
-        ))
-        .member(func(
-            "read_u8",
-            "__RTS_FN_NS_PTR_READ_U8",
-            sig!(I64 => I64),
-            "read_u8(p: number): number",
-            "Le u8 do endereco e estende para i64 (0..255).",
-            __RTS_FN_NS_PTR_READ_U8 as *const u8,
-        ))
-        .member(func(
-            "read_f64",
-            "__RTS_FN_NS_PTR_READ_F64",
-            sig!(I64 => F64),
-            "read_f64(p: number): number",
-            "Le f64 do endereco.",
-            __RTS_FN_NS_PTR_READ_F64 as *const u8,
-        ))
-        .member(func(
-            "write_i64",
-            "__RTS_FN_NS_PTR_WRITE_I64",
-            sig!(I64, I64 => Void),
-            "write_i64(p: number, value: number): void",
-            "Escreve i64 no endereco.",
-            __RTS_FN_NS_PTR_WRITE_I64 as *const u8,
-        ))
-        .member(func(
-            "write_i32",
-            "__RTS_FN_NS_PTR_WRITE_I32",
-            sig!(I64, I64 => Void),
-            "write_i32(p: number, value: number): void",
-            "Escreve i32 (low 32 bits) no endereco.",
-            __RTS_FN_NS_PTR_WRITE_I32 as *const u8,
-        ))
-        .member(func(
-            "write_u8",
-            "__RTS_FN_NS_PTR_WRITE_U8",
-            sig!(I64, I64 => Void),
-            "write_u8(p: number, value: number): void",
-            "Escreve u8 (low 8 bits) no endereco.",
-            __RTS_FN_NS_PTR_WRITE_U8 as *const u8,
-        ))
-        .member(func(
-            "write_f64",
-            "__RTS_FN_NS_PTR_WRITE_F64",
-            sig!(I64, F64 => Void),
-            "write_f64(p: number, value: number): void",
-            "Escreve f64 no endereco.",
-            __RTS_FN_NS_PTR_WRITE_F64 as *const u8,
-        ))
-        .member(func(
-            "copy",
-            "__RTS_FN_NS_PTR_COPY",
-            sig!(I64, I64, I64 => Void),
-            "copy(dst: number, src: number, n: number): void",
-            "memmove: copia n bytes de src para dst (overlapping ok).",
-            __RTS_FN_NS_PTR_COPY as *const u8,
-        ))
-        .member(func(
-            "copy_nonoverlapping",
-            "__RTS_FN_NS_PTR_COPY_NONOVERLAPPING",
-            sig!(I64, I64, I64 => Void),
-            "copy_nonoverlapping(dst: number, src: number, n: number): void",
-            "memcpy: copia n bytes (regioes nao podem se sobrepor).",
-            __RTS_FN_NS_PTR_COPY_NONOVERLAPPING as *const u8,
-        ))
-        .member(func(
-            "write_bytes",
-            "__RTS_FN_NS_PTR_WRITE_BYTES",
-            sig!(I64, I64, I64 => Void),
-            "write_bytes(dst: number, value: number, n: number): void",
-            "memset: preenche n bytes com value (low 8 bits).",
-            __RTS_FN_NS_PTR_WRITE_BYTES as *const u8,
-        ))
-        .member(func(
-            "offset",
-            "__RTS_FN_NS_PTR_OFFSET",
-            sig!(I64, I64 => I64),
-            "offset(p: number, n: number): number",
-            "Adiciona n bytes ao ptr.",
-            __RTS_FN_NS_PTR_OFFSET as *const u8,
-        ))
-        .done();
+    e.module("ptr", |m| {
+        m.doc("Operacoes raw sobre ponteiros (std::ptr). UNSAFE — caller verifica validez.");
+        m.registry(null_entry());
+        m.registry(is_null_entry());
+        m.registry(read_i64_entry());
+        m.registry(read_i32_entry());
+        m.registry(read_u8_entry());
+        m.registry(read_f64_entry());
+        m.registry(write_i64_entry());
+        m.registry(write_i32_entry());
+        m.registry(write_u8_entry());
+        m.registry(write_f64_entry());
+        m.registry(copy_entry());
+        m.registry(copy_nonoverlapping_entry());
+        m.registry(write_bytes_entry());
+        m.registry(offset_entry());
+    });
 }
