@@ -15,13 +15,63 @@
 
 const __DOM_NONE = -1;
 
+// O objeto Event entregue a cada callback. Classe (não literal) porque
+// `preventDefault()` precisa ser um MÉTODO que muda estado observável depois —
+// é assim que a página cancela a AÇÃO DEFAULT (navegar num `<a href>`, inserir o
+// caractere digitado num `<input>`).
+//
+// Fiel ao browser no que importa: `defaultPrevented` começa `false`, vira `true` no
+// primeiro `preventDefault()` e nunca volta. Quem executa a ação default consulta
+// esse bit — o padrão do DOM real, onde a navegação de um link só acontece se
+// ninguém cancelou. Sem isso, `<a href="#">` + `onclick` (o idioma de toda SPA)
+// navegaria errado.
+//
+// `stopPropagation` NÃO existe aqui ainda: o bubbling é resolvido no Rust ANTES de
+// qualquer callback rodar (`dispatchCollect` coleta a cadeia inteira de uma vez),
+// então parar no meio exigiria mudar o protocolo de coleta. Ausente e declarado,
+// não fingido.
+class Event {
+  _type: string;
+  _target: Element;
+  _currentTarget: Element;
+  _prevented: number;
+
+  constructor(type: string, target: Element, currentTarget: Element) {
+    this._type = type;
+    this._target = target;
+    this._currentTarget = currentTarget;
+    this._prevented = 0;
+  }
+
+  get type(): string { return this._type; }
+  get target(): Element { return this._target; }
+  get currentTarget(): Element { return this._currentTarget; }
+  get defaultPrevented(): boolean { return this._prevented !== 0; }
+
+  // Cancela a ação default do evento (navegação do link, inserção da tecla).
+  preventDefault(): void { this._prevented = 1; }
+}
+
 // Despacho de evento com CALLBACKS: coleta os pares (nó, fn-word) do Rust
 // (`dispatchCollect` — alvo primeiro, depois bubbling), COPIA tudo para arrays
 // locais (um callback pode re-despachar e sobrescrever o scratch do Dom) e invoca
-// cada fn com um objeto de evento `{type, target, currentTarget}` (subset do Event
-// do browser). Devolve o total notificado (callbacks coletados; a fila de polling
-// legada também é alimentada pelo mesmo dispatchCollect).
+// cada fn com um `Event`. Devolve o total notificado (callbacks coletados; a fila
+// de polling legada também é alimentada pelo mesmo dispatchCollect).
 function __dispatchWithCallbacks(h: i64, node: number, type: string, bubbles: number): number {
+  __dispatchCancelable(h, node, type, bubbles);
+  return __LAST_DISPATCH_COUNT;
+}
+
+// Quantos callbacks o último `__dispatchCancelable` notificou. Variável de módulo
+// porque a função precisa devolver DUAS informações (quantos rodaram, e se algum
+// cancelou) e o motor não tem tupla/out-param no subset dinâmico.
+let __LAST_DISPATCH_COUNT = 0;
+
+// Como `__dispatchWithCallbacks`, mas devolve se a AÇÃO DEFAULT foi cancelada:
+// `1` = algum callback chamou `preventDefault()`, `0` = siga com a ação default.
+// Quem dispara um evento com ação default (clique num link) chama ESTA.
+function __dispatchCancelable(h: i64, node: number, type: string, bubbles: number): number {
+  __LAST_DISPATCH_COUNT = 0;
   const n = dom.dispatchCollect(h, node, type, bubbles);
   if (n === 0) return 0;
   const cbs: number[] = [];
@@ -33,15 +83,20 @@ function __dispatchWithCallbacks(h: i64, node: number, type: string, bubbles: nu
     i = i + 1;
   }
   const target = new Element(h, node);
+  let prevented = 0;
   let j = 0;
   while (j < n) {
     const cur = new Element(h, nodes[j]);
+    const ev = new Event(type, target, cur);
     // engine.invoke_cb: o cb atravessou a borda I64 da ABI (vira número); a
     // bridge re-taggeia para função e invoca com 1 argumento (o objeto Event).
-    engine.invoke_cb(cbs[j], { type: type, target: target, currentTarget: cur });
+    engine.invoke_cb(cbs[j], ev);
+    // Lido DEPOIS da invocação: o callback pode ter chamado preventDefault().
+    if (ev.defaultPrevented) prevented = 1;
     j = j + 1;
   }
-  return n;
+  __LAST_DISPATCH_COUNT = n;
+  return prevented;
 }
 
 // camelCase → kebab-case para o açúcar de `dataset` (`userId` → `user-id`).
@@ -559,6 +614,39 @@ class Document {
     return new Element(this._dom, n);
   }
 
+  // `document.elementFromPoint(x, y)` — o elemento MAIS PROFUNDO na coordenada
+  // (coords de conteúdo da página). É o hit-test que um clique usa para achar seu
+  // alvo. `null` se nada ali. Mesmo nome/semântica do DOM real.
+  elementFromPoint(x: number, y: number, viewportW: number): Element | null {
+    // `const` antes de comparar: sentinela -1 vinda da ABI (invariante 3 do
+    // roadmap — comparar a chamada direto esbarra num bug de codegen conhecido).
+    const n = dom.nodeAt(this._dom, viewportW, x, y);
+    if (n === __DOM_NONE) return null;
+    return new Element(this._dom, n);
+  }
+
+  // CLIQUE COMPLETO na coordenada, como um browser faz: acha o alvo (hit-test),
+  // despacha `click` COM bubbling, e — se ninguém chamou `preventDefault()` —
+  // executa a AÇÃO DEFAULT: navegar quando o alvo está dentro de um `<a href>`.
+  //
+  // Devolve o href a navegar (string vazia = nada a fazer). Quem chama decide o
+  // que "navegar" significa (baixar a URL, trocar de aba), porque isso é política
+  // do app — o DOM só diz QUAL é a ação default, como a spec faz.
+  //
+  // É esta função que faz botões e links de uma página funcionarem: os listeners
+  // dos `<script>` da página já estão registrados, então o dispatch os aciona.
+  clickAt(x: number, y: number, viewportW: number): string {
+    const n = dom.nodeAt(this._dom, viewportW, x, y);
+    if (n === __DOM_NONE) return "";
+    const prevented = __dispatchCancelable(this._dom, n, "click", 1);
+    if (prevented !== 0) return "";
+    // Ação default do clique: se o alvo está DENTRO de um <a href>, navegar.
+    // `closest` sobe a árvore — clicar no <span> dentro do link também navega.
+    const anchor = dom.closest(this._dom, n, "a");
+    if (anchor === __DOM_NONE) return "";
+    return dom.getAttribute(this._dom, anchor, "href");
+  }
+
   querySelectorAll(sel: string): Element[] {
     const out: Element[] = [];
     const n = dom.querySelectorAllCount(this._dom, sel);
@@ -982,6 +1070,29 @@ function pumpEventCallbacks(doc: Document): number {
     guard = guard + 1;
   }
   return despachados;
+}
+
+// Como `pumpEventCallbacks`, mas devolve `1` se ALGUM listener deste frame chamou
+// `preventDefault()`. É o que o app consulta antes de executar a AÇÃO DEFAULT de um
+// clique (navegar num `<a href>`): no browser o handler roda primeiro e pode
+// cancelar, e é essa ordem que faz `<a href="#">` + onclick funcionar.
+//
+// Existe separada de `pumpEventCallbacks` para não mudar a assinatura de quem já a
+// usa (o retorno de lá é a CONTAGEM de eventos, não um booleano — trocar o
+// significado silenciosamente quebraria chamadores existentes).
+function pumpEventCallbacksCancelable(doc: Document): number {
+  const h: i64 = doc._dom;
+  let cancelou = 0;
+  let guard = 0;
+  while (guard < 256) {
+    const node = dom.pollRawEvent(h);
+    if (node === __DOM_NONE) return cancelou;
+    const t = dom.pollRawEventType(h);
+    const p = __dispatchCancelable(h, node, t, 1);
+    if (p !== 0) cancelou = 1;
+    guard = guard + 1;
+  }
+  return cancelou;
 }
 
 // ── Execução de <script> — o "bloco JS" da página ──────────────────────────────

@@ -274,6 +274,34 @@ Original plan text (reference):
 - **Effort:** medium (~2-3 wk). **Gate/risk:** 1-frame latency (known ceiling,
   = button/slider).
 
+**✅ STATUS: DONE (2026-07-27)** — delivered off-doc across PRs #1884/#1885 and
+completed here. What SHIPPED differs from the plan above in three ways, recorded
+so the spec stops lying (RULE #0):
+
+1. **The `ui.interact` premise is OBSOLETE.** The 2026-06-27 reversal moved layout
+   into `rts-dom`, so the ENGINE hit-tests (`DisplayList::hit_test`), not egui.
+   `rts-egui/src/frame/render.rs` only converts screen→content coords and pushes
+   `(NodeIdx, "click")` onto a raw queue — the backend still knows no semantics.
+2. **Handlers DO store fns.** The plan avoided it because of engine limit #195;
+   the new engine made fn-handles reliable, so `addEventListener(type, cb)` works
+   and `dispatchEvent` BUBBLES (target → ancestors), rather than the planned
+   switch-by-NodeId. `pollEvent` still exists for the polling style.
+3. **Added beyond the plan:** `nodeAt` (generic hit-test on the ABI),
+   `preventDefault()` on a real `Event` class, and the link DEFAULT ACTION
+   (`closest("a")` → href) gated on it — none of which the plan mentioned.
+
+**Known limits, declared not hidden:**
+- **Only BLOCK elements are hit-testable.** `node_rects` skips inline nodes (a
+  wrapping inline would need multiple rects — `layout.rs` documents this), so a
+  default-styled `<a>`/`<button>`/`<span>` has NO box and a click cannot find it.
+  Reaching real pages needs inline rects; that is F4's "rich inline paragraph +
+  links via surgical absolute paint", which is exactly where this belongs.
+- **No `stopPropagation`.** The Rust collects the whole bubble chain in one call
+  before any callback runs, so stopping mid-chain would need a different collect
+  protocol.
+- `dispatch_event` returns a COUNT while MDN's `EventTarget.dispatchEvent`
+  returns a boolean — a pre-existing fidelity divergence, untouched here.
+
 ### F4 — The restricted HEART: rich inline paragraph + links via surgical absolute paint. HERE THE CENTRAL CONTRADICTION IS FACED.
 - **Why here:** the first and only point where egui provably does not compose
   — mixed spans (bold+link+text) on the same wrapping line, with per-run hit-test.

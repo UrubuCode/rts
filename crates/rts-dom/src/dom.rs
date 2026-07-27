@@ -1691,6 +1691,25 @@ impl Dom {
         self.nodes[idx].parent.map(|p| self.make_id(p))
     }
 
+    /// Profundidade de `idx` na árvore (raiz = 0), contando por `parent`.
+    ///
+    /// Existe para o DESEMPATE do hit-test ([`crate::layout::DisplayList::hit_test_by`]):
+    /// ancestral e descendente frequentemente têm o MESMO rect, e aí só a
+    /// profundidade distingue quem é o alvo mais interno. O laço tem guarda de
+    /// ciclo porque um `parent` corrompido travaria o frame inteiro.
+    pub fn depth_of_idx(&self, idx: NodeIdx) -> u32 {
+        let mut d = 0u32;
+        let mut cur = self.nodes.get(idx).and_then(|n| n.parent);
+        while let Some(p) = cur {
+            d += 1;
+            if d > 4096 {
+                break;
+            }
+            cur = self.nodes.get(p).and_then(|n| n.parent);
+        }
+        d
+    }
+
     /// `node.firstChild`: o PRIMEIRO filho (qualquer tipo, inclui Text), ou `None`.
     pub fn first_child(&self, id: NodeId) -> Option<NodeId> {
         let idx = self.resolve(id)?;

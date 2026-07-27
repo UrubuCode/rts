@@ -305,6 +305,9 @@ while (egui.isOpen(win) !== 0) {
   const my = input.mouseY(win);
   const clicked = input.mouseClicked(win, 0);
   let doNav = false;
+  // href da AÇÃO DEFAULT de um clique em `<a>` (vazio = nada a navegar). Lido
+  // depois do `pumpEventCallbacks`, que é quem despacha o evento.
+  let linkHref = "";
 
   // Clique: no botão "Ir" → navega; senão foca/desfoca o input sob o cursor.
   if (clicked !== 0) {
@@ -315,6 +318,18 @@ while (egui.isOpen(win) !== 0) {
       const hit = dom.inputAt(d, VW, mx, my);
       io.print("[click] mouse=(" + mx + "," + my + ") inputAt=" + hit);
       dom.focusInput(d, hit);
+      // AÇÃO DEFAULT do clique num link. NÃO despachamos o evento aqui: o
+      // `render.rs` já empurrou o clique na fila crua e o `pumpEventCallbacks`
+      // (fim do loop) o despacha — despachar de novo faria o listener da página
+      // rodar DUAS vezes. Aqui só resolvemos QUAL link foi clicado; o
+      // `preventDefault` é consultado depois, junto do pump.
+      const alvo = dom.nodeAt(d, VW, mx, my);
+      if (alvo !== -1) {
+        const ancora = dom.closest(d, alvo, "a");
+        if (ancora !== -1) {
+          linkHref = dom.getAttribute(d, ancora, "href");
+        }
+      }
     }
   }
 
@@ -368,7 +383,27 @@ while (egui.isOpen(win) !== 0) {
   egui.endFrame(win);
   // Entrega os cliques do frame aos addEventListener registrados pelos <script>
   // da página (hit-test do render → fila crua → callbacks, PRs #1884/#1885).
-  pumpEventCallbacks(docF);
+  // Devolve 1 se algum listener chamou `preventDefault()` neste frame.
+  const cancelou = pumpEventCallbacksCancelable(docF);
+
+  // AÇÃO DEFAULT do link, DEPOIS dos listeners (a ordem do browser: o handler
+  // roda primeiro e pode cancelar). `#`/`javascript:` não navegam — são o idioma
+  // de "link que só existe pro onclick".
+  if (linkHref.length > 0 && cancelou === 0) {
+    const ehAncora = linkHref.substring(0, 1) === "#";
+    const ehJs = linkHref.length >= 11 && linkHref.substring(0, 11) === "javascript:";
+    if (!ehAncora && !ehJs) {
+      // Base = a URL da página corrente (a última navegada), para resolver href
+      // relativo. Vazia na página inicial local → o resolveUrl trata como raiz.
+      const base = normalize(pendingUrl);
+      const destino = resolveUrl(base, linkHref);
+      io.print("[link] " + linkHref + " -> " + destino);
+      pendingUrl = destino;
+      pendingTicket = fetchNs.fetchTextAsync(normalize(destino));
+      d = loadingPage(d, destino);
+      docF = new Document(d);
+    }
+  }
 }
 
 dom.free(d);

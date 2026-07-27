@@ -421,18 +421,20 @@ pub extern "C" fn __RTS_FN_NS_DOM_BOUNDING_COMPONENT(h: u64, id: i64, viewport_w
 // (3) alimentar texto/backspace no input focado. Toda a lógica de edição vive no
 // rts-dom; o layout emite o texto+cursor na DisplayList que o egui pinta.
 
-/// `inputAt(dom, viewportW, x, y)` → o `NodeId` do `<input>`/`<textarea>` cujo
-/// border-box contém a coord `(x, y)` (coords de conteúdo da página, × 1). `-1` se
-/// nenhum. Usa o layout cacheado (mesmo GEOM_CACHE do getBoundingClientRect).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_INPUT_AT(h: u64, viewport_w: i64, x: i64, y: i64) -> i64 {
+/// Hit-test compartilhado por [`__RTS_FN_NS_DOM_NODE_AT`] e
+/// [`__RTS_FN_NS_DOM_INPUT_AT`]: garante o layout no `GEOM_CACHE` e roda `f` com a
+/// `DisplayList` viva. `None` (→ `NODE_NONE` no caller) quando o handle morreu ou o
+/// layout falhou.
+///
+/// Existe para que os dois ABIs usem UM caminho: antes cada um inlinava seu próprio
+/// laço sobre `node_rects`, e eles discordavam — o `inputAt` fazia "último vence"
+/// enquanto [`DisplayList::hit_test`] faz "menor área vence" (= nó mais profundo, o
+/// critério do north-star §3). Duas regras de hit-test na mesma árvore é divergência
+/// esperando para aparecer.
+fn with_layout<R>(h: u64, viewport_w: i64, f: impl FnOnce(&crate::layout::DisplayList) -> R) -> Option<R> {
     use crate::layout::{ApproxMeasurer, LayoutCtx};
     let vw = viewport_w.max(1);
-    let (px, py) = (x as f32, y as f32);
-    let rev = match with(h, |dom| dom.render_revision()) {
-        Some(r) => r,
-        None => return NODE_NONE,
-    };
+    let rev = with(h, |dom| dom.render_revision())?;
     GEOM_CACHE.with(|cache| {
         let mut c = cache.borrow_mut();
         let need = !matches!(&*c, Some((ch, cv, cr, _)) if *ch == h && *cv == vw && *cr == rev);
@@ -440,31 +442,73 @@ pub extern "C" fn __RTS_FN_NS_DOM_INPUT_AT(h: u64, viewport_w: i64, x: i64, y: i
             let list = with(h, |dom| {
                 let ctx = LayoutCtx { viewport_w: vw as f32, viewport_h: 800.0, measurer: &ApproxMeasurer };
                 crate::layout::layout_document(dom, &ctx)
-            });
-            match list {
-                Some(l) => *c = Some((h, vw, rev, l)),
-                None => return NODE_NONE,
+            })?;
+            *c = Some((h, vw, rev, list));
+        }
+        match &*c {
+            Some((_, _, _, l)) => Some(f(l)),
+            None => None,
+        }
+    })
+}
+
+/// `nodeAt(dom, viewportW, x, y)` → o `NodeId` do nó MAIS PROFUNDO cujo border-box
+/// contém `(x, y)` (coords de conteúdo da página), `-1` se nenhum. É o hit-test
+/// GENÉRICO — o que o clique de um browser usa para achar o alvo de um evento; o
+/// [`__RTS_FN_NS_DOM_INPUT_AT`] é a variante filtrada a campos de texto.
+///
+/// Devolve o nó mais profundo (e não um ancestral) porque é o alvo REAL do evento:
+/// quem quiser o `<a>` que o contém sobe com `closest`, e o bubbling notifica os
+/// ancestrais — exatamente o modelo do browser.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_NODE_AT(h: u64, viewport_w: i64, x: i64, y: i64) -> i64 {
+    let (px, py) = (x as f32, y as f32);
+    // Desempate por profundidade: um `<a>` e o `<span>` dentro dele costumam ter o
+    // MESMO rect, e sem isso o vencedor seria a ordem do HashMap (não-determinística).
+    let depth = |idx| with(h, |dom| dom.depth_of_idx(idx)).unwrap_or(0);
+    with_layout(h, viewport_w, |l| l.hit_test_by(px, py, depth))
+        .flatten()
+        .and_then(|idx| with(h, |dom| dom.id_of_idx(idx).to_abi()))
+        .unwrap_or(NODE_NONE)
+}
+
+/// `inputAt(dom, viewportW, x, y)` → o `NodeId` do `<input>`/`<textarea>` cujo
+/// border-box contém a coord `(x, y)` (coords de conteúdo da página, × 1). `-1` se
+/// nenhum. Usa o layout cacheado (mesmo GEOM_CACHE do getBoundingClientRect).
+///
+/// Filtra a MESMA varredura do [`__RTS_FN_NS_DOM_NODE_AT`]: o nó mais profundo sob
+/// o ponto que também seja um campo de texto. Um input dentro de um `<label>`/`<div>`
+/// resolve para o input porque ele é o mais profundo dos dois.
+#[unsafe(no_mangle)]
+pub extern "C" fn __RTS_FN_NS_DOM_INPUT_AT(h: u64, viewport_w: i64, x: i64, y: i64) -> i64 {
+    let (px, py) = (x as f32, y as f32);
+    let hit = with_layout(h, viewport_w, |l| {
+        // Menor área entre os rects que contêm o ponto E são campo de texto — a
+        // mesma regra do `hit_test`, restrita ao subconjunto que aceita foco.
+        let mut best: Option<(crate::dom::NodeIdx, f32, u32)> = None;
+        for (&idx, r) in &l.node_rects {
+            if px >= r.x && px < r.x + r.w && py >= r.y && py < r.y + r.h {
+                if !with(h, |dom| dom.is_text_input_idx(idx)).unwrap_or(false) {
+                    continue;
+                }
+                let area = r.w * r.h;
+                let d = with(h, |dom| dom.depth_of_idx(idx)).unwrap_or(0);
+                let better = match best {
+                    None => true,
+                    Some((_, a, bd)) => {
+                        if (area - a).abs() <= a * 1e-6 { d > bd } else { area < a }
+                    }
+                };
+                if better {
+                    best = Some((idx, area, d));
+                }
             }
         }
-        // Percorre os rects; devolve o input que contém o ponto (o último no z-order
-        // vence se sobrepostos — inputs raramente se sobrepõem).
-        let hit = match &*c {
-            Some((_, _, _, l)) => {
-                let mut found = NODE_NONE;
-                for (idx, r) in &l.node_rects {
-                    if px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h {
-                        let is_input = with(h, |dom| dom.is_text_input_idx(*idx)).unwrap_or(false);
-                        if is_input {
-                            found = with(h, |dom| dom.id_of_idx(*idx).to_abi()).unwrap_or(NODE_NONE);
-                        }
-                    }
-                }
-                found
-            }
-            None => NODE_NONE,
-        };
-        hit
-    })
+        best.map(|(idx, _, _)| idx)
+    });
+    hit.flatten()
+        .and_then(|idx| with(h, |dom| dom.id_of_idx(idx).to_abi()))
+        .unwrap_or(NODE_NONE)
 }
 
 /// `focusInput(dom, node)` → dá o foco a `node` (recebe teclas); `node == -1` tira
@@ -1969,6 +2013,16 @@ pub fn register(e: &mut Engine) {
             "advance(dom: number, nowMs: number): number",
             "advance animations to nowMs (DOM-internal loop, #1776); 1 if active (repaint), 0 if static.",
             __RTS_FN_NS_DOM_ADVANCE as *const u8,
+        ))
+        // ── Hit-test genérico (alvo de evento) ──────────────────────────────────
+        .member(func(
+            "nodeAt", "__RTS_FN_NS_DOM_NODE_AT",
+            Sig::new(vec![Handle, I64, I64, I64], I64),
+            "nodeAt(dom: number, viewportW: number, x: number, y: number): number",
+            "NodeId of the DEEPEST node whose box contains (x,y); -1 if none. The \
+             generic hit-test a click uses to find its event target — walk up with \
+             closest() for the enclosing <a>/<button>.",
+            __RTS_FN_NS_DOM_NODE_AT as *const u8,
         ))
         // ── Formulário: input editável (mini-browser) ───────────────────────────
         .member(func(

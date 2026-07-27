@@ -155,17 +155,50 @@ impl DisplayList {
     /// §3, "ordem reversa da display list", sem depender de ordem num HashMap).
     /// Limite documentado: irmãos sobrepostos por position/z-index podem resolver
     /// pro rect menor em vez do maior z — aceito na v1 (raro em fluxo normal).
+    ///
+    /// Sem desempate — ver [`DisplayList::hit_test_by`] para o caso (comum!) de
+    /// ancestral e descendente com rects IDÊNTICOS.
     pub fn hit_test(&self, x: f32, y: f32) -> Option<NodeIdx> {
-        let mut best: Option<(NodeIdx, f32)> = None;
+        self.hit_test_by(x, y, |_| 0)
+    }
+
+    /// [`DisplayList::hit_test`] com DESEMPATE por profundidade: `depth_of` devolve
+    /// a profundidade do nó na árvore, e num empate de área vence o MAIS PROFUNDO.
+    ///
+    /// O desempate não é um refinamento cosmético — sem ele o hit-test é
+    /// NÃO-DETERMINÍSTICO no caso mais comum que existe. Um `<a>` de bloco cujo
+    /// único filho é um `<span>` de bloco produz rects IDÊNTICOS para os dois (e
+    /// para o `<div>` que os envolve): mesma origem, mesma largura de linha, mesma
+    /// altura. Com áreas iguais, o `<` estrito nunca troca o melhor, então quem
+    /// vence é simplesmente quem o `HashMap` iterou primeiro — ordem que a std
+    /// deliberadamente não define e que muda entre execuções. Medido: a mesma
+    /// página resolvia ora para o `<a>`, ora para o `<body>`.
+    ///
+    /// Profundidade é o critério certo porque reproduz o que "menor área" só
+    /// aproxima: o alvo de um evento é o nó mais interno que contém o ponto.
+    pub fn hit_test_by(&self, x: f32, y: f32, depth_of: impl Fn(NodeIdx) -> u32) -> Option<NodeIdx> {
+        let mut best: Option<(NodeIdx, f32, u32)> = None;
         for (&idx, r) in &self.node_rects {
             if x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h {
                 let area = r.w * r.h;
-                if best.map(|(_, a)| area < a).unwrap_or(true) {
-                    best = Some((idx, area));
+                let better = match best {
+                    None => true,
+                    // Área estritamente menor vence; área igual (dentro de um épsilon
+                    // relativo a f32) é desempatada pela profundidade.
+                    Some((_, a, d)) => {
+                        if (area - a).abs() <= a * 1e-6 {
+                            depth_of(idx) > d
+                        } else {
+                            area < a
+                        }
+                    }
+                };
+                if better {
+                    best = Some((idx, area, depth_of(idx)));
                 }
             }
         }
-        best.map(|(idx, _)| idx)
+        best.map(|(idx, _, _)| idx)
     }
 }
 
