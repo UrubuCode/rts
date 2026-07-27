@@ -75,6 +75,21 @@ pub(crate) const OP_FLOATPRIM: u8 = 18;
 pub(crate) const OP_EXT: u8 = 19;
 /// `Entry::Json` boxed value: varint len + serde_json bytes.
 pub(crate) const OP_JSON: u8 = 20;
+/// User-class instance: class-name str + varint field-count + keys block +
+/// values. Revives with the DESTINATION program's shape id for that class name
+/// (so `instanceof` — a baked shape-id compare — holds), fields matched BY KEY
+/// (extra stream fields dropped, missing ones stay undefined), then the
+/// class-revive hook attaches the class proto. The class must be declared in
+/// the destination program — otherwise a TypeError, like Python's pickle with
+/// an unimportable class.
+pub(crate) const OP_CLASS: u8 = 21;
+/// Function BY REFERENCE (Python's `module.qualname` analogue): fn-name str.
+/// Only a TOP-LEVEL NAMED function resolves — the decoder looks the name up in
+/// the destination program's fn registry ([`register_program_fn`]) and rebuilds
+/// a first-class fn value over its uniform-ABI thunk. Arrows, closures, bound
+/// functions and class methods do NOT serialize (a TypeError — exactly the line
+/// Python draws for lambdas/locals).
+pub(crate) const OP_FN_REF: u8 = 22;
 
 /// Recursion ceiling for encode AND decode — a nesting deeper than this errors
 /// instead of overflowing the Rust stack (Python's pickle errors likewise).
@@ -149,4 +164,86 @@ pub(crate) fn ext_encode(entry: &Entry) -> Option<(&'static str, Vec<u8>)> {
 pub(crate) fn ext_decode(tag: &str, payload: &[u8]) -> Option<u64> {
     let g = ext_codecs().read().unwrap_or_else(|e| e.into_inner());
     g.iter().find(|c| c.tag == tag).and_then(|c| (c.decode)(payload))
+}
+
+// ── Class-revive hook (proto attachment lives ABOVE the engine) ─────────────
+
+/// Attach the class prototype to a freshly revived instance (`obj_word`,
+/// `class_name`). The proto tables live in rts-adapters (`__rtsadp_class_proto`
+/// / `__rtsadp_obj_set_proto`), a crate ABOVE this one — installed at engine
+/// bootstrap, the same dep-direction pattern as `SHAPED_OBJ_HOOK` /
+/// `install_gc_hook`. Absent hook (a bare-engine unit test) → the instance
+/// still has the right shape id (`instanceof` works); only proto-resolved
+/// method dispatch would miss.
+pub type ClassReviveHook = fn(obj_word: u64, class_name: &str);
+
+static CLASS_REVIVE_HOOK: OnceLock<ClassReviveHook> = OnceLock::new();
+
+/// Install the class-revive hook (idempotent; first install wins).
+pub fn set_class_revive_hook(f: ClassReviveHook) {
+    let _ = CLASS_REVIVE_HOOK.set(f);
+}
+
+pub(crate) fn class_revive(obj_word: u64, class_name: &str) {
+    if let Some(f) = CLASS_REVIVE_HOOK.get() {
+        f(obj_word, class_name);
+    }
+}
+
+// ── Program fn registry (functions BY REFERENCE, Python-style) ──────────────
+
+/// One top-level function of the LIVE program, registered by the JIT after
+/// finalize: the uniform-ABI thunk pointer (words in/out — the same convention
+/// every engine fn-value uses) + arity.
+#[derive(Clone, Copy)]
+pub struct FnInfo {
+    pub ptr: u64,
+    pub arity: u8,
+}
+
+struct FnRegistry {
+    by_name: std::collections::HashMap<String, FnInfo>,
+    /// Any pointer identifying the fn (thunk AND raw body) → its name, so the
+    /// encoder can match whatever pointer a reified fn value carries.
+    by_ptr: std::collections::HashMap<u64, String>,
+}
+
+fn fn_registry() -> &'static RwLock<FnRegistry> {
+    static T: OnceLock<RwLock<FnRegistry>> = OnceLock::new();
+    T.get_or_init(|| {
+        RwLock::new(FnRegistry {
+            by_name: std::collections::HashMap::new(),
+            by_ptr: std::collections::HashMap::new(),
+        })
+    })
+}
+
+/// Clear the fn registry at a program boundary (stale pointers from a dropped
+/// JIT module must never resolve).
+pub fn reset_program_fns() {
+    let mut g = fn_registry().write().unwrap_or_else(|e| e.into_inner());
+    g.by_name.clear();
+    g.by_ptr.clear();
+}
+
+/// Register one top-level program function: `thunk_ptr` is what a revived fn
+/// value invokes (uniform ABI); `alias_ptrs` are additional pointers (the raw
+/// body) that identify the same fn at encode time.
+pub fn register_program_fn(name: &str, thunk_ptr: u64, arity: u8, alias_ptrs: &[u64]) {
+    let mut g = fn_registry().write().unwrap_or_else(|e| e.into_inner());
+    g.by_name.insert(name.to_string(), FnInfo { ptr: thunk_ptr, arity });
+    g.by_ptr.insert(thunk_ptr, name.to_string());
+    for &p in alias_ptrs {
+        if p != 0 {
+            g.by_ptr.insert(p, name.to_string());
+        }
+    }
+}
+
+pub(crate) fn fn_name_of_ptr(ptr: u64) -> Option<String> {
+    fn_registry().read().unwrap_or_else(|e| e.into_inner()).by_ptr.get(&ptr).cloned()
+}
+
+pub(crate) fn fn_info_of(name: &str) -> Option<FnInfo> {
+    fn_registry().read().unwrap_or_else(|e| e.into_inner()).by_name.get(name).copied()
 }

@@ -276,6 +276,17 @@ pub extern "C" fn __rtsadp_class_proto(name_str_word: u64) -> u64 {
     w
 }
 
+/// Pickle class-revive hook (installed into `rts_engine::heap::pickle` at
+/// engine bootstrap): attach the class's shared prototype to a freshly revived
+/// instance, so method dispatch through the proto walk works on it exactly as
+/// on a `new`-built one. The instance already carries the class's shape id
+/// (slot 0), so `instanceof` needs nothing from here.
+pub fn pickle_class_revive(obj_word: u64, class_name: &str) {
+    let name_word = rts_engine::heap::shapes::string_word(class_name.as_bytes());
+    let proto = __rtsadp_class_proto(name_word);
+    __rtsadp_obj_set_proto(obj_word, proto);
+}
+
 /// name → the class's shared prototype object word (see [`__rtsadp_class_proto`]).
 fn class_proto_table() -> &'static Mutex<HashMap<String, u64>> {
     static T: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();

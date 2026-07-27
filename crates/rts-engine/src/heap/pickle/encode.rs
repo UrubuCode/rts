@@ -15,7 +15,7 @@ use super::super::poly::{
     POLY_SING_NULL, POLY_SING_TRUE, POLY_TAG_FUNCTION, POLY_TAG_INT32, POLY_TAG_MASK,
     POLY_TAG_OBJECT, POLY_TAG_SHIFT, POLY_TAG_SINGLETON, POLY_TAG_STR,
 };
-use super::super::shapes::{global_shape_keys, handle_word_auto, legacy_i64_to_word};
+use super::super::shapes::{class_name_of_shape, global_shape_keys, handle_word_auto, legacy_i64_to_word};
 use super::*;
 
 /// Serialize one PolyValue word into a fresh `RTSP` v1 byte stream.
@@ -73,10 +73,7 @@ impl Enc {
                     _ => OP_UNDEF,
                 });
             }
-            POLY_TAG_STR | POLY_TAG_OBJECT => self.heap(word, depth)?,
-            POLY_TAG_FUNCTION => {
-                return Err("pickle: cannot serialize a function".into());
-            }
+            POLY_TAG_STR | POLY_TAG_OBJECT | POLY_TAG_FUNCTION => self.heap(word, depth)?,
             other => return Err(format!("pickle: unserializable value tag {other}")),
         }
         Ok(())
@@ -129,6 +126,17 @@ impl Enc {
                     self.value(w, depth + 1)?;
                 }
             }
+            Snap::ClassInst { class, keys, values } => {
+                self.out.push(OP_CLASS);
+                put_str(&mut self.out, class.as_bytes());
+                put_varint(&mut self.out, keys.len() as u64);
+                for k in &keys {
+                    put_str(&mut self.out, k.as_bytes());
+                }
+                for v in values {
+                    self.value(v as u64, depth + 1)?;
+                }
+            }
             Snap::Buffer(bytes) => {
                 self.out.push(OP_BUFFER);
                 put_str(&mut self.out, &bytes);
@@ -176,6 +184,10 @@ impl Enc {
                 self.out.push(OP_JSON);
                 put_str(&mut self.out, &bytes);
             }
+            Snap::FnRef(name) => {
+                self.out.push(OP_FN_REF);
+                put_str(&mut self.out, name.as_bytes());
+            }
             Snap::Ext(tag, payload) => {
                 self.out.push(OP_EXT);
                 put_str(&mut self.out, tag.as_bytes());
@@ -204,6 +216,7 @@ enum Snap {
     Str(Vec<u8>),
     Array(Vec<i64>),
     Object { keys: Vec<String>, values: Vec<i64>, normalize: bool },
+    ClassInst { class: String, keys: Vec<String>, values: Vec<i64> },
     Buffer(Vec<u8>),
     ArrayBuf(Vec<u8>),
     BigInt { negative: bool, words: Vec<u64> },
@@ -213,6 +226,7 @@ enum Snap {
     StrBox(u64),
     FloatPrim(f64),
     Json(Vec<u8>),
+    FnRef(String),
     Ext(&'static str, Vec<u8>),
 }
 
@@ -253,6 +267,20 @@ fn snapshot(h: u64) -> Result<Snap, String> {
             Entry::Json(v) => {
                 serde_json::to_vec(v.as_ref()).map(Snap::Json).map_err(|e| format!("pickle: JSON snapshot failed: {e}"))
             }
+            // Function BY REFERENCE — Python's rule: only a top-level named fn
+            // (resolvable in the program fn registry) serializes; a closure /
+            // arrow / bound fn is state the reference cannot carry.
+            Entry::Function(f) => {
+                if f.has_bound_this || !f.bound_args.is_empty() {
+                    return Err("pickle: cannot serialize a bound function or closure".into());
+                }
+                fn_name_of_ptr(f.fn_ptr).map(Snap::FnRef).ok_or_else(|| {
+                    format!(
+                        "pickle: cannot serialize function '{}' (only top-level named functions serialize, by reference)",
+                        f.name
+                    )
+                })
+            }
             // Everything else: an extension codec (Date, RegExp, … registered
             // by the class's owner crate) or an honest, named error.
             other => ext_encode(other)
@@ -274,8 +302,21 @@ fn snap_vec(slots: &[i64]) -> Result<Snap, String> {
             let shape_id = (w0 & POLY_PAYLOAD_MASK) as u32;
             if let Some(keys) = global_shape_keys(shape_id) {
                 if keys.len() + 1 == slots.len() {
-                    // A `#`-private field / accessor / symbol key marks a class
-                    // instance or exotic object — phase 2, not silently lossy.
+                    // A shape owned by a `class` declaration → CLASS_INST with
+                    // the WHOLE field state, `#`-private fields included (they
+                    // are the instance's state — Python pickles __dict__ the
+                    // same way). Methods/accessors live on the shared proto,
+                    // not in slots, and are re-attached at revive.
+                    if let Some(class) = class_name_of_shape(shape_id) {
+                        return Ok(Snap::ClassInst {
+                            class,
+                            keys,
+                            values: slots[1..].to_vec(),
+                        });
+                    }
+                    // Not a class shape: an accessor / symbol key marks an
+                    // exotic literal (defineProperty getter etc.) — explicit
+                    // error, not silently lossy.
                     if let Some(k) = keys.iter().find(|k| {
                         k.starts_with('#')
                             || k.starts_with("__get_")
@@ -283,7 +324,7 @@ fn snap_vec(slots: &[i64]) -> Result<Snap, String> {
                             || k.starts_with("@@sym:")
                     }) {
                         return Err(format!(
-                            "pickle: cannot serialize an object with key '{k}' (class instance / accessor / symbol key — unsupported in v1)"
+                            "pickle: cannot serialize an object with key '{k}' (accessor / symbol / private key on a non-class shape)"
                         ));
                     }
                     return Ok(Snap::Object {

@@ -35,6 +35,7 @@ struct Cached {
     program: LoweredProgram,
     shapes: Vec<Vec<String>>,
     error_classes: Vec<(String, u32, Vec<String>)>,
+    class_shapes: Vec<(String, u32)>,
 }
 
 /// The same payload borrowed, for SERIALIZE — avoids cloning the (large) lowered
@@ -44,6 +45,7 @@ struct CachedRef<'a> {
     program: &'a LoweredProgram,
     shapes: Vec<Vec<String>>,
     error_classes: Vec<(String, u32, Vec<String>)>,
+    class_shapes: Vec<(String, u32)>,
 }
 
 /// The cache is ON by default; `RTS_NO_PRELUDE_CACHE=1` disables it (an escape
@@ -93,6 +95,7 @@ pub(super) fn load(prelude_src: &str) -> Option<LoweredProgram> {
     let cached: Cached = bincode::deserialize(&bytes).ok()?;
     shapes::seed_global_shapes(cached.shapes);
     shapes::seed_error_classes(cached.error_classes);
+    shapes::seed_class_shapes(cached.class_shapes);
     Some(cached.program)
 }
 
@@ -108,6 +111,7 @@ pub(super) fn store(prelude_src: &str, program: &LoweredProgram) {
         program,
         shapes: shapes::export_global_shapes(),
         error_classes: shapes::export_error_classes(),
+        class_shapes: shapes::export_class_shapes(),
     };
     let Ok(bytes) = bincode::serialize(&cached) else {
         return;
