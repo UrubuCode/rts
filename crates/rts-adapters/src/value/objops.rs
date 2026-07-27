@@ -241,8 +241,7 @@ fn key_text(key_str_handle: u64) -> String {
 /// `undefined` when the key is absent OR `obj_word` is not a keyed object (an
 /// array / primitive). The lowering routes here only proven-object receivers.
 #[rtse::abi]
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
+pub fn rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
     // ToPropertyKey must run the key's coercion EXACTLY ONCE (JS 13.3.12): a key
     // OBJECT with a side-effecting `toString`/`valueOf` (`obj[keyObj]`) would
     // otherwise fire its method per internal `key_text` probe below. Canonicalize an
