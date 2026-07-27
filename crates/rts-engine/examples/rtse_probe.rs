@@ -65,12 +65,16 @@ fn main() {
     let c = arm_c_flat_mutex();
     let d = arm_d_flat_nolock();
     let b2 = arm_b2_boxed_nolock_noalloc();
+    let b3 = arm_b3_boxed_cap0_growth();
+    let b4 = arm_b4_boxed_reserved();
 
     let rows = [
         ("NATIVE  plain Rust struct", native),
         ("A  mutex + Box<Vec> + alloc  (today)", a),
         ("B  NO LOCK + Box<Vec> + alloc", b),
         ("B2 NO LOCK + Box<Vec>, alloc HOISTED", b2),
+        ("B3 engine-shaped: cap0 Vec + 3 push", b3),
+        ("B4 same, capacity RESERVED", b4),
         ("C  mutex + flat inline", c),
         ("D  NO LOCK + flat inline", d),
     ];
@@ -85,6 +89,7 @@ fn main() {
     println!("pointer chase alone  (B2 -> D): {:.2}x", b2 / d);
     println!("layout, alloc+chase  (B -> D):  {:.2}x", b / d);
     println!("everything           (A -> D):  {:.2}x", a / d);
+    println!("cap-0 growth alone   (B3 -> B4): {:.2}x", b3 / b4);
 
     println!(
         "\nCAVEAT, stated so the numbers are not over-read: arms C and D reuse ONE\n\
@@ -223,6 +228,68 @@ fn alloc_boxed(slab: &mut Vec<BoxedSlot>, i: i64) -> usize {
     slab[0].generation = slab[0].generation.wrapping_add(1);
     slab[0].fields = Some(Box::new(vec![i, i + 1]));
     0
+}
+
+/// Still one allocation per object, but built the way the ENGINE builds it:
+/// `VEC_NEW` is `Box::new(Vec::new())` — capacity ZERO — and construction then
+/// pushes one word per field plus the shape id. So the first push allocates the
+/// buffer and the 0->4 growth can realloc again, making a 2-field object cost
+/// several allocations instead of one.
+///
+/// `B3 -> B` prices that specific mistake. The field count is known at compile
+/// time from the interned Shape, so reserving it is a small change — and this
+/// arm says whether the small change is worth making before anyone commits to
+/// escape analysis, which is the correct but expensive fix.
+fn arm_b3_boxed_cap0_growth() -> f64 {
+    let mut slab: Vec<BoxedSlot> = Vec::with_capacity(1024);
+    slab.push(BoxedSlot {
+        generation: 0,
+        marked: false,
+        fields: None,
+    });
+    let t = Instant::now();
+    let mut s: i64 = 0;
+    for i in 0..N as i64 {
+        // Exactly the engine's shape: empty Vec, then push shape-id + K fields.
+        let mut v: Box<Vec<i64>> = Box::new(Vec::new());
+        v.push(0);
+        v.push(i);
+        v.push(i + 1);
+        slab[0].generation = slab[0].generation.wrapping_add(1);
+        slab[0].fields = Some(v);
+        let x = slab[0].fields.as_ref().map_or(0, |f| f[1]);
+        let y = slab[0].fields.as_ref().map_or(0, |f| f[2]);
+        s = s.wrapping_add(black_box(x).wrapping_mul(black_box(y)));
+    }
+    black_box(s);
+    ms(t)
+}
+
+/// Same as B3 but with the capacity RESERVED up front — the whole change being
+/// evaluated. Everything else is identical, so `B3 -> B4` is the price of
+/// capacity-zero growth alone.
+fn arm_b4_boxed_reserved() -> f64 {
+    let mut slab: Vec<BoxedSlot> = Vec::with_capacity(1024);
+    slab.push(BoxedSlot {
+        generation: 0,
+        marked: false,
+        fields: None,
+    });
+    let t = Instant::now();
+    let mut s: i64 = 0;
+    for i in 0..N as i64 {
+        let mut v: Box<Vec<i64>> = Box::new(Vec::with_capacity(K + 1));
+        v.push(0);
+        v.push(i);
+        v.push(i + 1);
+        slab[0].generation = slab[0].generation.wrapping_add(1);
+        slab[0].fields = Some(v);
+        let x = slab[0].fields.as_ref().map_or(0, |f| f[1]);
+        let y = slab[0].fields.as_ref().map_or(0, |f| f[2]);
+        s = s.wrapping_add(black_box(x).wrapping_mul(black_box(y)));
+    }
+    black_box(s);
+    ms(t)
 }
 
 // ---------------------------------------------------------------- ARM C
