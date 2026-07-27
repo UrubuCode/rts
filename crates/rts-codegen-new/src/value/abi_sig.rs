@@ -26,6 +26,12 @@ pub struct SymSig {
     pub ret: AbiType,
 }
 
+/// A `SymSig` copied off a macro-derived `rts_engine::abi::SymbolDesc` — the
+/// field shapes already match, this just narrows the type.
+fn from_desc(d: rts_engine::abi::SymbolDesc) -> SymSig {
+    SymSig { params: d.params, ret: d.ret }
+}
+
 /// The Cranelift IR type a scalar `AbiType` lowers to. `StrPtr` is NEVER passed
 /// here (it is expanded into two `I64` entries before this is reached); `Void` is
 /// only legal as a return and contributes no slot.
@@ -1059,15 +1065,17 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             ret: F64,
         },
 
-        // ---- REAL Number static predicates (P5.4, rts-primitives number) ----
-        // f64 → Bool (extern "C" i64 0/1). `#[rtse::statical]`-generated.
-        "__rtsm_global_number_is_integer"
-        | "__rtsm_global_number_is_finite"
-        | "__rtsm_global_number_is_nan"
-        | "__rtsm_global_number_is_safe_integer" => SymSig {
-            params: &[F64],
-            ret: Bool,
-        },
+        // ---- REAL Number static predicates (P5.4) ----
+        // `rts-macro-single-source.md` pilot: each row copies params/ret off the
+        // `#[rtse::class]`-derived `SymbolDesc` (`NumberWrapper::IS_*_SYM`)
+        // instead of hand-typing them — the drift this file's own doc warns
+        // about is now a copy, not a second derivation.
+        "__rtsm_global_number_is_integer" => from_desc(rts_runtime::NumberWrapper::IS_INTEGER_SYM),
+        "__rtsm_global_number_is_finite" => from_desc(rts_runtime::NumberWrapper::IS_FINITE_SYM),
+        "__rtsm_global_number_is_nan" => from_desc(rts_runtime::NumberWrapper::IS_NAN_SYM),
+        "__rtsm_global_number_is_safe_integer" => {
+            from_desc(rts_runtime::NumberWrapper::IS_SAFE_INTEGER_SYM)
+        }
 
         _ => return None,
     })
@@ -1109,5 +1117,11 @@ mod desc_agreement {
     fn descriptors_match_the_hand_table() {
         // Grows as `#[rtse::abi]` is applied to more symbols (F7 drains the rest).
         agree(rts_adapters::value::objops::OBJ_GET_ABI);
+        // Number predicates pilot (`#[rtse::class]`-derived, not `#[rtse::abi]`) —
+        // same guard, same `SymbolDesc` shape either macro emits.
+        agree(rts_runtime::NumberWrapper::IS_INTEGER_SYM);
+        agree(rts_runtime::NumberWrapper::IS_FINITE_SYM);
+        agree(rts_runtime::NumberWrapper::IS_NAN_SYM);
+        agree(rts_runtime::NumberWrapper::IS_SAFE_INTEGER_SYM);
     }
 }

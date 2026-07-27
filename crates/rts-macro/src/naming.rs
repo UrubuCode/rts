@@ -10,6 +10,11 @@
 //! `__rtsm_<module>_<value>` / `__rtsm_global_<class>_<value>` for module and
 //! global-class symbols, `__rtsn_<value>` for NATIVE helpers, `__rtsa_<value>`
 //! for the codegen<->runtime ABI contract.
+//!
+//! `member_sym_const_name` is the THIRD const-naming rule (alongside
+//! `abi_const_name` above and `class::member::gen_member`'s own `Member`
+//! assembly): the per-member `SymbolDesc` const `#[rtse::class]` emits on the
+//! class type, consumed by `rtse::sym!(Type::member)`.
 
 /// snake_case → camelCase, for a Rust member/field name with no explicit
 /// `name = "..."` override.
@@ -45,4 +50,18 @@ pub(crate) fn abi_const_name(sym: &str) -> String {
         .or_else(|| sym.strip_prefix("__rtsadp_"))
         .unwrap_or(sym);
     format!("{}_ABI", base.trim_start_matches('_').to_uppercase())
+}
+
+/// The per-member `SymbolDesc` const's identifier, from the Rust member ident
+/// VERBATIM (before JS camelCase conversion — the same "case-preserved" choice
+/// `class_symbol` makes for the linker symbol, so the two stay in lockstep):
+/// upper-case the ident, suffix `_SYM`. `is_nan` → `IS_NAN_SYM`;
+/// `set_href` → `SET_HREF_SYM`.
+///
+/// CAVEAT: two members whose Rust idents differ only by case (`is_nan` vs
+/// `is_NaN`) would collide on this name — `rustc` catches it as a duplicate
+/// associated-item error at the `impl` that defines both, same as it would for
+/// any other hand-named const, so this is not a silent hazard.
+pub(crate) fn member_sym_const_name(rust_ident: &str) -> String {
+    format!("{}_SYM", rust_ident.to_uppercase())
 }

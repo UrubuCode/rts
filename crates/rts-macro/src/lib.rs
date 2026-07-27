@@ -88,6 +88,7 @@ mod class;
 mod constant;
 mod function;
 mod naming;
+mod sym;
 mod types;
 mod typerec;
 
@@ -134,6 +135,14 @@ pub fn function(a: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn r#type(a: TokenStream, item: TokenStream) -> TokenStream {
     typerec::expand(a, item)
+}
+
+/// `rtse::sym!(Type::member)` — a path reference to the `SymbolDesc` const
+/// `#[rtse::class]` generated for that member (`Type::MEMBER_SYM`). See the
+/// `sym` module doc for the exact expansion and what a typo produces.
+#[proc_macro]
+pub fn sym(input: TokenStream) -> TokenStream {
+    sym::expand(input)
 }
 
 // Standalone marker attrs (inert — `#[rtse::class]` on the impl strips them).

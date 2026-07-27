@@ -419,7 +419,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(self.poly_bool_to_bool(res));
         }
         let f = self.coerce(v, Repr::Float64)?;
-        let b = emit_marshal::emit_call(module, self.builder, sym, &[f])
+        let b = emit_marshal::emit_call(module, self.builder, sym.name, &[f])
             .expect("NUMBER predicate returns a value");
         // The extern returns i64 0/1 → a proven Bool.
         Ok(Val::new(b, Repr::Bool))
@@ -579,14 +579,21 @@ fn number_const(name: &str) -> Option<f64> {
     })
 }
 
-/// The real `__rtsm_global_number_is_*` symbol for a Number static predicate
+/// The `__rtsm_global_number_is_*` `SymbolDesc` for a Number static predicate
 /// (`#[rtse::statical]`-generated, `rts-primitives/src/number/mod.rs`).
-fn number_predicate(method: &str) -> Option<&'static str> {
+///
+/// Pilot of `docs/specs/rts-macro-single-source.md`: `rtse::sym!(NumberWrapper::
+/// is_nan)` resolves to `NumberWrapper::IS_NAN_SYM`, the `SymbolDesc` const
+/// `#[rtse::class]` derived FROM `is_nan`'s own Rust signature — a typo'd or
+/// renamed member is a `rustc` "no associated item" error here, not a linked-OK/
+/// runtime-SIGILL symbol string that quietly stopped matching the extern.
+fn number_predicate(method: &str) -> Option<rts_engine::abi::SymbolDesc> {
+    use rts_runtime::NumberWrapper;
     Some(match method {
-        "isInteger" => "__rtsm_global_number_is_integer",
-        "isFinite" => "__rtsm_global_number_is_finite",
-        "isNaN" => "__rtsm_global_number_is_nan",
-        "isSafeInteger" => "__rtsm_global_number_is_safe_integer",
+        "isInteger" => rtse::sym!(NumberWrapper::is_integer),
+        "isFinite" => rtse::sym!(NumberWrapper::is_finite),
+        "isNaN" => rtse::sym!(NumberWrapper::is_nan),
+        "isSafeInteger" => rtse::sym!(NumberWrapper::is_safe_integer),
         _ => return None,
     })
 }

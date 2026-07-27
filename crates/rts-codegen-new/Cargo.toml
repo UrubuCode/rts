@@ -65,6 +65,13 @@ rts-engine = { path = "../rts-engine" }
 # out into its own Cranelift-free crate so it links into AOT binaries as a
 # staticlib. This crate keeps only the Cranelift *emit* side (value::emit/…).
 rts-adapters = { path = "../rts-adapters" }
+# `rtse::sym!(Type::member)` — resolves a call site's symbol to the
+# macro-derived `SymbolDesc` const `#[rtse::class]` emitted on `Type`, instead
+# of a hand-typed string literal (docs/specs/rts-macro-single-source.md). This
+# is the proc-macro crate itself (no runtime surface, purely compile-time), not
+# a second route to rts-engine/rts-primitives — the const it resolves is still
+# reached through a type reachable via the `rts-runtime` facade.
+rtse = { package = "rts-macro", path = "../rts-macro" }
 # Per-function Cranelift compilation is independent work; `parcompile` runs it
 # across cores between the (serial) IR build and the (serial) module define.
 rayon = "1.10"

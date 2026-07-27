@@ -25,6 +25,13 @@ pub use rts_primitives::ERROR_TS;
 /// the facade (`rts_runtime::OBJECT_TS`). Included as a declarations-only prelude;
 /// an object-receiver method call routes into its ambient `class Object`.
 pub use rts_primitives::OBJECT_TS;
+/// The pure-Rust `Number` value-class type, re-exported from `rts-primitives`
+/// so the new engine can name it in `rtse::sym!(NumberWrapper::is_nan)` calls
+/// (P5.4 pilot, `docs/specs/rts-macro-single-source.md`) without a second
+/// direct dependency on `rts-primitives` — the SAME facade rule as
+/// `ERROR_TS`/`OBJECT_TS` above, just for a type instead of an embedded `.ts`
+/// source.
+pub use rts_primitives::number::NumberWrapper;
 // Boolean/Number are now pure-Rust `#[rtse::class(.., value)]` value-classes
 // (`rts-primitives/src/boolean.rs`, `src/number/mod.rs`) — there is no
 // `BOOLEAN_TS`/`NUMBER_TS` prelude anymore (same drain as String).
