@@ -5,10 +5,10 @@
 //   nível, cristais restantes — instâncias de classe!) é picklado com
 //   rts:serde num arquivo .rtsp:
 //
-//   W/A/S/D — andar      ESPAÇO — pular      SETAS ou botão-dir.+mouse — olhar
+//   W/A/S/D — andar      ESPAÇO — pular      MOUSE — olhar (captura FPS)
 //   1 — SALVAR (serialize → claude-cristais-save.rtsp)
 //   2 — CARREGAR (deserialize; também carrega sozinho no boot)
-//   ESC — sair
+//   ESC — solta/recaptura o mouse      Q — sair
 //
 //   Rodar: target/release/rts.exe run examples/claude-cristais3d.ts
 import { egui, input, buffer, time, io } from "rts";
@@ -167,6 +167,11 @@ const KEY_LEFT: i64 = 7;
 const KEY_RIGHT: i64 = 8;
 const KEY_1: i64 = 131;
 const KEY_2: i64 = 132;
+const KEY_Q: i64 = 116; // 'q' na convenção ascii+3 do backend (a=100, s=118)
+
+// captura FPS do mouse (pointer-lock): olhar vem do delta cru do device
+let mouseCapturado = 1;
+egui.mouseLock(win, 1);
 
 function salvar(): void {
   writeFileSync(SAVE_PATH, serialize(save) as any);
@@ -212,7 +217,7 @@ while (egui.isOpen(win)) {
   if (input.key(win, KEY_RIGHT, 0) != 0) { save.yaw = save.yaw + lookSpd; }
   if (input.key(win, KEY_UP, 0) != 0) { save.pitch = save.pitch + lookSpd; }
   if (input.key(win, KEY_DOWN, 0) != 0) { save.pitch = save.pitch - lookSpd; }
-  if (input.mouseDown(win, 1) != 0) {
+  if (mouseCapturado === 1) {
     save.yaw = save.yaw + input.mouseDeltaX(win) * 0.0035;
     save.pitch = save.pitch - input.mouseDeltaY(win) * 0.0035;
   }
@@ -258,7 +263,9 @@ while (egui.isOpen(win)) {
     const dz: f64 = save.pz - c.z;
     if (dx * dx + dz * dz < 1.69) {
       save.score = save.score + c.valor;
-      save.cristais.splice(ci, 1);
+      // swap-remove (o último ocupa a vaga; pop encolhe)
+      save.cristais[ci] = save.cristais[save.cristais.length - 1];
+      save.cristais.pop();
       toast = "+ cristal! score " + save.score;
       toastT = 1.2;
     } else {
@@ -276,6 +283,18 @@ while (egui.isOpen(win)) {
   if (input.key(win, KEY_1, 1) != 0) { salvar(); }
   if (input.key(win, KEY_2, 1) != 0) { carregar(); }
   if (input.key(win, KEY_ESC, 1) != 0) {
+    // ESC alterna a captura do mouse (soltar pra usar outras janelas)
+    if (mouseCapturado === 1) {
+      mouseCapturado = 0;
+      egui.mouseLock(win, 0);
+      toast = "mouse SOLTO — ESC recaptura, Q sai";
+      toastT = 2.5;
+    } else {
+      mouseCapturado = 1;
+      egui.mouseLock(win, 1);
+    }
+  }
+  if (input.key(win, KEY_Q, 1) != 0) {
     egui.close(win);
     break;
   }
@@ -315,7 +334,7 @@ while (egui.isOpen(win)) {
   const t: f64 = (now - t0) / 1000.0;
   const fps: f64 = t > 0.2 ? frames / t : 0.0;
   egui.label(win, "CRISTAIS 3D | score " + save.score + " | nivel " + save.nivel + " | faltam " + save.cristais.length + " | " + Math.round(fps) + " fps");
-  egui.label(win, "WASD anda | ESPACO pula | setas/dir+mouse olham | [1] SALVAR pickle | [2] CARREGAR | ESC sai");
+  egui.label(win, "WASD anda | ESPACO pula | MOUSE olha | [1] SALVAR pickle | [2] CARREGAR | ESC solta mouse | Q sai");
   if (toastT > 0.0) {
     toastT = toastT - dt;
     egui.label(win, ">> " + toast);
