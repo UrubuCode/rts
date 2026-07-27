@@ -1,9 +1,9 @@
 //! `node:v8` — the structured-clone serializer core: `serialize(value)` →
-//! Buffer and `deserialize(buffer)` → value, over RTS's OWN wire format
-//! (v8.md §24 — same value-traversal design as the ambient `structuredClone`,
-//! NOT V8's ValueSerializer bytes). A real recursive walk of the PolyValue graph
-//! (numbers/strings/booleans/null/undefined/arrays/plain objects); functions and
-//! symbols are unserializable (a thrown error, matching V8).
+//! Buffer and `deserialize(buffer)` → value, over the engine's ONE native
+//! pickle primitive (`rts_engine::heap::pickle`, RTSP wire format — the v8.md
+//! §5.1 unification; NOT V8's ValueSerializer bytes). Cyclic references and
+//! shared identity round-trip via memo back-references, like V8's own format;
+//! functions and symbols are unserializable (a thrown error, matching V8).
 //!
 //! Deferred (need V8-internal concepts RTS does not have, host-object hooks, or
 //! GC/heap-snapshot plumbing): the `Serializer`/`Deserializer` subclassable
@@ -11,14 +11,10 @@
 //! transferArrayBuffer/raw read-write primitives), `getHeapStatistics`/
 //! `getHeapSpaceStatistics`/`writeHeapSnapshot` (no V8 heap to introspect),
 //! `setFlagsFromString`, `takeCoverage`/`stopCoverage`, `GCProfiler`,
-//! `vm.measureMemory`, the startup-snapshot API. Cyclic references (V8 handles
-//! them via back-references) are also out of this first cut — a plain DAG
-//! round-trips; a cycle would recurse.
+//! `vm.measureMemory`, the startup-snapshot API.
 //!
-//! Layout: `serde` (encode/decode), `symbols` (extern points), `mod`
-//! (registration).
+//! Layout: `symbols` (extern points), `mod` (registration).
 
-mod serde;
 mod symbols;
 
 use rts_engine::AbiType::{self, Handle, PolyValue};

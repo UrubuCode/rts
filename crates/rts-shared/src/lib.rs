@@ -21,5 +21,6 @@ pub mod path;
 pub mod protobuf;
 pub mod ptr;
 pub mod regex;
+pub mod serde_ns;
 pub mod stdlib;
 pub mod trace;
