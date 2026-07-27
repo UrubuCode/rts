@@ -185,6 +185,8 @@ pub(super) fn build_class(
     // A UNIQUE per-class id (not key-deduped): two distinct classes with the same
     // fields must be distinguishable at runtime for `opaque instanceof C`.
     let global_shape = crate::shape::intern_class_shape(&fields);
+    // Generic name ↔ shape registry (pickle revive + shape→class introspection).
+    crate::shape::register_class_shape(&decl.name, global_shape);
 
     // PRIMORDIAL Error family: publish (shape, layout) so runtime trampolines
     // can fabricate REAL error instances for spec-mandated throws (empty

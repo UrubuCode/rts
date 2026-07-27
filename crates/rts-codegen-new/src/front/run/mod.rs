@@ -357,6 +357,7 @@ fn build_program_for_prelude(src: &str) -> FrontResult<LoweredProgram> {
                 if m.prelude_hash == prelude_cache::key(src) {
                     rts_engine::heap::shapes::seed_global_shapes(m.shapes.clone());
                     rts_engine::heap::shapes::seed_error_classes(m.error_classes.clone());
+                    rts_engine::heap::shapes::seed_class_shapes(m.class_shapes.clone());
                     return Ok(m.program);
                 }
             }
