@@ -4047,9 +4047,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-abi"
+version = "0.1.0"
+
+[[package]]
 name = "rts-adapters"
 version = "0.1.0"
 dependencies = [
+ "rts-abi",
  "rts-engine",
  "rts-macro",
  "rts-runtime",
@@ -4159,6 +4164,7 @@ dependencies = [
  "indexmap",
  "pollster 0.3.0",
  "regex",
+ "rts-abi",
  "rustls",
  "serde_json",
  "sha2 0.10.9",

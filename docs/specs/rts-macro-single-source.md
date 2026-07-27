@@ -68,6 +68,34 @@ Today every generated symbol must be a member of a class (`gen_impl` always emit
 `e.class(#name)`). A free function has no receiver and no class — this is the
 first genuinely new `MemberKind`.
 
+### Well-known symbols — `#[rtse::symbol("iterator")]`
+
+```rust
+#[rtse::class("Map")]
+impl MapClass {
+    #[rtse::symbol("iterator")]
+    fn iter(recv: Poly) -> Handle { … }     // `for (const x of map)` finds this
+}
+```
+
+This is what makes a class implemented **in Rust** participate in the JS
+iteration protocol. Today a class can only be iterable if it is written as `.ts`
+with a literal `[Symbol.iterator]()` method, which is why `Map`/`Set` live in
+`rts-shared/src/stdlib/map_set.ts` rather than in Rust — the protocol key has no
+declarable form on the Rust side.
+
+`#[rtse::symbol]` registers the member under the well-known symbol key instead of
+a string name, so `for…of`, spread, and destructuring resolve it through the same
+protocol path they use for a `.ts` class. Coverage should include at least
+`iterator`, `asyncIterator`, `toPrimitive`, `hasInstance` and `toStringTag` —
+those are the ones the engine's own paths already consult.
+
+Consequence worth stating: once this exists, `Map`/`Set` can move from `.ts` to
+Rust. The `.ts` placement was a workaround for the missing declaration form, not
+a design preference — see the note in `CLAUDE.md` about collections being `.ts`
+"because they need arbitrary key/value types the i64 Rust backend can't hold",
+which the `PolyValue` containers have since made false.
+
 ### Classes, including the call-without-`new` form
 
 ```rust
@@ -146,6 +174,7 @@ Audited against `crates/rts-macro/src/lib.rs` (1414 lines) as of 2026-07-27:
 | Real default-arg semantics | positional index | `null`/`undefined`/`NaN`/specific-string defaults |
 | Callback params | absent | `arr_map`/`filter`/`reduce` — invoke a handle as a function |
 | `Vec<Poly>` / iterator returns | only `String`/`Handle`/tuple-of-`String` | `arr_entries`/`values`/`keys` |
+| `#[rtse::symbol("iterator")]` | inert marker only | a Rust class joining the iteration protocol — unblocks `Map`/`Set` in Rust |
 
 ### The default-argument gap, specifically
 
@@ -180,6 +209,10 @@ from codegen control flow by this work.
 
 **F5 — default-arg semantics on `PolyValue`.** Unblocks the specific-string and
 nullish defaults.
+
+**F5b — `#[rtse::symbol("iterator")]`.** Well-known-symbol members, so a
+Rust-implemented class can be iterated. Then `Map`/`Set` become candidates to
+move out of `rts-shared/src/stdlib/map_set.ts` into Rust.
 
 **F6 — variadic, then `NativeEmit`.** `NativeEmit` last of these two because it
 is what lets an intrinsic have an inline-IR path with the engine naming nothing.
