@@ -205,6 +205,33 @@ only safe direction — a missed hoist costs speed, never correctness.
 Before hoisting anything out of a loop, read the callee for order dependence
 rather than inferring it from the name.
 
+### Per-slot `Repr`: unbox at the USE, never at the READ
+
+A prototype of this (a per-class `field_numbers` set + unbox in `lower_arith`)
+was built, measured at **1.62×** on `bench/field_arith.ts`, and then discarded in
+favour of doing it properly through the `Shape` — but it found a trap that the
+real implementation must not walk into.
+
+**Unboxing at the READ site is wrong.** A field declared `n: number` that the
+constructor never assigns still holds `undefined`, and `console.log(z.n)` must
+print `undefined`. Decoding the slot to an `f64` at the read makes it print
+`NaN`. Measured, not theorised — the first version of the prototype did exactly
+this and the regression was caught by probing an unassigned field.
+
+**Unboxing at the USE site is right.** Only arithmetic forces the number, and
+`undefined * 1` is `NaN` in JS anyway, so the observable stays correct while the
+optimization still lands: `p.x * p.y` emits `fmul` because both operands were
+decoded on their way into the operator, not on their way out of the slot.
+
+So a slot's `Repr` describes what the slot is PROVEN to hold, and licenses a
+decode at the point of consumption. It does not license rewriting every read as
+a native-typed load. The two differ exactly on the values a JS program can
+observe before they are used.
+
+`bench/field_arith.ts` is kept as the benchmark for this axis — one construction
+then a hot loop of pure field arithmetic, deliberately isolating it from the
+allocation traffic that dominates `objbench.ts` and masks it.
+
 ## Phase 1 — close the conservative `Tagged` widenings (Axis A)
 
 `Repr::join` is deliberately total and pessimistic
