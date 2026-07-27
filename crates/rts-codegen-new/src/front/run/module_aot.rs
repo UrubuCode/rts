@@ -65,6 +65,7 @@ pub(crate) fn compile_replay_aot(m: &super::bake::PreludeManifest) -> FrontResul
     rts_engine::heap::shapes::reset_global_shapes();
     rts_engine::heap::shapes::seed_global_shapes(m.shapes.clone());
     rts_engine::heap::shapes::seed_error_classes(m.error_classes.clone());
+    rts_engine::heap::shapes::seed_class_shapes(m.class_shapes.clone());
     let mut prog = m.program.clone();
     prog.resident_import_names = prog.funcs.iter().map(|f| f.name.clone()).collect();
     prog.resident_main = true;

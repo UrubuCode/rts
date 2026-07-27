@@ -88,6 +88,9 @@ pub(crate) struct PreludeManifest {
     pub shapes: Vec<Vec<String>>,
     /// The Error-class registry snapshot (`export_error_classes`).
     pub error_classes: Vec<(String, u32, Vec<String>)>,
+    /// The generic class-shape registry snapshot (`export_class_shapes`) —
+    /// name ↔ shape id for every prelude `class` (pickle revive / introspection).
+    pub class_shapes: Vec<(String, u32)>,
     /// The number of prelude gcells (`0..gcell_count`).
     pub gcell_count: u32,
     /// The pre-compiled prelude functions (machine bytes + symbolic relocs).
@@ -169,6 +172,7 @@ pub fn bake_prelude() -> FrontResult<BakedPrelude> {
         program,
         shapes: shapes::export_global_shapes(),
         error_classes: shapes::export_error_classes(),
+        class_shapes: shapes::export_class_shapes(),
         gcell_count,
         funcs,
         data,
@@ -236,6 +240,7 @@ pub(crate) fn bake_program(prog: &LoweredProgram, cache_key: u64) -> FrontResult
         program: prog.clone(),
         shapes: shapes::export_global_shapes(),
         error_classes: shapes::export_error_classes(),
+        class_shapes: shapes::export_class_shapes(),
         gcell_count,
         funcs,
         data,

@@ -53,6 +53,105 @@ try {
 // 10. special numbers survive (NaN via isNaN, ±Infinity, -0)
 const nums: any = deserialize(serialize([NaN, Infinity, -Infinity, -0, 1e300]));
 
+// ── phase 2: class instances ──
+class PkPessoa {
+  nome: string;
+  idade: number;
+  constructor(n: string, i: number) {
+    this.nome = n;
+    this.idade = i;
+  }
+  saudacao(): string {
+    return "oi " + this.nome;
+  }
+}
+class PkConta {
+  #saldo: number;
+  dono: PkPessoa;
+  constructor(d: PkPessoa, s: number) {
+    this.dono = d;
+    this.#saldo = s;
+  }
+  get saldo(): number {
+    return this.#saldo;
+  }
+  depositar(v: number): void {
+    this.#saldo = this.#saldo + v;
+  }
+}
+class PkAnimal {
+  nome: string;
+  constructor(n: string) {
+    this.nome = n;
+  }
+  som(): string {
+    return "...";
+  }
+}
+class PkCao extends PkAnimal {
+  raca: string;
+  constructor(n: string, r: string) {
+    super(n);
+    this.raca = r;
+  }
+  som(): string {
+    return "au au";
+  }
+}
+class PkNode {
+  val: number;
+  next: PkNode | null;
+  constructor(v: number) {
+    this.val = v;
+    this.next = null;
+  }
+}
+
+const inst: any = deserialize(serialize(new PkPessoa("Ana", 30)));
+const conta: any = deserialize(serialize(new PkConta(new PkPessoa("Bia", 20), 100)));
+conta.depositar(50);
+const dog: any = deserialize(serialize(new PkCao("Rex", "vira-lata")));
+const na = new PkNode(1);
+const nb = new PkNode(2);
+na.next = nb;
+nb.next = na;
+const cycNode: any = deserialize(serialize(na));
+
+// ── phase 2: Map/Set ──
+const srcMap = new Map<string, number>();
+srcMap.set("a", 1);
+srcMap.set("b", 2);
+const rMap: any = deserialize(serialize(srcMap));
+rMap.set("c", 3);
+const srcSet = new Set<number>();
+srcSet.add(10);
+srcSet.add(20);
+const rSet: any = deserialize(serialize(srcSet));
+const keyObj: any = { k: 1 };
+const objMap = new Map<any, string>();
+objMap.set(keyObj, "valor");
+const rObjMap: any = deserialize(serialize({ map: objMap, key: keyObj }));
+
+// ── phase 3: functions by reference ──
+function pkDobro(x: number): number {
+  return x * 2;
+}
+const rFn: any = deserialize(serialize(pkDobro));
+const rFnObj: any = deserialize(serialize({ handler: pkDobro }));
+let arrowThrew = false;
+try {
+  const k = 7;
+  serialize((x: number) => x + k);
+} catch (e) {
+  arrowThrew = true;
+}
+let boundThrew = false;
+try {
+  serialize(pkDobro.bind(null, 5));
+} catch (e) {
+  boundThrew = true;
+}
+
 describe("rts:serde pickle", () => {
   test("plain object + array round-trip", () => {
     expect(r1.name).toBe("root");
@@ -114,5 +213,60 @@ describe("rts:serde pickle", () => {
     expect(nums[1]).toBe(Infinity);
     expect(nums[2]).toBe(-Infinity);
     expect(nums[4]).toBe(1e300);
+  });
+
+  test("class instance: fields + instanceof + method", () => {
+    expect(inst.nome).toBe("Ana");
+    expect(inst.idade).toBe(30);
+    expect(inst instanceof PkPessoa).toBe(true);
+    expect(inst.saudacao()).toBe("oi Ana");
+  });
+
+  test("class instance: #private + getter + nested instance", () => {
+    expect(conta.saldo).toBe(150);
+    expect(conta.dono instanceof PkPessoa).toBe(true);
+    expect(conta.dono.saudacao()).toBe("oi Bia");
+  });
+
+  test("class inheritance: instanceof chain + override", () => {
+    expect(dog instanceof PkCao).toBe(true);
+    expect(dog instanceof PkAnimal).toBe(true);
+    expect(dog.nome).toBe("Rex");
+    expect(dog.som()).toBe("au au");
+  });
+
+  test("cycle through class instances", () => {
+    expect(cycNode.val).toBe(1);
+    expect(cycNode.next.val).toBe(2);
+    expect(cycNode.next.next === cycNode).toBe(true);
+    expect(cycNode.next instanceof PkNode).toBe(true);
+  });
+
+  test("Map round-trip + mutation after revive", () => {
+    expect(rMap instanceof Map).toBe(true);
+    expect(rMap.size).toBe(3);
+    expect(rMap.get("a")).toBe(1);
+    expect(rMap.get("c")).toBe(3);
+  });
+
+  test("Set round-trip", () => {
+    expect(rSet instanceof Set).toBe(true);
+    expect(rSet.size).toBe(2);
+    expect(rSet.has(10)).toBe(true);
+    expect(rSet.has(99)).toBe(false);
+  });
+
+  test("Map with object key keeps identity", () => {
+    expect(rObjMap.map.get(rObjMap.key)).toBe("valor");
+  });
+
+  test("function by reference", () => {
+    expect(rFn(21)).toBe(42);
+    expect(rFnObj.handler(5)).toBe(10);
+  });
+
+  test("arrow/bound functions throw", () => {
+    expect(arrowThrew).toBe(true);
+    expect(boundThrew).toBe(true);
   });
 });

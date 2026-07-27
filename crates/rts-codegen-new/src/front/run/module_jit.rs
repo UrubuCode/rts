@@ -109,6 +109,7 @@ pub(crate) fn compile_replay(m: &super::bake::PreludeManifest) -> FrontResult<Pr
     rts_engine::heap::shapes::reset_global_shapes();
     rts_engine::heap::shapes::seed_global_shapes(m.shapes.clone());
     rts_engine::heap::shapes::seed_error_classes(m.error_classes.clone());
+    rts_engine::heap::shapes::seed_class_shapes(m.class_shapes.clone());
     let mut prog = m.program.clone();
     prog.resident_import_names = prog.funcs.iter().map(|f| f.name.clone()).collect();
     prog.resident_main = true;
@@ -143,10 +144,41 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
     crate::timing::phase("finalize_definitions", || module.finalize_definitions())
         .map_err(|e| Unsupported::new(format!("finalize module: {e}")))?;
     let main = module.get_finalized_function(main_id);
+    register_pickle_fns(&module, prog);
     Ok(Program {
         _module: module,
         main,
     })
+}
+
+/// Register every TOP-LEVEL NAMED user function in the engine's pickle fn
+/// registry (function-by-reference serialization, Python's `module.qualname`
+/// analogue): the uniform-ABI thunk pointer a revived fn value invokes, plus the
+/// raw body pointer as an encode-time alias. Synthesized names (`__rts*` —
+/// arrows, ctors, thunks, dyn fns) stay out: they have no stable identity, the
+/// exact line Python draws for lambdas.
+fn register_pickle_fns(module: &JITModule, prog: &super::LoweredProgram) {
+    use cranelift_module::FuncOrDataId;
+    rts_engine::heap::pickle::reset_program_fns();
+    for f in &prog.funcs {
+        if f.name.starts_with("__rts") {
+            continue;
+        }
+        let ptr_of = |name: &str| match module.get_name(name) {
+            Some(FuncOrDataId::Func(id)) => module.get_finalized_function(id) as u64,
+            _ => 0,
+        };
+        let thunk_ptr = ptr_of(&thunk::thunk_name(&f.name));
+        if thunk_ptr != 0 {
+            let raw = ptr_of(&f.name);
+            rts_engine::heap::pickle::register_program_fn(
+                &f.name,
+                thunk_ptr,
+                f.params.len() as u8,
+                &[raw],
+            );
+        }
+    }
 }
 
 /// Declare + define every user function, `__rts_startup`, and the value/new-thunks

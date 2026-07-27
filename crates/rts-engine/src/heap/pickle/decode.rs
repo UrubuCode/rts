@@ -8,13 +8,16 @@
 
 use super::super::handles::{
     alloc_entry, pin_handle, unpin_handle, with_entry_mut, ArrayBufferBacking, ArrayBufferData,
-    BigIntData, Entry,
+    BigIntData, Entry, FunctionData,
 };
 use super::super::poly::{
     POLY_BOX_BASE, POLY_SING_HOLE, POLY_TAG_INT32, POLY_TAG_MASK, POLY_TAG_OBJECT,
     POLY_TAG_SHIFT, POLY_TAG_SINGLETON, POLY_TAG_STR, POLY_UNDEFINED,
 };
-use super::super::shapes::{alloc_shaped_object_owned, bool_word, handle_word_auto, null_word, string_word};
+use super::super::shapes::{
+    alloc_shaped_object_owned, bool_word, class_shape_of, global_shape_keys, handle_word_auto,
+    null_word, shape_id_word, string_word,
+};
 use super::*;
 
 /// Deserialize a whole `RTSP` v1 byte stream into one PolyValue word.
@@ -173,6 +176,41 @@ impl<'a> Dec<'a> {
                 });
                 Ok(word)
             }
+            OP_CLASS => {
+                let class = String::from_utf8_lossy(self.c.str_block()?).into_owned();
+                let n = self.c.len()?;
+                let mut keys = Vec::with_capacity(n);
+                for _ in 0..n {
+                    keys.push(String::from_utf8_lossy(self.c.str_block()?).into_owned());
+                }
+                // The DESTINATION program's shape for this class name — that is
+                // what the baked `instanceof` shape-id compares match against.
+                let dest_shape = class_shape_of(&class).ok_or_else(|| {
+                    format!("pickle: class '{class}' is not declared in this program")
+                })?;
+                let dest_keys = global_shape_keys(dest_shape)
+                    .ok_or_else(|| format!("pickle: class '{class}' has no shape layout"))?;
+                let mut slots = vec![POLY_UNDEFINED as i64; dest_keys.len() + 1];
+                slots[0] = shape_id_word(dest_shape) as i64;
+                let h = self.alloc(Entry::Vec(Box::new(slots)));
+                let word = handle_word_auto(h);
+                self.memo.push(word);
+                // Fields matched BY KEY against the destination layout: extra
+                // stream fields drop, missing ones stay undefined (schema
+                // evolution tolerated — stricter than Python only in shape).
+                for key in &keys {
+                    let v = self.value(depth + 1)? as i64;
+                    if let Some(pos) = dest_keys.iter().position(|k| k == key) {
+                        with_entry_mut(h, |e| {
+                            if let Some(Entry::Vec(s)) = e {
+                                s[1 + pos] = v;
+                            }
+                        });
+                    }
+                }
+                class_revive(word, &class);
+                Ok(word)
+            }
             OP_BUFFER => {
                 let bytes = self.c.str_block()?.to_vec();
                 let h = self.alloc(Entry::Buffer(bytes));
@@ -257,6 +295,35 @@ impl<'a> Dec<'a> {
                 let v: serde_json::Value = serde_json::from_slice(bytes)
                     .map_err(|e| format!("pickle: corrupt JSON payload: {e}"))?;
                 let h = self.alloc(Entry::Json(Box::new(v)));
+                let word = handle_word_auto(h);
+                self.memo.push(word);
+                Ok(word)
+            }
+            OP_FN_REF => {
+                let name = String::from_utf8_lossy(self.c.str_block()?).into_owned();
+                let info = fn_info_of(&name).ok_or_else(|| {
+                    format!("pickle: function '{name}' is not declared in this program")
+                })?;
+                // A first-class fn value over the DESTINATION program's uniform
+                // thunk — same shape `new Function` produces (dynfn contract).
+                let h = self.alloc(Entry::Function(Box::new(FunctionData {
+                    fn_ptr: info.ptr,
+                    arity: info.arity,
+                    name: name.clone().into_boxed_str(),
+                    bound_this: 0,
+                    has_bound_this: false,
+                    bound_args: Vec::new(),
+                    is_arrow: false,
+                    has_this_param: false,
+                    param_kinds: Vec::new(),
+                    return_kind: 0,
+                    packed_shim: 0,
+                    source: None,
+                    keep_alive: None,
+                    prototype_handle: 0,
+                    rest_param_idx: -1,
+                    uniform_thunk: true,
+                })));
                 let word = handle_word_auto(h);
                 self.memo.push(word);
                 Ok(word)
