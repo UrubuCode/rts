@@ -26,21 +26,26 @@ const __DOM_NONE = -1;
 // ninguém cancelou. Sem isso, `<a href="#">` + `onclick` (o idioma de toda SPA)
 // navegaria errado.
 //
-// `stopPropagation` NÃO existe aqui ainda: o bubbling é resolvido no Rust ANTES de
-// qualquer callback rodar (`dispatchCollect` coleta a cadeia inteira de uma vez),
-// então parar no meio exigiria mudar o protocolo de coleta. Ausente e declarado,
-// não fingido.
+// `stopPropagation()` funciona porque a INVOCAÇÃO acontece aqui no TS: o Rust
+// coleta a cadeia `(nó, callback)` inteira de uma vez, mas quem chama um a um é o
+// laço abaixo — então parar é deixar de invocar o resto. A distinção do DOM real
+// é respeitada: `stopPropagation` deixa terminarem os outros listeners do MESMO
+// nó e só então corta a subida; `stopImmediatePropagation` corta na hora.
 class Event {
   _type: string;
   _target: Element;
   _currentTarget: Element;
   _prevented: number;
+  _stopped: number;
+  _stoppedNow: number;
 
   constructor(type: string, target: Element, currentTarget: Element) {
     this._type = type;
     this._target = target;
     this._currentTarget = currentTarget;
     this._prevented = 0;
+    this._stopped = 0;
+    this._stoppedNow = 0;
   }
 
   get type(): string { return this._type; }
@@ -50,6 +55,13 @@ class Event {
 
   // Cancela a ação default do evento (navegação do link, inserção da tecla).
   preventDefault(): void { this._prevented = 1; }
+
+  // Impede que o evento SUBA para os ancestrais. Os outros listeners deste mesmo
+  // nó ainda rodam — é essa a diferença para `stopImmediatePropagation`.
+  stopPropagation(): void { this._stopped = 1; }
+
+  // Corta AGORA: nem os listeners restantes do próprio nó rodam.
+  stopImmediatePropagation(): void { this._stopped = 1; this._stoppedNow = 1; }
 }
 
 // A AÇÃO DEFAULT de um clique, depois que os listeners rodaram e ninguém
@@ -127,17 +139,34 @@ function __dispatchCancelable(h: i64, node: number, type: string, bubbles: numbe
   const target = new Element(h, node);
   let prevented = 0;
   let j = 0;
+  // Nó em que a propagação foi interrompida (-1 = não foi). A cadeia coletada
+  // vem em ordem alvo→ancestrais, então "parar de subir" é ignorar tudo o que
+  // vier de um nó DIFERENTE deste.
+  let paradoEm = -1;
+  let notificados = 0;
   while (j < n) {
-    const cur = new Element(h, nodes[j]);
+    const noAtual = nodes[j];
+    // Já pararam a propagação e este callback é de OUTRO nó (um ancestral):
+    // não invoca. Os do mesmo nó ainda rodam — regra do `stopPropagation`.
+    if (paradoEm !== -1 && noAtual !== paradoEm) {
+      j = j + 1;
+      continue;
+    }
+    const cur = new Element(h, noAtual);
     const ev = new Event(type, target, cur);
     // engine.invoke_cb: o cb atravessou a borda I64 da ABI (vira número); a
     // bridge re-taggeia para função e invoca com 1 argumento (o objeto Event).
     engine.invoke_cb(cbs[j], ev);
-    // Lido DEPOIS da invocação: o callback pode ter chamado preventDefault().
+    notificados = notificados + 1;
+    // Lidos DEPOIS da invocação: o callback pode ter chamado preventDefault()
+    // e/ou stopPropagation().
     if (ev.defaultPrevented) prevented = 1;
+    if (ev._stopped !== 0 && paradoEm === -1) paradoEm = noAtual;
+    // stopImmediatePropagation: nem o resto DESTE nó roda.
+    if (ev._stoppedNow !== 0) break;
     j = j + 1;
   }
-  __LAST_DISPATCH_COUNT = n;
+  __LAST_DISPATCH_COUNT = notificados;
   return prevented;
 }
 
