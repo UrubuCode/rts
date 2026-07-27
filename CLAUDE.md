@@ -25,6 +25,9 @@ This is the first and most important rule. It governs all others.
 
 - **RULE #0** (this) — read and follow everything
 - **MANDATORY REQUIREMENT: local-rules.md** (check and read if it exists)
+- **MANDATORY RULE: ITERATION SPEED** — no `cargo build --release` and no full TS
+  suite while developing; `cargo check -p <crate>` / `cargo run -- run` and only
+  the tests of the area touched. Full gate at commit time only.
 - **MANDATORY RULE: REGRESS WHEN NECESSARY (EXPLICITLY)**
 - **MANDATORY RULE: PRIMORDIAL-vs-REGISTRY DOCTRINE** (engine names only
   primordials; everything else via the Registry/SPECS; NO builtins in the engine)
@@ -100,7 +103,8 @@ versioned (already in `.gitignore`).
 Regression is allowed when necessary — but it must **always be explicit and
 justified**, never silent. This replaces the old "zero regression" rule.
 
-Minimum suite before merge:
+Minimum suite **before merge** — not during development, see the ITERATION SPEED
+rule below:
 
 ```bash
 cargo build --release             # clean build
@@ -111,7 +115,9 @@ target/release/rts.exe test       # TS suite (if PR touches runtime/codegen/GC)
 ### Practical rules
 
 - **Run the full suite before merge.** You must know exactly which tests pass and
-  which regress. "It broke and I don't know why" is never acceptable.
+  which regress. "It broke and I don't know why" is never acceptable. **While
+  iterating, run only the tests for the area you touched** — see the ITERATION
+  SPEED rule.
 - **A regression is acceptable only when** (a) it is intentional (changed
   behavior / removed feature) or a necessary tradeoff for the change, **and**
   (b) it is documented explicitly in the commit/PR with justification.
@@ -131,6 +137,45 @@ piling up until the suite becomes a lie (green tests, broken uncovered paths).
 The discipline here is not "never break a test" — it is "never break a test
 without knowing and saying so". Explicit, justified regression is fine;
 invisible regression rots the project.
+
+## MANDATORY RULE: ITERATION SPEED — no release build, no full suite, while working
+
+Rust compiles slowly and this repo's release profile is a SHIPPING profile
+(`lto = "thin"`, `codegen-units = 1`, `strip = "symbols"`, `opt-level = "z"`) —
+a full `cargo build --release` is minutes. Running it, and running the whole TS
+suite, after every edit is the single biggest drag on making progress here. Both
+are **merge-time** activities, not development-time activities.
+
+### While developing
+
+- **Do NOT `cargo build --release`.** Use `cargo check -p <crate>` for "does it
+  compile", and `cargo run -- run file.ts` when you need to actually execute.
+  `cargo run` builds debug (~3× faster to compile, ~10× slower to run — fine for
+  correctness, never for benchmarks).
+- **Do NOT run the full TS suite.** Run only the files covering the area you
+  touched: `target/release/rts.exe test tests/<relevant>.test.ts`, or
+  `cargo test -p <crate> --lib <filter>` for Rust tests. A full
+  `rts.exe test` run is ~740 files and minutes of wall clock.
+- **Build the narrowest crate that proves your change.** `cargo check -p rts-macro`
+  is seconds; `cargo build --release` (workspace) is minutes. Touching the macro
+  crate does not require building the CLI.
+- **Never benchmark a debug build.** Numbers from `cargo run` are meaningless for
+  performance claims — if you are measuring, say which profile produced it.
+
+### Before commit — then, and only then
+
+Run the full gate: `cargo build --release`, the unit suite, the TS suite if the
+change touches runtime/codegen/GC, and `bash scripts/read_before_commit.sh`. The
+honesty floor is unchanged: you must know exactly what passes and what regresses
+before merging.
+
+### Why this rule exists
+
+The failure mode it prevents is real and was observed: a session spent more wall
+clock on repeated 5-minute release builds and 15-minute suite runs than on the
+actual engineering, which both slows delivery and pushes toward guessing instead
+of checking (because checking is expensive). Making the cheap check cheap is what
+keeps verification honest.
 
 ## MANDATORY RULE: read_before_commit.sh GATE + FILE LAYOUT
 
@@ -464,8 +509,20 @@ crates/
   rts-ast/          — internal AST
   rts-parser/       — SWC parse; arrow/fn expressions → top-level Item::Function
   rts-diagnostics/  — structured errors
-  rts-engine/       — heap GC, ABI contract (abi:: SPECS, types, symbols,
-                      signatures, Intrinsic, global_class, handles), Registry
+  rts-abi/          — THE ABI CONTRACT, standing alone and dependency-free:
+                      AbiType, SymbolDesc, NamespaceMember, the __RTS_* symbol
+                      convention, signature lowering. Sits at the BOTTOM of the
+                      graph so the codegen and the proc-macro can depend on the
+                      contract without depending on an implementation of it.
+                      Re-exported as `rts_engine::abi` for compatibility.
+  rts-macro/        — the `#[rtse::*]` authoring macros (lib name `rtse`). The
+                      SINGLE SOURCE OF TRUTH for symbols: `#[rtse::abi]` takes a
+                      plain Rust fn and owns every ABI concern (extern "C",
+                      no_mangle, the symbol name) plus emits the `SymbolDesc`
+                      const, derived from the Rust signature so drift is
+                      unrepresentable. See docs/specs/rts-macro-single-source.md
+  rts-engine/       — heap GC, Registry/builder, collector contract. The ABI
+                      vocabulary now lives in rts-abi and is re-exported here
   rts-hir/          — typed HIR (I8..I128/F32/F64/Bool/Str/Handle/Array/Function/
                       Class/Object/Any/Unknown)
   rts-adapters/     — value model shared by the engine: value/ (PolyValue 64-bit
@@ -779,15 +836,32 @@ use).
 
 ## How to test
 
+**Read the ITERATION SPEED mandatory rule first.** The commands below are split
+by WHEN you run them; running the merge-time column while iterating is what the
+rule exists to stop.
+
+### While developing (seconds)
+
 ```bash
-cargo test --lib                                              # Rust unit tests
-cargo build --release -p rts-adapters                         # AOT runtime archive (see note)
-cargo build --release                                         # release build
+cargo check -p <crate>                     # "does it compile" — the default loop
+cargo test -p <crate> --lib <filter>       # only the tests of the area touched
+cargo run -- run file.ts                   # execute without a release build
+cargo run -- test tests/foo.test.ts        # one TS file, debug binary
+```
+
+### Before commit only (minutes)
+
+```bash
+cargo build --release -p rts-adapters      # AOT runtime archive (see note)
+cargo build --release                      # release build
+target/release/rts.exe test                # FULL TS suite — merge gate, not a dev loop
+bash scripts/read_before_commit.sh         # the engine gate
 $env:RUST_BACKTRACE="full"; target/release/rts.exe run file.ts            # JIT
 $env:RUST_BACKTRACE="full"; target/release/rts.exe compile -p file.ts out # AOT
-$env:RUST_BACKTRACE="full"; target/release/rts.exe test tests/foo.test.ts # TS suite
 target/release/rts.exe apis                                   # list APIs
 ```
+
+Benchmarks are release-only, always — a debug number is not a number.
 
 **AOT archive is a two-step build.** The staticlib `build.rs` embeds for AOT
 linking is **`rts-adapters`'s**, NOT `rts-runtime`'s: `rts-adapters` is

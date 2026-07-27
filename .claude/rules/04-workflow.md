@@ -132,6 +132,12 @@ the shift explicitly in the commit/PR.
 
 ## How to test
 
+**ITERATION SPEED is a mandatory rule** (see `CLAUDE.md`). While developing:
+`cargo check -p <crate>` to compile-check, `cargo run -- run file.ts` to execute,
+and only the tests of the area you touched. NEVER `cargo build --release` and
+NEVER the full TS suite during development — both are merge-time only. The
+commands below are the merge-time gate.
+
 ```bash
 cargo test                                        # unit tests + fixtures
 cargo build --release                             # release build

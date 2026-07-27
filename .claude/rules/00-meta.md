@@ -41,6 +41,11 @@ Read these files in order (path relative to repo root):
 
 - **RULE #0** (this) — read all files in order
 - **MANDATORY REQUIREMENT: local-rules.md** (below)
+- **MANDATORY RULE: ITERATION SPEED** (in `CLAUDE.md`) — while developing, never
+  `cargo build --release` and never run the full TS suite. `cargo check -p <crate>`
+  to compile-check, `cargo run -- run file.ts` to execute, and only the tests of
+  the area you touched. The full gate (release build + unit suite + TS suite +
+  `read_before_commit.sh`) is a MERGE-TIME activity. Benchmarks are release-only.
 - **MANDATORY RULE: REGRESS WHEN NECESSARY (EXPLICITLY)** (below)
 - **MANDATORY RULE: PRIMORDIAL-vs-REGISTRY DOCTRINE** (in `CLAUDE.md`; engine
   names only primordials, no builtins in the engine)

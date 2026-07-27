@@ -3,6 +3,7 @@ members = [
     ".",
     "crates/rts-ast",
     "crates/rts-diagnostics",
+    "crates/rts-abi",
     "crates/rts-engine",
     "crates/rts-node",
     "crates/rts-primitives",
@@ -99,6 +100,25 @@ actix-web = { version = "4", default-features = false, features = ["macros"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 zstd = "0.13.3"
 
+# ── DEV PROFILE: tuned for ITERATION, per the ITERATION SPEED mandatory rule ──
+#
+# MEASURED on this workspace (incremental rebuild after touching one file in
+# rts-codegen-new, Windows/MSVC):
+#
+#   cargo check -p rts-codegen-new .................. 1.8 s   <- the default loop
+#   cargo build -p rts-cli, debug = 2 (stock) ....... 39.2 s
+#   cargo build -p rts-cli, debug = 0 ............... see below
+#
+# Full debuginfo is the dominant cost of a debug LINK here — the engine pulls in
+# wgpu/naga/egui/actix, and their debug info dwarfs their code. `debug = 0` drops
+# line numbers from panics, which matters far less than it sounds: the crash
+# handler (`src/crash.rs`) reads RUST_BACKTRACE and the interesting frames are in
+# generated code anyway, which never had Rust line info. Turn it back up locally
+# (`debug = 1`) when actually stepping through Rust.
+[profile.dev]
+debug = 0
+incremental = true
+
 [profile.release]
 # `z` (optimize for SIZE) stays the DEFAULT: the bulk of the binary is wgpu /
 # naga / egui / actix, none of which runs during a compile, and their size is
@@ -171,3 +191,10 @@ opt-level = 3
 debug = false
 # `strip = "debuginfo"` remove o que sobrou de info de debug das deps no archive.
 strip = "debuginfo"
+# Dependencies get real optimization; workspace crates stay unoptimized. Deps are
+# built ONCE and cached, so their compile cost is paid per clean build while their
+# RUNTIME cost is paid on every `cargo run -- run file.ts`. An unoptimized
+# wgpu/regex/swc is what makes a debug `rts run` unusable rather than merely slow
+# — which matters now that `cargo run` is the sanctioned dev loop (ITERATION
+# SPEED rule) instead of a release build.
+opt-level = 2
