@@ -317,8 +317,8 @@ pub(super) fn string_content(v: PolyValue) -> String {
 ///
 /// The refutation of the old `arr[0] + 5 → "05"` bug: the decision is made on the
 /// runtime tags of the ACTUAL values, never on the shape of the source expr.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_add(a: u64, b: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_add(a: u64, b: u64) -> u64 {
     let av = PolyValue::from_raw(a);
     let bv = PolyValue::from_raw(b);
 
@@ -402,8 +402,8 @@ fn real_handle_for_concat(v: PolyValue) -> u64 {
 /// `Object.is(a, b)` — JS SameValue. Like `===` EXCEPT: `Object.is(NaN, NaN)` is
 /// `true` and `Object.is(0, -0)` is `false`. Both differences live in the number
 /// branch (string/other identity match `===`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_same_value(a: u64, b: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_same_value(a: u64, b: u64) -> u64 {
     let av = PolyValue::from_raw(a);
     let bv = PolyValue::from_raw(b);
     let same = if is_number(av) && is_number(bv) {
@@ -427,8 +427,8 @@ pub extern "C" fn __rtsadp_same_value(a: u64, b: u64) -> u64 {
     PolyValue::bool(same).raw()
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_strict_eq(a: u64, b: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_strict_eq(a: u64, b: u64) -> u64 {
     let av = PolyValue::from_raw(a);
     let bv = PolyValue::from_raw(b);
 
@@ -452,8 +452,8 @@ pub extern "C" fn __rtsadp_strict_eq(a: u64, b: u64) -> u64 {
 }
 
 /// `__rtsadp_strict_neq` — JS `!==`, the boolean complement of strict-eq.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_strict_neq(a: u64, b: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_strict_neq(a: u64, b: u64) -> u64 {
     let eq = PolyValue::from_raw(__rtsadp_strict_eq(a, b));
     PolyValue::bool(!eq.as_bool()).raw()
 }
@@ -472,14 +472,14 @@ pub extern "C" fn __rtsadp_strict_neq(a: u64, b: u64) -> u64 {
 ///   ToNumber steps);
 /// - number/string ↔ object → ToPrimitive(object) is a later increment → falls to
 ///   the strict raw-compare (sound for the proven corpus, never a wrong `true`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_loose_eq(a: u64, b: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_loose_eq(a: u64, b: u64) -> u64 {
     PolyValue::bool(loose_eq(PolyValue::from_raw(a), PolyValue::from_raw(b))).raw()
 }
 
 /// `__rtsadp_loose_neq` — JS `!=`, the boolean complement of loose-eq.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_loose_neq(a: u64, b: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_loose_neq(a: u64, b: u64) -> u64 {
     PolyValue::bool(!loose_eq(PolyValue::from_raw(a), PolyValue::from_raw(b))).raw()
 }
 
@@ -528,8 +528,8 @@ fn loose_eq(av: PolyValue, bv: PolyValue) -> bool {
 
 /// `__rtsadp_typeof` — JS `typeof`, returning a PolyValue **string** handle of the
 /// `typeof_str` (interned in the REAL pool). A single tag inspection.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_typeof(a: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_typeof(a: u64) -> u64 {
     let v = PolyValue::from_raw(a);
     // A Symbol instance rides as an OBJECT word (no distinct tag yet, #216) —
     // `typeof` must still read `"symbol"` (`typeof Symbol.iterator`, a
@@ -548,8 +548,8 @@ pub extern "C" fn __rtsadp_typeof(a: u64) -> u64 {
 
 /// `__rtsadp_to_string` — JS `ToString`, returning a PolyValue string handle
 /// (interned in the REAL pool). Used by the tests to read results back as text.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_to_string(a: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_to_string(a: u64) -> u64 {
     // A string already is its own ToString — keep its idx (avoid re-interning).
     let v = PolyValue::from_raw(a);
     if v.is_string() {
@@ -576,8 +576,8 @@ pub extern "C" fn __rtsadp_to_string(a: u64) -> u64 {
 /// error slot (the same one `throw` uses), so an enclosing `try/catch` — or the
 /// host-side uncaught check after `main` — surfaces it; the returned word is
 /// `undefined` in that case.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_await(word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_await(word: u64) -> u64 {
     use rts_engine::heap::handles::{Entry, with_entry};
     use rts_runtime::namespaces::gc::handles as rt_handles;
     let v = PolyValue::from_raw(word);
@@ -685,8 +685,8 @@ fn rebox_settled(raw: i64) -> u64 {
 /// which are reboxed to real string words; a nested Vec recurses (bounded).
 /// This is the ONE heterogeneous-handle-return authority — tag-dispatch at
 /// runtime, no static guessing.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_box_handle_auto(h: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_box_handle_auto(h: u64) -> u64 {
     box_handle_auto_depth(h, 0)
 }
 
@@ -751,8 +751,8 @@ fn box_handle_auto_depth(h: u64, depth: u32) -> u64 {
 /// params); a number yields its integer truncation; bool 0/1; anything else 0.
 /// This replaces the blind saturating float-convert that turned an awaited
 /// `Promise.all` results-array (an OBJECT word) into garbage before `vec_len`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_word_to_abi_i64(a: u64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_word_to_abi_i64(a: u64) -> i64 {
     use rts_runtime::namespaces::gc::handles as rt_handles;
     let v = PolyValue::from_raw(a);
     if v.is_string() || v.is_object() || v.is_function() {
@@ -773,8 +773,8 @@ pub extern "C" fn __rtsadp_word_to_abi_i64(a: u64) -> i64 {
 /// `__rtsadp_to_boolean` — JS `ToBoolean`, returning an UNBOXED i64 0/1 (NOT a
 /// PolyValue) to feed a Cranelift `brif`/`select` directly. The empty-string case
 /// needs the heap (length lives in the real pool), so it is resolved here.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_to_boolean(a: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_to_boolean(a: u64) -> u64 {
     let v = PolyValue::from_raw(a);
     let truthy = if v.is_string() {
         // A string is truthy iff non-empty — STRING_LEN over the real handle.

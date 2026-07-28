@@ -38,8 +38,8 @@ fn box_vec_as_array(vec_handle: u64) -> u64 {
 /// over a string yields code points (not UTF-16 units), so we iterate Rust `chars`
 /// (Unicode scalar values). A non-string source yields an EMPTY array — the
 /// lowering only routes a proven string here, so this is just the inner safety net.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_str_chars(str_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_str_chars(str_word: u64) -> u64 {
     let v = PolyValue::from_raw(str_word);
     let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     if v.is_string() {
@@ -61,8 +61,8 @@ pub extern "C" fn __rtsadp_str_chars(str_word: u64) -> u64 {
 /// no-throw fallback). This is what lets `for (const ch of s)` (string PARAM) and
 /// `for (const x of row)` (nested-array for-of binding) iterate without a static
 /// proof of the source's kind.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_to_iter_array(word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_to_iter_array(word: u64) -> u64 {
     let v = PolyValue::from_raw(word);
     if v.is_object() && !looks_like_object(v) {
         // Already an array (Vec-backed, NOT a shaped object): walk it directly.
@@ -196,8 +196,8 @@ pub fn enum_key_order(keys: &[String]) -> Vec<usize> {
 
 /// `Reflect.ownKeys(target)` — the trap's list VERBATIM (the ECMA `ownKeys`
 /// reflector does NOT run the per-key enumerability filter `Object.keys` does).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_own_keys_raw(obj_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_own_keys_raw(obj_word: u64) -> u64 {
     if let Some((target, handler)) = super::objops::proxy_parts(obj_word) {
         let trap_key = abi_adapter::intern_poly("ownKeys").raw();
         let trap = super::objops::__rtsadp_obj_get(handler, trap_key);
@@ -248,8 +248,8 @@ pub extern "C" fn __rtsadp_own_keys_raw(obj_word: u64) -> u64 {
     obj_keys_impl(obj_word, false)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_obj_keys(obj_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_obj_keys(obj_word: u64) -> u64 {
     // PROXY (#218): the `ownKeys` trap lists the keys; JS's `Object.keys` then
     // runs [[GetOwnProperty]] PER KEY (trap/forward) and keeps only ENUMERABLE
     // ones — a trap key absent from the target (and with no getOwnDesc trap)
@@ -391,8 +391,8 @@ fn obj_keys_impl(obj_word: u64, enumerable_only: bool) -> u64 {
 /// keys PLUS the PROTOTYPE CHAIN's enumerable keys (deduped — an own key
 /// shadows an inherited one). Arrays/strings keep the index behavior of
 /// `obj_keys`; the chain walk only applies to keyed objects.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_for_in_keys(obj_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_for_in_keys(obj_word: u64) -> u64 {
     let own = __rtsadp_obj_keys(obj_word);
     let obj = PolyValue::from_raw(obj_word);
     if !(obj.is_object() && looks_like_object(obj)) {
@@ -468,8 +468,8 @@ fn custom_iterator_method(word: u64) -> Option<u64> {
 ///   `[Symbol.iterator]()`; `iter_next` drives `next()`, `iter_close` runs
 ///   `return()` on early exit — spec IteratorClose).
 /// A non-iterable source THROWS TypeError (pending-error slot).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_iter_open(word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_iter_open(word: u64) -> u64 {
     let undef = PolyValue::undefined().raw();
     let d = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     if let Some(m) = custom_iterator_method(word) {
@@ -534,8 +534,8 @@ pub extern "C" fn __rtsadp_iter_open(word: u64) -> u64 {
 /// never be EMPTY, so the loop tests one word). Array cursor: `arr[idx++]`
 /// with the sparse HOLE reading `undefined`. Live iterator: `it.next()`,
 /// `done` truthy → EMPTY; a broken iterator reads as done.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_iter_next(cursor: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_iter_next(cursor: u64) -> u64 {
     let undef = PolyValue::undefined().raw();
     let ch = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(PolyValue::from_raw(cursor).as_handle());
     let kind = PolyValue::from_raw(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(ch, 0) as u64);
@@ -580,8 +580,8 @@ pub extern "C" fn __rtsadp_iter_next(cursor: u64) -> u64 {
 /// LAZY for-of early exit (spec IteratorClose on `break`): a LIVE-ITERATOR
 /// cursor runs `it.return()` when defined; an array cursor / missing `return`
 /// is a no-op.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_iter_close(cursor: u64) {
+#[rtse::abi]
+pub fn rtsadp_iter_close(cursor: u64) {
     let undef = PolyValue::undefined().raw();
     let ch = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(PolyValue::from_raw(cursor).as_handle());
     let kind = PolyValue::from_raw(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(ch, 0) as u64);
@@ -598,8 +598,8 @@ pub extern "C" fn __rtsadp_iter_close(cursor: u64) {
 /// `Object.getOwnPropertySymbols(o)` — the SYMBOL-keyed own entries, decoded
 /// from their canonical `@@sym:<handle>` storage keys (#798) back to symbol
 /// words, in shape order. Non-keyed receivers → `[]`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_obj_own_symbols(obj_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_obj_own_symbols(obj_word: u64) -> u64 {
     let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     let obj = PolyValue::from_raw(obj_word);
     if obj.is_object() && looks_like_object(obj) {
@@ -630,8 +630,8 @@ pub extern "C" fn __rtsadp_obj_own_symbols(obj_word: u64) -> u64 {
 /// keyed object it equals `Object.keys` (the corpus has no non-enumerable own
 /// props on plain objects). Reuses `__rtsadp_obj_keys` then appends `"length"`
 /// when the receiver is an array (object, not a keyed shape).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_obj_own_names(obj_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_obj_own_names(obj_word: u64) -> u64 {
     let obj = PolyValue::from_raw(obj_word);
     // A pure-Rust `new String("hi")` WRAPPER (`Entry::Rtse` classed "String"): JS
     // exposes the UTF-16 code-unit indices + "length" as own property names
@@ -731,8 +731,8 @@ pub fn reset_state() {
 
 /// `engine.tsa_raw(cooked, raw)` — record `cooked.raw = raw` and return the
 /// cooked array word (the tag call's first arg).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_tsa_raw(cooked_word: u64, raw_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_tsa_raw(cooked_word: u64, raw_word: u64) -> u64 {
     if let Ok(mut t) = tsa_raw_table().lock() {
         t.insert(cooked_word, raw_word);
     }
@@ -747,8 +747,8 @@ pub(crate) fn tsa_raw_of(cooked_word: u64) -> Option<u64> {
 /// `String.raw(callSite, ...subs)` — the FUNCTION-call form (the tag form is
 /// desugared at compile time): read `callSite.raw` (array or array-like with
 /// `length`), interleave its ToString'd segments with the substitutions.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_string_raw(callsite_word: u64, subs_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_string_raw(callsite_word: u64, subs_word: u64) -> u64 {
     use rts_runtime::namespaces::gc::handles as rt_handles;
     let raw_key = abi_adapter::intern_poly("raw").raw();
     let raw = super::objops::__rtsadp_obj_get(callsite_word, raw_key);

@@ -313,7 +313,7 @@ LAST: biggest, hottest, and it depends on F0 and F6.
 
 ### Baker cutover (2026-07-28)
 
-**Result: 527 → 168 hand-written rows.** The baker existed and emitted a correct
+**Result: 527 → 65 hand-written rows.** The baker existed and emitted a correct
 table, but nothing consumed it — the only references to `rts_abi::table` were
 inside `rts-abi` and the baker itself. These phases connected it.
 
@@ -403,23 +403,50 @@ moved to the `.ts` stdlib; the rows outlived the trampolines). **159 → 152 row
 `scripts/read_before_commit.sh`. Still to do: mirror it in CI. Without it, F9–F12
 reopen the moment someone adds a symbol without regenerating.
 
+**F7 — annotate `__rtsadp_*` with `#[rtse::abi]`. ✅ DONE (2026-07-28).**
+All 253 declarations in `crates/rts-runtime/src/adapters/value/` plus the three
+`__rtsadp_str_*_auto` dispatchers in `rts-primitives` were converted, and the
+248 hand rows they had in `abi_sig.rs` were deleted in the same pass.
+
+The conversion is one substitution — `#[unsafe(no_mangle)] pub extern "C" fn
+__rtsadp_x(` → `#[rtse::abi] pub fn rtsadp_x(` — because the macro re-adds the
+`__` and emits the extern wrapper under the original name, so every existing
+Rust caller of `__rtsadp_x` keeps compiling untouched.
+
+Four declarations needed real thought rather than substitution:
+
+- **`__rtsadp_print_line`, `make_js_error`, `throw_js_error`** took
+  `(*const u8, i64)` pairs. Those ARE strings, so they became `&str` — one
+  `StrPtr` parameter expanding to the same two slots, byte-identical ABI, and
+  `errslot::read_abi` (the hand-rolled pair decoder) was deleted as dead.
+- **`__rtsadp_ta_view_base_len`** keeps its hand row: its two `*mut i64` OUT
+  parameters are stack slots the emitted code writes through, not values
+  crossing by copy, and have no single-slot ABI spelling. Its declaration says
+  so.
+
+Every failure was a compile error naming the exact type, never a silent
+mis-derivation.
+
+**Measured: 159 → 52 rows in `abi_sig.rs`; 254 signatures derived.** What is left
+is `__RTS_FN_*`/`__rtsn_*` — a different surface, see below.
+
 ### What remains, in order
 
-All the mechanism is in place; what is left is mechanical and independently
-shippable, group by group.
-
-1. **F7 — annotate the remaining `__rtsadp_*` with `#[rtse::abi]`.** Per group:
-   change `#[unsafe(no_mangle)] pub extern "C" fn __rtsadp_x(` to
-   `#[rtse::abi] pub fn rtsadp_x(` (the macro re-adds the `__` and emits the
-   extern wrapper, so existing Rust callers of `__rtsadp_x` keep compiling),
-   run `cargo run -p rts-symbol-baker`, then DELETE that group's rows from
-   `abi_sig.rs` — `sig_of` already prefers the baked entry. 248 names appear in
-   `abi_sig`; by file: arrayops 41, dyndispatch 38, globalops 27, objops 23,
-   genops_arith 20, funcops 19, regexops 13, genops 12, iterops 12, arraycb 12,
-   protos 10, taops 6, ctorval 3, inspect 2. Object/array last (biggest, hottest).
-2. **F11 — `dispatch.rs`'s 13 rows.** They point at codegen-owned
-   `__rtsadp_arr_*` trampolines, so they follow F7's conversion, not a Registry
-   harvest (see the re-scoping note above).
+1. **The 105 `__RTS_FN_*` rows** in `abi_sig.rs`. These are the REAL runtime
+   symbols (`rts-engine`/`rts-shared`/`rts-std`), not codegen trampolines, and
+   they split in two:
+   - Most are **already Registry members carrying a `Sig`** (`math`, `io`,
+     `collections`, the `GL_*` class methods). Their signature exists twice —
+     in the Registry and here — so the fix is to READ the Registry
+     (`registry::namespace_member` already returns `arg_abis`/`ret`), not to
+     re-declare them.
+   - The engine-internal `__RTS_FN_NS_GC_*` primitives (string pool, gcell,
+     generator/async state machine) are deliberately NOT Registry members, so
+     they need `#[rtse::abi("__RTS_FN_NS_GC_…")]` with an explicit symbol name
+     to keep their spelling.
+2. **`dispatch.rs`'s 13 `MethodSpec` rows.** Their symbols are now all derived,
+   so what remains there is the `(class, method, argc) → symbol` MAPPING, not
+   the signature. That is Registry metadata, not a baker concern.
 3. **CI drift check** — mirror the gate's `rts-symbol-baker -- --check`.
 
 ## Non-goals

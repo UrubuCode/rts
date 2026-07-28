@@ -64,14 +64,14 @@ fn to_string_word(v: u64) -> u64 {
 /// handle is what the queue stores — the pump detects it and invokes through
 /// `INVOKE_AUTO` (bound env + kinds), so a CAPTURING arrow works. Returns the
 /// timer id as a number word. A non-function `cb` returns id 0 (no-op).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_set_timeout(cb_word: u64, ms_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_set_timeout(cb_word: u64, ms_word: u64) -> u64 {
     schedule_timer(cb_word, ms_word, false)
 }
 
 /// `setInterval(cb, ms)` — like [`__rtsadp_set_timeout`] but periodic.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_set_interval(cb_word: u64, ms_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_set_interval(cb_word: u64, ms_word: u64) -> u64 {
     schedule_timer(cb_word, ms_word, true)
 }
 
@@ -92,8 +92,8 @@ fn schedule_timer(cb_word: u64, ms_word: u64, periodic: bool) -> u64 {
 }
 
 /// `clearTimeout(id)` / `clearInterval(id)` — cancel by the numeric id.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_clear_timer(id_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_clear_timer(id_word: u64) -> u64 {
     use rts_runtime::namespaces::globals::timers::instance as rt_timers;
     let id = genops::__rtsadp_word_to_abi_i64(id_word);
     if id > 0 {
@@ -103,8 +103,8 @@ pub extern "C" fn __rtsadp_clear_timer(id_word: u64) -> u64 {
 }
 
 /// `setImmediate(cb)` — enqueue on the check-phase queue (after microtasks).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_set_immediate(cb_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_set_immediate(cb_word: u64) -> u64 {
     use rts_runtime::namespaces::globals::timers::instance as rt_timers;
     let v = PolyValue::from_raw(cb_word);
     if !v.is_function() {
@@ -118,8 +118,8 @@ pub extern "C" fn __rtsadp_set_immediate(cb_word: u64) -> u64 {
 /// `queueMicrotask(cb)` — enqueue a FUNCTION value on the microtask queue
 /// (drained at sync end / after each macrotask). Same handle convention as
 /// [`__rtsadp_set_timeout`].
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_queue_microtask(cb_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_queue_microtask(cb_word: u64) -> u64 {
     use rts_runtime::namespaces::globals::text_encoding::instance as rt_micro;
     let v = PolyValue::from_raw(cb_word);
     if v.is_function() {
@@ -132,21 +132,21 @@ pub extern "C" fn __rtsadp_queue_microtask(cb_word: u64) -> u64 {
 /// `Number(x)` — JS `ToNumber`, the SAME coercion `genops::to_number` performs
 /// (so `Number("42")` → 42, `Number(true)` → 1, `Number("x")` → NaN). The result
 /// is re-tightened to int32 when exact-in-range (via [`genops::number_result`]).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_g_number(a: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_g_number(a: u64) -> u64 {
     genops::number_result(to_number(PolyValue::from_raw(a))).raw()
 }
 
 /// `String(x)` — JS `ToString`, returning a string PolyValue word (real pool).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_g_string(a: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_g_string(a: u64) -> u64 {
     to_string_word(a)
 }
 
 /// `Boolean(x)` — JS `ToBoolean`, returning a PolyValue bool (the empty-string
 /// case resolved on the heap, like the rest of the engine).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_g_boolean(a: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_g_boolean(a: u64) -> u64 {
     PolyValue::bool(to_boolean(PolyValue::from_raw(a))).raw()
 }
 
@@ -160,8 +160,8 @@ pub extern "C" fn __rtsadp_g_boolean(a: u64) -> u64 {
 /// empty / no-leading-digit string yields `NaN`. `radix` 0 means "auto" (16 if a
 /// `0x` prefix, else 10). This matches Node/Bun for the common decimal/binary/hex
 /// fixtures; the full grammar (radix-2..36 with letters past `z`) is covered.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_g_parse_int(value: u64, radix: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_g_parse_int(value: u64, radix: u64) -> u64 {
     let s = poly_to_string(value);
     // `radix` is a raw PolyValue WORD — ToNumber it (NaN/non-integer → auto,
     // the extern's absent-radix sentinel).
@@ -175,22 +175,22 @@ pub extern "C" fn __rtsadp_g_parse_int(value: u64, radix: u64) -> u64 {
 /// leading run that is a valid JS float literal (`[+-]?(Infinity | digits . digits
 /// e±digits)`). Trailing garbage is ignored (`parseFloat("3.14x")` → 3.14). No
 /// leading float → `NaN`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_g_parse_float(value: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_g_parse_float(value: u64) -> u64 {
     let s = poly_to_string(value);
     let f = unsafe { __rtsm_global_number_parse_float(s.as_ptr() as i64, s.len() as i64) };
     genops::number_result(f).raw()
 }
 
 /// `isNaN(x)` — JS global: `Number.isNaN(ToNumber(x))`. Returns a PolyValue bool.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_g_is_nan(a: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_g_is_nan(a: u64) -> u64 {
     PolyValue::bool(to_number(PolyValue::from_raw(a)).is_nan()).raw()
 }
 
 /// `isFinite(x)` — JS global: `ToNumber(x)` is a finite number. Returns a bool.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_g_is_finite(a: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_g_is_finite(a: u64) -> u64 {
     PolyValue::bool(to_number(PolyValue::from_raw(a)).is_finite()).raw()
 }
 
@@ -208,21 +208,21 @@ fn poly_number(p: PolyValue) -> Option<f64> {
 }
 
 /// `Number.isNaN(x)` — no coercion: `true` iff `x` is the number `NaN`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_num_is_nan(a: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_num_is_nan(a: u64) -> u64 {
     PolyValue::bool(poly_number(PolyValue::from_raw(a)).is_some_and(|n| n.is_nan())).raw()
 }
 
 /// `Number.isFinite(x)` — no coercion: `true` iff `x` is a finite number.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_num_is_finite(a: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_num_is_finite(a: u64) -> u64 {
     PolyValue::bool(poly_number(PolyValue::from_raw(a)).is_some_and(|n| n.is_finite())).raw()
 }
 
 /// `Number.isInteger(x)` — no coercion: `true` iff `x` is a finite integer-valued
 /// number.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_num_is_integer(a: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_num_is_integer(a: u64) -> u64 {
     PolyValue::bool(
         poly_number(PolyValue::from_raw(a)).is_some_and(|n| n.is_finite() && n.fract() == 0.0),
     )
@@ -230,8 +230,8 @@ pub extern "C" fn __rtsadp_num_is_integer(a: u64) -> u64 {
 }
 
 /// `Number.isSafeInteger(x)` — no coercion: an integer in `[-(2^53-1), 2^53-1]`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_num_is_safe_integer(a: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_num_is_safe_integer(a: u64) -> u64 {
     PolyValue::bool(poly_number(PolyValue::from_raw(a)).is_some_and(|n| {
         n.is_finite() && n.fract() == 0.0 && n.abs() <= 9_007_199_254_740_991.0
     }))
@@ -247,8 +247,8 @@ pub extern "C" fn __rtsadp_num_is_safe_integer(a: u64) -> u64 {
 /// header — see [`super::inspect::looks_like_object`]). Everything else (numbers,
 /// strings, null, functions, plain objects) is `0`. Reuses the SAME discriminator
 /// the inspect path uses, so the two never disagree.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_is_array(a: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_is_array(a: u64) -> u64 {
     let v = PolyValue::from_raw(a);
     // A real array is an OBJECT word over an `Entry::Vec` that is not a keyed
     // shape. A non-Vec backend instance (`Entry::Rtse` [Date/…], `Entry::Buffer`, …)
@@ -272,8 +272,8 @@ pub extern "C" fn __rtsadp_arr_is_array(a: u64) -> u64 {
 /// `file:` URL, resolved from the PROCESS invocation (`rts run <file>` /
 /// `run-new` / an AOT binary's argv[0]). One canonical object shape; the
 /// value is real (the absolutized entry path), never a mock.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_import_meta() -> u64 {
+#[rtse::abi]
+pub fn rtsadp_import_meta() -> u64 {
     let args: Vec<String> = std::env::args().collect();
     // `rts run <file>` / `rts run-new <file>` → the file arg; an AOT binary →
     // its own argv[0].
@@ -309,8 +309,8 @@ pub extern "C" fn __rtsadp_import_meta() -> u64 {
 /// non-integer / negative / out-of-range `n` yields an empty array (the runtime
 /// would throw a RangeError — a later increment; an empty array is the safe,
 /// never-wrong fallback the lowering only reaches for an integer literal anyway).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_new_sized(n_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_new_sized(n_word: u64) -> u64 {
     let n = to_number(PolyValue::from_raw(n_word));
     let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     if n.is_finite() && n.fract() == 0.0 && n >= 0.0 && n <= (1u64 << 31) as f64 {
@@ -328,8 +328,8 @@ pub extern "C" fn __rtsadp_arr_new_sized(n_word: u64) -> u64 {
 /// yields the special sentinel [`FROM_UNSUPPORTED`] so the LOWERING bails (the
 /// honesty floor: never a wrong-but-closer value). The lowering checks the result
 /// against the sentinel and emits an explicit `Unsupported` when seen.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_from(a: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_from(a: u64) -> u64 {
     let v = PolyValue::from_raw(a);
     // A level-B typed-array VIEW: materialize the elements through the shared
     // buffer (same as the iteration hook).
@@ -426,8 +426,8 @@ pub const FROM_UNSUPPORTED: u64 = PolyValue::empty().raw();
 /// monadic primitive. Returns a string PolyValue WORD. The byte production
 /// (UTF-16→UTF-8 lossy, lone-surrogate handling) is `strops::from_char_code` —
 /// the ONE source of truth shared with the `String` value-class.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_str_from_char_code(code: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_str_from_char_code(code: u64) -> u64 {
     let n = to_number(PolyValue::from_raw(code)) as i64;
     abi_adapter::intern_poly(&rts_runtime::namespaces::globals::string::strops::from_char_code(n)).raw()
 }
@@ -437,8 +437,8 @@ pub extern "C" fn __rtsadp_str_from_char_code(code: u64) -> u64 {
 /// element is `ToNumber`'d to a code unit. Returns a string PolyValue WORD (real
 /// pool). The bytes go through the runtime's own `FROM_CHAR_CODE` per element, so
 /// surrogate handling matches the scalar path.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_str_from_char_code_arr(arr_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_str_from_char_code_arr(arr_word: u64) -> u64 {
     let v = PolyValue::from_raw(arr_word);
     let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
     let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(handle).max(0);
@@ -453,8 +453,8 @@ pub extern "C" fn __rtsadp_str_from_char_code_arr(arr_word: u64) -> u64 {
 
 /// `String.fromCodePoint(code)` for ONE code point. Same shape as
 /// [`__rtsadp_str_from_char_code`] but full Unicode code points.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_str_from_code_point(code: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_str_from_code_point(code: u64) -> u64 {
     let n = to_number(PolyValue::from_raw(code)) as i64;
     abi_adapter::intern_poly(&rts_runtime::namespaces::globals::string::strops::from_code_point(n)).raw()
 }
@@ -470,8 +470,8 @@ pub extern "C" fn __rtsadp_str_from_code_point(code: u64) -> u64 {
 /// engine array). `limit < 0` means "no limit". An empty separator splits into
 /// individual chars (JS spec). The bytes go through the REAL pool — a
 /// PolyValue-native string split (each substring boxed as a `TAG_STR` word).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_str_split(recv: u64, sep: u64, limit: i64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_str_split(recv: u64, sep: u64, limit: i64) -> u64 {
     let s = abi_adapter::real_handle_to_string(recv);
     let delim = abi_adapter::real_handle_to_string(sep);
     let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
@@ -508,8 +508,8 @@ pub extern "C" fn __rtsadp_str_split(recv: u64, sep: u64, limit: i64) -> u64 {
 /// coercion the scalar path uses). An empty array yields the JS identity:
 /// `Math.min()` = `+Infinity`, `Math.max()` = `-Infinity`, `Math.hypot()` = `0`.
 /// A `NaN` element makes min/max `NaN` (JS NaN-propagation).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_math_reduce(arr_word: u64, op: i64) -> f64 {
+#[rtse::abi]
+pub fn rtsadp_math_reduce(arr_word: u64, op: i64) -> f64 {
     let v = PolyValue::from_raw(arr_word);
     let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
     let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(handle).max(0);
@@ -579,8 +579,8 @@ fn hypot_n(xs: &[f64]) -> f64 {
 /// front-end uses this to normalize a spread array element to a word the pure
 /// `emit_unbox_double` bitcast handles, before coercing to a native numeric param
 /// (a boxed-int32 element would otherwise bitcast to a bogus f64). NaN-canonical.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_canon_double(word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_canon_double(word: u64) -> u64 {
     PolyValue::from_f64(to_number(PolyValue::from_raw(word))).raw()
 }
 
@@ -589,8 +589,8 @@ pub extern "C" fn __rtsadp_canon_double(word: u64) -> u64 {
 /// Reads the raw element WORDS through the real Vec (preserving each boxed
 /// PolyValue), so the spread copy is shallow and representation-faithful. A
 /// non-array `src` is a no-op (the lowering only routes proven arrays here).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_spread_append(dst_word: u64, src_word: u64) {
+#[rtse::abi]
+pub fn rtsadp_arr_spread_append(dst_word: u64, src_word: u64) {
     let src = PolyValue::from_raw(src_word);
     if !(src.is_object() && !super::inspect::looks_like_object(src)) {
         return;

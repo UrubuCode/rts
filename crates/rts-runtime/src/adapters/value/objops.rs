@@ -468,8 +468,8 @@ pub extern "C" fn shaped_object_set(h: u64, key_ptr: *const u8, key_len: i64, va
     __rtsadp_obj_set(word, kw, vw.raw());
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word: u64) -> u64 {
     // PROXY (#218): a proxy receiver routes through its `set` trap.
     if let Some((target, handler)) = proxy_parts(obj_word) {
         return proxy_set(target, handler, key_str_handle, val_word);
@@ -600,8 +600,8 @@ pub extern "C" fn __rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word:
 /// overwrites). The key is ToString'd to a property key (numbers/bools coerce like
 /// JS). Returns the new object word. A non-array entry (or non-array source) is
 /// skipped defensively — the lowering only routes a proven-array source here.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_obj_from_entries(entries_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_obj_from_entries(entries_word: u64) -> u64 {
     // Empty keyed object (slot 0 = empty-shape id, like a `{}` literal).
     let obj_handle = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     let empty_shape = rts_engine::heap::shapes::intern_global_shape(&[]);
@@ -640,8 +640,8 @@ pub extern "C" fn __rtsadp_obj_from_entries(entries_word: u64) -> u64 {
 /// A PROXY receiver routes through its `has` trap (#218) — `handler.has(target,
 /// key)` when defined, ToBoolean of the trap's return; otherwise forward to the
 /// target (recursion terminates: the target of a proxy-of-proxy chain is finite).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_obj_has(obj_word: u64, key_str_handle: u64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_obj_has(obj_word: u64, key_str_handle: u64) -> i64 {
     if let Some((target, handler)) = proxy_parts(obj_word) {
         let has_key = abi_adapter::intern_poly("has").raw();
         let trap = __rtsadp_obj_get(handler, has_key);
@@ -757,8 +757,8 @@ pub extern "C" fn __rtsadp_obj_has(obj_word: u64, key_str_handle: u64) -> i64 {
 /// NOT walk the prototype chain (unlike `obj_get`). The word return makes it usable
 /// from the uniform-word dynamic-method dispatch (unlike `__rtsadp_obj_has`'s raw
 /// i64).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_has_own(obj_word: u64, key_str_handle: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_has_own(obj_word: u64, key_str_handle: u64) -> u64 {
     if resolve_slot(obj_word, key_str_handle).is_some() {
         return PolyValue::bool(true).raw();
     }
@@ -827,8 +827,8 @@ pub fn reset_state() {
 /// walks the proto chain) must skip them, unlike a manual
 /// `C.prototype.m = fn` assignment (enumerable, and it takes the plain
 /// `obj_set` path). Called by the main prologue's method registration.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_proto_set_method(proto_word: u64, key_word: u64, val_word: u64) {
+#[rtse::abi]
+pub fn rtsadp_proto_set_method(proto_word: u64, key_word: u64, val_word: u64) {
     __rtsadp_obj_set(proto_word, key_word, val_word);
     let key = key_text(key_word);
     desc_flags_table()
@@ -892,8 +892,8 @@ fn is_non_extensible(obj_word: u64) -> bool {
 /// non-extensible object (the define fails), else `true`. A redefine of an
 /// existing key always applies here (configurable:false strictness is a later
 /// increment — it would only throw, never produce a wrong value).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_define_prop(
+#[rtse::abi]
+pub fn rtsadp_define_prop(
     obj_word: u64,
     key_str_handle: u64,
     val_word: u64,
@@ -940,8 +940,8 @@ pub extern "C" fn __rtsadp_define_prop(
 /// `undefined` when `key` is not an own property of `obj`. Flags come from the
 /// descriptor table (a plain assignment is all-true; `defineProperty` carries its
 /// own). Accessor (`get`/`set`) descriptors are a later increment.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_obj_get_own_property_descriptor(obj_word: u64, key_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_obj_get_own_property_descriptor(obj_word: u64, key_word: u64) -> u64 {
     // PROXY (#218 phase 3): the `getOwnPropertyDescriptor` trap returns the
     // descriptor object verbatim; no trap → synthesize from the target.
     if let Some((target, handler)) = proxy_parts(obj_word) {
@@ -976,8 +976,8 @@ pub extern "C" fn __rtsadp_obj_get_own_property_descriptor(obj_word: u64, key_wo
 
 /// `Object.getOwnPropertyDescriptors(obj)` — an object mapping each own key to its
 /// descriptor object (`{ k: { value, writable, enumerable, configurable }, … }`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_obj_get_own_property_descriptors(obj_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_obj_get_own_property_descriptors(obj_word: u64) -> u64 {
     let res_handle = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     let empty_shape = rts_engine::heap::shapes::intern_global_shape(&[]);
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(
@@ -1042,8 +1042,8 @@ fn accessor_descriptor(obj_word: u64, name: &str) -> u64 {
 /// `false` (JS `defineProperty` semantics, unlike a plain assignment's all-true).
 /// Returns the object. (Accessor descriptors `get`/`set` are a later increment —
 /// only the `value` data form is read here.)
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_obj_define_property(obj_word: u64, key_word: u64, desc_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_obj_define_property(obj_word: u64, key_word: u64, desc_word: u64) -> u64 {
     // JS defineProperty attribute semantics: a flag OMITTED from the
     // descriptor is FALSE for a NEW property, and KEEPS the current attribute
     // on a REDEFINE; an explicit value reads as its ToBoolean.
@@ -1142,8 +1142,8 @@ fn define_write_slot(obj_word: u64, key_str_handle: u64, val_word: u64) {
 /// `Reflect.getOwnPropertyDescriptor` helper → packed flags (bit0 writable, bit1
 /// enumerable, bit2 configurable) of an OWN property, or `-1` when `key` is not an
 /// own property. A normal data property (no explicit flags entry) is `7` (all true).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_prop_flags(obj_word: u64, key_str_handle: u64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_prop_flags(obj_word: u64, key_str_handle: u64) -> i64 {
     if resolve_slot(obj_word, key_str_handle).is_none() {
         return -1;
     }
@@ -1159,8 +1159,8 @@ pub extern "C" fn __rtsadp_prop_flags(obj_word: u64, key_str_handle: u64) -> i64
 /// element props are enumerable; `length` and any other name are not); a KEYED
 /// object answers its own-key enumerable flag (`prop_flags` bit 2, default
 /// true); anything else (primitives, missing key) → false.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_prop_is_enumerable(obj_word: u64, key_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_prop_is_enumerable(obj_word: u64, key_word: u64) -> u64 {
     let obj = PolyValue::from_raw(obj_word);
     if obj.is_object() && !looks_like_object(obj) {
         // Array (a non-keyed Vec): in-bounds index ⇒ enumerable own element.
@@ -1193,8 +1193,8 @@ fn lookup_chain(obj_word: u64, key_str_handle: u64, depth: u32) -> u64 {
 
 /// `Object.preventExtensions(o)` / `Reflect.preventExtensions` — mark `o`
 /// non-extensible (no new keys). Returns a bool word `true`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_prevent_ext(obj_word: u64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_prevent_ext(obj_word: u64) -> i64 {
     if PolyValue::from_raw(obj_word).is_object() {
         if let Ok(mut t) = non_extensible_table().lock() {
             t.insert(obj_word);
@@ -1208,8 +1208,8 @@ pub extern "C" fn __rtsadp_prevent_ext(obj_word: u64) -> i64 {
 /// re-assignment is a silent no-op (JS non-strict) via `obj_set`'s
 /// `prop_writable` gate. `seal`/`preventExtensions` use
 /// [`__rtsadp_prevent_ext`] instead (they keep existing keys writable).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_freeze(obj_word: u64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_freeze(obj_word: u64) -> i64 {
     if PolyValue::from_raw(obj_word).is_object() {
         if let Ok(mut t) = non_extensible_table().lock() {
             t.insert(obj_word);
@@ -1228,8 +1228,8 @@ pub extern "C" fn __rtsadp_freeze(obj_word: u64) -> i64 {
 /// `Object.isFrozen(o)` → 1/0: non-extensible AND every own key `writable:false`
 /// + `configurable:false`. A NON-object is frozen (`1`), matching JS (primitives
 /// are trivially frozen). Mirrors what [`__rtsadp_freeze`] records.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_is_frozen(obj_word: u64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_is_frozen(obj_word: u64) -> i64 {
     if !PolyValue::from_raw(obj_word).is_object() {
         return 1;
     }
@@ -1254,8 +1254,8 @@ pub extern "C" fn __rtsadp_is_frozen(obj_word: u64) -> i64 {
 /// `configurable:false` (writable/enumerable stay as-is), so `isSealed` is true
 /// but existing keys remain writable (JS seal semantics; freeze also clears
 /// writable). `preventExtensions` alone does NOT touch key flags.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_seal(obj_word: u64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_seal(obj_word: u64) -> i64 {
     if PolyValue::from_raw(obj_word).is_object() {
         if let Ok(mut t) = non_extensible_table().lock() {
             t.insert(obj_word);
@@ -1275,8 +1275,8 @@ pub extern "C" fn __rtsadp_seal(obj_word: u64) -> i64 {
 /// `configurable:false` (writable may stay true — `seal` permits updates).
 /// A bare `preventExtensions` object with default-configurable keys is NOT
 /// sealed (matching JS); an empty non-extensible object IS.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_is_sealed(obj_word: u64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_is_sealed(obj_word: u64) -> i64 {
     if !PolyValue::from_raw(obj_word).is_object() {
         return 1;
     }
@@ -1290,8 +1290,8 @@ pub extern "C" fn __rtsadp_is_sealed(obj_word: u64) -> i64 {
 
 /// `Object.isExtensible(o)` / `Reflect.isExtensible` → 1/0. A non-object is not
 /// extensible (`0`), matching JS.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_is_extensible(obj_word: u64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_is_extensible(obj_word: u64) -> i64 {
     (PolyValue::from_raw(obj_word).is_object() && !is_non_extensible(obj_word)) as i64
 }
 
@@ -1303,8 +1303,8 @@ pub extern "C" fn __rtsadp_is_extensible(obj_word: u64) -> i64 {
 /// deletes are all `true`; this model has no non-configurable props). A PROXY
 /// receiver routes through its `deleteProperty` trap (#218) — ToBoolean of the
 /// trap's return when defined; otherwise forward the delete to the target.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_obj_delete(obj_word: u64, key_str_handle: u64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_obj_delete(obj_word: u64, key_str_handle: u64) -> i64 {
     if let Some((target, handler)) = proxy_parts(obj_word) {
         let trap_key = abi_adapter::intern_poly("deleteProperty").raw();
         let trap = __rtsadp_obj_get(handler, trap_key);
@@ -1394,8 +1394,8 @@ pub extern "C" fn __rtsadp_obj_delete(obj_word: u64, key_str_handle: u64) -> i64
 /// onto `target` (JS, last write wins). Adds NEW keys to `target` (shape
 /// transition via `__rtsadp_obj_set`). Returns `target`. A non-object `source`
 /// contributes nothing. The N-source form chains this per source.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_obj_assign(target_word: u64, source_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_obj_assign(target_word: u64, source_word: u64) -> u64 {
     for k in object_keys_vec(source_word) {
         // Accessor storage slots (`__get_<k>`/`__set_<k>`): assign enumerates
         // the PROPERTY, reads through [[Get]] (invoking the getter) and writes
@@ -1443,8 +1443,8 @@ fn array_word(vec: u64) -> u64 {
 /// Spec shape (ObjectDefineProperties): ALL descriptors are READ first (their
 /// getters run in key order and may THROW — the pending-error slot is checked
 /// after each read, aborting with NOTHING applied), and only then applied.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_obj_define_properties(obj_word: u64, props_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_obj_define_properties(obj_word: u64, props_word: u64) -> u64 {
     // Enumerate through the KEYS authority (`__rtsadp_obj_keys`), which lists an
     // accessor slot (`__get_<k>`) under its PROPERTY name — reading it below runs
     // the getter (the storage-key list would read the raw slot and skip it).
@@ -1470,8 +1470,8 @@ pub extern "C" fn __rtsadp_obj_define_properties(obj_word: u64, props_word: u64)
 
 /// `__rtsadp_obj_values(obj_word)` — `Object.values(obj)` at RUNTIME: a fresh array
 /// of the object's slot VALUES (slots `1..`; slot 0 is the shape-id header).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_obj_values(obj_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_obj_values(obj_word: u64) -> u64 {
     let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     // ENUMERATION order (array-index keys ascending first) — read each value BY KEY
     // (`obj_get`), not by storage slot, so the reorder and the value stay aligned.
@@ -1488,8 +1488,8 @@ pub extern "C" fn __rtsadp_obj_values(obj_word: u64) -> u64 {
 
 /// `__rtsadp_obj_entries(obj_word)` — `Object.entries(obj)` at RUNTIME: a fresh
 /// array of `[key, value]` 2-element sub-arrays (each its own `Entry::Vec`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_obj_entries(obj_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_obj_entries(obj_word: u64) -> u64 {
     let outer = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     for k in super::iterops::reorder_enum_keys(object_keys_vec(obj_word)) {
         // The wrapper box's internal primitive slot is not an own property.

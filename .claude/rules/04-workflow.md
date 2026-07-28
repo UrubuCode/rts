@@ -116,10 +116,12 @@ It enforces the binding rules as a commit gate:
   on `rts-engine`"). They manufactured the very mirror tables the single source
   of truth deletes. Depend on the crate that owns the declaration.
 - **REVIEW (read every entry; the list must shrink, never grow):** any remaining
-  hand-written symbol / signature / class-metadata row. **527 → 168 rows
+  hand-written symbol / signature / class-metadata row. **527 → 65 rows
   (2026-07-28):** `adapter_symbols/list_a.rs` + `list_b.rs` are DELETED (the JIT
   table is the baked table + the Registry harvest, both generated); what remains
-  is `value/abi_sig.rs` (155) + `rts-runtime/src/adapters/dispatch.rs` (13), both
+  is `value/abi_sig.rs` (52 — the whole `__rtsadp_*` surface is now DERIVED from
+  `#[rtse::abi]`; what is left is `__RTS_FN_*` runtime symbols) +
+  `rts-runtime/src/adapters/dispatch.rs` (13), both
   guarded so every symbol they name must exist in the baked table. Declare with
   `rtse::*` and let the baker emit it — NEVER add a row. Also: a
   non-primordial class named in codegen (`Map`/`Set`/`Date`/`URL`/… — must

@@ -10,6 +10,8 @@
 //!
 //! `StrPtr` at the ABI boundary delivers (ptr, len); the helpers rebuild `&str`.
 
+use rts_engine::abi::ty::Handle;
+
 fn str_from_abi<'a>(ptr: *const u8, len: i64) -> Option<&'a str> {
     if ptr.is_null() || len < 0 {
         return None;
@@ -391,8 +393,8 @@ fn handle_is_regex(h: u64) -> bool {
     })
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_str_match_auto(recv: u64, pattern: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_str_match_auto(recv: Handle, pattern: Handle) -> Handle {
     let (sp, sl) = unsafe { (__RTS_FN_NS_GC_STRING_PTR(recv), __RTS_FN_NS_GC_STRING_LEN(recv)) };
     if handle_is_regex(pattern) {
         match_regex(sp, sl, pattern)
@@ -402,8 +404,8 @@ pub extern "C" fn __rtsadp_str_match_auto(recv: u64, pattern: u64) -> u64 {
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_str_search_auto(recv: u64, pattern: u64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_str_search_auto(recv: Handle, pattern: Handle) -> i64 {
     let (sp, sl) = unsafe { (__RTS_FN_NS_GC_STRING_PTR(recv), __RTS_FN_NS_GC_STRING_LEN(recv)) };
     if handle_is_regex(pattern) {
         search_regex(sp, sl, pattern)
@@ -413,8 +415,8 @@ pub extern "C" fn __rtsadp_str_search_auto(recv: u64, pattern: u64) -> i64 {
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_str_match_all_auto(recv: u64, pattern: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_str_match_all_auto(recv: Handle, pattern: Handle) -> Handle {
     let (sp, sl) = unsafe { (__RTS_FN_NS_GC_STRING_PTR(recv), __RTS_FN_NS_GC_STRING_LEN(recv)) };
     if handle_is_regex(pattern) {
         match_all_regex(sp, sl, pattern)

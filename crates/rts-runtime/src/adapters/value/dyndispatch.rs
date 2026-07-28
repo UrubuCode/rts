@@ -122,8 +122,8 @@ fn undef() -> u64 {
 /// `recv.toString()` — JS `ToString`, returning a string PolyValue word. Reuses
 /// the engine's single ToString path (the same one `console.log`/`+` use), so the
 /// number formatting / array join / `[object Object]` are byte-identical.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_to_string(recv: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_to_string(recv: u64) -> u64 {
     genops::__rtsadp_to_string(recv)
 }
 
@@ -136,8 +136,8 @@ pub extern "C" fn __rtsadp_dyn_to_string(recv: u64) -> u64 {
 /// `recv.length` — the string's length (real `STRING_LEN`, a number word) or the
 /// array's element count (`VEC_LEN`). Any other receiver → `undefined` (JS reads a
 /// missing property as `undefined`; never a wrong value).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_length(recv: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_length(recv: u64) -> u64 {
     use rts_runtime::namespaces::collections::vec as rt_vec;
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
@@ -311,8 +311,8 @@ fn empty_string_handle() -> u64 {
 
 /// `recv.indexOf(needle)` — string substring index OR array strict-equal element
 /// index. Returns a number word (`-1` when not found / unexpected receiver).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_index_of(recv: u64, needle: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_index_of(recv: u64, needle: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     let idx = if v.is_string() {
         // String.indexOf wants a string needle: ToString it (JS coerces the arg);
@@ -331,8 +331,8 @@ pub extern "C" fn __rtsadp_dyn_index_of(recv: u64, needle: u64) -> u64 {
 
 /// `recv.includes(x)` — string substring test OR array strict-equal membership.
 /// Returns a boolean word; an unexpected receiver → `false`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_includes(recv: u64, needle: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_includes(recv: u64, needle: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     let yes = if v.is_string() {
         str_val(recv).contains(&str_arg_val(needle))
@@ -347,8 +347,8 @@ pub extern "C" fn __rtsadp_dyn_includes(recv: u64, needle: u64) -> u64 {
 /// `recv.at(i)` — string code-unit-at (as a 1-char string) OR array element-at.
 /// JS `String.prototype.at` returns a single-char string (or `undefined` out of
 /// range); array `at` returns the element word. Unexpected receiver → `undefined`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_at(recv: u64, idx: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_at(recv: u64, idx: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     let i = genops_to_i64(idx);
     if v.is_string() {
@@ -376,8 +376,8 @@ pub extern "C" fn __rtsadp_dyn_at(recv: u64, idx: u64) -> u64 {
 /// is treated as an OBJECT and keyed by `ToString(idx)` via `obj_get` (absent →
 /// `undefined`). This is what makes `p[0]`/`p[1]` work on a for-of binding whose
 /// element is a nested array (`new Map([[k,v],…])`), without the proven-shape path.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_idx_get(recv: u64, idx: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_idx_get(recv: u64, idx: u64) -> u64 {
     use rts_runtime::namespaces::collections::vec as rt_vec;
     // A Proxy is `TAG_OBJECT` but `is_array_word` would misclassify it as an array
     // (not a keyed object); route it to `obj_get` so its `get` trap fires.
@@ -513,8 +513,8 @@ pub extern "C" fn __rtsadp_idx_get(recv: u64, idx: u64) -> u64 {
 /// `recv.slice(start, end)` — string slice (a string word) OR array slice (a fresh
 /// array word). Both take two numeric bounds (the lowering supplies a defaulted
 /// "to end" bound for the 1-arg form). Unexpected receiver → `undefined`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_slice(recv: u64, start: u64, end: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_slice(recv: u64, start: u64, end: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     let s = genops_to_i64(start);
     let e = genops_to_i64(end);
@@ -530,8 +530,8 @@ pub extern "C" fn __rtsadp_dyn_slice(recv: u64, start: u64, end: u64) -> u64 {
 /// `recv.concat(other)` — string concatenation (string result) OR array concat (a
 /// fresh array word). String path ToStrings the arg. Unexpected receiver →
 /// `undefined`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_concat(recv: u64, other: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_concat(recv: u64, other: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
         // RAW byte concat (never UTF-8-decode): a receiver may hold an incomplete
@@ -556,8 +556,8 @@ pub extern "C" fn __rtsadp_dyn_concat(recv: u64, other: u64) -> u64 {
 
 /// `arr.join(sep)` — Array join with a (ToString'd) separator. Array receiver →
 /// the real `__rtsadp_arr_join` (string result); any other receiver → `undefined`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_join(recv: u64, sep: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_join(recv: u64, sep: u64) -> u64 {
     if is_array_word(recv) {
         let sep_h = str_arg_handle(sep);
         return box_str(arrayops::__rtsadp_arr_join(arr_handle(recv), sep_h));
@@ -572,8 +572,8 @@ pub extern "C" fn __rtsadp_dyn_join(recv: u64, sep: u64) -> u64 {
 /// where the compiler could not prove the class) must still reach the real method,
 /// not the Array fast-path. Only when neither an array nor a `push`-bearing object
 /// → `undefined` (unchanged).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_push(recv: u64, val: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_push(recv: u64, val: u64) -> u64 {
     if is_array_word(recv) {
         let len = arrayops::__rtsadp_arr_push(arr_handle(recv), val);
         return PolyValue::from_i32(len as i32).raw();
@@ -590,8 +590,8 @@ pub extern "C" fn __rtsadp_dyn_push(recv: u64, val: u64) -> u64 {
 }
 
 /// `arr.pop()` — remove + return the last element word. Array receiver only.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_pop(recv: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_pop(recv: u64) -> u64 {
     if is_array_word(recv) {
         return arrayops::__rtsadp_arr_pop(arr_handle(recv));
     }
@@ -601,8 +601,8 @@ pub extern "C" fn __rtsadp_dyn_pop(recv: u64) -> u64 {
 /// `arr.reverse()` — reverse IN PLACE, returning the (same) array word so a chain
 /// (`a.reverse().join(",")`) works. Array receiver only; other receivers →
 /// `undefined`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_reverse(recv: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_reverse(recv: u64) -> u64 {
     if is_array_word(recv) {
         return arrayops::__rtsadp_arr_reverse(arr_handle(recv));
     }
@@ -612,8 +612,8 @@ pub extern "C" fn __rtsadp_dyn_reverse(recv: u64) -> u64 {
 /// `arr.sort()` — default (ToString) sort IN PLACE, returning the (same) array
 /// word for chaining. The comparator form `sort(cmp)` is a callback method handled
 /// on the proven-array path. Array receiver only; other receivers → `undefined`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_sort(recv: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_sort(recv: u64) -> u64 {
     if is_array_word(recv) {
         return arrayops::__rtsadp_arr_sort(arr_handle(recv));
     }
@@ -626,8 +626,8 @@ pub extern "C" fn __rtsadp_dyn_sort(recv: u64) -> u64 {
 
 /// `s.charAt(i)` — the 1-char string at index `i` (`""` out of range). String
 /// receiver only; other receivers → `undefined`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_char_at(recv: u64, idx: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_char_at(recv: u64, idx: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
         // JS `charAt` indexes UTF-16 code units, returning the 1-unit string (`""`
@@ -645,8 +645,8 @@ pub extern "C" fn __rtsadp_dyn_char_at(recv: u64, idx: u64) -> u64 {
 
 /// `s.charCodeAt(i)` — the UTF-16 code unit at `i` as a number (`NaN` out of
 /// range). String receiver only; other receivers → `undefined`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_char_code_at(recv: u64, idx: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_char_code_at(recv: u64, idx: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
         // JS `charCodeAt` returns the UTF-16 CODE UNIT at the index (a surrogate
@@ -663,8 +663,8 @@ pub extern "C" fn __rtsadp_dyn_char_code_at(recv: u64, idx: u64) -> u64 {
 }
 
 /// `s.toUpperCase()` — uppercase string. String receiver only.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_to_upper_case(recv: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_to_upper_case(recv: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
         return box_new_str(&str_val(recv).to_uppercase());
@@ -673,8 +673,8 @@ pub extern "C" fn __rtsadp_dyn_to_upper_case(recv: u64) -> u64 {
 }
 
 /// `s.toLowerCase()` — lowercase string. String receiver only.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_to_lower_case(recv: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_to_lower_case(recv: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
         return box_new_str(&str_val(recv).to_lowercase());
@@ -683,8 +683,8 @@ pub extern "C" fn __rtsadp_dyn_to_lower_case(recv: u64) -> u64 {
 }
 
 /// `s.trim()` — whitespace-trimmed string. String receiver only.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_trim(recv: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_trim(recv: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
         return box_new_str(str_val(recv).trim());
@@ -696,8 +696,8 @@ pub extern "C" fn __rtsadp_dyn_trim(recv: u64) -> u64 {
 /// other receivers → `undefined`. The `other` arg is ToString'd (JS coerces it),
 /// so `"a".localeCompare(1)` compares against `"1"`. Reuses the SAME
 /// `strops::locale_compare` the proven-string value-class calls.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_locale_compare(recv: u64, other: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_locale_compare(recv: u64, other: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
         let r = strops::locale_compare(&str_val(recv), &str_arg_val(other));
@@ -711,8 +711,8 @@ pub extern "C" fn __rtsadp_dyn_locale_compare(recv: u64, other: u64) -> u64 {
 /// only; other receivers → `undefined`. Returns the raw PolyValue word (a number
 /// word OR `undefined`) from `strops::code_point_at`, the SAME impl the
 /// proven-string value-class calls.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_code_point_at(recv: u64, idx: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_code_point_at(recv: u64, idx: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
         return strops::code_point_at(&str_val(recv), genops_to_i64(idx));
@@ -726,8 +726,8 @@ pub extern "C" fn __rtsadp_dyn_code_point_at(recv: u64, idx: u64) -> u64 {
 /// (invoked with resolve/reject settlers on a fresh pending promise); anything
 /// else settles a fulfilled promise with the value. Returns the real promise
 /// HANDLE (the same convention `__RTS_FN_GL_PROMISE_RESOLVE` returns).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_promise_resolve_w(word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_promise_resolve_w(word: u64) -> u64 {
     use rts_runtime::namespaces::gc::handles as rt_handles;
     use rts_runtime::namespaces::promise_slot;
     let v = PolyValue::from_raw(word);
@@ -775,8 +775,8 @@ pub extern "C" fn __rtsadp_promise_resolve_w(word: u64) -> u64 {
 /// data-driven (the proto slot IS the class's own method). A primordial ARRAY
 /// receiver routes its Array.prototype method by name (no proto object). A miss
 /// throws TypeError (JS).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_method_call(
+#[rtse::abi]
+pub fn rtsadp_dyn_method_call(
     recv: u64,
     key: u64,
     a0: u64,
@@ -823,8 +823,8 @@ pub extern "C" fn __rtsadp_dyn_method_call(
 /// instance (`Hash`/`StringDecoder`/…) whose method name collides with some user
 /// class's method — dispatch it natively, else keep the `undefined` sentinel (a
 /// TypeError-class marker, never a wrong value) the virtual path already used.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_ci_or_undef(recv: u64, key: u64, a0: u64, a1: u64, a2: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_ci_or_undef(recv: u64, key: u64, a0: u64, a1: u64, a2: u64) -> u64 {
     let undef = PolyValue::undefined().raw();
     let js_argc = [a0, a1, a2].iter().filter(|&&w| w != undef).count();
     super::dynci::try_runtime_ci(recv, key, a0, a1, a2, js_argc).unwrap_or(undef)
@@ -844,8 +844,8 @@ fn wellknown_hook(arg: u64, name: &str) -> Option<u64> {
 /// `s.match(arg)` with an UNPROVEN (object) arg — a custom `[Symbol.match]`
 /// hook runs (`hook.call(arg, s)`, spec); a hook-less object coerces ToString
 /// into a fresh regex (spec `new RegExp(arg)`), delegating to the real match.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_str_match_w(recv: u64, arg: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_str_match_w(recv: u64, arg: u64) -> u64 {
     let undef = PolyValue::undefined().raw();
     if let Some(h) = wellknown_hook(arg, "@@match") {
         return super::funcops::__rtsadp_fn_invoke_method(h, arg, recv, undef, undef, 0);
@@ -858,8 +858,8 @@ pub extern "C" fn __rtsadp_str_match_w(recv: u64, arg: u64) -> u64 {
 /// `s.replace(pat, rep)` with an UNPROVEN pattern — the `[Symbol.replace]`
 /// hook runs (`hook.call(pat, s, rep)`, spec); hook-less delegates to the
 /// plain string replace on `ToString(pat)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_str_replace_w(recv: u64, pat: u64, rep: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_str_replace_w(recv: u64, pat: u64, rep: u64) -> u64 {
     let undef = PolyValue::undefined().raw();
     if let Some(h) = wellknown_hook(pat, "@@replace") {
         return super::funcops::__rtsadp_fn_invoke_method(h, pat, recv, rep, undef, 0);
@@ -874,8 +874,8 @@ pub extern "C" fn __rtsadp_str_replace_w(recv: u64, pat: u64, rep: u64) -> u64 {
 /// `s.split(sep, limit?)` with an UNPROVEN separator — the `[Symbol.split]`
 /// hook runs (`hook.call(sep, s, limit)`, spec); hook-less delegates to the
 /// plain string split on `ToString(sep)` (limit via the dyn split).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_str_split_w(recv: u64, sep: u64, limit: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_str_split_w(recv: u64, sep: u64, limit: u64) -> u64 {
     let undef = PolyValue::undefined().raw();
     if let Some(h) = wellknown_hook(sep, "@@split") {
         return super::funcops::__rtsadp_fn_invoke_method(h, sep, recv, limit, undef, 0);
@@ -890,8 +890,8 @@ pub extern "C" fn __rtsadp_str_split_w(recv: u64, sep: u64, limit: u64) -> u64 {
 /// primordial Array method by name (the same trampolines the static rows
 /// use); a keyed OBJECT reads the property and invokes it as a method
 /// (`this` = recv). Unknown name/receiver → TypeError (pending error).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_idx_call(recv: u64, key: u64, a0: u64, a1: u64, argc: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_idx_call(recv: u64, key: u64, a0: u64, a1: u64, argc: u64) -> u64 {
     let kv = PolyValue::from_raw(key);
     let is_num_key = kv.is_int32() || kv.is_double();
     if is_num_key {
@@ -983,8 +983,8 @@ fn promise_handle(recv: u64) -> Option<u64> {
 
 /// `p.then(onFul)` on an UNPROVEN receiver — routes the primordial Promise
 /// instance method when the word wraps a live promise; otherwise `undefined`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_p_then(recv: u64, cb: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_p_then(recv: u64, cb: u64) -> u64 {
     use rts_runtime::namespaces::globals::fetch::instance as p;
     match promise_handle(recv) {
         Some(h) => genops::__rtsadp_box_handle_auto(p::__RTS_FN_GL_PROMISE_THEN2(h, cb, 0)),
@@ -993,8 +993,8 @@ pub extern "C" fn __rtsadp_dyn_p_then(recv: u64, cb: u64) -> u64 {
 }
 
 /// `p.then(onFul, onRej)` — the 2-arg spec form.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_p_then2(recv: u64, on_ful: u64, on_rej: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_p_then2(recv: u64, on_ful: u64, on_rej: u64) -> u64 {
     use rts_runtime::namespaces::globals::fetch::instance as p;
     match promise_handle(recv) {
         Some(h) => {
@@ -1005,8 +1005,8 @@ pub extern "C" fn __rtsadp_dyn_p_then2(recv: u64, on_ful: u64, on_rej: u64) -> u
 }
 
 /// `p.catch(onRej)` on an unproven receiver.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_p_catch(recv: u64, cb: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_p_catch(recv: u64, cb: u64) -> u64 {
     use rts_runtime::namespaces::globals::fetch::instance as p;
     match promise_handle(recv) {
         Some(h) => genops::__rtsadp_box_handle_auto(p::__RTS_FN_GL_PROMISE_CATCH(h, cb)),
@@ -1015,8 +1015,8 @@ pub extern "C" fn __rtsadp_dyn_p_catch(recv: u64, cb: u64) -> u64 {
 }
 
 /// `p.finally(onFin)` on an unproven receiver.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_p_finally(recv: u64, cb: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_p_finally(recv: u64, cb: u64) -> u64 {
     use rts_runtime::namespaces::globals::fetch::instance as p;
     match promise_handle(recv) {
         Some(h) => genops::__rtsadp_box_handle_auto(p::__RTS_FN_GL_PROMISE_FINALLY(h, cb)),
@@ -1025,8 +1025,8 @@ pub extern "C" fn __rtsadp_dyn_p_finally(recv: u64, cb: u64) -> u64 {
 }
 
 /// `s.trimStart()` — leading-whitespace strip on a dynamic string receiver.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_trim_start(recv: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_trim_start(recv: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
         let s = abi_adapter::resolve_poly(v);
@@ -1036,8 +1036,8 @@ pub extern "C" fn __rtsadp_dyn_trim_start(recv: u64) -> u64 {
 }
 
 /// `s.trimEnd()` — trailing-whitespace strip on a dynamic string receiver.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_trim_end(recv: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_trim_end(recv: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
         let s = abi_adapter::resolve_poly(v);
@@ -1050,8 +1050,8 @@ pub extern "C" fn __rtsadp_dyn_trim_end(recv: u64) -> u64 {
 /// ARRAY of boxed string words. String receiver only; other receivers →
 /// `undefined`. A regex separator is not modeled (the arg is ToString'd, matching
 /// the corpus's literal-string separators).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_split(recv: u64, sep: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_split(recv: u64, sep: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
         let sep_h = str_arg_handle(sep);
@@ -1063,8 +1063,8 @@ pub extern "C" fn __rtsadp_dyn_split(recv: u64, sep: u64) -> u64 {
 
 /// `s.startsWith(x)` / `s.endsWith(x)` share the dynamic shape; the lowering picks
 /// the right symbol. `s.startsWith(prefix)` — boolean word. String receiver only.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_starts_with(recv: u64, needle: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_starts_with(recv: u64, needle: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
         return PolyValue::bool(str_val(recv).starts_with(&str_arg_val(needle))).raw();
@@ -1073,8 +1073,8 @@ pub extern "C" fn __rtsadp_dyn_starts_with(recv: u64, needle: u64) -> u64 {
 }
 
 /// `s.endsWith(suffix)` — boolean word. String receiver only.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_ends_with(recv: u64, needle: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_ends_with(recv: u64, needle: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
         return PolyValue::bool(str_val(recv).ends_with(&str_arg_val(needle))).raw();
@@ -1083,8 +1083,8 @@ pub extern "C" fn __rtsadp_dyn_ends_with(recv: u64, needle: u64) -> u64 {
 }
 
 /// `s.repeat(n)` — the string repeated `n` times. String receiver only.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_repeat(recv: u64, n: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_repeat(recv: u64, n: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     if v.is_string() {
         let count = genops_to_i64(n);
@@ -1165,8 +1165,8 @@ fn genops_to_number(word: u64) -> f64 {
 /// radix (`(255).toString(16)` → "ff"); any other receiver ignores the arg
 /// (JS String/Array/Object toString take none) and falls to the plain
 /// ToString. Radix outside 2..=36 clamps to 10 (never a wrong panic).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_dyn_to_string_radix(recv: u64, radix: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_dyn_to_string_radix(recv: u64, radix: u64) -> u64 {
     let v = PolyValue::from_raw(recv);
     let is_num = v.is_int32() || v.is_double();
     if is_num {

@@ -76,8 +76,8 @@ const MAX_DEPTH: u32 = 8;
 /// `top_level` is `1` for a direct `console.log` argument (a string prints BARE),
 /// `0` for a NESTED value (a string is single-quoted). Arrays/objects always use
 /// the inspect (bracketed) form regardless of `top_level`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_inspect(value_word: u64, top_level: i64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_inspect(value_word: u64, top_level: i64) -> u64 {
     let s = render(PolyValue::from_raw(value_word), top_level != 0, 0);
     abi_adapter::intern_poly(&s).raw()
 }
@@ -90,8 +90,8 @@ pub extern "C" fn __rtsadp_inspect(value_word: u64, top_level: i64) -> u64 {
 /// object-vs-array decision is made at compile time. `top_level` is currently
 /// always 1 for a direct `console.log` object arg; an object always renders in the
 /// bracketed form, so it is accepted for symmetry but does not change the output.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_inspect_object(value_word: u64, _top_level: i64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_inspect_object(value_word: u64, _top_level: i64) -> u64 {
     let s = render_object(PolyValue::from_raw(value_word), 0);
     abi_adapter::intern_poly(&s).raw()
 }

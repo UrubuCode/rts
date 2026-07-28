@@ -191,22 +191,29 @@ pub fn with_capture<R>(f: impl FnOnce() -> R) -> (R, String) {
 /// or `__RTS_FN_NS_IO_EPRINT` (stderr, `to_stderr!=0`) — the same symbol split
 /// the `console` Registry namespace declares per method (`log`→PRINT,
 /// `warn`/`error`→EPRINT). The newline is appended by the runtime.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_print_line(ptr: *const u8, len: i64, to_stderr: i64) {
+/// The line arrives as `&str`, which IS the `(ptr, len)` pair the emitted code
+/// already passes: `#[rtse::abi]` expands one `&str` parameter into the two
+/// `StrPtr` slots, so the machine ABI is byte-identical to the previous
+/// `(*const u8, i64)` spelling — only now the signature is DECLARED rather than
+/// transcribed into `abi_sig`.
+#[rtse::abi]
+pub fn rtsadp_print_line(line: &str, to_stderr: i64) {
     let capturing = CAPTURE.with(|c| c.borrow().is_some());
     if capturing {
-        let line = bytes_to_string(ptr, len);
         CAPTURE.with(|c| {
             if let Some(buf) = c.borrow_mut().as_mut() {
-                buf.push_str(&line);
+                buf.push_str(line);
                 buf.push('\n');
             }
         });
-    } else if to_stderr != 0 {
-        // Forward to the REAL io eprint (stderr; appends the newline itself).
+        return;
+    }
+    // The REAL io fns still take the raw pair (they are the runtime's own ABI,
+    // not this one) and append the newline themselves.
+    let (ptr, len) = (line.as_ptr(), line.len() as i64);
+    if to_stderr != 0 {
         rt_io::__RTS_FN_NS_IO_EPRINT(ptr, len);
     } else {
-        // Forward to the REAL io print (stdout; appends the newline itself).
         rt_io::__RTS_FN_NS_IO_PRINT(ptr, len);
     }
 }

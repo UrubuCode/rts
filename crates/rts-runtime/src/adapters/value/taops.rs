@@ -308,6 +308,9 @@ ta_ctor!(__RTS_FN_GL_TA_NEW_F64, 8, false, true);
 ///
 /// SAFETY of the raw base pointer: see [`view_base_len`]. The `out_*` pointers
 /// are stack slots the emitted code owns.
+// NOT `#[rtse::abi]`: the two `*mut i64` out-params have no single-slot ABI
+// spelling — they are stack slots the emitted code owns and writes through, not
+// values crossing by copy. Keeps its hand-written `abi_sig` row.
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_ta_view_base_len(
     view_word: u64,
@@ -334,8 +337,8 @@ pub extern "C" fn __rtsadp_ta_view_base_len(
 
 /// `offset` (default 0). Word-level copy (the level-A Vec backing does not
 /// re-wrap; the tests write in-range values). Returns `undefined`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_ta_set(arr_word: u64, src_word: u64, off_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_ta_set(arr_word: u64, src_word: u64, off_word: u64) -> u64 {
     let a = PolyValue::from_raw(arr_word);
     let s = PolyValue::from_raw(src_word);
     // Level-B VIEW receiver: write each source element through the shared
@@ -447,8 +450,8 @@ atomics_rmw!(__rtsadp_atomics_xor, |a, b| a ^ b);
 atomics_rmw!(__rtsadp_atomics_exchange, |_a, b| b);
 
 /// `Atomics.load(ta, i)` — the current value.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_atomics_load(arr_word: u64, idx_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_atomics_load(arr_word: u64, idx_word: u64) -> u64 {
     match atomics_loc(arr_word, idx_word) {
         Some((_, cur)) => num(cur),
         None => PolyValue::undefined().raw(),
@@ -456,8 +459,8 @@ pub extern "C" fn __rtsadp_atomics_load(arr_word: u64, idx_word: u64) -> u64 {
 }
 
 /// `Atomics.store(ta, i, v)` — stores and returns `v` (JS).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_atomics_store(arr_word: u64, idx_word: u64, val_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_atomics_store(arr_word: u64, idx_word: u64, val_word: u64) -> u64 {
     if let Some((loc, _)) = atomics_loc(arr_word, idx_word) {
         let v = super::genops::to_number(PolyValue::from_raw(val_word)) as i64;
         atomics_store_loc(&loc, v);
@@ -468,8 +471,8 @@ pub extern "C" fn __rtsadp_atomics_store(arr_word: u64, idx_word: u64, val_word:
 
 /// `Atomics.compareExchange(ta, i, expected, replacement)` — returns the
 /// PREVIOUS value; stores only on match.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_atomics_cmpxchg(
+#[rtse::abi]
+pub fn rtsadp_atomics_cmpxchg(
     arr_word: u64,
     idx_word: u64,
     expected_word: u64,
@@ -488,8 +491,8 @@ pub extern "C" fn __rtsadp_atomics_cmpxchg(
 
 /// `BigInt.asIntN(bits, v)` — wrap `v` into an N-bit SIGNED integer (the i64
 /// interim BigInt model, #219). `asUintN` is the unsigned form.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_bigint_as_intn(bits_word: u64, val_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_bigint_as_intn(bits_word: u64, val_word: u64) -> u64 {
     let bits = super::genops::to_number(PolyValue::from_raw(bits_word)) as u32;
     let v = super::genops::to_number(PolyValue::from_raw(val_word)).trunc() as i64;
     if bits == 0 || bits >= 64 {
@@ -502,8 +505,8 @@ pub extern "C" fn __rtsadp_bigint_as_intn(bits_word: u64, val_word: u64) -> u64 
 }
 
 /// `BigInt.asUintN(bits, v)` — unsigned N-bit wrap.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_bigint_as_uintn(bits_word: u64, val_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_bigint_as_uintn(bits_word: u64, val_word: u64) -> u64 {
     let bits = super::genops::to_number(PolyValue::from_raw(bits_word)) as u32;
     let v = super::genops::to_number(PolyValue::from_raw(val_word)).trunc() as i64;
     if bits == 0 || bits >= 64 {
@@ -518,8 +521,8 @@ pub extern "C" fn __rtsadp_bigint_as_uintn(bits_word: u64, val_word: u64) -> u64
 /// argc, so an explicit trailing `undefined` argument is indistinguishable
 /// from an absent one; documented divergence) followed by every element of the
 /// overflow `rest_word` array. Returns a fresh array word.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_pack_rest(
+#[rtse::abi]
+pub fn rtsadp_pack_rest(
     a0: u64,
     a1: u64,
     a2: u64,
@@ -552,22 +555,22 @@ pub extern "C" fn __rtsadp_pack_rest(
 }
 
 /// 1-arg form `ta.set(src)` — offset 0.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_ta_set1(arr_word: u64, src_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_ta_set1(arr_word: u64, src_word: u64) -> u64 {
     __rtsadp_arr_ta_set(arr_word, src_word, PolyValue::undefined().raw())
 }
 
 /// 1-arg form `ta.subarray(begin)` — to the end.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_subarray1(arr_word: u64, begin_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_subarray1(arr_word: u64, begin_word: u64) -> u64 {
     __rtsadp_arr_subarray(arr_word, begin_word, PolyValue::undefined().raw())
 }
 
 /// `ta.subarray(begin?, end?)` — the level-A COPY of the range (JS returns a
 /// live view; the tests only read the result). Negative indices count from the
 /// end, like `slice`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_subarray(arr_word: u64, begin_word: u64, end_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_subarray(arr_word: u64, begin_word: u64, end_word: u64) -> u64 {
     let a = PolyValue::from_raw(arr_word);
     let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     if a.is_object() {

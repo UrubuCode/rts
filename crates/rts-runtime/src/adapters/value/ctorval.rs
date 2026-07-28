@@ -53,8 +53,8 @@ pub fn ctor_thunk_count() -> usize {
 /// Register `addr` (a class NEW-THUNK code address) as a valid `new` target.
 /// Emitted by `reify_class` whenever a class is reified as a value (idempotent —
 /// the same class registers the same stable address every time).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_register_ctor_thunk(addr: u64) {
+#[rtse::abi]
+pub fn rtsadp_register_ctor_thunk(addr: u64) {
     if addr != 0 {
         ctor_set()
             .lock()
@@ -74,8 +74,8 @@ pub extern "C" fn __rtsadp_register_ctor_thunk(addr: u64) {
 /// wider ctor is a later increment). A PROXY target routes through its
 /// `construct` trap (#218 phase 2): `handler.construct(target, argsArray)` — the
 /// trap's return is the instance; no trap → construct the target.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_construct(target_word: u64, args_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_construct(target_word: u64, args_word: u64) -> u64 {
     if let Some((target, handler)) = super::objops::proxy_parts(target_word) {
         let trap_key = intern_poly("construct").raw();
         let trap = super::objops::__rtsadp_obj_get(handler, trap_key);
@@ -102,8 +102,8 @@ pub extern "C" fn __rtsadp_construct(target_word: u64, args_word: u64) -> u64 {
     __rtsadp_new_invoke(target_word, slots[0], slots[1], slots[2], slots[3], undef)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_new_invoke(
+#[rtse::abi]
+pub fn rtsadp_new_invoke(
     fn_word: u64,
     a0: u64,
     a1: u64,

@@ -63,8 +63,8 @@ fn ctor_table() -> &'static Mutex<HashMap<u64, u64>> {
 /// stored `FunctionData.fn_ptr` (the uniform thunk address). Returns `0` when the
 /// word is not a live function value (so a `new <non-fn>()` / `x instanceof
 /// <non-fn>` decides `false`, never crashes).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_fn_ptr(fn_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_fn_ptr(fn_word: u64) -> u64 {
     let pv = PolyValue::from_raw(fn_word);
     if !pv.is_function() {
         return 0;
@@ -119,8 +119,8 @@ pub fn fn_value_identity_eq(a: u64, b: u64) -> bool {
 /// was constructed by the function whose identity is `fn_ptr`. A non-object word
 /// or a `0` fn_ptr is ignored (no entry recorded). The key is the full boxed
 /// `TAG_OBJECT` PolyValue word.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_ctor_mark(obj_word: u64, fn_ptr: u64) {
+#[rtse::abi]
+pub fn rtsadp_ctor_mark(obj_word: u64, fn_ptr: u64) {
     let pv = PolyValue::from_raw(obj_word);
     if !pv.is_object() || fn_ptr == 0 {
         return;
@@ -134,8 +134,8 @@ pub extern "C" fn __rtsadp_ctor_mark(obj_word: u64, fn_ptr: u64) {
 /// `obj_word` is an object whose RECORDED constructor identity equals `fn_ptr`.
 /// (Future: walk a prototype chain; exact match for now.) A non-object word or an
 /// unrecorded instance yields `false`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_instanceof_fn(obj_word: u64, fn_ptr: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_instanceof_fn(obj_word: u64, fn_ptr: u64) -> u64 {
     let pv = PolyValue::from_raw(obj_word);
     if !pv.is_object() || fn_ptr == 0 {
         return PolyValue::bool(false).raw();
@@ -220,8 +220,8 @@ extern "C" fn math_minmax_thunk(env: u64, a0: u64, a1: u64, a2: u64, a3: u64, re
 /// `Math.max` / `Math.min` read as a first-class FUNCTION VALUE
 /// (`Reflect.apply(Math.max, null, xs)`, `arr.map(Math.max)` …): a real
 /// callable whose env slot carries the op (1 = max, 0 = min).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_math_fn_value(op: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_math_fn_value(op: u64) -> u64 {
     let data = FunctionData {
         fn_ptr: math_minmax_thunk as usize as u64,
         arity: 2,
@@ -262,8 +262,8 @@ extern "C" fn coerce_thunk(env: u64, a0: u64, _a1: u64, _a2: u64, _a3: u64, _res
 /// carries the op (0 = `Boolean`, 1 = `Number`, 2 = `String`). These are PRIMORDIAL
 /// (the engine MAY name them); the thunk applies the exact same coercion the call
 /// form does.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_coerce_fn_value(op: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_coerce_fn_value(op: u64) -> u64 {
     let name = match op {
         1 => "Number",
         2 => "String",
@@ -433,8 +433,8 @@ fn fn_identity(fn_word: u64) -> u64 {
 /// interned string PolyValue word (the same convention `__rtsadp_obj_get` uses for
 /// a static key). A non-function / unrecorded key reads `undefined` — the
 /// JS-correct missing-property result, never a crash.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_fn_get_prop(fn_word: u64, key_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_fn_get_prop(fn_word: u64, key_word: u64) -> u64 {
     let id = fn_identity(fn_word);
     if id == 0 {
         return PolyValue::undefined().raw();
@@ -451,8 +451,8 @@ pub extern "C" fn __rtsadp_fn_get_prop(fn_word: u64, key_word: u64) -> u64 {
 /// returning `value_word` (JS assignment evaluates to the assigned value). A
 /// non-function `fn_word` (identity 0) records nothing but still returns the value.
 /// `key_word` is the property NAME as an interned string PolyValue word.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_fn_set_prop(fn_word: u64, key_word: u64, value_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_fn_set_prop(fn_word: u64, key_word: u64, value_word: u64) -> u64 {
     let id = fn_identity(fn_word);
     if id != 0 {
         let key = key_text(key_word);
@@ -525,8 +525,8 @@ type UniformFn = extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64;
 /// `POLY_FROM_HANDLE` convention — the lowering then OR-s in the `TAG_FUNCTION`
 /// header. The full real handle (with generation) is reconstructed on demand by
 /// `POLY_TO_HANDLE` when the value is invoked / marked.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_fn_reify(addr: u64, nparams: u64, has_rest: u64, env_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_fn_reify(addr: u64, nparams: u64, has_rest: u64, env_word: u64) -> u64 {
     fn_reify_core(addr, nparams, has_rest, env_word, false)
 }
 
@@ -571,8 +571,8 @@ extern "C" fn box_async_result(fn_ptr: u64, raw: i64) -> i64 {
 /// `__rtsadp_fn_invoke` cannot pack (it carries no arg COUNT); call sites that
 /// know the exact argc (the singleton-override dispatch) route here with a
 /// counted args vec instead.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_invoke_auto_word(callee_word: u64, this_word: u64, args_vec: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_invoke_auto_word(callee_word: u64, this_word: u64, args_vec: u64) -> u64 {
     use rts_engine::heap::handles::{alloc_entry, with_entry, Entry as E};
     let h = rts_engine::heap::poly::poly_handle_normalize(callee_word).unwrap_or(callee_word);
     // A VARIADIC uniform-thunk callee needs NO pre-packing here: the THUNK
@@ -593,8 +593,8 @@ pub extern "C" fn __rtsadp_invoke_auto_word(callee_word: u64, this_word: u64, ar
 /// spawn) reads f64 params/returns through the right registers. Emitted by
 /// `getPointer(f)` when `f` carries an f64 in its signature (#247).
 /// `meta`: bits 0..7 = return kind, bits 8..15 = argc.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_register_fn_abi(fn_addr: u64, kinds_packed: u64, meta: u64) {
+#[rtse::abi]
+pub fn rtsadp_register_fn_abi(fn_addr: u64, kinds_packed: u64, meta: u64) {
     let argc = ((meta >> 8) & 0xFF) as usize;
     let ret_kind = (meta & 0xFF) as i32;
     let kinds: Vec<u8> = (0..argc)
@@ -619,8 +619,8 @@ pub extern "C" fn __rtsadp_register_fn_abi(fn_addr: u64, kinds_packed: u64, meta
 ///
 /// `meta`: bits 0..7 = invoke return kind, bits 8..15 = argc, bits 16..23 =
 /// resolve box kind.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_promise_spawn(
+#[rtse::abi]
+pub fn rtsadp_promise_spawn(
     fn_addr: u64,
     args_vec: u64,
     kinds_packed: u64,
@@ -649,8 +649,8 @@ pub extern "C" fn __rtsadp_promise_spawn(
 /// identical to `__rtsadp_fn_reify` but marks `has_this_param` - the
 /// method-aware invoker binds `this` into the thunk a0; the plain invoker
 /// shifts positional args past an `undefined` this.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_fn_reify_this(
+#[rtse::abi]
+pub fn rtsadp_fn_reify_this(
     addr: u64,
     nparams: u64,
     has_rest: u64,
@@ -715,8 +715,8 @@ fn throw_not_a_function() -> u64 {
     PolyValue::undefined().raw()
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_fn_invoke(
+#[rtse::abi]
+pub fn rtsadp_fn_invoke(
     fn_word: u64,
     a0: u64,
     a1: u64,
@@ -863,8 +863,8 @@ fn word_to_raw_i64(w: u64) -> i64 {
 /// PolyValue WORDS (its invoke shifts them into `a0…`); a legacy callee
 /// (`new Function`) stores raw i64s (its `invoke_typed` path reads them
 /// verbatim). Non-function → `undefined`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_fn_bind(fn_word: u64, this_word: u64, args_vec: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_fn_bind(fn_word: u64, this_word: u64, args_vec: u64) -> u64 {
     use rts_engine::heap::handles::{Entry as E, FunctionData, alloc_entry};
     let pv = PolyValue::from_raw(fn_word);
     if !pv.is_function() {
@@ -930,8 +930,8 @@ pub extern "C" fn __rtsadp_fn_bind(fn_word: u64, this_word: u64, args_vec: u64) 
 /// through the engine-installed COMPILE_FN_HOOK — see `front::run::dynfn`), and
 /// box the resulting `Entry::Function` handle as a `TAG_FUNCTION` word. A
 /// failed compile yields `undefined` (the runtime already eprintln'd why).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_fn_new(args_vec: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_fn_new(args_vec: u64) -> u64 {
     use rts_engine::heap::handles::Entry as E;
     let items: Vec<i64> = with_entry(args_vec, |e| match e {
         Some(E::Vec(v)) => v.as_ref().clone(),
@@ -1023,8 +1023,8 @@ fn wrap_raw_callee_uniform(inner: u64) -> u64 {
 /// `f(...arr)` — spread-invoke a function VALUE with a runtime ARRAY of args:
 /// unpack `a0..a3`, overflow rides the rest ARRAY (>4) or the argc INT32 word
 /// (≤4), exactly the compile-time call convention. Non-array `arr` → 0 args.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_fn_apply_arr(fn_word: u64, arr_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_fn_apply_arr(fn_word: u64, arr_word: u64) -> u64 {
     use rts_runtime::namespaces::collections::vec as rt_vec;
     use rts_runtime::namespaces::gc::handles as rt_handles;
     let undef = PolyValue::undefined().raw();
@@ -1058,8 +1058,8 @@ pub extern "C" fn __rtsadp_fn_apply_arr(fn_word: u64, arr_word: u64) -> u64 {
 /// the plain spread-invoke (exact argc/rest for any length — `Math.max` as a
 /// value included); a real receiver routes the METHOD-aware invoke with
 /// `a0..a2` + the overflow/argc rest word.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_fn_apply_this(fn_word: u64, this_word: u64, arr_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_fn_apply_this(fn_word: u64, this_word: u64, arr_word: u64) -> u64 {
     use rts_runtime::namespaces::collections::vec as rt_vec;
     use rts_runtime::namespaces::gc::handles as rt_handles;
     let tv = PolyValue::from_raw(this_word);
@@ -1098,8 +1098,8 @@ pub extern "C" fn __rtsadp_fn_apply_this(fn_word: u64, this_word: u64, arr_word:
 /// namespace, então ele pode chegar aqui como word de função, como HANDLE cru
 /// ou como um double-word do valor do handle). Normaliza para word de função e
 /// invoca com `this = undefined`, um argumento. Não-função ⇒ `undefined`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_invoke_cb(cb: u64, a0: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_invoke_cb(cb: u64, a0: u64) -> u64 {
     use rts_engine::heap::poly as p;
     let undef = PolyValue::undefined().raw();
     let v = PolyValue::from_raw(cb);
@@ -1128,8 +1128,8 @@ pub extern "C" fn __rtsadp_invoke_cb(cb: u64, a0: u64) -> u64 {
     __rtsadp_fn_invoke_method(fn_word, undef, a0, undef, undef, 0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_fn_invoke_method(
+#[rtse::abi]
+pub fn rtsadp_fn_invoke_method(
     fn_word: u64,
     this_word: u64,
     a0: u64,

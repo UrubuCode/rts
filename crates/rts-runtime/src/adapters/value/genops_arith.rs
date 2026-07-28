@@ -34,22 +34,22 @@ fn arith(a: u64, b: u64, f: impl Fn(f64, f64) -> f64) -> u64 {
 }
 
 /// `__rtsadp_sub` — JS `-` (ToNumber both, subtract). NaN where either is NaN.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_sub(a: u64, b: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_sub(a: u64, b: u64) -> u64 {
     arith(a, b, |x, y| x - y)
 }
 
 /// `__rtsadp_mul` — JS `*`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_mul(a: u64, b: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_mul(a: u64, b: u64) -> u64 {
     arith(a, b, |x, y| x * y)
 }
 
 /// `__rtsadp_div` — JS `/` (IEEE division; `1/0 = Infinity`, `0/0 = NaN`).
 /// Always yields a double-style result unless it happens to be an exact small
 /// integer (e.g. `6/2 = 3` → int32; `5/2 = 2.5` → double).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_div(a: u64, b: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_div(a: u64, b: u64) -> u64 {
     arith(a, b, |x, y| x / y)
 }
 
@@ -57,14 +57,14 @@ pub extern "C" fn __rtsadp_div(a: u64, b: u64) -> u64 {
 /// is `fmod`-style (NOT Euclidean): `-7 % 3 == -1`, `7 % -3 == 1`. Rust's `%` on
 /// `f64` has exactly these semantics, so it is the faithful primitive. `x % 0`
 /// and `Infinity % y` are `NaN`, which `f64::%` also produces.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_mod(a: u64, b: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_mod(a: u64, b: u64) -> u64 {
     arith(a, b, |x, y| x % y)
 }
 
 /// `__rtsadp_pow` — JS `**` (`Math.pow` semantics via `f64::powf`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_pow(a: u64, b: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_pow(a: u64, b: u64) -> u64 {
     arith(a, b, |x, y| x.powf(y))
 }
 
@@ -74,8 +74,8 @@ pub extern "C" fn __rtsadp_pow(a: u64, b: u64) -> u64 {
 /// on raw f64 skips the box/unbox + the generic PolyValue trampoline (`__rtsadp_mod`)
 /// + its internal ToNumber×2. Same `f64::%` semantics as `__rtsadp_mod` (sign of the
 /// dividend, `x % 0 == NaN`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_fmod_f64(a: f64, b: f64) -> f64 {
+#[rtse::abi]
+pub fn rtsadp_fmod_f64(a: f64, b: f64) -> f64 {
     a % b
 }
 
@@ -132,26 +132,26 @@ enum Rel {
 }
 
 /// `__rtsadp_lt` — JS `<`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_lt(a: u64, b: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_lt(a: u64, b: u64) -> u64 {
     relational(a, b, Rel::Lt)
 }
 
 /// `__rtsadp_le` — JS `<=`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_le(a: u64, b: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_le(a: u64, b: u64) -> u64 {
     relational(a, b, Rel::Le)
 }
 
 /// `__rtsadp_gt` — JS `>`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_gt(a: u64, b: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_gt(a: u64, b: u64) -> u64 {
     relational(a, b, Rel::Gt)
 }
 
 /// `__rtsadp_ge` — JS `>=`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_ge(a: u64, b: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_ge(a: u64, b: u64) -> u64 {
     relational(a, b, Rel::Ge)
 }
 
@@ -161,8 +161,8 @@ pub extern "C" fn __rtsadp_ge(a: u64, b: u64) -> u64 {
 
 /// `__rtsadp_neg` — JS unary `-` (ToNumber then negate). `-"3"` → `-3`,
 /// `-true` → `-1`, `-"x"` → `NaN`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_neg(a: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_neg(a: u64) -> u64 {
     let x = to_number(PolyValue::from_raw(a));
     let r = -x;
     // NEGATIVE zero survives as an inline double (number_result would tighten
@@ -176,8 +176,8 @@ pub extern "C" fn __rtsadp_neg(a: u64) -> u64 {
 /// `__rtsadp_pos` — JS unary `+` (ToNumber, returns a number PolyValue). `+"42"`
 /// → 42, `+true` → 1, `+null` → 0, `+"x"` → NaN. Re-tightens to int32 when an
 /// exact small integer (so `+"3"` is an int32, the JS small-int fast path).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_pos(a: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_pos(a: u64) -> u64 {
     let x = to_number(PolyValue::from_raw(a));
     // `+"-0"` is NEGATIVE zero - keep the double (number_result tightens to
     // the int32 0 and loses the sign).
@@ -189,8 +189,8 @@ pub extern "C" fn __rtsadp_pos(a: u64) -> u64 {
 
 /// `__rtsadp_bnot` — JS `~` (`ToInt32` then bitwise NOT). The result is always a
 /// small integer, so it boxes as int32.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_bnot(a: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_bnot(a: u64) -> u64 {
     let i = to_int32(PolyValue::from_raw(a));
     PolyValue::from_i32(!i).raw()
 }
@@ -226,34 +226,34 @@ fn bitop(a: u64, b: u64, f: impl Fn(i32, i32) -> i32) -> u64 {
 }
 
 /// `__rtsadp_band` — JS `&`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_band(a: u64, b: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_band(a: u64, b: u64) -> u64 {
     bitop(a, b, |x, y| x & y)
 }
 
 /// `__rtsadp_bor` — JS `|`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_bor(a: u64, b: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_bor(a: u64, b: u64) -> u64 {
     bitop(a, b, |x, y| x | y)
 }
 
 /// `__rtsadp_bxor` — JS `^`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_bxor(a: u64, b: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_bxor(a: u64, b: u64) -> u64 {
     bitop(a, b, |x, y| x ^ y)
 }
 
 /// `__rtsadp_shl` — JS `<<` (left operand `ToInt32`, right `& 31`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_shl(a: u64, b: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_shl(a: u64, b: u64) -> u64 {
     let x = to_int32(PolyValue::from_raw(a));
     let shift = to_uint32(PolyValue::from_raw(b)) & 31;
     PolyValue::from_i32(x.wrapping_shl(shift)).raw()
 }
 
 /// `__rtsadp_shr` — JS `>>` (sign-propagating arithmetic shift).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_shr(a: u64, b: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_shr(a: u64, b: u64) -> u64 {
     let x = to_int32(PolyValue::from_raw(a));
     let shift = to_uint32(PolyValue::from_raw(b)) & 31;
     PolyValue::from_i32(x.wrapping_shr(shift)).raw()
@@ -262,8 +262,8 @@ pub extern "C" fn __rtsadp_shr(a: u64, b: u64) -> u64 {
 /// `__rtsadp_ushr` — JS `>>>` (zero-fill: left operand `ToUint32`). The result is
 /// a JS number in `0..2^32`, which may exceed `i32::MAX` — box as a double in
 /// that case so the value is preserved.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_ushr(a: u64, b: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_ushr(a: u64, b: u64) -> u64 {
     let x = to_uint32(PolyValue::from_raw(a));
     let shift = to_uint32(PolyValue::from_raw(b)) & 31;
     number_result((x.wrapping_shr(shift)) as f64).raw()
@@ -272,7 +272,7 @@ pub extern "C" fn __rtsadp_ushr(a: u64, b: u64) -> u64 {
 /// `__rtsadp_not` — JS logical `!` (ToBoolean then invert). NOT wired from the
 /// HIR (swc conflates `!`/unary-`+`), but provided as the honest primitive so a
 /// future AST-aware front-end can use it without re-deriving ToBoolean.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_not(a: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_not(a: u64) -> u64 {
     PolyValue::bool(!to_boolean(PolyValue::from_raw(a))).raw()
 }

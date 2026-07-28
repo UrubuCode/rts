@@ -46,8 +46,8 @@ fn words_strict_eq(a: u64, b: u64) -> bool {
 }
 
 /// `arr.indexOf(needle)` — first index whose element `=== needle`, or `-1`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_index_of(vec_handle: u64, needle_word: u64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_arr_index_of(vec_handle: u64, needle_word: u64) -> i64 {
     let len = vec_len(vec_handle);
     for i in 0..len {
         if words_strict_eq(vec_word(vec_handle, i), needle_word) {
@@ -59,8 +59,8 @@ pub extern "C" fn __rtsadp_arr_index_of(vec_handle: u64, needle_word: u64) -> i6
 
 /// `arr.includes(needle)` — SameValueZero membership (JS spec: unlike
 /// `indexOf`'s strict equality, `includes(NaN)` finds a NaN element).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_includes(vec_handle: u64, needle_word: u64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_arr_includes(vec_handle: u64, needle_word: u64) -> i64 {
     __rtsadp_arr_includes_from(vec_handle, needle_word, 0)
 }
 
@@ -73,8 +73,8 @@ fn word_is_nan(w: u64) -> bool {
 
 /// `arr.at(i)` — the element PolyValue word at `i` (negative `i` counts from the
 /// end: `len + i`); out of range yields the raw `undefined` PolyValue word.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_at(vec_handle: u64, i: i64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_at(vec_handle: u64, i: i64) -> u64 {
     let len = vec_len(vec_handle);
     let idx = if i < 0 { len + i } else { i };
     if idx < 0 || idx >= len {
@@ -91,8 +91,8 @@ pub extern "C" fn __rtsadp_arr_at(vec_handle: u64, i: i64) -> u64 {
 /// `arr.at(idxWord)` — the WORD-argument form the data dispatch routes: full JS
 /// `ToNumber` on the index (string/bool/NaN args: `at("2")` → 2, `at(NaN)` → 0)
 /// then truncate toward zero and delegate to [`__rtsadp_arr_at`].
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_at_w(vec_handle: u64, idx_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_at_w(vec_handle: u64, idx_word: u64) -> u64 {
     let n = genops::dyn_to_number(idx_word);
     let i = if n.is_finite() { n as i64 } else { 0 };
     __rtsadp_arr_at(vec_handle, i)
@@ -103,14 +103,14 @@ pub extern "C" fn __rtsadp_arr_at_w(vec_handle: u64, idx_word: u64) -> u64 {
 /// and intern the result in the REAL string pool, returning its handle. An empty
 /// array yields the interned empty string.
 /// `arr.join()` with no argument — `arr.join(",")` (the JS default separator).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_join0(vec_handle: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_join0(vec_handle: u64) -> u64 {
     let comma = abi_adapter::intern_poly(",").as_handle_real();
     __rtsadp_arr_join(vec_handle, comma)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_join(vec_handle: u64, sep_str_handle: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_join(vec_handle: u64, sep_str_handle: u64) -> u64 {
     let sep = abi_adapter::real_handle_to_string(sep_str_handle);
     let len = vec_len(vec_handle);
     let mut out = String::new();
@@ -135,8 +135,8 @@ pub extern "C" fn __rtsadp_arr_join(vec_handle: u64, sep_str_handle: u64) -> u64
 
 /// `arr.push(val)` — append the raw PolyValue word to the real Vec; return the
 /// new length.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_push(vec_handle: u64, val_word: u64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_arr_push(vec_handle: u64, val_word: u64) -> i64 {
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec_handle, val_word as i64);
     vec_len(vec_handle)
 }
@@ -145,8 +145,8 @@ pub extern "C" fn __rtsadp_arr_push(vec_handle: u64, val_word: u64) -> i64 {
 /// TRUNCATES (drops the tail); `n > len` EXTENDS with `undefined` holes. `arr_word`
 /// is the boxed array PolyValue; a non-array receiver is a no-op. Returns `n` (the
 /// assignment's value). `n` is `ToNumber`'d and floored to a non-negative count.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_set_length(arr_word: u64, len_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_set_length(arr_word: u64, len_word: u64) -> u64 {
     let v = PolyValue::from_raw(arr_word);
     if !(v.is_object() && !super::inspect::looks_like_object(v)) {
         return len_word;
@@ -168,8 +168,8 @@ pub extern "C" fn __rtsadp_arr_set_length(arr_word: u64, len_word: u64) -> u64 {
 
 /// `arr.pop()` — remove and return the last element PolyValue word; `undefined`
 /// (raw word) when the array is empty.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_pop(vec_handle: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_pop(vec_handle: u64) -> u64 {
     if vec_len(vec_handle) == 0 {
         return PolyValue::undefined().raw();
     }
@@ -181,8 +181,8 @@ pub extern "C" fn __rtsadp_arr_pop(vec_handle: u64) -> u64 {
 /// `arr.slice(start, end)` — a NEW array (fresh `Entry::Vec`) with the elements in
 /// `[start, end)` under JS negative-index / clamp semantics; returned as a
 /// `TAG_OBJECT` PolyValue word of the new Vec.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_slice(vec_handle: u64, start: i64, end: i64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_slice(vec_handle: u64, start: i64, end: i64) -> u64 {
     let len = vec_len(vec_handle);
     let s = clamp_index(start, len);
     let e = clamp_index(end, len).max(s);
@@ -202,8 +202,8 @@ fn clamp_index(i: i64, len: i64) -> i64 {
 }
 
 /// `arr.lastIndexOf(needle)` — last index whose element `=== needle`, or `-1`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_last_index_of(vec_handle: u64, needle_word: u64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_arr_last_index_of(vec_handle: u64, needle_word: u64) -> i64 {
     let len = vec_len(vec_handle);
     for i in (0..len).rev() {
         if words_strict_eq(vec_word(vec_handle, i), needle_word) {
@@ -216,8 +216,8 @@ pub extern "C" fn __rtsadp_arr_last_index_of(vec_handle: u64, needle_word: u64) 
 /// `arr.reverse()` — reverse the array IN PLACE (JS mutates the receiver) and
 /// return its TAG_OBJECT word so chaining (`a.reverse().join(",")`) works. Swaps
 /// the boxed slot words via the REAL `VEC_GET`/`VEC_SET`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_reverse(vec_handle: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_reverse(vec_handle: u64) -> u64 {
     let len = vec_len(vec_handle);
     let mut lo = 0i64;
     let mut hi = len - 1;
@@ -235,8 +235,8 @@ pub extern "C" fn __rtsadp_arr_reverse(vec_handle: u64) -> u64 {
 /// `arr.fill(value)` — overwrite every slot with the raw PolyValue word `value`
 /// (the whole-array form; the start/end range form is a later increment, bailed at
 /// the lowering by arity). Mutates in place; returns the receiver's word.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_fill(vec_handle: u64, value_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_fill(vec_handle: u64, value_word: u64) -> u64 {
     let len = vec_len(vec_handle);
     for i in 0..len {
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(vec_handle, i, value_word as i64);
@@ -248,8 +248,8 @@ pub extern "C" fn __rtsadp_arr_fill(vec_handle: u64, value_word: u64) -> u64 {
 /// `start`/`end` follow JS index rules: negative counts from the end, then clamp
 /// to `[0, len]`. Mutates in place; returns the receiver's word. The 2-arg
 /// `fill(value, start)` form passes `end = len` via a dedicated row.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_fill3(vec_handle: u64, value_word: u64, start: i64, end: i64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_fill3(vec_handle: u64, value_word: u64, start: i64, end: i64) -> u64 {
     let len = vec_len(vec_handle);
     let s = clamp_index(start, len);
     let e = clamp_index(end, len);
@@ -261,8 +261,8 @@ pub extern "C" fn __rtsadp_arr_fill3(vec_handle: u64, value_word: u64, start: i6
 
 /// `arr.fill(value, start)` — fill `[start, len)`. Thin wrapper over `fill3` with
 /// `end = len` (kept as its own symbol so the 2-arg row needs no synthetic arg).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_fill2(vec_handle: u64, value_word: u64, start: i64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_fill2(vec_handle: u64, value_word: u64, start: i64) -> u64 {
     let len = vec_len(vec_handle);
     __rtsadp_arr_fill3(vec_handle, value_word, start, len)
 }
@@ -272,8 +272,8 @@ pub extern "C" fn __rtsadp_arr_fill2(vec_handle: u64, value_word: u64, start: i6
 /// raw PolyValue word of the second array; if it is NOT an array word, it is
 /// appended as a single element (JS `[1].concat(2)` → `[1, 2]`). Returns the new
 /// array word.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_concat(vec_handle: u64, other_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_concat(vec_handle: u64, other_word: u64) -> u64 {
     let new_vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     let len = vec_len(vec_handle);
     for i in 0..len {
@@ -296,8 +296,8 @@ pub extern "C" fn __rtsadp_arr_concat(vec_handle: u64, other_word: u64) -> u64 {
 /// `arr.flat()` — flatten ONE level (the JS default depth 1): a NEW array with each
 /// element that is itself an array spliced in, non-array elements copied verbatim.
 /// Deeper flattening (`flat(2)`) is a later increment (bailed by arity).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_flat(vec_handle: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_flat(vec_handle: u64) -> u64 {
     let new_vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     let len = vec_len(vec_handle);
     for i in 0..len {
@@ -325,8 +325,8 @@ pub extern "C" fn __rtsadp_arr_flat(vec_handle: u64) -> u64 {
 
 /// `arr.shift()` — remove and return the FIRST element word (`undefined` when
 /// empty), shifting the rest down one slot. Mutates in place.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_shift(vec_handle: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_shift(vec_handle: u64) -> u64 {
     let len = vec_len(vec_handle);
     if len == 0 {
         return PolyValue::undefined().raw();
@@ -344,8 +344,8 @@ pub extern "C" fn __rtsadp_arr_shift(vec_handle: u64) -> u64 {
 /// `arr.unshift(value)` — prepend the raw PolyValue word `value` (the single-arg
 /// form), shifting existing elements up one slot; return the new length. Mutates
 /// in place.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_unshift(vec_handle: u64, value_word: u64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_arr_unshift(vec_handle: u64, value_word: u64) -> i64 {
     let len = vec_len(vec_handle);
     // Grow by one (append a placeholder), then shift everything up.
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec_handle, PolyValue::undefined().raw() as i64);
@@ -376,28 +376,28 @@ fn copy_vec(vec_handle: u64) -> u64 {
 
 /// `arr.slice(start)` — the one-arg form (`slice(start, len)`): elements from
 /// `start` (JS negative-index/clamp) to the end, as a NEW array word.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_slice1(vec_handle: u64, start: i64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_slice1(vec_handle: u64, start: i64) -> u64 {
     __rtsadp_arr_slice(vec_handle, start, vec_len(vec_handle))
 }
 
 /// `arr.slice()` (no args) — a shallow COPY of the whole array (`slice(0, len)`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_slice0(vec_handle: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_slice0(vec_handle: u64) -> u64 {
     __rtsadp_arr_slice(vec_handle, 0, vec_len(vec_handle))
 }
 
 /// `arr.toString()` — JS defines it as `arr.join(",")`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_to_string(vec_handle: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_to_string(vec_handle: u64) -> u64 {
     __rtsadp_arr_join0(vec_handle)
 }
 
 /// `arr.indexOf(needle, fromIndex)` — first index `>= fromIndex` whose element
 /// `=== needle`, or `-1`. Negative `from` counts from the end (`len + from`,
 /// clamped to `0`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_index_of_from(vec_handle: u64, needle_word: u64, from: i64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_arr_index_of_from(vec_handle: u64, needle_word: u64, from: i64) -> i64 {
     let len = vec_len(vec_handle);
     let start = if from < 0 { (len + from).max(0) } else { from };
     for i in start..len {
@@ -410,8 +410,8 @@ pub extern "C" fn __rtsadp_arr_index_of_from(vec_handle: u64, needle_word: u64, 
 
 /// `arr.includes(needle, fromIndex)` — SameValueZero membership from `from`
 /// (a NaN needle matches a NaN element; everything else = the indexOf scan).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_includes_from(vec_handle: u64, needle_word: u64, from: i64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_arr_includes_from(vec_handle: u64, needle_word: u64, from: i64) -> i64 {
     if word_is_nan(needle_word) {
         let len = vec_len(vec_handle);
         let start = if from < 0 { (len + from).max(0) } else { from };
@@ -428,8 +428,8 @@ pub extern "C" fn __rtsadp_arr_includes_from(vec_handle: u64, needle_word: u64, 
 /// `arr.lastIndexOf(needle, fromIndex)` — last index `<= fromIndex` whose element
 /// `=== needle`, or `-1`. Negative `from` counts from the end; the scan starts at
 /// `min(from-normalized, len-1)` and walks down.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_last_index_of_from(
+#[rtse::abi]
+pub fn rtsadp_arr_last_index_of_from(
     vec_handle: u64,
     needle_word: u64,
     from: i64,
@@ -453,8 +453,8 @@ pub extern "C" fn __rtsadp_arr_last_index_of_from(
 
 /// `arr.toReversed()` (ES2023) — a NEW reversed array; the receiver is UNCHANGED
 /// (unlike `reverse()`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_to_reversed(vec_handle: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_to_reversed(vec_handle: u64) -> u64 {
     let copy = copy_vec(vec_handle);
     __rtsadp_arr_reverse(copy);
     PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(copy)).raw()
@@ -464,8 +464,8 @@ pub extern "C" fn __rtsadp_arr_to_reversed(vec_handle: u64) -> u64 {
 /// engine's `for-of` consumes arrays; the lazy iterator protocol is a later
 /// increment, and eager materialization is observably identical for the
 /// dominant `for (const [i, v] of arr.entries())` shape).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_entries(vec_handle: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_entries(vec_handle: u64) -> u64 {
     let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     let len = vec_len(vec_handle);
     for i in 0..len {
@@ -481,8 +481,8 @@ pub extern "C" fn __rtsadp_arr_entries(vec_handle: u64) -> u64 {
 }
 
 /// `arr.keys()` — the indices as a materialized array (see [`__rtsadp_arr_entries`]).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_keys(vec_handle: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_keys(vec_handle: u64) -> u64 {
     let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     let len = vec_len(vec_handle);
     for i in 0..len {
@@ -493,8 +493,8 @@ pub extern "C" fn __rtsadp_arr_keys(vec_handle: u64) -> u64 {
 
 /// `arr.values()` — the values as a materialized array copy (see
 /// [`__rtsadp_arr_entries`]).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_values(vec_handle: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_values(vec_handle: u64) -> u64 {
     let copy = copy_vec(vec_handle);
     PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(copy)).raw()
 }
@@ -503,8 +503,8 @@ pub extern "C" fn __rtsadp_arr_values(vec_handle: u64) -> u64 {
 /// slot `index` replaced by `value` (negative index counts from the end). An
 /// out-of-range index would throw `RangeError` in JS; here it returns the copy
 /// unchanged (throw is a later increment). The receiver is UNCHANGED.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_with(vec_handle: u64, index: i64, value_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_with(vec_handle: u64, index: i64, value_word: u64) -> u64 {
     let copy = copy_vec(vec_handle);
     let len = vec_len(copy);
     let idx = if index < 0 { len + index } else { index };
@@ -516,8 +516,8 @@ pub extern "C" fn __rtsadp_arr_with(vec_handle: u64, index: i64, value_word: u64
 
 /// `arr.flat(depth)` — flatten nested arrays up to `depth` levels into a NEW array
 /// (JS default depth is 1; `flat()`-arity-0 stays the dedicated single-level path).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_flat_depth(vec_handle: u64, depth: i64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_flat_depth(vec_handle: u64, depth: i64) -> u64 {
     let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     flat_into(vec_handle, depth, out);
     PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out)).raw()
@@ -560,8 +560,8 @@ fn default_sort_cmp(a: u64, b: u64) -> std::cmp::Ordering {
 /// `arr.sort()` — DEFAULT comparator (ToString ascending), IN PLACE; returns the
 /// receiver word. The comparator-callback form (`sort(cmp)`) is a callback method
 /// handled elsewhere (bails until implemented).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_sort(vec_handle: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_sort(vec_handle: u64) -> u64 {
     let len = vec_len(vec_handle);
     let mut words: Vec<u64> = (0..len).map(|i| vec_word(vec_handle, i)).collect();
     words.sort_by(|&a, &b| default_sort_cmp(a, b));
@@ -576,8 +576,8 @@ pub extern "C" fn __rtsadp_arr_sort(vec_handle: u64) -> u64 {
 /// equal. The comparator is a `TAG_FUNCTION` word invoked through the uniform
 /// indirect-call ABI. Returns the (mutated) receiver. Mirrors `__rtsadp_arr_sort`
 /// but with the user comparator instead of `default_sort_cmp`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_sort_cmp(vec_handle: u64, cb: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_sort_cmp(vec_handle: u64, cb: u64) -> u64 {
     let len = vec_len(vec_handle);
     let mut words: Vec<u64> = (0..len).map(|i| vec_word(vec_handle, i)).collect();
     let u = PolyValue::undefined().raw();
@@ -626,8 +626,8 @@ pub extern "C" fn __rtsadp_arr_sort_cmp(vec_handle: u64, cb: u64) -> u64 {
 
 /// `arr.toSorted()` (ES2023) — a NEW array sorted by the default comparator; the
 /// receiver is UNCHANGED.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_to_sorted(vec_handle: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_to_sorted(vec_handle: u64) -> u64 {
     let copy = copy_vec(vec_handle);
     __rtsadp_arr_sort(copy);
     PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(copy)).raw()
@@ -635,8 +635,8 @@ pub extern "C" fn __rtsadp_arr_to_sorted(vec_handle: u64) -> u64 {
 
 /// `arr.toSorted(cmp)` (ES2023) — a NEW array sorted by the user comparator; the
 /// receiver is UNCHANGED. Copy then `__rtsadp_arr_sort_cmp` on the copy.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_to_sorted_cmp(vec_handle: u64, cb: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_to_sorted_cmp(vec_handle: u64, cb: u64) -> u64 {
     let copy = copy_vec(vec_handle);
     __rtsadp_arr_sort_cmp(copy, cb);
     PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(copy)).raw()
@@ -646,8 +646,8 @@ pub extern "C" fn __rtsadp_arr_to_sorted_cmp(vec_handle: u64, cb: u64) -> u64 {
 /// with `deleteCount` elements removed at `start` (JS negative-index/clamp). The
 /// receiver is UNCHANGED. The insert form (`toSpliced(s, d, ...items)`) is variadic
 /// and a later increment (bails by arity).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_to_spliced(vec_handle: u64, start: i64, delete_count: i64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_to_spliced(vec_handle: u64, start: i64, delete_count: i64) -> u64 {
     let len = vec_len(vec_handle);
     let s = clamp_index(start, len);
     let del = delete_count.clamp(0, len - s);
@@ -667,8 +667,8 @@ pub extern "C" fn __rtsadp_arr_to_spliced(vec_handle: u64, start: i64, delete_co
 /// ...items]` (the lowering packs the variadic args). Delegates to the runtime
 /// `VEC_SPLICE_AUTO` (both the receiver and the args ride real Vec handles; the
 /// element words are raw `i64` PolyValue words on both sides).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_splice(vec_handle: u64, args_handle: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_splice(vec_handle: u64, args_handle: u64) -> u64 {
     // Both `vec_handle` and `args_handle` are REAL Vec handles (the lowering
     // table-loads the receiver and the packed args array before the call).
     let removed = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SPLICE_AUTO(vec_handle, args_handle);
@@ -679,8 +679,8 @@ pub extern "C" fn __rtsadp_arr_splice(vec_handle: u64, args_handle: u64) -> u64 
 /// — like `splice` but returns a NEW array with the splice applied and leaves the
 /// receiver unchanged. Same packed-args convention; delegates to the runtime
 /// `VEC_TO_SPLICED_AUTO`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_to_spliced_var(vec_handle: u64, args_handle: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_to_spliced_var(vec_handle: u64, args_handle: u64) -> u64 {
     let result = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_AUTO(vec_handle, args_handle);
     PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(result)).raw()
 }
@@ -689,8 +689,8 @@ pub extern "C" fn __rtsadp_arr_to_spliced_var(vec_handle: u64, args_handle: u64)
 /// IN PLACE, returning the receiver word (JS clamps all three; the copy is shift-
 /// safe via a snapshot of the source range). Arity-2 (`copyWithin(target, start)`)
 /// passes `end = len` from the lowering's default.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_copy_within(
+#[rtse::abi]
+pub fn rtsadp_arr_copy_within(
     vec_handle: u64,
     target: i64,
     start: i64,
@@ -713,14 +713,14 @@ pub extern "C" fn __rtsadp_arr_copy_within(
 }
 
 /// `arr.copyWithin(target, start)` — the 2-arg form (`end = len`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_copy_within2(vec_handle: u64, target: i64, start: i64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_copy_within2(vec_handle: u64, target: i64, start: i64) -> u64 {
     __rtsadp_arr_copy_within(vec_handle, target, start, vec_len(vec_handle))
 }
 
 /// `arr.copyWithin(target)` — the 1-arg form (`start = 0`, `end = len`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_copy_within1(vec_handle: u64, target: i64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_copy_within1(vec_handle: u64, target: i64) -> u64 {
     __rtsadp_arr_copy_within(vec_handle, target, 0, vec_len(vec_handle))
 }
 

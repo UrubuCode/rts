@@ -6,24 +6,37 @@
 //! `StrPtr` lowers to **two** Cranelift slots (`ptr` + `len`). Mis-marshaling a
 //! single-slot string where the ABI expects two → SIGILL.
 //!
-//! This module hand-writes a static table covering the symbols the lowering
-//! calls, each as `&[AbiType]` params + an `AbiType` return, lowered to a
-//! Cranelift `Signature` (expanding `StrPtr` per the runtime's own
+//! A symbol's params + return, lowered to a Cranelift `Signature` (expanding
+//! `StrPtr` per the runtime's own
 //! [`rts_runtime::abi::signature::lower_params`] rule).
 //!
-//! # DRAINING TARGET — hand-written, unguarded, and scheduled for deletion
+//! # Two halves: DERIVED, then hand-written
 //!
-//! The table that exists to prevent a marshalling SIGILL is itself hand-synced
-//! against the definitions it mirrors, with nothing checking the two agree. The
-//! original justification ("the new engine emits a tiny, known surface") no
-//! longer holds — it is 159 rows — and the crate-layering rule that blocked
-//! deriving them was removed (owner decision, 2026-07-28).
+//! [`sig_of`] consults the BAKED table first — `rts-symbol-baker` derives a
+//! signature for every `#[rtse::abi]` declaration from its Rust signature,
+//! through the same `rts_abi::tymap` the macro itself uses, so the entry is the
+//! declaration speaking rather than a transcription of it. Only when the symbol
+//! is not declared that way does it fall through to [`sig_of_hand`].
 //!
-//! The single source of truth is `rts-macro` (`#[rtse::abi]` derives a
-//! `SymbolDesc` from the Rust signature, so drift is unrepresentable) +
-//! `rts-symbol-baker` (bakes the ordered table). Each row here must be replaced
-//! by its macro-emitted `SymbolDesc`; do NOT add a row. See
-//! docs/specs/rts-macro-single-source.md.
+//! **The whole `__rtsadp_*` surface is DERIVED (2026-07-28).** All 248 of its
+//! rows are gone: `crates/rts-runtime/src/adapters/value/` was converted to
+//! `#[rtse::abi]` en masse, plus the three `__rtsadp_str_*_auto` dispatchers in
+//! `rts-primitives`. The single exception is `__rtsadp_ta_view_base_len`, whose
+//! two `*mut i64` OUT-parameters have no single-slot ABI spelling — it keeps its
+//! row, and its declaration says why.
+//!
+//! # What is left here, and why it is a different problem
+//!
+//! The remaining rows are `__RTS_FN_*` / `__rtsn_*` — the REAL runtime symbols
+//! in `rts-engine`/`rts-shared`/`rts-std`. They are NOT `__rtsadp_*` trampolines
+//! and they are not converted the same way: most are already registered in the
+//! Registry with a `Sig`, so their signature exists twice (there and here) and
+//! the fix is to READ the Registry, not to re-declare them. The engine-internal
+//! `__RTS_FN_NS_GC_*` primitives (string pool, gcell, generator state machine)
+//! are the harder subset: they are deliberately not Registry members, so they
+//! need `#[rtse::abi]` with an explicit symbol name.
+//!
+//! Do NOT add a row. See docs/specs/rts-macro-single-source.md.
 
 use cranelift_codegen::ir::{AbiParam, Signature, types};
 use cranelift_module::Module;
@@ -167,10 +180,6 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
             params: &[U64, U64],
             ret: Void,
         },
-        "__rtsadp_iter_close" => SymSig {
-            params: &[U64],
-            ret: Void,
-        },
         "__RTS_FN_NS_GC_STRING_NEW" | "__RTS_FN_NS_GC_STRING_FROM_STATIC" => SymSig {
             params: &[StrPtr],
             ret: Handle,
@@ -265,89 +274,14 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
         // The typed async spawn: registers the callee's packed param/ret kinds
         // (an f64 param travels as bits and reads back into xmm), then
         // delegates to `promise.create`.
-        "__rtsadp_promise_spawn" => SymSig {
-            params: &[U64, U64, U64, U64],
-            ret: U64,
-        },
         // Register a user fn's packed ABI for raw-pointer consumers
         // (`getPointer` emission — thread.spawn f64 workers, #247).
-        "__rtsadp_register_fn_abi" => SymSig {
-            params: &[U64, U64, U64],
-            ret: Void,
-        },
         // Counted-args fn-value invoke through INVOKE_AUTO (variadic packing;
         // the singleton-override dispatch).
-        "__rtsadp_invoke_auto_word" => SymSig {
-            params: &[U64, U64, U64],
-            ret: U64,
-        },
         // `new Function(p…, body)` — args vec of PolyValue words → TAG_FUNCTION
         // word (`undefined` on a failed compile).
-        "__rtsadp_fn_new" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
         // `f.bind(thisArg, …partial)` — clone the fn value; a THIS-FIRST fn
         // binds thisArg into bound_args[0], partial args append after.
-        "__rtsadp_string_raw" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_tsa_raw" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_dyn_to_string_radix"
-        | "__rtsadp_dyn_p_then"
-        | "__rtsadp_dyn_p_catch"
-        | "__rtsadp_dyn_p_finally" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_dyn_p_then2" => SymSig {
-            params: &[U64, U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_fn_apply_arr" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_idx_call" | "__rtsadp_dyn_method_call" | "__rtsadp_dyn_ci_or_undef" => SymSig {
-            params: &[U64, U64, U64, U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_str_match_w" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_promise_resolve_w" => SymSig {
-            params: &[U64],
-            ret: Handle,
-        },
-        "__rtsadp_math_fn_value" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
-        "__rtsadp_coerce_fn_value" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
-        "__rtsadp_fn_apply_this" => SymSig {
-            params: &[U64, U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_import_meta" => SymSig {
-            params: &[],
-            ret: U64,
-        },
-        "__rtsadp_str_replace_w" | "__rtsadp_str_split_w" => SymSig {
-            params: &[U64, U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_fn_bind" => SymSig {
-            params: &[U64, U64, U64],
-            ret: U64,
-        },
 
         // ---- REAL collections Vec (rts-shared collections::vec) ----
         "__RTS_FN_NS_COLLECTIONS_VEC_NEW" => SymSig {
@@ -408,120 +342,46 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
             params: &[U64],
             ret: U64,
         },
-        // ---- codegen-owned adapter trampolines (__rtsadp_*) ----
-        // Generic JS operators on PolyValue words (tagged-in/tagged-out).
-        "__rtsadp_add"
-        | "__rtsadp_strict_eq"
-        | "__rtsadp_strict_neq"
-        | "__rtsadp_loose_eq"
-        | "__rtsadp_loose_neq"
-        | "__rtsadp_same_value" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_typeof" | "__rtsadp_to_string" | "__rtsadp_to_boolean"
-        | "__rtsadp_await" | "__rtsadp_word_to_abi_i64" | "__rtsadp_box_handle_auto"
-        | "__rtsadp_class_proto"
-        | "__RTS_FN_NS_ENGINE_IS_BUFFER"
+        // (The `__rtsadp_*` generic operators that shared this arm — typeof /
+        // to_string / to_boolean / await / word_to_abi_i64 / box_handle_auto /
+        // class_proto, and the whole two-word arithmetic + comparison + bitwise
+        // family — are DERIVED now; only the engine-buffer externs below still
+        // need a hand row.)
+        "__RTS_FN_NS_ENGINE_IS_BUFFER"
         | "__RTS_FN_NS_ENGINE_BUFFER_CLONE"
         | "__RTS_FN_NS_ENGINE_BUFFER_DETACH" => SymSig {
             params: &[U64],
             ret: U64,
         },
-        // ---- generic arithmetic/comparison/bitwise (P4.8): two PolyValue words ----
-        "__rtsadp_sub" | "__rtsadp_mul" | "__rtsadp_div" | "__rtsadp_mod" | "__rtsadp_pow"
-        | "__rtsadp_lt" | "__rtsadp_le" | "__rtsadp_gt" | "__rtsadp_ge" | "__rtsadp_band"
-        | "__rtsadp_bor" | "__rtsadp_bxor" | "__rtsadp_shl" | "__rtsadp_shr" | "__rtsadp_ushr" => {
-            SymSig {
-                params: &[U64, U64],
-                ret: U64,
-            }
-        }
         // SCALAR float `%` fast path (step 9): raw f64 in/out, no PolyValue boxing.
-        "__rtsadp_fmod_f64" => SymSig {
-            params: &[F64, F64],
-            ret: F64,
-        },
         // ---- generic unary (P4.8 + P5.6): one PolyValue word ----
-        "__rtsadp_neg" | "__rtsadp_bnot" | "__rtsadp_not" | "__rtsadp_pos" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
         // console.* line sink: (ptr, len) StrPtr (two slots) + a to_stderr flag
         // (I64: 0 = stdout/IO_PRINT, !=0 = stderr/IO_EPRINT), void.
-        "__rtsadp_print_line" => SymSig {
-            params: &[StrPtr, I64],
-            ret: Void,
-        },
         // inspect(value_word, top_level) -> string PolyValue word. value is a raw
         // PolyValue word (U64); top_level is an I64 flag (1 = direct arg / bare
         // string, 0 = nested / quoted string); the result is a string PolyValue.
-        "__rtsadp_inspect" => SymSig {
-            params: &[U64, I64],
-            ret: U64,
-        },
         // inspect_object(value_word, top_level) -> string PolyValue word. Same ABI
         // as `__rtsadp_inspect` but renders the `TAG_OBJECT` word as an OBJECT
         // (`{ k: v }`), recovering keys from the slot-0 global shape-id. The
         // lowering calls this for a statically-OBJECT console.log arg (P3.6).
-        "__rtsadp_inspect_object" => SymSig {
-            params: &[U64, I64],
-            ret: U64,
-        },
 
         // ---- codegen-owned FUNCTION-value trampolines (__rtsadp_fn_*, P4.6) ----
         // reify(addr, nparams, has_rest, env_word) -> 48-bit slot+shard payload
         // (U64). env_word is the captured-env PolyValue word (0 = non-capturing).
-        "__rtsadp_fn_reify" | "__rtsadp_fn_reify_this" => SymSig {
-            params: &[U64, U64, U64, U64],
-            ret: U64,
-        },
         // invoke(fn_word, a0, a1, a2, a3, rest) -> result PolyValue word (U64).
         // All slots are raw PolyValue words (U64); the fixed uniform call ABI.
-        "__rtsadp_fn_invoke" | "__rtsadp_fn_invoke_method" | "__rtsadp_pack_rest" => SymSig {
-            params: &[U64, U64, U64, U64, U64, U64],
-            ret: U64,
-        },
         // ---- new <value>() through a class VALUE (slice 2) ----
         // register_ctor_thunk(addr) -> void: mark a class NEW-THUNK address valid.
-        "__rtsadp_register_ctor_thunk" => SymSig {
-            params: &[U64],
-            ret: Void,
-        },
         // new_invoke(fn_word, a0, a1, a2, a3, rest) -> instance PolyValue word (U64);
         // throws (pending error) when the value is not a registered constructor.
-        "__rtsadp_new_invoke" => SymSig {
-            params: &[U64, U64, U64, U64, U64, U64],
-            ret: U64,
-        },
         // ---- function-as-constructor side-table (new F() / x instanceof F) ----
         // fn_ptr(fn_word) -> ctor identity (U64, 0 = not a fn).
-        "__rtsadp_fn_ptr" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
         // ctor_mark(obj_word, fn_ptr) -> void (record instance→ctor identity).
-        "__rtsadp_ctor_mark" => SymSig {
-            params: &[U64, U64],
-            ret: Void,
-        },
         // instanceof_fn(obj_word, fn_ptr) -> bool PolyValue word (U64).
-        "__rtsadp_instanceof_fn" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
         // ---- function-VALUE data properties (`F.foo = v` / `F.foo`) (Phase 4) ----
         // get_prop(fn_word, key_word) -> stored value PolyValue word, or undefined.
         // set_prop(fn_word, key_word, value_word) -> value_word. key_word is an
         // interned string PolyValue (the static property name), like __rtsadp_obj_get.
-        "__rtsadp_fn_get_prop" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_fn_set_prop" | "__rtsadp_arr_ta_set" | "__rtsadp_arr_subarray" => SymSig {
-            params: &[U64, U64, U64],
-            ret: U64,
-        },
         // step 5b: (view_word, *out_base, *out_count) -> elem_bytes. The two
         // pointers are stack-slot addresses (I64); the return is the byte-width
         // (0 = not a view).
@@ -535,159 +395,15 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
         // (`POLY_TO_HANDLE` of the array word); needle args are raw PolyValue words
         // (U64); index/range args are I64; results are PolyValue words (U64) / a
         // string Handle (join) / an i64 (index_of/push) / a bool (includes).
-        "__rtsadp_arr_index_of" => SymSig {
-            params: &[U64, U64],
-            ret: I64,
-        },
-        "__rtsadp_arr_includes" => SymSig {
-            params: &[U64, U64],
-            ret: Bool,
-        },
-        "__rtsadp_arr_at" => SymSig {
-            params: &[U64, I64],
-            ret: U64,
-        },
-        "__rtsadp_arr_at_w" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_arr_join" => SymSig {
-            params: &[U64, Handle],
-            ret: Handle,
-        },
-        "__rtsadp_arr_join0" => SymSig {
-            params: &[U64],
-            ret: Handle,
-        },
-        "__rtsadp_arr_slice0" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
-        "__rtsadp_arr_to_string" => SymSig {
-            params: &[U64],
-            ret: Handle,
-        },
-        "__rtsadp_arr_push" => SymSig {
-            params: &[U64, U64],
-            ret: I64,
-        },
-        "__rtsadp_arr_set_length" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_arr_pop" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
-        "__rtsadp_arr_slice" => SymSig {
-            params: &[U64, I64, I64],
-            ret: U64,
-        },
-        "__rtsadp_arr_last_index_of" => SymSig {
-            params: &[U64, U64],
-            ret: I64,
-        },
-        "__rtsadp_arr_reverse"
-        | "__rtsadp_arr_flat"
-        | "__rtsadp_arr_shift"
-        | "__rtsadp_arr_to_reversed"
-        | "__rtsadp_arr_sort"
-        | "__rtsadp_arr_to_sorted"
-        | "__rtsadp_arr_entries"
-        | "__rtsadp_arr_keys"
-        | "__rtsadp_arr_values" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
         // arity-variant + ES2023 Array trampolines (recv U64 + the explicit args)
-        "__rtsadp_arr_slice1" | "__rtsadp_arr_flat_depth" => SymSig {
-            params: &[U64, I64],
-            ret: U64,
-        },
-        "__rtsadp_arr_to_spliced" | "__rtsadp_arr_copy_within2" | "__rtsadp_arr_fill2" => SymSig {
-            params: &[U64, I64, I64],
-            ret: U64,
-        },
-        "__rtsadp_arr_copy_within" | "__rtsadp_arr_fill3" => SymSig {
-            params: &[U64, I64, I64, I64],
-            ret: U64,
-        },
-        "__rtsadp_arr_copy_within1" => SymSig {
-            params: &[U64, I64],
-            ret: U64,
-        },
-        "__rtsadp_arr_index_of_from" | "__rtsadp_arr_last_index_of_from" => SymSig {
-            params: &[U64, U64, I64],
-            ret: I64,
-        },
-        "__rtsadp_arr_includes_from" => SymSig {
-            params: &[U64, U64, I64],
-            ret: Bool,
-        },
-        "__rtsadp_arr_with" => SymSig {
-            params: &[U64, I64, U64],
-            ret: U64,
-        },
-        "__rtsadp_arr_fill"
-        | "__rtsadp_arr_concat"
-        | "__rtsadp_arr_ta_set1"
-        | "__rtsadp_arr_subarray1"
-        | "__rtsadp_arr_splice"
-        | "__rtsadp_arr_to_spliced_var" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_arr_unshift" => SymSig {
-            params: &[U64, U64],
-            ret: I64,
-        },
 
         // ---- codegen-owned GLOBAL / static trampolines (P5.2) ----
         // Coercions + predicates: one PolyValue word in, one PolyValue word out.
-        "__rtsadp_g_number"
-        | "__rtsadp_g_string"
-        | "__rtsadp_g_boolean"
-        | "__rtsadp_g_parse_float"
-        | "__rtsadp_g_is_nan"
-        | "__rtsadp_g_is_finite"
-        | "__rtsadp_num_is_nan"
-        | "__rtsadp_num_is_finite"
-        | "__rtsadp_num_is_integer"
-        | "__rtsadp_num_is_safe_integer"
-        | "__rtsadp_arr_is_array"
-        | "__rtsadp_arr_new_sized"
-        | "__rtsadp_arr_from"
-        | "__rtsadp_str_from_char_code"
-        | "__rtsadp_str_from_code_point"
-        | "__rtsadp_str_from_char_code_arr" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
         // parseInt(value_word, radix): radix is an I64 (0 = auto).
-        "__rtsadp_g_parse_int" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
         // str.split(recvHandle, sepHandle, limit) -> a TAG_OBJECT array word.
-        "__rtsadp_str_split" => SymSig {
-            params: &[Handle, Handle, I64],
-            ret: U64,
-        },
         // math_reduce(arr_word, op) -> f64 (op: 0=min, 1=max, 2=hypot).
-        "__rtsadp_math_reduce" => SymSig {
-            params: &[U64, I64],
-            ret: F64,
-        },
         // canon_double(word) -> a guaranteed inline-double PolyValue word.
-        "__rtsadp_canon_double" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
         // arr_spread_append(dst_word, src_word) -> void (push all src elements).
-        "__rtsadp_arr_spread_append" => SymSig {
-            params: &[U64, U64],
-            ret: Void,
-        },
 
         // ---- codegen-owned ITERATION-source trampolines (P5.10) ----
         // str_chars(str_word) -> TAG_OBJECT array word of one-char strings;
@@ -769,18 +485,6 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
             params: &[StrPtr],
             ret: Handle,
         },
-        "__rtsadp_str_chars"
-        | "__rtsadp_obj_keys"
-        | "__rtsadp_for_in_keys"
-        | "__rtsadp_iter_open"
-        | "__rtsadp_iter_next"
-        | "__rtsadp_own_keys_raw"
-        | "__rtsadp_obj_own_names"
-        | "__rtsadp_obj_own_symbols"
-        | "__rtsadp_to_iter_array" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
 
         // (The codegen-owned Map/Set instance trampolines that used to sit here —
         // `__rtsadp_map_*` / `__rtsadp_set_*`, 11 names — were DELETED 2026-07-28:
@@ -802,44 +506,9 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
         // at runtime and delegates to the per-class op; an unexpected tag returns
         // the `undefined` word (sound — never a wrong value).
         // 1-word (receiver only): toString/length/pop/toUpper/toLower/trim.
-        "__rtsadp_dyn_to_string"
-        | "__rtsadp_dyn_length"
-        | "__rtsadp_dyn_pop"
-        | "__rtsadp_dyn_reverse"
-        | "__rtsadp_dyn_sort"
-        | "__rtsadp_dyn_to_upper_case"
-        | "__rtsadp_dyn_to_lower_case"
-        | "__rtsadp_dyn_trim_start"
-        | "__rtsadp_dyn_trim_end"
-        | "__rtsadp_dyn_trim" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
         // 2-word (receiver + 1 arg): indexOf/includes/at/concat/join/push/charAt/
         // charCodeAt/split/startsWith/endsWith/repeat.
-        "__rtsadp_dyn_index_of"
-        | "__rtsadp_dyn_includes"
-        | "__rtsadp_dyn_at"
-        | "__rtsadp_idx_get"
-        | "__rtsadp_dyn_concat"
-        | "__rtsadp_dyn_join"
-        | "__rtsadp_dyn_push"
-        | "__rtsadp_dyn_char_at"
-        | "__rtsadp_dyn_char_code_at"
-        | "__rtsadp_dyn_code_point_at"
-        | "__rtsadp_dyn_locale_compare"
-        | "__rtsadp_dyn_split"
-        | "__rtsadp_dyn_starts_with"
-        | "__rtsadp_dyn_ends_with"
-        | "__rtsadp_dyn_repeat" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
         // 3-word (receiver + 2 args): slice(start, end).
-        "__rtsadp_dyn_slice" => SymSig {
-            params: &[U64, U64, U64],
-            ret: U64,
-        },
 
         // ---- codegen-owned RegExp + string-regex-method trampolines (P5.12) ----
         // All slots are raw PolyValue words (U64): compile takes (pattern, flags)
@@ -847,39 +516,10 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
         // word; source/flags/global take the re word → a string/bool word; the
         // string-regex methods take (subject, re[, repl]) words → string/array/
         // number/null words. The trampolines do the string-handle marshaling.
-        "__rtsadp_re_compile" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_re_test" | "__rtsadp_re_exec" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_re_source"
-        | "__rtsadp_re_flags"
-        | "__rtsadp_re_global"
-        | "__rtsadp_re_ignore_case"
-        | "__rtsadp_re_multiline"
-        | "__rtsadp_re_last_index" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
-        "__rtsadp_re_str_match" | "__rtsadp_re_str_search" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
         // Full JS-spec split: (subj, re, limit_word) — `undefined` limit = none.
-        "__rtsadp_re_str_split" => SymSig {
-            params: &[U64, U64, U64],
-            ret: U64,
-        },
         // replace/replaceAll — the ONE polymorphic replacement trampoline
         // (string → JS GetSubstitution; function → invoked per match; else
         // ToString): (subj_word, re_word, repl_word, all_flag) -> string word.
-        "__rtsadp_re_str_replace_fn" => SymSig {
-            params: &[U64, U64, U64, U64],
-            ret: U64,
-        },
 
         // ---- codegen-owned DYNAMIC property access (P5.5) ----
         // obj_get(obj_word, key_str_handle) -> PolyValue word; obj_set adds a
@@ -888,96 +528,12 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
         // at lowering or a computed key's ToString.
         // The `globalThis` singleton object word (no args; returns a TAG_OBJECT
         // PolyValue). `globalThis.prop` get/set then reuse __rtsadp_obj_get/_set.
-        "__rtsadp_globalthis" => SymSig {
-            params: &[],
-            ret: U64,
-        },
-        "__rtsadp_obj_get" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_obj_set" => SymSig {
-            params: &[U64, U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_obj_assign" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_obj_define_property" => SymSig {
-            params: &[U64, U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_obj_define_properties" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_proto_set_method" => SymSig {
-            params: &[U64, U64, U64],
-            ret: Void,
-        },
-        "__rtsadp_obj_get_own_property_descriptor" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_obj_get_own_property_descriptors" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
-        "__rtsadp_obj_has" => SymSig {
-            params: &[U64, U64],
-            ret: Bool,
-        },
         // Prototype chain (Object.create): create(proto)->obj, proto_of(obj)->proto,
         // is_prototype_of(proto, obj)->bool word. All raw PolyValue words.
-        "__rtsadp_obj_create" | "__rtsadp_obj_proto_of" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
-        "__rtsadp_is_prototype_of" | "__rtsadp_has_own" | "__rtsadp_prop_is_enumerable"
-        | "__rtsadp_obj_set_proto" | "__rtsadp_record_registry_class"
-        | "__rtsadp_instanceof_walk" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
         // Property descriptors + extensibility (real state). prop_flags → packed
         // flags / -1 (I64); define_prop → 1/0 (I64); prevent_ext/is_extensible → 1/0.
-        "__rtsadp_prop_flags" => SymSig {
-            params: &[U64, U64],
-            ret: I64,
-        },
-        "__rtsadp_define_prop" => SymSig {
-            params: &[U64, U64, U64, I64],
-            ret: I64,
-        },
-        "__rtsadp_prevent_ext" | "__rtsadp_freeze" | "__rtsadp_seal" | "__rtsadp_is_frozen"
-        | "__rtsadp_is_sealed" | "__rtsadp_is_extensible" => SymSig {
-            params: &[U64],
-            ret: I64,
-        },
-        "__rtsadp_set_proto_check" => SymSig {
-            params: &[U64, U64],
-            ret: I64,
-        },
-        "__rtsadp_construct" | "__rtsadp_class_proto_init" | "__rtsadp_class_proto_set"
-        | "__rtsadp_set_timeout" | "__rtsadp_set_interval" | "__rtsadp_invoke_cb" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_clear_timer" | "__rtsadp_queue_microtask" | "__rtsadp_set_immediate" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
-        "__rtsadp_obj_delete" => SymSig {
-            params: &[U64, U64],
-            ret: Bool,
-        },
         // obj_keys/values/entries(obj_word) -> fresh array PolyValue word (dynamic
         // Object.keys/values/entries; Object is primordial → engine-direct).
-        "__rtsadp_obj_values" | "__rtsadp_obj_entries" | "__rtsadp_obj_from_entries" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
 
         // (The Map/Set instanceof tags `__rtsadp_is_map`/`__rtsadp_is_set` were
         // DELETED 2026-07-28 for the same reason as the trampolines above: the
@@ -991,29 +547,6 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
         // array word (U64); forEach returns undefined (U64); find returns the
         // element word (U64); findIndex returns an index (I64); some/every return
         // a bool. reduce takes an extra init word (U64) + a has_init flag (I64).
-        "__rtsadp_arr_map"
-        | "__rtsadp_arr_filter"
-        | "__rtsadp_arr_for_each"
-        | "__rtsadp_arr_find"
-        | "__rtsadp_arr_find_last"
-        | "__rtsadp_arr_flat_map"
-        | "__rtsadp_arr_sort_cmp"
-        | "__rtsadp_arr_to_sorted_cmp" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_arr_find_index" | "__rtsadp_arr_find_last_index" => SymSig {
-            params: &[U64, U64],
-            ret: I64,
-        },
-        "__rtsadp_arr_some" | "__rtsadp_arr_every" => SymSig {
-            params: &[U64, U64],
-            ret: Bool,
-        },
-        "__rtsadp_arr_reduce" | "__rtsadp_arr_reduce_right" => SymSig {
-            params: &[U64, U64, U64, I64],
-            ret: U64,
-        },
 
         // ---- REAL global-class instance methods (P4 data-driven dispatch) ----
         // String: the non-regex method surface migrated to the primordial `String`
@@ -1021,14 +554,9 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
         // `strops` — no GL_STRING extern. Only the regex-argument family remains
         // (its runtime string-vs-regex dispatch the macro cannot yet express):
         // `search` → I64; `match`/`matchAll` → a Vec-of-strings Handle (0 ⇒ null).
-        "__rtsadp_str_search_auto" => SymSig {
-            params: &[Handle, Handle],
-            ret: I64,
-        },
-        "__rtsadp_str_match_auto" | "__rtsadp_str_match_all_auto" => SymSig {
-            params: &[Handle, Handle],
-            ret: Handle,
-        },
+        // (Their rows are gone: the three `_auto` dispatchers carry `#[rtse::abi]`
+        // in `rts-primitives/src/string/search.rs`, spelling `Handle` in the Rust
+        // signature, so the baked table supplies them.)
         // Number's toFixed/toPrecision/toExponential/toString(radix) are now
         // value-class METHODS computed directly in Rust (`rts-primitives/src/
         // number/mod.rs` + `format.rs`) — no `__RTS_FN_GL_NUMBER_TO_*` symbol
@@ -1135,7 +663,7 @@ mod desc_agreement {
 }
 
 #[cfg(test)]
-mod baked_existence {
+pub(super) mod baked_existence {
     //! Every symbol NAMED in this file's table must EXIST in the baked symbol
     //! table — the guard that turns a renamed/mistyped symbol into a test
     //! failure instead of a runtime SIGILL.
@@ -1159,7 +687,7 @@ mod baked_existence {
     /// (`"__a" | "__b" => SymSig {`) or continued across lines (a line ending in
     /// `|`), so every quoted `__…` token on a match-arm line counts — taking only
     /// the first would silently under-check the alternates.
-    fn table_names() -> Vec<&'static str> {
+    pub(super) fn table_names() -> Vec<&'static str> {
         const SRC: &str = include_str!("abi_sig.rs");
         SRC.lines()
             .filter(|l| {
@@ -1202,6 +730,73 @@ mod baked_existence {
              resolve) or the baker's scan does not reach its declaration:\n{}",
             missing.len(),
             missing.join("\n")
+        );
+    }
+}
+
+#[cfg(test)]
+mod hand_rows_are_drained {
+    //! A hand row whose symbol the BAKED signature table already carries is dead
+    //! code: `sig_of` consults the baked entry first, so the row is unreachable.
+    //! This lists them so each conversion's rows get deleted in the same commit
+    //! instead of lingering as an unreachable second opinion.
+    use super::baked_existence::table_names;
+
+    #[test]
+    fn no_hand_row_is_shadowed_by_a_derived_signature() {
+        let baked: std::collections::HashSet<&str> = rts_runtime::symbol_table::signatures()
+            .into_iter()
+            .map(|(n, _, _)| n)
+            .collect();
+        let mut shadowed: Vec<&str> = table_names()
+            .into_iter()
+            .filter(|n| baked.contains(n))
+            .collect();
+        shadowed.sort_unstable();
+        shadowed.dedup();
+        assert!(
+            shadowed.is_empty(),
+            "{} hand row(s) are shadowed by a DERIVED signature and can never be \
+             reached — delete them:\n{}",
+            shadowed.len(),
+            shadowed.join("\n")
+        );
+    }
+}
+
+#[cfg(test)]
+mod remaining_rows_report {
+    //! What is LEFT in the hand table, and which mechanism could supply it.
+    //! Measurement for the drain, printed with `--nocapture`; not an assertion.
+    #[test]
+    fn report() {
+        let names = super::baked_existence::table_names();
+        let baked: std::collections::HashSet<&str> = rts_runtime::symbol_table::signatures()
+            .into_iter()
+            .map(|(n, _, _)| n)
+            .collect();
+        let mut adp = 0;
+        let mut rt = 0;
+        let mut other = 0;
+        for n in &names {
+            if baked.contains(n) {
+                continue;
+            }
+            if n.starts_with("__rtsadp_") {
+                adp += 1;
+            } else if n.starts_with("__RTS_FN_") {
+                rt += 1;
+            } else {
+                other += 1;
+            }
+        }
+        eprintln!(
+            "hand rows left: {} (__rtsadp_ {} | __RTS_FN_ {} | other {}); derived: {}",
+            adp + rt + other,
+            adp,
+            rt,
+            other,
+            baked.len()
         );
     }
 }

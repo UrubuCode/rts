@@ -47,8 +47,8 @@ fn registry_class_table() -> &'static Mutex<HashMap<u64, String>> {
 /// Record that `obj_word` was constructed by the Registry class named `name_word`.
 /// Returns `obj_word` unchanged (pass-through, so the call site keeps the instance
 /// word).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_record_registry_class(obj_word: u64, name_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_record_registry_class(obj_word: u64, name_word: u64) -> u64 {
     let name = super::abi_adapter::resolve_poly(PolyValue::from_raw(name_word));
     if let Ok(mut t) = registry_class_table().lock() {
         t.insert(obj_word, name);
@@ -140,8 +140,8 @@ pub(crate) fn walk_proto_chain(word: u64, mut f: impl FnMut(u64) -> bool) -> boo
 /// its prototype when `proto_word` is an object (a null/number/other proto — JS
 /// `Object.create(null)` / a non-object arg — records nothing → a null prototype).
 /// Returns the new object word.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_obj_create(proto_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_obj_create(proto_word: u64) -> u64 {
     let obj_handle = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     let empty_shape = rts_engine::heap::shapes::intern_global_shape(&[]);
     let slot0 = PolyValue::from_i32(empty_shape as i32).raw() as i64;
@@ -167,8 +167,8 @@ pub extern "C" fn __rtsadp_obj_create(proto_word: u64) -> u64 {
 /// `Object.getPrototypeOf(obj)` → the recorded prototype object word, or `null`.
 /// A PROXY receiver routes through its `getPrototypeOf` trap (#218 phase 3);
 /// no trap → forward to the target.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_obj_proto_of(obj_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_obj_proto_of(obj_word: u64) -> u64 {
     if let Some((target, handler)) = super::objops::proxy_parts(obj_word) {
         let trap_key = super::abi_adapter::intern_poly("getPrototypeOf").raw();
         let trap = super::objops::__rtsadp_obj_get(handler, trap_key);
@@ -227,8 +227,8 @@ pub extern "C" fn __rtsadp_obj_proto_of(obj_word: u64) -> u64 {
 /// clear) `obj`'s prototype. A non-object `proto` (`null`) REMOVES the link (a null
 /// prototype). Returns `obj` (Object.setPrototypeOf's contract). A non-object `obj`
 /// is a no-op pass-through.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_obj_set_proto(obj_word: u64, proto_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_obj_set_proto(obj_word: u64, proto_word: u64) -> u64 {
     // PROXY: same trap routing as `set_proto_check` (Object.setPrototypeOf's
     // contract returns the object either way).
     if super::objops::proxy_parts(obj_word).is_some() {
@@ -251,8 +251,8 @@ pub extern "C" fn __rtsadp_obj_set_proto(obj_word: u64, proto_word: u64) -> u64 
 /// (an empty keyed object) and keyed by the class-name string. `new C()` links
 /// each instance to it (`__rtsadp_obj_set_proto`), so `C.prototype.m = v`
 /// reaches every instance through the dynamic-get prototype walk.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_class_proto(name_str_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_class_proto(name_str_word: u64) -> u64 {
     let name = super::abi_adapter::resolve_poly(PolyValue::from_raw(name_str_word));
     // `Object.prototype` IS the shared root object — one identity everywhere
     // (`Object.getPrototypeOf({}) === Object.prototype` must hold).
@@ -314,8 +314,8 @@ pub fn reset_state() {
 /// `C.prototype = obj` / `F.prototype = obj` — REPLACE the shared prototype.
 /// Instances created BEFORE keep the old proto (matching JS); instances created
 /// after link to `obj`. A non-object clears to the lazy default.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_class_proto_set(name_word: u64, proto_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_class_proto_set(name_word: u64, proto_word: u64) -> u64 {
     let name = super::abi_adapter::resolve_poly(PolyValue::from_raw(name_word));
     if let Ok(mut t) = class_proto_table().lock() {
         if PolyValue::from_raw(proto_word).is_object() {
@@ -336,8 +336,8 @@ pub extern "C" fn __rtsadp_class_proto_set(name_word: u64, proto_word: u64) -> u
 /// constructor name is `"Object"`). Returns the proto word for the instance
 /// link. This is what makes `Object.getPrototypeOf(d).constructor.name` and the
 /// `while (proto) { … getPrototypeOf(proto) }` chain walk behave like JS.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_class_proto_init(name_word: u64, parent_name_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_class_proto_init(name_word: u64, parent_name_word: u64) -> u64 {
     use std::collections::HashSet;
     use std::sync::{Mutex, OnceLock};
     static DONE: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
@@ -423,8 +423,8 @@ fn empty_proto_object() -> u64 {
 /// `setPrototypeOf` trap (#218 phase 3): ToBoolean of the trap's return decides
 /// (a `false` trap REJECTS — the target is not written); no trap → forward to
 /// the target. A non-object receiver fails (`0`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_set_proto_check(obj_word: u64, proto_word: u64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_set_proto_check(obj_word: u64, proto_word: u64) -> i64 {
     if let Some((target, handler)) = super::objops::proxy_parts(obj_word) {
         let trap_key = super::abi_adapter::intern_poly("setPrototypeOf").raw();
         let trap = super::objops::__rtsadp_obj_get(handler, trap_key);
@@ -445,8 +445,8 @@ pub extern "C" fn __rtsadp_set_proto_check(obj_word: u64, proto_word: u64) -> i6
 /// `proto.isPrototypeOf(obj)` → walk `obj`'s prototype chain; `true` iff `proto`
 /// appears in it. A bounded walk (a cycle — which `Object.create` cannot build —
 /// stops at the visited cap) returns `false`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_is_prototype_of(proto_word: u64, obj_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_is_prototype_of(proto_word: u64, obj_word: u64) -> u64 {
     // Spec: a non-object `V` is never a prototype child (and must NOT autobox).
     let v = PolyValue::from_raw(obj_word);
     if !(v.is_object() || v.is_function()) {
@@ -467,8 +467,8 @@ pub extern "C" fn __rtsadp_is_prototype_of(proto_word: u64, obj_word: u64) -> u6
 /// cases first; this catches the rest (a registered class the fast branches don't
 /// name) off the one `walk_proto_chain`, so `instanceof` shares the single
 /// prototype mechanism instead of a per-class predicate.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_instanceof_walk(obj_word: u64, class_name_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_instanceof_walk(obj_word: u64, class_name_word: u64) -> u64 {
     let v = PolyValue::from_raw(obj_word);
     if !(v.is_object() || v.is_function()) {
         return PolyValue::bool(false).raw();

@@ -87,8 +87,8 @@ fn handle_str(h: u64) -> String {
 /// instance word. Calls the REAL `REGEX_COMPILE` (RE2, fancy fallback). A compile
 /// error yields `0` from the runtime; we box it as an object word anyway so a
 /// `.test` on it simply never matches (the runtime's `with_engine` default).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_re_compile(pat_word: u64, flags_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_re_compile(pat_word: u64, flags_word: u64) -> u64 {
     let pat = handle_str(str_handle(pat_word));
     let flags = handle_str(str_handle(flags_word));
     let h = rt_re::__RTS_FN_NS_REGEX_COMPILE(
@@ -105,51 +105,51 @@ pub extern "C" fn __rtsadp_re_compile(pat_word: u64, flags_word: u64) -> u64 {
 // ===========================================================================
 
 /// `re.test(s)` — a PolyValue bool word.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_re_test(re_word: u64, subj_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_re_test(re_word: u64, subj_word: u64) -> u64 {
     let s = handle_str(str_handle(subj_word));
     let yes = rt_re::__RTS_FN_NS_REGEX_TEST(unbox_re(re_word), s.as_ptr(), s.len() as i64) != 0;
     PolyValue::bool(yes).raw()
 }
 
 /// `re.source` — the pattern string as a PolyValue string word.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_re_source(re_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_re_source(re_word: u64) -> u64 {
     let h = rt_regexp::__RTS_FN_GL_REGEXP_SOURCE(unbox_re(re_word));
     box_str_or_null(h)
 }
 
 /// `re.flags` — the canonical flags string as a PolyValue string word.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_re_flags(re_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_re_flags(re_word: u64) -> u64 {
     let h = rt_regexp::__RTS_FN_GL_REGEXP_FLAGS(unbox_re(re_word));
     box_str_or_null(h)
 }
 
 /// `re.global` — a PolyValue bool word (flag 'g' set?).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_re_global(re_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_re_global(re_word: u64) -> u64 {
     let yes = rt_regexp::__RTS_FN_GL_REGEXP_GLOBAL(unbox_re(re_word)) != 0;
     PolyValue::bool(yes).raw()
 }
 
 /// `re.ignoreCase` — a PolyValue bool word (flag 'i' set?).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_re_ignore_case(re_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_re_ignore_case(re_word: u64) -> u64 {
     let yes = rt_regexp::__RTS_FN_GL_REGEXP_IGNORE_CASE(unbox_re(re_word)) != 0;
     PolyValue::bool(yes).raw()
 }
 
 /// `re.multiline` — a PolyValue bool word (flag 'm' set?).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_re_multiline(re_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_re_multiline(re_word: u64) -> u64 {
     let yes = rt_regexp::__RTS_FN_GL_REGEXP_MULTILINE(unbox_re(re_word)) != 0;
     PolyValue::bool(yes).raw()
 }
 
 /// `re.lastIndex` — a PolyValue number word (the regex's current lastIndex).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_re_last_index(re_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_re_last_index(re_word: u64) -> u64 {
     let n = rt_regexp::__RTS_FN_GL_REGEXP_LAST_INDEX_GET(unbox_re(re_word));
     genops::number_result(n as f64).raw()
 }
@@ -163,8 +163,8 @@ pub extern "C" fn __rtsadp_re_last_index(re_word: u64) -> u64 {
 /// regex it returns every match. We always return ALL matches as an array (the
 /// non-global single-match case is the 1-element array, whose `[0]` is the match —
 /// the same first element JS yields). `null` (PolyValue) on no match.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_re_str_match(subj_word: u64, re_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_re_str_match(subj_word: u64, re_word: u64) -> u64 {
     // NON-global `s.match(re)` is spec'd as the SAME RegExpExecArray `exec`
     // yields (numeric slots + index/input/groups) — route the exec builder. A
     // GLOBAL regex returns the plain array of all full matches (no props).
@@ -189,8 +189,8 @@ pub extern "C" fn __rtsadp_re_str_match(subj_word: u64, re_word: u64) -> u64 {
 /// (numeric "0".."N" slots + `length`/`index`/`input`/`groups`), so
 /// `m[1]`/`m.index`/`m.groups.name` all read through the dynamic Map paths.
 /// (Global-regex `lastIndex` statefulness is the separate lastindex cluster.)
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_re_exec(re_word: u64, subj_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_re_exec(re_word: u64, subj_word: u64) -> u64 {
     use rts_runtime::namespaces::globals::string::search as rt_search;
     let s = handle_str(str_handle(subj_word));
     let rows = rt_search::match_all_regex(s.as_ptr(), s.len() as i64, unbox_re(re_word));
@@ -211,8 +211,8 @@ pub extern "C" fn __rtsadp_re_exec(re_word: u64, subj_word: u64) -> u64 {
 /// replaceAll); else only the first. Offsets are UTF-16 code-unit indices (JS),
 /// converted from the engine's byte offsets. Match data is SNAPSHOTTED before
 /// any callback runs — no entry lock across invokes.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_re_str_replace_fn(
+#[rtse::abi]
+pub fn rtsadp_re_str_replace_fn(
     subj_word: u64,
     re_word: u64,
     fn_word: u64,
@@ -396,8 +396,8 @@ fn utf8_len(b: u8) -> usize {
 /// and EMPTY matches split per position without consuming (`"xxx".split(/x*/)`
 /// → `["",""]`; a match at/after the end never splits). Match data is
 /// snapshotted like the replace trampoline. Returns a fresh array word.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_re_str_split(subj_word: u64, re_word: u64, limit_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_re_str_split(subj_word: u64, re_word: u64, limit_word: u64) -> u64 {
     use rts_engine::heap::handles::{Entry, with_entry};
     let s = handle_str(str_handle(subj_word));
     let lim: u32 = {
@@ -469,8 +469,8 @@ pub extern "C" fn __rtsadp_re_str_split(subj_word: u64, re_word: u64, limit_word
 
 /// `s.search(re)` — the byte index of the first match, or `-1`. A PolyValue number
 /// word.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_re_str_search(subj_word: u64, re_word: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_re_str_search(subj_word: u64, re_word: u64) -> u64 {
     let s = handle_str(str_handle(subj_word));
     let idx = rt_re::__RTS_FN_NS_REGEX_FIND_AT(unbox_re(re_word), s.as_ptr(), s.len() as i64);
     genops::number_result(idx as f64).raw()

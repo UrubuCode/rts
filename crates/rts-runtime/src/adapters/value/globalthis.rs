@@ -57,8 +57,8 @@ pub fn reset() {
 /// instance is an EMPTY keyed object (slot 0 = the empty-keys global shape-id,
 /// exactly like an object literal `{}`), and is registered as a permanent GC root
 /// so it — and every heap value it holds — survives collection.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_globalthis() -> u64 {
+#[rtse::abi]
+pub fn rtsadp_globalthis() -> u64 {
     // Fast path: already built for this program.
     let existing = GLOBALTHIS.load(Ordering::Acquire);
     if existing != 0 {

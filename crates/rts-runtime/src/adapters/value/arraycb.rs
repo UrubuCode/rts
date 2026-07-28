@@ -103,8 +103,8 @@ fn is_hole(word: u64) -> bool {
 
 /// `arr.map(cb)` — a NEW array of `cb(element, index, array)` for each element,
 /// returned as a `TAG_OBJECT` PolyValue word of the fresh Vec.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_map(vec_handle: u64, cb: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_map(vec_handle: u64, cb: u64) -> u64 {
     let len = vec_len(vec_handle);
     let arr_word = array_word(vec_handle);
     let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
@@ -123,8 +123,8 @@ pub extern "C" fn __rtsadp_arr_map(vec_handle: u64, cb: u64) -> u64 {
 
 /// `arr.filter(cb)` — a NEW array of the elements for which `cb(element, index,
 /// array)` is truthy. Returned as a `TAG_OBJECT` PolyValue word.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_filter(vec_handle: u64, cb: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_filter(vec_handle: u64, cb: u64) -> u64 {
     let len = vec_len(vec_handle);
     let arr_word = array_word(vec_handle);
     let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
@@ -142,8 +142,8 @@ pub extern "C" fn __rtsadp_arr_filter(vec_handle: u64, cb: u64) -> u64 {
 
 /// `arr.forEach(cb)` — invoke `cb(element, index, array)` for each element,
 /// discarding the result; returns `undefined` (forEach's JS result).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_for_each(vec_handle: u64, cb: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_for_each(vec_handle: u64, cb: u64) -> u64 {
     let len = vec_len(vec_handle);
     let arr_word = array_word(vec_handle);
     for i in 0..len {
@@ -158,8 +158,8 @@ pub extern "C" fn __rtsadp_arr_for_each(vec_handle: u64, cb: u64) -> u64 {
 
 /// `arr.find(cb)` — the FIRST element for which `cb(element, index, array)` is
 /// truthy, else `undefined` (raw PolyValue word).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_find(vec_handle: u64, cb: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_find(vec_handle: u64, cb: u64) -> u64 {
     let len = vec_len(vec_handle);
     let arr_word = array_word(vec_handle);
     for i in 0..len {
@@ -176,8 +176,8 @@ pub extern "C" fn __rtsadp_arr_find(vec_handle: u64, cb: u64) -> u64 {
 
 /// `arr.findIndex(cb)` — the FIRST index whose element satisfies the predicate,
 /// else `-1`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_find_index(vec_handle: u64, cb: u64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_arr_find_index(vec_handle: u64, cb: u64) -> i64 {
     let len = vec_len(vec_handle);
     let arr_word = array_word(vec_handle);
     for i in 0..len {
@@ -193,8 +193,8 @@ pub extern "C" fn __rtsadp_arr_find_index(vec_handle: u64, cb: u64) -> i64 {
 }
 
 /// `arr.some(cb)` — `1` if the predicate is truthy for ANY element, else `0`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_some(vec_handle: u64, cb: u64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_arr_some(vec_handle: u64, cb: u64) -> i64 {
     let len = vec_len(vec_handle);
     let arr_word = array_word(vec_handle);
     for i in 0..len {
@@ -211,8 +211,8 @@ pub extern "C" fn __rtsadp_arr_some(vec_handle: u64, cb: u64) -> i64 {
 
 /// `arr.every(cb)` — `1` if the predicate is truthy for EVERY element (vacuously
 /// `1` for an empty array), else `0`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_every(vec_handle: u64, cb: u64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_arr_every(vec_handle: u64, cb: u64) -> i64 {
     let len = vec_len(vec_handle);
     let arr_word = array_word(vec_handle);
     for i in 0..len {
@@ -236,8 +236,8 @@ pub extern "C" fn __rtsadp_arr_every(vec_handle: u64, cb: u64) -> i64 {
 ///   array with no initial value is a JS `TypeError`; the new engine has no
 ///   exception channel here yet, so we return `undefined` (documented bail
 ///   value, never a wrong fold) — the only honest no-throw answer.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_reduce(
+#[rtse::abi]
+pub fn rtsadp_arr_reduce(
     vec_handle: u64,
     cb: u64,
     init_word: u64,
@@ -279,8 +279,8 @@ pub extern "C" fn __rtsadp_arr_reduce(
 
 /// `arr.findLast(cb)` — the LAST element (scanning from the end) whose predicate is
 /// truthy, else `undefined`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_find_last(vec_handle: u64, cb: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_find_last(vec_handle: u64, cb: u64) -> u64 {
     let len = vec_len(vec_handle);
     let arr_word = array_word(vec_handle);
     for i in (0..len).rev() {
@@ -297,8 +297,8 @@ pub extern "C" fn __rtsadp_arr_find_last(vec_handle: u64, cb: u64) -> u64 {
 
 /// `arr.findLastIndex(cb)` — the LAST index whose element satisfies the predicate,
 /// else `-1`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_find_last_index(vec_handle: u64, cb: u64) -> i64 {
+#[rtse::abi]
+pub fn rtsadp_arr_find_last_index(vec_handle: u64, cb: u64) -> i64 {
     let len = vec_len(vec_handle);
     let arr_word = array_word(vec_handle);
     for i in (0..len).rev() {
@@ -315,8 +315,8 @@ pub extern "C" fn __rtsadp_arr_find_last_index(vec_handle: u64, cb: u64) -> i64 
 
 /// `arr.reduceRight(cb, init?, hasInit)` — fold from the END. Same ABI/empty-array
 /// semantics as [`__rtsadp_arr_reduce`], iterating indices high→low.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_reduce_right(
+#[rtse::abi]
+pub fn rtsadp_arr_reduce_right(
     vec_handle: u64,
     cb: u64,
     init_word: u64,
@@ -359,8 +359,8 @@ pub extern "C" fn __rtsadp_arr_reduce_right(
 /// `arr.flatMap(cb)` — `cb(element, index, array)` per element, then flatten ONE
 /// level: an array result is spliced in, a non-array result pushed verbatim. A NEW
 /// array word.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_arr_flat_map(vec_handle: u64, cb: u64) -> u64 {
+#[rtse::abi]
+pub fn rtsadp_arr_flat_map(vec_handle: u64, cb: u64) -> u64 {
     let len = vec_len(vec_handle);
     let arr_word = array_word(vec_handle);
     let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();

@@ -105,22 +105,9 @@ pub(crate) fn make_js_error(kind: &str, message: &str) -> u64 {
 /// Link-reachable form of [`make_js_error`] for the runtime layer (the same
 /// reason [`__rtsadp_throw_js_error`] exists): build a real `kind` Error
 /// instance with `message` and RETURN its PolyValue word instead of throwing it.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_make_js_error(
-    kind_ptr: *const u8,
-    kind_len: i64,
-    msg_ptr: *const u8,
-    msg_len: i64,
-) -> u64 {
-    make_js_error(read_abi(kind_ptr, kind_len), read_abi(msg_ptr, msg_len))
-}
-
-/// Read an ABI `(ptr, len)` string pair; empty for a null/empty one.
-fn read_abi<'a>(p: *const u8, n: i64) -> &'a str {
-    if p.is_null() || n <= 0 {
-        return "";
-    }
-    unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(p, n as usize)) }
+#[rtse::abi]
+pub fn rtsadp_make_js_error(kind: &str, message: &str) -> u64 {
+    make_js_error(kind, message)
 }
 
 /// Link-reachable form of [`throw_js_error`] for the runtime layer: an
@@ -128,14 +115,9 @@ fn read_abi<'a>(p: *const u8, n: i64) -> &'a str {
 /// CAN reach the extern by symbol to throw a real `kind` Error instance with
 /// `message` into the engine's pending-error slot (a THROWS-flagged Registry
 /// member pairs this with the front's post-call error check).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_throw_js_error(
-    kind_ptr: *const u8,
-    kind_len: i64,
-    msg_ptr: *const u8,
-    msg_len: i64,
-) {
-    throw_js_error(read_abi(kind_ptr, kind_len), read_abi(msg_ptr, msg_len));
+#[rtse::abi]
+pub fn rtsadp_throw_js_error(kind: &str, message: &str) {
+    throw_js_error(kind, message);
 }
 
 /// `1` iff a thrown value is pending (an unwind is in progress), else `0`. Emitted
@@ -207,8 +189,8 @@ pub fn install_async_error_hook() {
 /// AOT bootstrap entry: the generated `main` shim calls this right after
 /// `__RTS_FN_RT_INIT` (the shim cannot reach Rust-side adapters fns except by
 /// symbol). Today it only installs the async-error hook.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_engine_bootstrap() {
+#[rtse::abi]
+pub fn rtsadp_engine_bootstrap() {
     install_async_error_hook();
 }
 
