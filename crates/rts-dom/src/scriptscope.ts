@@ -451,10 +451,64 @@ function __filterDeclared(names: string[], src: string): string[] {
   return out;
 }
 
+// ── `x instanceof window.C` → `x instanceof C` ───────────────────────────────
+//
+// `instanceof` no motor resolve o lado direito por NOME de classe. Um script de
+// página escreve a mesma checagem via objeto global (`e.dataset instanceof
+// window.DOMStringMap` — feature-detect de classe do DOM), e a forma com membro
+// não resolvia, derrubando o script inteiro.
+//
+// `window`/`self`/`globalThis`/`top`/`parent` denotam o objeto global, e uma
+// classe global é alcançável pelo próprio nome — então as duas formas são a
+// MESMA checagem, e tirar o prefixo é fiel. Quando a classe não existe no motor,
+// o `instanceof` responde `false`, que é a resposta certa para um feature-detect
+// (e era o que o browser daria num motor sem aquela classe).
+//
+// Só age imediatamente depois do token `instanceof`; qualquer outro `window.x`
+// do script fica intacto.
+function __unqualifyInstanceof(src: string): string {
+  if (src.indexOf("instanceof") < 0) return src;
+  let out = "";
+  let i = 0;
+  const n = src.length;
+  while (i < n) {
+    if (src.substring(i, i + 10) === "instanceof") {
+      // precisa ser o token inteiro (não sufixo de um identificador maior)
+      const antes = i > 0 ? src.substring(i - 1, i) : "";
+      const depois = i + 10 < n ? src.substring(i + 10, i + 11) : "";
+      if (!__isIdPart(antes) && !__isIdPart(depois)) {
+        let j = i + 10;
+        while (j < n && __isSpace(src.substring(j, j + 1))) j = j + 1;
+        const baseStart = j;
+        while (j < n && __isIdPart(src.substring(j, j + 1))) j = j + 1;
+        const base = src.substring(baseStart, j);
+        const ehGlobal = base === "window" || base === "globalThis"
+          || base === "self" || base === "top" || base === "parent";
+        if (ehGlobal && j < n && src.substring(j, j + 1) === ".") {
+          // `instanceof window.Classe` → mantém só `Classe`
+          out = out + src.substring(i, i + 10) + " ";
+          i = j + 1;
+          continue;
+        }
+      }
+    }
+    out = out + src.substring(i, i + 1);
+    i = i + 1;
+  }
+  return out;
+}
+
+// TODA a normalização sintática, num lugar só — o `runScripts` e o `__bindGlobals`
+// precisam enxergar exatamente o mesmo texto (os nomes detectados têm de bater
+// com o texto que vai ser compilado).
+function __normalizeScript(code: string): string {
+  return __unqualifyInstanceof(__splitTopLevelSequences(__rewriteArguments(code)));
+}
+
 function __bindGlobals(code: string, known: string[]): string {
   // Normaliza PRIMEIRO e só então varre: o split de sequência transforma
   // `a=1,b=2` em `a=1;b=2`, e é sobre essa forma que os nomes são detectados.
-  const normalized = __splitTopLevelSequences(__rewriteArguments(code));
+  const normalized = __normalizeScript(code);
   const names = __filterDeclared(__scanImplicitGlobals(normalized), normalized);
   // Acrescenta os já publicados que aparecem neste script — MENOS os que este
   // script declara localmente (shadowing: um `const requireLazy = …` local ganha

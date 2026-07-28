@@ -193,12 +193,42 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
 
         // `x instanceof C` (P5.3). swc collapses `instanceof`/`in`/etc onto
-        // `HirBinOp::Unsupported`; we only treat it as instanceof when the RHS is a
-        // bare identifier naming a class the engine can check (a user class, or a
-        // runtime/Registry class Map/Set/Error-family/Array). That keeps `"k" in o`
-        // (rhs not a class ident) safely bailed — never a wrong instanceof.
+        // `HirBinOp::Unsupported`; we only treat it as instanceof when the RHS NAMES
+        // a class the engine can check (a user class, or a runtime/Registry class
+        // Map/Set/Error-family/Array) — either as a bare identifier or through an
+        // unshadowed global object (`window.C`). That keeps `"k" in o` (rhs not a
+        // class name) safely bailed — never a wrong instanceof.
         if matches!(op, HirBinOp::Unsupported) {
-            if let rts_hir::ir::HirExprKind::Ident(class) = &rhs.kind {
+            // The RHS names a class either DIRECTLY (`x instanceof Map`) or through
+            // the global object (`x instanceof window.DOMStringMap` — the form page
+            // scripts use when they feature-detect a DOM class). `window`/`self`/
+            // `globalThis`/`top`/`parent` all denote the global object, on which a
+            // global class is reachable by its own name, so `<global>.C` resolves to
+            // the very same class as a bare `C`. Anything else stays bailed — the
+            // check below never guesses at an arbitrary expression.
+            let class_name: Option<&str> = match &rhs.kind {
+                rts_hir::ir::HirExprKind::Ident(class) => Some(class.as_str()),
+                rts_hir::ir::HirExprKind::Member { object, prop } => {
+                    match &object.kind {
+                        // Only when the base is NOT a local in scope: a user
+                        // `const window = {DOMStringMap: somethingElse}` shadows the
+                        // global object, and resolving `window.C` to the class `C`
+                        // would then be plainly wrong. A shadowed base falls through
+                        // to the honest bail.
+                        rts_hir::ir::HirExprKind::Ident(base)
+                            if matches!(
+                                base.as_str(),
+                                "window" | "globalThis" | "self" | "top" | "parent"
+                            ) && self.local(base).is_none() =>
+                        {
+                            Some(prop.as_str())
+                        }
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+            if let Some(class) = class_name {
                 if let Some(val) = self.try_instanceof(module, lhs, class)? {
                     return Ok(val);
                 }

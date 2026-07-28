@@ -143,3 +143,69 @@ describe("escopo global compartilhado entre <script> da página", () => {
     expect(textoB).toBe("B nao viu A");
   });
 });
+
+// ── APIs de plataforma que o boot de uma página real consulta ────────────────
+//
+// Estas três não são "linguagem": são superfície de browser que faltava e que
+// derrubava o script INTEIRO no primeiro uso (o resto do bootstrap ia junto).
+
+// `Node.ELEMENT_NODE` — guarda padrão antes de tocar num nó.
+const htmlNode =
+  "<div id='n'>x</div>" +
+  "<script>" +
+  "  const el = document.getElementById('n');" +
+  "  if (el !== null && el.nodeType === Node.ELEMENT_NODE) { el.setInnerHTML('e' + Node.TEXT_NODE); }" +
+  "</script>";
+const docNode = parseDocument(htmlNode);
+const ranNode = runScripts(docNode);
+const outNode = docNode.getElementById("n");
+const textoNode = outNode === null ? "" : outNode.textContent;
+
+// `new MutationObserver(cb)` + `observe` — stub honesto (registra, não entrega).
+// O que este teste trava é que o script SOBREVIVE ao `new`.
+const htmlMO =
+  "<div id='m'>antes</div>" +
+  "<script>" +
+  "  const o = new MutationObserver(function(recs, obs){ return 0; });" +
+  "  o.observe(document.getElementById('m'), {childList:true, subtree:true});" +
+  "  const el = document.getElementById('m');" +
+  "  if (el !== null) { el.setInnerHTML('sobreviveu:' + o.takeRecords().length); }" +
+  "</script>";
+const docMO = parseDocument(htmlMO);
+const ranMO = runScripts(docMO);
+const outMO = docMO.getElementById("m");
+const textoMO = outMO === null ? "" : outMO.textContent;
+
+// `x instanceof window.C` — a forma com objeto global é a MESMA checagem que
+// `x instanceof C`. Uma classe que o motor não tem responde `false`, que é a
+// resposta certa de um feature-detect (o script segue vivo).
+const htmlInst =
+  "<div id='i'>x</div>" +
+  "<script>" +
+  "  const obj = {};" +
+  "  const ehObj = obj instanceof window.Object;" +
+  "  const ehDSM = obj instanceof window.DOMStringMap;" +
+  "  const el = document.getElementById('i');" +
+  "  if (el !== null) { el.setInnerHTML((ehObj ? '1' : '0') + (ehDSM ? '1' : '0')); }" +
+  "</script>";
+const docInst = parseDocument(htmlInst);
+const ranInst = runScripts(docInst);
+const outInst = docInst.getElementById("i");
+const textoInst = outInst === null ? "" : outInst.textContent;
+
+describe("superfície de browser consultada no boot", () => {
+  test("Node.ELEMENT_NODE / TEXT_NODE existem com os valores da spec", () => {
+    expect(ranNode).toBe(1);
+    expect(textoNode).toBe("e3");
+  });
+
+  test("MutationObserver não derruba o script (stub registra e segue)", () => {
+    expect(ranMO).toBe(1);
+    expect(textoMO).toBe("sobreviveu:0");
+  });
+
+  test("instanceof window.C resolve como instanceof C", () => {
+    expect(ranInst).toBe(1);
+    expect(textoInst).toBe("10");
+  });
+});
