@@ -7,7 +7,7 @@
 //! `Symbol.for("iterator")` (a REGISTRY symbol, keyed by string) and
 //! `Symbol.iterator` (a WELL-KNOWN symbol, unique identity) are different JS
 //! values. `Symbol` here only names the well-known set; the registry form is
-//! `__RTS_FN_GL_SYMBOL_FOR` in `mod.rs`.
+//! `#[rtse::statical(name = "for")]` in `ctor.rs`.
 
 #![allow(non_upper_case_globals)] // JS-cased names (`Symbol.iterator`), not Rust consts.
 

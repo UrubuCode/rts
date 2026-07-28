@@ -1,18 +1,25 @@
 //! `Symbol` global class (#216) — the single opaque primitive.
 //!
-//! Hand-written builder registration (`register_symbol_class_spec()`) for the
-//! `Symbol` global itself; `well_known.rs` is the compile-time-checked source
-//! for the well-known set that `#[rtse::symbol(Symbol::iterator)]` (rts-macro)
-//! points at. `__RTS_FN_RT_TO_PRIMITIVE` + the well-known externs are not
-//! `Member`s of the class — they are free fns below, called by codegen by
-//! symbol.
+//! `ctor` is `#[rtse::class("Symbol")]` (the ctor/`for`/`keyFor` class-level
+//! surface, macro-converted — see that submodule's doc for why it needs the
+//! `-> Handle` ctor escape hatch). `description`/`toString`/the well-known
+//! constant accessors stay hand-written builder registration
+//! (`register_symbol_class_spec()`) below: they are INSTANCE members reading
+//! `Entry::Symbol` fields, and the macro's non-value instance-method/getter
+//! path always unboxes the receiver via `with_rtse::<T>` (an `Entry::Rtse<T>`
+//! box) — which a `Symbol` instance never is (see `ctor`'s doc). `well_known.rs`
+//! is the compile-time-checked source for the well-known set that
+//! `#[rtse::symbol(Symbol::iterator)]` (rts-macro) points at.
+//! `__RTS_FN_RT_TO_PRIMITIVE` + the well-known externs are not `Member`s of the
+//! class — they are free fns below, called by codegen by symbol.
 
 pub mod wellknown;
+
+mod ctor;
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-use rts_engine::abi::member::DefaultArg;
 use rts_engine::abi::ty::Handle;
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
@@ -66,57 +73,6 @@ pub(crate) fn well_known_handle(name: &str) -> u64 {
     });
     guard.insert(key, h);
     h
-}
-
-/// Creates a new unique Symbol with optional description string.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_SYMBOL_NEW(
-    description_ptr: *const u8,
-    description_len: i64,
-) -> Handle {
-    let description =
-        unsafe { rts_engine::abi::str_abi::from_abi(description_ptr, description_len) };
-    let description = description.map(|s| s.to_string());
-    alloc_entry(Entry::Symbol { description })
-}
-
-/// Returns a registered symbol by key — same key always returns same handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_SYMBOL_FOR(key_ptr: *const u8, key_len: i64) -> Handle {
-    let key = match unsafe { rts_engine::abi::str_abi::from_abi(key_ptr, key_len) } {
-        ::core::option::Option::Some(s) => s,
-        ::core::option::Option::None => return 0,
-    };
-    let key_owned = key.to_string();
-    let reg = registry().lock().unwrap();
-    if let Some(&h) = reg.get(&key_owned) {
-        return h;
-    }
-    drop(reg);
-    let h = alloc_entry(Entry::Symbol {
-        description: Some(key_owned.clone()),
-    });
-    let mut reg = registry().lock().unwrap();
-    reg.insert(key_owned, h);
-    h
-}
-
-/// Returns the key for a registered symbol, or 0 (undefined) if not registered.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_SYMBOL_KEY_FOR(sym: Handle) -> Handle {
-    let reg = registry().lock().unwrap();
-    for (k, &h) in reg.iter() {
-        if h == sym {
-            let key_clone = k.clone();
-            drop(reg);
-            return unsafe {
-                __RTS_FN_NS_GC_STRING_NEW(key_clone.as_ptr(), key_clone.len() as i64)
-            };
-        }
-    }
-    drop(reg);
-    let undef = b"undefined";
-    unsafe { __RTS_FN_NS_GC_STRING_NEW(undef.as_ptr(), undef.len() as i64) }
 }
 
 /// Returns the symbol's description string, or 0 if none.
@@ -175,64 +131,16 @@ pub extern "C" fn __RTS_FN_GL_SYMBOL_TO_STRING_TAG() -> Handle {
     well_known_handle("toStringTag")
 }
 
-/// Registra a classe global `Symbol` no motor (Fase 2 — hand-written, sem macro).
+/// Registra a classe global `Symbol` no motor: `ctor::register` (macro) for the
+/// ctor/`for`/`keyFor` class-level surface, then the remaining hand-written
+/// INSTANCE members (`description`/`toString`/well-known constants) below —
+/// both calls target the same Registry class name and MERGE (`Registry::
+/// insert_class` dedupes by symbol), so member order between them doesn't
+/// matter.
 pub fn register_symbol_class_spec(e: &mut Engine) {
+    ctor::register(e);
     e.class("Symbol")
         .doc("Built-in Symbol primitive (#216). Each Symbol() call returns a unique handle.")
-        .member(Member {
-            name: "new".to_string(),
-            kind: MemberKind::Constructor,
-            // description is OPTIONAL: `Symbol()` (0 args) and `Symbol("x")` (1) both
-            // valid. The omitted StrPtr defaults to the `undefined` sentinel (the
-            // runtime reads a null/empty description).
-            sig: Sig::with_defaults(
-                vec![AbiType::StrPtr],
-                AbiType::Handle,
-                vec![DefaultArg::Undefined],
-            ),
-            symbol: "__RTS_FN_GL_SYMBOL_NEW".to_string(),
-            fn_ptr: FnPtr(__RTS_FN_GL_SYMBOL_NEW as *const u8),
-            flags: MemberFlags::NONE,
-            aliases: Vec::new(),
-            variadic: false,
-            ts_signature: "new Symbol(description?: string): symbol".to_string(),
-            doc: "Creates a new unique Symbol with optional description string.".to_string(),
-            ret_class: None,
-            pure: false,
-            emit: None,
-        })
-        .member(Member {
-            name: "for".to_string(),
-            kind: MemberKind::Function,
-            sig: Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
-            symbol: "__RTS_FN_GL_SYMBOL_FOR".to_string(),
-            fn_ptr: FnPtr(__RTS_FN_GL_SYMBOL_FOR as *const u8),
-            flags: MemberFlags::NONE,
-            aliases: Vec::new(),
-            variadic: false,
-            ts_signature: "for(key: string): symbol".to_string(),
-            doc: "Returns a registered symbol by key — same key always returns same handle."
-                .to_string(),
-            ret_class: None,
-            pure: false,
-            emit: None,
-        })
-        .member(Member {
-            name: "keyFor".to_string(),
-            kind: MemberKind::Function,
-            sig: Sig::new(vec![AbiType::Handle], AbiType::Handle),
-            symbol: "__RTS_FN_GL_SYMBOL_KEY_FOR".to_string(),
-            fn_ptr: FnPtr(__RTS_FN_GL_SYMBOL_KEY_FOR as *const u8),
-            flags: MemberFlags::NONE,
-            aliases: Vec::new(),
-            variadic: false,
-            ts_signature: "keyFor(sym: symbol): string | undefined".to_string(),
-            doc: "Returns the key for a registered symbol, or 0 (undefined) if not registered."
-                .to_string(),
-            ret_class: None,
-            pure: true,
-            emit: None,
-        })
         .member(Member {
             name: "description".to_string(),
             kind: MemberKind::InstanceGetter,
@@ -448,49 +356,14 @@ mod tests {
         assert_ne!(wk, reg);
     }
 
-    #[test]
-    fn distinct_symbols_different_handles() {
-        let a = __RTS_FN_GL_SYMBOL_NEW(std::ptr::null(), -1);
-        let b = __RTS_FN_GL_SYMBOL_NEW(std::ptr::null(), -1);
-        assert_ne!(a, b);
-    }
-
-    #[test]
-    fn for_same_key_returns_same_handle() {
-        let key = b"my_key";
-        let a = __RTS_FN_GL_SYMBOL_FOR(key.as_ptr(), key.len() as i64);
-        let b = __RTS_FN_GL_SYMBOL_FOR(key.as_ptr(), key.len() as i64);
-        assert_eq!(a, b);
-    }
-
-    #[test]
-    fn key_for_returns_registered_key() {
-        let key = b"another_key";
-        let h = __RTS_FN_GL_SYMBOL_FOR(key.as_ptr(), key.len() as i64);
-        let result = __RTS_FN_GL_SYMBOL_KEY_FOR(h);
-        assert_ne!(result, 0);
-        let s = with_entry(result, |e| match e {
-            Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
-            _ => None,
-        });
-        assert_eq!(s.unwrap(), "another_key");
-    }
-
-    #[test]
-    fn key_for_unregistered_returns_undefined_handle() {
-        let h = __RTS_FN_GL_SYMBOL_NEW(std::ptr::null(), -1);
-        let result = __RTS_FN_GL_SYMBOL_KEY_FOR(h);
-        let s = with_entry(result, |e| match e {
-            Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
-            _ => None,
-        });
-        assert_eq!(s.unwrap(), "undefined");
-    }
+    // The ctor/`for`/`keyFor` externs are now `#[rtse::class]`-generated in the
+    // `ctor` submodule (`__rtsm_global_symbol_*`) — exercised there
+    // (`ctor::tests`). These remaining tests cover the hand-written instance
+    // members that stay on `Entry::Symbol` directly.
 
     #[test]
     fn description_returns_string() {
-        let desc = b"hello";
-        let h = __RTS_FN_GL_SYMBOL_NEW(desc.as_ptr(), desc.len() as i64);
+        let h = alloc_entry(Entry::Symbol { description: Some("hello".to_string()) });
         let result = __RTS_FN_GL_SYMBOL_DESCRIPTION(h);
         let s = with_entry(result, |e| match e {
             Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),

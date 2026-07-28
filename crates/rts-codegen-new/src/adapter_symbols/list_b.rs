@@ -244,21 +244,15 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             "__RTS_FN_NS_IMGDEC_GIF_PIXELS_PTR",
             rts_runtime::namespaces::globals::imgdec::__RTS_FN_NS_IMGDEC_GIF_PIXELS_PTR as *const u8,
         ),
-        // Symbol NON-primordial Registry class (#216): ctor + for/keyFor statics +
-        // description getter + well-known accessors. Impls in rts-shared
-        // (globals/symbol); spec carries null fn_ptr (external) → registered here.
-        sym(
-            "__RTS_FN_GL_SYMBOL_NEW",
-            rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_NEW as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_SYMBOL_FOR",
-            rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_FOR as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_SYMBOL_KEY_FOR",
-            rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_KEY_FOR as *const u8,
-        ),
+        // Symbol NON-primordial Registry class (#216): `description` getter +
+        // `toString` + well-known accessors stay hand-written (they read
+        // `Entry::Symbol` fields directly — not `Entry::Rtse`-boxed, so the
+        // macro's instance-method/getter path can't reach them, see
+        // `rts-primitives/src/symbol/mod.rs`). Impls in rts-shared
+        // (globals/symbol); spec carries null fn_ptr (external) → registered
+        // here. The ctor + `for`/`keyFor` statics are `#[rtse::class]`-generated
+        // (`rts-primitives/src/symbol/ctor.rs`) and are Registry-harvested
+        // automatically — no hand entry.
         sym(
             "__RTS_FN_GL_SYMBOL_DESCRIPTION",
             rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_DESCRIPTION as *const u8,
