@@ -12,8 +12,9 @@ use super::dh;
 use super::random;
 use super::state::{append, build_cipher_instance, build_instance, byte_array, cipher_state, finalize_state, read_bytes, set_field_bytes};
 
+use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
+
 unsafe extern "C" {
-    fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
     fn __rtsadp_throw_js_error(kp: *const u8, kl: i64, mp: *const u8, ml: i64);
 }
 

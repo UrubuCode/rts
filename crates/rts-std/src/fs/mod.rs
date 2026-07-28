@@ -16,10 +16,8 @@ use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 use rts_engine::heap::handles::{Entry, alloc_entry};
 
 // `string_pool` (intern de strings GC) fica no backend (rts-runtime collector);
-// referenciado por símbolo (link cross-crate) p/ o `fs` poder viver no rts-std.
-unsafe extern "C" {
-    fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
-}
+// resolvida via `rts_engine::gc_surface` (site único, link-time).
+use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
 
 /// Reads up to `bufLen` bytes from `path` into the buffer. Count, 0 on EOF, -1 on error.
 #[unsafe(no_mangle)]

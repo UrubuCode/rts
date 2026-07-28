@@ -19,8 +19,9 @@ use rts_engine::heap::poly::{
 };
 use rts_engine::heap::shapes::global_shape_keys;
 
+use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
+
 unsafe extern "C" {
-    fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
     /// Truthiness of a PolyValue word — JS `ToBoolean`, returning an UNBOXED
     /// 0/1 (not a boxed boolean).
     fn __rtsadp_to_boolean(v: u64) -> u64;

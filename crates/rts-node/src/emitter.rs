@@ -27,10 +27,7 @@ use rts_engine::{ClassBuilder, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use crate::values::{read, string_array, val, Val};
 
-unsafe extern "C" {
-    fn __RTS_FN_NS_GC_PIN_HANDLE(handle: u64);
-    fn __RTS_FN_NS_GC_UNPIN_HANDLE(handle: u64);
-}
+use rts_engine::gc_surface::{__RTS_FN_NS_GC_PIN_HANDLE, __RTS_FN_NS_GC_UNPIN_HANDLE};
 
 /// Node's `EventEmitter.defaultMaxListeners`.
 pub const DEFAULT_MAX_LISTENERS: i64 = 10;

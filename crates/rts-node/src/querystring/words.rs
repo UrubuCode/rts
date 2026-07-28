@@ -15,8 +15,9 @@ use rts_engine::heap::shapes::{
     alloc_shaped_object_owned, global_shape_keys, handle_word_auto, string_word,
 };
 
+use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
+
 unsafe extern "C" {
-    fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
     fn __rtsadp_fn_invoke(f: u64, a0: u64, a1: u64, a2: u64, a3: u64, rest: u64) -> u64;
 }
 

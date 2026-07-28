@@ -16,10 +16,7 @@ use super::codec::encode_bytes;
 use super::stats;
 use super::words::{byte_array, read, read_bytes, string_array};
 
-unsafe extern "C" {
-    fn __RTS_FN_GL_PROMISE_RESOLVE(value: u64) -> i64;
-    fn __RTS_FN_GL_PROMISE_REJECT(reason: u64) -> i64;
-}
+use rts_engine::gc_surface::{__RTS_FN_GL_PROMISE_REJECT, __RTS_FN_GL_PROMISE_RESOLVE};
 
 fn resolve(value: u64) -> u64 {
     unsafe { __RTS_FN_GL_PROMISE_RESOLVE(value) as u64 }

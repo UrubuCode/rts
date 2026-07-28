@@ -8,8 +8,9 @@ use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, sig};
 
 use rts_engine::abi::str_abi::from_abi;
 
+use crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
+
 unsafe extern "C" {
-    fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
     // `parseFloat`'s real JS-correct body now lives in `rts-primitives`
     // (`number/parse.rs`, exposed via the `#[rtse::statical]`
     // `Number.parseFloat` member) — reached here the same way any cross-crate

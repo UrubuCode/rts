@@ -19,10 +19,7 @@ use rts_engine::watch_queue;
 
 use super::words::read;
 
-unsafe extern "C" {
-    fn __RTS_FN_NS_GC_PIN_HANDLE(handle: u64);
-    fn __RTS_FN_NS_GC_UNPIN_HANDLE(handle: u64);
-}
+use rts_engine::gc_surface::{__RTS_FN_NS_GC_PIN_HANDLE, __RTS_FN_NS_GC_UNPIN_HANDLE};
 
 /// Live watchers, keyed by id. Keeping the `RecommendedWatcher` here keeps the OS
 /// watch active; dropping it (on `close`) stops the notifications.

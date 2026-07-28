@@ -53,11 +53,9 @@
 use rts_runtime::namespaces::globals::string::strops;
 
 // Raw byte-level string-pool concat (no UTF-8 decode) — preserves incomplete
-// multibyte fragments. Defined in rts-std (collector/string_pool), linked in the
-// final runtime archive.
-unsafe extern "C" {
-    fn __RTS_FN_NS_GC_STRING_CONCAT(a: u64, b: u64) -> u64;
-}
+// multibyte fragments. Defined in rts-std (collector/string_pool), declared
+// once in `rts_engine::gc_surface` and linked in the final runtime archive.
+use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_CONCAT;
 
 use super::{PolyValue, abi_adapter, arrayops, genops};
 

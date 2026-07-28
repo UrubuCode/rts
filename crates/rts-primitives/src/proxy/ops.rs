@@ -11,8 +11,9 @@
 
 use rts_engine::heap::handles::{Entry, alloc_entry, with_entry};
 
+use crate::gc_surface::__RTS_FN_RT_INVOKE_AUTO;
+
 unsafe extern "C" {
-    fn __RTS_FN_RT_INVOKE_AUTO(callee: i64, this_arg: i64, args_handle: u64) -> i64;
     fn __RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN(handle: u64, key_ptr: *const u8, key_len: i64) -> i64;
     fn __RTS_FN_NS_COLLECTIONS_MAP_SET(handle: u64, key_ptr: *const u8, key_len: i64, value: i64);
     fn __RTS_FN_NS_COLLECTIONS_MAP_HAS(handle: u64, key_ptr: *const u8, key_len: i64) -> i64;

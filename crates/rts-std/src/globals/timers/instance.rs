@@ -233,9 +233,7 @@ fn invoke_timer_cb(fp: u64) {
         matches!(e, Some(rts_engine::heap::handles::Entry::Function(_)))
     });
     if is_function_handle {
-        unsafe extern "C" {
-            fn __RTS_FN_RT_INVOKE_AUTO(callee: i64, this_arg: i64, args_handle: u64) -> i64;
-        }
+        use crate::gc_surface::__RTS_FN_RT_INVOKE_AUTO;
         let empty_args = rts_engine::heap::handles::alloc_entry(
             rts_engine::heap::handles::Entry::Vec(Box::new(Vec::new())),
         );

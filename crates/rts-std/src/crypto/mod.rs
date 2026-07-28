@@ -13,9 +13,7 @@ use sha2::Digest;
 
 use rts_engine::heap::handles::{Entry, HasherState, alloc_entry, with_entry, with_entry_mut};
 
-unsafe extern "C" {
-    fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
-}
+use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
 
 fn intern(s: &str) -> u64 {
     unsafe { __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64) }

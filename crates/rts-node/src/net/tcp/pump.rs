@@ -22,8 +22,9 @@ use super::state::{self, ServerEvent, ServerState, SockEvent, SocketState};
 use crate::emitter::{self, Listener};
 use crate::values::byte_array;
 
+use rts_engine::gc_surface::__RTS_FN_RT_INVOKE_AUTO;
+
 unsafe extern "C" {
-    fn __RTS_FN_RT_INVOKE_AUTO(callee: i64, this_arg: i64, args_handle: u64) -> i64;
     fn __rtsadp_throw_js_error(kp: *const u8, kl: i64, mp: *const u8, ml: i64);
 }
 

@@ -7,8 +7,9 @@
 use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
 use rts_engine::heap::poly::{poly_handle_normalize, POLY_BOX_BASE, POLY_PAYLOAD_MASK};
 
+use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
+
 unsafe extern "C" {
-    fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
     fn __rtsadp_throw_js_error(kp: *const u8, kl: i64, mp: *const u8, ml: i64);
 }
 

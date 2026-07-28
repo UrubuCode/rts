@@ -667,9 +667,7 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_NEW(executor_h: u64) -> u64 {
     // antigo de outra fn confundiria a propagacao).
     error::__RTS_FN_RT_ERROR_CLEAR();
     // INVOKE_AUTO detecta executor como Function handle e despacha.
-    unsafe extern "C" {
-        fn __RTS_FN_RT_INVOKE_AUTO(callee: i64, this_arg: i64, args_handle: u64) -> i64;
-    }
+    use crate::gc_surface::__RTS_FN_RT_INVOKE_AUTO;
     let _ = unsafe { __RTS_FN_RT_INVOKE_AUTO(executor_h as i64, 0, args_vec) };
     // Se executor lancou, propaga como reject (JS spec).
     let err = error::__RTS_FN_RT_ERROR_GET();

@@ -7,9 +7,7 @@
 //! extern remains. `alloc_str` stays as the shared pool-alloc helper used by
 //! [`super::search`] (the `rts:string` namespace regex family).
 
-unsafe extern "C" {
-    fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
-}
+use crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
 
 pub(crate) fn alloc_str(s: &str) -> u64 {
     unsafe { __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64) }

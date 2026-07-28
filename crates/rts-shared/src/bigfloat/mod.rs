@@ -21,9 +21,7 @@ use fixed::FixedDecimal;
 
 use rts_engine::heap::handles::{Entry, alloc_entry, free_handle, with_entry};
 
-unsafe extern "C" {
-    fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
-}
+use crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
 
 fn alloc(value: FixedDecimal) -> u64 {
     alloc_entry(Entry::BigFixed(Box::new(value)))

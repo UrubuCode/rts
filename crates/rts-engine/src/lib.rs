@@ -42,6 +42,7 @@
 
 pub mod abi;
 pub mod collector;
+pub mod gc_surface;
 pub mod heap;
 pub mod loop_sources;
 pub mod numfmt;

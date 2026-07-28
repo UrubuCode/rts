@@ -18,11 +18,9 @@ use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use rts_engine::heap::handles::{Entry, alloc_entry, with_entry};
 
-// `string_pool` (gc-surface) fica no `rts-runtime` collector; o símbolo
-// `#[no_mangle]` resolve em link-time (JIT registra; AOT pelo staticlib).
-unsafe extern "C" {
-    fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
-}
+// `string_pool` (gc-surface) fica no `rts-runtime` collector; resolvida via
+// `rts_engine::gc_surface` (site único de declaração, link-time).
+use crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
 
 /// Global registry para Symbol.for / Symbol.keyFor.
 fn registry() -> &'static Mutex<HashMap<String, u64>> {
@@ -345,9 +343,7 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
 
 // ── Non-member externs (codegen calls by symbol). ────────────────────────────
 
-unsafe extern "C" {
-    fn __RTS_FN_RT_INVOKE_AUTO(callee: i64, this_arg: i64, args_handle: u64) -> i64;
-}
+use crate::gc_surface::__RTS_FN_RT_INVOKE_AUTO;
 
 /// (#216/274) Coercao via `[Symbol.toPrimitive](hint)`. Se `obj` for um Map
 /// que tem a key `@@sym:<toPrimitive_handle>`, invoca o metodo passando o

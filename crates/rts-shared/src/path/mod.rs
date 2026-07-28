@@ -11,9 +11,7 @@ use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, sig};
 
 use rts_engine::abi::str_abi::from_abi;
 
-unsafe extern "C" {
-    fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
-}
+use crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
 
 fn intern(s: &str) -> u64 {
     unsafe { __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64) }

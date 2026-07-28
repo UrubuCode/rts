@@ -18,11 +18,9 @@ use rts_engine::watch_queue;
 use super::stats;
 use super::words::read;
 
-unsafe extern "C" {
-    fn __RTS_FN_RT_INVOKE_AUTO(callee: i64, this_arg: i64, args_handle: u64) -> i64;
-    fn __RTS_FN_NS_GC_PIN_HANDLE(handle: u64);
-    fn __RTS_FN_NS_GC_UNPIN_HANDLE(handle: u64);
-}
+use rts_engine::gc_surface::{
+    __RTS_FN_NS_GC_PIN_HANDLE, __RTS_FN_NS_GC_UNPIN_HANDLE, __RTS_FN_RT_INVOKE_AUTO,
+};
 
 /// Active polling watchers: `path` → its running flag (cleared by `unwatchFile`).
 fn watchers() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {

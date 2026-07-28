@@ -6,9 +6,7 @@ use rts_engine::heap::shapes::string_word;
 
 use super::builtins::{builtin_module_names, is_builtin, wrap};
 
-unsafe extern "C" {
-    fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
-}
+use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
 
 fn read(ptr: *const u8, len: i64) -> String {
     unsafe { rts_engine::abi::str_abi::from_abi(ptr, len) }

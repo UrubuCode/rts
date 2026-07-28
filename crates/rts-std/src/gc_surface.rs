@@ -6,6 +6,16 @@
 //!
 //! `safe fn` (edition 2024): as definições no runtime são fns Rust `extern "C"`
 //! seguras de chamar — preserva call-sites sem `unsafe`.
+//!
+//! `__RTS_FN_RT_ERROR_SET` e `__RTS_FN_NS_GC_GEN_SM_DRAIN` moraram aqui antes;
+//! agora vêm de `rts_engine::gc_surface` (site único de declaração — ver lá a
+//! justificativa de layering). Re-exportados abaixo p/ os call-sites locais
+//! (`crate::gc_surface::...`) continuarem resolvendo sem edição.
+pub use rts_engine::gc_surface::{
+    __RTS_FN_GL_FUNCTION_CALL, __RTS_FN_GL_PROMISE_REJECT, __RTS_FN_GL_PROMISE_RESOLVE,
+    __RTS_FN_NS_GC_GEN_SM_DRAIN, __RTS_FN_NS_GC_STRING_CONCAT, __RTS_FN_NS_GC_STRING_NEW,
+    __RTS_FN_RT_ERROR_SET, __RTS_FN_RT_INVOKE_AUTO, __RTS_FN_RT_TO_STRING_HANDLE,
+};
 
 unsafe extern "C" {
     /// Lê o handle do erro pendente (0 = nenhum). (`gc::error`)
@@ -14,12 +24,8 @@ unsafe extern "C" {
     pub safe fn __RTS_FN_RT_ERROR_GET_STACK() -> u64;
     /// Limpa o erro pendente + libera o stack capturado. (`gc::error`)
     pub safe fn __RTS_FN_RT_ERROR_CLEAR();
-    /// Define o erro pendente (valor lançado) + captura stack. (`gc::error`)
-    pub safe fn __RTS_FN_RT_ERROR_SET(handle: u64);
     /// Injeta valor/erro numa async SM e roda o próximo passo. (`gc::generator`)
     pub safe fn __RTS_FN_RT_ASYNC_SM_RESUME(h: u64, value: i64, rejected: i64);
-    /// Drena a máquina de estados de um generator/async-gen. (`gc::generator`)
-    pub safe fn __RTS_FN_NS_GC_GEN_SM_DRAIN(h: u64) -> u64;
     /// Truthiness JS de um valor i64/handle (0 = falsy). (`gc::string_pool`)
     pub safe fn __RTS_FN_RT_TRUTHY(value: i64) -> i64;
     /// (callback-from-runtime bridge) Invoca uma FUNCAO-VALOR JS (palavra PolyValue

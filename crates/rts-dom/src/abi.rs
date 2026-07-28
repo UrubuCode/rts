@@ -20,12 +20,10 @@ use crate::dom::{parse_html_to_dom, NodeId};
 // Aloca uma string no pool de strings GC e devolve seu handle `u64` (o que o TS
 // recebe como `string`). Mesmo padrão de `rts-shared::buffer` /
 // `rts-primitives::string::rt`: a fn é definida em `rts-std`
-// (collector::string_pool, símbolo `__RTS_FN_NS_GC_STRING_NEW`), resolvida no link
-// final do runtime — por isso só um `extern "C"` aqui, sem dep de Cargo (mantém a
-// doutrina "rts-dom depende só de rts-engine"; a resolução é estática no binário).
-unsafe extern "C" {
-    fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
-}
+// (collector::string_pool, símbolo `__RTS_FN_NS_GC_STRING_NEW`), resolvida via
+// `rts_engine::gc_surface` (site único de declaração, link-time) — mantém a
+// doutrina "rts-dom depende só de rts-engine".
+use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
 
 /// Interna uma `&str` no pool de strings GC e devolve o handle (`0` p/ vazia é
 /// válido — `gc.string_new` aceita len 0). É a forma de DEVOLVER string do Rust

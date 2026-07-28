@@ -16,9 +16,7 @@ use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use rts_engine::heap::handles::{Entry, alloc_entry, free_handle, with_entry, with_entry_mut};
 
-unsafe extern "C" {
-    fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
-}
+use crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
 
 fn with_buffer_mut<F, R>(handle: u64, default: R, f: F) -> R
 where

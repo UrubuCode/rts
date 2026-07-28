@@ -7,8 +7,9 @@
 use rts_engine::heap::handles::{alloc_entry, read_string_handle, Entry};
 use rts_engine::heap::shapes::{alloc_shaped_object, null_word, string_word};
 
+use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
+
 unsafe extern "C" {
-    fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
     // WHATWG URL (runtime layer, globals/url). `ptr`/`len` are the i64-cast
     // string parts the URL externs already accept; getters take a URL handle.
     fn __rtsm_global_url_new(ptr: i64, len: i64) -> u64;

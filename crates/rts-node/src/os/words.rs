@@ -13,8 +13,9 @@ use rts_engine::heap::shapes::{
     alloc_shaped_object, bool_word, handle_word_auto, null_word, string_word,
 };
 
+use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
+
 unsafe extern "C" {
-    fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
     /// Runtime-layer throw bridge (rts-runtime): sets the engine pending-error
     /// slot with a real `kind` Error instance. Paired with `MemberFlags::THROWS`
     /// on the member so the front emits the post-call unwind check.

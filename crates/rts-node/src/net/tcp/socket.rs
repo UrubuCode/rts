@@ -22,10 +22,7 @@ use super::opts;
 use super::state::{self, SockEvent, SocketOpts, SocketState};
 use crate::values::{read, read_bytes, val, Val};
 
-unsafe extern "C" {
-    fn __RTS_FN_NS_GC_PIN_HANDLE(handle: u64);
-    fn __RTS_FN_NS_GC_UNPIN_HANDLE(handle: u64);
-}
+use rts_engine::gc_surface::{__RTS_FN_NS_GC_PIN_HANDLE, __RTS_FN_NS_GC_UNPIN_HANDLE};
 
 pub const CLASS: &str = "Socket";
 

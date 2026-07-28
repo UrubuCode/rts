@@ -15,10 +15,9 @@ use rts_engine::heap::handles::{
 };
 
 // Raw byte-level string-pool concat (no UTF-8 decode) — defined in rts-std
-// (collector/string_pool), linked in the final runtime archive.
-unsafe extern "C" {
-    fn __RTS_FN_NS_GC_STRING_CONCAT(a: u64, b: u64) -> u64;
-}
+// (collector/string_pool), declared once in `rts_engine::gc_surface` and
+// linked in the final runtime archive.
+use crate::gc_surface::__RTS_FN_NS_GC_STRING_CONCAT;
 
 /// Read a GC string handle as an owned Rust `String` (empty if not a string).
 /// Used by the `*_AUTO` runtime-dispatch fns' string branch — the primordial

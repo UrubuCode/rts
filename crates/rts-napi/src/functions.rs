@@ -26,13 +26,12 @@ use crate::types::{napi_callback, napi_callback_info, napi_env, napi_status, nap
 use napi_status::{napi_function_expected, napi_invalid_arg, napi_ok};
 
 // Dispatch de fn TS via símbolo extern-C (resolvido no link do bin / add_fn! no
-// JIT). NÃO chamamos a API Rust de `rts-primitives` diretamente porque isso
-// arrastaria toda a teia de símbolos `__RTS_*` cross-crate para o link de um
-// `cargo test -p rts-napi` isolado. O dispatch é validado por e2e no bin.
+// JIT), declarado uma única vez em `rts_engine::gc_surface`. NÃO chamamos a API
+// Rust de `rts-primitives` diretamente porque isso arrastaria toda a teia de
+// símbolos `__RTS_*` cross-crate para o link de um `cargo test -p rts-napi`
+// isolado. O dispatch é validado por e2e no bin.
 #[cfg(not(test))]
-unsafe extern "C" {
-    fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_handle: u64) -> i64;
-}
+use rts_engine::gc_surface::__RTS_FN_GL_FUNCTION_CALL;
 
 // Stub só para o build de teste do crate isolado: fornece o símbolo (que no bin
 // vem de rts-primitives) para que `cargo test -p rts-napi` linke. O dispatch

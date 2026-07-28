@@ -12,9 +12,7 @@
 use rts_engine::abi::ty::Handle;
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-unsafe extern "C" {
-    fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
-}
+use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
 
 /// Interns `s` into the GC string pool, returning its handle.
 fn intern(s: &str) -> u64 {

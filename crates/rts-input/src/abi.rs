@@ -120,9 +120,7 @@ pub extern "C" fn __RTS_FN_NS_INPUT_COPY_TEXT(target: u64, ptr: *const u8, len: 
     crate::with_input(|i| i.copy_text(target, text));
 }
 
-unsafe extern "C" {
-    fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
-}
+use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
 
 fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
     Member {
