@@ -159,7 +159,7 @@ pub(crate) struct Local {
 /// opaque value (param, call return, reassigned); an access on it BAILS.
 /// The element kind `(elem_log2, signed, float)` of a typed-array CLASS, or
 /// `None` for a class that is not one of the 8 numeric typed arrays. Mirrors the
-/// per-class `ta_ctor!` registrations in `rts-adapters::value::taops` — the ONE
+/// per-class `ta_ctor!` registrations in `rts-runtime::adapters::value::taops` — the ONE
 /// place both the runtime and the native lowering agree on the layout.
 pub(crate) fn typed_array_kind(class: &str) -> Option<(u8, bool, bool)> {
     Some(match class {
@@ -667,7 +667,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // METHOD-TABLE prologue (main only): register every class method's
         // (instance shape-id, name) → thunk addr in the runtime table, so the
         // dynamic property read reifies a class method as a VALUE (obj_get miss
-        // → `__rtsadp_method_table_add` counterpart in rts-adapters).
+        // → `__rtsadp_method_table_add` counterpart in rts-runtime::adapters).
         if ctx.is_main {
             ctx.emit_method_table_registrations(module)?;
         }

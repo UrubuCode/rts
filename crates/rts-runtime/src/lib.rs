@@ -1,3 +1,9 @@
+// Lets the `adapters/` module tree (folded in from the former `rts-adapters`
+// crate) keep referring to this crate by its own name (`rts_runtime::…`)
+// instead of `crate::…` — minimizes churn across ~11k lines that used to be a
+// separate crate depending on this one.
+extern crate self as rts_runtime;
+
 pub mod abi {
     pub use rts_engine::abi::*;
 }
@@ -42,6 +48,8 @@ pub use rts_primitives::number::NumberWrapper;
 /// object — the front-end names nothing.
 pub use rts_shared::stdlib::CONSOLE_TS;
 pub mod namespaces;
+
+pub mod adapters;
 
 /// One-time runtime bootstrap, called once at program startup before the lowered
 /// top-level (`__rts_startup`). The AOT `main` shim calls this symbol; the JIT path

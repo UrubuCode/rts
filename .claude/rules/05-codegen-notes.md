@@ -3,7 +3,8 @@
 > Canonical design: `docs/specs/rts-codegen-new-design.md`. The engine's lowering
 > lives in `crates/rts-codegen-new/src/front/run/` (single HIR → Cranelift path);
 > the AOT-linked runtime trampolines (`PolyValue`, `__rtsadp_*`) live in
-> `crates/rts-adapters/`, the lowering-time slices (Repr, shapes, codegen-state
+> `crates/rts-runtime/src/adapters/` (folded in from the former standalone
+> `rts-adapters` crate), the lowering-time slices (Repr, shapes, codegen-state
 > reset) live in `crates/rts-codegen-new/`. There is no MIR tier and no dual
 > AST path.
 

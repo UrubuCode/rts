@@ -87,7 +87,7 @@ pub const POLY_TAG_SINGLETON: u64 = 2;
 /// `typeof` ⇒ `"number"`, like an inline `f64`.
 ///
 /// Frozen NaN-box value-model ABI, mirrors
-/// `crates/rts-adapters/src/value/layout.rs`; do not change without changing both.
+/// `crates/rts-runtime/src/adapters/value/layout.rs`; do not change without changing both.
 pub const POLY_TAG_INT32: u64 = 1;
 
 /// The `undefined` singleton word (`TAG_SINGLETON`, payload 0) — used to pad
@@ -97,7 +97,7 @@ pub const POLY_UNDEFINED: u64 = POLY_BOX_BASE | (POLY_TAG_SINGLETON << POLY_TAG_
 /// Payloads that select which singleton a `TAG_SINGLETON` word is.
 ///
 /// Frozen NaN-box value-model ABI, mirrors
-/// `crates/rts-adapters/src/value/layout.rs`; do not change without changing both.
+/// `crates/rts-runtime/src/adapters/value/layout.rs`; do not change without changing both.
 pub const POLY_SING_UNDEFINED: u64 = 0;
 pub const POLY_SING_NULL: u64 = 1;
 pub const POLY_SING_FALSE: u64 = 2;

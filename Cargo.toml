@@ -18,7 +18,6 @@ members = [
     "crates/rts-input",
     "crates/rts-render",
     "crates/rts-egui",
-    "crates/rts-adapters",
     "crates/rts-macro",
     "crates/rts-codegen-new",
     "crates/rts-prelude-baker",
@@ -145,8 +144,6 @@ opt-level = 3
 # The prelude baker runs the full compile path (SWC + lowering + Cranelift) once
 # at build time — speed matters, like every other compile-path package.
 [profile.release.package.rts-prelude-baker]
-opt-level = 3
-[profile.release.package.rts-adapters]
 opt-level = 3
 [profile.release.package.rts-parser]
 opt-level = 3

@@ -1,8 +1,8 @@
 //! `Number.parseInt`/`Number.parseFloat` (and the identical global
 //! `parseInt`/`parseFloat`) string→number parsers — the SINGLE correct JS
-//! implementation, moved down from `rts-adapters` (owner directive: a
+//! implementation, moved down from `rts-runtime` (owner directive: a
 //! primordial's implementation belongs in `rts-primitives`, the bottom of the
-//! chain any consumer can reach). `rts-adapters::value::globalops` and
+//! chain any consumer can reach). `rts-runtime::adapters::value::globalops` and
 //! `rts-shared::fmt` both call the `#[rtse::statical]` externs this module's
 //! `mod.rs` generates (`__rtsm_global_number_parse_int`/`_parse_float`)
 //! instead of carrying their own copy.

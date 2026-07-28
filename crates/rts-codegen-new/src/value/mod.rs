@@ -1,13 +1,14 @@
 //! `value` facade — the runtime-side value model (`PolyValue`, the bit-layout
-//! constants, and every `__rtsadp_*` trampoline) now lives in the `rts-adapters`
-//! crate so it can be linked into AOT binaries as a Cranelift-free staticlib
-//! (the same way `rts-runtime` is). This module RE-EXPORTS it unchanged — every
+//! constants, and every `__rtsadp_*` trampoline) lives in `rts_runtime::adapters`
+//! (folded in from the former Cranelift-free `rts-adapters` crate) so it links
+//! into AOT binaries as part of the `rts-runtime` staticlib. This module
+//! RE-EXPORTS it unchanged — every
 //! existing `crate::value::{PolyValue, encode, BOX_BASE, objops, genops, …}`
 //! path keeps resolving — and additionally hosts the Cranelift *emit* side that
 //! belongs to the codegen front-end and must NOT cross into the runtime crate:
 //! `emit` (box/unbox IR), `abi_sig` (real-symbol signatures), `emit_marshal`
 //! (call-boundary marshaling), and the JIT-roundtrip `tests`.
-pub use rts_adapters::value::*;
+pub use rts_runtime::adapters::value::*;
 
 // Cranelift emit side — stays in the codegen crate (pulls cranelift_frontend).
 pub mod abi_sig;

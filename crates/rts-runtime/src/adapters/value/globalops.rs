@@ -24,12 +24,13 @@ use super::{PolyValue, abi_adapter, genops};
 
 // `Number.parseInt`/`parseFloat`'s real JS-correct bodies live in
 // `rts-primitives` (owner directive: a primordial's implementation belongs at
-// the bottom of the chain any consumer can reach). `rts-adapters` does not
-// depend on `rts-primitives` in Cargo (would invert the crate graph), so this
+// the bottom of the chain any consumer can reach). `rts-runtime` does not
+// depend on `rts-primitives` in Cargo (would invert the crate graph — this
+// `adapters` module sits below `rts-primitives`, not above it), so this
 // reaches the `#[rtse::statical]`-generated symbols the same way
-// `rts-primitives`'s OWN value-classes reach `rts-adapters` coercion helpers
-// (e.g. `number/mod.rs`'s `__rtsadp_g_number` decl): a forward `extern "C"`
-// resolved at final link.
+// `rts-primitives`'s OWN value-classes reach `rts-runtime::adapters` coercion
+// helpers (e.g. `number/mod.rs`'s `__rtsadp_g_number` decl): a forward
+// `extern "C"` resolved at final link.
 unsafe extern "C" {
     fn __rtsm_global_number_parse_int(ptr: i64, len: i64, radix: f64) -> f64;
     fn __rtsm_global_number_parse_float(ptr: i64, len: i64) -> f64;

@@ -2,19 +2,20 @@
 
 > Canonical design: `docs/specs/rts-codegen-new-design.md`. This file describes
 > the engine's value model and the JS/TS **semantics it must cover**. The
-> runtime trampolines (`PolyValue`, `__rtsadp_*`) live in `crates/rts-adapters/`;
-> the lowering-time slices (Repr lattice, shapes, codegen-state reset) live in
-> `crates/rts-codegen-new/` (the design doc's `src/*.rs` path map is stale —
-> trust the tree on disk).
+> runtime trampolines (`PolyValue`, `__rtsadp_*`) live in
+> `crates/rts-runtime/src/adapters/` (folded in from the former standalone
+> `rts-adapters` crate); the lowering-time slices (Repr lattice, shapes,
+> codegen-state reset) live in `crates/rts-codegen-new/` (the design doc's
+> `src/*.rs` path map is stale — trust the tree on disk).
 
 ## The value model (single engine, no MIR, no dual codegen)
 
 Single lowering path `HIR → Cranelift IR`; the Cranelift egraph
 (`use_egraphs=true`) is the **sole** optimizer. The four pillars: PolyValue is
-the AOT-linked runtime trampoline crate `rts-adapters`; Repr/shapes/dispatch are
-the lowering-time slices in `rts-codegen-new` (`dispatch` alone stays in
-`rts-adapters` — a runtime trampoline reads it too, and the reverse dependency
-would cycle):
+`rts-runtime/src/adapters/`; Repr/shapes/dispatch are the lowering-time slices
+in `rts-codegen-new` (`adapters::dispatch` stays in `rts-runtime` — a runtime
+trampoline reads it too, and this is now an ordinary same-crate module, not a
+cross-crate dependency):
 
 - **PolyValue (`value/`, Pilar 1)** — one 64-bit NaN-boxed word. A bit-pattern
   with `(bits & BOX_BASE) == BOX_BASE` (`BOX_BASE = 0xFFF8_0000_0000_0000`, the

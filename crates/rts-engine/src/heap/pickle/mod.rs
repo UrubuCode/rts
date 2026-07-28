@@ -169,7 +169,7 @@ pub(crate) fn ext_decode(tag: &str, payload: &[u8]) -> Option<u64> {
 // ── Class-revive hook (proto attachment lives ABOVE the engine) ─────────────
 
 /// Attach the class prototype to a freshly revived instance (`obj_word`,
-/// `class_name`). The proto tables live in rts-adapters (`__rtsadp_class_proto`
+/// `class_name`). The proto tables live in rts-runtime (`__rtsadp_class_proto`
 /// / `__rtsadp_obj_set_proto`), a crate ABOVE this one — installed at engine
 /// bootstrap, the same dep-direction pattern as `SHAPED_OBJ_HOOK` /
 /// `install_gc_hook`. Absent hook (a bare-engine unit test) → the instance

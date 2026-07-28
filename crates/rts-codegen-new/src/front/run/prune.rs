@@ -152,7 +152,7 @@ pub(super) fn prune_prelude(prog: &mut LoweredProgram) {
     // The INTRINSIC WRAPPERS are always kept WHOLE. A primitive receiver has no
     // recorded `[[Prototype]]`, so a property access on one autoboxes: the value
     // model maps the VALUE'S TAG to `String`/`Number`/`Boolean`.prototype
-    // (`rts-adapters` `protos::intrinsic_proto`) and walks that. Nothing in the
+    // (`rts-runtime::adapters` `protos::intrinsic_proto`) and walks that. Nothing in the
     // program has to spell the wrapper's name for that path to be taken, and a
     // RUNTIME-built member name (`n["to" + "String"]()`) spells no member either
     // — so member-name edges cannot keep these, and pruning them breaks a call

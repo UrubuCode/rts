@@ -40,29 +40,26 @@ fn main() {
         )
     });
 
-    // Rust staticlib naming is target-dependent: `librts_adapters.a` on GNU/Unix,
-    // `rts_adapters.lib` on MSVC.
+    // Rust staticlib naming is target-dependent: `librts_runtime.a` on GNU/Unix,
+    // `rts_runtime.lib` on MSVC.
     //
-    // We embed the `rts-adapters` staticlib, NOT `rts-runtime`'s. `rts-adapters`
-    // DEPENDS ON `rts-runtime`, so Cargo bundles rts-runtime's whole rlib (every
-    // `__RTS_*` extern "C" symbol) INTO the adapters staticlib alongside the 164
-    // codegen-owned `__rtsadp_*` trampolines (which moved out of the compiler crate
-    // for exactly this — they must be linkable into a standalone AOT binary). The
-    // adapters archive is therefore a SUPERSET of the runtime archive: one archive,
-    // no merge, no duplicate symbols. (Embedding both would double rts-runtime/std.)
+    // We embed the `rts-runtime` staticlib. `rts-runtime` depends on
+    // `rts-engine`/`rts-primitives`/`rts-shared`/`rts-std`/… and, since the
+    // `rts-adapters` crate was folded into it (`src/adapters/`), it now hosts the
+    // `__rtsadp_*` value-model trampolines itself too. Cargo bundles the whole
+    // dependency rlib closure (every `__RTS_*` extern "C" symbol) INTO this one
+    // staticlib — one archive, no merge, no duplicate symbols.
     //
-    // Cargo only emits a dependency's `staticlib` output when that package is a
-    // *direct* build target, not when it is pulled in as an rlib dependency — and
-    // even `--workspace` does not order the staticlib before this build script
-    // (we only depend on the rlibs). So the staticlib must be produced by a prior
-    // `cargo build -p rts-adapters`. The AOT archive build is therefore a two-step
-    // build (see CLAUDE.md / CI).
+    // `rts-runtime` is a *direct* dependency of the `rts` bin (root Cargo.toml),
+    // so Cargo emits its staticlib as part of an ordinary `cargo build` — no
+    // separate `-p rts-runtime` pre-step is needed (unlike the old `rts-adapters`
+    // crate, which was never a direct target of the bin and required one).
     //
     // When the staticlib is missing we DON'T fail the build: the JIT path (`rts
     // run`) never touches the archive, so dev/JIT iteration must keep working.
     // We embed a tiny placeholder instead; the AOT path detects it at runtime and
     // emits a clear "rebuild the runtime archive" error (see runtime_objects.rs).
-    let candidates = ["librts_adapters.a", "rts_adapters.lib"];
+    let candidates = ["librts_runtime.a", "rts_runtime.lib"];
     let staticlib = candidates
         .iter()
         .map(|n| profile_dir.join(n))
@@ -95,9 +92,9 @@ fn main() {
                 .unwrap_or_else(|e| panic!("write placeholder sha {}: {e}", sha_file.display()));
             zstd_to(b"", &output_zst);
             println!(
-                "cargo:warning=rts-adapters staticlib not found in {} — embedding a \
+                "cargo:warning=rts-runtime staticlib not found in {} — embedding a \
                  placeholder. JIT (`rts run`) works; for AOT (`rts compile`) run \
-                 `cargo build -p rts-adapters` first, then rebuild.",
+                 `cargo build -p rts-runtime` first, then rebuild.",
                 profile_dir.display()
             );
         }
@@ -106,14 +103,13 @@ fn main() {
     wire_resident_prelude(&out);
 
     println!("cargo:rerun-if-changed=crates/rts-runtime/src/");
-    println!("cargo:rerun-if-changed=crates/rts-adapters/src/");
     println!("cargo:rerun-if-changed=build.rs");
 }
 
 /// Step 10, slice 2: OPT-IN embedding of the baked resident-prelude MANIFEST.
 ///
-/// The `rts-prelude-baker` bin (run as a prior build step, like the rts-adapters
-/// staticlib) writes `prelude_manifest.bin` into a directory named by
+/// The `rts-prelude-baker` bin (run as a prior build step) writes
+/// `prelude_manifest.bin` into a directory named by
 /// `RTS_PRELUDE_DIR`. The manifest holds the prelude's PRE-COMPILED machine code
 /// (bytes + symbolic relocs) + string blobs; the run path replays it into each
 /// run's JIT arena via `define_function_bytes` (no linking, no far calls). When

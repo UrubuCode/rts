@@ -2,7 +2,7 @@
 //!
 //! Split out of `value/mod.rs` to keep that file under the 500-line module rule.
 //! These are re-exported from the `value` module (`pub use layout::*`), so every
-//! call site (`crate::value::BOX_BASE`, `super::encode`, …) resolves unchanged.
+//! call site (`crate::adapters::value::BOX_BASE`, `super::encode`, …) resolves unchanged.
 //! See the module docs in `value/mod.rs` for the full NaN-boxing rationale.
 
 // ===========================================================================

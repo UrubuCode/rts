@@ -14,7 +14,7 @@
 //! `rts-runtime` FACADE (only `rts_engine::abi::*` is), and the crate-layering
 //! rule forbids adding `rts-engine`/`rts-primitives` as a second direct
 //! dependency (see `runtime_link.rs` for the same constraint). So — exactly like
-//! [`crate::value::abi_sig`] does for the string-pool symbols — this module
+//! [`crate::adapters::value::abi_sig`] does for the string-pool symbols — this module
 //! hand-writes a small static table covering the methods the lowering emits.
 //!
 //! It is NOT a switchboard and NOT invented symbols: every [`MethodSpec`]
@@ -41,7 +41,7 @@ pub enum RecvClass {
     /// An array (a `TAG_OBJECT` PolyValue over a real `Entry::Vec` of PolyValue
     /// words): the receiver marshals as the Vec's real handle (`POLY_TO_HANDLE`),
     /// and methods resolve to the codegen-owned `__rtsadp_arr_*` trampolines that
-    /// interpret each slot as a PolyValue (see [`crate::value::arrayops`]).
+    /// interpret each slot as a PolyValue (see [`crate::adapters::value::arrayops`]).
     Array,
 }
 
@@ -227,9 +227,9 @@ const NUMBER_ROWS: &[(&str, usize, MethodSpec)] = &[];
 // handle, slot 0). These resolve to the codegen-owned `__rtsadp_arr_*`
 // trampolines (NOT `__RTS_FN_*`): the runtime's own Array methods read raw i64
 // slots, but the new engine stores boxed PolyValue WORDS, so element
-// interpretation is the engine's own (see `crate::value::arrayops`).
+// interpretation is the engine's own (see `crate::adapters::value::arrayops`).
 //
-// Arg/return ABI convention (see `crate::value::abi_sig`):
+// Arg/return ABI convention (see `crate::adapters::value::abi_sig`):
 // - `U64` arg  = a raw PolyValue WORD (the boxed value, passed verbatim) — used
 //   for `indexOf`/`includes`/`push` so element equality matches storage.
 // - `I64` arg  = an index/range bound, unboxed to i64.

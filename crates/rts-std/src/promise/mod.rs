@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// (sem await no top-level) terminem antes do processo sair.
 pub(crate) static PENDING_PROMISE_TASKS: AtomicUsize = AtomicUsize::new(0);
 
-/// HOOK do slot de erro do MOTOR (rts-adapters `errslot`): o `throw` do motor
+/// HOOK do slot de erro do MOTOR (rts-runtime `adapters::errslot`): o `throw` do motor
 /// novo grava a WORD lançada num thread-local PRÓPRIO do codegen, distinto do
 /// slot handle legado (`__RTS_FN_RT_ERROR_*`). O watcher de `promise.create`
 /// consulta AMBOS ao decidir resolve/reject — sem o hook, um `throw` dentro de
@@ -31,12 +31,12 @@ pub(crate) static PENDING_PROMISE_TASKS: AtomicUsize = AtomicUsize::new(0);
 /// `(pending, take)`: `pending() != 0` ⇒ há erro; `take()` lê+limpa a word.
 /// Instalado pelo bootstrap do motor (JIT: `compile_program`; AOT: o shim main
 /// chama `__rtsadp_engine_bootstrap`). rts-std não pode depender de
-/// rts-adapters (direção de deps), daí o registro dinâmico.
+/// rts-runtime (direção de deps), daí o registro dinâmico.
 #[allow(clippy::type_complexity)]
 static ASYNC_ERR_HOOK: std::sync::OnceLock<(extern "C" fn() -> i64, extern "C" fn() -> u64)> =
     std::sync::OnceLock::new();
 
-/// Registra o leitor do slot de erro do motor (chamado pelo rts-adapters).
+/// Registra o leitor do slot de erro do motor (chamado pelo rts-runtime).
 pub fn set_async_error_hook(pending: extern "C" fn() -> i64, take: extern "C" fn() -> u64) {
     let _ = ASYNC_ERR_HOOK.set((pending, take));
 }

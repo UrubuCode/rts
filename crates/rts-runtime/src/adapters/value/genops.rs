@@ -50,7 +50,7 @@ pub(super) fn to_string(v: PolyValue) -> String {
     // joined by "," (JS `String([1,2,3])` = "1,2,3", `String([])` = ""), with
     // `null`/`undefined` elements rendering as the empty string. A keyed OBJECT
     // stays `[object Object]`.
-    if v.is_object() && !crate::value::inspect::looks_like_object(v) {
+    if v.is_object() && !crate::adapters::value::inspect::looks_like_object(v) {
         // A REAL array joins its elements; an OPAQUE runtime entry (Date /
         // RegExp / …) ToStrings through the runtime-layer authority
         // (`OPAQUE_TO_STRING` — entry-kind dispatch, no class name here);
@@ -93,7 +93,7 @@ pub(super) fn to_string(v: PolyValue) -> String {
 /// non-primitive (spec: TypeError; here the caller keeps its default coercion —
 /// never a wrong recursion).
 pub(super) fn to_primitive_via_method(v: PolyValue, hint: &str) -> Option<PolyValue> {
-    if !v.is_object() || !crate::value::inspect::looks_like_object(v) {
+    if !v.is_object() || !crate::adapters::value::inspect::looks_like_object(v) {
         return None;
     }
     // 1. `[Symbol.toPrimitive]` (canonicalized to the `@@toPrimitive` own slot).

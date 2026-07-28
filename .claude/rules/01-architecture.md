@@ -31,12 +31,15 @@ Cargo workspace in `crates/`. `src/` is the facade of the `rts` bin
 > **One codegen engine (post-cutover).** The old engine (`rts-codegen-old`) and
 > `rts-mir` are DELETED. `crates/rts-codegen-new/` is the live engine (single
 > HIR→Cranelift lowering, no MIR tier). The AOT-linked runtime trampolines
-> (`PolyValue` NaN-box + `__rtsadp_*`) live in `crates/rts-adapters/`; the
-> lowering-time-only slices (Repr lattice, shapes, codegen-state reset) live in
-> `crates/rts-codegen-new/` — only `dispatch` (Registry method metadata a
-> runtime trampoline also reads) stays in `rts-adapters` to avoid a dependency
-> cycle. Canonical design: `docs/specs/rts-codegen-new-design.md` (its file-path
-> map predates the `rts-adapters` extraction — trust the tree on disk).
+> (`PolyValue` NaN-box + `__rtsadp_*`) live in `crates/rts-runtime/src/adapters/`
+> — folded in from the former standalone `rts-adapters` crate, dissolved because
+> `rts-runtime` was already the direct dependency both it and the `rts` bin
+> needed; the lowering-time-only slices (Repr lattice, shapes, codegen-state
+> reset) live in `crates/rts-codegen-new/`. `adapters::dispatch` (Registry method
+> metadata a runtime trampoline also reads) is in the same crate now, so the old
+> cross-crate cycle concern no longer applies. Canonical design:
+> `docs/specs/rts-codegen-new-design.md` (its file-path map predates both
+> extractions — trust the tree on disk).
 
 ```
 crates/
@@ -46,12 +49,6 @@ crates/
   rts-engine/       — heap GC + ABI contract (abi:: SPECS, types, symbols,
                       signatures, Intrinsic, global_class, handles) + Registry/builder
   rts-hir/          — typed HIR (HirType I8..I128/F32/F64/Bool/Str/Handle/Array/Function/Class/Object/Any/Unknown)
-  rts-adapters/     — AOT-linked runtime trampoline crate:
-    src/value/      — PolyValue (64-bit NaN-box) + every `__rtsadp_*` trampoline
-    src/dispatch.rs — data-driven method resolution (Target / resolve_method);
-                      stays here (not rts-codegen-new) because a runtime
-                      trampoline (value::objops) reads it too — the reverse dep
-                      would cycle
   rts-codegen-new/  — THE engine (single HIR → Cranelift lowering, no MIR):
     src/repr.rs     — Repr lattice (Int32/Float64/Bool/Ref/Tagged) + join (soundness core)
     src/shape.rs    — hidden classes (Shape / transition tree / slot layout)
@@ -66,8 +63,11 @@ crates/
   rts-primitives/   — PRIMORDIAL classes
   rts-shared/       — non-primordial universal (math/num/collections/json/globals)
   rts-std/          — backend (io/net/tokio/console/promise impl)
-  rts-runtime/      — facade ("rts" + "rts:<ns>" submodules). NB: the AOT staticlib
-                      build.rs embeds is rts-adapters' (superset), not this crate's
+  rts-runtime/      — facade ("rts" + "rts:<ns>" submodules) + AOT staticlib
+                      build.rs embeds. src/adapters/ (formerly the standalone
+                      rts-adapters crate): value/ (PolyValue 64-bit NaN-box +
+                      every `__rtsadp_*` trampoline), dispatch.rs (data-driven
+                      method resolution — Target / resolve_method)
   rts-node/         — Node.js builtin shims (fs, os, path, process, crypto, util)
   rts-egui/         — egui-based GUI / web-UI engine. Follow the FROZEN plan
                       (docs/specs/html-engine/ + egui-ui-crate-design.md) — see the

@@ -148,12 +148,12 @@ fn is_array_proto_member(key: &str) -> bool {
     )
 }
 
-/// HOOK shape-object (instalado pelo rts-adapters no bootstrap do motor): um
+/// HOOK shape-object (instalado pelo rts-runtime no bootstrap do motor): um
 /// handle que NÃO é `Entry::Map` mas um OBJETO shape-vec do motor novo (uma
 /// instância de classe/fn-ctor cujo `this` chega à superfície de baixo nível
 /// `collections.map_*(this, …)` — #264) roteia pelo get/set shape-aware dos
 /// adapters (obj_get / obj_set com transition) em vez de virar no-op/0.
-/// `(get, set)`. rts-shared não pode depender de rts-adapters (direção de
+/// `(get, set)`. rts-shared não pode depender de rts-runtime (direção de
 /// deps), daí o registro dinâmico — o mesmo padrão do async-error hook.
 #[allow(clippy::type_complexity)]
 static SHAPED_OBJ_HOOK: std::sync::OnceLock<(
@@ -161,7 +161,7 @@ static SHAPED_OBJ_HOOK: std::sync::OnceLock<(
     extern "C" fn(u64, *const u8, i64, i64),
 )> = std::sync::OnceLock::new();
 
-/// Registra a ponte shape-object (chamado pelo rts-adapters no bootstrap).
+/// Registra a ponte shape-object (chamado pelo rts-runtime no bootstrap).
 pub fn set_shaped_object_hook(
     get: extern "C" fn(u64, *const u8, i64) -> i64,
     set: extern "C" fn(u64, *const u8, i64, i64),

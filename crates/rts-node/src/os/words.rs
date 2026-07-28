@@ -15,7 +15,7 @@ use rts_engine::heap::shapes::{
 
 unsafe extern "C" {
     fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
-    /// Runtime-layer throw bridge (rts-adapters): sets the engine pending-error
+    /// Runtime-layer throw bridge (rts-runtime): sets the engine pending-error
     /// slot with a real `kind` Error instance. Paired with `MemberFlags::THROWS`
     /// on the member so the front emits the post-call unwind check.
     fn __rtsadp_throw_js_error(

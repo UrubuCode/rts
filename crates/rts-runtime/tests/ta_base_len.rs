@@ -11,12 +11,12 @@ unsafe extern "C" {
 
 fn view_word_over(buf_bytes: i64, ctor: unsafe extern "C" fn(u64) -> u64) -> (u64, u64) {
     let bh = unsafe { __RTS_FN_NS_BUFFER_ALLOC_ZEROED(buf_bytes) };
-    let bw = rts_adapters::value::PolyValue::from_object_handle(unsafe {
+    let bw = rts_runtime::adapters::value::PolyValue::from_object_handle(unsafe {
         __RTS_FN_NS_GC_POLY_FROM_HANDLE(bh)
     })
     .raw();
     let vraw = unsafe { ctor(bw) };
-    let vw = rts_adapters::value::PolyValue::from_object_handle(unsafe {
+    let vw = rts_runtime::adapters::value::PolyValue::from_object_handle(unsafe {
         __RTS_FN_NS_GC_POLY_FROM_HANDLE(vraw)
     })
     .raw();

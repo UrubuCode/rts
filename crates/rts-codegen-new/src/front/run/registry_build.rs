@@ -257,15 +257,16 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
 ];
 
 /// Register the 8 TypedArray classes (Vec-backed level A — see
-/// `rts_adapters::value::taops`). Each ctor takes ONE polymorphic arg (length /
+/// `rts_runtime::adapters::value::taops`). Each ctor takes ONE polymorphic arg (length /
 /// source array / ArrayBuffer) and declares a `number[]` return, so the engine
 /// tracks the instance as a plain ARRAY (length/index/`Array.from`/`join`/`at`/
 /// `includes`/`slice` all ride the array surface; `set`/`subarray` are the two
-/// TypedArray-only dispatch rows). Registered HERE (not rts-runtime) because
-/// the ctor externs live in `rts-adapters` (they build PolyValue words), which
-/// rts-runtime cannot depend on.
+/// TypedArray-only dispatch rows). Registered HERE (not the runtime crate's own
+/// spec tables) because the ctor externs live in `rts-runtime::adapters` (they
+/// build PolyValue words) and reaching them belongs in the engine's registry
+/// build, not baked into the runtime crate itself.
 fn register_typed_array_class_specs(e: &mut Engine) {
-    use rts_adapters::value::taops as ta;
+    use rts_runtime::adapters::value::taops as ta;
     use rts_engine::{AbiType, FnPtr, Member, MemberFlags, MemberKind, Sig};
     let ctors: &[(&str, &str, *const u8)] = &[
         (
@@ -377,7 +378,7 @@ fn register_typed_array_class_specs(e: &mut Engine) {
                 kind: MemberKind::InstanceGetter,
                 sig: Sig::new(vec![AbiType::PolyValue], AbiType::PolyValue),
                 symbol: "__rtsadp_dyn_length".to_string(),
-                fn_ptr: FnPtr(rts_adapters::value::dyndispatch::__rtsadp_dyn_length as *const u8),
+                fn_ptr: FnPtr(rts_runtime::adapters::value::dyndispatch::__rtsadp_dyn_length as *const u8),
                 flags: MemberFlags::NONE,
                 aliases: Vec::new(),
                 variadic: false,

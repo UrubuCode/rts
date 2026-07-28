@@ -237,7 +237,7 @@ strangler-fig migration is over: the new engine is the only engine.**
 **The old engine is DELETED.** `crates/rts-codegen-old/` and the `rts-mir/` crate
 no longer exist (not in the workspace, not on disk). `rts run` / `rts compile` /
 `rts test` / `rts eval` all execute through the **new engine**
-(`crates/rts-codegen-new/`, value model in `crates/rts-adapters/`). The
+(`crates/rts-codegen-new/`, value model in `crates/rts-runtime/src/adapters/`). The
 `run-new` command and `scripts/measure_new.sh` still exist as the campaign harness from
 the migration; `run`/`run-new` are now the same engine. The old overloaded-`i64`
 value model, the 4.6k-LOC switchboard, and the 1113 manual `add_fn!` are gone.
@@ -260,7 +260,8 @@ representation (`PolyValue`, a 64-bit NaN-box) + hidden-class shapes + AOT-safe
 data inline-caches where it can't.* Canonical plan still
 `docs/specs/rts-codegen-new-design.md` — **read it before any engine work**
 (note: its file-path map is partly stale post-cutover; the value model now lives
-in the `rts-adapters` crate, not `rts-codegen-new/src/*.rs`).
+in `rts-runtime/src/adapters/`, not `rts-codegen-new/src/*.rs`; the `repr`/
+`shape`/`state` lowering-time slices are in `rts-codegen-new/src/` proper).
 
 ### How work is picked now
 Drive coverage up by attacking the largest failure cluster from the cross-runtime
@@ -418,7 +419,7 @@ Binding rules:
 The doctrine is the default in the engine: every non-primordial method is a
 `MethodSpec` metadata entry resolved through ONE generic path
 (`crates/rts-codegen-new/src/front/run/registry_call.rs` +
-`crates/rts-adapters/src/dispatch.rs`, `resolve_method`), and the JIT symbol
+`crates/rts-runtime/src/adapters/dispatch.rs`, `resolve_method`), and the JIT symbol
 table is **derived from `SPECS`** (the `adapter_symbols/` module, harvested from
 Registry fn-ptrs with a drift/coverage guard) — so a direct mention of a
 non-primordial class in the engine is simply not how dispatch is written. See
@@ -491,21 +492,24 @@ under `crates/<crate>/src/`.
 > **One codegen engine (post-cutover).** The old engine (`rts-codegen-old/`) and
 > the `rts-mir/` crate are **DELETED**. `crates/rts-codegen-new/` is the live
 > engine (single HIR→Cranelift lowering, no MIR tier). The AOT-linked runtime
-> trampolines (`PolyValue` NaN-box + `__rtsadp_*`) live in `crates/rts-adapters/`;
-> the lowering-time-only slices (Repr lattice, shapes, codegen-state reset) moved
-> into `crates/rts-codegen-new/` — only `dispatch` (Registry method metadata a
-> runtime trampoline also reads) stays in `rts-adapters` to avoid a dependency
-> cycle. Canonical design: `docs/specs/rts-codegen-new-design.md` (its file-path
-> map predates the `rts-adapters` extraction — trust the tree on disk over the
-> doc's paths).
+> trampolines (`PolyValue` NaN-box + `__rtsadp_*`) live in
+> `crates/rts-runtime/src/adapters/` — folded in from the former standalone
+> `rts-adapters` crate (dissolved: `rts-runtime` was already the direct
+> dependency both the crate and the `rts` bin needed, so there was no reason for
+> a separate crate); the lowering-time-only slices (Repr lattice, shapes,
+> codegen-state reset) live in `crates/rts-codegen-new/`. `adapters::dispatch`
+> (Registry method metadata a runtime trampoline also reads) is in the same
+> crate now, so the old cross-crate dependency-direction constraint is gone.
+> Canonical design: `docs/specs/rts-codegen-new-design.md` (its file-path map
+> predates both extractions — trust the tree on disk over the doc's paths).
 
 > **Runtime layer partition:** acyclic graph `rts-engine` (heap GC + ABI
 > vocab/SPECS + Registry/builder + collector contract) ← `rts-primitives`
 > (PRIMORDIAL classes — see the Primordial doctrine above) + `rts-shared`
 > (universal non-primordial: math/num/collections(Map/Set)/json/globals…) ←
 > `rts-std` (backend: io/net/tokio/console/promise impl) ← `rts-runtime` (thin
-> facade, `pub use` of all four; AOT staticlib). The engine reads everything via
-> the `rts-runtime` facade.
+> facade, `pub use` of all four, plus `adapters/` — the value model; AOT
+> staticlib). The engine reads everything via the `rts-runtime` facade.
 
 ```
 crates/
@@ -528,11 +532,6 @@ crates/
                       vocabulary now lives in rts-abi and is re-exported here
   rts-hir/          — typed HIR (I8..I128/F32/F64/Bool/Str/Handle/Array/Function/
                       Class/Object/Any/Unknown)
-  rts-adapters/     — AOT-linked runtime trampoline crate: value/ (PolyValue
-                      64-bit NaN-box + every `__rtsadp_*` trampoline),
-                      dispatch.rs (data-driven resolve_method — stays here, not
-                      rts-codegen-new, because a runtime trampoline reads it too
-                      and the reverse dep would cycle)
   rts-codegen-new/  — THE engine (single HIR → Cranelift lowering, no MIR). Map:
     src/repr.rs         — Repr lattice (Int32/Float64/Bool/Ref/Tagged) + join
     src/shape.rs        — hidden classes (compile-time shape interning)
@@ -547,8 +546,12 @@ crates/
                       Boolean/Number/Error+subclasses)
   rts-shared/       — non-primordial universal (math/num/collections/json/globals)
   rts-std/          — backend (io/net/tokio/console/promise impl)
-  rts-runtime/      — thin facade ("rts" + "rts:<ns>" submodules). NB: the AOT
-                      staticlib build.rs embeds is rts-adapters' (superset), not this
+  rts-runtime/      — thin facade ("rts" + "rts:<ns>" submodules) + AOT staticlib
+                      build.rs embeds. src/adapters/ (formerly the standalone
+                      rts-adapters crate) = value/ (PolyValue 64-bit NaN-box +
+                      every `__rtsadp_*` trampoline) + dispatch.rs (data-driven
+                      resolve_method, read by both codegen and a runtime
+                      trampoline — no cross-crate cycle since the move)
   rts-node/         — Node.js builtin shims (fs, os, path, process, crypto, util)
   rts-napi/         — N-API: Node.js native addons (.node) via libloading + the
                       engine HandleTable (ArrayBuffer/BigInt/External). 159 N-API
@@ -858,8 +861,7 @@ cargo run -- test tests/foo.test.ts        # one TS file, debug binary
 ### Before commit only (minutes)
 
 ```bash
-cargo build --release -p rts-adapters      # AOT runtime archive (see note)
-cargo build --release                      # release build
+cargo build --release                      # release build (also produces the AOT archive)
 target/release/rts.exe test                # FULL TS suite — merge gate, not a dev loop
 bash scripts/read_before_commit.sh         # the engine gate
 $env:RUST_BACKTRACE="full"; target/release/rts.exe run file.ts            # JIT
@@ -869,22 +871,23 @@ target/release/rts.exe apis                                   # list APIs
 
 Benchmarks are release-only, always — a debug number is not a number.
 
-**AOT archive is a two-step build.** The staticlib `build.rs` embeds for AOT
-linking is **`rts-adapters`'s**, NOT `rts-runtime`'s: `rts-adapters` is
-`crate-type = ["rlib","staticlib"]` and DEPENDS ON `rts-runtime`, so Cargo bundles
-rts-runtime's whole rlib (every `__RTS_*` extern "C" symbol) INTO the adapters
-staticlib alongside the codegen-owned `__rtsadp_*` trampolines — one archive,
-superset of the runtime archive, no merge, no duplicate symbols. Cargo only emits
-that staticlib when `rts-adapters` is a *direct* target, so build it first
-(`cargo build -p rts-adapters`) before building `rts`. Skipping it does NOT break
-the build or JIT — `build.rs` embeds a placeholder and `rts run` works; only `rts
-compile` (AOT) errors with a "rebuild the runtime archive" message until the
-staticlib exists. NOTE: after the staticlib appears, `build.rs` only re-embeds it
-if forced to re-run (`touch build.rs`) — a plain rebuild of an already-compiled
-`rts` keeps the placeholder; a fresh build (CI) runs `build.rs` in order and
-embeds it correctly. The two-step replaced a fragile build.rs that hand-picked
-dependency rlibs and could not disambiguate duplicate variants on CI
-(serde_core/time).
+**AOT archive is still a two-step build — it MOVED, it did not go away.** The
+staticlib `build.rs` embeds for AOT linking is **`rts-runtime`'s**: `rts-runtime`
+is `crate-type = ["rlib","staticlib"]` and, since the former standalone
+`rts-adapters` crate folded into it as `src/adapters/`, its staticlib now
+carries every `__RTS_*` extern "C" symbol AND the codegen-owned `__rtsadp_*`
+trampolines in one archive — no merge, no duplicate symbols.
+
+Run `cargo build -p rts-runtime` BEFORE building `rts`. Cargo emits a
+`staticlib` only for a package built as a DIRECT TARGET, and being a direct
+DEPENDENCY of the `rts` bin is NOT the same thing — so this is exactly the
+pre-step `cargo build -p rts-adapters` used to be, under a new name. Verified by
+measurement: without it a plain `cargo build` leaves a STALE archive carrying no
+`__rtsadp_*` symbols, and `rts compile` dies in the linker.
+
+Skipping the pre-step does NOT break JIT — `build.rs`
+embeds a placeholder and `rts run` works; only `rts compile` (AOT) errors with a
+"rebuild the runtime archive" message until the staticlib exists.
 
 **Mandatory:** always set `RUST_BACKTRACE=full` before running `rts.exe`.
 Without it crashes show a shallow stack; the crash handler (`src/crash.rs`)

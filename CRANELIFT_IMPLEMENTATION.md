@@ -894,7 +894,7 @@ abandoned. `rts run` (default) was never affected.
   gcell numbering, and the baker computes gcells over prelude-ALONE while the run
   computes them over prelude+user MERGED (the gcell-match gate exists precisely to
   catch a divergence). Skipping it to trust the manifest's gcells would defeat that
-  guard — the SIGILL/miscompile class `rts-adapters/src/state.rs` documents. The
+  guard — the SIGILL/miscompile class `rts-codegen-new/src/state.rs` documents. The
   only safely-skippable merge work is the cheap metadata `extend`s, which are not
   the bottleneck. Ganho projetado ~9→1-2 ms, risk = worst class. Not worth coupling
   to Slice 3; revisit only with a dedicated design that preserves `module_globals`.
@@ -912,7 +912,7 @@ stdout under baked-vs-fallback across a fixture set.
 Baked shape ids (immediates in prelude code) and gcell ids must be seeded at run
 time in the EXACT order the baker interned them — seed by explicit id, never
 re-intern, and assert `global_shape_count() == expected` after seeding. A mismatch
-is a silent miscompile / SIGILL (the class of bug `rts-adapters/src/state.rs`
+is a silent miscompile / SIGILL (the class of bug `rts-codegen-new/src/state.rs`
 documents from mis-timed resets).
 
 ---

@@ -7,8 +7,9 @@
 //! (`<output>.o`).
 //!
 //! LINK STEP: the emitted object is linked against the embedded runtime-support
-//! archive (now the `rts-adapters` staticlib — a SUPERSET of `rts-runtime` that
-//! also carries the `__rtsadp_*` adapter symbols) + the system CRT via
+//! archive (the `rts-runtime` staticlib, which also carries the `__rtsadp_*`
+//! value-model adapter symbols since the `rts-adapters` crate folded into it) +
+//! the system CRT via
 //! `rts-linker`, producing a standalone native executable. The archive is located
 //! through the bin-installed resolver ([`super::runtime_archive`]).
 

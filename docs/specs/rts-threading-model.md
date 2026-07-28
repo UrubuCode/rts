@@ -124,7 +124,7 @@ the non-exotic path.
   ×2 increments → `4`; before T1 it read `0`, each worker mutating a private
   copy). What it does NOT yet make sound is invoking a JS listener from a
   non-JS thread — the pending-error slot is still thread-local
-  (`rts-adapters/src/value/errslot.rs`) and blocker #5 (per-region microtask
+  (`rts-runtime/src/adapters/value/errslot.rs`) and blocker #5 (per-region microtask
   queues) is open, so event DISPATCH stays on the JS thread (see
   `rts-node`'s `emitter`/`loop_sources` pumps). T1 is the first of those
   blockers, not the whole of multithreaded dispatch.

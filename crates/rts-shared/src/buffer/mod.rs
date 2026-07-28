@@ -1052,7 +1052,7 @@ pub extern "C" fn __RTS_FN_NS_ENGINE_IS_BUFFER(word: u64) -> u64 {
         let h = rts_engine::heap::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(word & POLY_PAYLOAD_MASK);
         with_entry(h, |e| matches!(e, Some(Entry::Buffer(_))))
     };
-    // Singleton payloads: true = 3, false = 2 (rts-adapters layout).
+    // Singleton payloads: true = 3, false = 2 (rts-runtime layout).
     let sel = if yes { 3u64 } else { 2u64 };
     POLY_BOX_BASE | (POLY_TAG_SINGLETON << POLY_TAG_SHIFT) | sel
 }

@@ -789,7 +789,7 @@ Per-area mapping:
 | `diff` | `.ts`, Myers `O(N·D)` algorithm | Pure algorithm over `Array`/`string`, no native call |
 | `MIMEType`/`MIMEParams` | `.ts`, WHATWG MIME-Sniffing-Standard parser | Pure string algorithm, structured like `node:url`'s `URLSearchParams` (reuse that module's parameter-list dedupe-on-set logic per §4, if `node:url` lands first) |
 | `util.types.*` (most) | `.ts`, `instanceof`/branded-tag checks against primordial classes (`ArrayBuffer`, every `TypedArray`, `DataView`, `Map`, `Set`, `WeakMap`, `WeakSet`, `Promise`, `RegExp`, `Date`, boxed-primitive wrappers) | Primordial/Registry value-model tags already tracked by the engine — a thin `.ts` wrapper, no new native symbol |
-| `util.types.isProxy` | `.ts` **if** the engine already exposes a proxy-detection hook; otherwise a **new primordial-level primitive** | `Proxy` is primordial (engine tracks `proxy_parts` internally per CLAUDE.md's doctrine) — detecting "is this value a Proxy" is a value-model concern that belongs at the `rts-adapters`/engine layer, not a `node:util`-specific native (flagged §5.7/§7 if no such hook exists yet) |
+| `util.types.isProxy` | `.ts` **if** the engine already exposes a proxy-detection hook; otherwise a **new primordial-level primitive** | `Proxy` is primordial (engine tracks `proxy_parts` internally per CLAUDE.md's doctrine) — detecting "is this value a Proxy" is a value-model concern that belongs at the `rts-runtime's adapters module`/engine layer, not a `node:util`-specific native (flagged §5.7/§7 if no such hook exists yet) |
 | `util.types.isExternal` | Native, N-API-specific | `rts-napi`'s external-handle bookkeeping — a genuine cross-crate dependency (`rts-node` would need a narrow, explicit dependency on `rts-napi`'s handle-tag check, or `rts-napi` publishes the tag check somewhere lower shared crates can see; flagged §5.7/§7) |
 | `util.types.isCryptoKey`/`isKeyObject` | `.ts` **brand check** coordinated with `node:crypto` | `node:crypto`'s own `KeyObject`/`CryptoKey` classes (once implemented) must expose a stable, cheap-to-check brand (e.g. a private `Symbol` field or a class-identity check) that `node:util`'s `.ts` shim can import from `node:crypto`'s `.ts` shim — an **intra-`rts-node`** cross-module dependency, not a doctrine violation (both are `rts-node`-owned) |
 | `util.types.isModuleNamespaceObject` | Native or engine hook | ESM module-namespace objects are an engine/module-loader-internal concept — needs whatever internal tag the module resolver already stamps on these objects (a new small primitive if none exists yet; flagged §7) |
@@ -992,17 +992,17 @@ etc. in `crates/rts-node/src/lib.rs`:
   `rts-napi` doesn't already expose a cheap "is this an External" check
   usable from `rts-node`, one needs to be added there (owned by
   `rts-napi`, not duplicated in `rts-node`).
-- **An engine/`rts-adapters`-level Proxy-detection primitive**, needed by
+- **An engine/`rts-runtime's adapters module`-level Proxy-detection primitive**, needed by
   `util.types.isProxy`. Per the PRIMORDIAL-vs-REGISTRY doctrine, `Proxy`
   is primordial and the engine already tracks `proxy_parts` internally for
   its own `get`/`set`/`delete` trap dispatch (per CLAUDE.md); whether that
   internal tracking is *already* exposed as a queryable "is-proxy" fact
   needs verification — if not, this is a small addition at the
-  `rts-adapters`/engine layer (not `rts-node`-owned code, since it's a
+  `rts-runtime's adapters module`/engine layer (not `rts-node`-owned code, since it's a
   value-model concern), which `node:util`'s `.ts` shim would then call
   through whatever the engine's existing Proxy-primitive access pattern is
   (not a new `rts-std`-shaped dependency — `rts-node` may call into
-  `rts-engine`/`rts-adapters` directly, the same way it already depends on
+  `rts-engine`/`rts-runtime's adapters module` directly, the same way it already depends on
   `rts_engine::abi::AbiType` today).
 - **An engine/module-loader-level ESM-namespace-object tag**, needed by
   `util.types.isModuleNamespaceObject`. Similarly a module-system-internal
@@ -1318,7 +1318,7 @@ tests/node/util/util_worker_transferable_abort.test.ts (multithread, deferred un
 - **`util.types.isProxy`'s native hook** — does the engine already expose
   an internal "is this value a Proxy" fact usable outside its own
   `get`/`set`/`delete`-trap dispatch machinery? If not, this is a small
-  `rts-adapters`/engine-layer addition this spec depends on but does not
+  `rts-runtime's adapters module`/engine-layer addition this spec depends on but does not
   own.
 - **`util.types.isModuleNamespaceObject`'s tag** — same open question for
   RTS's ESM module-namespace representation.

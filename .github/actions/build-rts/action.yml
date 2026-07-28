@@ -1,8 +1,12 @@
 name: Build RTS
 description: >
-  Build the `rts` binary. The AOT runtime archive is a two-step build: Cargo only
-  emits rts-adapters' `staticlib` output (which build.rs embeds) when rts-adapters
-  is a direct target, so it is built first, then the `rts` bin picks it up.
+  Build the `rts` binary. The AOT runtime archive is a TWO-STEP build: Cargo
+  emits a `staticlib` only for a package built as a DIRECT TARGET, and being a
+  direct dependency of the `rts` bin is not the same thing. So `rts-runtime`
+  (which hosts the `__rtsadp_*` adapters under `src/adapters/`, folded in from
+  the former `rts-adapters` crate) is built first, then the `rts` bin picks up
+  the archive its build.rs embeds. Verified: without the pre-step the embedded
+  archive is stale, carries no `__rtsadp_*` symbols, and AOT fails to link.
 
 inputs:
   profile:
@@ -22,10 +26,10 @@ runs:
       shell: bash
       run: |
         if [ "${{ inputs.profile }}" = "release" ]; then
-          cargo build --release -p rts-adapters
+          cargo build --release -p rts-runtime
           cargo build --release
         else
-          cargo build -p rts-adapters
+          cargo build -p rts-runtime
           cargo build
         fi
 
@@ -34,13 +38,13 @@ runs:
       shell: pwsh
       run: |
         if ('${{ inputs.profile }}' -eq 'release') {
-          cargo build --release -p rts-adapters
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo build --release -p rts-runtime
+          if ( -ne 0) { exit  }
           cargo build --release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         } else {
-          cargo build -p rts-adapters
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo build -p rts-runtime
+          if ( -ne 0) { exit  }
           cargo build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         }

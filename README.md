@@ -218,7 +218,7 @@ Full state and technical backlog: [issue #1793](https://github.com/UrubuCode/rts
 > **The cutover happened.** The old engine (`rts-codegen-old`) and the MIR
 > tier (`rts-mir`) are **deleted** — `crates/rts-codegen-new/` is the only
 > engine (single HIR→Cranelift path; `PolyValue` NaN-boxed value model in
-> `crates/rts-adapters/`; hidden-class shapes + AOT-safe data inline caches;
+> `crates/rts-runtime/src/adapters/`; hidden-class shapes + AOT-safe data inline caches;
 > data-driven dispatch). Canonical design:
 > [`docs/specs/rts-codegen-new-design.md`](docs/specs/rts-codegen-new-design.md).
 > Public-surface direction:
@@ -235,14 +235,16 @@ crates/
 ├─ rts-engine/       ⚡ heap GC + ABI contract (SPECS, AbiType, Intrinsic, symbols)
 │                    + Registry/builder + global shape registry
 ├─ rts-hir/          typed HIR (I8..I128/F32/F64/Bool/Str/Handle/Array/Function/Class/Object/Any)
-├─ rts-adapters/     value model — PolyValue (64-bit NaN-box), Repr lattice,
-│                    shapes + data ICs, data-driven dispatch, runtime trampolines
 ├─ rts-codegen-new/  THE engine — front/run (single HIR→Cranelift lowering),
-│                    module_jit + module_aot, adapter_symbols (JIT table harvested from SPECS)
+│                    module_jit + module_aot, adapter_symbols (JIT table harvested from SPECS),
+│                    repr.rs (Repr lattice) + shape.rs (hidden-class shapes) + state.rs
 ├─ rts-primitives/   PRIMORDIAL classes (String/Object/Array/Function/Promise/Boolean/Number/Error…)
 ├─ rts-shared/       non-primordial universal (collections/json/globals + stdlib/*.ts preludes)
 ├─ rts-std/          backend (io/net/tokio/console/promise/streams/audio)
-├─ rts-runtime/      thin facade (pub use of the four above) + AOT staticlib
+├─ rts-runtime/      thin facade (pub use of the four above) + AOT staticlib;
+│                    src/adapters/ = value model (PolyValue 64-bit NaN-box +
+│                    runtime trampolines + data-driven dispatch) — folded in
+│                    from the former rts-adapters crate
 ├─ rts-node/         node:* shims (fs, os, path, process, crypto, util)
 ├─ rts-napi/         N-API (.node addons) via libloading + HandleTable
 ├─ rts-dom/          headless HTML+CSS engine (DOM → cascade → layout → display list)

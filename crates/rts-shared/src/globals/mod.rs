@@ -9,7 +9,7 @@
 // boolean → PRIMORDIAL: movido p/ `rts-primitives` (Fase 2). Re-exportado pela
 // fachada `rts-runtime::namespaces::globals::boolean`.
 // bigint: register_bigint_class_spec removido (DRAIN_MOTOR) — nunca chamado;
-// BigInt real é PRIMORDIAL via rts_adapters::value::taops (registry_build.rs).
+// BigInt real é PRIMORDIAL via rts_runtime::adapters::value::taops (registry_build.rs).
 // number → PRIMORDIAL: movido p/ `rts-primitives` (Fase 2).
 pub mod date;
 pub mod point;

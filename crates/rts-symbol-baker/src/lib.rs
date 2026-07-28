@@ -61,12 +61,12 @@ pub use scan::{Declaration, scan_workspace};
 /// The crates scanned for exported symbols, in scan order.
 ///
 /// These are the crates whose `#[no_mangle] extern "C"` functions end up in the
-/// linked image — the JIT binary and, via the `rts-adapters` staticlib, the AOT
+/// linked image — the JIT binary and, via the `rts-runtime` staticlib (which
+/// hosts the value-model `__rtsadp_*` trampolines under `adapters/`), the AOT
 /// archive. A crate absent from this list contributes no symbols; a crate
 /// present but not linked would make the generated extern declarations fail to
 /// resolve, which is a loud link error by design.
 pub const SCANNED_CRATES: &[&str] = &[
-    "rts-adapters",
     "rts-egui",
     "rts-engine",
     "rts-napi",

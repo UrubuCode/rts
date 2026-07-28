@@ -279,7 +279,7 @@ mod tests {
 
 // ===========================================================================
 // THENABLE assimilation hook (Promise/A+ resolution). The probe lives in the
-// value-model layer (rts-adapters — it reads object shapes); rts-std cannot
+// value-model layer (rts-runtime — it reads object shapes); rts-std cannot
 // depend on it, so the engine bootstrap installs the fn-ptr here (the same
 // pattern as the async error hook). `probe(value) != 0` returns the value's
 // callable `.then` as a function WORD.

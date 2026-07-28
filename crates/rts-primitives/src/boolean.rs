@@ -28,7 +28,7 @@ use rts_engine::heap::handles::{rtse_class_of, with_rtse};
 
 use rts_engine::abi::ty::Poly;
 
-// JS `ToBoolean` on a raw PolyValue word — defined in `rts-adapters` (above this
+// JS `ToBoolean` on a raw PolyValue word — defined in `rts-runtime` (above this
 // crate), reached via a forward `extern "C"` decl (layering-safe: rts-primitives
 // is an rlib, the symbol resolves at the final link). Same pattern
 // `string/value_class.rs` uses for `__rtsadp_to_string`.

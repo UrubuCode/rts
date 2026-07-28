@@ -3,7 +3,7 @@
 //! `mod.rs` (the value-class ctor/methods) purely for the file-size ceiling;
 //! these are plain private fns, no `#[rtse::*]` surface of their own — EXCEPT
 //! [`__RTS_FN_GL_NUMBER_TO_STRING_RADIX`], a real extern kept for a second
-//! caller: `rts-adapters`'s `__rtsadp_dyn_to_string_radix` (the DYNAMIC/
+//! caller: `rts-runtime`'s `__rtsadp_dyn_to_string_radix` (the DYNAMIC/
 //! unproven-receiver `x.toString(radix)` path) calls it directly through the
 //! `rts-std` `engine` bridge, so it must stay reachable outside the value-class
 //! method dispatch this file otherwise only serves.
@@ -52,7 +52,7 @@ pub(super) fn to_string_radix(v: f64, radix: i64) -> String {
 }
 
 /// `n.toString(radix)` as a real extern — the DYNAMIC/unproven-receiver path
-/// (`rts-adapters::value::dyndispatch::__rtsadp_dyn_to_string_radix`, reached via
+/// (`rts-runtime::adapters::value::dyndispatch::__rtsadp_dyn_to_string_radix`, reached via
 /// the `rts-std` `engine` bridge re-export) calls this directly. LOAD-BEARING.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_NUMBER_TO_STRING_RADIX(v: f64, radix: i64) -> u64 {

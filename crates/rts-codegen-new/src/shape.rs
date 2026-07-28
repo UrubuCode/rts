@@ -31,7 +31,7 @@ pub type SlotIdx = u32;
 // The process-global shape-id registry MOVED to `rts-engine::heap::shapes` so
 // the whole runtime layer (rts-std/rts-shared) can mint shaped objects instead
 // of legacy `Entry::Map` dictionary rows. Re-exported here so every existing
-// `crate::shape::*` / `rts_adapters::shape::*` path keeps working.
+// `crate::shape::*` path keeps working.
 pub use rts_engine::heap::shapes::{
     GLOBAL_SHAPE_BASE, GlobalShapeId, error_class_info, global_shape_count, global_shape_keys,
     global_shape_slot_of, intern_class_shape, intern_global_shape, register_class_shape,

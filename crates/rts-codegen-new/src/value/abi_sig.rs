@@ -1116,7 +1116,7 @@ mod desc_agreement {
     #[test]
     fn descriptors_match_the_hand_table() {
         // Grows as `#[rtse::abi]` is applied to more symbols (F7 drains the rest).
-        agree(rts_adapters::value::objops::OBJ_GET_ABI);
+        agree(rts_runtime::adapters::value::objops::OBJ_GET_ABI);
         // Number predicates pilot (`#[rtse::class]`-derived, not `#[rtse::abi]`) —
         // same guard, same `SymbolDesc` shape either macro emits.
         agree(rts_runtime::NumberWrapper::IS_INTEGER_SYM);

@@ -1,10 +1,10 @@
 //! Process-global SHAPE registry — `GlobalShapeId` → ordered key list.
 //!
-//! Moved here from `rts-adapters::shape` so the WHOLE runtime layer (rts-std /
-//! rts-shared, which sit BELOW rts-adapters) can mint shaped objects — the
+//! Moved here from `rts-runtime::shape` so the WHOLE runtime layer (rts-std /
+//! rts-shared, which sit BELOW rts-runtime) can mint shaped objects — the
 //! `{ shape_id, slots }` object model — instead of legacy `Entry::Map`
 //! dictionary rows. The compile-time `ShapeTable` (per-compilation local ids)
-//! stays in `rts-adapters::shape`; only the process-global id registry and the
+//! stays in `rts-runtime::shape`; only the process-global id registry and the
 //! Error-class registry live here.
 
 use std::collections::HashMap;
@@ -67,7 +67,7 @@ pub fn intern_class_shape(keys: &[String]) -> GlobalShapeId {
 }
 
 /// Drop every interned global shape. Called at the START of each program
-/// compile (one live program per process — see `rts-adapters::state`).
+/// compile (one live program per process — see `rts-runtime::adapters::state`).
 pub fn reset_global_shapes() {
     let mut reg = registry().lock().expect("global shape registry poisoned");
     reg.keys.clear();
@@ -389,7 +389,7 @@ pub fn global_shape_slot_of(id: GlobalShapeId, key: &str) -> Option<usize> {
 
 /// INT32 tag of the PolyValue NaN-box (shape ids ride slot 0 as boxed INT32).
 const POLY_TAG_INT32: u64 = 1;
-/// Singleton tag + payloads (mirrors `rts-adapters::value::layout` — frozen ABI).
+/// Singleton tag + payloads (mirrors `rts-runtime::adapters::value::layout` — frozen ABI).
 const POLY_TAG_SINGLETON: u64 = 2;
 const SINGLETON_NULL: u64 = 1;
 const SINGLETON_FALSE: u64 = 2;
@@ -512,7 +512,7 @@ pub fn alloc_shaped_object_with_id(id: GlobalShapeId, values: &[i64]) -> u64 {
 /// its own word EXCEPT a NaN must canonicalize to the positive qNaN
 /// (`f64::NAN`, sign bit 0) so it can never collide with the boxed-word space
 /// (`POLY_BOX_BASE` requires the sign bit set) — mirrors
-/// `rts-adapters::value::PolyValue::from_f64`.
+/// `rts-runtime::adapters::value::PolyValue::from_f64`.
 pub fn f64_word(x: f64) -> u64 {
     if x.is_nan() { f64::NAN.to_bits() } else { x.to_bits() }
 }

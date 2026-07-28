@@ -12,7 +12,7 @@ Today, for `__rtsadp_obj_get`:
 
 | # | Where | What it says |
 |---|---|---|
-| 1 | `rts-adapters/src/value/objops.rs` | the `#[unsafe(no_mangle)] pub extern "C" fn` definition |
+| 1 | `rts-runtime/src/adapters/value/objops.rs` | the `#[unsafe(no_mangle)] pub extern "C" fn` definition |
 | 2 | `rts-codegen-new/src/adapter_symbols/list_b.rs` | `(name, fn_ptr)` for the JIT symbol table |
 | 3 | `rts-codegen-new/src/value/abi_sig.rs` | `SymSig { params, ret }` for the Cranelift signature |
 | 4 | ~25 lowering files | the literal string `"__rtsadp_obj_get"` at each call site |

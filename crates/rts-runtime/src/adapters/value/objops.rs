@@ -14,7 +14,7 @@
 //!
 //! - The receiver must be a `TAG_OBJECT` keyed object (slot-0 header is a live
 //!   shape-id whose key count matches the Vec length — the same
-//!   [`crate::value::inspect::looks_like_object`] discriminator the inspect path
+//!   [`crate::adapters::value::inspect::looks_like_object`] discriminator the inspect path
 //!   uses). An array word, a number, a string, `undefined`/`null` — anything that
 //!   is NOT a keyed object — reads `undefined` and a set is a no-op. That is JS-
 //!   correct for a missing property, but NOT for `"str".length` / `(5).toString`;
@@ -713,7 +713,7 @@ pub extern "C" fn __rtsadp_obj_has(obj_word: u64, key_str_handle: u64) -> i64 {
                 // SAME dispatch rows the method dispatch reads (data-driven) — plus
                 // the inherited Object.prototype members, read as REAL slots off the
                 // shared root (no hardcoded member list).
-                return (crate::dispatch::array_has_method(&key)
+                return (crate::adapters::dispatch::array_has_method(&key)
                     || __rtsadp_obj_has(super::protos::object_proto_root(), key_str_handle) != 0)
                     as i64;
             }

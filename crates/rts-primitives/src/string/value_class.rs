@@ -33,7 +33,7 @@ use rts_engine::heap::poly::{POLY_UNDEFINED, poly_handle_normalize};
 
 use super::strops::{self, STR_END};
 
-// JS `ToString` trampoline — defined in `rts-adapters` (above this crate), reached
+// JS `ToString` trampoline — defined in `rts-runtime` (above this crate), reached
 // via a forward `extern "C"` decl (layering-safe: rts-primitives is an rlib, the
 // symbol resolves at the final link). The value-model coercion the ctor/concat use.
 unsafe extern "C" {

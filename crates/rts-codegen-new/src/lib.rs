@@ -96,13 +96,16 @@ pub mod adapter_symbols;
 pub mod front;
 pub mod stats;
 pub mod timing;
-// The runtime-side value model (the NaN-box `PolyValue`, hidden-class `shape`s,
-// `ic` cells, data `dispatch`, the `repr` lattice, compile-time `state`) now
-// lives in the Cranelift-free `rts-adapters` crate so it links into AOT binaries
-// as a staticlib. Re-exported here so every `crate::{dispatch,ic,repr,shape,
-// state}` path keeps resolving unchanged. The `value` module below is the facade
-// that adds back the Cranelift emit side.
-pub use rts_adapters::dispatch;
+// The runtime-side value model (the NaN-box `PolyValue`, its `__rtsadp_*`
+// trampolines, and data `dispatch`) lives in `rts_runtime::adapters` (folded in
+// from the former Cranelift-free `rts-adapters` crate, which linked into AOT
+// binaries as a staticlib the same way `rts-runtime` itself now does
+// directly); `dispatch` is re-exported here so `crate::dispatch` keeps
+// resolving unchanged. The lowering-time-only `repr` lattice, hidden-class
+// `shape`s, and compile-time `state` are NOT part of that runtime surface —
+// they stay as ordinary modules in this crate. The `value` module below is the
+// facade that adds back the Cranelift emit side.
+pub use rts_runtime::adapters::dispatch;
 pub mod repr;
 pub mod shape;
 pub mod state;

@@ -4,10 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 # rlib: linked into the `rts` bin for the JIT path.
-# staticlib: cargo bundles all deps + the __RTS_* extern "C" symbols into one
-#   archive (librts_runtime.a / rts_runtime.lib) that the AOT linker pulls in.
-#   This replaces the fragile hand-rolled rustc invocation in build.rs that
-#   could not reliably disambiguate duplicate dependency rlib variants on CI.
+# staticlib: cargo bundles all deps + the __RTS_* extern "C" symbols, plus the
+#   `__rtsadp_*` value-model trampolines (`src/adapters/`, folded in from the
+#   former `rts-adapters` crate), into one archive (librts_runtime.a /
+#   rts_runtime.lib) that the AOT linker pulls in. This replaces the fragile
+#   hand-rolled rustc invocation in build.rs that could not reliably
+#   disambiguate duplicate dependency rlib variants on CI.
 [lib]
 crate-type = ["rlib", "staticlib"]
 
@@ -29,6 +31,13 @@ rts-engine = { path = "../rts-engine" }
 rts-primitives = { path = "../rts-primitives" }
 rts-shared = { path = "../rts-shared" }
 rts-std = { path = "../rts-std" }
+# `#[rtse::abi]`-generated `SymbolDesc` consts reference `::rts_abi::` directly.
+rts-abi = { path = "../rts-abi" }
+# `#[rtse::abi]` — emits the `SymbolDesc` const beside each codegen-owned
+# `__rtsadp_*` trampoline (folded in from the former `rts-adapters` crate under
+# `src/adapters/`), with the ABI shape derived from the Rust signature. See
+# docs/specs/rts-macro-single-source.md (F0).
+rtse = { package = "rts-macro", path = "../rts-macro" }
 # rts-node: native Node.js API surface (node:* modules). Independent crate —
 # owns its own impls, never mirrors rts-std. Re-exported as `namespaces::<mod>`;
 # resolved via the Registry (see docs/node-implementation/).

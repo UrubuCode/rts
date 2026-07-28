@@ -12,8 +12,8 @@
 - `rts.d.ts` contains only `declare module "rts"` — generated from `abi::SPECS`,
   CI lints the committed file against the generator
 - Build is via `cargo` directly — `xtask` was removed. The project is a crate
-  workspace in `crates/` (the engine is `rts-codegen-new` + the `rts-adapters`
-  value model); `cargo test --workspace` covers all crates in one run
+  workspace in `crates/` (the engine is `rts-codegen-new` + the `rts-runtime`
+  `adapters/` value model); `cargo test --workspace` covers all crates in one run
 
 ## General design rules
 
@@ -280,8 +280,9 @@ powershell.exe -ExecutionPolicy Bypass -File bench/benchmark.ps1
 
 ## Status
 
-The cutover happened: `rts-codegen-new` (value model in `rts-adapters`) is the
-only engine; the old engine + `rts-mir` are deleted. Honest cross-runtime parity
+The cutover happened: `rts-codegen-new` (value model in
+`rts-runtime/src/adapters/`) is the only engine; the old engine + `rts-mir` are
+deleted. Honest cross-runtime parity
 is **~76.5%** as of 2026-07-05 (auto-updated badge; re-measure before quoting) —
 the engine has the sound value model and is re-filling coverage. The deleted old
 engine's 100% (372/372, tag `v0.0-202606072107`) is the bar to re-clear. Always

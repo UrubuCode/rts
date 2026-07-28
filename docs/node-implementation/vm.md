@@ -737,7 +737,7 @@ table (`crates/rts-node/src/lib.rs`, same pattern as `fs`/`path`/`os`/
 carry genuinely arbitrary JS values across the boundary: a run's return value,
 a contextified object's global-property values, a `SyntheticModule` export
 value, `import.meta`/`ModuleRequest.attributes` objects. Since `rts-node`
-cannot depend on `rts-adapters` (the crate owning the `PolyValue` NaN-box
+cannot depend on `rts-runtime's adapters module` (the crate owning the `PolyValue` NaN-box
 Rust type), these cross as an **opaque, uninterpreted `I64`** — the raw
 NaN-boxed bit pattern — which `rts-node` only ever stores and returns
 unchanged, never decodes. This mirrors a pattern already established

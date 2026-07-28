@@ -1,7 +1,7 @@
 //! Function — classe global do tipo primitivo JS Function (#359).
 //!
 //! Os externs `__RTS_FN_GL_FUNCTION_*` vivem em `ops.rs`/`props.rs` e são
-//! chamados diretamente pelo motor novo (`rts-adapters`/`rts-codegen-new`).
+//! chamados diretamente pelo motor novo (`rts-runtime`/`rts-codegen-new`).
 //! O builder `register_function_class_spec` (que montava um `Member` table
 //! hand-written pro Registry) foi removido em DRAIN_MOTOR — nunca era
 //! chamado por nenhum path de REGISTER/populate; dispatch real de `.call`/

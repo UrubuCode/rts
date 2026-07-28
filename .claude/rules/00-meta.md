@@ -31,7 +31,7 @@ Read these files in order (path relative to repo root):
 | File | Content |
 |---|---|
 | `.claude/rules/00-meta.md` | This file — meta + local-rules + regress-when-needed + current-status |
-| `.claude/rules/01-architecture.md` | Project + Architecture (single engine + rts-adapters) + ABI + Namespaces |
+| `.claude/rules/01-architecture.md` | Project + Architecture (single engine + rts-runtime adapters) + ABI + Namespaces |
 | `.claude/rules/02-runtime.md` | HandleTable + tokio + GC (PolyValue scanner note) + State |
 | `.claude/rules/03-features.md` | New value model (PolyValue/Repr/shapes/ICs) + target semantics |
 | `.claude/rules/04-workflow.md` | Conventions + progress bar + issues + tests + benchmarks |
@@ -72,17 +72,21 @@ this list in the same commit.
 ## MANDATORY RULE: DRIVE COVERAGE BY MEASURED CLUSTERS
 
 The migration is over — there is ONE engine (`crates/rts-codegen-new/`). The
-AOT-linked runtime trampolines (PolyValue + `__rtsadp_*`) live in the
-`rts-adapters` crate; the lowering-time slices (Repr lattice, shapes,
-codegen-state reset) live in `rts-codegen-new/src/`. The phase roadmap (P0→P5)
-is done through the cutover. `docs/specs/rts-codegen-new-design.md` is still the
-canonical **architecture** reference (PolyValue / Repr lattice / shapes + data
-ICs / data-driven dispatch / single lowering); read it before any engine work.
-Note its file-path map is **stale** — it describes `value.rs`/`ic.rs`/
-`abi_gen.rs` under `rts-codegen-new/src/`, but the value model lives in the
-`rts-adapters` crate, `ic.rs` no longer exists, and there is no `abi_gen.rs`
-(the JIT symbol table is harvested in `crates/rts-codegen-new/src/adapter_symbols/`).
-Trust the tree on disk over the doc's paths.
+AOT-linked runtime trampolines (PolyValue + `__rtsadp_*`) live in
+`crates/rts-runtime/src/adapters/` (folded in from the former standalone
+`rts-adapters` crate — `rts-runtime` was already the direct dependency both it
+and the `rts` bin needed, so the separate crate added nothing); the
+lowering-time slices (Repr lattice, shapes, codegen-state reset) live in
+`rts-codegen-new/src/`. The phase roadmap (P0→P5) is done through the cutover.
+`docs/specs/rts-codegen-new-design.md` is still the canonical **architecture**
+reference (PolyValue / Repr lattice / shapes + data ICs / data-driven dispatch /
+single lowering); read it before any engine work. Note its file-path map is
+**stale** — it describes `value.rs`/`ic.rs`/`abi_gen.rs` under
+`rts-codegen-new/src/`, but the value model lives in
+`rts-runtime/src/adapters/`, `ic.rs` no longer exists, and there is no
+`abi_gen.rs` (the JIT symbol table is harvested in
+`crates/rts-codegen-new/src/adapter_symbols/`). Trust the tree on disk over the
+doc's paths.
 
 ### How to apply
 
@@ -159,7 +163,7 @@ Do not act on stale numbers or a stale architecture. The "94.3%" / "100%" /
 
 - **The cutover happened.** The old engine (`rts-codegen-old`) and `rts-mir` are
   DELETED. `crates/rts-codegen-new/` is the only engine (runtime trampolines in
-  `crates/rts-adapters/`); `rts run`/`compile`/`test`/`eval` run it. AOT works
+  `crates/rts-runtime/src/adapters/`); `rts run`/`compile`/`test`/`eval` run it. AOT works
   (`rts compile` emits `.o` + native link). Canonical architecture:
   `docs/specs/rts-codegen-new-design.md` (path map stale — see the rule above).
 - **Honest parity now: ~76.5%** as of 2026-07-05 (auto-updated badge; climbed

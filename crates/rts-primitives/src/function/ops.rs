@@ -1289,9 +1289,9 @@ pub fn invoke_fn_ptr_with_registry(fn_ptr: u64, args: &[i64]) -> i64 {
 /// termine com `proto.constructor.name === "Object"` antes do null.
 ///
 /// INTENCIONALMENTE separado do `object_proto_root` do engine
-/// (`rts-adapters::value::protos`, um objeto Vec-keyed com slots reais): este e'
+/// (`rts-runtime::adapters::value::protos`, um objeto Vec-keyed com slots reais): este e'
 /// Map-backed e serve a chain legacy de Map/Set (string-sentinels), numa CAMADA
-/// que NAO pode alcancar o rts-adapters (rts-shared/rts-primitives estao ABAIXO
+/// que NAO pode alcancar o rts-runtime (rts-shared/rts-primitives estao ABAIXO
 /// dele). Reps incompativeis (Map vs Vec-keyed) + layering ⇒ NAO e' uma duplicata
 /// de proto do engine a unificar; e' um artefato de camada aceito.
 #[unsafe(no_mangle)]

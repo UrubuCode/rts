@@ -28,7 +28,7 @@ Two fields pointing at one object stay ONE object after a trip.
 - **The engine never names a non-primordial class.** Date and RegExp plug in
   through `ExtCodec` (tag + encode/decode fn-ptrs) registered by rts-shared
   (`serde_ns/codecs.rs`) at namespace-register time. Class-instance proto
-  attachment goes through a `ClassReviveHook` installed by rts-adapters at
+  attachment goes through a `ClassReviveHook` installed by rts-runtime at
   engine bootstrap (`errslot::install_async_error_hook` →
   `protos::pickle_class_revive`) — the proto tables live above the engine.
 - **Class identity**: the generic `name ↔ shape id` registry in

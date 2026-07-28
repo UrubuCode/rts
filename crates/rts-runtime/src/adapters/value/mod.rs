@@ -80,7 +80,7 @@
 //! in the boxed space and round-trips as an ordinary double. (Tested.)
 
 // Bit-layout constants + `encode`, split out to keep this file under 500 lines.
-// Re-exported below so call sites (`crate::value::BOX_BASE`, `encode`, …)
+// Re-exported below so call sites (`crate::adapters::value::BOX_BASE`, `encode`, …)
 // resolve unchanged. (The Cranelift `emit`/`abi_sig`/`emit_marshal` helpers and
 // the JIT-roundtrip `tests` stay in `rts-codegen-new::value` — this crate is
 // Cranelift-free so it links into AOT binaries.)

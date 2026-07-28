@@ -220,7 +220,7 @@ pub extern "C" fn __rtsadp_thenable_then(value: i64) -> u64 {
     // Normalize a RAW live handle (a settled value from the i64 surface) to
     // its object word; a boxed word passes through; plain numbers bail.
     let obj_word = {
-        let v = crate::value::PolyValue::from_raw(w);
+        let v = crate::adapters::value::PolyValue::from_raw(w);
         if v.is_object() {
             w
         } else if !v.is_boxed() && w >= (1u64 << 48) {
@@ -229,7 +229,7 @@ pub extern "C" fn __rtsadp_thenable_then(value: i64) -> u64 {
             if !live_keyed {
                 return 0;
             }
-            crate::value::PolyValue::from_object_handle(
+            crate::adapters::value::PolyValue::from_object_handle(
                 rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(w),
             )
             .raw()
@@ -237,9 +237,9 @@ pub extern "C" fn __rtsadp_thenable_then(value: i64) -> u64 {
             return 0;
         }
     };
-    let key = crate::value::abi_adapter::intern_poly_const("then").raw();
+    let key = crate::adapters::value::abi_adapter::intern_poly_const("then").raw();
     let then_w = super::objops::__rtsadp_obj_get(obj_word, key);
-    if crate::value::PolyValue::from_raw(then_w).is_function() {
+    if crate::adapters::value::PolyValue::from_raw(then_w).is_function() {
         then_w
     } else {
         0

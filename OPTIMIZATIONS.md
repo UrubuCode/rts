@@ -119,7 +119,7 @@ outcome:
   this pass landed, `(s as any)["to"+"UpperCase"]()` did not work in the engine
   at all — it failed identically with `RTS_NO_PRUNE=1`, so the pass was not what
   broke it. That engine limitation has since been FIXED (autoboxing onto the
-  primordial wrapper prototypes, `crates/rts-adapters/src/value/protos.rs`),
+  primordial wrapper prototypes, `crates/rts-runtime/src/adapters/value/protos.rs`),
   which made the gap live: a primitive autoboxes by TAG, so nothing spells
   `String`/`Number`/`Boolean` and neither edge kind keeps them. They are now
   seeded as roots unconditionally — measured cost **280 → 293** kept functions,
@@ -417,7 +417,7 @@ those defaults is expensive:
 **What.** The release profile built EVERYTHING at `opt-level = "z"` (optimize for
 size). Two per-package overrides to `3`, for two different reasons:
 
-- **Compile path** (`rts-codegen-new`, `rts-adapters`, `rts-parser`, `rts-hir`,
+- **Compile path** (`rts-codegen-new`, `rts-runtime` (adapters module), `rts-parser`, `rts-hir`,
   `rts-engine`, `cranelift-*`, `regalloc2`, `swc_*`) — runs on every `rts run` /
   `rts compile`, so size-optimizing it taxes every invocation.
 - **Runtime** (`rts-primitives`, `rts-shared`, `rts-std`, `rts-runtime`) — this is

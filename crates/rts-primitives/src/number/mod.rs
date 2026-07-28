@@ -56,7 +56,7 @@ use rts_engine::heap::poly::{POLY_UNDEFINED, poly_handle_normalize, poly_number}
 
 use format::{to_exponential_str, to_fixed_str, to_precision_str, to_string_radix};
 
-// JS `ToNumber` on a raw PolyValue word — defined in `rts-adapters` (above this
+// JS `ToNumber` on a raw PolyValue word — defined in `rts-runtime` (above this
 // crate), reached via a forward `extern "C"` decl (layering-safe: rts-primitives
 // is an rlib, the symbol resolves at the final link). Same pattern
 // `boolean.rs`/`string/value_class.rs` use for their own coercion trampolines.
@@ -178,7 +178,7 @@ impl NumberWrapper {
     }
 
     // ── parseInt / parseFloat ────────────────────────────────────────────────
-    // LOAD-BEARING symbols: `rts-adapters::value::globalops`'s
+    // LOAD-BEARING symbols: `rts-runtime::adapters::value::globalops`'s
     // `__rtsadp_g_parse_int`/`_g_parse_float` (backing BOTH `Number.parseInt`/
     // `parseFloat` and the bare global `parseInt`/`parseFloat` the codegen
     // lowers directly) call these exact `__rtsm_global_number_parse_*` symbols

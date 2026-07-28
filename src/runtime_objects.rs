@@ -73,7 +73,7 @@ fn ensure_host_artifact(path: &Path) -> Result<PathBuf> {
         bail!(
             "runtime archive is a placeholder — it was not built when `rts` was \
              compiled. AOT (`rts compile`) needs the full runtime staticlib. \
-             Build it with `cargo build -p rts-adapters` (matching the profile), \
+             Build it with `cargo build -p rts-runtime` (matching the profile), \
              then rebuild `rts`. JIT (`rts run`) does not require this."
         );
     }

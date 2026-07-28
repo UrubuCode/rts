@@ -239,7 +239,7 @@ anything about this phase.
 ## Phase 1 — close the conservative `Tagged` widenings (Axis A)
 
 `Repr::join` is deliberately total and pessimistic
-(`crates/rts-adapters/src/repr.rs`): disagreement widens to `Tagged`. That is
+(`crates/rts-codegen-new/src/repr.rs`): disagreement widens to `Tagged`. That is
 correct and must stay correct. But several widenings today are *artifacts of
 lowering order*, not of genuine disagreement.
 
@@ -300,7 +300,7 @@ summary needed for the first slice.
 ### Transform
 
 For a non-escaping object with a statically known shape (the transition tree in
-`crates/rts-adapters/src/shape.rs` already gives us this at the creation site):
+`crates/rts-codegen-new/src/shape.rs` already gives us this at the creation site):
 
 - Emit **no allocation**.
 - Each slot becomes a Cranelift `Variable` carrying the proven `Repr` of the

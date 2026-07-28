@@ -61,10 +61,11 @@ rts-runtime = { path = "../rts-runtime" }
 # are reached through the `rts-runtime` facade; only the `Engine`/`Registry`/
 # `Member` types come from here directly.
 rts-engine = { path = "../rts-engine" }
-# The runtime-side value model (PolyValue + the `__rtsadp_*` trampolines), split
-# out into its own Cranelift-free crate so it links into AOT binaries as a
-# staticlib. This crate keeps only the Cranelift *emit* side (value::emit/…).
-rts-adapters = { path = "../rts-adapters" }
+# The runtime-side value model (PolyValue + the `__rtsadp_*` trampolines) used
+# to live in its own Cranelift-free crate (`rts-adapters`); it is now
+# `rts_runtime::adapters` (`crates/rts-runtime/src/adapters/`), reached through
+# the `rts-runtime` dependency above — no separate crate needed. This crate
+# keeps only the Cranelift *emit* side (value::emit/…).
 # `rtse::sym!(Type::member)` — resolves a call site's symbol to the
 # macro-derived `SymbolDesc` const `#[rtse::class]` emitted on `Type`, instead
 # of a hand-typed string literal (docs/specs/rts-macro-single-source.md). This

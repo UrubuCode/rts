@@ -129,7 +129,7 @@ impl MemberFlags {
 /// This is an ENUM, not a raw `PolyValue` `u64`, even though every variant
 /// ultimately lowers to one: a `PolyValue` singleton (`undefined`/`null`/
 /// `true`/`false`) IS `const fn`-constructible (see
-/// `rts_adapters::value::PolyValue::{undefined,null,bool}`), so a raw bit
+/// `rts_runtime::adapters::value::PolyValue::{undefined,null,bool}`), so a raw bit
 /// pattern would work for those cases. The `Str` case is what rules it out —
 /// a string default has no `PolyValue` bit pattern at all (a real string lives
 /// in the GC string pool behind a `Handle`, materialized at each program run).

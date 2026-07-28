@@ -131,7 +131,7 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
     rts_runtime::runtime_init();
     // Wire the engine's pending-error slot into the runtime's async watcher (a
     // `throw` inside a spawned async body must REJECT, not resolve). Idempotent.
-    rts_adapters::value::errslot::install_async_error_hook();
+    rts_runtime::adapters::value::errslot::install_async_error_hook();
     // Wire `new Function(params…, body)` to the engine's own nested-compile
     // pipeline (rts-primitives' COMPILE_FN_HOOK — never registered means the
     // ctor returns handle 0 with an eprintln). Idempotent.

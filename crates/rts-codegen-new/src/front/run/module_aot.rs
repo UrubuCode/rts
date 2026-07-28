@@ -5,7 +5,7 @@
 //! The single lowering path is shared with the JIT (design doc pilar 5): only the
 //! `Module` backend differs. Every `__RTS_*` runtime symbol and `__rtsadp_*`
 //! adapter trampoline is left as an `Import` here — the linker resolves them at
-//! final link against the `rts-runtime` + `rts-adapters` staticlibs.
+//! final link against the `rts-runtime` staticlib.
 //!
 //! The emitted `main` (the CRT entry) calls `__rts_startup` (the lowered top-level)
 //! and then `__RTS_FN_RT_RUN_EVENT_LOOP` (drains pending microtasks/timers so an
