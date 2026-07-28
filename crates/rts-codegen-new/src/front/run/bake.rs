@@ -1,11 +1,15 @@
-//! Step 10, slice 2 — BAKE the whole prelude to REPLAYABLE machine code.
+//! BAKE a compiled program to REPLAYABLE machine code.
 //!
-//! Slice 1 caches the LOWERED prelude (skips ~47 ms parse+lower) but still
-//! machine-compiles it every run. Slice 2 captures the prelude's COMPILED machine
-//! code once, ahead of time, and REPLAYS it into each run's JIT module via
-//! `Module::define_function_bytes` — so the prelude lands in the run's OWN JIT
-//! arena, right next to the user code, and the ~60 ms prelude machine-compile is
+//! Captures a program's COMPILED machine code and REPLAYS it into a later run's
+//! JIT module via `Module::define_function_bytes` — so the code lands in that
+//! run's OWN JIT arena, right next to the user code, and the machine-compile is
 //! skipped.
+//!
+//! **The one consumer is the WHOLE-PROGRAM CACHE** (`bake_program` +
+//! `progcache`, `RTS_JIT_CACHE=1`). The original consumer — a RESIDENT PRELUDE
+//! baked ahead of time by a `rts-prelude-baker` bin — was REMOVED 2026-07-28
+//! (owner decision) together with that crate and `bake_prelude`; the prelude is
+//! lowered and compiled on every run again.
 //!
 //! The correct-mechanism note (`CRANELIFT_IMPLEMENTATION.md` slice 2): this puts
 //! the prelude in the SAME arena as the user code, so every call is NEAR — the
@@ -99,86 +103,6 @@ pub(crate) struct PreludeManifest {
     pub data: Vec<BakedData>,
 }
 
-/// The output of an ahead-of-time prelude bake. The manifest stays crate-private
-/// (it embeds the crate-internal [`LoweredProgram`]); external drivers reach it
-/// through the public accessors below.
-pub struct BakedPrelude {
-    manifest: PreludeManifest,
-}
-
-impl BakedPrelude {
-    /// The manifest, bincode-serialized (write to `prelude_manifest.bin`).
-    pub fn manifest_bytes(&self) -> Result<Vec<u8>, String> {
-        bincode::serialize(&self.manifest).map_err(|e| format!("serialize manifest: {e}"))
-    }
-
-    /// The manifest — crate-internal read access (tests).
-    pub(crate) fn manifest(&self) -> &PreludeManifest {
-        &self.manifest
-    }
-
-    /// Summary counters for the baker's log line — no internal type leaks.
-    /// `(baked fns, data blobs, shapes, gcells)`.
-    pub fn summary(&self) -> (usize, usize, usize, u32) {
-        (
-            self.manifest.funcs.len(),
-            self.manifest.data.len(),
-            self.manifest.shapes.len(),
-            self.manifest.gcell_count,
-        )
-    }
-}
-
-/// Lower the embedded stdlib prelude, machine-compile it, and capture the compiled
-/// bytes + symbolic relocs of every function (plus its string-data objects) for
-/// replay. MUST run on a QUIESCENT process (empty shape registry) — it PRODUCES the
-/// snapshot other runs seed.
-pub fn bake_prelude() -> FrontResult<BakedPrelude> {
-    crate::state::reset_codegen_state();
-    assert_eq!(
-        shapes::global_shape_count(),
-        0,
-        "bake_prelude must run on an empty shape registry"
-    );
-
-    let prelude_src = super::registry::includes_prelude();
-    if prelude_src.is_empty() {
-        return Err(Unsupported::new("no embedded prelude to bake").into());
-    }
-    let prelude_hash = super::prelude_cache::key(&prelude_src);
-
-    let mut program = super::build_program(&prelude_src, super::PRELUDE_ARROW_NS)?;
-    // Whole program IS the prelude → every fn is prelude-origin (privacy gate for
-    // `engine.*`), matching what `merge_programs` sets in the normal flow.
-    program.prelude_fns = program.funcs.iter().map(|f| f.name.clone()).collect();
-
-    let gcell_count = program
-        .gcells
-        .values()
-        .copied()
-        .max()
-        .map(|m| m + 1)
-        .unwrap_or(0);
-
-    // Compile the prelude into a THROWAWAY JIT module, capturing every function's
-    // machine bytes + relocs and every string blob. AOT string mode ON so string
-    // literals become replayable DATA objects (a JIT-baked handle would be invalid
-    // in the run process). Skip `__rts_startup` — the user build compiles the merged
-    // main (prelude init prepended).
-    let (funcs, data) = super::aot_str::with_aot_mode(|| capture_compiled(&program, true))?;
-
-    let manifest = PreludeManifest {
-        prelude_hash,
-        program,
-        shapes: shapes::export_global_shapes(),
-        error_classes: shapes::export_error_classes(),
-        class_shapes: shapes::export_class_shapes(),
-        gcell_count,
-        funcs,
-        data,
-    };
-    Ok(BakedPrelude { manifest })
-}
 
 /// Compile `prog` into a scratch JIT module with capture on, returning the baked
 /// functions (relocs symbolized) + the string blobs. `skip_main` drops
@@ -289,61 +213,6 @@ fn symbolize(r: &ModuleReloc, decls: &ModuleDeclarations) -> FrontResult<SymRelo
 mod tests {
     use super::*;
 
-    /// The baked machine code + symbolic relocs must be produced deterministically
-    /// (same fn count, same symbolic reloc targets) across bakes of the same
-    /// prelude text — the run seeds shape/gcell ids by position and replays these
-    /// bytes, so any drift is a silent miscompile.
-    #[test]
-    #[ignore = "drains process-global engine state; run serially/explicitly"]
-    fn bake_is_deterministic() {
-        let a = bake_prelude().expect("first bake");
-        let b = bake_prelude().expect("second bake");
-        let (ma, mb) = (a.manifest(), b.manifest());
-        assert_eq!(ma.prelude_hash, mb.prelude_hash, "prelude hash");
-        assert_eq!(ma.shapes, mb.shapes, "shape snapshot");
-        assert_eq!(ma.gcell_count, mb.gcell_count, "gcell count");
-        assert_eq!(ma.funcs.len(), mb.funcs.len(), "baked fn count");
-        assert_eq!(ma.data.len(), mb.data.len(), "baked data count");
-        // The per-fn symbolic reloc TARGETS must match (bytes may vary if the
-        // baker's data-symbol counter shifts, but the symbolic structure is stable).
-        for (fa, fb) in ma.funcs.iter().zip(&mb.funcs) {
-            assert_eq!(fa.name, fb.name, "baked fn order/name");
-            assert_eq!(fa.relocs.len(), fb.relocs.len(), "reloc count for {}", fa.name);
-        }
-    }
-
-    /// END-TO-END: bake the prelude, install the manifest, enable the resident
-    /// path, and RENDER a prelude-heavy program — the output must match a normal
-    /// (fallback) render. This exercises the whole `define_function_bytes` replay
-    /// in-process (no binary build): if the baked prelude machine code replays and
-    /// runs correctly, the resident path is sound.
-    #[test]
-    #[ignore = "drains process-global engine state + sets RTS_RESIDENT; run serially"]
-    fn resident_replay_roundtrip() {
-        const SRC: &str = "console.log(\"hi \" + (2+3));\n\
-             const a = [1,2,3,4].map(x => x*2).filter(x => x>4);\n\
-             console.log(a.join(\",\"));\n\
-             console.log(\"upper \" + \"abc\".toUpperCase());\n\
-             class E extends Error { constructor(m){ super(m); this.name=\"E\"; } }\n\
-             try { throw new E(\"boom\"); } catch(e){ console.log(e.name + \":\" + e.message); }\n\
-             const m = new Map(); m.set(\"k\", 42); console.log(\"map \" + m.get(\"k\"));\n\
-             const o = { x: 1, y: 2 }; console.log(\"keys \" + Object.keys(o).join(\",\"));\n\
-             console.log([3,1,2].sort().join(\"-\"));\n\
-             console.log(JSON.stringify({a:1,b:[2,3]}));";
-
-        // Baseline (fallback) render.
-        crate::state::reset_codegen_state();
-        let expected = super::super::render_source(SRC).expect("baseline render");
-
-        // Bake + install → the resident path engages on `is_installed` (no env
-        // flag; `RTS_NO_RESIDENT` would DISABLE it). Render again.
-        let baked = bake_prelude().expect("bake");
-        super::super::resident::install(baked.manifest_bytes().expect("manifest bytes"));
-        crate::state::reset_codegen_state();
-        let got = super::super::render_source(SRC).expect("resident render");
-
-        assert_eq!(got, expected, "resident replay output must equal fallback");
-    }
 
     /// WHOLE-PROGRAM CACHE proof: bake an ENTIRE program (prelude + user + main) to
     /// a manifest, then run it purely by replaying the baked machine code

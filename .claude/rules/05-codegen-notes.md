@@ -52,8 +52,9 @@ would survive.
   properties** — the front-end emits these; the egraph cleans up.
 - **Data-driven dispatch + harvested ABI**: every non-primordial method is a
   `MethodSpec` resolved by one `resolve_method` path; the JIT symbol table is
-  harvested from Registry fn-ptrs in `crates/rts-codegen-new/src/adapter_symbols/`
-  (drift/coverage guard) — killing the link-OK/runtime-SIGILL class of bug (design
+  GENERATED in `crates/rts-codegen-new/src/adapter_symbols/` (the baked
+  `rts_runtime::symbol_table` + the Registry fn-ptr harvest, with drift and
+  no-hand-list guards) — killing the link-OK/runtime-SIGILL class of bug (design
   doc §10).
 
 ## Inline assembly (`std::arch::asm!`) — available technique

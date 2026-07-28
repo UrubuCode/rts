@@ -155,9 +155,6 @@ fn build_path(entry: &Path) -> FrontResult<super::LoweredProgram> {
 
     let builtins = apply_bindings(&mut program, &bindings)?;
 
-    // TOP-LEVEL iff no shapes are interned yet (a nested compile has the outer
-    // program's shapes live) — gates the resident prelude engagement.
-    let top_level = rts_engine::heap::shapes::global_shape_count() == 0;
 
     // Build the engine prelude FIRST (if any) so its classes are AMBIENT for the
     // user program's `extends` resolution (`class X extends Error`/`Map`).
@@ -203,13 +200,8 @@ fn build_path(entry: &Path) -> FrontResult<super::LoweredProgram> {
     match prelude {
         None => Ok(user),
         Some(prelude) => {
-            // `merge_programs` decides resident (slice 2) internally and skips the
-            // prune when it engages (slice 3) — the disk path's twin of the string
-            // path's hook in `build_with_includes`. No-op on a non-resident build
-            // (or a nested compile): the prune runs as before.
-            let merged = crate::timing::phase("merge programs", || {
-                merge_programs(prelude, user, &inc, top_level)
-            })?;
+            let merged =
+                crate::timing::phase("merge programs", || merge_programs(prelude, user))?;
             Ok(merged)
         }
     }

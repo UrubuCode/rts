@@ -155,117 +155,13 @@ fn build_with_includes(src: &str) -> FrontResult<LoweredProgram> {
     if inc.is_empty() {
         build_program(src, "")
     } else {
-        // TOP-LEVEL iff the shape registry is empty BEFORE any lowering (a nested
-        // `eval`/`new Function` compile runs with the outer program's shapes live).
-        let top_level = rts_engine::heap::shapes::global_shape_count() == 0;
         // The prelude cache lives in `build_program_for_prelude`, so both the disk
         // and string paths share it.
         let prelude = build_program_for_prelude(&inc)?;
         let ambient_fns = prelude_fn_names(&prelude);
         let user = build_program_with_ambient(src, &prelude.classes, &ambient_fns)?;
-        // `merge_programs` decides resident (slice 2) internally and skips the prune
-        // when it engages (slice 3).
-        merge_programs(prelude, user, &inc, top_level)
+        merge_programs(prelude, user)
     }
-}
-
-/// Mark the prelude-origin functions of `merged` as RESIDENT imports (declared
-/// `Linkage::Import`, resolving to the linked-in baked object) when — and ONLY
-/// when — a baked prelude is installed, its text hash matches the current prelude,
-/// and every prelude gcell id in the merged program equals the baked immediate.
-/// Any inconsistency leaves `resident_import_names` empty, so `populate_module`
-/// compiles the prelude exactly as the fallback does (behaviour-neutral).
-///
-/// The prelude's shape ids already line up: `build_program_for_prelude` seeds them
-/// from the SAME prelude text (via the slice-1 cache), so the merged program's
-/// prelude shape ids equal the baked immediates. This only additionally guards the
-/// gcell numbering, which `merge_programs` recomputes.
-///
-/// Returns `true` iff resident ENGAGED (every prelude fn is now defined-from-bytes).
-/// The caller uses this to SKIP `prune_prelude` (slice 3): with resident on, the
-/// prune would remove ~830 prelude fns that this function immediately RESTORES from
-/// the manifest — pure wasted work. When this returns `false` (not installed, hash
-/// mismatch, nested compile, gcell mismatch) the caller runs the prune as before,
-/// so the fallback and AOT paths are byte-identical to today.
-pub(super) fn mark_resident_imports(
-    merged: &mut LoweredProgram,
-    prelude_src: &str,
-    top_level: bool,
-) -> bool {
-    // The prelude fns marked here are DEFINED from the baked machine code
-    // (`define_function_bytes` into this run's JIT arena — near calls, no linking),
-    // skipping their re-compile. ON by default whenever a baked manifest is
-    // installed (validated resident==fallback across the whole TS suite);
-    // `RTS_NO_RESIDENT=1` is the escape hatch (mirrors `RTS_NO_PRELUDE_CACHE`).
-    // See CRANELIFT_IMPLEMENTATION.md slice 2.
-    if std::env::var_os("RTS_NO_RESIDENT").is_some() {
-        return false;
-    }
-    if !resident::is_installed() {
-        crate::timing::note("resident: installed(0)", 0);
-        return false;
-    }
-    let Some(manifest) = resident::manifest() else {
-        crate::timing::note("resident: manifest-decode-fail", 0);
-        return false;
-    };
-    if manifest.prelude_hash != prelude_cache::key(prelude_src) {
-        crate::timing::note("resident: hash-mismatch", 0);
-        return false;
-    }
-    // TOP-LEVEL ONLY. The baked machine code has the prelude's shape ids as
-    // immediates assigned from the BASE (0), which holds only for the top-level
-    // compile (the same condition the slice-1 cache gates on). A NESTED compile
-    // (`eval`/`new Function`) re-lowers the prelude ABOVE the outer program's live
-    // shapes, so the baked immediates would point at the wrong shapes — fall back
-    // there (re-lower + compile, exactly as nested does for the cache).
-    if !top_level {
-        crate::timing::note("resident: not-top-level", 0);
-        return false;
-    }
-    // Every prelude gcell must land on the SAME id the baked code has as an
-    // immediate — otherwise resident prelude code and freshly-compiled user code
-    // would read/write different cells. A single mismatch → fall back.
-    for (name, baked_id) in &manifest.program.gcells {
-        if merged.gcells.get(name) != Some(baked_id) {
-            crate::timing::note("resident: gcell-mismatch", *baked_id as usize);
-            return false;
-        }
-    }
-    // RESTORE the WHOLE prelude that `merge_programs` PRUNED. A reachable prelude
-    // fn's baked machine code may CALL a fn the prune removed, so every baked
-    // callee must be declared (and defined from bytes). The manifest carries the
-    // full unpruned prelude + its metadata maps (which prune also trimmed); add
-    // back exactly what is missing, then mark EVERY prelude fn resident.
-    let have: std::collections::HashSet<String> =
-        merged.funcs.iter().map(|f| f.name.clone()).collect();
-    for f in &manifest.program.funcs {
-        if !have.contains(&f.name) {
-            merged.funcs.push(f.clone());
-        }
-    }
-    // Restore the metadata prune trimmed (idempotent for surviving keys).
-    for (k, v) in &manifest.program.fn_this_class {
-        merged.fn_this_class.entry(k.clone()).or_insert_with(|| v.clone());
-    }
-    for (k, v) in &manifest.program.captures {
-        merged.captures.entry(k.clone()).or_insert_with(|| v.clone());
-    }
-    for (k, v) in &manifest.program.cells {
-        merged.cells.entry(k.clone()).or_insert_with(|| v.clone());
-    }
-    for (k, v) in &manifest.program.param_classes {
-        merged.param_classes.entry(k.clone()).or_insert_with(|| v.clone());
-    }
-    for n in &manifest.program.prelude_fns {
-        merged.prelude_fns.insert(n.clone());
-    }
-    // Mark EVERY prelude fn resident (defined from bytes, IR build skipped).
-    let names: std::collections::HashSet<String> =
-        manifest.program.funcs.iter().map(|f| f.name.clone()).collect();
-    crate::timing::note("resident: prelude fns defined-from-bytes", names.len());
-    merged.resident_import_names = names;
-    true
 }
 
 /// Arrow-name namespace for the PRELUDE build (`__rtsn_arrow_p{N}`). The prelude
@@ -345,23 +241,6 @@ fn build_program_for_prelude(src: &str) -> FrontResult<LoweredProgram> {
     // program. `reset_codegen_state` only runs at the quiescent top-level boundary,
     // so `global_shape_count() == 0` iff this is the top-level compile.
     if rts_engine::heap::shapes::global_shape_count() == 0 {
-        // RESIDENT prelude (slice 2): if a matching baked prelude is installed, seed
-        // its FULL shape/error snapshot and return its prelude program directly — no
-        // re-lower. The snapshot includes the shapes the bake interned during the
-        // prelude's COMPILE (not just its lowering), so the baked machine code's
-        // shape-id immediates are RESERVED and the user program's shapes intern
-        // ABOVE them. (The slice-1 cache would seed only the lowering shapes, which
-        // is fine when the prelude is re-compiled but not when its bytes are replayed.)
-        if std::env::var_os("RTS_NO_RESIDENT").is_none() && resident::is_installed() {
-            if let Some(m) = resident::manifest() {
-                if m.prelude_hash == prelude_cache::key(src) {
-                    rts_engine::heap::shapes::seed_global_shapes(m.shapes.clone());
-                    rts_engine::heap::shapes::seed_error_classes(m.error_classes.clone());
-                    rts_engine::heap::shapes::seed_class_shapes(m.class_shapes.clone());
-                    return Ok(m.program);
-                }
-            }
-        }
         if let Some(p) = prelude_cache::load(src) {
             return Ok(p);
         }
@@ -408,11 +287,7 @@ pub fn render_source_with_prelude(prelude_src: &str, user_src: &str) -> FrontRes
     let prelude = build_program(&merged_prelude_src, PRELUDE_ARROW_NS)?;
     let ambient_fns = prelude_fn_names(&prelude);
     let user = build_program_with_ambient(user_src, &prelude.classes, &ambient_fns)?;
-    // A custom test prelude never matches the baked manifest hash (and this path is
-    // never the top-level program compile in a real run), so resident cannot engage
-    // here — pass `"", false` so `mark_resident_imports` bails at the hash/top-level
-    // gate and the prune runs exactly as before.
-    let merged = merge_programs(prelude, user, "", false)?;
+    let merged = merge_programs(prelude, user)?;
     let program = module_jit::compile_program(&merged)?;
     let ((), out) = crate::value::abi_adapter::with_capture(|| program.run_main());
     Ok(out)
@@ -430,12 +305,7 @@ pub fn render_source_with_prelude(prelude_src: &str, user_src: &str) -> FrontRes
 /// the single `__rts_startup`; module-level mutable globals are recomputed over it so
 /// a prelude top-level `let` written from a prelude function (the hook setters)
 /// becomes a shared cell exactly like a user one.
-fn merge_programs(
-    prelude: LoweredProgram,
-    user: LoweredProgram,
-    prelude_src: &str,
-    top_level: bool,
-) -> FrontResult<LoweredProgram> {
+fn merge_programs(prelude: LoweredProgram, user: LoweredProgram) -> FrontResult<LoweredProgram> {
     // ClassTable: prelude first, then user (user can override).
     let mut classes = prelude.classes;
     for desc in user.classes.iter() {
@@ -535,25 +405,15 @@ fn merge_programs(
         resident_import_names: std::collections::HashSet::new(),
         resident_main: false,
     };
-    // RESIDENT prelude (slice 2): define the prelude fns from the baked machine code
-    // instead of re-compiling them, when a consistent baked prelude is installed.
-    // Decided HERE — after the gcells are computed (the gate reads them) but BEFORE
-    // the prune — so slice 3 can SKIP the prune when resident engages.
-    let engaged = mark_resident_imports(&mut merged, prelude_src, top_level);
     // Drop the embedded-prelude functions this program cannot reach BEFORE the
-    // Cranelift phase — the ~830 stdlib fns were the dominant FIXED startup cost
+    // Cranelift phase — the ~830 stdlib fns are the dominant FIXED startup cost
     // (see [`prune`]). Never touches user functions or `main`.
     //
-    // SLICE 3: skip the prune entirely when resident engaged. The prune would remove
-    // the unreachable prelude fns that `mark_resident_imports` just RESTORED from the
-    // manifest (every prelude fn is defined-from-bytes, so all must be present) —
-    // running it would be pure prune-then-restore churn. Skipping is byte-identical:
-    // gcell ids are already fixed above (immune to the prune), shape ids are seeded
-    // from the manifest, and replay relocs resolve by NAME (immune to func order).
-    // When resident did NOT engage (fallback / nested / AOT) the prune runs as before.
-    if !engaged {
-        crate::timing::phase("prune prelude", || prune::prune_prelude(&mut merged));
-    }
+    // This used to be conditional: a RESIDENT PRELUDE (a manifest baked ahead of
+    // time by `rts-prelude-baker`) restored the whole prelude right after the
+    // prune removed it, so the prune was skipped when resident engaged. That
+    // feature was REMOVED 2026-07-28 (owner decision) — the prune now always runs.
+    crate::timing::phase("prune prelude", || prune::prune_prelude(&mut merged));
     Ok(merged)
 }
 
@@ -613,18 +473,19 @@ pub(crate) struct LoweredProgram {
     /// when monomorphic, or VIRTUALLY (by the instance's runtime shape) when the
     /// method is overridden in `C`'s subtree. Keyed by fn name; unioned on merge.
     pub param_classes: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
-    /// RESIDENT prelude (step 10 slice 2): the set of (prelude-origin) function
-    /// names to declare `Linkage::Import` — resolving to the linked-in baked code —
-    /// instead of building a body. `populate_module` still computes their signature
-    /// (they stay in `funcs`, so the sig pipeline is IDENTICAL to the bake's, which
-    /// is what keeps the imported ABI/callconv exact) and registers their FuncId +
-    /// thunk as Import, but emits no machine code for them — the ~60 ms
-    /// machine-compile of the prelude is the win. Empty on every non-resident
-    /// build. Transient (rebuilt per compile from the installed manifest), not
-    /// serialized.
+    /// The set of function names whose BODY comes from BAKED MACHINE CODE rather
+    /// than from IR built this run — defined via `define_function_bytes` (see
+    /// [`resident::replay`]). `populate_module` still computes their signature
+    /// (they stay in `funcs`, so the sig pipeline is IDENTICAL to the bake's,
+    /// which is what keeps the ABI/callconv exact); only the body emission is
+    /// skipped.
+    ///
+    /// Filled ONLY on a WHOLE-PROGRAM CACHE hit. It used to also carry the
+    /// resident PRELUDE's functions, but that feature was removed 2026-07-28.
+    /// Transient (rebuilt per compile from the manifest), not serialized.
     #[serde(skip)]
     pub resident_import_names: std::collections::HashSet<String>,
-    /// WHOLE-PROGRAM CACHE (extends slice 2): when true, `__rts_startup` is ALSO
+    /// WHOLE-PROGRAM CACHE: when true, `__rts_startup` is ALSO
     /// defined from the baked machine code (not compiled from IR) — the cache
     /// replays the entire program including its entry. Transient.
     #[serde(skip)]

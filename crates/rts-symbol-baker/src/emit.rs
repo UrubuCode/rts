@@ -32,6 +32,7 @@ pub fn render(mut decls: Vec<Declaration>) -> Result<String> {
     externs(&mut s, &decls);
     jit_table(&mut s, &decls);
     aot_table(&mut s, &decls);
+    sig_table(&mut s, &decls);
     Ok(s)
 }
 
@@ -77,6 +78,16 @@ fn externs(s: &mut String, decls: &[Declaration]) {
         "// Addresses are taken through the LINKER name, not a Rust module path: that\n\
          // reaches every `#[no_mangle]` symbol regardless of Rust visibility, and makes\n\
          // a missing one a link error instead of a runtime crash.\n\
+         //\n\
+         // Every row is declared as a bare `fn()` because only its ADDRESS is ever\n\
+         // taken — the table hands `*const u8` to `JITBuilder::symbol`, and nothing\n\
+         // here ever CALLS through these declarations, so the parameter list is\n\
+         // irrelevant and would only duplicate (and be able to drift from) the real\n\
+         // signature, which `SymbolDesc` already owns. rustc cannot know that, so it\n\
+         // warns when the host crate also declares the same symbol with its true\n\
+         // signature; the allow below is scoped to this generated block and is the\n\
+         // reason this file is emitted rather than hand-written.\n\
+         #[allow(clashing_extern_declarations)]\n\
          unsafe extern \"C\" {\n",
     );
     for (i, d) in decls.iter().enumerate() {
@@ -132,6 +143,69 @@ fn aot_table(s: &mut String, decls: &[Declaration]) {
     s.push_str("    out\n}\n");
 }
 
+/// The ABI SIGNATURES, for every `#[rtse::abi]` declaration whose types all have
+/// an ABI spelling.
+///
+/// This is what lets a consumer stop hand-writing `(symbol → params, ret)` rows:
+/// the signature is DERIVED from the Rust one through [`rts_abi::tymap`], the
+/// same mapping `#[rtse::abi]` itself uses, so the emitted row and the
+/// macro-emitted `SymbolDesc` cannot disagree — there is one derivation, read
+/// twice.
+///
+/// A symbol with no entry here is simply not yet declared with `#[rtse::abi]`
+/// (or uses a type the mapping does not cover). An ABSENT row, never a guessed
+/// one: the caller falls back to whatever it used before.
+fn sig_table(s: &mut String, decls: &[Declaration]) {
+    let with_sig: Vec<&Declaration> = decls.iter().filter(|d| d.sig.is_some()).collect();
+    s.push_str(&format!(
+        "\n/// ABI signatures derived from the Rust signatures of `#[rtse::abi]` fns.\n\
+         ///\n\
+         /// Sorted ascending by name, like the symbol table, so a lookup is a binary\n\
+         /// search. {} of {} symbols carry one; the rest are not yet declared with\n\
+         /// `#[rtse::abi]`.\n\
+         pub fn signatures() -> ::std::vec::Vec<(&'static str, &'static [::rts_abi::AbiType], ::rts_abi::AbiType)> {{\n    \
+         // The element type is spelled out: without it the `&[]` of a zero-arg\n    \
+         // row would fix the param type to `&[AbiType; 0]` and every later row\n    \
+         // would be a type error.\n    \
+         let mut out: ::std::vec::Vec<(&'static str, &'static [::rts_abi::AbiType], ::rts_abi::AbiType)> =\n        \
+         ::std::vec::Vec::with_capacity({});\n",
+        with_sig.len(),
+        decls.len(),
+        with_sig.len(),
+    ));
+    for d in &with_sig {
+        let (params, ret) = d.sig.as_ref().expect("filtered to Some");
+        let ps: Vec<String> = params.iter().map(|p| abi_path(*p)).collect();
+        push_row(
+            s,
+            &d.cfgs,
+            &format!(
+                "out.push((\"{}\", &[{}], {}));",
+                d.symbol,
+                ps.join(", "),
+                abi_path(*ret),
+            ),
+        );
+    }
+    s.push_str("    out\n}\n");
+}
+
+/// The path spelling of an `AbiType` variant, for the generated source.
+fn abi_path(t: rts_abi::AbiType) -> String {
+    let v = match t {
+        rts_abi::AbiType::Void => "Void",
+        rts_abi::AbiType::Bool => "Bool",
+        rts_abi::AbiType::I32 => "I32",
+        rts_abi::AbiType::I64 => "I64",
+        rts_abi::AbiType::U64 => "U64",
+        rts_abi::AbiType::F64 => "F64",
+        rts_abi::AbiType::StrPtr => "StrPtr",
+        rts_abi::AbiType::Handle => "Handle",
+        rts_abi::AbiType::PolyValue => "PolyValue",
+    };
+    format!("::rts_abi::AbiType::{v}")
+}
+
 /// One `#[cfg]`-gated statement. A `#[cfg]` cannot sit on an array element, so
 /// the table is built by `push` — which is also why the invariant is "sorted",
 /// not "indexed by position".
@@ -154,8 +228,33 @@ mod tests {
         Declaration {
             symbol: symbol.into(),
             cfgs: cfgs.iter().map(|c| c.to_string()).collect(),
+            sig: None,
             origin: "crates/x/src/a.rs".into(),
         }
+    }
+
+    /// A `#[rtse::abi]` declaration carries a derived signature into the emitted
+    /// `signatures()` table; a `#[no_mangle]` one contributes no row at all
+    /// (absent, never guessed).
+    #[test]
+    fn signatures_table_holds_only_declarations_that_have_one() {
+        let mut with = decl("__rtsadp_a", &[]);
+        with.sig = Some((
+            vec![rts_abi::AbiType::U64, rts_abi::AbiType::StrPtr],
+            rts_abi::AbiType::Handle,
+        ));
+        let out = render(vec![with, decl("__rtsadp_b", &[])]).expect("render");
+        assert!(
+            out.contains(
+                "out.push((\"__rtsadp_a\", &[::rts_abi::AbiType::U64, \
+                 ::rts_abi::AbiType::StrPtr], ::rts_abi::AbiType::Handle));"
+            ),
+            "the derived signature row is missing:\n{out}"
+        );
+        assert!(
+            !out.contains("out.push((\"__rtsadp_b\""),
+            "a declaration with no signature must not get a row:\n{out}"
+        );
     }
 
     #[test]

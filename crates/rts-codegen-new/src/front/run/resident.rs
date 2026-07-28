@@ -1,50 +1,30 @@
-//! Step 10, slice 2 — the RUN-PATH side of the resident prelude.
+//! Replay of PRE-COMPILED machine code into the run's JIT module.
 //!
-//! The `rts-prelude-baker` produces a manifest holding the prelude's PRE-COMPILED
-//! machine code (`BakedFn` bytes + symbolic relocs) + string blobs. The root bin
-//! installs the manifest bytes here at startup ([`install`]). When the consumer
-//! engages (`front::run::mark_resident_imports`), the prelude functions are
-//! declared but NOT compiled from IR; instead [`replay`] defines them into the
-//! run's JIT module via `define_function_bytes`, so the prelude code lands in the
-//! run's OWN arena (near the user code — every call is a near call) and the ~60 ms
-//! prelude machine-compile is skipped.
+//! A manifest holds a program's compiled functions (`BakedFn` bytes + symbolic
+//! relocs) + string blobs. Instead of building IR and machine-compiling those
+//! functions again, [`replay`] defines them into the run's JIT module via
+//! `define_function_bytes`, so the code lands in the run's OWN arena (near the
+//! user code — every call is a near call) and the machine-compile is skipped.
 //!
-//! INERT until installed: a binary built without a baked prelude never calls
-//! [`install`], so `is_installed()` is false and the run path keeps the fallback.
+//! # The one consumer: the WHOLE-PROGRAM CACHE
+//!
+//! [`with_replay_manifest`] sets the manifest for a single compile; `progcache`
+//! does that on a cache hit (see `module_jit::compile_replay`).
+//!
+//! The other consumer — a RESIDENT PRELUDE, a manifest baked ahead of time by a
+//! `rts-prelude-baker` bin, embedded in the binary and installed at startup —
+//! was **REMOVED 2026-07-28** (owner decision) along with that crate, the
+//! `RTS_PRELUDE_DIR` build wiring, the embedded `MANIFEST` and `RTS_NO_RESIDENT`.
+//! The prelude is lowered and compiled on every run again. The replay machinery
+//! below stays because the program cache uses the same mechanism.
 
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
 
 use cranelift_module::{
     DataDescription, DataId, FuncId, Linkage, Module, ModuleReloc, ModuleRelocTarget,
 };
 
 use super::bake::{PreludeManifest, SymTarget};
-
-fn slot() -> &'static Mutex<Option<Vec<u8>>> {
-    static R: OnceLock<Mutex<Option<Vec<u8>>>> = OnceLock::new();
-    R.get_or_init(|| Mutex::new(None))
-}
-
-/// Install the baked prelude manifest (bincode bytes) produced by the baker and
-/// embedded in this binary. Called once by the root bin at startup. A binary built
-/// without a baked prelude never calls this.
-pub fn install(manifest_bytes: Vec<u8>) {
-    *slot().lock().expect("resident slot poisoned") = Some(manifest_bytes);
-}
-
-/// Whether a baked prelude manifest is installed — the gate the run path checks.
-pub(crate) fn is_installed() -> bool {
-    slot().lock().map(|g| g.is_some()).unwrap_or(false)
-}
-
-/// Deserialize the installed manifest, or `None` when none is installed / it fails
-/// to decode (a corrupt artifact falls back to the non-resident path).
-pub(crate) fn manifest() -> Option<PreludeManifest> {
-    let g = slot().lock().ok()?;
-    let bytes = g.as_ref()?;
-    bincode::deserialize(bytes).ok()
-}
 
 thread_local! {
     /// WHOLE-PROGRAM CACHE: the manifest `replay` should use for THIS compile,
@@ -63,10 +43,12 @@ pub(crate) fn with_replay_manifest<T>(m: PreludeManifest, f: impl FnOnce() -> T)
     out
 }
 
-/// The manifest `replay` should use: the whole-program override if set, else the
-/// installed prelude manifest.
+/// The manifest `replay` should use: the whole-program override, when a compile
+/// is running under [`with_replay_manifest`]. There is no process-wide fallback
+/// since the resident PRELUDE was removed (2026-07-28) — replay happens only on a
+/// program-cache hit.
 fn replay_manifest() -> Option<PreludeManifest> {
-    REPLAY_OVERRIDE.with(|c| c.borrow().clone()).or_else(manifest)
+    REPLAY_OVERRIDE.with(|c| c.borrow().clone())
 }
 
 /// Define every RESIDENT prelude function (and its string-data objects) into

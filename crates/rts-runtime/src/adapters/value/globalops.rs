@@ -31,6 +31,12 @@ use super::{PolyValue, abi_adapter, genops};
 // `rts-primitives`'s OWN value-classes reach `rts-runtime::adapters` coercion
 // helpers (e.g. `number/mod.rs`'s `__rtsadp_g_number` decl): a forward
 // `extern "C"` resolved at final link.
+// `clashing_extern_declarations`: [`crate::symbol_table`] also declares these two
+// names, as bare `fn()`, because it only ever takes their ADDRESS. This block
+// CALLS them, so it needs the true signature. Both declarations are correct for
+// their own use; rustc just cannot tell them apart by name. The real signature is
+// owned by the `#[rtse::statical]` declaration in `rts-primitives` either way.
+#[allow(clashing_extern_declarations)]
 unsafe extern "C" {
     fn __rtsm_global_number_parse_int(ptr: i64, len: i64, radix: f64) -> f64;
     fn __rtsm_global_number_parse_float(ptr: i64, len: i64) -> f64;

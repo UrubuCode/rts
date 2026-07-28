@@ -121,11 +121,39 @@ pub fn cranelift_sig_from_abis(module: &dyn Module, params: &[AbiType], ret: Abi
     sig
 }
 
-/// Resolve a symbol name to its [`SymSig`]. Covers exactly the symbols the new
-/// lowering calls: the REAL runtime symbols (`__RTS_FN_*`) + the codegen-owned
-/// adapter trampolines (`__rtsadp_*`). `None` for an unknown symbol (the lowering
-/// turns that into an explicit `Unsupported` bail, never a guess).
+/// The BAKED signature table, indexed once per process.
+///
+/// `rts-symbol-baker` derives a signature for every `#[rtse::abi]` declaration
+/// from its Rust signature (through `rts_abi::tymap`, the same mapping the macro
+/// uses), so an entry here is the DECLARATION speaking, not a transcription of
+/// it. Consulted before the hand table below, which is why converting a symbol
+/// to `#[rtse::abi]` deletes its hand row: the baked entry takes over and the
+/// row becomes unreachable.
+fn baked_sigs() -> &'static std::collections::HashMap<&'static str, SymSig> {
+    static SIGS: std::sync::OnceLock<std::collections::HashMap<&'static str, SymSig>> =
+        std::sync::OnceLock::new();
+    SIGS.get_or_init(|| {
+        rts_runtime::symbol_table::signatures()
+            .into_iter()
+            .map(|(name, params, ret)| (name, SymSig { params, ret }))
+            .collect()
+    })
+}
+
+/// Resolve a symbol name to its [`SymSig`] — the BAKED (derived) signature when
+/// the symbol is declared with `#[rtse::abi]`, else the hand-written table below.
+/// `None` for an unknown symbol (the lowering turns that into an explicit
+/// `Unsupported` bail, never a guess).
 pub fn sig_of(name: &str) -> Option<SymSig> {
+    if let Some(s) = baked_sigs().get(name) {
+        return Some(*s);
+    }
+    sig_of_hand(name)
+}
+
+/// The HAND-WRITTEN half — every symbol not yet declared with `#[rtse::abi]`.
+/// A DRAINING TARGET: each conversion moves a row from here into the baked table.
+fn sig_of_hand(name: &str) -> Option<SymSig> {
     use AbiType::*;
     Some(match name {
         // ---- REAL string pool (rts-std collector::string_pool) ----
@@ -754,52 +782,19 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             ret: U64,
         },
 
-        // ---- codegen-owned Map / Set instance trampolines (P5.3) ----
-        // All PolyValue words (U64): slot 0 is the instance word, args are key/value/
-        // element words, results are PolyValue words (instance / value / bool / size).
-        "__rtsadp_map_new" | "__rtsadp_set_new" => SymSig {
-            params: &[],
-            ret: U64,
-        },
-        "__rtsadp_map_set" => SymSig {
-            params: &[U64, U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_map_get"
-        | "__rtsadp_map_has"
-        | "__rtsadp_map_delete"
-        | "__rtsadp_set_add"
-        | "__rtsadp_set_has"
-        | "__rtsadp_set_delete" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
-        "__rtsadp_map_clear" | "__rtsadp_map_size" | "__rtsadp_set_clear" | "__rtsadp_set_size" => {
-            SymSig {
-                params: &[U64],
-                ret: U64,
-            }
-        }
+        // (The codegen-owned Map/Set instance trampolines that used to sit here —
+        // `__rtsadp_map_*` / `__rtsadp_set_*`, 11 names — were DELETED 2026-07-28:
+        // none of those symbols exists anywhere in the tree. Map/Set moved to the
+        // `.ts` stdlib (`rts-shared/src/stdlib/map_set.ts`) and their trampolines
+        // went with them; these rows outlived them, naming symbols that could only
+        // ever have produced an unresolved call. Found by `baked_existence`, the
+        // guard added with the baked table — nothing had checked before.)
 
-        // ---- codegen-owned pending-error slot for throw / try-catch (P5.13) ----
-        // throw_set(word) -> void; err_pending() -> i64 (0/1); err_take() -> U64
-        // (the thrown PolyValue word); err_clear() -> void.
-        "__rtsadp_throw_set" => SymSig {
-            params: &[U64],
-            ret: Void,
-        },
-        "__rtsadp_err_pending" => SymSig {
-            params: &[],
-            ret: I64,
-        },
-        "__rtsadp_err_take" => SymSig {
-            params: &[],
-            ret: U64,
-        },
-        "__rtsadp_err_clear" => SymSig {
-            params: &[],
-            ret: Void,
-        },
+        // (The pending-error slot — `__rtsadp_throw_set`/`err_pending`/`err_take`/
+        // `err_clear` — was CONVERTED to `#[rtse::abi]` on 2026-07-28 and its rows
+        // DELETED: the baker now derives their signatures from the Rust ones, and
+        // `sig_of` finds them in the baked table before reaching this one. That is
+        // the drain pattern for every remaining row here.)
 
         // ---- codegen-owned DYNAMIC method dispatch (P5.9) ----
         // Uniform PolyValue-word ABI: the receiver word + 0..2 PolyValue-word args,
@@ -984,14 +979,11 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             ret: U64,
         },
 
-        // ---- Map/Set instanceof tags (P5.3). One PolyValue word in, one PolyValue
-        // word out. (The wrapper ctors + Error family moved to `.ts` prelude classes
-        // constructed via the user-class path; their `__rtsadp_w_*`/`__rtsadp_err_*`/
-        // `__rtsadp_is_error` symbols are gone.) ----
-        "__rtsadp_is_map" | "__rtsadp_is_set" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
+        // (The Map/Set instanceof tags `__rtsadp_is_map`/`__rtsadp_is_set` were
+        // DELETED 2026-07-28 for the same reason as the trampolines above: the
+        // symbols do not exist. The wrapper ctors + Error family had already gone
+        // the same way — `__rtsadp_w_*`/`__rtsadp_err_*`/`__rtsadp_is_error` — when
+        // those became `.ts` prelude classes.)
 
         // ---- codegen-owned Array CALLBACK trampolines (__rtsadp_arr_*, P4.7) ----
         // Slot 0 = the array's REAL Vec handle; slot 1 = the callback as a
@@ -1139,5 +1131,77 @@ mod desc_agreement {
         agree(rts_runtime::NumberWrapper::IS_FINITE_SYM);
         agree(rts_runtime::NumberWrapper::IS_NAN_SYM);
         agree(rts_runtime::NumberWrapper::IS_SAFE_INTEGER_SYM);
+    }
+}
+
+#[cfg(test)]
+mod baked_existence {
+    //! Every symbol NAMED in this file's table must EXIST in the baked symbol
+    //! table — the guard that turns a renamed/mistyped symbol into a test
+    //! failure instead of a runtime SIGILL.
+    //!
+    //! `sig_of` is a `match`, so there is no runtime list of its arms to iterate.
+    //! Rather than hand-write one — which would be a THIRD mirror of the same
+    //! names, exactly what this campaign deletes — the test reads its own source
+    //! and extracts the match arms. Self-maintaining: a row added or deleted is
+    //! picked up with no second place to edit.
+    //!
+    //! Membership in the baked table is proof of existence because
+    //! `rts-symbol-baker` derives that table from the DECLARATIONS in the source
+    //! (see docs/specs/rts-macro-single-source.md). This is the cheap half of
+    //! F12; the expensive half is deleting these rows in favour of the
+    //! macro-derived `SymbolDesc`, which also gives the SIGNATURE, not just the
+    //! name.
+
+    /// The symbol names spelled in `sig_of`'s match arms, read from this file.
+    ///
+    /// An arm may list SEVERAL names sharing one signature, on one line
+    /// (`"__a" | "__b" => SymSig {`) or continued across lines (a line ending in
+    /// `|`), so every quoted `__…` token on a match-arm line counts — taking only
+    /// the first would silently under-check the alternates.
+    fn table_names() -> Vec<&'static str> {
+        const SRC: &str = include_str!("abi_sig.rs");
+        SRC.lines()
+            .filter(|l| {
+                let l = l.trim();
+                // A continued arm's later lines start with the `|` separator
+                // (`| "__rtsadp_map_has"`), not with the quote.
+                (l.starts_with('"') || l.starts_with("| \""))
+                    && (l.contains("=> SymSig") || l.ends_with('|') || l.ends_with('"'))
+            })
+            .flat_map(|l| {
+                // Odd-indexed pieces of a split on `"` are the quoted tokens.
+                l.split('"').skip(1).step_by(2)
+            })
+            .filter(|n| n.starts_with("__"))
+            .collect()
+    }
+
+    #[test]
+    fn every_named_symbol_is_in_the_baked_table() {
+        let names = table_names();
+        assert!(
+            names.len() > 100,
+            "the source scan found only {} names — the extraction broke, not the table",
+            names.len()
+        );
+        let baked: std::collections::HashSet<&str> = rts_runtime::symbol_table::symbols()
+            .into_iter()
+            .map(|e| e.name)
+            .collect();
+        let mut missing: Vec<&str> = names
+            .into_iter()
+            .filter(|n| !baked.contains(n))
+            .collect();
+        missing.sort_unstable();
+        missing.dedup();
+        assert!(
+            missing.is_empty(),
+            "{} abi_sig row(s) name a symbol that is NOT in the baked table — the \
+             symbol was renamed/deleted (this row now marshals a call that cannot \
+             resolve) or the baker's scan does not reach its declaration:\n{}",
+            missing.len(),
+            missing.join("\n")
+        );
     }
 }

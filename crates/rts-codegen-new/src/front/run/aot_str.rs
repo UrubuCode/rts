@@ -25,7 +25,7 @@ use crate::front::error::{FrontResult, Unsupported};
 thread_local! {
     /// True while an AOT object is being built (set by `compile_program_aot`).
     static AOT_MODE: Cell<bool> = const { Cell::new(false) };
-    /// When `Some`, the prelude baker (slice 2) records every emitted string DATA
+    /// When `Some`, the program baker (`bake::bake_program`) records every emitted string DATA
     /// object `(name, bytes)` here so it can be replayed via `define_data` into the
     /// run's JIT module (the prelude machine code relocs reference these by name).
     static CAPTURE_DATA: std::cell::RefCell<Option<Vec<(String, Vec<u8>)>>> =
@@ -95,7 +95,7 @@ pub(crate) fn emit_str_data(
     module
         .define_data(data_id, &desc)
         .map_err(|e| Unsupported::new(format!("define str data `{name}`: {e}")))?;
-    // BAKER capture (slice 2): record this string blob so the resident replay can
+    // BAKER capture: record this string blob so the replay can
     // `define_data` it under the same name the prelude relocs reference.
     CAPTURE_DATA.with(|c| {
         if let Some(buf) = c.borrow_mut().as_mut() {

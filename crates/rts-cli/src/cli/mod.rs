@@ -32,15 +32,6 @@ pub fn set_runtime_archive_resolver(f: fn() -> Result<PathBuf>) {
     let _ = ARCHIVE_RESOLVER.set(f);
 }
 
-/// Install the baked resident-prelude manifest — step 10, slice 2. Called once by
-/// the bin's `main` at startup with the embedded manifest bytes; the engine replays
-/// the prelude machine code via `define_function_bytes`. Forwards to the engine
-/// (`rts-codegen-new`, unreachable from the bin directly). A binary built without a
-/// baked prelude never calls this, so the run path keeps the fallback.
-pub fn install_resident_prelude(manifest_bytes: Vec<u8>) {
-    rts_codegen_new::front::run::resident::install(manifest_bytes);
-}
-
 /// Resolve the runtime-support archive path. Errors if the bin never installed a
 /// resolver (e.g. the CLI invoked as a library without `set_runtime_archive_resolver`).
 pub(crate) fn runtime_archive() -> Result<PathBuf> {

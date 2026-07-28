@@ -42,8 +42,8 @@ thread_local! {
 
 /// `throw e` — record the thrown PolyValue `word` as the pending error. The
 /// lowering follows this with a sentinel `return` (manual unwind).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_throw_set(word: u64) {
+#[rtse::abi]
+pub fn rtsadp_throw_set(word: u64) {
     PENDING.with(|p| p.set((word, true)));
 }
 
@@ -140,16 +140,16 @@ pub extern "C" fn __rtsadp_throw_js_error(
 
 /// `1` iff a thrown value is pending (an unwind is in progress), else `0`. Emitted
 /// after every call that can throw; the lowering branches on the result.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_err_pending() -> i64 {
+#[rtse::abi]
+pub fn rtsadp_err_pending() -> i64 {
     PENDING.with(|p| p.get().1 as i64)
 }
 
 /// Read AND clear the pending thrown value (the `catch (e)` bind). Returns the raw
 /// PolyValue word; clears the flag so the handler runs with no pending error.
 /// Returns the `undefined` word if (defensively) nothing was pending.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_err_take() -> u64 {
+#[rtse::abi]
+pub fn rtsadp_err_take() -> u64 {
     PENDING.with(|p| {
         let (word, set) = p.get();
         p.set((0, false));
@@ -164,8 +164,8 @@ pub extern "C" fn __rtsadp_err_take() -> u64 {
 /// Clear the pending error without reading it (`catch {}` with no binding, and the
 /// belt-and-braces clear a `try` emits before its body so a stale outer error
 /// cannot leak into an inner try's fall-through check).
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsadp_err_clear() {
+#[rtse::abi]
+pub fn rtsadp_err_clear() {
     PENDING.with(|p| p.set((0, false)));
 }
 

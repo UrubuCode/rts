@@ -66,17 +66,27 @@ fn abi_ident(v: &str) -> proc_macro2::TokenStream {
 
 /// The `AbiType` variant name for a single-slot scalar/handle type, by written
 /// token. `None` for anything with no single-slot spelling.
+///
+/// The MAPPING itself lives in [`rts_abi::tymap`] — this only pulls the written
+/// token out of the `syn::Type` and turns the resulting `AbiType` back into the
+/// variant ident the generated code names. `rts-symbol-baker` calls the same
+/// `tymap` function on the same source text, so the macro-emitted `SymbolDesc`
+/// and the baked signature table cannot disagree (the same split `scope.rs`
+/// makes for symbol NAMES).
 fn single_slot(ty: &Type) -> Option<&'static str> {
     let Type::Path(p) = ty else { return None };
-    Some(match p.path.segments.last()?.ident.to_string().as_str() {
-        "u64" | "U64" => "U64",
-        "Handle" => "Handle",
-        "Poly" => "PolyValue",
-        "i64" | "I64" => "I64",
-        "i32" | "I32" => "I32",
-        "f64" | "F64" => "F64",
-        "bool" | "Bool" => "Bool",
-        _ => return None,
+    let token = p.path.segments.last()?.ident.to_string();
+    Some(match rts_abi::tymap::single_slot(&token)? {
+        rts_abi::AbiType::U64 => "U64",
+        rts_abi::AbiType::Handle => "Handle",
+        rts_abi::AbiType::PolyValue => "PolyValue",
+        rts_abi::AbiType::I64 => "I64",
+        rts_abi::AbiType::I32 => "I32",
+        rts_abi::AbiType::F64 => "F64",
+        rts_abi::AbiType::Bool => "Bool",
+        // `tymap::single_slot` returns only the variants above; StrPtr/Void are
+        // handled by their own paths (`is_str_param`, `ret_of`).
+        rts_abi::AbiType::StrPtr | rts_abi::AbiType::Void => return None,
     })
 }
 

@@ -97,7 +97,7 @@ pub(super) fn make_module() -> JITModule {
     JITModule::new(builder)
 }
 
-/// WHOLE-PROGRAM CACHE (extends slice 2): compile a program ENTIRELY from a baked
+/// WHOLE-PROGRAM CACHE: compile a program ENTIRELY from a baked
 /// manifest — declare every fn from the manifest's `program`, define ALL of them
 /// (incl `__rts_startup`) from the baked machine bytes, and finalize. Skips
 /// parse+lower (the manifest carries the lowered program) AND machine-compile (the
@@ -219,14 +219,13 @@ pub(crate) fn populate_module(
     let prelude_fns = &prog.prelude_fns;
     let builtins = &prog.builtins;
     let param_classes = &prog.param_classes;
-    // RESIDENT prelude (slice 2): names whose BODY is the linked-in baked object —
-    // declared `Import`, no machine code emitted here (the ~60 ms win). They stay in
-    // `funcs` so their signature is computed by the SAME pipeline the bake used
-    // (exact ABI/callconv match); only the body/thunk emission is skipped. Empty on
-    // every non-resident build (`Linkage::Local` for everything, exactly as before).
-    // RESIDENT prelude (slice 2): the prelude fns are DEFINED from baked machine
-    // code (`define_function_bytes` in step 6), so — like every user fn — they are
-    // `Local`. Their IR build is skipped; only the definition source differs.
+    // REPLAYED names: their BODY comes from baked machine code rather than from IR
+    // built here. They stay in `funcs` so their signature is computed by the SAME
+    // pipeline the bake used (exact ABI/callconv match); only the body/thunk
+    // emission is skipped. Empty unless the whole-program cache hit (the resident
+    // PRELUDE that also used this was removed 2026-07-28).
+    // They are `Local` like every user fn (`define_function_bytes` in step 6); only
+    // the definition SOURCE differs, not the linkage.
     let resident_imports = &prog.resident_import_names;
 
     let _t_phase = std::time::Instant::now();
@@ -325,7 +324,7 @@ pub(crate) fn populate_module(
     //     referenced as a VALUE reifies via `func_addr` of its thunk; declaring
     //     one per function keeps reify a pure address lookup (no second pass to
     //     decide which are values). `main` is never a value, so it gets none. A
-    //     RESIDENT prelude fn's thunk is the linked-in baked code → declared Import.
+    //     REPLAYED fn's thunk comes from baked machine code, not from IR built here.
     let mut thunks: HashMap<String, FuncId> = HashMap::new();
     for f in funcs {
         let id = thunk::declare_thunk_linkage(&mut *module, &f.name, Linkage::Local)?;
@@ -348,7 +347,7 @@ pub(crate) fn populate_module(
     let _t_phase = std::time::Instant::now();
     // 3. Build the IR of each user function body. Lowering needs `&mut Module`,
     //    so it stays serial; the machine-compile of everything collected here
-    //    runs across cores in step 5 (see `parcompile`). A RESIDENT prelude fn
+    //    runs across cores in step 5 (see `parcompile`). A REPLAYED fn
     //    (`resident_imports`) is SKIPPED — its body is the linked-in baked object.
     let mut pending: Vec<super::parcompile::Pending> = Vec::with_capacity(funcs.len() + 1);
     for f in funcs {
@@ -432,7 +431,7 @@ pub(crate) fn populate_module(
     //     return the instance word (the constructor's `this` is synthesized in the
     //     allocation, sidestepping the `reify_function` `has_this` bail).
     for desc in classes.iter() {
-        // A RESIDENT prelude class's new-thunk body is the linked-in baked object.
+        // A REPLAYED class's new-thunk body comes from the baked bytes.
         if resident_imports.contains(&desc.ctor) {
             continue;
         }
@@ -454,7 +453,7 @@ pub(crate) fn populate_module(
     //    preserving.
     super::parcompile::compile_and_define(module, pending)?;
 
-    // 6. RESIDENT prelude (slice 2): the prelude fns/thunks were DECLARED (Local)
+    // 6. REPLAY: the baked fns/thunks were DECLARED (Local)
     //    but their IR was skipped — define them from the baked machine code via
     //    `define_function_bytes`, so they land in this run's JIT arena (near the
     //    user code) instead of being re-compiled. `declared` maps every prelude

@@ -70,10 +70,12 @@ crates/
                       static, strictly name-ordered (binary search, one
                       contiguous range per scope). ONE table for BOTH paths: the
                       JIT vtable and the AOT symbol set. Replaces `rt.rs`, the
-                      hand-declared symbol system and
-                      `rts-codegen-new/src/adapter_symbols/`. Regenerate with
+                      hand-declared symbol system, and the hand lists that used to live in
+                      `rts-codegen-new/src/adapter_symbols/` (DELETED 2026-07-28).
+                      Regenerate with
                       `cargo run -p rts-symbol-baker`, verify with `-- --check`
-  rts-prelude-baker/— bakes the resident `.ts` prelude (bytes + relocs)
+                      (`rts-prelude-baker`, the `.ts` analogue, was DELETED
+                      2026-07-28 with the resident-prelude feature)
   rts-engine/       — heap GC + ABI contract (abi:: SPECS, types, symbols,
                       signatures, Intrinsic, global_class, handles) + Registry/builder
   rts-hir/          — typed HIR (HirType I8..I128/F32/F64/Bool/Str/Handle/Array/Function/Class/Object/Any/Unknown)
@@ -86,8 +88,9 @@ crates/
                       module_jit.rs (JIT) + module_aot.rs (AOT object emission);
                       shapes in front/run/class/
     src/value/      — value-model emission + ABI signatures + marshalling
-    src/adapter_symbols/ — JIT symbol table harvested from Registry fn-ptrs
-                      (drift/coverage guard); replaces manual add_fn!
+    src/adapter_symbols/ — the JIT symbol table, from TWO GENERATED sources:
+                      the baked `rts_runtime::symbol_table` + the Registry
+                      fn-ptr harvest. No hand list (guard asserts it stays so)
   rts-primitives/   — PRIMORDIAL classes
   rts-shared/       — non-primordial universal (math/num/collections/json/globals)
   rts-std/          — backend (io/net/tokio/console/promise impl)
@@ -130,9 +133,9 @@ per-namespace `SPEC/MEMBERS/dispatch()`, no more `__rts_call_dispatch`.
 - `abi::SPECS` (`mod.rs`) — static slice with the `NamespaceSpec` of each
   registered namespace (`io`, `fs`, `gc`, `math`, `bigfloat`, …). Single source
   consumed by codegen, runtime, JIT, and the `rts.d.ts` generator. The JIT symbol
-  table is harvested from Registry fn-ptrs in
-  `crates/rts-codegen-new/src/adapter_symbols/` (drift/coverage guard, no manual
-  `add_fn!`).
+  table is GENERATED in `crates/rts-codegen-new/src/adapter_symbols/` from two
+  sources — the baked `rts_runtime::symbol_table` (rts-symbol-baker) + the
+  Registry fn-ptr harvest. No hand list, no manual `add_fn!`.
 - `abi::lookup(qualified)` — resolves `"io.print"` → `&NamespaceMember` with
   symbol and signature.
 - `member.rs` — `NamespaceSpec`, `NamespaceMember` (static consts) and

@@ -224,8 +224,8 @@ regression.
 > The gate REVIEW-lists every non-primordial class name found in codegen
 > (test/fixture files split out), plus every remaining hand-written symbol /
 > signature row. Both lists must only shrink. Current draining targets:
-> `front/run/globalclass.rs`, `adapter_symbols/list_a.rs` + `list_b.rs`,
-> `value/abi_sig.rs`, `adapters/dispatch.rs`.
+> `front/run/globalclass.rs`, `value/abi_sig.rs` (155), `adapters/dispatch.rs`
+> (13). `adapter_symbols/list_a.rs` + `list_b.rs` (355) are DELETED.
 
 ### Rule B — file-size ceilings (tiered)
 
@@ -344,13 +344,21 @@ binary with a checked-in artefact plus a CI drift check is the mechanism.
 
 ### What this DELETES (binding targets, never additions)
 
-| Target | Where | Rows |
-|---|---|---|
-| `rt.rs` + hand-declared symbol system | across the runtime crates | — |
-| hand-listed JIT symbols | `rts-codegen-new/src/adapter_symbols/list_a.rs` + `list_b.rs` | 355 |
-| hand-written Cranelift signatures | `rts-codegen-new/src/value/abi_sig.rs` | 159 |
-| hand-written class metadata | `rts-runtime/src/adapters/dispatch.rs` | 13 |
-| ad-hoc `(name, fn as *const u8)` tables | e.g. `rts-node`'s `path::syms()` | — |
+| Target | Where | Rows | State |
+|---|---|---|---|
+| hand-listed JIT symbols | `rts-codegen-new/src/adapter_symbols/list_a.rs` + `list_b.rs` | 355 | ✅ **DELETED 2026-07-28** (both files gone) |
+| hand-written Cranelift signatures | `rts-codegen-new/src/value/abi_sig.rs` | 159 → **155** | draining (11 dead rows deleted) |
+| hand-written class metadata | `rts-runtime/src/adapters/dispatch.rs` | 13 | draining |
+| `rt.rs` + hand-declared symbol system | across the runtime crates | — | draining |
+| ad-hoc `(name, fn as *const u8)` tables | e.g. `rts-node`'s `path::syms()` | — | draining |
+
+**Measured: 527 → 168 rows.** The JIT table is now TWO generated sources — the
+baked table (`rts_runtime::symbol_table`, compiled in the facade because it links
+every scanned crate) plus the Registry harvest — and `adapter_symbols` asserts no
+hand list can come back. The two survivors are guarded: every symbol they NAME
+must exist in the baked table, so a renamed symbol is a test failure instead of a
+runtime SIGILL. That guard immediately found **11 dead rows** in `abi_sig.rs`
+naming `__rtsadp_map_*`/`__rtsadp_set_*` symbols that exist nowhere in the tree.
 
 ### How to apply
 
@@ -503,8 +511,9 @@ The doctrine is the default in the engine: every non-primordial method is a
 `MethodSpec` metadata entry resolved through ONE generic path
 (`crates/rts-codegen-new/src/front/run/registry_call.rs` +
 `crates/rts-runtime/src/adapters/dispatch.rs`, `resolve_method`), and the JIT symbol
-table is **derived from `SPECS`** (the `adapter_symbols/` module, harvested from
-Registry fn-ptrs with a drift/coverage guard) — so a direct mention of a
+table is **generated** (the `adapter_symbols/` module: the baked
+`rts_runtime::symbol_table` plus the Registry fn-ptr harvest, with drift and
+no-hand-list guards) — so a direct mention of a
 non-primordial class in the engine is simply not how dispatch is written. See
 design doc §10. (The old engine's hardcoded switchboard and 1113 manual
 `add_fn!` are deleted, not patched further.)
@@ -626,9 +635,9 @@ crates/
                       the hand-declared symbol system, and
                       `rts-codegen-new/src/adapter_symbols/`. Regenerate with
                       `cargo run -p rts-symbol-baker`; CI/gate verify with
-                      `-- --check`. The `.rs` analogue of rts-prelude-baker's
-                      `.ts` bake, same determinism discipline.
-  rts-prelude-baker/— bakes the resident `.ts` prelude (compiled bytes + relocs)
+                      `-- --check`. (The `.ts` analogue, `rts-prelude-baker`,
+                      was DELETED 2026-07-28 with the resident-prelude feature;
+                      this is now the only baker.)
   rts-engine/       — heap GC, Registry/builder, collector contract. The ABI
                       vocabulary now lives in rts-abi and is re-exported here
   rts-hir/          — typed HIR (I8..I128/F32/F64/Bool/Str/Handle/Array/Function/
@@ -641,8 +650,10 @@ crates/
     src/front/hir_lower — AST/HIR → lowering front
     src/front/run/     — the lowering itself (expr/stmt/call/class/registry/…),
                          module_jit.rs (JIT) + module_aot.rs (AOT object emission)
-    src/adapter_symbols/ — JIT symbol table harvested from Registry fn-ptrs
-                         (drift/coverage guard); replaces manual add_fn!
+    src/adapter_symbols/ — the JIT symbol table, composed from TWO GENERATED
+                         sources: the baked table (rts_runtime::symbol_table,
+                         from rts-symbol-baker) + the Registry fn-ptr harvest.
+                         No hand list — a guard asserts none comes back
   rts-primitives/   — PRIMORDIAL classes (String/Object/Array/Function/Promise/
                       Boolean/Number/Error+subclasses)
   rts-shared/       — non-primordial universal (math/num/collections/json/globals)

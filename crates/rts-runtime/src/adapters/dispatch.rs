@@ -439,3 +439,46 @@ const fn cm_r(symbol: &'static str, ret: AbiType, cb: CbShape, ret_is_array: boo
 pub fn array_has_method(method: &str) -> bool {
     ARRAY_ROWS.iter().any(|(name, _, _)| *name == method)
 }
+
+#[cfg(test)]
+mod baked_agreement {
+    //! Every symbol this table names must EXIST in the baked symbol table.
+    //!
+    //! This is the guard that was missing while the crate-layering ban kept the
+    //! Registry out of reach. The rows are still hand-written (the drain to a real
+    //! `Class::resolve_instance_method` harvest is F11 in
+    //! `docs/specs/rts-macro-single-source.md`), but they can no longer name a
+    //! symbol that is not in the linked image: `rts-symbol-baker` derives the table
+    //! from the declarations, so membership in it is proof the symbol exists.
+    //!
+    //! Failure mode this closes: a renamed or mistyped `__rtsadp_*` here used to
+    //! link fine and SIGILL at runtime when the lowering emitted the call — the
+    //! exact link-OK/runtime-SIGILL class the honesty floor forbids shipping.
+
+    use super::{ARRAY_ROWS, NUMBER_ROWS, STRING_ROWS};
+
+    #[test]
+    fn every_method_symbol_is_in_the_baked_table() {
+        let baked: std::collections::HashSet<&str> = crate::symbol_table::symbols()
+            .into_iter()
+            .map(|e| e.name)
+            .collect();
+        let mut missing: Vec<&str> = STRING_ROWS
+            .iter()
+            .chain(NUMBER_ROWS.iter())
+            .chain(ARRAY_ROWS.iter())
+            .map(|(_, _, spec)| spec.symbol)
+            .filter(|s| !baked.contains(s))
+            .collect();
+        missing.sort_unstable();
+        missing.dedup();
+        assert!(
+            missing.is_empty(),
+            "{} MethodSpec row(s) name a symbol that is NOT in the baked table — \
+             either the symbol was renamed/deleted (the row is now a runtime SIGILL) \
+             or the baker's scan does not reach its declaration:\n{}",
+            missing.len(),
+            missing.join("\n")
+        );
+    }
+}

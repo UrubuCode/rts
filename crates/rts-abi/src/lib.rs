@@ -20,6 +20,7 @@ pub mod scope;
 pub mod signature;
 pub mod str_abi;
 pub mod symbols;
+pub mod tymap;
 pub mod table;
 pub mod ty;
 pub mod types;

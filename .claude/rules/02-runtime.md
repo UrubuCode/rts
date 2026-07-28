@@ -81,8 +81,9 @@ Two execution paths sharing the same Cranelift codegen:
 
 - **`rts run`**: compiles directly to executable memory via `JITModule`. No disk,
   no external linker. ABI symbols are registered in `JITBuilder::symbol` at JIT
-  module startup; the symbol table is harvested from Registry fn-ptrs in
-  `crates/rts-codegen-new/src/adapter_symbols/`, not hand-written `add_fn!`.
+  module startup; the table is GENERATED in
+  `crates/rts-codegen-new/src/adapter_symbols/` — the baked
+  `rts_runtime::symbol_table` plus the Registry fn-ptr harvest, never a hand list.
 - **`rts compile`**: applies use-slicing, generates only the objects of the
   effectively used modules, produces the final binary.
 

@@ -100,9 +100,10 @@ single lowering); read it before any engine work. Note its file-path map is
 **stale** — it describes `value.rs`/`ic.rs`/`abi_gen.rs` under
 `rts-codegen-new/src/`, but the value model lives in
 `rts-runtime/src/adapters/`, `ic.rs` no longer exists, and there is no
-`abi_gen.rs` (the JIT symbol table is harvested in
-`crates/rts-codegen-new/src/adapter_symbols/`). Trust the tree on disk over the
-doc's paths.
+`abi_gen.rs` (the JIT symbol table is composed in
+`crates/rts-codegen-new/src/adapter_symbols/` from the baked
+`rts_runtime::symbol_table` + the Registry harvest). Trust the tree on disk over
+the doc's paths.
 
 ### How to apply
 

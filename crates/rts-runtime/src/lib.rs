@@ -8,6 +8,44 @@ pub mod abi {
     pub use rts_engine::abi::*;
 }
 
+/// THE BAKED SYMBOL TABLE — source of truth #2 (`rts-symbol-baker`), hosted here.
+///
+/// The baker scans the `#[rtse::*]` declarations across `SCANNED_CRATES` and emits
+/// `crates/rts-symbol-baker/generated/symbol_table.rs`: a static, strictly
+/// name-ordered table that is BOTH the JIT vtable and the AOT symbol set. This
+/// facade is where it gets COMPILED, because the generated file takes each
+/// address through the LINKER name (`unsafe extern "C" { #[link_name = "…"] }`),
+/// so it must live in a crate that links every scanned crate. `rts-runtime`
+/// depends on exactly those eight (engine, primitives, shared, std, node, napi,
+/// egui — plus its own `adapters/` for the `__rtsadp_*` trampolines), and it is
+/// also the staticlib the AOT archive is built from. The baker itself cannot host
+/// it: it is a source scanner and links none of them.
+///
+/// Reaching a symbol by linker name (not by Rust module path) is deliberate — it
+/// finds every `#[no_mangle]` symbol regardless of Rust visibility, and turns a
+/// missing one into a LINK error instead of a runtime crash.
+///
+/// Regenerate with `cargo run -p rts-symbol-baker`; `-- --check` is the drift
+/// guard the commit gate HARD-fails on. See docs/specs/rts-macro-single-source.md.
+pub mod symbol_table {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../rts-symbol-baker/generated/symbol_table.rs"
+    ));
+}
+
+/// The `Engine`/`Registry` authoring types, re-exported so a consumer resolves
+/// class + namespace metadata from the REAL Registry instead of hand-writing a
+/// mirror of it.
+///
+/// These used to be deliberately withheld: a crate-layering rule forbade reaching
+/// `rts-engine` except through this facade, and this facade did not re-export
+/// them — which is the documented reason `adapters/dispatch.rs` and
+/// `rts-codegen-new/src/value/abi_sig.rs` hand-wrote parallel tables. The ban was
+/// removed (owner decision, 2026-07-28) precisely so those mirrors can be
+/// deleted; withholding the types was the mechanism that manufactured them.
+pub use rts_engine::{Class, Engine, Member, Registry};
+
 pub use rts_std::runtime;
 /// Default HTTP User-Agent (`Rts v<version>` / `Rts development`), re-exported
 /// from `rts-std`'s fetch backend so the CLI URL runner and the global `fetch()`

@@ -5,8 +5,9 @@
 //! symbol NAMES, and a baker emits a `.rs` file — for the JIT and for the AOT —
 //! producing all RTS symbols **statically** (a Rust-static table beats a runtime
 //! Registry harvest) and **ordered** (so a later resolver can avoid matching or
-//! scanning). This crate is that baker; it is the `.rs` analogue of
-//! `rts-prelude-baker`'s `.ts` bake, and shares its determinism discipline.
+//! scanning). This crate is that baker. (A `.ts` analogue, `rts-prelude-baker`,
+//! once baked the resident prelude with the same determinism discipline; it was
+//! deleted 2026-07-28 with that feature, so this is now the only baker.)
 //!
 //! # What it replaces
 //!

@@ -311,41 +311,116 @@ is what lets an intrinsic have an inline-IR path with the engine naming nothing.
 guard `adapter_symbols` already has. The object/array family (~120 symbols) goes
 LAST: biggest, hottest, and it depends on F0 and F6.
 
-### Baker cutover (added 2026-07-28)
+### Baker cutover (2026-07-28)
 
-The baker already exists and already emits a correct table — 2051 symbols in
-`crates/rts-symbol-baker/generated/symbol_table.rs`. **Nothing consumes it yet:**
-the only references to `rts_abi::table` are inside `rts-abi` and the baker
-itself. These phases connect it.
+**Result: 527 → 168 hand-written rows.** The baker existed and emitted a correct
+table, but nothing consumed it — the only references to `rts_abi::table` were
+inside `rts-abi` and the baker itself. These phases connected it.
 
-**F8 — expose the Registry through the facade.** `pub use rts_engine::{Engine,
-Registry, Class, Member}` in `rts-runtime/src/lib.rs`. One line, now that the
-"no second direct dep" rule is gone; it removes the stated justification for
-`dispatch.rs` and `abi_sig.rs` in a single stroke.
+**F8 — expose the Registry through the facade. ✅ DONE.**
+`pub use rts_engine::{Engine, Registry, Class, Member}` in
+`rts-runtime/src/lib.rs`. One line, possible only once the "no second direct dep"
+rule was gone; it removes the stated justification for `dispatch.rs` and
+`abi_sig.rs` in a single stroke.
 
-**F9 — plug the baked table into the JIT.** `rts-codegen-new`'s `jit_symbols()`
-becomes *baked table + harvest* instead of *harvest + two hand lists*. The baked
-table is authoritative where it and the harvest overlap.
+**F9 — plug the baked table into the JIT. ✅ DONE.** The generated file is
+`include!`d as `rts_runtime::symbol_table`. It has to be compiled by a crate that
+LINKS every scanned crate, because it takes each address through the linker name;
+`rts-runtime` depends on exactly the eight scanned crates and is also the AOT
+staticlib, so it hosts it. The baker cannot: it is a source scanner and links
+none of them. `jit_symbols()` is now *baked table + Registry harvest* — 3598
+installed symbols, 2035 baked + 1563 harvested, **0 hand-written**.
 
-**F10 — drain `adapter_symbols/list_a.rs` + `list_b.rs`.** Diff the baked table
-against the 355 hand rows and delete every covered one. What the baker does not
-cover — the codegen-owned `__rtsadp_*` trampolines, which are not runtime
-symbols and have no Registry member — goes into the baker's SCAN SCOPE. If it
-stays outside, the hand list survives and F10 has not happened.
+Two scan bugs surfaced immediately, as 16 unresolved externals at link time —
+the "loud by design" behaviour working:
 
-**F11 — `dispatch.rs` → real harvest.** With F8 done the 13 `MethodSpec` rows
-become `Class::resolve_instance_method`. `resolve_method`'s `(class, method,
-argc)` signature and the lowering are unchanged — the swap is mechanical
-precisely because the table was already data rows, never code arms.
+- **Cargo-feature gates were invisible.** The scanner walks FILES, but a file's
+  gate lives on the `mod x;` that pulls it in (`#[cfg(feature = "asio")] pub mod
+  asio_audio;`), and nothing inside the file mentions it. Fixed with a
+  `module_gates` pre-pass. Feature-gated symbols are now EXCLUDED, not carried: a
+  feature is per-crate, so `rts-std`'s `asio` could not be replayed correctly in
+  the crate hosting the table anyway.
+- **`#[cfg(test)]` was only checked on modules**, not on items — a
+  `#[cfg(test)] #[rtse::class]` struct+impl pair (the macro's own
+  `__RtseSymbolKeyDemo`) baked three rows for symbols no normal build links.
 
-**F12 — `abi_sig.rs` → `SymbolDesc` / `SPECS`.** Signatures come from
-`lower_member()` and the macro-emitted consts; the 159-row parallel table dies,
-and with it the unguarded SIGILL exposure that motivated F0.
+**F10 — drain `adapter_symbols/list_a.rs` + `list_b.rs`. ✅ DONE — both files
+DELETED.** All 355 hand rows were already covered by the baked table. The module's
+own doc had argued the hand lists were irreducible, because the harvest "cannot
+supply" engine-internal primitives that no Registry member holds an address for.
+True of the harvest, and beside the point: an address does not have to come from
+a Registry member, it can come from the DECLARATION. A guard
+(`no_hand_written_symbol_list_exists`) now asserts every installed symbol comes
+from one of the two generated sources.
 
-**F13 — drift check wired into the gate + CI.** `cargo run -p rts-symbol-baker
--- --check` is a HARD gate (done in `scripts/read_before_commit.sh`,
-2026-07-28); mirror it in CI. Without this, F9–F12 reopen the moment someone
-adds a symbol without regenerating.
+**F11 — `dispatch.rs` → real harvest.** ⚠️ **Re-scoped.** The original plan
+(replace the 13 rows with `Class::resolve_instance_method`) does not fit: those
+rows point at codegen-owned `__rtsadp_arr_*` trampolines that interpret PolyValue
+words, and NO Registry class publishes them — a harvest cannot supply them at
+all. The real path is F7: convert those functions to `#[rtse::abi]` so the macro
+derives their `SymbolDesc`, then read the desc. Landed meanwhile: a guard
+asserting every symbol the rows NAME exists in the baked table, so a renamed
+symbol is a test failure rather than a runtime SIGILL.
+
+**F12 — `abi_sig.rs` → derived signatures. ✅ MECHANISM DONE; the rest is
+mechanical conversion.**
+
+The earlier reading of this phase said it was blocked because the rows
+distinguish `Handle` from `U64` while the functions are declared with plain Rust
+`u64`. **Measured, that objection does not hold**, for two reasons:
+
+1. **`SymSig` is consumed ONLY by `param_slot_count()`, `to_cranelift()` and
+   `returns()`.** `Handle` and `U64` are one `i64` slot in all three — they are
+   indistinguishable to every consumer. Converting a hand-written `Handle` row
+   into a derived `U64` one is behaviour-preserving.
+2. **The Rust signature IS the real ABI.** Where a hand row disagreed with it,
+   the hand row was the bug — that is exactly the SIGILL class F0 was about. So
+   deriving can only fix, never break.
+
+What landed:
+
+- **`rts_abi::tymap`** — the Rust-token → `AbiType` mapping, moved OUT of the
+  proc-macro to the dependency-free bottom of the graph, for the same reason
+  `scope.rs` lives there: `#[rtse::abi]` maps at expansion time and the baker
+  maps the same source at bake time, so the mapping must be ONE function.
+  `rts-macro`'s `single_slot` now delegates to it.
+- **The baker emits `signatures()`** — `(symbol, params, ret)` for every
+  `#[rtse::abi]` fn, derived, sorted, alongside the symbol table.
+- **`abi_sig::sig_of` consults the baked table FIRST**, falling back to the hand
+  table (`sig_of_hand`) for anything not yet converted.
+
+The drain is now self-executing: annotating a fn with `#[rtse::abi]` and
+re-baking makes its hand row unreachable, so the row is deleted in the same
+commit. Piloted end to end on the pending-error slot (`throw_set`/`err_pending`/
+`err_take`/`err_clear`) — 4 rows converted and deleted, output unchanged.
+
+The name-existence guard added alongside also found **11 dead rows** naming
+`__rtsadp_map_*`/`__rtsadp_set_*` symbols that exist nowhere in the tree (Map/Set
+moved to the `.ts` stdlib; the rows outlived the trampolines). **159 → 152 rows.**
+
+**F13 — drift check in the gate + CI. ✅ DONE in the gate.**
+`cargo run -p rts-symbol-baker -- --check` is a HARD failure in
+`scripts/read_before_commit.sh`. Still to do: mirror it in CI. Without it, F9–F12
+reopen the moment someone adds a symbol without regenerating.
+
+### What remains, in order
+
+All the mechanism is in place; what is left is mechanical and independently
+shippable, group by group.
+
+1. **F7 — annotate the remaining `__rtsadp_*` with `#[rtse::abi]`.** Per group:
+   change `#[unsafe(no_mangle)] pub extern "C" fn __rtsadp_x(` to
+   `#[rtse::abi] pub fn rtsadp_x(` (the macro re-adds the `__` and emits the
+   extern wrapper, so existing Rust callers of `__rtsadp_x` keep compiling),
+   run `cargo run -p rts-symbol-baker`, then DELETE that group's rows from
+   `abi_sig.rs` — `sig_of` already prefers the baked entry. 248 names appear in
+   `abi_sig`; by file: arrayops 41, dyndispatch 38, globalops 27, objops 23,
+   genops_arith 20, funcops 19, regexops 13, genops 12, iterops 12, arraycb 12,
+   protos 10, taops 6, ctorval 3, inspect 2. Object/array last (biggest, hottest).
+2. **F11 — `dispatch.rs`'s 13 rows.** They point at codegen-owned
+   `__rtsadp_arr_*` trampolines, so they follow F7's conversion, not a Registry
+   harvest (see the re-scoping note above).
+3. **CI drift check** — mirror the gate's `rts-symbol-baker -- --check`.
 
 ## Non-goals
 

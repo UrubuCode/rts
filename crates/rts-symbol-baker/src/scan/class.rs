@@ -142,6 +142,10 @@ pub(super) fn declarations_from_impl(imp: &syn::ItemImpl, origin: &str) -> Resul
         out.push(Declaration {
             symbol: class_symbol(&class, &f.sig.ident.to_string()),
             cfgs: super::cfgs_of(&f.attrs),
+            // Class members: `#[rtse::class]` already emits a `SymbolDesc` carrying the
+            // signature; the baked table does not duplicate it (a second derivation is a
+            // second chance to disagree).
+            sig: None,
             origin: origin.to_string(),
         });
     }
@@ -167,12 +171,20 @@ pub(super) fn declarations_from_struct(s: &syn::ItemStruct, origin: &str) -> Res
         out.push(Declaration {
             symbol: class_symbol(&class, &format!("{fname}__get")),
             cfgs: super::cfgs_of(&f.attrs),
+            // Class members: `#[rtse::class]` already emits a `SymbolDesc` carrying the
+            // signature; the baked table does not duplicate it (a second derivation is a
+            // second chance to disagree).
+            sig: None,
             origin: origin.to_string(),
         });
         if !readonly {
             out.push(Declaration {
                 symbol: class_symbol(&class, &format!("{fname}__set")),
                 cfgs: super::cfgs_of(&f.attrs),
+                // Class members: `#[rtse::class]` already emits a `SymbolDesc` carrying the
+                // signature; the baked table does not duplicate it (a second derivation is a
+                // second chance to disagree).
+                sig: None,
                 origin: origin.to_string(),
             });
         }
@@ -232,6 +244,10 @@ pub(super) fn declaration_from_const(item: &syn::ItemConst, origin: &str) -> Res
     Ok(Some(Declaration {
         symbol,
         cfgs: super::cfgs_of(&item.attrs),
+        // Class members: `#[rtse::class]` already emits a `SymbolDesc` carrying the
+        // signature; the baked table does not duplicate it (a second derivation is a
+        // second chance to disagree).
+        sig: None,
         origin: origin.to_string(),
     }))
 }

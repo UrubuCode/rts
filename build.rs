@@ -100,57 +100,11 @@ fn main() {
         }
     }
 
-    wire_resident_prelude(&out);
 
     println!("cargo:rerun-if-changed=crates/rts-runtime/src/");
     println!("cargo:rerun-if-changed=build.rs");
 }
 
-/// Step 10, slice 2: OPT-IN embedding of the baked resident-prelude MANIFEST.
-///
-/// The `rts-prelude-baker` bin (run as a prior build step) writes
-/// `prelude_manifest.bin` into a directory named by
-/// `RTS_PRELUDE_DIR`. The manifest holds the prelude's PRE-COMPILED machine code
-/// (bytes + symbolic relocs) + string blobs; the run path replays it into each
-/// run's JIT arena via `define_function_bytes` (no linking, no far calls). When
-/// `RTS_PRELUDE_DIR` points at a dir with the manifest, embed it (`src/lib.rs`
-/// `include_bytes!`s it); the bin installs it at startup.
-///
-/// When the var is unset or the manifest is missing (the DEFAULT — every ordinary
-/// `cargo build`), embed an EMPTY manifest; the bin installs nothing and the run
-/// path keeps the fallback (lower + merge + compile the prelude). Default build
-/// unchanged; no object is linked either way.
-fn wire_resident_prelude(out: &Path) {
-    let manifest_out = out.join("prelude_manifest.bin");
-
-    let dir = std::env::var_os("RTS_PRELUDE_DIR").map(PathBuf::from);
-    println!("cargo:rerun-if-env-changed=RTS_PRELUDE_DIR");
-
-    if let Some(dir) = dir {
-        let manifest = dir.join("prelude_manifest.bin");
-        if manifest.is_file() {
-            std::fs::copy(&manifest, &manifest_out)
-                .unwrap_or_else(|e| panic!("copy {}: {e}", manifest.display()));
-            println!("cargo:rerun-if-changed={}", manifest.display());
-            println!(
-                "cargo:warning=rts: embedding baked resident prelude manifest from {}",
-                dir.display()
-            );
-            return;
-        }
-        println!(
-            "cargo:warning=RTS_PRELUDE_DIR={} set but prelude_manifest.bin missing — \
-             building WITHOUT a resident prelude (run \
-             `cargo run -p rts-prelude-baker -- {}` first).",
-            dir.display(),
-            dir.display()
-        );
-    }
-
-    // Inert: empty manifest → the bin installs nothing → the run path uses the fallback.
-    std::fs::write(&manifest_out, b"")
-        .unwrap_or_else(|e| panic!("write empty manifest {}: {e}", manifest_out.display()));
-}
 
 /// `OUT_DIR` is `target/<profile>/build/<pkg>-<hash>/out`; the profile dir
 /// (`target/<profile>/`, the one holding `build/` and `deps/`, and where Cargo

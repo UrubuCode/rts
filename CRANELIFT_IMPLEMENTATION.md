@@ -592,7 +592,19 @@ scope here.
   (`new Function`/eval) that runs while the outer program's shapes are live — so
   the cache is gated to the TOP-LEVEL compile (`global_shape_count()==0`) and a
   nested compile re-lowers as before. Full suite 723/8 = baseline under the cache.
-- **Slice 2 — resident prelude machine code.** A `rts-prelude-baker` workspace bin
+- **Slice 2 — resident prelude machine code. ⛔ REMOVED 2026-07-28 (owner
+  decision).** Everything from here to the end of Step 10 is a HISTORICAL RECORD
+  of a feature that no longer exists: the `rts-prelude-baker` crate, the
+  `RTS_PRELUDE_DIR` build wiring, the embedded `MANIFEST`, `resident::install`,
+  `mark_resident_imports` and `RTS_NO_RESIDENT` are all deleted. The prelude is
+  lowered and compiled on every run again; the prune (Slice 3) always runs.
+  **What SURVIVES:** the replay machinery (`bake::bake_program`,
+  `resident::replay`, `with_replay_manifest`, `module_jit::compile_replay`) — the
+  WHOLE-PROGRAM CACHE (`RTS_JIT_CACHE=1`, the "EXTENSION" below) uses the same
+  `define_function_bytes` mechanism and is untouched. Read the rest for the
+  mechanism and the measurements, not as a description of the current tree.
+
+  A `rts-prelude-baker` workspace bin
   compiles the prelude alone to `prelude.o` (ObjectModule, `aot_str` ON,
   `Linkage::Export`), linked into `rts.exe`; its fns register in
   `adapter_symbols::jit_symbols` and user code declares them `Import`. Partition
@@ -782,6 +794,12 @@ scope here.
   optimisation. Default (non-baked) build stays at baseline `723/8`.
 
 ## Step 10 — resident CORRECTNESS: the string-pool-handle-immediate bug (FIXED)
+
+> ⛔ **HISTORICAL — the resident prelude was REMOVED 2026-07-28** (see the banner
+> on Slice 2 above). The BUG documented here was real and its FIX is still in the
+> tree: a string-pool handle must never be baked as an immediate, which also
+> applies to the whole-program cache that still replays baked bytes. Kept for
+> that reason. The resident-prelude plumbing it talks about is gone.
 
 **Status:** ✅ FIXED · **Effort:** medium · **Risk:** low (default JIT path byte-identical) · **The real blocker, now cleared**
 

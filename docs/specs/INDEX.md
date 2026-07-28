@@ -27,9 +27,11 @@ rule forbids. Stale test numbers were stripped from `js-parity-epic-226.md`.
   (ORCHESTRATOR: declares, types, organizes — `SymbolDesc` derived from the Rust
   signature so drift is unrepresentable) + `rts-symbol-baker` (LINKER: bakes ONE
   static, name-ordered table that is both the JIT vtable and the AOT symbol set).**
-  Kills `rt.rs`, the hand-declared symbol system and `adapter_symbols/`. Records
-  the 2026-07-28 removal of the crate-dependency-direction bans (they were what
-  manufactured the 527 rows of mirror tables). Phases F0→F13.
+  Records the 2026-07-28 removal of the crate-dependency-direction bans (they were
+  what manufactured the mirror tables) and the baker cutover: **527 → 168
+  hand-written rows**, `adapter_symbols/list_a.rs` + `list_b.rs` DELETED, the JIT
+  table now two generated sources. Phases F0→F13, with what remains (F7) spelled
+  out.
 - [Engine redesign (rts-codegen-new)](rts-codegen-new-design.md) — **the
   canonical direction.** PolyValue, Repr lattice, shapes + data ICs, single
   lowering, data-driven dispatch + generated ABI. Migration phases P0→P5.
