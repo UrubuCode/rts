@@ -39,12 +39,12 @@ runs:
       run: |
         if ('${{ inputs.profile }}' -eq 'release') {
           cargo build --release -p rts-runtime
-          if ( -ne 0) { exit  }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo build --release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         } else {
           cargo build -p rts-runtime
-          if ( -ne 0) { exit  }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         }

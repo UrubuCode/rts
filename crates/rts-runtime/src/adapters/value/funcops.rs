@@ -223,7 +223,7 @@ extern "C" fn math_minmax_thunk(env: u64, a0: u64, a1: u64, a2: u64, a3: u64, re
 #[rtse::abi]
 pub fn rtsadp_math_fn_value(op: u64) -> u64 {
     let data = FunctionData {
-        fn_ptr: math_minmax_thunk as usize as u64,
+        fn_ptr: math_minmax_thunk as *const () as usize as u64,
         arity: 2,
         name: Box::<str>::from(if op == 1 { "max" } else { "min" }),
         bound_this: op as i64,
@@ -270,7 +270,7 @@ pub fn rtsadp_coerce_fn_value(op: u64) -> u64 {
         _ => "Boolean",
     };
     let data = FunctionData {
-        fn_ptr: coerce_thunk as usize as u64,
+        fn_ptr: coerce_thunk as *const () as usize as u64,
         arity: 1,
         name: Box::<str>::from(name),
         bound_this: op as i64,
@@ -336,7 +336,7 @@ pub fn prim_method_value(recv: u64, name_word: u64) -> u64 {
     let env_vec = alloc_entry(Entry::Vec(Box::new(vec![recv as i64, name_word as i64])));
     let env = PolyValue::from_object_handle(env_vec & super::PAYLOAD_MASK).raw();
     let data = FunctionData {
-        fn_ptr: prim_method_thunk as usize as u64,
+        fn_ptr: prim_method_thunk as *const () as usize as u64,
         arity: 3,
         name: Box::<str>::from(name.as_str()),
         bound_this: env as i64,
@@ -384,8 +384,8 @@ pub(crate) fn settler_pair(out_handle: u64) -> (u64, u64) {
         PolyValue::from_function_handle(h & super::PAYLOAD_MASK).raw()
     };
     (
-        mk(settle_resolve_thunk as usize as u64),
-        mk(settle_reject_thunk as usize as u64),
+        mk(settle_resolve_thunk as *const () as usize as u64),
+        mk(settle_reject_thunk as *const () as usize as u64),
     )
 }
 
