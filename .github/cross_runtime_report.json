@@ -1025,10 +1025,10 @@
 ,
 {
   "name": "claude-tostring-valueof-coercion",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "unary_plus=5\nmul=10\nsub=4\ncmp=true\nnumber=5\ntemplate=$5\nstring=$5\nconcat_str=v:$5\nplus_str=5\nplus_num=6\ntag_str=42\ntag_num=42\ntag_plus=421\nbad_num=NaN\nbad_plus=abc1\nraw_num=9\nraw_str=[object Object]\nraw_template=[object Object]\ncents_str=$3c\ncents_num=3\ncents_plus=4\njoin=$1|$2\nsorted=$1,$2,$3",
   "node": "unary_plus=5\nmul=10\nsub=4\ncmp=true\nnumber=5\ntemplate=$5\nstring=$5\nconcat_str=v:$5\nplus_str=5\nplus_num=6\ntag_str=42\ntag_num=42\ntag_plus=421\nbad_num=NaN\nbad_plus=abc1\nraw_num=9\nraw_str=[object Object]\nraw_template=[object Object]\ncents_str=$3c\ncents_num=3\ncents_plus=4\njoin=$1|$2\nsorted=$1,$2,$3",
-  "rts": "unary_plus=5\nmul=10\nsub=4\ncmp=true\nnumber=undefined\ntemplate=$5\nstring=$5\nconcat_str=v:$5\nplus_str=5\nplus_num=6\ntag_str=42\ntag_num=42\ntag_plus=421\nbad_num=NaN\nbad_plus=abc1\nraw_num=9\nraw_str=[object Object]\nraw_template=[object Object]\ncents_str=$3c\ncents_num=3\ncents_plus=4\njoin=$1|$2\nsorted=$1,$2,$3"
+  "rts": "unary_plus=5\nmul=10\nsub=4\ncmp=true\nnumber=5\ntemplate=$5\nstring=$5\nconcat_str=v:$5\nplus_str=5\nplus_num=6\ntag_str=42\ntag_num=42\ntag_plus=421\nbad_num=NaN\nbad_plus=abc1\nraw_num=9\nraw_str=[object Object]\nraw_template=[object Object]\ncents_str=$3c\ncents_num=3\ncents_plus=4\njoin=$1|$2\nsorted=$1,$2,$3"
 }
 ,
 {
@@ -1204,7 +1204,7 @@
   "status": "rts_diverge",
   "bun": "obj_keys=odd,even\nobj_even=2,4\nobj_odd=1,3,5\nobj_num_keys=0,1\nobj_key_types=string,string\nobj_get_0=2,4:2,4\nobj_proto_null=true\nobj_no_tostring=undefined\nmap_keys=1,0\nmap_key_types=number,number\nmap_get_num=2,4\nmap_get_str_miss=undefined\nmap_obj_size=2\nmap_obj_A=4,5\nmap_obj_B=1,2,3\nmap_obj_key_names=B,A\nmap_obj_fresh_key_miss=undefined\nsvz_size=2\nsvz_zero=1,2\nsvz_key_1_div=Infinity\nsvz_nan=3\nobj_coerced_keys=0|NaN|undefined|null\ncb_args=a@0,b@1\nobj_cb_args=a@0,b@1\norder=3,1,2\ngroups=3+3|1+1|2\nbool_keys=false,true:types=boolean,boolean\nbool_true=3,4,5\nempty_map=0\nempty_obj=0\nfrom_set=1,0:odd=1,3\nvalues_are_arrays=true",
   "node": "obj_keys=odd,even\nobj_even=2,4\nobj_odd=1,3,5\nobj_num_keys=0,1\nobj_key_types=string,string\nobj_get_0=2,4:2,4\nobj_proto_null=true\nobj_no_tostring=undefined\nmap_keys=1,0\nmap_key_types=number,number\nmap_get_num=2,4\nmap_get_str_miss=undefined\nmap_obj_size=2\nmap_obj_A=4,5\nmap_obj_B=1,2,3\nmap_obj_key_names=B,A\nmap_obj_fresh_key_miss=undefined\nsvz_size=2\nsvz_zero=1,2\nsvz_key_1_div=Infinity\nsvz_nan=3\nobj_coerced_keys=0|NaN|undefined|null\ncb_args=a@0,b@1\nobj_cb_args=a@0,b@1\norder=3,1,2\ngroups=3+3|1+1|2\nbool_keys=false,true:types=boolean,boolean\nbool_true=3,4,5\nempty_map=0\nempty_obj=0\nfrom_set=1,0:odd=1,3\nvalues_are_arrays=true",
-  "rts": "obj_keys=odd,even\nobj_even=2,4\nobj_odd=1,3,5\nobj_num_keys=0,1\nobj_key_types=string,string\nobj_get_0=2,4:2,4\nobj_proto_null=false\nobj_no_tostring=undefined\nmap_keys=1,0\nmap_key_types=number,number\nmap_get_num=2,4\nmap_get_str_miss=undefined\nmap_obj_size=2\nmap_obj_A=4,5\nmap_obj_B=1,2,3\nmap_obj_key_names=B,A\nmap_obj_fresh_key_miss=undefined\nsvz_size=2\nsvz_zero=1,2\nsvz_key_1_div=-Infinity\nsvz_nan=3\nobj_coerced_keys=0|NaN|undefined|null\ncb_args=a@0,b@1\nobj_cb_args=a@0,b@1\norder=3,1,2\ngroups=3+3|1+1|2\nbool_keys=false,true:types=boolean,boolean\nbool_true=3,4,5\nempty_map=0\nempty_obj=0\nfrom_set=0,NaN,1:odd=7\nvalues_are_arrays=true"
+  "rts": "obj_keys=odd,even\nobj_even=2,4\nobj_odd=1,3,5\nobj_num_keys=0,1\nobj_key_types=string,string\nobj_get_0=2,4:2,4\nobj_proto_null=false\nobj_no_tostring=undefined\nmap_keys=1,0\nmap_key_types=number,number\nmap_get_num=2,4\nmap_get_str_miss=undefined\nmap_obj_size=2\nmap_obj_A=4,5\nmap_obj_B=1,2,3\nmap_obj_key_names=B,A\nmap_obj_fresh_key_miss=undefined\nsvz_size=2\nsvz_zero=1,2\nsvz_key_1_div=-Infinity\nsvz_nan=3\nobj_coerced_keys=0|NaN|undefined|null\ncb_args=a@0,b@1\nobj_cb_args=a@0,b@1\norder=3,1,2\ngroups=3+3|1+1|2\nbool_keys=false,true:types=boolean,boolean\nbool_true=3,4,5\nempty_map=0\nempty_obj=0\nfrom_set=1,NaN:odd=1073741835,7\nvalues_are_arrays=true"
 }
 ,
 {
@@ -1236,7 +1236,7 @@
   "status": "rts_diverge",
   "bun": "add_returns_self=true\nadd_returns_set=true\nchain=1,2,3\nchain_size=3\nchain_dup=1,2:size=2\ninline=a,b\nchain_size_inline=2\nset_returns_self=true\nset_returns_map=true\nmap_chain=a:1|b:2|c:3\nchain_overwrite=a,b:a=99\nchain_get=5\nset_delete_hit=true\nset_delete_miss=false\nmap_delete_hit=true\nmap_delete_miss=false\nset_clear=undefined:size=0\nmap_clear=undefined:size=0\nset_has=true:false\nmap_has=true:false\nmixed_chain_size=6\nmixed_has=truetruetruetruetruetrue\nfeed_keys=x,y\nnested=1,2,3",
   "node": "add_returns_self=true\nadd_returns_set=true\nchain=1,2,3\nchain_size=3\nchain_dup=1,2:size=2\ninline=a,b\nchain_size_inline=2\nset_returns_self=true\nset_returns_map=true\nmap_chain=a:1|b:2|c:3\nchain_overwrite=a,b:a=99\nchain_get=5\nset_delete_hit=true\nset_delete_miss=false\nmap_delete_hit=true\nmap_delete_miss=false\nset_clear=undefined:size=0\nmap_clear=undefined:size=0\nset_has=true:false\nmap_has=true:false\nmixed_chain_size=6\nmixed_has=truetruetruetruetruetrue\nfeed_keys=x,y\nnested=1,2,3",
-  "rts": "add_returns_self=true\nadd_returns_set=true\nchain=1,2,3\nchain_size=3\nchain_dup=1,2:size=2\ninline=a,b\nchain_size_inline=2\nset_returns_self=true\nset_returns_map=true\nmap_chain=a:1|b:2|c:3\nchain_overwrite=a,b:a=99\nchain_get=5\nset_delete_hit=true\nset_delete_miss=false\nmap_delete_hit=true\nmap_delete_miss=false\nset_clear=undefined:size=0\nmap_clear=undefined:size=0\nset_has=true:false\nmap_has=true:false\nmixed_chain_size=6\nmixed_has=truetruetruetruetruetrue\nfeed_keys=x,y\nnested=1073741836,1,2,-1,0,1,-1,-1,-1,-1,-1,-1,-1,7,3"
+  "rts": "add_returns_self=true\nadd_returns_set=true\nchain=1,2,3\nchain_size=3\nchain_dup=1,2:size=2\ninline=a,b\nchain_size_inline=2\nset_returns_self=true\nset_returns_map=true\nmap_chain=a:1|b:2|c:3\nchain_overwrite=a,b:a=99\nchain_get=5\nset_delete_hit=true\nset_delete_miss=false\nmap_delete_hit=true\nmap_delete_miss=false\nset_clear=undefined:size=0\nmap_clear=undefined:size=0\nset_has=true:false\nmap_has=true:false\nmixed_chain_size=6\nmixed_has=truetruetruetruetruetrue\nfeed_keys=x,y\nnested=1073741835,1,2,-1,0,1,-1,-1,-1,-1,-1,-1,-1,7,3"
 }
 ,
 {
@@ -1369,10 +1369,10 @@
 ,
 {
   "name": "280_date_setutc_family",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "iso=2024-05-10T12:34:56.789Z\nparts=2024,4,10,12,34,56,789",
   "node": "iso=2024-05-10T12:34:56.789Z\nparts=2024,4,10,12,34,56,789",
-  "rts": "iso=2024-05-10T12:34:56.789Z\nparts=2024,4,10,12,34,56,789"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -1393,18 +1393,18 @@
 ,
 {
   "name": "43_date_setters_deep",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8",
   "node": "iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8",
-  "rts": "iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
   "name": "claude-date-arithmetic",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "diff_ms=86400000\ndiff_minus_op=86400000\ndiff_days=1\nreverse=-86400000\nleap_gap_days=2\nnonleap_gap_days=1\nyear2020_days=366\nyear2021_days=365\nwalk=2024-01-30|2024-01-31|2024-02-01|2024-02-02\nyear_roll=2024-01-01T00:00:00.000Z\nadd45=2024-02-15T00:00:00.000Z\nsub10=2024-02-24T00:00:00.000Z\njan31_plus_month=2024-03-02T00:00:00.000Z\nplus_hour=2024-01-01T01:00:00.000Z\nsetTime_returns=0\nafter_setTime0=1970-01-01T00:00:00.000Z",
   "node": "diff_ms=86400000\ndiff_minus_op=86400000\ndiff_days=1\nreverse=-86400000\nleap_gap_days=2\nnonleap_gap_days=1\nyear2020_days=366\nyear2021_days=365\nwalk=2024-01-30|2024-01-31|2024-02-01|2024-02-02\nyear_roll=2024-01-01T00:00:00.000Z\nadd45=2024-02-15T00:00:00.000Z\nsub10=2024-02-24T00:00:00.000Z\njan31_plus_month=2024-03-02T00:00:00.000Z\nplus_hour=2024-01-01T01:00:00.000Z\nsetTime_returns=0\nafter_setTime0=1970-01-01T00:00:00.000Z",
-  "rts": "diff_ms=86400000\ndiff_minus_op=86400000\ndiff_days=1\nreverse=-86400000\nleap_gap_days=2\nnonleap_gap_days=1\nyear2020_days=366\nyear2021_days=365\nwalk=2024-01-30|2024-01-31|2024-02-01|2024-02-02\nyear_roll=2024-01-01T00:00:00.000Z\nadd45=2024-02-15T00:00:00.000Z\nsub10=2024-02-24T00:00:00.000Z\njan31_plus_month=2024-03-02T00:00:00.000Z\nplus_hour=2024-01-01T01:00:00.000Z\nsetTime_returns=0\nafter_setTime0=1970-01-01T00:00:00.000Z"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -1473,10 +1473,10 @@
 ,
 {
   "name": "codex_date_utc_setter_overflow",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "2021-03-03T23:00:00.000Z\n2021-02-28T23:00:00.000Z\n2021-03-02T02:02:01.000Z",
   "node": "2021-03-03T23:00:00.000Z\n2021-02-28T23:00:00.000Z\n2021-03-02T02:02:01.000Z",
-  "rts": "2021-03-03T23:00:00.000Z\n2021-02-28T23:00:00.000Z\n2021-03-02T02:02:01.000Z"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -1980,7 +1980,7 @@
   "status": "rts_diverge",
   "bun": "{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return",
   "node": "{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return",
-  "rts": "{\"value\":1073741886,\"done\":false}\n{\"value\":{\"message\":\"E\",\"name\":\"Error\",\"stack\":\"\"},\"done\":true}\n{\"value\":\"R\",\"done\":true}"
+  "rts": "{\"value\":1073741885,\"done\":false}\n{\"value\":{\"message\":\"E\",\"name\":\"Error\",\"stack\":\"\"},\"done\":true}\n{\"value\":\"R\",\"done\":true}"
 }
 ,
 {
@@ -2060,7 +2060,7 @@
   "status": "rts_diverge",
   "bun": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
   "node": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
-  "rts": "undefined"
+  "rts": ""
 }
 ,
 {
@@ -2249,10 +2249,10 @@
 ,
 {
   "name": "claude-stringify-number-edges",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "neg_zero=0\nneg_zero_obj={\"a\":0}\nneg_zero_arr=[0,0]\npos_zero=0\ninf=null\nneg_inf=null\nnan=null\nnonfinite_obj={\"a\":null,\"b\":null,\"c\":null}\nnonfinite_arr=[null,null,null]\ndiv_zero=null\nmax_safe=9007199254740991\nmax_safe_plus=9007199254740992\nmax_value=1.7976931348623157e+308\nmin_value=5e-324\ne21=1e+21\ne20=100000000000000000000\nneg_e21=-1e+21\ne_minus_7=1e-7\ne_minus_6=0.000001\nthird=0.3333333333333333\npoint_sum=0.30000000000000004\nbig_frac=123456789.12345679\nneg_frac=-0.5\noverflow=null\nwrapper=5\nwrapper_nan=null\nneg_big=-9007199254740991\nint_round=100\nfloat_int=100",
   "node": "neg_zero=0\nneg_zero_obj={\"a\":0}\nneg_zero_arr=[0,0]\npos_zero=0\ninf=null\nneg_inf=null\nnan=null\nnonfinite_obj={\"a\":null,\"b\":null,\"c\":null}\nnonfinite_arr=[null,null,null]\ndiv_zero=null\nmax_safe=9007199254740991\nmax_safe_plus=9007199254740992\nmax_value=1.7976931348623157e+308\nmin_value=5e-324\ne21=1e+21\ne20=100000000000000000000\nneg_e21=-1e+21\ne_minus_7=1e-7\ne_minus_6=0.000001\nthird=0.3333333333333333\npoint_sum=0.30000000000000004\nbig_frac=123456789.12345679\nneg_frac=-0.5\noverflow=null\nwrapper=5\nwrapper_nan=null\nneg_big=-9007199254740991\nint_round=100\nfloat_int=100",
-  "rts": "neg_zero=0\nneg_zero_obj={\"a\":0}\nneg_zero_arr=[0,0]\npos_zero=0\ninf=null\nneg_inf=null\nnan=null\nnonfinite_obj={\"a\":null,\"b\":null,\"c\":null}\nnonfinite_arr=[null,null,null]\ndiv_zero=null\nmax_safe=9007199254740991\nmax_safe_plus=9007199254740992\nmax_value=1.7976931348623157e+308\nmin_value=5e-324\ne21=1e+21\ne20=100000000000000000000\nneg_e21=-1e+21\ne_minus_7=1e-7\ne_minus_6=0.000001\nthird=0.3333333333333333\npoint_sum=0.30000000000000004\nbig_frac=123456789.12345679\nneg_frac=-0.5\noverflow=null\nwrapper=5\nwrapper_nan=null\nneg_big=-9007199254740991\nint_round=100\nfloat_int=100"
+  "rts": "neg_zero=0\nneg_zero_obj={\"a\":0}\nneg_zero_arr=[0,0]\npos_zero=0\ninf=null\nneg_inf=null\nnan=null\nnonfinite_obj={\"a\":null,\"b\":null,\"c\":null}\nnonfinite_arr=[null,null,null]\ndiv_zero=null\nmax_safe=9007199254740991\nmax_safe_plus=9007199254740992\nmax_value=1.7976931348623157e+308\nmin_value=5e-324\ne21=1e+21\ne20=100000000000000000000\nneg_e21=-1e+21\ne_minus_7=1e-7\ne_minus_6=0.000001\nthird=0.3333333333333333\npoint_sum=0.30000000000000004\nbig_frac=123456789.12345679\nneg_frac=-0.5\noverflow=null\nwrapper={}\nwrapper_nan={}\nneg_big=-9007199254740991\nint_round=100\nfloat_int=100"
 }
 ,
 {
@@ -2308,7 +2308,7 @@
   "status": "rts_diverge",
   "bun": "{\"b\":\"B\",\"1\":\"one\",\"a\":\"A\"}\n[{\"b\":2,\"1\":3,\"a\":1}]",
   "node": "{\"b\":\"B\",\"1\":\"one\",\"a\":\"A\"}\n[{\"b\":2,\"1\":3,\"a\":1}]",
-  "rts": "{\"1\":\"one\",\"a\":\"A\"}\n[{\"1\":3,\"a\":1}]"
+  "rts": "{\"a\":\"A\"}\n[{\"a\":1}]"
 }
 ,
 {
@@ -2473,9 +2473,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout"
 }
 ,
@@ -2553,10 +2553,10 @@
 ,
 {
   "name": "394_structuredclone_complex",
-  "status": "rts_diverge",
+  "status": "rts_error",
   "bun": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
   "node": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
-  "rts": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse"
+  "rts": "__RUNTIME_ERROR__"
 }
 ,
 {
@@ -3041,10 +3041,10 @@
 ,
 {
   "name": "claude-unary-plus-vs-number-vs-parseint",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "\"42\" unary=42 Number=42 parseInt=42\n\"42abc\" unary=NaN Number=NaN parseInt=42\n\"abc42\" unary=NaN Number=NaN parseInt=NaN\n\"  42  \" unary=42 Number=42 parseInt=42\n\"\" unary=0 Number=0 parseInt=NaN\n\"   \" unary=0 Number=0 parseInt=NaN\n\"3.99\" unary=3.99 Number=3.99 parseInt=3\n\"0x1F\" unary=31 Number=31 parseInt=31\n\"0b101\" unary=5 Number=5 parseInt=0\n\"0o17\" unary=15 Number=15 parseInt=0\n\"1e3\" unary=1000 Number=1000 parseInt=1\n\"1e-3\" unary=0.001 Number=0.001 parseInt=1\n\".5\" unary=0.5 Number=0.5 parseInt=NaN\n\"5.\" unary=5 Number=5 parseInt=5\n\"+5\" unary=5 Number=5 parseInt=5\n\"-5\" unary=-5 Number=-5 parseInt=-5\n\"Infinity\" unary=Infinity Number=Infinity parseInt=NaN\n\"-Infinity\" unary=-Infinity Number=-Infinity parseInt=NaN\n\"1_000\" unary=NaN Number=NaN parseInt=1\n\"12px\" unary=NaN Number=NaN parseInt=12\n\"  -7.5e2xyz\" unary=NaN Number=NaN parseInt=-7\n\"0.0000001\" unary=1e-7 Number=1e-7 parseInt=0\n\"  0x10  \" unary=16 Number=16 parseInt=16\n\"null\" unary=NaN Number=NaN parseInt=NaN\n\"true\" unary=NaN Number=NaN parseInt=NaN\n--- non-strings ---\ntrue unary=1 Number=1 parseInt=NaN\nfalse unary=0 Number=0 parseInt=NaN\nnull unary=0 Number=0 parseInt=NaN\nundefined unary=NaN Number=NaN parseInt=NaN\nemptyArr unary=0 Number=0 parseInt=NaN\narr[7] unary=7 Number=7 parseInt=7\narr[1,2] unary=NaN Number=NaN parseInt=1\n--- exponent handling ---\n1e3 parseInt=1\n1e3 parseFloat=1000\n1e3 Number=1000\n--- ToString-then-parse trap ---\nparseInt(1e21)=1\nNumber(1e21)=1e+21\nparseInt(0.0000005)=5\nNumber(0.0000005)=5e-7\nparseInt(1e-7)=1",
   "node": "\"42\" unary=42 Number=42 parseInt=42\n\"42abc\" unary=NaN Number=NaN parseInt=42\n\"abc42\" unary=NaN Number=NaN parseInt=NaN\n\"  42  \" unary=42 Number=42 parseInt=42\n\"\" unary=0 Number=0 parseInt=NaN\n\"   \" unary=0 Number=0 parseInt=NaN\n\"3.99\" unary=3.99 Number=3.99 parseInt=3\n\"0x1F\" unary=31 Number=31 parseInt=31\n\"0b101\" unary=5 Number=5 parseInt=0\n\"0o17\" unary=15 Number=15 parseInt=0\n\"1e3\" unary=1000 Number=1000 parseInt=1\n\"1e-3\" unary=0.001 Number=0.001 parseInt=1\n\".5\" unary=0.5 Number=0.5 parseInt=NaN\n\"5.\" unary=5 Number=5 parseInt=5\n\"+5\" unary=5 Number=5 parseInt=5\n\"-5\" unary=-5 Number=-5 parseInt=-5\n\"Infinity\" unary=Infinity Number=Infinity parseInt=NaN\n\"-Infinity\" unary=-Infinity Number=-Infinity parseInt=NaN\n\"1_000\" unary=NaN Number=NaN parseInt=1\n\"12px\" unary=NaN Number=NaN parseInt=12\n\"  -7.5e2xyz\" unary=NaN Number=NaN parseInt=-7\n\"0.0000001\" unary=1e-7 Number=1e-7 parseInt=0\n\"  0x10  \" unary=16 Number=16 parseInt=16\n\"null\" unary=NaN Number=NaN parseInt=NaN\n\"true\" unary=NaN Number=NaN parseInt=NaN\n--- non-strings ---\ntrue unary=1 Number=1 parseInt=NaN\nfalse unary=0 Number=0 parseInt=NaN\nnull unary=0 Number=0 parseInt=NaN\nundefined unary=NaN Number=NaN parseInt=NaN\nemptyArr unary=0 Number=0 parseInt=NaN\narr[7] unary=7 Number=7 parseInt=7\narr[1,2] unary=NaN Number=NaN parseInt=1\n--- exponent handling ---\n1e3 parseInt=1\n1e3 parseFloat=1000\n1e3 Number=1000\n--- ToString-then-parse trap ---\nparseInt(1e21)=1\nNumber(1e21)=1e+21\nparseInt(0.0000005)=5\nNumber(0.0000005)=5e-7\nparseInt(1e-7)=1",
-  "rts": "\"42\" unary=42 Number=42 parseInt=42\n\"42abc\" unary=NaN Number=NaN parseInt=42\n\"abc42\" unary=NaN Number=NaN parseInt=NaN\n\"  42  \" unary=42 Number=42 parseInt=42\n\"\" unary=0 Number=0 parseInt=NaN\n\"   \" unary=0 Number=0 parseInt=NaN\n\"3.99\" unary=3.99 Number=3.99 parseInt=3\n\"0x1F\" unary=31 Number=31 parseInt=31\n\"0b101\" unary=5 Number=5 parseInt=0\n\"0o17\" unary=15 Number=15 parseInt=0\n\"1e3\" unary=1000 Number=1000 parseInt=1\n\"1e-3\" unary=0.001 Number=0.001 parseInt=1\n\".5\" unary=0.5 Number=0.5 parseInt=NaN\n\"5.\" unary=5 Number=5 parseInt=5\n\"+5\" unary=5 Number=5 parseInt=5\n\"-5\" unary=-5 Number=-5 parseInt=-5\n\"Infinity\" unary=Infinity Number=Infinity parseInt=NaN\n\"-Infinity\" unary=-Infinity Number=-Infinity parseInt=NaN\n\"1_000\" unary=NaN Number=NaN parseInt=1\n\"12px\" unary=NaN Number=NaN parseInt=12\n\"  -7.5e2xyz\" unary=NaN Number=NaN parseInt=-7\n\"0.0000001\" unary=1e-7 Number=1e-7 parseInt=0\n\"  0x10  \" unary=16 Number=16 parseInt=16\n\"null\" unary=NaN Number=NaN parseInt=NaN\n\"true\" unary=NaN Number=NaN parseInt=NaN\n--- non-strings ---\ntrue unary=1 Number=1 parseInt=NaN\nfalse unary=0 Number=0 parseInt=NaN\nnull unary=0 Number=0 parseInt=NaN\nundefined unary=NaN Number=NaN parseInt=NaN\nemptyArr unary=0 Number=undefined parseInt=NaN\narr[7] unary=7 Number=undefined parseInt=7\narr[1,2] unary=NaN Number=undefined parseInt=1\n--- exponent handling ---\n1e3 parseInt=1\n1e3 parseFloat=1000\n1e3 Number=1000\n--- ToString-then-parse trap ---\nparseInt(1e21)=1\nNumber(1e21)=1e+21\nparseInt(0.0000005)=5\nNumber(0.0000005)=5e-7\nparseInt(1e-7)=1"
+  "rts": "\"42\" unary=42 Number=42 parseInt=42\n\"42abc\" unary=NaN Number=NaN parseInt=42\n\"abc42\" unary=NaN Number=NaN parseInt=NaN\n\"  42  \" unary=42 Number=42 parseInt=42\n\"\" unary=0 Number=0 parseInt=NaN\n\"   \" unary=0 Number=0 parseInt=NaN\n\"3.99\" unary=3.99 Number=3.99 parseInt=3\n\"0x1F\" unary=31 Number=31 parseInt=31\n\"0b101\" unary=5 Number=5 parseInt=0\n\"0o17\" unary=15 Number=15 parseInt=0\n\"1e3\" unary=1000 Number=1000 parseInt=1\n\"1e-3\" unary=0.001 Number=0.001 parseInt=1\n\".5\" unary=0.5 Number=0.5 parseInt=NaN\n\"5.\" unary=5 Number=5 parseInt=5\n\"+5\" unary=5 Number=5 parseInt=5\n\"-5\" unary=-5 Number=-5 parseInt=-5\n\"Infinity\" unary=Infinity Number=Infinity parseInt=NaN\n\"-Infinity\" unary=-Infinity Number=-Infinity parseInt=NaN\n\"1_000\" unary=NaN Number=NaN parseInt=1\n\"12px\" unary=NaN Number=NaN parseInt=12\n\"  -7.5e2xyz\" unary=NaN Number=NaN parseInt=-7\n\"0.0000001\" unary=1e-7 Number=1e-7 parseInt=0\n\"  0x10  \" unary=16 Number=16 parseInt=16\n\"null\" unary=NaN Number=NaN parseInt=NaN\n\"true\" unary=NaN Number=NaN parseInt=NaN\n--- non-strings ---\ntrue unary=1 Number=1 parseInt=NaN\nfalse unary=0 Number=0 parseInt=NaN\nnull unary=0 Number=0 parseInt=NaN\nundefined unary=NaN Number=NaN parseInt=NaN\nemptyArr unary=0 Number=0 parseInt=NaN\narr[7] unary=7 Number=7 parseInt=7\narr[1,2] unary=NaN Number=NaN parseInt=1\n--- exponent handling ---\n1e3 parseInt=1\n1e3 parseFloat=1000\n1e3 Number=1000\n--- ToString-then-parse trap ---\nparseInt(1e21)=1\nNumber(1e21)=1e+21\nparseInt(0.0000005)=5\nNumber(0.0000005)=5e-7\nparseInt(1e-7)=1"
 }
 ,
 {
@@ -3852,7 +3852,7 @@
   "status": "rts_diverge",
   "bun": "one=3\ntwo=5\nall=a,b\nasync=9",
   "node": "one=3\ntwo=5\nall=a,b\nasync=9",
-  "rts": "one=3\ntwo=4\nall=1.39067116156991e-309,1.390671161569916e-309\nasync=9"
+  "rts": "one=3\ntwo=4\nall=1.390671161569886e-309,1.39067116156989e-309\nasync=9"
 }
 ,
 {
@@ -3884,7 +3884,7 @@
   "status": "rts_diverge",
   "bun": "AggregateError\na,b,c",
   "node": "AggregateError\na,b,c",
-  "rts": "undefined"
+  "rts": ""
 }
 ,
 {
@@ -5431,4 +5431,4 @@
   "rts": "ct=\ntxt={\"a\":1}\nm=POST\nu=https://example.com/x\nb=hi"
 }
 
-],"summary":{"total":679,"pass":462,"rts_diverge":108,"bun_node_diverge":18,"errors":91,"rejected":0}}
+],"summary":{"total":679,"pass":458,"rts_diverge":106,"bun_node_diverge":19,"errors":96,"rejected":0}}
