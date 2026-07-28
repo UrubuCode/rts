@@ -4155,6 +4155,7 @@ dependencies = [
  "pollster 0.3.0",
  "regex",
  "rts-abi",
+ "rts-macro",
  "rustls",
  "serde_json",
  "sha2 0.10.9",
@@ -4198,7 +4199,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rts-abi",
- "rts-engine",
  "syn",
 ]
 
@@ -4232,6 +4232,7 @@ dependencies = [
  "notify",
  "ripemd",
  "rts-engine",
+ "rts-macro",
  "scrypt",
  "sha1",
  "sha2 0.10.9",

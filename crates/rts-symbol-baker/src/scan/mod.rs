@@ -248,9 +248,13 @@ fn item_attrs(item: &syn::Item) -> Option<&[syn::Attribute]> {
 /// The linker symbol this function exports, if it exports one.
 fn symbol_of(f: &syn::ItemFn) -> Result<Option<String>> {
     let name = f.sig.ident.to_string();
-    if let Some(attr) = f.attrs.iter().find(|a| is_rtse_abi(a)) {
+    // `#[rtse::abi]` and `#[rtse::function]` derive their symbol through the SAME
+    // `rts_abi::scope` rule — `function.rs` reuses `abi::scope`'s `AbiArgs`
+    // deliberately, "so a free function and a raw ABI symbol in the same module
+    // cannot drift onto different naming". One branch, therefore, not two.
+    if let Some(attr) = f.attrs.iter().find(|a| is_rtse_symbolic(a)) {
         let naming = parse_naming(attr)
-            .with_context(|| format!("#[rtse::abi] on `{name}`"))?;
+            .with_context(|| format!("{} on `{name}`", attr_label(attr)))?;
         return Ok(Some(symbol_for(&naming, &name)));
     }
     if has_no_mangle(&f.attrs) && name.starts_with("__") {
@@ -271,11 +275,15 @@ fn type_token(ty: &syn::Type) -> Option<String> {
     }
 }
 
-/// The ABI signature of a `#[rtse::abi]` fn, or `None` if it is not one (or uses
-/// a type with no ABI spelling — then the row carries no signature rather than a
-/// wrong one).
+/// The ABI signature of a symbol-declaring fn (`#[rtse::abi]` or
+/// `#[rtse::function]`), or `None` if it is neither — or uses a type with no ABI
+/// spelling, in which case the row carries NO signature rather than a wrong one.
+///
+/// A `#[default(...)]` on a parameter changes only whether an OMITTED argument is
+/// legal and what it is padded with (`Sig::default_args`); the slot's type — and
+/// therefore this signature — is unaffected, so the attribute is ignored here.
 fn sig_of(f: &syn::ItemFn) -> Option<(Vec<rts_abi::AbiType>, rts_abi::AbiType)> {
-    if !f.attrs.iter().any(is_rtse_abi) {
+    if !f.attrs.iter().any(is_rtse_symbolic) {
         return None;
     }
     let mut params = Vec::new();
@@ -307,13 +315,45 @@ fn sig_of(f: &syn::ItemFn) -> Option<(Vec<rts_abi::AbiType>, rts_abi::AbiType)> 
 }
 
 fn is_rtse_abi(a: &syn::Attribute) -> bool {
+    rtse_attr_kind(a) == Some("abi")
+}
+
+/// Does this attribute DECLARE a symbol whose name comes from `rts_abi::scope`?
+///
+/// Both `#[rtse::abi]` (a raw ABI symbol) and `#[rtse::function]` (a free
+/// module/global function) do. Missing the second was a real hole: a converted
+/// `node:*` module's symbols vanished from the baked table, still working only
+/// because the Registry harvest installs any member carrying a `fn_ptr` — the
+/// table silently stopped being the single source for them.
+fn is_rtse_symbolic(a: &syn::Attribute) -> bool {
+    matches!(rtse_attr_kind(a), Some("abi") | Some("function"))
+}
+
+/// `#[rtse::<kind>]` → `Some("<kind>")`, for any other attribute `None`.
+fn rtse_attr_kind(a: &syn::Attribute) -> Option<&'static str> {
     let segs: Vec<String> = a
         .path()
         .segments
         .iter()
         .map(|s| s.ident.to_string())
         .collect();
-    matches!(segs.as_slice(), [x, y] if x == "rtse" && y == "abi")
+    let [x, y] = segs.as_slice() else { return None };
+    if x != "rtse" {
+        return None;
+    }
+    match y.as_str() {
+        "abi" => Some("abi"),
+        "function" => Some("function"),
+        _ => None,
+    }
+}
+
+/// The attribute's spelling, for an error message that names what the author wrote.
+fn attr_label(a: &syn::Attribute) -> &'static str {
+    match rtse_attr_kind(a) {
+        Some("function") => "#[rtse::function]",
+        _ => "#[rtse::abi]",
+    }
 }
 
 /// `#[no_mangle]` in either spelling — bare, or wrapped as `#[unsafe(no_mangle)]`

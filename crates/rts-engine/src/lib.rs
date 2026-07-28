@@ -40,6 +40,10 @@
 //! migração de GC, globals, e das namespaces (`rts-std`) para cima deste núcleo
 //! é o roadmap de `docs/specs/rts-engine-dispatch.md` (F3/F4 + a virada de autoria).
 
+// `#[rtse::*]` emits `::rts_engine::*` paths, so this crate must be able to name
+// ITSELF by that path — the same reason `rts-runtime` does it for `adapters/`.
+extern crate self as rts_engine;
+
 pub mod abi;
 pub mod collector;
 pub mod gc_surface;

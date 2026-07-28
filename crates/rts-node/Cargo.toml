@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 rts-engine = { path = "../rts-engine" }
+rtse = { package = "rts-macro", path = "../rts-macro" }
 # CSPRNG for node:crypto.randomUUID / randomFillSync — pure-Rust OS entropy
 # (BCryptGenRandom / getrandom syscall), no C. See docs/node-implementation/crates.md.
 getrandom = "0.2"

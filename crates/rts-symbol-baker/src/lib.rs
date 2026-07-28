@@ -68,11 +68,14 @@ pub use scan::{Declaration, scan_workspace};
 /// present but not linked would make the generated extern declarations fail to
 /// resolve, which is a loud link error by design.
 pub const SCANNED_CRATES: &[&str] = &[
+    "rts-dom",
     "rts-egui",
     "rts-engine",
+    "rts-input",
     "rts-napi",
     "rts-node",
     "rts-primitives",
+    "rts-render",
     "rts-runtime",
     "rts-shared",
     "rts-std",

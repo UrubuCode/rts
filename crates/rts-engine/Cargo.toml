@@ -11,6 +11,11 @@ edition = "2024"
 # The ABI contract, extracted into its own crate (see rts-abi/Cargo.toml).
 # rts-engine re-exports it as `abi` so existing `rts_engine::abi::X` paths hold.
 rts-abi = { path = "../rts-abi" }
+# The `#[rtse::*]` authoring macros. `rts-macro` does NOT depend on this crate
+# (it only EMITS `::rts_engine::*` paths inside `quote!`, which is not a
+# dependency), so this edge is acyclic — the stray dep that used to make it look
+# cyclic was removed with this change.
+rtse = { package = "rts-macro", path = "../rts-macro" }
 # O heap GC tipado (Entry/HandleTable) migrou pro motor (Fase 1a da partição).
 # Os payloads do Entry puxam estas libs — TEMP até a Fase 2 (Entry::Backend(dyn
 # Traceable) devolve os payloads backend pro rts-std e limpa rustls daqui).

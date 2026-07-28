@@ -15,54 +15,44 @@
 //! event.
 //!
 //! Layout: `detect` (syscall + env algorithm), `mod` (registration).
+//!
+//! # Authoring: `#[rtse::function]`, not a hand-built `Member`
+//!
+//! Each function DECLARES its module and JS name; everything else is DERIVED
+//! from the Rust signature — the linker symbol (via `rts_abi::scope`), the
+//! `AbiType`s, the TS signature, and the doc (from the doc-comment). The old
+//! form spelled all of that a second time, in a `.member(f(name, symbol, args,
+//! ret, ts, fn_ptr))` row that nothing checked against the function it claimed
+//! to describe. See docs/specs/rts-macro-single-source.md.
 
 mod detect;
 
-use rts_engine::AbiType::{self, Bool, I32};
-use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::Engine;
 
-/// `tty.isatty(fd)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_TTY_ISATTY(fd: i32) -> i64 {
-    detect::isatty(fd) as i64
+/// `tty.isatty(fd)` — whether `fd` refers to a terminal.
+#[rtse::function(module = "node:tty", value = "isatty")]
+fn isatty(fd: i32) -> bool {
+    detect::isatty(fd)
 }
 
-/// `tty.getColorDepth(fd)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_TTY_GET_COLOR_DEPTH(fd: i32) -> i32 {
+/// `tty.getColorDepth(fd)` — bit depth of color support on `fd`.
+#[rtse::function(module = "node:tty", value = "getColorDepth")]
+fn get_color_depth(#[default(1)] fd: i32) -> i32 {
     detect::color_depth(fd) as i32
 }
 
-/// `tty.hasColors(count, fd)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_TTY_HAS_COLORS(count: i32, fd: i32) -> i64 {
-    detect::has_colors(count.max(0) as u32, fd) as i64
-}
-
-fn f(name: &str, symbol: &str, args: Vec<AbiType>, ret: AbiType, ts: &str, fp: *const u8) -> Member {
-    Member {
-        name: name.to_string(),
-        kind: MemberKind::Function,
-        sig: Sig::new(args, ret),
-        symbol: symbol.to_string(),
-        fn_ptr: FnPtr(fp),
-        flags: MemberFlags::NONE,
-        aliases: Vec::new(),
-        variadic: false,
-        ts_signature: ts.to_string(),
-        doc: String::new(),
-        ret_class: None,
-        pure: false,
-        emit: None,
-    }
+/// `tty.hasColors(count, fd)` — whether `fd` supports at least `count` colors.
+#[rtse::function(module = "node:tty", value = "hasColors")]
+fn has_colors(count: i32, #[default(1)] fd: i32) -> bool {
+    detect::has_colors(count.max(0) as u32, fd)
 }
 
 /// Registers the `node:tty` surface.
 pub fn register(e: &mut Engine) {
-    e.ns("node:tty")
-        .doc("Terminal detection (node:tty): isatty, getColorDepth, hasColors.")
-        .member(f("isatty", "__RTS_FN_NODE_TTY_ISATTY", vec![I32], Bool, "isatty(fd: number): boolean", __RTS_FN_NODE_TTY_ISATTY as *const u8))
-        .member(f("getColorDepth", "__RTS_FN_NODE_TTY_GET_COLOR_DEPTH", vec![I32], I32, "getColorDepth(fd?: number): number", __RTS_FN_NODE_TTY_GET_COLOR_DEPTH as *const u8))
-        .member(f("hasColors", "__RTS_FN_NODE_TTY_HAS_COLORS", vec![I32, I32], Bool, "hasColors(count: number, fd?: number): boolean", __RTS_FN_NODE_TTY_HAS_COLORS as *const u8))
-        .done();
+    e.module("node:tty", |m| {
+        m.doc("Terminal detection (node:tty): isatty, getColorDepth, hasColors.");
+        m.registry(isatty_entry());
+        m.registry(get_color_depth_entry());
+        m.registry(has_colors_entry());
+    });
 }
