@@ -261,3 +261,81 @@ class WindowImpl {
 function __makeWindow(domHandle: i64, url: string, vw: number, vh: number): WindowImpl {
   return new WindowImpl(domHandle, url, vw, vh);
 }
+
+// ── ESCOPO GLOBAL COMPARTILHADO ENTRE OS <script> DO MESMO DOCUMENTO ──────────
+//
+// Num browser, TODOS os <script> de uma página compartilham UM único objeto
+// global: o script A define `requireLazy = ...` e o script B, compilado depois,
+// enxerga. Sem isso cada <script> é uma ilha — foi exatamente o que reprovou o
+// boot do WhatsApp/Meta (1 de 33 scripts rodava: o loader `requireLazy` nascia
+// no script 2 e morria com ele, e os 28 seguintes caíam em "unknown function").
+//
+// O modelo aqui: um `window` VIVO por documento (`__winFor`) + um SACO DE
+// GLOBAIS (`__G`) que é um objeto simples — o motor aceita propriedade dinâmica
+// num objeto literal (`g.foo = fn` e `g.foo()` despacham), então o saco carrega
+// o que os scripts criam em tempo de execução, que é o que uma classe `WindowImpl`
+// (shape fixo) não consegue carregar.
+//
+// Os dois vivem enquanto o documento viver, chaveados pelo handle do DOM.
+
+// `handle do DOM → window vivo`. Arrays paralelos (o motor lida melhor com
+// arrays de primitivo/handle do que com Map de objeto neste caminho dinâmico).
+const __winKeys: i64[] = [];
+const __winVals: any[] = [];
+const __gVals: any[] = [];
+// Nomes já PUBLICADOS no saco por scripts anteriores do mesmo documento (um
+// array de nomes por documento). É o que permite ao script N+1 CHAMAR o que o
+// script N criou: `__bindGlobals` qualifica essas leituras para `__G.<nome>`.
+const __gNames: any[] = [];
+
+// Índice do documento `h` nas tabelas acima; -1 se ainda não tem.
+function __winIndex(h: i64): number {
+  let i = 0;
+  while (i < __winKeys.length) {
+    if (__winKeys[i] === h) return i;
+    i = i + 1;
+  }
+  return -1;
+}
+
+// `window` PERSISTENTE do documento `h` — criado na primeira chamada e REUSADO
+// por todos os <script> seguintes (é o que faz `window.x = 1` num script ser
+// visível no próximo, como no browser).
+function __winFor(h: i64, url: string, vw: number, vh: number): WindowImpl {
+  const idx = __winIndex(h);
+  if (idx >= 0) return __winVals[idx];
+  const w = new WindowImpl(h, url, vw, vh);
+  __winKeys.push(h);
+  __winVals.push(w);
+  __gVals.push({});
+  __gNames.push([]);
+  return w;
+}
+
+// Os nomes globais já publicados no documento `h` (lista viva; `runScripts`
+// acrescenta os que cada script cria).
+function __globalNames(h: i64, url: string, vw: number, vh: number): string[] {
+  const idx = __winIndex(h);
+  if (idx >= 0) return __gNames[idx];
+  __winFor(h, url, vw, vh);
+  return __gNames[__winIndex(h)];
+}
+
+// O SACO DE GLOBAIS do documento `h` (o objeto onde moram os globais que os
+// scripts criam em runtime: `requireLazy`, `__d`, `_btldr`, …).
+function __globalsFor(h: i64, url: string, vw: number, vh: number): any {
+  const idx = __winIndex(h);
+  if (idx >= 0) return __gVals[idx];
+  __winFor(h, url, vw, vh);
+  return __gVals[__winIndex(h)];
+}
+
+// Descarta o escopo global do documento `h` (chamado no `free` do documento).
+function __dropWindow(h: i64): void {
+  const idx = __winIndex(h);
+  if (idx < 0) return;
+  __winKeys.splice(idx, 1);
+  __winVals.splice(idx, 1);
+  __gVals.splice(idx, 1);
+  __gNames.splice(idx, 1);
+}
