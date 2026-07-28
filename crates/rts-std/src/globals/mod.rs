@@ -32,6 +32,7 @@ pub mod form_data;
 pub mod performance;
 pub mod events;
 pub mod headers;
+pub mod storage;
 pub mod streams;
 pub mod text_encoding;
 pub mod timers;
