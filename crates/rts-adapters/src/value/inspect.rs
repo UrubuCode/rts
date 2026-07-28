@@ -16,7 +16,7 @@
 //!   rules. This is always doable — an array needs no key recovery.
 //! - **Objects**: BAILED at lowering (see `front/run/call.rs`). A runtime object is
 //!   a slot `Entry::Vec` with NO runtime shape-id, and the per-function
-//!   [`crate::shape::ShapeTable`] mints function-local ids — there is no
+//!   `rts_codegen_new::shape::ShapeTable` mints function-local ids — there is no
 //!   process-global shape-id→keys registry, and a runtime object word is
 //!   bit-identical to an array word (both `TAG_OBJECT` Vecs). Recovering the KEYS
 //!   from a bare word is therefore impossible without a runtime shape-id, which is
@@ -28,9 +28,9 @@
 //! ## Objects (P3.6)
 //!
 //! A runtime object now carries a GLOBALLY-UNIQUE shape id at **slot 0** (a tagged
-//! int indexing [`crate::shape`]'s process-global registry), with the property
+//! int indexing `rts_engine::heap::shapes`' process-global registry), with the property
 //! values at slot `1 + slot_index`. [`__rtsadp_inspect_object`] reads slot 0,
-//! recovers the ordered keys via [`crate::shape::global_shape_keys`], and renders
+//! recovers the ordered keys via [`rts_engine::heap::shapes::global_shape_keys`], and renders
 //! `{ k0: v0, k1: v1 }` (Node/`util.inspect` single-line format: bare identifier
 //! keys, `, ` separators, spaces inside braces, `{}` for empty, single-quoted
 //! string VALUES). Nested objects/arrays recurse.
@@ -57,7 +57,7 @@
 use rts_runtime::namespaces::collections::vec as rt_vec;
 use rts_runtime::namespaces::gc::handles as rt_handles;
 
-use crate::shape::global_shape_keys;
+use rts_engine::heap::shapes::global_shape_keys;
 
 use super::abi_adapter;
 use super::{PolyValue, genops};

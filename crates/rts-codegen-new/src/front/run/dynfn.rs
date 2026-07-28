@@ -11,7 +11,7 @@
 //! for the function's whole lifetime via the `CompiledFn::keep_alive` slot the
 //! `Entry::Function` carries. Nested compilation is safe by design: the global
 //! codegen state (shapes, ctor table) is ADDITIVE and never reset mid-run (see
-//! `rts_adapters::state` — `reset_codegen_state` is a quiescent-boundary-only
+//! `crate::state` — `reset_codegen_state` is a quiescent-boundary-only
 //! API precisely so `new Function`/eval can compile while the outer program is
 //! live).
 //!

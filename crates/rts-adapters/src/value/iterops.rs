@@ -22,7 +22,7 @@
 use rts_runtime::namespaces::collections::vec as rt_vec;
 use rts_runtime::namespaces::gc::handles as rt_handles;
 
-use crate::shape::global_shape_keys;
+use rts_engine::heap::shapes::global_shape_keys;
 
 use super::inspect::looks_like_object;
 use super::{PolyValue, abi_adapter};

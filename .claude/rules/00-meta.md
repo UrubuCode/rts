@@ -71,16 +71,18 @@ this list in the same commit.
 
 ## MANDATORY RULE: DRIVE COVERAGE BY MEASURED CLUSTERS
 
-The migration is over — there is ONE engine (`crates/rts-codegen-new/`, value
-model in `crates/rts-adapters/`). The phase roadmap (P0→P5) is done through the
-cutover. `docs/specs/rts-codegen-new-design.md` is still the canonical
-**architecture** reference (PolyValue / Repr lattice / shapes + data ICs /
-data-driven dispatch / single lowering); read it before any engine work. Note its
-file-path map is **stale** — it describes `value.rs`/`repr.rs`/`shape.rs`/`ic.rs`/
-`dispatch.rs`/`abi_gen.rs` under `rts-codegen-new/src/`, but the value model now
-lives in the `rts-adapters` crate, and there is no `abi_gen.rs` (the JIT symbol
-table is harvested in `crates/rts-codegen-new/src/adapter_symbols/`). Trust the
-tree on disk over the doc's paths.
+The migration is over — there is ONE engine (`crates/rts-codegen-new/`). The
+AOT-linked runtime trampolines (PolyValue + `__rtsadp_*`) live in the
+`rts-adapters` crate; the lowering-time slices (Repr lattice, shapes,
+codegen-state reset) live in `rts-codegen-new/src/`. The phase roadmap (P0→P5)
+is done through the cutover. `docs/specs/rts-codegen-new-design.md` is still the
+canonical **architecture** reference (PolyValue / Repr lattice / shapes + data
+ICs / data-driven dispatch / single lowering); read it before any engine work.
+Note its file-path map is **stale** — it describes `value.rs`/`ic.rs`/
+`abi_gen.rs` under `rts-codegen-new/src/`, but the value model lives in the
+`rts-adapters` crate, `ic.rs` no longer exists, and there is no `abi_gen.rs`
+(the JIT symbol table is harvested in `crates/rts-codegen-new/src/adapter_symbols/`).
+Trust the tree on disk over the doc's paths.
 
 ### How to apply
 
@@ -156,7 +158,7 @@ Do not act on stale numbers or a stale architecture. The "94.3%" / "100%" /
 "70.7%" framings are **dead** — they were the deleted old engine.
 
 - **The cutover happened.** The old engine (`rts-codegen-old`) and `rts-mir` are
-  DELETED. `crates/rts-codegen-new/` is the only engine (value model in
+  DELETED. `crates/rts-codegen-new/` is the only engine (runtime trampolines in
   `crates/rts-adapters/`); `rts run`/`compile`/`test`/`eval` run it. AOT works
   (`rts compile` emits `.o` + native link). Canonical architecture:
   `docs/specs/rts-codegen-new-design.md` (path map stale — see the rule above).

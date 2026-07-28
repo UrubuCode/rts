@@ -287,7 +287,7 @@ pub extern "C" fn __rtsadp_import_meta() -> u64 {
         format!("file:///{abs}")
     };
     let obj = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
-    let shape = crate::shape::intern_global_shape(&["url".to_string()]);
+    let shape = rts_engine::heap::shapes::intern_global_shape(&["url".to_string()]);
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(obj, PolyValue::from_i32(shape as i32).raw() as i64);
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(
         obj,

@@ -41,19 +41,19 @@
 /// idempotent. SAFE ONLY at a quiescent top-level boundary — see the module-level
 /// DANGER note. Never call while a program/eval is live or a compile is in flight.
 pub fn reset_codegen_state() {
-    crate::value::funcops::reset_state();
-    crate::value::ctorval::reset_state();
-    crate::value::errslot::reset_state();
+    rts_adapters::value::funcops::reset_state();
+    rts_adapters::value::ctorval::reset_state();
+    rts_adapters::value::errslot::reset_state();
     crate::shape::reset_global_shapes();
-    crate::value::globalthis::reset();
+    rts_adapters::value::globalthis::reset();
     // Every remaining process-global table keyed by / holding a HandleTable word
     // from the current program's pool — the reset drains that pool, so a stale
     // entry read by the next program points a recycled slot at the wrong value.
     // The module doc says this fn "drains them all"; these were the ones it did
     // not, which the sound (post-pin-leak) GC turned from latent into observable.
-    crate::value::protos::reset_state();
-    crate::value::objops::reset_state();
-    crate::value::iterops::reset_state();
+    rts_adapters::value::protos::reset_state();
+    rts_adapters::value::objops::reset_state();
+    rts_adapters::value::iterops::reset_state();
     // Module-level mutable globals (#195): this thread's gcell store holds the
     // finished program's PolyValue words and is scanned as a GC ROOT
     // (`mark_gcell_roots`). Its `high` watermark is monotonic and was never

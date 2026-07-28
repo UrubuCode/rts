@@ -477,7 +477,7 @@ fn key_text(key_word: u64) -> String {
 }
 
 /// Drop every entry of the two runtime side-tables (`ctor_table`,
-/// `fn_prop_table`). Called by [`crate::state::reset_codegen_state`] at the start
+/// `fn_prop_table`). Called by `rts_codegen_new::state::reset_codegen_state` at the start
 /// of each program compile so a fresh run does not inherit the previous run's
 /// instance→ctor and function-property records. NOTE: this BOUNDS growth across
 /// runs (eval / hot-reload / the test suite); it does NOT bound the WITHIN-a-run

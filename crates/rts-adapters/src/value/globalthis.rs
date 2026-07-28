@@ -73,7 +73,7 @@ pub extern "C" fn __rtsadp_globalthis() -> u64 {
     }
     let handle = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     // slot 0 = the empty-shape id, the same header a `{}` literal carries.
-    let empty_shape = crate::shape::intern_global_shape(&[]);
+    let empty_shape = rts_engine::heap::shapes::intern_global_shape(&[]);
     let slot0 = PolyValue::from_i32(empty_shape as i32).raw() as i64;
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle, slot0);
     let poly48 = rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(handle);

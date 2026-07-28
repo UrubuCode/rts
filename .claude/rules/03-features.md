@@ -1,15 +1,20 @@
 # Engine model + target semantics — value model, async/Promise/Function
 
 > Canonical design: `docs/specs/rts-codegen-new-design.md`. This file describes
-> the engine's value model and the JS/TS **semantics it must cover**. The value
-> model lives in the `crates/rts-adapters/` crate (the design doc's `src/*.rs`
-> path map is stale — trust the tree on disk).
+> the engine's value model and the JS/TS **semantics it must cover**. The
+> runtime trampolines (`PolyValue`, `__rtsadp_*`) live in `crates/rts-adapters/`;
+> the lowering-time slices (Repr lattice, shapes, codegen-state reset) live in
+> `crates/rts-codegen-new/` (the design doc's `src/*.rs` path map is stale —
+> trust the tree on disk).
 
 ## The value model (single engine, no MIR, no dual codegen)
 
 Single lowering path `HIR → Cranelift IR`; the Cranelift egraph
-(`use_egraphs=true`) is the **sole** optimizer. The four pillars (in
-`rts-adapters`):
+(`use_egraphs=true`) is the **sole** optimizer. The four pillars: PolyValue is
+the AOT-linked runtime trampoline crate `rts-adapters`; Repr/shapes/dispatch are
+the lowering-time slices in `rts-codegen-new` (`dispatch` alone stays in
+`rts-adapters` — a runtime trampoline reads it too, and the reverse dependency
+would cycle):
 
 - **PolyValue (`value/`, Pilar 1)** — one 64-bit NaN-boxed word. A bit-pattern
   with `(bits & BOX_BASE) == BOX_BASE` (`BOX_BASE = 0xFFF8_0000_0000_0000`, the
@@ -32,7 +37,7 @@ Single lowering path `HIR → Cranelift IR`; the Cranelift egraph
   boundaries, never "tracked elsewhere" in a `HashSet`. Hard points (loop-header
   phis, catch bindings, destructuring, closure captures, generator state) all
   default conservatively to `Tagged` — correct, never silently wrong.
-- **Shapes + data ICs (`shape.rs` + `ic.rs` in rts-adapters, Pilar 4)** — objects are
+- **Shapes + data ICs (`shape.rs` in rts-codegen-new, Pilar 4)** — objects are
   `{ shape_id, slots: [PolyValue; N] }`. Property access = compare `shape_id` +
   fixed-offset load (not hash lookup); construction walks a transition tree so
   same-key-sequence objects share a shape; method dispatch is **shape-keyed, not

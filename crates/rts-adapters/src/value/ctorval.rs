@@ -34,7 +34,7 @@ fn ctor_set() -> &'static Mutex<HashSet<u64>> {
 }
 
 /// Drop every registered constructor-thunk address. Called by
-/// [`crate::state::reset_codegen_state`] at the start of each program compile so a
+/// `rts_codegen_new::state::reset_codegen_state` at the start of each program compile so a
 /// run does not inherit the previous run's class-reify addresses (stable for the
 /// previous run only). Bounded by distinct reified classes, so small — reset is
 /// for cross-run determinism, not a within-run leak.
@@ -142,7 +142,7 @@ fn empty_keyed_object() -> u64 {
     use rts_runtime::namespaces::collections::vec as rt_vec;
     use rts_runtime::namespaces::gc::handles as rt_handles;
     let h = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
-    let shape = crate::shape::intern_global_shape(&[]);
+    let shape = rts_engine::heap::shapes::intern_global_shape(&[]);
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(h, PolyValue::from_i32(shape as i32).raw() as i64);
     PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h)).raw()
 }

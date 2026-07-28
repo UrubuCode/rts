@@ -67,7 +67,7 @@ pub(crate) fn throw_js_error(kind: &str, message: &str) {
 pub(crate) fn make_js_error(kind: &str, message: &str) -> u64 {
     use rts_runtime::namespaces::collections::vec as rt_vec;
     use rts_runtime::namespaces::gc::handles as rt_handles;
-    if let Some((shape, fields)) = crate::shape::error_class_info(kind) {
+    if let Some((shape, fields)) = rts_engine::heap::shapes::error_class_info(kind) {
         let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(
             vec,
@@ -170,7 +170,7 @@ pub extern "C" fn __rtsadp_err_clear() {
 }
 
 /// Clear the pending-error slot on THIS thread. Called by
-/// [`crate::state::reset_codegen_state`] at the start of each program compile.
+/// `rts_codegen_new::state::reset_codegen_state` at the start of each program compile.
 /// This is a SINGLE-CELL hygiene reset, NOT a leak fix (the slot never grows) —
 /// it prevents a stale pending error from one run leaking into the next on a
 /// reused thread.

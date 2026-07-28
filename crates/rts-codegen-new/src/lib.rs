@@ -102,7 +102,10 @@ pub mod timing;
 // as a staticlib. Re-exported here so every `crate::{dispatch,ic,repr,shape,
 // state}` path keeps resolving unchanged. The `value` module below is the facade
 // that adds back the Cranelift emit side.
-pub use rts_adapters::{dispatch, ic, repr, shape, state};
+pub use rts_adapters::dispatch;
+pub mod repr;
+pub mod shape;
+pub mod state;
 pub mod value;
 
 /// Generate the `rts.d.ts` declaration text from the live engine Registry

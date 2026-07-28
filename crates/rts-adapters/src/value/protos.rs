@@ -143,7 +143,7 @@ pub(crate) fn walk_proto_chain(word: u64, mut f: impl FnMut(u64) -> bool) -> boo
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_create(proto_word: u64) -> u64 {
     let obj_handle = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
-    let empty_shape = crate::shape::intern_global_shape(&[]);
+    let empty_shape = rts_engine::heap::shapes::intern_global_shape(&[]);
     let slot0 = PolyValue::from_i32(empty_shape as i32).raw() as i64;
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(obj_handle, slot0);
     let obj_word =
@@ -266,7 +266,7 @@ pub extern "C" fn __rtsadp_class_proto(name_str_word: u64) -> u64 {
     use rts_runtime::namespaces::collections::vec as rt_vec;
     use rts_runtime::namespaces::gc::handles as rt_handles;
     let h = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
-    let shape = crate::shape::intern_global_shape(&[]);
+    let shape = rts_engine::heap::shapes::intern_global_shape(&[]);
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(h, PolyValue::from_i32(shape as i32).raw() as i64);
     // PIN: the proto word is cached for the whole program (like an interned
     // string constant) — it must never be swept.
@@ -294,7 +294,7 @@ fn class_proto_table() -> &'static Mutex<HashMap<String, u64>> {
 }
 
 /// Drop the per-program prototype state at a program boundary
-/// ([`crate::state::reset_codegen_state`]). Both tables are keyed by / hold
+/// (`rts_codegen_new::state::reset_codegen_state`). Both tables are keyed by / hold
 /// HandleTable words from the current program's pool, which the reset drains —
 /// a stale entry read by the next program points a recycled slot at the wrong
 /// value. `class_proto_table` is keyed by class NAME but its VALUES are handles,
@@ -412,7 +412,7 @@ fn empty_proto_object() -> u64 {
     use rts_runtime::namespaces::collections::vec as rt_vec;
     use rts_runtime::namespaces::gc::handles as rt_handles;
     let h = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
-    let shape = crate::shape::intern_global_shape(&[]);
+    let shape = rts_engine::heap::shapes::intern_global_shape(&[]);
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(h, PolyValue::from_i32(shape as i32).raw() as i64);
     rt_handles::__RTS_FN_NS_GC_PIN_HANDLE(h);
     PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h)).raw()

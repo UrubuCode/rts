@@ -58,7 +58,7 @@ fn ta_view_new(buf_word: u64, k: Kind) -> u64 {
         "__ta_signed".to_string(),
         "__ta_float".to_string(),
     ];
-    let shape = crate::shape::intern_global_shape(&keys);
+    let shape = rts_engine::heap::shapes::intern_global_shape(&keys);
     let h = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(h, PolyValue::from_i32(shape as i32).raw() as i64);
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(h, buf_word as i64);
@@ -83,7 +83,7 @@ fn ta_view_new(buf_word: u64, k: Kind) -> u64 {
 fn view_shape_id() -> u32 {
     static ID: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
     *ID.get_or_init(|| {
-        crate::shape::intern_global_shape(&[
+        rts_engine::heap::shapes::intern_global_shape(&[
             "__ta_buf".to_string(),
             "__ta_bytes".to_string(),
             "__ta_signed".to_string(),

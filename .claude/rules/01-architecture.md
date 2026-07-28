@@ -30,11 +30,13 @@ Cargo workspace in `crates/`. `src/` is the facade of the `rts` bin
 
 > **One codegen engine (post-cutover).** The old engine (`rts-codegen-old`) and
 > `rts-mir` are DELETED. `crates/rts-codegen-new/` is the live engine (single
-> HIR→Cranelift lowering, no MIR tier); the value model lives in
-> `crates/rts-adapters/` (`PolyValue` NaN-box, Repr lattice, shapes + data ICs,
-> data-driven dispatch). Canonical design: `docs/specs/rts-codegen-new-design.md`
-> (its file-path map predates the `rts-adapters` extraction — trust the tree on
-> disk).
+> HIR→Cranelift lowering, no MIR tier). The AOT-linked runtime trampolines
+> (`PolyValue` NaN-box + `__rtsadp_*`) live in `crates/rts-adapters/`; the
+> lowering-time-only slices (Repr lattice, shapes, codegen-state reset) live in
+> `crates/rts-codegen-new/` — only `dispatch` (Registry method metadata a
+> runtime trampoline also reads) stays in `rts-adapters` to avoid a dependency
+> cycle. Canonical design: `docs/specs/rts-codegen-new-design.md` (its file-path
+> map predates the `rts-adapters` extraction — trust the tree on disk).
 
 ```
 crates/
@@ -44,14 +46,16 @@ crates/
   rts-engine/       — heap GC + ABI contract (abi:: SPECS, types, symbols,
                       signatures, Intrinsic, global_class, handles) + Registry/builder
   rts-hir/          — typed HIR (HirType I8..I128/F32/F64/Bool/Str/Handle/Array/Function/Class/Object/Any/Unknown)
-  rts-adapters/     — value model shared by the engine:
-    src/value/      — PolyValue (64-bit NaN-box)
+  rts-adapters/     — AOT-linked runtime trampoline crate:
+    src/value/      — PolyValue (64-bit NaN-box) + every `__rtsadp_*` trampoline
+    src/dispatch.rs — data-driven method resolution (Target / resolve_method);
+                      stays here (not rts-codegen-new) because a runtime
+                      trampoline (value::objops) reads it too — the reverse dep
+                      would cycle
+  rts-codegen-new/  — THE engine (single HIR → Cranelift lowering, no MIR):
     src/repr.rs     — Repr lattice (Int32/Float64/Bool/Ref/Tagged) + join (soundness core)
     src/shape.rs    — hidden classes (Shape / transition tree / slot layout)
-    src/ic.rs       — AOT-safe data inline caches (PropIcCell, uninit→mono→poly→mega)
-    src/dispatch.rs — data-driven method resolution (Target / resolve_method)
     src/state.rs    — codegen state (reset between runs)
-  rts-codegen-new/  — THE engine (single HIR → Cranelift lowering, no MIR):
     src/front/hir_lower — AST/HIR → lowering front
     src/front/run/  — the lowering itself (expr/stmt/call/class/registry_call/…);
                       module_jit.rs (JIT) + module_aot.rs (AOT object emission);

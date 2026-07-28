@@ -7,7 +7,7 @@
 //! returned-then-accessed object — the lowering cannot bake a constant slot, so it
 //! routes the access through these PolyValue-aware trampolines, which read the
 //! object's slot-0 GLOBAL shape-id at runtime, recover its ordered keys from the
-//! process-global shape registry ([`crate::shape`]), find the key's index, and
+//! process-global shape registry (`rts_engine::heap::shapes`), find the key's index, and
 //! `VEC_GET`/`VEC_SET` at `1 + index`.
 //!
 //! ## Soundness — the trampolines are conservative, never wrong
@@ -43,7 +43,7 @@ use rts_runtime::namespaces::collections::vec as rt_vec;
 use rts_runtime::namespaces::gc::handles as rt_handles;
 use rts_runtime::namespaces::globals::proxy as rt_proxy;
 
-use crate::shape::{global_shape_keys, global_shape_slot_of};
+use rts_engine::heap::shapes::{global_shape_keys, global_shape_slot_of};
 
 use super::inspect::looks_like_object;
 use super::{PolyValue, abi_adapter};
@@ -585,7 +585,7 @@ pub extern "C" fn __rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word:
         let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
         let mut keys = object_keys_vec(obj_word);
         keys.push(key_text(key_str_handle));
-        let new_shape = crate::shape::intern_global_shape(&keys);
+        let new_shape = rts_engine::heap::shapes::intern_global_shape(&keys);
         let slot0 = PolyValue::from_i32(new_shape as i32).raw() as i64;
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(handle, 0, slot0);
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle, val_word as i64);
@@ -604,7 +604,7 @@ pub extern "C" fn __rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word:
 pub extern "C" fn __rtsadp_obj_from_entries(entries_word: u64) -> u64 {
     // Empty keyed object (slot 0 = empty-shape id, like a `{}` literal).
     let obj_handle = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
-    let empty_shape = crate::shape::intern_global_shape(&[]);
+    let empty_shape = rts_engine::heap::shapes::intern_global_shape(&[]);
     let slot0 = PolyValue::from_i32(empty_shape as i32).raw() as i64;
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(obj_handle, slot0);
     let obj_word =
@@ -958,7 +958,7 @@ pub extern "C" fn __rtsadp_obj_get_own_property_descriptor(obj_word: u64, key_wo
         return PolyValue::undefined().raw();
     }
     let obj_handle = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
-    let empty_shape = crate::shape::intern_global_shape(&[]);
+    let empty_shape = rts_engine::heap::shapes::intern_global_shape(&[]);
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(
         obj_handle,
         PolyValue::from_i32(empty_shape as i32).raw() as i64,
@@ -979,7 +979,7 @@ pub extern "C" fn __rtsadp_obj_get_own_property_descriptor(obj_word: u64, key_wo
 #[unsafe(no_mangle)]
 pub extern "C" fn __rtsadp_obj_get_own_property_descriptors(obj_word: u64) -> u64 {
     let res_handle = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
-    let empty_shape = crate::shape::intern_global_shape(&[]);
+    let empty_shape = rts_engine::heap::shapes::intern_global_shape(&[]);
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(
         res_handle,
         PolyValue::from_i32(empty_shape as i32).raw() as i64,
@@ -1017,7 +1017,7 @@ pub extern "C" fn __rtsadp_obj_get_own_property_descriptors(obj_word: u64) -> u6
 /// `__set_<name>` slots (absent slot → `undefined`, JS accessor-descriptor form).
 fn accessor_descriptor(obj_word: u64, name: &str) -> u64 {
     let desc_handle = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
-    let empty_shape = crate::shape::intern_global_shape(&[]);
+    let empty_shape = rts_engine::heap::shapes::intern_global_shape(&[]);
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(
         desc_handle,
         PolyValue::from_i32(empty_shape as i32).raw() as i64,
@@ -1132,7 +1132,7 @@ fn define_write_slot(obj_word: u64, key_str_handle: u64, val_word: u64) {
         let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
         let mut keys = object_keys_vec(obj_word);
         keys.push(key_text(key_str_handle));
-        let new_shape = crate::shape::intern_global_shape(&keys);
+        let new_shape = rts_engine::heap::shapes::intern_global_shape(&keys);
         let slot0 = PolyValue::from_i32(new_shape as i32).raw() as i64;
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(handle, 0, slot0);
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle, val_word as i64);
@@ -1371,7 +1371,7 @@ pub extern "C" fn __rtsadp_obj_delete(obj_word: u64, key_str_handle: u64) -> i64
     // relies on, so computing the new shape after the mutation would read empty.
     let mut keys = object_keys_vec(obj_word);
     keys.remove(idx as usize);
-    let new_shape = crate::shape::intern_global_shape(&keys);
+    let new_shape = rts_engine::heap::shapes::intern_global_shape(&keys);
     let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(handle).max(0);
     // Shift the value slots (1+idx+1 .. len) down by one, over the removed slot.
     let mut j = 1 + idx;

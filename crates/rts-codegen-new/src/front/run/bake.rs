@@ -134,7 +134,7 @@ impl BakedPrelude {
 /// replay. MUST run on a QUIESCENT process (empty shape registry) — it PRODUCES the
 /// snapshot other runs seed.
 pub fn bake_prelude() -> FrontResult<BakedPrelude> {
-    rts_adapters::state::reset_codegen_state();
+    crate::state::reset_codegen_state();
     assert_eq!(
         shapes::global_shape_count(),
         0,
@@ -332,14 +332,14 @@ mod tests {
              console.log(JSON.stringify({a:1,b:[2,3]}));";
 
         // Baseline (fallback) render.
-        rts_adapters::state::reset_codegen_state();
+        crate::state::reset_codegen_state();
         let expected = super::super::render_source(SRC).expect("baseline render");
 
         // Bake + install → the resident path engages on `is_installed` (no env
         // flag; `RTS_NO_RESIDENT` would DISABLE it). Render again.
         let baked = bake_prelude().expect("bake");
         super::super::resident::install(baked.manifest_bytes().expect("manifest bytes"));
-        rts_adapters::state::reset_codegen_state();
+        crate::state::reset_codegen_state();
         let got = super::super::render_source(SRC).expect("resident render");
 
         assert_eq!(got, expected, "resident replay output must equal fallback");
@@ -361,17 +361,17 @@ mod tests {
              console.log(JSON.stringify({k:[1,2,3]}));";
 
         // Baseline render (compiles + runs).
-        rts_adapters::state::reset_codegen_state();
+        crate::state::reset_codegen_state();
         let expected = super::super::render_source(SRC).expect("baseline render");
 
         // Bake the WHOLE compiled program (no resident prelude installed here, so the
         // merged program compiles every fn — prelude + user — into the manifest).
-        rts_adapters::state::reset_codegen_state();
+        crate::state::reset_codegen_state();
         let prog = super::super::build_with_includes(SRC).expect("build");
         let manifest = bake_program(&prog, 0xC0FFEE).expect("bake program");
 
         // Replay: run PURELY from the baked bytes (no lower, no compile).
-        rts_adapters::state::reset_codegen_state();
+        crate::state::reset_codegen_state();
         let program =
             super::super::module_jit::compile_replay(&manifest).expect("compile_replay");
         let ((), out) =
@@ -390,14 +390,14 @@ mod tests {
         let src = "console.log(\"cache \" + (7*6));\nconsole.log([9,2,5].sort().join(\"|\"));\n\
                    // marker jit_cache_miss_then_hit v1\n";
 
-        rts_adapters::state::reset_codegen_state();
+        crate::state::reset_codegen_state();
         let expected = super::super::render_source(src).expect("baseline");
 
         // SAFETY: single-threaded ignored test; restored below.
         unsafe { std::env::set_var("RTS_JIT_CACHE", "1") };
-        rts_adapters::state::reset_codegen_state();
+        crate::state::reset_codegen_state();
         let miss = super::super::render_source(src).expect("miss render");
-        rts_adapters::state::reset_codegen_state();
+        crate::state::reset_codegen_state();
         let hit = super::super::render_source(src).expect("hit render");
         unsafe { std::env::remove_var("RTS_JIT_CACHE") };
 
@@ -416,11 +416,11 @@ mod tests {
         const SRC: &str = "console.log(\"aot \" + (6*7));\n\
              function sq(n){ return n*n; }\n\
              console.log(sq(9));";
-        rts_adapters::state::reset_codegen_state();
+        crate::state::reset_codegen_state();
         let prog = super::super::build_with_includes(SRC).expect("build");
         let manifest = bake_program(&prog, 0xA07).expect("bake program");
 
-        rts_adapters::state::reset_codegen_state();
+        crate::state::reset_codegen_state();
         let obj = super::super::module_aot::compile_replay_aot(&manifest)
             .expect("compile_replay_aot");
         assert!(

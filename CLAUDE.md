@@ -490,11 +490,14 @@ under `crates/<crate>/src/`.
 
 > **One codegen engine (post-cutover).** The old engine (`rts-codegen-old/`) and
 > the `rts-mir/` crate are **DELETED**. `crates/rts-codegen-new/` is the live
-> engine (single HIR→Cranelift lowering, no MIR tier); the value model lives in
-> `crates/rts-adapters/` (`PolyValue` NaN-box, Repr lattice, shapes + data ICs,
-> data-driven dispatch). Canonical design: `docs/specs/rts-codegen-new-design.md`
-> (its file-path map predates the `rts-adapters` extraction — trust the tree on
-> disk over the doc's paths).
+> engine (single HIR→Cranelift lowering, no MIR tier). The AOT-linked runtime
+> trampolines (`PolyValue` NaN-box + `__rtsadp_*`) live in `crates/rts-adapters/`;
+> the lowering-time-only slices (Repr lattice, shapes, codegen-state reset) moved
+> into `crates/rts-codegen-new/` — only `dispatch` (Registry method metadata a
+> runtime trampoline also reads) stays in `rts-adapters` to avoid a dependency
+> cycle. Canonical design: `docs/specs/rts-codegen-new-design.md` (its file-path
+> map predates the `rts-adapters` extraction — trust the tree on disk over the
+> doc's paths).
 
 > **Runtime layer partition:** acyclic graph `rts-engine` (heap GC + ABI
 > vocab/SPECS + Registry/builder + collector contract) ← `rts-primitives`
@@ -525,12 +528,15 @@ crates/
                       vocabulary now lives in rts-abi and is re-exported here
   rts-hir/          — typed HIR (I8..I128/F32/F64/Bool/Str/Handle/Array/Function/
                       Class/Object/Any/Unknown)
-  rts-adapters/     — value model shared by the engine: value/ (PolyValue 64-bit
-                      NaN-box), repr.rs (Repr lattice Int32/Float64/Bool/Ref/Tagged
-                      + join), shape.rs (hidden classes), ic.rs (AOT-safe data
-                      inline caches), dispatch.rs (data-driven resolve_method),
-                      state.rs (codegen state, reset between runs)
+  rts-adapters/     — AOT-linked runtime trampoline crate: value/ (PolyValue
+                      64-bit NaN-box + every `__rtsadp_*` trampoline),
+                      dispatch.rs (data-driven resolve_method — stays here, not
+                      rts-codegen-new, because a runtime trampoline reads it too
+                      and the reverse dep would cycle)
   rts-codegen-new/  — THE engine (single HIR → Cranelift lowering, no MIR). Map:
+    src/repr.rs         — Repr lattice (Int32/Float64/Bool/Ref/Tagged) + join
+    src/shape.rs        — hidden classes (compile-time shape interning)
+    src/state.rs        — codegen state (reset between runs)
     src/value/         — value-model emission + ABI signatures + marshalling
     src/front/hir_lower — AST/HIR → lowering front
     src/front/run/     — the lowering itself (expr/stmt/call/class/registry/…),
