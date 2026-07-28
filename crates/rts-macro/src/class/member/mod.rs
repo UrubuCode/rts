@@ -17,7 +17,7 @@ use syn::{FnArg, Type};
 
 use crate::class::kind::{Kind, SymbolKey};
 use crate::naming::{member_sym_const_name, to_camel};
-use crate::types::{is_handle_ty, ret_ty};
+use crate::types::{is_handle_ty, is_self_handle_param, ret_ty};
 
 pub(crate) fn gen_member(
     class: &str,
@@ -47,6 +47,21 @@ pub(crate) fn gen_member(
     // sig-args builders branch on "no implicit `this`" it is treated exactly
     // like `static`.
     let is_no_recv = is_static || is_functioncall;
+    // RAW-HANDLE receiver: no `self`/`&self`/`&mut self` at all, and the FIRST
+    // typed param is `SelfHandle` — the receiver word crosses untouched (no
+    // `Entry::Rtse` box exists for it), e.g. `fn description(recv: SelfHandle)
+    // -> Handle`. Distinct from the ordinary `SelfHandle` usage (an EXTRA param
+    // alongside a real `&self`, see `types::is_self_handle_param`'s doc): here
+    // it occupies the receiver position itself. Only meaningful for an instance
+    // method/getter/setter — a ctor/static/functioncall has no receiver slot to
+    // fill this way.
+    let has_self_receiver = sig.inputs.iter().any(|a| matches!(a, FnArg::Receiver(_)));
+    let first_typed_is_self_handle = sig.inputs.iter().find_map(|a| match a {
+        FnArg::Typed(pt) => Some(is_self_handle_param(&pt.ty)),
+        _ => None,
+    });
+    let is_raw_recv =
+        !is_ctor && !is_no_recv && !has_self_receiver && first_typed_is_self_handle == Some(true);
     let optional = match &kind {
         Kind::Ctor { optional, .. }
         | Kind::Method { optional, .. }
@@ -146,10 +161,14 @@ pub(crate) fn gen_member(
     let private = private || symbol_key.is_some();
     // getter/setter arity guards (the engine expects getter `(recv)->T`, setter
     // `(recv, v)->void`).
+    // A `SelfHandle` param — receiver or extra — carries no JS-visible arity
+    // (it never reaches `arg_abis`/`ts_params`, see `params.rs`), so it is
+    // excluded here too: a getter/setter's arity check must see only the
+    // params a caller actually supplies.
     let n_typed = sig
         .inputs
         .iter()
-        .filter(|a| matches!(a, FnArg::Typed(_)))
+        .filter(|a| matches!(a, FnArg::Typed(pt) if !is_self_handle_param(&pt.ty)))
         .count();
     if is_getter && n_typed != 0 {
         return Err(syn::Error::new_spanned(
@@ -209,6 +228,7 @@ pub(crate) fn gen_member(
         &ret_ext_ty,
         &p.setup,
         &p.teardown,
+        is_raw_recv,
     );
 
     let ext_params = &p.ext_params;

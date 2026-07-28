@@ -244,23 +244,18 @@ pub(super) fn symbols() -> Vec<JitSymbol> {
             "__RTS_FN_NS_IMGDEC_GIF_PIXELS_PTR",
             rts_runtime::namespaces::globals::imgdec::__RTS_FN_NS_IMGDEC_GIF_PIXELS_PTR as *const u8,
         ),
-        // Symbol NON-primordial Registry class (#216): `description` getter +
-        // `toString` + well-known accessors stay hand-written (they read
-        // `Entry::Symbol` fields directly — not `Entry::Rtse`-boxed, so the
-        // macro's instance-method/getter path can't reach them, see
-        // `rts-primitives/src/symbol/mod.rs`). Impls in rts-shared
-        // (globals/symbol); spec carries null fn_ptr (external) → registered
-        // here. The ctor + `for`/`keyFor` statics are `#[rtse::class]`-generated
-        // (`rts-primitives/src/symbol/ctor.rs`) and are Registry-harvested
-        // automatically — no hand entry.
-        sym(
-            "__RTS_FN_GL_SYMBOL_DESCRIPTION",
-            rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_DESCRIPTION as *const u8,
-        ),
-        sym(
-            "__RTS_FN_GL_SYMBOL_TO_STRING",
-            rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_TO_STRING as *const u8,
-        ),
+        // Symbol NON-primordial Registry class (#216): the well-known constant
+        // accessors (`Symbol.iterator`/… below) stay hand-written — they have no
+        // receiver at all (`MemberKind::Constant`, not a method/getter), a shape
+        // `#[rtse::class]` has no attribute for yet. `description`/`toString` are
+        // now `#[rtse::class]`-generated too, via the raw-handle-receiver mode
+        // (`SelfHandle`-typed, self-less receiver — see `rts-macro/src/class/
+        // member/body.rs`): `Entry::Symbol` is never `Entry::Rtse`-boxed, so the
+        // ordinary `&self` unboxing path could not reach it, but the raw-recv
+        // mode hands the handle through untouched instead. Impl in
+        // `rts-primitives/src/symbol/instance.rs`, alongside the ctor +
+        // `for`/`keyFor` statics (`ctor.rs`) — both Registry-harvested
+        // automatically, no hand entry.
         sym(
             "__RTS_FN_GL_SYMBOL_ITERATOR",
             rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_ITERATOR as *const u8,

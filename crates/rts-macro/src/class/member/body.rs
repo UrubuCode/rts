@@ -1,11 +1,12 @@
 //! Body construction for `class::member::gen_member` — the extern-C fn body
 //! that actually calls the wrapped Rust method: async-signature validation,
 //! `&mut self` vs `&self` dispatch (clone-out/write-back around `with_rtse`),
-//! and the three receiver shapes (value-class primitive, ctor/static with no
-//! receiver, ordinary `Entry::Rtse` instance). Kept apart from `returns.rs`
-//! (which only decides how a raw Rust value becomes an ABI word) and from
-//! `params.rs` (which only decides how ABI words become Rust call args) — this
-//! is the third leg: how the call itself is wired to the HandleTable.
+//! and the four receiver shapes (value-class primitive, ctor/static with no
+//! receiver, raw-handle `SelfHandle` receiver with no `self`, ordinary
+//! `Entry::Rtse` instance). Kept apart from `returns.rs` (which only decides
+//! how a raw Rust value becomes an ABI word) and from `params.rs` (which only
+//! decides how ABI words become Rust call args) — this is the third leg: how
+//! the call itself is wired to the HandleTable.
 
 use quote::quote;
 use syn::{FnArg, Type};
@@ -66,6 +67,16 @@ pub(crate) fn build_body(
     ret_ext_ty: &proc_macro2::TokenStream,
     setup: &[proc_macro2::TokenStream],
     teardown: &[proc_macro2::TokenStream],
+    // RAW-HANDLE receiver: an instance method/getter/setter with NO `self` at
+    // all, whose first typed param is `SelfHandle` — the ABI slot-0 receiver
+    // word is handed to the Rust fn AS-IS (no `Entry::Rtse` box exists to
+    // unbox). `params::build_params`'s existing `is_self_handle_param` arm
+    // already threads `__recv` into `call_args` wherever a `SelfHandle` param
+    // appears (including position 0), so this mode needs no param-loop
+    // changes — only a call shape here that skips `with_rtse` entirely and
+    // calls the associated fn directly, exactly like the ctor/static shape
+    // below (this is why it is folded into that same branch).
+    is_raw_recv: bool,
 ) -> proc_macro2::TokenStream {
     // Class-typed non-receiver params are cloned out of their handles BEFORE the
     // call (`setup`, see `params.rs`) — same reason the receiver is cloned out
@@ -104,7 +115,7 @@ pub(crate) fn build_body(
             quote!(<#ty>::#rust_name(#recv #(, #call_args)*))
         };
         wrap(quote!({ #(#setup)* let __pr = #raw; #(#teardown)* __pr }))
-    } else if is_ctor || is_static {
+    } else if is_ctor || is_static || is_raw_recv {
         let ty = self_ty;
         let raw = if is_async {
             quote!(::rts_engine::block_on(<#ty>::#rust_name(#(#call_args),*)))

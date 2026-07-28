@@ -2,20 +2,24 @@
 //!
 //! `ctor` is `#[rtse::class("Symbol")]` (the ctor/`for`/`keyFor` class-level
 //! surface, macro-converted — see that submodule's doc for why it needs the
-//! `-> Handle` ctor escape hatch). `description`/`toString`/the well-known
-//! constant accessors stay hand-written builder registration
-//! (`register_symbol_class_spec()`) below: they are INSTANCE members reading
-//! `Entry::Symbol` fields, and the macro's non-value instance-method/getter
-//! path always unboxes the receiver via `with_rtse::<T>` (an `Entry::Rtse<T>`
-//! box) — which a `Symbol` instance never is (see `ctor`'s doc). `well_known.rs`
-//! is the compile-time-checked source for the well-known set that
-//! `#[rtse::symbol(Symbol::iterator)]` (rts-macro) points at.
-//! `__RTS_FN_RT_TO_PRIMITIVE` + the well-known externs are not `Member`s of the
-//! class — they are free fns below, called by codegen by symbol.
+//! `-> Handle` ctor escape hatch). `instance` is `#[rtse::class("Symbol")]`
+//! too (`description`/`toString`, via the raw-handle-receiver mode — see that
+//! submodule's doc). The well-known constant accessors stay hand-written
+//! builder registration (`register_symbol_class_spec()`) below: each is
+//! `MemberKind::Constant` with NO receiver at all — a shape `#[rtse::class]`
+//! has no attribute for (no `#[rtse::constant]` marker exists; it would need a
+//! new `Kind` variant plus a param-less/receiver-less body branch, the same
+//! machinery `#[rtse::statical]` already has minus the JS args — not added
+//! here, out of this change's scope). `well_known.rs` is the compile-time-
+//! checked source for the well-known set that `#[rtse::symbol(Symbol::iterator)]`
+//! (rts-macro) points at. `__RTS_FN_RT_TO_PRIMITIVE` + the well-known externs
+//! are not `Member`s of the class — they are free fns below, called by codegen
+//! by symbol.
 
 pub mod wellknown;
 
 mod ctor;
+mod instance;
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -24,10 +28,6 @@ use rts_engine::abi::ty::Handle;
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use rts_engine::heap::handles::{Entry, alloc_entry, with_entry};
-
-// `string_pool` (gc-surface) fica no `rts-runtime` collector; resolvida via
-// `rts_engine::gc_surface` (site único de declaração, link-time).
-use crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
 
 /// Global registry para Symbol.for / Symbol.keyFor.
 fn registry() -> &'static Mutex<HashMap<String, u64>> {
@@ -75,32 +75,6 @@ pub(crate) fn well_known_handle(name: &str) -> u64 {
     h
 }
 
-/// Returns the symbol's description string, or 0 if none.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_SYMBOL_DESCRIPTION(sym: Handle) -> Handle {
-    let desc = with_entry(sym, |e| match e {
-        Some(Entry::Symbol { description }) => description.clone(),
-        _ => None,
-    });
-    match desc {
-        Some(s) => unsafe { __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64) },
-        None => 0,
-    }
-}
-
-/// Returns 'Symbol(description)' string.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_SYMBOL_TO_STRING(sym: Handle) -> Handle {
-    let s = with_entry(sym, |e| match e {
-        Some(Entry::Symbol {
-            description: Some(d),
-        }) => format!("Symbol({d})"),
-        Some(Entry::Symbol { description: None }) => "Symbol()".to_string(),
-        _ => "[invalid Symbol]".to_string(),
-    });
-    unsafe { __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64) }
-}
-
 /// Symbol.iterator — well-known symbol pra iteration protocol.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_SYMBOL_ITERATOR() -> Handle {
@@ -132,45 +106,16 @@ pub extern "C" fn __RTS_FN_GL_SYMBOL_TO_STRING_TAG() -> Handle {
 }
 
 /// Registra a classe global `Symbol` no motor: `ctor::register` (macro) for the
-/// ctor/`for`/`keyFor` class-level surface, then the remaining hand-written
-/// INSTANCE members (`description`/`toString`/well-known constants) below —
-/// both calls target the same Registry class name and MERGE (`Registry::
-/// insert_class` dedupes by symbol), so member order between them doesn't
-/// matter.
+/// ctor/`for`/`keyFor` class-level surface, `instance::register` (macro) for
+/// `description`/`toString`, then the remaining hand-written well-known
+/// CONSTANT members below — all three calls target the same Registry class
+/// name and MERGE (`Registry::insert_class` dedupes by symbol), so member
+/// order between them doesn't matter.
 pub fn register_symbol_class_spec(e: &mut Engine) {
     ctor::register(e);
+    instance::register(e);
     e.class("Symbol")
         .doc("Built-in Symbol primitive (#216). Each Symbol() call returns a unique handle.")
-        .member(Member {
-            name: "description".to_string(),
-            kind: MemberKind::InstanceGetter,
-            sig: Sig::new(vec![AbiType::Handle], AbiType::Handle),
-            symbol: "__RTS_FN_GL_SYMBOL_DESCRIPTION".to_string(),
-            fn_ptr: FnPtr(__RTS_FN_GL_SYMBOL_DESCRIPTION as *const u8),
-            flags: MemberFlags::NONE,
-            aliases: Vec::new(),
-            variadic: false,
-            ts_signature: "description: string | undefined".to_string(),
-            doc: "Returns the symbol's description string, or 0 if none.".to_string(),
-            ret_class: None,
-            pure: true,
-            emit: None,
-        })
-        .member(Member {
-            name: "toString".to_string(),
-            kind: MemberKind::InstanceMethod,
-            sig: Sig::new(vec![AbiType::Handle], AbiType::Handle),
-            symbol: "__RTS_FN_GL_SYMBOL_TO_STRING".to_string(),
-            fn_ptr: FnPtr(__RTS_FN_GL_SYMBOL_TO_STRING as *const u8),
-            flags: MemberFlags::NONE,
-            aliases: Vec::new(),
-            variadic: false,
-            ts_signature: "toString(): string".to_string(),
-            doc: "Returns 'Symbol(description)' string.".to_string(),
-            ret_class: None,
-            pure: true,
-            emit: None,
-        })
         .member(Member {
             name: "iterator".to_string(),
             kind: MemberKind::Constant,
@@ -356,19 +301,10 @@ mod tests {
         assert_ne!(wk, reg);
     }
 
-    // The ctor/`for`/`keyFor` externs are now `#[rtse::class]`-generated in the
+    // The ctor/`for`/`keyFor` externs are `#[rtse::class]`-generated in the
     // `ctor` submodule (`__rtsm_global_symbol_*`) — exercised there
-    // (`ctor::tests`). These remaining tests cover the hand-written instance
-    // members that stay on `Entry::Symbol` directly.
-
-    #[test]
-    fn description_returns_string() {
-        let h = alloc_entry(Entry::Symbol { description: Some("hello".to_string()) });
-        let result = __RTS_FN_GL_SYMBOL_DESCRIPTION(h);
-        let s = with_entry(result, |e| match e {
-            Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
-            _ => None,
-        });
-        assert_eq!(s.unwrap(), "hello");
-    }
+    // (`ctor::tests`). `description`/`toString` are macro-generated in the
+    // `instance` submodule — exercised there (`instance::tests`). This file
+    // now only registers the well-known CONSTANT members (no receiver, no
+    // per-instance test to write here).
 }
