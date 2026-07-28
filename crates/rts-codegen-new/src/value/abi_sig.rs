@@ -10,31 +10,39 @@
 //! `StrPtr` per the runtime's own
 //! [`rts_runtime::abi::signature::lower_params`] rule).
 //!
-//! # Two halves: DERIVED, then hand-written
+//! # Three sources, in order of authority
 //!
-//! [`sig_of`] consults the BAKED table first — `rts-symbol-baker` derives a
-//! signature for every `#[rtse::abi]` declaration from its Rust signature,
-//! through the same `rts_abi::tymap` the macro itself uses, so the entry is the
-//! declaration speaking rather than a transcription of it. Only when the symbol
-//! is not declared that way does it fall through to [`sig_of_hand`].
+//! [`sig_of`] asks, in order:
 //!
-//! **The whole `__rtsadp_*` surface is DERIVED (2026-07-28).** All 248 of its
-//! rows are gone: `crates/rts-runtime/src/adapters/value/` was converted to
-//! `#[rtse::abi]` en masse, plus the three `__rtsadp_str_*_auto` dispatchers in
-//! `rts-primitives`. The single exception is `__rtsadp_ta_view_base_len`, whose
-//! two `*mut i64` OUT-parameters have no single-slot ABI spelling — it keeps its
-//! row, and its declaration says why.
+//! 1. **The BAKED table** — `rts-symbol-baker` derives a signature for every
+//!    `#[rtse::abi]` declaration from its Rust signature, through the same
+//!    `rts_abi::tymap` the macro uses. The entry is the declaration speaking,
+//!    not a transcription of it.
+//! 2. **The REGISTRY** ([`registry_sigs`]) — a runtime symbol registered as a
+//!    namespace/class member already PUBLISHED its `Sig`. Reading it beats
+//!    copying it, for the same reason (1) does.
+//! 3. **[`sig_of_hand`]** — what neither covers yet.
 //!
-//! # What is left here, and why it is a different problem
+//! # The drain, measured
 //!
-//! The remaining rows are `__RTS_FN_*` / `__rtsn_*` — the REAL runtime symbols
-//! in `rts-engine`/`rts-shared`/`rts-std`. They are NOT `__rtsadp_*` trampolines
-//! and they are not converted the same way: most are already registered in the
-//! Registry with a `Sig`, so their signature exists twice (there and here) and
-//! the fix is to READ the Registry, not to re-declare them. The engine-internal
-//! `__RTS_FN_NS_GC_*` primitives (string pool, gcell, generator state machine)
-//! are the harder subset: they are deliberately not Registry members, so they
-//! need `#[rtse::abi]` with an explicit symbol name.
+//! **159 → 35 rows (2026-07-28).** The whole `__rtsadp_*` surface became source
+//! (1): `crates/rts-runtime/src/adapters/value/` was converted to `#[rtse::abi]`
+//! en masse, plus the three `__rtsadp_str_*_auto` dispatchers in
+//! `rts-primitives`. The Registry-backed `__RTS_FN_*` members (math, io,
+//! collections, the `GL_*` class methods) became source (2).
+//!
+//! # What is left, and why each one is still here
+//!
+//! - **`__RTS_FN_NS_GC_*` (47)** — the engine-internal primitives: string pool,
+//!   gcell, generator + async state machine. They are deliberately NOT Registry
+//!   members (no member holds their address), so source (2) cannot reach them,
+//!   and source (1) needs `#[rtse::abi("__RTS_FN_NS_GC_…")]` — which needs
+//!   `rts-engine` to depend on `rts-macro` AND `extern crate self as rts_engine`,
+//!   because the generated code names `::rts_engine::*`. A separate change.
+//! - **`__rtsadp_ta_view_base_len`** — two `*mut i64` OUT-parameters, which have
+//!   no single-slot ABI spelling. Its declaration says so.
+//! - **A few `__rtsn_*` / `GL_ENCODE_*` / `GL_TEXTENC_*`** — not yet declared
+//!   either way.
 //!
 //! Do NOT add a row. See docs/specs/rts-macro-single-source.md.
 
@@ -153,12 +161,62 @@ fn baked_sigs() -> &'static std::collections::HashMap<&'static str, SymSig> {
     })
 }
 
-/// Resolve a symbol name to its [`SymSig`] — the BAKED (derived) signature when
-/// the symbol is declared with `#[rtse::abi]`, else the hand-written table below.
+/// The REGISTRY's signatures, indexed by SYMBOL.
+///
+/// A `__RTS_FN_*` runtime symbol registered as a namespace/class member already
+/// carries its `Sig` (`args`/`returns`) in the Registry — the runtime PUBLISHED
+/// it. Transcribing that into the hand table below is the same duplication the
+/// baked table removed for `__rtsadp_*`, just with a different owner, so this
+/// reads it instead.
+///
+/// The Registry is keyed by `(module, member, argc)`; this is the reverse index
+/// by symbol, which is what a call site emitting a known symbol name needs.
+/// Where one symbol backs several arities the FIRST registration wins — they
+/// share a symbol precisely because they share an ABI (the differing arity is
+/// handled by `Sig::default_args` at the call site, not by a different
+/// signature).
+fn registry_sigs() -> &'static std::collections::HashMap<&'static str, SymSig> {
+    static SIGS: std::sync::OnceLock<std::collections::HashMap<&'static str, SymSig>> =
+        std::sync::OnceLock::new();
+    SIGS.get_or_init(|| {
+        let reg = crate::front::run::registry::registry();
+        let mut out: std::collections::HashMap<&'static str, SymSig> =
+            std::collections::HashMap::new();
+        let members = reg
+            .modules()
+            .flat_map(|m| m.members.iter())
+            .chain(reg.classes().flat_map(|c| c.members.iter()));
+        for m in members {
+            if m.symbol.is_empty() {
+                continue;
+            }
+            // Leaked with the Registry itself (built once, never freed), so the
+            // borrows are genuinely `'static`.
+            let sym: &'static str = m.symbol.as_str();
+            let params: &'static [AbiType] = m.sig.args.as_slice();
+            out.entry(sym).or_insert(SymSig {
+                params,
+                ret: m.sig.returns,
+            });
+        }
+        out
+    })
+}
+
+/// Resolve a symbol name to its [`SymSig`], from the most authoritative source
+/// that has it:
+///
+/// 1. the **BAKED** table — derived from the `#[rtse::abi]` declaration;
+/// 2. the **REGISTRY** — the signature the runtime published for the member;
+/// 3. the hand-written table below — what neither of the above covers yet.
+///
 /// `None` for an unknown symbol (the lowering turns that into an explicit
 /// `Unsupported` bail, never a guess).
 pub fn sig_of(name: &str) -> Option<SymSig> {
     if let Some(s) = baked_sigs().get(name) {
+        return Some(*s);
+    }
+    if let Some(s) = registry_sigs().get(name) {
         return Some(*s);
     }
     sig_of_hand(name)
@@ -219,33 +277,10 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
 
         // ---- REAL io (rts-std io) ----
         // IO_PRINT(ptr,len) -> void  — StrPtr = two slots, appends a newline.
-        "__RTS_FN_NS_IO_PRINT" | "__RTS_FN_NS_IO_EPRINT" => SymSig {
-            params: &[StrPtr],
-            ret: Void,
-        },
 
         // ---- PRIVATE engine namespace (rts-std engine) — arch/time/trace ----
         // arch / trace_capture return a GC string handle; the timestamp + trace
         // fns are I64/Void. trace_push takes (file: StrPtr, fn: StrPtr, line, col).
-        "__RTS_FN_NS_ENGINE_ARCH" | "__RTS_FN_NS_ENGINE_TRACE_CAPTURE" => SymSig {
-            params: &[],
-            ret: Handle,
-        },
-        "__RTS_FN_NS_ENGINE_NOW_MS"
-        | "__RTS_FN_NS_ENGINE_NOW_NS"
-        | "__RTS_FN_NS_ENGINE_UNIX_MS"
-        | "__RTS_FN_NS_ENGINE_UNIX_NS" => SymSig {
-            params: &[],
-            ret: I64,
-        },
-        "__RTS_FN_NS_ENGINE_TRACE_POP" | "__RTS_FN_NS_ENGINE_TRACE_PRINT" => SymSig {
-            params: &[],
-            ret: Void,
-        },
-        "__RTS_FN_NS_ENGINE_TRACE_PUSH" => SymSig {
-            params: &[StrPtr, StrPtr, I64, I64],
-            ret: Void,
-        },
         // engine.num_* / engine.num_from_str no longer exist — Number moved to a
         // pure-Rust `#[rtse::class("Number", value)]` value-class
         // (`rts-primitives/src/number/mod.rs`); the formatting bodies compute
@@ -254,23 +289,9 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
         // file-IO bridge for the `.ts` ReadStream/WriteStream prelude. All-words in
         // (path word, data word), a word out (Uint8Array for read, byte-count
         // number for write/append). Impl in rts-node `fs/streambridge.rs`.
-        "__RTS_FN_NS_ENGINE_FS_READ_BYTES" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
-        "__RTS_FN_NS_ENGINE_FS_WRITE_BYTES"
-        | "__RTS_FN_NS_ENGINE_FS_APPEND_BYTES"
-        | "__RTS_FN_NS_ENGINE_FS_OPEN_HANDLE" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
         // `promise.create(fn_addr, args_vec)` — the async-fn CALL spawn
         // (front/run/asyncspawn.rs): runs the body on the shared runtime,
         // returns the pending PromiseAsync handle.
-        "__RTS_FN_NS_PROMISE_CREATE" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
         // The typed async spawn: registers the callee's packed param/ret kinds
         // (an f64 param travels as bits and reads back into xmm), then
         // delegates to `promise.create`.
@@ -284,18 +305,6 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
         // binds thisArg into bound_args[0], partial args append after.
 
         // ---- REAL collections Vec (rts-shared collections::vec) ----
-        "__RTS_FN_NS_COLLECTIONS_VEC_NEW" => SymSig {
-            params: &[],
-            ret: Handle,
-        },
-        "__RTS_FN_NS_COLLECTIONS_VEC_PUSH" => SymSig {
-            params: &[U64, I64],
-            ret: Void,
-        },
-        "__RTS_FN_NS_COLLECTIONS_VEC_GET" => SymSig {
-            params: &[U64, I64],
-            ret: I64,
-        },
         // Fused payload-addressed slot access: takes the 48-bit PolyValue payload
         // straight, instead of POLY_TO_HANDLE first. Same shapes as the VEC_*
         // entries above except the leading arg is a payload, not a handle — and
@@ -321,18 +330,6 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
             params: &[U64],
             ret: I64,
         },
-        "__RTS_FN_NS_COLLECTIONS_VEC_LEN" => SymSig {
-            params: &[U64],
-            ret: I64,
-        },
-        "__RTS_FN_NS_COLLECTIONS_VEC_SET" => SymSig {
-            params: &[U64, I64, I64],
-            ret: Void,
-        },
-        "__RTS_FN_NS_COLLECTIONS_VEC_POP" => SymSig {
-            params: &[U64],
-            ret: I64,
-        },
 
         // ---- REAL PolyValue <-> handle bridge (rts-engine heap::handles) ----
         // FROM_HANDLE: full real handle -> bare 48-bit slot+shard payload.
@@ -347,12 +344,6 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
         // class_proto, and the whole two-word arithmetic + comparison + bitwise
         // family — are DERIVED now; only the engine-buffer externs below still
         // need a hand row.)
-        "__RTS_FN_NS_ENGINE_IS_BUFFER"
-        | "__RTS_FN_NS_ENGINE_BUFFER_CLONE"
-        | "__RTS_FN_NS_ENGINE_BUFFER_DETACH" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
         // SCALAR float `%` fast path (step 9): raw f64 in/out, no PolyValue boxing.
         // ---- generic unary (P4.8 + P5.6): one PolyValue word ----
         // console.* line sink: (ptr, len) StrPtr (two slots) + a to_stderr flag
@@ -564,42 +555,8 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
 
         // ---- REAL Math namespace symbols (P5.4, rts-shared math) ----
         // 1-arg f64 → f64.
-        "__RTS_FN_NS_MATH_FLOOR"
-        | "__RTS_FN_NS_MATH_CEIL"
-        | "__RTS_FN_NS_MATH_ROUND"
-        | "__RTS_FN_NS_MATH_TRUNC"
-        | "__RTS_FN_NS_MATH_SIGN"
-        | "__RTS_FN_NS_MATH_CBRT"
-        | "__RTS_FN_NS_MATH_EXP"
-        | "__RTS_FN_NS_MATH_EXPM1"
-        | "__RTS_FN_NS_MATH_LN"
-        | "__RTS_FN_NS_MATH_LOG2"
-        | "__RTS_FN_NS_MATH_LOG10"
-        | "__RTS_FN_NS_MATH_LOG1P"
-        | "__RTS_FN_NS_MATH_SIN"
-        | "__RTS_FN_NS_MATH_COS"
-        | "__RTS_FN_NS_MATH_TAN"
-        | "__RTS_FN_NS_MATH_ASIN"
-        | "__RTS_FN_NS_MATH_ACOS"
-        | "__RTS_FN_NS_MATH_ATAN"
-        | "__RTS_FN_NS_MATH_SINH"
-        | "__RTS_FN_NS_MATH_COSH"
-        | "__RTS_FN_NS_MATH_TANH"
-        | "__RTS_FN_NS_MATH_FROUND"
-        | "__RTS_FN_NS_MATH_F16ROUND" => SymSig {
-            params: &[F64],
-            ret: F64,
-        },
         // 2-arg f64 → f64.
-        "__RTS_FN_NS_MATH_POW" | "__RTS_FN_NS_MATH_ATAN2" | "__RTS_FN_NS_MATH_HYPOT" => SymSig {
-            params: &[F64, F64],
-            ret: F64,
-        },
         // no-arg f64 (the seeded PRNG).
-        "__RTS_FN_NS_MATH_RANDOM_F64" => SymSig {
-            params: &[],
-            ret: F64,
-        },
 
         // ---- REAL Number static predicates (P5.4) ----
         // `rts-macro-single-source.md` pilot: each row copies params/ret off the
@@ -687,8 +644,10 @@ pub(super) mod baked_existence {
     /// (`"__a" | "__b" => SymSig {`) or continued across lines (a line ending in
     /// `|`), so every quoted `__…` token on a match-arm line counts — taking only
     /// the first would silently under-check the alternates.
+    /// This module.s own source, read at compile time — see [`table_names`].
+    const SRC: &str = include_str!("abi_sig.rs");
+
     pub(super) fn table_names() -> Vec<&'static str> {
-        const SRC: &str = include_str!("abi_sig.rs");
         SRC.lines()
             .filter(|l| {
                 let l = l.trim();
@@ -708,9 +667,15 @@ pub(super) mod baked_existence {
     #[test]
     fn every_named_symbol_is_in_the_baked_table() {
         let names = table_names();
+        // Sanity-check the EXTRACTION, not the table's size: every match arm must
+        // have yielded at least one name. A fixed floor would have to be lowered
+        // on every drain — and would eventually be lowered past the point where it
+        // still detects a broken scan.
+        let arms = SRC.lines().filter(|l| l.contains("=> SymSig")).count();
         assert!(
-            names.len() > 100,
-            "the source scan found only {} names — the extraction broke, not the table",
+            names.len() >= arms && arms > 0,
+            "the source scan found {} names for {arms} match arms — the extraction \
+             broke, not the table",
             names.len()
         );
         let baked: std::collections::HashSet<&str> = rts_runtime::symbol_table::symbols()
@@ -748,9 +713,12 @@ mod hand_rows_are_drained {
             .into_iter()
             .map(|(n, _, _)| n)
             .collect();
+        // A row is also unreachable when the REGISTRY carries the signature: the
+        // lookup order is baked -> registry -> hand.
+        let from_registry = super::registry_sigs();
         let mut shadowed: Vec<&str> = table_names()
             .into_iter()
-            .filter(|n| baked.contains(n))
+            .filter(|n| baked.contains(n) || from_registry.contains_key(n))
             .collect();
         shadowed.sort_unstable();
         shadowed.dedup();

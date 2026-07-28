@@ -313,7 +313,7 @@ LAST: biggest, hottest, and it depends on F0 and F6.
 
 ### Baker cutover (2026-07-28)
 
-**Result: 527 → 65 hand-written rows.** The baker existed and emitted a correct
+**Result: 527 → 48 hand-written rows.** The baker existed and emitted a correct
 table, but nothing consumed it — the only references to `rts_abi::table` were
 inside `rts-abi` and the baker itself. These phases connected it.
 
@@ -430,24 +430,34 @@ mis-derivation.
 **Measured: 159 → 52 rows in `abi_sig.rs`; 254 signatures derived.** What is left
 is `__RTS_FN_*`/`__rtsn_*` — a different surface, see below.
 
+**F12b — Registry-backed `__RTS_FN_*` rows. ✅ DONE (2026-07-28).** A runtime
+symbol registered as a namespace/class member already PUBLISHED its `Sig`, so
+transcribing it into `abi_sig` was the same duplication the baked table removed
+for `__rtsadp_*`, just with a different owner. `sig_of` now asks, in order:
+baked → Registry → hand. The Registry is keyed by `(module, member, argc)`, so
+this adds the reverse index by symbol (`registry_sigs`), which is what a call
+site emitting a known symbol name needs. **52 more rows deleted: 52 → 35.**
+
+The drain guard was extended to the same order, so it now reports a row as
+unreachable whether the baked table OR the Registry supplies it.
+
 ### What remains, in order
 
-1. **The 105 `__RTS_FN_*` rows** in `abi_sig.rs`. These are the REAL runtime
-   symbols (`rts-engine`/`rts-shared`/`rts-std`), not codegen trampolines, and
-   they split in two:
-   - Most are **already Registry members carrying a `Sig`** (`math`, `io`,
-     `collections`, the `GL_*` class methods). Their signature exists twice —
-     in the Registry and here — so the fix is to READ the Registry
-     (`registry::namespace_member` already returns `arg_abis`/`ret`), not to
-     re-declare them.
-   - The engine-internal `__RTS_FN_NS_GC_*` primitives (string pool, gcell,
-     generator/async state machine) are deliberately NOT Registry members, so
-     they need `#[rtse::abi("__RTS_FN_NS_GC_…")]` with an explicit symbol name
-     to keep their spelling.
-2. **`dispatch.rs`'s 13 `MethodSpec` rows.** Their symbols are now all derived,
+1. **The 47 `__RTS_FN_NS_GC_*` rows** — the engine-internal primitives (string
+   pool, gcell, generator + async state machine). Neither mechanism reaches
+   them: they are deliberately NOT Registry members (nothing holds their
+   address), and `#[rtse::abi("__RTS_FN_NS_GC_…")]` needs **`rts-engine` to
+   depend on `rts-macro` plus `extern crate self as rts_engine`**, because the
+   generated code names `::rts_engine::*`. Verified by trying it: the conversion
+   itself is one line per fn, the crate wiring is the actual work. A separate,
+   self-contained change.
+2. **A handful of stragglers** — `__rtsadp_ta_view_base_len` (two `*mut i64`
+   OUT-params, no single-slot ABI spelling — permanent), a few `__rtsn_vec_*`
+   and `GL_ENCODE_*`/`GL_TEXTENC_*` not yet declared either way.
+3. **`dispatch.rs`'s 13 `MethodSpec` rows.** Their symbols are all derived now,
    so what remains there is the `(class, method, argc) → symbol` MAPPING, not
    the signature. That is Registry metadata, not a baker concern.
-3. **CI drift check** — mirror the gate's `rts-symbol-baker -- --check`.
+4. **CI drift check** — mirror the gate's `rts-symbol-baker -- --check`.
 
 ## Non-goals
 

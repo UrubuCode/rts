@@ -347,12 +347,12 @@ binary with a checked-in artefact plus a CI drift check is the mechanism.
 | Target | Where | Rows | State |
 |---|---|---|---|
 | hand-listed JIT symbols | `rts-codegen-new/src/adapter_symbols/list_a.rs` + `list_b.rs` | 355 | ✅ **DELETED 2026-07-28** (both files gone) |
-| hand-written Cranelift signatures | `rts-codegen-new/src/value/abi_sig.rs` | 159 → **52** | the whole `__rtsadp_*` surface is DERIVED; 105 `__RTS_FN_*` left |
+| hand-written Cranelift signatures | `rts-codegen-new/src/value/abi_sig.rs` | 159 → **35** | `__rtsadp_*` DERIVED from `#[rtse::abi]`; Registry-backed `__RTS_FN_*` READ from the Registry; 47 GC internals left |
 | hand-written class metadata | `rts-runtime/src/adapters/dispatch.rs` | 13 | draining |
 | `rt.rs` + hand-declared symbol system | across the runtime crates | — | draining |
 | ad-hoc `(name, fn as *const u8)` tables | e.g. `rts-node`'s `path::syms()` | — | draining |
 
-**Measured: 527 → 65 rows.** The JIT table is now TWO generated sources — the
+**Measured: 527 → 48 rows.** The JIT table is now TWO generated sources — the
 baked table (`rts_runtime::symbol_table`, compiled in the facade because it links
 every scanned crate) plus the Registry harvest — and `adapter_symbols` asserts no
 hand list can come back. The two survivors are guarded: every symbol they NAME

@@ -28,7 +28,7 @@ rule forbids. Stale test numbers were stripped from `js-parity-epic-226.md`.
   signature so drift is unrepresentable) + `rts-symbol-baker` (LINKER: bakes ONE
   static, name-ordered table that is both the JIT vtable and the AOT symbol set).**
   Records the 2026-07-28 removal of the crate-dependency-direction bans (they were
-  what manufactured the mirror tables) and the baker cutover: **527 → 65
+  what manufactured the mirror tables) and the baker cutover: **527 → 48
   hand-written rows**, `adapter_symbols/list_a.rs` + `list_b.rs` DELETED, the JIT
   table now two generated sources. Phases F0→F13, with what remains (F7) spelled
   out.

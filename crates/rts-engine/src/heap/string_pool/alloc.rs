@@ -148,6 +148,10 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_I64_TPL(value: i64) -> u64 {
     alloc_entry(Entry::String(value.to_string().into_bytes()))
 }
 
+// NOT `#[rtse::abi]` yet: `rts-engine` does not depend on `rts-macro`, and the
+// generated code names `::rts_engine::*`, so converting this group needs a new
+// Cargo edge plus `extern crate self as rts_engine` in this crate. Tracked as
+// the last drain step in docs/specs/rts-macro-single-source.md.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_F64(value: f64) -> u64 {
     let s = crate::numfmt::format_js_number(value);

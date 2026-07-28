@@ -203,7 +203,7 @@ fn build_registry() -> Registry {
 }
 
 /// The leaked, process-lifetime Registry. Built on first use.
-fn registry() -> &'static Registry {
+pub(crate) fn registry() -> &'static Registry {
     static REG: OnceLock<&'static Registry> = OnceLock::new();
     REG.get_or_init(|| {
         let r: &'static Registry = Box::leak(Box::new(build_registry()));
