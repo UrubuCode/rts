@@ -335,6 +335,10 @@ pub fn sig_of(name: &str) -> Option<SymSig> {
             params: &[U64, I64, I64],
             ret: I64,
         },
+        "__rtsn_vec_new_object" => SymSig {
+            params: &[],
+            ret: U64,
+        },
         "__rtsn_vec_push_by_payload" => SymSig {
             params: &[U64, I64],
             ret: I64,

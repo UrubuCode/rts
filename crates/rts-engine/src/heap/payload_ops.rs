@@ -34,7 +34,7 @@
 //! HandleTable and the allocator do not exist at the IR level. Fusing the two
 //! calls is the version of that idea which survives the constraint.
 
-use crate::heap::handles::{Entry, shards};
+use crate::heap::handles::{Entry, alloc_entry, shards};
 
 use crate::abi::handles::{
     HANDLE_SHARD_BITS as SHARD_BITS, HANDLE_SHARD_MASK as SHARD_MASK,
@@ -181,4 +181,24 @@ mod tests {
         assert_eq!(__rtsn_vec_get_by_payload(payload, 0), 0);
         assert_eq!(__rtsn_vec_len_by_payload(payload), -1);
     }
+}
+
+/// Allocate a fresh empty `Entry::Vec` and return it ALREADY BOXED as a
+/// `TAG_OBJECT` PolyValue word.
+///
+/// The unfused spelling was two extern calls: `VEC_NEW` returning a real
+/// handle, then `POLY_FROM_HANDLE` stripping the generation back off to get the
+/// 48-bit payload the box needs. Nothing between them can observe the handle —
+/// the caller wanted the boxed word all along — so the round trip was pure
+/// ceremony, and it sat on the object-construction path at 25 emit sites.
+///
+/// Same argument as the `by_payload` accessors above: the generation is read and
+/// then immediately discarded by the very next call.
+#[unsafe(no_mangle)]
+pub extern "C" fn __rtsn_vec_new_object() -> u64 {
+    let handle = alloc_entry(Entry::Vec(Box::new(Vec::new())));
+    let payload = handle & SLOT_MASK;
+    crate::heap::poly::POLY_BOX_BASE
+        | (crate::heap::poly::POLY_TAG_OBJECT << crate::heap::poly::POLY_TAG_SHIFT)
+        | payload
 }

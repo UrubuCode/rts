@@ -7,7 +7,7 @@
 // symbol name, so lookup is a binary search and every scope (`__rtsa_`,
 // `__rtsm_node_fs_`, …) is ONE contiguous range. See `rts_abi::table`.
 //
-// 2050 symbols.
+// 2051 symbols.
 
 // Addresses are taken through the LINKER name, not a Rust module path: that
 // reaches every `#[no_mangle]` symbol regardless of Rust visibility, and makes
@@ -4109,10 +4109,12 @@ unsafe extern "C" {
     fn __rts_sym_2046();
     #[link_name = "__rtsn_vec_len_by_payload"]
     fn __rts_sym_2047();
-    #[link_name = "__rtsn_vec_push_by_payload"]
+    #[link_name = "__rtsn_vec_new_object"]
     fn __rts_sym_2048();
-    #[link_name = "__rtsn_vec_set_by_payload"]
+    #[link_name = "__rtsn_vec_push_by_payload"]
     fn __rts_sym_2049();
+    #[link_name = "__rtsn_vec_set_by_payload"]
+    fn __rts_sym_2050();
 }
 
 /// Every RTS symbol with its address, for `JITBuilder::symbol`.
@@ -4120,7 +4122,7 @@ unsafe extern "C" {
 /// Sorted ascending by name; `#[cfg]`-gated rows drop out on platforms where
 /// they do not exist, which preserves the order of the rows that remain.
 pub fn symbols() -> ::std::vec::Vec<::rts_abi::table::SymbolEntry> {
-    let mut out = ::std::vec::Vec::with_capacity(2050);
+    let mut out = ::std::vec::Vec::with_capacity(2051);
     out.push(::rts_abi::table::SymbolEntry { name: "__RTS_FN_GL_ABORTSIGNAL_STATIC_ABORT", ptr: __rts_sym_0 as *const u8 });
     out.push(::rts_abi::table::SymbolEntry { name: "__RTS_FN_GL_ABORTSIGNAL_STATIC_ANY", ptr: __rts_sym_1 as *const u8 });
     out.push(::rts_abi::table::SymbolEntry { name: "__RTS_FN_GL_ABORTSIGNAL_STATIC_TIMEOUT", ptr: __rts_sym_2 as *const u8 });
@@ -6169,15 +6171,16 @@ pub fn symbols() -> ::std::vec::Vec<::rts_abi::table::SymbolEntry> {
     out.push(::rts_abi::table::SymbolEntry { name: "__rtsm_global_writablestreamdefaultwriter_write", ptr: __rts_sym_2045 as *const u8 });
     out.push(::rts_abi::table::SymbolEntry { name: "__rtsn_vec_get_by_payload", ptr: __rts_sym_2046 as *const u8 });
     out.push(::rts_abi::table::SymbolEntry { name: "__rtsn_vec_len_by_payload", ptr: __rts_sym_2047 as *const u8 });
-    out.push(::rts_abi::table::SymbolEntry { name: "__rtsn_vec_push_by_payload", ptr: __rts_sym_2048 as *const u8 });
-    out.push(::rts_abi::table::SymbolEntry { name: "__rtsn_vec_set_by_payload", ptr: __rts_sym_2049 as *const u8 });
+    out.push(::rts_abi::table::SymbolEntry { name: "__rtsn_vec_new_object", ptr: __rts_sym_2048 as *const u8 });
+    out.push(::rts_abi::table::SymbolEntry { name: "__rtsn_vec_push_by_payload", ptr: __rts_sym_2049 as *const u8 });
+    out.push(::rts_abi::table::SymbolEntry { name: "__rtsn_vec_set_by_payload", ptr: __rts_sym_2050 as *const u8 });
     out
 }
 
 /// The same symbols as names only, for the AOT object module's declaration
 /// list. Same order, same `#[cfg]` gating — the two paths cannot diverge.
 pub fn aot_symbols() -> ::std::vec::Vec<&'static str> {
-    let mut out = ::std::vec::Vec::with_capacity(2050);
+    let mut out = ::std::vec::Vec::with_capacity(2051);
     out.push("__RTS_FN_GL_ABORTSIGNAL_STATIC_ABORT");
     out.push("__RTS_FN_GL_ABORTSIGNAL_STATIC_ANY");
     out.push("__RTS_FN_GL_ABORTSIGNAL_STATIC_TIMEOUT");
@@ -8226,6 +8229,7 @@ pub fn aot_symbols() -> ::std::vec::Vec<&'static str> {
     out.push("__rtsm_global_writablestreamdefaultwriter_write");
     out.push("__rtsn_vec_get_by_payload");
     out.push("__rtsn_vec_len_by_payload");
+    out.push("__rtsn_vec_new_object");
     out.push("__rtsn_vec_push_by_payload");
     out.push("__rtsn_vec_set_by_payload");
     out

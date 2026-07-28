@@ -225,10 +225,14 @@ pub fn emit_string_ptr_len(
 /// an `Entry::Vec` of PolyValue words reached through a NaN-boxed object handle —
 /// exactly the strings/handles bridge, with `TAG_OBJECT` instead of `TAG_STR`).
 /// Returns the raw object-PolyValue word.
+/// FUSED. This was `VEC_NEW` (returning a real handle) followed by
+/// `POLY_FROM_HANDLE` (stripping the generation back off to get the 48-bit
+/// payload the box needs) — two extern calls where nothing between them can
+/// observe the handle, on the object-construction path at 25 emit sites. See
+/// `rts_engine::heap::payload_ops::__rtsn_vec_new_object`.
 pub fn emit_new_vec_object(module: &mut dyn Module, builder: &mut FunctionBuilder) -> Value {
-    let handle = emit_call(module, builder, "__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[])
-        .expect("VEC_NEW returns a value");
-    box_handle_as(module, builder, handle, super::TAG_OBJECT)
+    emit_call(module, builder, "__rtsn_vec_new_object", &[])
+        .expect("__rtsn_vec_new_object returns a value")
 }
 
 /// Box a real runtime HANDLE as a `TAG_OBJECT` PolyValue word. Used by the
