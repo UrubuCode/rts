@@ -11,6 +11,7 @@
 // bigint: register_bigint_class_spec removido (DRAIN_MOTOR) — nunca chamado;
 // BigInt real é PRIMORDIAL via rts_runtime::adapters::value::taops (registry_build.rs).
 // number → PRIMORDIAL: movido p/ `rts-primitives` (Fase 2).
+pub mod node_constants;
 pub mod date;
 pub mod point;
 pub mod point3;

@@ -256,26 +256,11 @@ class WindowImpl {
   queueMicrotask(cb: any): void { queueMicrotask(cb); }
 }
 
-// `Node` — as CONSTANTES de nodeType do DOM. Scripts de boot fazem
-// `if (n.nodeType !== Node.ELEMENT_NODE) return` antes de tocar num nó; sem a
-// classe o script inteiro morria em "unbound identifier `Node`". Os valores são
-// os da spec, e batem com o que `el.nodeType` devolve.
-// Membros ESTÁTICOS (não uma instância global): `const Node = new …` viraria um
-// singleton promovido a gcell, e o gcell é estado do PROGRAMA — entre duas
-// compilações dinâmicas (dois `runScripts` de documentos diferentes) ele vazava
-// e embaralhava o programa seguinte. `static` é a forma correta aqui de qualquer
-// modo: no browser `Node.ELEMENT_NODE` é propriedade da própria classe.
-class Node {
-  static get ELEMENT_NODE(): number { return 1; }
-  static get ATTRIBUTE_NODE(): number { return 2; }
-  static get TEXT_NODE(): number { return 3; }
-  static get CDATA_SECTION_NODE(): number { return 4; }
-  static get PROCESSING_INSTRUCTION_NODE(): number { return 7; }
-  static get COMMENT_NODE(): number { return 8; }
-  static get DOCUMENT_NODE(): number { return 9; }
-  static get DOCUMENT_TYPE_NODE(): number { return 10; }
-  static get DOCUMENT_FRAGMENT_NODE(): number { return 11; }
-}
+// `Node` (as constantes de nodeType) vive em RUST: `rts-shared/src/globals/
+// node_constants`, declarado com `#[rtse::constant(global = "Node")]`. Constante
+// numérica atravessa a borda sem problema, então não há razão para ficar aqui.
+// (O `MutationObserver` abaixo guarda um CALLBACK — objeto JS vivo, que não
+// atravessa — e por isso continua no `.ts`.)
 
 // `MutationObserver` — observa mutações da árvore. Implementação HONESTA e
 // PARCIAL: registra o callback e `observe`/`disconnect`/`takeRecords` existem
