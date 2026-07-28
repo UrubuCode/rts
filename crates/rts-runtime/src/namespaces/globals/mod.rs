@@ -9,6 +9,7 @@ pub use rts_primitives::boolean;
 pub use rts_std::globals::console;
 pub use rts_shared::globals::date;
 pub use rts_shared::globals::dom_exception;
+pub use rts_shared::globals::node_constants;
 pub use rts_shared::globals::point;
 pub use rts_shared::globals::point3;
 pub use rts_primitives::number;
