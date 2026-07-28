@@ -59,11 +59,27 @@ Read these files in order (path relative to repo root):
   (`docs/specs/html-engine/rts-html-roadmap.md` F0–F5 +
   `rts-html-north-star.md` + `arquitetura.md` + `docs/specs/egui-ui-crate-design.md`)
   and follow its phases in order. STRICTLY MANDATORY — no exceptions.
+- **MANDATORY RULE: SINGLE SOURCE OF TRUTH — `rts-macro` + `rts-symbol-baker`**
+  (in `CLAUDE.md`) — `rts-macro` is the ORCHESTRATOR: it declares, types and
+  organizes every symbol in one authoring surface (`#[rtse::abi]` derives the
+  `SymbolDesc` from the Rust signature, so drift is unrepresentable).
+  `rts-symbol-baker` is the LINKER: it scans those declarations and bakes ONE
+  static, strictly-ordered table that is both the JIT vtable and the AOT symbol
+  set — and is the right place to organize how other modules publish and how
+  `rts-engine` manages them. It replaces `rt.rs`, the hand-declared symbol
+  system, and `rts-codegen-new/src/adapter_symbols/`. Never hand-write a symbol,
+  a signature row, or a class-metadata row.
+- **CRATE-DEPENDENCY-DIRECTION BANS: REMOVED** (owner decision, 2026-07-28) —
+  `rts-codegen-new` may depend directly on `rts-engine`, and the analogous bans
+  elsewhere ("only through the `rts-runtime` facade", "no second direct dep",
+  "`rts-shared`/`rts-std` deps are a regression") are gone from the rules and
+  from the gate. They were the stated reason 527 rows of mirror tables existed.
+  The PRIMORDIAL naming doctrine is SEPARATE and still binding: an edge is free,
+  a hardcoded non-primordial class NAME in codegen is not.
 - **MANDATORY RULE: read_before_commit.sh GATE + FILE LAYOUT** (in `CLAUDE.md`;
   workflow detail in `04-workflow.md`) — run `bash scripts/read_before_commit.sh` before
   every engine commit; file-size ceilings codegen ≤1000 / engine ≤700 / rest ≤500 (split into
-  folders/subfolders); engine names ONLY primordials, `rts-shared`/`rts-std` are
-  NOT native/primitive
+  folders/subfolders); engine names ONLY primordials in its control flow
 
 The honesty + build floor (parity number stays real; no crash/hang as "pass";
 build must compile) never lifts. Adding/removing a meta-rule requires updating

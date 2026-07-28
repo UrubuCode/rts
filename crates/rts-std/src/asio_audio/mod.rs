@@ -7,7 +7,7 @@
 //!
 //! Compiled ONLY with the `asio` feature (requires the Steinberg ASIO SDK +
 //! LLVM/libclang at build time) and needs an installed ASIO driver (ASIO4ALL or
-//! the sound card's own). See `docs/specs/audio.md`.
+//! the sound card's own).
 //!
 //! Like `audio`, the `cpal::Stream` (`!Send`) stays pinned on a dedicated audio
 //! thread; only `Send + Sync` state (ring + atomics) lives in the handle map and

@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 0 - Deprecated (DEP0040: documentation-only deprecation since v7.0.0; `--pending-deprecation` support since v16.6.0; **runtime deprecation** — emits a process warning by default — since v21.0.0; **application deprecation** — Type: "Application (non-`node_modules` code only)", i.e. code inside `node_modules` is exempt from the warning — since v23.7.0/v22.14.0) |
 | Tier | P2 (deprecated) |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import punycode from "node:punycode"`; `const punycode = require("node:punycode")`; the bare specifier `require("punycode")` (no `node:` prefix) historically resolved to this same built-in but is part of the same deprecation track — RTS should require the `node:` prefix and treat the bare form as **not supported** (verify exact bare-specifier fallback behavior against live Node 25 before matching it; not load-bearing for parity since Node itself is phasing it out) |
 | Globals exposed | none (no ambient global; must be explicitly imported) |
 

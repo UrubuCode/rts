@@ -8,7 +8,7 @@
 //!
 //! The `cpal::Stream` is `!Send`, so it stays pinned on a dedicated audio thread
 //! and only `Send + Sync` state (ring + atomics) lives in the handle map; the
-//! extern boundary sees only an opaque u64. See `docs/specs/audio.md`.
+//! extern boundary sees only an opaque u64.
 //!
 //! Migrado do `#[rts_namespace]` pro modelo builder hand-written do `rts-engine`
 //! (rumo à remoção da `rts-macro`; ver pilotos hint/hash/ptr/mem/runtime).

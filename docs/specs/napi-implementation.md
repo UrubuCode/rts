@@ -109,7 +109,9 @@ queue).
 > **How to use this doc:** each step has `[ ]` checkboxes. Mark `[x]` when done,
 > always with the exit criterion verified. Update this file in the same
 > commit as the change it describes.
-> **Research base:** `docs/specs/node-format/` (feasibility study, 8 docs).
+> **Research base:** an 8-doc `.node` feasibility study (`docs/specs/node-format/`),
+> DELETED 2026-07-28 once its verdict shipped as `crates/rts-napi/`. Its
+> conclusions are carried below — this is now the only N-API document.
 
 ---
 
@@ -150,7 +152,7 @@ RTS compiles TS/JS to a native binary with a minimal Rust runtime and a machine-
 ABI. We want to load **native `.node` addons** from the npm ecosystem — the
 compatibility door to binary packages (parsers, hashing, compression).
 
-The `docs/specs/node-format/` study concluded: **feasible only via N-API** (stable ABI,
+The feasibility study concluded: **feasible only via N-API** (stable ABI,
 opaque `napi_value`/`napi_env` → mappable to the `HandleTable` without V8), **preferably
 in the JIT** (`dlopen` is natural), **never for V8-direct/NAN addons** (they would require emulating
 V8's binary layout — out of scope, like Bun and Deno). A `.node` is an ordinary

@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable |
 | Tier | P0 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import assert from "node:assert"` · `import assert from "node:assert/strict"` · `import { strict as assert } from "node:assert"` · `const assert = require("node:assert")` · `const assert = require("node:assert").strict` · `const assert = require("node:assert/strict")` |
 | Globals exposed | none |
 

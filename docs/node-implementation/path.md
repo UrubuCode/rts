@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable |
 | Tier | P0 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import path from 'node:path'`; `import { posix, win32 } from 'node:path'`; `import posix from 'node:path/posix'`; `import win32 from 'node:path/win32'`; `const path = require('node:path')`; `const { posix, win32 } = require('node:path')`; `const posix = require('node:path/posix')`; `const win32 = require('node:path/win32')` |
 | Globals exposed | none (no ambient global; every access is via an explicit `node:path` / `node:path/posix` / `node:path/win32` import) |
 

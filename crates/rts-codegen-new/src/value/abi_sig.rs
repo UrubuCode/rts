@@ -6,12 +6,24 @@
 //! `StrPtr` lowers to **two** Cranelift slots (`ptr` + `len`). Mis-marshaling a
 //! single-slot string where the ABI expects two → SIGILL.
 //!
-//! This module hand-writes a small static table covering EXACTLY the symbols the
-//! new lowering calls, each as `&[AbiType]` params + an `AbiType` return, and
-//! lowers each to a Cranelift `Signature` (expanding `StrPtr` per the runtime's
-//! own [`rts_runtime::abi::signature::lower_params`] rule). It deliberately does
-//! NOT iterate the whole `SPECS`/registry — the new engine emits a tiny, known
-//! surface, and an explicit table is the smallest honest source of truth.
+//! This module hand-writes a static table covering the symbols the lowering
+//! calls, each as `&[AbiType]` params + an `AbiType` return, lowered to a
+//! Cranelift `Signature` (expanding `StrPtr` per the runtime's own
+//! [`rts_runtime::abi::signature::lower_params`] rule).
+//!
+//! # DRAINING TARGET — hand-written, unguarded, and scheduled for deletion
+//!
+//! The table that exists to prevent a marshalling SIGILL is itself hand-synced
+//! against the definitions it mirrors, with nothing checking the two agree. The
+//! original justification ("the new engine emits a tiny, known surface") no
+//! longer holds — it is 159 rows — and the crate-layering rule that blocked
+//! deriving them was removed (owner decision, 2026-07-28).
+//!
+//! The single source of truth is `rts-macro` (`#[rtse::abi]` derives a
+//! `SymbolDesc` from the Rust signature, so drift is unrepresentable) +
+//! `rts-symbol-baker` (bakes the ordered table). Each row here must be replaced
+//! by its macro-emitted `SymbolDesc`; do NOT add a row. See
+//! docs/specs/rts-macro-single-source.md.
 
 use cranelift_codegen::ir::{AbiParam, Signature, types};
 use cranelift_module::Module;

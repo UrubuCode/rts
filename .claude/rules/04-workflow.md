@@ -108,11 +108,18 @@ bash scripts/read_before_commit.sh --no-build # fast static-only pass while iter
 
 It enforces the binding rules as a commit gate:
 
-- **HARD (exit non-zero — never commit):** forbidden crate dep / direct `use` of
-  `rts-shared`/`rts-std`; broken `cargo build`. `rts-shared` and `rts-std` are
-  **NOT** native/primitive — the engine reaches the runtime ONLY through the
-  `rts-runtime` facade and names ONLY primordials.
-- **REVIEW (read every entry; the list must shrink, never grow):** a
+- **HARD (exit non-zero — never commit):** baked-symbol-table DRIFT
+  (`cargo run -p rts-symbol-baker -- --check` must be clean — regenerate with
+  `cargo run -p rts-symbol-baker` and commit the artefact); broken `cargo build`.
+- **REMOVED (owner decision, 2026-07-28):** the crate-dependency-direction bans
+  (forbidden dep / direct `use` of `rts-shared`/`rts-std`, "no second direct dep
+  on `rts-engine`"). They manufactured the very mirror tables the single source
+  of truth deletes. Depend on the crate that owns the declaration.
+- **REVIEW (read every entry; the list must shrink, never grow):** any remaining
+  hand-written symbol / signature / class-metadata row (`adapter_symbols/
+  list_a.rs` + `list_b.rs`, `value/abi_sig.rs`,
+  `rts-runtime/src/adapters/dispatch.rs` — 527 rows at the time of writing;
+  declare with `rtse::*` and let the baker emit it, NEVER add a row); a
   non-primordial class named in codegen (`Map`/`Set`/`Date`/`URL`/… — must
   resolve via the Registry, never a hardcoded per-class path; `Symbol` is
   PRIMORDIAL since 2026-06-26; since 2026-07-03 also BigInt/Proxy/Reflect/

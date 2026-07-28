@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | Mixed — 2 Stable (`builtinModules`, `createRequire`, `isBuiltin`, `syncBuiltinESMExports`, `Module.wrap`, `Module._resolveFilename`/`_load`/`_nodeModulePaths`, `require()`/`require.cache`/`require.resolve`, the compile-cache API as of v25.4.0, the source-map API); 1.2 Release candidate (`registerHooks`, `stripTypeScriptTypes`); 1.1 Active development (`findPackageJSON`); 0 Deprecated (`register()`, superseded by `registerHooks()` as of v25.9.0); 0 Deprecated (`require.extensions`, `module.parent`, since long before v25) |
 | Tier | P1 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import moduleNs from 'node:module'`; `import { createRequire, findPackageJSON, isBuiltin, register, registerHooks, stripTypeScriptTypes, syncBuiltinESMExports, enableCompileCache, flushCompileCache, getCompileCacheDir, getSourceMapsSupport, findSourceMap, setSourceMapsSupport, SourceMap, constants, builtinModules } from 'node:module'`; `const moduleNs = require('node:module')` / `require('module')` (bare `'module'` also resolves as a core builtin, matching Node); every CommonJS-format file additionally gets the ambient wrapper parameters `module`, `exports`, `require`, `__filename`, `__dirname` with **no import at all** (see §2 Module Wrapper) |
 | Globals exposed | none via `globalThis`; the CJS module wrapper injects the file-scoped (not global) bindings `module`, `exports`, `require`, `__filename`, `__dirname` into every CommonJS-format source file — see §2 "Module Wrapper" |
 

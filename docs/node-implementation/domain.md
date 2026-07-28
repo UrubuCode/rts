@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 0 - Deprecated (pending deprecation; no replacement API finalized yet) |
 | Tier | P2 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import domain from "node:domain"`; `import { create, Domain } from "node:domain"`; CJS-style `require("node:domain")` / `require("domain")` (legacy specifier, both map to the same module) |
 | Globals exposed | `process.domain` (only populated once `node:domain` has been imported at least once; otherwise `undefined`) |
 

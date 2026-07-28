@@ -1,12 +1,23 @@
 # Epic #226 — Paridade JS/TS
 
-Status em 2026-05-09. Suite TS: **977/977 (100%)**.
+> **O QUE ESTE DOC É (nota 2026-07-28):** um **catálogo das SEMÂNTICAS JS/TS**
+> que o motor precisa cobrir — as ~60 APIs de Array/Object/Math/String/URL/Date/
+> Boolean/parseInt/destructuring, com os casos de borda de cada uma. É essa
+> lista que continua útil.
+>
+> **O QUE ELE NÃO É:** um relatório de status. Todo número, contagem de teste e
+> lista de PR aqui era do **MOTOR VELHO** (deletado no cutover P5) e foi
+> REMOVIDO desta revisão — citá-los viola a regra "o número de paridade é real,
+> sempre re-meça". Para o estado atual: `.github/cross_runtime_report.json` /
+> `scripts/measure_new.sh`. Para o caminho de implementação: o modelo
+> PolyValue/shapes de `rts-codegen-new-design.md`, não a ordem de PRs abaixo.
 
-## Sessao 2026-05-09 — fechamento dos gaps maiores
+## Fechamento dos gaps maiores
 
-Aproximadamente 18 PRs mergeados em main + 11 issues fechadas por
-verificacao (features ja' implementadas que esperavam confirmacao).
-**+326 testes acumulados** desde 651 inicial.
+As categorias abaixo foram fechadas no motor velho; no motor atual elas são a
+ESPECIFICAÇÃO do que precisa existir, reimplementada sobre o modelo de valor
+novo. Cada método não-primordial resolve pelo Registry/`MethodSpec` — nenhum
+builtin dentro do motor.
 
 ### Module system completo (#213/#618/#619)
 
@@ -161,5 +172,10 @@ em for-of, em catch, alias `{a: b}`.
 
 ## Cobertura atual
 
-`target/release/rts.exe test`: **977/977 (100%)**, zero falhas.
-`cargo test --release --workspace`: 100/100 verde.
+**Não está aqui, de propósito.** Qualquer número escrito neste arquivo estaria
+desatualizado no dia seguinte e seria do motor errado. Meça:
+
+```bash
+bash scripts/measure_new.sh          # histograma pass/bail por arquivo
+cat .github/cross_runtime_report.json # paridade cross-runtime (badge automático)
+```

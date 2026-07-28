@@ -6,16 +6,22 @@
 //! switchboard — to a REAL runtime `__RTS_FN_*` symbol + its lowered signature,
 //! which the lowering then marshals + `call`s. ONE generic emit path.
 //!
-//! ## Why a hand-written metadata table (and why it is still honest)
+//! ## DRAINING TARGET — this hand-written table is scheduled for deletion
 //!
 //! The real runtime's class metadata lives in a `Registry` built by calling the
-//! `register_*_class_spec(&mut Engine)` builders. Those builders, and the
-//! `Engine`/`Registry`/`Class` types, are NOT re-exported through the
-//! `rts-runtime` FACADE (only `rts_engine::abi::*` is), and the crate-layering
-//! rule forbids adding `rts-engine`/`rts-primitives` as a second direct
-//! dependency (see `runtime_link.rs` for the same constraint). So — exactly like
-//! [`crate::adapters::value::abi_sig`] does for the string-pool symbols — this module
-//! hand-writes a small static table covering the methods the lowering emits.
+//! `register_*_class_spec(&mut Engine)` builders. This module hand-writes a
+//! small static mirror of it. That mirror existed for ONE reason: a
+//! crate-layering rule forbade reaching `rts-engine`'s `Engine`/`Registry`/
+//! `Class` types except through the `rts-runtime` facade, which did not
+//! re-export them.
+//!
+//! **That rule was removed (owner decision, 2026-07-28)** — precisely because it
+//! manufactured mirrors like this one. The single source of truth is
+//! `rts-macro` (declares and types every symbol) + `rts-symbol-baker` (bakes the
+//! ordered table). This table must be replaced by a real
+//! `Class::resolve_instance_method` harvest; `resolve_method`'s signature and
+//! the lowering do not change when it is. Do NOT add a row here — add the
+//! member to the class spec. See docs/specs/rts-macro-single-source.md.
 //!
 //! It is NOT a switchboard and NOT invented symbols: every [`MethodSpec`]
 //! references the ACTUAL `__RTS_FN_GL_*` extern the runtime defines, with the
@@ -24,8 +30,8 @@
 //! lookup keyed by `(class, method, argc)` — the same `(name, arity)` resolution
 //! `Class::resolve_instance_method` performs — and the lowering ([`crate::front::run::method`])
 //! marshals purely from the returned `params`/`ret` `AbiType`s. Adding a method
-//! is a data row, never a code arm. At cutover this table is replaced by a real
-//! registry harvest once the facade exposes one; the lowering does not change.
+//! is a data row, never a code arm — which is what makes the harvest swap
+//! mechanical rather than a rewrite.
 
 use rts_runtime::abi::AbiType;
 

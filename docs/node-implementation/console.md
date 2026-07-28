@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable |
 | Tier | P0 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import console from "node:console"` (default export = the module's own pre-built `Console` instance, distinct object identity from the ambient global `console`); `import { Console } from "node:console"`; `const { Console } = require("node:console")`; the bare identifier `console` is also an **ambient global** available in every module with no import at all |
 | Globals exposed | `console` (global `Console` instance backed by `process.stdout`/`process.stderr`) |
 

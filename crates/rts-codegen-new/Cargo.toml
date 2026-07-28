@@ -48,18 +48,30 @@ cranelift-native = "0.131"
 # rts-std surface through this thin facade. The facade transitively pulls those
 # four crates and re-exports the `__RTS_FN_*` extern "C" impls under
 # `rts_runtime::namespaces::*` (io, collections::vec, gc::string_pool); we consume
-# them strictly as-is. Do NOT depend on rts-engine/rts-primitives directly — they
-# come via this facade — and never on rts-codegen-old (the old engine is frozen).
+# them strictly as-is. It stays the DEFAULT route to the runtime — one import
+# path for the bulk of the surface — but it is no longer a wall.
 rts-runtime = { path = "../rts-runtime" }
-# Pilar 6 (data-driven dispatch via the Registry). The owner LIFTED the
-# "no second direct dep" rule: the architecture REQUIRES the real
-# `rts_engine::Engine`/`Registry` so RUNTIME/Registry classes (Date/Map/Set/
+# Pilar 6 (data-driven dispatch via the Registry). The real
+# `rts_engine::Engine`/`Registry`, so RUNTIME/Registry classes (Date/Map/Set/
 # RegExp/Error/wrappers) resolve their `(symbol, AbiTypes)` from the SAME
 # Registry the real runtime publishes, instead of a hand-written per-class
-# metadata table in codegen. `rts-codegen-new` is NOT linked into the bin, so
-# this adds no dependency to the old engine or `rts.exe`. The `register*` fns
-# are reached through the `rts-runtime` facade; only the `Engine`/`Registry`/
-# `Member` types come from here directly.
+# metadata table in codegen.
+#
+# DEPENDENCY-DIRECTION BAN LIFTED (owner decision, 2026-07-28). The old rule
+# ("reach the runtime ONLY through the facade, never a second direct dep") is
+# GONE, for both this crate and the workspace generally. It was the stated
+# justification for three parallel hand-written tables — `adapter_symbols/
+# list_*.rs`, `value/abi_sig.rs`, `rts-runtime/src/adapters/dispatch.rs`, 527
+# rows measured — each existing only because the crate that needed the metadata
+# was forbidden from reaching the crate that owned it. The single source of
+# truth is `rts-macro` (declares + types every symbol) and `rts-symbol-baker`
+# (bakes the ordered table the JIT vtable and the AOT symbol set both read); a
+# dependency edge that reaches them is CORRECT, and a hand-typed mirror is the
+# regression. See docs/specs/rts-macro-single-source.md.
+#
+# Still binding, and a SEPARATE rule: the engine names ONLY the PRIMORDIAL
+# classes in its control flow. A dependency edge is allowed; hardcoding
+# `Map`/`Date`/`URL`/… in codegen is not.
 rts-engine = { path = "../rts-engine" }
 # The runtime-side value model (PolyValue + the `__rtsadp_*` trampolines) used
 # to live in its own Cranelift-free crate (`rts-adapters`); it is now

@@ -8,7 +8,7 @@
 | Node.js version | 25.x (added v10.0.0; API shape unchanged since — no new members through 25.x) |
 | Stability | 1 - Experimental (the **entire module** is Experimental; unlike e.g. `node:async_hooks` there is no stable subset) |
 | Tier | P2 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import * as trace_events from "node:trace_events"`; named `import { createTracing, getEnabledCategories } from "node:trace_events"`; CJS `const trace_events = require('node:trace_events')`. Note: `Tracing` is **not** an exported binding/constructor — it is only reachable as the return type of `createTracing()`; TypeScript consumers import the *type* `Tracing` for annotations only (`import type { Tracing } from "node:trace_events"`), never `new Tracing()`. Bare specifier `"trace_events"` (no `node:` prefix) is not legal in real Node for this module at all — Node requires the `node:` prefix for `trace_events` specifically (no legacy bare alias was ever registered), so RTS does not need to support a bare form here. |
 | Globals exposed | None. This module adds nothing to `globalThis`; reached only via explicit `node:` import, and (per §4) is not usable at all from inside a `Worker` thread. |
 

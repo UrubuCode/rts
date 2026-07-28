@@ -1,18 +1,33 @@
 # RTS_ENGINE.md — Method dispatch engine (single resolution + single emission)
 
-> **STATUS NOTE (2026-07-05).** Written for the OLD engine: the `builtins.rs`
-> string-match this doc kills was DELETED with `rts-codegen-old` — the dispatch
-> half is superseded by `rts-codegen-new-design.md` §10 (MethodSpec +
-> `resolve_method`, ABI harvested from SPECS). What survives from here is the
-> REGISTRATION half: the `rts-engine` builder/Registry design (§4, §9.5, §10
-> external modules) that the live code references. Kept for those references
-> and the design rationale; read the codegen design doc first.
+> **STATUS NOTE (updated 2026-07-28). READ BEFORE USING ANY SECTION.**
+>
+> This file is **half-dead**. Written for the OLD engine, which is deleted.
+>
+> - ❌ **The DISPATCH half is SUPERSEDED — do not implement from it.** The
+>   `builtins.rs` string-match it sets out to kill went away with
+>   `rts-codegen-old`. Dispatch is now `rts-codegen-new-design.md` §10
+>   (`MethodSpec` + `resolve_method`, one generic path).
+> - ✅ **The REGISTRATION half is LIVE** — §4, §9.5 and §10 (external modules)
+>   describe the `rts-engine` builder/Registry that the code references today
+>   (`crates/rts-engine/src/lib.rs` cites §4/§10; `rts-abi/src/member.rs` cites
+>   §9.5). That is why the file is kept.
+> - ⚠️ **The authoring surface moved on.** Where this doc shows members declared
+>   by hand, the current direction is `#[rtse::*]` + the baked symbol table —
+>   see `docs/specs/rts-macro-single-source.md` and
+>   `docs/specs/namespace-creation-guide.md`. Its own §-level roadmap (F3/F4 +
+>   "a virada de autoria") is what that spec now owns.
+>
+> Read `rts-codegen-new-design.md` first. Treat everything below as design
+> rationale for the registration side, not as a plan.
 
-> Status: **staged implementation in progress** (foundation started — see §0.1).
+> Status (original, for the OLD engine): **staged implementation in progress**
+> (foundation started — see §0.1).
 > Canonical document for the *dispatch* half of the engine (how `recv.method(args)`
 > resolves to a native symbol without today's scattered string-match) plus, in §10,
 > the **new mode** (generic engine + native external modules). Complements
-> `docs/specs/rts-core-engine.md`, which covers the *registration* half.
+> the former `rts-core-engine.md` (DELETED with the old engine), which covered
+> the *registration* half — see §8.
 >
 > Non-negotiable principle: **100% native, zero interpretation.** Well-typed TS
 > compiles to a direct `call <symbol>`, identical to today. Only a genuinely
@@ -531,9 +546,16 @@ scenario the user fears.
 
 ---
 
-## 8. Relationship with `docs/specs/rts-core-engine.md`
+## 8. Relationship with the (deleted) `rts-core-engine.md`
 
-| | core-engine.md | RTS_ENGINE.md (this) |
+> **`docs/specs/rts-core-engine.md` NO LONGER EXISTS** — it described the old
+> engine and was removed with it. The table below is kept only because it
+> records which half of the epic this file owns. The registration half's live
+> successor is `docs/specs/rts-macro-single-source.md` (declare with `rtse::*`,
+> bake with `rts-symbol-baker`); the dispatch half's is
+> `rts-codegen-new-design.md` §10.
+
+| | core-engine.md (deleted) | RTS_ENGINE.md (this) |
 |---|---|---|
 | Focus | **registration** (kills quadruple-write, object model, dynamic tier) | **dispatch** (kills the `builtins.rs` string-match) |
 | Stage 1 (macro) | done (50 ns + 27 classes) | reuses |

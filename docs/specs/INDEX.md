@@ -7,13 +7,29 @@ decisions.
 [`rts-codegen-new-design.md`](rts-codegen-new-design.md)** — the ground-up
 redesign (PolyValue NaN-box, Repr lattice, shapes + data ICs, single
 HIR→Cranelift lowering, data-driven dispatch). Read it before any engine work.
-The old engine (`crates/rts-codegen-old/`) is FROZEN and gets deleted at cutover;
-docs that described its logic (silent parallelism, pre-ABI hot-path, the 100%
-parity plan on the old engine, the old core-engine, app-features) were REMOVED —
-they were not a guide for the new engine.
+The old engine (`crates/rts-codegen-old/`) and the MIR tier are **DELETED** — the
+cutover happened. Docs describing their logic were removed with them.
+
+**Doc hygiene pass, 2026-07-28.** Deleted as obsolete: `main-divergence.md` (a
+pre-cutover merge note for an operation already performed), `gpu3d-scene-pass.md`
+(the namespace was superseded by `egui.*`), `ui-stack-status.md` (a second,
+unindexed UI plan competing with the frozen html-engine roadmap), and the
+8-file `node-format/` study (its verdict shipped as `crates/rts-napi` — see
+`napi-implementation.md`). `namespace-creation-guide.md` was rewritten from
+scratch: the old one taught hand-written `abi.rs` MEMBERS tables under
+`src/abi/`, a path that no longer exists and a pattern the single-source-of-truth
+rule forbids. Stale test numbers were stripped from `js-parity-epic-226.md`.
+**Never quote a remembered parity number — re-measure.**
 
 ## Canonical
 
+- [Single source of truth for symbols](rts-macro-single-source.md) — **`rts-macro`
+  (ORCHESTRATOR: declares, types, organizes — `SymbolDesc` derived from the Rust
+  signature so drift is unrepresentable) + `rts-symbol-baker` (LINKER: bakes ONE
+  static, name-ordered table that is both the JIT vtable and the AOT symbol set).**
+  Kills `rt.rs`, the hand-declared symbol system and `adapter_symbols/`. Records
+  the 2026-07-28 removal of the crate-dependency-direction bans (they were what
+  manufactured the 527 rows of mirror tables). Phases F0→F13.
 - [Engine redesign (rts-codegen-new)](rts-codegen-new-design.md) — **the
   canonical direction.** PolyValue, Repr lattice, shapes + data ICs, single
   lowering, data-driven dispatch + generated ABI. Migration phases P0→P5.
@@ -56,16 +72,15 @@ they were not a guide for the new engine.
   RTS vs Bun vs Node on standalone TS fixtures. Line-by-line stdout diff.
 - [Cross-runtime coverage roadmap](cross-runtime-roadmap.md) — Living list of
   planned fixtures.
-- [How to create a namespace](namespace-creation-guide.md) — Process based on
-  `rts-engine::abi` (centralized SPECS, `__RTS_FN_NS_*` symbols, `AbiType`).
+- [How to add a namespace or a class](namespace-creation-guide.md) — **Rewritten
+  2026-07-28** for the single-source-of-truth flow: declare with `#[rtse::*]`
+  (or the `e.module(…)` builder), symbol name DERIVED by `rts_abi::scope`
+  (`__rtsm_`/`__rtsn_`/`__rtsa_`), one row in `REGISTER`, then re-bake with
+  `cargo run -p rts-symbol-baker`. Never hand-write a symbol or signature row.
 - [Immediate-mode GUI via egui — `rts-egui` crate + `ui` namespace](egui-ui-crate-design.md)
   — Design of the cross-platform GUI: egui (immediate-mode, no FLTK) in a new crate,
   primitives in Rust + high-level lib in TS, TS-driven loop, wgpu
   primary. Rendering foundation aiming at games/browser in the future.
-- [gpu3d — 3D scene pass under the egui overlay](gpu3d-scene-pass.md) — Real 3D
-  polygon pipeline (WGSL, depth buffer, perspective camera) rendered before the
-  egui pass in the same encoder; egui/DOM composite on top. First slice of the
-  P7+ "scene rendering" phase of the egui design doc. Namespace `gpu3d`.
 - [HTML render engine (operational roadmap + north-star)](html-engine/README.md)
   — **DECIDED (2026-06-23):** evolve the light retained HTML engine already on main
   (tree DOM + data-driven block allocator in TS + mutation by NodeId, in
@@ -78,8 +93,8 @@ they were not a guide for the new engine.
   Includes the 4 base analyses + architecture + adversarial critique.
 - [Epic #226 — JS/TS parity](js-parity-epic-226.md) — Catalog of the ~60 JS
   APIs (Array/Object/Math/String/URL/Date/Boolean/parseInt/destructuring). Defines
-  the SEMANTICS the new engine must cover (the implementation migrates to the
-  PolyValue/shapes model; do not take the PR list as the new engine's path).
+  the SEMANTICS the new engine must cover. **Status/test numbers were stripped
+  2026-07-28** — they were the deleted old engine's; always re-measure.
 - [Reflect + Proxy](reflect-proxy.md) — Reference design of the Reflect API (13
   methods) + Proxy (13 traps) with `Entry::Proxy { target, handler }`. Target of
   `#218` in the new engine via the callback-from-runtime bridge.
@@ -91,16 +106,31 @@ they were not a guide for the new engine.
   RTSP v1 wire format (memo back-references: cycles + shared identity), class
   instances / Map/Set / functions-by-reference, ExtCodec + revive hooks,
   golden-file format freeze. Shipped (PRs #2008/#2009).
-- [`.node` support (Node native addons)](node-format/README.md) — Study of the
-  N-API → `HandleTable` ABI without V8. Implemented in `crates/rts-napi/`.
 - [N-API then-chained crash study](napi-then-chained-crash-study.md) — Technical
   note on a crash in chained `.then` with N-API.
 - [N-API implementation](napi-implementation.md) — Spec of the N-API implementation
   (159 fns, loader, HandleTable bridge).
 - [Cranelift — explanations](cranelift-explications.md) — Notes on the Cranelift
   backend (egraph, stack maps, callconv).
-- [main ↔ cutover divergence](main-divergence.md) — Note on the divergence at the
-  P5 cutover (deletion of the old engine + MIR tier).
+
+### UI stack (referenced from the code — read with the html-engine roadmap)
+
+These four are cited by live source files, so they are specs, not history. The
+CANONICAL UI plan is still the frozen [html-engine roadmap](html-engine/README.md)
+(F0–F5) — read it first; these describe pieces under it.
+
+- [`rts-dom` crate design](rts-dom-crate-design.md) — the headless retained DOM
+  (HTML parser + tree + query/mutation, no UI). Cited by
+  `crates/rts-dom/Cargo.toml` and `rts-runtime/src/namespaces/mod.rs`.
+- [DOM/layout in TS, dumb egui canvas](dom-in-ts-architecture.md) — cited by
+  `crates/rts-egui/src/canvas.rs`.
+- [Abstract render/input interfaces](dom-render-input-interfaces.md) — how the
+  engine never names the concrete backend. Cited by
+  `rts-runtime/src/namespaces/mod.rs`.
+- [Input system design](input-system-design.md) — the 3 input phases + key-code
+  table. Cited by `crates/rts-input/src/abi.rs` and `lib.rs`.
+- [Engine limits found building the UI](engine-limits-found-building-ui.md) —
+  engine gaps hit in practice while building the UI; a work-item source, not a plan.
 
 ## Historical / pending rewrite
 

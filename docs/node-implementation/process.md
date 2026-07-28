@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable (individual members carry their own Experimental/Deprecated/Legacy markers — noted inline) |
 | Tier | P0 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | ambient global `process` (available in every module with **no import**); `import process from "node:process"` (default export = the same singleton object); `import { argv, env, nextTick, ... } from "node:process"` (named re-exports of the same singleton's properties/functions, live-bound); `const process = require("node:process")` |
 | Globals exposed | `process` (singleton, `EventEmitter` instance) |
 

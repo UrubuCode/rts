@@ -8,7 +8,7 @@
 | Node.js version | 25.x (`https://nodejs.org/docs/latest-v25.x/api/buffer.html`) |
 | Stability | 2 - Stable |
 | Tier | P0 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import { Buffer, Blob, File, atob, btoa, isAscii, isUtf8, transcode, resolveObjectURL, INSPECT_MAX_BYTES, kMaxLength, kStringMaxLength, constants } from 'node:buffer'`; CommonJS `const buffer = require('node:buffer')`; ambient globals `Buffer`, `Blob`, `File`, `atob`, `btoa` usable with **no import** in any module |
 | Globals exposed | `Buffer` (class, always global), `Blob` (class, global since v18.0.0), `File` (class, global since v20.0.0), `atob`/`btoa` (functions, global since v16.0.0, legacy encodings) |
 

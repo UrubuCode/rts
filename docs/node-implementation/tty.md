@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable |
 | Tier | P1 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import tty from "node:tty"`; `import { isatty, ReadStream, WriteStream } from "node:tty"`; CJS `require("node:tty")` / legacy bare `require("tty")` |
 | Globals exposed | None directly — `node:tty` adds nothing to `globalThis`. However, when Node/RTS detects it is attached to a real terminal, `process.stdin` is by default an instance of `tty.ReadStream` and `process.stdout`/`process.stderr` are by default instances of `tty.WriteStream`. That wiring is `node:process`'s responsibility (constructing the right class based on `tty.isatty(fd)`), not something `node:tty` itself installs as a global. |
 

@@ -121,8 +121,12 @@ before any engine work).
 Relevant active specs:
 - `docs/specs/rts-codegen-new-design.md` — canonical engine redesign (PolyValue,
   Repr lattice, shapes + data ICs, single lowering, data-driven dispatch)
-- `docs/specs/namespace-creation-guide.md` — namespace process based on
-  `rts-engine::abi`
+- `docs/specs/rts-macro-single-source.md` — THE SOURCE OF TRUTH for symbols:
+  `rts-macro` declares/types, `rts-symbol-baker` bakes the ordered table that is
+  both the JIT vtable and the AOT symbol set (phases F0→F13)
+- `docs/specs/namespace-creation-guide.md` — how to add a namespace/class
+  (rewritten 2026-07-28): declare with `#[rtse::*]`, symbol DERIVED by
+  `rts_abi::scope`, one row in `REGISTER`, re-bake with `rts-symbol-baker`
 - `docs/specs/gc-generational-design.md` — GC: weak phase now (#217, bounded),
   generational copying nursery later (deferred until ~90% cross-runtime)
 - `docs/specs/async-promise-function.md` — async/Promise/Function system

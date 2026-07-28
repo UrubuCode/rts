@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 1.2 - Release candidate (was fully Experimental behind `--experimental-sqlite` v22.5.0–v23.3.0; unflagged-but-still-experimental v23.4.0–v25.6.0; promoted to Release Candidate as of v25.7.0) |
 | Tier | P2 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import sqlite from 'node:sqlite'`; `import { DatabaseSync, StatementSync, Session, constants } from 'node:sqlite'`; CJS `require('node:sqlite')`. **No legacy bare specifier** — this module only ever existed under the `node:` prefix, `require('sqlite')` is not a thing. |
 | Globals exposed | None — `node:sqlite` adds nothing to `globalThis`; every export must be imported explicitly. |
 

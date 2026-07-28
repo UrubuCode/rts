@@ -27,6 +27,16 @@ Cargo workspace in `crates/`. `src/` is the facade of the `rts` bin
 > in the engine. The runtime layer is partitioned: `rts-engine` ←
 > `rts-primitives` (primordials) + `rts-shared` (non-primordial universal) ←
 > `rts-std` ← `rts-runtime` facade. The ABI contract lives in `rts-engine::abi`.
+>
+> **The partition describes the graph; it is no longer a permission system**
+> (owner decision, 2026-07-28). The bans on crossing it directly — "only through
+> the `rts-runtime` facade", "no second direct dep on `rts-engine`", "a
+> `rts-shared`/`rts-std` dep in codegen is a regression" — are REMOVED, and the
+> gate no longer checks them. They forced 527 rows of hand-written mirror tables
+> into existence. Depend on the crate that owns the declaration; the single
+> source of truth (`rts-macro` declares, `rts-symbol-baker` bakes) must be
+> reachable without a stand-in. What survives is the SEMANTIC rule: the engine
+> must not NAME a non-primordial class in its control flow.
 
 > **One codegen engine (post-cutover).** The old engine (`rts-codegen-old`) and
 > `rts-mir` are DELETED. `crates/rts-codegen-new/` is the live engine (single
@@ -46,6 +56,24 @@ crates/
   rts-ast/          — internal AST
   rts-parser/       — SWC parse + AST; arrow/fn expressions → top-level Item::Function
   rts-diagnostics/  — structured errors
+  rts-abi/          — THE ABI CONTRACT, dependency-free and at the BOTTOM of the
+                      graph: AbiType, SymbolDesc, the symbol-name convention,
+                      signature lowering, the ordered-table types (`table.rs`,
+                      `scope.rs`). Re-exported as `rts_engine::abi`
+  rts-macro/        — SOURCE OF TRUTH #1, the ORCHESTRATOR. `#[rtse::*]`
+                      authoring macros (lib name `rtse`): declare, type and
+                      organize every symbol in one place; `#[rtse::abi]` derives
+                      the `SymbolDesc` const from the Rust signature so drift is
+                      unrepresentable
+  rts-symbol-baker/ — SOURCE OF TRUTH #2, the LINKER. Scans the `#[rtse::*]`
+                      declarations and bakes `generated/symbol_table.rs` —
+                      static, strictly name-ordered (binary search, one
+                      contiguous range per scope). ONE table for BOTH paths: the
+                      JIT vtable and the AOT symbol set. Replaces `rt.rs`, the
+                      hand-declared symbol system and
+                      `rts-codegen-new/src/adapter_symbols/`. Regenerate with
+                      `cargo run -p rts-symbol-baker`, verify with `-- --check`
+  rts-prelude-baker/— bakes the resident `.ts` prelude (bytes + relocs)
   rts-engine/       — heap GC + ABI contract (abi:: SPECS, types, symbols,
                       signatures, Intrinsic, global_class, handles) + Registry/builder
   rts-hir/          — typed HIR (HirType I8..I128/F32/F64/Bool/Str/Handle/Array/Function/Class/Object/Any/Unknown)

@@ -490,9 +490,14 @@ Notes that go into the `Cargo.toml`/code:
   `wgpu::Device`/`Queue`/`Surface` + `beginScenePass`: clear the screen, custom
   render pass, geometry/shaders/textures, egui composited on top (§1b). Possible
   crate rename (`rts-gfx`/`rts-render`).
-  **First slice LANDED (2026-07-21):** namespace `gpu3d` — mesh/camera/draw with a
-  scene render pass before the egui pass in the same encoder (no PaintCallback;
-  egui is the overlay). Spec: `docs/specs/gpu3d-scene-pass.md`.
+  **LANDED, then superseded (2026-07-23):** the first slice was a namespace
+  `gpu3d` (mesh/camera/draw in a scene render pass before the egui pass, same
+  encoder, no PaintCallback — egui as the overlay). It was reconciled with the
+  richer scene pass from `feat/rts-egui-3d-scene-editor` (shadow map/PCF, point
+  light, specular, skybox, procedural texture, emissive, instancing), which won
+  as the base; the good parts of `gpu3d` were grafted into it. **The live API is
+  the `egui.*` namespace** (`egui.meshUpload/drawMesh/setCamera/…`) — `gpu3d` no
+  longer exists, and its spec file was deleted with it.
 
 ## 11. Risks and mitigations (updated by the verdict)
 

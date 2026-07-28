@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | Mixed — `createHook`/`AsyncHook`/`executionAsyncResource`/`asyncWrapProviders`: **1 - Experimental**. `AsyncLocalStorage` (class, `run`, static `bind`, static `snapshot`): **2 - Stable**. `AsyncLocalStorage#exit`/`#enterWith`/`#disable`/`#withScope`: **1 - Experimental**. `AsyncResource` (class): **2 - Stable**. |
 | Tier | P1 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import { createHook, executionAsyncId, triggerAsyncId, executionAsyncResource, asyncWrapProviders, AsyncHook, AsyncResource, AsyncLocalStorage } from 'node:async_hooks'` (CJS: `const async_hooks = require('node:async_hooks')`). Node's docs split `AsyncLocalStorage`/`AsyncResource` into a conceptual "async_context" page, but there is **no separate `node:async_context` importable specifier** — both classes are exported from `node:async_hooks` only. RTS mirrors that: one nodespace, one import specifier. |
 | Globals exposed | None. `async_hooks` is a plain `node:` import; it does not add anything to `globalThis`. |
 

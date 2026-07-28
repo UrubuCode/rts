@@ -1,6 +1,74 @@
-# `rts-macro` as the single source of truth for symbols
+# `rts-macro` + `rts-symbol-baker` — the single source of truth for symbols
 
-Status: **DIRECTION APPROVED (owner, 2026-07-27). Phased implementation in progress.**
+Status: **DIRECTION APPROVED (owner, 2026-07-27). Scope confirmed and widened
+(owner, 2026-07-28): the source of truth is the PAIR `rts-macro` +
+`rts-symbol-baker`, and the crate-dependency-direction bans that blocked it are
+removed. Phased implementation in progress.**
+
+## The two sources of truth, and why they are a pair
+
+RTS has exactly two, one per half of the problem:
+
+**1. `rts-macro` — the ORCHESTRATOR (declaration + typing).** It is where a
+symbol comes into existence: the macro generates it, types it from the Rust
+signature, and organizes it into the surface (module / namespace / class /
+well-known symbol) in one authoring act. Because the `SymbolDesc` is *derived*
+from the signature rather than restated next to it, signature drift is
+**unrepresentable** — not merely discouraged by a review rule.
+
+**2. `rts-symbol-baker` — the LINKER (the table both execution paths read).** It
+scans those declarations and emits `generated/symbol_table.rs`: static and in
+strictly ascending symbol-name order. That single artefact serves both worlds:
+
+- **JIT** — it *is* the vtable installed into the `JITBuilder`.
+- **AOT** — it is the symbol set the object/link step resolves against.
+- Its ordering (binary-search lookup; every scope one contiguous range) also
+  makes it the natural place to organize how other modules publish their surface
+  and how `rts-engine` manages it — the best of both worlds instead of a runtime
+  harvest for one path and a hand list for the other.
+
+The split matters: a proc-macro **cannot** build the table (each expansion sees
+only its own item, no cross-crate state), and a distributed slice
+(`linkme`/`inventory`) collects at LINK time in an order the linker chooses —
+non-deterministic across platforms and link modes, and unreviewable in a diff. A
+scanning binary producing a checked-in, diffable artefact plus a CI drift check
+is the only mechanism that satisfies both "generated" and "ordered".
+
+## What this removes: `rt.rs` and the hand tables
+
+The pair deletes the hand-maintained symbol system wholesale:
+
+| Target | Where | Rows (2026-07-28) |
+|---|---|---|
+| `rt.rs` + hand-declared symbols | across the runtime crates | — |
+| hand-listed JIT symbols | `rts-codegen-new/src/adapter_symbols/list_a.rs` + `list_b.rs` | 355 |
+| hand-written Cranelift signatures | `rts-codegen-new/src/value/abi_sig.rs` | 159 |
+| hand-written class metadata | `rts-runtime/src/adapters/dispatch.rs` | 13 |
+| ad-hoc `(name, fn as *const u8)` tables | e.g. `rts-node`'s `path::syms()` | — |
+
+A symbol is in the table because it **EXISTS in the source**, not because
+someone remembered to list it.
+
+## The blocker that was removed: dependency-direction bans
+
+Every one of those tables documented the same cause in its own doc-comment: the
+crate that needed the metadata was **forbidden** from depending on the crate that
+owned it. `dispatch.rs`: *"the crate-layering rule forbids adding
+`rts-engine`/`rts-primitives` as a second direct dependency … so this module
+hand-writes a small static table"*. `abi_sig.rs`: *"deliberately does NOT iterate
+the whole SPECS/registry"*.
+
+**Owner decision, 2026-07-28: those bans are removed** — from `CLAUDE.md`, from
+`.claude/rules/`, and from `scripts/read_before_commit.sh`. `rts-codegen-new` may
+depend directly on `rts-engine`; the analogous bans elsewhere ("reach the runtime
+ONLY through the `rts-runtime` facade", "no second direct dep", "a
+`rts-shared`/`rts-std` dep is a regression") are gone too. The facade remains the
+convenient default route for the bulk of the surface, not a wall.
+
+What survives, and is a **different** rule: the engine must not NAME a
+non-primordial class (`Map`/`Set`/`Date`/`URL`/…) in its control flow. A
+dependency edge is a build fact and is free; hardcoding a class name is a
+semantics fact and is the regression. The gate still REVIEW-lists those names.
 
 ## The goal
 
@@ -242,6 +310,42 @@ is what lets an intrinsic have an inline-IR path with the engine naming nothing.
 **F7 — drain hand-written `extern "C"`, group by group**, each with the coverage
 guard `adapter_symbols` already has. The object/array family (~120 symbols) goes
 LAST: biggest, hottest, and it depends on F0 and F6.
+
+### Baker cutover (added 2026-07-28)
+
+The baker already exists and already emits a correct table — 2051 symbols in
+`crates/rts-symbol-baker/generated/symbol_table.rs`. **Nothing consumes it yet:**
+the only references to `rts_abi::table` are inside `rts-abi` and the baker
+itself. These phases connect it.
+
+**F8 — expose the Registry through the facade.** `pub use rts_engine::{Engine,
+Registry, Class, Member}` in `rts-runtime/src/lib.rs`. One line, now that the
+"no second direct dep" rule is gone; it removes the stated justification for
+`dispatch.rs` and `abi_sig.rs` in a single stroke.
+
+**F9 — plug the baked table into the JIT.** `rts-codegen-new`'s `jit_symbols()`
+becomes *baked table + harvest* instead of *harvest + two hand lists*. The baked
+table is authoritative where it and the harvest overlap.
+
+**F10 — drain `adapter_symbols/list_a.rs` + `list_b.rs`.** Diff the baked table
+against the 355 hand rows and delete every covered one. What the baker does not
+cover — the codegen-owned `__rtsadp_*` trampolines, which are not runtime
+symbols and have no Registry member — goes into the baker's SCAN SCOPE. If it
+stays outside, the hand list survives and F10 has not happened.
+
+**F11 — `dispatch.rs` → real harvest.** With F8 done the 13 `MethodSpec` rows
+become `Class::resolve_instance_method`. `resolve_method`'s `(class, method,
+argc)` signature and the lowering are unchanged — the swap is mechanical
+precisely because the table was already data rows, never code arms.
+
+**F12 — `abi_sig.rs` → `SymbolDesc` / `SPECS`.** Signatures come from
+`lower_member()` and the macro-emitted consts; the 159-row parallel table dies,
+and with it the unguarded SIGILL exposure that motivated F0.
+
+**F13 — drift check wired into the gate + CI.** `cargo run -p rts-symbol-baker
+-- --check` is a HARD gate (done in `scripts/read_before_commit.sh`,
+2026-07-28); mirror it in CI. Without this, F9–F12 reopen the moment someone
+adds a symbol without regenerating.
 
 ## Non-goals
 

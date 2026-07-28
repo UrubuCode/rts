@@ -8,7 +8,7 @@
 | Node.js version | 25.x (`https://nodejs.org/docs/latest-v25.x/api/util.html`) |
 | Stability | 2 - Stable (module-level; `util.diff` experimental→Stable in v25; `util.inherits` is Stability 3 - Legacy; `util._extend`/`util.isArray` are Deprecated — Runtime type, DEP0060/DEP0044) |
 | Tier | P0 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed. The verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import util from 'node:util'`; `import { promisify, callbackify, inspect, format, formatWithOptions, deprecate, inherits, parseArgs, parseEnv, styleText, isDeepStrictEqual, stripVTControlCharacters, toUSVString, debuglog, MIMEType, MIMEParams, types, ... } from 'node:util'`; `const util = require('node:util')`; `const { promisify } = require('node:util')`; deprecated alias `import sys from 'node:sys'` / `const sys = require('node:sys')` (identical surface, warns once via DEP0025) |
 | Globals exposed | none directly injected by this module. `util.TextEncoder`/`util.TextDecoder` are plain references to the ambient global `TextEncoder`/`TextDecoder` classes (owned by RTS's web-global infra, not by `node:util` — see §5.1) |
 

@@ -8,7 +8,7 @@
 | Node.js version (25.x) | Documented against Node.js 25.x. Module itself dates to Node 0.x; `Primary`/`Master` terminology (`isPrimary`/`setupPrimary`) introduced in v16.0.0, `isMaster`/`setupMaster` kept as deprecated aliases. |
 | Stability | 2 - Stable |
 | Tier | P1 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import cluster from "node:cluster"` (default export, primary form used in all Node examples); `const cluster = require("node:cluster")` (CJS); individual properties (`isPrimary`, `fork`, …) are also reachable as named imports since Node synthesizes named ESM exports for built-ins, but RTS should document/ship the default-import form as canonical. |
 | Globals exposed | None. `node:cluster` exposes no globals — every member is reached through the module object returned by the import. |
 

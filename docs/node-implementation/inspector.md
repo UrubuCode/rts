@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable (`node:inspector`, callback `Session.post()`); 1 - Experimental (`node:inspector/promises`, promise `Session.post()`); the `Network.*`/`NetworkResources.*`/`DOMStorage.*` integration methods are separately marked 1.1 - Active Development and are additionally gated behind CLI flags (see §4) |
 | Tier | P2 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import * as inspector from "node:inspector"`; `import * as inspector from "node:inspector/promises"`; `const inspector = require("node:inspector")`; `const inspector = require("node:inspector/promises")` |
 | Globals exposed | none — every member is reached through the module namespace object, no identifiers are added to the global scope |
 

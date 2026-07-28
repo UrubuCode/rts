@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable |
 | Tier | P0 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import http from "node:http"`; `import { createServer, request, get, Agent, Server, ServerResponse, IncomingMessage, ClientRequest, OutgoingMessage, METHODS, STATUS_CODES, globalAgent, maxHeaderSize } from "node:http"` |
 | Globals exposed | None (all surface is module-scoped; `http.globalAgent` is a module-level singleton, not a JS global) |
 

@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable |
 | Tier | P0 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import fs from "node:fs"` · `import * as fs from "node:fs"` · `import { readFileSync, statSync, ... } from "node:fs"` · `import fsPromises from "node:fs/promises"` · `import { open, readFile, FileHandle } from "node:fs/promises"` · CJS `require("fs")` / `require("fs/promises")` (bare-specifier `"fs"` alias, not just `"node:fs"`) |
 | Globals exposed | none (fs exposes nothing on `globalThis`; it must be imported). Consumers commonly pair it with the ambient `Buffer`/`URL`/`AbortController` globals, which are primordial/other-module concerns, not part of this spec |
 

@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable |
 | Tier | P2 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import http2 from "node:http2"`; `import { createServer, createSecureServer, connect, constants, getDefaultSettings, getPackedSettings, getUnpackedSettings, performServerHandshake, sensitiveHeaders } from "node:http2"` |
 | Globals exposed | None (all surface is module-scoped; no JS global is added) |
 

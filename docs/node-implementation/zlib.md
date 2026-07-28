@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable (the Zstd sub-surface — `Zstd*` classes/functions/constants — is separately marked **1 - Experimental**) |
 | Tier | P1 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import zlib from "node:zlib"`; `import { gzipSync, createGzip, constants, ... } from "node:zlib"`; `import zlib from "zlib"` (bare specifier, legacy alias); `const zlib = require("node:zlib")` / `require("zlib")` |
 | Globals exposed | None. `node:zlib` introduces no `globalThis` member — everything is reached through the module's named/default export. |
 

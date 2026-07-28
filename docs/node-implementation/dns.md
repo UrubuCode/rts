@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable |
 | Tier | P1 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import dns from 'node:dns'`; `import dnsPromises from 'node:dns/promises'`; `import { Resolver } from 'node:dns'`; `const dns = require('node:dns')`; `const dnsPromises = require('node:dns/promises')` |
 | Globals exposed | none (all access is via the `node:dns` / `node:dns/promises` module imports; no ambient globals) |
 

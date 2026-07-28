@@ -35,12 +35,15 @@ This is the first and most important rule. It governs all others.
   `docs/specs/rts-codegen-new-design.md`; pick work from its migration phases
   (P0→P5), not from a fixture-grind roadmap (see "HONEST CURRENT STATUS" below
   and `.claude/rules/00-meta.md`)
+- **MANDATORY RULE: SINGLE SOURCE OF TRUTH** — `rts-macro` declares/types every
+  symbol, `rts-symbol-baker` bakes the ordered table that is both the JIT vtable
+  and the AOT symbol set. No hand-written symbol / signature / metadata rows;
+  crate-dependency-direction bans are REMOVED (2026-07-28)
 - **MANDATORY RULE: read_before_commit.sh GATE + FILE LAYOUT** — run
   `bash scripts/read_before_commit.sh` and read its whole output before every commit
   touching the engine; file-size ceilings codegen ≤1000 / engine ≤700 / rest ≤500 (split into a
-  folder/subfolder); the engine names ONLY primordials —
-  `rts-shared`/`rts-std` are **NOT** native/primitive and a direct mention is a
-  regression
+  folder/subfolder); the engine names ONLY primordials in its control flow (a
+  crate dependency edge is fine, a hardcoded non-primordial NAME is not)
 - **MANDATORY RULE: READ THE EGUI/WEB ENGINE PLAN BEFORE TOUCHING IT** —
   before changing ANYTHING in the egui / HTML / web UI engine (`crates/rts-egui/`,
   the `.ts` UI lib over it, or any web/HTML-engine code) you MUST first read the
@@ -192,24 +195,37 @@ silently violate them. It separates **HARD** failures (exit non-zero — never
 commit) from **REVIEW** lists (read every entry; pre-existing debt must shrink,
 never grow).
 
-### Rule A — the engine is native/primitive-only; rts-shared/rts-std are NOT
+### Rule A — the engine must not NAME a non-primordial class (dependency edges are free)
 
-The engine (`rts-codegen-new`) interacts directly ONLY with the native/primitive
-surface: the PRIMORDIAL classes via `rts-primitives`, reached through the
-`rts-runtime` facade. **`rts-shared` and `rts-std` are NOT native/primitive** —
-they are the non-primordial utility/backend libraries. A direct dependency on,
-`use` of, or hardcoded mention of `rts-shared`/`rts-std` (or any non-primordial
-class: `Map`/`Set`/`Date`/`URL`/`Proxy`/…) **in the engine is a
-REGRESSION**. Everything non-primordial resolves through the **Registry**
-(`registry.rs` / `registry_call.rs`), never a hardcoded per-class path. This is
-the same PRIMORDIAL-vs-REGISTRY doctrine below, restated as a commit gate. A
-dedicated `*class.rs` (e.g. `dateclass.rs`) is a **draining target** — never add
-a new non-primordial path to one.
+The engine (`rts-codegen-new`) may name directly ONLY the PRIMORDIAL classes. A
+hardcoded mention of a non-primordial class (`Map`/`Set`/`Date`/`URL`/…) **in
+codegen control flow is a REGRESSION** — everything non-primordial resolves
+through the **Registry** (`registry.rs` / `registry_call.rs`), never a hardcoded
+per-class path. This is the PRIMORDIAL-vs-REGISTRY doctrine below, restated as a
+commit gate. A dedicated `*class.rs` (e.g. `dateclass.rs`) is a **draining
+target** — never add a new non-primordial path to one.
 
-> The gate HARD-fails on a forbidden dep/`use`; it REVIEW-lists every
-> non-primordial class name found in codegen (test/fixture files are split out as
-> expected). The current draining targets are `front/run/dateclass.rs` and
-> `front/run/globalclass.rs`.
+**Crate-dependency direction is NOT part of this rule (owner decision,
+2026-07-28).** The old bans — "the engine reaches the runtime ONLY through the
+`rts-runtime` facade", "no second direct dep on `rts-engine`/`rts-primitives`",
+"a direct dep on `rts-shared`/`rts-std` is a regression" — are **REMOVED**, and
+the gate no longer checks them. They were the stated justification for three
+hand-written mirror tables (`adapter_symbols/list_*.rs`, `value/abi_sig.rs`,
+`rts-runtime/src/adapters/dispatch.rs` — **527 rows measured**): each existed
+only because the crate needing the metadata was forbidden from reaching the
+crate owning it. Removing the bans is what allows those tables to be deleted in
+favour of the single source of truth (see the rule below). The facade stays the
+convenient default route, not a wall.
+
+The distinction that survives: **a dependency edge is a build fact; naming a
+non-primordial class is a semantics fact.** The first is free, the second is the
+regression.
+
+> The gate REVIEW-lists every non-primordial class name found in codegen
+> (test/fixture files split out), plus every remaining hand-written symbol /
+> signature row. Both lists must only shrink. Current draining targets:
+> `front/run/globalclass.rs`, `adapter_symbols/list_a.rs` + `list_b.rs`,
+> `value/abi_sig.rs`, `adapters/dispatch.rs`.
 
 ### Rule B — file-size ceilings (tiered)
 
@@ -283,6 +299,73 @@ the cluster calls for them.
 - **At cutover (design doc P5), parity must be ≥ the `v0.0-202606072107` tag,
   measured real** — the redesign exists so the next plateau is not another local
   max of hacks, not to trade the number away.
+
+## MANDATORY RULE: SINGLE SOURCE OF TRUTH — `rts-macro` + `rts-symbol-baker`
+
+**Owner decision, 2026-07-28.** RTS has exactly TWO sources of truth for symbols,
+and they are a pair: one declares, one links.
+
+### 1. `rts-macro` — the ORCHESTRATOR (declaration + typing)
+
+`rts-macro` (lib name `rtse`) is the ONE place a runtime symbol is declared. It
+generates the symbol, types it, and organizes it — all in one authoring surface:
+
+- `#[rtse::abi]` takes a plain Rust fn and owns every ABI concern (`extern "C"`,
+  `no_mangle`, the symbol name) and emits the `SymbolDesc` const **derived from
+  the Rust signature**, so signature drift is *unrepresentable* rather than
+  merely discouraged.
+- `#[rtse::class]` / `#[rtse::function]` / `#[rtse::symbol]` declare class
+  members, free functions and well-known/registry symbols the same way.
+- A `SymbolDesc` is a compile-time constant, so `rtse::sym!(Type::member)`
+  resolves a call site to the declaration instead of a hand-typed string.
+
+**Nothing else may declare a symbol.** A `#[unsafe(no_mangle)] pub extern "C" fn`
+written by hand is a draining target.
+
+### 2. `rts-symbol-baker` — the LINKER (the table both paths read)
+
+`rts-symbol-baker` scans the source for those declarations and emits
+`generated/symbol_table.rs`: **statically** (a Rust static beats a runtime
+Registry harvest) and **ordered** (strictly ascending symbol name, no
+duplicates), so lookup is a binary search and every scope is one contiguous
+range. It is the single linker for both execution paths:
+
+- **JIT** — it *is* the vtable installed into the `JITBuilder`.
+- **AOT** — it is the symbol set the object/link step resolves against.
+- It is also the right place to organize how other modules publish and how
+  `rts-engine` manages them — one table serving both worlds instead of a
+  compile-time harvest for one and a hand list for the other.
+
+A symbol is in the table because it **EXISTS in the source**, not because
+someone remembered to list it. A proc-macro cannot do this job (no cross-crate
+state); a distributed slice (`linkme`/`inventory`) collects at link time in
+linker-chosen order — non-deterministic and unreviewable in a diff. A scanning
+binary with a checked-in artefact plus a CI drift check is the mechanism.
+
+### What this DELETES (binding targets, never additions)
+
+| Target | Where | Rows |
+|---|---|---|
+| `rt.rs` + hand-declared symbol system | across the runtime crates | — |
+| hand-listed JIT symbols | `rts-codegen-new/src/adapter_symbols/list_a.rs` + `list_b.rs` | 355 |
+| hand-written Cranelift signatures | `rts-codegen-new/src/value/abi_sig.rs` | 159 |
+| hand-written class metadata | `rts-runtime/src/adapters/dispatch.rs` | 13 |
+| ad-hoc `(name, fn as *const u8)` tables | e.g. `rts-node`'s `path::syms()` | — |
+
+### How to apply
+
+1. **Never add a row** to any table above, and never hand-write a
+   `#[no_mangle] extern "C"` symbol name. Declare it with `rtse::*`; the baker
+   picks it up.
+2. After adding/renaming a symbol run `cargo run -p rts-symbol-baker` and commit
+   the regenerated artefact. `cargo run -p rts-symbol-baker -- --check` must be
+   clean — the gate HARD-fails on drift.
+3. If reaching the declaration requires a new crate dependency, **add it**. The
+   dependency-direction bans were removed for exactly this reason (Rule A above).
+   Do not re-introduce a mirror table to avoid an edge.
+4. The PRIMORDIAL naming doctrine below is unaffected and still binding.
+
+Canonical spec: `docs/specs/rts-macro-single-source.md`.
 
 ## MANDATORY RULE: PRIMORDIAL-vs-REGISTRY DOCTRINE
 
@@ -430,7 +513,10 @@ design doc §10. (The old engine's hardcoded switchboard and 1113 manual
 The primordial classes live in the `rts-primitives` crate (depends only on
 `rts-engine`, wasm-safe); non-primordial universal surface in `rts-shared`;
 backend in `rts-std`; `rts-runtime` is the thin facade (`pub use` of all four).
-The engine reads the runtime through this facade.
+The engine reads the runtime through this facade **by convention, not by rule** —
+the dependency-direction bans were removed 2026-07-28. When a crate needs a
+declaration the facade does not re-export, depend on the owning crate directly
+rather than hand-writing a mirror.
 
 ### ANTI-HARDCODE — how to add a feature WITHOUT naming a non-primordial (binding)
 
@@ -509,7 +595,9 @@ under `crates/<crate>/src/`.
 > (universal non-primordial: math/num/collections(Map/Set)/json/globals…) ←
 > `rts-std` (backend: io/net/tokio/console/promise impl) ← `rts-runtime` (thin
 > facade, `pub use` of all four, plus `adapters/` — the value model; AOT
-> staticlib). The engine reads everything via the `rts-runtime` facade.
+> staticlib). The engine reads most of the runtime via the `rts-runtime` facade
+> — the default route, not a wall: direct deps on `rts-engine` (Registry types)
+> and `rts-macro` (`SymbolDesc` consts) are correct and in use.
 
 ```
 crates/
@@ -527,7 +615,20 @@ crates/
                       plain Rust fn and owns every ABI concern (extern "C",
                       no_mangle, the symbol name) plus emits the `SymbolDesc`
                       const, derived from the Rust signature so drift is
-                      unrepresentable. See docs/specs/rts-macro-single-source.md
+                      unrepresentable. Pairs with rts-symbol-baker: macro
+                      DECLARES, baker LINKS. See docs/specs/rts-macro-single-source.md
+  rts-symbol-baker/ — THE LINKER of the single source of truth. A scanning
+                      binary that reads the `#[rtse::*]` declarations and emits
+                      `generated/symbol_table.rs` — statically and in strictly
+                      ascending symbol order (binary-search lookup, one
+                      contiguous range per scope). ONE table serving BOTH paths:
+                      the JIT vtable and the AOT symbol set. Replaces `rt.rs`,
+                      the hand-declared symbol system, and
+                      `rts-codegen-new/src/adapter_symbols/`. Regenerate with
+                      `cargo run -p rts-symbol-baker`; CI/gate verify with
+                      `-- --check`. The `.rs` analogue of rts-prelude-baker's
+                      `.ts` bake, same determinism discipline.
+  rts-prelude-baker/— bakes the resident `.ts` prelude (compiled bytes + relocs)
   rts-engine/       — heap GC, Registry/builder, collector contract. The ABI
                       vocabulary now lives in rts-abi and is re-exported here
   rts-hir/          — typed HIR (I8..I128/F32/F64/Bool/Str/Handle/Array/Function/

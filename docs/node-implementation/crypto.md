@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable |
 | Tier | P1 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import crypto from "node:crypto"`; `import { createHash, randomUUID, ... } from "node:crypto"`; `import crypto from "crypto"` (bare specifier, legacy alias); `const crypto = require("node:crypto")` / `require("crypto")` |
 | Globals exposed | `globalThis.crypto` — the Web Crypto `Crypto` singleton (`crypto.subtle`, `crypto.getRandomValues`, `crypto.randomUUID`) is available **without any import**, mirroring Node ≥19 / browser behavior. No other global is introduced by this module. |
 

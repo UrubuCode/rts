@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable (`node:timers/promises` overall: 2 - Stable; its `scheduler.wait`/`scheduler.yield` pair: 1 - Experimental) |
 | Tier | P0 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import timers from 'node:timers'`; `import { setTimeout, clearTimeout, setInterval, clearInterval, setImmediate, clearImmediate } from 'node:timers'`; `const timers = require('node:timers')`; `import { setTimeout, setInterval, setImmediate, scheduler } from 'node:timers/promises'`; `const timersPromises = require('node:timers/promises')`; ambient global (no import at all) `setTimeout`/`clearTimeout`/`setInterval`/`clearInterval`/`setImmediate`/`clearImmediate` |
 | Globals exposed | `setTimeout`, `clearTimeout`, `setInterval`, `clearInterval`, `setImmediate`, `clearImmediate` — these are **already** ambient globals in Node (and in RTS today, via the `timers` global namespace). `node:timers` does not introduce *new* globals; it re-exports the identical function objects as named/default exports of an explicit module (`require('node:timers').setTimeout === globalThis.setTimeout` in real Node — same identity, not a copy) |
 

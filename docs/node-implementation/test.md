@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable (core runner: test/describe/it/hooks/mock/run); 1.1 - Active development (snapshot testing, watch mode, `mock.module`); 1 - Experimental (`--experimental-test-coverage` code coverage collection) — sub-feature stability differs, see per-item notes in §2/§4 |
 | Tier | P1 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import { test, describe, it, before, after, beforeEach, afterEach, run, mock, snapshot, assert as testAssert } from "node:test"` · `import test from "node:test"` (default export is the `test` function itself, with `.skip`/`.todo`/`.only`/`.expectFailure` attached) · `const test = require("node:test")` · `import { spec, tap, dot, junit, lcov } from "node:test/reporters"` · CLI: `node --test [glob...]` (RTS: `rts --test` / `rts node --test`, see §5.8) |
 | Globals exposed | **Only** when the process is launched via the `--test` CLI flag: `test`, `describe`, `it`, `before`, `after`, `beforeEach`, `afterEach` become ambient globals (no import needed) inside every file the runner loads. Outside `--test` mode, `node:test` exposes **no** globals — everything must be explicitly imported. |
 

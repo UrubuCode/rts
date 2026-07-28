@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable |
 | Tier | P1 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import { spawn, exec, execFile, fork, spawnSync, execSync, execFileSync, ChildProcess } from "node:child_process"` · `import * as cp from "node:child_process"` · `const cp = require("node:child_process")` (CJS interop, if/when RTS supports it) |
 | Globals exposed | None — all surface is import-only, no ambient globals |
 

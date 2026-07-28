@@ -1,8 +1,9 @@
 //! Suporte a Node.js native addons (`.node`) pela porta **N-API**.
 //!
 //! Só N-API puro — addons V8-diretos/NAN são fora de escopo (exigiriam emular
-//! o layout binário do V8). Ver `docs/specs/napi-implementation.md` e o estudo
-//! em `docs/specs/node-format/`.
+//! o layout binário do V8). Ver `docs/specs/napi-implementation.md` — o estudo
+//! de viabilidade `docs/specs/node-format/` foi DELETADO em 2026-07-28: seu
+//! veredito virou este crate, e suas conclusões estão resumidas naquele spec.
 //!
 //! ## Etapa 1 (este arquivo): esqueleto
 //! As ~40 fns do núcleo 80/20 existem como **stubs** `extern "C"` retornando

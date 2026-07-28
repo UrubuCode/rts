@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable (one member, `repl.builtinModules`, is separately 0 - Deprecated) |
 | Tier | P2 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed. The verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import repl from "node:repl"`; `import { REPLServer, start, Recoverable, REPL_MODE_SLOPPY, REPL_MODE_STRICT, builtinModules } from "node:repl"`; CJS-style `require("node:repl")` / legacy bare `require("repl")` (both resolve to the same module) |
 | Globals exposed | None. `node:repl` defines no ambient `globalThis` members; the `_`/`_error` "magic variables" and auto-loaded core-module bindings (e.g. typing `fs` at the prompt) exist only *inside* a running `REPLServer`'s own `context` object, not as real JS globals importers can see. |
 

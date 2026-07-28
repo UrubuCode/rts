@@ -8,7 +8,7 @@
 | Node.js version | 25.x (`https://nodejs.org/docs/latest-v25.x/api/wasi.html`) |
 | Stability | 1 - Experimental (unchanged since introduction in v13.3.0/v12.16.0 — six-plus years without promotion to Stable; see §7 for the deferral recommendation this status supports) |
 | Tier | P2 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import { WASI } from 'node:wasi'`; CJS `const { WASI } = require('node:wasi')`. **No default export** — `WASI` is the module's only member. No documented legacy bare specifier (`require('wasi')`) — this module has always lived exclusively under the `node:` prefix (verify against Node's module-alias table at implementation time, same caution `sqlite.md` flags for its own no-bare-alias claim). |
 | Globals exposed | None. `node:wasi` adds nothing to `globalThis` — every use goes through the imported `WASI` class. (RTS's own `WebAssembly` global, needed to actually run a `.wasm` module wired to a `WASI` instance, is a **separate** ECMAScript-standard surface this module depends on — see §5.1/§5.7.) |
 

@@ -8,7 +8,7 @@
 | Node.js version | 25.x (`https://nodejs.org/docs/latest-v25.x/api/url.html`) |
 | Stability | 2 - Stable (module overall); **legacy** `url.parse()` is Stability 0 - Deprecated / Legacy (deprecated since v11.0.0, "Legacy" since v15.13.0); **legacy** `url.format(urlString)` (single-string overload) and `url.resolve()` are Stability 0 - Deprecated (`url.resolve` re-deprecated as DEP0169 in v24.0.0, `url.format(urlString)` deprecated as DEP0149 in v24.0.0); `URLPattern` is Stability 1 - Experimental (added v23.8.0) |
 | Tier | P0 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import url from 'node:url'`; `import { parse, format, resolve, domainToASCII, domainToUnicode, fileURLToPath, fileURLToPathBuffer, pathToFileURL, urlToHttpOptions, URL, URLSearchParams, URLPattern } from 'node:url'`; `const url = require('node:url')`; ambient globals `URL`, `URLSearchParams`, `URLPattern` usable with **no import** in any module (WHATWG/Web-standard globals, not Node-specific) |
 | Globals exposed | `URL` (class, ambient, WHATWG URL Standard), `URLSearchParams` (class, ambient, WHATWG URL Standard), `URLPattern` (class, ambient, experimental, WICG URL Pattern spec) |
 

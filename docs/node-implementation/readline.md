@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable |
 | Tier | P1 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed; the verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import readline from 'node:readline'`; `import * as readline from 'node:readline'`; `import { createInterface, Interface, emitKeypressEvents, clearLine, clearScreenDown, cursorTo, moveCursor } from 'node:readline'`; `const readline = require('node:readline')`; `import readlinePromises from 'node:readline/promises'`; `import { createInterface as createInterfacePromises, Interface as InterfacePromises, Readline } from 'node:readline/promises'`; `const readlinePromises = require('node:readline/promises')` |
 | Globals exposed | none — all access is via the `node:readline` / `node:readline/promises` module imports; no ambient globals |
 

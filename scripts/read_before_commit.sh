@@ -6,20 +6,34 @@
 # silently violate them:
 #
 #   [FLOOR]  build must compile (honesty+build floor — never lifts).
+#   [SOURCE] the symbol table is GENERATED. `rts-macro` declares a symbol,
+#            `rts-symbol-baker` bakes the table; a hand-written (name, fn_ptr)
+#            or (name, signature) row is a REGRESSION. The baker's checked-in
+#            artefact must match the source (`--check`).
 #   [DOCTRINE] the engine names ONLY the PRIMORDIAL classes. A direct mention of
-#              a non-primordial class (Map/Set/Date/Symbol/…) OR of the
-#              rts-shared / rts-std crates is a REGRESSION — everything
-#              non-primordial resolves through the Registry, never hardcoded in
-#              codegen. rts-shared/rts-std are NOT native/primitive.
+#              a non-primordial class (Map/Set/Date/…) in codegen control flow
+#              is a REGRESSION — everything non-primordial resolves through the
+#              Registry, never hardcoded in codegen.
 #   [LAYOUT]  no codegen source file > 1000 lines — split it into a
 #              folder/subfolder of cohesive submodules instead.
 #   [WIP]     surface todo!()/unimplemented!() so none ship disguised as "done".
 #
-# HARD failures (forbidden deps/uses, broken build) exit non-zero — do NOT
-# commit. The doctrine class-mention scan and the >1000-line scan are REVIEW
-# gates: read every entry and confirm it resolves via the Registry (bridge file)
-# and is genuinely unavoidable, or fix it. Pre-existing debt is listed so it
-# keeps shrinking, never grows.
+# HARD failures (symbol-table drift, broken build) exit non-zero — do NOT
+# commit. The doctrine class-mention scan, the hand-list scan and the
+# >1000-line scan are REVIEW gates: read every entry and confirm it resolves via
+# the Registry / the baker and is genuinely unavoidable, or fix it. Pre-existing
+# debt is listed so it keeps shrinking, never grows.
+#
+# REMOVED (owner decision, 2026-07-28): the crate-dependency-direction bans.
+# `rts-codegen-new` may depend directly on `rts-engine` — and on any other
+# runtime crate it needs — because the single source of truth
+# (`rts-macro` + `rts-symbol-baker`) has to be reachable without a hand-written
+# mirror standing in for it. Those bans were the stated reason three parallel
+# tables existed (`adapter_symbols/list_*.rs`, `adapters/dispatch.rs`,
+# `value/abi_sig.rs`); removing the bans is what lets them be deleted. The
+# PRIMORDIAL naming doctrine below is a SEPARATE rule and still binding: a
+# dependency edge is allowed, hardcoding a non-primordial class NAME in codegen
+# control flow is not.
 #
 # Usage:  bash read_before_commit.sh            # full gate
 #         bash read_before_commit.sh --no-build # skip the cargo build step
@@ -60,27 +74,47 @@ HARD_FAIL=0
 NONPRIMORDIAL='Map|Set|WeakMap|WeakSet|Date|URL|URLSearchParams|Intl|TextEncoder|TextDecoder|EventTarget|Headers|FormData|ReadableStream'
 
 # ---------------------------------------------------------------------------
-hdr "1/5  Forbidden crate dependencies (HARD)"
-# Only real dependency lines (`name = { path = ... }`), never comment lines.
-BADDEP=$(grep -nE '^[[:space:]]*(rts-shared|rts-std|rts-codegen-old)[[:space:]]*=' "$CARGO" || true)
-if [ -n "$BADDEP" ]; then
-  red "Cargo.toml depends on a non-native / frozen crate:"; echo "$BADDEP"
-  red "  -> rts-shared/rts-std are NOT primitive; rts-codegen-old is frozen."
-  red "     Reach the runtime ONLY through the rts-runtime facade."
-  HARD_FAIL=1
+hdr "1/5  Baked symbol table is in sync with the source (HARD)"
+# `rts-symbol-baker` scans the source for `#[rtse::*]`-declared symbols and emits
+# the checked-in table. If the artefact drifts from the source, the JIT vtable and
+# the AOT symbol set are a lie — that is the bug class this gate exists for.
+if [ "$NO_BUILD" -eq 0 ]; then
+  if (cd "$ROOT" && cargo run -q -p rts-symbol-baker -- --check >/dev/null 2>&1); then
+    grn "ok — generated/symbol_table.rs matches the source."
+  else
+    red "SYMBOL TABLE DRIFT — generated/symbol_table.rs does not match the source."
+    red "  -> run: cargo run -p rts-symbol-baker    (then review the diff)"
+    HARD_FAIL=1
+  fi
 else
-  grn "ok — deps are rts-parser/hir/ast + rts-runtime facade + rts-engine only."
+  ylw "baker --check skipped (--no-build)."
 fi
 
 # ---------------------------------------------------------------------------
-hdr "2/5  Forbidden direct use of rts-shared / rts-std / old engine (HARD)"
-BADUSE=$(grep -rnE 'rts_shared::|rts_std::|rts_codegen_old::|use[[:space:]]+rts_(shared|std)' "$SRC" || true)
-if [ -n "$BADUSE" ]; then
-  red "Engine source reaches a non-native crate directly:"; echo "$BADUSE"
-  red "  -> route through rts_runtime::* (the facade) instead."
-  HARD_FAIL=1
+hdr "2/5  Hand-written symbol / signature tables (REVIEW — must shrink to zero)"
+# The single source of truth is `rts-macro` (declares) + `rts-symbol-baker`
+# (bakes). Every row below is a hand-maintained mirror of a definition the baker
+# can emit; each is a draining target, and NOTHING may be added to them.
+HANDROWS=0
+for f in "$SRC/adapter_symbols/list_a.rs" "$SRC/adapter_symbols/list_b.rs"; do
+  [ -f "$f" ] || continue
+  N=$(grep -cE '^[[:space:]]*sym\(' "$f" || true)
+  [ "$N" -gt 0 ] && { ylw "  $N hand-listed JIT symbol row(s) in ${f#$SRC/}"; HANDROWS=$((HANDROWS+N)); }
+done
+if [ -f "$SRC/value/abi_sig.rs" ]; then
+  N=$(grep -cE 'SymSig[[:space:]]*\{' "$SRC/value/abi_sig.rs" || true)
+  [ "$N" -gt 0 ] && { ylw "  $N hand-written SymSig row(s) in value/abi_sig.rs"; HANDROWS=$((HANDROWS+N)); }
+fi
+DISPATCH="$ROOT/crates/rts-runtime/src/adapters/dispatch.rs"
+if [ -f "$DISPATCH" ]; then
+  N=$(grep -cE 'MethodSpec[[:space:]]*\{' "$DISPATCH" || true)
+  [ "$N" -gt 0 ] && { ylw "  $N hand-written MethodSpec row(s) in rts-runtime/src/adapters/dispatch.rs"; HANDROWS=$((HANDROWS+N)); }
+fi
+if [ "$HANDROWS" -gt 0 ]; then
+  ylw "$HANDROWS hand-maintained row(s) total. Each mirrors a definition the baker"
+  ylw "can emit and the Registry can resolve. Drain them; never ADD one."
 else
-  grn "ok — no direct rts_shared/rts_std/rts_codegen_old paths in src."
+  grn "ok — no hand-written symbol/signature tables left."
 fi
 
 # ---------------------------------------------------------------------------

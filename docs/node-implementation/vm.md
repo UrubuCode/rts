@@ -8,7 +8,7 @@
 | Node.js version | 25.x (`https://nodejs.org/docs/latest-v25.x/api/vm.html`) |
 | Stability | **2 - Stable** for the core surface (`Script`, `createContext`/`isContext`, `runInContext`/`runInNewContext`/`runInThisContext`, `compileFunction`, `vm.constants`); **1 - Experimental** for `vm.Module`/`vm.SourceTextModule`/`vm.SyntheticModule` (gated behind the `--experimental-vm-modules` CLI flag in real Node); **1 - Experimental** for `vm.measureMemory()`. |
 | Tier | P2 |
-| Status | [ ] Not implemented — spec only |
+| Status | ⚠️ **Stale row — see [`node_completed.md`](./node_completed.md).** It claimed "not implemented" for modules that had already landed. The verified 100%-vs-partial state lives in the tracker, in ONE place. |
 | Import forms | `import vm from 'node:vm'`; `import { Script, SourceTextModule, SyntheticModule, createContext, isContext, runInContext, runInNewContext, runInThisContext, compileFunction, measureMemory, constants } from 'node:vm'`; CJS: `const vm = require('node:vm')` / `const { Script, ... } = require('node:vm')`. |
 | Globals exposed | **None.** Every member is reached through the module namespace object — `node:vm` adds nothing to `globalThis`, unlike `node:perf_hooks`'s `performance` or `node:process`'s `process`. |
 
