@@ -2,7 +2,6 @@
 //! helper sub-lists and the Registry harvest (split for the <500-line rule).
 
 use rts_engine::heap::env as rt_env;
-use rts_runtime::namespaces::globals::proxy::ops as rt_proxy;
 
 use crate::value::{
     arraycb, ctorval, dyndispatch, errslot, funcops, globalops, globalthis, iterops, objops,
@@ -725,13 +724,10 @@ fn gl_method_symbols() -> Vec<JitSymbol> {
             rts_runtime::namespaces::globals::string::search::__rtsadp_str_match_all_auto
                 as *const u8,
         ),
-        // Proxy ctor (#218): `new Proxy(target, handler)` → `Entry::Proxy`. The
-        // get/set TRAPS run inside `__rtsadp_obj_get`/`_set` (engine trampolines,
-        // already installed); only the ctor symbol needs installing here.
-        sym(
-            "__RTS_FN_GL_PROXY_NEW",
-            rt_proxy::__RTS_FN_GL_PROXY_NEW as *const u8,
-        ),
+        // Proxy ctor (#218): now `#[rtse::class]`-generated (`__rtsm_global_proxy_new`),
+        // carries a real `fn_ptr` in the Registry, so the harvest (`list_a`) installs
+        // it automatically — no hand entry needed here anymore. The get/set TRAPS
+        // still run inside `__rtsadp_obj_get`/`_set` (engine trampolines).
     ]
 }
 

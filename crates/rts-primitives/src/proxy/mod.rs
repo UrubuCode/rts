@@ -13,35 +13,37 @@
 //! - Invariants do spec (e.g. configurable check)
 //!
 //! Ver issue #218 (Proxy fase 1).
+//!
+//! Migrado pro `#[rtse::class]` (macro) — piloto da escape hatch de ctor
+//! (`#[rtse::ctor] fn new(...) -> Handle`): `Proxy` aloca seu PRÓPRIO
+//! `Entry::Proxy` dedicado (não um `Entry::Rtse` boxed struct), então o ctor
+//! opta pelo passthrough de handle em vez de `alloc_rtse`. `Proxy` é um marker
+//! `struct` unit — nenhum campo, o estado vive inteiro dentro do `Entry::Proxy`
+//! alocado por `ops::new_proxy`.
 
 pub mod ops;
 
-use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::abi::ty::Handle;
 
-/// Registra a classe global `Proxy` (não-primordial) no motor. Só o construtor
-/// `new Proxy(target, handler)` → símbolo `__RTS_FN_GL_PROXY_NEW`. Com isso o
-/// dispatch genérico de construtor (`global_class_lookup("Proxy")` em new_expr)
-/// cobre a construção, sem braço hardcoded `class_name == "Proxy"` no motor.
-/// As traps (get/set/has/delete/apply) seguem resolvidas em runtime via
-/// `resolve_proxy` nos caminhos MAP_*/INVOKE — não há lógica de método de Proxy
-/// no codegen. fn_ptr null: o símbolo resolve via o namespace que o registra.
-pub fn register_proxy_class_spec(e: &mut Engine) {
-    e.class("Proxy")
-        .doc("Proxy(target, handler) — Entry::Proxy; traps resolvidas em runtime.")
-        .member(Member {
-            name: "new".to_string(),
-            kind: MemberKind::Constructor,
-            sig: Sig::new(vec![AbiType::Handle, AbiType::Handle], AbiType::Handle),
-            symbol: "__RTS_FN_GL_PROXY_NEW".to_string(),
-            fn_ptr: FnPtr(core::ptr::null::<u8>()),
-            flags: MemberFlags::NONE,
-            aliases: Vec::new(),
-            variadic: false,
-            ts_signature: "new (target: object, handler: ProxyHandler<object>): any".to_string(),
-            doc: "new Proxy(target, handler) — cria Entry::Proxy.".to_string(),
-            ret_class: None,
-            pure: false,
-            emit: None,
-        })
-        .done();
+/// Marker type only — `#[rtse::class]` needs a Rust type to hang the `impl` on,
+/// but Proxy carries no Rust-side fields: `target`/`handler` live inside the
+/// dedicated `Entry::Proxy { target, handler }` the ctor allocates directly
+/// (see `ops::new_proxy`), never boxed into an `Entry::Rtse`.
+#[rtse::class("Proxy")]
+pub struct Proxy;
+
+#[rtse::class("Proxy")]
+impl Proxy {
+    /// `new Proxy(target, handler)` — allocates `Entry::Proxy`. Traps are NOT
+    /// Registry members; they resolve at runtime inside the engine's generic
+    /// property trampolines (`resolve_proxy` in `obj_get`/`obj_set`), so there
+    /// is nothing else to register for this class.
+    ///
+    /// Returns a raw `Handle` (not `Self`) — the escape hatch added in
+    /// `rts-macro/src/class/member/returns.rs`: this ctor owns its own
+    /// `Entry::` variant, so it must NOT be boxed via `alloc_rtse`.
+    #[rtse::ctor]
+    fn new(target: Handle, handler: Handle) -> Handle {
+        ops::new_proxy(target, handler)
+    }
 }

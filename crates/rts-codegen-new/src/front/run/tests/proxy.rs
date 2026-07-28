@@ -1,7 +1,8 @@
 //! PROXY (#218) — `new Proxy(target, handler)` + the `get`/`set` traps.
 //!
 //! A proxy is an `Entry::Proxy { target, handler }` (built by the Registry ctor
-//! `__RTS_FN_GL_PROXY_NEW`). Property access on a proxy routes through the dynamic
+//! `__rtsm_global_proxy_new`, a `#[rtse::class]` ctor returning a raw `Handle`
+//! instead of an `alloc_rtse` box). Property access on a proxy routes through the dynamic
 //! property trampolines (`__rtsadp_obj_get`/`_set`), which detect the proxy
 //! receiver via `resolve_proxy` and invoke `handler.get`/`.set` through the
 //! `__rtsadp_fn_invoke` callback bridge — falling through to the target when the

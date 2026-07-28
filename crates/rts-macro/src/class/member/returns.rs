@@ -41,6 +41,40 @@ fn no_class() -> proc_macro2::TokenStream {
 /// class name (needed by the `Self`/`Option<Self>`/ctor arms, which allocate a
 /// classed `Entry::Rtse` carrying it for `instanceof`/return-class tracking).
 pub(crate) fn build_return(sig: &syn::Signature, class: &str, is_ctor: bool) -> syn::Result<RetInfo> {
+    // Escape hatch: `#[rtse::ctor] fn new(...) -> Handle` opts OUT of the
+    // `alloc_rtse` box and falls through to the ordinary return-type match
+    // below, whose `is_handle_ty` arm already passes a raw handle through
+    // untouched. This is for a ctor that allocates its OWN dedicated `Entry::`
+    // variant (e.g. `Entry::Proxy`) instead of boxing a Rust struct — the class
+    // stays a normal `#[rtse::class]`/`#[rtse::ctor]` (one Registry path, same
+    // symbol convention, same param marshalling), only the return-wrap differs.
+    //
+    // Chosen over an explicit `#[rtse::ctor(alloc = "...")]` attribute naming a
+    // custom allocator fn: that shape adds new vocabulary (a string that must
+    // name a real fn, checked only at the call site inside the generated body,
+    // so a typo is a runtime linker/symbol miss rather than a `rustc` error) AND
+    // still needs a case split on the Rust return type to know whether to call
+    // the allocator or `alloc_rtse` — so it does not remove the branch, it only
+    // hides it. Keying off `-> Handle` reuses machinery that already exists
+    // (`is_handle_ty`, the general return match) and needs zero new syntax: the
+    // ctor body itself calls whatever allocator it wants and simply returns the
+    // `u64` it already computed.
+    //
+    // `-> Self` (the default) is UNCHANGED below — this only intercepts when the
+    // ctor's return type is literally `Handle`.
+    if is_ctor && ret_ty(sig).is_some_and(|t| is_handle_ty(t).is_some()) {
+        return Ok((
+            quote!(::rts_engine::AbiType::Handle),
+            quote!(u64),
+            class.to_string(),
+            Box::new(|b| quote!(#b)),
+            // Still class-tracked: the ctor's own `Entry::` variant carries its
+            // JS identity outside `Entry::Rtse`, but `ret_class` is what lets a
+            // chained `.prop`/`.method()` on `new Proxy(...)` resolve — the same
+            // tracking `-> Self` gets, just without the `alloc_rtse` box.
+            quote!(::core::option::Option::Some(#class.to_string())),
+        ));
+    }
     if is_ctor {
         // The ctor allocates the struct as a classed `Entry::Rtse` (the class name
         // travels so `instanceof` can consult the hierarchy). A FALLIBLE ctor

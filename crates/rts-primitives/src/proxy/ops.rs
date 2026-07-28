@@ -36,8 +36,12 @@ unsafe extern "C" {
 /// NAO se valida o tipo do handler aqui: as traps leem `handler.get`/`.set` pela
 /// via dinamica de propriedade do proprio motor (`__rtsadp_obj_get`), que aceita
 /// qualquer objeto. A GC mantem target+handler vivos enquanto o Proxy viver.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_PROXY_NEW(target: u64, handler: u64) -> u64 {
+///
+/// Chamado pelo ctor `#[rtse::class]` em `mod.rs` (que via a escape hatch de
+/// retorno `-> Handle` devolve esse word direto, sem `alloc_rtse`). Plain Rust
+/// fn (não `extern "C"`) — o `#[rtse::ctor]` já gera o wrapper `extern "C"`
+/// `__rtsm_global_proxy_new` publicado no Registry; esta é a impl interna.
+pub fn new_proxy(target: u64, handler: u64) -> u64 {
     alloc_entry(Entry::Proxy { target, handler })
 }
 
@@ -473,7 +477,7 @@ mod tests {
     fn proxy_new_with_invalid_handler_returns_zero() {
         let target = alloc_entry(Entry::Map(Box::new(IndexMap::new())));
         let bogus_handler = 0u64;
-        let p = __RTS_FN_GL_PROXY_NEW(target, bogus_handler);
+        let p = new_proxy(target, bogus_handler);
         assert_eq!(p, 0);
     }
 
@@ -481,7 +485,7 @@ mod tests {
     fn proxy_new_with_map_handler_succeeds() {
         let target = alloc_entry(Entry::Map(Box::new(IndexMap::new())));
         let handler = alloc_entry(Entry::Map(Box::new(IndexMap::new())));
-        let p = __RTS_FN_GL_PROXY_NEW(target, handler);
+        let p = new_proxy(target, handler);
         assert_ne!(p, 0);
         let resolved = resolve_proxy(p);
         assert_eq!(resolved, Some((target, handler)));
@@ -493,7 +497,7 @@ mod tests {
         tm.insert("x".to_string(), 42);
         let target = alloc_entry(Entry::Map(Box::new(tm)));
         let handler = alloc_entry(Entry::Map(Box::new(IndexMap::new())));
-        let p = __RTS_FN_GL_PROXY_NEW(target, handler);
+        let p = new_proxy(target, handler);
         let v = dispatch_get(target, handler, "x");
         assert_eq!(v, 42);
         let _ = p;

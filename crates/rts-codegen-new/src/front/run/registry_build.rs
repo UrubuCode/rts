@@ -233,12 +233,14 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     // `Symbol.iterator`/… well-knowns + `description` getter resolve data-driven via
     // is_pure_registry_class (the engine NEVER names "Symbol" in control flow).
     ns::globals::symbol::register_symbol_class_spec,
-    // `Proxy` — backend/Registry class (#218): `new Proxy(target, handler)` →
-    // `__RTS_FN_GL_PROXY_NEW` (Entry::Proxy). The get/set TRAPS are resolved at
-    // runtime in the dynamic property trampolines (`__rtsadp_obj_get`/`_set` detect
-    // a Proxy receiver via `resolve_proxy` and invoke `handler.get`/`.set` through
-    // the `__rtsadp_fn_invoke` callback bridge), not by a codegen arm.
-    ns::globals::proxy::register_proxy_class_spec,
+    // `Proxy` — backend/Registry class (#218), migrated to `#[rtse::class]` (macro
+    // ctor escape hatch: `new Proxy(target, handler)` → `__rtsm_global_proxy_new`
+    // returns a raw `Handle` into its OWN `Entry::Proxy`, not an `alloc_rtse` box).
+    // The get/set TRAPS are resolved at runtime in the dynamic property
+    // trampolines (`__rtsadp_obj_get`/`_set` detect a Proxy receiver via
+    // `resolve_proxy` and invoke `handler.get`/`.set` through the
+    // `__rtsadp_fn_invoke` callback bridge), not by a codegen arm.
+    ns::globals::proxy::register,
     // `WeakRef` — Registry class (#217 A1.1), migrada pra `#[rtse::class]` (macro
     // G1+F1): `new WeakRef(target)` → WEAKREF_NEW (Entry::Rtse, não traçado pelo
     // coletor — mesma semântica weak do antigo Entry::WeakRef dedicado), `deref()`
