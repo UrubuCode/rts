@@ -31,27 +31,19 @@
 //! them `safe` here preserves the original call-site ergonomics (no
 //! `unsafe` block needed to call them).
 //!
-//! `__RTS_FN_NS_GC_PIN_HANDLE` / `__RTS_FN_NS_GC_UNPIN_HANDLE` are NOT
-//! forward-declared here — their real definition lives in this very crate
-//! (`crate::heap::handles`), so they are re-exported as ordinary items
-//! instead of round-tripped through an extern-link declaration.
+//! `__RTS_FN_NS_GC_PIN_HANDLE` / `__RTS_FN_NS_GC_UNPIN_HANDLE` and the
+//! `string_pool` trio below are NOT forward-declared here — their real
+//! definition lives in this very crate (`crate::heap::handles` /
+//! `crate::heap::string_pool`, the latter moved down from `rts-std` on
+//! 2026-07-28), so they are re-exported as ordinary items instead of
+//! round-tripped through an extern-link declaration.
 
 pub use crate::heap::handles::{__RTS_FN_NS_GC_PIN_HANDLE, __RTS_FN_NS_GC_UNPIN_HANDLE};
+pub use crate::heap::string_pool::{
+    __RTS_FN_NS_GC_STRING_CONCAT, __RTS_FN_NS_GC_STRING_NEW, __RTS_FN_RT_TO_STRING_HANDLE,
+};
 
 unsafe extern "C" {
-    /// Allocate a GC string from UTF-8 bytes, return its handle. (`rts-std`
-    /// `collector::string_pool`)
-    pub safe fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64;
-
-    /// Concatenate two GC string handles at the raw byte level (no UTF-8
-    /// re-decode — preserves incomplete multibyte fragments across the
-    /// join). (`rts-std` `collector::string_pool`)
-    pub safe fn __RTS_FN_NS_GC_STRING_CONCAT(a: u64, b: u64) -> u64;
-
-    /// Coerce any handle to its JS string-handle representation. (`rts-std`
-    /// `collector::string_pool`)
-    pub safe fn __RTS_FN_RT_TO_STRING_HANDLE(handle: u64) -> u64;
-
     /// Set the pending error (thrown value) and capture the current call
     /// stack. (`rts-std` `collector::error`)
     pub safe fn __RTS_FN_RT_ERROR_SET(handle: u64);

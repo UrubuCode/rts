@@ -12,5 +12,6 @@ pub mod payload_ops;
 pub mod pickle;
 pub mod poly;
 pub mod shapes;
+pub mod string_pool;
 pub mod tagged_raw;
 pub mod this_slot;

@@ -2139,38 +2139,21 @@ pub fn register(e: &mut Engine) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::RefCell;
 
-    // ── Stub do pool de strings GC para os testes UNITÁRIOS deste crate ──────────
-    // `__RTS_FN_NS_GC_STRING_NEW` é definido em `rts-std` (string_pool), que NÃO é
-    // linkado no test-binary do `rts-dom` (dep só de `rts-engine`). Para testar os
-    // membros que RETORNAM string (getText/getAttribute/tagName) de ponta a ponta
-    // sem puxar o runtime inteiro, fornecemos uma definição `#[no_mangle]` do MESMO
-    // símbolo só sob `cfg(test)`: ela materializa a string num pool thread-local e
-    // devolve o índice como "handle"; `gc_str(h)` lê de volta. No binário REAL do
-    // runtime, a definição de `rts-std` é a que vale (o E2E exercita ESSA).
-    thread_local! {
-        static TEST_POOL: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
-    }
-
-    #[unsafe(no_mangle)]
-    extern "C" fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64 {
-        let s = if ptr.is_null() || len < 0 {
-            String::new()
-        } else {
-            let slice = unsafe { std::slice::from_raw_parts(ptr, len as usize) };
-            String::from_utf8_lossy(slice).into_owned()
-        };
-        TEST_POOL.with(|p| {
-            let mut p = p.borrow_mut();
-            p.push(s);
-            (p.len() - 1) as u64
-        })
-    }
-
-    /// Lê de volta a string internada pelo stub acima (só nos testes).
+    // These tests used to carry a `#[cfg(test)]` `#[no_mangle]` STUB of
+    // `__RTS_FN_NS_GC_STRING_NEW` backed by a thread-local pool, because the real
+    // definition lived in `rts-std`, which is not linked into this crate's test
+    // binary (`rts-dom` depends only on `rts-engine`).
+    //
+    // That premise died when the string pool moved down into
+    // `rts-engine::heap::string_pool`: the real symbol IS linked here now, so the
+    // stub became a SECOND definition of it and the test binary failed to link
+    // (LNK2005). Deleting it beats fixing it — these tests now exercise the same
+    // string pool the runtime does, instead of a mock free to drift from it.
+    /// Read back a string handle returned by a DOM member (getText /
+    /// getAttribute / tagName).
     fn gc_str(handle: u64) -> String {
-        TEST_POOL.with(|p| p.borrow().get(handle as usize).cloned().unwrap_or_default())
+        rts_engine::heap::handles::read_string_handle(handle).unwrap_or_default()
     }
 
     #[test]

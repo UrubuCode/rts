@@ -16,6 +16,10 @@ pub use rts_engine::gc_surface::{
     __RTS_FN_NS_GC_GEN_SM_DRAIN, __RTS_FN_NS_GC_STRING_CONCAT, __RTS_FN_NS_GC_STRING_NEW,
     __RTS_FN_RT_ERROR_SET, __RTS_FN_RT_INVOKE_AUTO, __RTS_FN_RT_TO_STRING_HANDLE,
 };
+/// `__RTS_FN_RT_TRUTHY`'s real definition lives in `rts-engine`
+/// (`heap::string_pool::coerce`, moved down from `rts-std::collector::string_pool`
+/// on 2026-07-28) — a direct `pub use`, not a link-resolved extern declaration.
+pub use rts_engine::heap::string_pool::__RTS_FN_RT_TRUTHY;
 
 unsafe extern "C" {
     /// Lê o handle do erro pendente (0 = nenhum). (`gc::error`)
@@ -26,8 +30,6 @@ unsafe extern "C" {
     pub safe fn __RTS_FN_RT_ERROR_CLEAR();
     /// Injeta valor/erro numa async SM e roda o próximo passo. (`gc::generator`)
     pub safe fn __RTS_FN_RT_ASYNC_SM_RESUME(h: u64, value: i64, rejected: i64);
-    /// Truthiness JS de um valor i64/handle (0 = falsy). (`gc::string_pool`)
-    pub safe fn __RTS_FN_RT_TRUTHY(value: i64) -> i64;
     /// (callback-from-runtime bridge) Invoca uma FUNCAO-VALOR JS (palavra PolyValue
     /// TAG_FUNCTION) com 4 args PolyValue + rest, retornando uma palavra PolyValue.
     /// Codegen-owned (`value::funcops`), instalado no JIT symbol table. Permite a um
