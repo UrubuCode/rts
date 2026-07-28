@@ -1069,7 +1069,7 @@ function __runScriptAt(h: i64, j: number, url: string): number {
   // é qualificado para `__G.<nome>` neste script também — é o que faz o loader
   // criado pelo script 2 estar disponível para o script 30.
   const known = __globalNames(h, url, 1000, 800);
-  const created = __scanImplicitGlobals(__splitTopLevelSequences(__rewriteArguments(code)));
+  const created = __scanImplicitGlobals(__normalizeScript(code));
   const body = prologue + __bindGlobals(code, known) + "\nreturn 0;";
   let ok = 1;
   try {

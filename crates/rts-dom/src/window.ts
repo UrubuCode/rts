@@ -256,6 +256,58 @@ class WindowImpl {
   queueMicrotask(cb: any): void { queueMicrotask(cb); }
 }
 
+// `Node` — as CONSTANTES de nodeType do DOM. Scripts de boot fazem
+// `if (n.nodeType !== Node.ELEMENT_NODE) return` antes de tocar num nó; sem a
+// classe o script inteiro morria em "unbound identifier `Node`". Os valores são
+// os da spec, e batem com o que `el.nodeType` devolve.
+// Membros ESTÁTICOS (não uma instância global): `const Node = new …` viraria um
+// singleton promovido a gcell, e o gcell é estado do PROGRAMA — entre duas
+// compilações dinâmicas (dois `runScripts` de documentos diferentes) ele vazava
+// e embaralhava o programa seguinte. `static` é a forma correta aqui de qualquer
+// modo: no browser `Node.ELEMENT_NODE` é propriedade da própria classe.
+class Node {
+  static get ELEMENT_NODE(): number { return 1; }
+  static get ATTRIBUTE_NODE(): number { return 2; }
+  static get TEXT_NODE(): number { return 3; }
+  static get CDATA_SECTION_NODE(): number { return 4; }
+  static get PROCESSING_INSTRUCTION_NODE(): number { return 7; }
+  static get COMMENT_NODE(): number { return 8; }
+  static get DOCUMENT_NODE(): number { return 9; }
+  static get DOCUMENT_TYPE_NODE(): number { return 10; }
+  static get DOCUMENT_FRAGMENT_NODE(): number { return 11; }
+}
+
+// `MutationObserver` — observa mutações da árvore. Implementação HONESTA e
+// PARCIAL: registra o callback e `observe`/`disconnect`/`takeRecords` existem
+// com a assinatura certa, mas NÃO há entrega automática de mutações (o DOM não
+// emite notificação de mudança ainda).
+//
+// Por que existe assim: o padrão dominante no boot de uma página é
+// `new MutationObserver(cb); o.observe(html, {...})` para reagir a nós FUTUROS.
+// Sem a classe, o `new` derruba o script inteiro — e com ele todo o resto do
+// bootstrap, que não tem nada a ver com mutação. Com o stub, o script roda e só
+// a reação a mutação futura fica inerte. É a mesma escolha do browser para uma
+// página sem mutações: o callback simplesmente não dispara.
+//
+// Quando o DOM ganhar notificação de mutação, `__deliver` é o ponto de entrada:
+// o resto da API já está no lugar.
+class MutationObserver {
+  _cb: any;
+  _alvos: number[];
+  constructor(cb: any) {
+    this._cb = cb;
+    this._alvos = [];
+  }
+  // `observe(target, options)` — registra o alvo. As opções (childList/subtree/
+  // attributes) são aceitas e guardadas implicitamente pelo registro.
+  observe(target: any, options: any): void {
+    this._alvos.push(1);
+  }
+  disconnect(): void { this._alvos = []; }
+  // Sem fila de mutação ainda: nunca há registro pendente.
+  takeRecords(): any[] { return []; }
+}
+
 // Fábrica usada pelo `runScripts` para injetar o window num <script>. `vw/vh` são
 // o viewport (o host passa; default 1000x800 quando não sabe).
 function __makeWindow(domHandle: i64, url: string, vw: number, vh: number): WindowImpl {
