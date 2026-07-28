@@ -235,7 +235,31 @@ impl Registry {
         }
         let name = class.name.clone();
         if let Some(existing) = self.classes.get_mut(&name) {
-            existing.members.extend(class.members);
+            // DEDUPLICATE BY SYMBOL. A member's symbol IS its identity — the same
+            // symbol is the same function, so a second registration of it is a
+            // repeat, not an overload.
+            //
+            // This matters because several classes REOPEN themselves: `register(e)`
+            // runs the macro, the caller reads the members back out, then reopens
+            // `.class(X)` and re-emits them alongside hand-written residuals
+            // (`headers`, `url`, `url::search_params`, `date` all do this — see
+            // `register_headers_class_spec`). That pattern was written against
+            // REPLACE semantics, where re-emitting was how you kept the macro's
+            // members. Under a naive merge it doubles every one of them, and a
+            // duplicated constructor turns a resolvable `new Headers(x)` into an
+            // ambiguous overload the lowering must bail on.
+            //
+            // It surfaced ONLY in AOT: the JIT prunes the prelude, so a program
+            // that never touches `Response` never lowers its ctor, while AOT skips
+            // the prune and compiles everything.
+            let mut seen: std::collections::HashSet<String> = existing
+                .members
+                .iter()
+                .map(|m| m.symbol.clone())
+                .collect();
+            existing
+                .members
+                .extend(class.members.into_iter().filter(|m| seen.insert(m.symbol.clone())));
             if existing.doc.is_empty() {
                 existing.doc = class.doc;
             }
