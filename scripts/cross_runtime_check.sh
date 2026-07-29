@@ -104,11 +104,16 @@ process_fixture() {
     # detecao de ciclo). 10s eh generoso demais pra qualquer fixture
     # legitima (que rodam em <1s).
     local TO="${FIXTURE_TIMEOUT:-10}"
-    timeout "$TO" bun "$fixture" >"$TMP/${name}.bun" 2>/dev/null &
+    # stderr NAO vai mais pra /dev/null: e o diagnostico real (mensagem do
+    # erro, stack, arquivo:linha). Antes o exit!=0 virava a string sentinela
+    # `__RUNTIME_ERROR__` no report — todo erro ficava indistinguivel de
+    # qualquer outro, e a causa se perdia. Agora o status vem do EXIT CODE
+    # (sinal correto) e o texto do erro vai pro report em campo proprio.
+    timeout "$TO" bun "$fixture" >"$TMP/${name}.bun" 2>"$TMP/${name}.bun.err" &
     local bun_pid=$!
-    timeout "$TO" node "$fixture" >"$TMP/${name}.node" 2>/dev/null &
+    timeout "$TO" node "$fixture" >"$TMP/${name}.node" 2>"$TMP/${name}.node.err" &
     local node_pid=$!
-    timeout "$TO" "$RTS_BIN" run-new "$fixture" >"$TMP/${name}.rts" 2>/dev/null &
+    timeout "$TO" "$RTS_BIN" run-new "$fixture" >"$TMP/${name}.rts" 2>"$TMP/${name}.rts.err" &
     local rts_pid=$!
 
     wait $bun_pid; local bun_rc=$?
@@ -118,17 +123,34 @@ process_fixture() {
     local bun_out=$(cat "$TMP/${name}.bun")
     local node_out=$(cat "$TMP/${name}.node")
     local rts_out=$(cat "$TMP/${name}.rts")
-    [ $bun_rc -ne 0 ] && bun_out="__RUNTIME_ERROR__"
-    [ $node_rc -ne 0 ] && node_out="__RUNTIME_ERROR__"
-    [ $rts_rc -ne 0 ] && rts_out="__RUNTIME_ERROR__"
 
-    rm -f "$TMP/${name}.bun" "$TMP/${name}.node" "$TMP/${name}.rts"
+    # Diagnostico: so guardado quando o runtime falhou (stderr de um run OK e
+    # ruido — warning de deprecation etc). Truncado pra nao inflar o report;
+    # `timeout` mata com 124 e nao escreve nada, entao rotula explicito.
+    local ERRMAX="${ERROR_TEXT_MAX:-4000}"
+    local bun_err="" node_err="" rts_err=""
+    [ $bun_rc -ne 0 ] && bun_err=$(head -c "$ERRMAX" "$TMP/${name}.bun.err")
+    [ $node_rc -ne 0 ] && node_err=$(head -c "$ERRMAX" "$TMP/${name}.node.err")
+    [ $rts_rc -ne 0 ] && rts_err=$(head -c "$ERRMAX" "$TMP/${name}.rts.err")
+    [ $bun_rc -eq 124 ] && bun_err="timeout apos ${TO}s${bun_err:+$'\n'}$bun_err"
+    [ $node_rc -eq 124 ] && node_err="timeout apos ${TO}s${node_err:+$'\n'}$node_err"
+    [ $rts_rc -eq 124 ] && rts_err="timeout apos ${TO}s${rts_err:+$'\n'}$rts_err"
 
+    rm -f "$TMP/${name}.bun" "$TMP/${name}.node" "$TMP/${name}.rts" \
+          "$TMP/${name}.bun.err" "$TMP/${name}.node.err" "$TMP/${name}.rts.err"
+
+    # Classificacao pelo EXIT CODE (nao mais por comparar contra a sentinela).
+    # Um runtime que falhou nao tem stdout comparavel; a comparacao so vale
+    # quando os dois lados terminaram com sucesso.
     local status
-    if [ "$bun_out" != "$node_out" ]; then
+    if [ $bun_rc -ne $node_rc ] || { [ $bun_rc -eq 0 ] && [ "$bun_out" != "$node_out" ]; }; then
         status="bun_node_diverge"
-    elif [ "$rts_out" = "__RUNTIME_ERROR__" ]; then
+    elif [ $rts_rc -ne 0 ]; then
         status="rts_error"
+    elif [ $bun_rc -ne 0 ]; then
+        # Bun e Node falharam IGUAL (fixture que erra de proposito) e o RTS
+        # saiu 0 — divergencia real: o RTS deveria ter falhado tambem.
+        status="rts_diverge"
     elif [ "$rts_out" != "$bun_out" ]; then
         status="rts_diverge"
     else
@@ -141,15 +163,23 @@ process_fixture() {
         jq)
             jq -n --arg name "$name" --arg status "$status" \
                   --arg bun "$bun_out" --arg node "$node_out" --arg rts "$rts_out" \
-                  '{name:$name,status:$status,bun:$bun,node:$node,rts:$rts}' > "$out_json"
+                  --arg bun_error "$bun_err" --arg node_error "$node_err" --arg rts_error "$rts_err" \
+                  --argjson bun_exit "$bun_rc" --argjson node_exit "$node_rc" --argjson rts_exit "$rts_rc" \
+                  '{name:$name,status:$status,bun:$bun,node:$node,rts:$rts,
+                    bun_exit:$bun_exit,node_exit:$node_exit,rts_exit:$rts_exit,
+                    bun_error:$bun_error,node_error:$node_error,rts_error:$rts_error}' > "$out_json"
             ;;
         python|python3)
             NAME="$name" STATUS="$status" BUN="$bun_out" NODE="$node_out" RTS="$rts_out" \
-                "$JSON_TOOL" -c 'import json,os; print(json.dumps({"name":os.environ["NAME"],"status":os.environ["STATUS"],"bun":os.environ["BUN"],"node":os.environ["NODE"],"rts":os.environ["RTS"]}))' > "$out_json"
+            BUN_ERR="$bun_err" NODE_ERR="$node_err" RTS_ERR="$rts_err" \
+            BUN_RC="$bun_rc" NODE_RC="$node_rc" RTS_RC="$rts_rc" \
+                "$JSON_TOOL" -c 'import json,os; e=os.environ; print(json.dumps({"name":e["NAME"],"status":e["STATUS"],"bun":e["BUN"],"node":e["NODE"],"rts":e["RTS"],"bun_exit":int(e["BUN_RC"]),"node_exit":int(e["NODE_RC"]),"rts_exit":int(e["RTS_RC"]),"bun_error":e["BUN_ERR"],"node_error":e["NODE_ERR"],"rts_error":e["RTS_ERR"]}))' > "$out_json"
             ;;
         node)
             NAME="$name" STATUS="$status" BUN="$bun_out" NODE="$node_out" RTS="$rts_out" \
-                node -e 'console.log(JSON.stringify({name:process.env.NAME,status:process.env.STATUS,bun:process.env.BUN,node:process.env.NODE,rts:process.env.RTS}))' > "$out_json"
+            BUN_ERR="$bun_err" NODE_ERR="$node_err" RTS_ERR="$rts_err" \
+            BUN_RC="$bun_rc" NODE_RC="$node_rc" RTS_RC="$rts_rc" \
+                node -e 'const e=process.env;console.log(JSON.stringify({name:e.NAME,status:e.STATUS,bun:e.BUN,node:e.NODE,rts:e.RTS,bun_exit:+e.BUN_RC,node_exit:+e.NODE_RC,rts_exit:+e.RTS_RC,bun_error:e.BUN_ERR,node_error:e.NODE_ERR,rts_error:e.RTS_ERR}))' > "$out_json"
             ;;
     esac
 
@@ -158,7 +188,13 @@ process_fixture() {
         pass) echo "ok|$name" ;;
         rts_diverge) echo "xx|$name (RTS difere de Bun/Node)" ;;
         bun_node_diverge) echo "~|$name (Bun != Node - skip)" ;;
-        rts_error) echo "xx|$name (RTS error)" ;;
+        rts_error)
+            # Primeira linha util do stderr direto no progresso — o motivo do
+            # erro aparece durante a corrida, sem abrir o report. `|` vira `/`
+            # (o main loop separa campos por `|`).
+            local first=$(printf '%s' "$rts_err" | grep -m1 -v '^[[:space:]]*$' | tr '|' '/' | head -c 160)
+            echo "xx|$name (RTS error rc=$rts_rc${first:+: $first})"
+            ;;
     esac
 }
 export -f process_fixture

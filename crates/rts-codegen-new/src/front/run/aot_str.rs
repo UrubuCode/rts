@@ -77,6 +77,21 @@ pub(crate) fn with_aot_mode<T>(f: impl FnOnce() -> T) -> T {
     f()
 }
 
+/// Record a data blob under `name` for the BAKER, so a replayed program
+/// `define_data`s it under the same name the baked relocs reference.
+///
+/// Shared with [`super::ic`], whose per-call-site cache cells are declared the
+/// same way (module data + a `declare_data_in_func` reference) and must be
+/// re-declared COLD on replay — capturing their zeroed initial bytes is exactly
+/// what produces that.
+pub(super) fn capture_data_blob(name: &str, bytes: Vec<u8>) {
+    CAPTURE_DATA.with(|c| {
+        if let Some(buf) = c.borrow_mut().as_mut() {
+            buf.push((name.to_string(), bytes));
+        }
+    });
+}
+
 /// Emit a read-only data object holding `s`'s UTF-8 bytes and return its
 /// `(ptr, len)` as Cranelift `Value`s (`I64` each). The pointer is a relocatable
 /// reference to the data symbol — resolved by the linker at AOT link time.

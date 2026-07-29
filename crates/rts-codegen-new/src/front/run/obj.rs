@@ -1363,9 +1363,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     ) -> FrontResult<Val> {
         let key_word = self.emit_str_const_word(module, prop)?;
         let obj_word = self.load_local_word(name);
-        let word = self
-            .call_runtime(module, "__rtsadp_obj_get", &[obj_word, key_word])?
-            .expect("__rtsadp_obj_get returns a value");
+        // Inline-cached: same result as `__rtsadp_obj_get` (which IS the miss
+        // path), but a repeat hit on the same shape skips the global registry
+        // mutex and the key scan. See `super::ic`.
+        let word = super::ic::emit_cached_get(module, self.builder, obj_word, key_word)?;
         Ok(Val::new(word, Repr::Tagged))
     }
 
@@ -1417,9 +1418,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let recv = self.lower_expr(module, object)?;
         let recv_word = self.box_value(recv);
         let key_word = self.emit_str_const_word(module, prop)?;
-        let word = self
-            .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key_word])?
-            .expect("__rtsadp_obj_get returns a value");
+        // Inline-cached — this is the site the 33× measurement lands on (`o.x`
+        // with `o: any`, and every `.map(q => q.x)` callback param).
+        let word = super::ic::emit_cached_get(module, self.builder, recv_word, key_word)?;
         Ok(Val::new_with_kind(word, Repr::Tagged, JsKind::Unknown))
     }
 

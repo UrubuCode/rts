@@ -14,12 +14,31 @@ use std::fmt;
 /// human-readable reason naming the construct, so a failing test/caller sees
 /// exactly what fell outside the proven fast path.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Unsupported(pub String);
+pub struct Unsupported(pub String, Kind);
+
+/// What kind of failure the message describes. Both travel in the same result
+/// type (the whole front is `FrontResult`), but they are NOT the same thing and
+/// must not print the same way: a `Lowering` bail means the ENGINE cannot
+/// compile a construct; a `Runtime` failure means the compiled program RAN and
+/// threw. Printing an uncaught `TypeError` as "unsupported in the numeric
+/// subset" told the user the engine was incomplete when the engine was right
+/// and the program was wrong.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Lowering,
+    Runtime,
+}
 
 impl Unsupported {
     /// Build an `Unsupported` from anything string-like.
     pub fn new(reason: impl Into<String>) -> Self {
-        Unsupported(reason.into())
+        Unsupported(reason.into(), Kind::Lowering)
+    }
+
+    /// A failure of the RUNNING program (an uncaught throw), not of the
+    /// lowering. Displays the message verbatim — no engine-limitation prefix.
+    pub fn runtime(reason: impl Into<String>) -> Self {
+        Unsupported(reason.into(), Kind::Runtime)
     }
 
     /// The reason text.
@@ -30,7 +49,10 @@ impl Unsupported {
 
 impl fmt::Display for Unsupported {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "unsupported in the numeric subset: {}", self.0)
+        match self.1 {
+            Kind::Lowering => write!(f, "unsupported in the numeric subset: {}", self.0),
+            Kind::Runtime => write!(f, "{}", self.0),
+        }
     }
 }
 

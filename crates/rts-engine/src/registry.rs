@@ -180,8 +180,17 @@ impl Registry {
             .filter_map(move |k| self.classes.get(k))
     }
 
+    /// How many modules are REGISTERED — the count of what [`Self::modules`]
+    /// yields, i.e. canonical modules only.
+    ///
+    /// Counts `module_order`, not `modules`: an ALIAS (`m.alias("fs")` on
+    /// `node:fs`) inserts a second lookup entry into `modules` via
+    /// [`Self::insert_module_at`] pointing at the SAME module, and deliberately
+    /// stays out of `module_order` so `modules()` does not yield it twice.
+    /// Counting the raw map made `module_count()` disagree with `modules()`,
+    /// reporting one module per alias.
     pub fn module_count(&self) -> usize {
-        self.modules.len()
+        self.module_order.len()
     }
     pub fn class_count(&self) -> usize {
         self.classes.len()

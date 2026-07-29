@@ -46,6 +46,7 @@ mod funcval;
 mod gcell;
 mod globalclass;
 mod globalclass_receiver;
+mod ic;
 mod globals;
 mod intrinsic;
 mod ta_native;
@@ -124,8 +125,10 @@ pub fn run_source(src: &str) -> FrontResult<()> {
         let s_word = crate::value::genops::__rtsadp_to_string(word);
         let text =
             crate::value::abi_adapter::resolve_poly(crate::value::PolyValue::from_raw(s_word));
-        return Err(crate::front::error::Unsupported::new(format!(
-            "uncaught exception: {text}"
+        // `runtime`, not `new`: the program threw — the engine did not fail to
+        // compile it. Same wording as the disk path in `module_entry::run_path`.
+        return Err(crate::front::error::Unsupported::runtime(format!(
+            "Uncaught {text}"
         )));
     }
     Ok(())
