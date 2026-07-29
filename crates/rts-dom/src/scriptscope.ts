@@ -56,10 +56,304 @@ function __isSpace(c: string): boolean {
   return c === " " || c === "\n" || c === "\t" || c === "\r";
 }
 
+// ── O LEXER ───────────────────────────────────────────────────────────────────
+//
+// Todo pass abaixo precisa da MESMA pergunta: "este ponto do texto é CÓDIGO, ou é
+// conteúdo de string/comentário/regex?". Cada um respondia isso por conta própria,
+// e cada um errava de um jeito diferente:
+//
+//   - literal de regex NUNCA era reconhecida — `m.match(/id=(\d+)/)` virava
+//     `/__G.id=(\d+)/`, e `foo(/re=1/)` declarava `re` como global implícito;
+//   - `${…}` de template era tratado como conteúdo opaco — `` `${foo()}` `` nunca
+//     era qualificado, e o `foo` livre estourava ReferenceError em runtime;
+//   - `__unqualifyInstanceof` não pulava NADA — `var s = "a instanceof window.Foo"`
+//     tinha o CONTEÚDO DA STRING reescrito.
+//
+// `__codeSpans` responde isso uma vez, para todos. Devolve os intervalos que são
+// código, achatados em pares `[ini, fim, ini, fim, …]`:
+//
+//   - comentário de linha/bloco: fora;
+//   - corpo de string `'…'`/`"…"`: fora;
+//   - literal de regex `/…/flags`: fora (inclusive classe `[…]`, onde `/` não
+//     termina a regex);
+//   - template: o TEXTO fica fora, mas o miolo de cada `${…}` volta a ser código —
+//     recursivamente, porque `` `a${`b${c}`}d` `` é legal.
+//
+// A parte que não dá para resolver com um olhar local é `/`: dividir ou começar
+// regex depende do ÚLTIMO TOKEN SIGNIFICATIVO. `a / b` divide; `(/re/)` não. A
+// regra padrão é: depois de identificador/número/`)`/`]`/`}` é divisão, senão é
+// regex — com a exceção das palavras-chave que são identificadores mas esperam um
+// valor depois (`return /re/`, `typeof /re/`, `case /re/`…).
+function __regexAllowedAfter(tok: string): boolean {
+  if (tok === "") return true;
+  // Pontuação que sempre PRECEDE um valor.
+  if (tok === "(" || tok === "," || tok === "=" || tok === ":" || tok === "["
+    || tok === "!" || tok === "&" || tok === "|" || tok === "?" || tok === "{"
+    || tok === "}" || tok === ";" || tok === "+" || tok === "-" || tok === "*"
+    || tok === "/" || tok === "%" || tok === "^" || tok === "~" || tok === "<"
+    || tok === ">") return true;
+  // Palavra-chave que espera um valor: `return /re/.test(x)` é regex, não divisão.
+  return tok === "return" || tok === "typeof" || tok === "instanceof"
+    || tok === "in" || tok === "of" || tok === "new" || tok === "delete"
+    || tok === "void" || tok === "throw" || tok === "case" || tok === "do"
+    || tok === "else" || tok === "yield" || tok === "await";
+}
+
+function __codeSpans(src: string): i64[] {
+  const spans: i64[] = [];
+  const n = src.length;
+  let i = 0;
+  let runStart = 0;
+  // Último token significativo, para desambiguar `/`.
+  let lastTok = "";
+  // Pilha de profundidade de `{` por template aberto. Vazia = fora de template.
+  const tplBrace: i64[] = [];
+
+  while (i < n) {
+    const c = src.substring(i, i + 1);
+
+    // Fecha `${…}` e volta ao TEXTO do template quando a chave casa.
+    if (c === "}" && tplBrace.length > 0) {
+      const top: i64 = tplBrace[tplBrace.length - 1];
+      if (top === 0) {
+        tplBrace.pop();
+        spans.push(runStart);
+        spans.push(i);
+        i = i + 1;
+        // Continua o texto do template de onde parou.
+        let closed = 0;
+        while (i < n) {
+          const d = src.substring(i, i + 1);
+          if (d === "\\") { i = i + 2; continue; }
+          if (d === "`") { i = i + 1; closed = 1; break; }
+          if (d === "$" && i + 1 < n && src.substring(i + 1, i + 2) === "{") {
+            tplBrace.push(0);
+            i = i + 2;
+            runStart = i;
+            closed = 1;
+            break;
+          }
+          i = i + 1;
+        }
+        if (closed === 0) { runStart = i; break; }
+        if (tplBrace.length === 0) { runStart = i; lastTok = "`"; }
+        continue;
+      }
+      tplBrace[tplBrace.length - 1] = top - 1;
+      lastTok = "}";
+      i = i + 1;
+      continue;
+    }
+    if (c === "{" && tplBrace.length > 0) {
+      tplBrace[tplBrace.length - 1] = tplBrace[tplBrace.length - 1] + 1;
+      lastTok = "{";
+      i = i + 1;
+      continue;
+    }
+
+    if (c === "/" && i + 1 < n) {
+      const c2 = src.substring(i + 1, i + 2);
+      if (c2 === "/") {
+        spans.push(runStart); spans.push(i);
+        while (i < n && src.substring(i, i + 1) !== "\n") i = i + 1;
+        runStart = i;
+        continue;
+      }
+      if (c2 === "*") {
+        spans.push(runStart); spans.push(i);
+        i = i + 2;
+        while (i + 1 < n && !(src.substring(i, i + 1) === "*" && src.substring(i + 1, i + 2) === "/")) i = i + 1;
+        i = i + 2;
+        if (i > n) i = n;
+        runStart = i;
+        continue;
+      }
+      if (__regexAllowedAfter(lastTok)) {
+        // Literal de regex: `/` fecha, mas não dentro de `[…]`.
+        spans.push(runStart); spans.push(i);
+        i = i + 1;
+        let inClass = 0;
+        while (i < n) {
+          const d = src.substring(i, i + 1);
+          if (d === "\\") { i = i + 2; continue; }
+          if (d === "[") inClass = 1;
+          else if (d === "]") inClass = 0;
+          else if (d === "/" && inClass === 0) { i = i + 1; break; }
+          else if (d === "\n") break;
+          i = i + 1;
+        }
+        while (i < n && __isIdPart(src.substring(i, i + 1))) i = i + 1; // flags
+        runStart = i;
+        lastTok = "/re/";
+        continue;
+      }
+      lastTok = "/";
+      i = i + 1;
+      continue;
+    }
+
+    if (c === "\"" || c === "'") {
+      spans.push(runStart); spans.push(i);
+      const q = c;
+      i = i + 1;
+      while (i < n) {
+        const d = src.substring(i, i + 1);
+        if (d === "\\") { i = i + 2; continue; }
+        if (d === q) { i = i + 1; break; }
+        i = i + 1;
+      }
+      runStart = i;
+      lastTok = "str";
+      continue;
+    }
+
+    if (c === "`") {
+      spans.push(runStart); spans.push(i);
+      i = i + 1;
+      let done = 0;
+      while (i < n) {
+        const d = src.substring(i, i + 1);
+        if (d === "\\") { i = i + 2; continue; }
+        if (d === "`") { i = i + 1; done = 1; break; }
+        if (d === "$" && i + 1 < n && src.substring(i + 1, i + 2) === "{") {
+          tplBrace.push(0);
+          i = i + 2;
+          done = 1;
+          break;
+        }
+        i = i + 1;
+      }
+      runStart = i;
+      if (tplBrace.length === 0) lastTok = "`";
+      if (done === 0) break;
+      continue;
+    }
+
+    if (__isIdStart(c)) {
+      const s = i;
+      while (i < n && __isIdPart(src.substring(i, i + 1))) i = i + 1;
+      lastTok = src.substring(s, i);
+      continue;
+    }
+    if (c >= "0" && c <= "9") {
+      while (i < n && (__isIdPart(src.substring(i, i + 1)) || src.substring(i, i + 1) === ".")) i = i + 1;
+      lastTok = "0";
+      continue;
+    }
+    if (!__isSpace(c)) lastTok = c;
+    i = i + 1;
+  }
+  if (runStart < n) { spans.push(runStart); spans.push(n); }
+  return spans;
+}
+
 // Nomes DECLARADOS em qualquer ponto do script: `var/let/const X`, `function X`,
 // `class X`, parâmetros de função e `catch (X)`. Um nome daqui NUNCA é global
 // implícito, mesmo que seja reatribuído adiante (`let i = 0; … i = i + 1`) — sem
 // esta lista o `i` do segundo statement parece um global e o script quebra.
+// Pula um inicializador (`= …`) até a `,` ou `;` de profundidade 0, PULANDO
+// string e comentário.
+//
+// Sem esse cuidado, `var a = "a,b", c = 1;` terminava o inicializador na vírgula
+// DENTRO da string: `b` era declarado como se fosse nome (fantasma) e o `c` real
+// se perdia. Uma string com vírgula é banal em qualquer bundle.
+function __skipInitializer(src: string, from: i64): i64 {
+  const n = src.length;
+  let j = from;
+  let p = 0; let b = 0; let br = 0;
+  while (j < n) {
+    const d = src.substring(j, j + 1);
+    if (d === "\"" || d === "'" || d === "`") {
+      const q = d;
+      j = j + 1;
+      while (j < n) {
+        const e = src.substring(j, j + 1);
+        if (e === "\\") { j = j + 2; continue; }
+        if (e === q) { j = j + 1; break; }
+        j = j + 1;
+      }
+      continue;
+    }
+    if (d === "/" && j + 1 < n) {
+      const d2 = src.substring(j + 1, j + 2);
+      if (d2 === "/") { while (j < n && src.substring(j, j + 1) !== "\n") j = j + 1; continue; }
+      if (d2 === "*") {
+        j = j + 2;
+        while (j + 1 < n && !(src.substring(j, j + 1) === "*" && src.substring(j + 1, j + 2) === "/")) j = j + 1;
+        j = j + 2;
+        continue;
+      }
+    }
+    if (d === "(") p = p + 1; else if (d === ")") { if (p === 0) break; p = p - 1; }
+    else if (d === "[") b = b + 1; else if (d === "]") b = b - 1;
+    else if (d === "{") br = br + 1; else if (d === "}") br = br - 1;
+    else if ((d === "," || d === ";") && p === 0 && b === 0 && br === 0) break;
+    j = j + 1;
+  }
+  return j;
+}
+
+// Coleta os nomes LIGADOS por um padrão de destructuring que começa em `from`
+// (`{a, b: c, d = 1, ...r}` ou `[a, , b]`), devolvendo o índice logo após o
+// fechamento. Em `{chave: nome}` quem é ligado é `nome`, não `chave`; um `= …`
+// dentro do padrão é valor default e é pulado.
+function __collectPattern(src: string, from: i64, out: string[]): i64 {
+  const n = src.length;
+  let j = from;
+  let depth = 0;
+  while (j < n) {
+    const c = src.substring(j, j + 1);
+    if (c === "{" || c === "[") { depth = depth + 1; j = j + 1; continue; }
+    if (c === "}" || c === "]") {
+      depth = depth - 1;
+      j = j + 1;
+      if (depth === 0) break;
+      continue;
+    }
+    if (c === "\"" || c === "'" || c === "`") {
+      const q = c;
+      j = j + 1;
+      while (j < n) {
+        const e = src.substring(j, j + 1);
+        if (e === "\\") { j = j + 2; continue; }
+        if (e === q) { j = j + 1; break; }
+        j = j + 1;
+      }
+      continue;
+    }
+    if (c === "=") {
+      // valor default: pula até `,` ou o fim do nível atual
+      j = j + 1;
+      let p = 0;
+      while (j < n) {
+        const d = src.substring(j, j + 1);
+        if (d === "(" || d === "[" || d === "{") p = p + 1;
+        else if (d === ")" ) { if (p === 0) break; p = p - 1; }
+        else if (d === "]" || d === "}") { if (p === 0) break; p = p - 1; }
+        else if (d === "," && p === 0) break;
+        j = j + 1;
+      }
+      continue;
+    }
+    if (__isIdStart(c)) {
+      const s = j;
+      while (j < n && __isIdPart(src.substring(j, j + 1))) j = j + 1;
+      const nm = src.substring(s, j);
+      let k = j;
+      while (k < n && __isSpace(src.substring(k, k + 1))) k = k + 1;
+      // `{chave: nome}` — a chave não liga nada; o nome vem depois do `:`
+      if (k < n && src.substring(k, k + 1) === ":") { j = k + 1; continue; }
+      let dup = 0;
+      let m = 0;
+      while (m < out.length) { if (out[m] === nm) dup = 1; m = m + 1; }
+      if (dup === 0) out.push(nm);
+      continue;
+    }
+    j = j + 1;
+  }
+  return j;
+}
+
 function __scanDeclared(src: string): string[] {
   const out: string[] = [];
   let i = 0;
@@ -112,20 +406,29 @@ function __scanDeclared(src: string): string[] {
           // parâmetros: `function f(a, b)` — anda até `)` coletando nomes
           while (j < n && __isSpace(src.substring(j, j + 1))) j = j + 1;
           const ch = j < n ? src.substring(j, j + 1) : "";
+          // DESTRUCTURING (`const {c,d} = t`, `let [a,b] = xs`). Antes, um `{`/`[`
+          // aqui não casava nenhum ramo e caía no `break` final: a declaração
+          // inteira era abandonada, e os nomes ligados por ela ficavam invisíveis.
+          // Como eles continuam sendo ATRIBUÍDOS adiante, o scanner de globais os
+          // via como implícitos e o `__qualify` reescrevia LOCAIS para `__G.x` —
+          // é essa a origem dos "10 falsos positivos em 3800 B" da issue, e
+          // minificador destrutura o tempo todo.
+          if (ch === "{" || ch === "[") {
+            j = __collectPattern(src, j, out);
+            while (j < n && __isSpace(src.substring(j, j + 1))) j = j + 1;
+            const after = j < n ? src.substring(j, j + 1) : "";
+            if (after === ",") { j = j + 1; guard = guard + 1; continue; }
+            if (after === "=") {
+              j = __skipInitializer(src, j);
+              if (j < n && src.substring(j, j + 1) === ",") { j = j + 1; guard = guard + 1; continue; }
+            }
+            break;
+          }
           if (ch === "," ) { j = j + 1; guard = guard + 1; continue; }
           if (ch === "(") { j = j + 1; guard = guard + 1; continue; }
           if (ch === ")") { j = j + 1; break; }
           if (ch === "=") {
-            // pula o inicializador até `,` ou `;` de profundidade 0
-            let p = 0; let b = 0; let br = 0;
-            while (j < n) {
-              const d = src.substring(j, j + 1);
-              if (d === "(") p = p + 1; else if (d === ")") { if (p === 0) break; p = p - 1; }
-              else if (d === "[") b = b + 1; else if (d === "]") b = b - 1;
-              else if (d === "{") br = br + 1; else if (d === "}") br = br - 1;
-              else if ((d === "," || d === ";") && p === 0 && b === 0 && br === 0) break;
-              j = j + 1;
-            }
+            j = __skipInitializer(src, j);
             if (j < n && src.substring(j, j + 1) === ",") { j = j + 1; guard = guard + 1; continue; }
             break;
           }
@@ -146,140 +449,188 @@ function __scanDeclared(src: string): string[] {
 // imediatamente antes e sem `.` antes (que seria campo).
 function __scanImplicitGlobals(src: string): string[] {
   const out: string[] = [];
-  let i = 0;
-  const n = src.length;
-  while (i < n) {
-    const c = src.substring(i, i + 1);
-    // comentário de linha / bloco
-    if (c === "/" && i + 1 < n) {
-      const c2 = src.substring(i + 1, i + 2);
-      if (c2 === "/") {
-        while (i < n && src.substring(i, i + 1) !== "\n") i = i + 1;
-        continue;
-      }
-      if (c2 === "*") {
-        i = i + 2;
-        while (i + 1 < n && !(src.substring(i, i + 1) === "*" && src.substring(i + 1, i + 2) === "/")) i = i + 1;
-        i = i + 2;
-        continue;
-      }
-    }
-    // string / template
-    if (c === "\"" || c === "'" || c === "`") {
-      const q = c;
-      i = i + 1;
-      while (i < n) {
-        const d = src.substring(i, i + 1);
-        if (d === "\\") { i = i + 2; continue; }
-        if (d === q) { i = i + 1; break; }
-        i = i + 1;
-      }
-      continue;
-    }
-    if (__isIdStart(c)) {
-      const start = i;
-      while (i < n && __isIdPart(src.substring(i, i + 1))) i = i + 1;
-      const word = src.substring(start, i);
-      // `.nome` é campo, não global
-      let p = start - 1;
-      while (p >= 0 && __isSpace(src.substring(p, p + 1))) p = p - 1;
-      const prevCh = p >= 0 ? src.substring(p, p + 1) : "";
-      if (prevCh === ".") continue;
-      // procura o `=` adiante
-      let j = i;
-      while (j < n && __isSpace(src.substring(j, j + 1))) j = j + 1;
-      if (j < n && src.substring(j, j + 1) === "=") {
-        const nx = j + 1 < n ? src.substring(j + 1, j + 2) : "";
-        // `==`/`===`/`=>` não são atribuição
-        if (nx !== "=" && nx !== ">" && prevCh !== "=" && prevCh !== "!"
-          && prevCh !== "<" && prevCh !== ">") {
-          // palavra-chave declarante imediatamente antes?
-          let we = p + 1;
-          let ws = we;
-          while (ws > 0 && __isIdPart(src.substring(ws - 1, ws))) ws = ws - 1;
-          const kw = src.substring(ws, we);
-          if (kw !== "var" && kw !== "let" && kw !== "const" && kw !== "function"
-            && kw !== "class" && kw !== "case" && kw !== "return") {
-            let dup = 0;
-            let k = 0;
-            while (k < out.length) { if (out[k] === word) dup = 1; k = k + 1; }
-            if (dup === 0) out.push(word);
+  const spans = __codeSpans(src);
+  const classRanges = __classBodyRanges(src);
+  let s = 0;
+  while (s < spans.length) {
+    const spanEnd: i64 = spans[s + 1];
+    let i: i64 = spans[s];
+    s = s + 2;
+    while (i < spanEnd) {
+      const c = src.substring(i, i + 1);
+      if (__isIdStart(c)) {
+        const start = i;
+        while (i < spanEnd && __isIdPart(src.substring(i, i + 1))) i = i + 1;
+        const word = src.substring(start, i);
+        // `.nome` é campo, não global
+        let p = start - 1;
+        while (p >= 0 && __isSpace(src.substring(p, p + 1))) p = p - 1;
+        const prevCh = p >= 0 ? src.substring(p, p + 1) : "";
+        if (prevCh === ".") continue;
+        // procura o `=` adiante
+        let j = i;
+        while (j < spanEnd && __isSpace(src.substring(j, j + 1))) j = j + 1;
+        if (j < spanEnd && src.substring(j, j + 1) === "=") {
+          const nx = j + 1 < spanEnd ? src.substring(j + 1, j + 2) : "";
+          // `==`/`===`/`=>` não são atribuição
+          if (nx !== "=" && nx !== ">" && prevCh !== "=" && prevCh !== "!"
+            && prevCh !== "<" && prevCh !== ">") {
+            // palavra-chave declarante imediatamente antes?
+            let we = p + 1;
+            let ws = we;
+            while (ws > 0 && __isIdPart(src.substring(ws - 1, ws))) ws = ws - 1;
+            const kw = src.substring(ws, we);
+            // `class C { nome = 1 }` é declaração de CAMPO, não global implícito —
+            // qualificá-lo gerava `class C { __G.nome = 1 }`, um SyntaxError dentro
+            // do código que este próprio módulo produziu.
+            const inField = __inRanges(classRanges, start);
+            if (kw !== "var" && kw !== "let" && kw !== "const" && kw !== "function"
+              && kw !== "class" && kw !== "case" && kw !== "return" && inField === 0) {
+              let dup = 0;
+              let k = 0;
+              while (k < out.length) { if (out[k] === word) dup = 1; k = k + 1; }
+              if (dup === 0) out.push(word);
+            }
           }
         }
+        continue;
       }
-      continue;
+      i = i + 1;
     }
-    i = i + 1;
   }
   return out;
+}
+
+// Intervalos que são CORPO DE CLASSE, achatados em `[ini, fim, …]`.
+//
+// `class C { nome = 1 }` declara um CAMPO; não é atribuição a global. Sem isso o
+// scanner reportava `nome` como global implícito e o `__qualify` produzia
+// `class C { __G.nome = 1 }` — SyntaxError dentro do código que este módulo
+// gerou, exatamente o oposto da "falha honesta" que o cabeçalho promete.
+//
+// Calculado UMA vez por pass (não por candidato): a primeira versão consultava
+// isto por identificador e refazia o lexer inteiro a cada consulta, o que é
+// quadrático no tamanho do script — justamente o custo que este arquivo já tinha
+// de sobra.
+function __classBodyRanges(src: string): i64[] {
+  const ranges: i64[] = [];
+  const spans = __codeSpans(src);
+  const openIsClass: i64[] = [];
+  const openAt: i64[] = [];
+  let s = 0;
+  let sawClassHead = 0;
+  while (s < spans.length) {
+    const spanEnd: i64 = spans[s + 1];
+    let i: i64 = spans[s];
+    s = s + 2;
+    while (i < spanEnd) {
+      const c = src.substring(i, i + 1);
+      if (__isIdStart(c)) {
+        const st = i;
+        while (i < spanEnd && __isIdPart(src.substring(i, i + 1))) i = i + 1;
+        if (src.substring(st, i) === "class") sawClassHead = 1;
+        continue;
+      }
+      if (c === "{") {
+        openIsClass.push(sawClassHead);
+        openAt.push(i);
+        sawClassHead = 0;
+      } else if (c === "}") {
+        if (openIsClass.length > 0) {
+          const wasClass: i64 = openIsClass[openIsClass.length - 1];
+          const at: i64 = openAt[openAt.length - 1];
+          openIsClass.pop();
+          openAt.pop();
+          if (wasClass === 1) { ranges.push(at); ranges.push(i); }
+        }
+      } else if (c === ";") {
+        sawClassHead = 0;
+      }
+      i = i + 1;
+    }
+  }
+  return ranges;
+}
+
+function __inRanges(ranges: i64[], pos: i64): i64 {
+  let k = 0;
+  while (k < ranges.length) {
+    if (pos > ranges[k] && pos < ranges[k + 1]) return 1;
+    k = k + 2;
+  }
+  return 0;
 }
 
 // Reescreve toda ocorrência LIVRE de cada nome de `names` para `__G.<nome>`,
 // pulando string/comentário e não tocando em `a.nome` (campo) nem `{nome:` (chave).
 function __qualify(src: string, names: string[]): string {
   if (names.length === 0) return src;
-  let out = "";
-  let i = 0;
-  const n = src.length;
-  while (i < n) {
-    const c = src.substring(i, i + 1);
-    if (c === "/" && i + 1 < n) {
-      const c2 = src.substring(i + 1, i + 2);
-      if (c2 === "/") {
-        const s = i;
-        while (i < n && src.substring(i, i + 1) !== "\n") i = i + 1;
-        out = out + src.substring(s, i);
+  const spans = __codeSpans(src);
+  const classRanges = __classBodyRanges(src);
+  const parts: string[] = [];
+  // Slice preguiçoso: o output é IGUAL à entrada em toda parte menos nos sítios
+  // reescritos, então nada é copiado até haver divergência de verdade. Antes cada
+  // caractere passava por `out = out + c`, o que alocava uma string nova por
+  // iteração; string/comentário/regex agora nem entram no laço.
+  let runStart = 0;
+  let sp = 0;
+  while (sp < spans.length) {
+    const spanEnd: i64 = spans[sp + 1];
+    let i: i64 = spans[sp];
+    sp = sp + 2;
+    while (i < spanEnd) {
+      const c = src.substring(i, i + 1);
+      if (__isIdStart(c)) {
+        const start = i;
+        while (i < spanEnd && __isIdPart(src.substring(i, i + 1))) i = i + 1;
+        const word = src.substring(start, i);
+        let hit = 0;
+        let k = 0;
+        while (k < names.length) { if (names[k] === word) hit = 1; k = k + 1; }
+        if (hit === 1) {
+          // `.nome` = campo → não qualifica
+          let p = start - 1;
+          while (p >= 0 && __isSpace(src.substring(p, p + 1))) p = p - 1;
+          const prevCh = p >= 0 ? src.substring(p, p + 1) : "";
+          let j = i;
+          while (j < spanEnd && __isSpace(src.substring(j, j + 1))) j = j + 1;
+          const nextCh = j < spanEnd ? src.substring(j, j + 1) : "";
+          // `nome:` pode ser chave de objeto, label OU `case nome:`. Nos dois
+          // primeiros não se qualifica; no terceiro SIM — deixar `case foo:` livre
+          // dava ReferenceError na comparação. Distingue pela palavra anterior.
+          let we = p + 1;
+          let ws = we;
+          while (ws > 0 && __isIdPart(src.substring(ws - 1, ws))) ws = ws - 1;
+          const prevWord = src.substring(ws, we);
+          const isCase = prevWord === "case" ? 1 : 0;
+          // `{ nome }` shorthand: qualificar direto gerava `{ __G.nome }`, um
+          // SyntaxError. A forma correta é a chave explícita `nome: __G.nome`.
+          const isShorthand = (prevCh === "{" || prevCh === ",")
+            && (nextCh === "," || nextCh === "}") ? 1 : 0;
+          if (prevCh === ".") {
+            // campo: nada a fazer
+          } else if (__inRanges(classRanges, start) === 1 && nextCh === "=") {
+            // `class C { nome = 1 }` — declaração de campo, não uso de global
+          } else if (isShorthand === 1) {
+            parts.push(src.substring(runStart, start));
+            parts.push(word);
+            parts.push(": __G.");
+            runStart = start;
+          } else if (nextCh === ":" && isCase === 0) {
+            // chave de objeto ou label: nada a fazer
+          } else {
+            parts.push(src.substring(runStart, start));
+            parts.push("__G.");
+            runStart = start;
+          }
+        }
         continue;
       }
-      if (c2 === "*") {
-        const s = i;
-        i = i + 2;
-        while (i + 1 < n && !(src.substring(i, i + 1) === "*" && src.substring(i + 1, i + 2) === "/")) i = i + 1;
-        i = i + 2;
-        out = out + src.substring(s, i);
-        continue;
-      }
-    }
-    if (c === "\"" || c === "'" || c === "`") {
-      const q = c;
-      const s = i;
       i = i + 1;
-      while (i < n) {
-        const d = src.substring(i, i + 1);
-        if (d === "\\") { i = i + 2; continue; }
-        if (d === q) { i = i + 1; break; }
-        i = i + 1;
-      }
-      out = out + src.substring(s, i);
-      continue;
     }
-    if (__isIdStart(c)) {
-      const start = i;
-      while (i < n && __isIdPart(src.substring(i, i + 1))) i = i + 1;
-      const word = src.substring(start, i);
-      let hit = 0;
-      let k = 0;
-      while (k < names.length) { if (names[k] === word) hit = 1; k = k + 1; }
-      if (hit === 1) {
-        // `.nome` = campo → não qualifica
-        let p = start - 1;
-        while (p >= 0 && __isSpace(src.substring(p, p + 1))) p = p - 1;
-        const prevCh = p >= 0 ? src.substring(p, p + 1) : "";
-        // `nome:` = chave de objeto ou label → não qualifica
-        let j = i;
-        while (j < n && __isSpace(src.substring(j, j + 1))) j = j + 1;
-        const nextCh = j < n ? src.substring(j, j + 1) : "";
-        if (prevCh === "." || nextCh === ":") out = out + word;
-        else out = out + "__G." + word;
-      } else {
-        out = out + word;
-      }
-      continue;
-    }
-    out = out + c;
-    i = i + 1;
   }
-  return out;
+  parts.push(src.substring(runStart, src.length));
+  return parts.join("");
 }
 
 // Pré-passo aplicado a todo `<script>` antes de compilar. Qualifica DUAS classes
@@ -468,34 +819,46 @@ function __filterDeclared(names: string[], src: string): string[] {
 // do script fica intacto.
 function __unqualifyInstanceof(src: string): string {
   if (src.indexOf("instanceof") < 0) return src;
-  let out = "";
-  let i = 0;
-  const n = src.length;
-  while (i < n) {
-    if (src.substring(i, i + 10) === "instanceof") {
-      // precisa ser o token inteiro (não sufixo de um identificador maior)
-      const antes = i > 0 ? src.substring(i - 1, i) : "";
-      const depois = i + 10 < n ? src.substring(i + 10, i + 11) : "";
-      if (!__isIdPart(antes) && !__isIdPart(depois)) {
-        let j = i + 10;
-        while (j < n && __isSpace(src.substring(j, j + 1))) j = j + 1;
-        const baseStart = j;
-        while (j < n && __isIdPart(src.substring(j, j + 1))) j = j + 1;
-        const base = src.substring(baseStart, j);
-        const ehGlobal = base === "window" || base === "globalThis"
-          || base === "self" || base === "top" || base === "parent";
-        if (ehGlobal && j < n && src.substring(j, j + 1) === ".") {
-          // `instanceof window.Classe` → mantém só `Classe`
-          out = out + src.substring(i, i + 10) + " ";
-          i = j + 1;
-          continue;
+  // Este era o ÚNICO pass sem nenhum skip lexical: procurava o texto literal
+  // "instanceof" no fonte inteiro. `var s = "a instanceof window.Foo"` tinha o
+  // CONTEÚDO DA STRING reescrito para `"a instanceof Foo"` — o programa passava a
+  // significar outra coisa, sem erro nenhum. Um comentário sofria o mesmo.
+  const spans = __codeSpans(src);
+  const parts: string[] = [];
+  let runStart = 0;
+  let sp = 0;
+  while (sp < spans.length) {
+    const spanEnd: i64 = spans[sp + 1];
+    let i: i64 = spans[sp];
+    sp = sp + 2;
+    while (i < spanEnd) {
+      if (i + 10 <= spanEnd && src.substring(i, i + 10) === "instanceof") {
+        // precisa ser o token inteiro (não sufixo de um identificador maior)
+        const antes = i > 0 ? src.substring(i - 1, i) : "";
+        const depois = i + 10 < src.length ? src.substring(i + 10, i + 11) : "";
+        if (!__isIdPart(antes) && !__isIdPart(depois)) {
+          let j = i + 10;
+          while (j < spanEnd && __isSpace(src.substring(j, j + 1))) j = j + 1;
+          const baseStart = j;
+          while (j < spanEnd && __isIdPart(src.substring(j, j + 1))) j = j + 1;
+          const base = src.substring(baseStart, j);
+          const ehGlobal = base === "window" || base === "globalThis"
+            || base === "self" || base === "top" || base === "parent";
+          if (ehGlobal && j < spanEnd && src.substring(j, j + 1) === ".") {
+            // `instanceof window.Classe` → mantém só `Classe`
+            parts.push(src.substring(runStart, i + 10));
+            parts.push(" ");
+            i = j + 1;
+            runStart = i;
+            continue;
+          }
         }
       }
+      i = i + 1;
     }
-    out = out + src.substring(i, i + 1);
-    i = i + 1;
   }
-  return out;
+  parts.push(src.substring(runStart, src.length));
+  return parts.join("");
 }
 
 // TODA a normalização sintática, num lugar só — o `runScripts` e o `__bindGlobals`
