@@ -1057,9 +1057,14 @@ impl HandleTable {
         // Cap em slots vivos (alloc - free). Reuso via free_list ja
         // recuperou o slot anterior — incrementa de novo aqui pra
         // manter "live = total alloc - total free" simetrico.
+        // Payload size measured BEFORE the entry moves into its slot — the byte
+        // half of the same live accounting (see `LIVE_BYTES`).
+        let bytes = entry_heap_bytes(&entry);
+        LIVE_BYTES.fetch_add(bytes, Ordering::Relaxed);
         let prev = LIVE_HANDLES.fetch_add(1, Ordering::Relaxed);
         if prev >= HANDLES_MAX {
             LIVE_HANDLES.fetch_sub(1, Ordering::Relaxed);
+            live_bytes_sub(bytes);
             eprintln!(
                 "RTS runtime: handle table exceeded limit of {HANDLES_MAX} live handles; aborting (likely string/array allocations in unbounded loop without GC — codegen does not emit auto-free yet)"
             );
@@ -1098,6 +1103,7 @@ impl HandleTable {
         if matches!(slot.entry, Entry::Free) {
             return false;
         }
+        live_bytes_sub(entry_heap_bytes(&slot.entry));
         cleanup_entry(&mut slot.entry);
         slot.entry = Entry::Free;
         self.free_list.push(table_slot);
@@ -1285,6 +1291,7 @@ impl HandleTable {
                     };
                     eprintln!("[gc] SWEEP slot={idx} kind={kind}");
                 }
+                live_bytes_sub(entry_heap_bytes(&slot.entry));
                 cleanup_entry(&mut slot.entry);
                 slot.entry = Entry::Free;
                 self.free_list.push(idx as u32);
@@ -1381,6 +1388,74 @@ pub fn install_gc_hook(f: fn()) {
 /// program's live data, always rescue the runaway loop before 5M.
 const GC_LIVE_FLOOR: usize = 500_000;
 
+/// Live payload bytes above which the periodic GC also kicks in, INDEPENDENTLY
+/// of [`GC_LIVE_FLOOR`].
+///
+/// The handle floor alone is blind to SIZE: a handle counts the same whether it
+/// holds `"x"` or a 40 KB string. Char-by-char string building —
+/// `out = out + c` in a loop, which every text-rewriting pass in `.ts` does —
+/// allocates one handle per iteration but a payload that grows every time, so
+/// N iterations retain Σ(1..N) ≈ N²/2 BYTES while holding only N handles.
+///
+/// Measured on this repo before this floor existed (release, peak RSS):
+///
+/// | concats | handles | RSS |
+/// |---|---|---|
+/// | 20 000 | 20 k | 288 MB |
+/// | 40 000 | 40 k | 984 MB |
+/// | 80 000 | 80 k | 3 644 MB |
+///
+/// 80 k handles is a sixth of the handle floor, so the collector never ran, while
+/// the byte total was 3.2 GB — and the same program with an explicit
+/// `gc.collect` every 2 000 iterations peaked at 93 MB instead of 984 MB. The
+/// collector was correct; only the trigger was, counting the wrong thing.
+///
+/// 64 MB is chosen to stay far above what a short program or a test retains
+/// (the suite's files sit in the single-digit MB of payload) while firing long
+/// before a rewriting loop reaches hundreds of MB.
+const GC_LIVE_BYTES_FLOOR: usize = 64 * 1024 * 1024;
+
+/// Live payload bytes across every shard — the size half of [`LIVE_HANDLES`].
+/// Maintained at exactly the same four sites that maintain the handle count.
+pub(crate) static LIVE_BYTES: AtomicUsize = AtomicUsize::new(0);
+
+/// Approximate heap payload of an entry, for [`LIVE_BYTES`].
+///
+/// Only the variants that can hold a LARGE payload are measured; the rest report
+/// 0 because their size is a fixed handful of bytes and the floor is in
+/// megabytes. This is a GC-trigger heuristic, not accounting — it must be cheap
+/// (it runs on every allocation) and it only has to be right about orders of
+/// magnitude.
+fn entry_heap_bytes(e: &Entry) -> usize {
+    match e {
+        Entry::String(b) => b.len(),
+        Entry::Buffer(b) => b.len(),
+        Entry::Vec(v) => v.len() * std::mem::size_of::<i64>(),
+        Entry::Map(m) => m.len() * (std::mem::size_of::<i64>() + 24),
+        Entry::ArrayBuffer(_) | Entry::Json(_) | Entry::Headers(_) => 0,
+        _ => 0,
+    }
+}
+
+/// Current live payload bytes (probe for tests and the GC trigger).
+pub fn live_byte_count() -> usize {
+    LIVE_BYTES.load(Ordering::Relaxed)
+}
+
+/// Subtract from [`LIVE_BYTES`] WITHOUT wrapping.
+///
+/// An entry can grow after it was allocated — `Entry::Vec` resizes in place — so
+/// what is subtracted at free time can exceed what was added at alloc time. A
+/// plain `fetch_sub` on a `usize` would wrap to ~2^64, the byte floor would then
+/// read as permanently exceeded, and the GC would run every 256 allocations for
+/// the rest of the process. Saturating keeps the counter an underestimate, which
+/// only ever makes the trigger LATER — never wrong.
+fn live_bytes_sub(n: usize) {
+    let _ = LIVE_BYTES.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+        Some(v.saturating_sub(n))
+    });
+}
+
 /// Every `GC_TICK_INTERVAL` allocations triggers an automatic mark+sweep
 /// cycle, but ONLY once live handles exceed [`GC_LIVE_FLOOR`] (so short programs
 /// never run the conservative collector — see that constant). This reclaims
@@ -1394,7 +1469,13 @@ pub fn alloc_entry(entry: Entry) -> u64 {
         t.set(v);
         v
     });
-    if tick % GC_TICK_INTERVAL == 0 && !gc_disabled() && live_handle_count() >= GC_LIVE_FLOOR {
+    // Either floor is enough: many handles OR many live bytes. The byte floor is
+    // what catches a rewriting loop, which stays far under the handle floor while
+    // retaining gigabytes (see [`GC_LIVE_BYTES_FLOOR`]).
+    if tick % GC_TICK_INTERVAL == 0
+        && !gc_disabled()
+        && (live_handle_count() >= GC_LIVE_FLOOR || live_byte_count() >= GC_LIVE_BYTES_FLOOR)
+    {
         if let Some(f) = GC_COLLECT_HOOK.get() {
             f();
         }

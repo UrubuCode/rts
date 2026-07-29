@@ -135,6 +135,28 @@ pub fn command(path: Option<String>) -> Result<()> {
             );
         } else if !output.status.success() || file_failed > 0 {
             failed_files += 1;
+            // A file whose TESTS all passed but whose PROCESS exited non-zero was
+            // being counted here in total silence: the grand summary said "1
+            // failed" and nothing anywhere named the file or the code, so the
+            // only way to find it was to re-run 744 files one by one. Say it.
+            //
+            // This is a real failure — a test process that dies dirty has not
+            // passed — and it is usually a teardown fault (a driver, a socket, a
+            // child process) rather than an assertion, which is exactly why the
+            // per-test output looks clean.
+            if file_failed == 0 {
+                let code = output
+                    .status
+                    .code()
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "signal".to_string());
+                eprintln!(
+                    "  {} {} — codigo {} (todos os testes passaram; falha no ENCERRAMENTO do processo)",
+                    red("✗"),
+                    red("saida suja"),
+                    code,
+                );
+            }
         }
     }
 
