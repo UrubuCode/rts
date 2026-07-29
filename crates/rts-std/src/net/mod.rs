@@ -3,14 +3,14 @@
 //! `send` takes a UTF-8 string; `recv` takes a raw writable buffer pointer
 //! (U64 cast to *mut u8) + length; `close` frees the handle. Handle 0 = error.
 //!
-//! Migrado do `#[rts_namespace]` pro modelo builder hand-written do `rts-engine`
-//! (rumo à remoção da `rts-macro`; ver pilotos hint/hash/ptr/mem/runtime).
+//! Convertido pro modelo de autoria `#[rtse::function]` (fonte única de
+//! símbolos — ver `docs/specs/rts-macro-single-source.md`).
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 
+use rts_engine::Engine;
 use rts_engine::abi::ty::{Handle, I64, U64};
-use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use rts_engine::heap::handles::{
     Entry, UdpEntry, alloc_entry, free_handle, with_entry, with_entry_mut,
@@ -44,12 +44,8 @@ fn clone_socket(handle: u64) -> Option<UdpSocket> {
 }
 
 /// Bind a TCP listener to `addr`. Handle, 0 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NET_TCP_LISTEN(addr_ptr: *const u8, addr_len: i64) -> Handle {
-    let addr = match unsafe { rts_engine::abi::str_abi::from_abi(addr_ptr, addr_len) } {
-        Some(s) => s,
-        None => return 0,
-    };
+#[rtse::function(module = "net", value = "tcp_listen", ret_ts = "number")]
+fn tcp_listen(addr: &str) -> Handle {
     match TcpListener::bind(addr) {
         Ok(l) => alloc_entry(Entry::TcpListener(Box::new(l))),
         Err(_) => 0,
@@ -58,8 +54,8 @@ pub extern "C" fn __RTS_FN_NS_NET_TCP_LISTEN(addr_ptr: *const u8, addr_len: i64)
 
 /// Accept a connection on `listener`. Stream handle, 0 on error/would-block.
 /// Com set_nonblocking(true), 0 significa "nenhum cliente ainda" (faça poll).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NET_TCP_ACCEPT(listener: U64) -> Handle {
+#[rtse::function(module = "net", value = "tcp_accept", ret_ts = "number")]
+fn tcp_accept(listener: U64) -> Handle {
     let Some(l) = clone_listener(listener) else {
         return 0;
     };
@@ -72,8 +68,8 @@ pub extern "C" fn __RTS_FN_NS_NET_TCP_ACCEPT(listener: U64) -> Handle {
 /// Marca um listener/stream como não-bloqueante (on!=0) ou bloqueante (0). Com
 /// non-blocking, `tcp_accept` devolve 0 quando não há cliente e `tcp_recv`
 /// devolve -2 (WouldBlock) — o loop pode renderizar sem travar no recv. 0 = ok, -1 = erro.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NET_TCP_SET_NONBLOCKING(handle: U64, on: I64) -> I64 {
+#[rtse::function(module = "net", value = "tcp_set_nonblocking")]
+fn tcp_set_nonblocking(handle: U64, on: I64) -> I64 {
     let nb = on != 0;
     let r = with_entry(handle, |entry| match entry {
         Some(Entry::TcpListener(l)) => Some(l.set_nonblocking(nb).is_ok()),
@@ -87,12 +83,8 @@ pub extern "C" fn __RTS_FN_NS_NET_TCP_SET_NONBLOCKING(handle: U64, on: I64) -> I
 }
 
 /// Connect a TCP stream to `addr`. Handle, 0 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NET_TCP_CONNECT(addr_ptr: *const u8, addr_len: i64) -> Handle {
-    let addr = match unsafe { rts_engine::abi::str_abi::from_abi(addr_ptr, addr_len) } {
-        Some(s) => s,
-        None => return 0,
-    };
+#[rtse::function(module = "net", value = "tcp_connect", ret_ts = "number")]
+fn tcp_connect(addr: &str) -> Handle {
     match TcpStream::connect(addr) {
         Ok(s) => alloc_entry(Entry::TcpStream(Box::new(s))),
         Err(_) => 0,
@@ -100,12 +92,8 @@ pub extern "C" fn __RTS_FN_NS_NET_TCP_CONNECT(addr_ptr: *const u8, addr_len: i64
 }
 
 /// Write `data` bytes to `stream`. Bytes written, or -1 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NET_TCP_SEND(stream: U64, data_ptr: *const u8, data_len: i64) -> I64 {
-    let data = match unsafe { rts_engine::abi::str_abi::from_abi(data_ptr, data_len) } {
-        Some(s) => s,
-        None => return 0,
-    };
+#[rtse::function(module = "net", value = "tcp_send")]
+fn tcp_send(stream: U64, data: &str) -> I64 {
     let Some(mut s) = clone_stream(stream) else {
         return -1;
     };
@@ -116,8 +104,8 @@ pub extern "C" fn __RTS_FN_NS_NET_TCP_SEND(stream: U64, data_ptr: *const u8, dat
 }
 
 /// Read up to `len` bytes from `stream` into a raw buffer. Count, or -1.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NET_TCP_RECV(stream: U64, buf_ptr: U64, len: I64) -> I64 {
+#[rtse::function(module = "net", value = "tcp_recv")]
+fn tcp_recv(stream: U64, buf_ptr: U64, len: I64) -> I64 {
     if len < 0 || buf_ptr == 0 {
         return -1;
     }
@@ -135,8 +123,8 @@ pub extern "C" fn __RTS_FN_NS_NET_TCP_RECV(stream: U64, buf_ptr: U64, len: I64) 
 }
 
 /// Local address of a stream/listener handle. String handle, 0 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NET_TCP_LOCAL_ADDR(handle: U64) -> Handle {
+#[rtse::function(module = "net", value = "tcp_local_addr", ret_ts = "string")]
+fn tcp_local_addr(handle: U64) -> Handle {
     let addr: Option<String> = with_entry(handle, |entry| match entry {
         Some(Entry::TcpStream(s)) => s.local_addr().ok().map(|a| a.to_string()),
         Some(Entry::TcpListener(l)) => l.local_addr().ok().map(|a| a.to_string()),
@@ -149,18 +137,14 @@ pub extern "C" fn __RTS_FN_NS_NET_TCP_LOCAL_ADDR(handle: U64) -> Handle {
 }
 
 /// Closes (frees) a TCP handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NET_TCP_CLOSE(handle: U64) {
+#[rtse::function(module = "net", value = "tcp_close")]
+fn tcp_close(handle: U64) {
     free_handle(handle);
 }
 
 /// Bind a UDP socket to `addr`. Handle, 0 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NET_UDP_BIND(addr_ptr: *const u8, addr_len: i64) -> Handle {
-    let addr = match unsafe { rts_engine::abi::str_abi::from_abi(addr_ptr, addr_len) } {
-        Some(s) => s,
-        None => return 0,
-    };
+#[rtse::function(module = "net", value = "udp_bind", ret_ts = "number")]
+fn udp_bind(addr: &str) -> Handle {
     match UdpSocket::bind(addr) {
         Ok(s) => alloc_entry(Entry::UdpSocket(Box::new(UdpEntry {
             socket: s,
@@ -171,22 +155,8 @@ pub extern "C" fn __RTS_FN_NS_NET_UDP_BIND(addr_ptr: *const u8, addr_len: i64) -
 }
 
 /// Send `data` to `dest`. Bytes sent, or -1 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NET_UDP_SEND_TO(
-    sock: U64,
-    dest_ptr: *const u8,
-    dest_len: i64,
-    data_ptr: *const u8,
-    data_len: i64,
-) -> I64 {
-    let dest = match unsafe { rts_engine::abi::str_abi::from_abi(dest_ptr, dest_len) } {
-        Some(s) => s,
-        None => return 0,
-    };
-    let data = match unsafe { rts_engine::abi::str_abi::from_abi(data_ptr, data_len) } {
-        Some(s) => s,
-        None => return 0,
-    };
+#[rtse::function(module = "net", value = "udp_send_to")]
+fn udp_send_to(sock: U64, dest: &str, data: &str) -> I64 {
     let Some(s) = clone_socket(sock) else {
         return -1;
     };
@@ -197,8 +167,8 @@ pub extern "C" fn __RTS_FN_NS_NET_UDP_SEND_TO(
 }
 
 /// Receive into a raw buffer; records the peer. Count, or -1.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NET_UDP_RECV_FROM(sock: U64, buf_ptr: U64, len: I64) -> I64 {
+#[rtse::function(module = "net", value = "udp_recv_from")]
+fn udp_recv_from(sock: U64, buf_ptr: U64, len: I64) -> I64 {
     if len < 0 || buf_ptr == 0 {
         return -1;
     }
@@ -220,8 +190,8 @@ pub extern "C" fn __RTS_FN_NS_NET_UDP_RECV_FROM(sock: U64, buf_ptr: U64, len: I6
 }
 
 /// Address of the last peer seen by `recv_from`. String handle, 0 if none.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NET_UDP_LAST_PEER(sock: U64) -> Handle {
+#[rtse::function(module = "net", value = "udp_last_peer", ret_ts = "string")]
+fn udp_last_peer(sock: U64) -> Handle {
     let addr: Option<String> = with_entry(sock, |entry| match entry {
         Some(Entry::UdpSocket(e)) => e.last_peer.map(|p| p.to_string()),
         _ => None,
@@ -233,8 +203,8 @@ pub extern "C" fn __RTS_FN_NS_NET_UDP_LAST_PEER(sock: U64) -> Handle {
 }
 
 /// Local address of a UDP socket. String handle, 0 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NET_UDP_LOCAL_ADDR(sock: U64) -> Handle {
+#[rtse::function(module = "net", value = "udp_local_addr", ret_ts = "string")]
+fn udp_local_addr(sock: U64) -> Handle {
     let addr: Option<String> = with_entry(sock, |entry| match entry {
         Some(Entry::UdpSocket(e)) => e.socket.local_addr().ok().map(|a| a.to_string()),
         _ => None,
@@ -246,18 +216,14 @@ pub extern "C" fn __RTS_FN_NS_NET_UDP_LOCAL_ADDR(sock: U64) -> Handle {
 }
 
 /// Closes (frees) a UDP socket handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NET_UDP_CLOSE(sock: U64) {
+#[rtse::function(module = "net", value = "udp_close")]
+fn udp_close(sock: U64) {
     free_handle(sock);
 }
 
 /// Resolve `host` (or `host:port`) to its first IP. String handle, 0 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NET_RESOLVE(host_ptr: *const u8, host_len: i64) -> Handle {
-    let host = match unsafe { rts_engine::abi::str_abi::from_abi(host_ptr, host_len) } {
-        Some(s) => s,
-        None => return 0,
-    };
+#[rtse::function(module = "net", value = "resolve", ret_ts = "string")]
+fn resolve(host: &str) -> Handle {
     // ToSocketAddrs needs "host:port"; append :0 when only a host is given.
     let target = if host.contains(':') {
         host.to_string()
@@ -274,148 +240,24 @@ pub extern "C" fn __RTS_FN_NS_NET_RESOLVE(host_ptr: *const u8, host_len: i64) ->
     intern(&addr.ip().to_string())
 }
 
-/// Função `net.f(args)`.
-fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
-    Member {
-        name: name.to_string(),
-        kind: MemberKind::Function,
-        sig,
-        symbol: symbol.to_string(),
-        fn_ptr: FnPtr(fp),
-        flags: MemberFlags::NONE,
-        aliases: Vec::new(),
-        variadic: false,
-        ts_signature: ts.to_string(),
-        doc: doc.to_string(),
-        ret_class: None,
-        pure: false,
-        emit: None,
-    }
-}
-
-/// Registra a namespace `net` no motor (Fase 2 — hand-written, sem macro).
+/// Registra a namespace `net` no motor.
 pub fn register(e: &mut Engine) {
-    e.ns("net")
-        .doc("TCP/UDP sockets (sync, std::net) + DNS resolution.")
-        .member(func(
-            "tcp_listen",
-            "__RTS_FN_NS_NET_TCP_LISTEN",
-            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
-            "tcp_listen(addr: string): number",
-            "Bind a TCP listener to `addr`. Handle, 0 on error.",
-            __RTS_FN_NS_NET_TCP_LISTEN as *const u8,
-        ))
-        .member(func(
-            "tcp_accept",
-            "__RTS_FN_NS_NET_TCP_ACCEPT",
-            Sig::new(vec![AbiType::U64], AbiType::Handle),
-            "tcp_accept(listener: number): number",
-            "Accept a connection on `listener`. Stream handle, 0 on error.",
-            __RTS_FN_NS_NET_TCP_ACCEPT as *const u8,
-        ))
-        .member(func(
-            "tcp_set_nonblocking",
-            "__RTS_FN_NS_NET_TCP_SET_NONBLOCKING",
-            Sig::new(vec![AbiType::U64, AbiType::I64], AbiType::I64),
-            "tcp_set_nonblocking(handle: number, on: number): number",
-            "Marks a listener/stream non-blocking (on!=0). Then tcp_accept returns 0 when no client is pending and tcp_recv returns -2 (WouldBlock) instead of blocking. Returns 0 ok, -1 error.",
-            __RTS_FN_NS_NET_TCP_SET_NONBLOCKING as *const u8,
-        ))
-        .member(func(
-            "tcp_connect",
-            "__RTS_FN_NS_NET_TCP_CONNECT",
-            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
-            "tcp_connect(addr: string): number",
-            "Connect a TCP stream to `addr`. Handle, 0 on error.",
-            __RTS_FN_NS_NET_TCP_CONNECT as *const u8,
-        ))
-        .member(func(
-            "tcp_send",
-            "__RTS_FN_NS_NET_TCP_SEND",
-            Sig::new(vec![AbiType::U64, AbiType::StrPtr], AbiType::I64),
-            "tcp_send(stream: number, data: string): number",
-            "Write `data` bytes to `stream`. Bytes written, or -1 on error.",
-            __RTS_FN_NS_NET_TCP_SEND as *const u8,
-        ))
-        .member(func(
-            "tcp_recv",
-            "__RTS_FN_NS_NET_TCP_RECV",
-            Sig::new(vec![AbiType::U64, AbiType::U64, AbiType::I64], AbiType::I64),
-            "tcp_recv(stream: number, bufPtr: number, len: number): number",
-            "Read up to `len` bytes from `stream` into a raw buffer. Count, or -1.",
-            __RTS_FN_NS_NET_TCP_RECV as *const u8,
-        ))
-        .member(func(
-            "tcp_local_addr",
-            "__RTS_FN_NS_NET_TCP_LOCAL_ADDR",
-            Sig::new(vec![AbiType::U64], AbiType::Handle),
-            "tcp_local_addr(handle: number): string",
-            "Local address of a stream/listener handle. String handle, 0 on error.",
-            __RTS_FN_NS_NET_TCP_LOCAL_ADDR as *const u8,
-        ))
-        .member(func(
-            "tcp_close",
-            "__RTS_FN_NS_NET_TCP_CLOSE",
-            Sig::new(vec![AbiType::U64], AbiType::Void),
-            "tcp_close(handle: number): void",
-            "Closes (frees) a TCP handle.",
-            __RTS_FN_NS_NET_TCP_CLOSE as *const u8,
-        ))
-        .member(func(
-            "udp_bind",
-            "__RTS_FN_NS_NET_UDP_BIND",
-            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
-            "udp_bind(addr: string): number",
-            "Bind a UDP socket to `addr`. Handle, 0 on error.",
-            __RTS_FN_NS_NET_UDP_BIND as *const u8,
-        ))
-        .member(func(
-            "udp_send_to",
-            "__RTS_FN_NS_NET_UDP_SEND_TO",
-            Sig::new(vec![AbiType::U64, AbiType::StrPtr, AbiType::StrPtr], AbiType::I64),
-            "udp_send_to(sock: number, dest: string, data: string): number",
-            "Send `data` to `dest`. Bytes sent, or -1 on error.",
-            __RTS_FN_NS_NET_UDP_SEND_TO as *const u8,
-        ))
-        .member(func(
-            "udp_recv_from",
-            "__RTS_FN_NS_NET_UDP_RECV_FROM",
-            Sig::new(vec![AbiType::U64, AbiType::U64, AbiType::I64], AbiType::I64),
-            "udp_recv_from(sock: number, bufPtr: number, len: number): number",
-            "Receive into a raw buffer; records the peer. Count, or -1.",
-            __RTS_FN_NS_NET_UDP_RECV_FROM as *const u8,
-        ))
-        .member(func(
-            "udp_last_peer",
-            "__RTS_FN_NS_NET_UDP_LAST_PEER",
-            Sig::new(vec![AbiType::U64], AbiType::Handle),
-            "udp_last_peer(sock: number): string",
-            "Address of the last peer seen by `recv_from`. String handle, 0 if none.",
-            __RTS_FN_NS_NET_UDP_LAST_PEER as *const u8,
-        ))
-        .member(func(
-            "udp_local_addr",
-            "__RTS_FN_NS_NET_UDP_LOCAL_ADDR",
-            Sig::new(vec![AbiType::U64], AbiType::Handle),
-            "udp_local_addr(sock: number): string",
-            "Local address of a UDP socket. String handle, 0 on error.",
-            __RTS_FN_NS_NET_UDP_LOCAL_ADDR as *const u8,
-        ))
-        .member(func(
-            "udp_close",
-            "__RTS_FN_NS_NET_UDP_CLOSE",
-            Sig::new(vec![AbiType::U64], AbiType::Void),
-            "udp_close(sock: number): void",
-            "Closes (frees) a UDP socket handle.",
-            __RTS_FN_NS_NET_UDP_CLOSE as *const u8,
-        ))
-        .member(func(
-            "resolve",
-            "__RTS_FN_NS_NET_RESOLVE",
-            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
-            "resolve(host: string): string",
-            "Resolve `host` (or `host:port`) to its first IP. String handle, 0 on error.",
-            __RTS_FN_NS_NET_RESOLVE as *const u8,
-        ))
-        .done();
+    e.module("net", |m| {
+        m.doc("TCP/UDP sockets (sync, std::net) + DNS resolution.");
+        m.registry(tcp_listen_entry());
+        m.registry(tcp_accept_entry());
+        m.registry(tcp_set_nonblocking_entry());
+        m.registry(tcp_connect_entry());
+        m.registry(tcp_send_entry());
+        m.registry(tcp_recv_entry());
+        m.registry(tcp_local_addr_entry());
+        m.registry(tcp_close_entry());
+        m.registry(udp_bind_entry());
+        m.registry(udp_send_to_entry());
+        m.registry(udp_recv_from_entry());
+        m.registry(udp_last_peer_entry());
+        m.registry(udp_local_addr_entry());
+        m.registry(udp_close_entry());
+        m.registry(resolve_entry());
+    });
 }

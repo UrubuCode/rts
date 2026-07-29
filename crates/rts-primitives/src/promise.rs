@@ -1,5 +1,5 @@
 //! Spec da classe primordial `Promise` (metadata pura — fn_ptr null, símbolos
-//! `__RTS_FN_GL_PROMISE_*` / `__RTS_FN_NS_PROMISE_*`). A impl tokio fica em
+//! `__RTS_FN_GL_PROMISE_*` / `__rtsm_promise_*`). A impl tokio fica em
 //! `rts-std/globals/fetch`; aqui só a declaração de membros que o motor resolve
 //! via Registry. Movida de `rts-std/globals/fetch/mod.rs` na Fase 2 (Promise é
 //! primordial). Crate só depende de `rts-engine`.
@@ -107,7 +107,7 @@ pub fn register_promise_class_spec(e: &mut Engine) {
             "all",
             MemberKind::Function,
             Sig::new(vec![AbiType::Handle], AbiType::Handle),
-            "__RTS_FN_NS_PROMISE_ALL",
+            "__rtsm_promise_all",
             "static all<T>(values: Promise<T>[]): Promise<T[]>",
             "Promise.all(promises) — aguarda todas; fail-fast em rejection.",
             false,
@@ -116,7 +116,7 @@ pub fn register_promise_class_spec(e: &mut Engine) {
             "race",
             MemberKind::Function,
             Sig::new(vec![AbiType::Handle], AbiType::Handle),
-            "__RTS_FN_NS_PROMISE_RACE",
+            "__rtsm_promise_race",
             "static race<T>(values: Promise<T>[]): Promise<T>",
             "Promise.race(promises) — settle com o resultado da primeira.",
             false,
@@ -125,7 +125,7 @@ pub fn register_promise_class_spec(e: &mut Engine) {
             "any",
             MemberKind::Function,
             Sig::new(vec![AbiType::Handle], AbiType::Handle),
-            "__RTS_FN_NS_PROMISE_ANY",
+            "__rtsm_promise_any",
             "static any<T>(values: Promise<T>[]): Promise<T>",
             "Promise.any(promises) — primeira a fulfill; reject so' se todas falharem.",
             false,
@@ -134,7 +134,7 @@ pub fn register_promise_class_spec(e: &mut Engine) {
             "allSettled",
             MemberKind::Function,
             Sig::new(vec![AbiType::Handle], AbiType::Handle),
-            "__RTS_FN_NS_PROMISE_ALL_SETTLED",
+            "__rtsm_promise_all_settled",
             "static allSettled<T>(values: Promise<T>[]): Promise<any[]>",
             "Promise.allSettled(promises) — aguarda todas; sempre resolve com Vec de descriptors.",
             false,

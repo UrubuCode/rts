@@ -613,7 +613,7 @@ pub fn rtsadp_await(word: u64) -> u64 {
         // `PROMISE_WAIT` normalizes for the TS i64 surface and would round a
         // fractional double word.
         let settled = rt_promise::wait_raw(h);
-        let rejected = rt_promise::__RTS_FN_NS_PROMISE_STATE(h) == 2;
+        let rejected = rt_promise::__rtsm_promise_state(h) == 2;
         // JS `await` FLATTENS: a promise settled with another promise resolves to
         // the inner value. Follow the raw-id chain (finite — each hop consumes one
         // settled promise) before reboxing.

@@ -29,8 +29,8 @@ use std::net::TcpStream;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
+use rts_engine::Engine;
 use rts_engine::abi::ty::{Handle, I64, U64};
-use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, ClientConnection, RootCertStore};
@@ -258,12 +258,8 @@ fn base64_encode(bytes: &[u8]) -> String {
 
 /// `ws.connect(url)` → handle da conexão (0 em falha). Abre TCP (+TLS se wss),
 /// faz o handshake `Upgrade: websocket` e valida o `101 Switching Protocols`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_WS_CONNECT(url_ptr: *const u8, url_len: i64) -> Handle {
-    let url = match unsafe { rts_engine::abi::str_abi::from_abi(url_ptr, url_len) } {
-        Some(s) => s,
-        None => return 0,
-    };
+#[rtse::function(module = "ws", value = "connect", ret_ts = "number")]
+fn connect(url: &str) -> Handle {
     let Some(u) = parse_url(url) else { return 0 };
 
     let tcp = match TcpStream::connect((u.host.as_str(), u.port)) {
@@ -402,10 +398,10 @@ fn fill_random(out: &mut [u8]) {
     // Reusa o CSPRNG do namespace crypto (BCryptGenRandom / /dev/urandom).
     // Assinatura ABI: `(ptr: i64, len: i64) -> i64`.
     unsafe extern "C" {
-        fn __RTS_FN_NS_CRYPTO_RANDOM_BYTES(ptr: i64, len: i64) -> i64;
+        fn __rtsm_crypto_random_bytes(ptr: i64, len: i64) -> i64;
     }
     unsafe {
-        __RTS_FN_NS_CRYPTO_RANDOM_BYTES(out.as_mut_ptr() as i64, out.len() as i64);
+        __rtsm_crypto_random_bytes(out.as_mut_ptr() as i64, out.len() as i64);
     }
 }
 
@@ -413,12 +409,8 @@ fn fill_random(out: &mut [u8]) {
 
 /// `ws.send(handle, text)` → 1 ok / 0 falha. Envia um frame TEXT (opcode 0x1)
 /// mascarado, como o RFC 6455 exige do cliente.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_WS_SEND(handle: U64, text_ptr: *const u8, text_len: i64) -> I64 {
-    let text = match unsafe { rts_engine::abi::str_abi::from_abi(text_ptr, text_len) } {
-        Some(s) => s,
-        None => return 0,
-    };
+#[rtse::function(module = "ws", value = "send")]
+fn send(handle: U64, text: &str) -> I64 {
     let mut reg = registry().lock().unwrap();
     let Some(c) = reg.get_mut(&handle) else {
         return 0;
@@ -592,8 +584,8 @@ fn parse_frame(buf: &[u8]) -> Option<(bool, u8, Vec<u8>, usize)> {
 
 /// `ws.recv(handle)` → próxima MENSAGEM completa como string, ou "" se ainda
 /// não há uma disponível (ou a conexão fechou). Poll: chame por frame.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_WS_RECV(handle: U64) -> Handle {
+#[rtse::function(module = "ws", value = "recv", ret_ts = "string")]
+fn recv(handle: U64) -> Handle {
     let mut reg = registry().lock().unwrap();
     let Some(c) = reg.get_mut(&handle) else {
         return intern("");
@@ -607,8 +599,8 @@ pub extern "C" fn __RTS_FN_NS_WS_RECV(handle: U64) -> Handle {
 
 /// `ws.recvReady(handle)` → 1 se há mensagem pronta, 0 se não, -1 se fechado.
 /// Faz o pump (então uma msg que acabou de chegar já conta).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_WS_RECV_READY(handle: U64) -> I64 {
+#[rtse::function(module = "ws", value = "recvReady")]
+fn recv_ready(handle: U64) -> I64 {
     let mut reg = registry().lock().unwrap();
     let Some(c) = reg.get_mut(&handle) else {
         return -1;
@@ -624,8 +616,8 @@ pub extern "C" fn __RTS_FN_NS_WS_RECV_READY(handle: U64) -> I64 {
 }
 
 /// `ws.close(handle)` — envia CLOSE e libera. Idempotente.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_WS_CLOSE(handle: U64) {
+#[rtse::function(module = "ws", value = "close")]
+fn close(handle: U64) {
     if let Some(mut c) = registry().lock().unwrap().remove(&handle) {
         if !c.closed {
             let frame = if c.is_server { build_frame_server(0x8, &[]) } else { build_frame(0x8, &[]) };
@@ -710,8 +702,8 @@ fn sha1(data: &[u8]) -> [u8; 20] {
 
 /// `ws.serve(port)` → handle do servidor (0 em falha). TcpListener não-bloqueante
 /// em `0.0.0.0:port`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_WS_SERVE(port: i64) -> Handle {
+#[rtse::function(module = "ws", value = "serve", ret_ts = "number")]
+fn serve(port: I64) -> Handle {
     let addr = format!("0.0.0.0:{port}");
     let listener = match TcpListener::bind(&addr) {
         Ok(l) => l,
@@ -727,8 +719,8 @@ pub extern "C" fn __RTS_FN_NS_WS_SERVE(port: i64) -> Handle {
 
 /// `ws.accept(server)` → handle de um CLIENTE aceito (0 se não há conexão
 /// pendente agora). Faz o handshake do lado servidor.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_WS_ACCEPT(server: U64) -> Handle {
+#[rtse::function(module = "ws", value = "accept", ret_ts = "number")]
+fn accept(server: U64) -> Handle {
     let tcp = {
         let servers = ws_servers().lock().unwrap();
         let Some(listener) = servers.get(&server) else {
@@ -804,99 +796,25 @@ pub extern "C" fn __RTS_FN_NS_WS_ACCEPT(server: U64) -> Handle {
 }
 
 /// `ws.closeServer(server)` — para de aceitar e libera o listener.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_WS_CLOSE_SERVER(server: U64) {
+#[rtse::function(module = "ws", value = "closeServer")]
+fn close_server(server: U64) {
     ws_servers().lock().unwrap().remove(&server);
 }
 
 // ── registro ─────────────────────────────────────────────────────────────────
 
-fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
-    Member {
-        name: name.to_string(),
-        kind: MemberKind::Function,
-        sig,
-        symbol: symbol.to_string(),
-        fn_ptr: FnPtr(fp),
-        flags: MemberFlags::NONE,
-        aliases: Vec::new(),
-        variadic: false,
-        ts_signature: ts.to_string(),
-        doc: doc.to_string(),
-        ret_class: None,
-        pure: false,
-        emit: None,
-    }
-}
-
 pub fn register(e: &mut Engine) {
-    e.ns("ws")
-        .doc("WebSocket client (RFC 6455) over TCP/TLS — connect/send/recv/close.")
-        .member(func(
-            "connect",
-            "__RTS_FN_NS_WS_CONNECT",
-            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
-            "connect(url: string): number",
-            "Open a WebSocket (ws://|wss://) + HTTP Upgrade handshake. Handle, 0 on error.",
-            __RTS_FN_NS_WS_CONNECT as *const u8,
-        ))
-        .member(func(
-            "send",
-            "__RTS_FN_NS_WS_SEND",
-            Sig::new(vec![AbiType::U64, AbiType::StrPtr], AbiType::I64),
-            "send(handle: number, text: string): number",
-            "Send a masked TEXT frame. 1 ok / 0 on failure.",
-            __RTS_FN_NS_WS_SEND as *const u8,
-        ))
-        .member(func(
-            "recv",
-            "__RTS_FN_NS_WS_RECV",
-            Sig::new(vec![AbiType::U64], AbiType::Handle),
-            "recv(handle: number): string",
-            "Next complete message as a string, or '' if none ready yet (poll).",
-            __RTS_FN_NS_WS_RECV as *const u8,
-        ))
-        .member(func(
-            "recvReady",
-            "__RTS_FN_NS_WS_RECV_READY",
-            Sig::new(vec![AbiType::U64], AbiType::I64),
-            "recvReady(handle: number): number",
-            "1 if a message is ready, 0 if not, -1 if closed.",
-            __RTS_FN_NS_WS_RECV_READY as *const u8,
-        ))
-        .member(func(
-            "close",
-            "__RTS_FN_NS_WS_CLOSE",
-            Sig::new(vec![AbiType::U64], AbiType::Void),
-            "close(handle: number): void",
-            "Send a CLOSE frame and free the connection.",
-            __RTS_FN_NS_WS_CLOSE as *const u8,
-        ))
+    e.module("ws", |m| {
+        m.doc("WebSocket client (RFC 6455) over TCP/TLS — connect/send/recv/close.");
+        m.registry(connect_entry());
+        m.registry(send_entry());
+        m.registry(recv_entry());
+        m.registry(recv_ready_entry());
+        m.registry(close_entry());
         // ── lado SERVIDOR (multiplayer local) ──
-        .member(func(
-            "serve",
-            "__RTS_FN_NS_WS_SERVE",
-            Sig::new(vec![AbiType::I64], AbiType::Handle),
-            "serve(port: number): number",
-            "Open a WebSocket server on 0.0.0.0:port (non-blocking). Server handle, 0 on error.",
-            __RTS_FN_NS_WS_SERVE as *const u8,
-        ))
-        .member(func(
-            "accept",
-            "__RTS_FN_NS_WS_ACCEPT",
-            Sig::new(vec![AbiType::U64], AbiType::Handle),
-            "accept(server: number): number",
-            "Accept one pending connection (server-side handshake). Client handle, 0 if none pending.",
-            __RTS_FN_NS_WS_ACCEPT as *const u8,
-        ))
-        .member(func(
-            "closeServer",
-            "__RTS_FN_NS_WS_CLOSE_SERVER",
-            Sig::new(vec![AbiType::U64], AbiType::Void),
-            "closeServer(server: number): void",
-            "Stop accepting and free the listener.",
-            __RTS_FN_NS_WS_CLOSE_SERVER as *const u8,
-        ))
-        .done(); // COMMIT o módulo no Engine (sem isto o builder é descartado).
+        m.registry(serve_entry());
+        m.registry(accept_entry());
+        m.registry(close_server_entry());
+    });
 }
 

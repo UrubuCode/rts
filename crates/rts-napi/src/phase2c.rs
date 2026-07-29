@@ -17,10 +17,16 @@ use napi_status::{napi_generic_failure, napi_invalid_arg, napi_ok};
 const UNDEFINED: u64 = (i64::MIN + 2) as u64;
 
 // Símbolos de Promise (rts-std) resolvidos no link do bin. Stub em test.
+// (símbolos baked pelo `#[rtse::function]`/`rts-symbol-baker` — a linha aqui
+// preserva o nome Rust local antigo via `#[link_name]` pra não mexer nas
+// chamadas abaixo.)
 #[cfg(not(test))]
 unsafe extern "C" {
+    #[link_name = "__rtsm_promise_new_pending"]
     fn __RTS_FN_NS_PROMISE_NEW_PENDING() -> u64;
+    #[link_name = "__rtsm_promise_resolve"]
     fn __RTS_FN_NS_PROMISE_RESOLVE(promise: u64, value: i64) -> i64;
+    #[link_name = "__rtsm_promise_reject"]
     fn __RTS_FN_NS_PROMISE_REJECT(promise: u64, error: i64) -> i64;
 }
 #[cfg(test)]

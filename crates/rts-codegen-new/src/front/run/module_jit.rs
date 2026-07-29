@@ -55,7 +55,7 @@ impl Program {
         // the SAME post-main step the AOT shim emits (`module_aot`). Without it
         // a top-level `p.then(cb)` / `setTimeout(cb)` never fired under JIT
         // (`rts run`); a program with nothing queued is a no-op.
-        rts_runtime::namespaces::event_loop::__RTS_FN_RT_RUN_EVENT_LOOP();
+        rts_runtime::namespaces::event_loop::__rtsn_run_event_loop();
         // keep the module mapped until after the call returns.
         let _keep = &self._module;
     }

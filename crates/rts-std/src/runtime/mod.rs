@@ -18,8 +18,7 @@ pub mod tokio_ctx;
 
 use std::path::PathBuf;
 
-use rts_engine::abi::ty::{Handle, I64};
-use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::Engine;
 
 fn spawn_rts_run(path: &std::path::Path) -> i64 {
     let rts = find_rts_binary();
@@ -58,12 +57,8 @@ fn find_rts_binary() -> PathBuf {
 }
 
 /// Evaluates TS `src`. Returns the program exit code, or -1 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_RUNTIME_EVAL(src_ptr: *const u8, src_len: i64) -> I64 {
-    let src = match unsafe { rts_engine::abi::str_abi::from_abi(src_ptr, src_len) } {
-        Some(s) => s,
-        None => return -1,
-    };
+#[rtse::function(module = "runtime", value = "eval")]
+fn eval(src: &str) -> i64 {
     let tmp = std::env::temp_dir().join(format!("rts_eval_{}.ts", std::process::id()));
     if std::fs::write(&tmp, src).is_err() {
         return -1;
@@ -74,79 +69,28 @@ pub extern "C" fn __RTS_FN_NS_RUNTIME_EVAL(src_ptr: *const u8, src_len: i64) -> 
 }
 
 /// Evaluates the TS file at `path`. Returns the program exit code, or -1.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_RUNTIME_EVAL_FILE(path_ptr: *const u8, path_len: i64) -> I64 {
-    let path = match unsafe { rts_engine::abi::str_abi::from_abi(path_ptr, path_len) } {
-        Some(s) => s,
-        None => return -1,
-    };
+#[rtse::function(module = "runtime", value = "eval_file")]
+fn eval_file(path: &str) -> i64 {
     spawn_rts_run(std::path::Path::new(path))
 }
 
 /// AOT stub for dynamic `import(path)` — JIT-only; returns a null handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_RUNTIME_IMPORT_MODULE(_path_ptr: *const u8, _path_len: i64) -> Handle {
+#[rtse::function(module = "runtime", value = "import_module")]
+fn import_module(_path: &str) -> u64 {
     0
 }
 
 /// AOT stub: no in-process importer to receive the exports handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_RUNTIME_SET_MODULE_EXPORTS(_ns: Handle) {}
-
-/// Função `runtime.f(args)`.
-fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
-    Member {
-        name: name.to_string(),
-        kind: MemberKind::Function,
-        sig,
-        symbol: symbol.to_string(),
-        fn_ptr: FnPtr(fp),
-        flags: MemberFlags::NONE,
-        aliases: Vec::new(),
-        variadic: false,
-        ts_signature: ts.to_string(),
-        doc: doc.to_string(),
-        ret_class: None,
-        pure: false,
-        emit: None,
-    }
-}
+#[rtse::function(module = "runtime", value = "set_module_exports")]
+fn set_module_exports(_ns: u64) {}
 
 /// Registra a namespace `runtime` no motor (Fase 2 — hand-written, sem macro).
 pub fn register(e: &mut Engine) {
-    e.ns("runtime")
-        .doc("Dynamic evaluation + hot-reload primitives (AOT/subprocess; JIT shadows).")
-        .member(func(
-            "eval",
-            "__RTS_FN_NS_RUNTIME_EVAL",
-            Sig::new(vec![AbiType::StrPtr], AbiType::I64),
-            "eval(src: string): number",
-            "Evaluates TS `src`. Returns the program exit code, or -1 on error.",
-            __RTS_FN_NS_RUNTIME_EVAL as *const u8,
-        ))
-        .member(func(
-            "eval_file",
-            "__RTS_FN_NS_RUNTIME_EVAL_FILE",
-            Sig::new(vec![AbiType::StrPtr], AbiType::I64),
-            "eval_file(path: string): number",
-            "Evaluates the TS file at `path`. Returns the program exit code, or -1.",
-            __RTS_FN_NS_RUNTIME_EVAL_FILE as *const u8,
-        ))
-        .member(func(
-            "import_module",
-            "__RTS_FN_NS_RUNTIME_IMPORT_MODULE",
-            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
-            "import_module(path: string): number",
-            "AOT stub for dynamic `import(path)` — JIT-only; returns a null handle.",
-            __RTS_FN_NS_RUNTIME_IMPORT_MODULE as *const u8,
-        ))
-        .member(func(
-            "set_module_exports",
-            "__RTS_FN_NS_RUNTIME_SET_MODULE_EXPORTS",
-            Sig::new(vec![AbiType::Handle], AbiType::Void),
-            "set_module_exports(ns: number): void",
-            "AOT stub: no in-process importer to receive the exports handle.",
-            __RTS_FN_NS_RUNTIME_SET_MODULE_EXPORTS as *const u8,
-        ))
-        .done();
+    e.module("runtime", |m| {
+        m.doc("Dynamic evaluation + hot-reload primitives (AOT/subprocess; JIT shadows).");
+        m.registry(eval_entry());
+        m.registry(eval_file_entry());
+        m.registry(import_module_entry());
+        m.registry(set_module_exports_entry());
+    });
 }

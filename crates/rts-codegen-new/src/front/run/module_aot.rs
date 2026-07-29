@@ -8,7 +8,7 @@
 //! final link against the `rts-runtime` staticlib.
 //!
 //! The emitted `main` (the CRT entry) calls `__rts_startup` (the lowered top-level)
-//! and then `__RTS_FN_RT_RUN_EVENT_LOOP` (drains pending microtasks/timers so an
+//! and then `__rtsn_run_event_loop` (drains pending microtasks/timers so an
 //! AOT binary matches `rts run`), and returns `0`.
 
 use cranelift_codegen::ir::{AbiParam, InstBuilder, types};
@@ -150,7 +150,7 @@ fn emit_shape_seed_data(module: &mut ObjectModule) -> FrontResult<ShapeSeed> {
 
 /// Emit `extern "C" int main(void)` that SEEDS the shape registry, calls the
 /// lowered top-level (`__rts_startup`, `rts_startup_id`), then
-/// `__RTS_FN_RT_RUN_EVENT_LOOP`, returning 0.
+/// `__rtsn_run_event_loop`, returning 0.
 fn emit_main_entry(
     module: &mut ObjectModule,
     rts_startup_id: cranelift_module::FuncId,
@@ -185,7 +185,7 @@ fn emit_main_entry(
     // The runtime's event-loop drain, resolved at link time.
     let evloop_sig = module.make_signature(); // () -> ()
     let evloop_id = module
-        .declare_function("__RTS_FN_RT_RUN_EVENT_LOOP", Linkage::Import, &evloop_sig)
+        .declare_function("__rtsn_run_event_loop", Linkage::Import, &evloop_sig)
         .map_err(|e| Unsupported::new(format!("declare event-loop drain: {e}")))?;
 
     // The shape-registry seeder: `(ptr, len) -> ()`. Resolved at link time against

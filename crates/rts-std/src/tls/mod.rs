@@ -3,14 +3,14 @@
 //! Wraps a `net` TcpStream in a TLS connection. Trust store is webpki-roots
 //! (embedded Mozilla bundle); no dependency on the OS trust store.
 //!
-//! Migrado do `#[rts_namespace]` pro modelo builder hand-written do `rts-engine`
-//! (rumo à remoção da `rts-macro`; ver pilotos hint/hash/ptr/mem/runtime).
+//! Convertido pro modelo de autoria `#[rtse::function]` (fonte única de
+//! símbolos — ver `docs/specs/rts-macro-single-source.md`).
 
 use std::io::{Read, Write};
 use std::sync::Arc;
 
+use rts_engine::Engine;
 use rts_engine::abi::ty::{Handle, I64, U64};
-use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 use rustls::{ClientConfig, ClientConnection, RootCertStore, Stream};
 
 // `TlsClientStream` migrou pro heap do motor (`rts_engine::heap::handles`);
@@ -46,12 +46,8 @@ fn default_config() -> Arc<ClientConfig> {
 }
 
 /// Wrap a TCP stream handle in a TLS client (SNI `sniHostname`). Handle, 0 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_TLS_CLIENT(tcp: U64, sni_ptr: *const u8, sni_len: i64) -> Handle {
-    let sni = match unsafe { rts_engine::abi::str_abi::from_abi(sni_ptr, sni_len) } {
-        Some(s) => s,
-        None => return 0,
-    };
+#[rtse::function(module = "tls", value = "client", ret_ts = "number")]
+fn client(tcp: U64, sni: &str) -> Handle {
     // Take the TcpStream out of `tcp`'s slot (transfer ownership).
     let tcp_stream: Option<std::net::TcpStream> = with_entry_mut(tcp, |entry| match entry {
         Some(e @ Entry::TcpStream(_)) => {
@@ -84,12 +80,8 @@ pub extern "C" fn __RTS_FN_NS_TLS_CLIENT(tcp: U64, sni_ptr: *const u8, sni_len: 
 }
 
 /// Encrypt + send `data`. Bytes written, -1 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_TLS_SEND(stream: U64, data_ptr: *const u8, data_len: i64) -> I64 {
-    let data = match unsafe { rts_engine::abi::str_abi::from_abi(data_ptr, data_len) } {
-        Some(s) => s,
-        None => return -1,
-    };
+#[rtse::function(module = "tls", value = "send")]
+fn send(stream: U64, data: &str) -> I64 {
     with_entry_mut(stream, |entry| {
         let Some(Entry::TlsClient(s)) = entry else {
             return -1;
@@ -103,8 +95,8 @@ pub extern "C" fn __RTS_FN_NS_TLS_SEND(stream: U64, data_ptr: *const u8, data_le
 }
 
 /// Decrypt into a raw buffer. Count, 0 on clean EOF, -1 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_TLS_RECV(stream: U64, buf_ptr: U64, len: I64) -> I64 {
+#[rtse::function(module = "tls", value = "recv")]
+fn recv(stream: U64, buf_ptr: U64, len: I64) -> I64 {
     if len < 0 || buf_ptr == 0 {
         return -1;
     }
@@ -124,8 +116,8 @@ pub extern "C" fn __RTS_FN_NS_TLS_RECV(stream: U64, buf_ptr: U64, len: I64) -> I
 }
 
 /// Send close_notify and free the handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_TLS_CLOSE(stream: U64) {
+#[rtse::function(module = "tls", value = "close")]
+fn close(stream: U64) {
     with_entry_mut(stream, |entry| {
         if let Some(Entry::TlsClient(s)) = entry {
             s.conn.send_close_notify();
@@ -135,60 +127,13 @@ pub extern "C" fn __RTS_FN_NS_TLS_CLOSE(stream: U64) {
     free_handle(stream);
 }
 
-/// Função `tls.f(args)`.
-fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
-    Member {
-        name: name.to_string(),
-        kind: MemberKind::Function,
-        sig,
-        symbol: symbol.to_string(),
-        fn_ptr: FnPtr(fp),
-        flags: MemberFlags::NONE,
-        aliases: Vec::new(),
-        variadic: false,
-        ts_signature: ts.to_string(),
-        doc: doc.to_string(),
-        ret_class: None,
-        pure: false,
-        emit: None,
-    }
-}
-
-/// Registra a namespace `tls` no motor (Fase 2 — hand-written, sem macro).
+/// Registra a namespace `tls` no motor.
 pub fn register(e: &mut Engine) {
-    e.ns("tls")
-        .doc("Sync TLS 1.2/1.3 client (rustls + webpki-roots).")
-        .member(func(
-            "client",
-            "__RTS_FN_NS_TLS_CLIENT",
-            Sig::new(vec![AbiType::U64, AbiType::StrPtr], AbiType::Handle),
-            "client(tcp: number, sniHostname: string): number",
-            "Wrap a TCP stream handle in a TLS client (SNI `sniHostname`). Handle, 0 on error.",
-            __RTS_FN_NS_TLS_CLIENT as *const u8,
-        ))
-        .member(func(
-            "send",
-            "__RTS_FN_NS_TLS_SEND",
-            Sig::new(vec![AbiType::U64, AbiType::StrPtr], AbiType::I64),
-            "send(stream: number, data: string): number",
-            "Encrypt + send `data`. Bytes written, -1 on error.",
-            __RTS_FN_NS_TLS_SEND as *const u8,
-        ))
-        .member(func(
-            "recv",
-            "__RTS_FN_NS_TLS_RECV",
-            Sig::new(vec![AbiType::U64, AbiType::U64, AbiType::I64], AbiType::I64),
-            "recv(stream: number, bufPtr: number, len: number): number",
-            "Decrypt into a raw buffer. Count, 0 on clean EOF, -1 on error.",
-            __RTS_FN_NS_TLS_RECV as *const u8,
-        ))
-        .member(func(
-            "close",
-            "__RTS_FN_NS_TLS_CLOSE",
-            Sig::new(vec![AbiType::U64], AbiType::Void),
-            "close(stream: number): void",
-            "Send close_notify and free the handle.",
-            __RTS_FN_NS_TLS_CLOSE as *const u8,
-        ))
-        .done();
+    e.module("tls", |m| {
+        m.doc("Sync TLS 1.2/1.3 client (rustls + webpki-roots).");
+        m.registry(client_entry());
+        m.registry(send_entry());
+        m.registry(recv_entry());
+        m.registry(close_entry());
+    });
 }

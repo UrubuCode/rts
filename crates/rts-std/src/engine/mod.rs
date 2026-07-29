@@ -11,19 +11,29 @@
 //! lowering time (the `engine` ambient global is resolvable only from
 //! prelude-origin functions — see `rts-codegen-new`'s `engineobj` lowering).
 //!
-//! Symbols follow the canonical convention `__RTS_FN_NS_ENGINE_<NAME>`.
+//! Symbols keep the LEGACY `__RTS_FN_NS_ENGINE_<NAME>` spelling (via an
+//! EXPLICIT `#[rtse::function("__RTS_FN_NS_ENGINE_...")]` symbol, not the
+//! macro's derived `__rtsm_engine_<name>`): `rts-codegen-new`'s
+//! `front/run/engineobj.rs` lowers every `engine.method(...)` call by
+//! hardcoding these exact symbol strings (`engine_member`/`engine_word_member`)
+//! and calling `call_runtime` directly — it bypasses the Registry lookup
+//! entirely, so renaming the symbol here without updating that hardcoded table
+//! (out of scope for this conversion) would silently break every prelude
+//! caller. `is_buffer`/`buffer_clone`/`buffer_detach` additionally reuse an
+//! existing `rts-shared` extern under its own symbol (see the `func` escape
+//! hatch below); `num_to_string_radix` is a plain hand-written bridge fn.
 
 use rts_engine::abi::ty::Handle;
-use rts_engine::{sig, Engine, FnPtr, Member, MemberFlags, MemberKind};
+use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 // The existing externs we wrap (by symbol — their real bodies live in the
 // `os` / `time` / `trace` namespaces, linked into the same runtime).
 unsafe extern "C" {
-    fn __RTS_FN_NS_OS_ARCH() -> u64;
-    fn __RTS_FN_NS_TIME_NOW_MS() -> i64;
-    fn __RTS_FN_NS_TIME_NOW_NS() -> i64;
-    fn __RTS_FN_NS_TIME_UNIX_MS() -> i64;
-    fn __RTS_FN_NS_TIME_UNIX_NS() -> i64;
+    fn __rtsm_os_arch() -> u64;
+    fn __rtsm_time_now_ms() -> i64;
+    fn __rtsm_time_now_ns() -> i64;
+    fn __rtsm_time_unix_ms() -> i64;
+    fn __rtsm_time_unix_ns() -> i64;
     fn __RTS_FN_NS_TRACE_PUSH_FRAME(
         file_ptr: *const u8,
         file_len: i64,
@@ -51,97 +61,18 @@ pub extern "C" fn __RTS_FN_NS_ENGINE_NUM_TO_STRING_RADIX(v: f64, radix: i64) -> 
 }
 
 /// CPU architecture string handle ('x86_64', 'aarch64', …). Wraps `os.arch`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ENGINE_ARCH() -> Handle {
-    unsafe { __RTS_FN_NS_OS_ARCH() }
+#[rtse::function("__RTS_FN_NS_ENGINE_ARCH")]
+fn arch() -> Handle {
+    unsafe { __rtsm_os_arch() }
 }
 
-/// Monotonic milliseconds since process start. Wraps `time.now_ms`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ENGINE_NOW_MS() -> i64 {
-    unsafe { __RTS_FN_NS_TIME_NOW_MS() }
-}
-
-/// Monotonic nanoseconds since process start. Wraps `time.now_ns`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ENGINE_NOW_NS() -> i64 {
-    unsafe { __RTS_FN_NS_TIME_NOW_NS() }
-}
-
-/// Wall-clock milliseconds since the UNIX epoch. Wraps `time.unix_ms`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ENGINE_UNIX_MS() -> i64 {
-    unsafe { __RTS_FN_NS_TIME_UNIX_MS() }
-}
-
-/// Wall-clock nanoseconds since the UNIX epoch. Wraps `time.unix_ns`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ENGINE_UNIX_NS() -> i64 {
-    unsafe { __RTS_FN_NS_TIME_UNIX_NS() }
-}
-
-/// Push a TS call frame onto the trace stack (for error stacks). Wraps
-/// `trace.push_frame`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ENGINE_TRACE_PUSH(
-    file_ptr: *const u8,
-    file_len: i64,
-    fn_name_ptr: *const u8,
-    fn_name_len: i64,
-    line: i64,
-    col: i64,
-) {
-    unsafe { __RTS_FN_NS_TRACE_PUSH_FRAME(file_ptr, file_len, fn_name_ptr, fn_name_len, line, col) }
-}
-
-/// Pop the top TS call frame from the trace stack. Wraps `trace.pop_frame`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ENGINE_TRACE_POP() {
-    unsafe { __RTS_FN_NS_TRACE_POP_FRAME() }
-}
-
-/// Capture the current trace as a GC string handle (0 if the stack is empty).
-/// This is the renderer Error/throw stacks need: it both captures the current
-/// frame stack AND renders it to a string in one step. Wraps `trace.capture`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ENGINE_TRACE_CAPTURE() -> Handle {
-    unsafe { __RTS_FN_NS_TRACE_CAPTURE() }
-}
-
-/// Print the current trace stack to stderr. Wraps `trace.print`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ENGINE_TRACE_PRINT() {
-    unsafe { __RTS_FN_NS_TRACE_PRINT() }
-}
-
-/// A member returning a GC string handle.
-fn str_func(name: &str, symbol: &str, ts: &str, doc: &str, fp: *const u8) -> Member {
-    Member {
-        name: name.to_string(),
-        kind: MemberKind::Function,
-        sig: rts_engine::Sig::new(Vec::new(), rts_engine::AbiType::Handle),
-        symbol: symbol.to_string(),
-        fn_ptr: FnPtr(fp),
-        flags: MemberFlags::NONE,
-        aliases: Vec::new(),
-        variadic: false,
-        ts_signature: ts.to_string(),
-        doc: doc.to_string(),
-        ret_class: None,
-        pure: false,
-        emit: None,
-    }
-}
-
-/// A generic member with an explicit signature.
-pub(super) fn func(
-    name: &str,
-    symbol: &str,
-    sig: rts_engine::Sig,
-    ts: &str,
-    doc: &str,
-    fp: *const u8,
-) -> Member {
+/// A generic member with an explicit signature — the escape hatch for the 3
+/// members below, which do not have a Rust BODY of their own: they reuse an
+/// EXISTING `#[unsafe(no_mangle)]` extern already defined in `rts-shared`
+/// (`buffer/mod.rs`), under that exact same symbol. `#[rtse::function]` cannot
+/// express this: it always MINTS a fresh symbol from `module`+`value`, and
+/// here that would collide with the symbol `rts-shared` already owns.
+fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
     Member {
         name: name.to_string(),
         kind: MemberKind::Function,
@@ -159,107 +90,103 @@ pub(super) fn func(
     }
 }
 
+/// Monotonic milliseconds since process start. Wraps `time.now_ms`.
+#[rtse::function("__RTS_FN_NS_ENGINE_NOW_MS")]
+fn now_ms() -> i64 {
+    unsafe { __rtsm_time_now_ms() }
+}
+
+/// Monotonic nanoseconds since process start. Wraps `time.now_ns`.
+#[rtse::function("__RTS_FN_NS_ENGINE_NOW_NS")]
+fn now_ns() -> i64 {
+    unsafe { __rtsm_time_now_ns() }
+}
+
+/// Wall-clock milliseconds since the UNIX epoch. Wraps `time.unix_ms`.
+#[rtse::function("__RTS_FN_NS_ENGINE_UNIX_MS")]
+fn unix_ms() -> i64 {
+    unsafe { __rtsm_time_unix_ms() }
+}
+
+/// Wall-clock nanoseconds since the UNIX epoch. Wraps `time.unix_ns`.
+#[rtse::function("__RTS_FN_NS_ENGINE_UNIX_NS")]
+fn unix_ns() -> i64 {
+    unsafe { __rtsm_time_unix_ns() }
+}
+
+/// Push a TS call frame onto the trace stack. Wraps trace.push_frame.
+#[rtse::function("__RTS_FN_NS_ENGINE_TRACE_PUSH")]
+fn trace_push(file: &str, fn_name: &str, line: i64, col: i64) {
+    unsafe {
+        __RTS_FN_NS_TRACE_PUSH_FRAME(
+            file.as_ptr(),
+            file.len() as i64,
+            fn_name.as_ptr(),
+            fn_name.len() as i64,
+            line,
+            col,
+        )
+    }
+}
+
+/// Pop the top TS call frame from the trace stack. Wraps trace.pop_frame.
+#[rtse::function("__RTS_FN_NS_ENGINE_TRACE_POP")]
+fn trace_pop() {
+    unsafe { __RTS_FN_NS_TRACE_POP_FRAME() }
+}
+
+/// Capture + render the current trace stack to a string handle. Wraps
+/// trace.capture.
+#[rtse::function("__RTS_FN_NS_ENGINE_TRACE_CAPTURE")]
+fn trace_capture() -> Handle {
+    unsafe { __RTS_FN_NS_TRACE_CAPTURE() }
+}
+
+/// Print the current trace stack to stderr. Wraps trace.print.
+#[rtse::function("__RTS_FN_NS_ENGINE_TRACE_PRINT")]
+fn trace_print() {
+    unsafe { __RTS_FN_NS_TRACE_PRINT() }
+}
+
 /// Registra a namespace PRIVADA `engine` no motor. Re-expõe arch/time/trace para o
 /// prelude embutido do motor; marcada `.private()` para não vazar pro código do
 /// usuário.
 pub fn register(e: &mut Engine) {
-    let b = e
-        .ns("engine")
-        .doc("PRIVATE engine-internal surface: arch + timestamps + trace, for the embedded TS prelude only.")
-        .private()
-        .member(str_func(
-            "arch",
-            "__RTS_FN_NS_ENGINE_ARCH",
-            "arch(): string",
-            "CPU architecture string ('x86_64', 'aarch64', ...). Wraps os.arch.",
-            __RTS_FN_NS_ENGINE_ARCH as *const u8,
-        ))
-        .member(func(
+    e.module("engine", |m| {
+        m.doc("PRIVATE engine-internal surface: arch + timestamps + trace, for the embedded TS prelude only.");
+        m.private();
+        m.registry(arch_entry());
+        m.member(func(
             "is_buffer",
             "__RTS_FN_NS_ENGINE_IS_BUFFER",
-            rts_engine::Sig::new(vec![rts_engine::AbiType::PolyValue], rts_engine::AbiType::PolyValue),
+            Sig::new(vec![AbiType::PolyValue], AbiType::PolyValue),
             "is_buffer(x: unknown): boolean",
             "Whether the value wraps an Entry::Buffer (an ArrayBuffer) — the structuredClone transfer bridge.",
             rts_shared::buffer::__RTS_FN_NS_ENGINE_IS_BUFFER as *const u8,
-        ))
-        .member(func(
+        ));
+        m.member(func(
             "buffer_clone",
             "__RTS_FN_NS_ENGINE_BUFFER_CLONE",
-            rts_engine::Sig::new(vec![rts_engine::AbiType::PolyValue], rts_engine::AbiType::PolyValue),
+            Sig::new(vec![AbiType::PolyValue], AbiType::PolyValue),
             "buffer_clone(x: unknown): unknown",
             "A NEW ArrayBuffer copying the bytes (structuredClone of a buffer).",
             rts_shared::buffer::__RTS_FN_NS_ENGINE_BUFFER_CLONE as *const u8,
-        ))
-        .member(func(
+        ));
+        m.member(func(
             "buffer_detach",
             "__RTS_FN_NS_ENGINE_BUFFER_DETACH",
-            rts_engine::Sig::new(vec![rts_engine::AbiType::PolyValue], rts_engine::AbiType::PolyValue),
+            Sig::new(vec![AbiType::PolyValue], AbiType::PolyValue),
             "buffer_detach(x: unknown): void",
             "Empty the buffer in place (JS detach: byteLength reads 0 afterwards).",
             rts_shared::buffer::__RTS_FN_NS_ENGINE_BUFFER_DETACH as *const u8,
-        ))
-        .member(func(
-            "now_ms",
-            "__RTS_FN_NS_ENGINE_NOW_MS",
-            sig!(=> I64),
-            "now_ms(): number",
-            "Monotonic milliseconds since process start. Wraps time.now_ms.",
-            __RTS_FN_NS_ENGINE_NOW_MS as *const u8,
-        ))
-        .member(func(
-            "now_ns",
-            "__RTS_FN_NS_ENGINE_NOW_NS",
-            sig!(=> I64),
-            "now_ns(): number",
-            "Monotonic nanoseconds since process start. Wraps time.now_ns.",
-            __RTS_FN_NS_ENGINE_NOW_NS as *const u8,
-        ))
-        .member(func(
-            "unix_ms",
-            "__RTS_FN_NS_ENGINE_UNIX_MS",
-            sig!(=> I64),
-            "unix_ms(): number",
-            "Wall-clock milliseconds since the UNIX epoch. Wraps time.unix_ms.",
-            __RTS_FN_NS_ENGINE_UNIX_MS as *const u8,
-        ))
-        .member(func(
-            "unix_ns",
-            "__RTS_FN_NS_ENGINE_UNIX_NS",
-            sig!(=> I64),
-            "unix_ns(): number",
-            "Wall-clock nanoseconds since the UNIX epoch. Wraps time.unix_ns.",
-            __RTS_FN_NS_ENGINE_UNIX_NS as *const u8,
-        ))
-        .member(func(
-            "trace_push",
-            "__RTS_FN_NS_ENGINE_TRACE_PUSH",
-            sig!(StrPtr, StrPtr, I64, I64 => Void),
-            "trace_push(file: string, fn_name: string, line: number, col: number): void",
-            "Push a TS call frame onto the trace stack. Wraps trace.push_frame.",
-            __RTS_FN_NS_ENGINE_TRACE_PUSH as *const u8,
-        ))
-        .member(func(
-            "trace_pop",
-            "__RTS_FN_NS_ENGINE_TRACE_POP",
-            sig!(=> Void),
-            "trace_pop(): void",
-            "Pop the top TS call frame from the trace stack. Wraps trace.pop_frame.",
-            __RTS_FN_NS_ENGINE_TRACE_POP as *const u8,
-        ))
-        .member(str_func(
-            "trace_capture",
-            "__RTS_FN_NS_ENGINE_TRACE_CAPTURE",
-            "trace_capture(): string",
-            "Capture + render the current trace stack to a string handle. Wraps trace.capture.",
-            __RTS_FN_NS_ENGINE_TRACE_CAPTURE as *const u8,
-        ))
-        .member(func(
-            "trace_print",
-            "__RTS_FN_NS_ENGINE_TRACE_PRINT",
-            sig!(=> Void),
-            "trace_print(): void",
-            "Print the current trace stack to stderr. Wraps trace.print.",
-            __RTS_FN_NS_ENGINE_TRACE_PRINT as *const u8,
-        ))
-        .done();
+        ));
+        m.registry(now_ms_entry());
+        m.registry(now_ns_entry());
+        m.registry(unix_ms_entry());
+        m.registry(unix_ns_entry());
+        m.registry(trace_push_entry());
+        m.registry(trace_pop_entry());
+        m.registry(trace_capture_entry());
+        m.registry(trace_print_entry());
+    });
 }

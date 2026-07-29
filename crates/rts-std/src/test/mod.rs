@@ -9,7 +9,7 @@
 
 use std::cell::RefCell;
 
-use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::Engine;
 
 pub const BUNDLE_TS: &str = include_str!("bundle.ts");
 
@@ -111,12 +111,8 @@ pub fn runner_passed() -> usize {
 // ── ABI surface (extern "C" runner primitives) ───────────────────────────────
 
 /// Opens a named test suite block. Nested calls increase indent.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_TEST_CORE_SUITE_BEGIN(name_ptr: *const u8, name_len: i64) {
-    let name = match unsafe { rts_engine::abi::str_abi::from_abi(name_ptr, name_len) } {
-        Some(s) => s,
-        None => return,
-    };
+#[rtse::function(module = "test_core", value = "suite_begin")]
+fn suite_begin(name: &str) {
     RUNNER.with(|r| {
         let r = r.borrow();
         let indent = "  ".repeat(r.depth() + 1);
@@ -126,8 +122,8 @@ pub extern "C" fn __RTS_FN_NS_TEST_CORE_SUITE_BEGIN(name_ptr: *const u8, name_le
 }
 
 /// Closes the innermost test suite block.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_TEST_CORE_SUITE_END() {
+#[rtse::function(module = "test_core", value = "suite_end")]
+fn suite_end() {
     RUNNER.with(|r| {
         let mut r = r.borrow_mut();
         r.suite_stack.pop();
@@ -138,12 +134,8 @@ pub extern "C" fn __RTS_FN_NS_TEST_CORE_SUITE_END() {
 }
 
 /// Starts a named test case and resets the failure flag.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_TEST_CORE_CASE_BEGIN(name_ptr: *const u8, name_len: i64) {
-    let name = match unsafe { rts_engine::abi::str_abi::from_abi(name_ptr, name_len) } {
-        Some(s) => s,
-        None => return,
-    };
+#[rtse::function(module = "test_core", value = "case_begin")]
+fn case_begin(name: &str) {
     RUNNER.with(|r| {
         let mut r = r.borrow_mut();
         r.case_name = Some(name.to_string());
@@ -152,8 +144,8 @@ pub extern "C" fn __RTS_FN_NS_TEST_CORE_CASE_BEGIN(name_ptr: *const u8, name_len
 }
 
 /// Ends the current case. Prints ✓ if no failures, updates counters.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_TEST_CORE_CASE_END() {
+#[rtse::function(module = "test_core", value = "case_end")]
+fn case_end() {
     RUNNER.with(|r| {
         let mut r = r.borrow_mut();
         let indent = r.indent();
@@ -169,12 +161,8 @@ pub extern "C" fn __RTS_FN_NS_TEST_CORE_CASE_END() {
 }
 
 /// Marks current case as failed and emits message in red.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_TEST_CORE_CASE_FAIL(msg_ptr: *const u8, msg_len: i64) {
-    let msg = match unsafe { rts_engine::abi::str_abi::from_abi(msg_ptr, msg_len) } {
-        Some(s) => s,
-        None => return,
-    };
+#[rtse::function(module = "test_core", value = "case_fail")]
+fn case_fail(msg: &str) {
     RUNNER.with(|r| {
         let mut r = r.borrow_mut();
         let indent = r.indent();
@@ -188,21 +176,8 @@ pub extern "C" fn __RTS_FN_NS_TEST_CORE_CASE_FAIL(msg_ptr: *const u8, msg_len: i
 }
 
 /// Marks current case as failed and prints an expected/received diff.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_TEST_CORE_CASE_FAIL_DIFF(
-    expected_ptr: *const u8,
-    expected_len: i64,
-    actual_ptr: *const u8,
-    actual_len: i64,
-) {
-    let expected = match unsafe { rts_engine::abi::str_abi::from_abi(expected_ptr, expected_len) } {
-        Some(s) => s,
-        None => return,
-    };
-    let actual = match unsafe { rts_engine::abi::str_abi::from_abi(actual_ptr, actual_len) } {
-        Some(s) => s,
-        None => return,
-    };
+#[rtse::function(module = "test_core", value = "case_fail_diff")]
+fn case_fail_diff(expected: &str, actual: &str) {
     RUNNER.with(|r| {
         let mut r = r.borrow_mut();
         let indent = r.indent();
@@ -230,8 +205,8 @@ pub extern "C" fn __RTS_FN_NS_TEST_CORE_CASE_FAIL_DIFF(
 }
 
 /// Prints pass/fail counts. Call once at the end of the test file.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_TEST_CORE_PRINT_SUMMARY() {
+#[rtse::function(module = "test_core", value = "print_summary")]
+pub fn print_summary() {
     RUNNER.with(|r| {
         let r = r.borrow();
         let passed = r.passed;
@@ -264,84 +239,16 @@ pub extern "C" fn __RTS_FN_NS_TEST_CORE_PRINT_SUMMARY() {
     });
 }
 
-/// Função `test_core.f(args)` — todas as primitivas são void, não-pure.
-fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
-    Member {
-        name: name.to_string(),
-        kind: MemberKind::Function,
-        sig,
-        symbol: symbol.to_string(),
-        fn_ptr: FnPtr(fp),
-        flags: MemberFlags::NONE,
-        aliases: Vec::new(),
-        variadic: false,
-        ts_signature: ts.to_string(),
-        doc: doc.to_string(),
-        ret_class: None,
-        pure: false,
-        emit: None,
-    }
-}
-
 /// Registra a namespace `test_core` no motor (Fase 2 — hand-written, sem macro).
 pub fn register(e: &mut Engine) {
-    e.ns("test_core")
-        .doc("Low-level test runner primitives. Use rts:test for the high-level API.")
-        .member(func(
-            "suite_begin",
-            "__RTS_FN_NS_TEST_CORE_SUITE_BEGIN",
-            Sig::new(vec![AbiType::StrPtr], AbiType::Void),
-            "suite_begin(name: string): void",
-            "Opens a named test suite block. Nested calls increase indent.",
-            __RTS_FN_NS_TEST_CORE_SUITE_BEGIN as *const u8,
-        ))
-        .member(func(
-            "suite_end",
-            "__RTS_FN_NS_TEST_CORE_SUITE_END",
-            Sig::new(Vec::new(), AbiType::Void),
-            "suite_end(): void",
-            "Closes the innermost test suite block.",
-            __RTS_FN_NS_TEST_CORE_SUITE_END as *const u8,
-        ))
-        .member(func(
-            "case_begin",
-            "__RTS_FN_NS_TEST_CORE_CASE_BEGIN",
-            Sig::new(vec![AbiType::StrPtr], AbiType::Void),
-            "case_begin(name: string): void",
-            "Starts a named test case and resets the failure flag.",
-            __RTS_FN_NS_TEST_CORE_CASE_BEGIN as *const u8,
-        ))
-        .member(func(
-            "case_end",
-            "__RTS_FN_NS_TEST_CORE_CASE_END",
-            Sig::new(Vec::new(), AbiType::Void),
-            "case_end(): void",
-            "Ends the current case. Prints ✓ if no failures, updates counters.",
-            __RTS_FN_NS_TEST_CORE_CASE_END as *const u8,
-        ))
-        .member(func(
-            "case_fail",
-            "__RTS_FN_NS_TEST_CORE_CASE_FAIL",
-            Sig::new(vec![AbiType::StrPtr], AbiType::Void),
-            "case_fail(msg: string): void",
-            "Marks current case as failed and emits message in red.",
-            __RTS_FN_NS_TEST_CORE_CASE_FAIL as *const u8,
-        ))
-        .member(func(
-            "case_fail_diff",
-            "__RTS_FN_NS_TEST_CORE_CASE_FAIL_DIFF",
-            Sig::new(vec![AbiType::StrPtr, AbiType::StrPtr], AbiType::Void),
-            "case_fail_diff(expected: string, actual: string): void",
-            "Marks current case as failed and prints an expected/received diff.",
-            __RTS_FN_NS_TEST_CORE_CASE_FAIL_DIFF as *const u8,
-        ))
-        .member(func(
-            "print_summary",
-            "__RTS_FN_NS_TEST_CORE_PRINT_SUMMARY",
-            Sig::new(Vec::new(), AbiType::Void),
-            "print_summary(): void",
-            "Prints pass/fail counts. Call once at the end of the test file.",
-            __RTS_FN_NS_TEST_CORE_PRINT_SUMMARY as *const u8,
-        ))
-        .done();
+    e.module("test_core", |m| {
+        m.doc("Low-level test runner primitives. Use rts:test for the high-level API.");
+        m.registry(suite_begin_entry());
+        m.registry(suite_end_entry());
+        m.registry(case_begin_entry());
+        m.registry(case_end_entry());
+        m.registry(case_fail_entry());
+        m.registry(case_fail_diff_entry());
+        m.registry(print_summary_entry());
+    });
 }

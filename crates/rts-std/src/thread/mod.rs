@@ -6,10 +6,13 @@
 //! worker pool (spawn_detached), and tokio spawn_blocking (spawn_async*). `id()`
 //! is a stable per-thread u64 (ThreadId::as_u64 is still unstable).
 //!
-//! Migrado do `#[rts_namespace]` pro modelo builder hand-written do `rts-engine`
-//! (rumo à remoção da `rts-macro`; ver pilotos hint/hash/ptr/mem/runtime). Os
-//! `spawn*` carregam `raw_bits_arg` (o ptr da fn passa como bits crus, sem
-//! coerção). `scope`/`scope_with_ud` chamam `__RTS_FN_NS_THREAD_JOIN` direto.
+//! Migrado para `#[rtse::function]` (join_async/scope/scope_with_ud/join/
+//! detach/id/sleep_ms); `spawn`/`spawn_async`/`spawn_async_join`/
+//! `spawn_detached`/`spawn_with_ud` ficam hand-written — precisam de
+//! `MemberFlags::RAW_BITS_ARG` (o ptr da fn passa como bits crus, sem
+//! coerção), flag que a macro não expressa. `scope`/`scope_with_ud` chamam
+//! `__rtsm_thread_join` direto (o símbolo que `#[rtse::function]` gera para
+//! `join`).
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -217,8 +220,8 @@ pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN_ASYNC_JOIN(fn_ptr: U64, arg: U64) -> 
 }
 
 /// Awaits the spawn_async_join task `id` and returns its value. 0 if invalid.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_THREAD_JOIN_ASYNC(id: U64) -> U64 {
+#[rtse::function(module = "thread", value = "join_async")]
+fn join_async(id: U64) -> U64 {
     let jh = {
         let mut map = join_store().lock().unwrap_or_else(|e| e.into_inner());
         map.remove(&id)
@@ -258,8 +261,8 @@ pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN_WITH_UD(fn_ptr: U64, arg: U64, userda
 }
 
 /// Runs `body()` in a scope that auto-joins every thread it spawned.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_THREAD_SCOPE(body: U64) {
+#[rtse::function(module = "thread", value = "scope")]
+fn scope(body: U64) {
     if body == 0 {
         return;
     }
@@ -269,13 +272,13 @@ pub extern "C" fn __RTS_FN_NS_THREAD_SCOPE(body: U64) {
     f();
     let handles = SCOPE_STACK.with(|s| s.borrow_mut().pop().unwrap_or_default());
     for h in handles {
-        __RTS_FN_NS_THREAD_JOIN(h);
+        __rtsm_thread_join(h);
     }
 }
 
 /// `scope` variant whose body captures `this` (userdata).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_THREAD_SCOPE_WITH_UD(body: U64, userdata: U64) {
+#[rtse::function(module = "thread", value = "scope_with_ud")]
+fn scope_with_ud(body: U64, userdata: U64) {
     if body == 0 {
         return;
     }
@@ -285,13 +288,13 @@ pub extern "C" fn __RTS_FN_NS_THREAD_SCOPE_WITH_UD(body: U64, userdata: U64) {
     f(userdata);
     let handles = SCOPE_STACK.with(|s| s.borrow_mut().pop().unwrap_or_default());
     for h in handles {
-        __RTS_FN_NS_THREAD_JOIN(h);
+        __rtsm_thread_join(h);
     }
 }
 
 /// Joins the thread handle, returning its value. Consumes the handle. 0 if invalid.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_THREAD_JOIN(thread: U64) -> U64 {
+#[rtse::function(module = "thread", value = "join")]
+fn join(thread: U64) -> U64 {
     let Some(jh) = take_join_handle(thread) else {
         return 0;
     };
@@ -302,14 +305,14 @@ pub extern "C" fn __RTS_FN_NS_THREAD_JOIN(thread: U64) -> U64 {
 }
 
 /// Detaches (drops) the thread handle without joining.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_THREAD_DETACH(thread: U64) {
+#[rtse::function(module = "thread", value = "detach")]
+fn detach(thread: U64) {
     drop(take_join_handle(thread));
 }
 
 /// Stable per-thread id (assigned lazily; never 0).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_THREAD_ID() -> U64 {
+#[rtse::function(module = "thread", value = "id")]
+fn id() -> U64 {
     THREAD_ID.with(|cell| {
         let id = cell.get();
         if id != 0 {
@@ -322,8 +325,8 @@ pub extern "C" fn __RTS_FN_NS_THREAD_ID() -> U64 {
 }
 
 /// Sleeps the current thread for `ms` milliseconds.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_THREAD_SLEEP_MS(ms: I64) {
+#[rtse::function(module = "thread", value = "sleep_ms")]
+fn sleep_ms(ms: I64) {
     let ms = if ms < 0 { 0u64 } else { ms as u64 };
     thread::sleep(Duration::from_millis(ms));
 }
@@ -356,11 +359,16 @@ fn func(
     }
 }
 
-/// Registra a namespace `thread` no motor (Fase 2 — hand-written, sem macro).
+/// Registra a namespace `thread` no motor.
+///
+/// `spawn`/`spawn_async`/`spawn_async_join`/`spawn_detached`/`spawn_with_ud`
+/// stay hand-written: they need `MemberFlags::RAW_BITS_ARG` (the 2nd arg passes
+/// raw f64 bits, not a numeric coercion), a flag `#[rtse::function]` has no
+/// syntax for (only `throws`/`pure`/`constant` compose into `MemberFlags`).
 pub fn register(e: &mut Engine) {
-    e.ns("thread")
-        .doc("Thread primitives: std-thread spawn/join, worker pool, tokio spawn_blocking.")
-        .member(func(
+    e.module("thread", |m| {
+        m.doc("Thread primitives: std-thread spawn/join, worker pool, tokio spawn_blocking.");
+        m.member(func(
             "spawn",
             "__RTS_FN_NS_THREAD_SPAWN",
             Sig::new(vec![AbiType::U64, AbiType::U64], AbiType::U64),
@@ -368,8 +376,8 @@ pub fn register(e: &mut Engine) {
             "Spawns an OS thread running `fn_ptr(arg)`. JoinHandle, 0 on null fn.",
             __RTS_FN_NS_THREAD_SPAWN as *const u8,
             MemberFlags::RAW_BITS_ARG,
-        ))
-        .member(func(
+        ));
+        m.member(func(
             "spawn_async",
             "__RTS_FN_NS_THREAD_SPAWN_ASYNC",
             Sig::new(vec![AbiType::U64, AbiType::U64], AbiType::Void),
@@ -377,8 +385,8 @@ pub fn register(e: &mut Engine) {
             "Fire-and-forget `fn_ptr(arg)` on the shared tokio runtime (spawn_blocking).",
             __RTS_FN_NS_THREAD_SPAWN_ASYNC as *const u8,
             MemberFlags::RAW_BITS_ARG,
-        ))
-        .member(func(
+        ));
+        m.member(func(
             "spawn_async_join",
             "__RTS_FN_NS_THREAD_SPAWN_ASYNC_JOIN",
             Sig::new(vec![AbiType::U64, AbiType::U64], AbiType::U64),
@@ -386,17 +394,9 @@ pub fn register(e: &mut Engine) {
             "Like spawn_async but returns an id for `join_async`. 0 on null fn.",
             __RTS_FN_NS_THREAD_SPAWN_ASYNC_JOIN as *const u8,
             MemberFlags::RAW_BITS_ARG,
-        ))
-        .member(func(
-            "join_async",
-            "__RTS_FN_NS_THREAD_JOIN_ASYNC",
-            Sig::new(vec![AbiType::U64], AbiType::U64),
-            "join_async(id: number): number",
-            "Awaits the spawn_async_join task `id` and returns its value. 0 if invalid.",
-            __RTS_FN_NS_THREAD_JOIN_ASYNC as *const u8,
-            MemberFlags::NONE,
-        ))
-        .member(func(
+        ));
+        m.registry(join_async_entry());
+        m.member(func(
             "spawn_detached",
             "__RTS_FN_NS_THREAD_SPAWN_DETACHED",
             Sig::new(vec![AbiType::U64, AbiType::U64], AbiType::Void),
@@ -404,8 +404,8 @@ pub fn register(e: &mut Engine) {
             "Submits `fn_ptr(arg)` to the global worker pool (fire-and-forget).",
             __RTS_FN_NS_THREAD_SPAWN_DETACHED as *const u8,
             MemberFlags::RAW_BITS_ARG,
-        ))
-        .member(func(
+        ));
+        m.member(func(
             "spawn_with_ud",
             "__RTS_FN_NS_THREAD_SPAWN_WITH_UD",
             Sig::new(vec![AbiType::U64, AbiType::U64, AbiType::U64], AbiType::U64),
@@ -413,60 +413,12 @@ pub fn register(e: &mut Engine) {
             "Spawns an OS thread running `fn_ptr(userdata, arg)`. JoinHandle, 0 on null fn.",
             __RTS_FN_NS_THREAD_SPAWN_WITH_UD as *const u8,
             MemberFlags::RAW_BITS_ARG,
-        ))
-        .member(func(
-            "scope",
-            "__RTS_FN_NS_THREAD_SCOPE",
-            Sig::new(vec![AbiType::U64], AbiType::Void),
-            "scope(body: () => void): void",
-            "Runs `body()` in a scope that auto-joins every thread it spawned.",
-            __RTS_FN_NS_THREAD_SCOPE as *const u8,
-            MemberFlags::NONE,
-        ))
-        .member(func(
-            "scope_with_ud",
-            "__RTS_FN_NS_THREAD_SCOPE_WITH_UD",
-            Sig::new(vec![AbiType::U64, AbiType::U64], AbiType::Void),
-            "scope_with_ud(body: number, userdata: number): void",
-            "`scope` variant whose body captures `this` (userdata).",
-            __RTS_FN_NS_THREAD_SCOPE_WITH_UD as *const u8,
-            MemberFlags::NONE,
-        ))
-        .member(func(
-            "join",
-            "__RTS_FN_NS_THREAD_JOIN",
-            Sig::new(vec![AbiType::U64], AbiType::U64),
-            "join(thread: number): number",
-            "Joins the thread handle, returning its value. Consumes the handle. 0 if invalid.",
-            __RTS_FN_NS_THREAD_JOIN as *const u8,
-            MemberFlags::NONE,
-        ))
-        .member(func(
-            "detach",
-            "__RTS_FN_NS_THREAD_DETACH",
-            Sig::new(vec![AbiType::U64], AbiType::Void),
-            "detach(thread: number): void",
-            "Detaches (drops) the thread handle without joining.",
-            __RTS_FN_NS_THREAD_DETACH as *const u8,
-            MemberFlags::NONE,
-        ))
-        .member(func(
-            "id",
-            "__RTS_FN_NS_THREAD_ID",
-            Sig::new(vec![], AbiType::U64),
-            "id(): number",
-            "Stable per-thread id (assigned lazily; never 0).",
-            __RTS_FN_NS_THREAD_ID as *const u8,
-            MemberFlags::NONE,
-        ))
-        .member(func(
-            "sleep_ms",
-            "__RTS_FN_NS_THREAD_SLEEP_MS",
-            Sig::new(vec![AbiType::I64], AbiType::Void),
-            "sleep_ms(ms: number): void",
-            "Sleeps the current thread for `ms` milliseconds.",
-            __RTS_FN_NS_THREAD_SLEEP_MS as *const u8,
-            MemberFlags::NONE,
-        ))
-        .done();
+        ));
+        m.registry(scope_entry());
+        m.registry(scope_with_ud_entry());
+        m.registry(join_entry());
+        m.registry(detach_entry());
+        m.registry(id_entry());
+        m.registry(sleep_ms_entry());
+    });
 }

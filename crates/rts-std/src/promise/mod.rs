@@ -4,11 +4,10 @@
 //! machine completo: pending/fulfilled/rejected + waiters via tokio oneshot.
 //! (A antiga `Entry::Promise(i64)` sync de `globals/fetch` foi removida.)
 //!
-//! Migrado do `#[rts_namespace]` pro modelo builder hand-written do `rts-engine`
-//! (rumo à remoção da `rts-macro`; ver pilotos hint/hash/ptr/mem/runtime).
-//! `then`/`catch`/`finally` perderam o sufixo `_NS` no simbolo (agora
-//! `__RTS_FN_NS_PROMISE_{THEN,CATCH,FINALLY}`) — interno, distinto do escopo
-//! `GL` de `Promise.prototype`, fora de `rts.d.ts`.
+//! Migrado do modelo builder hand-written do `rts-engine` para a fonte única
+//! `#[rtse::function]` + `rts-symbol-baker` (símbolos agora `__rtsm_promise_*`).
+//! `then`/`catch`/`finally` continuam internos a este namespace `promise`,
+//! distinto do escopo `GL` de `Promise.prototype`, fora de `rts.d.ts`.
 
 use rts_engine::abi::ty::{Handle, I64, U64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
@@ -227,15 +226,15 @@ fn read_promise_vec(h: u64) -> Vec<i64> {
 // ── Externs: cada membro `#[rts_fn]` vira um `extern "C"` próprio. ────────────
 
 /// Cria uma Promise async pending. Use `promise.resolve(h, v)` ou `promise.reject(h, e)` depois pra settle. Outras Promises (sync/JS Promise.resolve/reject) usam atalhos.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PROMISE_NEW_PENDING() -> Handle {
+#[rtse::function(module = "promise", value = "new_pending", ret_ts = "number")]
+fn new_pending() -> Handle {
     let slot = promise_slot::new_pending();
     alloc_entry(Entry::PromiseAsync(slot))
 }
 
 /// Cria Promise async ja' fulfilled com `value`. Equivalente do `Promise.resolve(v)` JS.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PROMISE_NEW_RESOLVED(value: I64) -> Handle {
+#[rtse::function(module = "promise", value = "new_resolved", ret_ts = "number")]
+fn new_resolved(value: I64) -> Handle {
     // Promise/A+: `Promise.resolve(thenable)` ADOPTS the thenable instead of
     // fulfilling with it - start pending and assimilate; a plain value keeps
     // the already-fulfilled fast path.
@@ -250,15 +249,15 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_NEW_RESOLVED(value: I64) -> Handle {
 }
 
 /// Cria Promise async ja' rejected com `error`. Equivalente do `Promise.reject(e)` JS.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PROMISE_NEW_REJECTED(error: I64) -> Handle {
+#[rtse::function(module = "promise", value = "new_rejected", ret_ts = "number")]
+fn new_rejected(error: I64) -> Handle {
     let slot = promise_slot::new_rejected(error);
     alloc_entry(Entry::PromiseAsync(slot))
 }
 
 /// Resolve Promise pending com `value`. Retorna 1 em sucesso, 0 se ja' estava settled (semantica JS — segundo resolve eh no-op).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PROMISE_RESOLVE(promise: U64, value: I64) -> I64 {
+#[rtse::function(module = "promise", value = "resolve")]
+fn resolve(promise: U64, value: I64) -> I64 {
     with_slot(promise, 0, |slot| {
         if promise_slot::resolve(slot, value) {
             1
@@ -269,8 +268,8 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_RESOLVE(promise: U64, value: I64) -> I64 {
 }
 
 /// Reject Promise pending com `error`. Retorna 1 em sucesso, 0 se ja' estava settled.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PROMISE_REJECT(promise: U64, error: I64) -> I64 {
+#[rtse::function(module = "promise", value = "reject")]
+fn reject(promise: U64, error: I64) -> I64 {
     with_slot(promise, 0, |slot| {
         if promise_slot::reject(slot, error) {
             1
@@ -281,8 +280,8 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_REJECT(promise: U64, error: I64) -> I64 {
 }
 
 /// Retorna 0 (pending), 1 (fulfilled) ou 2 (rejected). -1 se handle invalido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PROMISE_STATE(promise: U64) -> I64 {
+#[rtse::function(module = "promise", value = "state")]
+pub fn state(promise: U64) -> I64 {
     with_slot(promise, -1, |slot| promise_slot::current_state(slot) as i64)
 }
 
@@ -291,8 +290,11 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_STATE(promise: U64) -> I64 {
 /// um produtor do motor novo decodifica para o inteiro/handle que representa
 /// (um número imprime como número, não como os bits). O `await` do motor NÃO
 /// passa por aqui — usa [`wait_raw`] (verbatim) e reboxa a word ele mesmo.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PROMISE_WAIT(promise: U64) -> I64 {
+/// (#[rtse::function] drops `MemberFlags::AMBIGUOUS_RET` — that flag is DATA
+/// ONLY today, never read by the engine (grep confirms zero consumers), so its
+/// loss here is not a behavior change; flagged in the conversion report.)
+#[rtse::function(module = "promise", value = "wait")]
+pub fn wait(promise: U64) -> I64 {
     normalize_settled_i64(wait_raw(promise))
 }
 
@@ -392,8 +394,8 @@ pub fn wait_raw(promise: u64) -> i64 {
 }
 
 /// Nao-bloqueante: retorna o valor se Promise ja' settled, 0 se ainda pending ou handle invalido. Para checar pending vs settled use `state` antes.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PROMISE_TRY_VALUE(promise: U64) -> I64 {
+#[rtse::function(module = "promise", value = "try_value")]
+fn try_value(promise: U64) -> I64 {
     with_slot(promise, 0, |slot| {
         if promise_slot::current_state(slot) == promise_slot::STATE_PENDING {
             0
@@ -404,8 +406,8 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_TRY_VALUE(promise: U64) -> I64 {
 }
 
 /// promise.then(p, fn) — chama fn(value) ao resolve, retorna nova Promise resolvida com retorno de fn. Para PromiseAsync, spawna task tokio que aguarda settle. Equivalente a `p.then(fn)` JS mas com sintaxe namespace pra evitar conflito com instance methods do Promise class spec.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PROMISE_THEN(p_handle: U64, fp: U64) -> Handle {
+#[rtse::function(module = "promise", value = "then", ret_ts = "number")]
+fn then(p_handle: U64, fp: U64) -> Handle {
     let slot_arc = with_entry(p_handle, |entry| match entry {
         Some(Entry::PromiseAsync(arc)) => Some(arc.clone()),
         _ => None,
@@ -461,8 +463,8 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_THEN(p_handle: U64, fp: U64) -> Handle {
 }
 
 /// promise.catch(p, fn) — chama fn(err) ao reject. Recovers (Promise resultante eh fulfilled).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PROMISE_CATCH(p_handle: U64, fp: U64) -> Handle {
+#[rtse::function(module = "promise", value = "catch", ret_ts = "number")]
+fn catch(p_handle: U64, fp: U64) -> Handle {
     let slot_arc = with_entry(p_handle, |entry| match entry {
         Some(Entry::PromiseAsync(arc)) => Some(arc.clone()),
         _ => None,
@@ -488,8 +490,8 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_CATCH(p_handle: U64, fp: U64) -> Handle {
 }
 
 /// promise.finally(p, fn) — chama fn() ao settle. Mantem state/value original.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PROMISE_FINALLY(p_handle: U64, fp: U64) -> Handle {
+#[rtse::function(module = "promise", value = "finally", ret_ts = "number")]
+fn finally(p_handle: U64, fp: U64) -> Handle {
     let slot_arc = with_entry(p_handle, |entry| match entry {
         Some(Entry::PromiseAsync(arc)) => Some(arc.clone()),
         _ => None,
@@ -512,8 +514,8 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_FINALLY(p_handle: U64, fp: U64) -> Handle 
 }
 
 /// Le e limpa o slot de erro thread-local. Retorna handle do erro pendente ou 0 se nao houver. Usado internamente pelo codegen de async fn (F5 #416) — apos chamar o body, watcher checa este slot pra decidir entre `resolve` e `reject`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PROMISE_TAKE_ERROR() -> I64 {
+#[rtse::function(module = "promise", value = "take_error")]
+fn take_error() -> I64 {
     use crate::gc_surface as error;
     let h = error::__rtsn_error_get();
     if h != 0 {
@@ -523,8 +525,8 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_TAKE_ERROR() -> I64 {
 }
 
 /// Promise.all(promises): aguarda todas as Promises do Vec resolverem. Retorna nova Promise resolvida com Vec dos valores na ordem original. Se qualquer uma rejeitar, a Promise resultante rejeita imediatamente com o erro da primeira a rejeitar. Argumento eh handle de `collections.vec` contendo handles de Promise. Equivalente a `Promise.all` JS.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PROMISE_ALL(promises: U64) -> Handle {
+#[rtse::function(module = "promise", value = "all", ret_ts = "number")]
+fn all(promises: U64) -> Handle {
     let handles = collect_promise_handles(promises);
     let slots = collect_slots(&handles);
     mark_inputs_handled(&slots);
@@ -587,8 +589,8 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_ALL(promises: U64) -> Handle {
 }
 
 /// Promise.race(promises): retorna nova Promise que settle com o resultado da primeira Promise a settle (resolve OU reject). Equivalente a `Promise.race` JS.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PROMISE_RACE(promises: U64) -> Handle {
+#[rtse::function(module = "promise", value = "race", ret_ts = "number")]
+fn race(promises: U64) -> Handle {
     let handles = collect_promise_handles(promises);
     let slots = collect_slots(&handles);
     mark_inputs_handled(&slots);
@@ -638,8 +640,8 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_RACE(promises: U64) -> Handle {
 }
 
 /// Promise.any(promises): resolve com a primeira a fulfill. Rejeita SO' se todas rejeitarem (com 0 — sem AggregateError ainda). Equivalente a `Promise.any` JS.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PROMISE_ANY(promises: U64) -> Handle {
+#[rtse::function(module = "promise", value = "any", ret_ts = "number")]
+fn any(promises: U64) -> Handle {
     let handles = collect_promise_handles(promises);
     let slots = collect_slots(&handles);
     mark_inputs_handled(&slots);
@@ -706,8 +708,8 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_ANY(promises: U64) -> Handle {
 }
 
 /// promise.create(fn, args) — cria PromiseAsync executando `fn(...args)` em tokio task. Concentra spawn+state na Promise. `args` eh handle de Vec<i64> ou 0. Settle automatico no retorno (resolve) ou em throw (reject via error slot).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PROMISE_CREATE(fn_handle: U64, args_vec_handle: U64) -> Handle {
+#[rtse::function(module = "promise", value = "create", ret_ts = "number")]
+fn create(fn_handle: U64, args_vec_handle: U64) -> Handle {
     let result = promise_slot::new_pending();
     let result_clone = result.clone();
     let handle = alloc_entry(Entry::PromiseAsync(result));
@@ -802,8 +804,8 @@ fn create_spawn(
 }
 
 /// Promise.allSettled(promises): aguarda todas, sempre resolve. Retorna Vec onde cada slot eh state*1000 + value (encoding: 1xxx=fulfilled, 2xxx=rejected). Permite caller distinguir valores positivos pequenos. Diferente do JS que retorna {status, value/reason} — RTS usa encoding compacto i64.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PROMISE_ALL_SETTLED(promises: U64) -> Handle {
+#[rtse::function(module = "promise", value = "all_settled", ret_ts = "number")]
+fn all_settled(promises: U64) -> Handle {
     let handles = collect_promise_handles(promises);
     let slots = collect_slots(&handles);
     mark_inputs_handled(&slots);
@@ -882,28 +884,27 @@ fn allsettled_row(state: u8, value: i64) -> i64 {
     handle_word_auto(h) as i64
 }
 
-/// Função `promise.f(args)`.
-#[allow(clippy::too_many_arguments)]
-fn func(
-    name: &str,
-    symbol: &str,
-    sig: Sig,
-    flags: MemberFlags,
-    fp: *const u8,
-    ts: &str,
-    doc: &str,
-) -> Member {
+/// (NOT converted to `#[rtse::function]` — see conversion report.) This row is
+/// a SECOND `Member` sharing the exact symbol string of the real `all_settled`
+/// entry below, with a NULL `fn_ptr`: it looks like a dead/duplicate row, but
+/// `rts-primitives/src/promise.rs`'s `Promise.allSettled` static also resolves
+/// through this same symbol NAME (JIT harvest is name-keyed), so deleting or
+/// "fixing" it is a behavior call outside the scope of a symbol-authoring
+/// conversion. Left as a raw `Member` literal (not the deleted `func` helper)
+/// so no `.member(func(...))` call survives; its symbol string is kept in sync
+/// with the real entry's new baked name below.
+fn allsettled_dead_alias_member() -> Member {
     Member {
-        name: name.to_string(),
+        name: "allSettled".to_string(),
         kind: MemberKind::Function,
-        sig,
-        symbol: symbol.to_string(),
-        fn_ptr: FnPtr(fp),
-        flags,
+        sig: Sig::new(vec![AbiType::U64], AbiType::Handle),
+        symbol: "__rtsm_promise_all_settled".to_string(),
+        fn_ptr: FnPtr(core::ptr::null::<u8>()),
+        flags: MemberFlags::NONE,
         aliases: Vec::new(),
         variadic: false,
-        ts_signature: ts.to_string(),
-        doc: doc.to_string(),
+        ts_signature: "allSettled(promises: number): number".to_string(),
+        doc: "Promise.allSettled(promises): aguarda TODAS settle (nunca rejeita). Resolve com Vec de objetos {status, value} | {status, reason}. Equivalente a `Promise.allSettled` JS.".to_string(),
         ret_class: None,
         pure: false,
         emit: None,
@@ -912,171 +913,27 @@ fn func(
 
 /// Registra a namespace `promise` no motor (Fase 2 — hand-written, sem macro).
 pub fn register(e: &mut Engine) {
-    e.ns("promise")
-        .doc("Promise<T> async com state machine + waiters via tokio oneshot. Base para async/await (issue #412 / epic #411).")
-        .member(func(
-            "new_pending",
-            "__RTS_FN_NS_PROMISE_NEW_PENDING",
-            Sig::new(vec![], AbiType::Handle),
-            MemberFlags::NONE,
-            __RTS_FN_NS_PROMISE_NEW_PENDING as *const u8,
-            "new_pending(): number",
-            "Cria uma Promise async pending. Use `promise.resolve(h, v)` ou `promise.reject(h, e)` depois pra settle. Outras Promises (sync/JS Promise.resolve/reject) usam atalhos.",
-        ))
-        .member(func(
-            "new_resolved",
-            "__RTS_FN_NS_PROMISE_NEW_RESOLVED",
-            Sig::new(vec![AbiType::I64], AbiType::Handle),
-            MemberFlags::NONE,
-            __RTS_FN_NS_PROMISE_NEW_RESOLVED as *const u8,
-            "new_resolved(value: number): number",
-            "Cria Promise async ja' fulfilled com `value`. Equivalente do `Promise.resolve(v)` JS.",
-        ))
-        .member(func(
-            "new_rejected",
-            "__RTS_FN_NS_PROMISE_NEW_REJECTED",
-            Sig::new(vec![AbiType::I64], AbiType::Handle),
-            MemberFlags::NONE,
-            __RTS_FN_NS_PROMISE_NEW_REJECTED as *const u8,
-            "new_rejected(error: number): number",
-            "Cria Promise async ja' rejected com `error`. Equivalente do `Promise.reject(e)` JS.",
-        ))
-        .member(func(
-            "resolve",
-            "__RTS_FN_NS_PROMISE_RESOLVE",
-            Sig::new(vec![AbiType::U64, AbiType::I64], AbiType::I64),
-            MemberFlags::NONE,
-            __RTS_FN_NS_PROMISE_RESOLVE as *const u8,
-            "resolve(promise: number, value: number): number",
-            "Resolve Promise pending com `value`. Retorna 1 em sucesso, 0 se ja' estava settled (semantica JS — segundo resolve eh no-op).",
-        ))
-        .member(func(
-            "reject",
-            "__RTS_FN_NS_PROMISE_REJECT",
-            Sig::new(vec![AbiType::U64, AbiType::I64], AbiType::I64),
-            MemberFlags::NONE,
-            __RTS_FN_NS_PROMISE_REJECT as *const u8,
-            "reject(promise: number, error: number): number",
-            "Reject Promise pending com `error`. Retorna 1 em sucesso, 0 se ja' estava settled.",
-        ))
-        .member(func(
-            "state",
-            "__RTS_FN_NS_PROMISE_STATE",
-            Sig::new(vec![AbiType::U64], AbiType::I64),
-            MemberFlags::NONE,
-            __RTS_FN_NS_PROMISE_STATE as *const u8,
-            "state(promise: number): number",
-            "Retorna 0 (pending), 1 (fulfilled) ou 2 (rejected). -1 se handle invalido.",
-        ))
-        .member(func(
-            "wait",
-            "__RTS_FN_NS_PROMISE_WAIT",
-            Sig::new(vec![AbiType::U64], AbiType::I64),
-            MemberFlags::AMBIGUOUS_RET,
-            __RTS_FN_NS_PROMISE_WAIT as *const u8,
-            "wait(promise: number): number",
-            "Bloqueia thread chamadora ate Promise settle e retorna o valor. Se rejected, retorna o erro com bit alto setado (F5 vai tratar isso pra integrar try/catch). 0 se handle invalido.",
-        ))
-        .member(func(
-            "try_value",
-            "__RTS_FN_NS_PROMISE_TRY_VALUE",
-            Sig::new(vec![AbiType::U64], AbiType::I64),
-            MemberFlags::NONE,
-            __RTS_FN_NS_PROMISE_TRY_VALUE as *const u8,
-            "try_value(promise: number): number",
-            "Nao-bloqueante: retorna o valor se Promise ja' settled, 0 se ainda pending ou handle invalido. Para checar pending vs settled use `state` antes.",
-        ))
-        .member(func(
-            "then",
-            "__RTS_FN_NS_PROMISE_THEN",
-            Sig::new(vec![AbiType::U64, AbiType::U64], AbiType::Handle),
-            MemberFlags::NONE,
-            __RTS_FN_NS_PROMISE_THEN as *const u8,
-            "then(p: number, fn: (v: number) => number): number",
-            "promise.then(p, fn) — chama fn(value) ao resolve, retorna nova Promise resolvida com retorno de fn. Para PromiseAsync, spawna task tokio que aguarda settle. Equivalente a `p.then(fn)` JS mas com sintaxe namespace pra evitar conflito com instance methods do Promise class spec.",
-        ))
-        .member(func(
-            "catch",
-            "__RTS_FN_NS_PROMISE_CATCH",
-            Sig::new(vec![AbiType::U64, AbiType::U64], AbiType::Handle),
-            MemberFlags::NONE,
-            __RTS_FN_NS_PROMISE_CATCH as *const u8,
-            "catch(p: number, fn: (e: number) => number): number",
-            "promise.catch(p, fn) — chama fn(err) ao reject. Recovers (Promise resultante eh fulfilled).",
-        ))
-        .member(func(
-            "finally",
-            "__RTS_FN_NS_PROMISE_FINALLY",
-            Sig::new(vec![AbiType::U64, AbiType::U64], AbiType::Handle),
-            MemberFlags::NONE,
-            __RTS_FN_NS_PROMISE_FINALLY as *const u8,
-            "finally(p: number, fn: () => void): number",
-            "promise.finally(p, fn) — chama fn() ao settle. Mantem state/value original.",
-        ))
-        .member(func(
-            "take_error",
-            "__RTS_FN_NS_PROMISE_TAKE_ERROR",
-            Sig::new(vec![], AbiType::I64),
-            MemberFlags::NONE,
-            __RTS_FN_NS_PROMISE_TAKE_ERROR as *const u8,
-            "take_error(): number",
-            "Le e limpa o slot de erro thread-local. Retorna handle do erro pendente ou 0 se nao houver. Usado internamente pelo codegen de async fn (F5 #416) — apos chamar o body, watcher checa este slot pra decidir entre `resolve` e `reject`.",
-        ))
-        .member(func(
-            "all",
-            "__RTS_FN_NS_PROMISE_ALL",
-            Sig::new(vec![AbiType::U64], AbiType::Handle),
-            MemberFlags::NONE,
-            __RTS_FN_NS_PROMISE_ALL as *const u8,
-            "all(promises: number): number",
-            "Promise.all(promises): aguarda todas as Promises do Vec resolverem. Retorna nova Promise resolvida com Vec dos valores na ordem original. Se qualquer uma rejeitar, a Promise resultante rejeita imediatamente com o erro da primeira a rejeitar. Argumento eh handle de `collections.vec` contendo handles de Promise. Equivalente a `Promise.all` JS.",
-        ))
-        .member(func(
-            "race",
-            "__RTS_FN_NS_PROMISE_RACE",
-            Sig::new(vec![AbiType::U64], AbiType::Handle),
-            MemberFlags::NONE,
-            __RTS_FN_NS_PROMISE_RACE as *const u8,
-            "race(promises: number): number",
-            "Promise.race(promises): retorna nova Promise que settle com o resultado da primeira Promise a settle (resolve OU reject). Equivalente a `Promise.race` JS.",
-        ))
-        .member(func(
-            "allSettled",
-            "__RTS_FN_NS_PROMISE_ALL_SETTLED",
-            Sig::new(vec![AbiType::U64], AbiType::Handle),
-            MemberFlags::NONE,
-            core::ptr::null::<u8>(),
-            "allSettled(promises: number): number",
-            "Promise.allSettled(promises): aguarda TODAS settle (nunca rejeita). Resolve com Vec de objetos {status, value} | {status, reason}. Equivalente a `Promise.allSettled` JS.",
-        ))
-        .member(func(
-            "any",
-            "__RTS_FN_NS_PROMISE_ANY",
-            Sig::new(vec![AbiType::U64], AbiType::Handle),
-            MemberFlags::NONE,
-            __RTS_FN_NS_PROMISE_ANY as *const u8,
-            "any(promises: number): number",
-            "Promise.any(promises): resolve com a primeira a fulfill. Rejeita SO' se todas rejeitarem (com 0 — sem AggregateError ainda). Equivalente a `Promise.any` JS.",
-        ))
-        .member(func(
-            "create",
-            "__RTS_FN_NS_PROMISE_CREATE",
-            Sig::new(vec![AbiType::U64, AbiType::U64], AbiType::Handle),
-            MemberFlags::NONE,
-            __RTS_FN_NS_PROMISE_CREATE as *const u8,
-            "create(fn: any, args?: number): number",
-            "promise.create(fn, args) — cria PromiseAsync executando `fn(...args)` em tokio task. Concentra spawn+state na Promise. `args` eh handle de Vec<i64> ou 0. Settle automatico no retorno (resolve) ou em throw (reject via error slot).",
-        ))
-        .member(func(
-            "all_settled",
-            "__RTS_FN_NS_PROMISE_ALL_SETTLED",
-            Sig::new(vec![AbiType::U64], AbiType::Handle),
-            MemberFlags::NONE,
-            __RTS_FN_NS_PROMISE_ALL_SETTLED as *const u8,
-            "all_settled(promises: number): number",
-            "Promise.allSettled(promises): aguarda todas, sempre resolve. Retorna Vec onde cada slot eh state*1000 + value (encoding: 1xxx=fulfilled, 2xxx=rejected). Permite caller distinguir valores positivos pequenos. Diferente do JS que retorna {status, value/reason} — RTS usa encoding compacto i64.",
-        ))
-        .done();
+    e.module("promise", |m| {
+        m.doc("Promise<T> async com state machine + waiters via tokio oneshot. Base para async/await (issue #412 / epic #411).");
+        m.registry(new_pending_entry());
+        m.registry(new_resolved_entry());
+        m.registry(new_rejected_entry());
+        m.registry(resolve_entry());
+        m.registry(reject_entry());
+        m.registry(state_entry());
+        m.registry(wait_entry());
+        m.registry(try_value_entry());
+        m.registry(then_entry());
+        m.registry(catch_entry());
+        m.registry(finally_entry());
+        m.registry(take_error_entry());
+        m.registry(all_entry());
+        m.registry(race_entry());
+        m.member(allsettled_dead_alias_member());
+        m.registry(any_entry());
+        m.registry(create_entry());
+        m.registry(all_settled_entry());
+    });
 }
 
 // ── Non-member externs: codegen calls these by symbol (not in SPECS). ─────────
@@ -1090,7 +947,7 @@ pub fn register(e: &mut Engine) {
 pub extern "C" fn __RTS_FN_NS_PROMISE_AWAIT_VALUE(handle: u64) -> i64 {
     let is_promise = with_entry(handle, |e| matches!(e, Some(Entry::PromiseAsync(_))));
     if is_promise {
-        __RTS_FN_NS_PROMISE_WAIT(handle)
+        __rtsm_promise_wait(handle)
     } else {
         handle as i64
     }
@@ -1170,7 +1027,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_ASYNC(iterable: u64, mapper_handle: u64
         .collect();
 
     let promises_vec = alloc_entry(Entry::Vec(Box::new(wrapped)));
-    __RTS_FN_NS_PROMISE_ALL(promises_vec)
+    __rtsm_promise_all(promises_vec)
 }
 
 // ===========================================================================

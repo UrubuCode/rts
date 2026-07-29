@@ -5,7 +5,7 @@
 //! correct on the spawned worker). What makes it ASYNC is the CALL SITE: a
 //! direct call `f(args)` does NOT run the body inline — it packs the marshaled
 //! args into a fresh raw `Vec<i64>`, takes `f`'s REAL code address, and calls
-//! `promise.create(fn_addr, args_vec)` (`__RTS_FN_NS_PROMISE_CREATE`), which
+//! `promise.create(fn_addr, args_vec)` (`__rtsm_promise_create`), which
 //! spawns the body on the shared tokio runtime and returns a PENDING
 //! `Entry::PromiseAsync` handle immediately. The handle rides the NUMBER
 //! surface (`await` / `promise.wait` / `Promise.all` unwrap exactly that

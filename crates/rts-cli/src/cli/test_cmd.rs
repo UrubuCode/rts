@@ -454,7 +454,7 @@ fn run_single_in_process(file: &Path, root: &Path) -> Result<()> {
     // pass/fail and prints the summary below.
     let run_result = rts_codegen_new::front::run::run_path(file).map_err(|e| anyhow::anyhow!("{e}"));
 
-    runner::__RTS_FN_NS_TEST_CORE_PRINT_SUMMARY();
+    runner::__rtsm_test_core_print_summary();
 
     let file_failed = runner::runner_failed();
 

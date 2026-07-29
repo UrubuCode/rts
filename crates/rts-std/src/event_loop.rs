@@ -5,7 +5,7 @@
 //! de `__rts_startup`. O binário AOT (`rts compile`) NÃO tinha event loop — o shim
 //! `main` só chamava `__rts_startup` e saía, então `await`/`.then`/`queueMicrotask`/
 //! `setTimeout` nunca disparavam. Agora o shim AOT chama
-//! `__RTS_FN_RT_RUN_EVENT_LOOP` (este extern) antes do return, fechando o gap.
+//! `__rtsn_run_event_loop` (este extern) antes do return, fechando o gap.
 
 /// Ordem JS spec: microtasks ao fim do task corrente; depois setImmediate
 /// (check phase); depois macrotasks (setTimeout delay-0) que por sua vez drenam
@@ -110,8 +110,11 @@ fn drain_native_events() {
 }
 
 /// Símbolo `extern "C"` chamado pelo shim `main` do AOT (e disponível ao JIT por
-/// link). Roda o mesmo `run_event_loop` do caminho JIT.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_RUN_EVENT_LOOP() {
+/// link). Roda o mesmo `run_event_loop` do caminho JIT. Não é um membro de
+/// Registry (nunca resolvido via `.module()`/SPECS) — é um hook cru chamado
+/// direto pelo símbolo (shim AOT) ou por identificador Rust (JIT); por isso
+/// `#[rtse::abi(native, ...)]`, não `#[rtse::function]`.
+#[rtse::abi(native, value = "run_event_loop")]
+pub fn rt_run_event_loop() {
     run_event_loop();
 }

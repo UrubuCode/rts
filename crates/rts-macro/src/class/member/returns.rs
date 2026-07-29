@@ -360,13 +360,13 @@ pub(crate) fn wrap_async(sig: &syn::Signature, ret: RetInfo) -> syn::Result<RetI
                 fn __rtsadp_promise_resolve_w(w: u64) -> u64;
                 fn __rtsadp_err_pending() -> i64;
                 fn __rtsadp_err_take() -> u64;
-                fn __RTS_FN_NS_PROMISE_NEW_REJECTED(e: i64) -> u64;
+                fn __rtsm_promise_new_rejected(e: i64) -> u64;
             }
             let __h: u64 = #inner;
             unsafe {
                 if __rtsadp_err_pending() != 0 {
                     let __e = __rtsadp_err_take();
-                    __RTS_FN_NS_PROMISE_NEW_REJECTED(__e as i64)
+                    __rtsm_promise_new_rejected(__e as i64)
                 } else {
                     __rtsadp_promise_resolve_w(__rtsadp_box_handle_auto(__h))
                 }

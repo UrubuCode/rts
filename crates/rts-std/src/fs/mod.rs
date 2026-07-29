@@ -4,8 +4,13 @@
 //! Byte buffers travel as a `U64` pointer cast to `*mut`/`*const u8`. Status
 //! functions return `-1` on error (`on_null = -1`); `exists`/`is_*` return 0/1.
 //!
-//! Migrado do `#[rts_namespace]` pro modelo builder hand-written do `rts-engine`
-//! (rumo à remoção da `rts-macro`; ver pilotos hint/hash/ptr/mem/runtime).
+//! Authored with `#[rtse::function]` — the SINGLE SOURCE OF TRUTH for symbols
+//! (docs/specs/rts-macro-single-source.md). Two exceptions stay hand-written,
+//! both explained at their definition below: the node-compat `Bool` overloads
+//! (`existsSync`/`isFileSync`/`isDirectorySync`) that deliberately reuse the
+//! SAME extern symbol as the `number`-returning member, and `read_text`,
+//! which stores raw (possibly non-UTF-8) bytes and cannot be expressed as a
+//! Rust `String` return without corrupting binary files.
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
@@ -20,17 +25,8 @@ use rts_engine::heap::handles::{Entry, alloc_entry};
 use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
 
 /// Reads up to `bufLen` bytes from `path` into the buffer. Count, 0 on EOF, -1 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FS_READ(
-    path_ptr: *const u8,
-    path_len: i64,
-    buf_ptr: U64,
-    buf_len: I64,
-) -> I64 {
-    let path = match unsafe { rts_engine::abi::str_abi::from_abi(path_ptr, path_len) } {
-        Some(s) => s,
-        None => return -1,
-    };
+#[rtse::function(module = "fs", value = "read")]
+fn read(path: &str, buf_ptr: U64, buf_len: I64) -> I64 {
     if buf_ptr == 0 || buf_len <= 0 {
         return -1;
     }
@@ -43,17 +39,8 @@ pub extern "C" fn __RTS_FN_NS_FS_READ(
 }
 
 /// Reads the whole file into the buffer (truncating to `bufLen`). Bytes written, -1 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FS_READ_ALL(
-    path_ptr: *const u8,
-    path_len: i64,
-    buf_ptr: U64,
-    buf_len: I64,
-) -> I64 {
-    let path = match unsafe { rts_engine::abi::str_abi::from_abi(path_ptr, path_len) } {
-        Some(s) => s,
-        None => return -1,
-    };
+#[rtse::function(module = "fs", value = "read_all")]
+fn read_all(path: &str, buf_ptr: U64, buf_len: I64) -> I64 {
     if buf_ptr == 0 || buf_len <= 0 {
         return -1;
     }
@@ -70,6 +57,11 @@ pub extern "C" fn __RTS_FN_NS_FS_READ_ALL(
 }
 
 /// Reads the whole file as a UTF-8 string handle. 0 on error.
+///
+/// Hand-written (not `#[rtse::function]`): the bytes are stored verbatim into
+/// `Entry::String` with NO UTF-8 validation (binary-safe passthrough); a
+/// native Rust `String` return type requires valid UTF-8, which would
+/// silently corrupt a non-UTF-8 file read through this path.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_FS_READ_TEXT(path_ptr: *const u8, path_len: i64) -> Handle {
     let path = match unsafe { rts_engine::abi::str_abi::from_abi(path_ptr, path_len) } {
@@ -83,21 +75,8 @@ pub extern "C" fn __RTS_FN_NS_FS_READ_TEXT(path_ptr: *const u8, path_len: i64) -
 }
 
 /// Writes `data` to `path` (truncating). Bytes written, -1 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FS_WRITE(
-    path_ptr: *const u8,
-    path_len: i64,
-    data_ptr: *const u8,
-    data_len: i64,
-) -> I64 {
-    let path = match unsafe { rts_engine::abi::str_abi::from_abi(path_ptr, path_len) } {
-        Some(s) => s,
-        None => return -1,
-    };
-    let data = match unsafe { rts_engine::abi::str_abi::from_abi(data_ptr, data_len) } {
-        Some(s) => s,
-        None => return -1,
-    };
+#[rtse::function(module = "fs", value = "write")]
+fn write(path: &str, data: &str) -> I64 {
     match std::fs::write(path, data.as_bytes()) {
         Ok(()) => data.len() as i64,
         Err(_) => -1,
@@ -105,17 +84,8 @@ pub extern "C" fn __RTS_FN_NS_FS_WRITE(
 }
 
 /// Writes raw buffer bytes to `path` (truncating). Bytes written, -1 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FS_WRITE_BYTES(
-    path_ptr: *const u8,
-    path_len: i64,
-    buf_ptr: U64,
-    len: I64,
-) -> I64 {
-    let path = match unsafe { rts_engine::abi::str_abi::from_abi(path_ptr, path_len) } {
-        Some(s) => s,
-        None => return -1,
-    };
+#[rtse::function(module = "fs", value = "write_bytes")]
+fn write_bytes(path: &str, buf_ptr: U64, len: I64) -> I64 {
     if buf_ptr == 0 || len < 0 {
         return -1;
     }
@@ -128,21 +98,8 @@ pub extern "C" fn __RTS_FN_NS_FS_WRITE_BYTES(
 }
 
 /// Appends `data` to `path` (creating it if missing). Bytes written, -1 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FS_APPEND(
-    path_ptr: *const u8,
-    path_len: i64,
-    data_ptr: *const u8,
-    data_len: i64,
-) -> I64 {
-    let path = match unsafe { rts_engine::abi::str_abi::from_abi(path_ptr, path_len) } {
-        Some(s) => s,
-        None => return -1,
-    };
-    let data = match unsafe { rts_engine::abi::str_abi::from_abi(data_ptr, data_len) } {
-        Some(s) => s,
-        None => return -1,
-    };
+#[rtse::function(module = "fs", value = "append")]
+fn append(path: &str, data: &str) -> I64 {
     let mut file = match OpenOptions::new().append(true).create(true).open(path) {
         Ok(f) => f,
         Err(_) => return -1,
@@ -154,54 +111,26 @@ pub extern "C" fn __RTS_FN_NS_FS_APPEND(
 }
 
 /// 1 if `path` exists, else 0.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FS_EXISTS(path_ptr: *const u8, path_len: i64) -> I64 {
-    let path = match unsafe { rts_engine::abi::str_abi::from_abi(path_ptr, path_len) } {
-        Some(s) => s,
-        None => return 0,
-    };
-    if std::path::Path::new(path).exists() {
-        1
-    } else {
-        0
-    }
+#[rtse::function(module = "fs", value = "exists")]
+fn exists(path: &str) -> I64 {
+    if std::path::Path::new(path).exists() { 1 } else { 0 }
 }
 
 /// 1 if `path` is a file, else 0.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FS_IS_FILE(path_ptr: *const u8, path_len: i64) -> I64 {
-    let path = match unsafe { rts_engine::abi::str_abi::from_abi(path_ptr, path_len) } {
-        Some(s) => s,
-        None => return 0,
-    };
-    if std::path::Path::new(path).is_file() {
-        1
-    } else {
-        0
-    }
+#[rtse::function(module = "fs", value = "is_file")]
+fn is_file(path: &str) -> I64 {
+    if std::path::Path::new(path).is_file() { 1 } else { 0 }
 }
 
 /// 1 if `path` is a directory, else 0.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FS_IS_DIR(path_ptr: *const u8, path_len: i64) -> I64 {
-    let path = match unsafe { rts_engine::abi::str_abi::from_abi(path_ptr, path_len) } {
-        Some(s) => s,
-        None => return 0,
-    };
-    if std::path::Path::new(path).is_dir() {
-        1
-    } else {
-        0
-    }
+#[rtse::function(module = "fs", value = "is_dir")]
+fn is_dir(path: &str) -> I64 {
+    if std::path::Path::new(path).is_dir() { 1 } else { 0 }
 }
 
 /// File size in bytes, -1 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FS_SIZE(path_ptr: *const u8, path_len: i64) -> I64 {
-    let path = match unsafe { rts_engine::abi::str_abi::from_abi(path_ptr, path_len) } {
-        Some(s) => s,
-        None => return -1,
-    };
+#[rtse::function(module = "fs", value = "size")]
+fn size(path: &str) -> I64 {
     match std::fs::metadata(path) {
         Ok(m) => m.len() as i64,
         Err(_) => -1,
@@ -209,12 +138,8 @@ pub extern "C" fn __RTS_FN_NS_FS_SIZE(path_ptr: *const u8, path_len: i64) -> I64
 }
 
 /// Last-modified time in ms since the UNIX epoch, -1 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FS_MODIFIED_MS(path_ptr: *const u8, path_len: i64) -> I64 {
-    let path = match unsafe { rts_engine::abi::str_abi::from_abi(path_ptr, path_len) } {
-        Some(s) => s,
-        None => return -1,
-    };
+#[rtse::function(module = "fs", value = "modified_ms")]
+fn modified_ms(path: &str) -> I64 {
     let Ok(meta) = std::fs::metadata(path) else {
         return -1;
     };
@@ -226,12 +151,8 @@ pub extern "C" fn __RTS_FN_NS_FS_MODIFIED_MS(path_ptr: *const u8, path_len: i64)
 }
 
 /// Creates the directory at `path` (parent must exist). 0 / -1.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FS_CREATE_DIR(path_ptr: *const u8, path_len: i64) -> I64 {
-    let path = match unsafe { rts_engine::abi::str_abi::from_abi(path_ptr, path_len) } {
-        Some(s) => s,
-        None => return -1,
-    };
+#[rtse::function(module = "fs", value = "create_dir")]
+fn create_dir(path: &str) -> I64 {
     match std::fs::create_dir(path) {
         Ok(()) => 0,
         Err(_) => -1,
@@ -239,12 +160,8 @@ pub extern "C" fn __RTS_FN_NS_FS_CREATE_DIR(path_ptr: *const u8, path_len: i64) 
 }
 
 /// Creates the directory and all missing parents. 0 / -1.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FS_CREATE_DIR_ALL(path_ptr: *const u8, path_len: i64) -> I64 {
-    let path = match unsafe { rts_engine::abi::str_abi::from_abi(path_ptr, path_len) } {
-        Some(s) => s,
-        None => return -1,
-    };
+#[rtse::function(module = "fs", value = "create_dir_all")]
+fn create_dir_all(path: &str) -> I64 {
     match std::fs::create_dir_all(path) {
         Ok(()) => 0,
         Err(_) => -1,
@@ -252,12 +169,8 @@ pub extern "C" fn __RTS_FN_NS_FS_CREATE_DIR_ALL(path_ptr: *const u8, path_len: i
 }
 
 /// Removes the empty directory at `path`. 0 / -1.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FS_REMOVE_DIR(path_ptr: *const u8, path_len: i64) -> I64 {
-    let path = match unsafe { rts_engine::abi::str_abi::from_abi(path_ptr, path_len) } {
-        Some(s) => s,
-        None => return -1,
-    };
+#[rtse::function(module = "fs", value = "remove_dir")]
+fn remove_dir(path: &str) -> I64 {
     match std::fs::remove_dir(path) {
         Ok(()) => 0,
         Err(_) => -1,
@@ -265,12 +178,8 @@ pub extern "C" fn __RTS_FN_NS_FS_REMOVE_DIR(path_ptr: *const u8, path_len: i64) 
 }
 
 /// Removes the directory at `path` recursively. 0 / -1.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FS_REMOVE_DIR_ALL(path_ptr: *const u8, path_len: i64) -> I64 {
-    let path = match unsafe { rts_engine::abi::str_abi::from_abi(path_ptr, path_len) } {
-        Some(s) => s,
-        None => return -1,
-    };
+#[rtse::function(module = "fs", value = "remove_dir_all")]
+fn remove_dir_all(path: &str) -> I64 {
     match std::fs::remove_dir_all(path) {
         Ok(()) => 0,
         Err(_) => -1,
@@ -278,12 +187,8 @@ pub extern "C" fn __RTS_FN_NS_FS_REMOVE_DIR_ALL(path_ptr: *const u8, path_len: i
 }
 
 /// Removes the file at `path`. 0 / -1.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FS_REMOVE_FILE(path_ptr: *const u8, path_len: i64) -> I64 {
-    let path = match unsafe { rts_engine::abi::str_abi::from_abi(path_ptr, path_len) } {
-        Some(s) => s,
-        None => return -1,
-    };
+#[rtse::function(module = "fs", value = "remove_file")]
+fn remove_file(path: &str) -> I64 {
     match std::fs::remove_file(path) {
         Ok(()) => 0,
         Err(_) => -1,
@@ -291,21 +196,8 @@ pub extern "C" fn __RTS_FN_NS_FS_REMOVE_FILE(path_ptr: *const u8, path_len: i64)
 }
 
 /// Renames `from` to `to`. 0 / -1.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FS_RENAME(
-    from_ptr: *const u8,
-    from_len: i64,
-    to_ptr: *const u8,
-    to_len: i64,
-) -> I64 {
-    let from = match unsafe { rts_engine::abi::str_abi::from_abi(from_ptr, from_len) } {
-        Some(s) => s,
-        None => return -1,
-    };
-    let to = match unsafe { rts_engine::abi::str_abi::from_abi(to_ptr, to_len) } {
-        Some(s) => s,
-        None => return -1,
-    };
+#[rtse::function(module = "fs", value = "rename")]
+fn rename(from: &str, to: &str) -> I64 {
     match std::fs::rename(from, to) {
         Ok(()) => 0,
         Err(_) => -1,
@@ -314,12 +206,8 @@ pub extern "C" fn __RTS_FN_NS_FS_RENAME(
 
 /// Lists directory entry names (file_name only) as a Vec<i64> of string
 /// handles. 0 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FS_READDIR(path_ptr: *const u8, path_len: i64) -> Handle {
-    let path = match unsafe { rts_engine::abi::str_abi::from_abi(path_ptr, path_len) } {
-        Some(s) => s,
-        None => return 0,
-    };
+#[rtse::function(module = "fs", value = "readdir", ret_ts = "string[]")]
+fn readdir(path: &str) -> Handle {
     let Ok(iter) = std::fs::read_dir(path) else {
         return 0;
     };
@@ -335,28 +223,19 @@ pub extern "C" fn __RTS_FN_NS_FS_READDIR(path_ptr: *const u8, path_len: i64) -> 
 }
 
 /// Copies file contents from `from` to `to`. Bytes copied, -1 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FS_COPY(
-    from_ptr: *const u8,
-    from_len: i64,
-    to_ptr: *const u8,
-    to_len: i64,
-) -> I64 {
-    let from = match unsafe { rts_engine::abi::str_abi::from_abi(from_ptr, from_len) } {
-        Some(s) => s,
-        None => return -1,
-    };
-    let to = match unsafe { rts_engine::abi::str_abi::from_abi(to_ptr, to_len) } {
-        Some(s) => s,
-        None => return -1,
-    };
+#[rtse::function(module = "fs", value = "copy")]
+fn copy(from: &str, to: &str) -> I64 {
     match std::fs::copy(from, to) {
         Ok(n) => n as i64,
         Err(_) => -1,
     }
 }
 
-/// Função `fs.f(args)`.
+/// Função `fs.f(args)` — usada SÓ pelos 3 overloads `Bool` abaixo, que
+/// deliberadamente compartilham o MESMO símbolo extern que o membro `number`
+/// (`exists`/`is_file`/`is_dir`); `#[rtse::function]` sempre cunha um símbolo
+/// novo por invocação, então não há como expressar essa reutilização com a
+/// macro sem duplicar a implementação.
 fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
     Member {
         name: name.to_string(),
@@ -375,204 +254,80 @@ fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) 
     }
 }
 
-/// Anexa `aliases` (nomes alternativos) a um `Member` já construído. Usado para
-/// expor a API node:fs (`writeFileSync`, `existsSync`, …) como apelidos dos
-/// membros nativos `fs.*` — resolução por dado (`Member::matches_name`), o motor
-/// não nomeia nada. Espelha o mapa de `rts-node/src/fs`.
-fn with_aliases(mut m: Member, aliases: &[&str]) -> Member {
-    m.aliases = aliases.iter().map(|s| s.to_string()).collect();
-    m
-}
-
-/// Registra a namespace `fs` no motor (Fase 2 — hand-written, sem macro).
+/// Registra a namespace `fs` no motor.
 pub fn register(e: &mut Engine) {
     e.ns("fs")
         .doc("Filesystem operations (std::fs): read/write, metadata, dirs, file ops.")
-        .member(func(
-            "read",
-            "__RTS_FN_NS_FS_READ",
-            Sig::new(vec![AbiType::StrPtr, AbiType::U64, AbiType::I64], AbiType::I64),
-            "read(path: string, bufPtr: number, bufLen: number): number",
-            "Reads up to `bufLen` bytes from `path` into the buffer. Count, 0 on EOF, -1 on error.",
-            __RTS_FN_NS_FS_READ as *const u8,
-        ))
-        .member(func(
-            "read_all",
-            "__RTS_FN_NS_FS_READ_ALL",
-            Sig::new(vec![AbiType::StrPtr, AbiType::U64, AbiType::I64], AbiType::I64),
-            "read_all(path: string, bufPtr: number, bufLen: number): number",
-            "Reads the whole file into the buffer (truncating to `bufLen`). Bytes written, -1 on error.",
-            __RTS_FN_NS_FS_READ_ALL as *const u8,
-        ))
-        .member(with_aliases(
-            func(
+        .member(read_entry())
+        .member(read_all_entry())
+        .member({
+            let mut m = func(
                 "read_text",
                 "__RTS_FN_NS_FS_READ_TEXT",
                 Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
                 "read_text(path: string): string",
                 "Reads the whole file as a UTF-8 string handle. 0 on error.",
                 __RTS_FN_NS_FS_READ_TEXT as *const u8,
-            ),
-            &["readFileSync"],
-        ))
-        .member(with_aliases(
-            func(
-                "write",
-                "__RTS_FN_NS_FS_WRITE",
-                Sig::new(vec![AbiType::StrPtr, AbiType::StrPtr], AbiType::I64),
-                "write(path: string, data: string): number",
-                "Writes `data` to `path` (truncating). Bytes written, -1 on error.",
-                __RTS_FN_NS_FS_WRITE as *const u8,
-            ),
-            &["writeFileSync"],
-        ))
-        .member(func(
-            "write_bytes",
-            "__RTS_FN_NS_FS_WRITE_BYTES",
-            Sig::new(vec![AbiType::StrPtr, AbiType::U64, AbiType::I64], AbiType::I64),
-            "write_bytes(path: string, bufPtr: number, len: number): number",
-            "Writes raw buffer bytes to `path` (truncating). Bytes written, -1 on error.",
-            __RTS_FN_NS_FS_WRITE_BYTES as *const u8,
-        ))
-        .member(with_aliases(
-            func(
-                "append",
-                "__RTS_FN_NS_FS_APPEND",
-                Sig::new(vec![AbiType::StrPtr, AbiType::StrPtr], AbiType::I64),
-                "append(path: string, data: string): number",
-                "Appends `data` to `path` (creating it if missing). Bytes written, -1 on error.",
-                __RTS_FN_NS_FS_APPEND as *const u8,
-            ),
-            &["appendFileSync"],
-        ))
-        .member(func(
-            "exists",
-            "__RTS_FN_NS_FS_EXISTS",
-            Sig::new(vec![AbiType::StrPtr], AbiType::I64),
-            "exists(path: string): number",
-            "1 if `path` exists, else 0.",
-            __RTS_FN_NS_FS_EXISTS as *const u8,
-        ))
-        .member(func(
-            "is_file",
-            "__RTS_FN_NS_FS_IS_FILE",
-            Sig::new(vec![AbiType::StrPtr], AbiType::I64),
-            "is_file(path: string): number",
-            "1 if `path` is a file, else 0.",
-            __RTS_FN_NS_FS_IS_FILE as *const u8,
-        ))
-        .member(func(
-            "is_dir",
-            "__RTS_FN_NS_FS_IS_DIR",
-            Sig::new(vec![AbiType::StrPtr], AbiType::I64),
-            "is_dir(path: string): number",
-            "1 if `path` is a directory, else 0.",
-            __RTS_FN_NS_FS_IS_DIR as *const u8,
-        ))
-        .member(with_aliases(
-            func(
-                "size",
-                "__RTS_FN_NS_FS_SIZE",
-                Sig::new(vec![AbiType::StrPtr], AbiType::I64),
-                "size(path: string): number",
-                "File size in bytes, -1 on error.",
-                __RTS_FN_NS_FS_SIZE as *const u8,
-            ),
-            &["sizeSync"],
-        ))
-        .member(with_aliases(
-            func(
-                "modified_ms",
-                "__RTS_FN_NS_FS_MODIFIED_MS",
-                Sig::new(vec![AbiType::StrPtr], AbiType::I64),
-                "modified_ms(path: string): number",
-                "Last-modified time in ms since the UNIX epoch, -1 on error.",
-                __RTS_FN_NS_FS_MODIFIED_MS as *const u8,
-            ),
-            &["mtimeMsSync"],
-        ))
-        .member(func(
-            "create_dir",
-            "__RTS_FN_NS_FS_CREATE_DIR",
-            Sig::new(vec![AbiType::StrPtr], AbiType::I64),
-            "create_dir(path: string): number",
-            "Creates the directory at `path` (parent must exist). 0 / -1.",
-            __RTS_FN_NS_FS_CREATE_DIR as *const u8,
-        ))
-        .member(with_aliases(
-            func(
-                "create_dir_all",
-                "__RTS_FN_NS_FS_CREATE_DIR_ALL",
-                Sig::new(vec![AbiType::StrPtr], AbiType::I64),
-                "create_dir_all(path: string): number",
-                "Creates the directory and all missing parents. 0 / -1.",
-                __RTS_FN_NS_FS_CREATE_DIR_ALL as *const u8,
-            ),
-            &["mkdirSync"],
-        ))
-        .member(with_aliases(
-            func(
-                "remove_dir",
-                "__RTS_FN_NS_FS_REMOVE_DIR",
-                Sig::new(vec![AbiType::StrPtr], AbiType::I64),
-                "remove_dir(path: string): number",
-                "Removes the empty directory at `path`. 0 / -1.",
-                __RTS_FN_NS_FS_REMOVE_DIR as *const u8,
-            ),
-            &["rmdirSync"],
-        ))
-        .member(func(
-            "remove_dir_all",
-            "__RTS_FN_NS_FS_REMOVE_DIR_ALL",
-            Sig::new(vec![AbiType::StrPtr], AbiType::I64),
-            "remove_dir_all(path: string): number",
-            "Removes the directory at `path` recursively. 0 / -1.",
-            __RTS_FN_NS_FS_REMOVE_DIR_ALL as *const u8,
-        ))
-        .member(with_aliases(
-            func(
-                "remove_file",
-                "__RTS_FN_NS_FS_REMOVE_FILE",
-                Sig::new(vec![AbiType::StrPtr], AbiType::I64),
-                "remove_file(path: string): number",
-                "Removes the file at `path`. 0 / -1.",
-                __RTS_FN_NS_FS_REMOVE_FILE as *const u8,
-            ),
-            &["rmSync", "unlinkSync"],
-        ))
-        .member(with_aliases(
-            func(
-                "rename",
-                "__RTS_FN_NS_FS_RENAME",
-                Sig::new(vec![AbiType::StrPtr, AbiType::StrPtr], AbiType::I64),
-                "rename(from: string, to: string): number",
-                "Renames `from` to `to`. 0 / -1.",
-                __RTS_FN_NS_FS_RENAME as *const u8,
-            ),
-            &["renameSync"],
-        ))
-        .member(with_aliases(
-            func(
-                "readdir",
-                "__RTS_FN_NS_FS_READDIR",
-                Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
-                "readdir(path: string): string[]",
-                "Lists directory entry names (file_name only) as a Vec<i64> of string\nhandles. 0 on error.",
-                __RTS_FN_NS_FS_READDIR as *const u8,
-            ),
-            &["readdirSync"],
-        ))
-        .member(with_aliases(
-            func(
-                "copy",
-                "__RTS_FN_NS_FS_COPY",
-                Sig::new(vec![AbiType::StrPtr, AbiType::StrPtr], AbiType::I64),
-                "copy(from: string, to: string): number",
-                "Copies file contents from `from` to `to`. Bytes copied, -1 on error.",
-                __RTS_FN_NS_FS_COPY as *const u8,
-            ),
-            &["copyFileSync"],
-        ))
+            );
+            m.aliases = vec!["readFileSync".to_string()];
+            m
+        })
+        .member({
+            let mut m = write_entry();
+            m.aliases = vec!["writeFileSync".to_string()];
+            m
+        })
+        .member(write_bytes_entry())
+        .member({
+            let mut m = append_entry();
+            m.aliases = vec!["appendFileSync".to_string()];
+            m
+        })
+        .member(exists_entry())
+        .member(is_file_entry())
+        .member(is_dir_entry())
+        .member({
+            let mut m = size_entry();
+            m.aliases = vec!["sizeSync".to_string()];
+            m
+        })
+        .member({
+            let mut m = modified_ms_entry();
+            m.aliases = vec!["mtimeMsSync".to_string()];
+            m
+        })
+        .member(create_dir_entry())
+        .member({
+            let mut m = create_dir_all_entry();
+            m.aliases = vec!["mkdirSync".to_string()];
+            m
+        })
+        .member({
+            let mut m = remove_dir_entry();
+            m.aliases = vec!["rmdirSync".to_string()];
+            m
+        })
+        .member(remove_dir_all_entry())
+        .member({
+            let mut m = remove_file_entry();
+            m.aliases = vec!["rmSync".to_string(), "unlinkSync".to_string()];
+            m
+        })
+        .member({
+            let mut m = rename_entry();
+            m.aliases = vec!["renameSync".to_string()];
+            m
+        })
+        .member({
+            let mut m = readdir_entry();
+            m.aliases = vec!["readdirSync".to_string()];
+            m
+        })
+        .member({
+            let mut m = copy_entry();
+            m.aliases = vec!["copyFileSync".to_string()];
+            m
+        })
         // node:fs predicate API — MESMOS símbolos `__RTS_FN_NS_FS_*`, mas
         // declarados com retorno `Bool` (não `I64`) para que o rebox produza um
         // `true`/`false` real (node:fs.existsSync etc retornam boolean estrito,
@@ -581,27 +336,27 @@ pub fn register(e: &mut Engine) {
         // `fs.exists` nativo (que segue `number`).
         .member(func(
             "existsSync",
-            "__RTS_FN_NS_FS_EXISTS",
+            "__rtsm_fs_exists",
             Sig::new(vec![AbiType::StrPtr], AbiType::Bool),
             "existsSync(path: string): boolean",
             "true if `path` exists, else false (node:fs).",
-            __RTS_FN_NS_FS_EXISTS as *const u8,
+            __rtsm_fs_exists as *const u8,
         ))
         .member(func(
             "isFileSync",
-            "__RTS_FN_NS_FS_IS_FILE",
+            "__rtsm_fs_is_file",
             Sig::new(vec![AbiType::StrPtr], AbiType::Bool),
             "isFileSync(path: string): boolean",
             "true if `path` is a file, else false (node:fs extension).",
-            __RTS_FN_NS_FS_IS_FILE as *const u8,
+            __rtsm_fs_is_file as *const u8,
         ))
         .member(func(
             "isDirectorySync",
-            "__RTS_FN_NS_FS_IS_DIR",
+            "__rtsm_fs_is_dir",
             Sig::new(vec![AbiType::StrPtr], AbiType::Bool),
             "isDirectorySync(path: string): boolean",
             "true if `path` is a directory, else false (node:fs extension).",
-            __RTS_FN_NS_FS_IS_DIR as *const u8,
+            __rtsm_fs_is_dir as *const u8,
         ))
         .done();
 }

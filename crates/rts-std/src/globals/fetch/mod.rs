@@ -5,7 +5,7 @@
 //! membros são `external`: os externs `__RTS_FN_GL_FETCH*` /
 //! `__RTS_FN_GL_FETCH_RESPONSE_*` / `__RTS_FN_GL_REQUEST_*` /
 //! `__RTS_FN_GL_PROMISE_*` ficam em `instance.rs` intactos (e
-//! `Promise.all/race/any/allSettled` reusam `__RTS_FN_NS_PROMISE_*` do
+//! `Promise.all/race/any/allSettled` reusam `__rtsm_promise_*` do
 //! namespace `promise`). Aqui só registramos a namespace `fetch` + os 3 class
 //! specs (Response/Request/Promise) com `fn_ptr` null — codegen chama os
 //! externs por símbolo, sem reemitir nada.
@@ -206,5 +206,5 @@ pub fn register(e: &mut Engine) {
 
 // NOTA (Fase 2): `register_promise_class_spec` migrou p/ `rts-primitives/
 // promise.rs` (Promise é primordial). A impl tokio (corpos __RTS_FN_GL_
-// PROMISE_* / __RTS_FN_NS_PROMISE_*) fica aqui em rts-std; só a spec
+// PROMISE_* / __rtsm_promise_*) fica aqui em rts-std; só a spec
 // (metadata pura, fn_ptr null) saiu. Resolve por símbolo (JIT/AOT).

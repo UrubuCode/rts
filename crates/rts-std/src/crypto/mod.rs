@@ -248,8 +248,8 @@ pub extern "C" fn __RTS_FN_NS_CRYPTO_SHA256_DIGEST(src: u64) -> u64 {
 }
 
 /// Fills `len` bytes at `ptr` with CSPRNG data. 0 on success, -1 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_CRYPTO_RANDOM_BYTES(ptr: I64, len: I64) -> I64 {
+#[rtse::function(module = "crypto", value = "random_bytes")]
+fn random_bytes(ptr: I64, len: I64) -> I64 {
     if ptr == 0 || len <= 0 {
         return -1;
     }
@@ -259,8 +259,8 @@ pub extern "C" fn __RTS_FN_NS_CRYPTO_RANDOM_BYTES(ptr: I64, len: I64) -> I64 {
 }
 
 /// A cryptographically secure i64 (0 is a valid value).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_CRYPTO_RANDOM_I64() -> I64 {
+#[rtse::function(module = "crypto", value = "random_i64")]
+fn random_i64() -> I64 {
     let mut bytes = [0u8; 8];
     if os_random_into(&mut bytes) {
         i64::from_le_bytes(bytes)
@@ -338,8 +338,8 @@ pub extern "C" fn __RTS_FN_NS_CRYPTO_HASH_UPDATE_STR(h: Handle, data_ptr: *const
 }
 
 /// `hash.update(buf)` — feed raw ptr+len bytes.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_CRYPTO_HASH_UPDATE_BYTES(h: Handle, ptr: I64, len: I64) -> I64 {
+#[rtse::function(module = "crypto", value = "hash_update_bytes")]
+fn hash_update_bytes(h: Handle, ptr: I64, len: I64) -> I64 {
     if ptr == 0 || len < 0 {
         return 0;
     }
@@ -378,8 +378,8 @@ pub extern "C" fn __RTS_FN_NS_CRYPTO_SHA256_STR(s_ptr: *const u8, s_len: i64) ->
 }
 
 /// SHA-256 of raw bytes (ptr+len), lowercase hex. String handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_CRYPTO_SHA256_BYTES(ptr: I64, len: I64) -> Handle {
+#[rtse::function(module = "crypto", value = "sha256_bytes", ret_ts = "string")]
+fn sha256_bytes(ptr: I64, len: I64) -> Handle {
     if ptr == 0 || len < 0 {
         return 0;
     }
@@ -388,8 +388,8 @@ pub extern "C" fn __RTS_FN_NS_CRYPTO_SHA256_BYTES(ptr: I64, len: I64) -> Handle 
 }
 
 /// Hex-encode raw bytes (ptr+len). Lowercase string handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_CRYPTO_HEX_ENCODE(ptr: I64, len: I64) -> Handle {
+#[rtse::function(module = "crypto", value = "hex_encode", ret_ts = "string")]
+fn hex_encode(ptr: I64, len: I64) -> Handle {
     if ptr == 0 || len < 0 {
         return 0;
     }
@@ -398,12 +398,8 @@ pub extern "C" fn __RTS_FN_NS_CRYPTO_HEX_ENCODE(ptr: I64, len: I64) -> Handle {
 }
 
 /// Hex-decode a string into a Buffer handle. 0 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_CRYPTO_HEX_DECODE(s_ptr: *const u8, s_len: i64) -> Handle {
-    let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr, s_len) } {
-        Some(s) => s,
-        None => return 0,
-    };
+#[rtse::function(module = "crypto", value = "hex_decode", ret_ts = "number")]
+fn hex_decode(s: &str) -> Handle {
     let bytes = s.as_bytes();
     if bytes.len() % 2 != 0 {
         return 0;
@@ -421,8 +417,8 @@ pub extern "C" fn __RTS_FN_NS_CRYPTO_HEX_DECODE(s_ptr: *const u8, s_len: i64) ->
 }
 
 /// Base64-encode raw bytes (ptr+len, RFC 4648 padded). String handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_CRYPTO_BASE64_ENCODE(ptr: I64, len: I64) -> Handle {
+#[rtse::function(module = "crypto", value = "base64_encode", ret_ts = "string")]
+fn base64_encode(ptr: I64, len: I64) -> Handle {
     if ptr == 0 || len < 0 {
         return 0;
     }
@@ -431,12 +427,8 @@ pub extern "C" fn __RTS_FN_NS_CRYPTO_BASE64_ENCODE(ptr: I64, len: I64) -> Handle
 }
 
 /// Base64-decode a string into a Buffer handle. 0 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_CRYPTO_BASE64_DECODE(s_ptr: *const u8, s_len: i64) -> Handle {
-    let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr, s_len) } {
-        Some(s) => s,
-        None => return 0,
-    };
+#[rtse::function(module = "crypto", value = "base64_decode", ret_ts = "number")]
+fn base64_decode(s: &str) -> Handle {
     let bytes = s.as_bytes();
     if bytes.len() % 4 != 0 {
         return 0;
@@ -489,26 +481,19 @@ fn with_aliases(mut m: Member, aliases: &[&str]) -> Member {
 }
 
 /// Registra a namespace `crypto` no motor (Fase 2 — hand-written, sem macro).
+///
+/// Membros SEM alias JS foram convertidos a `#[rtse::function]`. Os 7 membros
+/// abaixo mantêm `func()`/`with_aliases()` de propósito: `#[rtse::function]`
+/// não tem parâmetro de alias hoje (só `module`/`value`/`throws`/`pure`/
+/// `constant`/`ret_ts`/`overload`/`default`), e esses aliases são a API
+/// `node:crypto` (createHash/randomUUID/…) resolvida por dado
+/// (`Member::matches_name`) — perdê-los quebraria esse cluster.
 pub fn register(e: &mut Engine) {
-    e.ns("crypto")
-        .doc("Cryptographic primitives: SHA-256, hex/base64, CSPRNG.")
-        .member(func(
-            "random_bytes",
-            "__RTS_FN_NS_CRYPTO_RANDOM_BYTES",
-            Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::I64),
-            "random_bytes(ptr: number, len: number): number",
-            "Fills `len` bytes at `ptr` with CSPRNG data. 0 on success, -1 on error.",
-            __RTS_FN_NS_CRYPTO_RANDOM_BYTES as *const u8,
-        ))
-        .member(func(
-            "random_i64",
-            "__RTS_FN_NS_CRYPTO_RANDOM_I64",
-            Sig::new(Vec::new(), AbiType::I64),
-            "random_i64(): number",
-            "A cryptographically secure i64 (0 is a valid value).",
-            __RTS_FN_NS_CRYPTO_RANDOM_I64 as *const u8,
-        ))
-        .member(with_aliases(
+    e.module("crypto", |m| {
+        m.doc("Cryptographic primitives: SHA-256, hex/base64, CSPRNG.");
+        m.registry(random_bytes_entry());
+        m.registry(random_i64_entry());
+        m.member(with_aliases(
             func(
                 "random_buffer",
                 "__RTS_FN_NS_CRYPTO_RANDOM_BUFFER",
@@ -518,8 +503,8 @@ pub fn register(e: &mut Engine) {
                 __RTS_FN_NS_CRYPTO_RANDOM_BUFFER as *const u8,
             ),
             &["randomBytesBuffer"],
-        ))
-        .member(with_aliases(
+        ));
+        m.member(with_aliases(
             func(
                 "random_uuid",
                 "__RTS_FN_NS_CRYPTO_RANDOM_UUID",
@@ -529,8 +514,8 @@ pub fn register(e: &mut Engine) {
                 __RTS_FN_NS_CRYPTO_RANDOM_UUID as *const u8,
             ),
             &["randomUUID"],
-        ))
-        .member(with_aliases(
+        ));
+        m.member(with_aliases(
             func(
                 "hash_new",
                 "__RTS_FN_NS_CRYPTO_HASH_NEW",
@@ -540,8 +525,8 @@ pub fn register(e: &mut Engine) {
                 __RTS_FN_NS_CRYPTO_HASH_NEW as *const u8,
             ),
             &["createHash"],
-        ))
-        .member(with_aliases(
+        ));
+        m.member(with_aliases(
             func(
                 "hash_update_str",
                 "__RTS_FN_NS_CRYPTO_HASH_UPDATE_STR",
@@ -551,16 +536,9 @@ pub fn register(e: &mut Engine) {
                 __RTS_FN_NS_CRYPTO_HASH_UPDATE_STR as *const u8,
             ),
             &["hashUpdate"],
-        ))
-        .member(func(
-            "hash_update_bytes",
-            "__RTS_FN_NS_CRYPTO_HASH_UPDATE_BYTES",
-            Sig::new(vec![AbiType::Handle, AbiType::I64, AbiType::I64], AbiType::I64),
-            "hash_update_bytes(h: number, ptr: number, len: number): number",
-            "`hash.update(buf)` — feed raw ptr+len bytes.",
-            __RTS_FN_NS_CRYPTO_HASH_UPDATE_BYTES as *const u8,
-        ))
-        .member(with_aliases(
+        ));
+        m.registry(hash_update_bytes_entry());
+        m.member(with_aliases(
             func(
                 "hash_digest_hex",
                 "__RTS_FN_NS_CRYPTO_HASH_DIGEST_HEX",
@@ -570,8 +548,8 @@ pub fn register(e: &mut Engine) {
                 __RTS_FN_NS_CRYPTO_HASH_DIGEST_HEX as *const u8,
             ),
             &["hashDigestHex"],
-        ))
-        .member(with_aliases(
+        ));
+        m.member(with_aliases(
             func(
                 "hash_digest_base64",
                 "__RTS_FN_NS_CRYPTO_HASH_DIGEST_BASE64",
@@ -581,8 +559,8 @@ pub fn register(e: &mut Engine) {
                 __RTS_FN_NS_CRYPTO_HASH_DIGEST_BASE64 as *const u8,
             ),
             &["hashDigestBase64"],
-        ))
-        .member(with_aliases(
+        ));
+        m.member(with_aliases(
             func(
                 "sha256_str",
                 "__RTS_FN_NS_CRYPTO_SHA256_STR",
@@ -592,46 +570,11 @@ pub fn register(e: &mut Engine) {
                 __RTS_FN_NS_CRYPTO_SHA256_STR as *const u8,
             ),
             &["sha256"],
-        ))
-        .member(func(
-            "sha256_bytes",
-            "__RTS_FN_NS_CRYPTO_SHA256_BYTES",
-            Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::Handle),
-            "sha256_bytes(ptr: number, len: number): string",
-            "SHA-256 of raw bytes (ptr+len), lowercase hex. String handle.",
-            __RTS_FN_NS_CRYPTO_SHA256_BYTES as *const u8,
-        ))
-        .member(func(
-            "hex_encode",
-            "__RTS_FN_NS_CRYPTO_HEX_ENCODE",
-            Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::Handle),
-            "hex_encode(ptr: number, len: number): string",
-            "Hex-encode raw bytes (ptr+len). Lowercase string handle.",
-            __RTS_FN_NS_CRYPTO_HEX_ENCODE as *const u8,
-        ))
-        .member(func(
-            "hex_decode",
-            "__RTS_FN_NS_CRYPTO_HEX_DECODE",
-            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
-            "hex_decode(s: string): number",
-            "Hex-decode a string into a Buffer handle. 0 on error.",
-            __RTS_FN_NS_CRYPTO_HEX_DECODE as *const u8,
-        ))
-        .member(func(
-            "base64_encode",
-            "__RTS_FN_NS_CRYPTO_BASE64_ENCODE",
-            Sig::new(vec![AbiType::I64, AbiType::I64], AbiType::Handle),
-            "base64_encode(ptr: number, len: number): string",
-            "Base64-encode raw bytes (ptr+len, RFC 4648 padded). String handle.",
-            __RTS_FN_NS_CRYPTO_BASE64_ENCODE as *const u8,
-        ))
-        .member(func(
-            "base64_decode",
-            "__RTS_FN_NS_CRYPTO_BASE64_DECODE",
-            Sig::new(vec![AbiType::StrPtr], AbiType::Handle),
-            "base64_decode(s: string): number",
-            "Base64-decode a string into a Buffer handle. 0 on error.",
-            __RTS_FN_NS_CRYPTO_BASE64_DECODE as *const u8,
-        ))
-        .done();
+        ));
+        m.registry(sha256_bytes_entry());
+        m.registry(hex_encode_entry());
+        m.registry(hex_decode_entry());
+        m.registry(base64_encode_entry());
+        m.registry(base64_decode_entry());
+    });
 }

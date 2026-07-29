@@ -1,13 +1,15 @@
-//! `performance` — performance.now() / performance.timeOrigin. Migrado do
-//! `#[rts_namespace]` pro modelo builder hand-written do `rts-engine` (rumo à
-//! remoção da `rts-macro`); stem de símbolo `GL_PERF` (escopo GL). Os externs
-//! `now`/`timeOrigin` são `#[no_mangle]` à mão; a SPEC é registrada via
-//! [`register`].
+//! `performance` — `performance.now()` / `performance.timeOrigin`.
+//!
+//! Authored with `#[rtse::function]`: each function declares its module and JS
+//! name, and everything else is DERIVED from the Rust signature — the linker
+//! symbol (`rts_abi::scope`), the `AbiType`s, the TS signature, and the doc.
+//! The old form spelled all of that a second time in a hand-built `Member`
+//! literal that nothing checked against the function it claimed to describe.
 
 use std::sync::OnceLock;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::Engine;
 
 static START: OnceLock<(Instant, f64)> = OnceLock::new();
 
@@ -23,53 +25,27 @@ fn start() -> &'static (Instant, f64) {
 }
 
 /// performance.now() — tempo monotônico em milissegundos (precisão sub-ms).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_PERF_NOW() -> f64 {
+#[rtse::function(module = "performance", value = "now")]
+fn now() -> f64 {
     let (inst, _) = start();
     inst.elapsed().as_secs_f64() * 1000.0
 }
 
 /// performance.timeOrigin — Unix timestamp em ms do início do processo.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_PERF_TIME_ORIGIN() -> f64 {
+///
+/// `constant` (a PROPERTY read, not a call) and `pure` — both were carried by
+/// the old `Member` literal and both are load-bearing: without `constant` the
+/// name reads as a function value instead of a number.
+#[rtse::function(module = "performance", value = "timeOrigin", constant, pure)]
+fn time_origin() -> f64 {
     start().1
 }
 
-/// Registra a namespace `performance` no motor (hand-written, sem macro).
+/// Registra a namespace `performance` no motor.
 pub fn register(e: &mut Engine) {
-    e.ns("performance")
-        .doc("performance.now() / performance.timeOrigin — alias de time.now_ms com precisão sub-ms.")
-        .member(Member {
-            name: "now".to_string(),
-            kind: MemberKind::Function,
-            sig: Sig::new(Vec::new(), AbiType::F64),
-            symbol: "__RTS_FN_GL_PERF_NOW".to_string(),
-            fn_ptr: FnPtr(__RTS_FN_GL_PERF_NOW as *const u8),
-            flags: MemberFlags::NONE,
-            aliases: Vec::new(),
-            variadic: false,
-            ts_signature: "now(): number".to_string(),
-            doc: "performance.now() — tempo monotônico em milissegundos (precisão sub-ms)."
-                .to_string(),
-            ret_class: None,
-            pure: false,
-            emit: None,
-        })
-        .member(Member {
-            name: "timeOrigin".to_string(),
-            kind: MemberKind::Constant,
-            sig: Sig::new(Vec::new(), AbiType::F64),
-            symbol: "__RTS_FN_GL_PERF_TIME_ORIGIN".to_string(),
-            fn_ptr: FnPtr(__RTS_FN_GL_PERF_TIME_ORIGIN as *const u8),
-            flags: MemberFlags::NONE,
-            aliases: Vec::new(),
-            variadic: false,
-            ts_signature: "timeOrigin: number".to_string(),
-            doc: "performance.timeOrigin — Unix timestamp em ms do início do processo."
-                .to_string(),
-            ret_class: None,
-            pure: true,
-            emit: None,
-        })
-        .done();
+    e.module("performance", |m| {
+        m.doc("performance.now() / performance.timeOrigin — alias de time.now_ms com precisão sub-ms.");
+        m.registry(now_entry());
+        m.registry(time_origin_entry());
+    });
 }

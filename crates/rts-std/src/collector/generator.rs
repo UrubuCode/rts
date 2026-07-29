@@ -548,7 +548,7 @@ pub fn gen_sm_drain(h: u64) -> u64 {
                 break;
             }
             let p = __rtsn_agen_next(h);
-            let result_map = crate::promise::__RTS_FN_NS_PROMISE_WAIT(p);
+            let result_map = crate::promise::__rtsm_promise_wait(p);
             // Throw dentro do corpo: AGEN_NEXT rejeitou -> error slot setado.
             if crate::collector::error::__rtsn_error_get() != 0 {
                 break;

@@ -110,11 +110,14 @@ fn join_display(vec: u64, start: i64, seed: Option<u64>) -> u64 {
 fn print_handle(msg: u64, is_err: bool) {
     let ptr = crate::collector::string_pool::__RTS_FN_NS_GC_STRING_PTR(msg);
     let len = crate::collector::string_pool::__RTS_FN_NS_GC_STRING_LEN(msg);
-    let p = ptr as *const u8;
+    // `io.print`/`eprint` are `#[rtse::function]`s taking `&str`, so the SYMBOL
+    // they expose is the two-slot `StrPtr` form (`ptr` as `i64`, `len`) — the
+    // same ABI the hand-written pair had, just declared instead of spelled.
+    let p = ptr as i64;
     if is_err {
-        crate::io::__RTS_FN_NS_IO_EPRINT(p, len);
+        crate::io::__rtsm_io_eprint(p, len);
     } else {
-        crate::io::__RTS_FN_NS_IO_PRINT(p, len);
+        crate::io::__rtsm_io_print(p, len);
     }
 }
 

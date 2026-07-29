@@ -9,8 +9,8 @@
 //! `#[rts_namespace]` pro modelo builder hand-written do `rts-engine`
 //! (rumo à remoção da `rts-macro`; ver pilotos hint/hash/ptr/mem/runtime).
 
-use rts_engine::abi::ty::{Handle, I64, U64};
-use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::abi::ty::Handle;
+use rts_engine::Engine;
 
 use rts_engine::heap::handles::{
     alloc_entry, free_handle, with_entry, with_entry_mut, Entry, RtsEventsEmitter,
@@ -37,26 +37,22 @@ where
 }
 
 /// Aloca um EventEmitter e retorna o handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EVENTS_EMITTER_NEW() -> Handle {
+#[rtse::function(module = "events", value = "emitter_new", ret_ts = "number")]
+fn emitter_new() -> Handle {
     alloc_entry(Entry::RtsEventsEmitter(Box::new(
         RtsEventsEmitter::default(),
     )))
 }
 
 /// Libera o EventEmitter.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EVENTS_EMITTER_FREE(h: Handle) {
+#[rtse::function(module = "events", value = "emitter_free")]
+fn emitter_free(h: Handle) {
     free_handle(h);
 }
 
 /// Registra um listener (function pointer raw) para o evento.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EVENTS_ON(h: Handle, name_ptr: *const u8, name_len: i64, fn_ptr: U64) {
-    let name = match unsafe { rts_engine::abi::str_abi::from_abi(name_ptr, name_len) } {
-        Some(s) => s,
-        None => return,
-    };
+#[rtse::function(module = "events", value = "on")]
+fn on(h: Handle, name: &str, fn_ptr: u64) {
     let key = name.to_string();
     with_emitter_mut(h, (), |e| {
         e.listeners.entry(key).or_default().push(fn_ptr);
@@ -64,12 +60,8 @@ pub extern "C" fn __RTS_FN_NS_EVENTS_ON(h: Handle, name_ptr: *const u8, name_len
 }
 
 /// Remove o primeiro listener com o ponteiro especificado.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EVENTS_OFF(h: Handle, name_ptr: *const u8, name_len: i64, fn_ptr: U64) {
-    let name = match unsafe { rts_engine::abi::str_abi::from_abi(name_ptr, name_len) } {
-        Some(s) => s,
-        None => return,
-    };
+#[rtse::function(module = "events", value = "off")]
+fn off(h: Handle, name: &str, fn_ptr: u64) {
     with_emitter_mut(h, (), |e| {
         if let Some(list) = e.listeners.get_mut(name) {
             if let Some(idx) = list.iter().position(|&p| p == fn_ptr) {
@@ -80,36 +72,24 @@ pub extern "C" fn __RTS_FN_NS_EVENTS_OFF(h: Handle, name_ptr: *const u8, name_le
 }
 
 /// Remove todos os listeners do evento.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EVENTS_REMOVE_ALL_LISTENERS(h: Handle, name_ptr: *const u8, name_len: i64) {
-    let name = match unsafe { rts_engine::abi::str_abi::from_abi(name_ptr, name_len) } {
-        Some(s) => s,
-        None => return,
-    };
+#[rtse::function(module = "events", value = "remove_all_listeners")]
+fn remove_all_listeners(h: Handle, name: &str) {
     with_emitter_mut(h, (), |e| {
         e.listeners.remove(name);
     });
 }
 
 /// Numero de listeners registrados para o evento.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EVENTS_LISTENER_COUNT(h: Handle, name_ptr: *const u8, name_len: i64) -> I64 {
-    let name = match unsafe { rts_engine::abi::str_abi::from_abi(name_ptr, name_len) } {
-        Some(s) => s,
-        None => return 0,
-    };
+#[rtse::function(module = "events", value = "listener_count")]
+fn listener_count(h: Handle, name: &str) -> i64 {
     with_emitter(h, 0, |e| {
         e.listeners.get(name).map(|l| l.len() as i64).unwrap_or(0)
     })
 }
 
 /// Dispara `name` sem argumentos. Retorna 1 se havia listeners, 0 caso contrario.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EVENTS_EMIT0(h: Handle, name_ptr: *const u8, name_len: i64) -> I64 {
-    let name = match unsafe { rts_engine::abi::str_abi::from_abi(name_ptr, name_len) } {
-        Some(s) => s,
-        None => return 0,
-    };
+#[rtse::function(module = "events", value = "emit0")]
+fn emit0(h: Handle, name: &str) -> i64 {
     // Snapshot a lista antes de chamar — caller pode `off` durante o
     // dispatch sem invalidar o iterador.
     let snapshot: Vec<u64> = with_emitter(h, Vec::new(), |e| {
@@ -141,12 +121,8 @@ fn callable_fp(fp: u64) -> bool {
 }
 
 /// Dispara `name` com 1 argumento i64. Sincrono sequencial Node-style — listeners chamados em ordem de registro na thread atual. Para dispatch paralelo fire-and-forget use `emit1_async`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EVENTS_EMIT1(h: Handle, name_ptr: *const u8, name_len: i64, arg0: I64) -> I64 {
-    let name = match unsafe { rts_engine::abi::str_abi::from_abi(name_ptr, name_len) } {
-        Some(s) => s,
-        None => return 0,
-    };
+#[rtse::function(module = "events", value = "emit1")]
+fn emit1(h: Handle, name: &str, arg0: i64) -> i64 {
     let snapshot: Vec<u64> = with_emitter(h, Vec::new(), |e| {
         e.listeners.get(name).cloned().unwrap_or_default()
     });
@@ -165,12 +141,8 @@ pub extern "C" fn __RTS_FN_NS_EVENTS_EMIT1(h: Handle, name_ptr: *const u8, name_
 }
 
 /// Dispara `name` sem args, fire-and-forget paralelo via tokio (cada listener vira `spawn_blocking`). ATENCAO: bench mostra que e' ~10× MAIS LENTO que `emit0` para listeners leves (atomic, memory ops, log). So' vale a pena quando cada listener faz trabalho pesado (>10µs cada): HTTP request, disk I/O, calculo numerico longo. Para tudo mais use `emit0` que e' sequencial mas drasticamente mais rapido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EVENTS_EMIT0_ASYNC(h: Handle, name_ptr: *const u8, name_len: i64) -> I64 {
-    let name = match unsafe { rts_engine::abi::str_abi::from_abi(name_ptr, name_len) } {
-        Some(s) => s,
-        None => return 0,
-    };
+#[rtse::function(module = "events", value = "emit0_async")]
+fn emit0_async(h: Handle, name: &str) -> i64 {
     let listeners: Vec<u64> = with_emitter(h, Vec::new(), |e| {
         e.listeners.get(name).cloned().unwrap_or_default()
     });
@@ -192,12 +164,8 @@ pub extern "C" fn __RTS_FN_NS_EVENTS_EMIT0_ASYNC(h: Handle, name_ptr: *const u8,
 }
 
 /// Variante async de `emit1`. Mesmo trade-off de `emit0_async`: usar so' quando listeners individuais sao pesados.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EVENTS_EMIT1_ASYNC(h: Handle, name_ptr: *const u8, name_len: i64, arg0: I64) -> I64 {
-    let name = match unsafe { rts_engine::abi::str_abi::from_abi(name_ptr, name_len) } {
-        Some(s) => s,
-        None => return 0,
-    };
+#[rtse::function(module = "events", value = "emit1_async")]
+fn emit1_async(h: Handle, name: &str, arg0: i64) -> i64 {
     let listeners: Vec<u64> = with_emitter(h, Vec::new(), |e| {
         e.listeners.get(name).cloned().unwrap_or_default()
     });
@@ -218,108 +186,19 @@ pub extern "C" fn __RTS_FN_NS_EVENTS_EMIT1_ASYNC(h: Handle, name_ptr: *const u8,
     1
 }
 
-/// Função `events.f(args)`.
-fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
-    Member {
-        name: name.to_string(),
-        kind: MemberKind::Function,
-        sig,
-        symbol: symbol.to_string(),
-        fn_ptr: FnPtr(fp),
-        flags: MemberFlags::NONE,
-        aliases: Vec::new(),
-        variadic: false,
-        ts_signature: ts.to_string(),
-        doc: doc.to_string(),
-        ret_class: None,
-        pure: false,
-        emit: None,
-    }
-}
-
 /// Registra a namespace `events` no motor (Fase 2 — hand-written, sem macro).
 pub fn register(e: &mut Engine) {
-    e.ns("events")
-        .doc("Sistema de eventos primitivo. Listeners sao function pointers raw, invocados via transmute para extern \"C\" fn.")
-        .member(func(
-            "emitter_new",
-            "__RTS_FN_NS_EVENTS_EMITTER_NEW",
-            Sig::new(Vec::new(), AbiType::Handle),
-            "emitter_new(): number",
-            "Aloca um EventEmitter e retorna o handle.",
-            __RTS_FN_NS_EVENTS_EMITTER_NEW as *const u8,
-        ))
-        .member(func(
-            "emitter_free",
-            "__RTS_FN_NS_EVENTS_EMITTER_FREE",
-            Sig::new(vec![AbiType::Handle], AbiType::Void),
-            "emitter_free(h: number): void",
-            "Libera o EventEmitter.",
-            __RTS_FN_NS_EVENTS_EMITTER_FREE as *const u8,
-        ))
-        .member(func(
-            "on",
-            "__RTS_FN_NS_EVENTS_ON",
-            Sig::new(vec![AbiType::Handle, AbiType::StrPtr, AbiType::U64], AbiType::Void),
-            "on(h: number, name: string, fnPtr: number): void",
-            "Registra um listener (function pointer raw) para o evento.",
-            __RTS_FN_NS_EVENTS_ON as *const u8,
-        ))
-        .member(func(
-            "off",
-            "__RTS_FN_NS_EVENTS_OFF",
-            Sig::new(vec![AbiType::Handle, AbiType::StrPtr, AbiType::U64], AbiType::Void),
-            "off(h: number, name: string, fnPtr: number): void",
-            "Remove o primeiro listener com o ponteiro especificado.",
-            __RTS_FN_NS_EVENTS_OFF as *const u8,
-        ))
-        .member(func(
-            "remove_all_listeners",
-            "__RTS_FN_NS_EVENTS_REMOVE_ALL_LISTENERS",
-            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Void),
-            "remove_all_listeners(h: number, name: string): void",
-            "Remove todos os listeners do evento.",
-            __RTS_FN_NS_EVENTS_REMOVE_ALL_LISTENERS as *const u8,
-        ))
-        .member(func(
-            "listener_count",
-            "__RTS_FN_NS_EVENTS_LISTENER_COUNT",
-            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::I64),
-            "listener_count(h: number, name: string): number",
-            "Numero de listeners registrados para o evento.",
-            __RTS_FN_NS_EVENTS_LISTENER_COUNT as *const u8,
-        ))
-        .member(func(
-            "emit0",
-            "__RTS_FN_NS_EVENTS_EMIT0",
-            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::I64),
-            "emit0(h: number, name: string): number",
-            "Dispara `name` sem argumentos. Retorna 1 se havia listeners, 0 caso contrario.",
-            __RTS_FN_NS_EVENTS_EMIT0 as *const u8,
-        ))
-        .member(func(
-            "emit1",
-            "__RTS_FN_NS_EVENTS_EMIT1",
-            Sig::new(vec![AbiType::Handle, AbiType::StrPtr, AbiType::I64], AbiType::I64),
-            "emit1(h: number, name: string, arg0: number): number",
-            "Dispara `name` com 1 argumento i64. Sincrono sequencial Node-style — listeners chamados em ordem de registro na thread atual. Para dispatch paralelo fire-and-forget use `emit1_async`.",
-            __RTS_FN_NS_EVENTS_EMIT1 as *const u8,
-        ))
-        .member(func(
-            "emit0_async",
-            "__RTS_FN_NS_EVENTS_EMIT0_ASYNC",
-            Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::I64),
-            "emit0_async(h: number, name: string): number",
-            "Dispara `name` sem args, fire-and-forget paralelo via tokio (cada listener vira `spawn_blocking`). ATENCAO: bench mostra que e' ~10× MAIS LENTO que `emit0` para listeners leves (atomic, memory ops, log). So' vale a pena quando cada listener faz trabalho pesado (>10µs cada): HTTP request, disk I/O, calculo numerico longo. Para tudo mais use `emit0` que e' sequencial mas drasticamente mais rapido.",
-            __RTS_FN_NS_EVENTS_EMIT0_ASYNC as *const u8,
-        ))
-        .member(func(
-            "emit1_async",
-            "__RTS_FN_NS_EVENTS_EMIT1_ASYNC",
-            Sig::new(vec![AbiType::Handle, AbiType::StrPtr, AbiType::I64], AbiType::I64),
-            "emit1_async(h: number, name: string, arg0: number): number",
-            "Variante async de `emit1`. Mesmo trade-off de `emit0_async`: usar so' quando listeners individuais sao pesados.",
-            __RTS_FN_NS_EVENTS_EMIT1_ASYNC as *const u8,
-        ))
-        .done();
+    e.module("events", |m| {
+        m.doc("Sistema de eventos primitivo. Listeners sao function pointers raw, invocados via transmute para extern \"C\" fn.");
+        m.registry(emitter_new_entry());
+        m.registry(emitter_free_entry());
+        m.registry(on_entry());
+        m.registry(off_entry());
+        m.registry(remove_all_listeners_entry());
+        m.registry(listener_count_entry());
+        m.registry(emit0_entry());
+        m.registry(emit1_entry());
+        m.registry(emit0_async_entry());
+        m.registry(emit1_async_entry());
+    });
 }

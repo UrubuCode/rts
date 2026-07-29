@@ -210,10 +210,10 @@ pub fn rtsadp_print_line(line: &str, to_stderr: i64) {
     }
     // The REAL io fns still take the raw pair (they are the runtime's own ABI,
     // not this one) and append the newline themselves.
-    let (ptr, len) = (line.as_ptr(), line.len() as i64);
+    let (ptr, len) = (line.as_ptr() as i64, line.len() as i64);
     if to_stderr != 0 {
-        rt_io::__RTS_FN_NS_IO_EPRINT(ptr, len);
+        rt_io::__rtsm_io_eprint(ptr, len);
     } else {
-        rt_io::__RTS_FN_NS_IO_PRINT(ptr, len);
+        rt_io::__rtsm_io_print(ptr, len);
     }
 }

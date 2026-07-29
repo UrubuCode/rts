@@ -163,10 +163,16 @@ fn is_class_like_ident(ty: &Type) -> Option<&syn::Ident> {
     if !first.is_ascii_uppercase() {
         return None;
     }
-    if matches!(
-        name.as_str(),
-        "Self" | "Handle" | "U64" | "Poly" | "String" | "Vec" | "Option" | "Bool"
-    ) {
+    // An ABI TOKEN is never a class, however capitalized. Ask `rts_abi::tymap`
+    // — the one table both this macro and the baker read — instead of keeping a
+    // second hand-written list here: that list had `Handle`/`U64`/`Bool` but not
+    // `I64`/`I32`/`F64`, so `fn f(h: U64) -> I64` compiled its RETURN down the
+    // class path and demanded `i64: RtseReturn`. A duplicated list drifts; this
+    // one did.
+    if rts_abi::tymap::single_slot(&name).is_some() {
+        return None;
+    }
+    if matches!(name.as_str(), "Self" | "String" | "Vec" | "Option") {
         return None;
     }
     Some(&seg.ident)

@@ -25,7 +25,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{BufferSize, HostId, SampleFormat, StreamConfig};
 use rts_engine::abi::ty::{Bool, F64, Handle, I64, U64};
-use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::Engine;
 
 use rts_engine::heap::handles::{Entry, with_entry};
 
@@ -249,31 +249,27 @@ pub fn close(handle: u64) {
 }
 
 /// Whether an ASIO host/driver is available (1) or not (0).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ASIO_AUDIO_IS_AVAILABLE() -> Bool {
+#[rtse::function(module = "asio_audio", value = "is_available")]
+fn is_available_fn() -> Bool {
     if is_available() { 1 } else { 0 }
 }
 
 /// Sample rate (Hz) of the default ASIO output device, or 0 if unavailable.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ASIO_AUDIO_DEFAULT_SAMPLE_RATE() -> I64 {
+#[rtse::function(module = "asio_audio", value = "default_sample_rate")]
+fn default_sample_rate() -> I64 {
     default_output_config().0 as i64
 }
 
 /// Channel count of the default ASIO output device, or 0 if unavailable.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ASIO_AUDIO_DEFAULT_CHANNELS() -> I64 {
+#[rtse::function(module = "asio_audio", value = "default_channels")]
+fn default_channels() -> I64 {
     default_output_config().1 as i64
 }
 
 /// Opens an ASIO output stream (low latency). Same contract as
 /// `audio.open_output`. Returns the stream handle (>0) or 0 on failure.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ASIO_AUDIO_OPEN_OUTPUT(
-    sample_rate: I64,
-    channels: I64,
-    capacity_frames: I64,
-) -> Handle {
+#[rtse::function(module = "asio_audio", value = "open_output", ret_ts = "number")]
+fn open_output_fn(sample_rate: I64, channels: I64, capacity_frames: I64) -> Handle {
     let sr = sample_rate.max(0) as u32;
     let ch = channels.clamp(0, u16::MAX as i64) as u16;
     let cap = capacity_frames.max(0) as usize;
@@ -281,26 +277,26 @@ pub extern "C" fn __RTS_FN_NS_ASIO_AUDIO_OPEN_OUTPUT(
 }
 
 /// Effective sample rate (Hz) of the stream, or 0 if invalid.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ASIO_AUDIO_SAMPLE_RATE(handle: U64) -> I64 {
+#[rtse::function(module = "asio_audio", value = "sample_rate")]
+fn sample_rate(handle: U64) -> I64 {
     with_stream(handle, 0, |s| s.sample_rate as i64)
 }
 
 /// Effective channel count of the stream, or 0 if invalid.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ASIO_AUDIO_CHANNELS(handle: U64) -> I64 {
+#[rtse::function(module = "asio_audio", value = "channels")]
+fn channels(handle: U64) -> I64 {
     with_stream(handle, 0, |s| s.channels as i64)
 }
 
 /// Whether the stream is still open (1) or not (0).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ASIO_AUDIO_IS_OPEN(handle: U64) -> Bool {
+#[rtse::function(module = "asio_audio", value = "is_open")]
+fn is_open(handle: U64) -> Bool {
     with_stream(handle, 0, |_| 1)
 }
 
 /// Free frames in the ring buffer right now (backpressure). -1 if invalid.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ASIO_AUDIO_AVAILABLE_FRAMES(handle: U64) -> I64 {
+#[rtse::function(module = "asio_audio", value = "available_frames")]
+fn available_frames(handle: U64) -> I64 {
     with_stream(handle, -1, |s| {
         let queued_samples = s.ring.lock().unwrap().len();
         let queued_frames = queued_samples / s.channels.max(1) as usize;
@@ -309,8 +305,8 @@ pub extern "C" fn __RTS_FN_NS_ASIO_AUDIO_AVAILABLE_FRAMES(handle: U64) -> I64 {
 }
 
 /// Frames currently queued in the ring (awaiting playback). -1 if invalid.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ASIO_AUDIO_QUEUED_FRAMES(handle: U64) -> I64 {
+#[rtse::function(module = "asio_audio", value = "queued_frames")]
+fn queued_frames(handle: U64) -> I64 {
     with_stream(handle, -1, |s| {
         let queued_samples = s.ring.lock().unwrap().len();
         (queued_samples / s.channels.max(1) as usize) as i64
@@ -319,8 +315,8 @@ pub extern "C" fn __RTS_FN_NS_ASIO_AUDIO_QUEUED_FRAMES(handle: U64) -> I64 {
 
 /// Pushes interleaved f32 samples from a buffer into the stream's ring.
 /// Same contract as `audio.write`. Returns samples accepted.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ASIO_AUDIO_WRITE(handle: U64, buffer_handle: U64, n_samples: I64) -> I64 {
+#[rtse::function(module = "asio_audio", value = "write")]
+fn write(handle: U64, buffer_handle: U64, n_samples: I64) -> I64 {
     if n_samples <= 0 {
         return 0;
     }
@@ -359,8 +355,8 @@ pub extern "C" fn __RTS_FN_NS_ASIO_AUDIO_WRITE(handle: U64, buffer_handle: U64, 
 }
 
 /// Sets the stream master gain (multiplied per sample). Clamped to [0, 4].
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ASIO_AUDIO_MASTER_VOLUME(handle: U64, gain: F64) {
+#[rtse::function(module = "asio_audio", value = "master_volume")]
+fn master_volume(handle: U64, gain: F64) {
     let g = (gain as f32).clamp(0.0, 4.0);
     with_stream(handle, (), |s| {
         *s.master_gain.lock().unwrap() = g;
@@ -368,143 +364,33 @@ pub extern "C" fn __RTS_FN_NS_ASIO_AUDIO_MASTER_VOLUME(handle: U64, gain: F64) {
 }
 
 /// Total underruns since open. -1 if invalid.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ASIO_AUDIO_UNDERRUNS(handle: U64) -> I64 {
+#[rtse::function(module = "asio_audio", value = "underruns")]
+fn underruns(handle: U64) -> I64 {
     with_stream(handle, -1, |s| s.underruns.load(Ordering::Relaxed) as i64)
 }
 
 /// Closes the stream and releases the device. Repeated calls are a no-op.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ASIO_AUDIO_CLOSE(handle: U64) {
+#[rtse::function(module = "asio_audio", value = "close")]
+fn close_fn(handle: U64) {
     close(handle);
 }
 
-/// Função `asio_audio.f(args)`.
-fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
-    Member {
-        name: name.to_string(),
-        kind: MemberKind::Function,
-        sig,
-        symbol: symbol.to_string(),
-        fn_ptr: FnPtr(fp),
-        flags: MemberFlags::NONE,
-        aliases: Vec::new(),
-        variadic: false,
-        ts_signature: ts.to_string(),
-        doc: doc.to_string(),
-        ret_class: None,
-        pure: false,
-        emit: None,
-    }
-}
-
-/// Registra a namespace `asio_audio` no motor (Fase 2 — hand-written, sem macro).
+/// Registra a namespace `asio_audio` no motor.
 pub fn register(e: &mut Engine) {
-    e.ns("asio_audio")
-        .doc("Low-latency audio output via ASIO (Windows). Same API as `audio` but routed through the ASIO host. Requires the `asio` build feature and an installed ASIO driver. Samples flow as f32 LE bytes in a Buffer.")
-        .member(func(
-            "is_available",
-            "__RTS_FN_NS_ASIO_AUDIO_IS_AVAILABLE",
-            Sig::new(vec![], AbiType::Bool),
-            "is_available(): boolean",
-            "Whether an ASIO host/driver is available (1) or not (0).",
-            __RTS_FN_NS_ASIO_AUDIO_IS_AVAILABLE as *const u8,
-        ))
-        .member(func(
-            "default_sample_rate",
-            "__RTS_FN_NS_ASIO_AUDIO_DEFAULT_SAMPLE_RATE",
-            Sig::new(vec![], AbiType::I64),
-            "default_sample_rate(): number",
-            "Sample rate (Hz) of the default ASIO output device, or 0 if unavailable.",
-            __RTS_FN_NS_ASIO_AUDIO_DEFAULT_SAMPLE_RATE as *const u8,
-        ))
-        .member(func(
-            "default_channels",
-            "__RTS_FN_NS_ASIO_AUDIO_DEFAULT_CHANNELS",
-            Sig::new(vec![], AbiType::I64),
-            "default_channels(): number",
-            "Channel count of the default ASIO output device, or 0 if unavailable.",
-            __RTS_FN_NS_ASIO_AUDIO_DEFAULT_CHANNELS as *const u8,
-        ))
-        .member(func(
-            "open_output",
-            "__RTS_FN_NS_ASIO_AUDIO_OPEN_OUTPUT",
-            Sig::new(vec![AbiType::I64, AbiType::I64, AbiType::I64], AbiType::Handle),
-            "open_output(sample_rate: number, channels: number, capacity_frames: number): number",
-            "Opens an ASIO output stream (low latency). Same contract as `audio.open_output`. Returns the stream handle (>0) or 0 on failure.",
-            __RTS_FN_NS_ASIO_AUDIO_OPEN_OUTPUT as *const u8,
-        ))
-        .member(func(
-            "sample_rate",
-            "__RTS_FN_NS_ASIO_AUDIO_SAMPLE_RATE",
-            Sig::new(vec![AbiType::U64], AbiType::I64),
-            "sample_rate(handle: number): number",
-            "Effective sample rate (Hz) of the stream, or 0 if invalid.",
-            __RTS_FN_NS_ASIO_AUDIO_SAMPLE_RATE as *const u8,
-        ))
-        .member(func(
-            "channels",
-            "__RTS_FN_NS_ASIO_AUDIO_CHANNELS",
-            Sig::new(vec![AbiType::U64], AbiType::I64),
-            "channels(handle: number): number",
-            "Effective channel count of the stream, or 0 if invalid.",
-            __RTS_FN_NS_ASIO_AUDIO_CHANNELS as *const u8,
-        ))
-        .member(func(
-            "is_open",
-            "__RTS_FN_NS_ASIO_AUDIO_IS_OPEN",
-            Sig::new(vec![AbiType::U64], AbiType::Bool),
-            "is_open(handle: number): boolean",
-            "Whether the stream is still open (1) or not (0).",
-            __RTS_FN_NS_ASIO_AUDIO_IS_OPEN as *const u8,
-        ))
-        .member(func(
-            "available_frames",
-            "__RTS_FN_NS_ASIO_AUDIO_AVAILABLE_FRAMES",
-            Sig::new(vec![AbiType::U64], AbiType::I64),
-            "available_frames(handle: number): number",
-            "Free frames in the ring buffer right now (backpressure). -1 if invalid.",
-            __RTS_FN_NS_ASIO_AUDIO_AVAILABLE_FRAMES as *const u8,
-        ))
-        .member(func(
-            "queued_frames",
-            "__RTS_FN_NS_ASIO_AUDIO_QUEUED_FRAMES",
-            Sig::new(vec![AbiType::U64], AbiType::I64),
-            "queued_frames(handle: number): number",
-            "Frames currently queued in the ring (awaiting playback). -1 if invalid.",
-            __RTS_FN_NS_ASIO_AUDIO_QUEUED_FRAMES as *const u8,
-        ))
-        .member(func(
-            "write",
-            "__RTS_FN_NS_ASIO_AUDIO_WRITE",
-            Sig::new(vec![AbiType::U64, AbiType::U64, AbiType::I64], AbiType::I64),
-            "write(handle: number, buffer_handle: number, n_samples: number): number",
-            "Pushes interleaved f32 samples from a buffer into the stream's ring. Same contract as `audio.write`. Returns samples accepted.",
-            __RTS_FN_NS_ASIO_AUDIO_WRITE as *const u8,
-        ))
-        .member(func(
-            "master_volume",
-            "__RTS_FN_NS_ASIO_AUDIO_MASTER_VOLUME",
-            Sig::new(vec![AbiType::U64, AbiType::F64], AbiType::Void),
-            "master_volume(handle: number, gain: number): void",
-            "Sets the stream master gain (multiplied per sample). Clamped to [0, 4].",
-            __RTS_FN_NS_ASIO_AUDIO_MASTER_VOLUME as *const u8,
-        ))
-        .member(func(
-            "underruns",
-            "__RTS_FN_NS_ASIO_AUDIO_UNDERRUNS",
-            Sig::new(vec![AbiType::U64], AbiType::I64),
-            "underruns(handle: number): number",
-            "Total underruns since open. -1 if invalid.",
-            __RTS_FN_NS_ASIO_AUDIO_UNDERRUNS as *const u8,
-        ))
-        .member(func(
-            "close",
-            "__RTS_FN_NS_ASIO_AUDIO_CLOSE",
-            Sig::new(vec![AbiType::U64], AbiType::Void),
-            "close(handle: number): void",
-            "Closes the stream and releases the device. Repeated calls are a no-op.",
-            __RTS_FN_NS_ASIO_AUDIO_CLOSE as *const u8,
-        ))
-        .done();
+    e.module("asio_audio", |m| {
+        m.doc("Low-latency audio output via ASIO (Windows). Same API as `audio` but routed through the ASIO host. Requires the `asio` build feature and an installed ASIO driver. Samples flow as f32 LE bytes in a Buffer.");
+        m.registry(is_available_fn_entry());
+        m.registry(default_sample_rate_entry());
+        m.registry(default_channels_entry());
+        m.registry(open_output_fn_entry());
+        m.registry(sample_rate_entry());
+        m.registry(channels_entry());
+        m.registry(is_open_entry());
+        m.registry(available_frames_entry());
+        m.registry(queued_frames_entry());
+        m.registry(write_entry());
+        m.registry(master_volume_entry());
+        m.registry(underruns_entry());
+        m.registry(close_fn_entry());
+    });
 }
