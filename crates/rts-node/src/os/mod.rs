@@ -97,13 +97,7 @@ pub fn register(e: &mut Engine) {
         .registry(priority::set_priority_self_entry())
         .registry(priority::set_priority_pid_entry())
         // --- properties (Constant getters) ----------------------------------
-        .member(constant(
-            "EOL",
-            "__RTS_FN_NODE_OS_EOL",
-            sig!(=> Handle),
-            "EOL: string",
-            identity::__RTS_FN_NODE_OS_EOL as *const u8,
-        ))
+        .registry(identity::eol_entry())
         .member(constant(
             "devNull",
             "__RTS_FN_NODE_OS_DEV_NULL",

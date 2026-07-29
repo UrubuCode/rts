@@ -42,6 +42,12 @@ pub(crate) struct AbiArgs {
     /// `dgram.createSocket(): DgramSocket` reboxes as a bare object and the
     /// socket's methods stop resolving.
     pub(crate) ret_ts: Option<String>,
+    /// `constant` — register as `MemberKind::Constant` (a PROPERTY read) instead
+    /// of `Function`. `#[rtse::constant]` already covers a real Rust `const`;
+    /// this covers a constant that must be COMPUTED — a `cfg!` choice
+    /// (`os.EOL`), or an object built on the heap (`zlib.constants`) — which a
+    /// `const` cannot express.
+    pub(crate) constant: bool,
 }
 
 impl Parse for AbiArgs {
@@ -49,7 +55,7 @@ impl Parse for AbiArgs {
         use rts_abi::scope::Naming;
 
         if input.is_empty() {
-            return Ok(AbiArgs { naming: Naming::Verbatim, throws: false, pure: false, js_value: None, ret_ts: None });
+            return Ok(AbiArgs { naming: Naming::Verbatim, throws: false, pure: false, js_value: None, ret_ts: None, constant: false });
         }
         if input.peek(syn::LitStr) {
             let s: syn::LitStr = input.parse()?;
@@ -59,7 +65,7 @@ impl Parse for AbiArgs {
                     "#[rtse::abi]: an explicit symbol takes no other arguments",
                 ));
             }
-            return Ok(AbiArgs { naming: Naming::Explicit(s.value()), throws: false, pure: false, js_value: None, ret_ts: None });
+            return Ok(AbiArgs { naming: Naming::Explicit(s.value()), throws: false, pure: false, js_value: None, ret_ts: None, constant: false });
         }
 
         let mut scope: Option<Scope> = None;
@@ -76,6 +82,11 @@ impl Parse for AbiArgs {
         // `string[]` must be able to say so. Derivation from the Rust type alone
         // cannot know (every one of them is `Handle`).
         let mut ret_ts: Option<String> = None;
+        // `constant` — register as `MemberKind::Constant` (a PROPERTY read, not a
+        // call): `os.EOL`, `zlib.constants`. `#[rtse::constant]` covers a real
+        // Rust `const`; this covers a value that must be COMPUTED (a `cfg!`
+        // choice, an object built on the heap), which a `const` cannot be.
+        let mut constant = false;
         while !input.is_empty() {
             let key: syn::Ident = input.parse()?;
             let arg: Option<String> = if input.peek(syn::Token![=]) {
@@ -90,6 +101,7 @@ impl Parse for AbiArgs {
                 ("pure", None) => pure = true,
                 ("overload", Some(o)) => overload = Some(o),
                 ("ret_ts", Some(t)) => ret_ts = Some(t),
+                ("constant", None) => constant = true,
                 ("module", Some(m)) => scope = Some(Scope::Module(m)),
                 ("global", g) => scope = Some(Scope::Global(g)),
                 ("native", None) => scope = Some(Scope::Native),
@@ -117,7 +129,7 @@ impl Parse for AbiArgs {
                     return Err(syn::Error::new_spanned(
                         &key,
                         "#[rtse::abi]: unknown arg (expected `module`, `global`, `native`, \
-                         `abi`, `value`, `throws` or `pure`)",
+                         `abi`, `value`, `throws`, `pure`, `overload`, `ret_ts`, \n                         `constant` or `symbol`)",
                     ));
                 }
             }
@@ -139,6 +151,7 @@ impl Parse for AbiArgs {
                 },
                 js_value: value_js,
                 ret_ts,
+                constant,
                 throws,
                 pure,
             }),

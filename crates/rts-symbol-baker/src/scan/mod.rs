@@ -415,7 +415,7 @@ fn parse_naming(attr: &syn::Attribute) -> Result<Naming> {
                 // so a declaration using them still bakes instead of failing the
                 // scan. (`ret_ts` DOES change the emitted `Member`, but not the
                 // linker name or the ABI slots, which is all this table records.)
-                ("throws", None) | ("pure", None) | ("ret_ts", Some(_)) => {}
+                ("throws", None) | ("pure", None) | ("constant", None) | ("ret_ts", Some(_)) => {}
                 _ => {
                     return Err(syn::Error::new_spanned(&key, "unsupported #[rtse::abi] arg"));
                 }

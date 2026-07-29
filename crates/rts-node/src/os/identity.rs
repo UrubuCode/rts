@@ -133,10 +133,13 @@ fn strip_trailing_sep(s: &str) -> &str {
     }
 }
 
-/// `os.EOL` — line ending for the platform (`Constant` property getter).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_EOL() -> u64 {
-    intern(if cfg!(windows) { "\r\n" } else { "\n" })
+/// `os.EOL` — line ending for the platform.
+///
+/// Declared `constant`: a PROPERTY read, not a call. `#[rtse::constant]` cannot
+/// express it — the value is a `cfg!` choice, so it is computed, not a `const`.
+#[rtse::function(module = "node:os", value = "EOL", constant, pure)]
+fn eol() -> String {
+    if cfg!(windows) { "\r\n" } else { "\n" }.to_string()
 }
 
 /// `os.devNull` — the null device path (`Constant` property getter).
