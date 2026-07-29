@@ -117,7 +117,9 @@ Modifiers, all composable:
 |---|---|
 | `throws` | `MemberFlags::THROWS`. **Mandatory** for a member that reports failure through the pending-error slot — without it the engine skips its post-call check and a real `throw` becomes a silently-ignored failure. |
 | `pure` | `pure: true` — the call has no observable effect. |
+| `constant` | Registers as `MemberKind::Constant` — a PROPERTY read (`os.EOL`), resolved through `namespace_const`, and the TS becomes `name: T` instead of `name(): T`. Use `#[rtse::constant]` for a real Rust `const`; use this when the value must be COMPUTED (a `cfg!` choice, an object built on the heap). |
 | `overload = "<suffix>"` | Disambiguates the SYMBOL of an arity overload; the JS name (`value`) stays shared. |
+| `ret_ts = "<type>"` | Overrides the derived TS RETURN type. **Load-bearing:** the engine decides how a `Handle` result reboxes by reading this — heap string, `T[]` array, plain object, or an instance of a named class — and all four are spelled `Handle` in Rust. Get it wrong and e.g. `dgram.createSocket(): DgramSocket` reboxes as a bare object and every socket method stops resolving. |
 | `#[default(...)]` on a param | Makes it optional and names the padding value: `undefined`, `null`, `nan`, `infinity`, `true`/`false`, an int, a float, a string. A required param may not follow an optional one. |
 
 **Overloads.** JS lets several members share one name and differ by arity; a
@@ -148,12 +150,58 @@ sentinel; for `i64`/`i32`/`bool`/`Poly` use `#[default(...)]`.
 **What `#[rtse::function]` still cannot express** (leave these hand-written and
 say why in the commit — do not force them):
 
-- A **class** — constructors and instance methods. That is `#[rtse::class]`.
-- `MemberKind::Constant` — a property like `os.EOL` or `zlib.constants`.
 - Reusing a symbol DEFINED ELSEWHERE (`process.nextTick` borrows the microtask
   queue's extern; `util.formatHex` borrows `rts:fmt`'s). The macro always
   defines the symbol it names.
 - A raw-pointer parameter (`*const u8` / `*mut T`) — no single-slot ABI form.
+  If the pair is really a STRING, write `&str` instead: it expands to the same
+  two `StrPtr` slots. Genuine OUT-parameters (`*mut i64`) have no form.
+- Genuine VARIADICS (`path.join(...paths)`), still registered one member per
+  arity.
+
+A **class** is not a limitation, just a different macro — see below.
+
+### 2c. `#[rtse::class]` — constructors, methods, getters, statics
+
+`crates/rts-node/src/string_decoder/class.rs` is a converted class to copy from.
+
+```rust
+#[rtse::class("StringDecoder")]
+#[derive(Clone)]
+pub struct StringDecoder {
+    dec: Decoder,          // a real Rust type, from any module
+}
+
+#[rtse::class("StringDecoder")]
+impl StringDecoder {
+    #[rtse::ctor]           fn new() -> Self { … }
+    #[rtse::ctor(throws)]   fn with_encoding(e: &str) -> Option<Self> { … } // None = threw
+    #[rtse::method]         fn write(&mut self, input: Handle) -> String { … }
+    #[rtse::method(name = "end")] fn end_buf(&mut self, input: Handle) -> String { … }
+    #[rtse::getter]         fn encoding(&self) -> String { … }
+}
+```
+
+Three things that are easy to get wrong:
+
+- **The instance IS the struct** (`Entry::Rtse`), so it HOLDS its state as real
+  Rust fields. The older object-backed model flattened state into an
+  `Entry::Map` — packing an enum to an index and bytes into an `i64` — and every
+  method had to unpack, run and repack. Holding the type deletes all of that.
+- **`throws` is an ARGUMENT of the member attribute** — `#[rtse::ctor(throws)]`,
+  not a separate `#[rtse::throws]`.
+- **Overloads sharing a JS name** use `#[rtse::method(name = "end")]`, NOT
+  `overload =`. Class resolution is by arity and the symbols already differ
+  (they derive from the Rust idents); `overload` exists for module functions,
+  where the symbol derives from the JS name and would collide.
+
+The held types need `Clone`: the macro clones the instance out of the handle
+table before the body runs, dropping the shard lock so a body touching a second
+handle cannot self-deadlock.
+
+Not yet expressible as a class: an EventEmitter mixin
+(`crate::emitter::install`), which is why `net.Server`/`net.Socket` stay
+hand-written.
 
 > **Instance methods CLONE the receiver** out of the HandleTable before running
 > the body (dropping the shard lock; writing back for `&mut self`), so a body
