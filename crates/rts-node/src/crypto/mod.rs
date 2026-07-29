@@ -6,10 +6,10 @@
 //! `update`/`digest`), the single-shot `crypto.hash`, `randomBytes`,
 //! `randomUUID`, `randomInt`, `timingSafeEqual`, `getHashes`.
 //!
-//! `Hash`/`Hmac` are one object-backed Registry class (`__rts_class = "Hash"`,
-//! same model as `StringDecoder`): `createHash`/`createHmac` build the instance,
-//! its `ts_signature` return type `Hash` lets method dispatch resolve `update`/
-//! `digest`. HMAC is a flag on the instance.
+//! `Hash`/`Hmac` and `Cipheriv`/`Decipheriv` are `#[rtse::class]` structs
+//! (`hash.rs` / `cipher_instance.rs`, `Entry::Rtse` instances):
+//! `createHash`/`createHmac`/`createCipheriv`/`createDecipheriv` build them
+//! directly via `alloc_rtse` (none is reached through `new X()` in JS).
 //!
 //! `Cipheriv`/`Decipheriv` cover AES-256/128-GCM (AEAD) and AES-256/128-CBC
 //! (PKCS#7). X25519 Diffie-Hellman covers Signal-protocol-style key exchange
@@ -21,18 +21,21 @@
 //! `publicEncrypt`/`sign`/`verify` and the general KeyObject surface, the
 //! WebCrypto `subtle` API, X.509.
 //!
-//! Layout: `algo` (digest/HMAC + encoding), `cipher` (AES-GCM/CBC), `dh`
-//! (X25519), `state` (instance objects), `random` (CSPRNG helpers), `symbols`
-//! (extern points), `mod` (registration).
+//! Layout: `algo` (digest/HMAC + encoding), `cipher` (AES-GCM/CBC math),
+//! `cipher_instance` (the `Cipher` class), `hash` (the `Hash` class), `dh`
+//! (X25519), `state` (byte-marshalling helpers), `random` (CSPRNG helpers),
+//! `symbols` (free-function extern points), `mod` (registration).
 
 mod algo;
 mod cipher;
+mod cipher_instance;
 mod dh;
+mod hash;
 mod random;
 mod state;
 mod symbols;
 
-use rts_engine::AbiType::{self, Handle, StrPtr};
+use rts_engine::AbiType::{self, Handle};
 use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 #[allow(clippy::too_many_arguments)]
@@ -54,37 +57,15 @@ fn m(name: &str, kind: MemberKind, args: Vec<AbiType>, ret: AbiType, symbol: &st
     }
 }
 
-/// Registers the `Hash` class + the `node:crypto` module.
+/// Registers the `Hash`/`Cipher` classes + the `node:crypto` module.
 pub fn register(e: &mut Engine) {
     use symbols as s;
-    use MemberKind::InstanceMethod;
 
-    // The Hash/Hmac object-backed class: update (chainable) + digest.
-    e.class("Hash")
-        .doc("Hash/Hmac — incremental digest object (node:crypto).")
-        .member(m("update", InstanceMethod, vec![Handle, Handle], Handle, "__RTS_FN_NODE_CRYPTO_UPDATE", "update(data: object): Hash", s::__RTS_FN_NODE_CRYPTO_UPDATE as *const u8))
-        .member(m("update", InstanceMethod, vec![Handle, StrPtr, StrPtr], Handle, "__RTS_FN_NODE_CRYPTO_UPDATE_ENC", "update(data: string, inputEncoding: string): Hash", s::__RTS_FN_NODE_CRYPTO_UPDATE_ENC as *const u8))
-        .member(m("copy", InstanceMethod, vec![Handle], Handle, "__RTS_FN_NODE_CRYPTO_COPY", "copy(): Hash", s::__RTS_FN_NODE_CRYPTO_COPY as *const u8))
-        .member(m("digest", InstanceMethod, vec![Handle], Handle, "__RTS_FN_NODE_CRYPTO_DIGEST", "digest(): number[]", s::__RTS_FN_NODE_CRYPTO_DIGEST as *const u8))
-        .member(m("digest", InstanceMethod, vec![Handle, StrPtr], Handle, "__RTS_FN_NODE_CRYPTO_DIGEST_ENC", "digest(encoding: string): string", s::__RTS_FN_NODE_CRYPTO_DIGEST_ENC as *const u8))
-        .done();
-
-    // The Cipher/Decipher object-backed class. Unlike real Node streaming,
-    // `update` only accumulates (returns an empty Buffer); the full output
-    // comes from `final()` alone — GCM needs the whole message before it can
-    // authenticate, so there is no correct per-call partial output.
-    e.class("Cipher")
-        .doc("Cipheriv/Decipheriv — AES-GCM/CBC symmetric cipher object (node:crypto). update() only accumulates; read the full result from final().")
-        .member(m("update", InstanceMethod, vec![Handle, Handle], Handle, "__RTS_FN_NODE_CRYPTO_CIPHER_UPDATE", "update(data: object): number[]", s::__RTS_FN_NODE_CRYPTO_CIPHER_UPDATE as *const u8))
-        .member(m("setAAD", InstanceMethod, vec![Handle, Handle], Handle, "__RTS_FN_NODE_CRYPTO_CIPHER_SET_AAD", "setAAD(buffer: object): Cipher", s::__RTS_FN_NODE_CRYPTO_CIPHER_SET_AAD as *const u8))
-        .member(m("setAuthTag", InstanceMethod, vec![Handle, Handle], Handle, "__RTS_FN_NODE_CRYPTO_CIPHER_SET_AUTH_TAG", "setAuthTag(buffer: object): Cipher", s::__RTS_FN_NODE_CRYPTO_CIPHER_SET_AUTH_TAG as *const u8))
-        .member(m("getAuthTag", InstanceMethod, vec![Handle], Handle, "__RTS_FN_NODE_CRYPTO_CIPHER_GET_AUTH_TAG", "getAuthTag(): number[]", s::__RTS_FN_NODE_CRYPTO_CIPHER_GET_AUTH_TAG as *const u8))
-        .member({
-            let mut mem = m("final", InstanceMethod, vec![Handle], Handle, "__RTS_FN_NODE_CRYPTO_CIPHER_FINAL", "final(): number[]", s::__RTS_FN_NODE_CRYPTO_CIPHER_FINAL as *const u8);
-            mem.flags = MemberFlags::THROWS;
-            mem
-        })
-        .done();
+    // `Hash`/`Hmac` and `Cipheriv`/`Decipheriv` are `#[rtse::class]` structs
+    // now (see `hash.rs` / `cipher_instance.rs`) — the macro generates their
+    // `register`, every ABI symbol, and the ctor-less factory allocation path.
+    hash::register(e);
+    cipher_instance::register(e);
 
     e.module("node:crypto", |mo| {
         mo.doc("Cryptography (node:crypto): createHash/createHmac, hash, randomBytes/randomUUID/randomInt, timingSafeEqual, getHashes.");

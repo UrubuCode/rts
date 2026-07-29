@@ -6,7 +6,6 @@
 //! `EOL`/`devNull` are the per-platform literals (registered as `Constant`
 //! properties). No fake values.
 
-use rts_engine::abi::ty::Handle;
 
 use super::sys;
 use super::words::{env_or_empty, intern, node_arch, node_platform, node_type};

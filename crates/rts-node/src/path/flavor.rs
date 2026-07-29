@@ -22,14 +22,6 @@ impl Flavor {
         }
     }
 
-    /// The env `PATH` delimiter for this flavor.
-    pub fn delimiter(self) -> char {
-        match self {
-            Flavor::Posix => ':',
-            Flavor::Win32 => ';',
-        }
-    }
-
     /// Whether `c` is accepted as a separator on INPUT (`\` and `/` on Win32).
     pub fn is_sep(self, c: char) -> bool {
         match self {

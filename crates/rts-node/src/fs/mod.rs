@@ -13,9 +13,10 @@
 //! default object representation: slot 0 = shape id, values keyed by
 //! `global_shape_keys`) and an `Entry::Map`.
 //!
-//! `Stats` is an object-backed Registry class (`__rts_class = "Stats"`, the
-//! StringDecoder/Hash model); statSync/lstatSync build it and its ts return type
-//! drives getter/method dispatch.
+//! `Stats`/`Dirent`/`Dir` are `#[rtse::class]`es (see `stats.rs`/`dirent.rs`/
+//! `dir.rs`): the instance IS the Rust struct (`Entry::Rtse`), built internally
+//! by `statSync`/`lstatSync`/`readdirSync`/`opendirSync` — never via `new` from
+//! JS, so none declares a `#[rtse::ctor]`.
 //!
 //! The fd family (openSync/readSync/writeSync/closeSync/fstatSync/ftruncateSync/
 //! fsyncSync) is backed by a side File table in `fd.rs`.
@@ -37,8 +38,9 @@
 //! declaration instead of being spelled a second time in a hand-built `Member`
 //! row. The macro always fixes `MemberFlags::NONE`, so `throws(...)` below
 //! patches `THROWS` on at registration for the ops that report a real failure
-//! that way (same pattern as `rts-shared/src/serde_ns`). The `Stats`/`FSWatcher`/
-//! `FileHandle`/`Dir`/`Dirent` classes stay hand-built `e.class(...)` rows —
+//! that way (same pattern as `rts-shared/src/serde_ns`). `Stats`/`Dirent`/`Dir`
+//! are `#[rtse::class]`es (`stats::register`/`dirent::register`/`dir::register`);
+//! `FSWatcher`/`FileHandle` stay hand-built `e.class(...)` rows for now —
 //! `#[rtse::function]` is free-functions-only (no receiver, no class); see the
 //! per-file "NOT converted" notes for the remaining exceptions (a `Constant`
 //! member, the 4 `node:fs/__streambridge` bridges pinned to a hardcoded literal
@@ -65,7 +67,7 @@ mod watch;
 mod watchfile;
 mod words;
 
-use rts_engine::AbiType::{self, Bool, F64, Handle, I64, StrPtr, Void};
+use rts_engine::AbiType::{self, Handle, I64, StrPtr, Void};
 use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind};
 
 /// The ambient `.ts` prelude implementing `fs.ReadStream`/`fs.WriteStream` (and
@@ -113,35 +115,12 @@ fn throws(mut m: Member) -> Member {
     m
 }
 
-/// Registers the `Stats` class + the `node:fs` module.
+/// Registers the `Stats`/`Dirent` classes + the remaining hand-built classes +
+/// the `node:fs` module.
 pub fn register(e: &mut Engine) {
-    use symbols as s;
-    use MemberKind::{InstanceGetter, InstanceMethod};
+    use MemberKind::InstanceMethod;
 
-    e.class("Stats")
-        .doc("Stats — filesystem metadata (node:fs statSync/lstatSync).")
-        .member(m("isFile", InstanceMethod, vec![Handle], Bool, "__RTS_FN_NODE_FS_STATS_IS_FILE", "isFile(): boolean", s::__RTS_FN_NODE_FS_STATS_IS_FILE as *const u8))
-        .member(m("isDirectory", InstanceMethod, vec![Handle], Bool, "__RTS_FN_NODE_FS_STATS_IS_DIRECTORY", "isDirectory(): boolean", s::__RTS_FN_NODE_FS_STATS_IS_DIRECTORY as *const u8))
-        .member(m("isSymbolicLink", InstanceMethod, vec![Handle], Bool, "__RTS_FN_NODE_FS_STATS_IS_SYMLINK", "isSymbolicLink(): boolean", s::__RTS_FN_NODE_FS_STATS_IS_SYMLINK as *const u8))
-        .member(m("isBlockDevice", InstanceMethod, vec![Handle], Bool, "__RTS_FN_NODE_FS_STATS_IS_BLOCK", "isBlockDevice(): boolean", s::__RTS_FN_NODE_FS_STATS_IS_BLOCK as *const u8))
-        .member(m("isCharacterDevice", InstanceMethod, vec![Handle], Bool, "__RTS_FN_NODE_FS_STATS_IS_CHAR", "isCharacterDevice(): boolean", s::__RTS_FN_NODE_FS_STATS_IS_CHAR as *const u8))
-        .member(m("isFIFO", InstanceMethod, vec![Handle], Bool, "__RTS_FN_NODE_FS_STATS_IS_FIFO", "isFIFO(): boolean", s::__RTS_FN_NODE_FS_STATS_IS_FIFO as *const u8))
-        .member(m("isSocket", InstanceMethod, vec![Handle], Bool, "__RTS_FN_NODE_FS_STATS_IS_SOCKET", "isSocket(): boolean", s::__RTS_FN_NODE_FS_STATS_IS_SOCKET as *const u8))
-        .member(m("size", InstanceGetter, vec![Handle], F64, "__RTS_FN_NODE_FS_STATS_SIZE", "size: number", s::__RTS_FN_NODE_FS_STATS_SIZE as *const u8))
-        .member(m("mode", InstanceGetter, vec![Handle], F64, "__RTS_FN_NODE_FS_STATS_MODE", "mode: number", s::__RTS_FN_NODE_FS_STATS_MODE as *const u8))
-        .member(m("mtimeMs", InstanceGetter, vec![Handle], F64, "__RTS_FN_NODE_FS_STATS_MTIME_MS", "mtimeMs: number", s::__RTS_FN_NODE_FS_STATS_MTIME_MS as *const u8))
-        .member(m("atimeMs", InstanceGetter, vec![Handle], F64, "__RTS_FN_NODE_FS_STATS_ATIME_MS", "atimeMs: number", s::__RTS_FN_NODE_FS_STATS_ATIME_MS as *const u8))
-        .member(m("ctimeMs", InstanceGetter, vec![Handle], F64, "__RTS_FN_NODE_FS_STATS_CTIME_MS", "ctimeMs: number", s::__RTS_FN_NODE_FS_STATS_CTIME_MS as *const u8))
-        .member(m("birthtimeMs", InstanceGetter, vec![Handle], F64, "__RTS_FN_NODE_FS_STATS_BIRTHTIME_MS", "birthtimeMs: number", s::__RTS_FN_NODE_FS_STATS_BIRTHTIME_MS as *const u8))
-        .member(m("dev", InstanceGetter, vec![Handle], F64, "__RTS_FN_NODE_FS_STATS_DEV", "dev: number", s::__RTS_FN_NODE_FS_STATS_DEV as *const u8))
-        .member(m("ino", InstanceGetter, vec![Handle], F64, "__RTS_FN_NODE_FS_STATS_INO", "ino: number", s::__RTS_FN_NODE_FS_STATS_INO as *const u8))
-        .member(m("nlink", InstanceGetter, vec![Handle], F64, "__RTS_FN_NODE_FS_STATS_NLINK", "nlink: number", s::__RTS_FN_NODE_FS_STATS_NLINK as *const u8))
-        .member(m("uid", InstanceGetter, vec![Handle], F64, "__RTS_FN_NODE_FS_STATS_UID", "uid: number", s::__RTS_FN_NODE_FS_STATS_UID as *const u8))
-        .member(m("gid", InstanceGetter, vec![Handle], F64, "__RTS_FN_NODE_FS_STATS_GID", "gid: number", s::__RTS_FN_NODE_FS_STATS_GID as *const u8))
-        .member(m("rdev", InstanceGetter, vec![Handle], F64, "__RTS_FN_NODE_FS_STATS_RDEV", "rdev: number", s::__RTS_FN_NODE_FS_STATS_RDEV as *const u8))
-        .member(m("blksize", InstanceGetter, vec![Handle], F64, "__RTS_FN_NODE_FS_STATS_BLKSIZE", "blksize: number", s::__RTS_FN_NODE_FS_STATS_BLKSIZE as *const u8))
-        .member(m("blocks", InstanceGetter, vec![Handle], F64, "__RTS_FN_NODE_FS_STATS_BLOCKS", "blocks: number", s::__RTS_FN_NODE_FS_STATS_BLOCKS as *const u8))
-        .done();
+    stats::register(e);
 
     e.class("FSWatcher")
         .doc("FSWatcher — a filesystem watcher from fs.watch(path, listener).")
@@ -161,26 +140,9 @@ pub fn register(e: &mut Engine) {
         .member(m("chmod", InstanceMethod, vec![Handle, I64], Handle, "__RTS_FN_NODE_FS_FH_CHMOD", "chmod(mode: number): object", filehandle::__RTS_FN_NODE_FS_FH_CHMOD as *const u8))
         .done();
 
-    e.class("Dir")
-        .doc("Dir — an open directory handle from opendirSync(path).")
-        .member(m("readSync", InstanceMethod, vec![Handle], Handle, "__RTS_FN_NODE_FS_DIR_READ", "readSync(): object", dir::__RTS_FN_NODE_FS_DIR_READ as *const u8))
-        .member(m("closeSync", InstanceMethod, vec![Handle], Void, "__RTS_FN_NODE_FS_DIR_CLOSE", "closeSync(): void", dir::__RTS_FN_NODE_FS_DIR_CLOSE as *const u8))
-        .member(m("path", InstanceGetter, vec![Handle], Handle, "__RTS_FN_NODE_FS_DIR_PATH", "path: string", dir::__RTS_FN_NODE_FS_DIR_PATH as *const u8))
-        .done();
+    dir::register(e);
 
-    e.class("Dirent")
-        .doc("Dirent — a directory entry from readdirSync(path, { withFileTypes: true }).")
-        .member(m("isFile", InstanceMethod, vec![Handle], Bool, "__RTS_FN_NODE_FS_DIRENT_IS_FILE", "isFile(): boolean", dirent::__RTS_FN_NODE_FS_DIRENT_IS_FILE as *const u8))
-        .member(m("isDirectory", InstanceMethod, vec![Handle], Bool, "__RTS_FN_NODE_FS_DIRENT_IS_DIRECTORY", "isDirectory(): boolean", dirent::__RTS_FN_NODE_FS_DIRENT_IS_DIRECTORY as *const u8))
-        .member(m("isSymbolicLink", InstanceMethod, vec![Handle], Bool, "__RTS_FN_NODE_FS_DIRENT_IS_SYMLINK", "isSymbolicLink(): boolean", dirent::__RTS_FN_NODE_FS_DIRENT_IS_SYMLINK as *const u8))
-        .member(m("isBlockDevice", InstanceMethod, vec![Handle], Bool, "__RTS_FN_NODE_FS_DIRENT_IS_BLOCK", "isBlockDevice(): boolean", dirent::__RTS_FN_NODE_FS_DIRENT_IS_BLOCK as *const u8))
-        .member(m("isCharacterDevice", InstanceMethod, vec![Handle], Bool, "__RTS_FN_NODE_FS_DIRENT_IS_CHAR", "isCharacterDevice(): boolean", dirent::__RTS_FN_NODE_FS_DIRENT_IS_CHAR as *const u8))
-        .member(m("isFIFO", InstanceMethod, vec![Handle], Bool, "__RTS_FN_NODE_FS_DIRENT_IS_FIFO", "isFIFO(): boolean", dirent::__RTS_FN_NODE_FS_DIRENT_IS_FIFO as *const u8))
-        .member(m("isSocket", InstanceMethod, vec![Handle], Bool, "__RTS_FN_NODE_FS_DIRENT_IS_SOCKET", "isSocket(): boolean", dirent::__RTS_FN_NODE_FS_DIRENT_IS_SOCKET as *const u8))
-        .member(m("name", InstanceGetter, vec![Handle], Handle, "__RTS_FN_NODE_FS_DIRENT_NAME", "name: string", dirent::__RTS_FN_NODE_FS_DIRENT_NAME as *const u8))
-        .member(m("parentPath", InstanceGetter, vec![Handle], Handle, "__RTS_FN_NODE_FS_DIRENT_PARENT_PATH", "parentPath: string", dirent::__RTS_FN_NODE_FS_DIRENT_PARENT_PATH as *const u8))
-        .member(m("path", InstanceGetter, vec![Handle], Handle, "__RTS_FN_NODE_FS_DIRENT_PARENT_PATH", "path: string", dirent::__RTS_FN_NODE_FS_DIRENT_PARENT_PATH as *const u8))
-        .done();
+    dirent::register(e);
 
     e.module("node:fs", |mm| {
         mm.doc("Filesystem (node:fs): readFileSync/writeFileSync/appendFileSync, existsSync/accessSync, mkdirSync/rmdirSync/rmSync/unlinkSync, renameSync/copyFileSync/truncateSync, readdirSync/realpathSync, statSync/lstatSync.");

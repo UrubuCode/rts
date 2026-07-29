@@ -1,27 +1,26 @@
 //! node:crypto — the entry points: the module functions (`createHash`/
 //! `createHmac`/`hash`/`randomBytes`/`randomUUID`/`randomInt`/
-//! `timingSafeEqual`/`getHashes`/…) as `#[rtse::function]` members, and the
-//! hand-written `extern "C"` `Hash`/`Cipher` INSTANCE methods (out of scope for
-//! `#[rtse::function]` — free-functions-only; those need `#[rtse::class]`).
+//! `timingSafeEqual`/`getHashes`/…) as `#[rtse::function]` members.
+//! `createHash`/`createHmac`/`createCipheriv`/`createDecipheriv` build a
+//! `Hash`/`Cipher` instance (`#[rtse::class]`, see `hash.rs`/
+//! `cipher_instance.rs`) via `alloc_rtse` directly — those classes are never
+//! reached through `new Hash()`/`new Cipher()` in JS, only through these
+//! factory functions.
 
 use rts_engine::abi::ty::Handle;
-use rts_engine::heap::handles::{alloc_entry, Entry};
+use rts_engine::heap::handles::{alloc_entry, alloc_rtse, Entry};
 use rts_engine::heap::shapes::string_word;
 
 use super::algo::{self, Algo};
-use super::cipher::{self, CipherAlgo};
+use super::cipher::CipherAlgo;
+use super::cipher_instance::Cipher;
 use super::dh;
+use super::hash::Hash;
 use super::random;
-use super::state::{append, build_cipher_instance, build_instance, byte_array, cipher_state, finalize_state, read_bytes, set_field_bytes};
-
-use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
+use super::state::{byte_array, read_bytes};
 
 unsafe extern "C" {
     fn __rtsadp_throw_js_error(kp: *const u8, kl: i64, mp: *const u8, ml: i64);
-}
-
-fn intern(s: &str) -> u64 {
-    unsafe { __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64) }
 }
 
 fn throw_unknown_algo(name: &str) {
@@ -37,7 +36,7 @@ fn throw_error(kind: &str, msg: &str) {
 #[rtse::function(module = "node:crypto", value = "createHash", throws)]
 fn create_hash(algorithm: &str) -> Handle {
     match Algo::parse(algorithm) {
-        Some(a) => build_instance(a, None),
+        Some(a) => alloc_rtse("Hash", Hash::new(a, None)),
         None => {
             throw_unknown_algo(algorithm);
             0
@@ -49,7 +48,7 @@ fn create_hash(algorithm: &str) -> Handle {
 #[rtse::function(module = "node:crypto", value = "createHmac", throws)]
 fn create_hmac(algorithm: &str, key: Handle) -> Handle {
     match Algo::parse(algorithm) {
-        Some(a) => build_instance(a, Some(&read_bytes(key))),
+        Some(a) => alloc_rtse("Hash", Hash::new(a, Some(&read_bytes(key)))),
         None => {
             throw_unknown_algo(algorithm);
             0
@@ -205,7 +204,7 @@ fn get_hashes() -> Handle {
 #[rtse::function(module = "node:crypto", value = "createCipheriv", throws)]
 fn create_cipheriv(algorithm: &str, key: Handle, iv: Handle) -> Handle {
     match CipherAlgo::parse(algorithm) {
-        Some(a) => build_cipher_instance(cipher_algo_index(a), &read_bytes(key), &read_bytes(iv), false),
+        Some(a) => alloc_rtse("Cipher", Cipher::new(a, &read_bytes(key), &read_bytes(iv), false)),
         None => {
             throw_error("Error", &format!("Unknown cipher: {algorithm}"));
             0
@@ -217,30 +216,11 @@ fn create_cipheriv(algorithm: &str, key: Handle, iv: Handle) -> Handle {
 #[rtse::function(module = "node:crypto", value = "createDecipheriv", throws)]
 fn create_decipheriv(algorithm: &str, key: Handle, iv: Handle) -> Handle {
     match CipherAlgo::parse(algorithm) {
-        Some(a) => build_cipher_instance(cipher_algo_index(a), &read_bytes(key), &read_bytes(iv), true),
+        Some(a) => alloc_rtse("Cipher", Cipher::new(a, &read_bytes(key), &read_bytes(iv), true)),
         None => {
             throw_error("Error", &format!("Unknown cipher: {algorithm}"));
             0
         }
-    }
-}
-
-fn cipher_algo_index(a: CipherAlgo) -> i64 {
-    match a {
-        CipherAlgo::Aes256Gcm => 0,
-        CipherAlgo::Aes128Gcm => 1,
-        CipherAlgo::Aes256Cbc => 2,
-        CipherAlgo::Aes128Cbc => 3,
-    }
-}
-
-fn cipher_algo_from_index(i: i64) -> Option<CipherAlgo> {
-    match i {
-        0 => Some(CipherAlgo::Aes256Gcm),
-        1 => Some(CipherAlgo::Aes128Gcm),
-        2 => Some(CipherAlgo::Aes256Cbc),
-        3 => Some(CipherAlgo::Aes128Cbc),
-        _ => None,
     }
 }
 
@@ -307,158 +287,5 @@ pub extern "C" fn __RTS_FN_NODE_CRYPTO_CONSTANTS() -> u64 {
     )
 }
 
-// ---- Hash / Hmac instance methods (out of scope: `#[rtse::class]` needed) ----
-
-fn read(ptr: *const u8, len: i64) -> String {
-    unsafe { rts_engine::abi::str_abi::from_abi(ptr, len) }.unwrap_or("").to_string()
-}
-
-/// `hash.update(data)` — appends, returns `this` (chainable).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_UPDATE(this: u64, data: u64) -> u64 {
-    append(this, &read_bytes(data));
-    this
-}
-
-/// `hash.update(data, inputEncoding)` — the string data is decoded per the
-/// encoding (hex/base64/latin1, default utf8) before hashing.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_UPDATE_ENC(this: u64, dp: *const u8, dl: i64, ep: *const u8, el: i64) -> u64 {
-    let s = read(dp, dl);
-    let bytes: Vec<u8> = match read(ep, el).to_lowercase().as_str() {
-        "hex" => (0..s.len() / 2)
-            .filter_map(|i| u8::from_str_radix(s.get(i * 2..i * 2 + 2)?, 16).ok())
-            .collect(),
-        "base64" | "base64url" => algo::base64_decode(&s),
-        "latin1" | "binary" | "ascii" => s.chars().map(|c| c as u8).collect(),
-        _ => s.into_bytes(),
-    };
-    append(this, &bytes);
-    this
-}
-
-/// `hash.copy()` — a new Hash with the same algorithm and accumulated state, so
-/// it can be digested independently (Node's Hash.copy()).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_COPY(this: u64) -> u64 {
-    match finalize_state(this) {
-        Some((a, is_hmac, input, key)) => {
-            let clone = build_instance(a, if is_hmac { Some(&key) } else { None });
-            append(clone, &input);
-            clone
-        }
-        None => this,
-    }
-}
-
-/// `hash.digest()` → Buffer (Uint8Array-shaped) of the raw digest bytes.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_DIGEST(this: u64) -> u64 {
-    byte_array(&digest_bytes(this))
-}
-
-/// `hash.digest(encoding)` → encoded string.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_DIGEST_ENC(this: u64, ep: *const u8, el: i64) -> u64 {
-    intern(&algo::encode(&digest_bytes(this), &read(ep, el)))
-}
-
-fn digest_bytes(this: u64) -> Vec<u8> {
-    match finalize_state(this) {
-        Some((a, is_hmac, input, key)) => {
-            if is_hmac {
-                algo::hmac_bytes(a, &key, &input)
-            } else {
-                algo::hash_bytes(a, &input)
-            }
-        }
-        None => Vec::new(),
-    }
-}
-
-// ---- Cipheriv / Decipheriv instance methods (out of scope: `#[rtse::class]`) ----
-
-/// `cipher.update(data)` — accumulates the input (same accumulate-then-
-/// finalize model `Hash` uses: GCM needs the whole message before it can
-/// authenticate, so there is no correct per-call partial output). Returns an
-/// empty Buffer, unlike Node's real streaming `update()` — callers must read
-/// the full ciphertext/plaintext from `final()` alone, not by concatenating
-/// `update()` outputs.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_CIPHER_UPDATE(this: u64, data: u64) -> u64 {
-    append(this, &read_bytes(data));
-    byte_array(&[])
-}
-
-/// `cipher.setAAD(buffer)` (GCM only) — returns `this` (chainable).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_CIPHER_SET_AAD(this: u64, data: u64) -> u64 {
-    set_field_bytes(this, "__aad", &read_bytes(data));
-    this
-}
-
-/// `decipher.setAuthTag(buffer)` (GCM only) — returns `this` (chainable).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_CIPHER_SET_AUTH_TAG(this: u64, data: u64) -> u64 {
-    set_field_bytes(this, "__tag", &read_bytes(data));
-    this
-}
-
-/// `cipher.getAuthTag()` (GCM encrypt only) — the 16-byte tag computed by the
-/// last `final()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_CIPHER_GET_AUTH_TAG(this: u64) -> u64 {
-    byte_array(&cipher_state(this).map(|s| s.6).unwrap_or_default())
-}
-
-/// `cipher.final()` — runs the accumulated input through encrypt/decrypt and
-/// returns the output Buffer. For GCM encrypt, also stores the computed auth
-/// tag in `__tag` so a subsequent `getAuthTag()` reads it. For GCM decrypt,
-/// verifies `__tag` and throws on authentication failure (Node's contract).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_CIPHER_FINAL(this: u64) -> u64 {
-    let Some((algo_i, key, iv, is_decrypt, input, aad, tag)) = cipher_state(this) else {
-        return byte_array(&[]);
-    };
-    let Some(algo) = cipher_algo_from_index(algo_i) else {
-        return byte_array(&[]);
-    };
-    if algo.is_gcm() {
-        if is_decrypt {
-            match cipher::gcm_decrypt(algo, &key, &iv, &aad, &input, &tag) {
-                Ok(pt) => byte_array(&pt),
-                Err(e) => {
-                    throw_error("Error", &e);
-                    byte_array(&[])
-                }
-            }
-        } else {
-            match cipher::gcm_encrypt(algo, &key, &iv, &aad, &input) {
-                Ok((ct, computed_tag)) => {
-                    set_field_bytes(this, "__tag", &computed_tag);
-                    byte_array(&ct)
-                }
-                Err(e) => {
-                    throw_error("Error", &e);
-                    byte_array(&[])
-                }
-            }
-        }
-    } else if is_decrypt {
-        match cipher::cbc_decrypt(algo, &key, &iv, &input) {
-            Ok(pt) => byte_array(&pt),
-            Err(e) => {
-                throw_error("Error", &e);
-                byte_array(&[])
-            }
-        }
-    } else {
-        match cipher::cbc_encrypt(algo, &key, &iv, &input) {
-            Ok(ct) => byte_array(&ct),
-            Err(e) => {
-                throw_error("Error", &e);
-                byte_array(&[])
-            }
-        }
-    }
-}
+// Hash/Hmac and Cipheriv/Decipheriv instance methods now live on their
+// `#[rtse::class]` structs — see `hash.rs` / `cipher_instance.rs`.

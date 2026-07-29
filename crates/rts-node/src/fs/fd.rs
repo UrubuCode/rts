@@ -242,7 +242,7 @@ fn readv_sync2(fd: i64, buffers: Handle) -> i64 {
 }
 
 /// `fs.fstatSync(fd)` → Stats.
-#[rtse::function(module = "node:fs", value = "fstatSync")]
+#[rtse::function(module = "node:fs", value = "fstatSync", ret_ts = "Stats")]
 fn fstat_sync(fd: i64) -> Handle {
     match with_fd(fd as u64, |f| f.metadata()) {
         Some(Ok(m)) => stats::build(&m),

@@ -46,44 +46,6 @@ impl Algo {
         }
     }
 
-    pub fn index(self) -> i64 {
-        match self {
-            Algo::Md5 => 0,
-            Algo::Sha1 => 1,
-            Algo::Sha224 => 2,
-            Algo::Sha256 => 3,
-            Algo::Sha384 => 4,
-            Algo::Sha512 => 5,
-            Algo::Sha3_256 => 6,
-            Algo::Sha3_384 => 7,
-            Algo::Sha3_512 => 8,
-            Algo::Blake2b512 => 9,
-            Algo::Blake2s256 => 10,
-            Algo::Sha512_256 => 11,
-            Algo::Sha512_224 => 12,
-            Algo::Ripemd160 => 13,
-        }
-    }
-
-    pub fn from_index(i: i64) -> Algo {
-        match i {
-            0 => Algo::Md5,
-            1 => Algo::Sha1,
-            2 => Algo::Sha224,
-            4 => Algo::Sha384,
-            5 => Algo::Sha512,
-            6 => Algo::Sha3_256,
-            7 => Algo::Sha3_384,
-            8 => Algo::Sha3_512,
-            9 => Algo::Blake2b512,
-            10 => Algo::Blake2s256,
-            11 => Algo::Sha512_256,
-            12 => Algo::Sha512_224,
-            13 => Algo::Ripemd160,
-            _ => Algo::Sha256,
-        }
-    }
-
     /// A fresh boxed hasher for this algorithm.
     fn hasher(self) -> Box<dyn DynDigest> {
         match self {
@@ -242,6 +204,20 @@ fn base64(data: &[u8], url: bool) -> String {
     }
     // base64url omits padding.
     if url { out.trim_end_matches('=').to_string() } else { out }
+}
+
+/// Decode a string per Node's `hash.update(data, inputEncoding)` convention:
+/// hex/base64/base64url/latin1/binary decode; anything else (default utf8) →
+/// its UTF-8 bytes.
+pub fn decode_encoded(s: &str, enc: &str) -> Vec<u8> {
+    match enc.to_lowercase().as_str() {
+        "hex" => (0..s.len() / 2)
+            .filter_map(|i| u8::from_str_radix(s.get(i * 2..i * 2 + 2)?, 16).ok())
+            .collect(),
+        "base64" | "base64url" => base64_decode(s),
+        "latin1" | "binary" | "ascii" => s.chars().map(|c| c as u8).collect(),
+        _ => s.as_bytes().to_vec(),
+    }
 }
 
 /// Decode a base64 (standard or url) string to bytes.

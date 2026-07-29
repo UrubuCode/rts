@@ -15,7 +15,6 @@ use rts_engine::heap::shapes::{
     alloc_shaped_object_owned, global_shape_keys, handle_word_auto, string_word,
 };
 
-use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
 
 unsafe extern "C" {
     fn __rtsadp_fn_invoke(f: u64, a0: u64, a1: u64, a2: u64, a3: u64, rest: u64) -> u64;
@@ -45,11 +44,6 @@ pub fn invoke_string_fn(f: u64, s: &str) -> String {
     let u = rts_engine::heap::poly::POLY_UNDEFINED;
     let r = unsafe { __rtsadp_fn_invoke(f as u64, arg, u, u, u, u) };
     scalar_string(r as u64)
-}
-
-/// Intern a Rust string as a GC string handle (the ABI `Handle` return).
-pub fn intern(s: &str) -> u64 {
-    unsafe { __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64) }
 }
 
 /// A `string` element word.

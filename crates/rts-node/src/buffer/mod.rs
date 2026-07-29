@@ -19,61 +19,17 @@
 //! `writeUInt8`/`equals`/`fill`/`indexOf`/`copy`/…), and the `Blob`/`File`
 //! classes (need blob/stream backing).
 //!
-//! Layout: `ops` (base64 + byte ops + extern points), `mod` (registration).
+//! Layout: `ops` (base64 + byte ops + `atob`/`btoa` externs), `class` (the
+//! `#[rtse::class]`-backed `Buffer` statics), `mod` (registration).
 
+mod class;
 mod ops;
 
-use rts_engine::AbiType::{self, Bool, Handle, I64, StrPtr};
-use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
-
-fn member(name: &str, kind: MemberKind, args: Vec<AbiType>, ret: AbiType, symbol: &str, ts: &str, fp: *const u8) -> Member {
-    Member {
-        name: name.to_string(),
-        kind,
-        sig: Sig::new(args, ret),
-        symbol: symbol.to_string(),
-        fn_ptr: FnPtr(fp),
-        flags: MemberFlags::NONE,
-        aliases: Vec::new(),
-        variadic: false,
-        ts_signature: ts.to_string(),
-        doc: String::new(),
-        ret_class: None,
-        pure: false,
-        emit: None,
-    }
-}
-
-/// Flag a member `THROWS` so its RangeError routes to an enclosing try/catch.
-fn throwing(mut m: Member) -> Member {
-    m.flags = MemberFlags::THROWS;
-    m
-}
+use rts_engine::Engine;
 
 /// Registers the `Buffer` class (statics) + the `node:buffer` module.
 pub fn register(e: &mut Engine) {
-    use ops as s;
-    use MemberKind::StaticMethod;
-
-    e.class("Buffer")
-        .doc("Buffer — byte container (node:buffer). Static constructors + helpers.")
-        .member(throwing(member("alloc", StaticMethod, vec![I64], Handle, "__RTS_FN_NODE_BUFFER_ALLOC", "alloc(size: number): number[]", s::__RTS_FN_NODE_BUFFER_ALLOC as *const u8)))
-        .member(throwing(member("alloc", StaticMethod, vec![I64, I64], Handle, "__RTS_FN_NODE_BUFFER_ALLOC_FILL", "alloc(size: number, fill: number): number[]", s::__RTS_FN_NODE_BUFFER_ALLOC_FILL as *const u8)))
-        .member(throwing(member("allocUnsafe", StaticMethod, vec![I64], Handle, "__RTS_FN_NODE_BUFFER_ALLOC", "allocUnsafe(size: number): number[]", s::__RTS_FN_NODE_BUFFER_ALLOC as *const u8)))
-        .member(member("from", StaticMethod, vec![StrPtr], Handle, "__RTS_FN_NODE_BUFFER_FROM", "from(string: string): number[]", s::__RTS_FN_NODE_BUFFER_FROM as *const u8))
-        .member(member("from", StaticMethod, vec![StrPtr, StrPtr], Handle, "__RTS_FN_NODE_BUFFER_FROM_ENC", "from(string: string, encoding: string): number[]", s::__RTS_FN_NODE_BUFFER_FROM_ENC as *const u8))
-        .member(member("from", StaticMethod, vec![Handle], Handle, "__RTS_FN_NODE_BUFFER_FROM_ARRAY", "from(data: object): number[]", s::__RTS_FN_NODE_BUFFER_FROM_ARRAY as *const u8))
-        .member(member("isBuffer", StaticMethod, vec![Handle], Bool, "__RTS_FN_NODE_BUFFER_IS_BUFFER", "isBuffer(obj: object): boolean", s::__RTS_FN_NODE_BUFFER_IS_BUFFER as *const u8))
-        .member(member("isEncoding", StaticMethod, vec![StrPtr], Bool, "__RTS_FN_NODE_BUFFER_IS_ENCODING", "isEncoding(encoding: string): boolean", s::__RTS_FN_NODE_BUFFER_IS_ENCODING as *const u8))
-        .member(member("byteLength", StaticMethod, vec![StrPtr], I64, "__RTS_FN_NODE_BUFFER_BYTE_LENGTH", "byteLength(string: string): number", s::__RTS_FN_NODE_BUFFER_BYTE_LENGTH as *const u8))
-        .member(member("byteLength", StaticMethod, vec![StrPtr, StrPtr], I64, "__RTS_FN_NODE_BUFFER_BYTE_LENGTH_ENC", "byteLength(string: string, encoding: string): number", s::__RTS_FN_NODE_BUFFER_BYTE_LENGTH_ENC as *const u8))
-        .member(member("compare", StaticMethod, vec![Handle, Handle], I64, "__RTS_FN_NODE_BUFFER_COMPARE", "compare(a: object, b: object): number", s::__RTS_FN_NODE_BUFFER_COMPARE as *const u8))
-        .member(member("concat", StaticMethod, vec![Handle], Handle, "__RTS_FN_NODE_BUFFER_CONCAT", "concat(list: object): number[]", s::__RTS_FN_NODE_BUFFER_CONCAT as *const u8))
-        .member(member("concat", StaticMethod, vec![Handle, I64], Handle, "__RTS_FN_NODE_BUFFER_CONCAT_LEN", "concat(list: object, totalLength: number): number[]", s::__RTS_FN_NODE_BUFFER_CONCAT_LEN as *const u8))
-        .member(member("toString", StaticMethod, vec![Handle], Handle, "__RTS_FN_NODE_BUFFER_TO_STRING", "toString(buf: object): string", s::__RTS_FN_NODE_BUFFER_TO_STRING as *const u8))
-        .member(member("toString", StaticMethod, vec![Handle, StrPtr], Handle, "__RTS_FN_NODE_BUFFER_TO_STRING_ENC", "toString(buf: object, encoding: string): string", s::__RTS_FN_NODE_BUFFER_TO_STRING_ENC as *const u8))
-        .done();
-
+    class::register(e);
     e.module("node:buffer", |m| {
         m.doc("Buffer/base64 (node:buffer): atob, btoa.");
         m.registry(ops::atob_entry());

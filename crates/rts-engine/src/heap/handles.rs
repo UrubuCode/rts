@@ -482,6 +482,13 @@ pub enum Entry {
         /// a class-less allocation.
         class: &'static str,
         data: Box<dyn std::any::Any + Send + Sync>,
+        /// Ad-hoc JS properties written onto the instance (`h.tag = 1`). The
+        /// Rust struct holds the DECLARED state; JS may still hang arbitrary
+        /// keys off any object, and a struct has no slot for them. Same slot
+        /// encoding as `Entry::Map` (see `adapters::value::mapslot`), so the
+        /// object paths read/write it exactly as they do a dictionary object.
+        /// Empty for the overwhelmingly common case — allocated lazily.
+        props: Box<indexmap::IndexMap<String, i64>>,
     },
     /// EventEmitter primitivo do namespace `events` (rts:events). Armazena
     /// listeners por nome de evento como function pointers (i64 raw).
@@ -1560,6 +1567,7 @@ pub fn alloc_rtse<T: std::any::Any + Send + Sync>(class: &'static str, v: T) -> 
     alloc_entry(Entry::Rtse {
         class,
         data: Box::new(v),
+        props: Default::default(),
     })
 }
 
@@ -1578,6 +1586,29 @@ pub fn with_rtse<T: std::any::Any, R>(handle: u64, f: impl FnOnce(Option<&T>) ->
     with_entry(handle, |e| match e {
         Some(Entry::Rtse { data, .. }) => f(data.downcast_ref::<T>()),
         _ => f(None),
+    })
+}
+
+/// Read an ad-hoc JS property slot off a struct-backed instance. `None` when
+/// the handle is not an `Entry::Rtse` at all (so a caller can tell "not my kind
+/// of receiver" from "that key was never written").
+pub fn rtse_prop_get(handle: u64, key: &str) -> Option<Option<i64>> {
+    with_entry(handle, |e| match e {
+        Some(Entry::Rtse { props, .. }) => Some(props.get(key).copied()),
+        _ => None,
+    })
+}
+
+/// Write an ad-hoc JS property slot onto a struct-backed instance. `false` when
+/// the handle is not an `Entry::Rtse` (the caller falls through to its other
+/// receiver kinds).
+pub fn rtse_prop_set(handle: u64, key: &str, slot: i64) -> bool {
+    with_entry_mut(handle, |e| match e {
+        Some(Entry::Rtse { props, .. }) => {
+            props.insert(key.to_string(), slot);
+            true
+        }
+        _ => false,
     })
 }
 

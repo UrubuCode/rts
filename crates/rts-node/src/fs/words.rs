@@ -4,7 +4,7 @@
 //! adds the fs-specific piece: turning a `std::io::Error` into a Node-style
 //! thrown error (`ENOENT: ...`).
 
-pub use crate::values::{byte_array, intern, opt_bool, read, read_bytes, string_array};
+pub use crate::values::{byte_array, opt_bool, read, read_bytes, string_array};
 
 /// Decode a boxed-string PolyValue WORD to its UTF-8 text (empty for non-strings).
 pub fn word_string(word: u64) -> String {

@@ -278,6 +278,25 @@ pub fn rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
             let key = key_text(key_str_handle);
             let hit = rt_handles::with_entry(h, |e| match e {
                 Some(rt_handles::Entry::Map(m)) => Some(m.get(&key).copied()),
+                // A struct-backed `#[rtse::class]` instance keeps NO map: every
+                // exposed property is a declared getter. Treat it as a keyed
+                // receiver whose slot always misses, so the CI arm below resolves it — this
+                // is what makes an UNTRACKED receiver (a callback arg, an array
+                // element) read the same as a statically-typed one.
+                // …but a METHOD name read as a property must stay a method
+                // VALUE (`d.write` is not `d.write()`), so only a non-method
+                // key folds into the getter arm.
+                // A struct-backed `#[rtse::class]` instance. An ad-hoc JS
+                // property the instance actually carries answers the read; a
+                // METHOD name must stay a method VALUE (`d.write` is not
+                // `d.write()`); anything else falls THROUGH to the paths below
+                // (a declared getter resolves there, via the CI arm the
+                // untracked-receiver read shares with `Entry::Map`).
+                Some(rt_handles::Entry::Rtse { class, props, .. })
+                    if !rts_engine::runtime_ci::has_instance_method(class, &key) =>
+                {
+                    props.get(&key).copied().map(Some)
+                }
                 _ => None,
             });
             if let Some(v) = hit {
@@ -296,6 +315,34 @@ pub fn rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
                             .unwrap_or(undef)
                     }
                 };
+            }
+        }
+    }
+    // A struct-backed `#[rtse::class]` instance whose key is neither an ad-hoc
+    // JS property nor a method: it can only be a DECLARED GETTER. Resolve it
+    // from the same runtime CI table the method path uses, keyed by the
+    // receiver's own class — which is what lets an UNTRACKED receiver (a
+    // callback argument, an array element) read `stats.size` / `dirent.name`
+    // exactly as a statically-typed one does. A CI miss falls through
+    // (`undefined` is decided further down, not here).
+    {
+        let obj = PolyValue::from_raw(obj_word);
+        if obj.is_object() {
+            let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+            let class = rts_engine::heap::handles::rtse_class_of(h);
+            // A METHOD name read as a property stays a method VALUE — never
+            // invoke it here (`d.end` is not `d.end()`).
+            if class
+                .is_some_and(|c| !rts_engine::runtime_ci::has_instance_method(c, &key_text(key_str_handle)))
+            {
+                let undef = PolyValue::undefined().raw();
+                if let Some(v) =
+                    super::dynci::try_runtime_ci(obj_word, key_str_handle, undef, undef, undef, 0)
+                {
+                    if v != undef {
+                        return v;
+                    }
+                }
             }
         }
     }
@@ -569,6 +616,14 @@ pub fn rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word: u64) -> u64 
             let stored = rt_handles::with_entry_mut(h, |e| match e {
                 Some(rt_handles::Entry::Map(m)) => {
                     m.insert(key, super::mapslot::of_poly(val_word));
+                    true
+                }
+                // A struct-backed `#[rtse::class]` instance: the Rust struct
+                // holds the DECLARED state and has no slot for an arbitrary JS
+                // key, so the write lands in the entry's own ad-hoc prop map —
+                // same slot encoding, read back by `obj_get`'s Rtse arm.
+                Some(rt_handles::Entry::Rtse { props, .. }) => {
+                    props.insert(key, super::mapslot::of_poly(val_word));
                     true
                 }
                 _ => false,

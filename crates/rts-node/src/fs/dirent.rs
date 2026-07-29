@@ -1,22 +1,21 @@
 //! node:fs — the `Dirent` object returned by `readdirSync(path, { withFileTypes:
-//! true })`. An object-backed Registry class (`__rts_class = "Dirent"`, the
-//! Stats/StringDecoder model): `name`/`parentPath`/`path` string fields plus a
-//! `__ftype` tag (0 file / 1 dir / 2 symlink / 3 block / 4 char / 5 fifo /
-//! 6 socket) driving the seven `is*` predicates. Every value comes from the real
-//! `std::fs::DirEntry` (`file_type()` — cheap `d_type` on POSIX, metadata on
-//! Windows). Now dispatchable on any receiver (the object-backed runtime dispatch
-//! path), so `readdirSync(dir, { withFileTypes: true })[i].isFile()` works.
+//! true })`. Authored as a `#[rtse::class]`: the instance IS the Rust struct
+//! (`Entry::Rtse`), holding `name`/`parent`/`ftype` (0 file / 1 dir / 2 symlink /
+//! 3 block / 4 char / 5 fifo / 6 socket) directly instead of a flattened
+//! `Entry::Map` with a `__rts_class`/`__ftype` side-tag. Every value comes from
+//! the real `std::fs::DirEntry` (`file_type()` — cheap `d_type` on POSIX,
+//! metadata on Windows).
+//!
+//! `Dirent` is never constructed from JS (`readdirSync`/`opendirSync` build it
+//! internally), so there is no `#[rtse::ctor]` — `Dirent::new(...)` here is a
+//! plain Rust fn, and `rts_engine::heap::handles::alloc_rtse` (the same
+//! allocation path a ctor would generate) turns it into the `u64` handle callers
+//! already expect.
 
 use rts_engine::abi::ty::Handle;
-use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
+use rts_engine::heap::handles::alloc_rtse;
 
 use super::words::{opt_bool, string_array, throw_io};
-
-/// Store a string field as a GC `Entry::String` (a real string handle the object
-/// getters / property reads resolve), matching the Stats/StringDecoder model.
-fn str_field(s: &str) -> i64 {
-    alloc_entry(Entry::String(s.as_bytes().to_vec())) as i64
-}
 
 /// Classify a `std::fs::FileType` into the `__ftype` tag. The block/char/fifo/
 /// socket kinds exist only on Unix; elsewhere a non-dir/non-symlink is a regular
@@ -47,30 +46,80 @@ fn ftype_of(ft: std::fs::FileType) -> i64 {
     0
 }
 
+/// A `Dirent` instance: name, parent directory, and the `__ftype` tag.
+#[rtse::class("Dirent")]
+#[derive(Clone)]
+pub struct Dirent {
+    name: String,
+    parent: String,
+    ftype: i64,
+}
+
+#[rtse::class("Dirent")]
+impl Dirent {
+    /// `dirent.isFile()` / `isDirectory()` / `isSymbolicLink()` / `isBlockDevice()`
+    /// / `isCharacterDevice()` / `isFIFO()` / `isSocket()` — compare the `ftype`
+    /// tag. `isSymbolicLink`/`isBlockDevice`/`isCharacterDevice`/`isFIFO` need an
+    /// explicit JS name where the default `to_camel(rust_ident)` wouldn't produce
+    /// Node's actual spelling.
+    #[rtse::method]
+    fn is_file(&self) -> bool {
+        self.ftype == 0
+    }
+    #[rtse::method]
+    fn is_directory(&self) -> bool {
+        self.ftype == 1
+    }
+    #[rtse::method(name = "isSymbolicLink")]
+    fn is_symlink(&self) -> bool {
+        self.ftype == 2
+    }
+    #[rtse::method(name = "isBlockDevice")]
+    fn is_block(&self) -> bool {
+        self.ftype == 3
+    }
+    #[rtse::method(name = "isCharacterDevice")]
+    fn is_char(&self) -> bool {
+        self.ftype == 4
+    }
+    #[rtse::method(name = "isFIFO")]
+    fn is_fifo(&self) -> bool {
+        self.ftype == 5
+    }
+    #[rtse::method]
+    fn is_socket(&self) -> bool {
+        self.ftype == 6
+    }
+
+    /// `dirent.name`.
+    #[rtse::getter]
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    /// `dirent.parentPath`.
+    #[rtse::getter]
+    fn parent_path(&self) -> String {
+        self.parent.clone()
+    }
+
+    /// `dirent.path` — the (deprecated) alias of `parentPath`.
+    #[rtse::getter(name = "path")]
+    fn path_alias(&self) -> String {
+        self.parent.clone()
+    }
+}
+
 /// Build one `Dirent` instance from a name, its parent directory, and its type.
 fn build(name: &str, parent: &str, ftype: i64) -> u64 {
-    let mut map: indexmap::IndexMap<String, i64> = indexmap::IndexMap::new();
-    map.insert("__rts_class".to_string(), alloc_entry(Entry::String(b"Dirent".to_vec())) as i64);
-    map.insert("__ftype".to_string(), ftype);
-    map.insert("name".to_string(), str_field(name));
-    map.insert("parentPath".to_string(), str_field(parent));
-    // `path` is the (deprecated) alias of `parentPath`.
-    map.insert("path".to_string(), str_field(parent));
-    alloc_entry(Entry::Map(Box::new(map)))
-}
-
-fn ftype(handle: u64) -> i64 {
-    with_entry(handle, |e| match e {
-        Some(Entry::Map(m)) => m.get("__ftype").copied().unwrap_or(-1),
-        _ => -1,
-    })
-}
-
-fn field(handle: u64, key: &str) -> u64 {
-    with_entry(handle, |e| match e {
-        Some(Entry::Map(m)) => m.get(key).copied().unwrap_or(0) as u64,
-        _ => 0,
-    })
+    alloc_rtse(
+        "Dirent",
+        Dirent {
+            name: name.to_string(),
+            parent: parent.to_string(),
+            ftype,
+        },
+    )
 }
 
 /// Build the `Dirent` handle words for every entry of `path` (shared by
@@ -95,6 +144,7 @@ pub(super) fn entries_of(path: &str) -> Vec<i64> {
 
 /// `fs.readdirSync(path, { withFileTypes: true })` → `Dirent[]`.
 fn readdir_types(path: &str) -> u64 {
+    use rts_engine::heap::handles::{alloc_entry, Entry};
     alloc_entry(Entry::Vec(Box::new(entries_of(path))))
 }
 
@@ -123,45 +173,4 @@ fn readdir_sync_opts(path: &str, options: Handle) -> Handle {
             string_array(&[])
         }
     }
-}
-
-/// `dirent.isFile()` / `isDirectory()` / `isSymbolicLink()` / `isBlockDevice()` /
-/// `isCharacterDevice()` / `isFIFO()` / `isSocket()` — compare the `__ftype` tag.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_DIRENT_IS_FILE(this: u64) -> i64 {
-    (ftype(this) == 0) as i64
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_DIRENT_IS_DIRECTORY(this: u64) -> i64 {
-    (ftype(this) == 1) as i64
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_DIRENT_IS_SYMLINK(this: u64) -> i64 {
-    (ftype(this) == 2) as i64
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_DIRENT_IS_BLOCK(this: u64) -> i64 {
-    (ftype(this) == 3) as i64
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_DIRENT_IS_CHAR(this: u64) -> i64 {
-    (ftype(this) == 4) as i64
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_DIRENT_IS_FIFO(this: u64) -> i64 {
-    (ftype(this) == 5) as i64
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_DIRENT_IS_SOCKET(this: u64) -> i64 {
-    (ftype(this) == 6) as i64
-}
-
-/// `dirent.name` / `.parentPath` / `.path` (getters) — the stored string handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_DIRENT_NAME(this: u64) -> u64 {
-    field(this, "name")
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_DIRENT_PARENT_PATH(this: u64) -> u64 {
-    field(this, "parentPath")
 }

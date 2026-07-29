@@ -5,7 +5,7 @@
 
 use rts_engine::abi::ty::Handle;
 
-use super::words::{array, clock_base, intern, node_arch, node_platform, num_word, object, str_word, throw};
+use super::words::{array, clock_base, node_arch, node_platform, num_word, object, str_word, throw};
 
 /// The Node major RTS emulates (see docs/node-implementation — "full Node 25 API").
 const NODE_VERSION: &str = "v25.0.0";

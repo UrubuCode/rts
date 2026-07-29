@@ -7,14 +7,9 @@ use std::time::Instant;
 use rts_engine::heap::handles::{alloc_entry, Entry};
 use rts_engine::heap::shapes::{alloc_shaped_object, string_word};
 
-use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
 
 unsafe extern "C" {
     fn __rtsadp_throw_js_error(kp: *const u8, kl: i64, mp: *const u8, ml: i64);
-}
-
-pub fn intern(s: &str) -> u64 {
-    unsafe { __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64) }
 }
 
 pub fn str_word(s: &str) -> i64 {

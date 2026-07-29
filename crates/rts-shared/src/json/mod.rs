@@ -377,7 +377,7 @@ fn stringify_with_visited(
         // `Date` is a `#[rtse::class]` struct stored via `Entry::Rtse`; read its
         // ms directly here (downcast inside the same `with_entry` lock — cannot
         // nest `with_rtse`, which re-locks the shard).
-        Some(Entry::Rtse { class, data }) if *class == "Date" => {
+        Some(Entry::Rtse { class, data, .. }) if *class == "Date" => {
             match data.downcast_ref::<crate::globals::date::instance::Date>() {
                 Some(d) => Snap::Date(d.ms),
                 None => Snap::Other,

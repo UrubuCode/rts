@@ -31,7 +31,7 @@ pub fn install() {
 
 fn date_encode(e: &Entry) -> Option<Vec<u8>> {
     match e {
-        Entry::Rtse { class: "Date", data } => {
+        Entry::Rtse { class: "Date", data, .. } => {
             data.downcast_ref::<Date>().map(|d| d.ms.to_le_bytes().to_vec())
         }
         _ => None,

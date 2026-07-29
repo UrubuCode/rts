@@ -4,14 +4,13 @@
 //! The free functions here are authored with `#[rtse::function]`
 //! (symbol/signature/ts/doc all derived from the Rust declaration); the macro
 //! fixes `MemberFlags::NONE`, so `fs/mod.rs` patches `THROWS` on at registration
-//! (`throws(...)`, matching `rts-shared/src/serde_ns`). The `Stats` INSTANCE
-//! methods/getters at the bottom stay hand-written `#[unsafe(no_mangle)]` externs:
-//! `#[rtse::function]` is free-functions-only (no receiver, no class), and
-//! `Stats` is registered as an `e.class(...)` the old way.
+//! (`throws(...)`, matching `rts-shared/src/serde_ns`). `Stats` itself is now a
+//! `#[rtse::class]` (see `stats.rs`) — its instance methods/getters no longer
+//! live here.
 
 use super::codec::{decode_bytes, encode_bytes};
 use super::stats;
-use super::words::{byte_array, intern, opt_bool, read_bytes, string_array, throw_io};
+use super::words::{byte_array, opt_bool, read_bytes, string_array, throw_io};
 use rts_engine::abi::ty::Handle;
 
 /// `fs.constants` — the libuv access-mode + copyfile flags. Field-accessible
@@ -351,7 +350,7 @@ fn realpath_sync(path: &str) -> String {
 }
 
 /// `fs.statSync(path)` → Stats (follows symlinks).
-#[rtse::function(module = "node:fs", value = "statSync")]
+#[rtse::function(module = "node:fs", value = "statSync", ret_ts = "Stats")]
 fn stat_sync(path: &str) -> Handle {
     match std::fs::metadata(path) {
         Ok(m) => stats::build(&m),
@@ -363,7 +362,7 @@ fn stat_sync(path: &str) -> Handle {
 }
 
 /// `fs.lstatSync(path)` → Stats (does not follow symlinks).
-#[rtse::function(module = "node:fs", value = "lstatSync")]
+#[rtse::function(module = "node:fs", value = "lstatSync", ret_ts = "Stats")]
 fn lstat_sync(path: &str) -> Handle {
     match std::fs::symlink_metadata(path) {
         Ok(m) => stats::build(&m),
@@ -374,109 +373,5 @@ fn lstat_sync(path: &str) -> Handle {
     }
 }
 
-// ---- Stats instance methods ----
-//
-// NOT converted: these are `InstanceMethod`/`InstanceGetter` members of the
-// `Stats` class (`e.class("Stats")` in `fs/mod.rs`), and `#[rtse::function]`
-// is free-functions-only (no receiver, no class) — see `rts-macro/src/function.rs`
-// doc comment ("no receiver, no class").
-
-/// `stats.isFile()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_STATS_IS_FILE(this: u64) -> i64 {
-    stats::is_file(this) as i64
-}
-
-/// `stats.isDirectory()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_STATS_IS_DIRECTORY(this: u64) -> i64 {
-    stats::is_directory(this) as i64
-}
-
-/// `stats.isSymbolicLink()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_STATS_IS_SYMLINK(this: u64) -> i64 {
-    stats::is_symbolic_link(this) as i64
-}
-
-/// `stats.isBlockDevice()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_STATS_IS_BLOCK(this: u64) -> i64 {
-    stats::is_block_device(this) as i64
-}
-
-/// `stats.isCharacterDevice()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_STATS_IS_CHAR(this: u64) -> i64 {
-    stats::is_character_device(this) as i64
-}
-
-/// `stats.isFIFO()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_STATS_IS_FIFO(this: u64) -> i64 {
-    stats::is_fifo(this) as i64
-}
-
-/// `stats.isSocket()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_STATS_IS_SOCKET(this: u64) -> i64 {
-    stats::is_socket(this) as i64
-}
-
-/// `stats.size` / `.mode` / `.mtimeMs` / `.atimeMs` / `.ctimeMs` / `.birthtimeMs`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_STATS_SIZE(this: u64) -> f64 {
-    stats::num_field(this, "size")
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_STATS_MODE(this: u64) -> f64 {
-    stats::num_field(this, "mode")
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_STATS_MTIME_MS(this: u64) -> f64 {
-    stats::num_field(this, "mtimeMs")
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_STATS_ATIME_MS(this: u64) -> f64 {
-    stats::num_field(this, "atimeMs")
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_STATS_CTIME_MS(this: u64) -> f64 {
-    stats::num_field(this, "ctimeMs")
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_STATS_BIRTHTIME_MS(this: u64) -> f64 {
-    stats::num_field(this, "birthtimeMs")
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_STATS_DEV(this: u64) -> f64 {
-    stats::num_field(this, "dev")
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_STATS_INO(this: u64) -> f64 {
-    stats::num_field(this, "ino")
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_STATS_NLINK(this: u64) -> f64 {
-    stats::num_field(this, "nlink")
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_STATS_UID(this: u64) -> f64 {
-    stats::num_field(this, "uid")
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_STATS_GID(this: u64) -> f64 {
-    stats::num_field(this, "gid")
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_STATS_RDEV(this: u64) -> f64 {
-    stats::num_field(this, "rdev")
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_STATS_BLKSIZE(this: u64) -> f64 {
-    stats::num_field(this, "blksize")
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_STATS_BLOCKS(this: u64) -> f64 {
-    stats::num_field(this, "blocks")
-}
+// `Stats` instance methods/getters are now a `#[rtse::class]` (see `stats.rs`);
+// nothing to hand-write here anymore.

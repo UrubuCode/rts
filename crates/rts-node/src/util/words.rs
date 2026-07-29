@@ -5,15 +5,9 @@
 use rts_engine::heap::handles::read_string_handle;
 use rts_engine::heap::poly::{poly_handle_normalize, POLY_BOX_BASE, POLY_PAYLOAD_MASK};
 
-use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
 
 unsafe extern "C" {
     fn __rtsadp_to_string(a: u64) -> u64;
-}
-
-/// Intern a Rust string → GC string handle.
-pub fn intern(s: &str) -> u64 {
-    unsafe { __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64) }
 }
 
 /// JS `String(value)` of a value word.
