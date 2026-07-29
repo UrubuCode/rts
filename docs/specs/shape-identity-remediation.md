@@ -9,7 +9,8 @@
 | P3 | `Object.keys` reads the live shape | **DONE** — `718a3d36` |
 | D5 | `Entry::Rtse.props` traced by the GC | **DONE** — `8bcb98b5` |
 | P4 | Property inline caches (`PropIcCell`) | **DONE** — `18d9e351` |
-| P5 | `Entry::Array` discriminant | **DEFERRED** — see §3 P5 |
+| D6 | `trace_children` exhaustive; 4 more untraced handle-bearing variants | **DONE** — `e5843212` |
+| P5 | `Entry::Array` discriminant | **DEFERRED** (precondition D6 done) — see §3 P5 |
 | P6 | Thread-local allocation front | **SCOPED, not built** — see §3 P6 |
 | P7 | Escape analysis | **NOT SCOPED** |
 
@@ -305,11 +306,25 @@ only on the miss path. The remaining benefits (deleting the heuristic and
 `GLOBAL_SHAPE_BASE`'s collision-avoidance role) are cleanliness, not a measured
 number.
 
-**Prerequisite already landed:** the `trace_children` gap that made this change
-dangerous is fixed (D5), and the `_ => {}` arm now carries an explicit warning
-plus a test (`rtse_props_are_traced`). Before attempting P5, replace that
-catch-all with exhaustive matching so a new variant cannot be silently
-forgotten — that is the real precondition, not the split itself.
+**Precondition LANDED (`e5843212`).** `trace_children` no longer has a `_ => {}`:
+all 42 `Entry` variants are matched explicitly, so a new variant that holds a
+handle now **fails to compile** instead of being silently swallowed and having its
+value swept while live. Adding a variant for arrays is therefore safe from this
+failure mode now, which it was not before.
+
+Auditing for that exhaustiveness turned up **four more variants in the same
+untraced state as D5** — each one the only path to its value:
+
+| variant | untraced handle |
+|---|---|
+| `ErrorObj { cause }` | the value passed to `new Error(m, { cause })` |
+| `StringBox(u64)` | the string `new String(x)` wraps; only `valueOf()` reaches it |
+| `RtsEventsEmitter.listeners` | every listener's reified Function handle |
+| `PromiseAsync` → `PromiseSlot.value` | the settled value word |
+
+`PromiseAsync` marks under `try_lock`, never a blocking lock: the same thread can
+be holding that slot when an allocation trips the GC tick. Losing the lock only
+skips the mark for that pass — the value stays reachable through the promise.
 
 ### P6 — Thread-local allocation front — SCOPED
 
