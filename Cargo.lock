@@ -4121,6 +4121,7 @@ name = "rts-dom"
 version = "0.1.0"
 dependencies = [
  "rts-engine",
+ "rts-macro",
 ]
 
 [[package]]

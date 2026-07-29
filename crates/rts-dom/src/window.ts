@@ -358,13 +358,31 @@ function __globalNames(h: i64, url: string, vw: number, vh: number): string[] {
   return __gNames[__winIndex(h)];
 }
 
-// O SACO DE GLOBAIS do documento `h` (o objeto onde moram os globais que os
-// scripts criam em runtime: `requireLazy`, `__d`, `_btldr`, …).
+// O SACO DE GLOBAIS do documento `h` — onde moram os globais que os scripts
+// criam em runtime (`requireLazy`, `__d`, `_btldr`, …).
 function __globalsFor(h: i64, url: string, vw: number, vh: number): any {
-  const idx = __winIndex(h);
-  if (idx >= 0) return __gVals[idx];
-  __winFor(h, url, vw, vh);
-  return __gVals[__winIndex(h)];
+  // O saco vive em RUST (`scriptscope.rs`), num `thread_local` compartilhado
+  // ENTRE PROGRAMAS — cada `new Function` é um programa novo, então um saco
+  // `.ts` seria por-programa e o script N+1 não veria o do script N. Aqui ele é
+  // um Proxy cujas traps caem direto no registro; o valor viaja como `Poly`
+  // (word tagueada, sem coerção — com `f64` uma função vira `undefined`).
+  //
+  // O handle é CAPTURADO léxicamente (`const doc = h`), nunca repassado como
+  // parâmetro para outra função `.ts`: handle via parâmetro corrompe (#1870 —
+  // medido aqui: `DomScope.count(h)` direto devolve 1, via param devolve 0).
+  const doc: i64 = h;
+  return new Proxy({}, {
+    get: function (alvo: any, chave: any) {
+      return DomScope.get(doc, "" + chave);
+    },
+    set: function (alvo: any, chave: any, valor: any) {
+      DomScope.set(doc, "" + chave, valor);
+      return true;
+    },
+    has: function (alvo: any, chave: any) {
+      return DomScope.has(doc, "" + chave) === 1;
+    },
+  });
 }
 
 // Descarta o escopo global do documento `h` (chamado no `free` do documento).
