@@ -46,6 +46,7 @@ mod funcval;
 mod gcell;
 mod globalclass;
 mod globalclass_receiver;
+mod ic;
 mod globals;
 mod intrinsic;
 mod ta_native;

@@ -152,6 +152,25 @@ fn resolve_slot(obj_word: u64, key_str_handle: u64) -> Option<(u64, i64)> {
     Some((handle, idx))
 }
 
+/// The triple a property inline cache needs to warm up: `(slot0_word, len,
+/// slot)` for a receiver that is genuinely a SHAPED KEYED OBJECT carrying `key`.
+///
+/// `None` for anything else — an array, a string, a Map/dictionary receiver, a
+/// proxy, a primitive, or a key resolved through the prototype chain rather than
+/// an own slot. Those sites simply never warm up, which is the correct outcome:
+/// the emitted guard only knows how to check `(slot0, len)`, so it must never be
+/// handed a receiver whose value does not live at a fixed own slot.
+///
+/// `(slot0, len)` is the SAME pair [`looks_like_object`] uses to distinguish a
+/// shaped object from an array, so a warm cache is exactly as discriminating as
+/// the generic path — see `crate::adapters::value::ic`.
+pub(crate) fn ic_probe(obj_word: u64, key_str_handle: u64) -> Option<(i64, i64, i64)> {
+    let (handle, idx) = resolve_slot(obj_word, key_str_handle)?;
+    let slot0 = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 0);
+    let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(handle);
+    Some((slot0, len, 1 + idx))
+}
+
 /// JS ToPropertyKey normalization for a key that may be an OBJECT with a
 /// side-effecting `toString`/`valueOf`: coerce it to a STRING word ONCE and return
 /// that interned string word (so the internal `key_text` probes never re-fire the

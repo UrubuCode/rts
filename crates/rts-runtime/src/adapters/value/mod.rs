@@ -125,6 +125,10 @@ pub mod regexops;
 // `_set`/`_has` for `obj.key`/`obj[k]` whose shape is known only at RUNTIME,
 // reading the slot-0 global shape-id + the global shape registry.
 pub mod objops;
+// Property inline caches — the MISS half. The emitted fast path (in
+// `rts_codegen_new::front::run::ic`) checks a per-call-site data cell and loads a
+// constant slot; this is what refills that cell when the guard fails.
+pub mod ic;
 // The `Entry::Map` FIELD-SLOT encoding shared by `objops`'s dictionary read and
 // write arms: a JS-written field is the PolyValue word verbatim (lossless for
 // every value kind), a natively-written one is a raw handle/int/f64-bits, and
