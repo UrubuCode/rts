@@ -86,9 +86,24 @@ pub fn vec_get_by_payload(poly48: u64, index: i64) -> i64 {
     })
 }
 
-/// Store `value` at `index`, growing with zeros the way the unfused path does.
-/// Returns 1 on success, 0 when the slot is invalid or not a vec, matching the
-/// existing `VEC_SET` contract.
+/// The array-HOLE singleton as a raw `PolyValue` word. Writing past the end of a
+/// JS array creates HOLES, not zeros: `a = [1,2,3]; a[6] = 7` must leave indices
+/// 3..5 absent, so `a[4]` is `undefined`, `4 in a` is `false`, and
+/// `JSON.stringify` renders `null`. Growing with `0` made every skipped index a
+/// real element holding the number zero.
+///
+/// This is the same word `PolyValue::hole()` builds and the same one the read
+/// side (`emit_hole_to_undef`, and the `is_hole` checks across the array
+/// callbacks) tests for — the legacy `i64::MIN + 4` sentinel used by the old
+/// engine's `VEC_SET_LENGTH` is a DIFFERENT scheme and is not what this path's
+/// readers look at.
+const HOLE_WORD: i64 = (crate::heap::poly::POLY_BOX_BASE
+    | (crate::heap::poly::POLY_TAG_SINGLETON << crate::heap::poly::POLY_TAG_SHIFT)
+    | crate::heap::poly::POLY_SING_HOLE) as i64;
+
+/// Store `value` at `index`, growing with HOLES (JS sparse-array semantics; see
+/// [`HOLE_WORD`]). Returns 1 on success, 0 when the slot is invalid or not a vec,
+/// matching the existing `VEC_SET` contract.
 #[rtse::abi(native, value = "vec_set_by_payload")]
 pub fn vec_set_by_payload(poly48: u64, index: i64, value: i64) -> i64 {
     if index < 0 {
@@ -98,7 +113,7 @@ pub fn vec_set_by_payload(poly48: u64, index: i64, value: i64) -> i64 {
         Some(Entry::Vec(v)) => {
             let i = index as usize;
             if i >= v.len() {
-                v.resize(i + 1, 0);
+                v.resize(i + 1, HOLE_WORD);
             }
             v[i] = value;
             1
