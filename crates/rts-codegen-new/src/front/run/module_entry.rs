@@ -80,9 +80,13 @@ pub fn run_path(entry: &Path) -> FrontResult<()> {
         let s_word = crate::value::genops::__rtsadp_to_string(word);
         let text =
             crate::value::abi_adapter::resolve_poly(crate::value::PolyValue::from_raw(s_word));
-        eprintln!("Uncaught {text}");
-        return Err(crate::front::error::Unsupported::new(format!(
-            "uncaught exception: {text}"
+        // ONE report, not two. This used to `eprintln!("Uncaught {text}")` AND
+        // return a lowering-flavoured error, so the CLI printed a second line
+        // reading "unsupported in the numeric subset: uncaught exception: ..."
+        // — which is false: the engine compiled the program fine, the PROGRAM
+        // threw. `Unsupported::runtime` prints the message verbatim.
+        return Err(crate::front::error::Unsupported::runtime(format!(
+            "Uncaught {text}"
         )));
     }
     Ok(())
