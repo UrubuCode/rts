@@ -1,6 +1,29 @@
 # Shape identity remediation — plan
 
-**Status:** proposed, not implemented. **Date:** 2026-07-29.
+**Date:** 2026-07-29. **Status by phase:**
+
+| Phase | What | Status |
+|---|---|---|
+| P1 | Class identity unreachable by content lookup | **DONE** — `0172232d` |
+| P2 | Array growth creates holes, not zeros | **DONE** — `5e0d8da9` |
+| P3 | `Object.keys` reads the live shape | **DONE** — `718a3d36` |
+| D5 | `Entry::Rtse.props` traced by the GC | **DONE** — `8bcb98b5` |
+| P4 | Property inline caches (`PropIcCell`) | **DONE** — `18d9e351` |
+| P5 | `Entry::Array` discriminant | **DEFERRED** — see §3 P5 |
+| P6 | Thread-local allocation front | **SCOPED, not built** — see §3 P6 |
+| P7 | Escape analysis | **NOT SCOPED** |
+
+Measured after P4 (release, 1M iterations, vs bun 1.3.14):
+
+| Benchmark | before | after | vs bun |
+|---|---|---|---|
+| read `o.x`, `o: any` | 436 ms | **20 ms** | 218× → 10× |
+| read `p.x`, `p: P` nominal | 13 ms | 11 ms | unchanged (already the fast path) |
+| allocate `{x,y}` | 427 ms | 363 ms | 71× → 60× |
+
+Suite after every phase: 735/744 files, 2563 tests — identical to the pre-change
+baseline. Unit: 837/7 in `rts-codegen-new` (the same 7 that fail on `main`),
+46/46 + 5/5 in `rts-engine`.
 
 This document is the outcome of a 4-round adversarial design review (20 agents)
 of the object / class / array representation. It records:
@@ -27,11 +50,12 @@ inferred from reading code alone unless explicitly labelled UNVERIFIED.
 Read this carefully, because it inverts the intuitive priority:
 
 - **The proven-shape path is already good** (4.3× off bun).
-- **The same work through an untyped receiver is 33× slower than through a
-  nominally-typed one** (436 ms vs 13 ms). This is not a growth effect — it is a
-  fixed 2-key object, 1M reads, paying a linear key scan under a process-global
-  mutex on every access, because `crates/rts-codegen-new/src/ic.rs` **does not
-  exist** despite the design doc §8.2/§8.3 listing inline caches as implemented.
+- **The same work through an untyped receiver was 33× slower than through a
+  nominally-typed one** (436 ms vs 13 ms). Not a growth effect — a fixed 2-key
+  object, 1M reads, paying a linear key scan under a process-global mutex on
+  every access, because `crates/rts-codegen-new/src/ic.rs` did **not exist**
+  despite the design doc §8.2/§8.3 listing inline caches as implemented.
+  **P4 built it: 436 ms → 20 ms.**
 - `rts ir` confirms the split: a nominally-typed param lowers to
   `call fn0(recv, 1)` (constant slot); an `any` param **and an `arr.map(q => q.x)`
   callback param** both lower to a string-keyed dynamic lookup. Callback params
@@ -159,7 +183,7 @@ as a gap, not as a demonstrated bug.
 
 ## 3. Implementation plan
 
-### P1 — Fix D1 (class identity). Ships first; it is a soundness defect.
+### P1 — Fix D1 (class identity) — DONE (`0172232d`)
 
 **Change 1 — one call site, no format change.** In `intern_global_shape`
 (`crates/rts-engine/src/heap/shapes.rs:46-55`), reject a class-owned id on a
@@ -219,14 +243,14 @@ the same ordered field list.
 `claude-pickle-golden`, `object_create_basic`, `class_proto_hoist_gate`,
 `registry_instance_proto`, `object_assign_field_types`, `spread_obj_field_types`.
 
-### P2 — Fix D2 (array holes)
+### P2 — Fix D2 (array holes) — DONE (`5e0d8da9`)
 
 `payload_ops.rs:97-107` must grow with the `hole()` sentinel, not `0`. This is a
 prerequisite for any future dense/sparse array work: "degrade to sparse when a
 hole is created" is meaningless while hole creation does not produce a hole.
 Gate on array tests plus `JSON.stringify`/`Object.keys`/`in` behaviour.
 
-### P3 — Fix D3 (`Object.keys` self-validating fast path)
+### P3 — Fix D3 (`Object.keys` reads the live shape) — DONE (`718a3d36`)
 
 At the 4 `objstatic.rs` call sites, emit a comparison of the receiver's live
 slot-0 shape id against the shape id the compile-time key list was baked from —
@@ -234,7 +258,7 @@ one load plus one `icmp` — and fall through to the existing
 `dynamic_obj_enum`/`__rtsadp_obj_keys` trampoline on mismatch. No interprocedural
 escape analysis needed.
 
-### P4 — Inline caches (`PropIcCell`)
+### P4 — Inline caches (`PropIcCell`) — DONE (`18d9e351`)
 
 This is the largest *measured, broadly-applicable* win: the 33× gap between an
 untyped and a nominally-typed read of the same field, hit by every `any` param and
@@ -259,38 +283,78 @@ wiring.
 alone at 28.1 → 33.6 and only reached 42.9 once inline caching landed in the same
 release; shapes without ICs is a bad trade.
 
-### P5 — `Entry::Array` discriminant
+### P5 — `Entry::Array` discriminant — DEFERRED, with reason
 
-Give arrays their own `Entry` variant, byte-identical to `Entry::Vec` (same `i64`
-slots, same `vec_get_by_payload`/`vec_set_by_payload`), differing only in the enum
-discriminant. This deletes the array-vs-object heuristic documented at
-`shapes.rs:37-42` (which today distinguishes them by checking whether
-`global_shape_keys(slot0)` length matches) and removes the reason
-`GLOBAL_SHAPE_BASE = 0x4000_0000` exists.
+The idea: give arrays their own `Entry` variant, byte-identical to `Entry::Vec`
+(same `i64` slots, same `vec_get_by_payload`/`vec_set_by_payload`), differing only
+in the enum discriminant — deleting the array-vs-object heuristic documented at
+`shapes.rs:37-42` and the reason `GLOBAL_SHAPE_BASE = 0x4000_0000` exists.
 
-Blast radius: the `Entry` enum plus the 3-4 discrimination sites in `shapes.rs`.
-**Zero** codegen call sites change; the ABI is untouched.
+Measured blast radius: **451 `Entry::Vec` mentions across 121 files**. Most are
+unrelated generic storage (rts-node buffer/dgram/dns/crypto state, the
+`collections` namespace, the napi marshalling) that never carried JS-array
+semantics — but arrays and objects are *allocated through the same `VEC_NEW`*
+and consumed by the same code, so splitting them means correctly classifying all
+451 sites. A missed site does not fail loudly: it falls into a `_ => {}` and
+reads `0`. That is precisely the bug class D5 documented, and this change would
+multiply the surface for it.
 
-Add an exhaustiveness guard on `Traceable::trace_children` in the same change
-(replace the `_ => {}` catch-all, or add a test asserting every handle-bearing
-variant has a trace arm) — D5 exists precisely because that catch-all silently
-swallows a new variant.
+Its stated value also dropped after P4. The array-vs-object heuristic
+(`looks_like_object`) was on the hot dynamic-read path; with inline caches it is
+only on the miss path. The remaining benefits (deleting the heuristic and
+`GLOBAL_SHAPE_BASE`'s collision-avoidance role) are cleanliness, not a measured
+number.
 
-### P6 — Allocation front (own project, scope before coding)
+**Prerequisite already landed:** the `trace_children` gap that made this change
+dangerous is fixed (D5), and the `_ => {}` arm now carries an explicit warning
+plus a test (`rtse_props_are_traced`). Before attempting P5, replace that
+catch-all with exhaustive matching so a new variant cannot be silently
+forgotten — that is the real precondition, not the split itself.
 
-Every `alloc_entry` (`crates/rts-engine/src/heap/handles.rs:1297`) takes a shard
-`Mutex`, bumps the contended global `LIVE_HANDLES` atomic, and may `Vec::push`
-(reallocating). A thread-local bump/free-list front would attack the measured 71×.
+### P6 — Thread-local allocation front — SCOPED
 
-**Decide before writing code:** handle-indexed arena vs raw-pointer arena. The
-raw-pointer variant requires a second root-recognition class in the conservative
-stack scanner and breaks the "handle indirection ⇒ moving is ≈ free" invariant.
+Cost of one `alloc_entry` (`crates/rts-engine/src/heap/handles.rs:1297-1340`,
+`alloc_in_shard:982-1000`), read from the code:
 
-### P7 — Escape analysis
+1. thread-local tick `Cell` — negligible
+2. `live_handle_count()` + the GC hook, but only every `GC_TICK_INTERVAL = 256`
+   allocations and only above `GC_LIVE_FLOOR = 500_000` live handles
+3. thread-local shard round-robin `Cell` — negligible
+4. **a shard `Mutex` lock/unlock — every allocation**
+5. **`LIVE_HANDLES.fetch_add` — a single process-global atomic, every allocation
+   on every thread, i.e. one contended cache line for the whole program**
+6. a `free_list` pop, or a `slots.push` that may reallocate
 
-The real answer to the 71× (it is what bun does). No infrastructure exists: grep
-for `escape`/`stack_alloc`/`non_escaping` in `crates/rts-codegen-new/` finds
-nothing relevant. Needs its own scoping pass; do not commit LOC estimates yet.
+**Decision: handle-indexed arena. Not raw pointers.** The 48-bit NaN-box payload
+is a HandleTable **slot index**, which is exactly what makes the boxing GC-safe
+and lets the conservative scanner recognise roots with one mask+tag test. Perry
+(`PerryTS/perry`) took the raw-pointer route in its NaN-box and pays for it with
+per-platform heap-address heuristics (`value/addr_class.rs::is_handle_band`, a
+2 TB floor on macOS vs `0x1000` on Linux/Android/iOS) that their own comments tie
+to a shipped bug. A raw-pointer arena here would additionally need a second
+root-recognition class in the scanner and would break the "handle indirection ⇒
+moving is ≈ free" property the GC design depends on.
+
+**Shape of the change**, therefore: keep the handle encoding and the HandleTable
+exactly as they are; add a per-thread **batch reservation**. A thread claims N
+slots from its shard under ONE lock, then serves allocations from that batch with
+no lock and no global atomic until it is exhausted. `LIVE_HANDLES` becomes a
+per-thread counter flushed per batch — it is a 5M safety cap, not exact
+accounting, so batching it is sound.
+
+**The open question to answer before coding** (not answered here): a reserved but
+not-yet-filled slot must be invisible to the sweep, and a thread that dies with a
+partial batch must return it. That needs a slot state the collector skips, and a
+thread-exit hook — the `gc/thread_registry` already registers threads, so the
+hook has a home. Settle that before writing the allocator.
+
+### P7 — Escape analysis — NOT SCOPED
+
+bun allocating 1M objects in 6 ms is bun eliminating the allocation. No
+infrastructure exists here: grep for `escape` / `stack_alloc` / `non_escaping` in
+`crates/rts-codegen-new/` finds nothing relevant, and the design doc does not
+carry it as a near-term pillar. Needs its own scoping pass; no LOC estimate is
+honest yet.
 
 ---
 
