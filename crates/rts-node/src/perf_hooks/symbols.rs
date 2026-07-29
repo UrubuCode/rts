@@ -1,15 +1,13 @@
-//! node:perf_hooks — the `extern "C"` entry points over the timeline store.
+//! node:perf_hooks — the `#[rtse::function]` entry points over the timeline
+//! store. Each function DECLARES its module and JS name; the linker symbol,
+//! `AbiType`s, TS signature and doc are DERIVED from the Rust signature (see
+//! docs/specs/rts-macro-single-source.md).
 
+use rts_engine::abi::ty::Handle;
 use rts_engine::heap::handles::{alloc_entry, Entry};
 use rts_engine::heap::shapes::{alloc_shaped_object, handle_word_auto, string_word};
 
 use super::store::{self, PerfEntry};
-
-fn read(ptr: *const u8, len: i64) -> String {
-    unsafe { rts_engine::abi::str_abi::from_abi(ptr, len) }
-        .unwrap_or("")
-        .to_string()
-}
 
 fn num(v: f64) -> i64 {
     v.to_bits() as i64
@@ -35,88 +33,76 @@ fn entry_array(list: Vec<PerfEntry>) -> u64 {
 }
 
 /// `performance.now()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PERF_NOW() -> f64 {
+#[rtse::function(module = "node:perf_hooks", value = "now")]
+fn now() -> f64 {
     store::now()
 }
 
 /// `performance.timeOrigin`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PERF_TIME_ORIGIN() -> f64 {
+#[rtse::function(module = "node:perf_hooks", value = "timeOrigin")]
+fn time_origin() -> f64 {
     store::time_origin()
 }
 
 /// `performance.mark(name)` → the mark entry.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PERF_MARK(p: *const u8, l: i64) -> u64 {
-    let name = read(p, l);
-    let start = store::add_mark(&name);
-    entry_obj(&PerfEntry { name, entry_type: "mark", start_time: start, duration: 0.0 })
+#[rtse::function(module = "node:perf_hooks", value = "mark")]
+fn mark(name: &str) -> Handle {
+    let start = store::add_mark(name);
+    entry_obj(&PerfEntry { name: name.to_string(), entry_type: "mark", start_time: start, duration: 0.0 })
 }
 
 /// `performance.measure(name)` — measures from origin to now.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PERF_MEASURE(p: *const u8, l: i64) -> u64 {
-    let name = read(p, l);
-    let (start, dur) = store::add_measure(&name, "", "");
-    entry_obj(&PerfEntry { name, entry_type: "measure", start_time: start, duration: dur })
+#[rtse::function(module = "node:perf_hooks", value = "measure")]
+fn measure(name: &str) -> Handle {
+    let (start, dur) = store::add_measure(name, "", "");
+    entry_obj(&PerfEntry { name: name.to_string(), entry_type: "measure", start_time: start, duration: dur })
 }
 
 /// `performance.measure(name, startMark, endMark)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PERF_MEASURE_MARKS(
-    p: *const u8,
-    l: i64,
-    sp: *const u8,
-    sl: i64,
-    ep: *const u8,
-    el: i64,
-) -> u64 {
-    let name = read(p, l);
-    let (start, dur) = store::add_measure(&name, &read(sp, sl), &read(ep, el));
-    entry_obj(&PerfEntry { name, entry_type: "measure", start_time: start, duration: dur })
+#[rtse::function(module = "node:perf_hooks", value = "measure", overload = "marks")]
+fn measure_marks(name: &str, start_mark: &str, end_mark: &str) -> Handle {
+    let (start, dur) = store::add_measure(name, start_mark, end_mark);
+    entry_obj(&PerfEntry { name: name.to_string(), entry_type: "measure", start_time: start, duration: dur })
 }
 
 /// `performance.getEntries()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PERF_GET_ENTRIES() -> u64 {
+#[rtse::function(module = "node:perf_hooks", value = "getEntries")]
+fn get_entries() -> Handle {
     entry_array(store::snapshot(None, None))
 }
 
 /// `performance.getEntriesByName(name)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PERF_GET_ENTRIES_BY_NAME(p: *const u8, l: i64) -> u64 {
-    let name = read(p, l);
-    entry_array(store::snapshot(Some(&name), None))
+#[rtse::function(module = "node:perf_hooks", value = "getEntriesByName")]
+fn get_entries_by_name(name: &str) -> Handle {
+    entry_array(store::snapshot(Some(name), None))
 }
 
 /// `performance.getEntriesByType(type)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PERF_GET_ENTRIES_BY_TYPE(p: *const u8, l: i64) -> u64 {
-    let ty = read(p, l);
-    entry_array(store::snapshot(None, Some(&ty)))
-}
-
-/// `performance.clearMarks([name])` — empty name clears all marks.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PERF_CLEAR_MARKS(p: *const u8, l: i64) {
-    store::clear("mark", &read(p, l));
-}
-
-/// `performance.clearMeasures([name])` — empty name clears all measures.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PERF_CLEAR_MEASURES(p: *const u8, l: i64) {
-    store::clear("measure", &read(p, l));
+#[rtse::function(module = "node:perf_hooks", value = "getEntriesByType")]
+fn get_entries_by_type(entry_type: &str) -> Handle {
+    entry_array(store::snapshot(None, Some(entry_type)))
 }
 
 /// `performance.clearMarks()` — no argument → clear every mark.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PERF_CLEAR_MARKS_ALL() {
+#[rtse::function(module = "node:perf_hooks", value = "clearMarks")]
+fn clear_marks_all() {
     store::clear("mark", "");
 }
 
+/// `performance.clearMarks([name])` — empty name clears all marks.
+#[rtse::function(module = "node:perf_hooks", value = "clearMarks", overload = "name")]
+fn clear_marks(name: &str) {
+    store::clear("mark", name);
+}
+
 /// `performance.clearMeasures()` — no argument → clear every measure.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PERF_CLEAR_MEASURES_ALL() {
+#[rtse::function(module = "node:perf_hooks", value = "clearMeasures")]
+fn clear_measures_all() {
     store::clear("measure", "");
+}
+
+/// `performance.clearMeasures([name])` — empty name clears all measures.
+#[rtse::function(module = "node:perf_hooks", value = "clearMeasures", overload = "name")]
+fn clear_measures(name: &str) {
+    store::clear("measure", name);
 }

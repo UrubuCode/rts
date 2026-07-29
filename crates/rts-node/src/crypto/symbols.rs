@@ -1,8 +1,10 @@
-//! node:crypto — the `extern "C"` entry points: the module functions
-//! (`createHash`/`createHmac`/`hash`/`randomBytes`/`randomUUID`/`randomInt`/
-//! `timingSafeEqual`/`getHashes`) and the `Hash` class methods (`update`/
-//! `digest`).
+//! node:crypto — the entry points: the module functions (`createHash`/
+//! `createHmac`/`hash`/`randomBytes`/`randomUUID`/`randomInt`/
+//! `timingSafeEqual`/`getHashes`/…) as `#[rtse::function]` members, and the
+//! hand-written `extern "C"` `Hash`/`Cipher` INSTANCE methods (out of scope for
+//! `#[rtse::function]` — free-functions-only; those need `#[rtse::class]`).
 
+use rts_engine::abi::ty::Handle;
 use rts_engine::heap::handles::{alloc_entry, Entry};
 use rts_engine::heap::shapes::string_word;
 
@@ -22,66 +24,64 @@ fn intern(s: &str) -> u64 {
     unsafe { __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64) }
 }
 
-fn read(ptr: *const u8, len: i64) -> String {
-    unsafe { rts_engine::abi::str_abi::from_abi(ptr, len) }.unwrap_or("").to_string()
-}
-
 fn throw_unknown_algo(name: &str) {
     let msg = format!("Digest method not supported: {name}");
     unsafe { __rtsadp_throw_js_error(b"Error".as_ptr(), 5, msg.as_ptr(), msg.len() as i64) };
 }
 
+fn throw_error(kind: &str, msg: &str) {
+    unsafe { __rtsadp_throw_js_error(kind.as_ptr(), kind.len() as i64, msg.as_ptr(), msg.len() as i64) };
+}
+
 /// `crypto.createHash(algorithm)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_CREATE_HASH(p: *const u8, l: i64) -> u64 {
-    let name = read(p, l);
-    match Algo::parse(&name) {
+#[rtse::function(module = "node:crypto", value = "createHash", throws)]
+fn create_hash(algorithm: &str) -> Handle {
+    match Algo::parse(algorithm) {
         Some(a) => build_instance(a, None),
         None => {
-            throw_unknown_algo(&name);
+            throw_unknown_algo(algorithm);
             0
         }
     }
 }
 
 /// `crypto.createHmac(algorithm, key)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_CREATE_HMAC(p: *const u8, l: i64, key: u64) -> u64 {
-    let name = read(p, l);
-    match Algo::parse(&name) {
+#[rtse::function(module = "node:crypto", value = "createHmac", throws)]
+fn create_hmac(algorithm: &str, key: Handle) -> Handle {
+    match Algo::parse(algorithm) {
         Some(a) => build_instance(a, Some(&read_bytes(key))),
         None => {
-            throw_unknown_algo(&name);
+            throw_unknown_algo(algorithm);
             0
         }
     }
 }
 
-/// `crypto.hash(algorithm, data)` — single-shot, hex by default.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_HASH(p: *const u8, l: i64, data: u64) -> u64 {
-    hash_oneshot(&read(p, l), data, "hex")
-}
-
-/// `crypto.hash(algorithm, data, outputEncoding)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_HASH_ENC(p: *const u8, l: i64, data: u64, ep: *const u8, el: i64) -> u64 {
-    hash_oneshot(&read(p, l), data, &read(ep, el))
-}
-
-fn hash_oneshot(name: &str, data: u64, enc: &str) -> u64 {
+fn hash_oneshot(name: &str, data: u64, enc: &str) -> String {
     match Algo::parse(name) {
-        Some(a) => intern(&algo::encode(&algo::hash_bytes(a, &read_bytes(data)), enc)),
+        Some(a) => algo::encode(&algo::hash_bytes(a, &read_bytes(data)), enc),
         None => {
             throw_unknown_algo(name);
-            intern("")
+            String::new()
         }
     }
 }
 
+/// `crypto.hash(algorithm, data)` — single-shot, hex by default.
+#[rtse::function(module = "node:crypto", value = "hash", throws)]
+fn hash(algorithm: &str, data: Handle) -> String {
+    hash_oneshot(algorithm, data, "hex")
+}
+
+/// `crypto.hash(algorithm, data, outputEncoding)`.
+#[rtse::function(module = "node:crypto", value = "hash", overload = "enc", throws)]
+fn hash_enc(algorithm: &str, data: Handle, encoding: &str) -> String {
+    hash_oneshot(algorithm, data, encoding)
+}
+
 /// `crypto.randomBytes(size)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_RANDOM_BYTES(size: i64) -> u64 {
+#[rtse::function(module = "node:crypto", value = "randomBytes", throws)]
+fn random_bytes(size: i64) -> Handle {
     if size < 0 {
         let msg = "The value of \"size\" is out of range. It must be >= 0";
         unsafe { __rtsadp_throw_js_error(b"RangeError".as_ptr(), 10, msg.as_ptr(), msg.len() as i64) };
@@ -91,21 +91,9 @@ pub extern "C" fn __RTS_FN_NODE_CRYPTO_RANDOM_BYTES(size: i64) -> u64 {
 }
 
 /// `crypto.randomUUID()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_RANDOM_UUID() -> u64 {
-    intern(&random::random_uuid())
-}
-
-/// `crypto.randomInt(max)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_RANDOM_INT_MAX(max: i64) -> i64 {
-    random_int_checked(0, max)
-}
-
-/// `crypto.randomInt(min, max)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_RANDOM_INT(min: i64, max: i64) -> i64 {
-    random_int_checked(min, max)
+#[rtse::function(module = "node:crypto", value = "randomUUID", throws)]
+fn random_uuid() -> String {
+    random::random_uuid().to_string()
 }
 
 /// A random int in `[min, max)`, throwing RangeError when `max <= min` (Node's
@@ -119,59 +107,51 @@ fn random_int_checked(min: i64, max: i64) -> i64 {
     random::random_int(min, max)
 }
 
+/// `crypto.randomInt(max)`.
+#[rtse::function(module = "node:crypto", value = "randomInt", throws)]
+fn random_int_max(max: i64) -> i64 {
+    random_int_checked(0, max)
+}
+
+/// `crypto.randomInt(min, max)`.
+#[rtse::function(module = "node:crypto", value = "randomInt", overload = "minmax", throws)]
+fn random_int(min: i64, max: i64) -> i64 {
+    random_int_checked(min, max)
+}
+
 /// `crypto.randomFillSync(buffer)` → the same buffer, bytes overwritten.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_RANDOM_FILL_SYNC(buffer: u64) -> u64 {
+#[rtse::function(module = "node:crypto", value = "randomFillSync", throws)]
+fn random_fill_sync(buffer: Handle) -> Handle {
     random::random_fill(buffer)
 }
 
 /// `crypto.timingSafeEqual(a, b)` — throws RangeError on a length mismatch
 /// (matching Node), else returns whether the inputs are byte-equal.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_TIMING_SAFE_EQUAL(a: u64, b: u64) -> i64 {
+#[rtse::function(module = "node:crypto", value = "timingSafeEqual", throws)]
+fn timing_safe_equal(a: Handle, b: Handle) -> bool {
     match random::timing_safe_equal(a, b) {
-        Some(eq) => eq as i64,
+        Some(eq) => eq,
         None => {
             let msg = "Input buffers must have the same byte length";
             unsafe { __rtsadp_throw_js_error(b"RangeError".as_ptr(), 10, msg.as_ptr(), msg.len() as i64) };
-            0
+            false
         }
     }
 }
 
 /// `crypto.pbkdf2Sync(password, salt, iterations, keylen, digest)` → Buffer.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_PBKDF2(
-    password: u64,
-    salt: u64,
-    iterations: i64,
-    keylen: i64,
-    dp: *const u8,
-    dl: i64,
-) -> u64 {
-    let name = read(dp, dl);
-    match Algo::parse(&name) {
+#[rtse::function(module = "node:crypto", value = "pbkdf2Sync", throws)]
+fn pbkdf2_sync(password: Handle, salt: Handle, iterations: i64, keylen: i64, digest: &str) -> Handle {
+    match Algo::parse(digest) {
         Some(a) => {
             let dk = algo::pbkdf2(a, &read_bytes(password), &read_bytes(salt), iterations.max(0) as u32, keylen.max(0) as usize);
             byte_array(&dk)
         }
         None => {
-            throw_unknown_algo(&name);
+            throw_unknown_algo(digest);
             byte_array(&[])
         }
     }
-}
-
-/// `crypto.scryptSync(password, salt, keylen)` — default N=16384, r=8, p=1.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_SCRYPT(password: u64, salt: u64, keylen: i64) -> u64 {
-    scrypt_impl(password, salt, keylen, 16384, 8, 1)
-}
-
-/// `crypto.scryptSync(password, salt, keylen, N, r, p)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_SCRYPT_PARAMS(password: u64, salt: u64, keylen: i64, n: i64, r: i64, p: i64) -> u64 {
-    scrypt_impl(password, salt, keylen, n.max(1) as u32, r.max(1) as u32, p.max(1) as u32)
 }
 
 fn scrypt_impl(password: u64, salt: u64, keylen: i64, n: u32, r: u32, p: u32) -> u64 {
@@ -184,11 +164,22 @@ fn scrypt_impl(password: u64, salt: u64, keylen: i64, n: u32, r: u32, p: u32) ->
     }
 }
 
+/// `crypto.scryptSync(password, salt, keylen)` — default N=16384, r=8, p=1.
+#[rtse::function(module = "node:crypto", value = "scryptSync", throws)]
+fn scrypt_sync(password: Handle, salt: Handle, keylen: i64) -> Handle {
+    scrypt_impl(password, salt, keylen, 16384, 8, 1)
+}
+
+/// `crypto.scryptSync(password, salt, keylen, N, r, p)`.
+#[rtse::function(module = "node:crypto", value = "scryptSync", overload = "params", throws)]
+fn scrypt_sync_params(password: Handle, salt: Handle, keylen: i64, n: i64, r: i64, p: i64) -> Handle {
+    scrypt_impl(password, salt, keylen, n.max(1) as u32, r.max(1) as u32, p.max(1) as u32)
+}
+
 /// `crypto.hkdfSync(digest, ikm, salt, info, keylen)` → derived-key bytes.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_HKDF(dp: *const u8, dl: i64, ikm: u64, salt: u64, info: u64, keylen: i64) -> u64 {
-    let name = read(dp, dl);
-    match Algo::parse(&name) {
+#[rtse::function(module = "node:crypto", value = "hkdfSync", throws)]
+fn hkdf_sync(digest: &str, ikm: Handle, salt: Handle, info: Handle, keylen: i64) -> Handle {
+    match Algo::parse(digest) {
         Some(a) => match algo::hkdf(a, &read_bytes(ikm), &read_bytes(salt), &read_bytes(info), keylen.max(0) as usize) {
             Ok(dk) => byte_array(&dk),
             Err(e) => {
@@ -197,7 +188,95 @@ pub extern "C" fn __RTS_FN_NODE_CRYPTO_HKDF(dp: *const u8, dl: i64, ikm: u64, sa
             }
         },
         None => {
-            throw_unknown_algo(&name);
+            throw_unknown_algo(digest);
+            byte_array(&[])
+        }
+    }
+}
+
+/// `crypto.getHashes()`.
+#[rtse::function(module = "node:crypto", value = "getHashes", throws)]
+fn get_hashes() -> Handle {
+    let words: Vec<i64> = algo::hashes().iter().map(|s| string_word(s.as_bytes()) as i64).collect();
+    alloc_entry(Entry::Vec(Box::new(words)))
+}
+
+/// `crypto.createCipheriv(algorithm, key, iv)`.
+#[rtse::function(module = "node:crypto", value = "createCipheriv", throws)]
+fn create_cipheriv(algorithm: &str, key: Handle, iv: Handle) -> Handle {
+    match CipherAlgo::parse(algorithm) {
+        Some(a) => build_cipher_instance(cipher_algo_index(a), &read_bytes(key), &read_bytes(iv), false),
+        None => {
+            throw_error("Error", &format!("Unknown cipher: {algorithm}"));
+            0
+        }
+    }
+}
+
+/// `crypto.createDecipheriv(algorithm, key, iv)`.
+#[rtse::function(module = "node:crypto", value = "createDecipheriv", throws)]
+fn create_decipheriv(algorithm: &str, key: Handle, iv: Handle) -> Handle {
+    match CipherAlgo::parse(algorithm) {
+        Some(a) => build_cipher_instance(cipher_algo_index(a), &read_bytes(key), &read_bytes(iv), true),
+        None => {
+            throw_error("Error", &format!("Unknown cipher: {algorithm}"));
+            0
+        }
+    }
+}
+
+fn cipher_algo_index(a: CipherAlgo) -> i64 {
+    match a {
+        CipherAlgo::Aes256Gcm => 0,
+        CipherAlgo::Aes128Gcm => 1,
+        CipherAlgo::Aes256Cbc => 2,
+        CipherAlgo::Aes128Cbc => 3,
+    }
+}
+
+fn cipher_algo_from_index(i: i64) -> Option<CipherAlgo> {
+    match i {
+        0 => Some(CipherAlgo::Aes256Gcm),
+        1 => Some(CipherAlgo::Aes128Gcm),
+        2 => Some(CipherAlgo::Aes256Cbc),
+        3 => Some(CipherAlgo::Aes128Cbc),
+        _ => None,
+    }
+}
+
+/// `crypto.generateX25519KeyPair()` → `{ privateKey, publicKey }` (both
+/// 32-byte Buffers). Non-standard-named helper (Node's real
+/// `generateKeyPairSync("x25519", ...)` returns KeyObjects RTS doesn't model);
+/// exposed directly since Signal-protocol code only needs the raw bytes.
+#[rtse::function(module = "node:crypto", value = "generateX25519KeyPair", throws)]
+fn generate_x25519_key_pair() -> Handle {
+    let (private, public) = dh::generate_keypair();
+    let pk = rts_engine::heap::shapes::handle_word_auto(byte_array(&private)) as i64;
+    let pub_k = rts_engine::heap::shapes::handle_word_auto(byte_array(&public)) as i64;
+    rts_engine::heap::shapes::alloc_shaped_object(&["privateKey", "publicKey"], &[pk, pub_k])
+}
+
+/// `crypto.x25519PublicKey(privateKey)` → 32-byte Buffer.
+#[rtse::function(module = "node:crypto", value = "x25519PublicKey", throws)]
+fn x25519_public_key(private_key: Handle) -> Handle {
+    match dh::public_from_private(&read_bytes(private_key)) {
+        Ok(pk) => byte_array(&pk),
+        Err(e) => {
+            throw_error("Error", &e);
+            byte_array(&[])
+        }
+    }
+}
+
+/// `crypto.diffieHellman({ privateKey, publicKey })` — X25519 shared secret,
+/// mirrors Node's two-KeyObject form but takes raw-byte Buffers/handles
+/// directly since RTS has no asymmetric KeyObject type.
+#[rtse::function(module = "node:crypto", value = "x25519DiffieHellman", throws)]
+fn x25519_diffie_hellman(private_key: Handle, public_key: Handle) -> Handle {
+    match dh::diffie_hellman(&read_bytes(private_key), &read_bytes(public_key)) {
+        Ok(secret) => byte_array(&secret),
+        Err(e) => {
+            throw_error("Error", &e);
             byte_array(&[])
         }
     }
@@ -205,6 +284,8 @@ pub extern "C" fn __RTS_FN_NODE_CRYPTO_HKDF(dp: *const u8, dl: i64, ikm: u64, sa
 
 /// `crypto.constants` — the RSA-padding and point-conversion constants (the
 /// OpenSSL values, field-accessible via `crypto.constants.RSA_PKCS1_OAEP_PADDING`).
+/// Hand-written: `#[rtse::function]` only emits `MemberKind::Function`, not
+/// `MemberKind::Constant`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_CRYPTO_CONSTANTS() -> u64 {
     let num = |v: f64| v.to_bits() as i64;
@@ -226,14 +307,11 @@ pub extern "C" fn __RTS_FN_NODE_CRYPTO_CONSTANTS() -> u64 {
     )
 }
 
-/// `crypto.getHashes()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_GET_HASHES() -> u64 {
-    let words: Vec<i64> = algo::hashes().iter().map(|s| string_word(s.as_bytes()) as i64).collect();
-    alloc_entry(Entry::Vec(Box::new(words)))
-}
+// ---- Hash / Hmac instance methods (out of scope: `#[rtse::class]` needed) ----
 
-// ---- Hash / Hmac instance methods ----
+fn read(ptr: *const u8, len: i64) -> String {
+    unsafe { rts_engine::abi::str_abi::from_abi(ptr, len) }.unwrap_or("").to_string()
+}
 
 /// `hash.update(data)` — appends, returns `this` (chainable).
 #[unsafe(no_mangle)]
@@ -298,56 +376,7 @@ fn digest_bytes(this: u64) -> Vec<u8> {
     }
 }
 
-// ---- Cipheriv / Decipheriv (AES-GCM / AES-CBC) ----
-
-fn cipher_algo_index(a: CipherAlgo) -> i64 {
-    match a {
-        CipherAlgo::Aes256Gcm => 0,
-        CipherAlgo::Aes128Gcm => 1,
-        CipherAlgo::Aes256Cbc => 2,
-        CipherAlgo::Aes128Cbc => 3,
-    }
-}
-
-fn cipher_algo_from_index(i: i64) -> Option<CipherAlgo> {
-    match i {
-        0 => Some(CipherAlgo::Aes256Gcm),
-        1 => Some(CipherAlgo::Aes128Gcm),
-        2 => Some(CipherAlgo::Aes256Cbc),
-        3 => Some(CipherAlgo::Aes128Cbc),
-        _ => None,
-    }
-}
-
-fn throw_error(kind: &str, msg: &str) {
-    unsafe { __rtsadp_throw_js_error(kind.as_ptr(), kind.len() as i64, msg.as_ptr(), msg.len() as i64) };
-}
-
-/// `crypto.createCipheriv(algorithm, key, iv)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_CREATE_CIPHERIV(p: *const u8, l: i64, key: u64, iv: u64) -> u64 {
-    let name = read(p, l);
-    match CipherAlgo::parse(&name) {
-        Some(a) => build_cipher_instance(cipher_algo_index(a), &read_bytes(key), &read_bytes(iv), false),
-        None => {
-            throw_error("Error", &format!("Unknown cipher: {name}"));
-            0
-        }
-    }
-}
-
-/// `crypto.createDecipheriv(algorithm, key, iv)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_CREATE_DECIPHERIV(p: *const u8, l: i64, key: u64, iv: u64) -> u64 {
-    let name = read(p, l);
-    match CipherAlgo::parse(&name) {
-        Some(a) => build_cipher_instance(cipher_algo_index(a), &read_bytes(key), &read_bytes(iv), true),
-        None => {
-            throw_error("Error", &format!("Unknown cipher: {name}"));
-            0
-        }
-    }
-}
+// ---- Cipheriv / Decipheriv instance methods (out of scope: `#[rtse::class]`) ----
 
 /// `cipher.update(data)` — accumulates the input (same accumulate-then-
 /// finalize model `Hash` uses: GCM needs the whole message before it can
@@ -430,46 +459,6 @@ pub extern "C" fn __RTS_FN_NODE_CRYPTO_CIPHER_FINAL(this: u64) -> u64 {
                 throw_error("Error", &e);
                 byte_array(&[])
             }
-        }
-    }
-}
-
-// ---- X25519 Diffie-Hellman ----
-
-/// `crypto.generateX25519KeyPair()` → `{ privateKey, publicKey }` (both
-/// 32-byte Buffers). Non-standard-named helper (Node's real
-/// `generateKeyPairSync("x25519", ...)` returns KeyObjects RTS doesn't model);
-/// exposed directly since Signal-protocol code only needs the raw bytes.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_X25519_GENERATE_KEYPAIR() -> u64 {
-    let (private, public) = dh::generate_keypair();
-    let pk = rts_engine::heap::shapes::handle_word_auto(byte_array(&private)) as i64;
-    let pub_k = rts_engine::heap::shapes::handle_word_auto(byte_array(&public)) as i64;
-    rts_engine::heap::shapes::alloc_shaped_object(&["privateKey", "publicKey"], &[pk, pub_k])
-}
-
-/// `crypto.x25519PublicKey(privateKey)` → 32-byte Buffer.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_X25519_PUBLIC_KEY(private: u64) -> u64 {
-    match dh::public_from_private(&read_bytes(private)) {
-        Ok(pk) => byte_array(&pk),
-        Err(e) => {
-            throw_error("Error", &e);
-            byte_array(&[])
-        }
-    }
-}
-
-/// `crypto.diffieHellman({ privateKey, publicKey })` — X25519 shared secret,
-/// mirrors Node's two-KeyObject form but takes raw-byte Buffers/handles
-/// directly since RTS has no asymmetric KeyObject type.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_X25519_DIFFIE_HELLMAN(private: u64, public: u64) -> u64 {
-    match dh::diffie_hellman(&read_bytes(private), &read_bytes(public)) {
-        Ok(secret) => byte_array(&secret),
-        Err(e) => {
-            throw_error("Error", &e);
-            byte_array(&[])
         }
     }
 }

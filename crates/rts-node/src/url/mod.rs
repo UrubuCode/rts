@@ -20,104 +20,25 @@ mod symbols;
 mod whatwg;
 mod words;
 
-use rts_engine::{sig, Engine, FnPtr, Member, MemberFlags, MemberKind};
-
-fn func(name: &str, symbol: &str, sig: rts_engine::Sig, ts: &str, fp: *const u8) -> Member {
-    Member {
-        name: name.to_string(),
-        kind: MemberKind::Function,
-        sig,
-        symbol: symbol.to_string(),
-        fn_ptr: FnPtr(fp),
-        flags: MemberFlags::NONE,
-        aliases: Vec::new(),
-        variadic: false,
-        ts_signature: ts.to_string(),
-        doc: String::new(),
-        ret_class: None,
-        pure: false,
-        emit: None,
-    }
-}
+use rts_engine::Engine;
 
 /// Registers the `node:url` function surface.
 pub fn register(e: &mut Engine) {
-    e.ns("node:url")
-        .doc(
+    e.module("node:url", |m| {
+        m.doc(
             "URL utilities (node:url): domainToASCII/domainToUnicode (UTS-46), \
              fileURLToPath/fileURLToPathBuffer/pathToFileURL, urlToHttpOptions, \
              and the legacy parse/format/resolve. URL/URLSearchParams are engine \
              globals.",
-        )
-        .member(func(
-            "domainToASCII",
-            "__RTS_FN_NODE_URL_DOMAIN_TO_ASCII",
-            sig!(StrPtr => Handle),
-            "domainToASCII(domain: string): string",
-            symbols::__RTS_FN_NODE_URL_DOMAIN_TO_ASCII as *const u8,
-        ))
-        .member(func(
-            "domainToUnicode",
-            "__RTS_FN_NODE_URL_DOMAIN_TO_UNICODE",
-            sig!(StrPtr => Handle),
-            "domainToUnicode(domain: string): string",
-            symbols::__RTS_FN_NODE_URL_DOMAIN_TO_UNICODE as *const u8,
-        ))
-        .member(func(
-            "fileURLToPath",
-            "__RTS_FN_NODE_URL_FILE_URL_TO_PATH",
-            sig!(Handle => Handle),
-            "fileURLToPath(url: object): string",
-            symbols::__RTS_FN_NODE_URL_FILE_URL_TO_PATH as *const u8,
-        ))
-        .member(func(
-            "fileURLToPathBuffer",
-            "__RTS_FN_NODE_URL_FILE_URL_TO_PATH_BUFFER",
-            sig!(Handle => Handle),
-            "fileURLToPathBuffer(url: object): object",
-            symbols::__RTS_FN_NODE_URL_FILE_URL_TO_PATH_BUFFER as *const u8,
-        ))
-        .member(func(
-            "pathToFileURL",
-            "__RTS_FN_NODE_URL_PATH_TO_FILE_URL",
-            sig!(StrPtr => Handle),
-            "pathToFileURL(path: string): URL",
-            symbols::__RTS_FN_NODE_URL_PATH_TO_FILE_URL as *const u8,
-        ))
-        .member(func(
-            "urlToHttpOptions",
-            "__RTS_FN_NODE_URL_TO_HTTP_OPTIONS",
-            sig!(Handle => Handle),
-            "urlToHttpOptions(url: object): object",
-            symbols::__RTS_FN_NODE_URL_TO_HTTP_OPTIONS as *const u8,
-        ))
-        .member(func(
-            "resolve",
-            "__RTS_FN_NODE_URL_RESOLVE",
-            sig!(StrPtr, StrPtr => Handle),
-            "resolve(from: string, to: string): string",
-            symbols::__RTS_FN_NODE_URL_RESOLVE as *const u8,
-        ))
-        .member(func(
-            "parse",
-            "__RTS_FN_NODE_URL_PARSE",
-            sig!(StrPtr => Handle),
-            "parse(urlString: string): object",
-            symbols::__RTS_FN_NODE_URL_PARSE as *const u8,
-        ))
-        .member(func(
-            "parse",
-            "__RTS_FN_NODE_URL_PARSE_OPTS",
-            sig!(StrPtr, Bool, Bool => Handle),
-            "parse(urlString: string, parseQueryString: boolean, slashesDenoteHost: boolean): object",
-            symbols::__RTS_FN_NODE_URL_PARSE_OPTS as *const u8,
-        ))
-        .member(func(
-            "format",
-            "__RTS_FN_NODE_URL_FORMAT",
-            sig!(Handle => Handle),
-            "format(urlObject: object): string",
-            symbols::__RTS_FN_NODE_URL_FORMAT as *const u8,
-        ))
-        .done();
+        );
+        m.registry(symbols::domain_to_ascii_entry());
+        m.registry(symbols::domain_to_unicode_entry());
+        m.registry(symbols::file_url_to_path_entry());
+        m.registry(symbols::file_url_to_path_buffer_entry());
+        m.registry(symbols::path_to_file_url_entry());
+        m.registry(symbols::url_to_http_options_entry());
+        m.registry(symbols::resolve_entry());
+        m.registry(symbols::parse_entry());
+        m.registry(symbols::format_entry());
+    });
 }

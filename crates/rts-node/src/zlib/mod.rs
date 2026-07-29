@@ -18,10 +18,6 @@ mod words;
 
 use rts_engine::{sig, Engine, FnPtr, Member, MemberFlags, MemberKind};
 
-fn func(name: &str, symbol: &str, ts: &str, fp: *const u8) -> Member {
-    make(name, symbol, sig!(Handle => Handle), ts, fp, MemberKind::Function, MemberFlags::THROWS)
-}
-
 fn make(name: &str, symbol: &str, sig: rts_engine::Sig, ts: &str, fp: *const u8, kind: MemberKind, flags: MemberFlags) -> Member {
     Member {
         name: name.to_string(),
@@ -49,19 +45,19 @@ pub fn register(e: &mut Engine) {
              gunzip, unzip, brotliCompress/brotliDecompress (all *Sync), and \
              constants. Pure-Rust codecs.",
         )
-        .member(func("deflateSync", "__RTS_FN_NODE_ZLIB_DEFLATE_SYNC", "deflateSync(buffer: object): object", s::__RTS_FN_NODE_ZLIB_DEFLATE_SYNC as *const u8))
-        .member(func("inflateSync", "__RTS_FN_NODE_ZLIB_INFLATE_SYNC", "inflateSync(buffer: object): object", s::__RTS_FN_NODE_ZLIB_INFLATE_SYNC as *const u8))
-        .member(func("deflateRawSync", "__RTS_FN_NODE_ZLIB_DEFLATE_RAW_SYNC", "deflateRawSync(buffer: object): object", s::__RTS_FN_NODE_ZLIB_DEFLATE_RAW_SYNC as *const u8))
-        .member(func("inflateRawSync", "__RTS_FN_NODE_ZLIB_INFLATE_RAW_SYNC", "inflateRawSync(buffer: object): object", s::__RTS_FN_NODE_ZLIB_INFLATE_RAW_SYNC as *const u8))
-        .member(func("gzipSync", "__RTS_FN_NODE_ZLIB_GZIP_SYNC", "gzipSync(buffer: object): object", s::__RTS_FN_NODE_ZLIB_GZIP_SYNC as *const u8))
-        .member(func("gunzipSync", "__RTS_FN_NODE_ZLIB_GUNZIP_SYNC", "gunzipSync(buffer: object): object", s::__RTS_FN_NODE_ZLIB_GUNZIP_SYNC as *const u8))
-        .member(func("unzipSync", "__RTS_FN_NODE_ZLIB_UNZIP_SYNC", "unzipSync(buffer: object): object", s::__RTS_FN_NODE_ZLIB_UNZIP_SYNC as *const u8))
-        .member(func("brotliCompressSync", "__RTS_FN_NODE_ZLIB_BROTLI_COMPRESS_SYNC", "brotliCompressSync(buffer: object): object", s::__RTS_FN_NODE_ZLIB_BROTLI_COMPRESS_SYNC as *const u8))
-        .member(func("brotliDecompressSync", "__RTS_FN_NODE_ZLIB_BROTLI_DECOMPRESS_SYNC", "brotliDecompressSync(buffer: object): object", s::__RTS_FN_NODE_ZLIB_BROTLI_DECOMPRESS_SYNC as *const u8))
-        .member(make("gzipSync", "__RTS_FN_NODE_ZLIB_GZIP_LEVEL", sig!(Handle, Handle => Handle), "gzipSync(buffer: object, options: object): object", s::__RTS_FN_NODE_ZLIB_GZIP_LEVEL as *const u8, MemberKind::Function, MemberFlags::THROWS))
-        .member(make("deflateSync", "__RTS_FN_NODE_ZLIB_DEFLATE_LEVEL", sig!(Handle, Handle => Handle), "deflateSync(buffer: object, options: object): object", s::__RTS_FN_NODE_ZLIB_DEFLATE_LEVEL as *const u8, MemberKind::Function, MemberFlags::THROWS))
-        .member(make("crc32", "__RTS_FN_NODE_ZLIB_CRC32", sig!(Handle => I64), "crc32(data: object): number", s::__RTS_FN_NODE_ZLIB_CRC32 as *const u8, MemberKind::Function, MemberFlags::NONE))
-        .member(make("crc32", "__RTS_FN_NODE_ZLIB_CRC32_PREV", sig!(Handle, I64 => I64), "crc32(data: object, value: number): number", s::__RTS_FN_NODE_ZLIB_CRC32_PREV as *const u8, MemberKind::Function, MemberFlags::NONE))
+        .member(s::deflate_sync_entry())
+        .member(s::inflate_sync_entry())
+        .member(s::deflate_raw_sync_entry())
+        .member(s::inflate_raw_sync_entry())
+        .member(s::gzip_sync_entry())
+        .member(s::gunzip_sync_entry())
+        .member(s::unzip_sync_entry())
+        .member(s::brotli_compress_sync_entry())
+        .member(s::brotli_decompress_sync_entry())
+        .member(s::gzip_sync_level_entry())
+        .member(s::deflate_sync_level_entry())
+        .member(symbols::crc32_entry())
+        .member(symbols::crc32_prev_entry())
         .member(make("constants", "__RTS_FN_NODE_ZLIB_CONSTANTS", sig!(=> Handle), "constants: object", constants::__RTS_FN_NODE_ZLIB_CONSTANTS as *const u8, MemberKind::Constant, MemberFlags::NONE))
         .done();
 }

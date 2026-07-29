@@ -105,20 +105,18 @@ fn base64_decode(s: &str) -> Vec<u8> {
 }
 
 /// `btoa(data)` — base64-encode a binary (latin1) string.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_BUFFER_BTOA(p: *const u8, l: i64) -> u64 {
-    let s = read(p, l);
+#[rtse::function(module = "node:buffer", value = "btoa")]
+fn btoa(data: &str) -> String {
     // Each char is a byte (latin1); a multi-byte UTF-8 char takes its low byte.
-    let bytes: Vec<u8> = s.chars().map(|c| c as u8).collect();
-    intern(&base64_encode(&bytes))
+    let bytes: Vec<u8> = data.chars().map(|c| c as u8).collect();
+    base64_encode(&bytes)
 }
 
 /// `atob(data)` — decode base64 to a binary (latin1) string.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_BUFFER_ATOB(p: *const u8, l: i64) -> u64 {
-    let decoded = base64_decode(&read(p, l));
-    let s: String = decoded.iter().map(|&b| b as char).collect();
-    intern(&s)
+#[rtse::function(module = "node:buffer", value = "atob")]
+fn atob(data: &str) -> String {
+    let decoded = base64_decode(data);
+    decoded.iter().map(|&b| b as char).collect()
 }
 
 /// `Buffer.alloc(size)` / `Buffer.allocUnsafe(size)` — a zeroed byte array.

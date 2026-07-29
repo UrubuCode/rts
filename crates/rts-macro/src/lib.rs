@@ -32,6 +32,10 @@
 //!  - `#[rtse::getter]`/`#[rtse::setter]` — real InstanceGetter/InstanceSetter,
 //!    String-capable computed properties.
 //!  - `throws` — sets `MemberFlags::THROWS` (composes with readonly/optional).
+//!    Also accepted by `#[rtse::function]`, together with `pure`; before that a
+//!    throwing or pure FREE function could not be declared at all (the emitted
+//!    member pinned both), which blocked all of `node:assert`, `node:crypto`
+//!    and `node:child_process` from converting.
 //!  - **F8** `Vec<String>`/`Vec<Handle>` return → `Entry::Vec` + ts `T[]` (real array).
 //!  - Instance methods CLONE the receiver out of the HandleTable before the body
 //!    (drops the shard lock; write-back for `&mut self`) so a body touching a 2nd

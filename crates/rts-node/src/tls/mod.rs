@@ -10,10 +10,10 @@
 //!
 //! Layout: `mod` (data + registration).
 
+use rts_engine::abi::ty::Handle;
 use rts_engine::heap::handles::{alloc_entry, Entry};
 use rts_engine::heap::shapes::string_word;
-use rts_engine::AbiType::{self, Handle};
-use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::Engine;
 
 /// The cipher suites rustls implements (TLS 1.3 + the TLS 1.2 ECDHE-AEAD set),
 /// in Node's lowercase form.
@@ -32,46 +32,30 @@ const CIPHERS: &[&str] = &[
 /// The key-exchange groups rustls offers by default.
 const CURVES: &[&str] = &["x25519", "secp256r1", "secp384r1"];
 
-fn str_array(items: &[&str]) -> u64 {
+fn str_array(items: &[&str]) -> Handle {
     let words: Vec<i64> = items.iter().map(|s| string_word(s.as_bytes()) as i64).collect();
     alloc_entry(Entry::Vec(Box::new(words)))
 }
 
 /// `tls.getCiphers()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_TLS_GET_CIPHERS() -> u64 {
+#[rtse::function(module = "node:tls", value = "getCiphers", pure)]
+fn get_ciphers() -> Handle {
     str_array(CIPHERS)
 }
 
 /// `tls.getCurves()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_TLS_GET_CURVES() -> u64 {
+#[rtse::function(module = "node:tls", value = "getCurves", pure)]
+fn get_curves() -> Handle {
     str_array(CURVES)
-}
-
-fn func(name: &str, ret: AbiType, symbol: &str, ts: &str, fp: *const u8) -> Member {
-    Member {
-        name: name.to_string(),
-        kind: MemberKind::Function,
-        sig: Sig::new(Vec::new(), ret),
-        symbol: symbol.to_string(),
-        fn_ptr: FnPtr(fp),
-        flags: MemberFlags::NONE,
-        aliases: Vec::new(),
-        variadic: false,
-        ts_signature: ts.to_string(),
-        doc: String::new(),
-        ret_class: None,
-        pure: true,
-        emit: None,
-    }
 }
 
 /// Registers the `node:tls` surface.
 pub fn register(e: &mut Engine) {
-    e.ns("node:tls")
-        .doc("TLS (node:tls): getCiphers, getCurves.")
-        .member(func("getCiphers", Handle, "__RTS_FN_NODE_TLS_GET_CIPHERS", "getCiphers(): string[]", __RTS_FN_NODE_TLS_GET_CIPHERS as *const u8))
-        .member(func("getCurves", Handle, "__RTS_FN_NODE_TLS_GET_CURVES", "getCurves(): string[]", __RTS_FN_NODE_TLS_GET_CURVES as *const u8))
-        .done();
+    // `.registry(...)` is a `ModuleScope` method — the closure form — not one on
+    // the fluent `ModuleBuilder` that `e.ns(...)` returns.
+    e.module("node:tls", |m| {
+        m.doc("TLS (node:tls): getCiphers, getCurves.");
+        m.registry(get_ciphers_entry());
+        m.registry(get_curves_entry());
+    });
 }

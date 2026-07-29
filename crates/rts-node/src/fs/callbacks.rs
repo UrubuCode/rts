@@ -3,16 +3,23 @@
 //! the callback is invoked once, immediately, with Node's `callback(err, result)`
 //! shape via the codegen callback bridge (`__rtsadp_fn_invoke`, the same one
 //! dns/timers use). Real `std::fs` I/O — no stubs.
+//!
+//! Authored with `#[rtse::function]` (symbol/signature/ts/doc all derived from
+//! the Rust declaration); the macro fixes `MemberFlags::NONE`, so `fs/mod.rs`
+//! patches `THROWS` on at registration (matching the previous `func(...)` rows —
+//! even though every one of these settles via a callback invocation, never an
+//! actual `throw`, kept for parity with the prior flags).
 
 use std::fs::OpenOptions;
 use std::io::Write;
 
+use rts_engine::abi::ty::{Handle, Poly};
 use rts_engine::heap::poly::POLY_UNDEFINED;
 use rts_engine::heap::shapes::{alloc_shaped_object, bool_word, handle_word_auto, null_word, string_word};
 
 use super::codec::encode_bytes;
 use super::stats;
-use super::words::{err_code, read, read_bytes};
+use super::words::{err_code, read_bytes};
 
 unsafe extern "C" {
     fn __rtsadp_fn_invoke(f: u64, a0: u64, a1: u64, a2: u64, a3: u64, this: u64) -> u64;
@@ -47,102 +54,87 @@ fn settle_void(cb: u64, r: std::io::Result<()>, op: &str, path: &str) {
 }
 
 /// `fs.readFile(path, callback)` → `callback(err, data)` with `data` a Buffer.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_CB_READ_FILE(p: *const u8, l: i64, cb: u64) {
-    let path = read(p, l);
-    match std::fs::read(&path) {
-        Ok(bytes) => invoke(cb, null_word(), handle_word_auto(super::words::byte_array(&bytes))),
-        Err(e) => invoke(cb, err_object(&e, "open", &path), POLY_UNDEFINED),
+#[rtse::function(module = "node:fs", value = "readFile")]
+fn read_file(path: &str, callback: Poly) {
+    match std::fs::read(path) {
+        Ok(bytes) => invoke(callback, null_word(), handle_word_auto(super::words::byte_array(&bytes))),
+        Err(e) => invoke(callback, err_object(&e, "open", path), POLY_UNDEFINED),
     }
 }
 
 /// `fs.readFile(path, encoding, callback)` → `callback(err, string)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_CB_READ_FILE_ENC(p: *const u8, l: i64, ep: *const u8, el: i64, cb: u64) {
-    let path = read(p, l);
-    let enc = read(ep, el);
-    match std::fs::read(&path) {
-        Ok(bytes) => invoke(cb, null_word(), str_word(&encode_bytes(&bytes, &enc))),
-        Err(e) => invoke(cb, err_object(&e, "open", &path), POLY_UNDEFINED),
+#[rtse::function(module = "node:fs", value = "readFile", overload = "enc")]
+fn read_file_enc(path: &str, encoding: &str, callback: Poly) {
+    match std::fs::read(path) {
+        Ok(bytes) => invoke(callback, null_word(), str_word(&encode_bytes(&bytes, encoding))),
+        Err(e) => invoke(callback, err_object(&e, "open", path), POLY_UNDEFINED),
     }
 }
 
 /// `fs.writeFile(path, data, callback)` → `callback(err)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_CB_WRITE_FILE(p: *const u8, l: i64, data: u64, cb: u64) {
-    let path = read(p, l);
-    settle_void(cb, std::fs::write(&path, read_bytes(data)), "open", &path);
+#[rtse::function(module = "node:fs", value = "writeFile")]
+fn write_file(path: &str, data: Handle, callback: Poly) {
+    settle_void(callback, std::fs::write(path, read_bytes(data)), "open", path);
 }
 
 /// `fs.appendFile(path, data, callback)` → `callback(err)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_CB_APPEND_FILE(p: *const u8, l: i64, data: u64, cb: u64) {
-    let path = read(p, l);
+#[rtse::function(module = "node:fs", value = "appendFile")]
+fn append_file(path: &str, data: Handle, callback: Poly) {
     let r = (|| -> std::io::Result<()> {
-        let mut f = OpenOptions::new().create(true).append(true).open(&path)?;
+        let mut f = OpenOptions::new().create(true).append(true).open(path)?;
         f.write_all(&read_bytes(data))
     })();
-    settle_void(cb, r, "open", &path);
+    settle_void(callback, r, "open", path);
 }
 
 /// `fs.mkdir(path, callback)` → `callback(err)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_CB_MKDIR(p: *const u8, l: i64, cb: u64) {
-    let path = read(p, l);
-    settle_void(cb, std::fs::create_dir(&path), "mkdir", &path);
+#[rtse::function(module = "node:fs", value = "mkdir")]
+fn mkdir(path: &str, callback: Poly) {
+    settle_void(callback, std::fs::create_dir(path), "mkdir", path);
 }
 
 /// `fs.unlink(path, callback)` → `callback(err)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_CB_UNLINK(p: *const u8, l: i64, cb: u64) {
-    let path = read(p, l);
-    settle_void(cb, std::fs::remove_file(&path), "unlink", &path);
+#[rtse::function(module = "node:fs", value = "unlink")]
+fn unlink(path: &str, callback: Poly) {
+    settle_void(callback, std::fs::remove_file(path), "unlink", path);
 }
 
 /// `fs.rmdir(path, callback)` → `callback(err)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_CB_RMDIR(p: *const u8, l: i64, cb: u64) {
-    let path = read(p, l);
-    settle_void(cb, std::fs::remove_dir(&path), "rmdir", &path);
+#[rtse::function(module = "node:fs", value = "rmdir")]
+fn rmdir(path: &str, callback: Poly) {
+    settle_void(callback, std::fs::remove_dir(path), "rmdir", path);
 }
 
 /// `fs.rm(path, callback)` → `callback(err)` (a file or empty directory).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_CB_RM(p: *const u8, l: i64, cb: u64) {
-    let path = read(p, l);
-    let r = std::fs::remove_file(&path).or_else(|_| std::fs::remove_dir(&path));
-    settle_void(cb, r, "unlink", &path);
+#[rtse::function(module = "node:fs", value = "rm")]
+fn rm(path: &str, callback: Poly) {
+    let r = std::fs::remove_file(path).or_else(|_| std::fs::remove_dir(path));
+    settle_void(callback, r, "unlink", path);
 }
 
 /// `fs.rename(oldPath, newPath, callback)` → `callback(err)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_CB_RENAME(op: *const u8, ol: i64, np: *const u8, nl: i64, cb: u64) {
-    let old = read(op, ol);
-    let new = read(np, nl);
-    settle_void(cb, std::fs::rename(&old, &new), "rename", &old);
+#[rtse::function(module = "node:fs", value = "rename")]
+fn rename(old_path: &str, new_path: &str, callback: Poly) {
+    settle_void(callback, std::fs::rename(old_path, new_path), "rename", old_path);
 }
 
 /// `fs.copyFile(src, dest, callback)` → `callback(err)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_CB_COPY_FILE(sp: *const u8, sl: i64, dp: *const u8, dl: i64, cb: u64) {
-    let src = read(sp, sl);
-    let dst = read(dp, dl);
-    settle_void(cb, std::fs::copy(&src, &dst).map(|_| ()), "copyfile", &src);
+#[rtse::function(module = "node:fs", value = "copyFile")]
+fn copy_file(src: &str, dest: &str, callback: Poly) {
+    settle_void(callback, std::fs::copy(src, dest).map(|_| ()), "copyfile", src);
 }
 
 /// `fs.access(path, callback)` → `callback(err)` (err when the path is absent).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_CB_ACCESS(p: *const u8, l: i64, cb: u64) {
-    let path = read(p, l);
-    settle_void(cb, std::fs::metadata(&path).map(|_| ()), "access", &path);
+#[rtse::function(module = "node:fs", value = "access")]
+fn access(path: &str, callback: Poly) {
+    settle_void(callback, std::fs::metadata(path).map(|_| ()), "access", path);
 }
 
 /// `fs.chmod(path, mode, callback)` → `callback(err)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_CB_CHMOD(p: *const u8, l: i64, mode: i64, cb: u64) {
-    let path = read(p, l);
+#[rtse::function(module = "node:fs", value = "chmod")]
+fn chmod(path: &str, mode: i64, callback: Poly) {
     let r = (|| -> std::io::Result<()> {
-        let mut perms = std::fs::metadata(&path)?.permissions();
+        let mut perms = std::fs::metadata(path)?.permissions();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -152,60 +144,57 @@ pub extern "C" fn __RTS_FN_NODE_FS_CB_CHMOD(p: *const u8, l: i64, mode: i64, cb:
         {
             perms.set_readonly(mode & 0o200 == 0);
         }
-        std::fs::set_permissions(&path, perms)
+        std::fs::set_permissions(path, perms)
     })();
-    settle_void(cb, r, "chmod", &path);
+    settle_void(callback, r, "chmod", path);
 }
 
 /// `fs.stat(path, callback)` / `fs.lstat(path, callback)` → `callback(err, Stats)`.
-fn stat_cb(path: String, cb: u64, follow: bool, op: &str) {
-    let md = if follow { std::fs::metadata(&path) } else { std::fs::symlink_metadata(&path) };
+fn stat_cb(path: &str, cb: u64, follow: bool, op: &str) {
+    let md = if follow { std::fs::metadata(path) } else { std::fs::symlink_metadata(path) };
     match md {
         Ok(m) => invoke(cb, null_word(), handle_word_auto(stats::build(&m))),
-        Err(e) => invoke(cb, err_object(&e, op, &path), POLY_UNDEFINED),
+        Err(e) => invoke(cb, err_object(&e, op, path), POLY_UNDEFINED),
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_CB_STAT(p: *const u8, l: i64, cb: u64) {
-    stat_cb(read(p, l), cb, true, "stat");
+#[rtse::function(module = "node:fs", value = "stat")]
+fn stat(path: &str, callback: Poly) {
+    stat_cb(path, callback, true, "stat");
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_CB_LSTAT(p: *const u8, l: i64, cb: u64) {
-    stat_cb(read(p, l), cb, false, "lstat");
+#[rtse::function(module = "node:fs", value = "lstat")]
+fn lstat(path: &str, callback: Poly) {
+    stat_cb(path, callback, false, "lstat");
 }
 
 /// `fs.readdir(path, callback)` → `callback(err, files)` (string names).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_CB_READDIR(p: *const u8, l: i64, cb: u64) {
-    let path = read(p, l);
-    match std::fs::read_dir(&path) {
+#[rtse::function(module = "node:fs", value = "readdir")]
+fn readdir(path: &str, callback: Poly) {
+    match std::fs::read_dir(path) {
         Ok(rd) => {
             let names: Vec<String> = rd
                 .filter_map(|e| e.ok())
                 .map(|e| e.file_name().to_string_lossy().into_owned())
                 .collect();
-            invoke(cb, null_word(), handle_word_auto(super::words::string_array(&names)));
+            invoke(callback, null_word(), handle_word_auto(super::words::string_array(&names)));
         }
-        Err(e) => invoke(cb, err_object(&e, "scandir", &path), POLY_UNDEFINED),
+        Err(e) => invoke(callback, err_object(&e, "scandir", path), POLY_UNDEFINED),
     }
 }
 
 /// `fs.realpath(path, callback)` → `callback(err, resolvedPath)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_CB_REALPATH(p: *const u8, l: i64, cb: u64) {
-    let path = read(p, l);
-    match std::fs::canonicalize(&path) {
-        Ok(rp) => invoke(cb, null_word(), str_word(&rp.to_string_lossy())),
-        Err(e) => invoke(cb, err_object(&e, "realpath", &path), POLY_UNDEFINED),
+#[rtse::function(module = "node:fs", value = "realpath")]
+fn realpath(path: &str, callback: Poly) {
+    match std::fs::canonicalize(path) {
+        Ok(rp) => invoke(callback, null_word(), str_word(&rp.to_string_lossy())),
+        Err(e) => invoke(callback, err_object(&e, "realpath", path), POLY_UNDEFINED),
     }
 }
 
 /// `fs.exists(path, callback)` → `callback(exists)` — the ONE fs callback without
 /// an `err` argument (a single boolean; deprecated but present).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_CB_EXISTS(p: *const u8, l: i64, cb: u64) {
-    let path = read(p, l);
-    invoke(cb, bool_word(std::fs::metadata(&path).is_ok()), POLY_UNDEFINED);
+#[rtse::function(module = "node:fs", value = "exists")]
+fn exists(path: &str, callback: Poly) {
+    invoke(callback, bool_word(std::fs::metadata(path).is_ok()), POLY_UNDEFINED);
 }

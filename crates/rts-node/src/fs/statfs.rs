@@ -3,9 +3,10 @@
 //! no methods, so no object-backed-class dispatch is involved. Real syscalls
 //! (POSIX `statvfs`, Win32 `GetDiskFreeSpaceW`).
 
+use rts_engine::abi::ty::Handle;
 use rts_engine::heap::shapes::alloc_shaped_object;
 
-use super::words::{read, throw_io};
+use super::words::throw_io;
 
 struct FsStat {
     fstype: f64,
@@ -84,10 +85,12 @@ fn query(_path: &str) -> std::io::Result<FsStat> {
 }
 
 /// `fs.statfsSync(path)` → `{ type, bsize, blocks, bfree, bavail, files, ffree }`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_STATFS(p: *const u8, l: i64) -> u64 {
-    let path = read(p, l);
-    match query(&path) {
+///
+/// Authored with `#[rtse::function]`; `fs/mod.rs` patches `THROWS` on at
+/// registration.
+#[rtse::function(module = "node:fs", value = "statfsSync")]
+fn statfs_sync(path: &str) -> Handle {
+    match query(path) {
         Ok(s) => {
             let num = |v: f64| v.to_bits() as i64;
             alloc_shaped_object(

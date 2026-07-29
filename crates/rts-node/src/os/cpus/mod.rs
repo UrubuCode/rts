@@ -13,6 +13,8 @@ mod macos;
 #[cfg(windows)]
 mod windows;
 
+use rts_engine::abi::ty::Handle;
+
 use super::words::{array, num_word, object_word, str_word};
 
 /// One logical core's info.
@@ -34,8 +36,8 @@ pub struct CpuTimes {
 }
 
 /// `os.cpus()` — array of per-core info objects.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_CPUS() -> u64 {
+#[rtse::function(module = "node:os", value = "cpus")]
+fn cpus() -> Handle {
     let cores = collect();
     let words: Vec<i64> = cores.iter().map(cpu_word).collect();
     array(words)

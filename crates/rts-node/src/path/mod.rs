@@ -15,6 +15,22 @@
 //! deferred (namespace-object-valued members need a shim layer rts-node does
 //! not ship yet); the `node:path/posix` and `node:path/win32` sub-specifiers
 //! cover the same access and ARE wired.
+//!
+//! # Authoring: `#[rtse::function]` for the fixed-arity members
+//!
+//! `basename`/`dirname`/`extname`/`isAbsolute`/`normalize`/`relative`/`parse`/
+//! `format`/`toNamespacedPath`/`matchesGlob` are declared in
+//! `symbols::posix`/`symbols::win32` via `#[rtse::function]` — symbol/ABI/TS
+//! signature derived from the Rust signature, registered here through the
+//! generated `..._entry()` fns.
+//!
+//! `sep`/`delimiter` (a `MemberKind::Constant`, which the macro has no form
+//! for) and `join`/`resolve` (Node-variadic — exposed as fixed 0..8-arity
+//! overloads sharing one JS name, which the macro's optional-parameter model
+//! does not express: it pads a single `Member`'s trailing args with declared
+//! defaults, not a family of same-name/different-arity `Member`s) stay
+//! hand-built `Member`s in `add_variadic` below. See the module-level
+//! conversion report for the exact blocker.
 
 mod classify;
 mod flavor;
@@ -27,7 +43,7 @@ mod win32;
 mod win32root;
 pub(crate) mod words;
 
-use rts_engine::{sig, AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
+use rts_engine::{sig, AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, ModuleScope, Sig};
 
 #[derive(Clone, Copy)]
 enum Which {
@@ -55,69 +71,9 @@ fn member(name: &str, symbol: &str, sig: Sig, ts: &str, fp: *const u8, kind: Mem
         variadic: false,
         ts_signature: ts.to_string(),
         doc: String::new(),
-        // resolve reads the CWD; nothing is foldable/cacheable → never pure.
         ret_class: None,
         pure: false,
         emit: None,
-    }
-}
-
-/// Every `(symbol, fn_ptr)` for one flavor, keyed by role.
-struct Syms {
-    basename: (&'static str, *const u8),
-    basename2: (&'static str, *const u8),
-    dirname: (&'static str, *const u8),
-    extname: (&'static str, *const u8),
-    is_absolute: (&'static str, *const u8),
-    normalize: (&'static str, *const u8),
-    relative: (&'static str, *const u8),
-    parse: (&'static str, *const u8),
-    format: (&'static str, *const u8),
-    to_namespaced: (&'static str, *const u8),
-    matches_glob: (&'static str, *const u8),
-    sep: (&'static str, *const u8),
-    delimiter: (&'static str, *const u8),
-    join: [(&'static str, *const u8); 9],
-    resolve: [(&'static str, *const u8); 9],
-}
-
-fn syms(which: Which) -> Syms {
-    use symbols::{posix as ps, win32 as ws};
-    match which {
-        Which::Posix => Syms {
-            basename: ("__RTS_FN_NODE_PATH_POSIX_BASENAME", ps::__RTS_FN_NODE_PATH_POSIX_BASENAME as *const u8),
-            basename2: ("__RTS_FN_NODE_PATH_POSIX_BASENAME2", ps::__RTS_FN_NODE_PATH_POSIX_BASENAME2 as *const u8),
-            dirname: ("__RTS_FN_NODE_PATH_POSIX_DIRNAME", ps::__RTS_FN_NODE_PATH_POSIX_DIRNAME as *const u8),
-            extname: ("__RTS_FN_NODE_PATH_POSIX_EXTNAME", ps::__RTS_FN_NODE_PATH_POSIX_EXTNAME as *const u8),
-            is_absolute: ("__RTS_FN_NODE_PATH_POSIX_ISABSOLUTE", ps::__RTS_FN_NODE_PATH_POSIX_ISABSOLUTE as *const u8),
-            normalize: ("__RTS_FN_NODE_PATH_POSIX_NORMALIZE", ps::__RTS_FN_NODE_PATH_POSIX_NORMALIZE as *const u8),
-            relative: ("__RTS_FN_NODE_PATH_POSIX_RELATIVE", ps::__RTS_FN_NODE_PATH_POSIX_RELATIVE as *const u8),
-            parse: ("__RTS_FN_NODE_PATH_POSIX_PARSE", ps::__RTS_FN_NODE_PATH_POSIX_PARSE as *const u8),
-            format: ("__RTS_FN_NODE_PATH_POSIX_FORMAT", ps::__RTS_FN_NODE_PATH_POSIX_FORMAT as *const u8),
-            to_namespaced: ("__RTS_FN_NODE_PATH_POSIX_TONAMESPACED", ps::__RTS_FN_NODE_PATH_POSIX_TONAMESPACED as *const u8),
-            matches_glob: ("__RTS_FN_NODE_PATH_POSIX_MATCHESGLOB", ps::__RTS_FN_NODE_PATH_POSIX_MATCHESGLOB as *const u8),
-            sep: ("__RTS_FN_NODE_PATH_POSIX_SEP", symbols::__RTS_FN_NODE_PATH_POSIX_SEP as *const u8),
-            delimiter: ("__RTS_FN_NODE_PATH_POSIX_DELIMITER", symbols::__RTS_FN_NODE_PATH_POSIX_DELIMITER as *const u8),
-            join: posix_join_syms(),
-            resolve: posix_resolve_syms(),
-        },
-        Which::Win32 => Syms {
-            basename: ("__RTS_FN_NODE_PATH_WIN32_BASENAME", ws::__RTS_FN_NODE_PATH_WIN32_BASENAME as *const u8),
-            basename2: ("__RTS_FN_NODE_PATH_WIN32_BASENAME2", ws::__RTS_FN_NODE_PATH_WIN32_BASENAME2 as *const u8),
-            dirname: ("__RTS_FN_NODE_PATH_WIN32_DIRNAME", ws::__RTS_FN_NODE_PATH_WIN32_DIRNAME as *const u8),
-            extname: ("__RTS_FN_NODE_PATH_WIN32_EXTNAME", ws::__RTS_FN_NODE_PATH_WIN32_EXTNAME as *const u8),
-            is_absolute: ("__RTS_FN_NODE_PATH_WIN32_ISABSOLUTE", ws::__RTS_FN_NODE_PATH_WIN32_ISABSOLUTE as *const u8),
-            normalize: ("__RTS_FN_NODE_PATH_WIN32_NORMALIZE", ws::__RTS_FN_NODE_PATH_WIN32_NORMALIZE as *const u8),
-            relative: ("__RTS_FN_NODE_PATH_WIN32_RELATIVE", ws::__RTS_FN_NODE_PATH_WIN32_RELATIVE as *const u8),
-            parse: ("__RTS_FN_NODE_PATH_WIN32_PARSE", ws::__RTS_FN_NODE_PATH_WIN32_PARSE as *const u8),
-            format: ("__RTS_FN_NODE_PATH_WIN32_FORMAT", ws::__RTS_FN_NODE_PATH_WIN32_FORMAT as *const u8),
-            to_namespaced: ("__RTS_FN_NODE_PATH_WIN32_TONAMESPACED", ws::__RTS_FN_NODE_PATH_WIN32_TONAMESPACED as *const u8),
-            matches_glob: ("__RTS_FN_NODE_PATH_WIN32_MATCHESGLOB", ws::__RTS_FN_NODE_PATH_WIN32_MATCHESGLOB as *const u8),
-            sep: ("__RTS_FN_NODE_PATH_WIN32_SEP", symbols::__RTS_FN_NODE_PATH_WIN32_SEP as *const u8),
-            delimiter: ("__RTS_FN_NODE_PATH_WIN32_DELIMITER", symbols::__RTS_FN_NODE_PATH_WIN32_DELIMITER as *const u8),
-            join: win32_join_syms(),
-            resolve: win32_resolve_syms(),
-        },
     }
 }
 
@@ -160,39 +116,82 @@ fn win32_resolve_syms() -> [(&'static str, *const u8); 9] {
     )
 }
 
-fn add_members(mut ns: rts_engine::ModuleBuilder<'_>, which: Which) -> rts_engine::ModuleBuilder<'_> {
-    let s = syms(which);
-    ns = ns
-        .member(func("basename", s.basename.0, sig!(StrPtr => Handle), "basename(path: string): string", s.basename.1))
-        .member(func("basename", s.basename2.0, sig!(StrPtr, StrPtr => Handle), "basename(path: string, suffix: string): string", s.basename2.1))
-        .member(func("dirname", s.dirname.0, sig!(StrPtr => Handle), "dirname(path: string): string", s.dirname.1))
-        .member(func("extname", s.extname.0, sig!(StrPtr => Handle), "extname(path: string): string", s.extname.1))
-        .member(func("isAbsolute", s.is_absolute.0, sig!(StrPtr => Bool), "isAbsolute(path: string): boolean", s.is_absolute.1))
-        .member(func("normalize", s.normalize.0, sig!(StrPtr => Handle), "normalize(path: string): string", s.normalize.1))
-        .member(func("relative", s.relative.0, sig!(StrPtr, StrPtr => Handle), "relative(from: string, to: string): string", s.relative.1))
-        .member(func("parse", s.parse.0, sig!(StrPtr => Handle), "parse(path: string): object", s.parse.1))
-        .member(func("format", s.format.0, sig!(Handle => Handle), "format(pathObject: object): string", s.format.1))
-        .member(func("toNamespacedPath", s.to_namespaced.0, sig!(StrPtr => Handle), "toNamespacedPath(path: string): string", s.to_namespaced.1))
-        .member(func("matchesGlob", s.matches_glob.0, sig!(StrPtr, StrPtr => Bool), "matchesGlob(path: string, pattern: string): boolean", s.matches_glob.1))
-        .member(constant("sep", s.sep.0, "sep: string", s.sep.1))
-        .member(constant("delimiter", s.delimiter.0, "delimiter: string", s.delimiter.1));
-    for (n, (symbol, fp)) in s.join.iter().enumerate() {
-        ns = ns.member(func("join", symbol, str_ret(n), "join(...paths: string[]): string", *fp));
+/// `sep`/`delimiter` (Constant) + the `join`/`resolve` fixed-arity overload
+/// families (Node-variadic) — the members `#[rtse::function]` cannot express.
+fn add_variadic(m: &mut ModuleScope<'_>, which: Which) {
+    let (sep, delimiter, join, resolve) = match which {
+        Which::Posix => (
+            ("__RTS_FN_NODE_PATH_POSIX_SEP", symbols::__RTS_FN_NODE_PATH_POSIX_SEP as *const u8),
+            ("__RTS_FN_NODE_PATH_POSIX_DELIMITER", symbols::__RTS_FN_NODE_PATH_POSIX_DELIMITER as *const u8),
+            posix_join_syms(),
+            posix_resolve_syms(),
+        ),
+        Which::Win32 => (
+            ("__RTS_FN_NODE_PATH_WIN32_SEP", symbols::__RTS_FN_NODE_PATH_WIN32_SEP as *const u8),
+            ("__RTS_FN_NODE_PATH_WIN32_DELIMITER", symbols::__RTS_FN_NODE_PATH_WIN32_DELIMITER as *const u8),
+            win32_join_syms(),
+            win32_resolve_syms(),
+        ),
+    };
+    m.member(constant("sep", sep.0, "sep: string", sep.1));
+    m.member(constant("delimiter", delimiter.0, "delimiter: string", delimiter.1));
+    for (n, (symbol, fp)) in join.iter().enumerate() {
+        m.member(func("join", symbol, str_ret(n), "join(...paths: string[]): string", *fp));
     }
-    for (n, (symbol, fp)) in s.resolve.iter().enumerate() {
-        ns = ns.member(func("resolve", symbol, str_ret(n), "resolve(...paths: string[]): string", *fp));
+    for (n, (symbol, fp)) in resolve.iter().enumerate() {
+        m.member(func("resolve", symbol, str_ret(n), "resolve(...paths: string[]): string", *fp));
     }
-    ns
+}
+
+/// The `#[rtse::function]`-declared fixed-arity members, one flavor.
+fn add_converted(m: &mut ModuleScope<'_>, which: Which) {
+    match which {
+        Which::Posix => {
+            m.registry(symbols::posix::basename_entry());
+            m.registry(symbols::posix::dirname_entry());
+            m.registry(symbols::posix::extname_entry());
+            m.registry(symbols::posix::is_absolute_entry());
+            m.registry(symbols::posix::normalize_entry());
+            m.registry(symbols::posix::relative_entry());
+            m.registry(symbols::posix::parse_entry());
+            m.registry(symbols::posix::format_entry());
+            m.registry(symbols::posix::to_namespaced_path_entry());
+            m.registry(symbols::posix::matches_glob_entry());
+        }
+        Which::Win32 => {
+            m.registry(symbols::win32::basename_entry());
+            m.registry(symbols::win32::dirname_entry());
+            m.registry(symbols::win32::extname_entry());
+            m.registry(symbols::win32::is_absolute_entry());
+            m.registry(symbols::win32::normalize_entry());
+            m.registry(symbols::win32::relative_entry());
+            m.registry(symbols::win32::parse_entry());
+            m.registry(symbols::win32::format_entry());
+            m.registry(symbols::win32::to_namespaced_path_entry());
+            m.registry(symbols::win32::matches_glob_entry());
+        }
+    }
 }
 
 /// Registers `node:path`, `node:path/posix`, and `node:path/win32`.
 pub fn register(e: &mut Engine) {
-    let default = if cfg!(windows) { Which::Win32 } else { Which::Posix };
-    add_members(
-        e.ns("node:path").doc("Path utilities (node:path), OS-flavor default; posix/win32 via node:path/posix, node:path/win32."),
-        default,
-    )
-    .done();
-    add_members(e.ns("node:path/posix").doc("POSIX path utilities."), Which::Posix).done();
-    add_members(e.ns("node:path/win32").doc("Win32 path utilities."), Which::Win32).done();
+    e.module("node:path/posix", |m| {
+        m.doc("POSIX path utilities.");
+        add_converted(m, Which::Posix);
+        add_variadic(m, Which::Posix);
+    });
+    e.module("node:path/win32", |m| {
+        m.doc("Win32 path utilities.");
+        add_converted(m, Which::Win32);
+        add_variadic(m, Which::Win32);
+    });
+    e.module("node:path", |m| {
+        m.doc(
+            "Path utilities (node:path), OS-flavor default; posix/win32 via \
+             node:path/posix, node:path/win32.",
+        );
+        let default = if cfg!(windows) { Which::Win32 } else { Which::Posix };
+        add_converted(m, default);
+        add_variadic(m, default);
+    });
 }

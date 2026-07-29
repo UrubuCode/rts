@@ -7,6 +7,7 @@
 //! char), `multiple` (accumulate into an array). Deferred: `default`, `strict`
 //! error reporting details, `tokens`, negated `--no-foo` booleans.
 
+use rts_engine::abi::ty::{Handle, Poly};
 use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
 use rts_engine::heap::poly::{poly_handle_normalize, POLY_BOX_BASE, POLY_PAYLOAD_MASK};
 use rts_engine::heap::shapes::{
@@ -75,8 +76,8 @@ struct OptSpec {
 }
 
 /// `util.parseArgs(config)` → `{ values, positionals }`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_UTIL_PARSE_ARGS(config: u64) -> u64 {
+#[rtse::function(module = "node:util", value = "parseArgs")]
+fn parse_args(config: Poly) -> Handle {
     let args: Vec<String> = get(config, "args").map(|w| word_str_array(w as u64)).unwrap_or_default();
     let allow_pos = get(config, "allowPositionals").map(|w| truthy(w)).unwrap_or(false);
 

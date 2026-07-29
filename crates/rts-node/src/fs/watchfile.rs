@@ -15,6 +15,8 @@ use rts_engine::heap::poly::poly_handle_normalize;
 use rts_engine::heap::shapes::handle_word_auto;
 use rts_engine::watch_queue;
 
+use rts_engine::abi::ty::Poly;
+
 use super::stats;
 use super::words::read;
 
@@ -55,16 +57,19 @@ fn change_sig(path: &str) -> (i128, u64) {
 
 /// `fs.watchFile(path, listener)` — poll `path` and invoke `listener(curr, prev)`
 /// on each change.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_WATCHFILE0(p: *const u8, l: i64, listener: u64) {
-    watch_file(read(p, l), listener, 500);
+///
+/// Authored with `#[rtse::function]`; `fs/mod.rs` patches `THROWS` on at
+/// registration.
+#[rtse::function(module = "node:fs", value = "watchFile")]
+fn watch_file0(path: &str, listener: Poly) {
+    watch_file(path.to_string(), listener, 500);
 }
 
 /// `fs.watchFile(path, intervalMs, listener)` — the interval-configurable form.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_WATCHFILE_OPTS(p: *const u8, l: i64, interval: i64, listener: u64) {
+#[rtse::function(module = "node:fs", value = "watchFile", overload = "interval")]
+fn watch_file_opts(path: &str, interval: i64, listener: Poly) {
     let ms = if interval > 0 { interval as u64 } else { 500 };
-    watch_file(read(p, l), listener, ms);
+    watch_file(path.to_string(), listener, ms);
 }
 
 /// Start polling `path` every `interval` ms (default 500 — faster than Node's
@@ -114,9 +119,12 @@ fn watch_file(path: String, listener: u64, interval: u64) {
 }
 
 /// `fs.unwatchFile(path)` — stop polling `path`, release the loop keep-alive.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_UNWATCHFILE(p: *const u8, l: i64) {
-    let path = read(p, l);
+///
+/// Authored with `#[rtse::function]`; `fs/mod.rs` patches `THROWS` on at
+/// registration.
+#[rtse::function(module = "node:fs", value = "unwatchFile")]
+fn unwatch_file(path: &str) {
+    let path = path.to_string();
     if let Some(flag) = watchers().lock().unwrap().remove(&path) {
         flag.store(false, Ordering::Relaxed);
         watch_queue::dec_active();
@@ -130,6 +138,12 @@ pub extern "C" fn __RTS_FN_NODE_FS_UNWATCHFILE(p: *const u8, l: i64) {
 /// Called by the event loop (JS thread) for a `watchFile` change: build the
 /// current `Stats`, pair it with the stored previous `Stats`, and invoke
 /// `listener(curr, prev)`. `curr` becomes the next `prev`.
+///
+/// NOT converted to `#[rtse::function]`: this is not a registered `node:fs`
+/// Member at all — `rts-std/src/event_loop.rs` (outside this crate) calls it by
+/// a HARDCODED literal symbol string, the same constraint documented on
+/// `filehandle::open_handle`/`streambridge::{read,write,append}_bytes`. Its
+/// linker name must stay exactly `__RTS_FN_NODE_FS_WATCHFILE_FIRE`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_FS_WATCHFILE_FIRE(listener: u64, path_ptr: *const u8, path_len: i64) {
     let path = read(path_ptr, path_len);

@@ -6,53 +6,38 @@
 //! of first occurrence is preserved (shape-key order). Capped at `maxKeys`
 //! processed pairs (default 1000; `options.maxKeys === 0` removes the limit).
 //! `options.decodeURIComponent` replaces the default percent/`+` decoder.
+//!
+//! `parse`/`decode` are the same algorithm under two JS names — declared as two
+//! thin `#[rtse::function]` wrappers over the shared `parse_with_options`
+//! (the macro ties one Rust fn to one JS name; there is no `aliases` form yet).
 
-use super::codec::{read_str, unescape};
+use super::codec::unescape;
 use super::words::{invoke_string_fn, is_function_word, object, opt_field, str_array_word, str_word};
+
+use rts_engine::abi::ty::Handle;
 
 const MAX_KEYS: usize = 1000;
 
-/// `querystring.parse(str)` — default `sep`/`eq`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_QUERYSTRING_PARSE(ptr: *const u8, len: i64) -> u64 {
-    parse_impl(read_str(ptr, len), "&", "=", MAX_KEYS, None)
+/// `querystring.parse(str[, sep[, eq[, options]]])` — default `sep`/`eq`;
+/// groups repeated keys into arrays; reads `options.maxKeys`/
+/// `options.decodeURIComponent`.
+#[rtse::function(module = "node:querystring", value = "parse")]
+fn parse(s: &str, #[default("&")] sep: &str, #[default("=")] eq: &str, options: Option<Handle>) -> Handle {
+    parse_with_options(s, sep, eq, options)
 }
 
-/// `querystring.parse(str, sep, eq)` — explicit separators.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_QUERYSTRING_PARSE_SEP(
-    ptr: *const u8,
-    len: i64,
-    sep_ptr: *const u8,
-    sep_len: i64,
-    eq_ptr: *const u8,
-    eq_len: i64,
-) -> u64 {
-    let sep = read_str(sep_ptr, sep_len);
-    let eq = read_str(eq_ptr, eq_len);
-    parse_impl(
-        read_str(ptr, len),
-        if sep.is_empty() { "&" } else { sep },
-        if eq.is_empty() { "=" } else { eq },
-        MAX_KEYS,
-        None,
-    )
+/// `querystring.decode` — alias of `parse`.
+#[rtse::function(module = "node:querystring", value = "decode")]
+fn decode(s: &str, #[default("&")] sep: &str, #[default("=")] eq: &str, options: Option<Handle>) -> Handle {
+    parse_with_options(s, sep, eq, options)
 }
 
-/// `querystring.parse(str, sep, eq, options)` — with `maxKeys` +
-/// `decodeURIComponent`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_QUERYSTRING_PARSE_OPTS(
-    ptr: *const u8,
-    len: i64,
-    sep_ptr: *const u8,
-    sep_len: i64,
-    eq_ptr: *const u8,
-    eq_len: i64,
-    options: u64,
-) -> u64 {
-    let sep = read_str(sep_ptr, sep_len);
-    let eq = read_str(eq_ptr, eq_len);
+fn parse_with_options(input: &str, sep: &str, eq: &str, options: Option<u64>) -> u64 {
+    let sep = if sep.is_empty() { "&" } else { sep };
+    let eq = if eq.is_empty() { "=" } else { eq };
+    let Some(options) = options else {
+        return parse_impl(input, sep, eq, MAX_KEYS, None);
+    };
     // maxKeys: absent → 1000; `0` → unlimited (`usize::MAX`).
     let max_keys = match opt_field(options, "maxKeys") {
         Some(w) => match super::words::scalar_string(w as u64).parse::<usize>() {
@@ -67,13 +52,7 @@ pub extern "C" fn __RTS_FN_NODE_QUERYSTRING_PARSE_OPTS(
         Some(w) if is_function_word(w as u64) => Some(w as u64),
         _ => None,
     };
-    parse_impl(
-        read_str(ptr, len),
-        if sep.is_empty() { "&" } else { sep },
-        if eq.is_empty() { "=" } else { eq },
-        max_keys,
-        decode,
-    )
+    parse_impl(input, sep, eq, max_keys, decode)
 }
 
 /// Decode one raw component: the custom hook if provided, else the default

@@ -4,11 +4,11 @@
 //! success (process exists / signal delivered), `false` otherwise.
 
 /// `process.kill(pid, signal)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PROC_KILL(pid: i64, signal: i64) -> i64 {
+#[rtse::function(module = "node:process", value = "kill")]
+fn kill(pid: i64, signal: i64) -> bool {
     #[cfg(unix)]
     {
-        (unsafe { libc::kill(pid as libc::pid_t, signal as i32) } == 0) as i64
+        (unsafe { libc::kill(pid as libc::pid_t, signal as i32) } == 0)
     }
     #[cfg(windows)]
     {
@@ -23,16 +23,16 @@ pub extern "C" fn __RTS_FN_NODE_PROC_KILL(pid: i64, signal: i64) -> i64 {
         unsafe {
             let h = OpenProcess(access, 0, pid as u32);
             if h == 0 {
-                return 0;
+                return false;
             }
             let ok = if signal == 0 { 1 } else { TerminateProcess(h, 1) };
             CloseHandle(h);
-            (ok != 0) as i64
+            ok != 0
         }
     }
     #[cfg(not(any(unix, windows)))]
     {
         let _ = (pid, signal);
-        0
+        false
     }
 }

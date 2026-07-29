@@ -6,8 +6,6 @@
 //! (never throws, matching Node's `querystring.unescape` fallback): a malformed
 //! `%XX` is left literal. `parse` decodes with `+`→space; `unescape` does not.
 
-use super::words::intern;
-
 /// `encodeURIComponent`-style: keep `A-Za-z0-9` and `-_.!~*'()`, percent-encode
 /// every other byte of the UTF-8 encoding as uppercase `%XX`.
 pub fn escape(s: &str) -> String {
@@ -79,18 +77,13 @@ fn hex_val(b: u8) -> Option<u8> {
 }
 
 /// `querystring.escape(str)` — percent-encode.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_QUERYSTRING_ESCAPE(ptr: *const u8, len: i64) -> u64 {
-    intern(&escape(read_str(ptr, len)))
+#[rtse::function(module = "node:querystring", value = "escape", pure)]
+fn qs_escape(str: &str) -> String {
+    escape(str)
 }
 
 /// `querystring.unescape(str)` — percent-decode (no `+`→space).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_QUERYSTRING_UNESCAPE(ptr: *const u8, len: i64) -> u64 {
-    intern(&unescape(read_str(ptr, len), false))
-}
-
-/// Decode an ABI `(ptr, len)` string arg to `&str` (empty on null/invalid).
-pub fn read_str<'a>(ptr: *const u8, len: i64) -> &'a str {
-    unsafe { rts_engine::abi::str_abi::from_abi(ptr, len) }.unwrap_or("")
+#[rtse::function(module = "node:querystring", value = "unescape", pure)]
+fn qs_unescape(str: &str) -> String {
+    unescape(str, false)
 }

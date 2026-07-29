@@ -5,60 +5,40 @@
 //! `key=v` pairs, coerces scalars (number/boolean → text, `null`/`undefined`/
 //! non-array-object → empty value), and joins with `sep`/`eq`. Matches Node's
 //! `querystring.stringify`.
+//!
+//! `stringify`/`encode` are the same algorithm under two JS names — declared as
+//! two thin `#[rtse::function]` wrappers over the shared `stringify_with_options`
+//! (the macro ties one Rust fn to one JS name; there is no `aliases` form yet).
 
-use super::codec::{escape, read_str};
+use super::codec::escape;
 use super::words::{
-    array_strings, intern, invoke_string_fn, is_function_word, is_object_word, object_entries,
+    array_strings, invoke_string_fn, is_function_word, is_object_word, object_entries,
     opt_field, scalar_string, word_handle,
 };
 
-/// `querystring.stringify(obj)` — default `sep`/`eq`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_QUERYSTRING_STRINGIFY(obj: u64) -> u64 {
-    intern(&stringify_impl(obj, "&", "=", None))
+use rts_engine::abi::ty::Handle;
+
+/// `querystring.stringify(obj[, sep[, eq[, options]]])` — default `sep`/`eq`;
+/// reads `options.encodeURIComponent`.
+#[rtse::function(module = "node:querystring", value = "stringify")]
+fn stringify(obj: Handle, #[default("&")] sep: &str, #[default("=")] eq: &str, options: Option<Handle>) -> String {
+    stringify_with_options(obj, sep, eq, options)
 }
 
-/// `querystring.stringify(obj, sep, eq)` — explicit separators.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_QUERYSTRING_STRINGIFY_SEP(
-    obj: u64,
-    sep_ptr: *const u8,
-    sep_len: i64,
-    eq_ptr: *const u8,
-    eq_len: i64,
-) -> u64 {
-    let sep = read_str(sep_ptr, sep_len);
-    let eq = read_str(eq_ptr, eq_len);
-    intern(&stringify_impl(
-        obj,
-        if sep.is_empty() { "&" } else { sep },
-        if eq.is_empty() { "=" } else { eq },
-        None,
-    ))
+/// `querystring.encode` — alias of `stringify`.
+#[rtse::function(module = "node:querystring", value = "encode")]
+fn encode(obj: Handle, #[default("&")] sep: &str, #[default("=")] eq: &str, options: Option<Handle>) -> String {
+    stringify_with_options(obj, sep, eq, options)
 }
 
-/// `querystring.stringify(obj, sep, eq, options)` — with `encodeURIComponent`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_QUERYSTRING_STRINGIFY_OPTS(
-    obj: u64,
-    sep_ptr: *const u8,
-    sep_len: i64,
-    eq_ptr: *const u8,
-    eq_len: i64,
-    options: u64,
-) -> u64 {
-    let sep = read_str(sep_ptr, sep_len);
-    let eq = read_str(eq_ptr, eq_len);
-    let encode = match opt_field(options, "encodeURIComponent") {
+fn stringify_with_options(obj: u64, sep: &str, eq: &str, options: Option<u64>) -> String {
+    let sep = if sep.is_empty() { "&" } else { sep };
+    let eq = if eq.is_empty() { "=" } else { eq };
+    let encode = options.and_then(|o| match opt_field(o, "encodeURIComponent") {
         Some(w) if is_function_word(w as u64) => Some(w as u64),
         _ => None,
-    };
-    intern(&stringify_impl(
-        obj,
-        if sep.is_empty() { "&" } else { sep },
-        if eq.is_empty() { "=" } else { eq },
-        encode,
-    ))
+    });
+    stringify_impl(obj, sep, eq, encode)
 }
 
 /// Encode one component: the custom hook if provided, else the default escaper.

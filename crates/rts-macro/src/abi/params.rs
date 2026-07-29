@@ -141,6 +141,23 @@ pub(crate) fn ret_of(output: &syn::ReturnType) -> Option<AbiRet> {
             needs_wrapper: false,
         });
     };
+    // A `String` (or `&str`) RESULT is allocated into the string pool and handed
+    // back as a `Handle` — the same lowering `#[rtse::class]` members use
+    // (`class::member::returns`). Without this a string-returning free function
+    // could not be declared at all, which is most of `node:os`/`node:path`.
+    // Note the ASYMMETRY with parameters: an incoming string is a `StrPtr`
+    // (ptr+len, borrowed from the caller); an outgoing one must OWN its bytes,
+    // so it becomes a pool handle.
+    if crate::types::is_string_ret(ty) {
+        return Some(AbiRet {
+            abi: abi_ident("Handle"),
+            ext_ty: quote!(u64),
+            convert: Some(quote!(::rts_engine::heap::handles::alloc_entry(
+                ::rts_engine::heap::handles::Entry::String(__r.to_string().into_bytes())
+            ))),
+            needs_wrapper: true,
+        });
+    }
     let variant = single_slot(ty)?;
     if is_rust_bool(ty) {
         return Some(AbiRet {

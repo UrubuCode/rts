@@ -14,38 +14,19 @@
 //! `setDefaultResultOrder`, `lookupService`, the `dns.promises` API + the
 //! `Resolver` class, and the options objects (`{ family, all, hints }`).
 //!
-//! Layout: `symbols` (extern points), `mod` (registration).
+//! Layout: `symbols` (`#[rtse::function]` entry points), `mod` (registration).
 
 mod symbols;
 
-use rts_engine::AbiType::{self, PolyValue, StrPtr, Void};
-use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
-
-fn func(name: &str, args: Vec<AbiType>, ret: AbiType, symbol: &str, ts: &str, fp: *const u8) -> Member {
-    Member {
-        name: name.to_string(),
-        kind: MemberKind::Function,
-        sig: Sig::new(args, ret),
-        symbol: symbol.to_string(),
-        fn_ptr: FnPtr(fp),
-        flags: MemberFlags::NONE,
-        aliases: Vec::new(),
-        variadic: false,
-        ts_signature: ts.to_string(),
-        doc: String::new(),
-        ret_class: None,
-        pure: false,
-        emit: None,
-    }
-}
+use rts_engine::Engine;
 
 /// Registers the `node:dns` surface.
 pub fn register(e: &mut Engine) {
     use symbols as s;
     e.ns("node:dns")
         .doc("DNS resolution (node:dns): lookup, resolve4, resolve6.")
-        .member(func("lookup", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_DNS_LOOKUP", "lookup(hostname: string, callback: object): void", s::__RTS_FN_NODE_DNS_LOOKUP as *const u8))
-        .member(func("resolve4", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_DNS_RESOLVE4", "resolve4(hostname: string, callback: object): void", s::__RTS_FN_NODE_DNS_RESOLVE4 as *const u8))
-        .member(func("resolve6", vec![StrPtr, PolyValue], Void, "__RTS_FN_NODE_DNS_RESOLVE6", "resolve6(hostname: string, callback: object): void", s::__RTS_FN_NODE_DNS_RESOLVE6 as *const u8))
+        .member(s::lookup_entry())
+        .member(s::resolve4_entry())
+        .member(s::resolve6_entry())
         .done();
 }

@@ -6,6 +6,7 @@
 
 use std::io::{Read, Seek, SeekFrom, Write};
 
+use rts_engine::abi::ty::{Handle, Poly};
 use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
 use rts_engine::heap::poly::POLY_UNDEFINED;
 use rts_engine::heap::shapes::handle_word_auto;
@@ -45,13 +46,15 @@ fn fd_of(this: u64) -> Option<u64> {
 }
 
 /// `fs.promises.open(path, flags)` → `Promise<FileHandle>`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_P_OPEN(p: *const u8, l: i64, fp: *const u8, fl: i64) -> u64 {
-    let path = read(p, l);
-    let flags = read(fp, fl);
-    match super::fd::open_path(&path, &flags) {
+///
+/// Authored with `#[rtse::function]`; `fs/mod.rs` patches `THROWS` on at
+/// registration (matching the previous `func(...)` row, though a rejected
+/// Promise — not a thrown error — is how `open` actually reports failure here).
+#[rtse::function(module = "node:fs/promises", value = "open")]
+fn open(path: &str, flags: &str) -> Handle {
+    match super::fd::open_path(path, flags) {
         Ok(fd) => resolve(build_filehandle(fd)),
-        Err(e) => reject(&e, "open", &path),
+        Err(e) => reject(&e, "open", path),
     }
 }
 
@@ -70,8 +73,20 @@ pub(super) fn build_filehandle(fd: u64) -> u64 {
 /// `promises.open` wrapper (which then attaches the stream-method closures). All
 /// words in/out: returns the object-backed `FileHandle` word, or throws a
 /// Node-style error on failure (the wrapper does not catch — `open` rejects).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ENGINE_FS_OPEN_HANDLE(path_word: u64, flags_word: u64) -> u64 {
+///
+/// Authored with `#[rtse::function]`; registered PRIVATE (`fs/mod.rs`) with the
+/// macro's default `MemberFlags::NONE` — same flags the old hand-written row
+/// used (this bridge is prelude-only; the `.ts` wrapper does not rely on the
+/// engine's THROWS routing).
+///
+/// The symbol is pinned to its EXACT legacy spelling via the explicit-string
+/// form (rather than letting `module = "node:fs/__streambridge"` derive a
+/// `__rtsm_…` name): `rts-codegen-new/src/front/run/engineobj.rs`
+/// (`lower_engine_call`, `fs_open_handle`) calls this symbol by a HARDCODED
+/// literal string outside this crate, so the linker name cannot move
+/// independently of that call site.
+#[rtse::function("__RTS_FN_NS_ENGINE_FS_OPEN_HANDLE")]
+fn open_handle(path_word: Poly, flags_word: Poly) -> Poly {
     let path = super::words::word_string(path_word);
     let flags = super::words::word_string(flags_word);
     match super::fd::open_path(&path, &flags) {

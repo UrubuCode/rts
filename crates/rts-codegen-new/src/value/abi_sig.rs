@@ -270,10 +270,9 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
             params: &[I64],
             ret: Handle,
         },
-        "__RTS_FN_NS_GC_STRING_FROM_F64" => SymSig {
-            params: &[F64],
-            ret: Handle,
-        },
+        // (`__RTS_FN_NS_GC_STRING_FROM_F64` was CONVERTED to `#[rtse::abi]` in
+        // `rts-engine` — the baked table derives `[F64] -> Handle` from the Rust
+        // signature, identical to the row that used to sit here.)
 
         // ---- REAL io (rts-std io) ----
         // IO_PRINT(ptr,len) -> void  — StrPtr = two slots, appends a newline.

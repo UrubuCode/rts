@@ -568,6 +568,31 @@ pub fn namespace_member(ns: &str, member: &str, argc: usize) -> Option<ResolvedC
             m.members.iter().find(|m| {
                 is_callable(m) && m.variadic && argc >= m.sig.args.len().saturating_sub(1)
             })
+        })
+        // OPTIONAL TRAILING ARGS. A member may declare more parameters than the
+        // caller passes when every omitted trailing slot carries a `DefaultArg` —
+        // the generic emitter injects those. Without this, an optional parameter
+        // was unusable on a MODULE function: the only way to express
+        // `basename(path[, suffix])` was to register two members with the same
+        // name and different arities, which is exactly the hand-written
+        // duplication `#[rtse::function]`'s `#[default(...)]` / `Option<T>`
+        // replaces. The class path already resolves this way
+        // (`Class::resolve_instance_method`'s final fallback); the namespace path
+        // simply never learned to.
+        //
+        // Stricter than the class fallback on purpose: that one accepts ANY
+        // same-named member and lets padding sort it out, while this requires the
+        // omitted slots to actually DECLARE a default. A genuine arity error stays
+        // an error instead of silently calling a longer member with garbage.
+        .or_else(|| {
+            m.members.iter().find(|m| {
+                is_callable(m)
+                    && argc < m.sig.args.len()
+                    && m.sig.default_args.len() == m.sig.args.len()
+                    && m.sig.default_args[argc..]
+                        .iter()
+                        .all(|d| !matches!(d, DefaultArg::Required))
+            })
         })?;
     Some(flat_call(found))
 }

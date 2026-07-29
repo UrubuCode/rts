@@ -1,8 +1,11 @@
-//! node:path — the `extern "C"` entry points (per flavor). Each decodes its
-//! string args, calls the pure algorithm ([`super::posix`]/[`super::win32`]/
-//! [`super::classify`]), and interns the result. `join`/`resolve` are variadic
-//! in Node; since native members resolve by exact arity, each is emitted as a
-//! set of fixed-arity overloads (0..8) generated locally below.
+//! node:path — the remaining hand-written `extern "C"` entry points: `sep`/
+//! `delimiter` (`MemberKind::Constant`) and the `join`/`resolve` fixed-arity
+//! overload families (Node-variadic; native members resolve by exact arity,
+//! so each is emitted as a set of fixed-arity overloads 0..8, generated
+//! locally below) — neither has a `#[rtse::function]` form yet, see the
+//! module-level conversion-report note in `path/mod.rs`. The rest of the
+//! per-flavor surface (`basename`/`dirname`/`extname`/…) is declared directly
+//! in [`posix`]/[`win32`] via `#[rtse::function]`.
 
 pub mod posix;
 pub mod win32;

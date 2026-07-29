@@ -6,66 +6,68 @@
 //! `EOL`/`devNull` are the per-platform literals (registered as `Constant`
 //! properties). No fake values.
 
+use rts_engine::abi::ty::Handle;
+
 use super::sys;
 use super::words::{env_or_empty, intern, node_arch, node_platform, node_type};
 
 /// `os.platform()` — canonical Node platform name.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_PLATFORM() -> u64 {
-    intern(node_platform())
+#[rtse::function(module = "node:os", value = "platform", pure)]
+fn platform() -> String {
+    node_platform().to_string()
 }
 
 /// `os.arch()` — canonical Node CPU architecture name.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_ARCH() -> u64 {
-    intern(node_arch())
+#[rtse::function(module = "node:os", value = "arch", pure)]
+fn arch() -> String {
+    node_arch().to_string()
 }
 
 /// `os.type()` — `uname -s`-style OS name (real `sysname` on POSIX).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_TYPE() -> u64 {
-    intern(&node_type())
+#[rtse::function(module = "node:os", value = "type", pure)]
+fn os_type() -> String {
+    node_type().to_string()
 }
 
 /// `os.endianness()` — `"LE"` or `"BE"` for the target's native byte order.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_ENDIANNESS() -> u64 {
+#[rtse::function(module = "node:os", value = "endianness", pure)]
+fn endianness() -> String {
     let e: &str = if cfg!(target_endian = "little") {
         "LE"
     } else {
         "BE"
     };
-    intern(e)
+    e.to_string()
 }
 
 /// `os.machine()` — raw `uname -m`-style hardware identifier.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_MACHINE() -> u64 {
-    intern(&sys::machine())
+#[rtse::function(module = "node:os", value = "machine", pure)]
+fn machine() -> String {
+    sys::machine().to_string()
 }
 
 /// `os.release()` — OS/kernel release string (real syscall).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_RELEASE() -> u64 {
-    intern(&sys::release())
+#[rtse::function(module = "node:os", value = "release", pure)]
+fn release() -> String {
+    sys::release().to_string()
 }
 
 /// `os.version()` — human-readable kernel/OS build identifier (real syscall).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_VERSION() -> u64 {
-    intern(&sys::version())
+#[rtse::function(module = "node:os", value = "version", pure)]
+fn version() -> String {
+    sys::version().to_string()
 }
 
 /// `os.hostname()` — the OS hostname (real `gethostname`/`GetComputerNameExW`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_HOSTNAME() -> u64 {
-    intern(&sys::hostname())
+#[rtse::function(module = "node:os", value = "hostname")]
+fn hostname() -> String {
+    sys::hostname().to_string()
 }
 
 /// `os.homedir()` — user home directory. `USERPROFILE` (Windows) / `HOME`
 /// (POSIX), with a passwd-database fallback on POSIX when `HOME` is unset.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_HOMEDIR() -> u64 {
+#[rtse::function(module = "node:os", value = "homedir", pure)]
+fn homedir() -> String {
     #[cfg(windows)]
     let home = env_or_empty("USERPROFILE");
     #[cfg(unix)]
@@ -79,17 +81,17 @@ pub extern "C" fn __RTS_FN_NODE_OS_HOMEDIR() -> u64 {
     };
     #[cfg(not(any(unix, windows)))]
     let home = env_or_empty("HOME");
-    intern(&home)
+    home.to_string()
 }
 
 /// `os.tmpdir()` — temp directory with Node's exact env-var precedence and no
 /// trailing separator. Windows: `TEMP` → `TMP` → `%SystemRoot%\temp`. POSIX:
 /// `TMPDIR` → `TMP` → `TEMP` → `/tmp`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_TMPDIR() -> u64 {
+#[rtse::function(module = "node:os", value = "tmpdir", pure)]
+fn tmpdir() -> String {
     let raw = tmpdir_raw();
     let trimmed = strip_trailing_sep(&raw);
-    intern(trimmed)
+    trimmed.to_string()
 }
 
 fn tmpdir_raw() -> String {

@@ -53,13 +53,13 @@ pub(crate) fn expand(a: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let rust_ident = item.ident.clone();
-    let js_name = match &args.0 {
+    let js_name = match &args.naming {
         rts_abi::scope::Naming::Scoped {
             value: Some(v), ..
         } => v.clone(),
         _ => js_name_of(&rust_ident.to_string()),
     };
-    let sym = symbol_for(&args.0, &js_name);
+    let sym = symbol_for(&args.naming, &js_name);
 
     // The reader: a zero-arg getter over the const. A string is materialized into
     // the string pool per read (a `&str` cannot cross as one ABI slot); a scalar

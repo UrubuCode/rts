@@ -8,6 +8,8 @@
 //! a separate JS-heap byte accounting, so `0` is the honest "not tracked" value
 //! rather than a made-up number. `rss` is genuine.
 
+use rts_engine::abi::ty::Handle;
+
 use super::words::{num_word, object};
 
 /// Resident-set size of this process in bytes (0 if the syscall fails).
@@ -106,8 +108,8 @@ fn cpu_micros() -> (u64, u64) {
 }
 
 /// `process.memoryUsage()` — `{ rss, heapTotal, heapUsed, external, arrayBuffers }`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PROC_MEMORY_USAGE() -> u64 {
+#[rtse::function(module = "node:process", value = "memoryUsage")]
+fn memory_usage() -> Handle {
     let rss = rss_bytes() as f64;
     object(
         &["rss", "heapTotal", "heapUsed", "external", "arrayBuffers"],
@@ -148,22 +150,22 @@ fn available_bytes() -> u64 {
 }
 
 /// `process.availableMemory()` — free system memory in bytes.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PROC_AVAILABLE_MEMORY() -> f64 {
+#[rtse::function(module = "node:process", value = "availableMemory")]
+fn available_memory() -> f64 {
     available_bytes() as f64
 }
 
 /// `process.constrainedMemory()` — the cgroup/job memory limit, or 0 when the
 /// process is not memory-constrained (RTS reports the honest "unconstrained" 0
 /// rather than probing cgroup v1/v2 files).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PROC_CONSTRAINED_MEMORY() -> f64 {
+#[rtse::function(module = "node:process", value = "constrainedMemory")]
+fn constrained_memory() -> f64 {
     0.0
 }
 
 /// `process.cpuUsage()` — `{ user, system }` in microseconds since start.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PROC_CPU_USAGE() -> u64 {
+#[rtse::function(module = "node:process", value = "cpuUsage")]
+fn cpu_usage() -> Handle {
     let (user, system) = cpu_micros();
     object(&["user", "system"], &[num_word(user as f64), num_word(system as f64)])
 }
@@ -171,8 +173,8 @@ pub extern "C" fn __RTS_FN_NODE_PROC_CPU_USAGE() -> u64 {
 /// `process.resourceUsage()` — the rusage struct. `userCPUTime`/`systemCPUTime`
 /// (µs) and `maxRSS` (KB) are real; the remaining rusage fields RTS does not
 /// track are reported as 0 (honest "not tracked", not fabricated).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PROC_RESOURCE_USAGE() -> u64 {
+#[rtse::function(module = "node:process", value = "resourceUsage")]
+fn resource_usage() -> Handle {
     let (user, system) = cpu_micros();
     let max_rss_kb = (rss_bytes() / 1024) as f64;
     let z = num_word(0.0);

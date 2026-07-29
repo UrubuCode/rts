@@ -62,6 +62,23 @@ pub enum Scope {
     Abi,
 }
 
+/// Compose the symbol's trailing segment for an ARITY OVERLOAD.
+///
+/// JS lets several members share one name and differ by arity; a linker symbol
+/// cannot. `value` is the JS name (the same for every overload), `overload` is
+/// the author-written disambiguator, and the symbol carries both — exactly the
+/// shape the hand-written names already used (`__RTS_FN_NODE_ZLIB_CRC32` and
+/// `__RTS_FN_NODE_ZLIB_CRC32_PREV`).
+///
+/// ONE implementation, called by `#[rtse::function]` at expansion time and by
+/// `rts-symbol-baker` at bake time — the same reason `symbol_for` lives here.
+pub fn with_overload(value: String, overload: Option<&str>) -> String {
+    match overload {
+        Some(o) => format!("{value}_{o}"),
+        None => value,
+    }
+}
+
 /// The linker symbol for `naming` on a fn named `fn_name`.
 ///
 /// `value` defaults to the Rust fn name when omitted, so a helper whose Rust

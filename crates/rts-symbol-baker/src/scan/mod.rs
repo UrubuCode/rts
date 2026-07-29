@@ -392,6 +392,7 @@ fn parse_naming(attr: &syn::Attribute) -> Result<Naming> {
         }
         let mut scope: Option<Scope> = None;
         let mut value: Option<String> = None;
+        let mut overload: Option<String> = None;
         while !input.is_empty() {
             let key: syn::Ident = input.parse()?;
             let arg = if input.peek(syn::Token![=]) {
@@ -407,6 +408,14 @@ fn parse_naming(attr: &syn::Attribute) -> Result<Naming> {
                 ("native", None) => scope = Some(Scope::Native),
                 ("abi", None) => scope = Some(Scope::Abi),
                 ("value", Some(v)) => value = Some(v),
+                ("overload", Some(o)) => overload = Some(o),
+                // Args that do not affect the SYMBOL — they set fields on the
+                // registered member (`MemberFlags::THROWS`, `pure`, the TS return
+                // type), which this table does not carry. Accepted and ignored,
+                // so a declaration using them still bakes instead of failing the
+                // scan. (`ret_ts` DOES change the emitted `Member`, but not the
+                // linker name or the ABI slots, which is all this table records.)
+                ("throws", None) | ("pure", None) | ("ret_ts", Some(_)) => {}
                 _ => {
                     return Err(syn::Error::new_spanned(&key, "unsupported #[rtse::abi] arg"));
                 }
@@ -418,7 +427,12 @@ fn parse_naming(attr: &syn::Attribute) -> Result<Naming> {
             }
         }
         match scope {
-            Some(scope) => Ok(Naming::Scoped { scope, value }),
+            Some(scope) => Ok(Naming::Scoped {
+                scope,
+                // Same composition the macro applies — `rts_abi::scope` owns it,
+                // so the baked symbol and the emitted one cannot disagree.
+                value: value.map(|v| rts_abi::scope::with_overload(v, overload.as_deref())),
+            }),
             None => Err(input.error("#[rtse::abi]: missing scope")),
         }
     })?;

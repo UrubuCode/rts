@@ -177,13 +177,13 @@ pub fn register(e: &mut Engine) {
         .member(method("emit", vec![StrPtr, PolyValue, PolyValue], Bool, "__RTS_FN_NODE_DGRAM_EMIT2", "emit(event: string, a0: object, a1: object): boolean", em::__RTS_FN_NODE_DGRAM_EMIT2 as *const u8))
         .done();
 
-    e.ns("node:dgram")
-        .doc(
+    e.module("node:dgram", |mo| {
+        mo.doc(
             "UDP datagram sockets (node:dgram): createSocket(type | options[, listener]) → a \
              Socket with bind/send/connect/close, multicast membership, TTL/broadcast/buffer \
              tuning and the 'message'/'listening'/'connect'/'close'/'error' events.",
-        )
-        .member(m("createSocket", MemberKind::Function, vec![PolyValue], Handle, "__RTS_FN_NODE_DGRAM_CREATE_SOCKET", "createSocket(type: object): DgramSocket", c::__RTS_FN_NODE_DGRAM_CREATE_SOCKET as *const u8))
-        .member(m("createSocket", MemberKind::Function, vec![PolyValue, PolyValue], Handle, "__RTS_FN_NODE_DGRAM_CREATE_SOCKET_CB", "createSocket(type: object, listener: object): DgramSocket", c::__RTS_FN_NODE_DGRAM_CREATE_SOCKET_CB as *const u8))
-        .done();
+        );
+        mo.registry(c::create_socket_entry());
+        mo.registry(c::create_socket_cb_entry());
+    });
 }

@@ -7,63 +7,55 @@
 use rts_engine::heap::shapes::alloc_shaped_object;
 
 use super::core;
-use super::words::{
-    array_word, fn_value, intern, num_word, str_word, throw, word_number_array, word_string,
-};
+use super::words::{array_word, fn_value, intern, num_word, str_word, throw, word_number_array, word_string};
 
 /// Node's bundled Punycode.js version.
 const VERSION: &str = "2.3.1";
 
-fn read(ptr: *const u8, len: i64) -> String {
-    unsafe { rts_engine::abi::str_abi::from_abi(ptr, len) }
-        .unwrap_or("")
-        .to_string()
-}
-
 /// `punycode.encode(string)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PUNYCODE_ENCODE(p: *const u8, l: i64) -> u64 {
-    match core::encode_label(&read(p, l)) {
-        Ok(s) => intern(&s),
+#[rtse::function(module = "node:punycode", value = "encode", throws)]
+fn encode(string: &str) -> String {
+    match core::encode_label(string) {
+        Ok(s) => s,
         Err(e) => {
             throw("RangeError", e.0);
-            intern("")
+            String::new()
         }
     }
 }
 
 /// `punycode.decode(string)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PUNYCODE_DECODE(p: *const u8, l: i64) -> u64 {
-    match core::decode_label(&read(p, l)) {
-        Ok(s) => intern(&s),
+#[rtse::function(module = "node:punycode", value = "decode", throws)]
+fn decode(string: &str) -> String {
+    match core::decode_label(string) {
+        Ok(s) => s,
         Err(e) => {
             throw("RangeError", e.0);
-            intern("")
+            String::new()
         }
     }
 }
 
 /// `punycode.toASCII(domain)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PUNYCODE_TOASCII(p: *const u8, l: i64) -> u64 {
-    match core::to_ascii(&read(p, l)) {
-        Ok(s) => intern(&s),
+#[rtse::function(module = "node:punycode", value = "toASCII", throws)]
+fn to_ascii(domain: &str) -> String {
+    match core::to_ascii(domain) {
+        Ok(s) => s,
         Err(e) => {
             throw("RangeError", e.0);
-            intern("")
+            String::new()
         }
     }
 }
 
 /// `punycode.toUnicode(domain)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PUNYCODE_TOUNICODE(p: *const u8, l: i64) -> u64 {
-    match core::to_unicode(&read(p, l)) {
-        Ok(s) => intern(&s),
+#[rtse::function(module = "node:punycode", value = "toUnicode", throws)]
+fn to_unicode(domain: &str) -> String {
+    match core::to_unicode(domain) {
+        Ok(s) => s,
         Err(e) => {
             throw("RangeError", e.0);
-            intern("")
+            String::new()
         }
     }
 }

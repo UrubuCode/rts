@@ -29,7 +29,7 @@ mod tcp;
 
 use std::net::SocketAddr;
 
-use rts_engine::AbiType::{self, Bool, F64, Handle, I32, I64, PolyValue, StrPtr, Void};
+use rts_engine::AbiType::{self, Bool, F64, Handle, I64, PolyValue, StrPtr, Void};
 use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 /// `"IPv4"`/`"IPv6"` — how Node renders a family in an `AddressInfo`.
@@ -86,14 +86,6 @@ fn getter(name: &str, ret: AbiType, symbol: &str, ts: &str, fp: *const u8) -> Me
     m(name, MemberKind::InstanceGetter, vec![Handle], ret, symbol, ts, fp)
 }
 
-/// A pure classifier (no throw, no side effect).
-fn pure_fn(name: &str, args: Vec<AbiType>, ret: AbiType, symbol: &str, ts: &str, fp: *const u8) -> Member {
-    let mut member = m(name, MemberKind::Function, args, ret, symbol, ts, fp);
-    member.flags = MemberFlags::NONE;
-    member.pure = true;
-    member
-}
-
 /// Registers the `BlockList` + `SocketAddress` classes and the `node:net` module.
 pub fn register(e: &mut Engine) {
     use blocklist as bl;
@@ -134,34 +126,57 @@ pub fn register(e: &mut Engine) {
     use tcp::opts as cfg;
     use tcp::server as sv;
     use tcp::socket as sk;
-    e.ns("node:net")
-        .doc(
+    e.module("node:net", |scope| {
+        scope.doc(
             "Networking (node:net): createServer/connect/createConnection + the Server and Socket \
              classes over real TCP, the IP classifiers isIP/isIPv4/isIPv6, the BlockList rule-set \
              class, and the immutable SocketAddress value class.",
-        )
-        .member(pure_fn("isIP", vec![StrPtr], I32, "__RTS_FN_NODE_NET_IS_IP", "isIP(input: string): number", ip::__RTS_FN_NODE_NET_IS_IP as *const u8))
-        .member(pure_fn("isIPv4", vec![StrPtr], Bool, "__RTS_FN_NODE_NET_IS_IPV4", "isIPv4(input: string): boolean", ip::__RTS_FN_NODE_NET_IS_IPV4 as *const u8))
-        .member(pure_fn("isIPv6", vec![StrPtr], Bool, "__RTS_FN_NODE_NET_IS_IPV6", "isIPv6(input: string): boolean", ip::__RTS_FN_NODE_NET_IS_IPV6 as *const u8))
+        );
+        scope.registry(ip::is_ip_entry());
+        scope.registry(ip::is_ipv4_entry());
+        scope.registry(ip::is_ipv6_entry());
+        scope.registry(get_default_auto_select_family_entry());
+        scope.registry(set_default_auto_select_family_entry());
+        scope.registry(get_default_auto_select_family_attempt_timeout_entry());
+        scope.registry(set_default_auto_select_family_attempt_timeout_entry());
         // createServer([options][, connectionListener]) — overloaded BY VALUE.
-        .member(m("createServer", MemberKind::Function, vec![], Handle, "__RTS_FN_NODE_NET_CREATE_SERVER", "createServer(): Server", sv::__RTS_FN_NODE_NET_CREATE_SERVER as *const u8))
-        .member(m("createServer", MemberKind::Function, vec![PolyValue], Handle, "__RTS_FN_NODE_NET_CREATE_SERVER1", "createServer(options: object): Server", sv::__RTS_FN_NODE_NET_CREATE_SERVER1 as *const u8))
-        .member(m("createServer", MemberKind::Function, vec![PolyValue, PolyValue], Handle, "__RTS_FN_NODE_NET_CREATE_SERVER2", "createServer(options: object, connectionListener: object): Server", sv::__RTS_FN_NODE_NET_CREATE_SERVER2 as *const u8))
+        scope.member(m("createServer", MemberKind::Function, vec![], Handle, "__RTS_FN_NODE_NET_CREATE_SERVER", "createServer(): Server", sv::__RTS_FN_NODE_NET_CREATE_SERVER as *const u8));
+        scope.member(m("createServer", MemberKind::Function, vec![PolyValue], Handle, "__RTS_FN_NODE_NET_CREATE_SERVER1", "createServer(options: object): Server", sv::__RTS_FN_NODE_NET_CREATE_SERVER1 as *const u8));
+        scope.member(m("createServer", MemberKind::Function, vec![PolyValue, PolyValue], Handle, "__RTS_FN_NODE_NET_CREATE_SERVER2", "createServer(options: object, connectionListener: object): Server", sv::__RTS_FN_NODE_NET_CREATE_SERVER2 as *const u8));
         // connect / createConnection — pure aliases of one another in Node.
-        .member(m("createConnection", MemberKind::Function, vec![PolyValue], Handle, "__RTS_FN_NODE_NET_CONNECT1", "createConnection(port: object): Socket", __RTS_FN_NODE_NET_CONNECT1 as *const u8))
-        .member(m("createConnection", MemberKind::Function, vec![PolyValue, PolyValue], Handle, "__RTS_FN_NODE_NET_CONNECT2", "createConnection(port: object, host: object): Socket", __RTS_FN_NODE_NET_CONNECT2 as *const u8))
-        .member(m("createConnection", MemberKind::Function, vec![PolyValue, PolyValue, PolyValue], Handle, "__RTS_FN_NODE_NET_CONNECT3", "createConnection(port: object, host: object, connectListener: object): Socket", __RTS_FN_NODE_NET_CONNECT3 as *const u8))
-        .member(m("connect", MemberKind::Function, vec![PolyValue], Handle, "__RTS_FN_NODE_NET_CONNECT1", "connect(port: object): Socket", __RTS_FN_NODE_NET_CONNECT1 as *const u8))
-        .member(m("connect", MemberKind::Function, vec![PolyValue, PolyValue], Handle, "__RTS_FN_NODE_NET_CONNECT2", "connect(port: object, host: object): Socket", __RTS_FN_NODE_NET_CONNECT2 as *const u8))
-        .member(m("connect", MemberKind::Function, vec![PolyValue, PolyValue, PolyValue], Handle, "__RTS_FN_NODE_NET_CONNECT3", "connect(port: object, host: object, connectListener: object): Socket", __RTS_FN_NODE_NET_CONNECT3 as *const u8))
-        // Process-wide autoSelectFamily config (Node keeps these global).
-        .member(pure_fn("getDefaultAutoSelectFamily", vec![], Bool, "__RTS_FN_NODE_NET_GET_ASF", "getDefaultAutoSelectFamily(): boolean", __RTS_FN_NODE_NET_GET_ASF as *const u8))
-        .member(m("setDefaultAutoSelectFamily", MemberKind::Function, vec![Bool], Void, "__RTS_FN_NODE_NET_SET_ASF", "setDefaultAutoSelectFamily(value: boolean): void", __RTS_FN_NODE_NET_SET_ASF as *const u8))
-        .member(pure_fn("getDefaultAutoSelectFamilyAttemptTimeout", vec![], F64, "__RTS_FN_NODE_NET_GET_ASF_TIMEOUT", "getDefaultAutoSelectFamilyAttemptTimeout(): number", __RTS_FN_NODE_NET_GET_ASF_TIMEOUT as *const u8))
-        .member(m("setDefaultAutoSelectFamilyAttemptTimeout", MemberKind::Function, vec![F64], Void, "__RTS_FN_NODE_NET_SET_ASF_TIMEOUT", "setDefaultAutoSelectFamilyAttemptTimeout(value: number): void", __RTS_FN_NODE_NET_SET_ASF_TIMEOUT as *const u8))
-        .member(m("SOMAXCONN", MemberKind::Constant, vec![], I64, "__RTS_FN_NODE_NET_SOMAXCONN", "SOMAXCONN: number", __RTS_FN_NODE_NET_SOMAXCONN as *const u8))
-        .done();
+        scope.member(m("createConnection", MemberKind::Function, vec![PolyValue], Handle, "__RTS_FN_NODE_NET_CONNECT1", "createConnection(port: object): Socket", __RTS_FN_NODE_NET_CONNECT1 as *const u8));
+        scope.member(m("createConnection", MemberKind::Function, vec![PolyValue, PolyValue], Handle, "__RTS_FN_NODE_NET_CONNECT2", "createConnection(port: object, host: object): Socket", __RTS_FN_NODE_NET_CONNECT2 as *const u8));
+        scope.member(m("createConnection", MemberKind::Function, vec![PolyValue, PolyValue, PolyValue], Handle, "__RTS_FN_NODE_NET_CONNECT3", "createConnection(port: object, host: object, connectListener: object): Socket", __RTS_FN_NODE_NET_CONNECT3 as *const u8));
+        scope.member(m("connect", MemberKind::Function, vec![PolyValue], Handle, "__RTS_FN_NODE_NET_CONNECT1", "connect(port: object): Socket", __RTS_FN_NODE_NET_CONNECT1 as *const u8));
+        scope.member(m("connect", MemberKind::Function, vec![PolyValue, PolyValue], Handle, "__RTS_FN_NODE_NET_CONNECT2", "connect(port: object, host: object): Socket", __RTS_FN_NODE_NET_CONNECT2 as *const u8));
+        scope.member(m("connect", MemberKind::Function, vec![PolyValue, PolyValue, PolyValue], Handle, "__RTS_FN_NODE_NET_CONNECT3", "connect(port: object, host: object, connectListener: object): Socket", __RTS_FN_NODE_NET_CONNECT3 as *const u8));
+        scope.member(m("SOMAXCONN", MemberKind::Constant, vec![], I64, "__RTS_FN_NODE_NET_SOMAXCONN", "SOMAXCONN: number", __RTS_FN_NODE_NET_SOMAXCONN as *const u8));
+    });
     let _ = (cfg::auto_select_family, sk::__RTS_FN_NODE_NET_SOCKET_NEW);
+}
+
+/// `net.getDefaultAutoSelectFamily()`.
+#[rtse::function(module = "node:net", value = "getDefaultAutoSelectFamily")]
+fn get_default_auto_select_family() -> bool {
+    tcp::opts::auto_select_family()
+}
+
+/// `net.setDefaultAutoSelectFamily(value)`.
+#[rtse::function(module = "node:net", value = "setDefaultAutoSelectFamily")]
+fn set_default_auto_select_family(value: bool) {
+    tcp::opts::set_auto_select_family(value);
+}
+
+/// `net.getDefaultAutoSelectFamilyAttemptTimeout()`.
+#[rtse::function(module = "node:net", value = "getDefaultAutoSelectFamilyAttemptTimeout")]
+fn get_default_auto_select_family_attempt_timeout() -> f64 {
+    tcp::opts::auto_select_family_timeout() as f64
+}
+
+/// `net.setDefaultAutoSelectFamilyAttemptTimeout(value)` — values < 10 clamp up.
+#[rtse::function(module = "node:net", value = "setDefaultAutoSelectFamilyAttemptTimeout")]
+fn set_default_auto_select_family_attempt_timeout(value: f64) {
+    tcp::opts::set_auto_select_family_timeout(value.max(0.0) as i64);
 }
 
 /// `net.connect(...)`/`net.createConnection(...)` — build a `Socket` and start
@@ -195,30 +210,6 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOMAXCONN() -> i64 {
     { 0x7fff_ffff }
     #[cfg(not(windows))]
     { 128 }
-}
-
-/// `net.getDefaultAutoSelectFamily()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_GET_ASF() -> i64 {
-    i64::from(tcp::opts::auto_select_family())
-}
-
-/// `net.setDefaultAutoSelectFamily(value)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SET_ASF(v: i64) {
-    tcp::opts::set_auto_select_family(v != 0);
-}
-
-/// `net.getDefaultAutoSelectFamilyAttemptTimeout()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_GET_ASF_TIMEOUT() -> f64 {
-    tcp::opts::auto_select_family_timeout() as f64
-}
-
-/// `net.setDefaultAutoSelectFamilyAttemptTimeout(value)` — values < 10 clamp up.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SET_ASF_TIMEOUT(ms: f64) {
-    tcp::opts::set_auto_select_family_timeout(ms.max(0.0) as i64);
 }
 
 /// The `Server` class.

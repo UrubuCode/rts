@@ -5,10 +5,10 @@
 //! next `Dirent` or `null` at end; `closeSync()` releases the cursor. The async
 //! `read`/`close`/`Symbol.asyncIterator` forms wait on the event loop (#207).
 
+use rts_engine::abi::ty::Handle;
 use rts_engine::heap::handles::{alloc_entry, with_entry, with_entry_mut, Entry};
 
 use super::dirent::entries_of;
-use super::words::read;
 
 fn str_handle(s: &str) -> i64 {
     alloc_entry(Entry::String(s.as_bytes().to_vec())) as i64
@@ -16,14 +16,16 @@ fn str_handle(s: &str) -> i64 {
 
 /// `fs.opendirSync(path)` → `Dir`. Materializes every entry up front (each a
 /// `Dirent`), so `readSync` is a pure cursor walk.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_OPENDIR(p: *const u8, l: i64) -> u64 {
-    let path = read(p, l);
-    let entries = entries_of(&path);
+///
+/// Authored with `#[rtse::function]`; `fs/mod.rs` patches `THROWS` on at
+/// registration (the underlying `read_dir` can fail — see `entries_of`).
+#[rtse::function(module = "node:fs", value = "opendirSync")]
+fn opendir_sync(path: &str) -> Handle {
+    let entries = entries_of(path);
     let entries_handle = alloc_entry(Entry::Vec(Box::new(entries))) as i64;
     let mut map: indexmap::IndexMap<String, i64> = indexmap::IndexMap::new();
     map.insert("__rts_class".to_string(), str_handle("Dir"));
-    map.insert("path".to_string(), str_handle(&path));
+    map.insert("path".to_string(), str_handle(path));
     map.insert("__entries".to_string(), entries_handle);
     map.insert("__cursor".to_string(), 0);
     alloc_entry(Entry::Map(Box::new(map)))

@@ -14,10 +14,6 @@ mod words;
 
 use rts_engine::{sig, Engine, FnPtr, Member, MemberFlags, MemberKind};
 
-fn throws_func(name: &str, symbol: &str, sig: rts_engine::Sig, ts: &str, fp: *const u8) -> Member {
-    make(name, symbol, sig, ts, fp, MemberKind::Function, MemberFlags::THROWS)
-}
-
 fn constant(name: &str, symbol: &str, ts: &str, fp: *const u8) -> Member {
     make(name, symbol, sig!(=> Handle), ts, fp, MemberKind::Constant, MemberFlags::NONE)
 }
@@ -50,51 +46,27 @@ fn make(
 
 /// Registers the `node:punycode` surface into the engine Registry.
 pub fn register(e: &mut Engine) {
-    e.ns("node:punycode")
-        .doc(
+    e.module("node:punycode", |mo| {
+        mo.doc(
             "RFC 3492 Punycode/IDN transcoder (node:punycode, deprecated): \
              decode/encode (single label), toASCII/toUnicode (domains), the \
              ucs2 UTF-16⇄code-point helpers, and version.",
-        )
-        .member(throws_func(
-            "decode",
-            "__RTS_FN_NODE_PUNYCODE_DECODE",
-            sig!(StrPtr => Handle),
-            "decode(string: string): string",
-            symbols::__RTS_FN_NODE_PUNYCODE_DECODE as *const u8,
-        ))
-        .member(throws_func(
-            "encode",
-            "__RTS_FN_NODE_PUNYCODE_ENCODE",
-            sig!(StrPtr => Handle),
-            "encode(string: string): string",
-            symbols::__RTS_FN_NODE_PUNYCODE_ENCODE as *const u8,
-        ))
-        .member(throws_func(
-            "toASCII",
-            "__RTS_FN_NODE_PUNYCODE_TOASCII",
-            sig!(StrPtr => Handle),
-            "toASCII(domain: string): string",
-            symbols::__RTS_FN_NODE_PUNYCODE_TOASCII as *const u8,
-        ))
-        .member(throws_func(
-            "toUnicode",
-            "__RTS_FN_NODE_PUNYCODE_TOUNICODE",
-            sig!(StrPtr => Handle),
-            "toUnicode(domain: string): string",
-            symbols::__RTS_FN_NODE_PUNYCODE_TOUNICODE as *const u8,
-        ))
-        .member(constant(
+        );
+        mo.registry(symbols::decode_entry());
+        mo.registry(symbols::encode_entry());
+        mo.registry(symbols::to_ascii_entry());
+        mo.registry(symbols::to_unicode_entry());
+        mo.member(constant(
             "version",
             "__RTS_FN_NODE_PUNYCODE_VERSION",
             "version: string",
             symbols::__RTS_FN_NODE_PUNYCODE_VERSION as *const u8,
-        ))
-        .member(constant(
+        ));
+        mo.member(constant(
             "ucs2",
             "__RTS_FN_NODE_PUNYCODE_UCS2",
             "ucs2: object",
             symbols::__RTS_FN_NODE_PUNYCODE_UCS2 as *const u8,
-        ))
-        .done();
+        ));
+    });
 }

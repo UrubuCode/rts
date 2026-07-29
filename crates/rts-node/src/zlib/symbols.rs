@@ -2,6 +2,8 @@
 //! buffer handle, runs the codec, and returns a `Buffer` (throwing an `Error`
 //! on a decode failure, `THROWS`-flagged).
 
+use rts_engine::abi::ty::Handle;
+
 use super::codec;
 use super::words::{buffer, opt_level, read_bytes, throw};
 
@@ -18,14 +20,14 @@ fn run_level(handle: u64, options: u64, f: impl Fn(&[u8], u32) -> Result<Vec<u8>
 }
 
 /// `zlib.gzipSync(buffer, options)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_ZLIB_GZIP_LEVEL(h: u64, options: u64) -> u64 {
+#[rtse::function(module = "node:zlib", value = "gzipSync", overload = "level", throws)]
+fn gzip_sync_level(h: Handle, options: Handle) -> Handle {
     run_level(h, options, codec::gzip_level)
 }
 
 /// `zlib.deflateSync(buffer, options)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_ZLIB_DEFLATE_LEVEL(h: u64, options: u64) -> u64 {
+#[rtse::function(module = "node:zlib", value = "deflateSync", overload = "level", throws)]
+fn deflate_sync_level(h: Handle, options: Handle) -> Handle {
     run_level(h, options, codec::deflate_level)
 }
 
@@ -41,51 +43,68 @@ fn run(handle: u64, f: impl Fn(&[u8]) -> Result<Vec<u8>, String>) -> u64 {
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_ZLIB_DEFLATE_SYNC(h: u64) -> u64 {
+/// `zlib.deflateSync(buffer)`.
+#[rtse::function(module = "node:zlib", value = "deflateSync", throws)]
+fn deflate_sync(h: Handle) -> Handle {
     run(h, codec::deflate)
 }
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_ZLIB_INFLATE_SYNC(h: u64) -> u64 {
+
+/// `zlib.inflateSync(buffer)`.
+#[rtse::function(module = "node:zlib", value = "inflateSync", throws)]
+fn inflate_sync(h: Handle) -> Handle {
     run(h, codec::inflate)
 }
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_ZLIB_DEFLATE_RAW_SYNC(h: u64) -> u64 {
+
+/// `zlib.deflateRawSync(buffer)`.
+#[rtse::function(module = "node:zlib", value = "deflateRawSync", throws)]
+fn deflate_raw_sync(h: Handle) -> Handle {
     run(h, codec::deflate_raw)
 }
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_ZLIB_INFLATE_RAW_SYNC(h: u64) -> u64 {
+
+/// `zlib.inflateRawSync(buffer)`.
+#[rtse::function(module = "node:zlib", value = "inflateRawSync", throws)]
+fn inflate_raw_sync(h: Handle) -> Handle {
     run(h, codec::inflate_raw)
 }
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_ZLIB_GZIP_SYNC(h: u64) -> u64 {
+
+/// `zlib.gzipSync(buffer)`.
+#[rtse::function(module = "node:zlib", value = "gzipSync", throws)]
+fn gzip_sync(h: Handle) -> Handle {
     run(h, codec::gzip)
 }
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_ZLIB_GUNZIP_SYNC(h: u64) -> u64 {
+
+/// `zlib.gunzipSync(buffer)`.
+#[rtse::function(module = "node:zlib", value = "gunzipSync", throws)]
+fn gunzip_sync(h: Handle) -> Handle {
     run(h, codec::gunzip)
 }
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_ZLIB_UNZIP_SYNC(h: u64) -> u64 {
+
+/// `zlib.unzipSync(buffer)`.
+#[rtse::function(module = "node:zlib", value = "unzipSync", throws)]
+fn unzip_sync(h: Handle) -> Handle {
     run(h, codec::unzip)
 }
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_ZLIB_BROTLI_COMPRESS_SYNC(h: u64) -> u64 {
+
+/// `zlib.brotliCompressSync(buffer)`.
+#[rtse::function(module = "node:zlib", value = "brotliCompressSync", throws)]
+fn brotli_compress_sync(h: Handle) -> Handle {
     run(h, codec::brotli_compress)
 }
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_ZLIB_BROTLI_DECOMPRESS_SYNC(h: u64) -> u64 {
+
+/// `zlib.brotliDecompressSync(buffer)`.
+#[rtse::function(module = "node:zlib", value = "brotliDecompressSync", throws)]
+fn brotli_decompress_sync(h: Handle) -> Handle {
     run(h, codec::brotli_decompress)
 }
 
 /// `zlib.crc32(data)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_ZLIB_CRC32(h: u64) -> i64 {
+#[rtse::function(module = "node:zlib", value = "crc32")]
+fn crc32(h: Handle) -> i64 {
     codec::crc32(&read_bytes(h), 0) as i64
 }
 
 /// `zlib.crc32(data, value)` — continue from a previous checksum.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_ZLIB_CRC32_PREV(h: u64, prev: i64) -> i64 {
+#[rtse::function(module = "node:zlib", value = "crc32", overload = "prev")]
+fn crc32_prev(h: Handle, prev: i64) -> i64 {
     codec::crc32(&read_bytes(h), prev as u32) as i64
 }

@@ -7,9 +7,10 @@
 //! Windows). Now dispatchable on any receiver (the object-backed runtime dispatch
 //! path), so `readdirSync(dir, { withFileTypes: true })[i].isFile()` works.
 
+use rts_engine::abi::ty::Handle;
 use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
 
-use super::words::{opt_bool, read, string_array, throw_io};
+use super::words::{opt_bool, string_array, throw_io};
 
 /// Store a string field as a GC `Entry::String` (a real string handle the object
 /// getters / property reads resolve), matching the Stats/StringDecoder model.
@@ -93,22 +94,23 @@ pub(super) fn entries_of(path: &str) -> Vec<i64> {
 }
 
 /// `fs.readdirSync(path, { withFileTypes: true })` → `Dirent[]`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_READDIR_TYPES(p: *const u8, l: i64) -> u64 {
-    let path = read(p, l);
-    alloc_entry(Entry::Vec(Box::new(entries_of(&path))))
+fn readdir_types(path: &str) -> u64 {
+    alloc_entry(Entry::Vec(Box::new(entries_of(path))))
 }
 
 /// `fs.readdirSync(path, options)` — `Dirent[]` when `options.withFileTypes` is
 /// truthy, else the plain `string[]` (the `encoding`/other options do not change
-/// the name strings this returns).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_READDIR_OPTS(p: *const u8, l: i64, options: u64) -> u64 {
+/// the name strings this returns). Paired with `symbols::readdir_sync` (no
+/// `overload` there — the base form) under the same JS name `readdirSync`.
+///
+/// Authored with `#[rtse::function]`; `fs/mod.rs` patches `THROWS` on at
+/// registration.
+#[rtse::function(module = "node:fs", value = "readdirSync", overload = "opts")]
+fn readdir_sync_opts(path: &str, options: Handle) -> Handle {
     if opt_bool(options, "withFileTypes") {
-        return __RTS_FN_NODE_FS_READDIR_TYPES(p, l);
+        return readdir_types(path);
     }
-    let path = read(p, l);
-    match std::fs::read_dir(&path) {
+    match std::fs::read_dir(path) {
         Ok(rd) => {
             let names: Vec<String> = rd
                 .filter_map(|e| e.ok())
@@ -117,7 +119,7 @@ pub extern "C" fn __RTS_FN_NODE_FS_READDIR_OPTS(p: *const u8, l: i64, options: u
             string_array(&names)
         }
         Err(e) => {
-            throw_io(&e, "scandir", &path);
+            throw_io(&e, "scandir", path);
             string_array(&[])
         }
     }

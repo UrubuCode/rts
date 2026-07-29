@@ -84,8 +84,76 @@ Params: `f64`, `i64`, `i32`, `bool`, `&str`, `Handle`/`u64`. Returns:
 `Option<String>` (→ `string | null`), `Vec<String>`/`Vec<Handle>` (→ a real
 array).
 
-A free function with no class uses `#[rtse::function("name")]`; a bare
-`extern "C"` the engine calls directly uses `#[rtse::abi(...)]`.
+A free function with no class uses `#[rtse::function(...)]`; a bare `extern "C"`
+the engine calls directly uses `#[rtse::abi(...)]`.
+
+#### Free functions — the `node:*` / `rts:<ns>` shape
+
+```rust
+use rts_engine::Engine;
+
+/// `tty.isatty(fd)` — whether `fd` refers to a terminal.
+#[rtse::function(module = "node:tty", value = "isatty")]
+fn isatty(fd: i32) -> bool {
+    detect::isatty(fd)
+}
+
+pub fn register(e: &mut Engine) {
+    e.module("node:tty", |m| {
+        m.doc("Terminal detection.");
+        m.registry(isatty_entry());
+    });
+}
+```
+
+Write a PLAIN Rust fn — no `extern "C"`, no `#[unsafe(no_mangle)]`; the macro
+applies both, and generates `<rust_fn_name>_entry() -> Member` for
+`.registry(...)`. Derived from the declaration: the linker symbol, the
+`AbiType`s, the TS signature, and the doc (from the `///` comment).
+
+Modifiers, all composable:
+
+| Modifier | Effect |
+|---|---|
+| `throws` | `MemberFlags::THROWS`. **Mandatory** for a member that reports failure through the pending-error slot — without it the engine skips its post-call check and a real `throw` becomes a silently-ignored failure. |
+| `pure` | `pure: true` — the call has no observable effect. |
+| `overload = "<suffix>"` | Disambiguates the SYMBOL of an arity overload; the JS name (`value`) stays shared. |
+| `#[default(...)]` on a param | Makes it optional and names the padding value: `undefined`, `null`, `nan`, `infinity`, `true`/`false`, an int, a float, a string. A required param may not follow an optional one. |
+
+**Overloads.** JS lets several members share one name and differ by arity; a
+linker symbol cannot. `overload` is how you say so out loud — and the suffix
+lands in the symbol exactly the way the hand-written names already did it
+(`__RTS_FN_NODE_ZLIB_CRC32` / `..._CRC32_PREV`):
+
+```rust
+#[rtse::function(module = "node:zlib", value = "crc32")]
+fn crc32(data: Handle) -> f64 { … }                            // __rtsm_node_zlib_crc32
+
+#[rtse::function(module = "node:zlib", value = "crc32", overload = "prev")]
+fn crc32_prev(data: Handle, prev: i64) -> f64 { … }            // __rtsm_node_zlib_crc32_prev
+```
+
+Both the macro and the baker compose that suffix through the one
+`rts_abi::scope::with_overload`, so the baked symbol cannot drift from the
+emitted one.
+
+**Parameter and return types.** `f64`, `i64`, `i32`, `bool`, `Handle`, `U64`,
+`Poly`; `&str` for a string PARAMETER (one `StrPtr`, two ABI slots: ptr + len);
+`String` for a string RESULT (allocated into the pool, returned as a `Handle` —
+an outgoing string must own its bytes, an incoming one borrows the caller's);
+`Vec<String>`/`Vec<Handle>` for a real array. `Option<T>` marks an optional
+parameter, but only for `f64`/`&str`/`Handle`/`U64` — those have an absent
+sentinel; for `i64`/`i32`/`bool`/`Poly` use `#[default(...)]`.
+
+**What `#[rtse::function]` still cannot express** (leave these hand-written and
+say why in the commit — do not force them):
+
+- A **class** — constructors and instance methods. That is `#[rtse::class]`.
+- `MemberKind::Constant` — a property like `os.EOL` or `zlib.constants`.
+- Reusing a symbol DEFINED ELSEWHERE (`process.nextTick` borrows the microtask
+  queue's extern; `util.formatHex` borrows `rts:fmt`'s). The macro always
+  defines the symbol it names.
+- A raw-pointer parameter (`*const u8` / `*mut T`) — no single-slot ABI form.
 
 > **Instance methods CLONE the receiver** out of the HandleTable before running
 > the body (dropping the shard lock; writing back for `&mut self`), so a body

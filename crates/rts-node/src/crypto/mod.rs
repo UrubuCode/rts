@@ -32,7 +32,7 @@ mod random;
 mod state;
 mod symbols;
 
-use rts_engine::AbiType::{self, Bool, Handle, I64, StrPtr};
+use rts_engine::AbiType::{self, Handle, StrPtr};
 use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 #[allow(clippy::too_many_arguments)]
@@ -52,15 +52,6 @@ fn m(name: &str, kind: MemberKind, args: Vec<AbiType>, ret: AbiType, symbol: &st
         pure: false,
         emit: None,
     }
-}
-
-/// A module function that can throw (unknown-algorithm errors) → flagged
-/// `MemberFlags::THROWS` so the engine routes its pending-error slot to an
-/// enclosing `try/catch` (registry_call.rs).
-fn func(name: &str, args: Vec<AbiType>, ret: AbiType, symbol: &str, ts: &str, fp: *const u8) -> Member {
-    let mut member = m(name, MemberKind::Function, args, ret, symbol, ts, fp);
-    member.flags = MemberFlags::THROWS;
-    member
 }
 
 /// Registers the `Hash` class + the `node:crypto` module.
@@ -95,28 +86,28 @@ pub fn register(e: &mut Engine) {
         })
         .done();
 
-    e.ns("node:crypto")
-        .doc("Cryptography (node:crypto): createHash/createHmac, hash, randomBytes/randomUUID/randomInt, timingSafeEqual, getHashes.")
-        .member(func("createHash", vec![StrPtr], Handle, "__RTS_FN_NODE_CRYPTO_CREATE_HASH", "createHash(algorithm: string): Hash", s::__RTS_FN_NODE_CRYPTO_CREATE_HASH as *const u8))
-        .member(func("createHmac", vec![StrPtr, Handle], Handle, "__RTS_FN_NODE_CRYPTO_CREATE_HMAC", "createHmac(algorithm: string, key: object): Hash", s::__RTS_FN_NODE_CRYPTO_CREATE_HMAC as *const u8))
-        .member(func("hash", vec![StrPtr, Handle], Handle, "__RTS_FN_NODE_CRYPTO_HASH", "hash(algorithm: string, data: object): string", s::__RTS_FN_NODE_CRYPTO_HASH as *const u8))
-        .member(func("hash", vec![StrPtr, Handle, StrPtr], Handle, "__RTS_FN_NODE_CRYPTO_HASH_ENC", "hash(algorithm: string, data: object, encoding: string): string", s::__RTS_FN_NODE_CRYPTO_HASH_ENC as *const u8))
-        .member(func("randomBytes", vec![I64], Handle, "__RTS_FN_NODE_CRYPTO_RANDOM_BYTES", "randomBytes(size: number): number[]", s::__RTS_FN_NODE_CRYPTO_RANDOM_BYTES as *const u8))
-        .member(func("randomUUID", vec![], Handle, "__RTS_FN_NODE_CRYPTO_RANDOM_UUID", "randomUUID(): string", s::__RTS_FN_NODE_CRYPTO_RANDOM_UUID as *const u8))
-        .member(func("randomInt", vec![I64], I64, "__RTS_FN_NODE_CRYPTO_RANDOM_INT_MAX", "randomInt(max: number): number", s::__RTS_FN_NODE_CRYPTO_RANDOM_INT_MAX as *const u8))
-        .member(func("randomInt", vec![I64, I64], I64, "__RTS_FN_NODE_CRYPTO_RANDOM_INT", "randomInt(min: number, max: number): number", s::__RTS_FN_NODE_CRYPTO_RANDOM_INT as *const u8))
-        .member(func("randomFillSync", vec![Handle], Handle, "__RTS_FN_NODE_CRYPTO_RANDOM_FILL_SYNC", "randomFillSync(buffer: number[]): number[]", s::__RTS_FN_NODE_CRYPTO_RANDOM_FILL_SYNC as *const u8))
-        .member(func("timingSafeEqual", vec![Handle, Handle], Bool, "__RTS_FN_NODE_CRYPTO_TIMING_SAFE_EQUAL", "timingSafeEqual(a: object, b: object): boolean", s::__RTS_FN_NODE_CRYPTO_TIMING_SAFE_EQUAL as *const u8))
-        .member(func("pbkdf2Sync", vec![Handle, Handle, I64, I64, StrPtr], Handle, "__RTS_FN_NODE_CRYPTO_PBKDF2", "pbkdf2Sync(password: object, salt: object, iterations: number, keylen: number, digest: string): number[]", s::__RTS_FN_NODE_CRYPTO_PBKDF2 as *const u8))
-        .member(func("scryptSync", vec![Handle, Handle, I64], Handle, "__RTS_FN_NODE_CRYPTO_SCRYPT", "scryptSync(password: object, salt: object, keylen: number): number[]", s::__RTS_FN_NODE_CRYPTO_SCRYPT as *const u8))
-        .member(func("scryptSync", vec![Handle, Handle, I64, I64, I64, I64], Handle, "__RTS_FN_NODE_CRYPTO_SCRYPT_PARAMS", "scryptSync(password: object, salt: object, keylen: number, N: number, r: number, p: number): number[]", s::__RTS_FN_NODE_CRYPTO_SCRYPT_PARAMS as *const u8))
-        .member(func("hkdfSync", vec![StrPtr, Handle, Handle, Handle, I64], Handle, "__RTS_FN_NODE_CRYPTO_HKDF", "hkdfSync(digest: string, ikm: object, salt: object, info: object, keylen: number): number[]", s::__RTS_FN_NODE_CRYPTO_HKDF as *const u8))
-        .member(func("getHashes", vec![], Handle, "__RTS_FN_NODE_CRYPTO_GET_HASHES", "getHashes(): string[]", s::__RTS_FN_NODE_CRYPTO_GET_HASHES as *const u8))
-        .member(m("constants", MemberKind::Constant, vec![], Handle, "__RTS_FN_NODE_CRYPTO_CONSTANTS", "constants: object", s::__RTS_FN_NODE_CRYPTO_CONSTANTS as *const u8))
-        .member(func("createCipheriv", vec![StrPtr, Handle, Handle], Handle, "__RTS_FN_NODE_CRYPTO_CREATE_CIPHERIV", "createCipheriv(algorithm: string, key: object, iv: object): Cipher", s::__RTS_FN_NODE_CRYPTO_CREATE_CIPHERIV as *const u8))
-        .member(func("createDecipheriv", vec![StrPtr, Handle, Handle], Handle, "__RTS_FN_NODE_CRYPTO_CREATE_DECIPHERIV", "createDecipheriv(algorithm: string, key: object, iv: object): Cipher", s::__RTS_FN_NODE_CRYPTO_CREATE_DECIPHERIV as *const u8))
-        .member(func("generateX25519KeyPair", vec![], Handle, "__RTS_FN_NODE_CRYPTO_X25519_GENERATE_KEYPAIR", "generateX25519KeyPair(): { privateKey: number[]; publicKey: number[] }", s::__RTS_FN_NODE_CRYPTO_X25519_GENERATE_KEYPAIR as *const u8))
-        .member(func("x25519PublicKey", vec![Handle], Handle, "__RTS_FN_NODE_CRYPTO_X25519_PUBLIC_KEY", "x25519PublicKey(privateKey: object): number[]", s::__RTS_FN_NODE_CRYPTO_X25519_PUBLIC_KEY as *const u8))
-        .member(func("x25519DiffieHellman", vec![Handle, Handle], Handle, "__RTS_FN_NODE_CRYPTO_X25519_DIFFIE_HELLMAN", "x25519DiffieHellman(privateKey: object, publicKey: object): number[]", s::__RTS_FN_NODE_CRYPTO_X25519_DIFFIE_HELLMAN as *const u8))
-        .done();
+    e.module("node:crypto", |mo| {
+        mo.doc("Cryptography (node:crypto): createHash/createHmac, hash, randomBytes/randomUUID/randomInt, timingSafeEqual, getHashes.");
+        mo.registry(s::create_hash_entry());
+        mo.registry(s::create_hmac_entry());
+        mo.registry(s::hash_entry());
+        mo.registry(s::hash_enc_entry());
+        mo.registry(s::random_bytes_entry());
+        mo.registry(s::random_uuid_entry());
+        mo.registry(s::random_int_max_entry());
+        mo.registry(s::random_int_entry());
+        mo.registry(s::random_fill_sync_entry());
+        mo.registry(s::timing_safe_equal_entry());
+        mo.registry(s::pbkdf2_sync_entry());
+        mo.registry(s::scrypt_sync_entry());
+        mo.registry(s::scrypt_sync_params_entry());
+        mo.registry(s::hkdf_sync_entry());
+        mo.registry(s::get_hashes_entry());
+        mo.member(m("constants", MemberKind::Constant, vec![], Handle, "__RTS_FN_NODE_CRYPTO_CONSTANTS", "constants: object", s::__RTS_FN_NODE_CRYPTO_CONSTANTS as *const u8));
+        mo.registry(s::create_cipheriv_entry());
+        mo.registry(s::create_decipheriv_entry());
+        mo.registry(s::generate_x25519_key_pair_entry());
+        mo.registry(s::x25519_public_key_entry());
+        mo.registry(s::x25519_diffie_hellman_entry());
+    });
 }

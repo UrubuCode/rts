@@ -13,11 +13,10 @@ use std::sync::{Mutex, OnceLock};
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
+use rts_engine::abi::ty::{Handle, Poly};
 use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
 use rts_engine::heap::poly::poly_handle_normalize;
 use rts_engine::watch_queue;
-
-use super::words::read;
 
 use rts_engine::gc_surface::{__RTS_FN_NS_GC_PIN_HANDLE, __RTS_FN_NS_GC_UNPIN_HANDLE};
 
@@ -35,9 +34,12 @@ fn str_handle(s: &str) -> i64 {
 }
 
 /// `fs.watch(path, listener)` → `FSWatcher`. `listener(eventType, filename)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_WATCH(p: *const u8, l: i64, listener: u64) -> u64 {
-    let path = read(p, l);
+///
+/// Authored with `#[rtse::function]`; `fs/mod.rs` patches `THROWS` on at
+/// registration.
+#[rtse::function(module = "node:fs", value = "watch")]
+fn watch(path: &str, listener: Poly) -> Handle {
+    let path = path.to_string();
     // The listener is a function VALUE (boxed); resolve its real handle and PIN it
     // so the GC keeps it alive for the watcher's lifetime.
     let cb = poly_handle_normalize(listener).unwrap_or(listener);

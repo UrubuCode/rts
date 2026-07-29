@@ -53,7 +53,7 @@ fn throwing(mut m: Member) -> Member {
 /// Registers the `Buffer` class (statics) + the `node:buffer` module.
 pub fn register(e: &mut Engine) {
     use ops as s;
-    use MemberKind::{Function, StaticMethod};
+    use MemberKind::StaticMethod;
 
     e.class("Buffer")
         .doc("Buffer — byte container (node:buffer). Static constructors + helpers.")
@@ -74,9 +74,9 @@ pub fn register(e: &mut Engine) {
         .member(member("toString", StaticMethod, vec![Handle, StrPtr], Handle, "__RTS_FN_NODE_BUFFER_TO_STRING_ENC", "toString(buf: object, encoding: string): string", s::__RTS_FN_NODE_BUFFER_TO_STRING_ENC as *const u8))
         .done();
 
-    e.ns("node:buffer")
-        .doc("Buffer/base64 (node:buffer): atob, btoa.")
-        .member(member("atob", Function, vec![StrPtr], Handle, "__RTS_FN_NODE_BUFFER_ATOB", "atob(data: string): string", s::__RTS_FN_NODE_BUFFER_ATOB as *const u8))
-        .member(member("btoa", Function, vec![StrPtr], Handle, "__RTS_FN_NODE_BUFFER_BTOA", "btoa(data: string): string", s::__RTS_FN_NODE_BUFFER_BTOA as *const u8))
-        .done();
+    e.module("node:buffer", |m| {
+        m.doc("Buffer/base64 (node:buffer): atob, btoa.");
+        m.registry(ops::atob_entry());
+        m.registry(ops::btoa_entry());
+    });
 }

@@ -7,37 +7,38 @@
 //! (`std::thread::available_parallelism`) and additionally cgroup-quota-aware
 //! on Linux, matching libuv's container-aware behavior. No fabricated numbers.
 
+use rts_engine::abi::ty::Handle;
 use super::words::{array, num_word};
 
 /// `os.totalmem()` — total physical memory in bytes.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_TOTALMEM() -> f64 {
+#[rtse::function(module = "node:os", value = "totalmem")]
+fn totalmem() -> f64 {
     total_memory_bytes() as f64
 }
 
 /// `os.freemem()` — free physical memory in bytes.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_FREEMEM() -> f64 {
+#[rtse::function(module = "node:os", value = "freemem")]
+fn freemem() -> f64 {
     free_memory_bytes() as f64
 }
 
 /// `os.uptime()` — system uptime in seconds (may be fractional).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_UPTIME() -> f64 {
+#[rtse::function(module = "node:os", value = "uptime")]
+fn uptime() -> f64 {
     uptime_seconds()
 }
 
 /// `os.loadavg()` — `[1min, 5min, 15min]` load averages (all `0` on Windows).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_LOADAVG() -> u64 {
+#[rtse::function(module = "node:os", value = "loadavg")]
+fn loadavg() -> Handle {
     let [a, b, c] = load_average();
     array(vec![num_word(a), num_word(b), num_word(c)])
 }
 
 /// `os.availableParallelism()` — parallelism estimate honoring CPU affinity
 /// and (on Linux) cgroup CPU quota. Always `>= 1`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_AVAILABLE_PARALLELISM() -> f64 {
+#[rtse::function(module = "node:os", value = "availableParallelism")]
+fn available_parallelism_fn() -> f64 {
     available_parallelism() as f64
 }
 

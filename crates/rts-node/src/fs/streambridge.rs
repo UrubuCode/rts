@@ -16,9 +16,12 @@
 //! harvest into the JIT table, but user code cannot import them; the `engine.*`
 //! privacy gate additionally restricts the callers to prelude-origin code.
 
+use rts_engine::abi::ty::Poly;
 use rts_engine::heap::shapes::handle_word_auto;
 
-use super::words::{byte_array, read_bytes, throw_io};
+// Aliased to free the plain name `read_bytes` for the `#[rtse::function]`
+// below (its JS name, `readBytes`, is derived from the Rust fn's own name).
+use super::words::{byte_array, read_bytes as file_bytes, throw_io};
 use crate::values::{val, Val};
 
 /// Decode a boxed string word to its UTF-8 path; empty string for a non-string
@@ -34,15 +37,24 @@ fn path_of(word: u64) -> String {
 fn bytes_of(word: u64) -> Vec<u8> {
     match val(word) {
         Val::Str(s) => s.into_bytes(),
-        Val::Obj(handle) => read_bytes(handle),
+        Val::Obj(handle) => file_bytes(handle),
         _ => Vec::new(),
     }
 }
 
 /// `engine.fs_read_bytes(path)` → a `Uint8Array` word of the whole file. Throws a
 /// Node-style error (ENOENT/EACCES/…) on failure.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ENGINE_FS_READ_BYTES(path_word: u64) -> u64 {
+///
+/// Authored with `#[rtse::function]`, registered PRIVATE (`fs/mod.rs`) with the
+/// macro's default `MemberFlags::NONE` (matching the old hand-written row).
+///
+/// The symbol is pinned to its EXACT legacy spelling via the explicit-string
+/// form (rather than letting a `module = "…"` scope derive a `__rtsm_…` name):
+/// `rts-codegen-new/src/front/run/engineobj.rs` (`lower_engine_call`,
+/// `fs_read_bytes`) calls this symbol by a HARDCODED literal string outside
+/// this crate, so the linker name cannot move independently of that call site.
+#[rtse::function("__RTS_FN_NS_ENGINE_FS_READ_BYTES")]
+fn read_bytes(path_word: Poly) -> Poly {
     let path = path_of(path_word);
     match std::fs::read(&path) {
         Ok(bytes) => handle_word_auto(byte_array(&bytes)),
@@ -54,9 +66,11 @@ pub extern "C" fn __RTS_FN_NS_ENGINE_FS_READ_BYTES(path_word: u64) -> u64 {
 }
 
 /// `engine.fs_write_bytes(path, data)` — truncate-write; returns the byte count
-/// written as a number word. Throws on failure.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ENGINE_FS_WRITE_BYTES(path_word: u64, data_word: u64) -> u64 {
+/// written as a number word. Throws on failure. See `read_bytes` above for why
+/// the symbol is pinned via the explicit-string form (hardcoded call site:
+/// `engineobj.rs`'s `fs_write_bytes`).
+#[rtse::function("__RTS_FN_NS_ENGINE_FS_WRITE_BYTES")]
+fn write_bytes(path_word: Poly, data_word: Poly) -> Poly {
     let path = path_of(path_word);
     let bytes = bytes_of(data_word);
     match std::fs::write(&path, &bytes) {
@@ -69,9 +83,11 @@ pub extern "C" fn __RTS_FN_NS_ENGINE_FS_WRITE_BYTES(path_word: u64, data_word: u
 }
 
 /// `engine.fs_append_bytes(path, data)` — append (creating the file if missing);
-/// returns the byte count written. Throws on failure.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ENGINE_FS_APPEND_BYTES(path_word: u64, data_word: u64) -> u64 {
+/// returns the byte count written. Throws on failure. See `read_bytes` above for
+/// why the symbol is pinned via the explicit-string form (hardcoded call site:
+/// `engineobj.rs`'s `fs_append_bytes`).
+#[rtse::function("__RTS_FN_NS_ENGINE_FS_APPEND_BYTES")]
+fn append_bytes(path_word: Poly, data_word: Poly) -> Poly {
     use std::io::Write;
     let path = path_of(path_word);
     let bytes = bytes_of(data_word);

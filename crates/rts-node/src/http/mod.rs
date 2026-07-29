@@ -13,9 +13,10 @@
 
 mod data;
 
+use rts_engine::abi::ty::Handle;
 use rts_engine::heap::handles::{alloc_entry, Entry};
 use rts_engine::heap::shapes::{alloc_shaped_object, string_word};
-use rts_engine::AbiType::{self, Handle, StrPtr, Void};
+use rts_engine::AbiType::{self, StrPtr, Void};
 use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 unsafe extern "C" {
@@ -31,15 +32,15 @@ fn throw_type(message: &str) {
 }
 
 /// `http.METHODS`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_HTTP_METHODS() -> u64 {
+#[rtse::function(module = "node:http", value = "METHODS")]
+fn methods() -> Handle {
     let words: Vec<i64> = data::METHODS.iter().map(|s| string_word(s.as_bytes()) as i64).collect();
     alloc_entry(Entry::Vec(Box::new(words)))
 }
 
 /// `http.STATUS_CODES` — `{ "200": "OK", … }`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_HTTP_STATUS_CODES() -> u64 {
+#[rtse::function(module = "node:http", value = "STATUS_CODES")]
+fn status_codes() -> Handle {
     let keys: Vec<&str> = data::STATUS_CODES.iter().map(|(k, _)| *k).collect();
     let values: Vec<i64> = data::STATUS_CODES.iter().map(|(_, v)| string_word(v.as_bytes()) as i64).collect();
     alloc_shaped_object(&keys, &values)
@@ -86,8 +87,8 @@ fn func(name: &str, args: Vec<AbiType>, ret: AbiType, symbol: &str, ts: &str, fp
 pub fn register(e: &mut Engine) {
     e.ns("node:http")
         .doc("HTTP (node:http): METHODS, STATUS_CODES, validateHeaderName, validateHeaderValue.")
-        .member(func("METHODS", vec![], Handle, "__RTS_FN_NODE_HTTP_METHODS", "METHODS(): string[]", __RTS_FN_NODE_HTTP_METHODS as *const u8, false))
-        .member(func("STATUS_CODES", vec![], Handle, "__RTS_FN_NODE_HTTP_STATUS_CODES", "STATUS_CODES(): object", __RTS_FN_NODE_HTTP_STATUS_CODES as *const u8, false))
+        .member(methods_entry())
+        .member(status_codes_entry())
         .member(func("validateHeaderName", vec![StrPtr], Void, "__RTS_FN_NODE_HTTP_VALIDATE_NAME", "validateHeaderName(name: string): void", __RTS_FN_NODE_HTTP_VALIDATE_NAME as *const u8, true))
         .member(func("validateHeaderValue", vec![StrPtr, StrPtr], Void, "__RTS_FN_NODE_HTTP_VALIDATE_VALUE", "validateHeaderValue(name: string, value: string): void", __RTS_FN_NODE_HTTP_VALIDATE_VALUE as *const u8, true))
         .done();

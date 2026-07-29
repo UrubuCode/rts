@@ -21,26 +21,26 @@ const PRIORITY_BELOW_NORMAL: i32 = 10;
 const PRIORITY_LOW: i32 = 19;
 
 /// `os.getPriority()` — priority of the calling process.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_GET_PRIORITY_SELF() -> i32 {
+#[rtse::function(module = "node:os", value = "getPriority", throws)]
+fn get_priority_self() -> i32 {
     get_priority(0)
 }
 
 /// `os.getPriority(pid)` — priority of process `pid` (`0` = self).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_GET_PRIORITY(pid: i32) -> i32 {
+#[rtse::function(module = "node:os", value = "getPriority", overload = "pid", throws)]
+fn get_priority_pid(pid: i32) -> i32 {
     get_priority(pid)
 }
 
 /// `os.setPriority(priority)` — set the calling process's priority.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_SET_PRIORITY_SELF(priority: i32) {
+#[rtse::function(module = "node:os", value = "setPriority", throws)]
+fn set_priority_self(priority: i32) {
     set_priority(0, priority)
 }
 
 /// `os.setPriority(pid, priority)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_SET_PRIORITY(pid: i32, priority: i32) {
+#[rtse::function(module = "node:os", value = "setPriority", overload = "pid", throws)]
+fn set_priority_pid(pid: i32, priority: i32) {
     set_priority(pid, priority)
 }
 

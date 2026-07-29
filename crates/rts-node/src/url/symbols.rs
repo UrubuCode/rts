@@ -1,9 +1,11 @@
-//! node:url — the `extern "C"` entry points wiring the function surface to the
-//! `whatwg`/`fileurl`/`legacy` helpers.
+//! node:url — the free-function entry points wiring the function surface to
+//! the `whatwg`/`fileurl`/`legacy` helpers, declared via `#[rtse::function]`
+//! (symbol/ABI/TS-signature derived from the Rust signature).
 
 use super::words::{buffer, intern, object_entries, word_scalar};
 use super::{fileurl, legacy, whatwg};
 
+use rts_engine::abi::ty::Handle;
 use rts_engine::heap::handles::rtse_class_of;
 
 unsafe extern "C" {
@@ -20,88 +22,66 @@ fn is_whatwg_url(handle: u64) -> bool {
     rtse_class_of(handle) == Some("URL")
 }
 
-fn read(ptr: *const u8, len: i64) -> String {
-    unsafe { rts_engine::abi::str_abi::from_abi(ptr, len) }
-        .unwrap_or("")
-        .to_string()
-}
-
 /// `url.domainToASCII(domain)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_URL_DOMAIN_TO_ASCII(p: *const u8, l: i64) -> u64 {
-    intern(&whatwg::domain_to_ascii(&read(p, l)))
+#[rtse::function(module = "node:url", value = "domainToASCII")]
+fn domain_to_ascii(domain: &str) -> String {
+    whatwg::domain_to_ascii(domain)
 }
 
 /// `url.domainToUnicode(domain)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_URL_DOMAIN_TO_UNICODE(p: *const u8, l: i64) -> u64 {
-    intern(&whatwg::domain_to_unicode(&read(p, l)))
+#[rtse::function(module = "node:url", value = "domainToUnicode")]
+fn domain_to_unicode(domain: &str) -> String {
+    whatwg::domain_to_unicode(domain)
 }
 
 /// `url.fileURLToPath(url)` — `url` is a URL string or a `URL` instance handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_URL_FILE_URL_TO_PATH(url: u64) -> u64 {
+#[rtse::function(module = "node:url", value = "fileURLToPath")]
+fn file_url_to_path(url: Handle) -> String {
     let bytes = fileurl::file_url_to_path_bytes(url);
-    intern(&String::from_utf8_lossy(&bytes))
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 /// `url.fileURLToPathBuffer(url)` → `Buffer` of the raw path bytes.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_URL_FILE_URL_TO_PATH_BUFFER(url: u64) -> u64 {
+#[rtse::function(module = "node:url", value = "fileURLToPathBuffer")]
+fn file_url_to_path_buffer(url: Handle) -> Handle {
     buffer(fileurl::file_url_to_path_bytes(url))
 }
 
 /// `url.pathToFileURL(path)` → a real `URL`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_URL_PATH_TO_FILE_URL(p: *const u8, l: i64) -> u64 {
-    fileurl::path_to_file_url(&read(p, l))
+#[rtse::function(module = "node:url", value = "pathToFileURL", ret_ts = "URL")]
+fn path_to_file_url(path: &str) -> Handle {
+    fileurl::path_to_file_url(path)
 }
 
 /// `url.urlToHttpOptions(url)` → the request-options object.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_URL_TO_HTTP_OPTIONS(url: u64) -> u64 {
+#[rtse::function(module = "node:url", value = "urlToHttpOptions")]
+fn url_to_http_options(url: Handle) -> Handle {
     whatwg::url_to_http_options(url)
 }
 
 /// `url.resolve(from, to)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_URL_RESOLVE(
-    fp: *const u8,
-    fl: i64,
-    tp: *const u8,
-    tl: i64,
-) -> u64 {
-    intern(&legacy::resolve(&read(fp, fl), &read(tp, tl)))
+#[rtse::function(module = "node:url", value = "resolve")]
+fn resolve(from: &str, to: &str) -> String {
+    legacy::resolve(from, to)
 }
 
-/// `url.parse(urlString)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_URL_PARSE(p: *const u8, l: i64) -> u64 {
-    legacy::parse(&read(p, l), false, false)
-}
-
-/// `url.parse(urlString, parseQueryString, slashesDenoteHost)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_URL_PARSE_OPTS(
-    p: *const u8,
-    l: i64,
-    parse_query: i64,
-    slashes: i64,
-) -> u64 {
-    legacy::parse(&read(p, l), parse_query != 0, slashes != 0)
+/// `url.parse(urlString[, parseQueryString[, slashesDenoteHost]])`.
+#[rtse::function(module = "node:url", value = "parse")]
+fn parse(url_string: &str, #[default(false)] parse_query_string: bool, #[default(false)] slashes_denote_host: bool) -> Handle {
+    legacy::parse(url_string, parse_query_string, slashes_denote_host)
 }
 
 /// `url.format(urlObject)` — recompose from a legacy urlObject's fields.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_URL_FORMAT(obj: u64) -> u64 {
+#[rtse::function(module = "node:url", value = "format", ret_ts = "string")]
+fn format(url_object: Handle) -> Handle {
     // `url.format(URL)` (WHATWG instance) → the serialized href. `url.format(
     // urlObject)` (legacy plain object) → recompose from its fields (below).
-    if is_whatwg_url(obj) {
-        return unsafe { __rtsm_global_url_to_string(obj) };
+    if is_whatwg_url(url_object) {
+        return unsafe { __rtsm_global_url_to_string(url_object) };
     }
     let mut fields: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut slashes = false;
-    for (key, word) in object_entries(obj) {
+    for (key, word) in object_entries(url_object) {
         if key == "slashes" {
             slashes = matches!(word_scalar(word as u64).as_deref(), Some("true"));
             continue;

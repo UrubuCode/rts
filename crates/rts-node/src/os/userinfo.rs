@@ -10,6 +10,8 @@
 //! deferred: it needs an options-object shim layer rts-node doesn't ship yet —
 //! deferred honestly, not faked. The default string form is fully real.
 
+use rts_engine::abi::ty::Handle;
+
 use super::words::{null_w, num_word, object, str_word};
 
 struct Identity {
@@ -22,8 +24,8 @@ struct Identity {
 }
 
 /// `os.userInfo()` — real current-user identity object.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_USER_INFO() -> u64 {
+#[rtse::function(module = "node:os", value = "userInfo")]
+fn user_info() -> Handle {
     let id = current_identity();
     let shell_word = match &id.shell {
         Some(s) => str_word(s),

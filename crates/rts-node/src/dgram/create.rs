@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use socket2::{Domain, Protocol, Socket, Type};
 
+use rts_engine::abi::ty::{Handle, Poly};
 use rts_engine::heap::handles::{alloc_entry, Entry};
 
 use crate::emitter;
@@ -211,9 +212,8 @@ fn parse_first(arg: u64) -> Result<Options, Bad> {
     }
 }
 
-/// `dgram.createSocket(type)` / `dgram.createSocket(options)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_CREATE_SOCKET(arg: u64) -> u64 {
+/// Shared implementation for both `createSocket` overloads.
+fn create_socket_impl(arg: u64) -> u64 {
     match parse_first(arg) {
         Ok(opts) => build(opts),
         Err(bad) => {
@@ -223,11 +223,17 @@ pub extern "C" fn __RTS_FN_NODE_DGRAM_CREATE_SOCKET(arg: u64) -> u64 {
     }
 }
 
+/// `dgram.createSocket(type)` / `dgram.createSocket(options)`.
+#[rtse::function(module = "node:dgram", value = "createSocket", throws, ret_ts = "DgramSocket")]
+fn create_socket(kind_or_options: Poly) -> Handle {
+    create_socket_impl(kind_or_options)
+}
+
 /// `dgram.createSocket(type, listener)` / `createSocket(options, listener)` —
 /// `listener` is attached as a `'message'` listener.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_CREATE_SOCKET_CB(arg: u64, listener: u64) -> u64 {
-    let handle = __RTS_FN_NODE_DGRAM_CREATE_SOCKET(arg);
+#[rtse::function(module = "node:dgram", value = "createSocket", overload = "cb", throws, ret_ts = "DgramSocket")]
+fn create_socket_cb(kind_or_options: Poly, listener: Poly) -> Handle {
+    let handle = create_socket_impl(kind_or_options);
     if handle != 0 && let Val::Func(cb) = val(listener) {
         emitter::add(handle, "message", cb, false, false);
     }

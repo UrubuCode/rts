@@ -14,6 +14,8 @@ mod windows;
 use std::collections::BTreeMap;
 use std::net::IpAddr;
 
+use rts_engine::abi::ty::Handle;
+
 use super::words::{array_word, bool_w, null_w, num_word, object, object_word, str_word};
 
 /// One resolved interface address.
@@ -28,8 +30,8 @@ pub struct IfEntry {
 }
 
 /// `os.networkInterfaces()` — the keyed object of per-interface address arrays.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_NETWORK_INTERFACES() -> u64 {
+#[rtse::function(module = "node:os", value = "networkInterfaces")]
+fn network_interfaces() -> Handle {
     // Preserve first-seen order per interface; group by name.
     let mut groups: BTreeMap<String, Vec<i64>> = BTreeMap::new();
     let mut order: Vec<String> = Vec::new();

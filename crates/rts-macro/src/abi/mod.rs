@@ -72,7 +72,7 @@ pub(crate) fn expand(a: TokenStream, item: TokenStream) -> TokenStream {
         Ok(v) => v,
         Err(e) => return e.to_compile_error().into(),
     };
-    let sym = symbol_for(&args.0, &func.sig.ident.to_string());
+    let sym = symbol_for(&args.naming, &func.sig.ident.to_string());
 
     // The author wrote plain Rust; reject hand-written ABI ceremony rather than
     // silently double-applying it. This attribute is the one authority for it.

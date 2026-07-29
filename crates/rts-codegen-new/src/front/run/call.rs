@@ -952,6 +952,43 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
             argvals.push(self.lower_expr(module, a)?);
         }
+        // OMITTED TRAILING ARGS. `namespace_member` may resolve a member that
+        // declares MORE parameters than the call passes, when every omitted slot
+        // carries a `DefaultArg` (`path.basename(p[, suffix])`). Inject those the
+        // same way the class and registry-class paths do, via `default_arg_val`,
+        // so an optional parameter is expressible on a MODULE function instead of
+        // forcing one registered member per arity.
+        for i in argvals.len()..resolved.arg_abis.len() {
+            let d = resolved.default_args.get(i);
+            // The padded value must match the parameter's DECLARED `AbiType`, not
+            // the Tagged PolyValue `default_arg_val` builds. That helper serves
+            // the class paths, whose optional params are `Poly`; a namespace
+            // member declares real ABI types, and marshalling has no
+            // `Tagged -> Bool` coercion (`url.parse(s)` failed exactly there).
+            // Scalars are emitted unboxed; everything else keeps the Tagged form.
+            let v = match (resolved.arg_abis[i], d) {
+                (rts_engine::abi::AbiType::Bool, Some(rts_engine::abi::DefaultArg::Bool(b))) => {
+                    let c = self.builder.ins().iconst(types::I64, i64::from(*b));
+                    Val::new(c, Repr::Bool)
+                }
+                (
+                    rts_engine::abi::AbiType::I64
+                    | rts_engine::abi::AbiType::I32
+                    | rts_engine::abi::AbiType::U64
+                    | rts_engine::abi::AbiType::Handle,
+                    Some(rts_engine::abi::DefaultArg::Int(n)),
+                ) => {
+                    let c = self.builder.ins().iconst(types::I64, *n);
+                    Val::new(c, Repr::Int64)
+                }
+                (rts_engine::abi::AbiType::F64, Some(rts_engine::abi::DefaultArg::Float(f))) => {
+                    let c = self.builder.ins().f64const(*f);
+                    Val::new(c, Repr::Float64)
+                }
+                _ => self.default_arg_val(module, d, ns, i)?,
+            };
+            argvals.push(v);
+        }
         // NATIVE EMISSION fast path: a member that carries its own emitter
         // (`native(...)` on the spec) emits Cranelift IR here — `sqrt` is one
         // machine instruction, and wrapping it in a call is pure overhead plus a
