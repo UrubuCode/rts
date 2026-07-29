@@ -45,6 +45,11 @@ impl Enc {
 }
 
 /// Incremental decoder state (`lastChar`/`lastNeed`/`lastTotal` in Node).
+///
+/// `Clone` because a `#[rtse::class]` instance is cloned out of the handle table
+/// before a method body runs — the macro drops the shard lock first, so a body
+/// touching a second handle cannot self-deadlock.
+#[derive(Clone)]
 pub struct Decoder {
     pub enc: Enc,
     pub last_char: [u8; 4],
