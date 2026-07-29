@@ -851,6 +851,26 @@ impl crate::Traceable for Entry {
             // enumera quaisquer handles-filho que segure (ex.: um Worker com
             // referências vivas). O motor não precisa conhecer o layout.
             Entry::Backend(p) => p.0.trace_children(visit),
+            // Instância de classe `#[rtse::class]`: o estado DECLARADO vive no
+            // `Box<dyn Any>` (opaco pro motor, sem handles alcançáveis), mas
+            // `props` guarda as propriedades JS ad-hoc penduradas na instância
+            // (`h.tag = {…}`) — e essas SÃO words que podem ser handles.
+            //
+            // Sem este arm o `props` caía no `_ => {}` abaixo: um objeto/string/
+            // função alcançável APENAS por uma propriedade de instância rtse não
+            // era marcado, e o sweep o coletava vivo. Falha silenciosa (o handle
+            // morto falha o check de geração e a leitura devolve lixo), não crash.
+            Entry::Rtse { props, .. } => {
+                for v in props.values() {
+                    if *v != 0 {
+                        visit(*v as u64);
+                    }
+                }
+            }
+            // Restantes: variantes sem handle-filho alcançável (String, Buffer,
+            // BigFixed, sockets, …). Ver o teste `every_handle_bearing_variant_is_traced`
+            // — ao ADICIONAR uma variante que guarde um handle, adicione o arm
+            // AQUI; este `_` não avisa.
             _ => {}
         }
     }
@@ -1722,6 +1742,36 @@ mod tests {
         assert!(free_handle(h));
         let guard2 = shard_for_handle(h).lock().unwrap();
         assert!(guard2.get(h).is_none());
+    }
+
+    /// An `Entry::Rtse`'s ad-hoc JS `props` hold ordinary value words, which may
+    /// be handles. They MUST be visited by `trace_children`, or a value reachable
+    /// only through an rtse-class instance property is swept while live — a
+    /// silently-wrong read, not a crash.
+    ///
+    /// Guards against the `_ => {}` catch-all at the end of the match silently
+    /// swallowing this variant, which is exactly how the bug got in.
+    #[test]
+    fn rtse_props_are_traced() {
+        use crate::Traceable;
+
+        let child = alloc_entry(Entry::String(b"reachable-only-via-props".to_vec()));
+        let mut props = indexmap::IndexMap::new();
+        props.insert("tag".to_string(), child as i64);
+        let owner = Entry::Rtse {
+            class: "Probe",
+            data: Box::new(0u8),
+            props: Box::new(props),
+        };
+
+        let mut visited = Vec::new();
+        owner.trace_children(&mut |h| visited.push(h));
+
+        assert!(
+            visited.contains(&child),
+            "Entry::Rtse must visit its props' handle words; visited={visited:?}"
+        );
+        free_handle(child);
     }
 
     #[test]

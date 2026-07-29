@@ -180,11 +180,23 @@ mod tests {
     }
 
     #[test]
-    fn set_beyond_len_grows_with_zeros() {
+    /// Growing past the end creates JS array HOLES, not zeros.
+    ///
+    /// This test previously asserted the skipped slots read back as `0`, which is
+    /// what the implementation did and what made `a = [1,2,3]; a[6] = 7` leave
+    /// real zero elements behind: `a[4]` was `0` instead of `undefined`, `4 in a`
+    /// was `true`, and `JSON.stringify` printed `0` where every other runtime
+    /// prints `null`. The expectation was wrong, not the observation — updated
+    /// deliberately along with the fix.
+    fn set_beyond_len_grows_with_holes() {
         let h = alloc_entry(Entry::Vec(Box::new(vec![1])));
         let payload = payload_of(h);
         assert_eq!(__rtsn_vec_set_by_payload(payload, 3, 9), 1);
-        assert_eq!(__rtsn_vec_get_by_payload(payload, 2), 0);
+        assert_eq!(
+            __rtsn_vec_get_by_payload(payload, 2),
+            HOLE_WORD,
+            "a skipped index must be a HOLE, not a real zero element"
+        );
         assert_eq!(__rtsn_vec_get_by_payload(payload, 3), 9);
         assert_eq!(__rtsn_vec_len_by_payload(payload), 4);
     }
