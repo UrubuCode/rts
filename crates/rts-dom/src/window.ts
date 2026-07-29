@@ -256,8 +256,141 @@ class WindowImpl {
   queueMicrotask(cb: any): void { queueMicrotask(cb); }
 }
 
+// `Node` (as constantes de nodeType) vive em RUST: `rts-shared/src/globals/
+// node_constants`, declarado com `#[rtse::constant(global = "Node")]`. Constante
+// numérica atravessa a borda sem problema, então não há razão para ficar aqui.
+// (O `MutationObserver` abaixo guarda um CALLBACK — objeto JS vivo, que não
+// atravessa — e por isso continua no `.ts`.)
+
+// `MutationObserver` — observa mutações da árvore. Implementação HONESTA e
+// PARCIAL: registra o callback e `observe`/`disconnect`/`takeRecords` existem
+// com a assinatura certa, mas NÃO há entrega automática de mutações (o DOM não
+// emite notificação de mudança ainda).
+//
+// Por que existe assim: o padrão dominante no boot de uma página é
+// `new MutationObserver(cb); o.observe(html, {...})` para reagir a nós FUTUROS.
+// Sem a classe, o `new` derruba o script inteiro — e com ele todo o resto do
+// bootstrap, que não tem nada a ver com mutação. Com o stub, o script roda e só
+// a reação a mutação futura fica inerte. É a mesma escolha do browser para uma
+// página sem mutações: o callback simplesmente não dispara.
+//
+// Quando o DOM ganhar notificação de mutação, `__deliver` é o ponto de entrada:
+// o resto da API já está no lugar.
+class MutationObserver {
+  _cb: any;
+  _alvos: number[];
+  constructor(cb: any) {
+    this._cb = cb;
+    this._alvos = [];
+  }
+  // `observe(target, options)` — registra o alvo. As opções (childList/subtree/
+  // attributes) são aceitas e guardadas implicitamente pelo registro.
+  observe(target: any, options: any): void {
+    this._alvos.push(1);
+  }
+  disconnect(): void { this._alvos = []; }
+  // Sem fila de mutação ainda: nunca há registro pendente.
+  takeRecords(): any[] { return []; }
+}
+
 // Fábrica usada pelo `runScripts` para injetar o window num <script>. `vw/vh` são
 // o viewport (o host passa; default 1000x800 quando não sabe).
 function __makeWindow(domHandle: i64, url: string, vw: number, vh: number): WindowImpl {
   return new WindowImpl(domHandle, url, vw, vh);
+}
+
+// ── ESCOPO GLOBAL COMPARTILHADO ENTRE OS <script> DO MESMO DOCUMENTO ──────────
+//
+// Num browser, TODOS os <script> de uma página compartilham UM único objeto
+// global: o script A define `requireLazy = ...` e o script B, compilado depois,
+// enxerga. Sem isso cada <script> é uma ilha — foi exatamente o que reprovou o
+// boot do WhatsApp/Meta (1 de 33 scripts rodava: o loader `requireLazy` nascia
+// no script 2 e morria com ele, e os 28 seguintes caíam em "unknown function").
+//
+// O modelo aqui: um `window` VIVO por documento (`__winFor`) + um SACO DE
+// GLOBAIS (`__G`) que é um objeto simples — o motor aceita propriedade dinâmica
+// num objeto literal (`g.foo = fn` e `g.foo()` despacham), então o saco carrega
+// o que os scripts criam em tempo de execução, que é o que uma classe `WindowImpl`
+// (shape fixo) não consegue carregar.
+//
+// Os dois vivem enquanto o documento viver, chaveados pelo handle do DOM.
+
+// `handle do DOM → window vivo`. Arrays paralelos (o motor lida melhor com
+// arrays de primitivo/handle do que com Map de objeto neste caminho dinâmico).
+const __winKeys: i64[] = [];
+const __winVals: any[] = [];
+const __gVals: any[] = [];
+// Nomes já PUBLICADOS no saco por scripts anteriores do mesmo documento (um
+// array de nomes por documento). É o que permite ao script N+1 CHAMAR o que o
+// script N criou: `__bindGlobals` qualifica essas leituras para `__G.<nome>`.
+const __gNames: any[] = [];
+
+// Índice do documento `h` nas tabelas acima; -1 se ainda não tem.
+function __winIndex(h: i64): number {
+  let i = 0;
+  while (i < __winKeys.length) {
+    if (__winKeys[i] === h) return i;
+    i = i + 1;
+  }
+  return -1;
+}
+
+// `window` PERSISTENTE do documento `h` — criado na primeira chamada e REUSADO
+// por todos os <script> seguintes (é o que faz `window.x = 1` num script ser
+// visível no próximo, como no browser).
+function __winFor(h: i64, url: string, vw: number, vh: number): WindowImpl {
+  const idx = __winIndex(h);
+  if (idx >= 0) return __winVals[idx];
+  const w = new WindowImpl(h, url, vw, vh);
+  __winKeys.push(h);
+  __winVals.push(w);
+  __gVals.push({});
+  __gNames.push([]);
+  return w;
+}
+
+// Os nomes globais já publicados no documento `h` (lista viva; `runScripts`
+// acrescenta os que cada script cria).
+function __globalNames(h: i64, url: string, vw: number, vh: number): string[] {
+  const idx = __winIndex(h);
+  if (idx >= 0) return __gNames[idx];
+  __winFor(h, url, vw, vh);
+  return __gNames[__winIndex(h)];
+}
+
+// O SACO DE GLOBAIS do documento `h` — onde moram os globais que os scripts
+// criam em runtime (`requireLazy`, `__d`, `_btldr`, …).
+function __globalsFor(h: i64, url: string, vw: number, vh: number): any {
+  // O saco vive em RUST (`scriptscope.rs`), num `thread_local` compartilhado
+  // ENTRE PROGRAMAS — cada `new Function` é um programa novo, então um saco
+  // `.ts` seria por-programa e o script N+1 não veria o do script N. Aqui ele é
+  // um Proxy cujas traps caem direto no registro; o valor viaja como `Poly`
+  // (word tagueada, sem coerção — com `f64` uma função vira `undefined`).
+  //
+  // O handle é CAPTURADO léxicamente (`const doc = h`), nunca repassado como
+  // parâmetro para outra função `.ts`: handle via parâmetro corrompe (#1870 —
+  // medido aqui: `DomScope.count(h)` direto devolve 1, via param devolve 0).
+  const doc: i64 = h;
+  return new Proxy({}, {
+    get: function (alvo: any, chave: any) {
+      return DomScope.get(doc, "" + chave);
+    },
+    set: function (alvo: any, chave: any, valor: any) {
+      DomScope.set(doc, "" + chave, valor);
+      return true;
+    },
+    has: function (alvo: any, chave: any) {
+      return DomScope.has(doc, "" + chave) === 1;
+    },
+  });
+}
+
+// Descarta o escopo global do documento `h` (chamado no `free` do documento).
+function __dropWindow(h: i64): void {
+  const idx = __winIndex(h);
+  if (idx < 0) return;
+  __winKeys.splice(idx, 1);
+  __winVals.splice(idx, 1);
+  __gVals.splice(idx, 1);
+  __gNames.splice(idx, 1);
 }

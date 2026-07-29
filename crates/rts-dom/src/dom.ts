@@ -1055,19 +1055,41 @@ function __runScriptAt(h: i64, j: number, url: string): number {
   // storage/timers) + `document` (do window) + os aliases globais que os scripts
   // esperam (self/globalThis/top/parent === window). `return 0` final garante o
   // dynfn tipado i64 (o corpo de um <script> normalmente não tem return).
-  const prologue = "const window = __makeWindow(__h, __url, 1000, 800);\n"
+  //
+  // O `window` vem de `__winFor` (PERSISTENTE por documento) e `__G` é o SACO DE
+  // GLOBAIS compartilhado — os dois é que fazem um <script> enxergar o que o
+  // anterior definiu, como no browser. Ver `window.ts`.
+  const prologue = "const window = __winFor(__h, __url, 1000, 800);\n"
+    + "const __G = __globalsFor(__h, __url, 1000, 800);\n"
     + "const document = window.document;\n"
     + "const self = window; const globalThis = window; const top = window; const parent = window;\n"
     + "const location = window.location; const navigator = window.navigator;\n"
     + "const history = window.history; const localStorage = window.localStorage;\n";
-  const body = prologue + code + "\nreturn 0;";
+  // Escopo global COMPARTILHADO: o que scripts anteriores publicaram (`known`)
+  // é qualificado para `__G.<nome>` neste script também — é o que faz o loader
+  // criado pelo script 2 estar disponível para o script 30.
+  const known = __globalNames(h, url, 1000, 800);
+  const created = __scanImplicitGlobals(__normalizeScript(code));
+  const body = prologue + __bindGlobals(code, known) + "\nreturn 0;";
   let ok = 1;
   try {
     const f = new Function("__h", "__url", body);
     f(h, url);
+    // Só depois de RODAR é que os nomes viram "publicados" (um script que falhou
+    // não deixa seus globais no escopo — como no browser).
+    let i = 0;
+    while (i < created.length) {
+      const nm = created[i];
+      let dup = 0;
+      let k = 0;
+      while (k < known.length) { if (known[k] === nm) dup = 1; k = k + 1; }
+      if (dup === 0) known.push(nm);
+      i = i + 1;
+    }
   } catch (e) {
     // Script quebrado não derruba a página (comportamento do browser).
     ok = 0;
   }
   return ok;
 }
+

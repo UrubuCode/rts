@@ -191,6 +191,9 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     // arrayBuffer/slice stay hand-written (F8 doesn't cover `Vec<i64>`/`Self`
     // returns). `File` embeds a `Blob` + forwards (composition, `extends =
     // "Blob"` for `instanceof`).
+    ns::dom::scriptscope::register,
+    ns::globals::node_constants::register,
+    ns::globals::storage::register,
     ns::globals::blob::register_blob_class_spec,
     ns::globals::blob::register_file_class_spec,
     // `FormData` — backend/Registry class (#72): case-sensitive multimap,

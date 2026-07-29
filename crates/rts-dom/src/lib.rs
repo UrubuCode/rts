@@ -19,6 +19,7 @@
 //! `u64` (extern "C") através de [`register`]; a camada ergonômica
 //! (`Document`/`Element`) é TS. Depende só de `rts-engine`.
 
+pub mod scriptscope;
 pub mod abi;
 mod dom;
 mod html;
@@ -60,5 +61,15 @@ pub use abi::register;
 /// `Engine::include` na tabela `PRELUDE_TS` — DEPOIS do registro do ns `dom`.
 /// O `window.ts` é CONCATENADO na mesma unidade (usa `Document`/`Element` do
 /// `dom.ts` em escopo): o objeto `window` de browser (location/navigator/
-/// history/storage/timers) que o `runScripts` injeta em cada `<script>`.
-pub const DOM_TS: &str = concat!(include_str!("dom.ts"), "\n", include_str!("window.ts"));
+/// history/storage/timers) que o `runScripts` injeta em cada `<script>`, mais o
+/// ESCOPO GLOBAL compartilhado entre os `<script>` do mesmo documento.
+/// O `scriptscope.ts` traz o pré-passo que adapta o JS de página ao subset que o
+/// compilador aceita (global implícito → `__G.x`, `arguments` → rest, sequência
+/// com função → statements).
+pub const DOM_TS: &str = concat!(
+    include_str!("dom.ts"),
+    "\n",
+    include_str!("scriptscope.ts"),
+    "\n",
+    include_str!("window.ts")
+);
