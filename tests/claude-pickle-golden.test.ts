@@ -2,6 +2,7 @@ import { describe, test, expect } from "rts:test";
 import { serialize, deserialize } from "rts:serde";
 import { writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // ── RTSP v1 FORMAT FREEZE ───────────────────────────────────────────────────
 // GOLDEN is the exact byte stream `serialize(buildGraph())` produced when the
@@ -83,7 +84,11 @@ if (sameLen) {
 const g: any = deserialize(GOLDEN);
 
 // (c) disk round-trip: serialize → file → read → deserialize.
-const diskPath = tmpdir() + "\\claude-pickle-golden.rtsp";
+// `join`, not a literal separator: concatenating "\\" produced
+// `/tmp\claude-pickle-golden.rtsp` on the ubuntu/macos runners — one filename
+// containing a backslash, which the open then rejected (EACCES), crashing the
+// whole file. `join` picks the platform separator.
+const diskPath = join(tmpdir(), "claude-pickle-golden.rtsp");
 writeFileSync(diskPath, serialize(buildGraph()) as any);
 const fromDisk: any = deserialize(readFileSync(diskPath) as any);
 

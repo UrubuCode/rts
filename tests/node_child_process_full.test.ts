@@ -1,17 +1,25 @@
 // node:child_process — synchronous exec/spawn.
 import { describe, test, expect } from "rts:test";
 import { execSync, spawnSync, execFileSync } from "node:child_process";
+import { platform } from "node:os";
 
 // echo via the platform shell: `echo hello` prints "hello".
 const out = execSync("echo hello");
 const execOk = out.indexOf("hello") >= 0;
 
-// spawnSync a program directly. Use the platform echo-ish: on Windows `cmd /c echo`.
-// Portable: spawn the shell to run echo.
-const isWin = out.indexOf("\r") >= 0 || true; // can't detect reliably; use cmd on Windows
+// spawnSync a program directly, through the PLATFORM shell.
+//
+// This used to spawn `cmd /c echo world` unconditionally, guarded by
+// `const isWin = out.indexOf("\r") >= 0 || true` — a detection that is always
+// true by construction, with a comment admitting it "can't detect reliably".
+// It can: `os.platform()`. On the ubuntu/macos runners there is no `cmd`, so the
+// spawn failed and the assertion read `false`.
+const isWin = platform() === "win32";
 let spawnStatus = -99;
 let spawnStdout = "";
-const r = spawnSync("cmd", ["/c", "echo", "world"]);
+const r = isWin
+    ? spawnSync("cmd", ["/c", "echo", "world"])
+    : spawnSync("sh", ["-c", "echo world"]);
 spawnStatus = r.status;
 spawnStdout = r.stdout;
 const spawnOk = spawnStatus === 0 && spawnStdout.indexOf("world") >= 0;

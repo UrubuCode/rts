@@ -10,18 +10,41 @@ import {
     parse,
     format,
 } from "node:url";
+import { platform } from "node:os";
 
 // --- IDNA -------------------------------------------------------------------
 const a1 = domainToASCII("español.com");
 const a2 = domainToASCII("中文.com");
 const u1 = domainToUnicode("xn--espaol-zwa.com");
 
-// --- file: URL conversion (Windows-shaped — dev/CI runner is win32) ---------
-const fp1 = fileURLToPath("file:///C:/foo/bar.txt");
-const fp2 = fileURLToPath("file:///C:/foo%20bar"); // %20 → space
-const pfuA = pathToFileURL("C:\\dir\\file.txt");
-const pfu1 = pfuA.href; // → file:///C:/dir/file.txt
-const pfuB = pathToFileURL("C:\\foo#1");
+// --- file: URL conversion ---------------------------------------------------
+//
+// `fileURLToPath`/`pathToFileURL` are PLATFORM-DEPENDENT in Node: a drive-letter
+// URL yields `C:\foo\bar.txt` on win32 and `/C:/foo/bar.txt` on POSIX, and a
+// backslash is a legal filename character on POSIX, not a separator.
+//
+// This block used to hardcode the win32 answers with the comment "dev/CI runner
+// is win32". That was false — the CI matrix runs ubuntu and macos as well, where
+// the runtime returned the correct POSIX answers and the test failed for being
+// right. Input AND expectation are now chosen per platform, so both sides assert
+// the real Node semantics instead of one platform's.
+const isWin = platform() === "win32";
+
+const fileUrl = isWin ? "file:///C:/foo/bar.txt" : "file:///foo/bar.txt";
+const fileUrlPct = isWin ? "file:///C:/foo%20bar" : "file:///foo%20bar";
+const nativePath = isWin ? "C:\\dir\\file.txt" : "/dir/file.txt";
+const nativeHash = isWin ? "C:\\foo#1" : "/foo#1";
+
+const expPath = isWin ? "C:\\foo\\bar.txt" : "/foo/bar.txt";
+const expPathPct = isWin ? "C:\\foo bar" : "/foo bar";
+const expHref = isWin ? "file:///C:/dir/file.txt" : "file:///dir/file.txt";
+const expHrefHash = isWin ? "file:///C:/foo%231" : "file:///foo%231";
+
+const fp1 = fileURLToPath(fileUrl);
+const fp2 = fileURLToPath(fileUrlPct); // %20 → space
+const pfuA = pathToFileURL(nativePath);
+const pfu1 = pfuA.href;
+const pfuB = pathToFileURL(nativeHash);
 const pfu2 = pfuB.href; // # encoded
 
 // --- urlToHttpOptions -------------------------------------------------------
@@ -61,10 +84,10 @@ describe("node:url function surface", () => {
     test("domainToASCII spanish", () => expect(a1).toBe("xn--espaol-zwa.com"));
     test("domainToASCII chinese", () => expect(a2).toBe("xn--fiq228c.com"));
     test("domainToUnicode", () => expect(u1).toBe("español.com"));
-    test("fileURLToPath", () => expect(fp1).toBe("C:\\foo\\bar.txt"));
-    test("fileURLToPath decode", () => expect(fp2).toBe("C:\\foo bar"));
-    test("pathToFileURL href", () => expect(pfu1).toBe("file:///C:/dir/file.txt"));
-    test("pathToFileURL encodes hash", () => expect(pfu2).toBe("file:///C:/foo%231"));
+    test("fileURLToPath", () => expect(fp1).toBe(expPath));
+    test("fileURLToPath decode", () => expect(fp2).toBe(expPathPct));
+    test("pathToFileURL href", () => expect(pfu1).toBe(expHref));
+    test("pathToFileURL encodes hash", () => expect(pfu2).toBe(expHrefHash));
     test("urlToHttpOptions hostname", () => expect(optHost).toBe("example.com"));
     test("urlToHttpOptions port", () => expect(optPort).toBe(8080));
     test("urlToHttpOptions path", () => expect(optPath).toBe("/p?q=1"));

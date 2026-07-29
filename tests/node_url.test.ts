@@ -3,6 +3,7 @@ import {
   fileURLToPath, pathToFileURL, domainToASCII, domainToUnicode,
   urlToHttpOptions, format, parse, resolve as urlResolve,
 } from "node:url";
+import { platform } from "node:os";
 
 // ---- URL instance (ambient global) ----------------------------------------
 const u: any = new URL("https://user:pass@h.com:8443/p/q?x=1&y=2#frag");
@@ -54,7 +55,13 @@ const hrefSetHost = uHref.host;
 const hrefSetPath = uHref.pathname;
 
 // ---- node:url functions ----------------------------------------------------
-const fPath = fileURLToPath("file:///C:/a/b");
+// `fileURLToPath` is PLATFORM-DEPENDENT: a drive-letter URL yields `C:\a\b` on
+// win32 and `/C:/a/b` on POSIX (both are Node-correct on their own platform).
+// This asserted the win32 answer unconditionally, so it failed on the ubuntu and
+// macos CI runners for producing the right result there.
+const isWin = platform() === "win32";
+const fPath = fileURLToPath(isWin ? "file:///C:/a/b" : "file:///a/b");
+const expFPath = isWin ? "C:\\a\\b" : "/a/b";
 const pURL = pathToFileURL("/a/b").href;
 const dAscii = domainToASCII("mañana.com");
 const dUni = domainToUnicode("xn--maana-pta.com");
@@ -95,7 +102,7 @@ describe("node:url", () => {
     expect(hrefSetPath).toBe("/y");
   });
   test("node:url functions", () => {
-    expect(fPath).toBe("C:\\a\\b");
+    expect(fPath).toBe(expFPath);
     expect(pURL).toBe("file:///a/b");
     expect(dAscii).toBe("xn--maana-pta.com");
     expect(dUni).toBe("mañana.com");
