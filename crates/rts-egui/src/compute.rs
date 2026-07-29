@@ -78,6 +78,27 @@ thread_local! {
     static CTX: RefCell<Option<Ctx>> = const { RefCell::new(None) };
 }
 
+/// Release every GPU resource this namespace holds, in order, while the process
+/// is still healthy — pipelines/buffers/stagings first, then the shared device.
+///
+/// See [`crate::frame::gpu::shutdown_shared_gpu`] for why this must not be left
+/// to the thread-local destructor: on Windows that destructor runs from the TLS
+/// callback during DLL unload, and destroying the device there made the AMD D3D12
+/// driver fast-fail with `0xC0000409` after a clean, fully-printed run.
+///
+/// Idempotent and a no-op when the GPU was never touched, so the CLI can call it
+/// unconditionally on its way out.
+pub fn shutdown() {
+    CTX.with(|cell| {
+        if let Ok(mut b) = cell.try_borrow_mut() {
+            // Drops pipes/buffers/pending/stagings AND this context's clone of
+            // the device handles. Must precede the canonical shared-GPU drop.
+            let _ = b.take();
+        }
+    });
+    crate::frame::gpu::shutdown_shared_gpu();
+}
+
 /// Roda `f` com o contexto de compute, criando device (headless) na 1ª chamada.
 /// `default` quando não há GPU — o script vê 0/-1, nunca um crash.
 fn with_gpu<R>(default: R, f: impl FnOnce(&mut Ctx) -> R) -> R {

@@ -115,6 +115,31 @@ thread_local! {
     static SHARED_GPU: RefCell<Option<SharedGpu>> = const { RefCell::new(None) };
 }
 
+/// Drop the shared GPU handles NOW, while the process is still whole.
+///
+/// `std::process::exit` does not run thread-local destructors on the normal
+/// path — but Windows runs them anyway from the TLS callback that fires during
+/// `LdrShutdownProcess`, i.e. WHILE THE DRIVER'S DLLs ARE BEING UNLOADED.
+/// Destroying a `wgpu::Device` at that moment made the AMD D3D12 UMD
+/// (`amdxc64.dll`) raise `__fastfail` → `STATUS_STACK_BUFFER_OVERRUN`
+/// (`0xC0000409`): every bit of program output had already flushed, the process
+/// simply died non-zero with no message, and only Windows Error Reporting
+/// recorded the faulting module. It reproduced whenever the program had
+/// synchronized the device even once (any buffer `map_async`, i.e. `gpu.read` or
+/// the `read_begin`/`read_poll` pair) — never for compile/write/bind/dispatch,
+/// which never map.
+///
+/// Calling this from the CLI before it exits drops the device in ordinary
+/// program context, where the driver is fully loaded and the teardown is the one
+/// it expects. Idempotent, and a no-op when no GPU was ever created.
+pub(crate) fn shutdown_shared_gpu() {
+    SHARED_GPU.with(|cell| {
+        if let Ok(mut b) = cell.try_borrow_mut() {
+            let _ = b.take();
+        }
+    });
+}
+
 /// Retorna (clonando os handles) a GPU compartilhada, criando-a UMA vez. O adapter
 /// é pedido sem `compatible_surface` (desktop: pega o GPU default, compatível com
 /// as surfaces de janela criadas depois).

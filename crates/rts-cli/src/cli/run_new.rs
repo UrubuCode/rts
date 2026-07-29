@@ -18,7 +18,16 @@ pub fn command(input: Option<String>) -> anyhow::Result<()> {
     // directory (M1b) and runs the flattened multi-file program. A single-file
     // program with no imports flows through the same path unchanged. The eval/`-e`
     // path keeps using `run_source` (a string, no disk imports).
-    match rts_codegen_new::front::run::run_path(&input_path) {
+    let status = rts_codegen_new::front::run::run_path(&input_path);
+    // Release the GPU device before `process::exit` — see the note in the bin's
+    // `main`. `process::exit` skips thread-local destructors, but Windows still
+    // runs them from the TLS callback during DLL unload, and dropping a live
+    // `wgpu::Device` there made the AMD D3D12 driver fast-fail (`0xC0000409`)
+    // after an otherwise clean, fully-printed run. This command exits directly,
+    // so it needs its own call — the one in `main` never runs for it. No-op when
+    // no GPU was created.
+    rts_runtime::namespaces::gpu::shutdown();
+    match status {
         Ok(()) => std::process::exit(0),
         Err(unsupported) => {
             eprintln!("error: {unsupported}");
