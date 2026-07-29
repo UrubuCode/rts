@@ -364,11 +364,29 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let nonobj = self.builder.create_block();
         self.builder.ins().brif(is_obj, guarded, &[], nonobj, &[]);
 
-        // Non-object receiver → undefined (`(5).size`).
+        // Non-object receiver → the GENERIC dynamic read, not a hardcoded
+        // `undefined`.
+        //
+        // This block used to answer `undefined` outright, on the reasoning that
+        // `(5).size` has no property. But it is reached for EVERY non-`TAG_OBJECT`
+        // receiver — including a FUNCTION — and this whole path runs whenever any
+        // class in the program (the prelude included) declares a getter of that
+        // name. So `f.name` on a function value returned `undefined` while
+        // `f["name"]` returned the real name, for the same value: the bracket form
+        // reaches `__rtsadp_obj_get`, which resolves a function's `.name`, and the
+        // dot form was cut off here.
+        //
+        // `__rtsadp_obj_get` already answers `undefined` for a receiver with no
+        // such property, so `(5).size` is unchanged — this only stops discarding
+        // the receivers that DO have one.
         self.builder.switch_to_block(nonobj);
         self.builder.seal_block(nonobj);
-        let u = self.builder.ins().iconst(types::I64, undef);
-        self.builder.ins().jump(merge, &[u.into()]);
+        let nonobj_key = self.emit_str_const_word(module, prop)?;
+        let nonobj_val = self
+            .call_runtime(module, "__rtsadp_obj_get", &[recv_word, nonobj_key])?
+            .expect("__rtsadp_obj_get returns a value");
+        self.builder.ins().jump(merge, &[nonobj_val.into()]);
+        let _ = undef;
 
         // Object receiver → shape switch over getter-classes; DEFAULT = data-slot read
         // (`__rtsadp_obj_get`) so a plain object reads its real `prop` value.

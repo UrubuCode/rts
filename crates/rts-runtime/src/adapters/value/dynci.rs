@@ -34,6 +34,21 @@ fn class_tag_of(recv: u64) -> Option<String> {
     if v.is_string() {
         return Some("String".to_string());
     }
+    // Number and Boolean autobox exactly like String — all three are pure-Rust
+    // `#[rtse::class(.., value)]` value-classes whose methods live in
+    // `runtime_ci`. Only String was mapped here, so a method reached BY RUNTIME
+    // NAME on a numeric/boolean primitive found no class and threw:
+    // `(255).toString(16)` worked (static path) while `(255 as any)["toString"](16)`
+    // threw `TypeError: toString is not a function`.
+    //
+    // `is_bool` first: booleans are SINGLETON words, not numbers, and the
+    // number test must not see them.
+    if v.is_bool() {
+        return Some("Boolean".to_string());
+    }
+    if super::genops::is_number(v) {
+        return Some("Number".to_string());
+    }
     if !v.is_object() {
         return None;
     }

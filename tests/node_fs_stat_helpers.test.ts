@@ -1,41 +1,35 @@
 import { describe, test, expect } from "rts:test";
-import {
-  writeFileSync,
-  existsSync,
-  isFileSync,
-  isDirectorySync,
-  sizeSync,
-  rmSync,
-} from "node:fs";
+import { writeFileSync, existsSync, statSync, rmSync } from "node:fs";
+
+// stat over `node:fs`, against the REAL Node surface.
+//
+// This file used to import `isFileSync` / `isDirectorySync` / `sizeSync` — flat
+// helpers from the pre-`node:` era. Its own comment said a full `statSync`
+// returning a `Stats` object was "fase 2, quando os wrappers estiverem
+// prontos". That phase landed: `statSync` returns a real `Stats` with
+// `.size` / `.isFile()` / `.isDirectory()`, and the flat helpers were dropped —
+// so the test bailed at import. Rewritten onto `Stats`, same assertions.
+//
+// Path is relative to cwd on purpose: portable on Linux/macOS/Windows, unlike a
+// hardcoded `/tmp/...` (on Windows the cwd drive has no `/tmp`).
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
   __rtsCapturedOutput += value + "\n";
 }
 
-// #287 / #453 — helpers stat-like sobre rts::fs (statSync completo
-// retornando objeto Stats fica para fase 2 quando builtin/buffer/Stats
-// wrappers estiverem prontos).
-//
-// Path relativo a cwd: portavel em Linux/macOS/Windows. Caminhos
-// hardcoded em `/tmp/...` so' funcionam em Unix; em Windows o cwd-drive
-// nao tem `/tmp` por padrao.
+const PATH = "__rts_stat_helpers.txt";
 
-writeFileSync("__rts_stat_helpers.txt", "hello");
+writeFileSync(PATH, "hello");
 
-const ex = existsSync("__rts_stat_helpers.txt");
-print(ex ? "exists" : "no");
+print(existsSync(PATH) ? "exists" : "no");
 
-const isFile = isFileSync("__rts_stat_helpers.txt");
-print(isFile ? "file" : "no");
+const st = statSync(PATH);
+print(st.isFile() ? "file" : "no");
+print(st.isDirectory() ? "dir" : "notdir");
+print(`${st.size}`);
 
-const isDir = isDirectorySync("__rts_stat_helpers.txt");
-print(isDir ? "dir" : "notdir");
-
-const sz = sizeSync("__rts_stat_helpers.txt");
-print(`${sz}`);
-
-rmSync("__rts_stat_helpers.txt");
+rmSync(PATH);
 
 describe("fixture:node_fs_stat_helpers", () => {
   test("exists/isFile/isDirectory/size", () => {
