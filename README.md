@@ -24,17 +24,17 @@
 JS spec compatibility validated against **Bun** and **Node** over 679 standalone TS fixtures.
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 69.4%   458/660 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 69.4%   459/661 fixtures passing
 ```
 
 | Metric | Value |
 |---|---|
-| **Parity** | **69.4%** (458/660) |
-| ✅ RTS = Bun = Node | 458 |
+| **Parity** | **69.4%** (459/661) |
+| ✅ RTS = Bun = Node | 459 |
 | ❌ RTS diverges | 106 |
 | 💥 RTS runtime error | 96 |
 | 🛠️  **Left to fix** | **202** |
-| ⚠️ Bun ≠ Node (skip) | 19 |
+| ⚠️ Bun ≠ Node (skip) | 18 |
 | 🚫 Rejected (RTS-only) | 0 |
 | 📦 Total fixtures | 679 |
 
@@ -73,15 +73,15 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `2393d5d`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `8be310c`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
-| Monte Carlo π 10M (same xorshift algorithm) | 2.91 s | 5.34 s | 2.20 s | 162 ms | **87 ms** | **33.62×** | **61.74×** |
-| Monte Carlo π 10M (JS `Math.random`) | 96 ms | 191 ms | 149 ms | 154 ms | **87 ms** | **1.11×** | **2.21×** |
-| π decimal ~30 digits (i128 vs BigInt) | 39 ms | 40 ms | 31 ms | 78 ms | **20 ms** | **1.96×** | **2.01×** |
-| Monte Carlo 10M threaded (vs Bun Workers) | 145 ms | — | — | 119 ms | **64 ms** | **2.26×** | — |
-| π Machin f64 (RTS only) | — | — | — | 86 ms | **21 ms** | — | — |
+| Monte Carlo π 10M (same xorshift algorithm) | 4.81 s | 7.52 s | 3.62 s | 191 ms | **121 ms** | **39.91×** | **62.35×** |
+| Monte Carlo π 10M (JS `Math.random`) | 119 ms | 265 ms | 216 ms | 191 ms | **119 ms** | **1.00×** | **2.22×** |
+| π decimal ~30 digits (i128 vs BigInt) | 53 ms | 57 ms | 42 ms | 97 ms | **27 ms** | **1.94×** | **2.10×** |
+| Monte Carlo 10M threaded (vs Bun Workers) | 169 ms | — | — | 170 ms | **106 ms** | **1.60×** | — |
+| π Machin f64 (RTS only) | — | — | — | 95 ms | **27 ms** | — | — |
 
 _Updated: 2026-07-28 — run locally with `powershell -File bench/benchmark.ps1`_
 
