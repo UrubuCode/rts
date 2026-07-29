@@ -167,12 +167,27 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             Some(HirExprKind::Object(fields)) => {
                 !needs_runtime(&fields.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>())
             }
-            Some(HirExprKind::Ident(n)) => match self.local_shapes.get(n) {
-                Some(HeapShape::Object(shape_id)) => {
-                    !needs_runtime(&self.shapes.get(*shape_id).keys)
-                }
-                _ => false,
-            },
+            // A NAMED receiver never takes the compile-time key list. `local_shapes`
+            // records the shape at the point the local was bound, and the front has
+            // no interprocedural analysis: once the object is passed to a function
+            // that adds a key, the recorded list is stale while the object itself is
+            // correct. That produced silently wrong enumeration —
+            //
+            //   const o = {a:1,b:2};
+            //   function poison(x:any,k:string){ x[k]=1 }  poison(o,"c");
+            //   Object.keys(o)      // ["a","b"]   — WRONG (bun: ["a","b","c"])
+            //   JSON.stringify(o)   // {"a":1,"b":2,"c":1} — right, reads the live shape
+            //
+            // — wrong OUTPUT, no bail, no crash. The runtime trampoline
+            // (`__rtsadp_obj_keys` &co) reads the live slot-0 shape id and is what
+            // every other enumeration consumer already uses. Note the object's
+            // constant-slot FIELD reads stay sound and untouched: the write path is
+            // append-only, so an already-emitted `1 + slot` offset never goes stale —
+            // only the key LIST does, which is why this is scoped to enumeration.
+            //
+            // An inline object LITERAL (the arm above) keeps the fast path: it is
+            // constructed in the argument position and cannot have escaped.
+            Some(HirExprKind::Ident(_)) => false,
             _ => false,
         }
     }
