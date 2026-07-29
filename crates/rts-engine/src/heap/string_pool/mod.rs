@@ -15,8 +15,8 @@
 //! introspection) or `rts-primitives` (`Object.create(null)` tracking) or a
 //! `rts-std` sibling (`generator::GEN_SM_DRAIN`) — those did **not** move,
 //! since `rts-engine` cannot depend upward on any of the three. They remain in
-//! `rts-std::collector::string_pool`: `__RTS_FN_RT_SPREAD_INTO_VEC`,
-//! `__RTS_FN_RT_OBJECT_TO_STRING`, `__RTS_FN_RT_INSPECT` (+ its private
+//! `rts-std::collector::string_pool`: `__rtsn_spread_into_vec`,
+//! `__rtsn_object_to_string`, `__rtsn_inspect` (+ its private
 //! `inspect_handle`/`inspect_slot` helpers).
 
 mod alloc;

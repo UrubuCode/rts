@@ -45,7 +45,7 @@ unsafe extern "C" {
 /// Box a fresh real Vec handle as a `TAG_OBJECT` array PolyValue word (the engine's
 /// array representation), matching [`super::arrayops`]'s `slice` result.
 fn box_vec_as_array(vec_handle: u64) -> u64 {
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(vec_handle)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(vec_handle)).raw()
 }
 
 /// JS `ToString` of a PolyValue, interned in the REAL pool, returned as a string
@@ -81,7 +81,7 @@ fn schedule_timer(cb_word: u64, ms_word: u64, periodic: bool) -> u64 {
     if !v.is_function() {
         return PolyValue::from_i32(0).raw();
     }
-    let real = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+    let real = rt_handles::__rtsn_poly_to_handle(v.as_handle());
     let ms = genops::__rtsadp_word_to_abi_i64(ms_word);
     let id = if periodic {
         rt_timers::__RTS_FN_GL_TIMERS_SET_INTERVAL(real, ms)
@@ -110,7 +110,7 @@ pub fn rtsadp_set_immediate(cb_word: u64) -> u64 {
     if !v.is_function() {
         return PolyValue::from_i32(0).raw();
     }
-    let real = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+    let real = rt_handles::__rtsn_poly_to_handle(v.as_handle());
     let id = rt_timers::__RTS_FN_GL_TIMERS_SET_IMMEDIATE(real);
     PolyValue::from_f64(id as f64).raw()
 }
@@ -123,7 +123,7 @@ pub fn rtsadp_queue_microtask(cb_word: u64) -> u64 {
     use rts_runtime::namespaces::globals::text_encoding::instance as rt_micro;
     let v = PolyValue::from_raw(cb_word);
     if v.is_function() {
-        let real = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+        let real = rt_handles::__rtsn_poly_to_handle(v.as_handle());
         rt_micro::__RTS_FN_GL_TEXTENC_QUEUE_MICROTASK(real);
     }
     PolyValue::undefined().raw()
@@ -256,7 +256,7 @@ pub fn rtsadp_arr_is_array(a: u64) -> u64 {
     // for those (a `structuredClone(new Date())` then cloned it as `[]`).
     let is_array = v.is_object() && !super::inspect::looks_like_object(v) && {
         use rts_runtime::namespaces::gc::handles as rt_handles;
-        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+        let h = rt_handles::__rtsn_poly_to_handle(v.as_handle());
         rts_engine::heap::handles::with_entry(h, |e| {
             matches!(e, Some(rts_engine::heap::handles::Entry::Vec(_)))
         })
@@ -300,7 +300,7 @@ pub fn rtsadp_import_meta() -> u64 {
         obj,
         super::abi_adapter::intern_poly(&url).raw() as i64,
     );
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(obj)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(obj)).raw()
 }
 
 /// `Array(n)` / `new Array(n)` — a fresh SPARSE array of length `n`: the slots
@@ -353,7 +353,7 @@ pub fn rtsadp_arr_from(a: u64) -> u64 {
     }
     if v.is_object() && !super::inspect::looks_like_object(v) {
         // A real array → shallow copy of its boxed element words.
-        let src = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+        let src = rt_handles::__rtsn_poly_to_handle(v.as_handle());
         // An `Entry::Buffer` source (a `TextEncoder.encode()` result / raw
         // ArrayBuffer bytes): each byte is one element — `VEC_LEN` on a Buffer
         // reads 0 and yielded `[]` (58_text_encoding's `hex=` was empty).
@@ -440,7 +440,7 @@ pub fn rtsadp_str_from_char_code(code: u64) -> u64 {
 #[rtse::abi]
 pub fn rtsadp_str_from_char_code_arr(arr_word: u64) -> u64 {
     let v = PolyValue::from_raw(arr_word);
-    let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+    let handle = rt_handles::__rtsn_poly_to_handle(v.as_handle());
     let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(handle).max(0);
     let mut out = String::new();
     for i in 0..len {
@@ -511,7 +511,7 @@ pub fn rtsadp_str_split(recv: u64, sep: u64, limit: i64) -> u64 {
 #[rtse::abi]
 pub fn rtsadp_math_reduce(arr_word: u64, op: i64) -> f64 {
     let v = PolyValue::from_raw(arr_word);
-    let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+    let handle = rt_handles::__rtsn_poly_to_handle(v.as_handle());
     let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(handle).max(0);
     if op == 2 {
         // hypot needs ALL elements up front (the scale factor is the max
@@ -595,8 +595,8 @@ pub fn rtsadp_arr_spread_append(dst_word: u64, src_word: u64) {
     if !(src.is_object() && !super::inspect::looks_like_object(src)) {
         return;
     }
-    let dst = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(PolyValue::from_raw(dst_word).as_handle());
-    let s = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(src.as_handle());
+    let dst = rt_handles::__rtsn_poly_to_handle(PolyValue::from_raw(dst_word).as_handle());
+    let s = rt_handles::__rtsn_poly_to_handle(src.as_handle());
     let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(s).max(0);
     for i in 0..len {
         let mut w = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(s, i);

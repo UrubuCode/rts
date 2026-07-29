@@ -147,7 +147,7 @@ pub fn emit_call_sig(
     }
 }
 
-/// `__RTS_FN_NS_GC_POLY_TO_HANDLE(payload)` — the 48-bit PolyValue payload
+/// `__rtsn_poly_to_handle(payload)` — the 48-bit PolyValue payload
 /// (slot+shard) → full real runtime handle, with the 16-bit generation
 /// reconstructed from the live slot. `poly_word` is the raw heap-PolyValue word;
 /// we mask off the tag/header to isolate the 48-bit payload first.
@@ -158,11 +158,11 @@ pub fn emit_table_load(
 ) -> Value {
     let mask = builder.ins().iconst(types::I64, PAYLOAD_MASK as i64);
     let payload = builder.ins().band(poly_word, mask);
-    emit_call(module, builder, "__RTS_FN_NS_GC_POLY_TO_HANDLE", &[payload])
+    emit_call(module, builder, "__rtsn_poly_to_handle", &[payload])
         .expect("POLY_TO_HANDLE returns a value")
 }
 
-/// `__RTS_FN_NS_GC_POLY_FROM_HANDLE(real_handle)` → bare 48-bit slot+shard
+/// `__rtsn_poly_from_handle(real_handle)` → bare 48-bit slot+shard
 /// payload, then box that payload as a string PolyValue. Returns the raw
 /// string-PolyValue word.
 pub fn emit_box_real_string(
@@ -173,7 +173,7 @@ pub fn emit_box_real_string(
     let payload48 = emit_call(
         module,
         builder,
-        "__RTS_FN_NS_GC_POLY_FROM_HANDLE",
+        "__rtsn_poly_from_handle",
         &[real_handle],
     )
     .expect("POLY_FROM_HANDLE returns a value");
@@ -195,7 +195,7 @@ pub fn emit_box_real_object(
     let payload48 = emit_call(
         module,
         builder,
-        "__RTS_FN_NS_GC_POLY_FROM_HANDLE",
+        "__rtsn_poly_from_handle",
         &[real_handle],
     )
     .expect("POLY_FROM_HANDLE returns a value");
@@ -260,7 +260,7 @@ fn box_handle_as(
     let payload48 = emit_call(
         module,
         builder,
-        "__RTS_FN_NS_GC_POLY_FROM_HANDLE",
+        "__rtsn_poly_from_handle",
         &[real_handle],
     )
     .expect("POLY_FROM_HANDLE returns a value");

@@ -1570,7 +1570,7 @@ fn raw_to_word(a: i64) -> i64 {
             None => 0,
         });
         if tag != 0 {
-            let slot = rts_engine::heap::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(w);
+            let slot = rts_engine::heap::handles::__rtsn_poly_from_handle(w);
             return (p::POLY_BOX_BASE | (tag << p::POLY_TAG_SHIFT) | slot) as i64;
         }
     }

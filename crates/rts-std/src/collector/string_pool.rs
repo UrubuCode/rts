@@ -8,11 +8,11 @@
 //!
 //! What's LEFT here are the three functions that genuinely need something
 //! `rts-engine` cannot depend on:
-//! - `__RTS_FN_RT_SPREAD_INTO_VEC` — Set-kind spread needs
+//! - `__rtsn_spread_into_vec` — Set-kind spread needs
 //!   `rts_shared::collections::map` (Set/Map storage introspection), and
 //!   generator-lazy spread needs the `rts-std` sibling
 //!   `collector::generator::GEN_SM_DRAIN`.
-//! - `__RTS_FN_RT_OBJECT_TO_STRING` / `__RTS_FN_RT_INSPECT` (+ their private
+//! - `__rtsn_object_to_string` / `__rtsn_inspect` (+ their private
 //!   `inspect_handle`/`inspect_slot` helpers) — both need
 //!   `rts_shared::collections::map` (Map-vs-Set tagging) and
 //!   `rts_primitives::object::is_null_proto_handle` (`Object.create(null)`
@@ -34,8 +34,8 @@ pub use rts_engine::heap::string_pool::*;
 /// - outros -> no-op
 ///
 /// Usado por `[...x]` no codegen quando `x` pode ser string/array.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_SPREAD_INTO_VEC(dst: u64, src: u64) {
+#[rtse::abi(native, value = "spread_into_vec")]
+pub fn spread_into_vec(dst: u64, src: u64) {
     if dst == 0 || src == 0 {
         return;
     }
@@ -63,7 +63,7 @@ pub extern "C" fn __RTS_FN_RT_SPREAD_INTO_VEC(dst: u64, src: u64) {
     // (#477) Generator lazy (state-machine): drena ate done num Vec, depois
     // spread normal. Para generator infinito o spread roda pra sempre — igual JS.
     if with_entry(src, |e| matches!(e, Some(Entry::GenState(_)))) {
-        let drained = crate::collector::generator::__RTS_FN_NS_GC_GEN_SM_DRAIN(src);
+        let drained = crate::collector::generator::__rtsn_gen_sm_drain(src);
         let items = with_entry(drained, |entry| match entry {
             Some(Entry::Vec(slots)) => slots.as_ref().clone(),
             _ => Vec::new(),
@@ -124,8 +124,8 @@ fn push_vec_slot(dst: u64, value: i64) {
 ///
 /// Para tag=0, inspeciona Entry: Vec->Array, Map->Object, Date->Date,
 /// Regex->RegExp, Function->Function, etc.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_OBJECT_TO_STRING(value: i64, tag: i64) -> u64 {
+#[rtse::abi(native, value = "object_to_string")]
+pub fn object_to_string(value: i64, tag: i64) -> u64 {
     let kind: &str = match tag {
         1 => "Number",
         2 => "String",
@@ -176,8 +176,8 @@ pub extern "C" fn __RTS_FN_RT_OBJECT_TO_STRING(value: i64, tag: i64) -> u64 {
 ///
 /// String top-level retorna o handle original (passthrough), igual ao
 /// TPL_COERCE_AUTO, preservando `console.log("oi")` -> `oi`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_INSPECT(value: i64) -> u64 {
+#[rtse::abi(native, value = "inspect")]
+pub fn inspect(value: i64) -> u64 {
     use rts_engine::heap::handles::alloc_entry;
     use rts_engine::heap::string_pool::{EntrySnap, format_js_number, snapshot_entry};
     // Sentinelas: false/true/undefined/null/sparse-hole (consistente

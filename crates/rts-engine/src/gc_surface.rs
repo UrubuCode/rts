@@ -46,11 +46,11 @@ pub use crate::heap::string_pool::{
 unsafe extern "C" {
     /// Set the pending error (thrown value) and capture the current call
     /// stack. (`rts-std` `collector::error`)
-    pub safe fn __RTS_FN_RT_ERROR_SET(handle: u64);
+    pub safe fn __rtsn_error_set(handle: u64);
 
     /// Drain a generator/async-generator's state machine to completion.
     /// (`rts-std` `collector::generator`)
-    pub safe fn __RTS_FN_NS_GC_GEN_SM_DRAIN(h: u64) -> u64;
+    pub safe fn __rtsn_gen_sm_drain(h: u64) -> u64;
 
     /// Generic runtime-dispatch invocation of a Function-class handle:
     /// `callee(this_arg, ...args)`. (`rts-primitives` `function::ops`)
@@ -62,7 +62,7 @@ unsafe extern "C" {
 
     /// Handle of the native Function backing `Array.prototype[Symbol.iterator]`.
     /// (`rts-std` `collector::generator`)
-    pub safe fn __RTS_FN_GL_ARRAY_ITERATOR_FN() -> u64;
+    pub safe fn __rtsm_global_array_iterator_fn() -> u64;
 
     /// Create an already-fulfilled Promise wrapping `value`, return its
     /// handle. (`rts-std` `globals::fetch::instance`)

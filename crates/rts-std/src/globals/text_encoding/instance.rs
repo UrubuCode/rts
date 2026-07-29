@@ -141,15 +141,15 @@ fn b64_decode(s: &[u8]) -> Option<Vec<u8>> {
     Some(out)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TEXTENC_BTOA(ptr: i64, len: i64) -> u64 {
+#[rtse::abi(global, value = "btoa")]
+pub fn btoa(ptr: i64, len: i64) -> u64 {
     let s = str_from_parts(ptr, len);
     let encoded = b64_encode(s.as_bytes());
     alloc_entry(Entry::String(encoded))
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TEXTENC_ATOB(ptr: i64, len: i64) -> u64 {
+#[rtse::abi(global, value = "atob")]
+pub fn atob(ptr: i64, len: i64) -> u64 {
     let s = str_from_parts(ptr, len);
     match b64_decode(s.as_bytes()) {
         Some(decoded) => alloc_entry(Entry::String(decoded)),
@@ -864,7 +864,7 @@ pub fn drain_microtasks() {
                         // criar ciclo std→runtime. Usá-la em vez de re-declarar
                         // localmente evita o warning `clashing_extern_declarations`
                         // (safe vs unsafe) sem mudar o símbolo nem o link.
-                        crate::gc_surface::__RTS_FN_RT_ASYNC_SM_RESUME(
+                        crate::gc_surface::__rtsn_async_sm_resume(
                             gen_handle,
                             value,
                             if rejected { 1 } else { 0 },

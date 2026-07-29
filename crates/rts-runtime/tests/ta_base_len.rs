@@ -6,18 +6,18 @@ unsafe extern "C" {
     fn __RTS_FN_GL_TA_NEW_U32(arg: u64) -> u64;
     fn __RTS_FN_GL_TA_SET_ELEM(handle: u64, index: i64, elem_bytes: i64, is_float: i64, val: i64);
     fn __rtsadp_ta_view_base_len(view_word: u64, out_base: *mut i64, out_count: *mut i64) -> i64;
-    fn __RTS_FN_NS_GC_POLY_FROM_HANDLE(handle: u64) -> u64;
+    fn __rtsn_poly_from_handle(handle: u64) -> u64;
 }
 
 fn view_word_over(buf_bytes: i64, ctor: unsafe extern "C" fn(u64) -> u64) -> (u64, u64) {
     let bh = unsafe { __RTS_FN_NS_BUFFER_ALLOC_ZEROED(buf_bytes) };
     let bw = rts_runtime::adapters::value::PolyValue::from_object_handle(unsafe {
-        __RTS_FN_NS_GC_POLY_FROM_HANDLE(bh)
+        __rtsn_poly_from_handle(bh)
     })
     .raw();
     let vraw = unsafe { ctor(bw) };
     let vw = rts_runtime::adapters::value::PolyValue::from_object_handle(unsafe {
-        __RTS_FN_NS_GC_POLY_FROM_HANDLE(vraw)
+        __rtsn_poly_from_handle(vraw)
     })
     .raw();
     (bh, vw)

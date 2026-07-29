@@ -122,7 +122,7 @@ pub(crate) fn view_parts(word: u64) -> Option<(u64, i64, i64, i64)> {
     if !v.is_object() {
         return None;
     }
-    let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+    let h = rt_handles::__rtsn_poly_to_handle(v.as_handle());
     let slots: Option<[u64; 5]> = with_entry(h, |e| match e {
         Some(Entry::Vec(vec)) if vec.len() >= 5 => {
             Some([vec[0] as u64, vec[1] as u64, vec[2] as u64, vec[3] as u64, vec[4] as u64])
@@ -147,7 +147,7 @@ pub(crate) fn view_parts(word: u64) -> Option<(u64, i64, i64, i64)> {
     if bytes <= 0 {
         return None;
     }
-    let bh = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(bv.as_handle());
+    let bh = rt_handles::__rtsn_poly_to_handle(bv.as_handle());
     Some((bh, bytes, num(slots[3]), num(slots[4])))
 }
 
@@ -238,7 +238,7 @@ fn ta_new(arg_word: u64, k: Kind) -> u64 {
         return finish(out);
     }
     if v.is_object() {
-        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+        let h = rt_handles::__rtsn_poly_to_handle(v.as_handle());
         // ArrayBuffer (Entry::Buffer): a level-B live VIEW over the shared bytes.
         let is_buffer = rts_engine::heap::handles::with_entry(h, |e| {
             matches!(e, Some(rts_engine::heap::handles::Entry::Buffer(_)))
@@ -347,7 +347,7 @@ pub fn rtsadp_arr_ta_set(arr_word: u64, src_word: u64, off_word: u64) -> u64 {
         if s.is_object() {
             let off = super::genops::to_number(PolyValue::from_raw(off_word));
             let off = if off.is_finite() && off > 0.0 { off as i64 } else { 0 };
-            let sh = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(s.as_handle());
+            let sh = rt_handles::__rtsn_poly_to_handle(s.as_handle());
             let slen = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(sh).max(0);
             for i in 0..slen {
                 let w = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(sh, i) as u64;
@@ -357,8 +357,8 @@ pub fn rtsadp_arr_ta_set(arr_word: u64, src_word: u64, off_word: u64) -> u64 {
         return PolyValue::undefined().raw();
     }
     if a.is_object() && s.is_object() {
-        let ah = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(a.as_handle());
-        let sh = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(s.as_handle());
+        let ah = rt_handles::__rtsn_poly_to_handle(a.as_handle());
+        let sh = rt_handles::__rtsn_poly_to_handle(s.as_handle());
         let off = super::genops::to_number(PolyValue::from_raw(off_word));
         let off = if off.is_finite() && off > 0.0 { off as i64 } else { 0 };
         let slen = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(sh).max(0);
@@ -401,7 +401,7 @@ fn atomics_loc(arr_word: u64, idx_word: u64) -> Option<(Loc, i64)> {
     if !a.is_object() {
         return None;
     }
-    let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(a.as_handle());
+    let h = rt_handles::__rtsn_poly_to_handle(a.as_handle());
     let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(h).max(0);
     if i < 0 || i >= len {
         return None;
@@ -544,14 +544,14 @@ pub fn rtsadp_pack_rest(
     }
     let rv = PolyValue::from_raw(rest_word);
     if rv.is_object() {
-        let rh = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(rv.as_handle());
+        let rh = rt_handles::__rtsn_poly_to_handle(rv.as_handle());
         let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(rh).max(0);
         for i in 0..len {
             let w = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(rh, i);
             rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, w);
         }
     }
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(out)).raw()
 }
 
 /// 1-arg form `ta.set(src)` — offset 0.
@@ -574,7 +574,7 @@ pub fn rtsadp_arr_subarray(arr_word: u64, begin_word: u64, end_word: u64) -> u64
     let a = PolyValue::from_raw(arr_word);
     let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     if a.is_object() {
-        let ah = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(a.as_handle());
+        let ah = rt_handles::__rtsn_poly_to_handle(a.as_handle());
         let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(ah).max(0);
         let norm = |w: u64, dflt: i64| -> i64 {
             let v = PolyValue::from_raw(w);
@@ -593,5 +593,5 @@ pub fn rtsadp_arr_subarray(arr_word: u64, begin_word: u64, end_word: u64) -> u64
             rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, w);
         }
     }
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(out)).raw()
 }

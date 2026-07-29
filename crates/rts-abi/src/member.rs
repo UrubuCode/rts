@@ -106,7 +106,7 @@ impl MemberFlags {
     /// `toTimeString` formatters and every `setX` mutator.
     pub const UNSOUND: Self = Self(1 << 6);
     /// Member can THROW: the impl may set the pending-error slot
-    /// (`__RTS_FN_RT_ERROR_SET`) — codegen emits the post-call error check
+    /// (`__rtsn_error_set`) — codegen emits the post-call error check
     /// after the call so a `try/catch` routes the unwind (e.g. a
     /// `{fatal: true}` TextDecoder rejecting malformed input with TypeError).
     pub const THROWS: Self = Self(1 << 7);

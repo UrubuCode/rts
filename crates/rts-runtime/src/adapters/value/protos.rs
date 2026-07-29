@@ -147,7 +147,7 @@ pub fn rtsadp_obj_create(proto_word: u64) -> u64 {
     let slot0 = PolyValue::from_i32(empty_shape as i32).raw() as i64;
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(obj_handle, slot0);
     let obj_word =
-        PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(obj_handle)).raw();
+        PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(obj_handle)).raw();
 
     if PolyValue::from_raw(proto_word).is_object() {
         if let Ok(mut t) = proto_table().lock() {
@@ -271,7 +271,7 @@ pub fn rtsadp_class_proto(name_str_word: u64) -> u64 {
     // PIN: the proto word is cached for the whole program (like an interned
     // string constant) — it must never be swept.
     rt_handles::__RTS_FN_NS_GC_PIN_HANDLE(h);
-    let w = PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h)).raw();
+    let w = PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(h)).raw();
     t.insert(name, w);
     w
 }
@@ -415,7 +415,7 @@ fn empty_proto_object() -> u64 {
     let shape = rts_engine::heap::shapes::intern_global_shape(&[]);
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(h, PolyValue::from_i32(shape as i32).raw() as i64);
     rt_handles::__RTS_FN_NS_GC_PIN_HANDLE(h);
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(h)).raw()
 }
 
 /// `Reflect.setPrototypeOf(obj, proto)` — like [`__rtsadp_obj_set_proto`] but

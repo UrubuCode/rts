@@ -37,12 +37,12 @@ use super::{PolyValue, abi_adapter, genops};
 /// Box a real regex runtime handle as a `TAG_OBJECT` PolyValue word (the RegExp
 /// instance representation — same boxing as Map/Set/array objects).
 fn box_re(handle: u64) -> u64 {
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(handle)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(handle)).raw()
 }
 
 /// The real regex runtime handle behind a `TAG_OBJECT` RegExp instance word.
 fn unbox_re(word: u64) -> u64 {
-    rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(PolyValue::from_raw(word).as_handle())
+    rt_handles::__rtsn_poly_to_handle(PolyValue::from_raw(word).as_handle())
 }
 
 /// The real string handle behind a string PolyValue word.
@@ -71,7 +71,7 @@ fn rebox_string_vec_as_array(raw_vec: u64) -> u64 {
         let word = abi_adapter::poly_from_real_handle(raw_str).raw() as i64;
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, word);
     }
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(out)).raw()
 }
 
 /// Read the UTF-8 text of a string handle (for the extern's `(ptr,len)` ABI).
@@ -198,7 +198,7 @@ pub fn rtsadp_re_exec(re_word: u64, subj_word: u64) -> u64 {
     if first == 0 {
         return PolyValue::null().raw();
     }
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(first as u64)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(first as u64)).raw()
 }
 
 /// `s.replace(re, repl)` / `s.replaceAll(re, repl)` — the ONE polymorphic
@@ -412,7 +412,7 @@ pub fn rtsadp_re_str_split(subj_word: u64, re_word: u64, limit_word: u64) -> u64
     };
     let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     let finish =
-        |h: u64| PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h)).raw();
+        |h: u64| PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(h)).raw();
     if lim == 0 {
         return finish(out);
     }

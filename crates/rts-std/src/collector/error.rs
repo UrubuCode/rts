@@ -55,8 +55,8 @@ fn free_handle_if_any(handle: u64) {
 }
 
 /// Sets the pending runtime error (thrown value handle) and captures stack.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_ERROR_SET(handle: u64) {
+#[rtse::abi(native, value = "error_set")]
+pub fn error_set(handle: u64) {
     ERROR_SLOT.with(|slot| {
         let mut slot = slot.borrow_mut();
         free_handle_if_any(slot.stack);
@@ -66,14 +66,14 @@ pub extern "C" fn __RTS_FN_RT_ERROR_SET(handle: u64) {
 }
 
 /// Reads pending thrown value handle. `0` means no pending error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_ERROR_GET() -> u64 {
+#[rtse::abi(native, value = "error_get")]
+pub fn error_get() -> u64 {
     ERROR_SLOT.with(|slot| slot.borrow().message)
 }
 
 /// Reads pending stack handle associated with the error, `0` when none.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_ERROR_GET_STACK() -> u64 {
+#[rtse::abi(native, value = "error_get_stack")]
+pub fn error_get_stack() -> u64 {
     ERROR_SLOT.with(|slot| slot.borrow().stack)
 }
 
@@ -83,8 +83,8 @@ pub extern "C" fn __RTS_FN_RT_ERROR_GET_STACK() -> u64 {
 pub use rts_engine::collector::err_stack::stack_for_handle;
 
 /// Clears pending runtime error and releases captured stack handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_ERROR_CLEAR() {
+#[rtse::abi(native, value = "error_clear")]
+pub fn error_clear() {
     ERROR_SLOT.with(|slot| {
         let mut slot = slot.borrow_mut();
         // (#745) Salva stack para ler dentro do catch body — RTS_FN_GL_ERROR_STACK
@@ -168,8 +168,8 @@ pub fn take_runtime_error_report() -> Option<RuntimeErrorReport> {
 /// (`format_runtime_error`), indisponível no binário AOT. Este extern dá ao shim
 /// `main` do AOT a paridade mínima: imprime `Name: message` + frames + cadeia de
 /// cause, e sinaliza exit code != 0. Antes o AOT saía 0 SEM imprimir uncaught.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_REPORT_UNCAUGHT() -> i32 {
+#[rtse::abi(native, value = "report_uncaught")]
+pub fn report_uncaught() -> i32 {
     match take_runtime_error_report() {
         Some(report) => {
             eprint!("{}", format_report_plain(&report));

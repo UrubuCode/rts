@@ -75,7 +75,7 @@ pub fn register(e: &mut Engine) {
         // (string_pool/handles) e registrados direto no `runtime_link` do motor para
         // uso INTERNO; o que sai é só a superfície exposta ao TS. Drenar as Entry/
         // símbolos mortos é a fase B (handles.rs). Sobra só o núcleo chamável de TS:
-        .member(ext("collect", Sig::new(vec![AbiType::Handle], AbiType::I64), "__RTS_FN_NS_GC_COLLECT", "collect(root: number): number", false))
-        .member(ext("live_count", Sig::new(Vec::new(), AbiType::I64), "__RTS_FN_NS_GC_LIVE_COUNT", "live_count(): number", false))
+        .member(ext("collect", Sig::new(vec![AbiType::Handle], AbiType::I64), "__rtsn_collect", "collect(root: number): number", false))
+        .member(ext("live_count", Sig::new(Vec::new(), AbiType::I64), "__rtsn_live_count", "live_count(): number", false))
         .done();
 }

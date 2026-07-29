@@ -69,7 +69,7 @@ pub fn rtsadp_fn_ptr(fn_word: u64) -> u64 {
     if !pv.is_function() {
         return 0;
     }
-    let real = rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(pv.as_handle());
+    let real = rts_runtime::namespaces::gc::handles::__rtsn_poly_to_handle(pv.as_handle());
     with_entry(real, |e| match e {
         Some(Entry::Function(d)) => d.fn_ptr,
         _ => 0,
@@ -101,8 +101,8 @@ pub fn fn_value_identity_eq(a: u64, b: u64) -> bool {
     if !pa.is_function() || !pb.is_function() {
         return false;
     }
-    let ra = rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(pa.as_handle());
-    let rb = rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(pb.as_handle());
+    let ra = rts_runtime::namespaces::gc::handles::__rtsn_poly_to_handle(pa.as_handle());
+    let rb = rts_runtime::namespaces::gc::handles::__rtsn_poly_to_handle(pb.as_handle());
     let identity = |real: u64| {
         with_entry(real, |e| match e {
             Some(Entry::Function(d)) => Some((d.fn_ptr, d.bound_this, d.bound_args.clone())),
@@ -196,7 +196,7 @@ extern "C" fn math_minmax_thunk(env: u64, a0: u64, a1: u64, a2: u64, a3: u64, re
         for w in [a0, a1, a2, a3] {
             take(w);
         }
-        let h = rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(rv.as_handle());
+        let h = rts_runtime::namespaces::gc::handles::__rtsn_poly_to_handle(rv.as_handle());
         let len = rts_runtime::namespaces::collections::vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(h)
             .max(0);
         for i in 0..len {
@@ -299,7 +299,7 @@ pub fn rtsadp_coerce_fn_value(op: u64) -> u64 {
 extern "C" fn prim_method_thunk(env: u64, a0: u64, a1: u64, a2: u64, _a3: u64, _rest: u64) -> u64 {
     let undef = PolyValue::undefined().raw();
     let (recv, name) = {
-        let h = rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(
+        let h = rts_runtime::namespaces::gc::handles::__rtsn_poly_to_handle(
             PolyValue::from_raw(env).as_handle(),
         );
         with_entry(h, |e| match e {
@@ -417,7 +417,7 @@ fn fn_identity(fn_word: u64) -> u64 {
     let pv = PolyValue::from_raw(fn_word);
     if pv.is_function() {
         let real =
-            rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(pv.as_handle());
+            rts_runtime::namespaces::gc::handles::__rtsn_poly_to_handle(pv.as_handle());
         return with_entry(real, |e| match e {
             Some(Entry::Function(d)) => d.fn_ptr,
             _ => 0,
@@ -744,7 +744,7 @@ pub fn rtsadp_fn_invoke(
     }
     // Reconstruct the full real handle (generation read from the live slot) from
     // the bare 48-bit payload, then read the stored thunk address AND env word.
-    let real = rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(pv.as_handle());
+    let real = rts_runtime::namespaces::gc::handles::__rtsn_poly_to_handle(pv.as_handle());
     let (addr, env, has_this, rest_idx, uniform, arity, bound) = with_entry(real, |e| match e {
         Some(Entry::Function(d)) => (
             d.fn_ptr,
@@ -870,7 +870,7 @@ pub fn rtsadp_fn_bind(fn_word: u64, this_word: u64, args_vec: u64) -> u64 {
     if !pv.is_function() {
         return PolyValue::undefined().raw();
     }
-    let real = rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(pv.as_handle());
+    let real = rts_runtime::namespaces::gc::handles::__rtsn_poly_to_handle(pv.as_handle());
     let items: Vec<i64> = with_entry(args_vec, |e| match e {
         Some(E::Vec(v)) => v.as_ref().clone(),
         _ => Vec::new(),
@@ -919,7 +919,7 @@ pub fn rtsadp_fn_bind(fn_word: u64, this_word: u64, args_vec: u64) -> u64 {
     };
     let h = alloc_entry(E::Function(data));
     PolyValue::from_function_handle(
-        rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h),
+        rts_runtime::namespaces::gc::handles::__rtsn_poly_from_handle(h),
     )
     .raw()
 }
@@ -964,7 +964,7 @@ pub fn rtsadp_fn_new(args_vec: u64) -> u64 {
     // por flag no invoke). Passo A3 da drenagem da convenção legacy.
     let wrapped = wrap_raw_callee_uniform(h);
     PolyValue::from_function_handle(
-        rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(wrapped),
+        rts_runtime::namespaces::gc::handles::__rtsn_poly_from_handle(wrapped),
     )
     .raw()
 }
@@ -1030,7 +1030,7 @@ pub fn rtsadp_fn_apply_arr(fn_word: u64, arr_word: u64) -> u64 {
     let undef = PolyValue::undefined().raw();
     let av = PolyValue::from_raw(arr_word);
     let (h, len) = if av.is_object() {
-        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(av.as_handle());
+        let h = rt_handles::__rtsn_poly_to_handle(av.as_handle());
         (h, rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(h).max(0))
     } else {
         (0, 0)
@@ -1047,7 +1047,7 @@ pub fn rtsadp_fn_apply_arr(fn_word: u64, arr_word: u64) -> u64 {
         for i in 4..len {
             rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, elem(i) as i64);
         }
-        PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out)).raw()
+        PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(out)).raw()
     } else {
         PolyValue::from_i32(len as i32).raw()
     };
@@ -1069,7 +1069,7 @@ pub fn rtsadp_fn_apply_this(fn_word: u64, this_word: u64, arr_word: u64) -> u64 
     let undef = PolyValue::undefined().raw();
     let av = PolyValue::from_raw(arr_word);
     let (h, len) = if av.is_object() {
-        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(av.as_handle());
+        let h = rt_handles::__rtsn_poly_to_handle(av.as_handle());
         (h, rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(h).max(0))
     } else {
         (0, 0)
@@ -1086,7 +1086,7 @@ pub fn rtsadp_fn_apply_this(fn_word: u64, this_word: u64, arr_word: u64) -> u64 
         for i in 3..len {
             rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, elem(i) as i64);
         }
-        PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out)).raw()
+        PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(out)).raw()
     } else {
         PolyValue::from_i32(len as i32).raw()
     };
@@ -1122,7 +1122,7 @@ pub fn rtsadp_invoke_cb(cb: u64, a0: u64) -> u64 {
             return undef;
         }
         let slot =
-            rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(raw);
+            rts_runtime::namespaces::gc::handles::__rtsn_poly_from_handle(raw);
         PolyValue::from_function_handle(slot).raw()
     };
     __rtsadp_fn_invoke_method(fn_word, undef, a0, undef, undef, 0)
@@ -1154,7 +1154,7 @@ pub fn rtsadp_fn_invoke_method(
         // `recv.m()` where `m` resolved to a NON-function — JS TypeError.
         return throw_not_a_function();
     }
-    let real = rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(pv.as_handle());
+    let real = rts_runtime::namespaces::gc::handles::__rtsn_poly_to_handle(pv.as_handle());
     let (addr, env, has_this, uniform, arity, bound) = with_entry(real, |e| match e {
         Some(Entry::Function(d)) => (
             d.fn_ptr,

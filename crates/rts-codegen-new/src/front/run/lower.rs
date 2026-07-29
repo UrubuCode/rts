@@ -304,7 +304,7 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// stores the env on the function entry).
     pub captures: &'c HashMap<String, Vec<String>>,
     /// MODULE-LEVEL MUTABLE GLOBALS (epic #195): top-level `let` name → cell id. A
-    /// name in this map resolves (read/write) through `__RTS_FN_NS_GC_GCELL_GET/SET`
+    /// name in this map resolves (read/write) through `__rtsn_gcell_get/SET`
     /// by its id, NOT a Cranelift Variable — checked AFTER `self.local` so a
     /// same-named param/local in the current function still shadows it.
     pub gcells: &'c HashMap<String, u32>,

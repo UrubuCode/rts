@@ -54,7 +54,7 @@ use scan::{
 /// MODULE-LEVEL MUTABLE GLOBALS (epic #195). Compute the set of top-level `let`
 /// variables that are WRITTEN from inside SOME function (as a free variable — not
 /// the function's own param/local). These are promoted to runtime CELLS: every
-/// access (top-level + the function) goes through `__RTS_FN_NS_GC_GCELL_GET/SET`
+/// access (top-level + the function) goes through `__rtsn_gcell_get/SET`
 /// by the returned compile-time id, sidestepping the by-value capture limitation.
 ///
 /// The rts:test harness's `print` helper (`let __rtsCapturedOutput = "";

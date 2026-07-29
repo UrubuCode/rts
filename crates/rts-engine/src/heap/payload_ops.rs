@@ -75,8 +75,8 @@ fn with_payload_slot_mut<R>(poly48: u64, f: impl FnOnce(Option<&mut Entry>) -> R
 /// Element `index` of the vec at `poly48`, or 0 when the slot is invalid, is not
 /// a vec, or the index is out of range — byte-for-byte the result the
 /// `POLY_TO_HANDLE` + `VEC_GET` pair produces today.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsn_vec_get_by_payload(poly48: u64, index: i64) -> i64 {
+#[rtse::abi(native, value = "vec_get_by_payload")]
+pub fn vec_get_by_payload(poly48: u64, index: i64) -> i64 {
     if index < 0 {
         return 0;
     }
@@ -89,8 +89,8 @@ pub extern "C" fn __rtsn_vec_get_by_payload(poly48: u64, index: i64) -> i64 {
 /// Store `value` at `index`, growing with zeros the way the unfused path does.
 /// Returns 1 on success, 0 when the slot is invalid or not a vec, matching the
 /// existing `VEC_SET` contract.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsn_vec_set_by_payload(poly48: u64, index: i64, value: i64) -> i64 {
+#[rtse::abi(native, value = "vec_set_by_payload")]
+pub fn vec_set_by_payload(poly48: u64, index: i64, value: i64) -> i64 {
     if index < 0 {
         return 0;
     }
@@ -113,8 +113,8 @@ pub extern "C" fn __rtsn_vec_set_by_payload(poly48: u64, index: i64, value: i64)
 /// `resize` does, so a reallocation of the backing buffer cannot be observed by
 /// anything holding a stale pointer — no pointer survives the call boundary in
 /// either direction.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsn_vec_push_by_payload(poly48: u64, value: i64) -> i64 {
+#[rtse::abi(native, value = "vec_push_by_payload")]
+pub fn vec_push_by_payload(poly48: u64, value: i64) -> i64 {
     with_payload_slot_mut(poly48, |entry| match entry {
         Some(Entry::Vec(v)) => {
             v.push(value);
@@ -125,8 +125,8 @@ pub extern "C" fn __rtsn_vec_push_by_payload(poly48: u64, value: i64) -> i64 {
 }
 
 /// Length of the vec at `poly48`, or -1 for an invalid slot / non-vec.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsn_vec_len_by_payload(poly48: u64) -> i64 {
+#[rtse::abi(native, value = "vec_len_by_payload")]
+pub fn vec_len_by_payload(poly48: u64) -> i64 {
     with_payload_slot(poly48, |entry| match entry {
         Some(Entry::Vec(v)) => v.len() as i64,
         _ => -1,
@@ -194,8 +194,8 @@ mod tests {
 ///
 /// Same argument as the `by_payload` accessors above: the generation is read and
 /// then immediately discarded by the very next call.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rtsn_vec_new_object() -> u64 {
+#[rtse::abi(native, value = "vec_new_object")]
+pub fn vec_new_object() -> u64 {
     let handle = alloc_entry(Entry::Vec(Box::new(Vec::new())));
     let payload = handle & SLOT_MASK;
     crate::heap::poly::POLY_BOX_BASE

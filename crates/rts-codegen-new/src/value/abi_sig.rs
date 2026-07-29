@@ -230,14 +230,6 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
         // ---- REAL string pool (rts-std collector::string_pool) ----
         // STRING_NEW(ptr,len) -> handle  — StrPtr = two slots.
         // module-level mutable global cells (epic #195): GET(id)->word, SET(id,word).
-        "__RTS_FN_NS_GC_GCELL_GET" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
-        "__RTS_FN_NS_GC_GCELL_SET" => SymSig {
-            params: &[U64, U64],
-            ret: Void,
-        },
         "__RTS_FN_NS_GC_STRING_NEW" | "__RTS_FN_NS_GC_STRING_FROM_STATIC" => SymSig {
             params: &[StrPtr],
             ret: Handle,
@@ -270,7 +262,7 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
             params: &[I64],
             ret: Handle,
         },
-        // (`__RTS_FN_NS_GC_STRING_FROM_F64` was CONVERTED to `#[rtse::abi]` in
+        // (`__rtsn_string_from_f64` was CONVERTED to `#[rtse::abi]` in
         // `rts-engine` — the baked table derives `[F64] -> Handle` from the Rust
         // signature, identical to the row that used to sit here.)
 
@@ -309,35 +301,11 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
         // entries above except the leading arg is a payload, not a handle — and
         // SET returns i64 (1/0) rather than Void, so a caller can tell a rejected
         // slot from a stored one.
-        "__rtsn_vec_get_by_payload" => SymSig {
-            params: &[U64, I64],
-            ret: I64,
-        },
-        "__rtsn_vec_set_by_payload" => SymSig {
-            params: &[U64, I64, I64],
-            ret: I64,
-        },
-        "__rtsn_vec_new_object" => SymSig {
-            params: &[],
-            ret: U64,
-        },
-        "__rtsn_vec_push_by_payload" => SymSig {
-            params: &[U64, I64],
-            ret: I64,
-        },
-        "__rtsn_vec_len_by_payload" => SymSig {
-            params: &[U64],
-            ret: I64,
-        },
 
         // ---- REAL PolyValue <-> handle bridge (rts-engine heap::handles) ----
         // FROM_HANDLE: full real handle -> bare 48-bit slot+shard payload.
         // TO_HANDLE: 48-bit payload -> full real handle (gen reconstructed from
         // the live slot). These REPLACE the old `__rtsadp_store/_load` table.
-        "__RTS_FN_NS_GC_POLY_FROM_HANDLE" | "__RTS_FN_NS_GC_POLY_TO_HANDLE" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
         // (The `__rtsadp_*` generic operators that shared this arm — typeof /
         // to_string / to_boolean / await / word_to_abi_i64 / box_handle_auto /
         // class_proto, and the whole two-word arithmetic + comparison + bitwise
@@ -395,86 +363,8 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
         // canon_double(word) -> a guaranteed inline-double PolyValue word.
         // arr_spread_append(dst_word, src_word) -> void (push all src elements).
 
-        // ---- codegen-owned ITERATION-source trampolines (P5.10) ----
-        // str_chars(str_word) -> TAG_OBJECT array word of one-char strings;
-        // obj_keys(obj_word) -> TAG_OBJECT array word of key strings. Both take one
-        // PolyValue word and return a fresh array PolyValue word.
-        // SYNC generator primitives (eager MVP): all u64/i64 (vec handle / value).
-        "__RTS_FN_NS_GC_GENERATOR_SET_RET"
-        | "__RTS_FN_NS_GC_GENERATOR_NEXT_SENT"
-        | "__RTS_FN_NS_GC_GENERATOR_RETURN"
-        | "__RTS_FN_NS_GC_GENERATOR_THROW" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
-        "__RTS_FN_NS_GC_GENERATOR_NEXT" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
-        // LAZY state-machine primitives. `h`/`it` = raw GenState/iterator handle;
-        // value args/returns = PolyValue words; state/idx args = raw ints. (ABI: all
-        // i64.) Void-returning ones write through `h` (FSET/SETSTATE/ENTER_TRY/…).
-        "__RTS_FN_NS_GC_GEN_SM_STATE"
-        | "__RTS_FN_NS_GC_GEN_SM_SENT"
-        | "__RTS_FN_NS_GC_GEN_SM_NEXT"
-        | "__RTS_FN_NS_GC_GEN_SM_DRAIN"
-        | "__RTS_FN_NS_GC_GEN_SM_CAUGHT"
-        | "__RTS_FN_NS_GC_GEN_SM_END_FINALLY"
-        | "__RTS_FN_NS_GC_GEN_DELEGATE_START"
-        | "__RTS_FN_NS_GC_GEN_DELEGATE_NEXT"
-        | "__RTS_FN_NS_GC_GEN_DELEGATE_DONE" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
-        "__RTS_FN_NS_GC_GEN_SM_NEW"
-        | "__RTS_FN_NS_GC_GEN_SM_FGET"
-        | "__RTS_FN_NS_GC_GEN_SM_YIELD"
-        | "__RTS_FN_NS_GC_GEN_SM_DONE"
-        // ASYNC state machine + async generator (same (handle, arg) → i64 shape).
-        | "__RTS_FN_NS_GC_ASYNC_SM_NEW"
-        | "__RTS_FN_NS_GC_AGEN_NEW"
-        | "__RTS_FN_NS_GC_ASYNC_SM_SUSPEND"
-        | "__RTS_FN_NS_GC_ASYNC_SM_RESOLVE" => SymSig {
-            params: &[U64, U64],
-            ret: U64,
-        },
-        "__RTS_FN_NS_GC_ASYNC_SM_START"
-        | "__RTS_FN_NS_GC_ASYNC_SM_AWAITED"
-        | "__RTS_FN_NS_GC_AGEN_NEXT" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
-        "__RTS_FN_NS_GC_GEN_SM_FSET" => SymSig {
-            params: &[U64, U64, U64],
-            ret: Void,
-        },
-        "__RTS_FN_NS_GC_GEN_SM_SETSTATE"
-        | "__RTS_FN_NS_GC_GEN_SM_ENTER_TRY"
-        | "__RTS_FN_NS_GC_GEN_SM_ENTER_TRY_CATCH" => SymSig {
-            params: &[U64, U64],
-            ret: Void,
-        },
-        "__RTS_FN_NS_GC_GEN_SM_EXIT_TRY_CATCH" => SymSig {
-            params: &[U64],
-            ret: Void,
-        },
-        "__RTS_FN_NS_GC_GENERATOR_GET_RET"
-        | "__RTS_FN_NS_GC_ITER_VALUE"
-        | "__RTS_FN_NS_GC_ITER_DONE" => SymSig {
-            params: &[U64],
-            ret: U64,
-        },
         // string→string GLOBAL fns (encodeURIComponent/btoa/…): one StrPtr arg
         // (ptr+len) → a string Handle.
-        "__RTS_FN_GL_ENCODE_URI"
-        | "__RTS_FN_GL_DECODE_URI"
-        | "__RTS_FN_GL_ENCODE_URI_COMPONENT"
-        | "__RTS_FN_GL_DECODE_URI_COMPONENT"
-        | "__RTS_FN_GL_TEXTENC_BTOA"
-        | "__RTS_FN_GL_TEXTENC_ATOB" => SymSig {
-            params: &[StrPtr],
-            ret: Handle,
-        },
 
         // (The codegen-owned Map/Set instance trampolines that used to sit here —
         // `__rtsadp_map_*` / `__rtsadp_set_*`, 11 names — were DELETED 2026-07-28:

@@ -61,7 +61,7 @@ fn vec_push(vec_handle: u64, word: u64) {
 fn array_word(vec_handle: u64) -> u64 {
     // `POLY_FROM_HANDLE` already returns the bare 48-bit slot+shard payload
     // (`full & SLOT_MASK`), so no extra `& PAYLOAD_MASK` is needed.
-    let payload = rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(vec_handle);
+    let payload = rt_handles::__rtsn_poly_from_handle(vec_handle);
     PolyValue::from_object_handle(payload).raw()
 }
 
@@ -372,7 +372,7 @@ pub fn rtsadp_arr_flat_map(vec_handle: u64, cb: u64) -> u64 {
         let r = invoke_eia(cb, element, i, arr_word);
         let rv = PolyValue::from_raw(r);
         if rv.is_object() && !super::inspect::looks_like_object(rv) {
-            let inner = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(rv.as_handle());
+            let inner = rt_handles::__rtsn_poly_to_handle(rv.as_handle());
             let ilen = vec_len(inner);
             for j in 0..ilen {
                 vec_push(out, vec_word(inner, j));
@@ -382,5 +382,5 @@ pub fn rtsadp_arr_flat_map(vec_handle: u64, cb: u64) -> u64 {
         }
     }
     // `POLY_FROM_HANDLE` already masks to the 48-bit payload — no extra mask.
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(out)).raw()
 }

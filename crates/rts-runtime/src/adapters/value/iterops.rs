@@ -30,7 +30,7 @@ use super::{PolyValue, abi_adapter};
 /// Box a fresh real Vec handle as a `TAG_OBJECT` array PolyValue word (the engine's
 /// array representation), matching [`super::globalops`]'s array-producing helpers.
 fn box_vec_as_array(vec_handle: u64) -> u64 {
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(vec_handle)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(vec_handle)).raw()
 }
 
 /// `__rtsadp_str_chars(str_word)` — the code points of a string as a fresh array
@@ -99,12 +99,12 @@ pub fn rtsadp_to_iter_array(word: u64) -> u64 {
             if itv.is_object() {
                 // A `*[Symbol.iterator]` GENERATOR returns a lazy GenState
                 // handle, not a `{next}` object — drain it to a real array.
-                let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(itv.as_handle());
+                let h = rt_handles::__rtsn_poly_to_handle(itv.as_handle());
                 let is_gen = rt_handles::with_entry(h, |e| {
                     matches!(e, Some(rt_handles::Entry::GenState(_)))
                 });
                 if is_gen {
-                    let arr_h = rts_runtime::namespaces::collector::generator::__RTS_FN_NS_GC_GEN_SM_DRAIN(h);
+                    let arr_h = rts_runtime::namespaces::collector::generator::__rtsn_gen_sm_drain(h);
                     return box_vec_as_array(arr_h);
                 }
                 // An EAGER generator method (`*[Symbol.iterator]` desugared to a
@@ -210,7 +210,7 @@ pub fn rtsadp_own_keys_raw(obj_word: u64) -> u64 {
             let listed: Vec<String> = {
                 let rv = PolyValue::from_raw(res);
                 if rv.is_object() {
-                    let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(rv.as_handle());
+                    let h = rt_handles::__rtsn_poly_to_handle(rv.as_handle());
                     let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(h).max(0);
                     (0..len)
                         .map(|i| {
@@ -224,7 +224,7 @@ pub fn rtsadp_own_keys_raw(obj_word: u64) -> u64 {
                 }
             };
             let tk = __rtsadp_own_keys_raw(target);
-            let th = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(
+            let th = rt_handles::__rtsn_poly_to_handle(
                 PolyValue::from_raw(tk).as_handle(),
             );
             let tlen = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(th).max(0);
@@ -266,7 +266,7 @@ pub fn rtsadp_obj_keys(obj_word: u64) -> u64 {
             if !keys.is_object() {
                 return keys_word;
             }
-            let kh = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(keys.as_handle());
+            let kh = rt_handles::__rtsn_poly_to_handle(keys.as_handle());
             let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(kh).max(0);
             let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
             let enum_key = abi_adapter::intern_poly("enumerable").raw();
@@ -282,7 +282,7 @@ pub fn rtsadp_obj_keys(obj_word: u64) -> u64 {
                 }
             }
             return PolyValue::from_object_handle(
-                rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out),
+                rt_handles::__rtsn_poly_from_handle(out),
             )
             .raw();
         }
@@ -298,7 +298,7 @@ fn obj_keys_impl(obj_word: u64, enumerable_only: bool) -> u64 {
     let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     let obj = PolyValue::from_raw(obj_word);
     if obj.is_object() && looks_like_object(obj) {
-        let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+        let handle = rt_handles::__rtsn_poly_to_handle(obj.as_handle());
         let slot0 = PolyValue::from_raw(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 0) as u64);
         if let Some(keys) = slot0
             .is_int32()
@@ -362,7 +362,7 @@ fn obj_keys_impl(obj_word: u64, enumerable_only: bool) -> u64 {
         // ARRAY receiver: `Object.keys([a, b, c])` is the STRING indices
         // `["0", "1", "2"]` (JS treats an array as an object whose own enumerable
         // keys are its indices). The element count is the backing Vec's length.
-        let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+        let handle = rt_handles::__rtsn_poly_to_handle(obj.as_handle());
         let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(handle).max(0);
         for i in 0..len {
             // A HOLE index (sparse elision / `delete arr[i]`) is NOT an own key.
@@ -398,7 +398,7 @@ pub fn rtsadp_for_in_keys(obj_word: u64) -> u64 {
     if !(obj.is_object() && looks_like_object(obj)) {
         return own;
     }
-    let out_h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(PolyValue::from_raw(own).as_handle());
+    let out_h = rt_handles::__rtsn_poly_to_handle(PolyValue::from_raw(own).as_handle());
     let mut seen: Vec<String> = {
         let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(out_h).max(0);
         (0..len)
@@ -423,7 +423,7 @@ pub fn rtsadp_for_in_keys(obj_word: u64) -> u64 {
         }
         let pk = __rtsadp_obj_keys(proto);
         let pk_h =
-            rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(PolyValue::from_raw(pk).as_handle());
+            rt_handles::__rtsn_poly_to_handle(PolyValue::from_raw(pk).as_handle());
         let plen = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(pk_h).max(0);
         for i in 0..plen {
             let w = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(pk_h, i) as u64;
@@ -480,13 +480,13 @@ pub fn rtsadp_iter_open(word: u64) -> u64 {
             // a lazy GenState handle, not a `{next}` object — DRAIN it to an
             // array cursor (the state machine runs to completion; close is a
             // no-op like any materialized source).
-            let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(iv.as_handle());
+            let h = rt_handles::__rtsn_poly_to_handle(iv.as_handle());
             let is_gen = rt_handles::with_entry(h, |e| {
                 matches!(e, Some(rt_handles::Entry::GenState(_)))
             });
             if is_gen {
                 let arr_h =
-                    rts_runtime::namespaces::collector::generator::__RTS_FN_NS_GC_GEN_SM_DRAIN(h);
+                    rts_runtime::namespaces::collector::generator::__rtsn_gen_sm_drain(h);
                 let arr = box_vec_as_array(arr_h);
                 rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(d, PolyValue::from_i32(0).raw() as i64);
                 rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(d, arr as i64);
@@ -537,13 +537,13 @@ pub fn rtsadp_iter_open(word: u64) -> u64 {
 #[rtse::abi]
 pub fn rtsadp_iter_next(cursor: u64) -> u64 {
     let undef = PolyValue::undefined().raw();
-    let ch = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(PolyValue::from_raw(cursor).as_handle());
+    let ch = rt_handles::__rtsn_poly_to_handle(PolyValue::from_raw(cursor).as_handle());
     let kind = PolyValue::from_raw(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(ch, 0) as u64);
     let payload = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(ch, 1) as u64;
     if kind.is_int32() && kind.as_i32() == 0 {
         let idx = PolyValue::from_raw(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(ch, 2) as u64);
         let i = if idx.is_int32() { idx.as_i32() as i64 } else { 0 };
-        let ah = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(
+        let ah = rt_handles::__rtsn_poly_to_handle(
             PolyValue::from_raw(payload).as_handle(),
         );
         let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(ah).max(0);
@@ -583,7 +583,7 @@ pub fn rtsadp_iter_next(cursor: u64) -> u64 {
 #[rtse::abi]
 pub fn rtsadp_iter_close(cursor: u64) {
     let undef = PolyValue::undefined().raw();
-    let ch = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(PolyValue::from_raw(cursor).as_handle());
+    let ch = rt_handles::__rtsn_poly_to_handle(PolyValue::from_raw(cursor).as_handle());
     let kind = PolyValue::from_raw(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(ch, 0) as u64);
     if !(kind.is_int32() && kind.as_i32() == 1) {
         return;
@@ -603,7 +603,7 @@ pub fn rtsadp_obj_own_symbols(obj_word: u64) -> u64 {
     let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     let obj = PolyValue::from_raw(obj_word);
     if obj.is_object() && looks_like_object(obj) {
-        let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+        let handle = rt_handles::__rtsn_poly_to_handle(obj.as_handle());
         let slot0 = PolyValue::from_raw(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 0) as u64);
         if let Some(keys) = slot0
             .is_int32()
@@ -613,7 +613,7 @@ pub fn rtsadp_obj_own_symbols(obj_word: u64) -> u64 {
             for k in keys {
                 if let Some(h) = k.strip_prefix("@@sym:").and_then(|s| s.parse::<u64>().ok()) {
                     let word = PolyValue::from_object_handle(
-                        rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h),
+                        rt_handles::__rtsn_poly_from_handle(h),
                     )
                     .raw() as i64;
                     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, word);
@@ -682,7 +682,7 @@ pub fn rtsadp_obj_own_names(obj_word: u64) -> u64 {
     // A raw STRING primitive: indices + "length" too.
     if obj.is_string() {
         let keys_arr = __rtsadp_obj_keys(obj_word);
-        let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(
+        let handle = rt_handles::__rtsn_poly_to_handle(
             PolyValue::from_raw(keys_arr).as_handle(),
         );
         let word = abi_adapter::intern_poly("length").raw() as i64;
@@ -698,7 +698,7 @@ pub fn rtsadp_obj_own_names(obj_word: u64) -> u64 {
     let keys_arr = __rtsadp_obj_keys(obj_word);
     if obj.is_object() && !looks_like_object(obj) {
         // ARRAY: append the own non-enumerable "length".
-        let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(
+        let handle = rt_handles::__rtsn_poly_to_handle(
             PolyValue::from_raw(keys_arr).as_handle(),
         );
         let word = abi_adapter::intern_poly("length").raw() as i64;
@@ -766,7 +766,7 @@ pub fn rtsadp_string_raw(callsite_word: u64, subs_word: u64) -> u64 {
     let subs: Vec<i64> = {
         let v = PolyValue::from_raw(subs_word);
         if v.is_object() {
-            let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+            let h = rt_handles::__rtsn_poly_to_handle(v.as_handle());
             rt_handles::with_entry(h, |e| match e {
                 Some(rt_handles::Entry::Vec(items)) => items.as_ref().clone(),
                 _ => Vec::new(),

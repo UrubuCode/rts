@@ -76,7 +76,7 @@ pub fn rtsadp_globalthis() -> u64 {
     let empty_shape = rts_engine::heap::shapes::intern_global_shape(&[]);
     let slot0 = PolyValue::from_i32(empty_shape as i32).raw() as i64;
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle, slot0);
-    let poly48 = rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(handle);
+    let poly48 = rt_handles::__rtsn_poly_from_handle(handle);
     let word = PolyValue::from_object_handle(poly48).raw();
     GLOBALTHIS.store(word, Ordering::Release);
     // Register the ATOMIC's own address as a GC root: the scanner reads it back as

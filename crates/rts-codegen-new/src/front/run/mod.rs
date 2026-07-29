@@ -438,7 +438,7 @@ pub(crate) struct LoweredProgram {
     pub cells: std::collections::HashMap<String, std::collections::HashSet<String>>,
     /// MODULE-LEVEL MUTABLE GLOBALS (epic #195): top-level `let` name → cell id.
     /// A top-level var written from inside a function is a runtime CELL; every
-    /// access goes through `__RTS_FN_NS_GC_GCELL_GET/SET` by this id. Computed by
+    /// access goes through `__rtsn_gcell_get/SET` by this id. Computed by
     /// [`funcval::module_globals`] over the final funcs+main.
     pub gcells: std::collections::HashMap<String, u32>,
     /// Top-level SINGLETON-INSTANCE globals (`const X = new Y()`) → their class `Y`.

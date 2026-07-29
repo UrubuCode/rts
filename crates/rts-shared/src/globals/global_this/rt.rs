@@ -32,8 +32,8 @@ fn is_uri_safe(b: u8) -> bool {
         )
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ENCODE_URI(ptr: i64, len: i64) -> u64 {
+#[rtse::abi(global, value = "encode_uri")]
+pub fn encode_uri(ptr: i64, len: i64) -> u64 {
     let s = str_from_parts(ptr, len);
     let mut out: Vec<u8> = Vec::with_capacity(s.len());
     for &b in s.as_bytes() {
@@ -47,8 +47,8 @@ pub extern "C" fn __RTS_FN_GL_ENCODE_URI(ptr: i64, len: i64) -> u64 {
     alloc_entry(Entry::String(out))
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DECODE_URI(ptr: i64, len: i64) -> u64 {
+#[rtse::abi(global, value = "decode_uri")]
+pub fn decode_uri(ptr: i64, len: i64) -> u64 {
     // decodeURI preserva reserved chars escapados (%2F nao vira /).
     // Reserved set: ; / ? : @ & = + $ , #
     let s = str_from_parts(ptr, len);
@@ -79,8 +79,8 @@ pub extern "C" fn __RTS_FN_GL_DECODE_URI(ptr: i64, len: i64) -> u64 {
     alloc_entry(Entry::String(out))
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ENCODE_URI_COMPONENT(ptr: i64, len: i64) -> u64 {
+#[rtse::abi(global, value = "encode_uri_component")]
+pub fn encode_uri_component(ptr: i64, len: i64) -> u64 {
     let s = str_from_parts(ptr, len);
     let mut out: Vec<u8> = Vec::with_capacity(s.len());
     for &b in s.as_bytes() {
@@ -94,8 +94,8 @@ pub extern "C" fn __RTS_FN_GL_ENCODE_URI_COMPONENT(ptr: i64, len: i64) -> u64 {
     alloc_entry(Entry::String(out))
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DECODE_URI_COMPONENT(ptr: i64, len: i64) -> u64 {
+#[rtse::abi(global, value = "decode_uri_component")]
+pub fn decode_uri_component(ptr: i64, len: i64) -> u64 {
     let s = str_from_parts(ptr, len);
     let bytes = s.as_bytes();
     let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
@@ -134,23 +134,23 @@ mod tests {
     #[test]
     fn encode_basic() {
         let s = b"hello world";
-        let h = __RTS_FN_GL_ENCODE_URI_COMPONENT(s.as_ptr() as i64, s.len() as i64);
+        let h = __rtsm_global_encode_uri_component(s.as_ptr() as i64, s.len() as i64);
         assert_eq!(read_str(h), "hello%20world");
     }
 
     #[test]
     fn decode_basic() {
         let s = b"hello%20world";
-        let h = __RTS_FN_GL_DECODE_URI_COMPONENT(s.as_ptr() as i64, s.len() as i64);
+        let h = __rtsm_global_decode_uri_component(s.as_ptr() as i64, s.len() as i64);
         assert_eq!(read_str(h), "hello world");
     }
 
     #[test]
     fn roundtrip() {
         let s = b"a&b=c+d/e?f";
-        let h1 = __RTS_FN_GL_ENCODE_URI_COMPONENT(s.as_ptr() as i64, s.len() as i64);
+        let h1 = __rtsm_global_encode_uri_component(s.as_ptr() as i64, s.len() as i64);
         let encoded = read_str(h1);
-        let h2 = __RTS_FN_GL_DECODE_URI_COMPONENT(encoded.as_ptr() as i64, encoded.len() as i64);
+        let h2 = __rtsm_global_decode_uri_component(encoded.as_ptr() as i64, encoded.len() as i64);
         assert_eq!(read_str(h2), "a&b=c+d/e?f");
     }
 }

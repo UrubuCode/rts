@@ -485,14 +485,14 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_KH(obj_h: U64, key_h: U64) -> 
         }
         // (#216/299) `arr[Symbol.iterator]` -> handle Function nativo.
         if key_is_well_known_iterator(&key) {
-            return crate::gc_surface::__RTS_FN_GL_ARRAY_ITERATOR_FN() as i64;
+            return crate::gc_surface::__rtsm_global_array_iterator_fn() as i64;
         }
         return 0;
     }
     // Map: valor armazenado vence; fallback iterator nativo.
     let stored = with_map(obj_h, 0, |m| m.get(&key).copied().unwrap_or(0));
     if stored == 0 && key_is_well_known_iterator(&key) {
-        return crate::gc_surface::__RTS_FN_GL_ARRAY_ITERATOR_FN() as i64;
+        return crate::gc_surface::__rtsm_global_array_iterator_fn() as i64;
     }
     stored
 }
@@ -1766,7 +1766,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY(
             msg.len() as i64,
             0,
         );
-        crate::gc_surface::__RTS_FN_RT_ERROR_SET(err_h);
+        crate::gc_surface::__rtsn_error_set(err_h);
         return obj;
     }
     if matches!(is_enumerable, Some(false)) {
@@ -2256,7 +2256,7 @@ pub extern "C" fn __RTS_FN_RT_FOR_OF_NORMALIZE(handle: u64) -> u64 {
         use rts_engine::heap::handles::{Entry, with_entry};
         let is_sm = with_entry(handle, |e| matches!(e, Some(Entry::GenState(_))));
         if is_sm {
-            return crate::gc_surface::__RTS_FN_NS_GC_GEN_SM_DRAIN(handle);
+            return crate::gc_surface::__rtsn_gen_sm_drain(handle);
         }
     }
     handle

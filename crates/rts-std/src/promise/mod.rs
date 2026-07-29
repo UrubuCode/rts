@@ -386,7 +386,7 @@ pub fn wait_raw(promise: u64) -> i64 {
     // thread-local que `try/catch` ja' le. O slot eh da thread atual
     // (caller do `promise.wait`) — wait_blocking nao migra threads.
     if state == promise_slot::STATE_REJECTED {
-        crate::gc_surface::__RTS_FN_RT_ERROR_SET(value as u64);
+        crate::gc_surface::__rtsn_error_set(value as u64);
     }
     value
 }
@@ -515,9 +515,9 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_FINALLY(p_handle: U64, fp: U64) -> Handle 
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_PROMISE_TAKE_ERROR() -> I64 {
     use crate::gc_surface as error;
-    let h = error::__RTS_FN_RT_ERROR_GET();
+    let h = error::__rtsn_error_get();
     if h != 0 {
-        error::__RTS_FN_RT_ERROR_CLEAR();
+        error::__rtsn_error_clear();
     }
     h as i64
 }
@@ -779,9 +779,9 @@ fn create_spawn(
         // Checa AMBOS os slots de erro pra detectar throw dentro do body: o
         // handle-slot legado E o errslot do motor novo (via hook — um `throw`
         // novo-motor grava a WORD lançada lá, não aqui).
-        let err = crate::gc_surface::__RTS_FN_RT_ERROR_GET();
+        let err = crate::gc_surface::__rtsn_error_get();
         if err != 0 {
-            crate::gc_surface::__RTS_FN_RT_ERROR_CLEAR();
+            crate::gc_surface::__rtsn_error_clear();
             promise_slot::reject(&result_clone, err as i64);
         } else if let Some(word) = take_engine_pending_error() {
             promise_slot::reject(&result_clone, word as i64);
@@ -1122,7 +1122,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_ASYNC(iterable: u64, mapper_handle: u64
         if !is_gen {
             return None;
         }
-        let vec_h = crate::gc_surface::__RTS_FN_NS_GC_GEN_SM_DRAIN(iterable);
+        let vec_h = crate::gc_surface::__rtsn_gen_sm_drain(iterable);
         with_entry(vec_h, |e| match e {
             Some(Entry::Vec(v)) => Some(v.as_ref().clone()),
             _ => None,
@@ -1240,7 +1240,7 @@ fn settle_callable_word(promise_h: u64, is_reject: i64) -> i64 {
     })));
     // TAG_FUNCTION word over the bare slot (the invoke bridges normalize).
     const BOX_BASE: u64 = 0xFFF8_0000_0000_0000;
-    let slot = rts_engine::heap::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h);
+    let slot = rts_engine::heap::handles::__rtsn_poly_from_handle(h);
     (BOX_BASE | (5u64 << 48) | slot) as i64
 }
 
@@ -1319,7 +1319,7 @@ pub(crate) fn resolve_assimilating_word(
         let obj_word = if (w & BOX_BASE) == BOX_BASE {
             value
         } else {
-            let slot = rts_engine::heap::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(w);
+            let slot = rts_engine::heap::handles::__rtsn_poly_from_handle(w);
             (BOX_BASE | (4u64 << 48) | slot) as i64
         };
         vec![obj_word, res_w, rej_w]

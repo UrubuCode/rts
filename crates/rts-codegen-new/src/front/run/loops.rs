@@ -329,7 +329,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // appended nothing).
             let handle = self.coerce(res, Repr::Int64)?;
             let arr = self
-                .call_runtime(module, "__RTS_FN_NS_GC_GEN_SM_DRAIN", &[handle])?
+                .call_runtime(module, "__rtsn_gen_sm_drain", &[handle])?
                 .expect("GEN_SM_DRAIN returns a Vec handle");
             let word = self
                 .call_runtime(module, "__rtsadp_box_handle_auto", &[arr])?
@@ -369,7 +369,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // (spread-append / element reads consume a word).
         let handle = self.coerce(h, Repr::Int64)?;
         let arr = self
-            .call_runtime(module, "__RTS_FN_NS_GC_GEN_SM_DRAIN", &[handle])?
+            .call_runtime(module, "__rtsn_gen_sm_drain", &[handle])?
             .expect("GEN_SM_DRAIN returns a Vec handle");
         let word = self
             .call_runtime(module, "__rtsadp_box_handle_auto", &[arr])?

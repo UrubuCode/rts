@@ -413,7 +413,7 @@ pub fn null_word() -> u64 {
 /// Allocate `bytes` as a fresh string entry and return its STR PolyValue word.
 pub fn string_word(bytes: &[u8]) -> u64 {
     let h = alloc_entry(Entry::String(bytes.to_vec()));
-    let slot = super::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h);
+    let slot = super::handles::__rtsn_poly_from_handle(h);
     POLY_BOX_BASE | (POLY_TAG_STR << POLY_TAG_SHIFT) | slot
 }
 
@@ -435,7 +435,7 @@ pub fn handle_word_auto(h: u64) -> u64 {
     if tag == 0 {
         return null_word();
     }
-    let slot = super::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h);
+    let slot = super::handles::__rtsn_poly_from_handle(h);
     POLY_BOX_BASE | (tag << POLY_TAG_SHIFT) | slot
 }
 

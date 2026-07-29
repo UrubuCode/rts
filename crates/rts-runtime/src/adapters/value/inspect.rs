@@ -133,7 +133,7 @@ fn render(v: PolyValue, top_level: bool, depth: u32) -> String {
 /// arbitrary element and this check fails for all but a pathological coincidence
 /// not reachable from the literal-only object surface.
 pub(crate) fn looks_like_object(v: PolyValue) -> bool {
-    let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+    let handle = rt_handles::__rtsn_poly_to_handle(v.as_handle());
     let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(handle);
     if len < 1 {
         return false;
@@ -157,7 +157,7 @@ fn render_object(v: PolyValue, depth: u32) -> String {
     if depth >= MAX_DEPTH {
         return "[Object]".to_string();
     }
-    let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+    let handle = rt_handles::__rtsn_poly_to_handle(v.as_handle());
     let slot0 = PolyValue::from_raw(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 0) as u64);
     let keys = slot0
         .is_int32()
@@ -188,7 +188,7 @@ fn render_array(v: PolyValue, depth: u32) -> String {
     if depth >= MAX_DEPTH {
         return "[Array]".to_string();
     }
-    let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+    let handle = rt_handles::__rtsn_poly_to_handle(v.as_handle());
     let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(handle).max(0);
     if len == 0 {
         return "[]".to_string();

@@ -91,7 +91,7 @@ pub fn rtsadp_construct(target_word: u64, args_word: u64) -> u64 {
     let args = PolyValue::from_raw(args_word);
     let mut slots = [undef; 4];
     if args.is_object() {
-        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(args.as_handle());
+        let h = rt_handles::__rtsn_poly_to_handle(args.as_handle());
         let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(h).max(0);
         for (i, slot) in slots.iter_mut().enumerate() {
             if (i as i64) < len {
@@ -144,5 +144,5 @@ fn empty_keyed_object() -> u64 {
     let h = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     let shape = rts_engine::heap::shapes::intern_global_shape(&[]);
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(h, PolyValue::from_i32(shape as i32).raw() as i64);
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(h)).raw()
 }

@@ -14,7 +14,7 @@
 //! This module removes the need for that table: the PolyValue payload now stores
 //! the bare 48-bit slot+shard, and the generation is **reconstructed on demand**
 //! from the slot's own *current* live generation
-//! ([`super::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE`]). The GC marker
+//! ([`super::handles::__rtsn_poly_to_handle`]). The GC marker
 //! ([`super::handles::mark_handle`]) normalizes any NaN-boxed candidate word
 //! through [`poly_handle_normalize`] before decoding, so NaN-boxed handle words
 //! found on the stack / in `Entry::Vec`/`Map` children mark the underlying slot.
@@ -27,7 +27,7 @@
 //! `0xFFF8..=0xFFFF`) that happens to satisfy the box discriminator reconstructs
 //! to *itself* because the live slot's generation is exactly that value.
 
-use super::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE;
+use super::handles::__rtsn_poly_to_handle;
 
 /// The negative-quiet-NaN base of the value model: sign=1, exponent all ones,
 /// qNaN bit (51)=1 — i.e. the top 13 bits are all set. A word `w` is boxed iff
@@ -136,7 +136,7 @@ pub fn poly_number(w: u64) -> Option<f64> {
 
 /// If `c` is a NaN-boxed heap-handle word (boxed discriminator set AND tag ∈
 /// {STR, OBJECT, FUNCTION}), reconstruct the full real runtime handle for its
-/// 48-bit payload via [`super::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE`];
+/// 48-bit payload via [`super::handles::__rtsn_poly_to_handle`];
 /// otherwise `None`.
 ///
 /// A `None` result means "not a NaN-boxed handle" — either a plain `f64`/int/
@@ -152,7 +152,7 @@ pub fn poly_handle_normalize(c: u64) -> Option<u64> {
     }
     let tag = (c >> POLY_TAG_SHIFT) & POLY_TAG_MASK;
     if tag == POLY_TAG_STR || tag == POLY_TAG_OBJECT || tag == POLY_TAG_FUNCTION {
-        Some(__RTS_FN_NS_GC_POLY_TO_HANDLE(c & POLY_PAYLOAD_MASK))
+        Some(__rtsn_poly_to_handle(c & POLY_PAYLOAD_MASK))
     } else {
         None
     }
@@ -162,7 +162,7 @@ pub fn poly_handle_normalize(c: u64) -> Option<u64> {
 mod tests {
     use super::*;
     use crate::heap::handles::{
-        __RTS_FN_NS_GC_POLY_FROM_HANDLE, Entry, HANDLE_SLOT_MASK, alloc_entry, free_handle,
+        __rtsn_poly_from_handle, Entry, HANDLE_SLOT_MASK, alloc_entry, free_handle,
     };
 
     const GEN_SHIFT: u64 = crate::abi::handles::HANDLE_GEN_SHIFT as u64;
@@ -172,13 +172,13 @@ mod tests {
     #[test]
     fn from_then_to_handle_roundtrips_live_slot() {
         let h = alloc_entry(Entry::String(b"poly-roundtrip".to_vec()));
-        let poly48 = __RTS_FN_NS_GC_POLY_FROM_HANDLE(h);
+        let poly48 = __rtsn_poly_from_handle(h);
         assert_eq!(
             poly48,
             h & HANDLE_SLOT_MASK,
             "FROM_HANDLE must drop the gen"
         );
-        let reconstructed = __RTS_FN_NS_GC_POLY_TO_HANDLE(poly48);
+        let reconstructed = __rtsn_poly_to_handle(poly48);
         assert_eq!(reconstructed, h, "TO_HANDLE(FROM_HANDLE(h)) must equal h");
         free_handle(h);
     }
@@ -207,7 +207,7 @@ mod tests {
     #[test]
     fn normalize_boxed_str_over_live_slot() {
         let h = alloc_entry(Entry::String(b"boxed-str".to_vec()));
-        let poly48 = __RTS_FN_NS_GC_POLY_FROM_HANDLE(h);
+        let poly48 = __rtsn_poly_from_handle(h);
         // Fabricate the boxed word exactly as codegen would: BOX_BASE | STR<<48 | payload.
         let boxed = POLY_BOX_BASE | (POLY_TAG_STR << POLY_TAG_SHIFT) | (poly48 & POLY_PAYLOAD_MASK);
         assert_eq!(
@@ -259,7 +259,7 @@ mod tests {
         // which IS this handle's generation, so it reconstructs to itself.
         let payload = hg & HANDLE_SLOT_MASK;
         assert_eq!(
-            __RTS_FN_NS_GC_POLY_TO_HANDLE(payload),
+            __rtsn_poly_to_handle(payload),
             hg,
             "high-gen handle must reconstruct to itself (no corruption)"
         );
@@ -281,7 +281,7 @@ mod tests {
     #[test]
     fn to_handle_out_of_range_is_zero() {
         let bogus_payload = 0x0000_7FFF_FFFF_FFFFu64 & POLY_PAYLOAD_MASK;
-        assert_eq!(__RTS_FN_NS_GC_POLY_TO_HANDLE(bogus_payload), 0);
+        assert_eq!(__rtsn_poly_to_handle(bogus_payload), 0);
     }
 
     /// Regression: a handle whose payload is exactly 0 (slot 0 of shard 0 — the
@@ -300,11 +300,11 @@ mod tests {
             .alloc_in_shard(Entry::String(b"slot-zero".to_vec()), 0);
         let (_, _, table_slot) = decode(h).expect("decodes");
         // Only meaningful when this really is slot 0 / shard 0 (payload 0).
-        let payload = __RTS_FN_NS_GC_POLY_FROM_HANDLE(h);
+        let payload = __rtsn_poly_from_handle(h);
         if table_slot == 0 {
             assert_eq!(payload, 0, "slot 0 of shard 0 must have payload 0");
             assert_eq!(
-                __RTS_FN_NS_GC_POLY_TO_HANDLE(0),
+                __rtsn_poly_to_handle(0),
                 h,
                 "payload 0 must reconstruct the live slot-0 handle, not the sentinel"
             );

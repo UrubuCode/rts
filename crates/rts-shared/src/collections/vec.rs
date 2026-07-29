@@ -1211,7 +1211,7 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_VEC(src: u64, fn_ptr: u64) -> u64 {
         use rts_engine::heap::handles::{Entry, with_entry};
         let is_sm = with_entry(src, |e| matches!(e, Some(Entry::GenState(_))));
         if is_sm {
-            crate::gc_surface::__RTS_FN_NS_GC_GEN_SM_DRAIN(src)
+            crate::gc_surface::__rtsn_gen_sm_drain(src)
         } else {
             src
         }

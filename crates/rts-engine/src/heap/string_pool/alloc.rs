@@ -148,8 +148,8 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_I64_TPL(value: i64) -> u64 {
     alloc_entry(Entry::String(value.to_string().into_bytes()))
 }
 
-#[rtse::abi("__RTS_FN_NS_GC_STRING_FROM_F64")]
-pub fn gc_string_from_f64(value: f64) -> u64 {
+#[rtse::abi(native, value = "string_from_f64")]
+pub fn string_from_f64(value: f64) -> u64 {
     let s = crate::numfmt::format_js_number(value);
     alloc_entry(Entry::String(s.into_bytes()))
 }

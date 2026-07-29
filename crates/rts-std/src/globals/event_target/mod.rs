@@ -27,15 +27,15 @@ pub(crate) fn opt_flag(opts_h: u64, key: &str) -> bool {
         fn __rtsadp_obj_get(obj_word: u64, key_word: u64) -> u64;
         fn __rtsadp_to_boolean(word: u64) -> u64;
     }
-    use rts_engine::heap::handles::{Entry, __RTS_FN_NS_GC_POLY_FROM_HANDLE, alloc_entry};
+    use rts_engine::heap::handles::{Entry, __rtsn_poly_from_handle, alloc_entry};
     use rts_engine::heap::poly::{POLY_BOX_BASE, POLY_TAG_OBJECT, POLY_TAG_SHIFT, POLY_TAG_STR};
     if opts_h == 0 {
         return false;
     }
     let obj_word =
-        POLY_BOX_BASE | (POLY_TAG_OBJECT << POLY_TAG_SHIFT) | __RTS_FN_NS_GC_POLY_FROM_HANDLE(opts_h);
+        POLY_BOX_BASE | (POLY_TAG_OBJECT << POLY_TAG_SHIFT) | __rtsn_poly_from_handle(opts_h);
     let key_h = alloc_entry(Entry::String(key.as_bytes().to_vec()));
     let key_word =
-        POLY_BOX_BASE | (POLY_TAG_STR << POLY_TAG_SHIFT) | __RTS_FN_NS_GC_POLY_FROM_HANDLE(key_h);
+        POLY_BOX_BASE | (POLY_TAG_STR << POLY_TAG_SHIFT) | __rtsn_poly_from_handle(key_h);
     unsafe { __rtsadp_to_boolean(__rtsadp_obj_get(obj_word, key_word)) != 0 }
 }

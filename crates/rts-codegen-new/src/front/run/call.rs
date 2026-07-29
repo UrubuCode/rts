@@ -621,7 +621,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let ret_word = self.box_value(ret_val);
         self.call_runtime(
             module,
-            "__RTS_FN_NS_GC_GENERATOR_SET_RET",
+            "__rtsn_generator_set_ret",
             &[handle, ret_word],
         )?;
         Ok(Val::tagged_kind(buf_word, JsKind::Array))
@@ -648,10 +648,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             ("next", Some(arg)) => {
                 let v = self.lower_expr(module, arg)?;
                 let w = self.box_value(v);
-                self.call_runtime(module, "__RTS_FN_NS_GC_GENERATOR_NEXT_SENT", &[handle, w])?
+                self.call_runtime(module, "__rtsn_generator_next_sent", &[handle, w])?
             }
             ("next", None) => {
-                self.call_runtime(module, "__RTS_FN_NS_GC_GENERATOR_NEXT", &[handle])?
+                self.call_runtime(module, "__rtsn_generator_next", &[handle])?
             }
             (m, arg) => {
                 // `.return(v)` / `.throw(e)` — pass the (optional) arg word.
@@ -666,9 +666,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                         .iconst(types::I64, value::PolyValue::undefined().raw() as i64),
                 };
                 let sym = if m == "return" {
-                    "__RTS_FN_NS_GC_GENERATOR_RETURN"
+                    "__rtsn_generator_return"
                 } else {
-                    "__RTS_FN_NS_GC_GENERATOR_THROW"
+                    "__rtsn_generator_throw"
                 };
                 self.call_runtime(module, sym, &[handle, w])?
             }
@@ -684,7 +684,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     fn build_iter_result(&mut self, module: &mut dyn Module, result_map: Value) -> Val {
         // value word (+ remap the old-engine UNDEFINED sentinel → new undefined).
         let value_raw = self
-            .call_runtime(module, "__RTS_FN_NS_GC_ITER_VALUE", &[result_map])
+            .call_runtime(module, "__rtsn_iter_value", &[result_map])
             .expect("call_runtime ok")
             .expect("ITER_VALUE returns a value");
         let old_undef = self.builder.ins().iconst(types::I64, i64::MIN + 2);
@@ -699,7 +699,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .select(is_old_undef, new_undef, value_raw);
         // done flag → PolyValue bool.
         let done_flag = self
-            .call_runtime(module, "__RTS_FN_NS_GC_ITER_DONE", &[result_map])
+            .call_runtime(module, "__rtsn_iter_done", &[result_map])
             .expect("call_runtime ok")
             .expect("ITER_DONE returns a flag");
         let t_word = self
@@ -834,9 +834,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // the runtime calls).
             if matches!(
                 symbol,
-                "__RTS_FN_NS_GC_GEN_SM_NEW"
-                    | "__RTS_FN_NS_GC_ASYNC_SM_NEW"
-                    | "__RTS_FN_NS_GC_AGEN_NEW"
+                "__rtsn_gen_sm_new"
+                    | "__rtsn_async_sm_new"
+                    | "__rtsn_agen_new"
             ) && i == 0
             {
                 if let HirExprKind::Ident(fname) = &a.kind {
@@ -884,7 +884,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let word = self.box_value(v);
         let handle = emit_marshal::emit_table_load(module, self.builder, word);
         let res = self
-            .call_runtime(module, "__RTS_FN_NS_GC_GENERATOR_GET_RET", &[handle])?
+            .call_runtime(module, "__rtsn_generator_get_ret", &[handle])?
             .expect("GENERATOR_GET_RET returns a value");
         Ok(Val::new(res, Repr::Tagged))
     }
@@ -1747,32 +1747,32 @@ fn gen_sm_sentinel(name: &str, argc: usize) -> Option<(&'static str, GenRet, &'s
     // The third field lists the VALUE-position args (boxed to PolyValue words); all
     // other positions are raw i64 (handle / state-label / slot-index).
     Some(match (name, argc) {
-        ("__RTS_GEN_SM_NEW", 2) => ("__RTS_FN_NS_GC_GEN_SM_NEW", Int, &[]),
-        ("__RTS_GEN_SM_FGET", 2) => ("__RTS_FN_NS_GC_GEN_SM_FGET", Word, &[]),
-        ("__RTS_GEN_SM_FSET", 3) => ("__RTS_FN_NS_GC_GEN_SM_FSET", Void, &[2]),
-        ("__RTS_GEN_SM_STATE", 1) => ("__RTS_FN_NS_GC_GEN_SM_STATE", Int, &[]),
-        ("__RTS_GEN_SM_SETSTATE", 2) => ("__RTS_FN_NS_GC_GEN_SM_SETSTATE", Void, &[]),
-        ("__RTS_GEN_SM_YIELD", 2) => ("__RTS_FN_NS_GC_GEN_SM_YIELD", Word, &[1]),
-        ("__RTS_GEN_SM_DONE", 2) => ("__RTS_FN_NS_GC_GEN_SM_DONE", Word, &[1]),
-        ("__RTS_GEN_SM_SENT", 1) => ("__RTS_FN_NS_GC_GEN_SM_SENT", Word, &[]),
-        ("__RTS_GEN_SM_ENTER_TRY", 2) => ("__RTS_FN_NS_GC_GEN_SM_ENTER_TRY", Void, &[]),
-        ("__RTS_GEN_SM_ENTER_TRY_CATCH", 2) => ("__RTS_FN_NS_GC_GEN_SM_ENTER_TRY_CATCH", Void, &[]),
-        ("__RTS_GEN_SM_EXIT_TRY_CATCH", 1) => ("__RTS_FN_NS_GC_GEN_SM_EXIT_TRY_CATCH", Void, &[]),
-        ("__RTS_GEN_SM_CAUGHT", 1) => ("__RTS_FN_NS_GC_GEN_SM_CAUGHT", Word, &[]),
-        ("__RTS_GEN_SM_END_FINALLY", 1) => ("__RTS_FN_NS_GC_GEN_SM_END_FINALLY", Word, &[]),
-        ("__RTS_GEN_DELEGATE_START", 1) => ("__RTS_FN_NS_GC_GEN_DELEGATE_START", Int, &[0]),
-        ("__RTS_GEN_DELEGATE_NEXT", 1) => ("__RTS_FN_NS_GC_GEN_DELEGATE_NEXT", Word, &[]),
-        ("__RTS_GEN_DELEGATE_DONE", 1) => ("__RTS_FN_NS_GC_GEN_DELEGATE_DONE", Int, &[]),
+        ("__RTS_GEN_SM_NEW", 2) => ("__rtsn_gen_sm_new", Int, &[]),
+        ("__RTS_GEN_SM_FGET", 2) => ("__rtsn_gen_sm_fget", Word, &[]),
+        ("__RTS_GEN_SM_FSET", 3) => ("__rtsn_gen_sm_fset", Void, &[2]),
+        ("__RTS_GEN_SM_STATE", 1) => ("__rtsn_gen_sm_state", Int, &[]),
+        ("__RTS_GEN_SM_SETSTATE", 2) => ("__rtsn_gen_sm_setstate", Void, &[]),
+        ("__RTS_GEN_SM_YIELD", 2) => ("__rtsn_gen_sm_yield", Word, &[1]),
+        ("__RTS_GEN_SM_DONE", 2) => ("__rtsn_gen_sm_done", Word, &[1]),
+        ("__RTS_GEN_SM_SENT", 1) => ("__rtsn_gen_sm_sent", Word, &[]),
+        ("__RTS_GEN_SM_ENTER_TRY", 2) => ("__rtsn_gen_sm_enter_try", Void, &[]),
+        ("__RTS_GEN_SM_ENTER_TRY_CATCH", 2) => ("__rtsn_gen_sm_enter_try_catch", Void, &[]),
+        ("__RTS_GEN_SM_EXIT_TRY_CATCH", 1) => ("__rtsn_gen_sm_exit_try_catch", Void, &[]),
+        ("__RTS_GEN_SM_CAUGHT", 1) => ("__rtsn_gen_sm_caught", Word, &[]),
+        ("__RTS_GEN_SM_END_FINALLY", 1) => ("__rtsn_gen_sm_end_finally", Word, &[]),
+        ("__RTS_GEN_DELEGATE_START", 1) => ("__rtsn_gen_delegate_start", Int, &[0]),
+        ("__RTS_GEN_DELEGATE_NEXT", 1) => ("__rtsn_gen_delegate_next", Word, &[]),
+        ("__RTS_GEN_DELEGATE_DONE", 1) => ("__rtsn_gen_delegate_done", Int, &[]),
         // ASYNC state machine (async fn com loop/try) + async generator (#392):
         // o parser emite estes sentinels; os externs já existiam no runtime
         // (collector/generator.rs) — só o mapa faltava ("call to unknown
         // function `__RTS_AGEN_NEW`").
-        ("__RTS_ASYNC_SM_NEW", 2) => ("__RTS_FN_NS_GC_ASYNC_SM_NEW", Int, &[]),
-        ("__RTS_AGEN_NEW", 2) => ("__RTS_FN_NS_GC_AGEN_NEW", Int, &[]),
-        ("__RTS_ASYNC_SM_START", 1) => ("__RTS_FN_NS_GC_ASYNC_SM_START", Int, &[]),
-        ("__RTS_ASYNC_SM_SUSPEND", 2) => ("__RTS_FN_NS_GC_ASYNC_SM_SUSPEND", Int, &[]),
-        ("__RTS_ASYNC_SM_AWAITED", 1) => ("__RTS_FN_NS_GC_ASYNC_SM_AWAITED", Word, &[]),
-        ("__RTS_ASYNC_SM_RESOLVE", 2) => ("__RTS_FN_NS_GC_ASYNC_SM_RESOLVE", Int, &[1]),
+        ("__RTS_ASYNC_SM_NEW", 2) => ("__rtsn_async_sm_new", Int, &[]),
+        ("__RTS_AGEN_NEW", 2) => ("__rtsn_agen_new", Int, &[]),
+        ("__RTS_ASYNC_SM_START", 1) => ("__rtsn_async_sm_start", Int, &[]),
+        ("__RTS_ASYNC_SM_SUSPEND", 2) => ("__rtsn_async_sm_suspend", Int, &[]),
+        ("__RTS_ASYNC_SM_AWAITED", 1) => ("__rtsn_async_sm_awaited", Word, &[]),
+        ("__RTS_ASYNC_SM_RESOLVE", 2) => ("__rtsn_async_sm_resolve", Int, &[1]),
         _ => return None,
     })
 }

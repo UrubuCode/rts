@@ -34,13 +34,13 @@ fn set_stack_overflow_error() {
         msg.len() as i64,
         0,
     );
-    super::error::__RTS_FN_RT_ERROR_SET(handle);
+    super::error::__rtsn_error_set(handle);
 }
 
 /// Called at the entry of every non-tail user function.
 /// Returns `1` (ok) or `0` (overflow — error slot is set).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_STACK_PUSH() -> i32 {
+#[rtse::abi(native, value = "stack_push")]
+pub fn stack_push() -> i32 {
     let d = DEPTH.with(|c| {
         let v = c.get();
         c.set(v + 1);
@@ -56,14 +56,14 @@ pub extern "C" fn __RTS_FN_RT_STACK_PUSH() -> i32 {
 }
 
 /// Called at every return point of every non-tail user function.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_STACK_POP() {
+#[rtse::abi(native, value = "stack_pop")]
+pub fn stack_pop() {
     DEPTH.with(|c| c.set(c.get().saturating_sub(1)));
 }
 
 /// Current call depth — exposed for `runtime.stack_depth()` if needed.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_STACK_DEPTH() -> i64 {
+#[rtse::abi(native, value = "stack_depth")]
+pub fn stack_depth() -> i64 {
     DEPTH.with(|c| c.get() as i64)
 }
 

@@ -151,7 +151,7 @@ pub fn rtsadp_arr_set_length(arr_word: u64, len_word: u64) -> u64 {
     if !(v.is_object() && !super::inspect::looks_like_object(v)) {
         return len_word;
     }
-    let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+    let handle = rt_handles::__rtsn_poly_to_handle(v.as_handle());
     let target = genops::to_number(PolyValue::from_raw(len_word)).max(0.0) as i64;
     let mut cur = vec_len(handle);
     while cur > target {
@@ -191,7 +191,7 @@ pub fn rtsadp_arr_slice(vec_handle: u64, start: i64, end: i64) -> u64 {
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(new_vec, vec_word(vec_handle, i) as i64);
     }
     // Box the new Vec handle as a TAG_OBJECT PolyValue (the array representation).
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(new_vec)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(new_vec)).raw()
 }
 
 /// JS slice index clamp: negative counts from the end (`len + i`), then clamp into
@@ -281,7 +281,7 @@ pub fn rtsadp_arr_concat(vec_handle: u64, other_word: u64) -> u64 {
     }
     let other = PolyValue::from_raw(other_word);
     if other.is_object() && !super::inspect::looks_like_object(other) {
-        let oh = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(other.as_handle());
+        let oh = rt_handles::__rtsn_poly_to_handle(other.as_handle());
         let olen = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(oh).max(0);
         for i in 0..olen {
             let w = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(oh, i);
@@ -290,7 +290,7 @@ pub fn rtsadp_arr_concat(vec_handle: u64, other_word: u64) -> u64 {
     } else {
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(new_vec, other_word as i64);
     }
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(new_vec)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(new_vec)).raw()
 }
 
 /// `arr.flat()` — flatten ONE level (the JS default depth 1): a NEW array with each
@@ -307,7 +307,7 @@ pub fn rtsadp_arr_flat(vec_handle: u64) -> u64 {
             continue; // flat DROPS holes (spec FlattenIntoArray HasProperty step).
         }
         if ev.is_object() && !super::inspect::looks_like_object(ev) {
-            let inner = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(ev.as_handle());
+            let inner = rt_handles::__rtsn_poly_to_handle(ev.as_handle());
             let ilen = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(inner).max(0);
             for j in 0..ilen {
                 let iw = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(inner, j);
@@ -320,7 +320,7 @@ pub fn rtsadp_arr_flat(vec_handle: u64) -> u64 {
             rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(new_vec, w as i64);
         }
     }
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(new_vec)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(new_vec)).raw()
 }
 
 /// `arr.shift()` — remove and return the FIRST element word (`undefined` when
@@ -360,7 +360,7 @@ pub fn rtsadp_arr_unshift(vec_handle: u64, value_word: u64) -> i64 {
 /// The receiver array's own TAG_OBJECT word (reconstructed from its Vec handle),
 /// returned by the in-place mutating methods so chaining works.
 fn box_self(vec_handle: u64) -> u64 {
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(vec_handle)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(vec_handle)).raw()
 }
 
 /// A fresh `Entry::Vec` that is a COPY of `vec_handle`'s slot words (the basis of
@@ -457,7 +457,7 @@ pub fn rtsadp_arr_last_index_of_from(
 pub fn rtsadp_arr_to_reversed(vec_handle: u64) -> u64 {
     let copy = copy_vec(vec_handle);
     __rtsadp_arr_reverse(copy);
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(copy)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(copy)).raw()
 }
 
 /// `arr.entries()` — the `[index, value]` pairs as a MATERIALIZED array (the
@@ -474,10 +474,10 @@ pub fn rtsadp_arr_entries(vec_handle: u64) -> u64 {
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(pair, PolyValue::from_i32(i as i32).raw() as i64);
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(pair, v);
         let pair_word =
-            PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(pair)).raw();
+            PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(pair)).raw();
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, pair_word as i64);
     }
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(out)).raw()
 }
 
 /// `arr.keys()` — the indices as a materialized array (see [`__rtsadp_arr_entries`]).
@@ -488,7 +488,7 @@ pub fn rtsadp_arr_keys(vec_handle: u64) -> u64 {
     for i in 0..len {
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, PolyValue::from_i32(i as i32).raw() as i64);
     }
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(out)).raw()
 }
 
 /// `arr.values()` — the values as a materialized array copy (see
@@ -496,7 +496,7 @@ pub fn rtsadp_arr_keys(vec_handle: u64) -> u64 {
 #[rtse::abi]
 pub fn rtsadp_arr_values(vec_handle: u64) -> u64 {
     let copy = copy_vec(vec_handle);
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(copy)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(copy)).raw()
 }
 
 /// `arr.with(index, value)` (ES2023) — a NEW array equal to the receiver but with
@@ -511,7 +511,7 @@ pub fn rtsadp_arr_with(vec_handle: u64, index: i64, value_word: u64) -> u64 {
     if idx >= 0 && idx < len {
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(copy, idx, value_word as i64);
     }
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(copy)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(copy)).raw()
 }
 
 /// `arr.flat(depth)` — flatten nested arrays up to `depth` levels into a NEW array
@@ -520,7 +520,7 @@ pub fn rtsadp_arr_with(vec_handle: u64, index: i64, value_word: u64) -> u64 {
 pub fn rtsadp_arr_flat_depth(vec_handle: u64, depth: i64) -> u64 {
     let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
     flat_into(vec_handle, depth, out);
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(out)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(out)).raw()
 }
 
 /// Push `vec_handle`'s elements into `out`, splicing array elements recursively
@@ -535,7 +535,7 @@ fn flat_into(vec_handle: u64, depth: i64, out: u64) {
             continue; // flat DROPS holes (spec FlattenIntoArray HasProperty step).
         }
         if depth > 0 && ev.is_object() && !super::inspect::looks_like_object(ev) {
-            let inner = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(ev.as_handle());
+            let inner = rt_handles::__rtsn_poly_to_handle(ev.as_handle());
             flat_into(inner, depth - 1, out);
         } else {
             rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, w as i64);
@@ -630,7 +630,7 @@ pub fn rtsadp_arr_sort_cmp(vec_handle: u64, cb: u64) -> u64 {
 pub fn rtsadp_arr_to_sorted(vec_handle: u64) -> u64 {
     let copy = copy_vec(vec_handle);
     __rtsadp_arr_sort(copy);
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(copy)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(copy)).raw()
 }
 
 /// `arr.toSorted(cmp)` (ES2023) — a NEW array sorted by the user comparator; the
@@ -639,7 +639,7 @@ pub fn rtsadp_arr_to_sorted(vec_handle: u64) -> u64 {
 pub fn rtsadp_arr_to_sorted_cmp(vec_handle: u64, cb: u64) -> u64 {
     let copy = copy_vec(vec_handle);
     __rtsadp_arr_sort_cmp(copy, cb);
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(copy)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(copy)).raw()
 }
 
 /// `arr.toSpliced(start, deleteCount)` (ES2023, no-insert 2-arg form) — a NEW array
@@ -658,7 +658,7 @@ pub fn rtsadp_arr_to_spliced(vec_handle: u64, start: i64, delete_count: i64) -> 
     for i in (s + del)..len {
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(new_vec, vec_word(vec_handle, i) as i64);
     }
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(new_vec)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(new_vec)).raw()
 }
 
 /// `arr.splice(start, deleteCount?, ...items)` (MUTATING) — remove `deleteCount`
@@ -672,7 +672,7 @@ pub fn rtsadp_arr_splice(vec_handle: u64, args_handle: u64) -> u64 {
     // Both `vec_handle` and `args_handle` are REAL Vec handles (the lowering
     // table-loads the receiver and the packed args array before the call).
     let removed = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SPLICE_AUTO(vec_handle, args_handle);
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(removed)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(removed)).raw()
 }
 
 /// `arr.toSpliced(start, deleteCount?, ...items)` (ES2023, NON-mutating, variadic)
@@ -682,7 +682,7 @@ pub fn rtsadp_arr_splice(vec_handle: u64, args_handle: u64) -> u64 {
 #[rtse::abi]
 pub fn rtsadp_arr_to_spliced_var(vec_handle: u64, args_handle: u64) -> u64 {
     let result = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_AUTO(vec_handle, args_handle);
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(result)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(result)).raw()
 }
 
 /// `arr.copyWithin(target, start, end)` — copy the slice `[start, end)` to `target`,

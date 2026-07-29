@@ -69,7 +69,7 @@ fn str_handle(recv: u64) -> u64 {
 /// is an array (TAG_OBJECT, not a keyed object).
 fn arr_handle(recv: u64) -> u64 {
     use rts_runtime::namespaces::gc::handles as rt_handles;
-    rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(PolyValue::from_raw(recv).as_handle())
+    rt_handles::__rtsn_poly_to_handle(PolyValue::from_raw(recv).as_handle())
 }
 
 /// Box a real string handle as a string PolyValue word, reusing the SAME pool
@@ -177,7 +177,7 @@ pub fn rtsadp_dyn_length(recv: u64) -> u64 {
     // array arm — a Map word passes `is_array_word` and `VEC_LEN` reads 0).
     if v.is_object() {
         use rts_runtime::namespaces::gc::handles as rt_handles;
-        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+        let h = rt_handles::__rtsn_poly_to_handle(v.as_handle());
         let hit = rts_engine::heap::handles::with_entry(h, |e| match e {
             Some(rts_engine::heap::handles::Entry::Map(m)) => {
                 Some(m.get("length").copied())
@@ -199,7 +199,7 @@ pub fn rtsadp_dyn_length(recv: u64) -> u64 {
     // and `VEC_LEN` on it reads 0.
     if v.is_object() {
         use rts_runtime::namespaces::gc::handles as rt_handles;
-        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+        let h = rt_handles::__rtsn_poly_to_handle(v.as_handle());
         if let Some(len) = rts_engine::heap::handles::with_entry(h, |e| match e {
             Some(rts_engine::heap::handles::Entry::Buffer(b)) => Some(b.len()),
             _ => None,
@@ -215,7 +215,7 @@ pub fn rtsadp_dyn_length(recv: u64) -> u64 {
     // arity minus the partially-bound count (`f.bind(null, x)`).
     if v.is_function() {
         use rts_runtime::namespaces::gc::handles as rt_handles;
-        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+        let h = rt_handles::__rtsn_poly_to_handle(v.as_handle());
         let len = rts_runtime::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_LENGTH(h);
         return PolyValue::from_i32(len as i32).raw();
     }
@@ -412,7 +412,7 @@ pub fn rtsadp_idx_get(recv: u64, idx: u64) -> u64 {
     // Buffer word also passes `is_array_word` and `VEC_GET` on it reads nothing.
     if v.is_object() {
         use rts_runtime::namespaces::gc::handles as rt_handles;
-        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+        let h = rt_handles::__rtsn_poly_to_handle(v.as_handle());
         let i = genops_to_i64(idx);
         if let Some(byte) = rts_engine::heap::handles::with_entry(h, |e| match e {
             Some(rts_engine::heap::handles::Entry::Buffer(b)) => {
@@ -431,7 +431,7 @@ pub fn rtsadp_idx_get(recv: u64, idx: u64) -> u64 {
     // `VEC_GET`; key it through `obj_get` (whose Map branch reads the IndexMap).
     if v.is_object() && !super::objops::is_proxy_word(recv) {
         use rts_runtime::namespaces::gc::handles as rt_handles;
-        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+        let h = rt_handles::__rtsn_poly_to_handle(v.as_handle());
         let is_map = rts_engine::heap::handles::with_entry(h, |e| {
             matches!(e, Some(rts_engine::heap::handles::Entry::Map(_)))
         });
@@ -449,7 +449,7 @@ pub fn rtsadp_idx_get(recv: u64, idx: u64) -> u64 {
             use rts_runtime::namespaces::gc::handles as rt_handles;
             let k = PolyValue::from_raw(idx);
             if k.is_object() {
-                let kh = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(k.as_handle());
+                let kh = rt_handles::__rtsn_poly_to_handle(k.as_handle());
                 let is_symbol = rt_handles::with_entry(kh, |e| {
                     matches!(e, Some(rt_handles::Entry::Symbol { .. }))
                 });
@@ -457,8 +457,8 @@ pub fn rtsadp_idx_get(recv: u64, idx: u64) -> u64 {
                     let iter_sym =
                         rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_ITERATOR();
                     if kh == iter_sym {
-                        let f = rts_runtime::namespaces::gc::generator::__RTS_FN_GL_ARRAY_ITERATOR_FN();
-                        let slot = rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(f);
+                        let f = rts_runtime::namespaces::gc::generator::__rtsm_global_array_iterator_fn();
+                        let slot = rt_handles::__rtsn_poly_from_handle(f);
                         return PolyValue::from_function_handle(slot).raw();
                     }
                     return undef();
@@ -758,7 +758,7 @@ pub fn rtsadp_promise_resolve_w(word: u64) -> u64 {
     // Plain value / existing promise: the legacy resolve path (word passes as
     // handle-or-value exactly like the static marshal did).
     let raw = if v.is_object() || v.is_function() || v.is_string() {
-        rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle())
+        rt_handles::__rtsn_poly_to_handle(v.as_handle())
     } else {
         word
     };
@@ -960,7 +960,7 @@ fn promise_handle(recv: u64) -> Option<u64> {
     // (box_handle_auto) reconstructs the handle from the live slot; a NUMBER
     // word ≥ 2^48 may carry a RAW handle (a legacy producer / marshal path).
     let h = if v.is_object() {
-        rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle())
+        rt_handles::__rtsn_poly_to_handle(v.as_handle())
     } else {
         let f = if v.is_double() {
             v.as_f64()

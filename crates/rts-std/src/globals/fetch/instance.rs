@@ -604,8 +604,8 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_TRY(fp: u64) -> i64 {
     }
     // Limpa qualquer erro pendente antes de invocar (semantica: try
     // captura apenas erros lancados pela propria fn).
-    let _ = error::__RTS_FN_RT_ERROR_GET();
-    error::__RTS_FN_RT_ERROR_CLEAR();
+    let _ = error::__rtsn_error_get();
+    error::__rtsn_error_clear();
     // Resolve fp: pode ser handle de Entry::Function (arrow/reify) ou
     // ponteiro extern "C" direto.
     let (fn_ptr, bound) = with_entry(fp, |entry| {
@@ -625,9 +625,9 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_TRY(fp: u64) -> i64 {
             _ => 0,
         }
     };
-    let err_h = error::__RTS_FN_RT_ERROR_GET();
+    let err_h = error::__rtsn_error_get();
     if err_h != 0 {
-        error::__RTS_FN_RT_ERROR_CLEAR();
+        error::__rtsn_error_clear();
         let slot = crate::promise_slot::new_rejected(err_h as i64);
         return alloc_entry(Entry::PromiseAsync(slot)) as i64;
     }
@@ -665,14 +665,14 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_NEW(executor_h: u64) -> u64 {
     ])));
     // Limpa error slot da thread atual antes de invocar (sem isso, erro
     // antigo de outra fn confundiria a propagacao).
-    error::__RTS_FN_RT_ERROR_CLEAR();
+    error::__rtsn_error_clear();
     // INVOKE_AUTO detecta executor como Function handle e despacha.
     use crate::gc_surface::__RTS_FN_RT_INVOKE_AUTO;
     let _ = unsafe { __RTS_FN_RT_INVOKE_AUTO(executor_h as i64, 0, args_vec) };
     // Se executor lancou, propaga como reject (JS spec).
-    let err = error::__RTS_FN_RT_ERROR_GET();
+    let err = error::__rtsn_error_get();
     if err != 0 {
-        error::__RTS_FN_RT_ERROR_CLEAR();
+        error::__rtsn_error_clear();
         promise_slot::reject(&slot, err as i64);
     }
     promise_h

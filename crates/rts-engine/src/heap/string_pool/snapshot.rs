@@ -1,8 +1,8 @@
 //! Minimal snapshotting of an `Entry` — copies just enough to format outside
 //! the `HandleTable` lock, avoiding recursive deadlock. Shared by the
 //! coercion/formatting ABI in `alloc.rs`/`coerce.rs`, and re-exported `pub`
-//! for the `rts-std` siblings (`__RTS_FN_RT_SPREAD_INTO_VEC`,
-//! `__RTS_FN_RT_OBJECT_TO_STRING`, `__RTS_FN_RT_INSPECT`) that still need it
+//! for the `rts-std` siblings (`__rtsn_spread_into_vec`,
+//! `__rtsn_object_to_string`, `__rtsn_inspect`) that still need it
 //! but couldn't move down (they touch `rts-shared`/`rts-primitives`).
 
 use crate::heap::handles::{Entry, with_entry};

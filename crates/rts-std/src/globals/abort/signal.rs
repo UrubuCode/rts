@@ -73,7 +73,7 @@ impl AbortSignal {
     #[rtse::method(name = "throwIfAborted", throws)]
     fn throw_if_aborted(self: &AbortSignal) {
         if self.aborted {
-            crate::gc_surface::__RTS_FN_RT_ERROR_SET(self.reason);
+            crate::gc_surface::__rtsn_error_set(self.reason);
         }
     }
 }

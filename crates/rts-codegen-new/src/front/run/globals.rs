@@ -144,22 +144,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // backend (rts-std `text_encoding`). The arg is ToString-coerced at this
             // untrusted boundary.
             "encodeURIComponent" => self
-                .lower_str_global(module, "__RTS_FN_GL_ENCODE_URI_COMPONENT", args)
+                .lower_str_global(module, "__rtsm_global_encode_uri_component", args)
                 .map(Some),
             "decodeURIComponent" => self
-                .lower_str_global(module, "__RTS_FN_GL_DECODE_URI_COMPONENT", args)
+                .lower_str_global(module, "__rtsm_global_decode_uri_component", args)
                 .map(Some),
             "encodeURI" => self
-                .lower_str_global(module, "__RTS_FN_GL_ENCODE_URI", args)
+                .lower_str_global(module, "__rtsm_global_encode_uri", args)
                 .map(Some),
             "decodeURI" => self
-                .lower_str_global(module, "__RTS_FN_GL_DECODE_URI", args)
+                .lower_str_global(module, "__rtsm_global_decode_uri", args)
                 .map(Some),
             "btoa" => self
-                .lower_str_global(module, "__RTS_FN_GL_TEXTENC_BTOA", args)
+                .lower_str_global(module, "__rtsm_global_btoa", args)
                 .map(Some),
             "atob" => self
-                .lower_str_global(module, "__RTS_FN_GL_TEXTENC_ATOB", args)
+                .lower_str_global(module, "__rtsm_global_atob", args)
                 .map(Some),
             _ => Ok(None),
         }

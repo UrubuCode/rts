@@ -37,7 +37,7 @@ fn class_tag_of(recv: u64) -> Option<String> {
     if !v.is_object() {
         return None;
     }
-    let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+    let h = rt_handles::__rtsn_poly_to_handle(v.as_handle());
     // A value-class WRAPPER object (`new String(x)` → `Entry::Rtse` classed
     // `"String"`; likewise a future `new Number()`/`new Boolean()`).
     if let Some(c) = rts_engine::heap::handles::rtse_class_of(h) {
@@ -61,7 +61,7 @@ pub fn class_tag_of_pub(recv: u64) -> Option<String> {
 fn any_handle(word: u64) -> u64 {
     let v = PolyValue::from_raw(word);
     if v.is_object() || v.is_string() || v.is_function() {
-        rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle())
+        rt_handles::__rtsn_poly_to_handle(v.as_handle())
     } else {
         word
     }

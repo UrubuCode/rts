@@ -31,7 +31,7 @@ use rts_engine::heap::poly::{
     POLY_BOX_BASE, POLY_TAG_OBJECT, POLY_TAG_SHIFT, POLY_TAG_STR, POLY_UNDEFINED, poly_handle_normalize,
     poly_number,
 };
-use rts_engine::heap::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE;
+use rts_engine::heap::handles::__rtsn_poly_from_handle;
 
 pub mod blob;
 pub mod file;
@@ -101,9 +101,9 @@ fn obj_field_word(opts_h: Handle, key: &str) -> Option<u64> {
     if opts_h == 0 {
         return None;
     }
-    let obj_word = POLY_BOX_BASE | (POLY_TAG_OBJECT << POLY_TAG_SHIFT) | __RTS_FN_NS_GC_POLY_FROM_HANDLE(opts_h);
+    let obj_word = POLY_BOX_BASE | (POLY_TAG_OBJECT << POLY_TAG_SHIFT) | __rtsn_poly_from_handle(opts_h);
     let key_h = alloc_entry(Entry::String(key.as_bytes().to_vec()));
-    let key_word = POLY_BOX_BASE | (POLY_TAG_STR << POLY_TAG_SHIFT) | __RTS_FN_NS_GC_POLY_FROM_HANDLE(key_h);
+    let key_word = POLY_BOX_BASE | (POLY_TAG_STR << POLY_TAG_SHIFT) | __rtsn_poly_from_handle(key_h);
     let val = unsafe { __rtsadp_obj_get(obj_word, key_word) };
     if val == POLY_UNDEFINED { None } else { Some(val) }
 }

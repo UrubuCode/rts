@@ -316,7 +316,7 @@ fn listener_identity(fn_ptr: u64) -> u64 {
     let is_poly_fn = (fn_ptr & POLY_BOX_BASE) == POLY_BOX_BASE
         && ((fn_ptr >> POLY_TAG_SHIFT) & 0x7) == POLY_TAG_FUNCTION;
     let handle = if is_poly_fn {
-        rts_engine::heap::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(fn_ptr & 0xFFFF_FFFF_FFFF)
+        rts_engine::heap::handles::__rtsn_poly_to_handle(fn_ptr & 0xFFFF_FFFF_FFFF)
     } else {
         fn_ptr
     };

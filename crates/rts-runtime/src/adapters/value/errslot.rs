@@ -83,7 +83,7 @@ pub(crate) fn make_js_error(kind: &str, message: &str) -> u64 {
             rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, w as i64);
         }
         let word = super::PolyValue::from_object_handle(
-            rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(vec),
+            rt_handles::__rtsn_poly_from_handle(vec),
         )
         .raw();
         // Wire the class prototype so `e.constructor`/`e.constructor.name`
@@ -212,7 +212,7 @@ pub extern "C" fn __rtsadp_thenable_then(value: i64) -> u64 {
                 return 0;
             }
             crate::adapters::value::PolyValue::from_object_handle(
-                rts_runtime::namespaces::gc::handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(w),
+                rts_runtime::namespaces::gc::handles::__rtsn_poly_from_handle(w),
             )
             .raw()
         } else {

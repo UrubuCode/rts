@@ -3,7 +3,7 @@
 //! A top-level `let` that is WRITTEN from inside a function is promoted by
 //! [`super::funcval::module_globals`] to a runtime CELL with a compile-time id.
 //! Every access — at the top level AND inside the writing function — goes through
-//! `__RTS_FN_NS_GC_GCELL_GET/SET` by that id, so the value is genuinely shared
+//! `__rtsn_gcell_get/SET` by that id, so the value is genuinely shared
 //! (no by-value capture snapshot). The cell stores a PolyValue word; the GC root
 //! scanner marks live cell contents (`collector::mark_gcell_roots`).
 //!
@@ -50,7 +50,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
         let id_v = self.builder.ins().iconst(types::I64, id as i64);
         let w = self
-            .call_runtime(module, "__RTS_FN_NS_GC_GCELL_GET", &[id_v])?
+            .call_runtime(module, "__rtsn_gcell_get", &[id_v])?
             .expect("GCELL_GET returns a word");
         if self.immutable_gcells.contains(&id) {
             // Park the loaded word in a Variable so later blocks read it through
@@ -77,7 +77,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // reload, never a wrong value.
         self.gcell_cache.remove(&id);
         let id_v = self.builder.ins().iconst(types::I64, id as i64);
-        self.call_runtime(module, "__RTS_FN_NS_GC_GCELL_SET", &[id_v, word])?;
+        self.call_runtime(module, "__rtsn_gcell_set", &[id_v, word])?;
         Ok(())
     }
 }

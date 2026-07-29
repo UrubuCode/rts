@@ -256,7 +256,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let payload48 = value::emit_marshal::emit_call(
             module,
             self.builder,
-            "__RTS_FN_NS_GC_POLY_FROM_HANDLE",
+            "__rtsn_poly_from_handle",
             &[real_handle],
         )
         .expect("POLY_FROM_HANDLE returns a value");

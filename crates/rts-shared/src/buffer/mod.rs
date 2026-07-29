@@ -1047,7 +1047,7 @@ pub extern "C" fn __RTS_FN_NS_ENGINE_IS_BUFFER(word: u64) -> u64 {
     let boxed = (word & POLY_BOX_BASE) == POLY_BOX_BASE;
     let is_obj = boxed && ((word >> POLY_TAG_SHIFT) & 0x7) == POLY_TAG_OBJECT;
     let yes = is_obj && {
-        let h = rts_engine::heap::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(word & POLY_PAYLOAD_MASK);
+        let h = rts_engine::heap::handles::__rtsn_poly_to_handle(word & POLY_PAYLOAD_MASK);
         with_entry(h, |e| matches!(e, Some(Entry::Buffer(_))))
     };
     // Singleton payloads: true = 3, false = 2 (rts-runtime layout).
@@ -1060,7 +1060,7 @@ pub extern "C" fn __RTS_FN_NS_ENGINE_IS_BUFFER(word: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_ENGINE_BUFFER_CLONE(word: u64) -> u64 {
     use rts_engine::heap::poly::*;
-    let h = rts_engine::heap::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(word & POLY_PAYLOAD_MASK);
+    let h = rts_engine::heap::handles::__rtsn_poly_to_handle(word & POLY_PAYLOAD_MASK);
     let Some(bytes) = with_entry(h, |e| match e {
         Some(Entry::Buffer(b)) => Some(b.clone()),
         _ => None,
@@ -1076,7 +1076,7 @@ pub extern "C" fn __RTS_FN_NS_ENGINE_BUFFER_CLONE(word: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_ENGINE_BUFFER_DETACH(word: u64) -> u64 {
     use rts_engine::heap::poly::*;
-    let h = rts_engine::heap::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(word & POLY_PAYLOAD_MASK);
+    let h = rts_engine::heap::handles::__rtsn_poly_to_handle(word & POLY_PAYLOAD_MASK);
     with_entry_mut(h, |e| {
         if let Some(Entry::Buffer(b)) = e {
             b.clear();

@@ -139,7 +139,7 @@ fn nested_record_field_is_a_nested_object() {
     // slot 2 ("inner") is a boxed OBJECT word — decode its handle and confirm
     // it is itself a valid shaped object with Stats's own field order.
     let inner_word = outer[2] as u64;
-    let inner_handle = rts_engine::heap::handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(
+    let inner_handle = rts_engine::heap::handles::__rtsn_poly_to_handle(
         inner_word & 0x0000_FFFF_FFFF_FFFF,
     );
     let inner = rts_engine::heap::handles::with_entry(inner_handle, |e| match e {

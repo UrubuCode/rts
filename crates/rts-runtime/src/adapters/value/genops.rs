@@ -57,7 +57,7 @@ pub(super) fn to_string(v: PolyValue) -> String {
         // an unknown opaque entry keeps the object default.
         use rts_engine::heap::handles::{Entry, with_entry};
         use rts_runtime::namespaces::gc::handles as rt_handles;
-        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+        let h = rt_handles::__rtsn_poly_to_handle(v.as_handle());
         let is_vec = with_entry(h, |e| matches!(e, Some(Entry::Vec(_))));
         if is_vec {
             return array_to_string(v);
@@ -146,7 +146,7 @@ fn invoke_prim_method(v: PolyValue, name: &str, hint: Option<&str>) -> Option<Po
 fn array_to_string(v: PolyValue) -> String {
     use rts_runtime::namespaces::collections::vec as rt_vec;
     use rts_runtime::namespaces::gc::handles as rt_handles;
-    let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+    let handle = rt_handles::__rtsn_poly_to_handle(v.as_handle());
     let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(handle).max(0);
     let mut out = String::new();
     for i in 0..len {
@@ -168,7 +168,7 @@ fn array_to_string(v: PolyValue) -> String {
 /// the rest of RTS (integer-valued doubles drop the `.0`, the non-finite
 /// spellings, exponential thresholds — all the runtime's, not a reimplementation).
 fn number_to_string(f: f64) -> String {
-    let handle = rt_str::__RTS_FN_NS_GC_STRING_FROM_F64(f);
+    let handle = rt_str::__rtsn_string_from_f64(f);
     abi_adapter::real_handle_to_string(handle)
 }
 
@@ -536,7 +536,7 @@ pub fn rtsadp_typeof(a: u64) -> u64 {
     // symbol-holding variable the front can't classify statically).
     if v.is_object() {
         use rts_runtime::namespaces::gc::handles as rt_handles;
-        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+        let h = rt_handles::__rtsn_poly_to_handle(v.as_handle());
         let is_sym =
             rt_handles::with_entry(h, |e| matches!(e, Some(rt_handles::Entry::Symbol { .. })));
         if is_sym {
@@ -586,7 +586,7 @@ pub fn rtsadp_await(word: u64) -> u64 {
     // `__rtsadp_box_handle_auto`, which tags a PromiseAsync entry OBJECT) —
     // reconstruct the full handle from the live slot and wait on it too.
     let handle = if v.is_object() {
-        rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle())
+        rt_handles::__rtsn_poly_to_handle(v.as_handle())
     } else {
         let f = if v.is_double() {
             v.as_f64()
@@ -663,7 +663,7 @@ fn rebox_settled(raw: i64) -> u64 {
             }
             Some(2) => {
                 use rts_runtime::namespaces::gc::handles as rt_handles;
-                let slot = rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(w);
+                let slot = rt_handles::__rtsn_poly_from_handle(w);
                 return PolyValue::from_object_handle(slot).raw();
             }
             _ => {}
@@ -710,7 +710,7 @@ fn box_handle_auto_depth(h: u64, depth: u32) -> u64 {
     match kind {
         1 => abi_adapter::poly_from_real_handle(h).raw(),
         4 => {
-            let slot = rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h);
+            let slot = rt_handles::__rtsn_poly_from_handle(h);
             PolyValue::from_function_handle(slot).raw()
         }
         2 => {
@@ -733,11 +733,11 @@ fn box_handle_auto_depth(h: u64, depth: u32) -> u64 {
                     }
                 }
             }
-            let slot = rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h);
+            let slot = rt_handles::__rtsn_poly_from_handle(h);
             PolyValue::from_object_handle(slot).raw()
         }
         3 => {
-            let slot = rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h);
+            let slot = rt_handles::__rtsn_poly_from_handle(h);
             PolyValue::from_object_handle(slot).raw()
         }
         _ => PolyValue::null().raw(),
@@ -756,7 +756,7 @@ pub fn rtsadp_word_to_abi_i64(a: u64) -> i64 {
     use rts_runtime::namespaces::gc::handles as rt_handles;
     let v = PolyValue::from_raw(a);
     if v.is_string() || v.is_object() || v.is_function() {
-        return rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle()) as i64;
+        return rt_handles::__rtsn_poly_to_handle(v.as_handle()) as i64;
     }
     if v.is_double() {
         let f = v.as_f64();

@@ -40,8 +40,8 @@ use super::handles::{live_handle_count, mark_handle, sweep_all_shards};
 // programs can run concurrently in one process), lock-free on read.
 
 /// Store `word` (a PolyValue) into global cell `id`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_GCELL_SET(id: u64, word: u64) {
+#[rtse::abi(native, value = "gcell_set")]
+pub fn gcell_set(id: u64, word: u64) {
     if std::env::var("RTS_DEBUG_GCELL").is_ok() {
         eprintln!("[gcell] SET {id} = {word:#x}");
     }
@@ -49,8 +49,8 @@ pub extern "C" fn __RTS_FN_NS_GC_GCELL_SET(id: u64, word: u64) {
 }
 
 /// Load global cell `id` (0 if never set — the front-end SETs before GET).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_GCELL_GET(id: u64) -> u64 {
+#[rtse::abi(native, value = "gcell_get")]
+pub fn gcell_get(id: u64) -> u64 {
     super::gcells::get(id)
 }
 
@@ -187,20 +187,20 @@ pub fn collect(_roots: &[u64]) -> u64 {
 
 /// Full collection cycle triggered from userland (`gc.collect()`).
 /// Returns handles swept.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_COLLECT(root: u64) -> i64 {
+#[rtse::abi(native, value = "collect")]
+pub fn collect(root: u64) -> i64 {
     let _ = root;
     collect(&[]) as i64
 }
 
 /// Incremental collection step. No-op until incremental pacing is implemented.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_COLLECT_DEBT() {
+#[rtse::abi(native, value = "collect_debt")]
+pub fn collect_debt() {
     collect_debt();
 }
 
 /// Live handle count. Useful for benchmarks and leak detection.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_LIVE_COUNT() -> i64 {
+#[rtse::abi(native, value = "live_count")]
+pub fn live_count() -> i64 {
     live_handle_count() as i64
 }

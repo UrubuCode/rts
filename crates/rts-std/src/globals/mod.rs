@@ -5,7 +5,7 @@
 //! chamado pelo registro em `rts-codegen/src/abi/mod.rs` via o facade
 //! `rts-runtime::namespaces::globals`.
 //!
-//! Externs do collector do runtime (`__RTS_FN_RT_ERROR_SET`) e da função em
+//! Externs do collector do runtime (`__rtsn_error_set`) e da função em
 //! rts-shared (`__RTS_FN_RT_INVOKE_AUTO`) são resolvidos por link (`extern "C"`).
 //!
 //! DRAIN_MOTOR (2026-07-24): `blob`/`form_data`/`message_channel`/

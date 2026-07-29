@@ -440,7 +440,7 @@ fn run_single_in_process(file: &Path, root: &Path) -> Result<()> {
     eprintln!("\n{}", dim(&label));
 
     runner::reset_runner();
-    crate::namespaces::gc::error::__RTS_FN_RT_ERROR_CLEAR();
+    crate::namespaces::gc::error::__rtsn_error_clear();
     crate::namespaces::gc::stack::reset_stack_depth();
     // Drain the engine's process-global tables before compiling the next file.
     // This is the quiescent top-level boundary `reset_codegen_state` documents:

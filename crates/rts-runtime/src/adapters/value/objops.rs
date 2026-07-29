@@ -59,7 +59,7 @@ pub(crate) fn proxy_parts(obj_word: u64) -> Option<(u64, u64)> {
     if !obj.is_object() {
         return None;
     }
-    let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+    let handle = rt_handles::__rtsn_poly_to_handle(obj.as_handle());
     let (target, handler) = rt_proxy::ops::resolve_proxy(handle)?;
     // The stored target/handler are full GC handles; `POLY_FROM_HANDLE` drops the
     // generation to the 48-bit slot the box expects (NOT a raw mask — the handle
@@ -67,8 +67,8 @@ pub(crate) fn proxy_parts(obj_word: u64) -> Option<(u64, u64)> {
     // proxied FUNCTION (`new Proxy(fn, …)` — the apply/construct traps) must ride
     // `TAG_FUNCTION` or the forward path reads it as a plain object and refuses
     // to call/construct it.
-    let t_slot = rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(target);
-    let h_slot = rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(handler);
+    let t_slot = rt_handles::__rtsn_poly_from_handle(target);
+    let h_slot = rt_handles::__rtsn_poly_from_handle(handler);
     let t_is_fn = rt_handles::with_entry(target, |e| {
         matches!(e, Some(rt_handles::Entry::Function(_)))
     });
@@ -130,7 +130,7 @@ fn resolve_slot(obj_word: u64, key_str_handle: u64) -> Option<(u64, i64)> {
     if !obj.is_object() || !looks_like_object(obj) {
         return None;
     }
-    let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+    let handle = rt_handles::__rtsn_poly_to_handle(obj.as_handle());
     let slot0 = PolyValue::from_raw(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 0) as u64);
     if !slot0.is_int32() {
         return None;
@@ -168,7 +168,7 @@ fn canonical_property_key(key_word: u64) -> u64 {
     }
     {
         // A SYMBOL primitive is a valid property key on its own; do NOT stringify it.
-        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(k.as_handle());
+        let h = rt_handles::__rtsn_poly_to_handle(k.as_handle());
         if rt_handles::with_entry(h, |e| matches!(e, Some(rt_handles::Entry::Symbol { .. }))) {
             return key_word;
         }
@@ -204,7 +204,7 @@ fn key_text(key_str_handle: u64) -> String {
     if k.is_string() {
         abi_adapter::resolve_poly(k)
     } else if k.is_object() && {
-        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(k.as_handle());
+        let h = rt_handles::__rtsn_poly_to_handle(k.as_handle());
         rt_handles::with_entry(h, |e| matches!(e, Some(rt_handles::Entry::Symbol { .. })))
     } {
         // A SYMBOL property key: a WELL-KNOWN symbol canonicalizes to `@@<name>`
@@ -213,7 +213,7 @@ fn key_text(key_str_handle: u64) -> String {
         // `@@sym:<handle>` repr (#798), filtered from string enumeration
         // (`Object.keys`/for-in/`JSON.stringify` skip it; `getOwnPropertySymbols`
         // decodes it back).
-        let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(k.as_handle());
+        let h = rt_handles::__rtsn_poly_to_handle(k.as_handle());
         use rts_runtime::namespaces::globals::symbol as gl_sym;
         if h == gl_sym::__RTS_FN_GL_SYMBOL_ITERATOR() {
             "@@iterator".to_string()
@@ -258,7 +258,7 @@ pub fn rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
     {
         let v = PolyValue::from_raw(obj_word);
         if v.is_function() && key_text(key_str_handle) == "name" {
-            let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle());
+            let h = rt_handles::__rtsn_poly_to_handle(v.as_handle());
             let name_h =
                 rts_runtime::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_NAME(h);
             return abi_adapter::poly_from_real_handle(name_h).raw();
@@ -271,7 +271,7 @@ pub fn rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
     {
         let obj = PolyValue::from_raw(obj_word);
         if obj.is_object() {
-            let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+            let h = rt_handles::__rtsn_poly_to_handle(obj.as_handle());
             // Resolve the key BEFORE taking the shard lock — see the matching
             // note in `__rtsadp_obj_set`: `key_text` reads the key's own handle,
             // so a key sharing the receiver's shard would re-lock and deadlock.
@@ -328,7 +328,7 @@ pub fn rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
     {
         let obj = PolyValue::from_raw(obj_word);
         if obj.is_object() {
-            let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+            let h = rt_handles::__rtsn_poly_to_handle(obj.as_handle());
             let class = rts_engine::heap::handles::rtse_class_of(h);
             // A METHOD name read as a property stays a method VALUE — never
             // invoke it here (`d.end` is not `d.end()`).
@@ -369,7 +369,7 @@ pub fn rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
         if !is_keyed && obj.is_object() {
             let key = key_text(key_str_handle);
             if key == "byteLength" {
-                let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+                let h = rt_handles::__rtsn_poly_to_handle(obj.as_handle());
                 if let Some(len) = rt_handles::with_entry(h, |e| match e {
                     Some(rt_handles::Entry::Buffer(b)) => Some(b.len()),
                     _ => None,
@@ -378,7 +378,7 @@ pub fn rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
                 }
             }
             if let Ok(i) = key.parse::<usize>() {
-                let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+                let h = rt_handles::__rtsn_poly_to_handle(obj.as_handle());
                 if let Some(byte) = rt_handles::with_entry(h, |e| match e {
                     Some(rt_handles::Entry::Buffer(b)) => Some(b.get(i).copied()),
                     _ => None,
@@ -397,7 +397,7 @@ pub fn rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
     {
         let obj = PolyValue::from_raw(obj_word);
         if obj.is_object() && key_text(key_str_handle) == "description" {
-            let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+            let handle = rt_handles::__rtsn_poly_to_handle(obj.as_handle());
             let desc = rt_handles::with_entry(handle, |e| match e {
                 Some(rt_handles::Entry::Symbol { description }) => Some(description.clone()),
                 _ => None,
@@ -479,9 +479,9 @@ pub extern "C" fn shaped_object_get(h: u64, key_ptr: *const u8, key_len: i64) ->
     let Some(key) = (unsafe { rts_engine::abi::str_abi::from_abi(key_ptr, key_len) }) else {
         return 0;
     };
-    let word = PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h)).raw();
+    let word = PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(h)).raw();
     let kh = rts_runtime::namespaces::collector::string_pool::__RTS_FN_NS_GC_STRING_NEW(key.as_ptr(), key.len() as i64);
-    let kw = PolyValue::from_str_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(kh)).raw();
+    let kw = PolyValue::from_str_handle(rt_handles::__rtsn_poly_from_handle(kh)).raw();
     let out = PolyValue::from_raw(__rtsadp_obj_get(word, kw));
     // Normalize to the i64 surface: INT32 → the int; a heap value → its real
     // handle; a double → truncated; undefined/absent → 0.
@@ -505,9 +505,9 @@ pub extern "C" fn shaped_object_set(h: u64, key_ptr: *const u8, key_len: i64, va
     let Some(key) = (unsafe { rts_engine::abi::str_abi::from_abi(key_ptr, key_len) }) else {
         return;
     };
-    let word = PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(h)).raw();
+    let word = PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(h)).raw();
     let kh = rts_runtime::namespaces::collector::string_pool::__RTS_FN_NS_GC_STRING_NEW(key.as_ptr(), key.len() as i64);
-    let kw = PolyValue::from_str_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(kh)).raw();
+    let kw = PolyValue::from_str_handle(rt_handles::__rtsn_poly_from_handle(kh)).raw();
     let vw = match i32::try_from(value) {
         Ok(i) => PolyValue::from_i32(i),
         Err(_) => PolyValue::from_f64(value as f64),
@@ -547,7 +547,7 @@ pub fn rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word: u64) -> u64 
         let obj = PolyValue::from_raw(obj_word);
         if obj.is_object() && !looks_like_object(obj) {
             if let Ok(i) = key_text(key_str_handle).parse::<i64>() {
-                let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+                let handle = rt_handles::__rtsn_poly_to_handle(obj.as_handle());
                 let is_vec = rt_handles::with_entry(handle, |e| {
                     matches!(e, Some(rt_handles::Entry::Vec(_)))
                 });
@@ -607,7 +607,7 @@ pub fn rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word: u64) -> u64 
     {
         let obj = PolyValue::from_raw(obj_word);
         if obj.is_object() {
-            let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+            let h = rt_handles::__rtsn_poly_to_handle(obj.as_handle());
             // Resolve the key BEFORE taking the shard lock: `key_text` reads the
             // key's own handle, and a key that hashes to the receiver's shard
             // would re-lock the mutex we are already holding — a deadlock that
@@ -637,7 +637,7 @@ pub fn rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word: u64) -> u64 
     // A non-extensible object (Object.preventExtensions/freeze) rejects new keys.
     let obj = PolyValue::from_raw(obj_word);
     if obj.is_object() && looks_like_object(obj) && !is_non_extensible(obj_word) {
-        let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+        let handle = rt_handles::__rtsn_poly_to_handle(obj.as_handle());
         let mut keys = object_keys_vec(obj_word);
         keys.push(key_text(key_str_handle));
         let new_shape = rts_engine::heap::shapes::intern_global_shape(&keys);
@@ -663,11 +663,11 @@ pub fn rtsadp_obj_from_entries(entries_word: u64) -> u64 {
     let slot0 = PolyValue::from_i32(empty_shape as i32).raw() as i64;
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(obj_handle, slot0);
     let obj_word =
-        PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(obj_handle)).raw();
+        PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(obj_handle)).raw();
 
     let entries = PolyValue::from_raw(entries_word);
     if entries.is_object() {
-        let eh = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(entries.as_handle());
+        let eh = rt_handles::__rtsn_poly_to_handle(entries.as_handle());
         let n = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(eh).max(0);
         for i in 0..n {
             let pair_word = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(eh, i) as u64;
@@ -675,7 +675,7 @@ pub fn rtsadp_obj_from_entries(entries_word: u64) -> u64 {
             if !pair.is_object() {
                 continue;
             }
-            let ph = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(pair.as_handle());
+            let ph = rt_handles::__rtsn_poly_to_handle(pair.as_handle());
             if rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(ph) < 2 {
                 continue;
             }
@@ -746,7 +746,7 @@ pub fn rtsadp_obj_has(obj_word: u64, key_str_handle: u64) -> i64 {
     {
         let obj = PolyValue::from_raw(obj_word);
         if obj.is_object() && !looks_like_object(obj) {
-            let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+            let h = rt_handles::__rtsn_poly_to_handle(obj.as_handle());
             let is_vec =
                 rt_handles::with_entry(h, |e| matches!(e, Some(rt_handles::Entry::Vec(_))));
             if is_vec {
@@ -823,7 +823,7 @@ pub fn rtsadp_has_own(obj_word: u64, key_str_handle: u64) -> u64 {
     {
         let obj = PolyValue::from_raw(obj_word);
         if obj.is_object() && !looks_like_object(obj) {
-            let h = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+            let h = rt_handles::__rtsn_poly_to_handle(obj.as_handle());
             let is_vec =
                 rt_handles::with_entry(h, |e| matches!(e, Some(rt_handles::Entry::Vec(_))));
             if is_vec {
@@ -1019,7 +1019,7 @@ pub fn rtsadp_obj_get_own_property_descriptor(obj_word: u64, key_word: u64) -> u
         PolyValue::from_i32(empty_shape as i32).raw() as i64,
     );
     let desc =
-        PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(obj_handle)).raw();
+        PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(obj_handle)).raw();
     let val = __rtsadp_obj_get(obj_word, key_word);
     __rtsadp_obj_set(desc, abi_adapter::intern_poly("value").raw(), val);
     let b = |bit: i64| PolyValue::bool(flags & bit != 0).raw();
@@ -1040,7 +1040,7 @@ pub fn rtsadp_obj_get_own_property_descriptors(obj_word: u64) -> u64 {
         PolyValue::from_i32(empty_shape as i32).raw() as i64,
     );
     let res =
-        PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(res_handle)).raw();
+        PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(res_handle)).raw();
     let keys = object_keys_vec(obj_word);
     for k in &keys {
         // An accessor slot pair (`__get_<name>` / `__set_<name>` — how a literal
@@ -1077,7 +1077,7 @@ fn accessor_descriptor(obj_word: u64, name: &str) -> u64 {
         desc_handle,
         PolyValue::from_i32(empty_shape as i32).raw() as i64,
     );
-    let desc = PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(
+    let desc = PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(
         desc_handle,
     ))
     .raw();
@@ -1184,7 +1184,7 @@ fn define_write_slot(obj_word: u64, key_str_handle: u64, val_word: u64) {
     }
     let obj = PolyValue::from_raw(obj_word);
     if obj.is_object() && looks_like_object(obj) {
-        let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+        let handle = rt_handles::__rtsn_poly_to_handle(obj.as_handle());
         let mut keys = object_keys_vec(obj_word);
         keys.push(key_text(key_str_handle));
         let new_shape = rts_engine::heap::shapes::intern_global_shape(&keys);
@@ -1400,7 +1400,7 @@ pub fn rtsadp_obj_delete(obj_word: u64, key_str_handle: u64) -> i64 {
         let obj = PolyValue::from_raw(obj_word);
         if obj.is_object() && !looks_like_object(obj) {
             if let Ok(i) = key_text(key_str_handle).parse::<i64>() {
-                let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+                let handle = rt_handles::__rtsn_poly_to_handle(obj.as_handle());
                 let is_vec = rt_handles::with_entry(handle, |e| {
                     matches!(e, Some(rt_handles::Entry::Vec(_)))
                 });
@@ -1473,7 +1473,7 @@ fn object_keys_vec(obj_word: u64) -> Vec<String> {
     if !obj.is_object() || !looks_like_object(obj) {
         return Vec::new();
     }
-    let handle = rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(obj.as_handle());
+    let handle = rt_handles::__rtsn_poly_to_handle(obj.as_handle());
     let slot0 = PolyValue::from_raw(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 0) as u64);
     slot0
         .is_int32()
@@ -1484,7 +1484,7 @@ fn object_keys_vec(obj_word: u64) -> Vec<String> {
 
 /// Box a fresh Vec handle as a `TAG_OBJECT` array PolyValue word.
 fn array_word(vec: u64) -> u64 {
-    PolyValue::from_object_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(vec)).raw()
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(vec)).raw()
 }
 
 // `Object.keys` (dynamic) reuses the existing `iterops::__rtsadp_obj_keys` (for-in
@@ -1505,7 +1505,7 @@ pub fn rtsadp_obj_define_properties(obj_word: u64, props_word: u64) -> u64 {
     // the getter (the storage-key list would read the raw slot and skip it).
     let keys_word = super::iterops::__rtsadp_obj_keys(props_word);
     let keys_h =
-        rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(PolyValue::from_raw(keys_word).as_handle());
+        rt_handles::__rtsn_poly_to_handle(PolyValue::from_raw(keys_word).as_handle());
     let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(keys_h).max(0);
     let mut gathered: Vec<(u64, u64)> = Vec::new();
     for i in 0..len {

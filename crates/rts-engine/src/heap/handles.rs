@@ -1083,7 +1083,7 @@ impl HandleTable {
 
     /// Current generation of a live slot by its per-shard index, or `None` when
     /// the index is out of range or the slot is `Free`. Used by
-    /// [`__RTS_FN_NS_GC_POLY_TO_HANDLE`] to reconstruct the generation that a
+    /// [`__rtsn_poly_to_handle`] to reconstruct the generation that a
     /// NaN-boxed PolyValue payload dropped. Read-only; no allocation.
     /// The entry at a raw slot index, WITHOUT a generation check — `None` for an
     /// out-of-range or freed slot.
@@ -1364,13 +1364,13 @@ pub fn mark_handle(handle: u64) {
 
 /// Drop the 16-bit generation from a full runtime handle, returning the bare
 /// 48-bit slot+shard payload a `PolyValue` can carry. The inverse of
-/// [`__RTS_FN_NS_GC_POLY_TO_HANDLE`] for a live slot.
+/// [`__rtsn_poly_to_handle`] for a live slot.
 ///
 /// `HANDLE_SLOT_MASK` is exactly the low 48 bits (`(1<<48)-1`) — verified against
 /// the canonical constant in `crate::abi::handles`, so the returned payload is
 /// the slot+shard field with the generation cleared.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_POLY_FROM_HANDLE(full: u64) -> u64 {
+#[rtse::abi(native, value = "poly_from_handle")]
+pub fn poly_from_handle(full: u64) -> u64 {
     // The all-zero HANDLE is the ABI-wide error sentinel (a live handle always
     // has `generation >= 1`). Its payload must NOT be 0 — payload 0 is the
     // legitimate live slot (0, 0), so boxing a sentinel as payload 0 would
@@ -1401,8 +1401,8 @@ pub extern "C" fn __RTS_FN_NS_GC_PIN_HANDLE(handle: u64) {
 /// [`shard_for_handle`], takes the shard lock read-only (like [`with_entry`]),
 /// reads the slot's generation, and re-encodes
 /// `((gen as u64) << HANDLE_GEN_SHIFT) | (poly48 & 0x0000_FFFF_FFFF_FFFF)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_POLY_TO_HANDLE(poly48: u64) -> u64 {
+#[rtse::abi(native, value = "poly_to_handle")]
+pub fn poly_to_handle(poly48: u64) -> u64 {
     // NB: do NOT short-circuit on `payload == 0`. A payload of 0 is the perfectly
     // valid (slot 0, shard 0) live slot — the FIRST handle allocated in shard 0.
     // The all-zero *handle* is the sentinel, but a live slot always has
@@ -1921,7 +1921,7 @@ mod tests {
         use crate::heap::poly::{POLY_BOX_BASE, POLY_PAYLOAD_MASK, POLY_TAG_SHIFT, POLY_TAG_STR};
 
         let str_h = alloc_entry(Entry::String(b"reachable-via-box".to_vec()));
-        let poly48 = __RTS_FN_NS_GC_POLY_FROM_HANDLE(str_h);
+        let poly48 = __rtsn_poly_from_handle(str_h);
         let boxed = POLY_BOX_BASE | (POLY_TAG_STR << POLY_TAG_SHIFT) | (poly48 & POLY_PAYLOAD_MASK);
 
         // Vec stores raw i64 words; the boxed PolyValue word is one such word.

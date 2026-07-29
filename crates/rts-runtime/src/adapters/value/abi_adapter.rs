@@ -12,8 +12,8 @@
 //!    generation. Rather than a side table, the payload stores the bare 48-bit
 //!    slot+shard and the generation is reconstructed on demand from the slot's own
 //!    live generation by the REAL engine symbols
-//!    `__RTS_FN_NS_GC_POLY_FROM_HANDLE` (box: drop the gen) /
-//!    `__RTS_FN_NS_GC_POLY_TO_HANDLE` (unbox: reconstruct the gen). The
+//!    `__rtsn_poly_from_handle` (box: drop the gen) /
+//!    `__rtsn_poly_to_handle` (unbox: reconstruct the gen). The
 //!    string/object BYTES live in the REAL pool; the PolyValue carries the slot.
 //!
 //! 2. **The generic-operator trampolines** (`__rtsadp_*`, codegen-owned, NOT
@@ -91,14 +91,14 @@ pub fn intern_poly_const(s: &str) -> PolyValue {
 /// Box an already-allocated real string handle as a string `PolyValue`, storing
 /// its bare 48-bit slot+shard payload (no side table).
 pub fn poly_from_real_handle(handle: u64) -> PolyValue {
-    PolyValue::from_str_handle(rt_handles::__RTS_FN_NS_GC_POLY_FROM_HANDLE(handle))
+    PolyValue::from_str_handle(rt_handles::__rtsn_poly_from_handle(handle))
 }
 
 /// The real runtime string handle behind a string `PolyValue`, reconstructing
 /// the generation from the live slot.
 pub fn real_handle_of(v: PolyValue) -> u64 {
     debug_assert!(v.is_string(), "real_handle_of on a non-string PolyValue");
-    rt_handles::__RTS_FN_NS_GC_POLY_TO_HANDLE(v.as_handle())
+    rt_handles::__rtsn_poly_to_handle(v.as_handle())
 }
 
 /// Read a string `PolyValue` back to its UTF-8 text, via the REAL pool
