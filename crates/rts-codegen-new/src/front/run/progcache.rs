@@ -25,7 +25,13 @@ use super::module_jit::Program;
 /// Bump when anything that changes the baked machine code (the engine's lowering,
 /// the manifest format, the reloc scheme) changes, so a stale blob is never
 /// replayed into an incompatible engine.
-const CACHE_VERSION: u32 = 1;
+///
+/// v2: the class-identity fix in `rts_engine::heap::shapes`. This cache replays
+/// BAKED MACHINE CODE whose shape-id immediates were produced by the engine that
+/// stored it, and `rts compile` reuses it too (`module_entry::compile_path_to_object`),
+/// so without this bump a machine that ran the pre-fix binary once would keep
+/// replaying the vulnerable dispatch — silently, for both `run` and `compile`.
+const CACHE_VERSION: u32 = 2;
 
 /// Whether the whole-program JIT cache is enabled (opt-in during bring-up).
 pub(super) fn enabled() -> bool {

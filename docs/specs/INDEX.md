@@ -35,6 +35,16 @@ rule forbids. Stale test numbers were stripped from `js-parity-epic-226.md`.
 - [Engine redesign (rts-codegen-new)](rts-codegen-new-design.md) — **the
   canonical direction.** PolyValue, Repr lattice, shapes + data ICs, single
   lowering, data-driven dispatch + generated ABI. Migration phases P0→P5.
+- [Shape identity remediation](shape-identity-remediation.md) — outcome of a
+  4-round adversarial review of the object/class/array model. **Five defects
+  reproduced against bun** (a plain object acquires a class's identity and
+  EXECUTES its methods — reachable from `JSON.parse`; array holes do not exist;
+  `Object.keys` reads a stale compile-time list; `setPrototypeOf` is a no-op;
+  `Entry::Rtse.props` is untraced). Carries the implementation plan, the measured
+  priorities (untyped reads are 33× the typed path, allocation 71× bun, inline
+  caches never built), and — most importantly — the **list of refuted designs**
+  (transition tree, overflow dict, lazy-parent rows, UniqueShape, dense typed
+  arrays) with the reason each fails. Read before proposing any shape work.
 - [New-engine GC](gc-generational-design.md) — weak phase (`#217`, bounded, on the
   current mark+sweep) now; generational copying (nursery) as the long-term leap,
   deferred until ~90% cross-runtime. The advantage of handle indirection (moving ≈

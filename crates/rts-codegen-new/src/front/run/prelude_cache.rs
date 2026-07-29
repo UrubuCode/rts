@@ -24,7 +24,11 @@ use super::LoweredProgram;
 /// Bump when the cache FORMAT or anything that changes the lowered output (the
 /// engine's lowering, the HIR/ClassTable layout, the shape id scheme) changes, so
 /// an old on-disk blob is never deserialized into an incompatible engine.
-const CACHE_VERSION: u32 = 1;
+///
+/// v2: class shape ids stopped being published into the layout `by_keys` map
+/// (`rts_engine::heap::shapes`), so a blob baked by a v1 engine seeds a registry
+/// in which a plain object can still inherit a class's identity.
+const CACHE_VERSION: u32 = 2;
 
 /// The whole cached payload (owned, for DESERIALIZE): the lowered prelude + the
 /// process-global state its lowering interned (shape id→keys, Error-class table).

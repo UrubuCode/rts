@@ -43,13 +43,44 @@ pub const GLOBAL_SHAPE_BASE: GlobalShapeId = 0x4000_0000;
 
 /// Intern `keys` in the PROCESS-GLOBAL registry, returning a stable
 /// [`GlobalShapeId`]. Idempotent for an identical key-sequence.
+/// A CLASS shape id must never be reachable by CONTENT lookup. A shape id does
+/// two different jobs — structural LAYOUT (which slot holds which key, which
+/// WANTS dedup so two `{x, y}` literals share) and nominal IDENTITY (which class
+/// this is, which FORBIDS dedup). `by_keys` is the layout map; handing a class id
+/// out of it lets a plain object inherit a class's identity, and since
+/// `class/vdispatch.rs` dispatches on a flat compare of the slot-0 shape word
+/// with no constructor check, that object then EXECUTES the class's methods.
+/// Reproduced before this guard existed, on every content route — object
+/// literal, dynamic key adds, `{...instance}`, `Object.assign`, and
+/// `JSON.parse` (i.e. external data acquiring a class identity).
+///
+/// Checked on READ, not on write, so it also covers [`seed_global_shapes`],
+/// which rebuilds `by_keys` from the positional snapshot and would otherwise
+/// re-publish class rows into it on every AOT start and every cache replay.
+fn is_class_owned(id: GlobalShapeId) -> bool {
+    class_shapes()
+        .lock()
+        .map(|t| t.by_id.contains_key(&id))
+        .unwrap_or(false)
+}
+
+/// Intern `keys` in the PROCESS-GLOBAL registry, returning a stable
+/// [`GlobalShapeId`]. Idempotent for an identical key-sequence.
+///
+/// A content hit on a CLASS-owned id is treated as a MISS (see
+/// [`is_class_owned`]): the caller gets a fresh layout id of its own, never the
+/// class's identity.
 pub fn intern_global_shape(keys: &[String]) -> GlobalShapeId {
     let mut reg = registry().lock().expect("global shape registry poisoned");
     if let Some(&id) = reg.by_keys.get(keys) {
-        return id;
+        if !is_class_owned(id) {
+            return id;
+        }
     }
     let id = GLOBAL_SHAPE_BASE + reg.keys.len() as GlobalShapeId;
     reg.keys.push(keys.to_vec());
+    // Overwrite a class row's content entry with this layout id, so later
+    // interns of the same key list hit immediately instead of re-checking.
     reg.by_keys.insert(keys.to_vec(), id);
     id
 }
@@ -58,11 +89,14 @@ pub fn intern_global_shape(keys: &[String]) -> GlobalShapeId {
 /// de-duplicated by keys — the id is a sound per-class runtime identity for
 /// `instanceof` on an opaque value). The key list is still recorded for
 /// inspect.
+///
+/// Deliberately does NOT publish into `by_keys`: that map answers "which layout
+/// has these keys", and a class id is an ANSWER TO A DIFFERENT QUESTION. See
+/// [`is_class_owned`].
 pub fn intern_class_shape(keys: &[String]) -> GlobalShapeId {
     let mut reg = registry().lock().expect("global shape registry poisoned");
     let id = GLOBAL_SHAPE_BASE + reg.keys.len() as GlobalShapeId;
     reg.keys.push(keys.to_vec());
-    reg.by_keys.entry(keys.to_vec()).or_insert(id);
     id
 }
 
