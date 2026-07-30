@@ -83,9 +83,24 @@ pub fn lookup_ci_ge(class: &str, method: &str, min_arity: usize) -> Option<CiMet
     if let Some(ci) = t.get(&(class.to_string(), method.to_string(), min_arity)) {
         return Some(ci.clone());
     }
-    t.iter()
+    if let Some(ci) = t
+        .iter()
         .filter(|((c, m, a), ci)| c == class && m == method && *a >= min_arity && !ci.is_getter)
         .min_by_key(|((_, _, a), _)| *a)
+        .map(|(_, ci)| ci.clone())
+    {
+        return Some(ci);
+    }
+    // EXTRA args are IGNORED in JS: a call with more arguments than the method
+    // declares is not an error, the surplus is dropped. So when no overload
+    // admits `min_arity`, take the LARGEST one below it (`date.toJSON(key)` —
+    // the spec passes the property key to a 0-arg `Date.prototype.toJSON`; the
+    // whole JSON `toJSON` hook threw `TypeError: toJSON is not a function`
+    // because nothing accepted 2 slots). The caller's surplus arg words are
+    // simply not marshalled.
+    t.iter()
+        .filter(|((c, m, a), ci)| c == class && m == method && *a < min_arity && !ci.is_getter)
+        .max_by_key(|((_, _, a), _)| *a)
         .map(|(_, ci)| ci.clone())
 }
 

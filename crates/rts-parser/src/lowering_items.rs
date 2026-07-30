@@ -212,6 +212,34 @@ impl MemberAssignFnHoister {
 struct ClassExprHoister {
     hoisted: Vec<swc_ecma_ast::ClassDecl>,
     counter: usize,
+    /// `const X = class {…}` → `X` → the hoisted decl's name. Lets a LATER
+    /// `class extends X` resolve to the hoisted class: the binding is a value
+    /// alias of a top-level class, so `extends X` names a user class in this
+    /// program — without this it bailed as "extends unknown class `X`".
+    aliases: std::collections::HashMap<String, String>,
+    /// Names already bound at the top level (decls + earlier hoists) — a named
+    /// class expression may only hoist under its own name when it is free here.
+    taken: std::collections::HashSet<String>,
+}
+
+impl ClassExprHoister {
+    /// Rewrite every hoisted decl's `extends <alias-ident>` to the hoisted class
+    /// it aliases. Runs after the whole traversal so a forward-ordered alias
+    /// (declared before its user, the only order JS allows for a `const`) is
+    /// already known.
+    fn resolve_alias_supers(&mut self) {
+        for d in &mut self.hoisted {
+            let Some(sup) = d.class.super_class.as_deref() else {
+                continue;
+            };
+            let Expr::Ident(id) = sup else { continue };
+            if let Some(target) = self.aliases.get(&id.sym.to_string()) {
+                let mut ident = id.clone();
+                ident.sym = target.as_str().into();
+                d.class.super_class = Some(Box::new(Expr::Ident(ident)));
+            }
+        }
+    }
 }
 
 impl swc_ecma_visit::VisitMut for ClassExprHoister {
@@ -219,12 +247,58 @@ impl swc_ecma_visit::VisitMut for ClassExprHoister {
         // no-op: do not descend into function/method bodies (avoid capturing hoists).
     }
 
+    fn visit_mut_var_declarator(&mut self, d: &mut swc_ecma_ast::VarDeclarator) {
+        use swc_ecma_visit::VisitMutWith;
+        // NAME INFERENCE (`const Point = class {…}` → the class's name IS
+        // "Point", per JS): stamp the binding's name onto the anonymous class
+        // BEFORE the hoist so it hoists under that name — which is what makes
+        // `Point.name` and an inner self-reference read correctly. The binding is
+        // then `const Point = Point`, an alias of the hoisted class (the RHS ident
+        // resolves to the top-level decl, not the local).
+        if let (swc_ecma_ast::Pat::Ident(bind), Some(Expr::Class(ce))) =
+            (&d.name, d.init.as_deref_mut())
+        {
+            let n = bind.id.sym.to_string();
+            if ce.ident.is_none() && !self.taken.contains(&n) {
+                ce.ident = Some(bind.id.clone());
+            }
+        }
+        d.visit_mut_children_with(self);
+        // After the child visit the initializer is already the hoisted ident.
+        let (Some(swc_ecma_ast::Pat::Ident(name)), Some(init)) = (Some(&d.name), d.init.as_deref())
+        else {
+            return;
+        };
+        if let Expr::Ident(src) = init {
+            let src = src.sym.to_string();
+            if src.starts_with("__classexpr_") {
+                self.aliases.insert(name.id.sym.to_string(), src);
+            }
+        }
+    }
+
     fn visit_mut_expr(&mut self, e: &mut Expr) {
         use swc_ecma_visit::VisitMutWith;
         e.visit_mut_children_with(self);
         if let Expr::Class(ce) = e {
-            let name = format!("__classexpr_{}", self.counter);
-            self.counter += 1;
+            // A NAMED class expression (`const N = class Inner {…}`) hoists under
+            // ITS OWN name whenever that name is free at the top level: the inner
+            // self-reference the JS scoping gives it (`Inner.name` inside a method,
+            // `static make(): Inner`) then resolves to the hoisted decl. Under a
+            // synthetic `__classexpr_N` name those references were unbound idents.
+            // A taken name falls back to the synthetic one (the reference still
+            // bails downstream — never a wrong binding).
+            let name = match ce.ident.as_ref().map(|i| i.sym.to_string()) {
+                Some(n) if !self.taken.contains(&n) => {
+                    self.taken.insert(n.clone());
+                    n
+                }
+                _ => {
+                    let n = format!("__classexpr_{}", self.counter);
+                    self.counter += 1;
+                    n
+                }
+            };
             let ident = swc_ecma_ast::Ident {
                 span: Default::default(),
                 ctxt: Default::default(),
@@ -295,7 +369,9 @@ fn lower_program(cm: &Lrc<SourceMap>, source: &SwcProgram) -> Program {
     {
         use swc_ecma_visit::VisitMutWith;
         let mut hoister = ClassExprHoister::default();
+        hoister.taken = top_level_names(&owned);
         owned.visit_mut_with(&mut hoister);
+        hoister.resolve_alias_supers();
         if !hoister.hoisted.is_empty() {
             match &mut owned {
                 SwcProgram::Module(m) => {
@@ -1514,4 +1590,42 @@ fn rename_in_expr(e: &mut swc_ecma_ast::Expr, old: &str, new: &str) {
         }
         _ => {}
     }
+}
+
+/// The names bound by TOP-LEVEL declarations (class / function / var-pattern
+/// idents). The class-expression hoister consults it so a named class expression
+/// only claims its own name when nothing else already owns it.
+fn top_level_names(p: &SwcProgram) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    let stmts: Vec<&Stmt> = match p {
+        SwcProgram::Module(m) => m
+            .body
+            .iter()
+            .filter_map(|it| match it {
+                ModuleItem::Stmt(s) => Some(s),
+                _ => None,
+            })
+            .collect(),
+        SwcProgram::Script(s) => s.body.iter().collect(),
+    };
+    for s in stmts {
+        let Stmt::Decl(d) = s else { continue };
+        match d {
+            Decl::Class(c) => {
+                out.insert(c.ident.sym.to_string());
+            }
+            Decl::Fn(f) => {
+                out.insert(f.ident.sym.to_string());
+            }
+            Decl::Var(v) => {
+                for d in &v.decls {
+                    if let swc_ecma_ast::Pat::Ident(i) = &d.name {
+                        out.insert(i.id.sym.to_string());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
 }

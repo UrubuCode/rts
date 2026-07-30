@@ -49,3 +49,22 @@ pub fn register_class_spec(e: &mut Engine) {
     }
     setters::append_members(cb).done();
 }
+
+unsafe extern "C" {
+    fn __rtsadp_throw_js_error(kp: *const u8, kl: i64, mp: *const u8, ml: i64);
+}
+
+/// Throw a JS `RangeError` with `msg` through the engine's pending-error slot —
+/// the `toISOString()` failure path for an Invalid Date. Reached by SYMBOL at the
+/// final link (the throw bridge lives in the value model, below this crate).
+pub(crate) fn throw_range_error(msg: &str) {
+    let kind = "RangeError";
+    unsafe {
+        __rtsadp_throw_js_error(
+            kind.as_ptr(),
+            kind.len() as i64,
+            msg.as_ptr(),
+            msg.len() as i64,
+        );
+    }
+}

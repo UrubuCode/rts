@@ -284,6 +284,24 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let Some(fn_name) = desc.statics.get(field).cloned() {
             return self.reify_function(module, &fn_name);
         }
+        // The FUNCTION metadata every class constructor carries (a class IS a
+        // function object): `C.name` is its name string, `C.length` its
+        // constructor arity. Primordial `Function` surface, so the engine may
+        // name it; read from the class descriptor, no runtime call.
+        match field {
+            "name" => {
+                let w = self.emit_str_const_word(module, class)?;
+                return Ok(Val::tagged_kind(w, JsKind::Str));
+            }
+            "length" => {
+                let w = self
+                    .builder
+                    .ins()
+                    .iconst(types::I64, desc.ctor_arity as i64);
+                return Ok(Val::new(w, crate::repr::Repr::Int32));
+            }
+            _ => {}
+        }
         unsupported!("`{class}.{field}` — no such static field on class `{class}`")
     }
 
@@ -540,6 +558,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // not define them.
             if let Some(val) = self.try_object_protocol_method(module, object, method, args)? {
                 return Ok(val);
+            }
+            // FIELD-AS-FUNCTION (`class C { m = () => …; static m2 = fn }`): the
+            // name is a DATA slot holding a callable, not a class method, so
+            // there is no `__rtsn_method_C_m` to call. Dispatch it generically —
+            // read the slot off the receiver (own slot, then the proto chain) and
+            // invoke it with `this` = receiver. Gated on the class actually
+            // DECLARING the field so an honest typo still bails.
+            if desc.fields.iter().any(|f| f == method) || desc.static_fields.contains_key(method) {
+                let recv = self.lower_expr(module, object)?;
+                if let Some(val) = self.try_generic_dyn_method_call(module, recv, method, args)? {
+                    return Ok(val);
+                }
             }
             return unsupported!(
                 "`{class}.{method}()` — no such method on class `{class}` \

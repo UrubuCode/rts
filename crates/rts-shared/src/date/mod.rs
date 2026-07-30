@@ -246,7 +246,15 @@ pub extern "C" fn __RTS_FN_NS_DATE_MILLISECOND(ts: I64) -> I64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_DATE_TO_ISO(ts: I64) -> Handle {
     let (y, mo, d, h, mi, s, ms) = unpack(ts);
-    let formatted = format!("{y:04}-{:02}-{d:02}T{h:02}:{mi:02}:{s:02}.{ms:03}Z", mo + 1);
+    // ES `Date.prototype.toISOString` uses the EXPANDED YEAR form whenever the
+    // year is outside 0..=9999: a sign plus SIX digits (`+275760-09-13…`,
+    // `-000001-01-01…`). Only 0..=9999 is the bare 4-digit form.
+    let year = if (0..=9999).contains(&y) {
+        format!("{y:04}")
+    } else {
+        format!("{}{:06}", if y < 0 { '-' } else { '+' }, y.abs())
+    };
+    let formatted = format!("{year}-{:02}-{d:02}T{h:02}:{mi:02}:{s:02}.{ms:03}Z", mo + 1);
     alloc_entry(Entry::String(formatted.into_bytes()))
 }
 
