@@ -540,6 +540,7 @@ pub fn extract_arrows(
         self_binding: None,
         counter: 0,
         arrow_ns: arrow_ns.to_string(),
+        lit_class_unit: HashMap::new(),
     };
 
     // Rewrite arrows inside every existing function body and the main body. Each
@@ -590,13 +591,64 @@ pub fn extract_arrows(
     // reify machinery closures use — the tail-slot reify at the build site
     // snapshots the constructing fn's live locals. A capture the lit method
     // MUTATES becomes a CELL of both sides.
-    lit_method_captures(funcs, main, lit_fn_units, &mut ctx);
+    // Re-file the lit fns of every literal built inside a LIFTED arrow under that
+    // arrow (see `Ctx::lit_class_unit`) before resolving their captures.
+    let lit_fn_units = rehome_lit_units(lit_fn_units, &ctx.lit_class_unit, funcs);
+    lit_method_captures(funcs, main, &lit_fn_units, &mut ctx);
 
     ExtractResult {
         funcs: ctx.synthesized,
         captures: ctx.captures,
         cells: ctx.cells,
     }
+}
+
+/// The LITERAL-CLASS names a statement list builds: every object node carrying the
+/// objmethod pass's `__rtsl_class__` marker field. Used to discover which recovered
+/// literals live inside an arrow that is being lifted right now.
+fn lit_classes_in(stmts: &[HirStmt]) -> Vec<String> {
+    use super::desugar::objmethod::LIT_CLASS_MARKER;
+    let mut out = Vec::new();
+    scan::for_each_expr_deep(stmts, &mut |e| {
+        if let HirExprKind::Object(fields) = &e.kind {
+            for (k, v) in fields {
+                if k == LIT_CLASS_MARKER {
+                    if let HirExprKind::Lit(rts_hir::ir::HirLit::Str(s)) = &v.kind {
+                        out.push(s.clone());
+                    }
+                }
+            }
+        }
+    });
+    out
+}
+
+/// `lit_fn_units` with every lit fn of a class in `lit_class_unit` re-pointed at the
+/// arrow that builds it. A lit fn of class `C` is named `__rtsl_method_C_*` /
+/// `__rtsn_lget_C_*` / `__rtsn_lset_C_*` — matching by that prefix needs no class
+/// table here.
+fn rehome_lit_units(
+    lit_fn_units: &HashMap<String, String>,
+    lit_class_unit: &HashMap<String, String>,
+    funcs: &[HirFunc],
+) -> HashMap<String, String> {
+    let mut out = lit_fn_units.clone();
+    if lit_class_unit.is_empty() {
+        return out;
+    }
+    for (class, unit) in lit_class_unit {
+        let prefixes = [
+            format!("__rtsl_method_{class}_"),
+            format!("__rtsn_lget_{class}_"),
+            format!("__rtsn_lset_{class}_"),
+        ];
+        for f in funcs {
+            if prefixes.iter().any(|p| f.name.starts_with(p.as_str())) {
+                out.insert(f.name.clone(), unit.clone());
+            }
+        }
+    }
+    out
 }
 
 /// Convert hoisted top-level functions that capture a main-scope local into
@@ -639,7 +691,16 @@ fn lit_method_captures(
                         declared_locals(&main.body),
                         mutated_names(&main.body),
                     )
-                } else if let Some(f) = funcs.iter().find(|f| f.name == *u) {
+                } else if let Some(f) = funcs
+                    .iter()
+                    .chain(ctx.synthesized.iter())
+                    .find(|f| f.name == *u)
+                {
+                    // `ctx.synthesized` too: a literal built inside a LIFTED arrow
+                    // is re-filed under that arrow (`rehome_lit_units`), and the
+                    // arrow's `HirFunc` only joins `funcs` after this pass returns.
+                    // Without it the unit lookup missed and the lit method's free
+                    // ident stayed unresolved (`_cache is not defined`).
                     (
                         f.params.iter().map(|p| p.name.clone()).collect(),
                         declared_locals(&f.body),
@@ -903,6 +964,13 @@ struct Ctx {
     /// (`const factor = (..) => …`) — a capture of one is a CELL (mutual
     /// forward refs read the live value; see `arrow_decl_names`).
     current_fn_arrow_decls: HashSet<String>,
+    /// LITERAL-CLASS name → the synthesized ARROW fn whose body builds it. Filled
+    /// by [`Self::try_extract`] when it lifts an arrow containing a recovered object
+    /// literal, and applied over `lit_fn_units` before the lit-method capture pass:
+    /// the objmethod recovery ran while the arrow was still inline, so it filed
+    /// those lit fns under the ENCLOSING unit, which is the wrong scope to resolve
+    /// their free idents against.
+    lit_class_unit: HashMap<String, String>,
     /// The `let`/`const` NAME whose initializer is being rewritten right now —
     /// a capture of it inside an arrow is a SELF-REFERENCE (`const f = () =>
     /// … f() …`) and must be a CELL (live read), never a by-value snapshot of
@@ -1125,8 +1193,19 @@ impl Ctx {
                     self.rewrite_expr(a, scope, mutated);
                 }
             }
-            // `await <expr>` — descend so an arrow inside an awaited expression lifts.
-            HirExprKind::Await(inner) => self.rewrite_expr(inner, scope, mutated),
+            // `await <expr>` / `...<expr>` — descend so an arrow inside lifts.
+            HirExprKind::Await(inner) | HirExprKind::Spread(inner) => {
+                self.rewrite_expr(inner, scope, mutated)
+            }
+            // Sequence (`a = 1, b = function(){…}`) — the comma operator is a
+            // MINIFIER staple (it is how statements get folded into one
+            // expression), so an arrow in any element must lift like anywhere
+            // else. Missing this arm left the arrow inline → `expression arrow`.
+            HirExprKind::Seq(items) => {
+                for it in items.iter_mut() {
+                    self.rewrite_expr(it, scope, mutated);
+                }
+            }
             HirExprKind::Arrow { .. } => {
                 // Try to extract this arrow into a top-level function or closure. On
                 // success, replace the node with an Ident of the synthesized name.
@@ -1268,7 +1347,21 @@ impl Ctx {
             // walk (a FORWARD reference between nested fns: `a` calls `b`
             // declared below); those are cell captures, resolved below.
             if !scope.contains(id) && !self.current_fn_arrow_decls.contains(id.as_str()) {
-                return None; // unknown name / `this` — not a capturable local.
+                // `this` is not a value this pass can carry — leave it to bail.
+                if id == "this" {
+                    return None;
+                }
+                // Any OTHER name that is no local in scope is a FREE GLOBAL
+                // reference (`exports`, `module`, `define`, `window` — the UMD
+                // sniff every bundled/minified file opens with), not a capture.
+                // Skipping it lifts the arrow; if the name really is unbound the
+                // lowering says so INSIDE the lifted fn, which is both the honest
+                // place and a far better message than the whole enclosing arrow
+                // failing as `expression arrow`. Nothing can silently mis-bind
+                // here: every resolvable source (params, scope locals, top-level
+                // fns, module globals/cells, Registry namespaces/classes) was
+                // already tested above.
+                continue;
             }
             // A MUTATED capture (assigned by the closure body OR reassigned in the
             // enclosing function) is sound ONLY as a CELL (#195): the local must be a
@@ -1314,6 +1407,16 @@ impl Ctx {
         captures.sort();
 
         self.top_level.insert(name.clone());
+
+        // Any object literal WITH METHODS built inside this arrow was recovered by
+        // the objmethod pass while the arrow was still inline, so its lit-method fns
+        // were filed under the ENCLOSING unit. Now that the arrow is a real function,
+        // re-file them under it — otherwise a lit method capturing an arrow local
+        // (`f(function(){ const c = new Map(); return { m(){ c.get(..) } } })`, the
+        // module/UMD pattern) resolves its free ident against the wrong scope.
+        for class in lit_classes_in(&body_stmts) {
+            self.lit_class_unit.insert(class, name.clone());
+        }
 
         // Record each CELL capture under BOTH the declaring function (its `let`
         // allocates the cell) and the synthesized closure (its captured leading param

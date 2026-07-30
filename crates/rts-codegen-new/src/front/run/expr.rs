@@ -275,7 +275,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 return self.emit_registry_call(module, &call, None, &[], kind);
             }
         }
-        unsupported!("unbound identifier `{name}`")
+        // An identifier that resolves to NOTHING is not a compile error in JS: it
+        // is a `ReferenceError` THROWN when (and only when) control actually
+        // reaches the read. Emitting the throw instead of bailing is what keeps a
+        // UMD / minified bundle compilable — those open with a feature sniff whose
+        // untaken branch names `exports` / `module` / `define` / `self`, none of
+        // which exist here, and a compile-time bail rejects the whole file for a
+        // branch that never runs. (`typeof <unbound>` never reaches here — it is
+        // folded to `"undefined"` in `lower_unary`, per spec.)
+        self.emit_throw_error_expr(
+            module,
+            "ReferenceError",
+            &format!("{name} is not defined"),
+        )
     }
 
     fn lower_unary(

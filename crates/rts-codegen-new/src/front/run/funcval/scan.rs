@@ -261,6 +261,82 @@ fn collect_mutated_expr(e: &HirExpr, out: &mut HashSet<String>) {
     }
 }
 
+/// Apply `f` to EVERY expression reachable from `stmts` — nested statements,
+/// nested expressions, and arrow bodies included. Built on the two centralized
+/// child walkers plus [`collect_child_exprs`], so no statement/expression kind can
+/// be silently skipped (the failure mode `collect_mutated_stmt`'s comment records).
+pub(super) fn for_each_expr_deep(stmts: &[HirStmt], f: &mut impl FnMut(&HirExpr)) {
+    fn walk_expr(e: &HirExpr, f: &mut impl FnMut(&HirExpr)) {
+        f(e);
+        let mut kids = Vec::new();
+        collect_child_exprs(e, &mut kids);
+        for k in kids {
+            walk_expr(k, f);
+        }
+        if let HirExprKind::Arrow { body, .. } = &e.kind {
+            match body {
+                HirArrowBody::Expr(inner) => walk_expr(inner, f),
+                HirArrowBody::Block(b) => for_each_expr_deep(b, f),
+            }
+        }
+    }
+    fn walk_stmt(s: &HirStmt, f: &mut impl FnMut(&HirExpr)) {
+        for_each_child_expr(s, &mut |e| walk_expr(e, f));
+        for_each_child_stmt(s, &mut |st| walk_stmt(st, f));
+    }
+    for s in stmts {
+        walk_stmt(s, f);
+    }
+}
+
+/// The direct child EXPRESSIONS of `e` (one level). Kept exhaustive by the same
+/// rule as the walkers above: a new `HirExprKind` variant must be added here.
+fn collect_child_exprs<'a>(e: &'a HirExpr, out: &mut Vec<&'a HirExpr>) {
+    match &e.kind {
+        HirExprKind::Assign { target, value } | HirExprKind::AssignOp { target, value, .. } => {
+            out.push(target);
+            out.push(value);
+        }
+        HirExprKind::Bin { lhs, rhs, .. } => {
+            out.push(lhs);
+            out.push(rhs);
+        }
+        HirExprKind::Ternary { cond, then, else_ } => {
+            out.push(cond);
+            out.push(then);
+            out.push(else_);
+        }
+        HirExprKind::Index { object, index } => {
+            out.push(object);
+            out.push(index);
+        }
+        HirExprKind::Call { callee, args } => {
+            out.push(callee);
+            out.extend(args.iter());
+        }
+        HirExprKind::MethodCall { object, args, .. } => {
+            out.push(object);
+            out.extend(args.iter());
+        }
+        HirExprKind::New { args, .. } => out.extend(args.iter()),
+        HirExprKind::Member { object, .. } => out.push(object),
+        HirExprKind::Array(elems) => out.extend(elems.iter()),
+        HirExprKind::Object(fields) => out.extend(fields.iter().map(|(_, v)| v)),
+        HirExprKind::Seq(items) => out.extend(items.iter()),
+        HirExprKind::Unary { operand, .. } => out.push(operand),
+        HirExprKind::Cast { expr, .. } => out.push(expr),
+        HirExprKind::Await(inner)
+        | HirExprKind::Spread(inner)
+        | HirExprKind::PreInc(inner)
+        | HirExprKind::PreDec(inner)
+        | HirExprKind::PostInc(inner)
+        | HirExprKind::PostDec(inner) => out.push(inner),
+        // The arrow BODY is walked by the caller (it is statements, not exprs).
+        HirExprKind::Arrow { .. } => {}
+        HirExprKind::Ident(_) | HirExprKind::Lit(_) | HirExprKind::Raw(_) => {}
+    }
+}
+
 // Arrow-capture + free-variable analysis lives in the sibling `scan_free` module
 // (the <500-line rule). Re-exported here so callers keep the `scan::` path.
 pub(super) use super::scan_free::arrow_free_idents;

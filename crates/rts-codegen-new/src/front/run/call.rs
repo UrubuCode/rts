@@ -472,7 +472,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // ELEMENT as a fn value; a STRING `k` dispatches the method by
             // RUNTIME name (`arr["pu"+"sh"](x)` — the obfuscator staple) via
             // the polymorphic `__rtsadp_idx_call` (this = recv for objects).
-            HirExprKind::Index { object, index } if args.len() <= 2 => {
+            HirExprKind::Index { object, index }
+                if args.len() <= 2
+                    && !args
+                        .iter()
+                        .any(|a| matches!(a.kind, HirExprKind::Spread(_))) =>
+            {
                 let recv = self.lower_expr(module, object)?;
                 let recv_word = self.box_value(recv);
                 let idx = self.lower_expr(module, index)?;
@@ -496,6 +501,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     .expect("__rtsadp_idx_call returns a value");
                 self.emit_post_call_error_check(module)?;
                 return Ok(Val::new(res, Repr::Tagged));
+            }
+            // The same COMPUTED-INDEX callee with a SPREAD arg or more args than
+            // the fixed `__rtsadp_idx_call` slots (`_ops[opcode](...args)` — the
+            // opcode-dispatcher table an obfuscator emits): READ the element as a
+            // function value and invoke it with the receiver as `this` through the
+            // apply path, which packs any argument list. Same semantics as the
+            // fixed-slot arm above, without its arity ceiling.
+            HirExprKind::Index { object, index } => {
+                let recv = self.lower_expr(module, object)?;
+                let recv_word = self.box_value(recv);
+                let idx = self.lower_expr(module, index)?;
+                let idx_word = self.box_value(idx);
+                let fn_word = self
+                    .call_runtime(module, "__rtsadp_idx_get", &[recv_word, idx_word])?
+                    .expect("__rtsadp_idx_get returns a value");
+                return self.lower_value_call_word_with_this(module, fn_word, recv_word, args);
             }
             // A non-ident callee that is an EXPRESSION producing a function VALUE
             // (`f(x)(y)` curry, `(cond ? f : g)(x)`): lower it to a value
@@ -1320,10 +1341,33 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         this_word: Value,
         args: &[HirExpr],
     ) -> FrontResult<Val> {
-        if args.len() > 3 {
-            return unsupported!(
-                "dynamic method-property call with more than 3 args (later increment)"
-            );
+        // A SPREAD arg (`o.m(...xs)` / `o[k](...xs)` — the opcode-table dispatch a
+        // minifier/obfuscator emits) or MORE THAN 3 args does not fit the fixed
+        // `__rtsadp_fn_invoke_method` slots. Build ONE runtime args array (plain
+        // args push their boxed word, each `...spread` appends its source through
+        // the same hook array-literal spread uses) and route the receiver-aware
+        // apply trampoline, which handles any length. Same shape as the plain
+        // fn-value spread path in `emit_fn_value_call`.
+        let has_spread = args
+            .iter()
+            .any(|a| matches!(a.kind, HirExprKind::Spread(_)));
+        if has_spread || args.len() > 3 {
+            let arr = emit_marshal::emit_new_vec_object(module, self.builder);
+            for a in args {
+                if let HirExprKind::Spread(inner) = &a.kind {
+                    let src_word = self.spread_source_array_word(module, inner)?;
+                    self.call_runtime(module, "__rtsadp_arr_spread_append", &[arr, src_word])?;
+                } else {
+                    let v = self.lower_expr(module, a)?;
+                    let word = self.box_value(v);
+                    emit_marshal::emit_vec_push(module, self.builder, arr, word);
+                }
+            }
+            let res = self
+                .call_runtime(module, "__rtsadp_fn_apply_this", &[fn_word, this_word, arr])?
+                .expect("__rtsadp_fn_apply_this returns a value");
+            self.emit_post_call_error_check(module)?;
+            return Ok(Val::new(res, Repr::Tagged));
         }
         let undef = || value::PolyValue::undefined().raw() as i64;
         let mut slots: [Value; 3] = [self.builder.ins().iconst(types::I64, undef()); 3];
@@ -1495,7 +1539,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                         }
                         let v = self.lower_expr(module, a)?;
                         out.push(self.coerce(v, want)?);
-                    } else if sig.fillable[pi + i] {
+                    } else if sig.omittable(pi + i) {
                         // An omitted FILLABLE trailing param (optional or defaulted):
                         // pass `undefined`. For a defaulted param, the callee prologue
                         // replaces this `undefined` with the default (correct scoping);
@@ -1535,7 +1579,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                         }
                         let v = self.lower_expr(module, &args[i])?;
                         out.push(self.coerce(v, user_params[i])?);
-                    } else if sig.fillable[pi + i] {
+                    } else if sig.omittable(pi + i) {
                         out.push(self.undefined_coerced(user_params[i])?);
                     } else {
                         return unsupported!(

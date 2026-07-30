@@ -95,6 +95,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
         let pi = 1usize; // methods carry `this` as params[0]
         let user = sig.params.len().saturating_sub(pi);
+        // Strict `fillable`, NOT `omittable`: this is a TARGET-SELECTION predicate,
+        // not a marshal site. Widening it to "any Tagged param may be omitted" lets
+        // an under-applied call HIJACK a user method from the path that would
+        // otherwise have handled it (measured: it broke
+        // `node_fs_filehandle_streams`). Where the alternative is a hard bail, the
+        // marshal sites use `omittable` and JS arity semantics apply.
         (argc..user).all(|i| sig.fillable.get(pi + i).copied().unwrap_or(false))
     }
 

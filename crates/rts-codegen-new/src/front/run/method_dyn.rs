@@ -390,7 +390,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         method: &str,
         args: &[HirExpr],
     ) -> FrontResult<Option<Val>> {
-        if args.len() > 3 || args.iter().any(is_callback_arg) {
+        // A SPREAD arg has no single fixed slot — decline so the caller falls
+        // through to the fn-valued-property path, which builds a runtime args
+        // array and routes the receiver-aware apply trampoline. Lowering it here
+        // would hit `lower_expr` on the `Spread` node and bail the whole program
+        // (`o.m(...xs)` — the obfuscated opcode-table dispatch).
+        if args.len() > 3
+            || args.iter().any(is_callback_arg)
+            || args
+                .iter()
+                .any(|a| matches!(a.kind, rts_hir::ir::HirExprKind::Spread(_)))
+        {
             return Ok(None);
         }
         let recv_word = self.box_value(recv);

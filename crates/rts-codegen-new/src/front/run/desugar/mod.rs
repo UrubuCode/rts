@@ -27,7 +27,7 @@
 //! as before — never a miscompile.
 
 mod destructure;
-mod objmethod;
+pub(crate) mod objmethod;
 mod optchain;
 mod tpl;
 
