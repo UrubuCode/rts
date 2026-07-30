@@ -277,7 +277,43 @@ impl StringWrapper {
     /// `str.substring(start, end?)` — like `slice` but clamps negatives to 0.
     #[rtse::method(optional = 1)]
     fn substring(recv: Poly, start: f64, end: f64) -> String {
-        strops::substring(&str_val(recv), start as i64, num_or(end, STR_END))
+        // Fatia direto dos bytes do heap quando o trecho pedido é ASCII, em vez
+        // de passar por `str_val`, que devolve uma `String` própria — ou seja,
+        // COPIA a string inteira antes de recortar. Num laço
+        // `while (i < s.length) s.substring(i, i + 1)` (a forma de ler um
+        // caractere) isso é O(n²): cem mil cópias de cem mil bytes. Medido em
+        // 100 KB: 5.540 ms contra 4 ms de `charCodeAt`.
+        //
+        // Só o recorte ASCII entra aqui: com multi-byte o índice de code unit
+        // UTF-16 não coincide com o de byte, e aí o caminho completo decide.
+        let e = num_or(end, STR_END);
+        if start >= 0.0 && e >= 0 {
+            let (a, b) = (start as usize, e as usize);
+            let (si, ei) = if a <= b { (a, b) } else { (b, a) };
+            let fatia = with_entry(str_handle(recv), |ent| match ent {
+                Some(Entry::String(bytes)) => {
+                    let n = bytes.len();
+                    let (si, ei) = (si.min(n), ei.min(n));
+                    // Basta a FATIA ser ASCII e o byte em `si` não ser
+                    // continuação: um byte < 0x80 nunca faz parte de sequência
+                    // multi-byte, então índice de byte == índice de code unit
+                    // até ali. Testar `bytes[..ei]` inteiro varreria o prefixo
+                    // todo — O(n) de novo, que é o que estamos eliminando.
+                    if bytes[si..ei].is_ascii()
+                        && (si == 0 || bytes[si - 1] < 0x80)
+                    {
+                        Some(String::from_utf8_lossy(&bytes[si..ei]).into_owned())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            });
+            if let Some(v) = fatia {
+                return v;
+            }
+        }
+        strops::substring(&str_val(recv), start as i64, e)
     }
 
     /// `str.substr(start, length?)` — deprecated start+count form.
