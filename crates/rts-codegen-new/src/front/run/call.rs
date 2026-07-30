@@ -393,6 +393,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         callee: &HirExpr,
         args: &[HirExpr],
     ) -> FrontResult<Val> {
+        // `new <EXPRESSION>(args)` arrives desugared as `__rtsn_new(ctor, args…)`
+        // (see `rts_hir::lower::NEW_VALUE_FN`): a `new` whose constructor is not an
+        // identifier, so there is no class NAME to resolve — `new (function(){ …
+        // })()`, the ES5 anonymous constructor a bundle emits.
+        if matches!(&callee.kind, HirExprKind::Ident(n) if n == rts_hir::lower::NEW_VALUE_FN)
+            && !args.is_empty()
+        {
+            return self.lower_new_callee_expr(module, &args[0], &args[1..]);
+        }
         if let HirExprKind::Member { object, prop } = &callee.kind {
             // PRIVATE `engine.*` (arch/time/trace) — prelude-only (privacy gate).
             if let Some(val) = self.try_engine_call(module, object, prop, args)? {

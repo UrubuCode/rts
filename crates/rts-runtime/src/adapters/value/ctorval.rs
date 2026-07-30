@@ -120,6 +120,22 @@ pub fn rtsadp_new_invoke(
     if is_ctor {
         return __rtsadp_fn_invoke(fn_word, a0, a1, a2, a3, rest);
     }
+    // A THIS-FIRST function value used as a constructor: allocate the receiver
+    // HERE and invoke method-aware, so the body's `this.x = …` writes land in it.
+    // This is the ES5 constructor reached as a VALUE —
+    // `new (function(){ this.z = 8 })()`, `Reflect.construct(F, args)` — which the
+    // plain-invoke fallback below would run with `this = undefined`, silently
+    // dropping every field write and handing back an empty object.
+    if addr != 0 && fn_has_this_param(fn_word) {
+        let recv = empty_keyed_object();
+        let r = super::funcops::__rtsadp_fn_invoke_method(fn_word, recv, a0, a1, a2, rest);
+        // Spec: a constructor returning an OBJECT yields that object; any other
+        // return (including `undefined`) yields the freshly built receiver.
+        if PolyValue::from_raw(r).is_object() {
+            return r;
+        }
+        return recv;
+    }
     // A PLAIN function value used as a constructor (`new F()` on a fn that was
     // never elevated to a synthetic class — e.g. an empty-body fn-ctor reached
     // through `bind`/`Reflect.construct`): JS runs the fn and yields its return
@@ -135,6 +151,22 @@ pub fn rtsadp_new_invoke(
     }
     __rtsadp_throw_set(intern_poly("TypeError: value is not a constructor").raw());
     PolyValue::undefined().raw()
+}
+
+/// Whether the function VALUE `fn_word` carries a leading `this` parameter (the
+/// engine marks one on `FunctionData` when it reifies a this-first function).
+/// `false` for anything that is not a live function handle.
+fn fn_has_this_param(fn_word: u64) -> bool {
+    use rts_engine::heap::handles::{Entry, with_entry};
+    let pv = PolyValue::from_raw(fn_word);
+    if !pv.is_function() {
+        return false;
+    }
+    let real = rts_runtime::namespaces::gc::handles::__rtsn_poly_to_handle(pv.as_handle());
+    with_entry(real, |e| match e {
+        Some(Entry::Function(d)) => d.has_this_param,
+        _ => false,
+    })
 }
 
 /// A fresh `{}` — an empty keyed object word (the `{}` literal's runtime shape).

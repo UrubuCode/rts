@@ -539,7 +539,7 @@ fn harvest_expr(e: &HirExpr, out: &mut HashSet<String>) {
             harvest_expr(object, out);
             harvest_all(args, out);
         }
-        HirExprKind::New { class, args } => {
+        HirExprKind::New { class, args, .. } => {
             out.insert(class.clone());
             harvest_all(args, out);
         }

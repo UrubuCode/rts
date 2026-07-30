@@ -31,6 +31,42 @@ use crate::front::error::{FrontResult, unsupported};
 use super::lower::{JsKind, Lowerer, Val};
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
+    /// Lower `new <expr>(args)` where the constructor is an EXPRESSION, not a
+    /// name: `new (function(){ this.x = 1 })()` — the ES5 anonymous constructor a
+    /// bundle emits — or `new (cond ? A : B)()`.
+    ///
+    /// The callee lowers to an ordinary function VALUE (an inline `function`
+    /// expression has already been lifted and reified by the extraction pass), the
+    /// arguments are packed into one array, and `__rtsadp_construct` does the rest:
+    /// it allocates the receiver, runs the constructor body with `this` bound, and
+    /// applies the spec's "an object return wins" rule. That is the SAME trampoline
+    /// `Reflect.construct` routes to, so the two agree by construction.
+    pub(super) fn lower_new_callee_expr(
+        &mut self,
+        module: &mut dyn Module,
+        callee: &HirExpr,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        let f = self.lower_expr(module, callee)?;
+        let fn_word = self.box_value(f);
+        let arr = emit_marshal::emit_new_vec_object(module, self.builder);
+        for a in args {
+            if let rts_hir::ir::HirExprKind::Spread(inner) = &a.kind {
+                let src = self.spread_source_array_word(module, inner)?;
+                self.call_runtime(module, "__rtsadp_arr_spread_append", &[arr, src])?;
+            } else {
+                let v = self.lower_expr(module, a)?;
+                let w = self.box_value(v);
+                emit_marshal::emit_vec_push(module, self.builder, arr, w);
+            }
+        }
+        let out = self
+            .call_runtime(module, "__rtsadp_construct", &[fn_word, arr])?
+            .expect("__rtsadp_construct returns a value");
+        self.emit_post_call_error_check(module)?;
+        Ok(Val::tagged_kind(out, JsKind::Object))
+    }
+
     /// Lower `new C(args)`. Returns the instance `Val` (kind `Object`) plus the
     /// class name + the OBJECT shape id (interned in THIS fn's ShapeTable), so a
     /// `let` can record the local's class/shape for later member/method access.

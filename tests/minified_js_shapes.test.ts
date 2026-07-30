@@ -151,6 +151,22 @@ let sepUndef: any;
 const joinUndef = [1, 2].join(sepUndef);
 const joinNumeric = [1, 2, 3].join(0);
 
+// --- 10. `new <expression>` (no class NAME to resolve) ----------------------
+const anonNew: any = new (function (this: any) {
+  this.z = 8;
+})();
+const AnonA: any = function (this: any, v: any) {
+  this.v = v;
+};
+const AnonB: any = function (this: any) {
+  this.v = -1;
+};
+const pickedNew: any = new (1 ? AnonA : AnonB)(7);
+const newReturnsObject: any = new (function (this: any) {
+  this.a = 1;
+  return { a: 99 };
+} as any)();
+
 describe("minified/obfuscated JS shapes", () => {
   test("omitted arg on a function DECLARATION is undefined", () =>
     expect(arityDecl).toBe("no-b"));
@@ -209,4 +225,11 @@ describe("minified/obfuscated JS shapes", () => {
     expect(joinUndef).toBe("1,2"));
   test("join coerces a non-string separator", () =>
     expect(joinNumeric).toBe("10203"));
+
+  test("`new` on an anonymous fn-expr binds `this`", () =>
+    expect(anonNew.z).toBe(8));
+  test("`new` on a ternary-selected constructor", () =>
+    expect(pickedNew.v).toBe(7));
+  test("a constructor returning an object wins (spec)", () =>
+    expect(newReturnsObject.a).toBe(99));
 });

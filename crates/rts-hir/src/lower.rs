@@ -353,6 +353,13 @@ fn lower_var_decl(vd: &swc::VarDecl, scope: &mut Scope, _raw_text: &str) -> HirS
 // Expressions
 // ---------------------------------------------------------------------------
 
+/// Reserved callee name for `new <EXPRESSION>(args)` — a `new` whose constructor
+/// is not an identifier. The desugar (see the `Expr::New` arm) emits
+/// `__rtsn_new(<ctor expr>, args…)`; the lowering recognizes the name and
+/// constructs through the function VALUE. `__rtsn_*` is not spellable in TS
+/// source, so it can never collide with a user binding.
+pub const NEW_VALUE_FN: &str = "__rtsn_new";
+
 pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
     match e {
         swc::Expr::Lit(lit) => lower_lit(lit),
@@ -413,7 +420,7 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
 
         swc::Expr::New(n) => {
             let class = expr_to_ident_name(&n.callee).unwrap_or_default();
-            let args = n.args.as_deref().unwrap_or(&[]).iter()
+            let args: Vec<HirExpr> = n.args.as_deref().unwrap_or(&[]).iter()
                 .map(|a| {
                     let inner = lower_swc_expr(&a.expr, scope);
                     if a.spread.is_some() {
@@ -426,6 +433,34 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
             let ty = scope.resolve_class(&class)
                 .map(HirType::Class)
                 .unwrap_or(HirType::Unknown);
+            // A NON-IDENTIFIER callee (`new (function(){…})()` — the ES5 anonymous
+            // constructor a bundle emits — or `new (cond ? A : B)()`) has no name
+            // for `New`'s `class` to carry, so the callee would simply be lost and
+            // the lowering would bail on an unnamed class.
+            //
+            // Desugar it to a CALL of the reserved engine name `__rtsn_new` with
+            // the constructor expression as the first argument — the same shape the
+            // optional-chaining desugar uses (`__rts_*` is not spellable in TS
+            // source, so it cannot collide). This deliberately avoids adding a
+            // callee field to `New`: a new field is invisible to the ~12 existing
+            // HIR walkers (arrow lifting, free-variable and mutation analysis, the
+            // swc↔HIR cursor passes), and each one that missed it would be a
+            // separate silent bug. As a plain `Call` every walker already handles it.
+            if class.is_empty() {
+                let mut call_args = Vec::with_capacity(args.len() + 1);
+                call_args.push(lower_swc_expr(&n.callee, scope));
+                call_args.extend(args);
+                return HirExpr::new(
+                    HirExprKind::Call {
+                        callee: Box::new(HirExpr::new(
+                            HirExprKind::Ident(NEW_VALUE_FN.to_string()),
+                            HirType::Unknown,
+                        )),
+                        args: call_args,
+                    },
+                    HirType::Unknown,
+                );
+            }
             HirExpr::new(HirExprKind::New { class, args }, ty)
         }
 

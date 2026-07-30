@@ -211,7 +211,7 @@ fn walk_stmt(s: &HirStmt, out: &mut Scan) {
 
 fn walk_expr(e: &HirExpr, out: &mut Scan) {
     match &e.kind {
-        HirExprKind::New { class, args } => {
+        HirExprKind::New { class, args, .. } => {
             out.classes.insert(class.clone());
             for a in args {
                 walk_expr(a, out);

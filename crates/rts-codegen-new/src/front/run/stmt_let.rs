@@ -217,7 +217,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
             // `let a = new Array(n)`: the built-in Array constructor → an array
             // local (HeapShape::Array), NOT a class instance.
-            HirExprKind::New { class, args } if self.is_builtin_array_ctor(class) => {
+            HirExprKind::New { class, args, .. } if self.is_builtin_array_ctor(class) => {
                 let val = self.lower_new_array(module, args)?;
                 self.bind_tagged_local(name, val);
                 Some(HeapShape::Array)
@@ -225,7 +225,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // `let m = new Map()` / `new Set()` / `new Error(..)` / wrapper (P5.3):
             // a RUNTIME/Registry class instance. Record its static class in
             // `global_instance_classes` so `m.method()` / `m instanceof C` dispatch.
-            HirExprKind::New { class, args } if self.is_global_class_ctor(class) => {
+            HirExprKind::New { class, args, .. } if self.is_global_class_ctor(class) => {
                 let (val, class_name) = self.lower_new_global_class(module, class, args)?;
                 self.bind_tagged_local(name, val);
                 // A ctor whose spec declares an ARRAY return (`new Uint8Array(..):
@@ -288,7 +288,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // `let x = new F(args)` where `F` is a FUNCTION used as a constructor
             // (Phase 2/3): the result is opaque (F's object-return or the fresh
             // instance), so bind a plain Tagged local with no proven shape/class.
-            HirExprKind::New { class, args } if self.is_fn_ctor(class) => {
+            HirExprKind::New { class, args, .. } if self.is_fn_ctor(class) => {
                 let val = self.lower_new_fn_ctor(module, class, args)?;
                 self.bind_tagged_local(name, val);
                 return Ok(());
@@ -296,7 +296,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // `let c = new G(args)` where `G` is a LOCAL holding a runtime
             // class-VALUE (`const G = globalThis.Box; const c = new G(5)`): invoke
             // through the new-thunk. The result is opaque (no static class/shape).
-            HirExprKind::New { class, args }
+            HirExprKind::New { class, args, .. }
                 if self.local(class).is_some()
                     && self.local_class_refs.get(class).is_none()
                     && self.classes.get(class).is_none() =>
@@ -309,7 +309,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // ctor (unless a user class shadows the name): a function VALUE, so
             // NO class/shape is recorded (`.call`/`.apply` dispatch through the
             // fn-value path, not the class-method path).
-            HirExprKind::New { class, args }
+            HirExprKind::New { class, args, .. }
                 if class == "Function" && self.classes.get(class).is_none() =>
             {
                 let val = self.lower_new_function(module, args)?;
@@ -318,7 +318,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
             // `let c = new C(args)`: build the instance, record the local's CLASS
             // (for static `c.method()` dispatch) and OBJECT shape (for `c.field`).
-            HirExprKind::New { class, args } => {
+            HirExprKind::New { class, args, .. } => {
                 let (val, class_name, shape_id) = self.lower_new(module, class, args)?;
                 self.bind_tagged_local(name, val);
                 self.local_classes.insert(name.to_string(), class_name);

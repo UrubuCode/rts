@@ -70,7 +70,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.emit_post_call_error_check(module)?;
                 Ok(Val::tagged_kind(out, JsKind::Unknown))
             }
-            HirExprKind::New { class, args } => {
+            HirExprKind::New { class, args, .. } => {
                 // `new Array(n)` is the built-in Array constructor (not a user
                 // class) → a sized array value (P5.2).
                 if self.is_builtin_array_ctor(class) {
