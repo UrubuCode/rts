@@ -357,6 +357,58 @@ pub fn prim_method_value(recv: u64, name_word: u64) -> u64 {
     PolyValue::from_function_handle(h & super::PAYLOAD_MASK).raw()
 }
 
+/// Uniform thunk for an UNBOUND prototype METHOD VALUE (`Array.prototype.slice`,
+/// `Function.prototype.toString`). Unlike [`prim_method_thunk`] the receiver is
+/// NOT in the env — JS puts it in the FIRST argument
+/// (`Array.prototype.slice.call(xs, 1)` after `.call` shifts, or a direct
+/// `f(recv, …)`), so a0 is the receiver and a1.. are the real arguments.
+/// Dispatch goes through the same polymorphic runtime method call a
+/// `recv.m(args)` on an unproven receiver takes, so the two never diverge.
+extern "C" fn proto_method_thunk(env: u64, a0: u64, a1: u64, a2: u64, a3: u64, _rest: u64) -> u64 {
+    super::dyndispatch::__rtsadp_dyn_method_call(a0, env, a1, a2, a3)
+}
+
+/// `X.prototype.<name>` READ in VALUE position → a real callable `TAG_FUNCTION`
+/// that applies `name` to whatever receiver it is later given. `env` carries the
+/// method NAME word; the receiver arrives as argument 0 (see
+/// [`proto_method_thunk`]).
+///
+/// This is what makes the borrowed-method idiom work as a VALUE rather than only
+/// at a `.call` site: `const slice = Array.prototype.slice` — the shape every
+/// transpiled and obfuscated bundle opens with — used to read `undefined`.
+#[rtse::abi]
+pub fn rtsadp_proto_method_value(name_word: u64) -> u64 {
+    let name = super::abi_adapter::resolve_poly(PolyValue::from_raw(name_word));
+    let data = FunctionData {
+        fn_ptr: proto_method_thunk as *const () as usize as u64,
+        // JS `length` of a prototype method is its declared arity; the receiver is
+        // not part of it. 0 is the honest answer for a synthesized wrapper whose
+        // real arity lives in the Registry row it dispatches to.
+        arity: 0,
+        name: Box::<str>::from(name.as_str()),
+        bound_this: name_word as i64,
+        has_bound_this: true,
+        bound_args: Vec::new(),
+        is_arrow: false,
+        // THIS-FIRST: the receiver must reach the thunk's a0. That is what makes
+        // `Array.prototype.slice.call(xs, 1)` — the form this value exists for —
+        // bind `xs` as the receiver; the method-aware invoker puts a `.call`
+        // thisArg exactly there. (A receiver-less `Array.prototype.slice(xs)` is
+        // meaningless in JS anyway: its `this` would be `undefined`.)
+        has_this_param: true,
+        param_kinds: Vec::new(),
+        return_kind: 0,
+        packed_shim: 0,
+        source: None,
+        keep_alive: None,
+        prototype_handle: 0,
+        rest_param_idx: -1,
+        uniform_thunk: true,
+    };
+    let h = alloc_entry(Entry::Function(Box::new(data)));
+    PolyValue::from_function_handle(h & super::PAYLOAD_MASK).raw()
+}
+
 /// Build the `(resolve, reject)` settler FUNCTION-value pair over the promise
 /// `out_handle` (raw) — real callable `TAG_FUNCTION` words whose env carries
 /// the promise handle, exactly what a thenable's `then(res, rej)` expects.

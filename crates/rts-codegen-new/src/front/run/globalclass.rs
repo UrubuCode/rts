@@ -396,6 +396,26 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             let res = self.builder.ins().uextend(types::I64, res_i8);
             return Ok(Some(Val::new(res, crate::repr::Repr::Bool)));
         }
+        // `x instanceof Function` (Function is PRIMORDIAL): true for exactly the
+        // callable values — a pure tag check, the `Object` branch above narrowed to
+        // `TAG_FUNCTION`. Obfuscated and transpiled code guards on this constantly
+        // (`typeof x === "function" || x instanceof Function`); without it the RHS
+        // resolved to nothing and the whole comparison bailed.
+        if class == "Function" && self.local(class).is_none() && self.classes.get(class).is_none() {
+            let v = self.lower_expr(module, lhs)?;
+            let word = self.box_value(v);
+            let boxed = value::emit_is_boxed(self.builder, word);
+            let shifted = self.builder.ins().ushr_imm(word, value::TAG_SHIFT as i64);
+            let tag = self.builder.ins().band_imm(shifted, value::TAG_MASK as i64);
+            let is_fn = self.builder.ins().icmp_imm(
+                cranelift_codegen::ir::condcodes::IntCC::Equal,
+                tag,
+                value::TAG_FUNCTION as i64,
+            );
+            let res_i8 = self.builder.ins().band(boxed, is_fn);
+            let res = self.builder.ins().uextend(types::I64, res_i8);
+            return Ok(Some(Val::new(res, crate::repr::Repr::Bool)));
+        }
         // A user class instanceof: a compile-time class-name compare (the local's
         // recorded class equals `class` or a descendant). Only resolvable when the
         // lhs has a statically-known class.

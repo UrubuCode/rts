@@ -323,6 +323,39 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // declaring class's body — receiver-type-free (JS spec), so it fires
         // before any receiver resolution. ----
         self.check_private_name_lexical(prop)?;
+        // ---- `<Global>.prototype.<m>` READ in VALUE position → an UNBOUND method
+        // value. The borrowed-method idiom every transpiled / obfuscated bundle
+        // opens with (`const slice = Array.prototype.slice`,
+        // `const toStr = Function.prototype.toString`) read `undefined`, because a
+        // primordial prototype is not a real object here. The `.call(recv, …)` FORM
+        // was already handled at the CALL site; this is the same thing read as a
+        // VALUE, so the two now agree.
+        //
+        // Matched by SHAPE, naming nothing: an `X.prototype` member whose base is a
+        // bare identifier that is NOT a local, NOT a user class and NOT a user
+        // function — i.e. exactly a global whose prototype the engine does not
+        // materialize. A user class / user fn keeps its existing path (its real
+        // prototype object already holds the method). ----
+        if let HirExprKind::Member {
+            object: base,
+            prop: proto,
+        } = &object.kind
+        {
+            if proto == "prototype" {
+                if let HirExprKind::Ident(b) = &base.kind {
+                    if self.local(b).is_none()
+                        && self.classes.get(b).is_none()
+                        && !self.sigs.contains_key(b.as_str())
+                    {
+                        let name_w = self.emit_str_const_word(module, prop)?;
+                        let w = self
+                            .call_runtime(module, "__rtsadp_proto_method_value", &[name_w])?
+                            .expect("__rtsadp_proto_method_value returns a fn word");
+                        return Ok(Val::tagged_kind(w, JsKind::Function));
+                    }
+                }
+            }
+        }
         // ---- `<instance>.constructor.name` → the class NAME (a string literal),
         // when the receiver's class is statically known. JS exposes `inst.constructor`
         // as the class function and `.name` as its declared name. Matched as the CHAIN

@@ -303,6 +303,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let v = self.emit_str_const_word(module, s)?;
                 return Ok(Val::tagged_kind(v, JsKind::Str));
             }
+            // `typeof Function` is `"function"` — the PRIMORDIAL constructor is
+            // itself callable. It has no `class_meta`/Registry entry, so without
+            // this fold it fell through to the unbound-ident branch below and read
+            // `"undefined"`. A local or user class named `Function` shadows it.
+            if let HirExprKind::Ident(name) = &operand.kind {
+                if name == "Function"
+                    && self.local(name).is_none()
+                    && self.classes.get(name).is_none()
+                {
+                    let v = self.emit_str_const_word(module, "function")?;
+                    return Ok(Val::tagged_kind(v, JsKind::Str));
+                }
+            }
             // `typeof <symbol>` is `"symbol"`. A symbol instance is carried as a
             // registry OBJECT word (no distinct PolyValue tag yet, #216), so the
             // runtime `__rtsadp_typeof` would wrongly say `"object"`. Fold it here

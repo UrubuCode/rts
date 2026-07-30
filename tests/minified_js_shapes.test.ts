@@ -167,6 +167,28 @@ const newReturnsObject: any = new (function (this: any) {
   return { a: 99 };
 } as any)();
 
+// --- 11. `Function` as a value + borrowed prototype methods -----------------
+const typeofFunction = typeof Function;
+const fnValue: any = function (a: any) {
+  return a;
+};
+const isFunctionInstance = fnValue instanceof Function;
+const plainNotFunction = ({} as any) instanceof Function;
+// The borrowed-method idiom read as a VALUE (not at a `.call` site).
+// NOTE: a borrowed ARRAY method only works for the rows the runtime's dynamic
+// array table carries (join/push/pop/shift/indexOf/includes). `slice`/`concat`/
+// `map`/… are absent from it, so `Array.prototype.slice.call(xs, 1)` still
+// throws — the fix there is migrating Array to `#[rtse::class]` so the generic
+// `runtime_ci` dispatch covers the whole surface, not adding rows by hand.
+const borrowedJoin: any = Array.prototype.join;
+const borrowedType = typeof borrowedJoin;
+const borrowedResult = borrowedJoin.call([3, 4], ",");
+const borrowedToString: any = Function.prototype.toString;
+const borrowedToStringType = typeof borrowedToString;
+const borrowedHasOwn: any = Object.prototype.hasOwnProperty;
+const borrowedHasOwnResult = borrowedHasOwn.call({ k: 1 }, "k");
+const borrowedHasOwnMiss = borrowedHasOwn.call({}, "k");
+
 describe("minified/obfuscated JS shapes", () => {
   test("omitted arg on a function DECLARATION is undefined", () =>
     expect(arityDecl).toBe("no-b"));
@@ -232,4 +254,20 @@ describe("minified/obfuscated JS shapes", () => {
     expect(pickedNew.v).toBe(7));
   test("a constructor returning an object wins (spec)", () =>
     expect(newReturnsObject.a).toBe(99));
+
+  test("`typeof Function` is \"function\"", () =>
+    expect(typeofFunction).toBe("function"));
+  test("a function is `instanceof Function`", () =>
+    expect(isFunctionInstance).toBe(true));
+  test("a plain object is not", () => expect(plainNotFunction).toBe(false));
+  test("a borrowed prototype method READ is callable", () =>
+    expect(borrowedType).toBe("function"));
+  test("and applies to the receiver it is given", () =>
+    expect(borrowedResult).toBe("3,4"));
+  test("Function.prototype.toString reads as a function", () =>
+    expect(borrowedToStringType).toBe("function"));
+  test("borrowed Object.prototype.hasOwnProperty (hit)", () =>
+    expect(borrowedHasOwnResult).toBe(true));
+  test("borrowed Object.prototype.hasOwnProperty (miss)", () =>
+    expect(borrowedHasOwnMiss).toBe(false));
 });
