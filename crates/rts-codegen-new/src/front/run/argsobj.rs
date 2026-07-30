@@ -21,6 +21,12 @@
 use rts_hir::ir::{HirExprKind, HirStmt};
 use rts_hir::{HirExpr, HirFunc, HirParam, HirType};
 
+/// The synthetic trailing REST param appended to a function that has declared
+/// params AND reads `arguments`: it carries the args passed PAST the declared
+/// ones, which `arguments` then spreads in. Engine-owned name (`__rtsn_*` is not
+/// spellable in TS source), so it can never collide with a user binding.
+pub(crate) const ARGS_REST: &str = "__rtsn_args_rest";
+
 /// Materialize `arguments` in every qualifying function of `funcs` (in place).
 pub(crate) fn expand_arguments_object(funcs: &mut [HirFunc]) {
     for f in funcs.iter_mut() {
@@ -52,11 +58,56 @@ pub(crate) fn expand_arguments_object(funcs: &mut [HirFunc]) {
                 default_expr: None,
             });
         } else {
-            // Declared params → `let arguments = [p1, …, pN]` prologue.
-            let elems: Vec<HirExpr> = user_params
+            // Declared params → `let arguments = [p1, …, pN, ...<surplus>]`.
+            //
+            // The declared params alone are NOT `arguments`: JS observes every
+            // arg actually passed, and the ES5 idiom that matters
+            // (`Array.prototype.slice.call(arguments, 1)` — the `apply`
+            // forwarding every transpiler and minifier emits) reads exactly the
+            // args PAST the declared ones. With only `[p1..pN]` it produced an
+            // empty tail and the forwarded call silently received nothing.
+            //
+            // So append a synthetic trailing REST param and spread it: the call
+            // marshal already packs a call's surplus into a rest array, and the
+            // uniform thunk does the same for an indirect invoke, so this rides
+            // machinery that exists. `reify_function_inner` excludes a rest param
+            // from the reported arity, so `f.length` still reports the DECLARED
+            // count (JS: `length` ignores the rest param).
+            //
+            // KNOWN INEXACTNESS, over-application is exact / under-application is
+            // not: a call passing FEWER args than declared fills the missing ones
+            // with `undefined` at the call site, so `arguments.length` counts the
+            // declared arity instead of the args really passed (`g(1)` on
+            // `function g(a,b)` reads 2, JS says 1). Making it exact needs the real
+            // argc threaded to the callee, which the direct-call ABI does not
+            // carry. Every arg actually passed IS observed, at the right index.
+            let mut elems: Vec<HirExpr> = user_params
                 .into_iter()
                 .map(|(name, ty)| HirExpr::new(HirExprKind::Ident(name), ty))
                 .collect();
+            if !f.params.iter().any(|p| p.variadic) {
+                f.params.push(HirParam {
+                    name: ARGS_REST.to_string(),
+                    ty: HirType::Array(Box::new(HirType::Unknown)),
+                    variadic: true,
+                    has_default: false,
+                    optional: false,
+                    default_expr: None,
+                });
+            }
+            let rest_name = f
+                .params
+                .iter()
+                .find(|p| p.variadic)
+                .map(|p| p.name.clone())
+                .expect("a variadic param was just ensured");
+            elems.push(HirExpr::new(
+                HirExprKind::Spread(Box::new(HirExpr::new(
+                    HirExprKind::Ident(rest_name),
+                    HirType::Array(Box::new(HirType::Unknown)),
+                ))),
+                HirType::Array(Box::new(HirType::Unknown)),
+            ));
             f.body.insert(
                 0,
                 HirStmt::Let {

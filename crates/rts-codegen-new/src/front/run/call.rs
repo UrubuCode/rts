@@ -1124,8 +1124,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // The captured-var list (if `name` is a closure) — clone to drop the borrow
         // on `self` before lowering the env snapshot.
         let capture_names: Vec<String> = self.captures.get(name).cloned().unwrap_or_default();
-        // The closure's REAL arity excludes the prepended captures.
-        let nparams = (sig.params.len() - capture_names.len()) as i64;
+        // The closure's REAL arity excludes the prepended captures — and the REST
+        // param, which `Function.prototype.length` ignores per spec
+        // (`function f(a, ...r){}` has `length === 1`). Excluding it also keeps
+        // `length` at the DECLARED count for a function that reads `arguments`,
+        // where the engine appends a synthetic rest to carry the surplus args
+        // (see `super::argsobj`).
+        let nparams = (sig.params.len()
+            - capture_names.len()
+            - usize::from(sig.rest_param.is_some())) as i64;
         let thunk_id = *self
             .thunks
             .get(name)
