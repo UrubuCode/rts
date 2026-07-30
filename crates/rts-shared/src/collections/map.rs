@@ -12,40 +12,12 @@ use rts_engine::abi::ty::{Bool, Handle, I64, U64};
 use rts_engine::{AbiType, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use rts_engine::heap::handles::{Entry, alloc_entry, free_handle, with_entry, with_entry_mut};
-
-/// Reconhece "array index" no sentido do ECMA-262: string que representa
-/// um u32 canônico (sem leading zeros exceto "0"; máximo 2^32 - 2).
-/// Retorna o valor numérico para ordenação. Strings como "01", "+1", "1.0",
-/// " 1" não são consideradas índices.
-fn parse_array_index(s: &str) -> Option<u32> {
-    if s.is_empty() {
-        return None;
-    }
-    if s.len() > 1 && s.starts_with('0') {
-        return None;
-    }
-    if !s.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    let n: u32 = s.parse().ok()?;
-    if n == u32::MAX {
-        return None;
-    }
-    Some(n)
-}
-
-/// (#798) Keys com prefixo `@@sym:` sao a repr canonica de Symbol entries
-/// (escrita pelo codegen via OBJ_SET/MAP_SET_KH). NAO sao expostas em
-/// Object.keys/getOwnPropertyNames/values/entries — JS spec separa
-/// string-keyed (Object.keys) de symbol-keyed (getOwnPropertySymbols).
-fn is_symbol_key(k: &str) -> bool {
-    k.starts_with("@@sym:")
-}
-
-/// (#798) Decodifica `@@sym:<handle>` -> handle do Entry::Symbol.
-fn decode_symbol_key(k: &str) -> Option<u64> {
-    k.strip_prefix("@@sym:").and_then(|s| s.parse::<u64>().ok())
-}
+// Fonte única desses helpers (antes duplicados aqui e em
+// `rts-primitives::object`, que não pode depender desta crate — seria ciclo).
+pub(crate) use rts_engine::heap::mapkey::with_map_mut;
+use rts_engine::heap::mapkey::{
+    decode_symbol_key, is_symbol_key, parse_array_index, str_from_abi, with_map,
+};
 
 /// (#216/299) True se a key `@@sym:<h>` referencia o well-known
 /// `Symbol.iterator` (handle sticky cacheado em globals/symbol/rt).
@@ -54,35 +26,6 @@ fn key_is_well_known_iterator(k: &str) -> bool {
         Some(h) => h == rts_primitives::symbol::__RTS_FN_GL_SYMBOL_ITERATOR(),
         None => false,
     }
-}
-
-fn str_from_abi<'a>(ptr: *const u8, len: i64) -> Option<&'a str> {
-    if ptr.is_null() || len < 0 {
-        return None;
-    }
-    // SAFETY: caller contract.
-    let slice = unsafe { std::slice::from_raw_parts(ptr, len as usize) };
-    std::str::from_utf8(slice).ok()
-}
-
-fn with_map<F, R>(handle: u64, default: R, f: F) -> R
-where
-    F: FnOnce(&IndexMap<String, i64>) -> R,
-{
-    with_entry(handle, |entry| match entry {
-        Some(Entry::Map(m)) => f(m.as_ref()),
-        _ => default,
-    })
-}
-
-pub(crate) fn with_map_mut<F, R>(handle: u64, default: R, f: F) -> R
-where
-    F: FnOnce(&mut IndexMap<String, i64>) -> R,
-{
-    with_entry_mut(handle, |entry| match entry {
-        Some(Entry::Map(m)) => f(m.as_mut()),
-        _ => default,
-    })
 }
 
 /// Membros Map do namespace `collections` (parte; vec.rs declara a outra).

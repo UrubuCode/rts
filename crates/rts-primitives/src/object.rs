@@ -8,69 +8,21 @@
 //! `rts-shared/collections/map.rs` — Object é PRIMORDIAL, então o lugar certo
 //! é aqui. `Entry::Map(IndexMap<String,i64>)` é definido em `rts-engine`
 //! (heap-level, não algo de rts-shared), então essas fns operam direto sobre
-//! o `Entry` do motor sem precisar de rts-shared. Os helpers `with_map`/
-//! `with_map_mut`/`str_from_abi`/`parse_array_index`/`decode_symbol_key` são
-//! réplicas locais e triviais dos equivalentes privados de
-//! `rts-shared::collections::map` — duplicar essas poucas linhas puras evita
-//! uma dependência rts-primitives → rts-shared (proibida pela direção do
-//! grafo de crates: primitives só pode chamar engine).
+//! o `Entry` do motor sem precisar de rts-shared.
+//!
+//! (DEDUP 2026-07-30) Os helpers `with_map`/`with_map_mut`/`str_from_abi`/
+//! `parse_array_index`/`decode_symbol_key` ERAM réplicas byte-a-byte dos
+//! equivalentes privados de `rts-shared::collections::map` — a cópia existia
+//! porque `primitives → shared` é um CICLO (shared já depende de primitives).
+//! Agora eles têm uma definição só, em `rts_engine::heap::mapkey`, que as duas
+//! crates já alcançam sem aresta nova.
 
 use indexmap::IndexMap;
 
-use rts_engine::heap::handles::{Entry, alloc_entry, with_entry, with_entry_mut};
-
-/// Reconhece "array index" no sentido do ECMA-262 (ver
-/// `rts-shared::collections::map::parse_array_index` — mesma regra).
-fn parse_array_index(s: &str) -> Option<u32> {
-    if s.is_empty() {
-        return None;
-    }
-    if s.len() > 1 && s.starts_with('0') {
-        return None;
-    }
-    if !s.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    let n: u32 = s.parse().ok()?;
-    if n == u32::MAX {
-        return None;
-    }
-    Some(n)
-}
-
-/// (#798) Decodifica `@@sym:<handle>` -> handle do Entry::Symbol.
-fn decode_symbol_key(k: &str) -> Option<u64> {
-    k.strip_prefix("@@sym:").and_then(|s| s.parse::<u64>().ok())
-}
-
-fn str_from_abi<'a>(ptr: *const u8, len: i64) -> Option<&'a str> {
-    if ptr.is_null() || len < 0 {
-        return None;
-    }
-    // SAFETY: caller contract.
-    let slice = unsafe { std::slice::from_raw_parts(ptr, len as usize) };
-    std::str::from_utf8(slice).ok()
-}
-
-fn with_map<F, R>(handle: u64, default: R, f: F) -> R
-where
-    F: FnOnce(&IndexMap<String, i64>) -> R,
-{
-    with_entry(handle, |entry| match entry {
-        Some(Entry::Map(m)) => f(m.as_ref()),
-        _ => default,
-    })
-}
-
-fn with_map_mut<F, R>(handle: u64, default: R, f: F) -> R
-where
-    F: FnOnce(&mut IndexMap<String, i64>) -> R,
-{
-    with_entry_mut(handle, |entry| match entry {
-        Some(Entry::Map(m)) => f(m.as_mut()),
-        _ => default,
-    })
-}
+use rts_engine::heap::handles::{Entry, alloc_entry, with_entry};
+use rts_engine::heap::mapkey::{
+    decode_symbol_key, parse_array_index, str_from_abi, with_map, with_map_mut,
+};
 
 /// Set global de handles criados via `Object.create(null)` — preserva a
 /// semântica "sem prototype" mesmo se o user setar `__proto__` depois (nesse

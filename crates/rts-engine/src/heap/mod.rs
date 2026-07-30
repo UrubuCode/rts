@@ -8,6 +8,7 @@ pub mod descriptors;
 pub mod env;
 pub mod fixed;
 pub mod handles;
+pub mod mapkey;
 pub mod payload_ops;
 pub mod pickle;
 pub mod poly;
