@@ -1133,7 +1133,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     ///
     /// A `true` here lets `lower_member`/`lower_index` take the native string
     /// fast-path; everything else falls through to the heap-shape path UNCHANGED.
-    fn receiver_is_proven_string(&self, object: &HirExpr) -> bool {
+    pub(in crate::front::run) fn receiver_is_proven_string(&self, object: &HirExpr) -> bool {
         // A string LITERAL, a `+`-concat chain with a proven-string operand
         // (`v + "\n"`), or an expr the HIR already typed `Str` — all yield a string
         // (JS `string + x` ToString-concats), so `.length` / string methods on the

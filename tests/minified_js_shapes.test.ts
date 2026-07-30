@@ -141,6 +141,16 @@ function Base(this: any) {
 const baseInst: any = new (Base as any)();
 const protoThis = baseInst.type + "/" + baseInst.greet();
 
+// --- 9. array separator that is not statically a string ---------------------
+const joinVia: any = function (s: string, sep: any) {
+  return s.split("").join(sep);
+};
+const joinDyn = joinVia("abc", "-");
+const joinNoSep = joinVia("abc");
+let sepUndef: any;
+const joinUndef = [1, 2].join(sepUndef);
+const joinNumeric = [1, 2, 3].join(0);
+
 describe("minified/obfuscated JS shapes", () => {
   test("omitted arg on a function DECLARATION is undefined", () =>
     expect(arityDecl).toBe("no-b"));
@@ -192,4 +202,11 @@ describe("minified/obfuscated JS shapes", () => {
     expect(bumpTwice).toBe(3));
   test("ES5 constructor + prototype method bind `this`", () =>
     expect(protoThis).toBe("base/hi base"));
+
+  test("join with an any-typed separator", () => expect(joinDyn).toBe("a-b-c"));
+  test("join with the separator omitted", () => expect(joinNoSep).toBe("a,b,c"));
+  test("join(undefined) uses the default separator (spec)", () =>
+    expect(joinUndef).toBe("1,2"));
+  test("join coerces a non-string separator", () =>
+    expect(joinNumeric).toBe("10203"));
 });
