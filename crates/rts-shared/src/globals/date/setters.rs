@@ -191,11 +191,14 @@ pub(super) fn append_members(mut cb: ClassBuilder) -> ClassBuilder {
     const DOC: &str =
         "Replaces the given component(s); omitted args keep the current field. Returns the new ms.";
     for (name, symbol, fp, nvals, param_ts) in rows {
-        let utc_name = format!("setUTC{}", &name["set".len()..]);
-        for js_name in [name.to_string(), utc_name] {
-            let ts = format!("{js_name}({param_ts}): number");
-            cb = cb.member(m(&js_name, symbol, fp, setter_sig(nvals, 1), &ts, DOC));
-        }
+        // The `setUTC*` spelling is an ALIAS on the SAME member, not a second
+        // member: `insert_class` deduplicates by symbol (a symbol IS the member's
+        // identity), so two members sharing one symbol lose the second — which is
+        // exactly how every `setUTC<Component>` used to vanish from the class.
+        let ts = format!("{name}({param_ts}): number");
+        let mut mem = m(name, symbol, fp, setter_sig(nvals, 1), &ts, DOC);
+        mem.aliases.push(format!("setUTC{}", &name["set".len()..]));
+        cb = cb.member(mem);
     }
 
     // `toGMTString` — deprecated alias of the macro-authored `toUTCString`.

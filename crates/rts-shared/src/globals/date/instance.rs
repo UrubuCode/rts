@@ -328,9 +328,15 @@ impl Date {
 
     // ── String methods ────────────────────────────────────────────────────────
 
-    /// `toISOString()` — ISO 8601 UTC.
-    #[rtse::method(name = "toISOString")]
+    /// `toISOString()` — ISO 8601 UTC. An Invalid Date throws `RangeError`
+    /// (spec: `ToISOString` on a NaN time value), which is what distinguishes it
+    /// from `toJSON` (returns `null`).
+    #[rtse::method(name = "toISOString", throws)]
     fn to_iso_string(&self) -> String {
+        if self.ms == INVALID_MS {
+            super::throw_range_error("Invalid time value");
+            return String::new();
+        }
         fmt::iso(self.ms)
     }
 
@@ -358,10 +364,12 @@ impl Date {
         fmt::time_string(self.ms)
     }
 
-    /// `toJSON()` — alias of `toISOString()`.
+    /// `toJSON()` — `toISOString()` for a finite time value, `null` for an
+    /// Invalid Date (spec: `Date.prototype.toJSON` returns null instead of
+    /// letting `toISOString`'s RangeError escape `JSON.stringify`).
     #[rtse::method(name = "toJSON")]
-    fn to_json(&self) -> String {
-        fmt::iso(self.ms)
+    fn to_json(&self) -> Option<String> {
+        (self.ms != INVALID_MS).then(|| fmt::iso(self.ms))
     }
 
     /// `toLocaleDateString()` — `DD/MM/YYYY` (no Intl).
