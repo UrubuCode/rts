@@ -31,6 +31,45 @@ pub struct Module {
     /// (`"node:fs"`). `None` = the module has no bare-namespace surface — the
     /// common case. See [`ModuleBuilder::namespace`]/[`ModuleScope::namespace`].
     pub namespace: Option<String>,
+    /// Exports this module BINDS TO AN AMBIENT PRELUDE DECLARATION instead of to
+    /// a native member: `(import name, declaration name)`. `import { URL } from
+    /// "node:url"` binds the ambient `URL` class — reuse, never a second impl.
+    ///
+    /// This lives with the module that OWNS the surface (rts-node / rts-shared),
+    /// not in the engine: the codegen reads it generically by specifier, so no
+    /// non-primordial class name is hardcoded in the lowering. A module whose
+    /// `members` are empty and whose `reexports` are non-empty is a WHOLE-SURFACE
+    /// re-export (a default import synthesizes a namespace object of the decls);
+    /// one with both is PARTIAL (a default import binds the native namespace).
+    pub reexports: Vec<(String, String)>,
+    /// Exports that are an entire OTHER module reached as an object:
+    /// `(import name, specifier)` — e.g. `("promises", "node:fs/promises")`, so
+    /// `import { promises } from "node:fs"` binds that namespace as an object.
+    pub subnamespaces: Vec<(String, String)>,
+}
+
+impl Module {
+    /// The ambient declaration an export name binds to, if any.
+    pub fn reexport_of(&self, import_name: &str) -> Option<&str> {
+        self.reexports
+            .iter()
+            .find(|(imp, _)| imp == import_name)
+            .map(|(_, decl)| decl.as_str())
+    }
+
+    /// The sub-namespace specifier an export name binds to, if any.
+    pub fn subnamespace_of(&self, import_name: &str) -> Option<&str> {
+        self.subnamespaces
+            .iter()
+            .find(|(imp, _)| imp == import_name)
+            .map(|(_, spec)| spec.as_str())
+    }
+
+    /// True when EVERY export is an ambient re-export (no native member), so a
+    /// default import can synthesize a namespace object of the declarations.
+    pub fn reexports_whole_surface(&self) -> bool {
+        !self.reexports.is_empty() && self.members.is_empty()
+    }
 }
 
 /// Uma classe global (`new Date()`, `d.getFullYear()`) — sem import.

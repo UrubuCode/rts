@@ -44,5 +44,15 @@ pub fn register(e: &mut Engine) {
              hasSubscribers/subscribe/unsubscribe/tracingChannel + Channel/ \
              TracingChannel classes (ambient .ts).",
         )
+        // The classes keep their names; the module fns are renamed `__dc*`
+        // (generic names like `channel`/`subscribe` would otherwise be ambient
+        // globals colliding with user code).
+        .reexport("channel", "__dcChannel")
+        .reexport("hasSubscribers", "__dcHasSubscribers")
+        .reexport("subscribe", "__dcSubscribe")
+        .reexport("unsubscribe", "__dcUnsubscribe")
+        .reexport("tracingChannel", "__dcTracingChannel")
+        .reexport("Channel", "Channel")
+        .reexport("TracingChannel", "TracingChannel")
         .done();
 }

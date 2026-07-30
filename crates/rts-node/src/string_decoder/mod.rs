@@ -27,5 +27,8 @@ pub fn register(e: &mut Engine) {
 
     e.module("node:string_decoder", |m| {
         m.doc("Incremental byte→string decoder. Exports the StringDecoder class.");
+        // `StringDecoder` is a registered global (Registry) class — bind the
+        // import to the ambient class, like `URL` (reuse, never re-implement).
+        m.reexport("StringDecoder", "StringDecoder");
     });
 }

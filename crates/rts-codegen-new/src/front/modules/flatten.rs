@@ -122,24 +122,21 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
                     // resolves to the ambient class). Any OTHER imported name from the
                     // same module is a native namespace member (`url.fileURLToPath`),
                     // resolved through the Registry below.
-                    if let Some(reexports) = node_reexported_globals(specifier) {
+                    if let Some(module) =
+                        registered_module(specifier).filter(|m| !m.reexports.is_empty())
+                    {
                         let ns = builtin_ns(specifier);
-                        let subns = node_subnamespace_reexports(specifier);
                         for (orig, local) in &edge.names {
                             // Priority: a SUB-NAMESPACE object (`fs.promises`) →
                             // bind to that whole namespace; else a re-exported name
                             // → its AMBIENT prelude declaration (possibly renamed);
                             // else a native namespace member via the Registry.
-                            let binding = if let Some((_, sub)) =
-                                subns.and_then(|t| t.iter().find(|(o, _)| *o == orig.as_str()))
-                            {
+                            let binding = if let Some(sub) = module.subnamespace_of(orig) {
                                 Binding::Builtin {
-                                    ns: (*sub).to_string(),
+                                    ns: sub.to_string(),
                                     member: String::new(),
                                 }
-                            } else if let Some((_, decl)) =
-                                reexports.iter().find(|(o, _)| *o == orig.as_str())
-                            {
+                            } else if let Some(decl) = module.reexport_of(orig) {
                                 Binding::Local {
                                     name: decl.to_string(),
                                 }
@@ -159,9 +156,10 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
                         // its default to the native namespace, below, so
                         // `fs.readFileSync` still resolves).
                         if let (Some(default_local), true) =
-                            (&edge.default_name, node_reexport_whole_surface(specifier))
+                            (&edge.default_name, module.reexports_whole_surface())
                         {
-                            let fields: Vec<String> = reexports
+                            let fields: Vec<String> = module
+                                .reexports
                                 .iter()
                                 .map(|(o, decl)| format!("{o}: {decl}"))
                                 .collect();
@@ -195,17 +193,17 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
                     // resolves through `namespace_member`. A `rts:<ns>` import instead
                     // names a MEMBER of that one namespace.
                     let bare = ns.is_empty();
-                    let subns = node_subnamespace_reexports(specifier);
+                    let module = registered_module(specifier);
                     for (orig, local) in &edge.names {
-                        let binding = if let Some((_, sub)) =
-                            subns.and_then(|t| t.iter().find(|(o, _)| *o == orig.as_str()))
+                        let binding = if let Some(sub) =
+                            module.and_then(|m| m.subnamespace_of(orig))
                         {
                             // A sub-namespace object (`fs.promises`) — bind to the
                             // whole namespace, member empty, like a bare-`rts`
                             // namespace import; `promises.readFile()` then resolves
                             // through the Registry on that sub-namespace.
                             Binding::Builtin {
-                                ns: (*sub).to_string(),
+                                ns: sub.to_string(),
                                 member: String::new(),
                             }
                         } else if bare {
@@ -280,116 +278,13 @@ pub fn flatten(graph: &ModuleGraph) -> ModuleResult<(Program, HashMap<String, Bi
     Ok((program, bindings))
 }
 
-/// The namespace key for a builtin specifier: `rts:io` → `io`, `node:fs` → `fs`,
-/// bare `rts` → `""` (the member alone identifies it).
-/// The engine GLOBAL classes/values a `node:` module RE-EXPORTS (reused, never
-/// re-implemented): `import { URL } from "node:url"` binds to the ambient `URL`
-/// class. Data-driven; only names that are real registered engine globals belong
-/// here. A name NOT listed is treated as a native namespace member.
-/// Node modules that expose a SUB-NAMESPACE OBJECT under a member name — e.g.
-/// `fs.promises` is the entire `node:fs/promises` API, reachable both as
-/// `import { promises } from "node:fs"` and `fsDefault.promises`. Data-driven
-/// (import-name → sub-namespace specifier): the name binds to that namespace as
-/// an OBJECT (`Binding::Builtin` with an empty member), so `promises.readFile(p)`
-/// resolves through the Registry exactly like a bare-`rts` namespace import. This
-/// generalizes to any module with a promise/sub-API object (`dns.promises`,
-/// `timers.promises`) by adding a row — no per-name control-flow special-case.
-fn node_subnamespace_reexports(specifier: &str) -> Option<&'static [(&'static str, &'static str)]> {
-    match specifier {
-        "node:fs" => Some(&[("promises", "node:fs/promises")]),
-        _ => None,
-    }
+/// The registered module for an import specifier, if any. The re-export /
+/// sub-namespace tables it carries are DECLARED BY THE MODULE'S OWNER (rts-node,
+/// rts-shared) — the engine reads them generically, so no class name from a
+/// non-primordial module appears in this lowering.
+fn registered_module(specifier: &str) -> Option<&'static rts_engine::Module> {
+    crate::front::run::registry::registry().module(specifier)
 }
-
-/// Whether a `node:` module's `node_reexported_globals` covers its WHOLE surface
-/// (every export is an ambient prelude decl). True → a default import synthesizes
-/// a namespace object of those decls; false (a PARTIAL re-export like `node:fs`,
-/// which mixes native members with a few ambient stream classes) → the default
-/// import binds the native namespace instead.
-fn node_reexport_whole_surface(specifier: &str) -> bool {
-    !matches!(specifier, "node:fs" | "node:fs/promises")
-}
-
-fn node_reexported_globals(specifier: &str) -> Option<&'static [(&'static str, &'static str)]> {
-    match specifier {
-        // node:fs — MOSTLY native members (readFileSync/…), but the stream classes
-        // + their factories are ambient `.ts` prelude decls (fs/stream.ts). Only
-        // these four re-export; every other name stays a native Registry member.
-        // NOT a whole-surface re-export (see `node_reexport_whole_surface`), so a
-        // default `import fs from "node:fs"` still binds the native namespace.
-        "node:fs" => Some(&[
-            ("createReadStream", "createReadStream"),
-            ("createWriteStream", "createWriteStream"),
-            ("ReadStream", "ReadStream"),
-            ("WriteStream", "WriteStream"),
-            ("Utf8Stream", "Utf8Stream"),
-        ]),
-        // node:fs/promises — mostly native, but `open` is a `.ts` wrapper that
-        // augments the native FileHandle with its stream methods (fhstream.ts).
-        "node:fs/promises" => Some(&[("open", "__fsPromisesOpen")]),
-        "node:url" => Some(&[("URL", "URL"), ("URLSearchParams", "URLSearchParams")]),
-        // `StringDecoder` is a registered global (Registry) class — bind the
-        // import to the ambient class, like `URL` (reuse, never re-implement).
-        "node:string_decoder" => Some(&[("StringDecoder", "StringDecoder")]),
-        // node:diagnostics_channel — ambient `.ts` prelude. Classes keep their
-        // names; the module fns are renamed `__dc*` (generic names like `channel`/
-        // `subscribe` would otherwise be ambient globals colliding with user code).
-        "node:diagnostics_channel" => Some(&[
-            ("channel", "__dcChannel"),
-            ("hasSubscribers", "__dcHasSubscribers"),
-            ("subscribe", "__dcSubscribe"),
-            ("unsubscribe", "__dcUnsubscribe"),
-            ("tracingChannel", "__dcTracingChannel"),
-            ("Channel", "Channel"),
-            ("TracingChannel", "TracingChannel"),
-        ]),
-        // `node:stream` — every class/fn is an ambient `.ts` prelude decl of the
-        // SAME name (see rts-node `stream.ts`/…). Data-driven: (import, decl).
-        "node:stream" => Some(&[
-            ("Stream", "Stream"),
-            ("Readable", "Readable"),
-            ("Writable", "Writable"),
-            ("Duplex", "Duplex"),
-            ("Transform", "Transform"),
-            ("PassThrough", "PassThrough"),
-            ("pipeline", "pipeline"),
-            ("finished", "finished"),
-            ("compose", "compose"),
-            ("duplexPair", "duplexPair"),
-            ("isErrored", "isErrored"),
-            ("isReadable", "isReadable"),
-            ("isWritable", "isWritable"),
-            ("addAbortSignal", "addAbortSignal"),
-            ("getDefaultHighWaterMark", "getDefaultHighWaterMark"),
-            ("setDefaultHighWaterMark", "setDefaultHighWaterMark"),
-        ]),
-        // Submodule decls are prefixed to avoid clashing with the base module's
-        // `pipeline`/`finished` (callback vs promise form).
-        "node:stream/promises" => Some(&[
-            ("pipeline", "__streamPromisesPipeline"),
-            ("finished", "__streamPromisesFinished"),
-        ]),
-        "node:stream/consumers" => Some(&[
-            ("text", "__streamConsumersText"),
-            ("json", "__streamConsumersJson"),
-            ("buffer", "__streamConsumersBuffer"),
-            ("arrayBuffer", "__streamConsumersArrayBuffer"),
-            ("bytes", "__streamConsumersBytes"),
-            ("blob", "__streamConsumersBlob"),
-        ]),
-        // WHATWG streams: re-export the ambient web-stream globals (rts-shared
-        // `streams.ts`). Only the classes that ambient prelude actually provides.
-        "node:stream/web" => Some(&[
-            ("ReadableStream", "ReadableStream"),
-            ("WritableStream", "WritableStream"),
-            ("TransformStream", "TransformStream"),
-            ("TextEncoderStream", "TextEncoderStream"),
-            ("TextDecoderStream", "TextDecoderStream"),
-        ]),
-        _ => None,
-    }
-}
-
 fn builtin_ns(specifier: &str) -> String {
     if let Some(ns) = specifier.strip_prefix("rts:") {
         ns.to_string()

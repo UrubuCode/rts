@@ -87,6 +87,24 @@ impl ModuleScope<'_> {
         self
     }
 
+    /// Bind an export to an AMBIENT PRELUDE DECLARATION instead of to a native
+    /// member — see [`crate::registry::Module::reexports`].
+    pub fn reexport(&mut self, import_name: &str, decl: &str) -> &mut Self {
+        self.accum
+            .reexports
+            .push((import_name.to_string(), decl.to_string()));
+        self
+    }
+
+    /// Bind an export to an entire other module reached as an OBJECT — see
+    /// [`crate::registry::Module::subnamespaces`].
+    pub fn subnamespace(&mut self, import_name: &str, specifier: &str) -> &mut Self {
+        self.accum
+            .subnamespaces
+            .push((import_name.to_string(), specifier.to_string()));
+        self
+    }
+
     /// Uma função: `ns.fn(args)`.
     pub fn function(&mut self, name: &str, ptr: *const u8, sig: Sig) -> &mut Self {
         let stem = module_stem(&self.accum.name);

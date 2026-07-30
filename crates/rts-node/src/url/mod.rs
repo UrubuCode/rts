@@ -40,5 +40,9 @@ pub fn register(e: &mut Engine) {
         m.registry(symbols::resolve_entry());
         m.registry(symbols::parse_entry());
         m.registry(symbols::format_entry());
+        // `URL`/`URLSearchParams` are engine GLOBALS — the import binds the
+        // ambient class (reuse, never a second impl).
+        m.reexport("URL", "URL");
+        m.reexport("URLSearchParams", "URLSearchParams");
     });
 }

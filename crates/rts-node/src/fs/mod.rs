@@ -224,6 +224,19 @@ pub fn register(e: &mut Engine) {
         mm.registry(throws(watchfile::watch_file0_entry()));
         mm.registry(throws(watchfile::watch_file_opts_entry()));
         mm.registry(throws(watchfile::unwatch_file_entry()));
+        // PARTIAL re-export: most of node:fs is native (above), but the stream
+        // classes + their factories are ambient `.ts` prelude decls (fs/stream.ts)
+        // — bind those import names to the declaration instead of to a member.
+        // A default `import fs from "node:fs"` still binds the native namespace
+        // (the module has members, so it is not a whole-surface re-export).
+        mm.reexport("createReadStream", "createReadStream");
+        mm.reexport("createWriteStream", "createWriteStream");
+        mm.reexport("ReadStream", "ReadStream");
+        mm.reexport("WriteStream", "WriteStream");
+        mm.reexport("Utf8Stream", "Utf8Stream");
+        // `import { promises } from "node:fs"` → the whole node:fs/promises API
+        // as an object (also reachable as `fsDefault.promises`).
+        mm.subnamespace("promises", "node:fs/promises");
     });
 
     // node:fs/promises — the Promise-returning surface. Each returns an already-
@@ -248,6 +261,9 @@ pub fn register(e: &mut Engine) {
         mm.registry(throws(promises::realpath_entry()));
         mm.registry(throws(promises::readlink_entry()));
         mm.registry(throws(filehandle::open_entry()));
+        // `open` is a `.ts` wrapper that augments the native FileHandle with its
+        // stream methods (fhstream.ts) — the import binds the wrapper decl.
+        mm.reexport("open", "__fsPromisesOpen");
     });
 
     // PRIVATE file-IO bridge for the `.ts` ReadStream/WriteStream prelude. Not

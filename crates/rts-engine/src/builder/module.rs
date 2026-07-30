@@ -23,6 +23,8 @@ pub(crate) struct ModuleAccum {
     pub(crate) load_order: i32,
     pub(crate) aliases: Vec<String>,
     pub(crate) namespace: Option<String>,
+    pub(crate) reexports: Vec<(String, String)>,
+    pub(crate) subnamespaces: Vec<(String, String)>,
 }
 
 impl ModuleAccum {
@@ -46,6 +48,8 @@ impl ModuleAccum {
             private: self.private,
             load_order: self.load_order,
             namespace: self.namespace,
+            reexports: self.reexports,
+            subnamespaces: self.subnamespaces,
         };
         for alias in &self.aliases {
             engine
@@ -100,6 +104,25 @@ impl<'e> ModuleBuilder<'e> {
     /// See [`crate::registry::Module::namespace`].
     pub fn namespace(mut self, name: &str) -> Self {
         self.accum.namespace = Some(name.to_string());
+        self
+    }
+
+    /// Bind an export to an AMBIENT PRELUDE DECLARATION instead of to a native
+    /// member — `reexport("URL", "URL")`, `reexport("open", "__fsPromisesOpen")`.
+    /// See [`crate::registry::Module::reexports`].
+    pub fn reexport(mut self, import_name: &str, decl: &str) -> Self {
+        self.accum
+            .reexports
+            .push((import_name.to_string(), decl.to_string()));
+        self
+    }
+
+    /// Bind an export to an entire other module reached as an OBJECT —
+    /// `subnamespace("promises", "node:fs/promises")`.
+    pub fn subnamespace(mut self, import_name: &str, specifier: &str) -> Self {
+        self.accum
+            .subnamespaces
+            .push((import_name.to_string(), specifier.to_string()));
         self
     }
 

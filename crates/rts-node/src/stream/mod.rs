@@ -46,20 +46,55 @@ pub fn register(e: &mut Engine) {
             "Streams (node:stream): Readable/Writable/Duplex/Transform/PassThrough \
              + pipeline/finished/compose/duplexPair/isReadable/… (ambient .ts).",
         )
+        // Every class/fn is an ambient `.ts` prelude decl of the SAME name — a
+        // WHOLE-surface re-export (no native member), so a default import
+        // synthesizes a namespace object of these decls.
+        .reexport("Stream", "Stream")
+        .reexport("Readable", "Readable")
+        .reexport("Writable", "Writable")
+        .reexport("Duplex", "Duplex")
+        .reexport("Transform", "Transform")
+        .reexport("PassThrough", "PassThrough")
+        .reexport("pipeline", "pipeline")
+        .reexport("finished", "finished")
+        .reexport("compose", "compose")
+        .reexport("duplexPair", "duplexPair")
+        .reexport("isErrored", "isErrored")
+        .reexport("isReadable", "isReadable")
+        .reexport("isWritable", "isWritable")
+        .reexport("addAbortSignal", "addAbortSignal")
+        .reexport("getDefaultHighWaterMark", "getDefaultHighWaterMark")
+        .reexport("setDefaultHighWaterMark", "setDefaultHighWaterMark")
         .done();
+    // Submodule decls are prefixed to avoid clashing with the base module's
+    // `pipeline`/`finished` (callback vs promise form).
     e.ns("node:stream/promises")
         .doc("Streams promise API (node:stream/promises): pipeline/finished.")
+        .reexport("pipeline", "__streamPromisesPipeline")
+        .reexport("finished", "__streamPromisesFinished")
         .done();
     e.ns("node:stream/consumers")
         .doc(
             "Stream consumers (node:stream/consumers): arrayBuffer/blob/buffer/ \
              bytes/json/text — drain a stream into one value.",
         )
+        .reexport("text", "__streamConsumersText")
+        .reexport("json", "__streamConsumersJson")
+        .reexport("buffer", "__streamConsumersBuffer")
+        .reexport("arrayBuffer", "__streamConsumersArrayBuffer")
+        .reexport("bytes", "__streamConsumersBytes")
+        .reexport("blob", "__streamConsumersBlob")
         .done();
     e.ns("node:stream/web")
         .doc(
             "WHATWG streams (node:stream/web): ReadableStream/WritableStream/ \
              TransformStream/… — re-exports the ambient web-stream globals.",
         )
+        // Only the classes the `rts-shared` `streams.ts` prelude provides.
+        .reexport("ReadableStream", "ReadableStream")
+        .reexport("WritableStream", "WritableStream")
+        .reexport("TransformStream", "TransformStream")
+        .reexport("TextEncoderStream", "TextEncoderStream")
+        .reexport("TextDecoderStream", "TextDecoderStream")
         .done();
 }
