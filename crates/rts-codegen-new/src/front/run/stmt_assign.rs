@@ -133,6 +133,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.local_classes.remove(&name);
         self.global_instance_classes.remove(&name);
         self.object_locals.remove(&name);
+        // …unless the assigned value is a PROVEN ARRAY, in which case record the
+        // shape rather than dropping to "opaque" — same reasoning as the
+        // object-literal re-assignment branch above, one step MORE precise than
+        // the clear. This is what makes `var xs = [..]` work: `var` hoisting
+        // splits the declaration (`let xs = undefined`) from the initializer,
+        // which then arrives here as an ASSIGNMENT, so the array-ness recorded at
+        // a `let xs = [..]` site was simply never recorded — and every minified
+        // file declares with `var`. Without it `xs.slice()` fell to the dynamic
+        // path, whose hand-written array table lacks most methods
+        // (`TypeError: slice is not a function` on a plain array).
+        if (matches!(val.kind, super::lower::JsKind::Array)
+            || matches!(&value.kind, HirExprKind::Array(_)))
+            && matches!(local.repr, Repr::Tagged)
+        {
+            self.local_shapes
+                .insert(name.clone(), super::lower::HeapShape::Array);
+        }
         Ok(Val::new(coerced, local.repr))
     }
 

@@ -344,6 +344,15 @@ pub enum HirExprKind {
         /// makes calls return a pending Promise — same model as a top-level
         /// `async function` declaration.
         is_async: bool,
+        /// True when this node came from a `function` EXPRESSION or a nested
+        /// `function` DECLARATION — not from `=>`. Both shapes lower to this one
+        /// variant, but their `this` differs and the difference is observable: a
+        /// `function` binds its OWN `this` from the call receiver, while an arrow
+        /// has no `this` and reads the enclosing scope's. Only the `function`
+        /// form may be given a synthesized `this` parameter when its body uses
+        /// `this` (see the extraction pass); doing that to a real arrow would
+        /// hand it the call receiver instead of the captured `this`.
+        is_fn_expr: bool,
     },
 
     // Pre/post increment/decrement

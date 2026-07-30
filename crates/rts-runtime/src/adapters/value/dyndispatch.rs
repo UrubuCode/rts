@@ -924,6 +924,11 @@ pub fn rtsadp_idx_call(recv: u64, key: u64, a0: u64, a1: u64, argc: u64) -> u64 
             ("shift", 0) => return arrayops::__rtsadp_arr_shift(h),
             ("join", 0) => return box_str(arrayops::__rtsadp_arr_join0(h)),
             ("join", 1) => {
+                // Spec: an UNDEFINED separator means the default `","` — NOT
+                // `ToString(undefined)`. `[1,2].join(undefined)` is "1,2".
+                if PolyValue::from_raw(a0).is_undefined() {
+                    return box_str(arrayops::__rtsadp_arr_join0(h));
+                }
                 let sep = abi_adapter::real_handle_of(PolyValue::from_raw(
                     genops::__rtsadp_to_string(a0),
                 ));

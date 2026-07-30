@@ -272,6 +272,24 @@ impl FnSig {
         }
     }
 
+    /// Whether the param at FULL index `i` may be OMITTED at a call site. Two
+    /// cases, both filled with `undefined` by `marshal_call_args`:
+    ///
+    /// * it is [`Self::fillable`] — declared optional (`x?`) or defaulted;
+    /// * its repr is `Tagged` — the slot already carries an arbitrary PolyValue,
+    ///   so `undefined` rides it with NO loss of a proven representation. This is
+    ///   plain JS arity semantics (`function f(a,b){}; f(1)` ⇒ `b === undefined`),
+    ///   which unannotated code — every minified/obfuscated `.js` bundle — relies
+    ///   on constantly.
+    ///
+    /// An omitted param in an UNBOXED numeric slot still bails: there is no
+    /// `undefined` in an `i64`/`f64` register, and silently substituting `0`/`NaN`
+    /// would be wrong for the annotated case that proved the repr.
+    pub fn omittable(&self, i: usize) -> bool {
+        self.fillable.get(i).copied().unwrap_or(false)
+            || matches!(self.params.get(i), Some(Repr::Tagged))
+    }
+
     /// Build the Cranelift `Signature` for this function: the host call conv, or
     /// `CallConv::Tail` for a tail-set fn (both endpoints of a `return f(args)`
     /// edge must share it for `return_call` — see [`super::tco`]). A normal

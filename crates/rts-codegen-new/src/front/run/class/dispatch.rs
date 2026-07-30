@@ -346,7 +346,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
             if i < arg_words.len() {
                 call_args.push(self.coerce(Val::new(arg_words[i], Repr::Tagged), want)?);
-            } else if sig.fillable.get(pi + i).copied().unwrap_or(false) {
+            } else if sig.omittable(pi + i) {
                 call_args.push(self.undefined_coerced(want)?);
             } else {
                 return unsupported!("call to `{fn_name}` missing required arg {i}");

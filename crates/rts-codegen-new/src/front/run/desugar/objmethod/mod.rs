@@ -421,10 +421,23 @@ impl Recovery<'_> {
                     self.rewrite_expr(ex, cur);
                 }
             }
-            // An arrow body is a SEPARATE unit (extracted later); its swc objects are
-            // not in this unit's collector, so do NOT walk into it here (would
-            // desync the positional pairing). Arrows keep no recovery — sound.
-            HirExprKind::Arrow { .. } => {}
+            // An INLINE arrow / function expression stays part of THIS unit until
+            // `funcval::extract_arrows` lifts it (which runs after this pass), and
+            // the swc collector — a plain `Visit` — descends into its body. So its
+            // object literals ARE in this unit's cursor and the HIR walk MUST
+            // descend too. Skipping it was wrong twice over:
+            //   * DESYNC — the cursor still advanced past those swc objects, so a
+            //     later literal paired with the WRONG swc node and inherited its
+            //     class (`o.b()` resolving against a `{hidden(){}}` literal);
+            //   * SILENT LOSS — a literal built inside the arrow kept no class, so
+            //     `factory().compute` read `undefined` instead of the method. That
+            //     is a wrong VALUE, not a bail, and it is the module/UMD pattern
+            //     (`f(function(){ return { m(){…} } })`) every bundler emits.
+            // The marker rides the object node, so it survives the later lift.
+            HirExprKind::Arrow { body, .. } => match body {
+                rts_hir::ir::HirArrowBody::Expr(inner) => self.rewrite_expr(inner, cur),
+                rts_hir::ir::HirArrowBody::Block(stmts) => self.rewrite_stmts(stmts, cur),
+            },
             HirExprKind::Lit(_) | HirExprKind::Ident(_) | HirExprKind::Raw(_) => {}
         }
     }

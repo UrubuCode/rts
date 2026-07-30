@@ -29,7 +29,7 @@ use crate::value;
 
 use crate::front::error::FrontResult;
 
-use super::lower::{Lowerer, TryCtx};
+use super::lower::{JsKind, Lowerer, TryCtx, Val};
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// Lower `throw e`: set the pending error, then unwind manually. Terminates the
@@ -44,6 +44,48 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.call_runtime(module, "__rtsadp_throw_set", &[word])?;
         self.unwind(module)?;
         Ok(())
+    }
+
+    /// Throw a real Error-family instance (`kind`/`message` are compile-time
+    /// constants) from EXPRESSION position and keep lowering: the throw routes
+    /// like any other (innermost `catch`, else sentinel-return), and the builder
+    /// resumes on a fresh UNREACHABLE block so the surrounding expression can
+    /// finish emitting into a live block. The returned `Val` is the `undefined`
+    /// word — never observed, since control cannot reach it.
+    ///
+    /// This is what lets a construct that is a COMPILE-time error in the numeric
+    /// subset but a RUNTIME error in JS (reading an unbound identifier) keep the
+    /// program compiling: a UMD/minified bundle names `exports`/`module`/`define`
+    /// in branches it never takes, and bailing the whole compile on a dead branch
+    /// rejects the file outright.
+    pub(super) fn emit_throw_error_expr(
+        &mut self,
+        module: &mut dyn Module,
+        kind: &str,
+        message: &str,
+    ) -> FrontResult<Val> {
+        let mut slots = Vec::with_capacity(4);
+        for s in [kind, message] {
+            let word = self.emit_str_const_word(module, s)?;
+            let handle = crate::value::emit_marshal::emit_table_load(module, self.builder, word);
+            let (ptr, len) =
+                crate::value::emit_marshal::emit_string_ptr_len(module, self.builder, handle);
+            slots.push(ptr);
+            slots.push(len);
+        }
+        self.call_runtime(module, "__rtsadp_throw_js_error", &slots)?;
+        self.unwind(module)?;
+        // Resume on a fresh block with NO predecessors: dead code, but a live
+        // insertion point, so the caller's remaining emission stays valid.
+        let dead = self.builder.create_block();
+        self.builder.switch_to_block(dead);
+        self.builder.seal_block(dead);
+        self.block_terminated = false;
+        let undef = self
+            .builder
+            .ins()
+            .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
+        Ok(Val::tagged_kind(undef, JsKind::Undefined))
     }
 
     /// Route an in-progress unwind: jump to the innermost active `catch`/`finally`

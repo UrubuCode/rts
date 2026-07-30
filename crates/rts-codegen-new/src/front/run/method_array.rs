@@ -243,6 +243,34 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return self.try_array_callback(module, object, method, args, &spec, cb);
         }
 
+        // A row arg typed `Handle` means "a PROVEN string" (a separator), and
+        // marshaling one whose kind is not statically `Str` BAILS — correctly, since
+        // a native string handle cannot be fabricated from an arbitrary word. But a
+        // bail is the wrong ANSWER here: `xs.join(sep)` with an `any`-typed `sep` is
+        // ordinary JS (`(s, sep) => s.split("").join(sep)` — a minified opcode
+        // table). Route the DYNAMIC dispatch instead, which ToStrings the separator
+        // at runtime and honours the spec default for `undefined`. Decided BEFORE
+        // any IR is emitted (the predicate is static) and only when the dynamic path
+        // can definitely take it, so nothing is ever lowered twice.
+        let needs_dyn_string = spec
+            .args
+            .iter()
+            .zip(args.iter())
+            .any(|(&want, a)| want == AbiType::Handle && !self.receiver_is_proven_string(a));
+        let dyn_can_take = argc <= 3
+            && !args
+                .iter()
+                .any(|a| matches!(a.kind, HirExprKind::Spread(_)));
+        if needs_dyn_string && dyn_can_take {
+            let recv = self.lower_expr(module, object)?;
+            if let Some(v) = self.try_generic_dyn_method_call(module, recv, method, args)? {
+                return Ok(v);
+            }
+            return Err(crate::front::error::Unsupported::new(format!(
+                "Array.{method}() with a separator that is not statically a string"
+            )));
+        }
+
         let mut call_args: Vec<Value> = Vec::with_capacity(argc + 1);
 
         // ---- receiver (slot 0): the array word → its real Vec handle ----
