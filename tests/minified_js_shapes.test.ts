@@ -175,19 +175,33 @@ const fnValue: any = function (a: any) {
 const isFunctionInstance = fnValue instanceof Function;
 const plainNotFunction = ({} as any) instanceof Function;
 // The borrowed-method idiom read as a VALUE (not at a `.call` site).
-// NOTE: a borrowed ARRAY method only works for the rows the runtime's dynamic
-// array table carries (join/push/pop/shift/indexOf/includes). `slice`/`concat`/
-// `map`/… are absent from it, so `Array.prototype.slice.call(xs, 1)` still
-// throws — the fix there is migrating Array to `#[rtse::class]` so the generic
-// `runtime_ci` dispatch covers the whole surface, not adding rows by hand.
 const borrowedJoin: any = Array.prototype.join;
 const borrowedType = typeof borrowedJoin;
 const borrowedResult = borrowedJoin.call([3, 4], ",");
+const borrowedSlice: any = Array.prototype.slice;
+const borrowedSliceResult = borrowedSlice.call([1, 2, 3, 4], 2).join(",");
 const borrowedToString: any = Function.prototype.toString;
 const borrowedToStringType = typeof borrowedToString;
 const borrowedHasOwn: any = Object.prototype.hasOwnProperty;
 const borrowedHasOwnResult = borrowedHasOwn.call({ k: 1 }, "k");
 const borrowedHasOwnMiss = borrowedHasOwn.call({}, "k");
+
+// --- 12. Array methods on an UNTRACKED receiver -----------------------------
+// The front-end cannot always prove a receiver is an array (an `any` param, an
+// element, a reassigned local). Those calls resolve the Registry row by RUNTIME
+// name; they used to reach a hand-written six-method table and throw for
+// everything else.
+function arrayThroughAny(xs: any) {
+  return [
+    xs.slice(1).join(","),
+    xs.concat([9]).join(","),
+    xs.at(-1),
+    xs.indexOf(2),
+    xs.includes(9),
+    xs.flat(1).join(","),
+  ].join("|");
+}
+const untrackedArray = arrayThroughAny([1, 2, 3]);
 
 describe("minified/obfuscated JS shapes", () => {
   test("omitted arg on a function DECLARATION is undefined", () =>
@@ -270,4 +284,9 @@ describe("minified/obfuscated JS shapes", () => {
     expect(borrowedHasOwnResult).toBe(true));
   test("borrowed Object.prototype.hasOwnProperty (miss)", () =>
     expect(borrowedHasOwnMiss).toBe(false));
+  test("borrowed Array.prototype.slice applies to its receiver", () =>
+    expect(borrowedSliceResult).toBe("3,4"));
+
+  test("Array methods resolve by name on an untracked receiver", () =>
+    expect(untrackedArray).toBe("2,3|1,2,3,9|3|1|false|1,2,3"));
 });

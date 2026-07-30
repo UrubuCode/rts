@@ -154,6 +154,11 @@ pub mod errslot;
 // runtime and delegate to the per-class op — for `recv.method(args)` whose
 // receiver class is NOT statically proven (a Tagged param/return/local).
 pub mod dyndispatch;
+// DATA-DRIVEN dispatch of primordial Array.prototype methods by RUNTIME name:
+// resolves the SAME `ARRAY_ROWS` MethodSpec the proven-receiver path uses and
+// calls the row's symbol out of the baked table, replacing the hand-written
+// six-method `match` `dyndispatch` used to carry.
+mod arrayrow;
 // Runtime dispatch of object-backed Registry class methods (Hash/Stats/...) on
 // an UNTRACKED receiver — reads `__rts_class` + the harvested runtime-CI table.
 pub mod dynci;

@@ -913,34 +913,21 @@ pub fn rtsadp_idx_call(recv: u64, key: u64, a0: u64, a1: u64, argc: u64) -> u64 
     if is_array_word(recv) {
         let h = arr_handle(recv);
         let n = argc as usize;
-        // Primordial Array rows by RUNTIME name — the same impls the static
-        // dispatch resolves; the hot obfuscator set.
-        match (name.as_str(), n) {
-            ("push", 1) => return PolyValue::from_i32(
-                arrayops::__rtsadp_arr_push(h, a0) as i32,
-            )
-            .raw(),
-            ("pop", 0) => return arrayops::__rtsadp_arr_pop(h),
-            ("shift", 0) => return arrayops::__rtsadp_arr_shift(h),
-            ("join", 0) => return box_str(arrayops::__rtsadp_arr_join0(h)),
-            ("join", 1) => {
-                // Spec: an UNDEFINED separator means the default `","` — NOT
-                // `ToString(undefined)`. `[1,2].join(undefined)` is "1,2".
-                if PolyValue::from_raw(a0).is_undefined() {
-                    return box_str(arrayops::__rtsadp_arr_join0(h));
-                }
-                let sep = abi_adapter::real_handle_of(PolyValue::from_raw(
-                    genops::__rtsadp_to_string(a0),
-                ));
-                return box_str(arrayops::__rtsadp_arr_join(h, sep));
-            }
-            ("indexOf", 1) => {
-                return PolyValue::from_i32(arrayops::__rtsadp_arr_index_of(h, a0) as i32).raw();
-            }
-            ("includes", 1) => {
-                return PolyValue::bool(arrayops::__rtsadp_arr_includes(h, a0) != 0).raw();
-            }
-            _ => {}
+        // Spec: `join(undefined)` uses the DEFAULT separator `","` — it does not
+        // `ToString(undefined)`. Handled before the row dispatch because it is an
+        // ARITY change (the 1-arg row becomes the 0-arg one), not a marshal.
+        if name == "join" && n == 1 && PolyValue::from_raw(a0).is_undefined() {
+            return box_str(arrayops::__rtsadp_arr_join0(h));
+        }
+        // Every primordial Array row, resolved by RUNTIME name from the SAME
+        // `ARRAY_ROWS` metadata the proven-receiver compile-time path uses. This
+        // replaced a hand-written six-method `match`: everything outside it
+        // (`slice`, `concat`, `reverse`, `fill`, `flat`, `at`, `toSorted`, …)
+        // threw `TypeError: <m> is not a function` on an ordinary array whose
+        // shape the front-end simply had not proven. Callback rows and any row
+        // outside the integer-register ABI decline and fall through below.
+        if let Some(out) = super::arrayrow::dispatch(h, &name, &[a0, a1][..n.min(2)]) {
+            return out;
         }
     }
     // Keyed object (or anything else): property read + method invoke.
