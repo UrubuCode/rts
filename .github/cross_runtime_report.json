@@ -1676,7 +1676,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: class `__classexpr_3` extends unknown class `Base3` (not a user class in this program nor an engine-prelude class)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `makeClass`: unsupported in the numeric subset: expression raw/unrecognized: Class(ClassExpr { ident: None, class: Class { span: 1560..1708, ctxt: #0, decora"
 }
 ,
 {
@@ -1709,16 +1709,16 @@
 ,
 {
   "name": "claude-field-init-order",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "order=a|b|c|ctor\na=1\nb=2\nc=3\nd=a=1,b=2,c=3\ne=13\nkeys=a,b,c,d,e\nsparse_keys=x,y,z\nsparse_y=undefined\nsparse_has_y=true\no1=1 o2=2\nshared=false\ncollide=field/proto",
   "node": "order=a|b|c|ctor\na=1\nb=2\nc=3\nd=a=1,b=2,c=3\ne=13\nkeys=a,b,c,d,e\nsparse_keys=x,y,z\nsparse_y=undefined\nsparse_has_y=true\no1=1 o2=2\nshared=false\ncollide=field/proto",
-  "rts": "",
+  "rts": "order=a|b|c|ctor\na=1\nb=2\nc=3\nd=a=1,b=2,c=3\ne=13\nkeys=a,b,c,d,e\nsparse_keys=x,y,z\nsparse_y=undefined\nsparse_has_y=true\no1=1 o2=2\nshared=false\ncollide=field/proto",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `Collide.hit()` — no such method on class `Collide` (a field-as-function / dynamic method is a later increment)"
+  "rts_error": ""
 }
 ,
 {
@@ -2395,16 +2395,16 @@
 ,
 {
   "name": "280_date_setutc_family",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "iso=2024-05-10T12:34:56.789Z\nparts=2024,4,10,12,34,56,789",
   "node": "iso=2024-05-10T12:34:56.789Z\nparts=2024,4,10,12,34,56,789",
-  "rts": "",
+  "rts": "iso=2024-05-10T12:34:56.789Z\nparts=2024,4,10,12,34,56,789",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `Date.setUTCFullYear(1 args)` — no such method on runtime class `Date`"
+  "rts_error": ""
 }
 ,
 {
@@ -2437,30 +2437,30 @@
 ,
 {
   "name": "43_date_setters_deep",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8",
   "node": "iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8",
-  "rts": "",
+  "rts": "iso=2024-06-15T08:00:00.000Z\nmonth=5\ndate=15\nhours=8",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `Date.setUTCMonth(1 args)` — no such method on runtime class `Date`"
+  "rts_error": ""
 }
 ,
 {
   "name": "claude-date-arithmetic",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "diff_ms=86400000\ndiff_minus_op=86400000\ndiff_days=1\nreverse=-86400000\nleap_gap_days=2\nnonleap_gap_days=1\nyear2020_days=366\nyear2021_days=365\nwalk=2024-01-30|2024-01-31|2024-02-01|2024-02-02\nyear_roll=2024-01-01T00:00:00.000Z\nadd45=2024-02-15T00:00:00.000Z\nsub10=2024-02-24T00:00:00.000Z\njan31_plus_month=2024-03-02T00:00:00.000Z\nplus_hour=2024-01-01T01:00:00.000Z\nsetTime_returns=0\nafter_setTime0=1970-01-01T00:00:00.000Z",
   "node": "diff_ms=86400000\ndiff_minus_op=86400000\ndiff_days=1\nreverse=-86400000\nleap_gap_days=2\nnonleap_gap_days=1\nyear2020_days=366\nyear2021_days=365\nwalk=2024-01-30|2024-01-31|2024-02-01|2024-02-02\nyear_roll=2024-01-01T00:00:00.000Z\nadd45=2024-02-15T00:00:00.000Z\nsub10=2024-02-24T00:00:00.000Z\njan31_plus_month=2024-03-02T00:00:00.000Z\nplus_hour=2024-01-01T01:00:00.000Z\nsetTime_returns=0\nafter_setTime0=1970-01-01T00:00:00.000Z",
-  "rts": "",
+  "rts": "diff_ms=86400000\ndiff_minus_op=86400000\ndiff_days=1\nreverse=-86400000\nleap_gap_days=2\nnonleap_gap_days=1\nyear2020_days=366\nyear2021_days=365\nwalk=2024-01-30|2024-01-31|2024-02-01|2024-02-02\nyear_roll=2024-01-01T00:00:00.000Z\nadd45=2024-02-15T00:00:00.000Z\nsub10=2024-02-24T00:00:00.000Z\njan31_plus_month=2024-03-02T00:00:00.000Z\nplus_hour=2024-01-01T01:00:00.000Z\nsetTime_returns=0\nafter_setTime0=1970-01-01T00:00:00.000Z",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `Date.setUTCMonth(1 args)` — no such method on runtime class `Date`"
+  "rts_error": ""
 }
 ,
 {
@@ -2535,16 +2535,16 @@
 ,
 {
   "name": "claude-date-tojson-vs-toisostring",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "valid_iso=2024-01-15T10:30:45.123Z\nvalid_json=2024-01-15T10:30:45.123Z\nvalid_same=true\nstringify=\"2024-01-15T10:30:45.123Z\"\nstringify_nested={\"at\":\"2024-01-15T10:30:45.123Z\"}\nstringify_array=[\"2024-01-15T10:30:45.123Z\",\"2024-01-15T10:30:45.123Z\"]\ninvalid_json=null\ninvalid_json_is_null=true\ninvalid_stringify=null\ninvalid_nested={\"at\":null}\ninvalid_in_array=[null]\niso_threw=true\niso_err_is_range=true\niso_err_name=RangeError\nbad_json_null=true\nbad_iso_threw=true\nbad_iso_name=RangeError\noor_nan=true\noor_json_null=true\nmax_iso=+275760-09-13T00:00:00.000Z\nmax_json=+275760-09-13T00:00:00.000Z\nmin_iso=-271821-04-20T00:00:00.000Z\nneg_year_iso=-000001-01-01T00:00:00.000Z\nbig_year_iso=+012345-01-01T00:00:00.000Z",
   "node": "valid_iso=2024-01-15T10:30:45.123Z\nvalid_json=2024-01-15T10:30:45.123Z\nvalid_same=true\nstringify=\"2024-01-15T10:30:45.123Z\"\nstringify_nested={\"at\":\"2024-01-15T10:30:45.123Z\"}\nstringify_array=[\"2024-01-15T10:30:45.123Z\",\"2024-01-15T10:30:45.123Z\"]\ninvalid_json=null\ninvalid_json_is_null=true\ninvalid_stringify=null\ninvalid_nested={\"at\":null}\ninvalid_in_array=[null]\niso_threw=true\niso_err_is_range=true\niso_err_name=RangeError\nbad_json_null=true\nbad_iso_threw=true\nbad_iso_name=RangeError\noor_nan=true\noor_json_null=true\nmax_iso=+275760-09-13T00:00:00.000Z\nmax_json=+275760-09-13T00:00:00.000Z\nmin_iso=-271821-04-20T00:00:00.000Z\nneg_year_iso=-000001-01-01T00:00:00.000Z\nbig_year_iso=+012345-01-01T00:00:00.000Z",
-  "rts": "valid_iso=2024-01-15T10:30:45.123Z\nvalid_json=2024-01-15T10:30:45.123Z\nvalid_same=true",
+  "rts": "valid_iso=2024-01-15T10:30:45.123Z\nvalid_json=2024-01-15T10:30:45.123Z\nvalid_same=true\nstringify=\"2024-01-15T10:30:45.123Z\"\nstringify_nested={\"at\":\"2024-01-15T10:30:45.123Z\"}\nstringify_array=[\"2024-01-15T10:30:45.123Z\",\"2024-01-15T10:30:45.123Z\"]\ninvalid_json=null\ninvalid_json_is_null=true\ninvalid_stringify=null\ninvalid_nested={\"at\":null}\ninvalid_in_array=[null]\niso_threw=true\niso_err_is_range=true\niso_err_name=RangeError\nbad_json_null=true\nbad_iso_threw=true\nbad_iso_name=RangeError\noor_nan=true\noor_json_null=true\nmax_iso=+275760-09-13T00:00:00.000Z\nmax_json=+275760-09-13T00:00:00.000Z\nmin_iso=-271821-04-20T00:00:00.000Z\nneg_year_iso=-000001-01-01T00:00:00.000Z\nbig_year_iso=+012345-01-01T00:00:00.000Z",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught TypeError: toJSON is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -2577,16 +2577,16 @@
 ,
 {
   "name": "codex_date_utc_setter_overflow",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "2021-03-03T23:00:00.000Z\n2021-02-28T23:00:00.000Z\n2021-03-02T02:02:01.000Z",
   "node": "2021-03-03T23:00:00.000Z\n2021-02-28T23:00:00.000Z\n2021-03-02T02:02:01.000Z",
-  "rts": "",
+  "rts": "2021-03-03T23:00:00.000Z\n2021-02-28T23:00:00.000Z\n2021-03-02T02:02:01.000Z",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `Date.setUTCMonth(1 args)` — no such method on runtime class `Date`"
+  "rts_error": ""
 }
 ,
 {
@@ -3823,16 +3823,16 @@
 ,
 {
   "name": "292_json_tojson",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"",
   "node": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"",
-  "rts": "cls={\"x\":7}",
+  "rts": "cls={\"x\":7}\ndate=\"2024-05-10T12:34:56.789Z\"",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught TypeError: toJSON is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -3991,16 +3991,16 @@
 ,
 {
   "name": "claude-tojson-in-structure",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "date_top=\"2024-01-02T03:04:05.678Z\"\ndate_in_obj={\"when\":\"2024-01-02T03:04:05.678Z\"}\ndate_in_arr=[\"2024-01-02T03:04:05.678Z\"]\ndate_deep={\"a\":{\"b\":[{\"c\":\"2024-01-02T03:04:05.678Z\"}]}}\ndate_two={\"x\":\"2024-01-02T03:04:05.678Z\",\"y\":\"2024-01-02T03:04:05.678Z\"}\nkey_top=\"key:\"\nkey_in_obj={\"myField\":\"key:myField\"}\nkey_in_arr=[\"key:0\",\"key:1\"]\nkey_nested={\"outer\":{\"inner\":\"key:inner\"}}\ndate_iso={\"d\":\"2020-06-15T00:00:00.000Z\"}\nrecursive={\"inner\":\"2024-01-02T03:04:05.678Z\",\"list\":[1,2]}\nchained={\"f\":{}}\nclass_top=\"10 BRL\"\nclass_in_obj={\"price\":\"20 BRL\"}\nclass_in_arr=[\"1 BRL\",\"2 BRL\"]\nret_num={\"v\":42}\nret_null={\"v\":null}\nret_bool={\"v\":true}\nret_arr={\"v\":[1]}\nnot_fn={\"toJSON\":5,\"other\":1}\ninherited={\"b\":\"from_proto\"}\nwith_space=\"{\\n \\\"d\\\": \\\"2024-01-02T03:04:05.678Z\\\"\\n}\"",
   "node": "date_top=\"2024-01-02T03:04:05.678Z\"\ndate_in_obj={\"when\":\"2024-01-02T03:04:05.678Z\"}\ndate_in_arr=[\"2024-01-02T03:04:05.678Z\"]\ndate_deep={\"a\":{\"b\":[{\"c\":\"2024-01-02T03:04:05.678Z\"}]}}\ndate_two={\"x\":\"2024-01-02T03:04:05.678Z\",\"y\":\"2024-01-02T03:04:05.678Z\"}\nkey_top=\"key:\"\nkey_in_obj={\"myField\":\"key:myField\"}\nkey_in_arr=[\"key:0\",\"key:1\"]\nkey_nested={\"outer\":{\"inner\":\"key:inner\"}}\ndate_iso={\"d\":\"2020-06-15T00:00:00.000Z\"}\nrecursive={\"inner\":\"2024-01-02T03:04:05.678Z\",\"list\":[1,2]}\nchained={\"f\":{}}\nclass_top=\"10 BRL\"\nclass_in_obj={\"price\":\"20 BRL\"}\nclass_in_arr=[\"1 BRL\",\"2 BRL\"]\nret_num={\"v\":42}\nret_null={\"v\":null}\nret_bool={\"v\":true}\nret_arr={\"v\":[1]}\nnot_fn={\"toJSON\":5,\"other\":1}\ninherited={\"b\":\"from_proto\"}\nwith_space=\"{\\n \\\"d\\\": \\\"2024-01-02T03:04:05.678Z\\\"\\n}\"",
-  "rts": "",
+  "rts": "date_top=\"2024-01-02T03:04:05.678Z\"\ndate_in_obj={\"when\":\"2024-01-02T03:04:05.678Z\"}\ndate_in_arr=[\"2024-01-02T03:04:05.678Z\"]\ndate_deep={\"a\":{\"b\":[{\"c\":\"2024-01-02T03:04:05.678Z\"}]}}\ndate_two={\"x\":\"2024-01-02T03:04:05.678Z\",\"y\":\"2024-01-02T03:04:05.678Z\"}\nkey_top=\"key:\"\nkey_in_obj={\"myField\":\"key:myField\"}\nkey_in_arr=[\"key:0\",\"key:1\"]\nkey_nested={\"outer\":{\"inner\":\"key:inner\"}}\ndate_iso={\"d\":\"2020-06-15T00:00:00.000Z\"}\nrecursive={\"inner\":\"2024-01-02T03:04:05.678Z\",\"list\":[1,2]}\nchained={\"f\":{}}\nclass_top=\"10 BRL\"\nclass_in_obj={\"price\":\"20 BRL\"}\nclass_in_arr=[\"1 BRL\",\"2 BRL\"]\nret_num={\"v\":42}\nret_null={\"v\":null}\nret_bool={\"v\":true}\nret_arr={\"v\":[1]}\nnot_fn={\"toJSON\":5,\"other\":1}\ninherited={\"b\":\"from_proto\"}\nwith_space=\"{\\n \\\"d\\\": \\\"2024-01-02T03:04:05.678Z\\\"\\n}\"",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught TypeError: toJSON is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -4467,16 +4467,16 @@
 ,
 {
   "name": "394_structuredclone_complex",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
   "node": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
-  "rts": "",
+  "rts": "3\n99\nfalse\ntrue\n2026\n2099\ntrue\nhello\ngi\ntrue\nfalse\ntrue\ntrue\nfalse\ntrue\ntest\n1\ntrue\nfalse",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `Date.setUTCFullYear(1 args)` — no such method on runtime class `Date`"
+  "rts_error": ""
 }
 ,
 {
@@ -6161,16 +6161,16 @@
 ,
 {
   "name": "claude-json-tojson-hook",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
   "node": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n7\n{\"a\":\"ARR\"}",
-  "rts": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]",
+  "rts": "{\"wrapped\":42,\"tag\":\"custom\"}\n{\"nested\":{\"wrapped\":42,\"tag\":\"custom\"},\"plain\":1}\n[{\"wrapped\":42,\"tag\":\"custom\"},{\"wrapped\":42,\"tag\":\"custom\"}]\n{\"when\":\"1970-01-01T00:00:00.000Z\"}\n{}\n7",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught TypeError: toJSON is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -9505,4 +9505,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":679,"pass":460,"rts_diverge":105,"bun_node_diverge":18,"errors":96,"rejected":0}}
+],"summary":{"total":679,"pass":468,"rts_diverge":107,"bun_node_diverge":18,"errors":86,"rejected":0}}
