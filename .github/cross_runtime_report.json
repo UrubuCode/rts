@@ -1740,7 +1740,7 @@
   "status": "rts_diverge",
   "bun": "a_A=true\na_B=false\na_C=false\nb_A=true\nb_B=true\nb_C=false\nc_A=true\nc_B=true\nc_C=true\no_A=false\no_Other=true\nc_Object=true\nc_Function=false\nctor_Function=true\nnum_A=false\nstr_Object=false\nnull_Object=false\nc_ctor_name=C\nb_ctor_name=B\nc_ctor_is_C=true\nproto_B_of_C=true\nisProto_A_c=true\nisProto_C_b=false\nstatic_inherit=true\nsweep=A,B,C,?\ncount_A=3\ne_SubErr=true\ne_MyErr=true\ne_Error=true\ne_msg=boom",
   "node": "a_A=true\na_B=false\na_C=false\nb_A=true\nb_B=true\nb_C=false\nc_A=true\nc_B=true\nc_C=true\no_A=false\no_Other=true\nc_Object=true\nc_Function=false\nctor_Function=true\nnum_A=false\nstr_Object=false\nnull_Object=false\nc_ctor_name=C\nb_ctor_name=B\nc_ctor_is_C=true\nproto_B_of_C=true\nisProto_A_c=true\nisProto_C_b=false\nstatic_inherit=true\nsweep=A,B,C,?\ncount_A=3\ne_SubErr=true\ne_MyErr=true\ne_Error=true\ne_msg=boom",
-  "rts": "a_A=true\na_B=false\na_C=false\nb_A=true\nb_B=true\nb_C=false\nc_A=true\nc_B=true\nc_C=true\no_A=false\no_Other=true\nc_Object=true\nc_Function=false\nctor_Function=false\nnum_A=false\nstr_Object=false\nnull_Object=false\nc_ctor_name=C\nb_ctor_name=B\nc_ctor_is_C=false\nproto_B_of_C=true\nisProto_A_c=true\nisProto_C_b=false\nstatic_inherit=false\nsweep=A,B,C,?\ncount_A=3\ne_SubErr=true\ne_MyErr=true\ne_Error=true\ne_msg=boom",
+  "rts": "a_A=true\na_B=false\na_C=false\nb_A=true\nb_B=true\nb_C=false\nc_A=true\nc_B=true\nc_C=true\no_A=false\no_Other=true\nc_Object=true\nc_Function=false\nctor_Function=true\nnum_A=false\nstr_Object=false\nnull_Object=false\nc_ctor_name=C\nb_ctor_name=B\nc_ctor_is_C=false\nproto_B_of_C=true\nisProto_A_c=true\nisProto_C_b=false\nstatic_inherit=false\nsweep=A,B,C,?\ncount_A=3\ne_SubErr=true\ne_MyErr=true\ne_Error=true\ne_msg=boom",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -3602,7 +3602,7 @@
   "status": "rts_diverge",
   "bun": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
   "node": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
-  "rts": "",
+  "rts": "undefined",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -4327,9 +4327,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout",
   "bun_exit": 0,
   "node_exit": 0,
@@ -5853,16 +5853,16 @@
 ,
 {
   "name": "359_obf_getter_smuggle",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "0\nabcde\nfunction\nfunction\n42\n1\nundefined\n2\nfunction _fn() { [obfuscated] }\n42",
   "node": "0\nabcde\nfunction\nfunction\n42\n1\nundefined\n2\nfunction _fn() { [obfuscated] }\n42",
-  "rts": "5\nabcde\nundefined\nundefined\n42\n1\nundefined\n2",
+  "rts": "5\nabcde\nundefined\nundefined\n42\n1\nundefined\n2\nfunction _fn() { [native code] }\n42",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught ReferenceError: Function is not defined"
+  "rts_error": ""
 }
 ,
 {
@@ -9505,4 +9505,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":679,"pass":470,"rts_diverge":108,"bun_node_diverge":18,"errors":83,"rejected":0}}
+],"summary":{"total":679,"pass":469,"rts_diverge":109,"bun_node_diverge":19,"errors":82,"rejected":0}}
