@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
-# Run every tests/*.test.ts through the NEW engine (run-new), bucket pass/fail.
+# Run every tests/*.test.ts through the NEW engine (run), bucket pass/fail.
 # A file "runs" if exit 0 (compiled + executed without an Unsupported bail).
 RTS=target/release/rts.exe
 pass=0; fail=0
@@ -9,7 +9,7 @@ pass=0; fail=0
 for f in tests/*.test.ts; do
   # Per-file 20s cap: a single hanging fixture (async/thread stub without a real
   # event loop, #207) must not block the whole measure. Timeout → exit 124 → bailed.
-  out=$(timeout 20 "$RTS" run-new "$f" 2>&1)
+  out=$(timeout 20 "$RTS" run "$f" 2>&1)
   code=$?
   if [ $code -eq 0 ]; then
     pass=$((pass+1)); echo "$f" >> /tmp/new_pass.txt

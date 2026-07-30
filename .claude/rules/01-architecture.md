@@ -105,7 +105,7 @@ crates/
                       MANDATORY egui/web-plan rule in CLAUDE.md / 00-meta.md
   rts-linker/       — native link (system linker with object-backend fallback);
                       per-target runtime archives (cross-compile prep)
-  rts-cli/          — CLI (run, run-new, compile, apis, init, repl, eval, ir)
+  rts-cli/          — CLI (run, compile, apis, init, repl, eval, ir)
 
 src/                — bin facade (re-exports), runtime_objects.rs, main.rs
 ```

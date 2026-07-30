@@ -76,7 +76,7 @@ jobs:
           miss=$(ldd target/release/rts 2>&1 | grep -i "not found" || true)
           if [ -n "$miss" ]; then echo "::error::rts Linux com libs faltando:"; echo "$miss"; exit 1; fi
           echo 'console.log(1+2)' > /tmp/smoke.ts
-          out=$(target/release/rts run-new /tmp/smoke.ts)
+          out=$(target/release/rts run /tmp/smoke.ts)
           [ "$out" = "3" ] || { echo "::error::rts nao inicia corretamente (out='$out')"; exit 1; }
           echo "rts ok: $out"
 

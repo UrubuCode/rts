@@ -1320,7 +1320,7 @@ improvement, not a copy.
     Public entry `front::run::run_path(&Path)` (+ `render_path` for capture in
     tests): `load_program` → `apply_bindings` → `build_from_program` (USER
     side, NOT prelude) → `merge_programs(includes_prelude, user)` →
-    `compile_program` → JIT → run. **CLI wiring:** `rts run-new <file>` calls
+    `compile_program` → JIT → run. **CLI wiring:** `rts run <file>` calls
     `run_path` (resolves relative imports from the entry's directory); the
     eval/`-e` path stays in `run_source` (string, no disk imports).
     - **`Binding::Local` (user module) — wired.** An `import { a as b }` is

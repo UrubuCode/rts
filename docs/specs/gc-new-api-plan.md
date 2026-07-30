@@ -183,7 +183,7 @@ prerequisites of a clean moving collector.
   called follows the new engine's ABI, with no non-primordial class hardcode in
   the front.
 - **Layout**: no engine file > 500 lines (break up `handles.rs`).
-- **Metric honesty**: use a CORRECTNESS measure (parse `✗` from `run-new`),
+- **Metric honesty**: use a CORRECTNESS measure (parse `✗` from `run`),
   not just run-exit-0. Never delete a fixture to inflate; fixture removal only
   when it tested an API removed by design.
 - **GC**: nothing that crashes/hangs committed as "pass". The scanner

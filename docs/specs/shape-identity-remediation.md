@@ -34,7 +34,7 @@ of the object / class / array representation. It records:
 3. the **designs that were refuted**, so they are not re-proposed.
 
 Everything below that claims a behaviour was *measured* was run on the release
-binary (`target/release/rts.exe run-new`) against `bun 1.3.14`. Nothing here is
+binary (`target/release/rts.exe run`) against `bun 1.3.14`. Nothing here is
 inferred from reading code alone unless explicitly labelled UNVERIFIED.
 
 ---

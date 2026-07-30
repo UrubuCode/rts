@@ -270,16 +270,16 @@ pub fn rtsadp_arr_is_array(a: u64) -> u64 {
 
 /// `import.meta` — a fresh `{ url }` object whose `url` is the entry module's
 /// `file:` URL, resolved from the PROCESS invocation (`rts run <file>` /
-/// `run-new` / an AOT binary's argv[0]). One canonical object shape; the
+/// an AOT binary's argv[0]). One canonical object shape; the
 /// value is real (the absolutized entry path), never a mock.
 #[rtse::abi]
 pub fn rtsadp_import_meta() -> u64 {
     let args: Vec<String> = std::env::args().collect();
-    // `rts run <file>` / `rts run-new <file>` → the file arg; an AOT binary →
+    // `rts run <file>` → the file arg; an AOT binary →
     // its own argv[0].
     let entry = args
         .iter()
-        .position(|a| a == "run" || a == "run-new" || a == "test" || a == "compile")
+        .position(|a| a == "run" || a == "test" || a == "compile")
         .and_then(|i| args.get(i + 1))
         .or_else(|| args.first())
         .cloned()

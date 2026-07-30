@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
-# Real correctness: run each fixture via run-new, count ✗ failing tests.
+# Real correctness: run each fixture via run, count ✗ failing tests.
 # rts:test writes ✓/✗ to stderr, so capture 2>&1.
 RTS=target/release/rts.exe
 files=0; clean=0; withfail=0; bail=0
 : > /tmp/correct_fail.txt
 for f in tests/*.test.ts; do
   files=$((files+1))
-  out=$(timeout 20 "$RTS" run-new "$f" 2>&1)
+  out=$(timeout 20 "$RTS" run "$f" 2>&1)
   code=$?
   if [ $code -ne 0 ]; then
     bail=$((bail+1)); echo "$f	BAIL" >> /tmp/correct_fail.txt; continue

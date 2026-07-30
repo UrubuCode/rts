@@ -254,8 +254,9 @@ strangler-fig migration is over: the new engine is the only engine.**
 no longer exist (not in the workspace, not on disk). `rts run` / `rts compile` /
 `rts test` / `rts eval` all execute through the **new engine**
 (`crates/rts-codegen-new/`, value model in `crates/rts-runtime/src/adapters/`). The
-`run-new` command and `scripts/measure_new.sh` still exist as the campaign harness from
-the migration; `run`/`run-new` are now the same engine. The old overloaded-`i64`
+`run-new` command was DELETED (2026-07-30) — it was a byte-for-byte subset of
+`run` once the cutover made them the same engine; `scripts/measure_new.sh` and the
+cross-runtime harness now call `rts run`. The old overloaded-`i64`
 value model, the 4.6k-LOC switchboard, and the 1113 manual `add_fn!` are gone.
 
 **The truth about the 100%.** On 2026-06-06/07 RTS reached **100% cross-runtime
@@ -674,7 +675,7 @@ crates/
                       MANDATORY egui/web-plan rule at the top of this file
   rts-linker/       — native link (system linker + object backend fallback);
                       per-target runtime archives (cross-compile prep, #1724)
-  rts-cli/          — CLI (run, run-new, compile, apis, init, repl, eval, ir)
+  rts-cli/          — CLI (run, compile, apis, init, repl, eval, ir)
 
 src/                — bin facade (re-exports), runtime_objects.rs, main.rs
 ```
