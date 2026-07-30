@@ -1243,11 +1243,13 @@ impl Ctx {
             body,
             self_name,
             is_async,
+            is_fn_expr,
         } = &e.kind
         else {
             return None;
         };
         let is_async = *is_async;
+        let is_fn_expr = *is_fn_expr;
         // The synthesized name is minted UP FRONT so a NAMED fn-expression's
         // self-references can be renamed to it before the free-ident analysis
         // (the self-name is body-only scope; renamed, it resolves as this very
@@ -1269,7 +1271,7 @@ impl Ctx {
         {
             return None;
         }
-        let param_names: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
+        let mut param_names: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
 
         // Build the function body and gather its free identifiers + the names it
         // ASSIGNS to (mutable-capture detection).
@@ -1285,6 +1287,29 @@ impl Ctx {
         // prop-call, the `__get_` accessor dispatch) binds `this` correctly.
         if param_names.contains("this") {
             super::class::rewrite_this_block(&mut body_stmts);
+        }
+        // A plain-JS FUNCTION EXPRESSION / nested `function` declaration whose body
+        // uses `this` with NO declared `this` param — the ES5 constructor and
+        // prototype-method idiom (`function Ctor(){ this.x = 1 }`,
+        // `F.prototype.m = function(){ return this.x }`) that every transpiled or
+        // minified bundle is built from. Give it the same synthesized leading
+        // `this` param a top-level free function gets (`transform_free_this`,
+        // which cannot reach here: this node is still an inline `Arrow` when that
+        // pass runs, and only becomes a `HirFunc` below).
+        //
+        // Gated on `is_fn_expr`: a real `=>` arrow has NO own `this` — it reads
+        // the enclosing scope's — so binding the call receiver into it would be a
+        // WRONG value. Arrows keep the honest bail.
+        let mut params = params.clone();
+        let this_synthesized = is_fn_expr
+            && !param_names.contains("this")
+            && super::class::body_uses_raw_this(&body_stmts);
+        if this_synthesized {
+            super::class::rewrite_this_block(&mut body_stmts);
+            params.insert(0, super::class::this_param());
+            // `this` is now BOUND by the synthesized param — it must not surface as
+            // a free ident, which the capture loop would reject outright.
+            param_names.insert(super::class::THIS.to_string());
         }
         // Bind a NAMED fn-expression's self-name: internal references become
         // references to the synthesized top-level name (registered below), so
@@ -1445,6 +1470,14 @@ impl Ctx {
             rename_ident_stmts(&mut body_stmts, "this", this_rename);
         }
 
+        // A synthesized `this` must be params[0] for `FnSig::has_this` to see it and
+        // for the method-aware invoker to bind the receiver into the thunk's a0 —
+        // but CAPTURES are prepended ahead of it. Rather than emit a function whose
+        // receiver lands in a capture slot (a wrong value), bail honestly: a
+        // capturing `function(){ … this … }` stays a later increment.
+        if this_synthesized && !captures.is_empty() {
+            return None;
+        }
         // Prepend each captured var as a leading Tagged param (the thunk fills these
         // from the env array; the arrow's own params follow, filled from a0..a3).
         let mut all_params: Vec<HirParam> = captures

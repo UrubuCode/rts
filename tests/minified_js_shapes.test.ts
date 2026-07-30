@@ -104,6 +104,43 @@ let lateArr: any;
 lateArr = [3, 1, 2];
 const lateSorted = lateArr.slice().sort().join(",");
 
+// --- 7. `arguments` sees the args actually passed -------------------------
+// `Array.prototype.slice.call(arguments, 1)` — the ES5 forwarding idiom every
+// transpiler emits — reads exactly the args PAST the declared ones.
+function forwardTail(first: any) {
+  return Array.prototype.slice.call(arguments, 1).join(",");
+}
+const argTail = forwardTail(1, 2, 3);
+function argCount(a: any, b: any) {
+  return arguments.length;
+}
+const argOver = argCount(1, 2, 3, 4);
+const argExact = argCount(1, 2);
+// `length` ignores the synthesized rest (and a real one — the spec rule).
+function declaredTwo(a: any, b: any) {
+  return arguments.length;
+}
+function realRest(a: any, ...r: any[]) {
+  return r.length;
+}
+const lenDeclared = (declaredTwo as any).length;
+const lenRest = (realRest as any).length;
+
+// --- 8. `this` in a plain function expression -------------------------------
+// The ES5 constructor / prototype-method shape a bundle is built from.
+const litRecv: any = { o: 5, n: function () { return this.o; } };
+const litThis = litRecv.n();
+const bump: any = { c: 0, inc: function () { this.c++; return this.c; } };
+const bumpTwice = bump.inc() + bump.inc();
+function Base(this: any) {
+  this.type = "base";
+}
+(Base as any).prototype.greet = function () {
+  return "hi " + this.type;
+};
+const baseInst: any = new (Base as any)();
+const protoThis = baseInst.type + "/" + baseInst.greet();
+
 describe("minified/obfuscated JS shapes", () => {
   test("omitted arg on a function DECLARATION is undefined", () =>
     expect(arityDecl).toBe("no-b"));
@@ -139,4 +176,20 @@ describe("minified/obfuscated JS shapes", () => {
     expect(varSliceSorted).toBe("alpha,charlie,delta"));
   test("declare-then-assign array keeps its array methods", () =>
     expect(lateSorted).toBe("1,2,3"));
+
+  test("`arguments` carries the args past the declared params", () =>
+    expect(argTail).toBe("2,3"));
+  test("`arguments.length` counts an over-applied call", () =>
+    expect(argOver).toBe(4));
+  test("`arguments.length` on an exact call", () => expect(argExact).toBe(2));
+  test("`length` reports the declared param count", () =>
+    expect(lenDeclared).toBe(2));
+  test("`length` ignores a rest param (spec)", () => expect(lenRest).toBe(1));
+
+  test("`this` in an object-literal fn-expr method", () =>
+    expect(litThis).toBe(5));
+  test("`this` mutated through a fn-expr method", () =>
+    expect(bumpTwice).toBe(3));
+  test("ES5 constructor + prototype method bind `this`", () =>
+    expect(protoThis).toBe("base/hi base"));
 });

@@ -274,6 +274,7 @@ fn lower_decl(decl: &swc::Decl, scope: &mut Scope, raw_text: &str) -> HirStmt {
                     // declaration name — same binding rule as a named fn-expr.
                     self_name: Some(fd.ident.sym.to_string()),
                     is_async: fd.function.is_async,
+                    is_fn_expr: true,
                 },
                 HirType::Function {
                     params: vec![],
@@ -616,6 +617,7 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
                     body,
                     self_name: None,
                     is_async: arrow.is_async,
+                    is_fn_expr: false,
                 },
                 HirType::Function { params: vec![], ret: Box::new(ret) },
             )
@@ -666,6 +668,7 @@ pub fn lower_swc_expr(e: &swc::Expr, scope: &Scope) -> HirExpr {
                     body,
                     self_name: fn_expr.ident.as_ref().map(|i| i.sym.to_string()),
                     is_async: func.is_async,
+                    is_fn_expr: true,
                 },
                 HirType::Function { params: vec![], ret: Box::new(ret) },
             )
