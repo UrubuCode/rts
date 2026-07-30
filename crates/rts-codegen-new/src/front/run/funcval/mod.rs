@@ -1164,11 +1164,16 @@ impl Ctx {
             body,
             self_name,
             is_async,
+            is_real_arrow,
         } = &e.kind
         else {
             return None;
         };
         let is_async = *is_async;
+        // Propagado até o `HirFunc`: só uma ARROW de verdade não tem `arguments`
+        // próprio. Uma function-expression tem, e o `argsobj` o materializa —
+        // sem isto ela seria pulada e o `arguments` ficaria unbound.
+        let is_real_arrow = *is_real_arrow;
         // The synthesized name is minted UP FRONT so a NAMED fn-expression's
         // self-references can be renamed to it before the free-ident analysis
         // (the self-name is body-only scope; renamed, it resolves as this very
@@ -1239,6 +1244,13 @@ impl Ctx {
         for id in &free {
             if param_names.contains(id)
                 || id == &name
+                // `arguments` é binding PRÓPRIO de uma função não-arrow, não uma
+                // captura do escopo externo. Sem isto ele surgia como ident livre
+                // desconhecido e a extração abortava ("expression arrow"), o que
+                // obrigava a reescrevê-lo por fora, no `.ts`. O `argsobj` (que já
+                // materializa `arguments` como rest param / prólogo) roda DEPOIS
+                // do lifting e resolve — ver `expand_arguments_object`.
+                || (!is_async && id == "arguments")
                 || GLOBALS.contains(&id.as_str())
                 // A top-level CLOSURE (a synthesized fn WITH captures) is NOT
                 // skippable: its direct name cannot be called from a scope that
@@ -1375,7 +1387,7 @@ impl Ctx {
             ret: ret.clone(),
             body: body_stmts,
             is_async,
-            is_arrow: true,
+            is_arrow: is_real_arrow,
         });
         Some(name)
     }

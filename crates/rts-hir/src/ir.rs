@@ -338,6 +338,13 @@ pub enum HirExprKind {
         /// references to the synthesized top-level name, making self-recursive
         /// named fn-exprs liftable. `None` for arrows / anonymous fn-exprs.
         self_name: Option<String>,
+        /// `true` só para uma ARROW de verdade (`() => …`); `false` para uma
+        /// function-expression (`function(){…}`) e para uma `function` aninhada.
+        /// A distinção importa porque uma arrow NÃO tem `arguments` próprio (lê o
+        /// da função envolvente), enquanto uma fn-expr tem — e é o que permite ao
+        /// `argsobj` materializá-lo em vez de o pré-passo do DOM reescrever o
+        /// texto por fora.
+        is_real_arrow: bool,
         /// `async () => …` / `async function … {}` (expression or nested decl):
         /// the extraction pass lifts it to a top-level `HirFunc` with
         /// `is_async = true`, and the CALL-SITE spawn (`lower_async_spawn`)

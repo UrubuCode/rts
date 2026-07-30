@@ -901,6 +901,14 @@ fn build_from_program(
     );
     funcs.extend(extracted.funcs);
 
+    // `arguments` de NOVO, agora sobre as funções que o lifting acabou de
+    // sintetizar: uma função-EXPRESSÃO (`f = function(){ … arguments … }`) só
+    // existe como `HirFunc` depois de `extract_arrows`, então a passada da
+    // linha ~622 (que vê apenas `Item::Function` de topo) não a alcança. É o
+    // mesmo pass, idempotente — uma fn já materializada tem um param
+    // `arguments` e é pulada.
+    argsobj::expand_arguments_object(&mut funcs);
+
     // Module-level mutable globals (#195): function-written top lets + the
     // captured-and-mutated top lets force-promoted above.
     let gcells = funcval::module_globals(&funcs, &main, &forced_globals);
