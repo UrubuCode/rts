@@ -976,7 +976,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: unbound identifier `Symbol`"
+  "rts_error": "error: Uncaught ReferenceError: Symbol is not defined"
 }
 ,
 {
@@ -2096,7 +2096,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: expression arrow"
+  "rts_error": "error: Uncaught ReferenceError: arguments is not defined"
 }
 ,
 {
@@ -2524,13 +2524,13 @@
   "status": "rts_error",
   "bun": "has_toPrimitive=true\nis_own_of_proto=true\nlength=1\nname=[Symbol.toPrimitive]\nnumber_hint=1705314645123\nnumber_hint_is_time=true\nnumber_hint_type=number\ndefault_hint_type=string\nstring_hint_type=string\ndefault_eq_string=true\ndefault_eq_toString=true\nbad_hint_threw=true\nbad_hint_name=TypeError\nundef_hint_threw=true\nundef_hint_name=TypeError\nplus_is_number=true\nNumber_is_number=true\nconcat_is_string=true\nconcat_eq_toString=true\ntemplate_eq_toString=true\nString_eq_toString=true\nminus_numeric=true\ninvalid_number_hint_nan=true\ninvalid_string_hint=Invalid Date",
   "node": "has_toPrimitive=true\nis_own_of_proto=true\nlength=1\nname=[Symbol.toPrimitive]\nnumber_hint=1705314645123\nnumber_hint_is_time=true\nnumber_hint_type=number\ndefault_hint_type=string\nstring_hint_type=string\ndefault_eq_string=true\ndefault_eq_toString=true\nbad_hint_threw=true\nbad_hint_name=TypeError\nundef_hint_threw=true\nundef_hint_name=TypeError\nplus_is_number=true\nNumber_is_number=true\nconcat_is_string=true\nconcat_eq_toString=true\ntemplate_eq_toString=true\nString_eq_toString=true\nminus_numeric=true\ninvalid_number_hint_nan=true\ninvalid_string_hint=Invalid Date",
-  "rts": "",
+  "rts": "has_toPrimitive=false",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: unbound identifier `Date`"
+  "rts_error": "error: Uncaught ReferenceError: Date is not defined"
 }
 ,
 {
@@ -2628,7 +2628,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: unbound identifier `crypto`"
+  "rts_error": "error: Uncaught ReferenceError: crypto is not defined"
 }
 ,
 {
@@ -2888,13 +2888,13 @@
   "status": "bun_node_diverge",
   "bun": "15\nfalse\nobject\n3\n10,20,30\n99,1,2,2\n42\n1,3,4\n5",
   "node": "15\nfalse\nobject\n3\n10,20,30\n99,99,2,2\n42\n1,3,4\n5",
-  "rts": "",
+  "rts": "15\ntrue\nobject\n3\n10,20,30\n99,1,2,2",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `outer`: unsupported in the numeric subset: expression arrow"
+  "rts_error": "error: Uncaught ReferenceError: arguments is not defined"
 }
 ,
 {
@@ -3314,7 +3314,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: unbound identifier `a`"
+  "rts_error": "error: Uncaught ReferenceError: a is not defined"
 }
 ,
 {
@@ -3538,7 +3538,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new (..)` — class `` is not a user class in this program (a global/Registry class or `extends` class is a later increment)"
+  "rts_error": "error: Uncaught ReferenceError: Intl is not defined"
 }
 ,
 {
@@ -3552,7 +3552,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new (..)` — class `` is not a user class in this program (a global/Registry class or `extends` class is a later increment)"
+  "rts_error": "error: Uncaught ReferenceError: Intl is not defined"
 }
 ,
 {
@@ -3566,7 +3566,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new (..)` — class `` is not a user class in this program (a global/Registry class or `extends` class is a later increment)"
+  "rts_error": "error: Uncaught ReferenceError: Intl is not defined"
 }
 ,
 {
@@ -3692,7 +3692,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsl_method___rtsl_lit_1_next`: unsupported in the numeric subset: unbound identifier `log`"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsl_method___rtsl_lit_1_next`: unsupported in the numeric subset: `++`/`--` on unbound `i`"
 }
 ,
 {
@@ -4014,7 +4014,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: unbound identifier `BigInt`"
+  "rts_error": "error: Uncaught ReferenceError: BigInt is not defined"
 }
 ,
 {
@@ -4406,7 +4406,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsn_arrow_0`: unsupported in the numeric subset: expression raw/unrecognized: This(ThisExpr { span: 1054..1058 })"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__extends`: unsupported in the numeric subset: expression arrow"
 }
 ,
 {
@@ -4439,16 +4439,16 @@
 ,
 {
   "name": "356_obf_dispatcher",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "14\n1024\n42\n7\n99\nolleh\nWORLD\na-b-c",
   "node": "14\n1024\n42\n7\n99\nolleh\nWORLD\na-b-c",
-  "rts": "",
+  "rts": "14\n1024\n42\n7\n99\nolleh\nWORLD\na-b-c",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `_exec`: unsupported in the numeric subset: expression spread"
+  "rts_error": ""
 }
 ,
 {
@@ -5856,13 +5856,13 @@
   "status": "rts_error",
   "bun": "0\nabcde\nfunction\nfunction\n42\n1\nundefined\n2\nfunction _fn() { [obfuscated] }\n42",
   "node": "0\nabcde\nfunction\nfunction\n42\n1\nundefined\n2\nfunction _fn() { [obfuscated] }\n42",
-  "rts": "",
+  "rts": "5\nabcde\nundefined\nundefined\n42\n1\nundefined\n2",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsl_method___rtsl_lit_0_get`: unsupported in the numeric subset: unbound identifier `code`"
+  "rts_error": "error: Uncaught ReferenceError: Function is not defined"
 }
 ,
 {
@@ -5926,13 +5926,13 @@
   "status": "rts_error",
   "bun": "object\ntrue\nobject\nobject\nfunction\nfunction\nfunction\nfunction\nfunction\nobject\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\n1.0\ntrue\n1.0\ntrue\ntrue\ntrue",
   "node": "object\ntrue\nobject\nobject\nfunction\nfunction\nfunction\nfunction\nfunction\nobject\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\n1.0\ntrue\n1.0\ntrue\ntrue\ntrue",
-  "rts": "",
+  "rts": "object\ntrue\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\nundefined\n1.0\ntrue\n1.0",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: unbound identifier `Array`"
+  "rts_error": "error: Uncaught ReferenceError: Array is not defined"
 }
 ,
 {
@@ -6702,7 +6702,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `pTry`: unsupported in the numeric subset: unbound identifier `Promise`"
+  "rts_error": "error: Uncaught ReferenceError: Promise is not defined"
 }
 ,
 {
@@ -6738,7 +6738,7 @@
   "status": "rts_diverge",
   "bun": "one=3\ntwo=5\nall=a,b\nasync=9",
   "node": "one=3\ntwo=5\nall=a,b\nasync=9",
-  "rts": "one=3\ntwo=4\nall=1.39067116156996e-309,1.390671161569965e-309\nasync=9",
+  "rts": "one=3\ntwo=4\nall=1.390671161569955e-309,1.39067116156996e-309\nasync=9",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -7788,13 +7788,13 @@
   "status": "rts_error",
   "bun": "direct=A\ndirect-multi=HI\ntypeof=function\nname=fromCharCode\nlength=1\nalias=B\nalias-multi=CDE\nalias-none=[]\nlet-alias=F\nobj-prop=G\narr-elem=H\nmap=IJK\nmap-direct=L|M\u0001|N\u0002\npassed=O\npassed-alias=P\nreturned=Q\nclosure=R\ncall=S\napply=TU\nbind=V\nbind-partial=WX\nidentity=true\nobj-identity=true\nspread=YZ\nalias-spread=YZ\nfcp-direct=a\nfcp-alias=b\nfcp-alias-astral-len=2",
   "node": "direct=A\ndirect-multi=HI\ntypeof=function\nname=fromCharCode\nlength=1\nalias=B\nalias-multi=CDE\nalias-none=[]\nlet-alias=F\nobj-prop=G\narr-elem=H\nmap=IJK\nmap-direct=L|M\u0001|N\u0002\npassed=O\npassed-alias=P\nreturned=Q\nclosure=R\ncall=S\napply=TU\nbind=V\nbind-partial=WX\nidentity=true\nobj-identity=true\nspread=YZ\nalias-spread=YZ\nfcp-direct=a\nfcp-alias=b\nfcp-alias-astral-len=2",
-  "rts": "",
+  "rts": "direct=A\ndirect-multi=HI",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `getFn`: unsupported in the numeric subset: unbound identifier `String`"
+  "rts_error": "error: Uncaught ReferenceError: String is not defined"
 }
 ,
 {
@@ -8228,7 +8228,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: unbound identifier `Symbol`"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: call to unknown function `Function`"
 }
 ,
 {
@@ -8494,7 +8494,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsn_arrow_0`: unsupported in the numeric subset: expression raw/unrecognized: This(ThisExpr { span: 116..120 })"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: call to unknown function `Function`"
 }
 ,
 {
@@ -8695,16 +8695,16 @@
 ,
 {
   "name": "360_obf_iife_scope",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "30\n2\n49\n49\n9\nneg\nzero\nsmall\nmedium\nlarge",
   "node": "30\n2\n49\n49\n9\nneg\nzero\nsmall\nmedium\nlarge",
-  "rts": "30\n2",
+  "rts": "30\n2\n49\n49\n9\nneg\nzero\nsmall\nmedium\nlarge",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught TypeError: compute is not a function"
+  "rts_error": ""
 }
 ,
 {
@@ -8760,7 +8760,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `f`: unsupported in the numeric subset: unbound identifier `arguments`"
+  "rts_error": "error: unsupported in the numeric subset: in fn `g`: unsupported in the numeric subset: expression arrow"
 }
 ,
 {
@@ -9017,16 +9017,16 @@
 ,
 {
   "name": "codex_destructuring_iterator_close_on_default_throw",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "default\nnext0,return",
   "node": "default\nnext0,return",
-  "rts": "",
+  "rts": "x is not defined",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: unbound identifier `x`"
+  "rts_error": ""
 }
 ,
 {
@@ -9505,4 +9505,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":679,"pass":468,"rts_diverge":107,"bun_node_diverge":18,"errors":86,"rejected":0}}
+],"summary":{"total":679,"pass":470,"rts_diverge":108,"bun_node_diverge":18,"errors":83,"rejected":0}}
