@@ -28,12 +28,12 @@ pub use rts_engine::collector::{debug, global_roots, scan, stack_map_registry, t
 /// + `rts_engine::heap::handles::*` (consumidores) seguem resolvendo.
 pub use rts_engine::heap::handles;
 pub use rts_engine::heap::payload_ops;
-/// Alocadores/helpers do heap migrados pro motor (env-record, this-slot,
-/// tagged-raw, class-registry). Facade → `crate::namespaces::gc::<X>::*` +
+/// Alocadores/helpers do heap migrados pro motor (this-slot,
+/// class-registry). Facade → `crate::namespaces::gc::<X>::*` +
 /// `super::<X>` (siblings) seguem resolvendo. `closure`/`instance` (gc.closure_*/
 /// instance_*) foram REMOVIDOS — superfície legacy do motor antigo (Fase B); o
 /// motor novo usa cells PolyValue (#195) + Vec keyed (__rtsadp_obj_*).
-pub use rts_engine::heap::{class_registry, env, tagged_raw, this_slot};
+pub use rts_engine::heap::{class_registry, this_slot};
 pub use crate::promise_slot;
 pub mod stack;
 pub mod string_pool;

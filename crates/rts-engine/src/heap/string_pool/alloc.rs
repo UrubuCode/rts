@@ -39,8 +39,8 @@ pub fn __RTS_FN_NS_GC_STRING_FREE(handle: u64) -> i64 {
 }
 
 /// Generic length dispatcher — backs `.size`/`.length` in codegen.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_HANDLE_LEN(handle: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_GC_HANDLE_LEN")]
+pub fn __RTS_FN_NS_GC_HANDLE_LEN(handle: u64) -> i64 {
     // (#1023) StringBox unwrap before dispatch — recurse once.
     let unwrap: Option<u64> = with_entry(handle, |entry| match entry {
         Some(Entry::StringBox(h)) => Some(*h),
@@ -78,48 +78,18 @@ pub extern "C" fn __RTS_FN_NS_GC_HANDLE_LEN(handle: u64) -> i64 {
     })
 }
 
-/// (#208 / Array.isArray) Returns 1 if the handle points at a Vec, 0 otherwise.
-/// Backs `Array.isArray(x)` in codegen.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_IS_VEC(handle: u64) -> i64 {
-    with_entry(handle, |entry| match entry {
-        Some(Entry::Vec(_)) => 1,
-        _ => 0,
-    })
-}
-
 /// `instanceof Date` — the handle points at an `Entry::Rtse` of class "Date"
 /// (the `#[rtse::class("Date")]` struct in rts-shared).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_IS_DATE(handle: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_GC_IS_DATE")]
+pub fn __RTS_FN_NS_GC_IS_DATE(handle: u64) -> i64 {
     if rtse_class_of(handle) == Some("Date") { 1 } else { 0 }
 }
 
 /// `instanceof RegExp` — the handle points at `Entry::Regex`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_IS_REGEX(handle: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_GC_IS_REGEX")]
+pub fn __RTS_FN_NS_GC_IS_REGEX(handle: u64) -> i64 {
     with_entry(handle, |entry| match entry {
         Some(Entry::Regex(_)) => 1,
-        _ => 0,
-    })
-}
-
-/// `instanceof Map`/`Object` — the handle points at `Entry::Map` (Object
-/// accepts any Map). WeakMap/WeakSet are `.ts` classes (arrays of
-/// PolyValue), not Entry variants — not map-like by handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_IS_MAP_LIKE(handle: u64) -> i64 {
-    with_entry(handle, |entry| match entry {
-        Some(Entry::Map(_)) => 1,
-        _ => 0,
-    })
-}
-
-/// `instanceof Promise` — the handle points at `Entry::PromiseAsync`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_IS_PROMISE(handle: u64) -> i64 {
-    with_entry(handle, |entry| match entry {
-        Some(Entry::PromiseAsync(_)) => 1,
         _ => 0,
     })
 }
@@ -128,23 +98,7 @@ pub extern "C" fn __RTS_FN_NS_GC_IS_PROMISE(handle: u64) -> i64 {
 pub fn __RTS_FN_NS_GC_STRING_FROM_I64(value: i64) -> u64 {
     // Raw i64 -> decimal string. This fn is the primitive exposed via
     // `gc.string_from_i64` (e.g. num.checked_* returning i64::MIN on
-    // overflow needs to become "-9223372036854775808"). JS sentinels
-    // (MIN..MIN+4) are handled in coerce_to_handle/template via
-    // TPL_COERCE_AUTO (and via STRING_FROM_I64_TPL below).
-    alloc_entry(Entry::String(value.to_string().into_bytes()))
-}
-
-/// (cross-runtime) Variant of STRING_FROM_I64 used in template
-/// literal/coerce_to_handle: filters JS sentinels before formatting so
-/// `${undefined}` -> "undefined" instead of the raw i64.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_I64_TPL(value: i64) -> u64 {
-    if value == i64::MIN { return alloc_entry(Entry::String(b"false".to_vec())); }
-    if value == i64::MIN + 1 { return alloc_entry(Entry::String(b"true".to_vec())); }
-    if value == i64::MIN + 2 || value == i64::MIN + 4 {
-        return alloc_entry(Entry::String(b"undefined".to_vec()));
-    }
-    if value == i64::MIN + 3 { return alloc_entry(Entry::String(b"null".to_vec())); }
+    // overflow needs to become "-9223372036854775808").
     alloc_entry(Entry::String(value.to_string().into_bytes()))
 }
 

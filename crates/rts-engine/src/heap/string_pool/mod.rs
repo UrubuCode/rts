@@ -20,15 +20,11 @@
 //! `inspect_handle`/`inspect_slot` helpers).
 
 mod alloc;
-mod cell;
 mod coerce;
-mod float_box;
 mod snapshot;
 
 pub use alloc::*;
-pub use cell::*;
 pub use coerce::*;
-pub use float_box::*;
 pub use snapshot::{EntrySnap, element_to_string, entry_kind_name, snapshot_entry, snapshot_to_bytes};
 
 pub use crate::heap::handles::read_string_handle;

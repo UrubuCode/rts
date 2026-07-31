@@ -5,7 +5,6 @@
 
 pub mod class_registry;
 pub mod descriptors;
-pub mod env;
 pub mod fixed;
 pub mod handles;
 pub mod mapkey;
@@ -14,5 +13,4 @@ pub mod pickle;
 pub mod poly;
 pub mod shapes;
 pub mod string_pool;
-pub mod tagged_raw;
 pub mod this_slot;

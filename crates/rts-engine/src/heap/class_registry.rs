@@ -2,10 +2,9 @@
 //! a `instanceof` cross-classes (ex: `CustomTypeError extends TypeError`
 //! → `err instanceof TypeError` deve retornar true).
 //!
-//! Codegen emite chamadas a `__RTS_FN_NS_GC_CLASS_REGISTER_PARENT`
-//! para cada class user com `extends` no startup (top-level main).
-//! Os builtins (Error, TypeError, RangeError, etc) sao
-//! auto-registrados em `init_builtins()`.
+//! Codegen chama [`register_parent`] para cada class user com `extends` no
+//! startup (top-level main). Os builtins (Error, TypeError, RangeError, etc)
+//! sao auto-registrados em `registry()`.
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -38,37 +37,9 @@ fn ensure_init() {
     });
 }
 
-/// Registra `child extends parent`. Idempotente.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_CLASS_REGISTER_PARENT(
-    child_ptr: i64,
-    child_len: i64,
-    parent_ptr: i64,
-    parent_len: i64,
-) {
-    if child_ptr == 0 || child_len <= 0 || parent_ptr == 0 || parent_len <= 0 {
-        return;
-    }
-    ensure_init();
-    let child = unsafe { std::slice::from_raw_parts(child_ptr as *const u8, child_len as usize) };
-    let parent =
-        unsafe { std::slice::from_raw_parts(parent_ptr as *const u8, parent_len as usize) };
-    let child_s = match std::str::from_utf8(child) {
-        Ok(s) => s,
-        Err(_) => return,
-    };
-    let parent_s = match std::str::from_utf8(parent) {
-        Ok(s) => s,
-        Err(_) => return,
-    };
-    if let Ok(mut m) = registry().lock() {
-        m.insert(child_s.to_string(), parent_s.to_string());
-    }
-}
-
-/// Registra `child extends parent` (lado-Rust; idempotente). O MESMO mapa que o
-/// extern `__RTS_FN_NS_GC_CLASS_REGISTER_PARENT` escreve — usado pelo codegen p/
-/// semear os `extends` das classes `#[rtse::class]` (dado do Registry) no startup.
+/// Registra `child extends parent` (idempotente). Usado pelo codegen p/ semear
+/// os `extends` das classes `#[rtse::class]` (dado do Registry) no startup e
+/// pelas classes de usuário com `extends`.
 pub fn register_parent(child: &str, parent: &str) {
     ensure_init();
     if let Ok(mut m) = registry().lock() {

@@ -1588,8 +1588,8 @@ pub fn poly_from_handle(full: u64) -> u64 {
 /// lowering splices in as a code immediate (see [`pin_handle`]). The JIT calls
 /// this at lowering time via [`crate`]'s host adapter; the AOT `string_from_static`
 /// path calls it at the binary's runtime so the same constants are pinned there.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_PIN_HANDLE(handle: u64) {
+#[rtse::abi("__RTS_FN_NS_GC_PIN_HANDLE")]
+pub fn __RTS_FN_NS_GC_PIN_HANDLE(handle: u64) {
     pin_handle(handle);
 }
 
@@ -1711,8 +1711,8 @@ pub fn unpin_handle(handle: u64) {
 }
 
 /// `extern "C"` counterpart of [`__RTS_FN_NS_GC_PIN_HANDLE`].
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_UNPIN_HANDLE(handle: u64) {
+#[rtse::abi("__RTS_FN_NS_GC_UNPIN_HANDLE")]
+pub fn __RTS_FN_NS_GC_UNPIN_HANDLE(handle: u64) {
     unpin_handle(handle);
 }
 
