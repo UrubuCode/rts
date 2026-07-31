@@ -1313,9 +1313,14 @@ impl Ctx {
         }
         // Bind a NAMED fn-expression's self-name: internal references become
         // references to the synthesized top-level name (registered below), so
-        // they are neither free nor captures.
+        // they are neither free nor captures. A body-declared binding with the
+        // SAME name shadows the self-name (`function t(e){ var t; t = e; … }` —
+        // `var` re-declares it for the whole function scope, a minified-bundle
+        // staple): every internal reference is then the local, and renaming it
+        // turned `t = e` into an assignment to the synthesized name
+        // ("assignment to unbound `__rtsn_arrow_N`").
         if let Some(sn) = &self_name {
-            if !param_names.contains(sn) {
+            if !param_names.contains(sn) && !declared_locals(&body_stmts).contains(sn) {
                 rename_ident_stmts(&mut body_stmts, sn, &name);
             }
         }
