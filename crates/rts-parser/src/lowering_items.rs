@@ -52,7 +52,42 @@ impl swc_ecma_visit::VisitMut for GenExprHoister {
             // acrescentar a guarda quebrava até `const g = function*(){…}` no
             // TOPO — `g()` deixava de devolver iterador. A guarda vale só para a
             // DECLARAÇÃO aninhada, que é o caso novo.
-            if fe.function.is_generator {
+            // Levantar SEMPRE perdia as capturas: `const g = function*(){ yield
+            // r(o.v) }` dentro de uma função virava `__genexpr_N` no topo, onde
+            // `o`/`r` não existem mais — o bundle morria em
+            // `call to unknown function 'o'` (e no motor, em ReferenceError).
+            //
+            // No TOPO do módulo (`dentro_de_bloco == 0`) as livres já são globais
+            // e continuam alcançáveis, então o hoist é sempre seguro — é por isso
+            // que ligar `sem_captura` incondicionalmente quebrava esse caso.
+            // Dentro de um bloco, só levanta quem não captura; quem captura fica
+            // onde está e é desugarado no lugar, com o escopo intacto.
+            let pode_levantar = self.dentro_de_bloco == 0
+                || Self::sem_captura_ext(&fe.function, &self.irmas_do_bloco);
+            // Quem CAPTURA é desugarado NO LUGAR e deixa de ser generator: o
+            // corpo vira o eager-buffer (`__gen_buf` + `__RTS_GEN_FINISH`) e o
+            // nó passa a ser uma fn-expression COMUM — que a maquinaria de
+            // closure já sabe extrair com as capturas. O `FnSig` reconhece o
+            // sentinela `GEN_FINISH` e marca `ret_eager_gen`, então `.next()` /
+            // for-of / spread seguem funcionando sobre o buffer.
+            if fe.function.is_generator && !pode_levantar {
+                if let Some(corpo) = fe.function.body.as_ref() {
+                    let desugarado = crate::generator_desugar::desugar_generator_body(corpo);
+                    // O eager-buffer só expressa `yield` em posição de STATEMENT
+                    // (vira `__gen_buf.push`). Um `yield` usado como VALOR
+                    // (`const a = yield b`) sobra no corpo desugarado e chegaria
+                    // ao lowering como `Yield` cru. Esse caso precisa da
+                    // state-machine — que exige o hoist —, então cai no caminho
+                    // de sempre: continua levantando (e continua perdendo a
+                    // captura, honestamente, como antes).
+                    if !Self::contem_yield(&desugarado) {
+                        fe.function.body = Some(desugarado);
+                        fe.function.is_generator = false;
+                        return;
+                    }
+                }
+            }
+            if fe.function.is_generator && pode_levantar {
                 let name = format!("__genexpr_{}", self.counter);
                 self.counter += 1;
                 let ident = swc_ecma_ast::Ident {
@@ -268,6 +303,26 @@ impl GenExprHoister {
             b.visit_with(&mut u);
         }
         u.0
+    }
+
+    /// Sobrou algum `yield` no corpo depois do desugar eager? Só resta quando o
+    /// `yield` estava em posição de VALOR — o buffer não tem como expressá-lo.
+    fn contem_yield(b: &swc_ecma_ast::BlockStmt) -> bool {
+        use swc_ecma_visit::{Visit, VisitWith};
+        #[derive(Default)]
+        struct Achou(bool);
+        impl Visit for Achou {
+            fn visit_yield_expr(&mut self, _: &swc_ecma_ast::YieldExpr) {
+                self.0 = true;
+            }
+            // NÃO desce em funções aninhadas: um `yield` lá dentro pertence a
+            // OUTRO generator, não a este corpo.
+            fn visit_function(&mut self, _: &SwcFunction) {}
+            fn visit_arrow_expr(&mut self, _: &swc_ecma_ast::ArrowExpr) {}
+        }
+        let mut v = Achou::default();
+        b.visit_with(&mut v);
+        v.0
     }
 
     fn sem_captura(f: &SwcFunction) -> bool {
