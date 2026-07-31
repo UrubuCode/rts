@@ -223,8 +223,10 @@ fn pairs_snapshot(self_h: u64) -> Vec<(String, String)> {
 }
 
 /// `usp.getAll(key)` — all values for `key`, in append order.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_USP_GET_ALL(self_h: u64, key_ptr: *const u8, key_len: i64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_USP_GET_ALL")]
+pub fn __RTS_FN_GL_USP_GET_ALL(self_h: u64, key_ptr: u64, key_len: i64) -> u64 {
+    let key_ptr = key_ptr as *const u8;
+
     if key_ptr.is_null() || key_len < 0 {
         return alloc_entry(Entry::Vec(Box::new(Vec::new())));
     }
@@ -246,8 +248,8 @@ pub extern "C" fn __RTS_FN_GL_USP_GET_ALL(self_h: u64, key_ptr: *const u8, key_l
 }
 
 /// `usp.keys()` — a `Vec` of string handles (order + duplicates preserved).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_USP_KEYS(self_h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_USP_KEYS")]
+pub fn __RTS_FN_GL_USP_KEYS(self_h: u64) -> u64 {
     let out: Vec<i64> = with_rtse::<UrlSearchParams, _>(self_h, |s| {
         s.map(|s| s.pairs.iter().map(|(k, _)| intern_str(k) as i64).collect())
             .unwrap_or_default()
@@ -256,8 +258,8 @@ pub extern "C" fn __RTS_FN_GL_USP_KEYS(self_h: u64) -> u64 {
 }
 
 /// `usp.values()` — a `Vec` of string handles (order + duplicates preserved).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_USP_VALUES(self_h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_USP_VALUES")]
+pub fn __RTS_FN_GL_USP_VALUES(self_h: u64) -> u64 {
     let out: Vec<i64> = with_rtse::<UrlSearchParams, _>(self_h, |s| {
         s.map(|s| s.pairs.iter().map(|(_, v)| intern_str(v) as i64).collect())
             .unwrap_or_default()
@@ -267,8 +269,8 @@ pub extern "C" fn __RTS_FN_GL_USP_VALUES(self_h: u64) -> u64 {
 
 /// `usp.entries()` — an array of `[key, value]` string pairs (insertion order,
 /// with duplicates). Each pair is a boxed 2-element array word.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_USP_ENTRIES(self_h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_USP_ENTRIES")]
+pub fn __RTS_FN_GL_USP_ENTRIES(self_h: u64) -> u64 {
     use rts_engine::heap::shapes::{handle_word_auto, string_word};
     let mut outer: Vec<i64> = Vec::new();
     for (k, v) in pairs_snapshot(self_h) {
@@ -283,8 +285,8 @@ pub extern "C" fn __RTS_FN_GL_USP_ENTRIES(self_h: u64) -> u64 {
 
 /// `usp.forEach(callback)` — invoke `callback(value, key, usp)` for each pair,
 /// in insertion order (over a snapshot). Returns `undefined`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_USP_FOR_EACH(self_h: u64, cb: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_USP_FOR_EACH")]
+pub fn __RTS_FN_GL_USP_FOR_EACH(self_h: u64, cb: u64) -> u64 {
     use rts_engine::heap::poly::POLY_UNDEFINED;
     use rts_engine::heap::shapes::{handle_word_auto, string_word};
     let self_word = handle_word_auto(self_h);
@@ -380,7 +382,7 @@ mod tests {
     #[test]
     fn get_all_keys_values_entries() {
         let handle = h(&[("a", "1"), ("a", "2")]);
-        let all = __RTS_FN_GL_USP_GET_ALL(handle, "a".as_ptr(), 1);
+        let all = __RTS_FN_GL_USP_GET_ALL(handle, "a".as_ptr() as u64, 1);
         let count = with_entry(all, |e| match e {
             Some(Entry::Vec(v)) => v.len(),
             _ => 0,

@@ -53,26 +53,26 @@ where
 // Hand-written (Fase 2): externs + `append_engine_members` (abaixo).
 
 /// Creates an empty Vec<number>.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_NEW() -> Handle {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_NEW")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_NEW() -> Handle {
     alloc_entry(Entry::Vec(Box::new(Vec::new())))
 }
 
 /// Releases the vec handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FREE(h: U64) {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_FREE")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_FREE(h: U64) {
     free_handle(h);
 }
 
 /// Number of elements; -1 if the handle is invalid.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_LEN(h: U64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_LEN")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_LEN(h: U64) -> I64 {
     with_vec(h, -1, |v| v.len() as i64)
 }
 
 /// Appends `value` to the end.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_PUSH(h: U64, value: I64) {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_PUSH")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_PUSH(h: U64, value: I64) {
     let limit_hit = with_vec_mut(h, false, |v| {
         if v.len() >= VEC_MAX_LEN {
             return true;
@@ -89,8 +89,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_PUSH(h: U64, value: I64) {
 }
 
 /// Removes and returns the last element; 0 when empty.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_POP(h: U64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_POP")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_POP(h: U64) -> I64 {
     let popped: Option<i64> = with_vec_mut(h, None, |v| v.pop());
     match popped {
         Some(v) => v,
@@ -99,8 +99,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_POP(h: U64) -> I64 {
 }
 
 /// Element at `index`, or 0 out of range.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_GET(h: U64, index: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_GET")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_GET(h: U64, index: I64) -> I64 {
     if index < 0 {
         return 0;
     }
@@ -111,8 +111,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_GET(h: U64, index: I64) -> I64 {
 /// alcance (após ajuste) devolve o sentinela `undefined` (i64::MIN+2). Move a
 /// lógica de negative-index + OOR do codegen pro runtime, deixando `at`
 /// genérico no Registry (AMBIGUOUS_RET).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_AT_AUTO(h: U64, index: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_AT_AUTO")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_AT_AUTO(h: U64, index: I64) -> I64 {
     with_vec(h, i64::MIN + 2, |v| {
         let len = v.len() as i64;
         let idx = if index < 0 { len + index } else { index };
@@ -125,8 +125,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_AT_AUTO(h: U64, index: I64) -> I64
 }
 
 /// Writes `value` at `index`. No-op out of range.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SET(h: U64, index: I64, value: I64) {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_SET")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_SET(h: U64, index: I64, value: I64) {
     if index < 0 {
         return;
     }
@@ -138,14 +138,14 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SET(h: U64, index: I64, value: I64
 }
 
 /// Removes all elements.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_CLEAR(h: U64) {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_CLEAR")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_CLEAR(h: U64) {
     with_vec_mut(h, (), |v| v.clear());
 }
 
 /// Junta os elementos do vec separados por `sep` (string handle). Cada elemento i64 e' tratado como string handle se valido, senao formatado como numero decimal. Retorna handle da string resultante.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_JOIN(h: U64, sep: Handle) -> Handle {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_JOIN")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_JOIN(h: U64, sep: Handle) -> Handle {
     let elems: Option<Vec<i64>> = with_entry(h, |entry| match entry {
         Some(Entry::Vec(v)) => Some(v.iter().copied().collect()),
         _ => None,
@@ -275,8 +275,8 @@ pub fn append_engine_members(v: &mut Vec<Member>) {
 /// (cross-runtime #1067) Suporte a spread em indirect call: copia todos
 /// os elementos de `src` para `dst`. Usado pelo codegen para `f(...args)`
 /// onde args eh Vec.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM(dst: u64, src: u64) {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM(dst: u64, src: u64) {
     // (cross-runtime #79) src pode ser Vec OU Buffer (TextEncoder.encode,
     // digest). Antes so' lia Vec — fonte Buffer dava Vec vazio.
     let items: Vec<i64> = with_entry(src, |entry| match entry {
@@ -298,8 +298,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM(dst: u64, src: u64) {
 /// (ex: resultado de `await`): decide em RUNTIME se eh um handle (Buffer/Vec ->
 /// copia elementos) ou um comprimento (-> N zeros). Resolve
 /// `new Uint8Array(await crypto.subtle.digest(...))` sem o codegen saber o tipo.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FILL_TA_ARG(dst: u64, arg: i64) {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_FILL_TA_ARG")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_FILL_TA_ARG(dst: u64, arg: i64) {
     let h = arg as u64;
     let from_handle: Option<Vec<i64>> = with_entry(h, |e| match e {
         Some(Entry::Buffer(b)) => Some(b.iter().map(|&x| x as i64).collect()),
@@ -328,8 +328,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FILL_TA_ARG(dst: u64, arg: i64) {
 /// BYTES do ArrayBuffer (`Entry::Buffer`), um byte por slot. Snapshot de
 /// leitura (escritas posteriores no Vec nao refletem no buffer; view viva
 /// real fica como follow-up).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM_BUFFER(dst: u64, src: u64) {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM_BUFFER")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_EXTEND_FROM_BUFFER(dst: u64, src: u64) {
     let bytes: Vec<u8> = with_entry(src, |entry| match entry {
         Some(Entry::Buffer(b)) => b.clone(),
         _ => Vec::new(),
@@ -354,15 +354,15 @@ const VEC_MAX_LEN: usize = 1_000_000;
 /// (cross-runtime) `Math.min(...arr)` / `Math.max(...arr)`. Reduz os elementos
 /// do Vec (i64) como f64. Vec vazio -> Infinity (min) / -Infinity (max), JS spec.
 /// Retorna f64 (codegen reinterpreta).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_MIN(handle: u64) -> f64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_MIN")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_MIN(handle: u64) -> f64 {
     with_vec(handle, f64::INFINITY, |v| {
         v.iter().fold(f64::INFINITY, |acc, &x| acc.min(x as f64))
     })
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_MAX(handle: u64) -> f64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_MAX")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_MAX(handle: u64) -> f64 {
     with_vec(handle, f64::NEG_INFINITY, |v| {
         v.iter()
             .fold(f64::NEG_INFINITY, |acc, &x| acc.max(x as f64))
@@ -373,8 +373,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_MAX(handle: u64) -> f64 {
 /// undefined (slot 0) se n > length, no-op se n == length.
 /// n negativo gera RangeError em JS; aqui silently no-op (RTS nao
 /// tem throw real; alternativa seria abort).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SET_LENGTH(handle: u64, n: i64) {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_SET_LENGTH")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_SET_LENGTH(handle: u64, n: i64) {
     if n < 0 {
         return;
     }
@@ -399,8 +399,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SET_LENGTH(handle: u64, n: i64) {
 /// `delete obj[i]` ou `delete obj[k]` — roteia em runtime para vec/map.
 /// Para Vec: marca slot como hole (i64::MIN+4) preservando length (JS spec).
 /// Para Map: remove key (idx_or_keyh interpretado como handle de string).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_DELETE_AUTO(handle: u64, idx_or_keyh: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_INDEX_DELETE_AUTO")]
+pub fn __RTS_FN_NS_COLLECTIONS_INDEX_DELETE_AUTO(handle: u64, idx_or_keyh: i64) -> i64 {
     use rts_engine::heap::handles::with_entry;
     enum Kind {
         Vec,
@@ -446,8 +446,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_DELETE_AUTO(handle: u64, idx_or_
 
 /// `obj[i]` auto: se handle for Vec, devolve slot; se String, devolve char-at
 /// (handle de string single-char ou handle de "undefined" out-of-range — JS spec).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_GET_AUTO(handle: u64, index: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_INDEX_GET_AUTO")]
+pub fn __RTS_FN_NS_COLLECTIONS_INDEX_GET_AUTO(handle: u64, index: i64) -> i64 {
     use rts_engine::heap::handles::with_entry;
     enum Kind {
         Vec,
@@ -503,7 +503,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_GET_AUTO(handle: u64, index: i64
             }
             let key = index.to_string();
             let key_bytes = key.as_bytes();
-            __RTS_FN_NS_COLLECTIONS_MAP_GET(handle, key_bytes.as_ptr(), key_bytes.len() as i64)
+            __RTS_FN_NS_COLLECTIONS_MAP_GET(handle, key_bytes.as_ptr() as u64, key_bytes.len() as i64)
         }
     }
 }
@@ -512,8 +512,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_GET_AUTO(handle: u64, index: i64
 /// se recv eh Vec, faz vec concat (copy + append/spread); se string,
 /// faz string concat. Usado quando recv eh I64 ambiguo (param de
 /// arrow lifted em reduceRight/reduce).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_CONCAT_AUTO(recv: u64, other: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_CONCAT_AUTO")]
+pub fn __RTS_FN_NS_COLLECTIONS_CONCAT_AUTO(recv: u64, other: i64) -> i64 {
     use rts_engine::heap::handles::with_entry;
     let is_vec = with_entry(recv, |e| matches!(e, Some(Entry::Vec(_))));
     if is_vec {
@@ -530,8 +530,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_CONCAT_AUTO(recv: u64, other: i64) -> 
 /// recv pode ser Vec ou String em compile time (capture em arrow body).
 /// end == i64::MIN significa "ate o final" (codegen sentinel quando user
 /// chama .slice(n) sem end).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SLICE_AUTO(recv: u64, start: i64, end: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_SLICE_AUTO")]
+pub fn __RTS_FN_NS_COLLECTIONS_SLICE_AUTO(recv: u64, start: i64, end: i64) -> u64 {
     use rts_engine::heap::handles::with_entry;
     let is_vec = with_entry(recv, |e| matches!(e, Some(Entry::Vec(_))));
     if is_vec {
@@ -546,8 +546,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SLICE_AUTO(recv: u64, start: i64, end:
 }
 
 /// (cross-runtime #285) Runtime dispatch para `recv.includes(needle)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INCLUDES_AUTO(recv: u64, needle: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_INCLUDES_AUTO")]
+pub fn __RTS_FN_NS_COLLECTIONS_INCLUDES_AUTO(recv: u64, needle: i64) -> i64 {
     use rts_engine::heap::handles::with_entry;
     let is_vec = with_entry(recv, |e| matches!(e, Some(Entry::Vec(_))));
     if is_vec {
@@ -558,8 +558,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INCLUDES_AUTO(recv: u64, needle: i64) 
 }
 
 /// (cross-runtime #285) Runtime dispatch para `recv.indexOf(needle)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_OF_AUTO(recv: u64, needle: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_INDEX_OF_AUTO")]
+pub fn __RTS_FN_NS_COLLECTIONS_INDEX_OF_AUTO(recv: u64, needle: i64) -> i64 {
     use rts_engine::heap::handles::with_entry;
     let is_vec = with_entry(recv, |e| matches!(e, Some(Entry::Vec(_))));
     if is_vec {
@@ -574,8 +574,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_INDEX_OF_AUTO(recv: u64, needle: i64) 
 }
 
 /// (cross-runtime #285) Runtime dispatch para `recv.lastIndexOf(needle)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_LAST_INDEX_OF_AUTO(recv: u64, needle: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_LAST_INDEX_OF_AUTO")]
+pub fn __RTS_FN_NS_COLLECTIONS_LAST_INDEX_OF_AUTO(recv: u64, needle: i64) -> i64 {
     use rts_engine::heap::handles::with_entry;
     let is_vec = with_entry(recv, |e| matches!(e, Some(Entry::Vec(_))));
     if is_vec {
@@ -591,8 +591,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_LAST_INDEX_OF_AUTO(recv: u64, needle: 
 
 /// (cross-runtime #52) `index in arr` — true se 0 <= index < length E
 /// slot nao eh hole (sentinela i64::MIN+4). JS spec.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_HAS_INDEX(handle: u64, index: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_HAS_INDEX")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_HAS_INDEX(handle: u64, index: i64) -> i64 {
     if index < 0 {
         return 0;
     }
@@ -604,8 +604,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_HAS_INDEX(handle: u64, index: i64)
 
 /// (#93) `typedArray.set(src, offset)`: copia os elementos de `src` (Vec)
 /// para `dst` comecando em `offset`. Out-of-bounds eh ignorado.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SET_FROM(dst: u64, src: u64, offset: i64) {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_SET_FROM")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_SET_FROM(dst: u64, src: u64, offset: i64) {
     let items: Vec<i64> = with_vec(src, Vec::new(), |v| v.clone());
     if offset < 0 {
         return;
@@ -709,8 +709,8 @@ fn slot_eq(a: i64, b: i64) -> bool {
 }
 
 /// `arr.indexOf(needle)` — primeiro index com `v == needle`, ou -1.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF(handle: u64, needle: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF(handle: u64, needle: i64) -> i64 {
     // (cross-runtime #285) Snapshot do vec fora do lock para evitar deadlock
     // quando slot_eq -> with_entry(slot) cai no mesmo shard do vec.
     let snapshot: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
@@ -723,8 +723,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF(handle: u64, needle: i64)
 
 /// (#208) `arr.indexOf(needle, fromIndex)` — busca a partir de `from`.
 /// Negativo = relativo ao fim. Fora do range = retorna -1.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF_FROM(
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF_FROM")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF_FROM(
     handle: u64,
     needle: i64,
     from: i64,
@@ -743,8 +743,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_INDEX_OF_FROM(
 }
 
 /// `arr.lastIndexOf(needle)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF(handle: u64, needle: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF(handle: u64, needle: i64) -> i64 {
     let snapshot: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
     snapshot
         .iter()
@@ -755,8 +755,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF(handle: u64, needle:
 
 /// (#208) `arr.lastIndexOf(needle, fromIndex)` — busca de tras pra frente,
 /// comecando em `from` (inclusive). Negativo = relativo ao fim.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF_FROM(
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF_FROM")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF_FROM(
     handle: u64,
     needle: i64,
     from: i64,
@@ -782,8 +782,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_LAST_INDEX_OF_FROM(
 /// (cross-runtime #285) `slot_eq` compara conteudo de strings quando ambos
 /// sao String handles — sem isso falha em closures que reusam literais.
 /// Snapshot antes do iter pra evitar deadlock com with_entry nested.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_INCLUDES(handle: u64, needle: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_INCLUDES")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_INCLUDES(handle: u64, needle: i64) -> i64 {
     let snapshot: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
     if snapshot.iter().any(|x| slot_eq(*x, needle)) {
         1
@@ -793,8 +793,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_INCLUDES(handle: u64, needle: i64)
 }
 
 /// (#208) `arr.includes(needle, fromIndex)` — busca a partir de `from`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_INCLUDES_FROM(
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_INCLUDES_FROM")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_INCLUDES_FROM(
     handle: u64,
     needle: i64,
     from: i64,
@@ -813,16 +813,16 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_INCLUDES_FROM(
 }
 
 /// `arr.reverse()` in-place. Retorna o proprio handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_REVERSE(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_REVERSE")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_REVERSE(handle: u64) -> u64 {
     with_vec_mut(handle, (), |v| v.reverse());
     handle
 }
 
 /// `arr.shift()` — remove e retorna primeiro elemento. JS spec:
 /// undefined se vazio. Mesmo padrao de POP (handle "undefined").
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SHIFT(handle: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_SHIFT")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_SHIFT(handle: u64) -> i64 {
     let first: Option<i64> = with_vec_mut(handle, None, |v| {
         if v.is_empty() {
             None
@@ -838,8 +838,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SHIFT(handle: u64) -> i64 {
 }
 
 /// `arr.unshift(v)` — insere no começo. Retorna novo length.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_UNSHIFT(handle: u64, value: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_UNSHIFT")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_UNSHIFT(handle: u64, value: i64) -> i64 {
     let limit_hit = with_vec_mut(handle, false, |v| {
         if v.len() >= VEC_MAX_LEN {
             return true;
@@ -856,8 +856,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_UNSHIFT(handle: u64, value: i64) -
 
 /// `arr.slice(start, end)` — retorna handle de novo Vec com cópia do range.
 /// `end < 0` significa relativo ao fim. `end == i64::MIN` = não fornecido (até o fim).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SLICE(handle: u64, start: i64, end: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_SLICE")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_SLICE(handle: u64, start: i64, end: i64) -> u64 {
     let copy: Vec<i64> = with_vec(handle, Vec::new(), |v| {
         let len = v.len() as i64;
         let s = if start < 0 {
@@ -880,8 +880,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SLICE(handle: u64, start: i64, end
 
 /// `arr.concat(other)` — retorna novo Vec com elementos de ambos.
 /// `other` é handle de outro Vec; se invalido, copia só o original.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_CONCAT(handle: u64, other: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_CONCAT")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_CONCAT(handle: u64, other: u64) -> u64 {
     let mut out: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
     let other_elems: Vec<i64> = with_vec(other, Vec::new(), |v| v.clone());
     out.extend(other_elems);
@@ -891,8 +891,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_CONCAT(handle: u64, other: u64) ->
 /// (cross-runtime #143) Append de um arg `arr.concat(arg, ...)`. Se `arg`
 /// eh handle de Vec, faz extend; caso contrario push do escalar. JS spec:
 /// `Array.prototype.concat` so' faz spread em arrays "concat-spreadable".
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_CONCAT_APPEND(handle: u64, arg: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_CONCAT_APPEND")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_CONCAT_APPEND(handle: u64, arg: i64) -> u64 {
     let arg_h = arg as u64;
     let as_vec: Option<Vec<i64>> = with_entry(arg_h, |entry| match entry {
         Some(Entry::Vec(v)) => Some(v.iter().copied().collect()),
@@ -937,8 +937,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_CONCAT_APPEND(handle: u64, arg: i6
 /// o receiver e aplica, por arg, a mesma semântica do CONCAT_APPEND (array ou
 /// objeto `[Symbol.isConcatSpreadable]` → spread; escalar → push). Move o fold
 /// pro runtime, deixando `concat` genérico no Registry.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_CONCAT_VARIADIC(recv: u64, args_vec: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_CONCAT_VARIADIC")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_CONCAT_VARIADIC(recv: u64, args_vec: u64) -> u64 {
     let mut out: Vec<i64> = with_entry(recv, |e| match e {
         Some(Entry::Vec(v)) => v.iter().copied().collect(),
         _ => Vec::new(),
@@ -979,8 +979,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_CONCAT_VARIADIC(recv: u64, args_ve
 /// `arr.take(n)` (#305 iterator helper, eager) = `slice(0, n)`. O arg `n` é o
 /// END do slice, então não cabe no mapeamento direto pro VEC_SLICE (arg→start);
 /// runtime dedicado.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TAKE(recv: u64, n: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_TAKE")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_TAKE(recv: u64, n: i64) -> u64 {
     let out: Vec<i64> = with_vec(recv, Vec::new(), |v| {
         let end = (n.max(0) as usize).min(v.len());
         v[..end].to_vec()
@@ -991,8 +991,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TAKE(recv: u64, n: i64) -> u64 {
 /// `arr.unshift(...items)` variádico — prepend dos itens empacotados (na ordem)
 /// no início do receiver; devolve o novo length. Move o fold (que o codegen
 /// fazia com N chamadas reversas de VEC_UNSHIFT) pro runtime.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_UNSHIFT_VARIADIC(recv: u64, args_vec: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_UNSHIFT_VARIADIC")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_UNSHIFT_VARIADIC(recv: u64, args_vec: u64) -> i64 {
     let items: Vec<i64> = with_vec(args_vec, Vec::new(), |v| v.clone());
     with_vec_mut(recv, 0i64, |v| {
         for (i, &it) in items.iter().enumerate() {
@@ -1004,8 +1004,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_UNSHIFT_VARIADIC(recv: u64, args_v
 
 /// `arr.fill(value, start, end)` — preenche range com `value` in-place.
 /// Retorna o proprio handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FILL(
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_FILL")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_FILL(
     handle: u64,
     value: i64,
     start: i64,
@@ -1035,8 +1035,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FILL(
 
 /// `arr.flat()` (depth=1) — concatena Vec<Vec<i64>> em Vec<i64>. Cada
 /// elemento que for handle de Vec é expandido; outros são mantidos.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FLAT(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_FLAT")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_FLAT(handle: u64) -> u64 {
     let elems: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
     let mut out: Vec<i64> = Vec::new();
     for e in elems {
@@ -1075,8 +1075,8 @@ fn flat_recursive(elems: &[i64], depth: i64, out: &mut Vec<i64>) {
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FLAT_DEPTH(handle: u64, depth: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_FLAT_DEPTH")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_FLAT_DEPTH(handle: u64, depth: i64) -> u64 {
     let elems: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
     let depth = depth.clamp(0, 1024);
     let mut out: Vec<i64> = Vec::new();
@@ -1086,8 +1086,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FLAT_DEPTH(handle: u64, depth: i64
 
 /// `arr.splice(start, deleteCount)` — remove `deleteCount` elementos a
 /// partir de `start` in-place. Retorna handle de Vec com os removidos.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_REMOVE(
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_SPLICE_REMOVE")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_REMOVE(
     handle: u64,
     start: i64,
     delete_count: i64,
@@ -1107,8 +1107,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_REMOVE(
 
 /// `arr.splice(start, deleteCount, ...items)` — remove `deleteCount` elementos
 /// e insere `items_handle` (Vec) na mesma posicao. Retorna Vec dos removidos.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_INSERT(
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_SPLICE_INSERT")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_INSERT(
     handle: u64,
     start: i64,
     delete_count: i64,
@@ -1139,8 +1139,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_INSERT(
 /// Vec `[start, count?, ...items]` (o emitter genérico empacota tudo). count
 /// omitido = remove até o fim (i64::MAX). Mutaciona o receiver in-place, devolve
 /// os removidos. Move o desempacotamento start/count/items pro runtime.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_AUTO(recv: u64, args_vec: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_SPLICE_AUTO")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_AUTO(recv: u64, args_vec: u64) -> u64 {
     let args: Vec<i64> = with_vec(args_vec, Vec::new(), |v| v.clone());
     let start = args.first().copied().unwrap_or(0);
     let delete_count = if args.len() >= 2 { args[1] } else { i64::MAX };
@@ -1169,8 +1169,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_AUTO(recv: u64, args_vec: u
 /// `arr.toSpliced(start, deleteCount?, ...items)` variádico (imutável) — como
 /// SPLICE_AUTO mas NÃO mutaciona o receiver; devolve um array novo com o splice
 /// aplicado.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_AUTO(recv: u64, args_vec: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_AUTO")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_AUTO(recv: u64, args_vec: u64) -> u64 {
     let args: Vec<i64> = with_vec(args_vec, Vec::new(), |v| v.clone());
     let start = args.first().copied().unwrap_or(0);
     let delete_count = if args.len() >= 2 { args[1] } else { i64::MAX };
@@ -1200,8 +1200,8 @@ pub use rts_primitives::array::{
 
 /// (#208) `Array.from(vecHandle, fn?)` — converte Vec existente, opcionalmente
 /// mapeando cada elemento. Sem fn, retorna copia rasa.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_VEC(src: u64, fn_ptr: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_ARRAY_FROM_VEC")]
+pub fn __RTS_FN_GL_ARRAY_FROM_VEC(src: u64, fn_ptr: u64) -> u64 {
     // (#477) Generator lazy (state-machine): Array.from(gen()) drena o
     // generator ate `done` num Vec (igual o for-of em map.rs). Sem isto,
     // GenState nao casava Vec/Map/Buffer e Array.from devolvia [] (fib= vazio
@@ -1262,8 +1262,8 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_VEC(src: u64, fn_ptr: u64) -> u64 {
 /// (#208) `arr.findLast(fn)` — ultimo elemento que satisfaz, ou undefined.
 /// (cross-runtime #260) Miss retorna sentinela MIN+2 (undefined); codegen
 /// marca como Handle pra TPL_COERCE_AUTO resolver via tabela de sentinelas.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST(handle: u64, fn_ptr: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST(handle: u64, fn_ptr: u64) -> i64 {
     let items: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
     if fn_ptr == 0 {
         return i64::MIN + 2;
@@ -1277,8 +1277,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST(handle: u64, fn_ptr: u64
 }
 
 /// (#208) `arr.findLastIndex(fn)` — index do ultimo match, ou -1.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST_INDEX(handle: u64, fn_ptr: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST_INDEX")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST_INDEX(handle: u64, fn_ptr: u64) -> i64 {
     let items: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
     if fn_ptr == 0 {
         return -1;
@@ -1295,8 +1295,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FIND_LAST_INDEX(handle: u64, fn_pt
 }
 
 /// (#208) `arr.reduceRight(fn, init)` — reduce da direita pra esquerda.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT(
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT(
     handle: u64,
     init: i64,
     fn_ptr: u64,
@@ -1321,8 +1321,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT(
 
 /// (cross-runtime #202) `arr.reduceRight(fn)` sem initial value. JS spec:
 /// ultimo elemento vira acc, loop comeca do penultimo indo pra esquerda.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT_NO_INIT(
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT_NO_INIT")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT_NO_INIT(
     handle: u64,
     fn_ptr: u64,
 ) -> i64 {
@@ -1345,8 +1345,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_REDUCE_RIGHT_NO_INIT(
 /// (#208) `arr.flatMap(fn)` — map + flat depth=1.
 /// Cada elemento de `fn(x)` deve ser handle de Vec; senao adiciona o
 /// proprio valor.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FLAT_MAP(handle: u64, fn_ptr: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_FLAT_MAP")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_FLAT_MAP(handle: u64, fn_ptr: u64) -> u64 {
     let items: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
     if fn_ptr == 0 {
         return alloc_entry(Entry::Vec(Box::new(items)));
@@ -1370,8 +1370,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_FLAT_MAP(handle: u64, fn_ptr: u64)
 
 /// (#208) `arr.copyWithin(target, start?, end?)` — copia secao do array
 /// pra outra posicao no mesmo array, in-place. Retorna o proprio handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_COPY_WITHIN(
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_COPY_WITHIN")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_COPY_WITHIN(
     handle: u64,
     target: i64,
     start: i64,
@@ -1411,8 +1411,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_COPY_WITHIN(
 /// implementada como sort numerico ascendente em i64.
 /// `arr.sort(fn)` com comparator — fn(a,b) deve retornar negativo/0/positivo.
 /// Retorna o proprio handle (in-place).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SORT(handle: u64, fn_ptr: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_SORT")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_SORT(handle: u64, fn_ptr: u64) -> u64 {
     if fn_ptr == 0 {
         // Detecta se elementos sao string handles; se sim, sort lexico-
         // grafico. Senao, sort numerico i64 default.
@@ -1469,8 +1469,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_SORT(handle: u64, fn_ptr: u64) -> 
 /// Symbol.iterator (PR separada).
 /// (#61) Tambem suporta Map/Set handle: retorna values do Map. Set em
 /// RTS eh Map onde key==value (semantica de `new Set([x,y])`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_VALUES(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_VALUES")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_VALUES(handle: u64) -> u64 {
     use rts_engine::heap::handles::with_entry;
     // (#61) Set armazena value=1 marker no Map<String,i64>; values reais
     // sao as keys. Detecta via handle_is_set_kind antes do match Map.
@@ -1506,8 +1506,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_VALUES(handle: u64) -> u64 {
 
 /// (#208) `arr.keys()` — Vec [0, 1, ..., len-1].
 /// (#61) Tambem suporta Map: retorna chaves como string handles.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_KEYS(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_KEYS")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_KEYS(handle: u64) -> u64 {
     use rts_engine::heap::handles::with_entry;
     enum Kind {
         Vec(usize),
@@ -1531,8 +1531,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_KEYS(handle: u64) -> u64 {
 }
 
 /// (#208 ES2023) `arr.toSorted()` — sort imutavel: clona, ordena, retorna novo handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SORTED(handle: u64, fn_ptr: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_TO_SORTED")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SORTED(handle: u64, fn_ptr: u64) -> u64 {
     let mut copy: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
     if fn_ptr == 0 {
         // Detecta string handles e ordena lexico (mesma logica do sort).
@@ -1574,16 +1574,16 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SORTED(handle: u64, fn_ptr: u64
 }
 
 /// (#208 ES2023) `arr.toReversed()` — reverse imutavel.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TO_REVERSED(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_TO_REVERSED")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_TO_REVERSED(handle: u64) -> u64 {
     let mut copy: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
     copy.reverse();
     alloc_entry(Entry::Vec(Box::new(copy)))
 }
 
 /// (#208 ES2023) `arr.toSpliced(start, deleteCount)` — splice imutavel.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED(
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED(
     handle: u64,
     start: i64,
     delete_count: i64,
@@ -1601,8 +1601,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED(
 }
 
 /// `arr.toSpliced(start, deleteCount, ...items)` com inserts.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_INSERT(
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_INSERT")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_INSERT(
     handle: u64,
     start: i64,
     delete_count: i64,
@@ -1628,8 +1628,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_INSERT(
 }
 
 /// (#208 ES2023) `arr.with(idx, value)` — substitui elemento, retorna novo Vec.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_WITH(handle: u64, idx: i64, value: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_WITH")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_WITH(handle: u64, idx: i64, value: i64) -> u64 {
     let mut copy: Vec<i64> = with_vec(handle, Vec::new(), |v| v.clone());
     let len = copy.len() as i64;
     let i = if idx < 0 {
@@ -1648,8 +1648,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_WITH(handle: u64, idx: i64, value:
 /// (#61) Tambem suporta Map handle: entries de [key_str_handle, value].
 /// Quando codegen nao sabe se o receiver eh Map ou Vec (member access em
 /// var ambigua), este path generico funciona pra ambos.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_VEC_ENTRIES(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_ENTRIES")]
+pub fn __RTS_FN_NS_COLLECTIONS_VEC_ENTRIES(handle: u64) -> u64 {
     use rts_engine::heap::handles::with_entry;
     enum Kind {
         Vec(Vec<i64>),

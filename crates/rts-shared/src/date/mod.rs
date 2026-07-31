@@ -140,8 +140,8 @@ fn parse_iso(s: &str) -> Option<i64> {
 
 /// `Date.parse(s)` — JS spec: ms desde epoch ou NaN. NOT a namespace member
 /// (the constructor `new Date(string)` uses the i64+sentinel `from_iso`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DATE_PARSE_F64(ptr: u64, len: i64) -> f64 {
+#[rtse::abi("__RTS_FN_NS_DATE_PARSE_F64")]
+pub fn __RTS_FN_NS_DATE_PARSE_F64(ptr: u64, len: i64) -> f64 {
     let Some(bytes) = slice_from(ptr, len) else {
         return f64::NAN;
     };
@@ -155,8 +155,8 @@ pub extern "C" fn __RTS_FN_NS_DATE_PARSE_F64(ptr: u64, len: i64) -> f64 {
 }
 
 /// Now, in ms since the Unix epoch (UTC).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DATE_NOW_MS() -> I64 {
+#[rtse::abi("__RTS_FN_NS_DATE_NOW_MS")]
+pub fn __RTS_FN_NS_DATE_NOW_MS() -> I64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
@@ -164,8 +164,10 @@ pub extern "C" fn __RTS_FN_NS_DATE_NOW_MS() -> I64 {
 }
 
 /// Parse an ISO 8601 string to ms. Returns i64::MIN sentinel on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DATE_FROM_ISO(text_ptr: *const u8, text_len: i64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_DATE_FROM_ISO")]
+pub fn __RTS_FN_NS_DATE_FROM_ISO(text_ptr: u64, text_len: i64) -> I64 {
+    let text_ptr = text_ptr as *const u8;
+
     let text = match unsafe { rts_engine::abi::str_abi::from_abi(text_ptr, text_len) } {
         Some(s) => s,
         None => return i64::MIN,
@@ -174,8 +176,8 @@ pub extern "C" fn __RTS_FN_NS_DATE_FROM_ISO(text_ptr: *const u8, text_len: i64) 
 }
 
 /// Build ms from calendar parts. Two-digit years (0..99) map to 1900+y.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DATE_FROM_PARTS(
+#[rtse::abi("__RTS_FN_NS_DATE_FROM_PARTS")]
+pub fn __RTS_FN_NS_DATE_FROM_PARTS(
     year: I64,
     month: I64,
     day: I64,
@@ -193,58 +195,58 @@ pub extern "C" fn __RTS_FN_NS_DATE_FROM_PARTS(
 }
 
 /// Year (UTC).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DATE_YEAR(ts: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_DATE_YEAR")]
+pub fn __RTS_FN_NS_DATE_YEAR(ts: I64) -> I64 {
     unpack(ts).0
 }
 
 /// Month, 0-indexed (UTC).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DATE_MONTH(ts: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_DATE_MONTH")]
+pub fn __RTS_FN_NS_DATE_MONTH(ts: I64) -> I64 {
     unpack(ts).1
 }
 
 /// Day of month (UTC).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DATE_DAY(ts: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_DATE_DAY")]
+pub fn __RTS_FN_NS_DATE_DAY(ts: I64) -> I64 {
     unpack(ts).2
 }
 
 /// Weekday, Sunday=0 (UTC).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DATE_WEEKDAY(ts: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_DATE_WEEKDAY")]
+pub fn __RTS_FN_NS_DATE_WEEKDAY(ts: I64) -> I64 {
     // 1970-01-01 was Thursday (4); Sunday=0 in JS semantics.
     let days = ts.div_euclid(MS_PER_DAY);
     (((days % 7) + 4) % 7 + 7) % 7
 }
 
 /// Hour (UTC).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DATE_HOUR(ts: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_DATE_HOUR")]
+pub fn __RTS_FN_NS_DATE_HOUR(ts: I64) -> I64 {
     unpack(ts).3
 }
 
 /// Minute (UTC).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DATE_MINUTE(ts: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_DATE_MINUTE")]
+pub fn __RTS_FN_NS_DATE_MINUTE(ts: I64) -> I64 {
     unpack(ts).4
 }
 
 /// Second (UTC).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DATE_SECOND(ts: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_DATE_SECOND")]
+pub fn __RTS_FN_NS_DATE_SECOND(ts: I64) -> I64 {
     unpack(ts).5
 }
 
 /// Millisecond (UTC).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DATE_MILLISECOND(ts: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_DATE_MILLISECOND")]
+pub fn __RTS_FN_NS_DATE_MILLISECOND(ts: I64) -> I64 {
     unpack(ts).6
 }
 
 /// ISO 8601 string (UTC). Returns a GC string handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DATE_TO_ISO(ts: I64) -> Handle {
+#[rtse::abi("__RTS_FN_NS_DATE_TO_ISO")]
+pub fn __RTS_FN_NS_DATE_TO_ISO(ts: I64) -> Handle {
     let (y, mo, d, h, mi, s, ms) = unpack(ts);
     // ES `Date.prototype.toISOString` uses the EXPANDED YEAR form whenever the
     // year is outside 0..=9999: a sign plus SIX digits (`+275760-09-13…`,

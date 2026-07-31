@@ -19,8 +19,10 @@ fn hash_slice(bytes: &[u8]) -> i64 {
 }
 
 /// SipHash de uma string UTF-8.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_HASH_HASH_STR(ptr: *const u8, len: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_HASH_HASH_STR")]
+pub fn __RTS_FN_NS_HASH_HASH_STR(ptr: u64, len: i64) -> i64 {
+    let ptr = ptr as *const u8;
+
     let s = match unsafe { rts_engine::abi::str_abi::from_abi(ptr, len) } {
         Some(s) => s,
         None => return 0,
@@ -29,8 +31,8 @@ pub extern "C" fn __RTS_FN_NS_HASH_HASH_STR(ptr: *const u8, len: i64) -> i64 {
 }
 
 /// SipHash de uma regiao de memoria (ptr + len). Use com buffer.ptr(handle).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_HASH_HASH_BYTES(ptr: i64, len: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_HASH_HASH_BYTES")]
+pub fn __RTS_FN_NS_HASH_HASH_BYTES(ptr: i64, len: i64) -> i64 {
     if ptr == 0 || len < 0 {
         return 0;
     }
@@ -40,16 +42,16 @@ pub extern "C" fn __RTS_FN_NS_HASH_HASH_BYTES(ptr: i64, len: i64) -> i64 {
 }
 
 /// SipHash de um inteiro de 64 bits.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_HASH_HASH_I64(value: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_HASH_HASH_I64")]
+pub fn __RTS_FN_NS_HASH_HASH_I64(value: i64) -> i64 {
     let mut hasher = DefaultHasher::new();
     value.hash(&mut hasher);
     hasher.finish() as i64
 }
 
 /// Combina dois hashes preservando entropia (estilo boost::hash_combine).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_HASH_HASH_COMBINE(h1: i64, h2: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_HASH_HASH_COMBINE")]
+pub fn __RTS_FN_NS_HASH_HASH_COMBINE(h1: i64, h2: i64) -> i64 {
     // Constante = golden ratio truncada. Aritmetica bitwise em u64 pra preservar
     // os bits altos; shift << 6 em i64 sinalizado seria ambiguo em negativos.
     let (a, b) = (h1 as u64, h2 as u64);

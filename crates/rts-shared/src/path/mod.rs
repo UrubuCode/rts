@@ -18,13 +18,16 @@ fn intern(s: &str) -> u64 {
 }
 
 /// Joins a base path with a relative fragment.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PATH_JOIN(
-    base_ptr: *const u8,
+#[rtse::abi("__RTS_FN_NS_PATH_JOIN")]
+pub fn __RTS_FN_NS_PATH_JOIN(
+    base_ptr: u64,
     base_len: i64,
-    part_ptr: *const u8,
+    part_ptr: u64,
     part_len: i64,
 ) -> u64 {
+    let base_ptr = base_ptr as *const u8;
+    let part_ptr = part_ptr as *const u8;
+
     let (Some(base), Some(part)) = (unsafe { from_abi(base_ptr, base_len) }, unsafe {
         from_abi(part_ptr, part_len)
     }) else {
@@ -35,8 +38,10 @@ pub extern "C" fn __RTS_FN_NS_PATH_JOIN(
 }
 
 /// Parent directory; 0 when path has no parent (e.g. root or bare filename).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PATH_PARENT(path_ptr: *const u8, path_len: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_PATH_PARENT")]
+pub fn __RTS_FN_NS_PATH_PARENT(path_ptr: u64, path_len: i64) -> u64 {
+    let path_ptr = path_ptr as *const u8;
+
     let Some(path) = (unsafe { from_abi(path_ptr, path_len) }) else {
         return 0;
     };
@@ -48,8 +53,10 @@ pub extern "C" fn __RTS_FN_NS_PATH_PARENT(path_ptr: *const u8, path_len: i64) ->
 }
 
 /// Final component of the path (file name with extension).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PATH_FILE_NAME(path_ptr: *const u8, path_len: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_PATH_FILE_NAME")]
+pub fn __RTS_FN_NS_PATH_FILE_NAME(path_ptr: u64, path_len: i64) -> u64 {
+    let path_ptr = path_ptr as *const u8;
+
     let Some(path) = (unsafe { from_abi(path_ptr, path_len) }) else {
         return 0;
     };
@@ -61,8 +68,10 @@ pub extern "C" fn __RTS_FN_NS_PATH_FILE_NAME(path_ptr: *const u8, path_len: i64)
 }
 
 /// File name without extension.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PATH_STEM(path_ptr: *const u8, path_len: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_PATH_STEM")]
+pub fn __RTS_FN_NS_PATH_STEM(path_ptr: u64, path_len: i64) -> u64 {
+    let path_ptr = path_ptr as *const u8;
+
     let Some(path) = (unsafe { from_abi(path_ptr, path_len) }) else {
         return 0;
     };
@@ -74,8 +83,10 @@ pub extern "C" fn __RTS_FN_NS_PATH_STEM(path_ptr: *const u8, path_len: i64) -> u
 }
 
 /// File extension without leading dot; 0 when absent.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PATH_EXT(path_ptr: *const u8, path_len: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_PATH_EXT")]
+pub fn __RTS_FN_NS_PATH_EXT(path_ptr: u64, path_len: i64) -> u64 {
+    let path_ptr = path_ptr as *const u8;
+
     let Some(path) = (unsafe { from_abi(path_ptr, path_len) }) else {
         return 0;
     };
@@ -87,8 +98,10 @@ pub extern "C" fn __RTS_FN_NS_PATH_EXT(path_ptr: *const u8, path_len: i64) -> u6
 }
 
 /// True when path is absolute for the current target.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PATH_IS_ABSOLUTE(path_ptr: *const u8, path_len: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_PATH_IS_ABSOLUTE")]
+pub fn __RTS_FN_NS_PATH_IS_ABSOLUTE(path_ptr: u64, path_len: i64) -> i64 {
+    let path_ptr = path_ptr as *const u8;
+
     let Some(path) = (unsafe { from_abi(path_ptr, path_len) }) else {
         return 0;
     };
@@ -96,8 +109,10 @@ pub extern "C" fn __RTS_FN_NS_PATH_IS_ABSOLUTE(path_ptr: *const u8, path_len: i6
 }
 
 /// Removes `.` and collapses `..` without touching the filesystem.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PATH_NORMALIZE(path_ptr: *const u8, path_len: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_PATH_NORMALIZE")]
+pub fn __RTS_FN_NS_PATH_NORMALIZE(path_ptr: u64, path_len: i64) -> u64 {
+    let path_ptr = path_ptr as *const u8;
+
     let Some(path) = (unsafe { from_abi(path_ptr, path_len) }) else {
         return 0;
     };
@@ -125,13 +140,16 @@ pub extern "C" fn __RTS_FN_NS_PATH_NORMALIZE(path_ptr: *const u8, path_len: i64)
 }
 
 /// Returns the path with the extension replaced (or added).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PATH_WITH_EXT(
-    path_ptr: *const u8,
+#[rtse::abi("__RTS_FN_NS_PATH_WITH_EXT")]
+pub fn __RTS_FN_NS_PATH_WITH_EXT(
+    path_ptr: u64,
     path_len: i64,
-    ext_ptr: *const u8,
+    ext_ptr: u64,
     ext_len: i64,
 ) -> u64 {
+    let path_ptr = path_ptr as *const u8;
+    let ext_ptr = ext_ptr as *const u8;
+
     let (Some(path), Some(ext)) = (unsafe { from_abi(path_ptr, path_len) }, unsafe {
         from_abi(ext_ptr, ext_len)
     }) else {

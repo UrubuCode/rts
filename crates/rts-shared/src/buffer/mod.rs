@@ -41,8 +41,8 @@ where
 // ── Membros do namespace `buffer` (extern "C" + builder, sem macro) ──────────
 
 /// Allocates a zero-initialised byte buffer of `size` bytes.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BUFFER_ALLOC(size: I64) -> Handle {
+#[rtse::abi("__RTS_FN_NS_BUFFER_ALLOC")]
+pub fn __RTS_FN_NS_BUFFER_ALLOC(size: I64) -> Handle {
     if size < 0 {
         return 0;
     }
@@ -51,32 +51,32 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_ALLOC(size: I64) -> Handle {
 }
 
 /// Alias for alloc — Rust Vec::new already zeroes.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BUFFER_ALLOC_ZEROED(size: I64) -> Handle {
+#[rtse::abi("__RTS_FN_NS_BUFFER_ALLOC_ZEROED")]
+pub fn __RTS_FN_NS_BUFFER_ALLOC_ZEROED(size: I64) -> Handle {
     __RTS_FN_NS_BUFFER_ALLOC(size)
 }
 
 /// Releases the buffer handle. Subsequent reads/writes are no-ops.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BUFFER_FREE(handle: U64) {
+#[rtse::abi("__RTS_FN_NS_BUFFER_FREE")]
+pub fn __RTS_FN_NS_BUFFER_FREE(handle: U64) {
     free_handle(handle);
 }
 
 /// Buffer length in bytes, or -1 if the handle is invalid.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BUFFER_LEN(handle: U64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_BUFFER_LEN")]
+pub fn __RTS_FN_NS_BUFFER_LEN(handle: U64) -> I64 {
     with_buffer(handle, -1, |b| b.len() as i64)
 }
 
 /// Raw pointer to the buffer start, or 0 when invalid. Unsafe — callers must not outlive the handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BUFFER_PTR(handle: U64) -> U64 {
+#[rtse::abi("__RTS_FN_NS_BUFFER_PTR")]
+pub fn __RTS_FN_NS_BUFFER_PTR(handle: U64) -> U64 {
     with_buffer(handle, 0, |b| b.as_ptr() as u64)
 }
 
 /// Reads the byte at `offset`. Returns 0 out of bounds.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BUFFER_READ_U8(handle: U64, offset: I64) -> I32 {
+#[rtse::abi("__RTS_FN_NS_BUFFER_READ_U8")]
+pub fn __RTS_FN_NS_BUFFER_READ_U8(handle: U64, offset: I64) -> I32 {
     with_buffer(handle, 0, |b| {
         if offset < 0 {
             return 0;
@@ -86,8 +86,8 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_READ_U8(handle: U64, offset: I64) -> I32 {
 }
 
 /// Reads a little-endian i32 at `offset`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BUFFER_READ_I32(handle: U64, offset: I64) -> I32 {
+#[rtse::abi("__RTS_FN_NS_BUFFER_READ_I32")]
+pub fn __RTS_FN_NS_BUFFER_READ_I32(handle: U64, offset: I64) -> I32 {
     with_buffer(handle, 0, |b| {
         if offset < 0 {
             return 0;
@@ -103,8 +103,8 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_READ_I32(handle: U64, offset: I64) -> I32 {
 }
 
 /// Reads a little-endian i64 at `offset`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BUFFER_READ_I64(handle: U64, offset: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_BUFFER_READ_I64")]
+pub fn __RTS_FN_NS_BUFFER_READ_I64(handle: U64, offset: I64) -> I64 {
     with_buffer(handle, 0, |b| {
         if offset < 0 {
             return 0;
@@ -120,8 +120,8 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_READ_I64(handle: U64, offset: I64) -> I64 {
 }
 
 /// Reads a little-endian f64 at `offset`. NaN out of bounds.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BUFFER_READ_F64(handle: U64, offset: I64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_BUFFER_READ_F64")]
+pub fn __RTS_FN_NS_BUFFER_READ_F64(handle: U64, offset: I64) -> F64 {
     with_buffer(handle, f64::NAN, |b| {
         if offset < 0 {
             return f64::NAN;
@@ -137,8 +137,8 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_READ_F64(handle: U64, offset: I64) -> F64 {
 }
 
 /// Reads a little-endian f32 at `offset`, widened to number. NaN out of bounds.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BUFFER_READ_F32(handle: U64, offset: I64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_BUFFER_READ_F32")]
+pub fn __RTS_FN_NS_BUFFER_READ_F32(handle: U64, offset: I64) -> F64 {
     with_buffer(handle, f64::NAN, |b| {
         if offset < 0 {
             return f64::NAN;
@@ -154,8 +154,8 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_READ_F32(handle: U64, offset: I64) -> F64 {
 }
 
 /// Writes `val` as u8 at `offset`. No-op out of bounds.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BUFFER_WRITE_U8(handle: U64, offset: I64, val: I32) {
+#[rtse::abi("__RTS_FN_NS_BUFFER_WRITE_U8")]
+pub fn __RTS_FN_NS_BUFFER_WRITE_U8(handle: U64, offset: I64, val: I32) {
     with_buffer_mut(handle, (), |b| {
         if offset < 0 {
             return;
@@ -167,8 +167,8 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_WRITE_U8(handle: U64, offset: I64, val: I32
 }
 
 /// Writes a little-endian i32 at `offset`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BUFFER_WRITE_I32(handle: U64, offset: I64, val: I32) {
+#[rtse::abi("__RTS_FN_NS_BUFFER_WRITE_I32")]
+pub fn __RTS_FN_NS_BUFFER_WRITE_I32(handle: U64, offset: I64, val: I32) {
     with_buffer_mut(handle, (), |b| {
         if offset < 0 {
             return;
@@ -183,8 +183,8 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_WRITE_I32(handle: U64, offset: I64, val: I3
 }
 
 /// Writes a little-endian i64 at `offset`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BUFFER_WRITE_I64(handle: U64, offset: I64, val: I64) {
+#[rtse::abi("__RTS_FN_NS_BUFFER_WRITE_I64")]
+pub fn __RTS_FN_NS_BUFFER_WRITE_I64(handle: U64, offset: I64, val: I64) {
     with_buffer_mut(handle, (), |b| {
         if offset < 0 {
             return;
@@ -199,8 +199,8 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_WRITE_I64(handle: U64, offset: I64, val: I6
 }
 
 /// Writes a little-endian f64 at `offset`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BUFFER_WRITE_F64(handle: U64, offset: I64, val: F64) {
+#[rtse::abi("__RTS_FN_NS_BUFFER_WRITE_F64")]
+pub fn __RTS_FN_NS_BUFFER_WRITE_F64(handle: U64, offset: I64, val: F64) {
     with_buffer_mut(handle, (), |b| {
         if offset < 0 {
             return;
@@ -215,8 +215,8 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_WRITE_F64(handle: U64, offset: I64, val: F6
 }
 
 /// Writes `val` as a little-endian f32 at `offset` (narrowed from number). No-op out of bounds. Ideal for audio sample buffers.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BUFFER_WRITE_F32(handle: U64, offset: I64, val: F64) {
+#[rtse::abi("__RTS_FN_NS_BUFFER_WRITE_F32")]
+pub fn __RTS_FN_NS_BUFFER_WRITE_F32(handle: U64, offset: I64, val: F64) {
     with_buffer_mut(handle, (), |b| {
         if offset < 0 {
             return;
@@ -231,8 +231,8 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_WRITE_F32(handle: U64, offset: I64, val: F6
 }
 
 /// Copies `len` bytes from src+srcOff to dst+dstOff. Safe with overlapping src/dst.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BUFFER_COPY(
+#[rtse::abi("__RTS_FN_NS_BUFFER_COPY")]
+pub fn __RTS_FN_NS_BUFFER_COPY(
     dst: U64,
     dst_off: I64,
     src: U64,
@@ -265,8 +265,8 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_COPY(
 }
 
 /// Fills the first `len` bytes with `byte`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BUFFER_FILL(handle: U64, byte: I32, len: I64) {
+#[rtse::abi("__RTS_FN_NS_BUFFER_FILL")]
+pub fn __RTS_FN_NS_BUFFER_FILL(handle: U64, byte: I32, len: I64) {
     if len <= 0 {
         return;
     }
@@ -279,8 +279,8 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_FILL(handle: U64, byte: I32, len: I64) {
 }
 
 /// Interprets buffer contents as UTF-8 and returns a string handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BUFFER_TO_STRING(handle: U64) -> Handle {
+#[rtse::abi("__RTS_FN_NS_BUFFER_TO_STRING")]
+pub fn __RTS_FN_NS_BUFFER_TO_STRING(handle: U64) -> Handle {
     // Clona os bytes antes de chamar STRING_NEW: o callback de
     // with_buffer segura o lock do HandleTable, e STRING_NEW tambem
     // tenta adquirir o mesmo lock — chamar dentro do callback gera
@@ -291,8 +291,8 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_TO_STRING(handle: U64) -> Handle {
 }
 
 /// Byte-wise equality of two buffers.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BUFFER_EQUALS(a: U64, b: U64) -> Bool {
+#[rtse::abi("__RTS_FN_NS_BUFFER_EQUALS")]
+pub fn __RTS_FN_NS_BUFFER_EQUALS(a: U64, b: U64) -> Bool {
     if a == b {
         // Mesmo handle (ou ambos zero) — trivialmente iguais se vivos.
         return with_buffer(a, 0, |_| 1);
@@ -305,8 +305,8 @@ pub extern "C" fn __RTS_FN_NS_BUFFER_EQUALS(a: U64, b: U64) -> Bool {
 }
 
 /// Index of first occurrence of byte starting at `from`. Returns -1 if not found.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BUFFER_INDEX_OF(handle: U64, byte: I32, from: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_BUFFER_INDEX_OF")]
+pub fn __RTS_FN_NS_BUFFER_INDEX_OF(handle: U64, byte: I32, from: I64) -> I64 {
     let target = byte as u8;
     with_buffer(handle, -1, |buf| {
         let start = if from < 0 {
@@ -543,8 +543,8 @@ pub fn register(e: &mut Engine) {
 // por Entry::Buffer. NAO sao membros do namespace `buffer`; codegen chama por
 // simbolo. Ficam como free externs.
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_UINT8(handle: u64, offset: i64, val: i64) {
+#[rtse::abi("__RTS_FN_GL_DATAVIEW_SET_UINT8")]
+pub fn __RTS_FN_GL_DATAVIEW_SET_UINT8(handle: u64, offset: i64, val: i64) {
     with_buffer_mut(handle, (), |b| {
         if offset >= 0 {
             if let Some(s) = b.get_mut(offset as usize) {
@@ -554,8 +554,8 @@ pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_UINT8(handle: u64, offset: i64, val: 
     });
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_UINT8(handle: u64, offset: i64) -> i64 {
+#[rtse::abi("__RTS_FN_GL_DATAVIEW_GET_UINT8")]
+pub fn __RTS_FN_GL_DATAVIEW_GET_UINT8(handle: u64, offset: i64) -> i64 {
     with_buffer(handle, 0, |b| {
         if offset >= 0 {
             b.get(offset as usize).map(|&v| v as i64).unwrap_or(0)
@@ -565,32 +565,32 @@ pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_UINT8(handle: u64, offset: i64) -> i6
     })
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_UINT16(handle: u64, offset: i64, val: i64) {
+#[rtse::abi("__RTS_FN_GL_DATAVIEW_SET_UINT16")]
+pub fn __RTS_FN_GL_DATAVIEW_SET_UINT16(handle: u64, offset: i64, val: i64) {
     write_bytes_at(handle, offset, &(val as u16).to_be_bytes());
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_UINT16(handle: u64, offset: i64) -> i64 {
+#[rtse::abi("__RTS_FN_GL_DATAVIEW_GET_UINT16")]
+pub fn __RTS_FN_GL_DATAVIEW_GET_UINT16(handle: u64, offset: i64) -> i64 {
     read_bytes_at::<2>(handle, offset)
         .map(|b| u16::from_be_bytes(b) as i64)
         .unwrap_or(0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_INT32(handle: u64, offset: i64, val: i64) {
+#[rtse::abi("__RTS_FN_GL_DATAVIEW_SET_INT32")]
+pub fn __RTS_FN_GL_DATAVIEW_SET_INT32(handle: u64, offset: i64, val: i64) {
     write_bytes_at(handle, offset, &(val as i32).to_be_bytes());
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_INT32(handle: u64, offset: i64) -> i64 {
+#[rtse::abi("__RTS_FN_GL_DATAVIEW_GET_INT32")]
+pub fn __RTS_FN_GL_DATAVIEW_GET_INT32(handle: u64, offset: i64) -> i64 {
     read_bytes_at::<4>(handle, offset)
         .map(|b| i32::from_be_bytes(b) as i64)
         .unwrap_or(0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATAVIEW_BYTE_LENGTH(handle: u64) -> i64 {
+#[rtse::abi("__RTS_FN_GL_DATAVIEW_BYTE_LENGTH")]
+pub fn __RTS_FN_GL_DATAVIEW_BYTE_LENGTH(handle: u64) -> i64 {
     with_buffer(handle, 0, |b| b.len() as i64)
 }
 
@@ -632,22 +632,22 @@ pub use rts_primitives::arraybuffer::{
 /// `new DataView(buffer)` — view sobre o ArrayBuffer (byteOffset 0). O
 /// handle do DataView eh o proprio handle do buffer (sem offset/length
 /// parciais por enquanto).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATAVIEW_NEW(buffer: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_DATAVIEW_NEW")]
+pub fn __RTS_FN_GL_DATAVIEW_NEW(buffer: u64) -> u64 {
     buffer
 }
 
 /// `dataView.byteOffset` — sempre 0 nesta implementacao (view cobre todo
 /// o buffer).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATAVIEW_BYTE_OFFSET(_handle: u64) -> i64 {
+#[rtse::abi("__RTS_FN_GL_DATAVIEW_BYTE_OFFSET")]
+pub fn __RTS_FN_GL_DATAVIEW_BYTE_OFFSET(_handle: u64) -> i64 {
     0
 }
 
 // ── DataView com flag littleEndian (overloads 3-arg get / 4-arg set) ────────
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_UINT16_LE(
+#[rtse::abi("__RTS_FN_GL_DATAVIEW_SET_UINT16_LE")]
+pub fn __RTS_FN_GL_DATAVIEW_SET_UINT16_LE(
     handle: u64,
     offset: i64,
     val: i64,
@@ -662,8 +662,8 @@ pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_UINT16_LE(
     write_bytes_at(handle, offset, &bytes);
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_UINT16_LE(
+#[rtse::abi("__RTS_FN_GL_DATAVIEW_GET_UINT16_LE")]
+pub fn __RTS_FN_GL_DATAVIEW_GET_UINT16_LE(
     handle: u64,
     offset: i64,
     little_endian: i32,
@@ -673,8 +673,8 @@ pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_UINT16_LE(
         .unwrap_or(0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_INT32_LE(
+#[rtse::abi("__RTS_FN_GL_DATAVIEW_SET_INT32_LE")]
+pub fn __RTS_FN_GL_DATAVIEW_SET_INT32_LE(
     handle: u64,
     offset: i64,
     val: i64,
@@ -689,8 +689,8 @@ pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_INT32_LE(
     write_bytes_at(handle, offset, &bytes);
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_INT32_LE(
+#[rtse::abi("__RTS_FN_GL_DATAVIEW_GET_INT32_LE")]
+pub fn __RTS_FN_GL_DATAVIEW_GET_INT32_LE(
     handle: u64,
     offset: i64,
     little_endian: i32,
@@ -701,8 +701,8 @@ pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_INT32_LE(
 }
 
 // Floats — sempre recebem o flag (fixtures usam littleEndian explicito).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_FLOAT64(
+#[rtse::abi("__RTS_FN_GL_DATAVIEW_SET_FLOAT64")]
+pub fn __RTS_FN_GL_DATAVIEW_SET_FLOAT64(
     handle: u64,
     offset: i64,
     val: f64,
@@ -719,8 +719,8 @@ pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_FLOAT64(
     write_bytes_at(handle, offset, &bytes);
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_FLOAT64(
+#[rtse::abi("__RTS_FN_GL_DATAVIEW_GET_FLOAT64")]
+pub fn __RTS_FN_GL_DATAVIEW_GET_FLOAT64(
     handle: u64,
     offset: i64,
     little_endian: i32,
@@ -736,8 +736,8 @@ pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_FLOAT64(
         .unwrap_or(0.0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_FLOAT32(
+#[rtse::abi("__RTS_FN_GL_DATAVIEW_SET_FLOAT32")]
+pub fn __RTS_FN_GL_DATAVIEW_SET_FLOAT32(
     handle: u64,
     offset: i64,
     val: f64,
@@ -754,8 +754,8 @@ pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_FLOAT32(
     write_bytes_at(handle, offset, &bytes);
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_FLOAT32(
+#[rtse::abi("__RTS_FN_GL_DATAVIEW_GET_FLOAT32")]
+pub fn __RTS_FN_GL_DATAVIEW_GET_FLOAT32(
     handle: u64,
     offset: i64,
     little_endian: i32,
@@ -773,8 +773,8 @@ pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_FLOAT32(
 
 // ── DataView BigInt64/BigUint64 (#65) — 8-byte int, littleEndian flag ────────
 // BigInt cruza o JIT como i64 cru (mesma convencao dos literais `1n`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_BIGINT64(
+#[rtse::abi("__RTS_FN_GL_DATAVIEW_SET_BIGINT64")]
+pub fn __RTS_FN_GL_DATAVIEW_SET_BIGINT64(
     handle: u64,
     offset: i64,
     val: i64,
@@ -791,8 +791,8 @@ pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_BIGINT64(
     write_bytes_at(handle, offset, &bytes);
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_BIGINT64(
+#[rtse::abi("__RTS_FN_GL_DATAVIEW_GET_BIGINT64")]
+pub fn __RTS_FN_GL_DATAVIEW_GET_BIGINT64(
     handle: u64,
     offset: i64,
     little_endian: i32,
@@ -808,8 +808,8 @@ pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_BIGINT64(
         .unwrap_or(0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_BIGUINT64(
+#[rtse::abi("__RTS_FN_GL_DATAVIEW_SET_BIGUINT64")]
+pub fn __RTS_FN_GL_DATAVIEW_SET_BIGUINT64(
     handle: u64,
     offset: i64,
     val: i64,
@@ -826,8 +826,8 @@ pub extern "C" fn __RTS_FN_GL_DATAVIEW_SET_BIGUINT64(
     write_bytes_at(handle, offset, &bytes);
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_BIGUINT64(
+#[rtse::abi("__RTS_FN_GL_DATAVIEW_GET_BIGUINT64")]
+pub fn __RTS_FN_GL_DATAVIEW_GET_BIGUINT64(
     handle: u64,
     offset: i64,
     little_endian: i32,
@@ -841,8 +841,8 @@ pub extern "C" fn __RTS_FN_GL_DATAVIEW_GET_BIGUINT64(
 
 /// Le `view[index]` de um Entry::Buffer. `elem_bytes` = 1/2/4/8; `signed`!=0
 /// estende sinal; `is_float`!=0 retorna bits f64 (4=f32->f64, 8=f64).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TA_GET_ELEM(
+#[rtse::abi("__RTS_FN_GL_TA_GET_ELEM")]
+pub fn __RTS_FN_GL_TA_GET_ELEM(
     handle: u64,
     index: i64,
     elem_bytes: i64,
@@ -886,8 +886,8 @@ pub extern "C" fn __RTS_FN_GL_TA_GET_ELEM(
 }
 
 /// Escreve `view[index] = val` num Entry::Buffer (little-endian).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TA_SET_ELEM(
+#[rtse::abi("__RTS_FN_GL_TA_SET_ELEM")]
+pub fn __RTS_FN_GL_TA_SET_ELEM(
     handle: u64,
     index: i64,
     elem_bytes: i64,
@@ -929,8 +929,8 @@ pub extern "C" fn __RTS_FN_GL_TA_SET_ELEM(
 /// anterior (retornado por add/sub/and/or/xor/exchange/compareExchange).
 ///
 /// op: 0=add 1=sub 2=and 3=or 4=xor 5=exchange (store+ret prev)
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ATOMICS_RMW(
+#[rtse::abi("__RTS_FN_GL_ATOMICS_RMW")]
+pub fn __RTS_FN_GL_ATOMICS_RMW(
     handle: u64,
     index: i64,
     elem_bytes: i64,
@@ -955,8 +955,8 @@ pub extern "C" fn __RTS_FN_GL_ATOMICS_RMW(
 /// (#69) Atomics.compareExchange(view, idx, expected, replacement). Se o
 /// valor atual == expected, grava replacement. Retorna SEMPRE o valor
 /// anterior (spec JS), tenha trocado ou nao.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ATOMICS_CAS(
+#[rtse::abi("__RTS_FN_GL_ATOMICS_CAS")]
+pub fn __RTS_FN_GL_ATOMICS_CAS(
     handle: u64,
     index: i64,
     elem_bytes: i64,
@@ -972,8 +972,8 @@ pub extern "C" fn __RTS_FN_GL_ATOMICS_CAS(
 }
 
 /// (#69) Atomics.load(view, idx) — leitura simples (signed-aware).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ATOMICS_LOAD(
+#[rtse::abi("__RTS_FN_GL_ATOMICS_LOAD")]
+pub fn __RTS_FN_GL_ATOMICS_LOAD(
     handle: u64,
     index: i64,
     elem_bytes: i64,
@@ -983,8 +983,8 @@ pub extern "C" fn __RTS_FN_GL_ATOMICS_LOAD(
 }
 
 /// (#69) Atomics.store(view, idx, value) — grava e retorna value (spec JS).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ATOMICS_STORE(
+#[rtse::abi("__RTS_FN_GL_ATOMICS_STORE")]
+pub fn __RTS_FN_GL_ATOMICS_STORE(
     handle: u64,
     index: i64,
     elem_bytes: i64,
@@ -998,8 +998,8 @@ pub extern "C" fn __RTS_FN_GL_ATOMICS_STORE(
 /// sobre (Shared)ArrayBuffer. Escreve cada elemento de `src` (Vec<i64>) como
 /// `elem_bytes` bytes little-endian no buffer, a partir de `offset` (em
 /// elementos). Reusa TA_SET_ELEM para respeitar signed/float e bounds.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TA_SET_FROM(
+#[rtse::abi("__RTS_FN_GL_TA_SET_FROM")]
+pub fn __RTS_FN_GL_TA_SET_FROM(
     handle: u64,
     src: u64,
     offset: i64,
@@ -1019,8 +1019,8 @@ pub extern "C" fn __RTS_FN_GL_TA_SET_FROM(
 }
 
 /// `typedArray.length` quando o backing eh um ArrayBuffer: byteLength/elem_bytes.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TA_LENGTH(handle: u64, elem_bytes: i64) -> i64 {
+#[rtse::abi("__RTS_FN_GL_TA_LENGTH")]
+pub fn __RTS_FN_GL_TA_LENGTH(handle: u64, elem_bytes: i64) -> i64 {
     with_buffer(handle, 0, |b| {
         if elem_bytes <= 0 {
             return 0;
@@ -1032,8 +1032,8 @@ pub extern "C" fn __RTS_FN_GL_TA_LENGTH(handle: u64, elem_bytes: i64) -> i64 {
 /// (#68) Detach de ArrayBuffer (transferencia via structuredClone
 /// `{transfer:[buf]}`). JS spec: o buffer fonte fica detached — byteLength
 /// vira 0 e views sobre ele leem 0. RTS modela truncando o Buffer a vazio.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_BUFFER_DETACH(handle: u64) {
+#[rtse::abi("__RTS_FN_GL_BUFFER_DETACH")]
+pub fn __RTS_FN_GL_BUFFER_DETACH(handle: u64) {
     with_buffer_mut(handle, (), |b| b.clear());
 }
 
@@ -1041,8 +1041,8 @@ pub extern "C" fn __RTS_FN_GL_BUFFER_DETACH(handle: u64) {
 
 /// `engine.is_buffer(word)` — whether the PolyValue word wraps an
 /// `Entry::Buffer` (an ArrayBuffer). Returns a bool word.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ENGINE_IS_BUFFER(word: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_ENGINE_IS_BUFFER")]
+pub fn __RTS_FN_NS_ENGINE_IS_BUFFER(word: u64) -> u64 {
     use rts_engine::heap::poly::*;
     let boxed = (word & POLY_BOX_BASE) == POLY_BOX_BASE;
     let is_obj = boxed && ((word >> POLY_TAG_SHIFT) & 0x7) == POLY_TAG_OBJECT;
@@ -1057,8 +1057,8 @@ pub extern "C" fn __RTS_FN_NS_ENGINE_IS_BUFFER(word: u64) -> u64 {
 
 /// `engine.buffer_clone(word)` — a NEW ArrayBuffer with a copy of the bytes,
 /// as a boxed object word. `undefined` for a non-buffer.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ENGINE_BUFFER_CLONE(word: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_ENGINE_BUFFER_CLONE")]
+pub fn __RTS_FN_NS_ENGINE_BUFFER_CLONE(word: u64) -> u64 {
     use rts_engine::heap::poly::*;
     let h = rts_engine::heap::handles::__rtsn_poly_to_handle(word & POLY_PAYLOAD_MASK);
     let Some(bytes) = with_entry(h, |e| match e {
@@ -1073,8 +1073,8 @@ pub extern "C" fn __RTS_FN_NS_ENGINE_BUFFER_CLONE(word: u64) -> u64 {
 
 /// `engine.buffer_detach(word)` — empty the buffer in place (JS detach:
 /// `byteLength` reads 0 afterwards). Returns `undefined`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ENGINE_BUFFER_DETACH(word: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_ENGINE_BUFFER_DETACH")]
+pub fn __RTS_FN_NS_ENGINE_BUFFER_DETACH(word: u64) -> u64 {
     use rts_engine::heap::poly::*;
     let h = rts_engine::heap::handles::__rtsn_poly_to_handle(word & POLY_PAYLOAD_MASK);
     with_entry_mut(h, |e| {

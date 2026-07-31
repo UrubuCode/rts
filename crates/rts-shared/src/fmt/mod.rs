@@ -34,8 +34,10 @@ fn intern(s: &str) -> u64 {
 /// or `"42abc"` are BOTH errors here even though `Number.parseInt` accepts
 /// them. Kept as its own body (not delegated) — the two contracts genuinely
 /// differ, so unifying them would silently change `rts:fmt`'s behaviour.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FMT_PARSE_I64(ptr: *const u8, len: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_FMT_PARSE_I64")]
+pub fn __RTS_FN_NS_FMT_PARSE_I64(ptr: u64, len: i64) -> i64 {
+    let ptr = ptr as *const u8;
+
     let Some(s) = (unsafe { from_abi(ptr, len) }) else {
         return i64::MIN;
     };
@@ -45,8 +47,10 @@ pub extern "C" fn __RTS_FN_NS_FMT_PARSE_I64(ptr: *const u8, len: i64) -> i64 {
 /// Parses a float using the real JS `parseFloat` grammar (leading run,
 /// trailing garbage ignored) — same contract as `Number.parseFloat`, so this
 /// delegates to the single shared implementation in `rts-primitives`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FMT_PARSE_F64(ptr: *const u8, len: i64) -> f64 {
+#[rtse::abi("__RTS_FN_NS_FMT_PARSE_F64")]
+pub fn __RTS_FN_NS_FMT_PARSE_F64(ptr: u64, len: i64) -> f64 {
+    let ptr = ptr as *const u8;
+
     let Some(s) = (unsafe { from_abi(ptr, len) }) else {
         return f64::NAN;
     };
@@ -54,8 +58,10 @@ pub extern "C" fn __RTS_FN_NS_FMT_PARSE_F64(ptr: *const u8, len: i64) -> f64 {
 }
 
 /// Parses 'true'/'false'/'1'/'0' (case-insensitive). Returns -1 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FMT_PARSE_BOOL(ptr: *const u8, len: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_FMT_PARSE_BOOL")]
+pub fn __RTS_FN_NS_FMT_PARSE_BOOL(ptr: u64, len: i64) -> i64 {
+    let ptr = ptr as *const u8;
+
     let Some(s) = (unsafe { from_abi(ptr, len) }) else {
         return -1;
     };
@@ -67,44 +73,44 @@ pub extern "C" fn __RTS_FN_NS_FMT_PARSE_BOOL(ptr: *const u8, len: i64) -> i64 {
 }
 
 /// Decimal string of an integer.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FMT_FMT_I64(value: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_FMT_FMT_I64")]
+pub fn __RTS_FN_NS_FMT_FMT_I64(value: i64) -> u64 {
     intern(&value.to_string())
 }
 
 /// Shortest round-trippable decimal of a float.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FMT_FMT_F64(value: f64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_FMT_FMT_F64")]
+pub fn __RTS_FN_NS_FMT_FMT_F64(value: f64) -> u64 {
     intern(&value.to_string())
 }
 
 /// 'true' when value is non-zero, 'false' otherwise.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FMT_FMT_BOOL(value: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_FMT_FMT_BOOL")]
+pub fn __RTS_FN_NS_FMT_FMT_BOOL(value: i64) -> u64 {
     intern(if value != 0 { "true" } else { "false" })
 }
 
 /// Lowercase hex with `0x` prefix (bits as u64).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FMT_FMT_HEX(value: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_FMT_FMT_HEX")]
+pub fn __RTS_FN_NS_FMT_FMT_HEX(value: i64) -> u64 {
     intern(&format!("0x{:x}", value as u64))
 }
 
 /// Binary with `0b` prefix.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FMT_FMT_BIN(value: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_FMT_FMT_BIN")]
+pub fn __RTS_FN_NS_FMT_FMT_BIN(value: i64) -> u64 {
     intern(&format!("0b{:b}", value as u64))
 }
 
 /// Octal with `0o` prefix.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FMT_FMT_OCT(value: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_FMT_FMT_OCT")]
+pub fn __RTS_FN_NS_FMT_FMT_OCT(value: i64) -> u64 {
     intern(&format!("0o{:o}", value as u64))
 }
 
 /// Float formatted with a fixed number of decimal places.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FMT_FMT_F64_PREC(value: f64, precision: i32) -> u64 {
+#[rtse::abi("__RTS_FN_NS_FMT_FMT_F64_PREC")]
+pub fn __RTS_FN_NS_FMT_FMT_F64_PREC(value: f64, precision: i32) -> u64 {
     let prec = precision.max(0) as usize;
     intern(&format!("{value:.prec$}"))
 }

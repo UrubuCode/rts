@@ -12,15 +12,18 @@ use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, sig};
 use rts_engine::heap::handles::{Entry, alloc_entry, free_handle};
 
 /// Push a TS call frame onto the trace stack.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_TRACE_PUSH_FRAME(
-    file_ptr: *const u8,
+#[rtse::abi("__RTS_FN_NS_TRACE_PUSH_FRAME")]
+pub fn __RTS_FN_NS_TRACE_PUSH_FRAME(
+    file_ptr: u64,
     file_len: i64,
-    fn_name_ptr: *const u8,
+    fn_name_ptr: u64,
     fn_name_len: i64,
     line: i64,
     col: i64,
 ) {
+    let file_ptr = file_ptr as *const u8;
+    let fn_name_ptr = fn_name_ptr as *const u8;
+
     let file = match unsafe { rts_engine::abi::str_abi::from_abi(file_ptr, file_len) } {
         Some(s) => s,
         None => return,
@@ -38,14 +41,14 @@ pub extern "C" fn __RTS_FN_NS_TRACE_PUSH_FRAME(
 }
 
 /// Pop the top TS call frame from the trace stack.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_TRACE_POP_FRAME() {
+#[rtse::abi("__RTS_FN_NS_TRACE_POP_FRAME")]
+pub fn __RTS_FN_NS_TRACE_POP_FRAME() {
     frame_stack::pop();
 }
 
 /// Capture current trace as a GC string handle. Returns 0 if stack is empty.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_TRACE_CAPTURE() -> u64 {
+#[rtse::abi("__RTS_FN_NS_TRACE_CAPTURE")]
+pub fn __RTS_FN_NS_TRACE_CAPTURE() -> u64 {
     let s = frame_stack::capture_string();
     if s.is_empty() {
         return 0;
@@ -54,8 +57,8 @@ pub extern "C" fn __RTS_FN_NS_TRACE_CAPTURE() -> u64 {
 }
 
 /// Print current trace stack to stderr.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_TRACE_PRINT() {
+#[rtse::abi("__RTS_FN_NS_TRACE_PRINT")]
+pub fn __RTS_FN_NS_TRACE_PRINT() {
     let s = frame_stack::format_stack();
     if s.is_empty() {
         eprintln!("<no trace frames>");
@@ -65,14 +68,14 @@ pub extern "C" fn __RTS_FN_NS_TRACE_PRINT() {
 }
 
 /// Returns current trace stack depth.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_TRACE_DEPTH() -> i64 {
+#[rtse::abi("__RTS_FN_NS_TRACE_DEPTH")]
+pub fn __RTS_FN_NS_TRACE_DEPTH() -> i64 {
     frame_stack::depth() as i64
 }
 
 /// Free a captured trace handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_TRACE_FREE(handle: u64) {
+#[rtse::abi("__RTS_FN_NS_TRACE_FREE")]
+pub fn __RTS_FN_NS_TRACE_FREE(handle: u64) {
     let _ = free_handle(handle);
 }
 

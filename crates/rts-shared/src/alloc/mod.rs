@@ -17,8 +17,8 @@ fn make_layout(size: i64, align: i64) -> Option<Layout> {
 }
 
 /// Aloca size bytes alinhados a `align`. Retorna ponteiro ou 0 em falha.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ALLOC_ALLOC(size: i64, align: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_ALLOC_ALLOC")]
+pub fn __RTS_FN_NS_ALLOC_ALLOC(size: i64, align: i64) -> i64 {
     let Some(layout) = make_layout(size, align) else {
         return 0;
     };
@@ -29,8 +29,8 @@ pub extern "C" fn __RTS_FN_NS_ALLOC_ALLOC(size: i64, align: i64) -> i64 {
 }
 
 /// Aloca size bytes zerados, alinhados a `align`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ALLOC_ALLOC_ZEROED(size: i64, align: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_ALLOC_ALLOC_ZEROED")]
+pub fn __RTS_FN_NS_ALLOC_ALLOC_ZEROED(size: i64, align: i64) -> i64 {
     let Some(layout) = make_layout(size, align) else {
         return 0;
     };
@@ -41,8 +41,8 @@ pub extern "C" fn __RTS_FN_NS_ALLOC_ALLOC_ZEROED(size: i64, align: i64) -> i64 {
 }
 
 /// Libera ptr previamente alocado com mesmo size/align.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ALLOC_DEALLOC(ptr: i64, size: i64, align: i64) {
+#[rtse::abi("__RTS_FN_NS_ALLOC_DEALLOC")]
+pub fn __RTS_FN_NS_ALLOC_DEALLOC(ptr: i64, size: i64, align: i64) {
     if ptr == 0 {
         return;
     }
@@ -56,8 +56,8 @@ pub extern "C" fn __RTS_FN_NS_ALLOC_DEALLOC(ptr: i64, size: i64, align: i64) {
 }
 
 /// Realoca ptr (size_old, align) para new_size. Retorna novo ptr ou 0.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ALLOC_REALLOC(
+#[rtse::abi("__RTS_FN_NS_ALLOC_REALLOC")]
+pub fn __RTS_FN_NS_ALLOC_REALLOC(
     ptr: i64,
     size_old: i64,
     align: i64,

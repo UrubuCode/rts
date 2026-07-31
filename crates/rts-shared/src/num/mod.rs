@@ -13,140 +13,140 @@ use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 const OVERFLOW_SENTINEL: i64 = i64::MIN;
 
 /// a + b com overflow; retorna i64::MIN como sentinela em overflow.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_CHECKED_ADD(a: I64, b: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_NUM_CHECKED_ADD")]
+pub fn __RTS_FN_NS_NUM_CHECKED_ADD(a: I64, b: I64) -> I64 {
     a.checked_add(b).unwrap_or(OVERFLOW_SENTINEL)
 }
 
 /// a - b com overflow; retorna i64::MIN como sentinela em overflow.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_CHECKED_SUB(a: I64, b: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_NUM_CHECKED_SUB")]
+pub fn __RTS_FN_NS_NUM_CHECKED_SUB(a: I64, b: I64) -> I64 {
     a.checked_sub(b).unwrap_or(OVERFLOW_SENTINEL)
 }
 
 /// a * b com overflow; retorna i64::MIN como sentinela em overflow.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_CHECKED_MUL(a: I64, b: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_NUM_CHECKED_MUL")]
+pub fn __RTS_FN_NS_NUM_CHECKED_MUL(a: I64, b: I64) -> I64 {
     a.checked_mul(b).unwrap_or(OVERFLOW_SENTINEL)
 }
 
 /// a / b; retorna i64::MIN se b == 0 ou overflow (i64::MIN / -1).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_CHECKED_DIV(a: I64, b: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_NUM_CHECKED_DIV")]
+pub fn __RTS_FN_NS_NUM_CHECKED_DIV(a: I64, b: I64) -> I64 {
     a.checked_div(b).unwrap_or(OVERFLOW_SENTINEL)
 }
 
 /// a + b com saturation em i64::MIN/MAX.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_SATURATING_ADD(a: I64, b: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_NUM_SATURATING_ADD")]
+pub fn __RTS_FN_NS_NUM_SATURATING_ADD(a: I64, b: I64) -> I64 {
     a.saturating_add(b)
 }
 
 /// a - b com saturation em i64::MIN/MAX.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_SATURATING_SUB(a: I64, b: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_NUM_SATURATING_SUB")]
+pub fn __RTS_FN_NS_NUM_SATURATING_SUB(a: I64, b: I64) -> I64 {
     a.saturating_sub(b)
 }
 
 /// a * b com saturation em i64::MIN/MAX.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_SATURATING_MUL(a: I64, b: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_NUM_SATURATING_MUL")]
+pub fn __RTS_FN_NS_NUM_SATURATING_MUL(a: I64, b: I64) -> I64 {
     a.saturating_mul(b)
 }
 
 /// a + b modulo 2^64.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_WRAPPING_ADD(a: I64, b: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_NUM_WRAPPING_ADD")]
+pub fn __RTS_FN_NS_NUM_WRAPPING_ADD(a: I64, b: I64) -> I64 {
     a.wrapping_add(b)
 }
 
 /// a - b modulo 2^64.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_WRAPPING_SUB(a: I64, b: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_NUM_WRAPPING_SUB")]
+pub fn __RTS_FN_NS_NUM_WRAPPING_SUB(a: I64, b: I64) -> I64 {
     a.wrapping_sub(b)
 }
 
 /// a * b modulo 2^64.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_WRAPPING_MUL(a: I64, b: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_NUM_WRAPPING_MUL")]
+pub fn __RTS_FN_NS_NUM_WRAPPING_MUL(a: I64, b: I64) -> I64 {
     a.wrapping_mul(b)
 }
 
 /// -a modulo 2^64 (i64::MIN.wrapping_neg() == i64::MIN).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_WRAPPING_NEG(a: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_NUM_WRAPPING_NEG")]
+pub fn __RTS_FN_NS_NUM_WRAPPING_NEG(a: I64) -> I64 {
     a.wrapping_neg()
 }
 
 /// a << (n & 63) — shift count masked.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_WRAPPING_SHL(a: I64, n: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_NUM_WRAPPING_SHL")]
+pub fn __RTS_FN_NS_NUM_WRAPPING_SHL(a: I64, n: I64) -> I64 {
     a.wrapping_shl(n as u32)
 }
 
 /// a >> (n & 63) (arithmetic shift).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_WRAPPING_SHR(a: I64, n: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_NUM_WRAPPING_SHR")]
+pub fn __RTS_FN_NS_NUM_WRAPPING_SHR(a: I64, n: I64) -> I64 {
     a.wrapping_shr(n as u32)
 }
 
 /// Numero de bits 1 em a.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_COUNT_ONES(a: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_NUM_COUNT_ONES")]
+pub fn __RTS_FN_NS_NUM_COUNT_ONES(a: I64) -> I64 {
     a.count_ones() as i64
 }
 
 /// Numero de bits 0 em a.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_COUNT_ZEROS(a: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_NUM_COUNT_ZEROS")]
+pub fn __RTS_FN_NS_NUM_COUNT_ZEROS(a: I64) -> I64 {
     a.count_zeros() as i64
 }
 
 /// Numero de zeros leading em a.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_LEADING_ZEROS(a: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_NUM_LEADING_ZEROS")]
+pub fn __RTS_FN_NS_NUM_LEADING_ZEROS(a: I64) -> I64 {
     a.leading_zeros() as i64
 }
 
 /// Numero de zeros trailing em a.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_TRAILING_ZEROS(a: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_NUM_TRAILING_ZEROS")]
+pub fn __RTS_FN_NS_NUM_TRAILING_ZEROS(a: I64) -> I64 {
     a.trailing_zeros() as i64
 }
 
 /// a rotacionado n bits para a esquerda.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_ROTATE_LEFT(a: I64, n: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_NUM_ROTATE_LEFT")]
+pub fn __RTS_FN_NS_NUM_ROTATE_LEFT(a: I64, n: I64) -> I64 {
     a.rotate_left(n as u32)
 }
 
 /// a rotacionado n bits para a direita.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_ROTATE_RIGHT(a: I64, n: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_NUM_ROTATE_RIGHT")]
+pub fn __RTS_FN_NS_NUM_ROTATE_RIGHT(a: I64, n: I64) -> I64 {
     a.rotate_right(n as u32)
 }
 
 /// Bits invertidos (LSB->MSB).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_REVERSE_BITS(a: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_NUM_REVERSE_BITS")]
+pub fn __RTS_FN_NS_NUM_REVERSE_BITS(a: I64) -> I64 {
     a.reverse_bits()
 }
 
 /// Bytes invertidos (endianness flip).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_SWAP_BYTES(a: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_NUM_SWAP_BYTES")]
+pub fn __RTS_FN_NS_NUM_SWAP_BYTES(a: I64) -> I64 {
     a.swap_bytes()
 }
 
 /// Reinterpreta os bits de um i64 como f64 (bit-cast). Util pra recuperar f64 de canais que so passam i64 (ex: thread.spawn arg).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_F64_FROM_BITS(bits: I64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_NUM_F64_FROM_BITS")]
+pub fn __RTS_FN_NS_NUM_F64_FROM_BITS(bits: I64) -> F64 {
     f64::from_bits(bits as u64)
 }
 
 /// Reinterpreta os bits de um f64 como i64 (bit-cast). Util pra serializar f64 em canais i64-only.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_NUM_F64_TO_BITS(value: F64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_NUM_F64_TO_BITS")]
+pub fn __RTS_FN_NS_NUM_F64_TO_BITS(value: F64) -> I64 {
     value.to_bits() as i64
 }
 

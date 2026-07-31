@@ -12,8 +12,8 @@ use super::instance::{__rtsm_global_date_to_string, __rtsm_global_date_value_of}
 /// ToString of an OPAQUE heap-entry (non-Vec/non-keyed): a `Date` → its
 /// `toString()`, a `RegExp` → `/src/flags`. `0` = "don't know" (caller uses
 /// "[object Object]").
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_OPAQUE_TO_STRING(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_RT_OPAQUE_TO_STRING")]
+pub fn __RTS_FN_RT_OPAQUE_TO_STRING(handle: u64) -> u64 {
     if rtse_class_of(handle) == Some("Date") {
         return __rtsm_global_date_to_string(handle);
     }
@@ -40,8 +40,8 @@ pub extern "C" fn __RTS_FN_RT_OPAQUE_TO_STRING(handle: u64) -> u64 {
 /// `RegExp`/anything else coerces to a number only through its string). The
 /// engine probes this before the string fallback so `+date` / `date < date` use
 /// the timestamp while `+/re/` still goes via the string (→ NaN).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_OPAQUE_HAS_NUMBER(handle: u64) -> i64 {
+#[rtse::abi("__RTS_FN_RT_OPAQUE_HAS_NUMBER")]
+pub fn __RTS_FN_RT_OPAQUE_HAS_NUMBER(handle: u64) -> i64 {
     if rtse_class_of(handle) == Some("Date") {
         1
     } else {
@@ -52,8 +52,8 @@ pub extern "C" fn __RTS_FN_RT_OPAQUE_HAS_NUMBER(handle: u64) -> i64 {
 /// The NUMERIC ToPrimitive value of an OPAQUE entry that has one: for a `Date`,
 /// its time value in ms (`NaN` for an Invalid Date). Only meaningful when the
 /// probe returned `1`; other kinds return `NaN`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_OPAQUE_TO_NUMBER(handle: u64) -> f64 {
+#[rtse::abi("__RTS_FN_RT_OPAQUE_TO_NUMBER")]
+pub fn __RTS_FN_RT_OPAQUE_TO_NUMBER(handle: u64) -> f64 {
     if rtse_class_of(handle) == Some("Date") {
         __rtsm_global_date_value_of(handle)
     } else {

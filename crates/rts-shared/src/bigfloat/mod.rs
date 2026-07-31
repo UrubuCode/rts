@@ -35,26 +35,28 @@ fn clone_of(handle: u64) -> Option<FixedDecimal> {
 }
 
 /// Zero with `precision` decimal digits (clamped 1..=36). Handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BIGFLOAT_ZERO(precision: I64) -> U64 {
+#[rtse::abi("__RTS_FN_NS_BIGFLOAT_ZERO")]
+pub fn __RTS_FN_NS_BIGFLOAT_ZERO(precision: I64) -> U64 {
     let scale = precision.max(1).min(36) as u32;
     alloc(FixedDecimal::zero(scale))
 }
 
 /// From an f64 with `precision` decimal digits. Handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BIGFLOAT_FROM_F64(x: F64, precision: I64) -> U64 {
+#[rtse::abi("__RTS_FN_NS_BIGFLOAT_FROM_F64")]
+pub fn __RTS_FN_NS_BIGFLOAT_FROM_F64(x: F64, precision: I64) -> U64 {
     let scale = precision.max(1).min(36) as u32;
     alloc(FixedDecimal::from_f64(x, scale))
 }
 
 /// Parse a decimal string with `precision` digits. Handle, 0 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BIGFLOAT_FROM_STR(
-    s_ptr: *const u8,
+#[rtse::abi("__RTS_FN_NS_BIGFLOAT_FROM_STR")]
+pub fn __RTS_FN_NS_BIGFLOAT_FROM_STR(
+    s_ptr: u64,
     s_len: i64,
     precision: I64,
 ) -> U64 {
+    let s_ptr = s_ptr as *const u8;
+
     let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr, s_len) } {
         Some(s) => s,
         None => return 0,
@@ -67,21 +69,21 @@ pub extern "C" fn __RTS_FN_NS_BIGFLOAT_FROM_STR(
 }
 
 /// From an i64 with `precision` decimal digits. Handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BIGFLOAT_FROM_I64(x: I64, precision: I64) -> U64 {
+#[rtse::abi("__RTS_FN_NS_BIGFLOAT_FROM_I64")]
+pub fn __RTS_FN_NS_BIGFLOAT_FROM_I64(x: I64, precision: I64) -> U64 {
     let scale = precision.max(1).min(36) as u32;
     alloc(FixedDecimal::from_i64(x, scale))
 }
 
 /// Convert to f64 (NaN if handle invalid).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BIGFLOAT_TO_F64(h: U64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_BIGFLOAT_TO_F64")]
+pub fn __RTS_FN_NS_BIGFLOAT_TO_F64(h: U64) -> F64 {
     clone_of(h).map(|v| v.to_f64()).unwrap_or(f64::NAN)
 }
 
 /// Decimal string (string handle; "NaN" if handle invalid).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BIGFLOAT_TO_STRING(h: U64) -> Handle {
+#[rtse::abi("__RTS_FN_NS_BIGFLOAT_TO_STRING")]
+pub fn __RTS_FN_NS_BIGFLOAT_TO_STRING(h: U64) -> Handle {
     let s = clone_of(h)
         .map(|v| v.to_string_decimal())
         .unwrap_or_else(|| "NaN".to_string());
@@ -89,8 +91,8 @@ pub extern "C" fn __RTS_FN_NS_BIGFLOAT_TO_STRING(h: U64) -> Handle {
 }
 
 /// a + b. New handle, 0 if either invalid.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BIGFLOAT_ADD(a: U64, b: U64) -> U64 {
+#[rtse::abi("__RTS_FN_NS_BIGFLOAT_ADD")]
+pub fn __RTS_FN_NS_BIGFLOAT_ADD(a: U64, b: U64) -> U64 {
     let (Some(l), Some(r)) = (clone_of(a), clone_of(b)) else {
         return 0;
     };
@@ -98,8 +100,8 @@ pub extern "C" fn __RTS_FN_NS_BIGFLOAT_ADD(a: U64, b: U64) -> U64 {
 }
 
 /// a - b. New handle, 0 if either invalid.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BIGFLOAT_SUB(a: U64, b: U64) -> U64 {
+#[rtse::abi("__RTS_FN_NS_BIGFLOAT_SUB")]
+pub fn __RTS_FN_NS_BIGFLOAT_SUB(a: U64, b: U64) -> U64 {
     let (Some(l), Some(r)) = (clone_of(a), clone_of(b)) else {
         return 0;
     };
@@ -107,8 +109,8 @@ pub extern "C" fn __RTS_FN_NS_BIGFLOAT_SUB(a: U64, b: U64) -> U64 {
 }
 
 /// a * b. New handle, 0 if either invalid.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BIGFLOAT_MUL(a: U64, b: U64) -> U64 {
+#[rtse::abi("__RTS_FN_NS_BIGFLOAT_MUL")]
+pub fn __RTS_FN_NS_BIGFLOAT_MUL(a: U64, b: U64) -> U64 {
     let (Some(l), Some(r)) = (clone_of(a), clone_of(b)) else {
         return 0;
     };
@@ -116,8 +118,8 @@ pub extern "C" fn __RTS_FN_NS_BIGFLOAT_MUL(a: U64, b: U64) -> U64 {
 }
 
 /// a / b. New handle, 0 if either invalid or division fails.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BIGFLOAT_DIV(a: U64, b: U64) -> U64 {
+#[rtse::abi("__RTS_FN_NS_BIGFLOAT_DIV")]
+pub fn __RTS_FN_NS_BIGFLOAT_DIV(a: U64, b: U64) -> U64 {
     let (Some(l), Some(r)) = (clone_of(a), clone_of(b)) else {
         return 0;
     };
@@ -128,15 +130,15 @@ pub extern "C" fn __RTS_FN_NS_BIGFLOAT_DIV(a: U64, b: U64) -> U64 {
 }
 
 /// -a. New handle, 0 if invalid.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BIGFLOAT_NEG(a: U64) -> U64 {
+#[rtse::abi("__RTS_FN_NS_BIGFLOAT_NEG")]
+pub fn __RTS_FN_NS_BIGFLOAT_NEG(a: U64) -> U64 {
     let Some(v) = clone_of(a) else { return 0 };
     alloc(v.neg())
 }
 
 /// sqrt(a). New handle, 0 if invalid or negative.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BIGFLOAT_SQRT(a: U64) -> U64 {
+#[rtse::abi("__RTS_FN_NS_BIGFLOAT_SQRT")]
+pub fn __RTS_FN_NS_BIGFLOAT_SQRT(a: U64) -> U64 {
     let Some(v) = clone_of(a) else { return 0 };
     match v.sqrt() {
         Some(r) => alloc(r),
@@ -145,8 +147,8 @@ pub extern "C" fn __RTS_FN_NS_BIGFLOAT_SQRT(a: U64) -> U64 {
 }
 
 /// Releases the handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_BIGFLOAT_FREE(h: U64) {
+#[rtse::abi("__RTS_FN_NS_BIGFLOAT_FREE")]
+pub fn __RTS_FN_NS_BIGFLOAT_FREE(h: U64) {
     free_handle(h);
 }
 

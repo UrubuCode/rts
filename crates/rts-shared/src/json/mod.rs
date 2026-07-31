@@ -104,8 +104,8 @@ fn is_undefined_handle(h: u64) -> bool {
 /// Infinity, etc. Usa o crate `json5` que serializa para
 /// `serde_json::Value`, entao a saida segue o mesmo bridge handle-table
 /// do JSON estrito (sem semantica adicional fora parse-time).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_JSON_PARSE5(ptr: u64, len: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_JSON_PARSE5")]
+pub fn __RTS_FN_NS_JSON_PARSE5(ptr: u64, len: i64) -> u64 {
     let Some(bytes) = slice_from(ptr, len) else {
         return 0;
     };
@@ -582,8 +582,8 @@ fn date_iso_quoted(ms: i64) -> String {
 /// replacer recursivamente walk-top-down (key, value), depois stringify.
 /// Cada chamada cria handle valor copia (snapshot) e substitui por
 /// retorno do replacer.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_REPLACER_FN(handle: u64, replacer_h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_JSON_STRINGIFY_REPLACER_FN")]
+pub fn __RTS_FN_NS_JSON_STRINGIFY_REPLACER_FN(handle: u64, replacer_h: u64) -> u64 {
     let transformed = apply_stringify_replacer(replacer_h, "", handle);
     if is_undefined_handle(transformed) {
         return alloc_entry(Entry::String(b"undefined".to_vec()));
@@ -648,8 +648,8 @@ fn apply_stringify_replacer(replacer_h: u64, key: &str, value: u64) -> u64 {
 
 /// `JSON.stringify(value, keys_array)` — replacer como array de keys filtra props.
 /// `keys_array_h` deve ser handle de Entry::Vec contendo handles de Entry::String.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_KEYS(handle: u64, keys_array_h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_JSON_STRINGIFY_KEYS")]
+pub fn __RTS_FN_NS_JSON_STRINGIFY_KEYS(handle: u64, keys_array_h: u64) -> u64 {
     let keys: Vec<String> = with_entry(keys_array_h, |e| {
         let Some(Entry::Vec(arr)) = e else {
             return Vec::new();
@@ -767,8 +767,8 @@ fn stringify_value_with_keys(v: i64, keys: &[String]) -> String {
 ///
 /// `kind`: 0=i64/handle (default quando o codegen nao tipa estaticamente),
 /// 1=f64 bits, 2=bool, 3=null/undefined.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_TYPED(value: i64, kind: i32) -> u64 {
+#[rtse::abi("__RTS_FN_NS_JSON_STRINGIFY_TYPED")]
+pub fn __RTS_FN_NS_JSON_STRINGIFY_TYPED(value: i64, kind: i32) -> u64 {
     // (PR #1206) JS spec: `JSON.stringify(undefined)` retorna `undefined`
     // (sentinel). Caller via TPL_COERCE_AUTO mapeia → "undefined" em
     // console.log. Detecta sentinel ANTES do match kind, porque mesmo
@@ -924,8 +924,8 @@ fn stringify_pretty_value_i64_str(v: i64, indent: &str, depth: usize) -> String 
 
 /// `JSON.stringify(value, null, "<str>")` — indent eh string custom (ate
 /// 10 chars conforme JS spec). String vazia desativa pretty.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_PRETTY_STR(handle: u64, indent_h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_JSON_STRINGIFY_PRETTY_STR")]
+pub fn __RTS_FN_NS_JSON_STRINGIFY_PRETTY_STR(handle: u64, indent_h: u64) -> u64 {
     let indent_str: String = match rts_engine::heap::handles::read_string_handle(indent_h) {
         Some(s) => {
             // JS spec: trunca em 10 caracteres.
@@ -946,8 +946,10 @@ pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_PRETTY_STR(handle: u64, indent_h: u
 }
 
 /// Parses a JSON string into an opaque JSON value handle. Returns 0 on syntax error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_JSON_PARSE(text_ptr: *const u8, text_len: i64) -> U64 {
+#[rtse::abi("__RTS_FN_NS_JSON_PARSE")]
+pub fn __RTS_FN_NS_JSON_PARSE(text_ptr: u64, text_len: i64) -> U64 {
+    let text_ptr = text_ptr as *const u8;
+
     let text = match unsafe { rts_engine::abi::str_abi::from_abi(text_ptr, text_len) } {
         Some(s) => s,
         None => return 0,
@@ -959,12 +961,14 @@ pub extern "C" fn __RTS_FN_NS_JSON_PARSE(text_ptr: *const u8, text_len: i64) -> 
 }
 
 /// JSON.parse com reviver(key, value) — transforma cada par durante o walk bottom-up.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_JSON_PARSE_REVIVER(
-    text_ptr: *const u8,
+#[rtse::abi("__RTS_FN_NS_JSON_PARSE_REVIVER")]
+pub fn __RTS_FN_NS_JSON_PARSE_REVIVER(
+    text_ptr: u64,
     text_len: i64,
     reviver: U64,
 ) -> U64 {
+    let text_ptr = text_ptr as *const u8;
+
     let text = match unsafe { rts_engine::abi::str_abi::from_abi(text_ptr, text_len) } {
         Some(s) => s,
         None => return 0,
@@ -986,8 +990,8 @@ pub extern "C" fn __RTS_FN_NS_JSON_PARSE_REVIVER(
 }
 
 /// Serializes a JSON value handle into its compact string form.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY(value: U64) -> Handle {
+#[rtse::abi("__RTS_FN_NS_JSON_STRINGIFY")]
+pub fn __RTS_FN_NS_JSON_STRINGIFY(value: U64) -> Handle {
     // (PR #1206) JS spec: `JSON.stringify(undefined)` retorna `undefined`
     // (nao string). RTS nao tem como expressar isso na ABI binaria
     // — retorna o sentinel undefined (i64::MIN+2) para sinalizar.
@@ -1008,8 +1012,8 @@ pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY(value: U64) -> Handle {
 }
 
 /// Pretty-printed serialization with `indent` spaces (>= 0).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_PRETTY(value: U64, indent: I64) -> Handle {
+#[rtse::abi("__RTS_FN_NS_JSON_STRINGIFY_PRETTY")]
+pub fn __RTS_FN_NS_JSON_STRINGIFY_PRETTY(value: U64, indent: I64) -> Handle {
     let indent = indent.max(0).min(16) as usize;
     if indent == 0 {
         return __RTS_FN_NS_JSON_STRINGIFY(value);
@@ -1025,14 +1029,14 @@ pub extern "C" fn __RTS_FN_NS_JSON_STRINGIFY_PRETTY(value: U64, indent: I64) -> 
 }
 
 /// Releases the JSON value handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_JSON_FREE(handle: U64) {
+#[rtse::abi("__RTS_FN_NS_JSON_FREE")]
+pub fn __RTS_FN_NS_JSON_FREE(handle: U64) {
     let _ = free_handle(handle);
 }
 
 /// Returns: 0 null, 1 bool, 2 number, 3 string, 4 array, 5 object, -1 invalid.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_JSON_TYPE_OF(value: U64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_JSON_TYPE_OF")]
+pub fn __RTS_FN_NS_JSON_TYPE_OF(value: U64) -> I64 {
     with_json(value, -1, |v| match v {
         Value::Null => 0,
         Value::Bool(_) => 1,
@@ -1044,8 +1048,8 @@ pub extern "C" fn __RTS_FN_NS_JSON_TYPE_OF(value: U64) -> I64 {
 }
 
 /// Coerces JSON value to bool (true for non-zero/non-null/non-empty).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_JSON_AS_BOOL(value: U64) -> Bool {
+#[rtse::abi("__RTS_FN_NS_JSON_AS_BOOL")]
+pub fn __RTS_FN_NS_JSON_AS_BOOL(value: U64) -> Bool {
     with_json(value, 0, |v| match v {
         Value::Bool(b) => *b as i64,
         Value::Null => 0,
@@ -1057,8 +1061,8 @@ pub extern "C" fn __RTS_FN_NS_JSON_AS_BOOL(value: U64) -> Bool {
 }
 
 /// Reads JSON number as i64 (truncates floats). 0 for invalid/non-number.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_JSON_AS_I64(value: U64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_JSON_AS_I64")]
+pub fn __RTS_FN_NS_JSON_AS_I64(value: U64) -> I64 {
     with_json(value, 0, |v| match v {
         Value::Number(n) => n
             .as_i64()
@@ -1071,8 +1075,8 @@ pub extern "C" fn __RTS_FN_NS_JSON_AS_I64(value: U64) -> I64 {
 }
 
 /// Reads JSON number as f64. NaN for invalid/non-number.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_JSON_AS_F64(value: U64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_JSON_AS_F64")]
+pub fn __RTS_FN_NS_JSON_AS_F64(value: U64) -> F64 {
     with_json(value, f64::NAN, |v| match v {
         Value::Number(n) => n.as_f64().unwrap_or(f64::NAN),
         Value::Bool(b) => *b as i64 as f64,
@@ -1082,8 +1086,8 @@ pub extern "C" fn __RTS_FN_NS_JSON_AS_F64(value: U64) -> F64 {
 }
 
 /// Reads JSON string as a string handle. Empty handle (0) for non-string.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_JSON_AS_STRING(value: U64) -> Handle {
+#[rtse::abi("__RTS_FN_NS_JSON_AS_STRING")]
+pub fn __RTS_FN_NS_JSON_AS_STRING(value: U64) -> Handle {
     with_json(value, 0, |v| match v {
         Value::String(s) => alloc_entry(Entry::String(s.as_bytes().to_vec())),
         Value::Bool(b) => alloc_entry(Entry::String(b.to_string().into_bytes())),
@@ -1094,12 +1098,14 @@ pub extern "C" fn __RTS_FN_NS_JSON_AS_STRING(value: U64) -> Handle {
 }
 
 /// True when value is an object containing `key`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_JSON_OBJECT_HAS(
+#[rtse::abi("__RTS_FN_NS_JSON_OBJECT_HAS")]
+pub fn __RTS_FN_NS_JSON_OBJECT_HAS(
     value: U64,
-    key_ptr: *const u8,
+    key_ptr: u64,
     key_len: i64,
 ) -> Bool {
+    let key_ptr = key_ptr as *const u8;
+
     let key = match unsafe { rts_engine::abi::str_abi::from_abi(key_ptr, key_len) } {
         Some(s) => s,
         None => return 0,
@@ -1272,7 +1278,7 @@ mod tests {
     #[test]
     fn parse_object_roundtrip() {
         let src = r#"{"x":1,"y":"two","z":[true,null]}"#;
-        let h = __RTS_FN_NS_JSON_PARSE(src.as_ptr(), src.len() as i64);
+        let h = __RTS_FN_NS_JSON_PARSE(src.as_ptr() as u64, src.len() as i64);
         assert_ne!(h, 0);
         assert_eq!(__RTS_FN_NS_JSON_TYPE_OF(h), 5); // object
 
@@ -1285,7 +1291,7 @@ mod tests {
     #[test]
     fn invalid_json_returns_zero() {
         let bad = "not json";
-        let h = __RTS_FN_NS_JSON_PARSE(bad.as_ptr(), bad.len() as i64);
+        let h = __RTS_FN_NS_JSON_PARSE(bad.as_ptr() as u64, bad.len() as i64);
         assert_eq!(h, 0);
     }
 

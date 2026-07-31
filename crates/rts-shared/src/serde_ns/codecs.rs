@@ -74,9 +74,9 @@ fn regex_decode(payload: &[u8]) -> Option<u64> {
     let last_index = i64::from_le_bytes(take(&mut i, 8)?.try_into().ok()?);
     // Recompile through the SAME path `/pat/flags` literals use.
     let h = crate::regex::__RTS_FN_NS_REGEX_COMPILE(
-        src.as_ptr(),
+        src.as_ptr() as u64,
         src.len() as i64,
-        flags.as_ptr(),
+        flags.as_ptr() as u64,
         flags.len() as i64,
     );
     if h == 0 {

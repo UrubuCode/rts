@@ -175,9 +175,9 @@ fn clone_handle_deep(handle: u64, visited: &mut std::collections::HashMap<u64, u
         });
         if let Some((src, flags)) = rx_info {
             let new_h = rts_shared::regex::__RTS_FN_NS_REGEX_COMPILE(
-                src.as_ptr(),
+                src.as_ptr() as u64,
                 src.len() as i64,
-                flags.as_ptr(),
+                flags.as_ptr() as u64,
                 flags.len() as i64,
             );
             visited.insert(handle, new_h);

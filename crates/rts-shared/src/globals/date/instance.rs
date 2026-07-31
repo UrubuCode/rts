@@ -146,7 +146,7 @@ impl Date {
     #[rtse::ctor]
     fn new_from_iso(s: &str) -> Self {
         Date {
-            ms: crate::date::__RTS_FN_NS_DATE_FROM_ISO(s.as_ptr(), s.len() as i64),
+            ms: crate::date::__RTS_FN_NS_DATE_FROM_ISO(s.as_ptr() as u64, s.len() as i64),
         }
     }
 

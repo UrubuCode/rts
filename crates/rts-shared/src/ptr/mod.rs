@@ -9,20 +9,20 @@
 use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, sig};
 
 /// Retorna ponteiro nulo (0).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_NULL() -> i64 {
+#[rtse::abi("__RTS_FN_NS_PTR_NULL")]
+pub fn __RTS_FN_NS_PTR_NULL() -> i64 {
     0
 }
 
 /// True se ptr == 0.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_IS_NULL(p: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_PTR_IS_NULL")]
+pub fn __RTS_FN_NS_PTR_IS_NULL(p: i64) -> i64 {
     if p == 0 { 1 } else { 0 }
 }
 
 /// Le i64 do endereco. UNSAFE: caller garante validade/alinhamento.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_READ_I64(p: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_PTR_READ_I64")]
+pub fn __RTS_FN_NS_PTR_READ_I64(p: i64) -> i64 {
     if p == 0 {
         return 0;
     }
@@ -30,8 +30,8 @@ pub extern "C" fn __RTS_FN_NS_PTR_READ_I64(p: i64) -> i64 {
 }
 
 /// Le i32 do endereco e estende para i64.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_READ_I32(p: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_PTR_READ_I32")]
+pub fn __RTS_FN_NS_PTR_READ_I32(p: i64) -> i64 {
     if p == 0 {
         return 0;
     }
@@ -40,8 +40,8 @@ pub extern "C" fn __RTS_FN_NS_PTR_READ_I32(p: i64) -> i64 {
 }
 
 /// Le u8 do endereco e estende para i64 (0..255).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_READ_U8(p: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_PTR_READ_U8")]
+pub fn __RTS_FN_NS_PTR_READ_U8(p: i64) -> i64 {
     if p == 0 {
         return 0;
     }
@@ -50,8 +50,8 @@ pub extern "C" fn __RTS_FN_NS_PTR_READ_U8(p: i64) -> i64 {
 }
 
 /// Le f64 do endereco.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_READ_F64(p: i64) -> f64 {
+#[rtse::abi("__RTS_FN_NS_PTR_READ_F64")]
+pub fn __RTS_FN_NS_PTR_READ_F64(p: i64) -> f64 {
     if p == 0 {
         return 0.0;
     }
@@ -59,8 +59,8 @@ pub extern "C" fn __RTS_FN_NS_PTR_READ_F64(p: i64) -> f64 {
 }
 
 /// Escreve i64 no endereco.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_WRITE_I64(p: i64, value: i64) {
+#[rtse::abi("__RTS_FN_NS_PTR_WRITE_I64")]
+pub fn __RTS_FN_NS_PTR_WRITE_I64(p: i64, value: i64) {
     if p == 0 {
         return;
     }
@@ -68,8 +68,8 @@ pub extern "C" fn __RTS_FN_NS_PTR_WRITE_I64(p: i64, value: i64) {
 }
 
 /// Escreve i32 (low 32 bits) no endereco.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_WRITE_I32(p: i64, value: i64) {
+#[rtse::abi("__RTS_FN_NS_PTR_WRITE_I32")]
+pub fn __RTS_FN_NS_PTR_WRITE_I32(p: i64, value: i64) {
     if p == 0 {
         return;
     }
@@ -77,8 +77,8 @@ pub extern "C" fn __RTS_FN_NS_PTR_WRITE_I32(p: i64, value: i64) {
 }
 
 /// Escreve u8 (low 8 bits) no endereco.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_WRITE_U8(p: i64, value: i64) {
+#[rtse::abi("__RTS_FN_NS_PTR_WRITE_U8")]
+pub fn __RTS_FN_NS_PTR_WRITE_U8(p: i64, value: i64) {
     if p == 0 {
         return;
     }
@@ -86,8 +86,8 @@ pub extern "C" fn __RTS_FN_NS_PTR_WRITE_U8(p: i64, value: i64) {
 }
 
 /// Escreve f64 no endereco.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_WRITE_F64(p: i64, value: f64) {
+#[rtse::abi("__RTS_FN_NS_PTR_WRITE_F64")]
+pub fn __RTS_FN_NS_PTR_WRITE_F64(p: i64, value: f64) {
     if p == 0 {
         return;
     }
@@ -95,8 +95,8 @@ pub extern "C" fn __RTS_FN_NS_PTR_WRITE_F64(p: i64, value: f64) {
 }
 
 /// memmove: copia n bytes de src para dst (overlapping ok).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_COPY(dst: i64, src: i64, n: i64) {
+#[rtse::abi("__RTS_FN_NS_PTR_COPY")]
+pub fn __RTS_FN_NS_PTR_COPY(dst: i64, src: i64, n: i64) {
     if dst == 0 || src == 0 || n <= 0 {
         return;
     }
@@ -104,8 +104,8 @@ pub extern "C" fn __RTS_FN_NS_PTR_COPY(dst: i64, src: i64, n: i64) {
 }
 
 /// memcpy: copia n bytes (regioes nao podem se sobrepor).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_COPY_NONOVERLAPPING(dst: i64, src: i64, n: i64) {
+#[rtse::abi("__RTS_FN_NS_PTR_COPY_NONOVERLAPPING")]
+pub fn __RTS_FN_NS_PTR_COPY_NONOVERLAPPING(dst: i64, src: i64, n: i64) {
     if dst == 0 || src == 0 || n <= 0 {
         return;
     }
@@ -113,8 +113,8 @@ pub extern "C" fn __RTS_FN_NS_PTR_COPY_NONOVERLAPPING(dst: i64, src: i64, n: i64
 }
 
 /// memset: preenche n bytes com value (low 8 bits).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_WRITE_BYTES(dst: i64, value: i64, n: i64) {
+#[rtse::abi("__RTS_FN_NS_PTR_WRITE_BYTES")]
+pub fn __RTS_FN_NS_PTR_WRITE_BYTES(dst: i64, value: i64, n: i64) {
     if dst == 0 || n <= 0 {
         return;
     }
@@ -122,8 +122,8 @@ pub extern "C" fn __RTS_FN_NS_PTR_WRITE_BYTES(dst: i64, value: i64, n: i64) {
 }
 
 /// Adiciona n bytes ao ptr.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PTR_OFFSET(p: i64, n: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_PTR_OFFSET")]
+pub fn __RTS_FN_NS_PTR_OFFSET(p: i64, n: i64) -> i64 {
     p.wrapping_add(n)
 }
 

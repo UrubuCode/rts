@@ -10,26 +10,26 @@
 use rts_engine::{Engine, FnPtr, Member, MemberFlags, MemberKind, sig};
 
 /// Hint para spin-wait loop (PAUSE em x86, YIELD em ARM).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_HINT_SPIN_LOOP() {
+#[rtse::abi("__RTS_FN_NS_HINT_SPIN_LOOP")]
+pub fn __RTS_FN_NS_HINT_SPIN_LOOP() {
     std::hint::spin_loop();
 }
 
 /// Opaque pra otimizador — impede que o valor seja eliminado.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_HINT_BLACK_BOX_I64(value: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_HINT_BLACK_BOX_I64")]
+pub fn __RTS_FN_NS_HINT_BLACK_BOX_I64(value: i64) -> i64 {
     std::hint::black_box(value)
 }
 
 /// Opaque pra otimizador (variante f64).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_HINT_BLACK_BOX_F64(value: f64) -> f64 {
+#[rtse::abi("__RTS_FN_NS_HINT_BLACK_BOX_F64")]
+pub fn __RTS_FN_NS_HINT_BLACK_BOX_F64(value: f64) -> f64 {
     std::hint::black_box(value)
 }
 
 /// Marca codigo inalcancavel — em debug aborta, em release eh UB.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_HINT_UNREACHABLE() {
+#[rtse::abi("__RTS_FN_NS_HINT_UNREACHABLE")]
+pub fn __RTS_FN_NS_HINT_UNREACHABLE() {
     if cfg!(debug_assertions) {
         panic!("hint.unreachable() atingido");
     }
@@ -38,8 +38,8 @@ pub extern "C" fn __RTS_FN_NS_HINT_UNREACHABLE() {
 }
 
 /// Assume cond=true sem verificar. Cond falsa = UB em release.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_HINT_ASSERT_UNCHECKED(cond: i64) {
+#[rtse::abi("__RTS_FN_NS_HINT_ASSERT_UNCHECKED")]
+pub fn __RTS_FN_NS_HINT_ASSERT_UNCHECKED(cond: i64) {
     if cfg!(debug_assertions) {
         if cond == 0 {
             panic!("hint.assert_unchecked: cond=false");

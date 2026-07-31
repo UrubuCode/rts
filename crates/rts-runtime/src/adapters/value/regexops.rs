@@ -111,9 +111,9 @@ pub fn rtsadp_re_compile(pat_word: u64, flags_word: u64) -> u64 {
                 explicit.to_string()
             };
             let h = rt_re::__RTS_FN_NS_REGEX_COMPILE(
-                src.as_ptr(),
+                src.as_ptr() as u64,
                 src.len() as i64,
-                flags.as_ptr(),
+                flags.as_ptr() as u64,
                 flags.len() as i64,
             );
             return box_re(h);
@@ -128,9 +128,9 @@ pub fn rtsadp_re_compile(pat_word: u64, flags_word: u64) -> u64 {
     let pat = handle_str(str_handle(pat_word));
     let flags = handle_str(str_handle(flags_word));
     let h = rt_re::__RTS_FN_NS_REGEX_COMPILE(
-        pat.as_ptr(),
+        pat.as_ptr() as u64,
         pat.len() as i64,
-        flags.as_ptr(),
+        flags.as_ptr() as u64,
         flags.len() as i64,
     );
     box_re(h)
@@ -144,7 +144,7 @@ pub fn rtsadp_re_compile(pat_word: u64, flags_word: u64) -> u64 {
 #[rtse::abi]
 pub fn rtsadp_re_test(re_word: u64, subj_word: u64) -> u64 {
     let s = handle_str(str_handle(subj_word));
-    let yes = rt_re::__RTS_FN_NS_REGEX_TEST(unbox_re(re_word), s.as_ptr(), s.len() as i64) != 0;
+    let yes = rt_re::__RTS_FN_NS_REGEX_TEST(unbox_re(re_word), s.as_ptr() as u64, s.len() as i64) != 0;
     PolyValue::bool(yes).raw()
 }
 
@@ -213,7 +213,7 @@ pub fn rtsadp_re_str_match(subj_word: u64, re_word: u64) -> u64 {
     }
     let s = handle_str(str_handle(subj_word));
     let raw_vec =
-        rt_re::__RTS_FN_NS_REGEX_MATCH_GROUPS(unbox_re(re_word), s.as_ptr(), s.len() as i64);
+        rt_re::__RTS_FN_NS_REGEX_MATCH_GROUPS(unbox_re(re_word), s.as_ptr() as u64, s.len() as i64);
     if raw_vec == 0 {
         return PolyValue::null().raw();
     }
@@ -508,6 +508,6 @@ pub fn rtsadp_re_str_split(subj_word: u64, re_word: u64, limit_word: u64) -> u64
 #[rtse::abi]
 pub fn rtsadp_re_str_search(subj_word: u64, re_word: u64) -> u64 {
     let s = handle_str(str_handle(subj_word));
-    let idx = rt_re::__RTS_FN_NS_REGEX_FIND_AT(unbox_re(re_word), s.as_ptr(), s.len() as i64);
+    let idx = rt_re::__RTS_FN_NS_REGEX_FIND_AT(unbox_re(re_word), s.as_ptr() as u64, s.len() as i64);
     genops::number_result(idx as f64).raw()
 }

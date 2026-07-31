@@ -123,20 +123,20 @@ fn half_to_f64(h: u16) -> f64 {
 // ── extern "C" symbols ────────────────────────────────────────────────────────
 
 /// Largest integer <= x.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_FLOOR(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_FLOOR")]
+pub fn __RTS_FN_NS_MATH_FLOOR(x: F64) -> F64 {
     x.floor()
 }
 
 /// Smallest integer >= x.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_CEIL(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_CEIL")]
+pub fn __RTS_FN_NS_MATH_CEIL(x: F64) -> F64 {
     x.ceil()
 }
 
 /// Rounds to nearest; ties go to +Infinity to match JS semantics.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_ROUND(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_ROUND")]
+pub fn __RTS_FN_NS_MATH_ROUND(x: F64) -> F64 {
     let r = (x + 0.5).floor();
     // JS: a negative input rounding to zero yields NEGATIVE zero
     // (`Math.round(-0.4)` -> -0, `Object.is(Math.round(-0.5), -0)` -> true).
@@ -147,56 +147,56 @@ pub extern "C" fn __RTS_FN_NS_MATH_ROUND(x: F64) -> F64 {
 }
 
 /// Truncates fractional part (rounds toward zero).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_TRUNC(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_TRUNC")]
+pub fn __RTS_FN_NS_MATH_TRUNC(x: F64) -> F64 {
     x.trunc()
 }
 
 /// Square root.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_SQRT(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_SQRT")]
+pub fn __RTS_FN_NS_MATH_SQRT(x: F64) -> F64 {
     x.sqrt()
 }
 
 /// Cube root.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_CBRT(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_CBRT")]
+pub fn __RTS_FN_NS_MATH_CBRT(x: F64) -> F64 {
     x.cbrt()
 }
 
 /// base raised to exp.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_POW(base: F64, exp: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_POW")]
+pub fn __RTS_FN_NS_MATH_POW(base: F64, exp: F64) -> F64 {
     base.powf(exp)
 }
 
 /// e^x.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_EXP(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_EXP")]
+pub fn __RTS_FN_NS_MATH_EXP(x: F64) -> F64 {
     x.exp()
 }
 
 /// Natural logarithm (base e).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_LN(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_LN")]
+pub fn __RTS_FN_NS_MATH_LN(x: F64) -> F64 {
     x.ln()
 }
 
 /// Base-2 logarithm.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_LOG2(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_LOG2")]
+pub fn __RTS_FN_NS_MATH_LOG2(x: F64) -> F64 {
     x.log2()
 }
 
 /// Base-10 logarithm.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_LOG10(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_LOG10")]
+pub fn __RTS_FN_NS_MATH_LOG10(x: F64) -> F64 {
     x.log10()
 }
 
 /// Sign of x: -1, 0, or 1; NaN for NaN.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_SIGN(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_SIGN")]
+pub fn __RTS_FN_NS_MATH_SIGN(x: F64) -> F64 {
     if x.is_nan() {
         f64::NAN
     } else if x > 0.0 {
@@ -209,164 +209,164 @@ pub extern "C" fn __RTS_FN_NS_MATH_SIGN(x: F64) -> F64 {
 }
 
 /// sqrt(a² + b²) sem overflow intermediario. 2-arg em v0.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_HYPOT(a: F64, b: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_HYPOT")]
+pub fn __RTS_FN_NS_MATH_HYPOT(a: F64, b: F64) -> F64 {
     a.hypot(b)
 }
 
 /// exp(x) - 1, preciso para x perto de 0.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_EXPM1(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_EXPM1")]
+pub fn __RTS_FN_NS_MATH_EXPM1(x: F64) -> F64 {
     x.exp_m1()
 }
 
 /// ln(1 + x), preciso para x perto de 0.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_LOG1P(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_LOG1P")]
+pub fn __RTS_FN_NS_MATH_LOG1P(x: F64) -> F64 {
     x.ln_1p()
 }
 
 /// Arredonda para o f32 mais proximo (volta para f64).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_FROUND(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_FROUND")]
+pub fn __RTS_FN_NS_MATH_FROUND(x: F64) -> F64 {
     x as f32 as f64
 }
 
 /// Arredonda para IEEE 754 binary16 (half) e volta para f64.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_F16ROUND(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_F16ROUND")]
+pub fn __RTS_FN_NS_MATH_F16ROUND(x: F64) -> F64 {
     f16_from_f64(x)
 }
 
 /// Seno hiperbolico.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_SINH(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_SINH")]
+pub fn __RTS_FN_NS_MATH_SINH(x: F64) -> F64 {
     x.sinh()
 }
 
 /// Cosseno hiperbolico.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_COSH(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_COSH")]
+pub fn __RTS_FN_NS_MATH_COSH(x: F64) -> F64 {
     x.cosh()
 }
 
 /// Tangente hiperbolica.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_TANH(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_TANH")]
+pub fn __RTS_FN_NS_MATH_TANH(x: F64) -> F64 {
     x.tanh()
 }
 
 /// Arc seno hiperbolico.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_ASINH(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_ASINH")]
+pub fn __RTS_FN_NS_MATH_ASINH(x: F64) -> F64 {
     x.asinh()
 }
 
 /// Arc cosseno hiperbolico.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_ACOSH(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_ACOSH")]
+pub fn __RTS_FN_NS_MATH_ACOSH(x: F64) -> F64 {
     x.acosh()
 }
 
 /// Arc tangente hiperbolica.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_ATANH(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_ATANH")]
+pub fn __RTS_FN_NS_MATH_ATANH(x: F64) -> F64 {
     x.atanh()
 }
 
 /// C-style 32-bit signed multiplication (wrapping).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_IMUL(a: I64, b: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_MATH_IMUL")]
+pub fn __RTS_FN_NS_MATH_IMUL(a: I64, b: I64) -> I64 {
     ((a as i32).wrapping_mul(b as i32)) as i64
 }
 
 /// Count leading zeros em uint32.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_CLZ32(x: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_MATH_CLZ32")]
+pub fn __RTS_FN_NS_MATH_CLZ32(x: I64) -> I64 {
     (x as u32).leading_zeros() as i64
 }
 
 /// Absolute value (f64).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_ABS_F64(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_ABS_F64")]
+pub fn __RTS_FN_NS_MATH_ABS_F64(x: F64) -> F64 {
     x.abs()
 }
 
 /// Absolute value (i64); i64::MIN maps to itself (wrapping).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_ABS_I64(x: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_MATH_ABS_I64")]
+pub fn __RTS_FN_NS_MATH_ABS_I64(x: I64) -> I64 {
     x.wrapping_abs()
 }
 
 /// Sine (radians).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_SIN(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_SIN")]
+pub fn __RTS_FN_NS_MATH_SIN(x: F64) -> F64 {
     x.sin()
 }
 
 /// Cosine (radians).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_COS(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_COS")]
+pub fn __RTS_FN_NS_MATH_COS(x: F64) -> F64 {
     x.cos()
 }
 
 /// Tangent (radians).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_TAN(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_TAN")]
+pub fn __RTS_FN_NS_MATH_TAN(x: F64) -> F64 {
     x.tan()
 }
 
 /// Arc sine (returns radians).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_ASIN(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_ASIN")]
+pub fn __RTS_FN_NS_MATH_ASIN(x: F64) -> F64 {
     x.asin()
 }
 
 /// Arc cosine (returns radians).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_ACOS(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_ACOS")]
+pub fn __RTS_FN_NS_MATH_ACOS(x: F64) -> F64 {
     x.acos()
 }
 
 /// Arc tangent (returns radians).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_ATAN(x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_ATAN")]
+pub fn __RTS_FN_NS_MATH_ATAN(x: F64) -> F64 {
     x.atan()
 }
 
 /// atan2(y, x) — angle (radians) of the 2D vector (x, y).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_ATAN2(y: F64, x: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_ATAN2")]
+pub fn __RTS_FN_NS_MATH_ATAN2(y: F64, x: F64) -> F64 {
     y.atan2(x)
 }
 
 /// Minimum of two f64 values (NaN-aware).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_MIN_F64(a: F64, b: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_MIN_F64")]
+pub fn __RTS_FN_NS_MATH_MIN_F64(a: F64, b: F64) -> F64 {
     a.min(b)
 }
 
 /// Maximum of two f64 values (NaN-aware).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_MAX_F64(a: F64, b: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_MAX_F64")]
+pub fn __RTS_FN_NS_MATH_MAX_F64(a: F64, b: F64) -> F64 {
     a.max(b)
 }
 
 /// Minimum of two i64 values.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_MIN_I64(a: I64, b: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_MATH_MIN_I64")]
+pub fn __RTS_FN_NS_MATH_MIN_I64(a: I64, b: I64) -> I64 {
     a.min(b)
 }
 
 /// Maximum of two i64 values.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_MAX_I64(a: I64, b: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_MATH_MAX_I64")]
+pub fn __RTS_FN_NS_MATH_MAX_I64(a: I64, b: I64) -> I64 {
     a.max(b)
 }
 
 /// Clamps x into [lo, hi]. NaN propagates.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_CLAMP_F64(x: F64, lo: F64, hi: F64) -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_CLAMP_F64")]
+pub fn __RTS_FN_NS_MATH_CLAMP_F64(x: F64, lo: F64, hi: F64) -> F64 {
     if x.is_nan() {
         return x;
     }
@@ -374,21 +374,21 @@ pub extern "C" fn __RTS_FN_NS_MATH_CLAMP_F64(x: F64, lo: F64, hi: F64) -> F64 {
 }
 
 /// Clamps x into [lo, hi].
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_CLAMP_I64(x: I64, lo: I64, hi: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_MATH_CLAMP_I64")]
+pub fn __RTS_FN_NS_MATH_CLAMP_I64(x: I64, lo: I64, hi: I64) -> I64 {
     x.clamp(lo, hi)
 }
 
 /// Uniform f64 in [0, 1) from a thread-local xorshift64 PRNG.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_RANDOM_F64() -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_RANDOM_F64")]
+pub fn __RTS_FN_NS_MATH_RANDOM_F64() -> F64 {
     let bits = next_u64() >> 11;
     bits as f64 / ((1u64 << 53) as f64)
 }
 
 /// Uniform i64 in [lo, hi). Returns lo when lo >= hi.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_RANDOM_I64_RANGE(lo: I64, hi: I64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_MATH_RANDOM_I64_RANGE")]
+pub fn __RTS_FN_NS_MATH_RANDOM_I64_RANGE(lo: I64, hi: I64) -> I64 {
     if lo >= hi {
         return lo;
     }
@@ -399,69 +399,69 @@ pub extern "C" fn __RTS_FN_NS_MATH_RANDOM_I64_RANGE(lo: I64, hi: I64) -> I64 {
 }
 
 /// Seeds the PRNG. Zero is replaced by the default seed.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_SEED(s: U64) {
+#[rtse::abi("__RTS_FN_NS_MATH_SEED")]
+pub fn __RTS_FN_NS_MATH_SEED(s: U64) {
     let s = if s == 0 { 0x853c_49e6_748f_ea9b } else { s };
     RNG_STATE.with(|c| c.set(s));
 }
 
 /// Archimedes' constant.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_PI() -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_PI")]
+pub fn __RTS_FN_NS_MATH_PI() -> F64 {
     std::f64::consts::PI
 }
 
 /// Euler's number.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_E() -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_E")]
+pub fn __RTS_FN_NS_MATH_E() -> F64 {
     std::f64::consts::E
 }
 
 /// Positive infinity.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_INFINITY() -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_INFINITY")]
+pub fn __RTS_FN_NS_MATH_INFINITY() -> F64 {
     f64::INFINITY
 }
 
 /// Quiet NaN.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_NAN() -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_NAN")]
+pub fn __RTS_FN_NS_MATH_NAN() -> F64 {
     f64::NAN
 }
 
 /// Square root of 2 (~1.4142).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_SQRT2() -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_SQRT2")]
+pub fn __RTS_FN_NS_MATH_SQRT2() -> F64 {
     std::f64::consts::SQRT_2
 }
 
 /// 1/sqrt(2) (~0.7071).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_SQRT1_2() -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_SQRT1_2")]
+pub fn __RTS_FN_NS_MATH_SQRT1_2() -> F64 {
     std::f64::consts::FRAC_1_SQRT_2
 }
 
 /// Natural log of 2 (~0.6931).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_LN2() -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_LN2")]
+pub fn __RTS_FN_NS_MATH_LN2() -> F64 {
     std::f64::consts::LN_2
 }
 
 /// Natural log of 10 (~2.302).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_LN10() -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_LN10")]
+pub fn __RTS_FN_NS_MATH_LN10() -> F64 {
     std::f64::consts::LN_10
 }
 
 /// Log base 2 of e (~1.4427).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_LOG2E() -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_LOG2E")]
+pub fn __RTS_FN_NS_MATH_LOG2E() -> F64 {
     std::f64::consts::LOG2_E
 }
 
 /// Log base 10 of e (~0.4342).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_MATH_LOG10E() -> F64 {
+#[rtse::abi("__RTS_FN_NS_MATH_LOG10E")]
+pub fn __RTS_FN_NS_MATH_LOG10E() -> F64 {
     std::f64::consts::LOG10_E
 }
 

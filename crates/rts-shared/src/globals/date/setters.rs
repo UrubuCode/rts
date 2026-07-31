@@ -63,8 +63,8 @@ fn finish_setter(handle: u64, parts: Option<(i64, i64, i64, i64, i64, i64, i64)>
 
 // ── the multi-component setter externs ──────────────────────────────────────
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_FULL_YEAR(
+#[rtse::abi("__RTS_FN_GL_DATE_SET_FULL_YEAR")]
+pub fn __RTS_FN_GL_DATE_SET_FULL_YEAR(
     handle: u64,
     year: f64,
     month: f64,
@@ -85,15 +85,15 @@ pub extern "C" fn __RTS_FN_GL_DATE_SET_FULL_YEAR(
     finish_setter(handle, parts)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_MONTH(handle: u64, month: f64, day: f64) -> f64 {
+#[rtse::abi("__RTS_FN_GL_DATE_SET_MONTH")]
+pub fn __RTS_FN_GL_DATE_SET_MONTH(handle: u64, month: f64, day: f64) -> f64 {
     let (y, _, d, h, mi, s, ms) = setter_base_parts(handle);
     let parts = (|| Some((y, keep_f(month, 0)?, keep_f(day, d)?, h, mi, s, ms)))();
     finish_setter(handle, parts)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_HOURS(
+#[rtse::abi("__RTS_FN_GL_DATE_SET_HOURS")]
+pub fn __RTS_FN_GL_DATE_SET_HOURS(
     handle: u64,
     hour: f64,
     min: f64,
@@ -115,8 +115,8 @@ pub extern "C" fn __RTS_FN_GL_DATE_SET_HOURS(
     finish_setter(handle, parts)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_MINUTES(handle: u64, min: f64, sec: f64, msec: f64) -> f64 {
+#[rtse::abi("__RTS_FN_GL_DATE_SET_MINUTES")]
+pub fn __RTS_FN_GL_DATE_SET_MINUTES(handle: u64, min: f64, sec: f64, msec: f64) -> f64 {
     let (y, mo, d, h, _, s, ms) = setter_base_parts(handle);
     let parts = (|| {
         Some((
@@ -132,8 +132,8 @@ pub extern "C" fn __RTS_FN_GL_DATE_SET_MINUTES(handle: u64, min: f64, sec: f64, 
     finish_setter(handle, parts)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_DATE_SET_SECONDS(handle: u64, sec: f64, msec: f64) -> f64 {
+#[rtse::abi("__RTS_FN_GL_DATE_SET_SECONDS")]
+pub fn __RTS_FN_GL_DATE_SET_SECONDS(handle: u64, sec: f64, msec: f64) -> f64 {
     let (y, mo, d, h, mi, _, ms) = setter_base_parts(handle);
     let parts = (|| Some((y, mo, d, h, mi, keep_f(sec, 0)?, keep_f(msec, ms)?)))();
     finish_setter(handle, parts)

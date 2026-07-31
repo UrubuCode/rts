@@ -32,13 +32,16 @@ where
 }
 
 /// Compila `pattern` com `flags` JS (igmsuyx). Handle, ou 0 em erro.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_REGEX_COMPILE(
-    pattern_ptr: *const u8,
+#[rtse::abi("__RTS_FN_NS_REGEX_COMPILE")]
+pub fn __RTS_FN_NS_REGEX_COMPILE(
+    pattern_ptr: u64,
     pattern_len: i64,
-    flags_ptr: *const u8,
+    flags_ptr: u64,
     flags_len: i64,
 ) -> Handle {
+    let pattern_ptr = pattern_ptr as *const u8;
+    let flags_ptr = flags_ptr as *const u8;
+
     let pattern = match unsafe { rts_engine::abi::str_abi::from_abi(pattern_ptr, pattern_len) } {
         Some(s) => s,
         None => return 0,
@@ -125,14 +128,16 @@ pub extern "C" fn __RTS_FN_NS_REGEX_COMPILE(
 }
 
 /// Libera o handle do regex.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_REGEX_FREE(handle: Handle) {
+#[rtse::abi("__RTS_FN_NS_REGEX_FREE")]
+pub fn __RTS_FN_NS_REGEX_FREE(handle: Handle) {
     let _ = free_handle(handle);
 }
 
 /// `regex.test(s)` — respeita lastIndex em regex global (JS spec).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_REGEX_TEST(handle: Handle, s_ptr: *const u8, s_len: i64) -> Bool {
+#[rtse::abi("__RTS_FN_NS_REGEX_TEST")]
+pub fn __RTS_FN_NS_REGEX_TEST(handle: Handle, s_ptr: u64, s_len: i64) -> Bool {
+    let s_ptr = s_ptr as *const u8;
+
     let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr, s_len) } {
         Some(s) => s,
         None => return 0,
@@ -166,8 +171,10 @@ pub extern "C" fn __RTS_FN_NS_REGEX_TEST(handle: Handle, s_ptr: *const u8, s_len
 }
 
 /// Primeiro match como string handle (respeita lastIndex em global). 0 se sem match.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_REGEX_FIND(handle: Handle, s_ptr: *const u8, s_len: i64) -> Handle {
+#[rtse::abi("__RTS_FN_NS_REGEX_FIND")]
+pub fn __RTS_FN_NS_REGEX_FIND(handle: Handle, s_ptr: u64, s_len: i64) -> Handle {
+    let s_ptr = s_ptr as *const u8;
+
     let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr, s_len) } {
         Some(s) => s,
         None => return 0,
@@ -203,8 +210,10 @@ pub extern "C" fn __RTS_FN_NS_REGEX_FIND(handle: Handle, s_ptr: *const u8, s_len
 }
 
 /// Byte offset do primeiro match, ou -1.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_REGEX_FIND_AT(handle: Handle, s_ptr: *const u8, s_len: i64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_REGEX_FIND_AT")]
+pub fn __RTS_FN_NS_REGEX_FIND_AT(handle: Handle, s_ptr: u64, s_len: i64) -> I64 {
+    let s_ptr = s_ptr as *const u8;
+
     let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr, s_len) } {
         Some(s) => s,
         None => return 0,
@@ -215,14 +224,17 @@ pub extern "C" fn __RTS_FN_NS_REGEX_FIND_AT(handle: Handle, s_ptr: *const u8, s_
 }
 
 /// Substitui o primeiro match por `replacement`. Retorna string handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_REGEX_REPLACE(
+#[rtse::abi("__RTS_FN_NS_REGEX_REPLACE")]
+pub fn __RTS_FN_NS_REGEX_REPLACE(
     handle: Handle,
-    s_ptr: *const u8,
+    s_ptr: u64,
     s_len: i64,
-    replacement_ptr: *const u8,
+    replacement_ptr: u64,
     replacement_len: i64,
 ) -> Handle {
+    let s_ptr = s_ptr as *const u8;
+    let replacement_ptr = replacement_ptr as *const u8;
+
     let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr, s_len) } {
         Some(s) => s,
         None => return 0,
@@ -239,14 +251,17 @@ pub extern "C" fn __RTS_FN_NS_REGEX_REPLACE(
 }
 
 /// Substitui todos os matches por `replacement`. Retorna string handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_REGEX_REPLACE_ALL(
+#[rtse::abi("__RTS_FN_NS_REGEX_REPLACE_ALL")]
+pub fn __RTS_FN_NS_REGEX_REPLACE_ALL(
     handle: Handle,
-    s_ptr: *const u8,
+    s_ptr: u64,
     s_len: i64,
-    replacement_ptr: *const u8,
+    replacement_ptr: u64,
     replacement_len: i64,
 ) -> Handle {
+    let s_ptr = s_ptr as *const u8;
+    let replacement_ptr = replacement_ptr as *const u8;
+
     let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr, s_len) } {
         Some(s) => s,
         None => return 0,
@@ -261,12 +276,14 @@ pub extern "C" fn __RTS_FN_NS_REGEX_REPLACE_ALL(
 }
 
 /// Numero de matches de `s`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_REGEX_MATCH_COUNT(
+#[rtse::abi("__RTS_FN_NS_REGEX_MATCH_COUNT")]
+pub fn __RTS_FN_NS_REGEX_MATCH_COUNT(
     handle: Handle,
-    s_ptr: *const u8,
+    s_ptr: u64,
     s_len: i64,
 ) -> I64 {
+    let s_ptr = s_ptr as *const u8;
+
     let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr, s_len) } {
         Some(s) => s,
         None => return 0,
@@ -282,8 +299,10 @@ pub extern "C" fn __RTS_FN_NS_REGEX_MATCH_COUNT(
 /// a bad regex/subject handle. Empty pattern ⇒ a single part (the whole string),
 /// matching the conservative JS-vs-Rust note (Rust's empty match would split per
 /// char; we keep the whole string to avoid a silent divergence here).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_REGEX_SPLIT(handle: Handle, s_ptr: *const u8, s_len: i64) -> Handle {
+#[rtse::abi("__RTS_FN_NS_REGEX_SPLIT")]
+pub fn __RTS_FN_NS_REGEX_SPLIT(handle: Handle, s_ptr: u64, s_len: i64) -> Handle {
+    let s_ptr = s_ptr as *const u8;
+
     let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr, s_len) } {
         Some(s) => s,
         None => return 0,
@@ -321,12 +340,14 @@ pub extern "C" fn __RTS_FN_NS_REGEX_SPLIT(handle: Handle, s_ptr: *const u8, s_le
 /// for a GLOBAL regex (returns all matches). 0 on a bad handle. An EMPTY result
 /// (no match) returns 0 (the lowering maps it to `null`, matching JS). The new
 /// engine reboxes each slot into a PolyValue word codegen-side.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_REGEX_MATCH_ALL(
+#[rtse::abi("__RTS_FN_NS_REGEX_MATCH_ALL")]
+pub fn __RTS_FN_NS_REGEX_MATCH_ALL(
     handle: Handle,
-    s_ptr: *const u8,
+    s_ptr: u64,
     s_len: i64,
 ) -> Handle {
+    let s_ptr = s_ptr as *const u8;
+
     let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr, s_len) } {
         Some(s) => s,
         None => return 0,
@@ -350,12 +371,14 @@ pub extern "C" fn __RTS_FN_NS_REGEX_MATCH_ALL(
 /// groups, JS spec — a group that did not participate is the `0`/null sentinel). A
 /// GLOBAL (`/g`) regex returns all full matches (group 0 only), like `match_all`.
 /// `0` on a bad handle / NO MATCH (the lowering maps it to `null`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_REGEX_MATCH_GROUPS(
+#[rtse::abi("__RTS_FN_NS_REGEX_MATCH_GROUPS")]
+pub fn __RTS_FN_NS_REGEX_MATCH_GROUPS(
     handle: Handle,
-    s_ptr: *const u8,
+    s_ptr: u64,
     s_len: i64,
 ) -> Handle {
+    let s_ptr = s_ptr as *const u8;
+
     let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr, s_len) } {
         Some(s) => s,
         None => return 0,

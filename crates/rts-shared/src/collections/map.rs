@@ -126,30 +126,32 @@ fn shaped_object_route(
 }
 
 /// Creates an empty HashMap<string, number> and returns its handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_NEW() -> Handle {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_NEW")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_NEW() -> Handle {
     alloc_entry(Entry::Map(Box::new(IndexMap::new())))
 }
 
 /// Releases the map handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FREE(h: U64) {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_FREE")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_FREE(h: U64) {
     free_handle(h);
 }
 
 /// Number of entries; -1 if the handle is invalid.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_LEN(h: U64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_LEN")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_LEN(h: U64) -> I64 {
     with_map(h, -1, |m| m.len() as i64)
 }
 
 /// True when the map contains `key`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_HAS(
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_HAS")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_HAS(
     h: U64,
-    key_ptr: *const u8,
+    key_ptr: u64,
     key_len: i64,
 ) -> Bool {
+    let key_ptr = key_ptr as *const u8;
+
     let key = match unsafe { rts_engine::abi::str_abi::from_abi(key_ptr, key_len) } {
         Some(s) => s,
         None => return 0,
@@ -162,8 +164,10 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_HAS(
 }
 
 /// Value for `key`, or 0 when absent. Use map_has to distinguish.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET(h: U64, key_ptr: *const u8, key_len: i64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_GET")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_GET(h: U64, key_ptr: u64, key_len: i64) -> I64 {
+    let key_ptr = key_ptr as *const u8;
+
     let key = match unsafe { rts_engine::abi::str_abi::from_abi(key_ptr, key_len) } {
         Some(s) => s,
         None => return 0,
@@ -182,24 +186,28 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET(h: U64, key_ptr: *const u8, ke
 /// `Map.get(key)` genérico — como MAP_GET mas devolve o sentinela `undefined`
 /// (i64::MIN+2) p/ chave ausente, em vez do raw 0 (que o codegen convertia).
 /// Permite drenar `get` pro Registry (key StrPtr, retorno AMBIGUOUS_RET).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_AUTO(
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_GET_AUTO")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_GET_AUTO(
     h: U64,
-    key_ptr: *const u8,
+    key_ptr: u64,
     key_len: i64,
 ) -> I64 {
-    let v = __RTS_FN_NS_COLLECTIONS_MAP_GET(h, key_ptr, key_len);
+    let key_ptr = key_ptr as *const u8;
+
+    let v = __RTS_FN_NS_COLLECTIONS_MAP_GET(h, key_ptr as u64, key_len);
     if v == 0 { i64::MIN + 2 } else { v }
 }
 
 /// Inserts/overwrites `key` with `value`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SET(
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_SET")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_SET(
     h: U64,
-    key_ptr: *const u8,
+    key_ptr: u64,
     key_len: i64,
     value: I64,
 ) {
+    let key_ptr = key_ptr as *const u8;
+
     let key = match unsafe { rts_engine::abi::str_abi::from_abi(key_ptr, key_len) } {
         Some(s) => s,
         None => return,
@@ -234,12 +242,14 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SET(
 }
 
 /// Removes `key`. Returns 1 if removed, 0 if absent.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DELETE(
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_DELETE")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_DELETE(
     h: U64,
-    key_ptr: *const u8,
+    key_ptr: u64,
     key_len: i64,
 ) -> I64 {
+    let key_ptr = key_ptr as *const u8;
+
     let key = match unsafe { rts_engine::abi::str_abi::from_abi(key_ptr, key_len) } {
         Some(s) => s,
         None => return 0,
@@ -256,14 +266,14 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DELETE(
 }
 
 /// Removes all entries.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_CLEAR(h: U64) {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_CLEAR")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_CLEAR(h: U64) {
     with_map_mut(h, (), |m| m.clear());
 }
 
 /// True when `key_h` is an own property of `obj_h` (Vec or Map). Accepts Symbol keys.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_HAS(obj_h: U64, key_h: U64) -> Bool {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_OBJ_HAS")]
+pub fn __RTS_FN_NS_COLLECTIONS_OBJ_HAS(obj_h: U64, key_h: U64) -> Bool {
     let key = match key_handle_to_string(key_h) {
         Some(s) => s,
         None => return 0,
@@ -347,8 +357,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_HAS(obj_h: U64, key_h: U64) -> Boo
 }
 
 /// Inserts/overwrites value for key handle (String or Symbol).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SET_KH(obj_h: U64, key_h: U64, value: I64) {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_SET_KH")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_SET_KH(obj_h: U64, key_h: U64, value: I64) {
     let Some(key) = key_handle_to_string(key_h) else {
         return;
     };
@@ -358,8 +368,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SET_KH(obj_h: U64, key_h: U64, val
 }
 
 /// Sets obj[key]=value, dispatching on Vec vs Map. Accepts Symbol keys.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_SET(obj_h: U64, key_h: U64, value: I64) {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_OBJ_SET")]
+pub fn __RTS_FN_NS_COLLECTIONS_OBJ_SET(obj_h: U64, key_h: U64, value: I64) {
     // Vec path: tenta parse de array index a partir da key.
     let is_vec = with_entry(obj_h, |e| matches!(e, Some(Entry::Vec(_))));
     if is_vec {
@@ -387,8 +397,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_SET(obj_h: U64, key_h: U64, value:
 }
 
 /// Reads obj[key], dispatching on Vec vs Map. Accepts Symbol keys.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_GET(obj_h: U64, key_h: U64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_OBJ_GET")]
+pub fn __RTS_FN_NS_COLLECTIONS_OBJ_GET(obj_h: U64, key_h: U64) -> I64 {
     let Some(key) = key_handle_to_string(key_h) else {
         return 0;
     };
@@ -411,8 +421,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJ_GET(obj_h: U64, key_h: U64) -> I64
 }
 
 /// Returns value for key handle, or 0 if absent.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_KH(obj_h: U64, key_h: U64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_GET_KH")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_GET_KH(obj_h: U64, key_h: U64) -> I64 {
     let Some(key) = key_handle_to_string(key_h) else {
         return 0;
     };
@@ -441,8 +451,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_KH(obj_h: U64, key_h: U64) -> 
 }
 
 /// Returns a shallow copy of the map (new handle).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_CLONE(h: U64) -> Handle {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_CLONE")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_CLONE(h: U64) -> Handle {
     let cloned: Option<IndexMap<String, i64>> = with_map(h, None, |m| Some(m.clone()));
     match cloned {
         Some(m) => alloc_entry(Entry::Map(Box::new(m))),
@@ -451,8 +461,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_CLONE(h: U64) -> Handle {
 }
 
 /// Returns the key at index in deterministic order (sorted). 0 if out of range.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEY_AT(h: U64, idx: I64) -> Handle {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_KEY_AT")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_KEY_AT(h: U64, idx: I64) -> Handle {
     if idx < 0 {
         return 0;
     }
@@ -480,8 +490,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEY_AT(h: U64, idx: I64) -> Handle
 }
 
 /// Returns Vec<i64> with key handles (sorted asc). Used by Object.keys.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(h: U64) -> Handle {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_KEYS")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(h: U64) -> Handle {
     // (#218 phase2) Proxy: trap `ownKeys(target)` ou forward.
     if let Some((target, handler)) = rts_primitives::proxy::ops::resolve_proxy(h) {
         return rts_primitives::proxy::ops::dispatch_own_keys(target, handler);
@@ -525,8 +535,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(h: U64) -> Handle {
 }
 
 /// Returns Vec<i64> with values (in key-sorted order). Used by Object.values.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_VALUES(h: U64) -> Handle {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_VALUES")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_VALUES(h: U64) -> Handle {
     if handle_is_set_kind(h) {
         let elems: Vec<i64> = with_map(h, Vec::new(), |m| {
             m.iter()
@@ -743,8 +753,8 @@ pub fn append_engine_members(v: &mut Vec<Member>) {
 /// toda a sessao.
 static GLOBAL_THIS_HANDLE: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_GLOBAL_THIS_MAP() -> u64 {
+#[rtse::abi("__RTS_FN_RT_GLOBAL_THIS_MAP")]
+pub fn __RTS_FN_RT_GLOBAL_THIS_MAP() -> u64 {
     *GLOBAL_THIS_HANDLE.get_or_init(|| alloc_entry(Entry::Map(Box::new(IndexMap::new()))))
 }
 
@@ -752,12 +762,14 @@ pub extern "C" fn __RTS_FN_RT_GLOBAL_THIS_MAP() -> u64 {
 /// caminhos do codegen que precisam de lookup raw — ex: getter sentinel
 /// `__get_<key>` que so' faz sentido em Map normal e crasharia em Proxy
 /// se o trap retornasse um valor nao-zero (interpretado como fn handle).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_DIRECT(
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_GET_DIRECT")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_GET_DIRECT(
     handle: u64,
-    key_ptr: *const u8,
+    key_ptr: u64,
     key_len: i64,
 ) -> i64 {
+    let key_ptr = key_ptr as *const u8;
+
     let Some(key) = str_from_abi(key_ptr, key_len) else {
         return 0;
     };
@@ -816,13 +828,16 @@ fn class_method_registry()
     R.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_REGISTER_CLASS_METHOD(
-    class_ptr: *const u8,
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_REGISTER_CLASS_METHOD")]
+pub fn __RTS_FN_NS_COLLECTIONS_REGISTER_CLASS_METHOD(
+    class_ptr: u64,
     class_len: i64,
-    method_ptr: *const u8,
+    method_ptr: u64,
     method_len: i64,
 ) {
+    let class_ptr = class_ptr as *const u8;
+    let method_ptr = method_ptr as *const u8;
+
     let Some(cls) = str_from_abi(class_ptr, class_len) else {
         return;
     };
@@ -841,8 +856,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_REGISTER_CLASS_METHOD(
 /// JS spec: callback recebe (value, key, map). RTS aceita callback ate 3 args;
 /// se aridade for menor, args extras sao ignorados (transmute pra arity certa).
 /// Para Map, key e' string handle (alocado por iteracao).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH(handle: u64, fn_ptr: u64) {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH(handle: u64, fn_ptr: u64) {
     if fn_ptr == 0 {
         return;
     }
@@ -888,8 +903,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FOR_EACH(handle: u64, fn_ptr: u64)
 
 /// `set.forEach((value, value2, set) => ...)`. JS spec: para Set, value2 == value.
 /// Reusa Map.forEach passando o value como key tambem.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_FOR_EACH(handle: u64, fn_ptr: u64) {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_SET_FOR_EACH")]
+pub fn __RTS_FN_NS_COLLECTIONS_SET_FOR_EACH(handle: u64, fn_ptr: u64) {
     if fn_ptr == 0 {
         return;
     }
@@ -935,12 +950,14 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_FOR_EACH(handle: u64, fn_ptr: u64)
 /// Codifica o estado de busca em 2 valores: -1 = nao tem proto (parar),
 /// 0 = nao tem key mas tem proto (continuar), >0 = tem key (retornar).
 /// Na pratica nao distinguimos -1 e 0 porque ambos paramos em 0 retorno.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN(
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN(
     handle: u64,
-    key_ptr: *const u8,
+    key_ptr: u64,
     key_len: i64,
 ) -> i64 {
+    let key_ptr = key_ptr as *const u8;
+
     let Some(key) = str_from_abi(key_ptr, key_len) else {
         return 0;
     };
@@ -1043,8 +1060,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN(
 }
 
 /// `delete obj.prop` — recebe key como handle de string.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DELETE_AUTO(handle: u64, key_handle: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_DELETE_AUTO")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_DELETE_AUTO(handle: u64, key_handle: u64) -> i64 {
     use rts_engine::heap::handles::{Entry, with_entry};
     let key_owned: Option<String> = with_entry(key_handle, |e| match e {
         Some(Entry::String(b)) => std::str::from_utf8(b).ok().map(|s| s.to_string()),
@@ -1070,8 +1087,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DELETE_AUTO(handle: u64, key_handl
 /// Para Map JS (que preserva ordem de insercao), use
 /// `__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION` que mantem
 /// IndexMap order.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES(handle: u64) -> u64 {
     let pairs: Vec<(String, i64)> = with_map(handle, Vec::new(), |m| {
         // Ordem JS: integer-indexed keys ascendentes, depois string
         // keys em ordem de insercao.
@@ -1116,8 +1133,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES(handle: u64) -> u64 {
 /// Diferente de `MAP_ENTRIES` (que ordena por chave para Object.entries),
 /// esta variante preserva a ordem original — necessario para Map iter
 /// e `for (const [k, v] of m)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_ENTRIES_INSERTION(handle: u64) -> u64 {
     // (#394) Set.entries() em JS retorna pares [elem, elem] (cada elemento
     // duplicado). Usa o elemento com identidade preservada, nao a key-string.
     if handle_is_set_kind(handle) {
@@ -1168,8 +1185,8 @@ fn prevented_set() -> &'static std::sync::Mutex<std::collections::HashSet<u64>> 
 
 /// `Object.preventExtensions(obj)` — marca handle como non-extensible.
 /// Retorna o proprio handle (JS spec).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_PREVENT_EXTENSIONS(h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_PREVENT_EXTENSIONS")]
+pub fn __RTS_FN_NS_COLLECTIONS_PREVENT_EXTENSIONS(h: u64) -> u64 {
     if h != 0 {
         prevented_set().lock().unwrap().insert(h);
     }
@@ -1178,8 +1195,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_PREVENT_EXTENSIONS(h: u64) -> u64 {
 
 /// `Object.isExtensible(obj)` — retorna 1 se nunca foi prevent-extension'd
 /// e o handle eh valido, 0 caso contrario.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_IS_EXTENSIBLE(h: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_IS_EXTENSIBLE")]
+pub fn __RTS_FN_NS_COLLECTIONS_IS_EXTENSIBLE(h: u64) -> i64 {
     if h == 0 {
         return 0;
     }
@@ -1192,8 +1209,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_IS_EXTENSIBLE(h: u64) -> i64 {
 /// (#208 / #479) `Object.assign(target, source)` — copia own props de source
 /// pra target. Retorna handle do target. Versao com multiplos sources e'
 /// chamada repetidamente pelo codegen.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ASSIGN(target: u64, source: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_ASSIGN")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_ASSIGN(target: u64, source: u64) -> u64 {
     let pairs: Vec<(String, i64)> = with_map(source, Vec::new(), |m| {
         m.iter().map(|(k, v)| (k.clone(), *v)).collect()
     });
@@ -1207,8 +1224,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_ASSIGN(target: u64, source: u64) -
 
 /// Object.getOwnPropertyNames — inclui keys non-enumerable (diferenca para keys).
 /// Para Vec: ["0","1",...,"length"]. Para Map: todas as keys exceto __proto__.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_OWN_PROPERTY_NAMES(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_OBJECT_OWN_PROPERTY_NAMES")]
+pub fn __RTS_FN_NS_COLLECTIONS_OBJECT_OWN_PROPERTY_NAMES(handle: u64) -> u64 {
     // (cross-runtime #244) Unwrap StringBox antes da despachada principal.
     let unwrap_h = with_entry(handle, |e| match e {
         Some(Entry::StringBox(h)) => *h,
@@ -1274,8 +1291,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_OWN_PROPERTY_NAMES(handle: u64)
 }
 
 /// Object.keys auto: se handle e' Map retorna keys; se Vec retorna ["0","1",...].
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO")]
+pub fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
     // (#218 phase2 / #98) Proxy: trap `ownKeys` + filtragem por enumeravel
     // via trap `getOwnPropertyDescriptor` por chave (ECMA-262
     // OrdinaryOwnPropertyKeys). Reflect.ownKeys usa dispatch_own_keys cru.
@@ -1366,8 +1383,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_KEYS_AUTO(handle: u64) -> u64 {
 /// prototype chain (via slot __proto__ setado por Object.create / class).
 /// Wraper sobre OBJECT_KEYS_AUTO que anexa keys do(s) ancestor(s) que ainda
 /// nao apareceram, preservando ordem JS (own first, depois chain).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_FOR_IN_KEYS(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_FOR_IN_KEYS")]
+pub fn __RTS_FN_NS_COLLECTIONS_FOR_IN_KEYS(handle: u64) -> u64 {
     // Map/Set JS: nenhuma key visivel em for-in (Map/Set tem .entries()).
     if handle_is_map_kind(handle) || handle_is_set_kind(handle) {
         return alloc_entry(Entry::Vec(Box::new(Vec::new())));
@@ -1458,13 +1475,13 @@ fn set_kind_set() -> &'static Mutex<HashSet<u64>> {
     S.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MARK_AS_MAP(handle: u64) {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MARK_AS_MAP")]
+pub fn __RTS_FN_NS_COLLECTIONS_MARK_AS_MAP(handle: u64) {
     map_kind_set().lock().unwrap().insert(handle);
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MARK_AS_SET(handle: u64) {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MARK_AS_SET")]
+pub fn __RTS_FN_NS_COLLECTIONS_MARK_AS_SET(handle: u64) {
     set_kind_set().lock().unwrap().insert(handle);
 }
 
@@ -1518,26 +1535,26 @@ pub(crate) fn is_map_sealed(handle: u64) -> bool {
     sealed_set().lock().unwrap().contains(&handle)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FREEZE(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_FREEZE")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_FREEZE(handle: u64) -> u64 {
     frozen_set().lock().unwrap().insert(handle);
     sealed_set().lock().unwrap().insert(handle);
     handle
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_SEAL(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_SEAL")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_SEAL(handle: u64) -> u64 {
     sealed_set().lock().unwrap().insert(handle);
     handle
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_IS_FROZEN(handle: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_IS_FROZEN")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_IS_FROZEN(handle: u64) -> i64 {
     if is_map_frozen(handle) { 1 } else { 0 }
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_IS_SEALED(handle: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_IS_SEALED")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_IS_SEALED(handle: u64) -> i64 {
     if is_map_sealed(handle) { 1 } else { 0 }
 }
 
@@ -1546,8 +1563,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_IS_SEALED(handle: u64) -> i64 {
 /// `[Array.prototype]` para Map/Vec respectivamente — bate com codegen
 /// que materializa `Object.prototype` como handle de string.
 /// Para Map criado via `Object.create(null)` o slot existe e retorna 0 (null).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO(handle: u64) -> u64 {
     // (#218 phase2) Proxy: trap `getPrototypeOf` ou forward.
     if let Some((target, handler)) = rts_primitives::proxy::ops::resolve_proxy(handle) {
         return rts_primitives::proxy::ops::dispatch_get_proto(target, handler);
@@ -1629,8 +1646,10 @@ use rts_engine::heap::descriptors::{
 
 /// Insere `map[key] = val` (key como str ABI). Usado p/ o slot `constructor`
 /// dos prototype-maps de funções-construtoras.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_MAP_SET_STR(map: u64, key_ptr: *const u8, key_len: i64, val: i64) {
+#[rtse::abi("__RTS_FN_RT_MAP_SET_STR")]
+pub fn __RTS_FN_RT_MAP_SET_STR(map: u64, key_ptr: u64, key_len: i64, val: i64) {
+    let key_ptr = key_ptr as *const u8;
+
     if let Some(key) = str_from_abi(key_ptr, key_len) {
         let k = key.to_string();
         with_map_mut(map, (), |m| {
@@ -1640,8 +1659,10 @@ pub extern "C" fn __RTS_FN_RT_MAP_SET_STR(map: u64, key_ptr: *const u8, key_len:
 }
 
 /// Lê `map[key]` (0 se ausente). Usado p/ andar a chain `__proto__`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_MAP_GET_STR(map: u64, key_ptr: *const u8, key_len: i64) -> i64 {
+#[rtse::abi("__RTS_FN_RT_MAP_GET_STR")]
+pub fn __RTS_FN_RT_MAP_GET_STR(map: u64, key_ptr: u64, key_len: i64) -> i64 {
+    let key_ptr = key_ptr as *const u8;
+
     match str_from_abi(key_ptr, key_len) {
         Some(key) => with_map_mut(map, 0i64, |m| m.get(key).copied().unwrap_or(0)),
         None => 0,
@@ -1649,8 +1670,10 @@ pub extern "C" fn __RTS_FN_RT_MAP_GET_STR(map: u64, key_ptr: *const u8, key_len:
 }
 
 /// Marca `map[key]` como não-enumerável (JS: `constructor` em prototype maps).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_MAP_MARK_NON_ENUM(map: u64, key_ptr: *const u8, key_len: i64) {
+#[rtse::abi("__RTS_FN_RT_MAP_MARK_NON_ENUM")]
+pub fn __RTS_FN_RT_MAP_MARK_NON_ENUM(map: u64, key_ptr: u64, key_len: i64) {
+    let key_ptr = key_ptr as *const u8;
+
     if let Some(key) = str_from_abi(key_ptr, key_len) {
         mark_non_enumerable(map, key);
     }
@@ -1659,13 +1682,15 @@ pub extern "C" fn __RTS_FN_RT_MAP_MARK_NON_ENUM(map: u64, key_ptr: *const u8, ke
 /// (#208) `Object.defineProperty(obj, key, descriptor)`.
 /// Suporta `{ value: x }` e `{ enumerable: false }`. Demais
 /// (get/set/writable/configurable) caem em PR separada.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY(
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY(
     obj: u64,
-    key_ptr: *const u8,
+    key_ptr: u64,
     key_len: i64,
     descriptor: u64,
 ) -> u64 {
+    let key_ptr = key_ptr as *const u8;
+
     let value: i64 = with_map(descriptor, 0, |m| m.get("value").copied().unwrap_or(0));
     // enumerable: descritor com "enumerable" = 0 (bool false) marca a key
     // como nao-enumeravel. Default JS quando ausente eh false; mas pra
@@ -1758,8 +1783,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY(
 
 /// (#678/90) Set.prototype.union(other) — ES2025. Retorna novo Set com
 /// todos os elementos de `self` mais os de `other`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_UNION(self_h: u64, other_h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_SET_UNION")]
+pub fn __RTS_FN_NS_COLLECTIONS_SET_UNION(self_h: u64, other_h: u64) -> u64 {
     let result = alloc_entry(Entry::Map(Box::new(IndexMap::new())));
     set_kind_set().lock().unwrap().insert(result);
     for h in [self_h, other_h] {
@@ -1781,8 +1806,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_UNION(self_h: u64, other_h: u64) -
 }
 
 /// (#678/90) Set.prototype.intersection(other) — apenas elementos em ambos.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_INTERSECTION(self_h: u64, other_h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_SET_INTERSECTION")]
+pub fn __RTS_FN_NS_COLLECTIONS_SET_INTERSECTION(self_h: u64, other_h: u64) -> u64 {
     let other_keys: std::collections::HashSet<String> = with_entry(other_h, |e| match e {
         Some(Entry::Map(m)) => m
             .keys()
@@ -1810,8 +1835,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_INTERSECTION(self_h: u64, other_h:
 }
 
 /// (#678/90) Set.prototype.difference(other) — elementos em self que nao estao em other.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_DIFFERENCE(self_h: u64, other_h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_SET_DIFFERENCE")]
+pub fn __RTS_FN_NS_COLLECTIONS_SET_DIFFERENCE(self_h: u64, other_h: u64) -> u64 {
     let other_keys: std::collections::HashSet<String> = with_entry(other_h, |e| match e {
         Some(Entry::Map(m)) => m
             .keys()
@@ -1839,8 +1864,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_DIFFERENCE(self_h: u64, other_h: u
 }
 
 /// (#678/302) Set.symmetricDifference(other) — elementos em um Set ou outro mas nao em ambos.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_SYMMETRIC_DIFFERENCE(
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_SET_SYMMETRIC_DIFFERENCE")]
+pub fn __RTS_FN_NS_COLLECTIONS_SET_SYMMETRIC_DIFFERENCE(
     self_h: u64,
     other_h: u64,
 ) -> u64 {
@@ -1880,8 +1905,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_SYMMETRIC_DIFFERENCE(
 }
 
 /// (#678/302) Set.isSubsetOf(other) — todos elementos de self estao em other.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_IS_SUBSET(self_h: u64, other_h: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_SET_IS_SUBSET")]
+pub fn __RTS_FN_NS_COLLECTIONS_SET_IS_SUBSET(self_h: u64, other_h: u64) -> i64 {
     let other_keys: std::collections::HashSet<String> = with_entry(other_h, |e| match e {
         Some(Entry::Map(m)) => m
             .keys()
@@ -1901,14 +1926,14 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_IS_SUBSET(self_h: u64, other_h: u6
 }
 
 /// (#678/302) Set.isSupersetOf(other) — todos elementos de other estao em self.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_IS_SUPERSET(self_h: u64, other_h: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_SET_IS_SUPERSET")]
+pub fn __RTS_FN_NS_COLLECTIONS_SET_IS_SUPERSET(self_h: u64, other_h: u64) -> i64 {
     __RTS_FN_NS_COLLECTIONS_SET_IS_SUBSET(other_h, self_h)
 }
 
 /// (#678/302) Set.isDisjointFrom(other) — nenhum elemento em comum.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_IS_DISJOINT(self_h: u64, other_h: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_SET_IS_DISJOINT")]
+pub fn __RTS_FN_NS_COLLECTIONS_SET_IS_DISJOINT(self_h: u64, other_h: u64) -> i64 {
     let other_keys: std::collections::HashSet<String> = with_entry(other_h, |e| match e {
         Some(Entry::Map(m)) => m
             .keys()
@@ -1929,15 +1954,15 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_IS_DISJOINT(self_h: u64, other_h: 
 
 /// (#678/89) Object.groupBy(arr, fn) — ES2024. Itera arr, chama fn(elem, idx)
 /// para obter key. Cria obj { key: [items...] } com todos elements agrupados.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_OBJECT_GROUP_BY(arr: u64, fn_ptr: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_OBJECT_GROUP_BY")]
+pub fn __RTS_FN_NS_COLLECTIONS_OBJECT_GROUP_BY(arr: u64, fn_ptr: u64) -> u64 {
     group_by_impl(arr, fn_ptr, false)
 }
 
 /// (#678/89) Map.groupBy(arr, fn) — igual ao Object.groupBy mas marca resultado
 /// como Map (Array.from(map.entries()) retorna pairs).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GROUP_BY(arr: u64, fn_ptr: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_GROUP_BY")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_GROUP_BY(arr: u64, fn_ptr: u64) -> u64 {
     group_by_impl(arr, fn_ptr, true)
 }
 
@@ -1989,8 +2014,8 @@ fn group_by_impl(arr: u64, fn_ptr: u64, mark_as_map: bool) -> u64 {
 /// - Vec de pares [key_handle, value] (Object.entries output, ou tuples literais)
 /// - Map direto (cada entry vira prop com mesma key/value)
 /// (#666/265) Map suporte adicionado para `Object.fromEntries(new Map(...))`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_FROM_ENTRIES(arr: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_FROM_ENTRIES")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_FROM_ENTRIES(arr: u64) -> u64 {
     use rts_engine::heap::handles::{Entry, with_entry};
     // (#666/265) Map -> Map roundtrip: copia todos os pares (k, v) direto.
     let map_pairs: Option<Vec<(String, i64)>> = with_entry(arr, |entry| match entry {
@@ -2063,8 +2088,8 @@ pub(crate) fn set_stable_key(elem_raw: i64) -> String {
 /// (#394) `set.add(elem)` — insere preservando identidade. A KEY vem de
 /// `set_stable_key` (dedup correto p/ objetos), o VALUE eh o elemento cru
 /// (leitura recupera a identidade via `set_element_from_pair`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_ADD(set_h: u64, elem_raw: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_SET_ADD")]
+pub fn __RTS_FN_NS_COLLECTIONS_SET_ADD(set_h: u64, elem_raw: i64) -> u64 {
     if set_h == 0 || elem_raw == i64::MIN + 4 {
         return set_h;
     }
@@ -2083,29 +2108,33 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_ADD(set_h: u64, elem_raw: i64) -> 
 /// derivada do elemento cru (`elem_raw`) — identidade p/ objetos. Para Map (e
 /// qualquer handle nao-Set) usa a key-string (`key_ptr`/`key_len`), preservando
 /// 100% o comportamento de `MAP_HAS`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_OR_MAP_HAS(
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_SET_OR_MAP_HAS")]
+pub fn __RTS_FN_NS_COLLECTIONS_SET_OR_MAP_HAS(
     handle: u64,
-    key_ptr: *const u8,
+    key_ptr: u64,
     key_len: i64,
     elem_raw: i64,
 ) -> i64 {
+    let key_ptr = key_ptr as *const u8;
+
     if handle_is_set_kind(handle) {
         let key = set_stable_key(elem_raw);
         return with_map(handle, false, |m| m.contains_key(&key)) as i64;
     }
-    __RTS_FN_NS_COLLECTIONS_MAP_HAS(handle, key_ptr, key_len)
+    __RTS_FN_NS_COLLECTIONS_MAP_HAS(handle, key_ptr as u64, key_len)
 }
 
 /// (#394) `coll.delete(arg)` unificado Map/Set. Mesma logica de
 /// `SET_OR_MAP_HAS`: Set por identidade (elem_raw), Map por key-string.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_OR_MAP_DELETE(
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_SET_OR_MAP_DELETE")]
+pub fn __RTS_FN_NS_COLLECTIONS_SET_OR_MAP_DELETE(
     handle: u64,
-    key_ptr: *const u8,
+    key_ptr: u64,
     key_len: i64,
     elem_raw: i64,
 ) -> i64 {
+    let key_ptr = key_ptr as *const u8;
+
     if handle_is_set_kind(handle) {
         if is_map_frozen(handle) {
             return 0;
@@ -2113,7 +2142,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_OR_MAP_DELETE(
         let key = set_stable_key(elem_raw);
         return with_map_mut(handle, false, |m| m.shift_remove(&key).is_some()) as i64;
     }
-    __RTS_FN_NS_COLLECTIONS_MAP_DELETE(handle, key_ptr, key_len)
+    __RTS_FN_NS_COLLECTIONS_MAP_DELETE(handle, key_ptr as u64, key_len)
 }
 
 // ─── Versões de HANDLE ÚNICO (drain de lower_map_set_builtin) ─────────────────
@@ -2126,8 +2155,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_OR_MAP_DELETE(
 // passar a key como Handle sem o codegen computar ptr/len.
 
 /// `coll.has(key)` unificado Map/Set — key como handle único.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_HAS_AUTO(handle: u64, key_handle: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_HAS_AUTO")]
+pub fn __RTS_FN_NS_COLLECTIONS_HAS_AUTO(handle: u64, key_handle: u64) -> i64 {
     // A key chega como `coerce_to_i64(arg)` do emissor genérico: string handle
     // p/ string, NÚMERO CRU p/ number (não string handle). set_stable_key cobre
     // ambos (conteúdo p/ string handle, decimal p/ número cru, identidade p/
@@ -2136,15 +2165,15 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_HAS_AUTO(handle: u64, key_handle: u64)
     let bytes = key.as_bytes();
     __RTS_FN_NS_COLLECTIONS_SET_OR_MAP_HAS(
         handle,
-        bytes.as_ptr(),
+        bytes.as_ptr() as u64,
         bytes.len() as i64,
         key_handle as i64,
     )
 }
 
 /// `coll.delete(key)` unificado Map/Set — key como handle único.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_DELETE_AUTO(handle: u64, key_handle: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_DELETE_AUTO")]
+pub fn __RTS_FN_NS_COLLECTIONS_DELETE_AUTO(handle: u64, key_handle: u64) -> i64 {
     // A key chega como `coerce_to_i64(arg)` do emissor genérico: string handle
     // p/ string, NÚMERO CRU p/ number (não string handle). set_stable_key cobre
     // ambos (conteúdo p/ string handle, decimal p/ número cru, identidade p/
@@ -2153,7 +2182,7 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_DELETE_AUTO(handle: u64, key_handle: u
     let bytes = key.as_bytes();
     __RTS_FN_NS_COLLECTIONS_SET_OR_MAP_DELETE(
         handle,
-        bytes.as_ptr(),
+        bytes.as_ptr() as u64,
         bytes.len() as i64,
         key_handle as i64,
     )
@@ -2161,15 +2190,15 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_DELETE_AUTO(handle: u64, key_handle: u
 
 /// `Map.get(key)` — key como handle único; devolve o sentinela `undefined`
 /// (i64::MIN+2) p/ chave ausente (igual a MAP_GET_AUTO, que o codegen convertia).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_AUTO_H(handle: u64, key_handle: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_GET_AUTO_H")]
+pub fn __RTS_FN_NS_COLLECTIONS_MAP_GET_AUTO_H(handle: u64, key_handle: u64) -> i64 {
     // A key chega como `coerce_to_i64(arg)` do emissor genérico: string handle
     // p/ string, NÚMERO CRU p/ number (não string handle). set_stable_key cobre
     // ambos (conteúdo p/ string handle, decimal p/ número cru, identidade p/
     // objeto) — idêntico ao antigo STRING_PTR(coerce_to_handle(arg)) p/ int/str.
     let key = set_stable_key(key_handle as i64);
     let bytes = key.as_bytes();
-    __RTS_FN_NS_COLLECTIONS_MAP_GET_AUTO(handle, bytes.as_ptr(), bytes.len() as i64)
+    __RTS_FN_NS_COLLECTIONS_MAP_GET_AUTO(handle, bytes.as_ptr() as u64, bytes.len() as i64)
 }
 
 /// (#394) Normaliza um iteravel de for-of quando o codegen NAO conhece a
@@ -2180,8 +2209,8 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_AUTO_H(handle: u64, key_handle
 /// - resto (Vec/Buffer/string/etc) -> o proprio handle inalterado.
 /// So' eh chamado no ramo "classe desconhecida"; o caminho tipado comum
 /// (Vec anotado) nao passa por aqui.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_FOR_OF_NORMALIZE(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_RT_FOR_OF_NORMALIZE")]
+pub fn __RTS_FN_RT_FOR_OF_NORMALIZE(handle: u64) -> u64 {
     if handle_is_set_kind(handle) {
         return __RTS_FN_NS_COLLECTIONS_MAP_VALUES(handle);
     }
@@ -2201,8 +2230,8 @@ pub extern "C" fn __RTS_FN_RT_FOR_OF_NORMALIZE(handle: u64) -> u64 {
     handle
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_COLLECTIONS_SET_FROM_VEC(src: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_COLLECTIONS_SET_FROM_VEC")]
+pub fn __RTS_FN_NS_COLLECTIONS_SET_FROM_VEC(src: u64) -> u64 {
     use rts_engine::heap::handles::{Entry, with_entry};
     let elems: Vec<i64> = with_entry(src, |entry| match entry {
         Some(Entry::Vec(v)) => v.as_ref().clone(),
@@ -2306,7 +2335,7 @@ mod object_tests {
         __RTS_FN_NS_COLLECTIONS_MAP_SEAL(m);
         std::thread::spawn(move || {
             let key = b"new_key";
-            __RTS_FN_NS_COLLECTIONS_MAP_SET(m, key.as_ptr(), key.len() as i64, 99);
+            __RTS_FN_NS_COLLECTIONS_MAP_SET(m, key.as_ptr() as u64, key.len() as i64, 99);
         })
         .join()
         .unwrap();
