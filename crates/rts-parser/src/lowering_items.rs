@@ -41,7 +41,12 @@ impl swc_ecma_visit::VisitMut for GenExprHoister {
         use swc_ecma_visit::VisitMutWith;
         e.visit_mut_children_with(self);
         if let Expr::Fn(fe) = e {
-            if fe.function.is_generator && Self::sem_captura(&fe.function) {
+            // Sem `sem_captura` aqui: uma fn-EXPRESSÃO já era levantada
+            // incondicionalmente antes (é o caminho do cross-runtime #344), e
+            // acrescentar a guarda quebrava até `const g = function*(){…}` no
+            // TOPO — `g()` deixava de devolver iterador. A guarda vale só para a
+            // DECLARAÇÃO aninhada, que é o caso novo.
+            if fe.function.is_generator {
                 let name = format!("__genexpr_{}", self.counter);
                 self.counter += 1;
                 let ident = swc_ecma_ast::Ident {
