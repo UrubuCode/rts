@@ -449,13 +449,21 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // INTERIM: while the ambient `.ts` primitive class still exists, dispatch to
         // it (the boxed primitive as `this`). Deleted per-primitive as each moves to
         // a pure-Rust `#[rtse::class("X", value)]`.
+        // A member the ambient class DOES carry wins; one it does not FALLS
+        // THROUGH to the Registry class below instead of giving up here.
+        //
+        // That fall-through is what lets a class be drained INCREMENTALLY. It is
+        // load-bearing for `Object` right now: its instance surface is already a
+        // pure-Rust `#[rtse::class("Object", value)]`, but a stub ambient class
+        // survives to carry the statics-read-as-a-value block (nothing else can
+        // populate `desc.statics`). With the old early return, that stub shadowed
+        // the Rust class completely and every instance method read as missing.
         if let Some(desc) = self.classes.get(prim_class).cloned() {
-            let Some(fn_name) = desc.method_fn(method).map(str::to_string) else {
-                return Ok(None);
-            };
-            let this_word = self.box_value(recv);
-            let val = self.call_synth_fn(module, &fn_name, Some(this_word), args)?;
-            return Ok(Some(val));
+            if let Some(fn_name) = desc.method_fn(method).map(str::to_string) {
+                let this_word = self.box_value(recv);
+                let val = self.call_synth_fn(module, &fn_name, Some(this_word), args)?;
+                return Ok(Some(val));
+            }
         }
         // MIGRATED: the `.ts` class is gone — dispatch the primitive receiver WORD
         // through the REAL Registry value-class (`#[rtse::class("X", value)]`), the

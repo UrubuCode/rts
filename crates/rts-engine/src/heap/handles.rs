@@ -682,7 +682,16 @@ pub struct FunctionData {
     /// Vazio = assume todos i64. Usado por invoke_n para coerção correta
     /// quando método tem `number` (f64) ou outros tipos não-i64.
     pub param_kinds: Vec<u8>,
-    /// Tipo ABI do retorno: 0=i64, 1=f64, 2=bool, 3=i32, 4=void. 0 default.
+    /// Tipo ABI do retorno: 0=i64, 1=f64, 2=bool, 3=i32, 4=void, 5=handle.
+    /// 0 default.
+    ///
+    /// `5` existe porque `0` (i64) é AMBÍGUO: um `i64` de retorno pode ser um
+    /// número OU um handle de runtime, e o invoker legado resolvia a ambiguidade
+    /// assumindo número (`from_i32`/`from_f64`) — o que transformava todo handle
+    /// devolvido por uma fn nativa num número comum. Declarar `5` diz que o valor
+    /// É um handle, e o invoker o boxa pela autoridade única de retorno-de-handle
+    /// (`__rtsadp_box_handle_auto`, que inspeciona o `Entry` e escolhe a tag
+    /// certa) em vez de adivinhar (issue #2042).
     pub return_kind: u8,
     /// (#1281 packed) Endereco de um shim `extern "C" fn(*const i64, len) -> i64`
     /// que desempacota os args do buffer e chama a fn original (coercoes f64/i32

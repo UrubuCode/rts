@@ -156,22 +156,35 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let Some(is_lazy) = self.gen_call_kind(init) {
             let val = self.lower_expr(module, init)?;
             if is_lazy {
-                let h = self.coerce(val, Repr::Int64)?;
-                let var = self.builder.declare_var(cl_type(Repr::Int64));
-                self.builder.def_var(var, h);
-                self.locals.insert(
-                    name.to_string(),
-                    Local {
-                        var,
-                        repr: Repr::Int64,
-                    },
-                );
+                // Since #2042 a lazy generator rides as a TAG_OBJECT PolyValue word
+                // (so its identity survives array/object/arg/field/Map). Bind the
+                // local as Tagged — truncating it back to a raw `Int64` here would
+                // re-strip the tag the moment the local crossed any boundary.
+                self.bind_tagged_local(name, val);
             } else {
                 self.bind_tagged_local(name, val);
                 self.local_shapes.insert(name.to_string(), HeapShape::Array);
             }
             self.generator_locals.insert(name.to_string(), is_lazy);
             return Ok(());
+        }
+
+        // `const g = gg` onde `gg` é uma FUNÇÃO GENERATOR: registra o alias para
+        // que `g()` seja reconhecido como chamada de generator (ver
+        // `gen_call_kind`). Só o caso Ident→Ident, que é o que um bundle
+        // minificado gera; qualquer coisa mais complexa segue o caminho normal.
+        // Resolve o alvo SEGUINDO alias (`sig_following_alias`), não por
+        // `sigs.get` direto: um alias não está em `sigs` (que é indexado pelo nome
+        // DECLARADO), então uma CADEIA `const a = gg; const b = a` parava no
+        // segundo elo — `b()` deixava de ser reconhecido como generator.
+        if let HirExprKind::Ident(alvo) = &init.kind {
+            if self
+                .sig_following_alias(alvo.as_str())
+                .is_some_and(|s| s.ret_lazy_gen || s.ret_eager_gen)
+            {
+                self.generator_aliases
+                    .insert(name.to_string(), alvo.clone());
+            }
         }
 
         // Object/array literal initializers: lower specially and RECORD the

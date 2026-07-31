@@ -690,7 +690,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // A CALL of a user function whose declared return type is an array
             // (`function ks(): string[] {…}` → `for (const k of ks())`).
             HirExprKind::Call { callee, .. } => match &callee.kind {
-                HirExprKind::Ident(f) => self.sigs.get(f).is_some_and(|s| s.ret_array),
+                HirExprKind::Ident(f) => {
+                    self.sig_following_alias(f).is_some_and(|s| s.ret_array)
+                }
                 _ => false,
             },
             // A METHOD CALL whose receiver class is known and whose method's declared

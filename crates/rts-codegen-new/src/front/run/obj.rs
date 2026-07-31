@@ -343,8 +343,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         {
             if proto == "prototype" {
                 if let HirExprKind::Ident(b) = &base.kind {
+                    // The class test is per-MEMBER, not per-class: what disqualifies
+                    // this path is a class whose real prototype object already HOLDS
+                    // `prop`, not merely a class existing under that name. A class
+                    // drained to the Registry can leave a stub ambient descriptor
+                    // behind (`Object` does, to carry its statics), and that stub
+                    // holds no instance methods — so `Object.prototype.toString`
+                    // must still synthesize the unbound method value here.
+                    let class_declares_it = self
+                        .classes
+                        .get(b)
+                        .is_some_and(|d| d.method_fn(prop).is_some());
                     if self.local(b).is_none()
-                        && self.classes.get(b).is_none()
+                        && !class_declares_it
                         && !self.sigs.contains_key(b.as_str())
                     {
                         let name_w = self.emit_str_const_word(module, prop)?;

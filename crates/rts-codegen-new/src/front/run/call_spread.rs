@@ -136,6 +136,30 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let call = self.builder.ins().call(func_ref, lowered);
 
         let result = match sig.ret {
+            // A LAZY generator ctor returns the `Entry::GenState` HANDLE in a raw
+            // `Repr::Int64`. `Val::new` would stamp it `JsKind::Number` (repr says
+            // "int"), and boxing a number converts it with `fcvt_from_sint` — the
+            // handle becomes an ordinary double and every dynamic consumer loses the
+            // generator identity, so `it.next()` reads `undefined` once the value
+            // crosses ANY boundary (array/object/arg/field/Map). Box it HERE as a
+            // TAG_OBJECT word — the shape `try_generator_dyn`/`to_iter_array` detect
+            // via `Entry::GenState` — so the identity survives all of them at once.
+            // The static paths that want the bare handle re-derive it by coercion
+            // (`generator_receiver_handle`). Issue #2042.
+            // Só o CTOR devolve o handle CRU (`Repr::Int64`, carimbado em
+            // `sig.rs`) e portanto precisa ser boxado aqui. Uma função que apenas
+            // REPASSA (`function w(){ return g(); }`) já devolve a word BOXADA —
+            // boxá-la de novo destruía o handle, e o generator alcançado através
+            // de outra função perdia tudo (`it.next()` → undefined).
+            Some(Repr::Int64) if sig.ret_lazy_gen => {
+                let v = self.builder.inst_results(call)[0];
+                let word = crate::value::emit_marshal::emit_box_object_handle(
+                    module,
+                    self.builder,
+                    v,
+                );
+                Val::new_with_kind(word, Repr::Tagged, JsKind::GenHandle)
+            }
             Some(ret) => {
                 let v = self.builder.inst_results(call)[0];
                 Val::new(v, ret)

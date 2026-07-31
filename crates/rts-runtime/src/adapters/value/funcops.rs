@@ -817,7 +817,7 @@ pub fn rtsadp_fn_invoke(
     // the runtime's own typed invoker (`FUNCTION_CALL`, which also applies bound
     // args), then box the raw i64 result back as a number word.
     if !uniform {
-        return invoke_legacy_fn(real, arity, bound.len(), [a0, a1, a2, a3]);
+        return invoke_legacy_fn(real, arity, bound.len(), 0, [a0, a1, a2, a3]);
     }
     // BOUND partial-application args on a UNIFORM callee (`f.bind(null, x)`):
     // prepend the stored WORDS — the call-site args shift right, and an
@@ -868,20 +868,44 @@ pub fn rtsadp_fn_invoke(
 /// Invoke a LEGACY-convention function handle (a `new Function` compile: raw
 /// all-i64 `extern "C"`, `uniform_thunk: false`) with up to 4 PolyValue-word
 /// args: unbox each to its raw i64, route through the runtime's own
-/// `FUNCTION_CALL` (which applies bound args / kinds), box the i64 result back
-/// as the tightest number word.
-fn invoke_legacy_fn(real_handle: u64, arity: u8, bound_len: usize, slots: [u64; 4]) -> u64 {
+/// `FUNCTION_CALL` (which applies bound args / kinds), then box the i64 result
+/// back per the callee's DECLARED `return_kind`.
+///
+/// The result direction used to assume "an i64 return is a NUMBER" and box it as
+/// `from_i32`/`from_f64`. That is only true for `return_kind` 0/1/3 — a native fn
+/// that returns a runtime HANDLE (`Array.prototype[Symbol.iterator]`, which hands
+/// back an iterator) had its handle silently turned into an ordinary number, so
+/// the caller saw `typeof === "number"` and every method on it failed. The
+/// argument direction never had this bug: `word_to_raw_i64` already recognizes a
+/// heap word and crosses it as its real handle. `return_kind: 5` is the missing
+/// counterpart, boxed through the ONE heterogeneous-handle authority
+/// (`__rtsadp_box_handle_auto` tag-dispatches on the `Entry`) rather than guessed
+/// here (issue #2042).
+fn invoke_legacy_fn(
+    real_handle: u64,
+    arity: u8,
+    bound_len: usize,
+    this_raw: i64,
+    slots: [u64; 4],
+) -> u64 {
     use rts_engine::heap::handles::{Entry as E, alloc_entry};
     // `FUNCTION_CALL` prepends the stored bound args itself — pass only the
     // REMAINING positional count so the total matches the callee's arity.
     let n = (arity as usize).saturating_sub(bound_len).min(4);
     let raw: Vec<i64> = slots[..n].iter().map(|&w| word_to_raw_i64(w)).collect();
     let args_h = alloc_entry(E::Vec(Box::new(raw)));
+    let ret_kind = with_entry(real_handle, |e| match e {
+        Some(Entry::Function(d)) => d.return_kind,
+        _ => 0,
+    });
     let r = rts_runtime::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_CALL(
         real_handle,
-        0,
+        this_raw,
         args_h,
     );
+    if ret_kind == 5 {
+        return super::genops::__rtsadp_box_handle_auto(r as u64);
+    }
     if let Ok(i) = i32::try_from(r) {
         PolyValue::from_i32(i).raw()
     } else {
@@ -1032,7 +1056,7 @@ extern "C" fn raw_callee_bridge_thunk(
         Some(Entry::Function(d)) => (d.arity, d.bound_args.len()),
         _ => (0u8, 0usize),
     });
-    invoke_legacy_fn(env, arity, bound_len, [a0, a1, a2, a3])
+    invoke_legacy_fn(env, arity, bound_len, 0, [a0, a1, a2, a3])
 }
 
 /// Build the uniform wrapper FUNCTION entry over the raw callee `inner`
@@ -1226,9 +1250,19 @@ pub fn rtsadp_fn_invoke_method(
     // reified without the uniform thunk); a plain one keeps the no-this route.
     if !uniform {
         if has_this {
-            return invoke_legacy_fn(real, arity, bound.len(), [this_word, a0, a1, a2]);
+            // `this` rides FUNCTION_CALL's own receiver channel — it PREPENDS
+            // `effective_this` for a `has_this_param` callee, so also placing it
+            // in the positional slots passed `0` as the receiver and shifted every
+            // real argument one position right (issue #2042).
+            return invoke_legacy_fn(
+                real,
+                arity,
+                bound.len(),
+                word_to_raw_i64(this_word),
+                [a0, a1, a2, PolyValue::undefined().raw()],
+            );
         }
-        return invoke_legacy_fn(real, arity, bound.len(), [a0, a1, a2, PolyValue::undefined().raw()]);
+        return invoke_legacy_fn(real, arity, bound.len(), 0, [a0, a1, a2, PolyValue::undefined().raw()]);
     }
     let env_word = if env == 0 {
         PolyValue::undefined().raw()

@@ -222,12 +222,25 @@ fn transform_stmt(stmt: Stmt) -> Vec<Stmt> {
                             );
                             out.push(decl_from_pat(d.name.clone(), Some(get_ret), kind, span));
                         } else {
-                            // const r = yield v -> push(v); const r = undefined;
-                            out.push(push_call_stmt(y.arg.as_deref().cloned(), span));
-                            let undef = Expr::Ident(Ident::new(
-                                "undefined".into(), span, Default::default(),
+                            // `const r = yield v` — o VALOR ENVIADO por
+                            // `it.next(v)` so' existe na state-machine; o
+                            // eager-buffer nao tem como alimenta-lo de volta.
+                            //
+                            // Antes isto virava `push(v); const r = undefined;`
+                            // — um VALOR ERRADO em silencio (`0,1` onde o Node
+                            // da `0,2`). Agora o `yield` fica INTACTO: o lowering
+                            // recusa com "expression raw/unrecognized: Yield",
+                            // que e' uma falha honesta. Corpos que a SM aceita
+                            // nao passam por aqui (o value-yield ja' os torna
+                            // elegiveis a lazy); so' chegam os que ela recusa
+                            // — hoje `break`/`continue`, `switch`, `throw` no
+                            // try, e `yield` em sub-expressao.
+                            out.push(decl_from_pat(
+                                d.name.clone(),
+                                Some(Expr::Yield(y.clone())),
+                                kind,
+                                span,
                             ));
-                            out.push(decl_from_pat(d.name.clone(), Some(undef), kind, span));
                         }
                     }
                     other_init => {

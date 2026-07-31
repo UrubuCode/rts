@@ -112,11 +112,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             };
             call
         };
-        // A `StrPtr` param fed a non-proven-string BAILS (the marshal would
-        // ToString-coerce — a behavior change we refuse; same rule as the statics).
-        for (i, v) in vals.iter().enumerate() {
-            if matches!(call.arg_abis[i], AbiType::StrPtr) && !matches!(v.kind, JsKind::Str) {
-                return unsupported!("`new {class}(..)` — argument {i} is not a proven string");
+        // Um param `StrPtr` alimentado com não-string é COAGIDO explicitamente
+        // (`__rtsadp_to_string`), que é o que a spec desses construtores manda:
+        // `new URL(x)` faz `ToString(x)`. Antes isto bailava por medo de que o
+        // marshal coagisse por baixo dos panos — mas coagir DE PROPÓSITO, no
+        // lugar visível, não é mudança de comportamento: é a semântica. O bail
+        // custava scripts reais de página, onde a URL quase nunca é literal.
+        for i in 0..vals.len() {
+            if matches!(call.arg_abis[i], AbiType::StrPtr) && !matches!(vals[i].kind, JsKind::Str) {
+                let boxed = self.box_value(vals[i]);
+                let coagido = self
+                    .call_runtime(module, "__rtsadp_to_string", &[boxed])?
+                    .expect("to_string returns a value");
+                vals[i] = Val::tagged_kind(coagido, JsKind::Str);
             }
         }
         // Pad the omitted tail with the chosen ctor's spec defaults.

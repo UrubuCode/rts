@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Single Binary](https://img.shields.io/badge/output-single%20binary-blue?style=flat-square)](#)
 <!-- CROSS_RUNTIME_BADGE_START -->
-[![Bun/Node parity](https://img.shields.io/badge/Bun%2FNode%20parity-71.1%25-yellowgreen?style=flat-square)](docs/specs/cross-runtime-testing.md)
+[![Bun/Node parity](https://img.shields.io/badge/Bun%2FNode%20parity-72%25-yellowgreen?style=flat-square)](docs/specs/cross-runtime-testing.md)
 <!-- CROSS_RUNTIME_BADGE_END -->
 
 </div>
@@ -21,22 +21,22 @@
 <!-- CROSS_RUNTIME_STATS_START -->
 ## 🌐 Cross-runtime parity
 
-JS spec compatibility validated against **Bun** and **Node** over 679 standalone TS fixtures.
+JS spec compatibility validated against **Bun** and **Node** over 685 standalone TS fixtures.
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 71.1%   470/661 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 72%   480/667 fixtures passing
 ```
 
 | Metric | Value |
 |---|---|
-| **Parity** | **71.1%** (470/661) |
-| ✅ RTS = Bun = Node | 470 |
-| ❌ RTS diverges | 110 |
-| 💥 RTS runtime error | 81 |
-| 🛠️  **Left to fix** | **191** |
+| **Parity** | **72%** (480/667) |
+| ✅ RTS = Bun = Node | 480 |
+| ❌ RTS diverges | 115 |
+| 💥 RTS runtime error | 72 |
+| 🛠️  **Left to fix** | **187** |
 | ⚠️ Bun ≠ Node (skip) | 18 |
 | 🚫 Rejected (RTS-only) | 0 |
-| 📦 Total fixtures | 679 |
+| 📦 Total fixtures | 685 |
 
 _Updated: 2026-07-31 — [how to add a fixture](docs/specs/cross-runtime-testing.md)_
 
@@ -73,16 +73,16 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `d57f173`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `6b5ea97`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
-| Hello/startup | 66 ms | 56 ms | 53 ms | 113 ms | **31 ms** | **2.17×** | **1.85×** |
-| Monte Carlo π 10M (same xorshift algorithm) | 4.82 s | 7.79 s | 3.62 s | 200 ms | **122 ms** | **39.68×** | **64.09×** |
-| Monte Carlo π 10M (JS `Math.random`) | 118 ms | 267 ms | 221 ms | 197 ms | **120 ms** | **0.98×** | **2.22×** |
-| π decimal ~30 digits (i128 vs BigInt) | 53 ms | 58 ms | 42 ms | 109 ms | **28 ms** | **1.85×** | **2.03×** |
-| Monte Carlo 10M threaded (vs Bun Workers) | 170 ms | — | — | 184 ms | **105 ms** | **1.62×** | — |
-| π Machin f64 (RTS only) | — | — | — | 104 ms | **29 ms** | — | — |
+| Hello/startup | 69 ms | 59 ms | 54 ms | 118 ms | **25 ms** | **2.77×** | **2.34×** |
+| Monte Carlo π 10M (same xorshift algorithm) | 4.88 s | 7.53 s | 3.70 s | 204 ms | **116 ms** | **42.22×** | **65.15×** |
+| Monte Carlo π 10M (JS `Math.random`) | 121 ms | 269 ms | 216 ms | 202 ms | **116 ms** | **1.04×** | **2.31×** |
+| π decimal ~30 digits (i128 vs BigInt) | 52 ms | 56 ms | 42 ms | 108 ms | **23 ms** | **2.24×** | **2.44×** |
+| Monte Carlo 10M threaded (vs Bun Workers) | 166 ms | — | — | 179 ms | **94 ms** | **1.77×** | — |
+| π Machin f64 (RTS only) | — | — | — | 106 ms | **22 ms** | — | — |
 
 _Updated: 2026-07-31 — run locally with `powershell -File bench/benchmark.ps1`_
 

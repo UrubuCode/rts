@@ -168,28 +168,34 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok((Val::tagged_kind(word, JsKind::Object), class.to_string()))
     }
 
-    /// `new RegExp(pattern[, flags])` — both args must be proven strings (a regex
-    /// from a non-string pattern is a later increment). Interns nothing extra: the
-    /// pattern/flags string PolyValue words go straight to `__rtsadp_re_compile`.
-    /// Returns the boxed `TAG_OBJECT` RegExp instance word.
+    /// `new RegExp(pattern[, flags])`. Um argumento que NÃO é string provada é
+    /// coagido em runtime (`__rtsadp_to_string`) — que é exatamente o que a spec
+    /// manda: `new RegExp(x)` faz `ToString(x)`, e para uma RegExp isso devolve
+    /// o `source` dela, então a cópia `new RegExp(/a/)` cai naturalmente no
+    /// mesmo caminho. Antes isso era um bail ("a later increment") e derrubava
+    /// scripts reais de página: bundles minificados constroem regex a partir de
+    /// variável o tempo todo.
+    ///
+    /// Retorna a word `TAG_OBJECT` da instância RegExp.
     fn emit_regex_ctor(&mut self, module: &mut dyn Module, args: &[HirExpr]) -> FrontResult<Value> {
         if args.is_empty() || args.len() > 2 {
             return unsupported!("`new RegExp(..)` expects 1 or 2 args, got {}", args.len());
         }
+        // O pattern vai CRU para o runtime: se for outra RegExp, `re_compile`
+        // copia o `source`/`flags` dela (a spec manda isso, e `ToString(re)`
+        // devolveria `/ab+c/` COM as barras — a cópia deixaria de casar o que a
+        // original casa). Qualquer outro não-string é coagido lá também.
         let pat = self.lower_expr(module, &args[0])?;
-        if !matches!(pat.kind, JsKind::Str) {
-            return unsupported!(
-                "`new RegExp(pattern)` with a non-string pattern (a regex-from-regex \
-                 copy / coercion is a later increment)"
-            );
-        }
         let pat_word = self.box_value(pat);
         let flags_word = if args.len() == 2 {
             let f = self.lower_expr(module, &args[1])?;
-            if !matches!(f.kind, JsKind::Str) {
-                return unsupported!("`new RegExp(pattern, flags)` with a non-string flags arg");
+            let f_boxed = self.box_value(f);
+            if matches!(f.kind, JsKind::Str) {
+                f_boxed
+            } else {
+                self.call_runtime(module, "__rtsadp_to_string", &[f_boxed])?
+                    .expect("to_string returns a value")
             }
-            self.box_value(f)
         } else {
             self.emit_str_const_word(module, "")?
         };

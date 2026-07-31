@@ -89,6 +89,42 @@ fn handle_str(h: u64) -> String {
 /// `.test` on it simply never matches (the runtime's `with_engine` default).
 #[rtse::abi]
 pub fn rtsadp_re_compile(pat_word: u64, flags_word: u64) -> u64 {
+    // `new RegExp(re)` — cópia a partir de outra RegExp. A spec manda usar o
+    // `source`/`flags` DELA, não `ToString(re)`: este devolve `/ab+c/` COM as
+    // barras, e compilar isso produz uma regex que casa o texto literal "/ab+c/"
+    // (a cópia deixava de casar o que a original casava, sem erro nenhum).
+    // Flags explícitas no 2º argumento vencem as da original, como na spec.
+    if PolyValue::from_raw(pat_word).is_object() {
+        let orig = unbox_re(pat_word);
+        let src_h = rt_regexp::__RTS_FN_GL_REGEXP_SOURCE(orig);
+        if src_h != 0 {
+            let src = handle_str(src_h);
+            let explicit = handle_str(str_handle(flags_word));
+            let flags = if explicit.is_empty() {
+                let fh = rt_regexp::__RTS_FN_GL_REGEXP_FLAGS(orig);
+                if fh == 0 {
+                    String::new()
+                } else {
+                    handle_str(fh).to_string()
+                }
+            } else {
+                explicit.to_string()
+            };
+            let h = rt_re::__RTS_FN_NS_REGEX_COMPILE(
+                src.as_ptr(),
+                src.len() as i64,
+                flags.as_ptr(),
+                flags.len() as i64,
+            );
+            return box_re(h);
+        }
+    }
+    // Não-string que não é RegExp (número, bool…): coage aqui, como a spec.
+    let pat_word = if PolyValue::from_raw(pat_word).is_string() {
+        pat_word
+    } else {
+        genops::__rtsadp_to_string(pat_word)
+    };
     let pat = handle_str(str_handle(pat_word));
     let flags = handle_str(str_handle(flags_word));
     let h = rt_re::__RTS_FN_NS_REGEX_COMPILE(

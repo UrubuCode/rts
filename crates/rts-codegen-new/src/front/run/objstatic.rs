@@ -322,6 +322,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// statically-OBJECT-shaped LOCAL (`Object.keys(o)`) or an inline object
     /// LITERAL (`Object.keys({a:1})` / `Object.keys({})`). Anything else (an array,
     /// a dynamic/unknown-shape value) BAILS — the engine refuses to guess a layout.
+    /// A word do receiver, SEM exigir chaves conhecidas em tempo de compilação.
+    /// Para os estáticos que operam sobre o objeto inteiro no runtime
+    /// (`freeze`/`seal`/`preventExtensions`/`isExtensible`), qualquer expressão
+    /// serve — `Object.freeze(g())` não precisa de shape provado.
+    fn receiver_word(&mut self, module: &mut dyn Module, args: &[HirExpr]) -> FrontResult<Value> {
+        let Some(first) = args.first() else {
+            return unsupported!("`Object.<static>()` sem argumento");
+        };
+        let v = self.lower_expr(module, first)?;
+        Ok(self.box_value(v))
+    }
+
     fn receiver(
         &mut self,
         module: &mut dyn Module,
@@ -469,7 +481,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         args: &[HirExpr],
         method: &str,
     ) -> FrontResult<Val> {
-        let (word, _keys) = self.receiver(module, args)?;
+        // A word do receiver BASTA: estes três trampolins operam sobre o objeto
+        // inteiro no runtime e nunca leem a lista de chaves (o `_keys` do
+        // `receiver()` era descartado). Pedir o contrato caro — chaves conhecidas
+        // em tempo de compilação — bailava em `Object.freeze(g())`/`o.x`, que é
+        // forma comum em bundle, sem nenhum ganho.
+        let word = self.receiver_word(module, args)?;
         // `freeze`: non-extensible + keys writable:false+configurable:false;
         // `seal`: non-extensible + keys configurable:false (still writable);
         // `preventExtensions`: extensibility only. Returns the object.
@@ -522,7 +539,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         module: &mut dyn Module,
         args: &[HirExpr],
     ) -> FrontResult<Val> {
-        let (word, _keys) = self.receiver(module, args)?;
+        let word = self.receiver_word(module, args)?;
         let res = self
             .call_runtime(module, "__rtsadp_is_extensible", &[word])?
             .expect("__rtsadp_is_extensible returns a value");

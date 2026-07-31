@@ -79,6 +79,18 @@ pub fn try_build(name: &str, function: &Function) -> Option<(FnDecl, FnDecl)> {
     if !body_needs_lazy(&body.stmts) {
         return None;
     }
+    // `break`/`continue` NAO sao modelados pela state-machine: o corpo do loop
+    // vira ESTADOS, e um `break` emitido verbatim dentro do estado nao tem loop
+    // para sair — a maquina ignorava o corte e o generator rodava PARA SEMPRE
+    // (`while(true){ if(i>=2) break; yield i; i=i+1 }` travava, sem erro).
+    //
+    // Inelegivel => cai no eager-buffer, que mantem o corpo verbatim e portanto
+    // respeita o `break` corretamente. Perde-se a lazy nesses corpos; ganha-se
+    // terminar. Voltar a aceita-los exige modelar break/continue como alvo de
+    // estado (com pilha de alvos p/ rotulos), nao apenas relaxar esta guarda.
+    if body.stmts.iter().any(stmt_has_break_or_continue) {
+        return None;
+    }
 
     let mut builder = SmBuilder::new();
     // Pre-registra params como locais (slots 0..n).
@@ -586,7 +598,14 @@ impl SmBuilder {
                 // fora desta fatia (bail).
                 if let Some(h) = &t.handler {
                     let catch_has_yield = h.body.stmts.iter().any(stmt_has_yield);
-                    if catch_has_yield && t.finalizer.is_none() {
+                    // Basta o TRY suspender para precisar deste caminho — o catch
+                    // não precisa ter yield. `try { ...yield... } catch(e) { trata }`
+                    // é a forma comum, e antes ela caía no `return None` abaixo e
+                    // ia para o eager-buffer, onde um `yield` de VALOR vira
+                    // `push(...)`. O catch sem yield é lowerado como statements
+                    // ordinários dentro do estado do catch — nada mais é preciso.
+                    let body_has_yield = t.block.stmts.iter().any(stmt_has_yield);
+                    if (catch_has_yield || body_has_yield) && t.finalizer.is_none() {
                         // param do catch: ident simples (ou ausente).
                         let catch_param = match h.param.as_ref() {
                             Some(swc_ecma_ast::Pat::Ident(id)) => {
@@ -679,21 +698,26 @@ impl SmBuilder {
             Stmt::Block(b) => self.lower_seq(&b.stmts, cur),
             // `if` sem yield no corpo: mantemos verbatim (efeito colateral puro).
             Stmt::If(i) => {
-                if stmt_has_yield(&i.cons) || i.alt.as_deref().map(stmt_has_yield).unwrap_or(false)
-                    || expr_has_yield(&i.test)
-                {
-                    return None; // if com yield => inelegivel nesta fatia
+                // `yield` no TESTE exigiria suspender NO MEIO da avaliacao da
+                // condicao — a SM nao modela isso. Segue inelegivel.
+                if expr_has_yield(&i.test) {
+                    return None;
                 }
+                // `yield` nos RAMOS agora vai por estados ramificados, o mesmo
+                // caminho que o `return` ja usava. Antes isto bailava e caia no
+                // eager-buffer, onde um `yield` de VALOR (`const a = yield x`)
+                // era reescrito para `push(...)` — o `if` com yield-de-valor
+                // devolvia valor ERRADO em silencio (`1,undefined` onde o Node
+                // da `1,5`).
+                let has_yield = stmt_has_yield(&i.cons)
+                    || i.alt.as_deref().map(stmt_has_yield).unwrap_or(false);
                 // Um `return` dentro do if (mesmo sem yield) NAO pode ir verbatim:
                 // o `return;`/`return X;` cru nao casa com a assinatura i64 da fn
                 // de estado (verifier error). Lower em estados ramificados:
                 // Cond(test, then, else) e o `return` no then vira DONE.
                 let has_return = stmt_has_return(&i.cons)
                     || i.alt.as_deref().map(stmt_has_return).unwrap_or(false);
-                if has_return {
-                    if expr_has_yield(&i.test) {
-                        return None;
-                    }
+                if has_return || has_yield {
                     let then_entry = self.new_state();
                     let after = self.new_state();
                     let else_entry = if i.alt.is_some() {
@@ -1375,6 +1399,27 @@ fn stmt_has_return(s: &Stmt) -> bool {
         Stmt::Switch(sw) => sw.cases.iter().any(|c| c.cons.iter().any(stmt_has_return)),
         _ => false,
     }
+}
+
+/// True se o stmt contem `break`/`continue` em qualquer profundidade, SEM descer
+/// em funcoes aninhadas (um `break` la dentro pertence a outro corpo).
+fn stmt_has_break_or_continue(s: &Stmt) -> bool {
+    use swc_ecma_visit::{Visit, VisitWith};
+    #[derive(Default)]
+    struct Achou(bool);
+    impl Visit for Achou {
+        fn visit_break_stmt(&mut self, _: &swc_ecma_ast::BreakStmt) {
+            self.0 = true;
+        }
+        fn visit_continue_stmt(&mut self, _: &swc_ecma_ast::ContinueStmt) {
+            self.0 = true;
+        }
+        fn visit_function(&mut self, _: &Function) {}
+        fn visit_arrow_expr(&mut self, _: &swc_ecma_ast::ArrowExpr) {}
+    }
+    let mut v = Achou::default();
+    s.visit_with(&mut v);
+    v.0
 }
 
 fn stmt_has_yield(s: &Stmt) -> bool {

@@ -93,22 +93,24 @@ class Map<K, V> {
     return true;
   }
   get size(): number { return this.#keys.length; }
-  // Iteration helpers — return eager arrays so `for (const k of m.keys())` works
-  // (the engine iterates a proven array). `entries()` yields `[key, value]` pairs.
+  // Iteration helpers. The array stays materialized (`for (const k of m.keys())`
+  // iterates a proven array), but the result is handed back through the Array
+  // `values()` so it is ALSO an open iterator — `m.keys().next()` walks a cursor
+  // like JS, instead of reading `undefined` off a plain array (issue #2042).
   keys(): K[] {
     const out: K[] = [];
     for (let i = 0; i < this.#keys.length; i++) { out.push(this.#keys[i]); }
-    return out;
+    return out.values();
   }
   values(): V[] {
     const out: V[] = [];
     for (let i = 0; i < this.#vals.length; i++) { out.push(this.#vals[i]); }
-    return out;
+    return out.values();
   }
   entries(): [K, V][] {
     const out: [K, V][] = [];
     for (let i = 0; i < this.#keys.length; i++) { out.push([this.#keys[i], this.#vals[i]]); }
-    return out;
+    return out.values();
   }
   forEach(cb: (v: V, k: K, m: Map<K, V>) => void): void {
     for (let i = 0; i < this.#keys.length; i++) { cb(this.#vals[i], this.#keys[i], this); }
@@ -198,17 +200,18 @@ class Set<T> {
   }
   get size(): number { return this.#items.length; }
   // `values()`/`keys()` both yield the elements (JS Set), `entries()` yields
-  // `[v, v]` pairs; eager arrays so `for (const v of s.values())` iterates.
+  // `[v, v]` pairs. Materialized as before, then handed back through the Array
+  // `values()` so the result is also an OPEN ITERATOR (`s.values().next()`).
   values(): T[] {
     const out: T[] = [];
     for (let i = 0; i < this.#items.length; i++) { out.push(this.#items[i]); }
-    return out;
+    return out.values();
   }
   keys(): T[] { return this.values(); }
   entries(): [T, T][] {
     const out: [T, T][] = [];
     for (let i = 0; i < this.#items.length; i++) { out.push([this.#items[i], this.#items[i]]); }
-    return out;
+    return out.values();
   }
   forEach(cb: (v: T, v2: T, s: Set<T>) => void): void {
     for (let i = 0; i < this.#items.length; i++) { cb(this.#items[i], this.#items[i], this); }

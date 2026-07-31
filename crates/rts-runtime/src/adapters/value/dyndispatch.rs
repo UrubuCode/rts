@@ -791,6 +791,19 @@ pub fn rtsadp_dyn_method_call(
     // otherwise be misrouted by the `is_array_word` gate below. Returns `None`
     // (falls through) for any receiver without a matching `(class, method)`.
     let js_argc = [a0, a1, a2].iter().filter(|&&w| w != undef).count();
+
+    // PROTOCOLO DE GENERATOR por HANDLE: o iterador de um generator lazy é um
+    // handle de `Entry::GenState`. Quando ele atravessa um array/campo, o
+    // rastreio estático do codegen não o alcança e o `.next` cai aqui. O handle
+    // sabe o que é, então o protocolo sobrevive à travessia (issue #2042).
+    {
+        let m = nome_metodo_gen(key);
+        if matches!(m.as_str(), "next" | "return" | "throw") {
+            if let Some(out) = try_generator_dyn(recv, &m, a0) {
+                return out;
+            }
+        }
+    }
     if let Some(out) = super::dynci::try_runtime_ci(recv, key, a0, a1, a2, js_argc) {
         return out;
     }
@@ -904,6 +917,26 @@ pub fn rtsadp_idx_call(recv: u64, key: u64, a0: u64, a1: u64, argc: u64) -> u64 
             undef(),
             PolyValue::from_i32(argc as i32).raw(),
         );
+    }
+    // A SYMBOL key is not a member NAME. `ToString` on it yields "[object
+    // Object]", which then misses every row and surfaced as the nonsense
+    // TypeError "[object Object] is not a function". Resolve the property the way
+    // `__rtsadp_dyn_idx_get` already does (it has this branch) and INVOKE the
+    // result, so `arr[Symbol.iterator]()` calls the native values-iterator
+    // instead of dying on a stringified symbol (issue #2042).
+    if kv.is_object() {
+        use rts_runtime::namespaces::gc::handles as rt_handles;
+        let kh = rt_handles::__rtsn_poly_to_handle(kv.as_handle());
+        let is_symbol =
+            rt_handles::with_entry(kh, |e| matches!(e, Some(rt_handles::Entry::Symbol { .. })));
+        if is_symbol {
+            let m = __rtsadp_idx_get(recv, key);
+            if PolyValue::from_raw(m).is_function() {
+                return super::funcops::__rtsadp_fn_invoke_method(m, recv, a0, a1, undef(), 0);
+            }
+            super::errslot::throw_js_error("TypeError", "symbol property is not a function");
+            return undef();
+        }
     }
     let name = if kv.is_string() {
         abi_adapter::resolve_poly(kv)
@@ -1180,4 +1213,99 @@ pub fn rtsadp_dyn_to_string_radix(recv: u64, radix: u64) -> u64 {
         return box_str(h);
     }
     __rtsadp_dyn_to_string(recv)
+}
+
+/// O nome do método a partir da word da chave (string boxada); "" se não for string.
+fn nome_metodo_gen(key: u64) -> String {
+    let pv = PolyValue::from_raw(key);
+    if !pv.is_string() {
+        return String::new();
+    }
+    super::abi_adapter::real_handle_to_string(super::abi_adapter::real_handle_of(pv))
+}
+
+/// O receiver é um iterador de generator vivo? Executa o método do protocolo
+/// direto sobre a `GenState`. `None` quando não é generator — segue o fluxo normal.
+///
+/// O handle chega de formas diferentes conforme o caminho que o valor percorreu
+/// (boxado como OBJECT, inline como int/double, ou cru), então testa os
+/// candidatos e fica com o que for uma GenState VIVA. Um receiver que não seja
+/// generator nunca casa, então isto não pode desviar outro despacho.
+fn try_generator_dyn(recv: u64, metodo: &str, a0: u64) -> Option<u64> {
+    use rts_runtime::namespaces::gc::handles::{Entry, with_entry};
+    let pv = PolyValue::from_raw(recv);
+    let candidatos: [u64; 5] = [
+        if pv.is_object() {
+            rts_runtime::namespaces::gc::handles::__rtsn_poly_to_handle(pv.as_handle())
+        } else {
+            0
+        },
+        if pv.is_int32() { pv.as_i32() as u64 } else { 0 },
+        if pv.is_double() { pv.as_f64() as u64 } else { 0 },
+        // O PAYLOAD cru de 48 bits: um handle de GenState que foi boxado como
+        // OBJECT sem passar pela tabela de handles do poly (o array guarda a
+        // word já boxada) decodifica por aqui.
+        if pv.is_object() { pv.as_handle() } else { 0 },
+        recv,
+    ];
+    // A receiver is an iterator when its handle is either a `GenState` (a lazy
+    // generator) or a Vec that was OPENED as an iterator — what `arr.values()`/
+    // `keys()`/`entries()`/`Iterator.from` return. The Vec case is gated on
+    // `vec_is_open_iterator`, never on "is a Vec": a plain array must keep reading
+    // `.next` as `undefined` (`[1,2].next`), so only a handle REGISTERED as an
+    // iterator at creation qualifies.
+    let mut is_vec_iter = false;
+    let h = candidatos.into_iter().find(|&c| {
+        if c == 0 {
+            return false;
+        }
+        if with_entry(c, |e| matches!(e, Some(Entry::GenState(_)))) {
+            return true;
+        }
+        if with_entry(c, |e| matches!(e, Some(Entry::Vec(_))))
+            && rts_std::collector::generator::vec_is_open_iterator(c)
+        {
+            is_vec_iter = true;
+            return true;
+        }
+        false
+    })?;
+    let undef = PolyValue::undefined().raw();
+    // A Vec iterator walks its cursor through `generator_next` (the polymorphic
+    // entry point that handles both GenState and cursored Vec); `gen_sm_next` is
+    // GenState-only and would read nothing from a Vec.
+    if is_vec_iter {
+        let bruto = match metodo {
+            "next" => rts_std::collector::generator::__rtsn_generator_next(h),
+            "return" => rts_std::collector::generator::__rtsn_generator_return(h, a0 as i64),
+            "throw" => rts_std::collector::generator::__rtsn_generator_throw(h, a0 as i64),
+            _ => return None,
+        };
+        return Some(
+            PolyValue::from_object_handle(
+                rts_runtime::namespaces::gc::handles::__rtsn_poly_from_handle(bruto),
+            )
+            .raw(),
+        );
+    }
+    // The `__rtsn_gen*` entry points hand back the RAW handle of the `{value, done}`
+    // result — the front's STATIC path converts it via `build_iter_result`. Here the
+    // word returns DIRECTLY to the caller, so it must be boxed as an OBJECT: a raw
+    // handle is not in the boxed quadrant and would be read as a denormal double
+    // (`1.39e-309` — literally the handle's bits). Issue #2042.
+    let bruto = match metodo {
+        "next" if a0 != undef => {
+            rts_std::collector::generator::__rtsn_generator_next_sent(h, a0 as i64)
+        }
+        "next" => rts_std::collector::generator::__rtsn_gen_sm_next(h),
+        "return" => rts_std::collector::generator::__rtsn_gen_sm_return(h, a0 as i64),
+        "throw" => rts_std::collector::generator::__rtsn_gen_sm_throw(h, a0 as i64),
+        _ => return None,
+    };
+    Some(
+        PolyValue::from_object_handle(
+            rts_runtime::namespaces::gc::handles::__rtsn_poly_from_handle(bruto),
+        )
+        .raw(),
+    )
 }

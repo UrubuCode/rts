@@ -75,6 +75,15 @@ pub(crate) enum JsKind {
     Object,
     /// Not statically provable (a Tagged value from a variable/call/etc.).
     Unknown,
+    /// An OPAQUE runtime handle carried in `Repr::Int64` — the `Entry::GenState` of
+    /// a LAZY generator (`sig.ret_lazy_gen`). It is NOT a number: boxing it with the
+    /// `Repr::Int64` default (`fcvt_from_sint` → double) turns the handle into an
+    /// ordinary f64 and every dynamic consumer loses the generator identity, so
+    /// `it.next()` silently reads `undefined` after the value crosses ANY dynamic
+    /// boundary (array/object/arg/field/Map). Boxed as a `TAG_OBJECT` word instead —
+    /// the shape `try_generator_dyn` / `to_iter_array` detect via `Entry::GenState`
+    /// (issue #2042).
+    GenHandle,
 }
 
 /// An SSA value tagged with the representation it carries + a static kind hint.
@@ -249,6 +258,12 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// (GenState handle, `Int64`); `false` = EAGER (`__gen_buf` ARRAY word).
     /// `it.next()`/`.return()`/`.throw()` route to `GENERATOR_*` by this kind.
     pub generator_locals: HashMap<String, bool>,
+    /// Nome local → nome da FUNÇÃO GENERATOR que ele aliasa (`const g = gg`).
+    /// Sem isto, `g()` não era reconhecido como chamada de generator: o
+    /// `gen_call_kind` só olhava `sigs`, onde o alias não existe, e o `.next()`
+    /// do iterador resultante não resolvia (`typeof it.next === "undefined"`).
+    /// É a forma que um bundle minificado usa o tempo todo.
+    pub generator_aliases: HashMap<String, String>,
     /// Name → the statically-known RUNTIME/Registry class of a local holding a
     /// `new Map()`/`new Set()`/`new Error()`/… instance (P5.3). Distinct from
     /// `local_classes` (user classes): these dispatch through the global-class
@@ -485,6 +500,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             local_elem_classes: HashMap::new(),
             local_class_refs: HashMap::new(),
             generator_locals: HashMap::new(),
+            generator_aliases: HashMap::new(),
             global_instance_classes: HashMap::new(),
             shapes: ShapeTable::new(),
             ret: sig.ret,

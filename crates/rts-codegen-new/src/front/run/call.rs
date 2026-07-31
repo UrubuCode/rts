@@ -165,7 +165,35 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 return self.lower_value_call_word(module, prop_word, args);
             }
         }
-        unsupported!("method call `.{method}()` (receiver class not statically dispatchable)")
+        // Receiver que é uma EXPRESSÃO qualquer (`g().m(a,b,c)`, o encadeamento
+        // que todo bundle minificado faz): loweriza UMA vez, lê a propriedade com
+        // `obj_get` sobre a word já avaliada e invoca com esse mesmo `this`.
+        //
+        // O gate acima existe porque o caminho dele loweriza o receiver DUAS
+        // vezes (uma no `lower_member`, outra para o `this`) — o que, num
+        // receiver com efeito colateral, chamaria a função duas vezes. Aqui a
+        // avaliação é única, então o gate não se aplica.
+        //
+        // O teto de 3 argumentos, porém, CONTINUA: acima disso o invoker
+        // this-first entrega `undefined` do 4º em diante e o resultado sai
+        // errado em SILÊNCIO (issue #2039 — `o.m.apply(o,[1,2,3,4])` devolve NaN
+        // sem bail nem crash). Enquanto aquilo não for corrigido, um bail aqui é
+        // a falha honesta; deixar passar seria trocar "não compila" por "compila
+        // e dá o número errado".
+        if !args.iter().any(|a| matches!(a.kind, HirExprKind::Spread(_))) && args.len() <= 3 {
+            let recv = self.lower_expr(module, object)?;
+            let recv_word = self.box_value(recv);
+            let key_word = self.emit_str_const_word(module, method)?;
+            let prop_word = self
+                .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key_word])?
+                .expect("obj_get returns a value");
+            return self.lower_value_call_word_with_this(module, prop_word, recv_word, args);
+        }
+        unsupported!(
+            "method call `.{method}()` com {} argumentos sobre receiver-expressão \
+             (o invoker this-first perde o 4º argumento — issue #2039)",
+            args.len()
+        )
     }
 
     /// Lower `fn.call(thisArg, a, b, …)` / `fn.apply(thisArg, [a, b])` on a

@@ -24,8 +24,17 @@ pub mod gc_surface;
 /// program; declaration order within the include string matters).
 pub const ERROR_TS: &str = include_str!("error.ts");
 
-// Object is now Rust-only — the `.ts` prelude (`OBJECT_TS`, `object.ts`) was
-// DELETED, following the same migration Boolean/Number/String proved.
+/// `Object`'s LAST `.ts` remnant: the static surface read as a VALUE
+/// (`const f = Object.keys`). The generic class-static reader looks in
+/// `desc.statics`, which only an AMBIENT class populates — there is no path yet
+/// for a Registry class static read as a value, so this block cannot follow the
+/// rest of `Object` into Rust. Everything else already did: the instance
+/// surface is `#[rtse::class("Object", value)]` in `src/object/`, and
+/// `Object(x)` / `Object.groupBy` are `__rtsadp_*` trampolines. See
+/// `src/object.ts` and `src/object/mod.rs`.
+pub const OBJECT_TS: &str = include_str!("object.ts");
+
+// The rest of the Object migration, following what Boolean/Number/String proved.
 // `hasOwnProperty`/`isPrototypeOf`/`propertyIsEnumerable` were ALREADY native
 // (never read the `.ts` class): `front/run/method.rs::try_object_protocol_method`
 // routes them straight to `__rtsadp_has_own`/`__rtsadp_is_prototype_of`/

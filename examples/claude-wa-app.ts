@@ -32,51 +32,24 @@ io.print("baixando " + URL + " ...");
 const raw = fetchNs.fetchText(URL);
 io.print("html: " + raw.length + " bytes");
 
-// extrai <style> inline + CSS dos <link> baixados + <script> inline + body.
-const site: i64 = dom.parseHtml(raw);
-let styles = "";
-const sc = dom.querySelectorAllCount(site, "style");
-let i = 0;
-while (i < sc) {
-  const s = dom.querySelectorAllAt(site, "style", i);
-  styles = styles + "<style>" + dom.getText(site, s) + "</style>";
-  i = i + 1;
-}
-const lc = dom.querySelectorAllCount(site, "link");
-let cssExt = 0;
-let li = 0;
-while (li < lc) {
-  const l = dom.querySelectorAllAt(site, "link", li);
-  if (dom.getAttribute(site, l, "rel") === "stylesheet") {
-    const css = fetchNs.fetchText(resolveUrl(URL, dom.getAttribute(site, l, "href")));
-    if (css.length > 0) { styles = styles + "<style>" + css + "</style>"; cssExt = cssExt + 1; }
-  }
-  li = li + 1;
-}
-let scripts = "";
-const scc = dom.querySelectorAllCount(site, "script");
-let k = 0;
-let inl = 0;
-while (k < scc) {
-  const s = dom.querySelectorAllAt(site, "script", k);
-  if (dom.getAttribute(site, s, "src").length === 0) {
-    const code = dom.getText(site, s);
-    if (code.length > 0) { scripts = scripts + "<script>" + code + "</script>"; inl = inl + 1; }
-  }
-  k = k + 1;
-}
-const body = dom.querySelector(site, "body");
-const inner = dom.innerHtml(site, body);
-io.print("styles=" + sc + " css_ext=" + cssExt + " scripts_inline=" + inl + " body=" + inner.length + "B");
-dom.free(site);
-
-const html = "<html><body>" + styles + "<div class='doc'>" + inner + "</div>" + scripts + "</body></html>";
-const d: i64 = dom.parseHtml(html);
-
-// Executa os <script> da página com o window/document injetados.
+// UM ÚNICO DOM, a página inteira. A versão anterior remontava um
+// `<html><body>…` com só o innerHTML do body + os scripts inline — o que
+// DESCARTAVA o `<head>`, onde a Meta põe os `<script src=http>` que definem
+// `requireLazy`. Sem o loader, os ~33 scripts `src=data:` da página morriam
+// todos em `call to unknown function 'requireLazy'`. Mantendo o documento como
+// veio, a ordem head→body fica correta e os bundles carregam antes de quem os
+// consome.
+const d: i64 = dom.parseHtml(raw);
 const docF = new Document(d);
+
+// Baixa os recursos EXTERNOS que a página pede (`<link rel=stylesheet>` e
+// `<script src=http>`) e materializa o fonte no nó — é o que o browser faz
+// antes de executar.
+const nres = loadResources(docF, URL);
+io.print("recursos externos: " + nres);
+
 const njs = runScriptsAt(docF, URL);
-io.print("scripts executados: " + njs);
+io.print("scripts executados: " + njs + "  globais publicados: " + DomScope.count(docF._dom));
 
 // Baixa + decodifica as imagens (aparecem no render).
 const imgCount = dom.querySelectorAllCount(d, "img");

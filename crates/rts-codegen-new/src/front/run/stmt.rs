@@ -415,6 +415,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let HirExprKind::Ident(f) = &callee.kind else {
             return None;
         };
+        // Segue o alias (`const g = gg; g()`) até a função real: `sigs` só
+        // conhece o nome DECLARADO, e sem este salto o iterador devolvido por
+        // um alias perdia o protocolo (`it.next` virava `undefined`).
+        let f = self.generator_aliases.get(f).unwrap_or(f);
         let s = self.sigs.get(f)?;
         if s.ret_lazy_gen {
             Some(true)
@@ -423,6 +427,51 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         } else {
             None
         }
+    }
+
+    /// The bare `Entry::GenState` handle behind a LAZY-generator value. Since #2042
+    /// such a value rides as a `TAG_OBJECT` PolyValue word (so its identity survives
+    /// array/object/arg/field/Map), so the handle is recovered from the word exactly
+    /// as an array word's is. A value still carried in a raw `Int64` (a path that
+    /// produces the handle directly) rides verbatim.
+    pub(super) fn gen_state_handle(
+        &mut self,
+        module: &mut dyn Module,
+        v: crate::front::run::lower::Val,
+    ) -> FrontResult<cranelift_codegen::ir::Value> {
+        if v.repr == Repr::Tagged {
+            let word = self.box_value(v);
+            Ok(crate::value::emit_marshal::emit_table_load(
+                module,
+                self.builder,
+                word,
+            ))
+        } else {
+            self.coerce(v, Repr::Int64)
+        }
+    }
+
+    /// The signature of a callee IDENT, following a generator ALIAS first
+    /// (`const g = gg; g()` — and every hoisted generator EXPRESSION, which the
+    /// parser rewrites to `__genexpr_N` + `const g = __genexpr_N`).
+    ///
+    /// `sigs` is keyed by the DECLARED name, so a bare `sigs.get(name)` misses the
+    /// alias and the call looks like an ordinary function: `for-of`/spread then
+    /// stopped recognizing the generator and silently produced NOTHING
+    /// (`[...g()]` → `""` where `[...gg()]` → `"1,2"`). `gen_call_kind` already
+    /// followed the alias; the iteration paths did not (issue #2042).
+    /// Follows a CHAIN (`const a = gg; const b = a`). The hop budget is the map's
+    /// own size: a chain longer than that must revisit a name, i.e. it is a cycle,
+    /// so this terminates without needing an arbitrary cap.
+    pub(super) fn sig_following_alias(&self, name: &str) -> Option<&super::sig::FnSig> {
+        let mut real = name;
+        for _ in 0..self.generator_aliases.len() {
+            match self.generator_aliases.get(real) {
+                Some(next) if next.as_str() != real => real = next.as_str(),
+                _ => break,
+            }
+        }
+        self.sigs.get(real)
     }
 
     /// The runtime GenState/Vec handle of a GENERATOR-valued receiver (a generator
@@ -447,7 +496,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         };
         let v = self.lower_expr(module, recv)?;
         let handle = if is_lazy {
-            self.coerce(v, Repr::Int64)?
+            self.gen_state_handle(module, v)?
         } else {
             let word = self.box_value(v);
             crate::value::emit_marshal::emit_table_load(module, self.builder, word)

@@ -813,16 +813,16 @@
 ,
 {
   "name": "claude-entries-for-of-pair-destructuring",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "entries=0:a,1:b,2:c\nidxOnly=0,1,2\nvalOnly=a,b,c\npairShape=true2,true2,true2\nwithDefault=0aDEF,1bDEF,2cDEF\nrestPair=0->a,1->b,2->c\nkeys=0,1,2\nvalues=a,b,c\nvaluesMatchDefault=true\nletRebind=0A,10B,20C\nbreak=a|len=1\ncontinue=a,c\nsparse=0:x,1:undefined,2:z\nempty=0\nlive=0p,1q\nnested=0m01,0m12,1n01,1n12\nmanualPair=0a",
   "node": "entries=0:a,1:b,2:c\nidxOnly=0,1,2\nvalOnly=a,b,c\npairShape=true2,true2,true2\nwithDefault=0aDEF,1bDEF,2cDEF\nrestPair=0->a,1->b,2->c\nkeys=0,1,2\nvalues=a,b,c\nvaluesMatchDefault=true\nletRebind=0A,10B,20C\nbreak=a|len=1\ncontinue=a,c\nsparse=0:x,1:undefined,2:z\nempty=0\nlive=0p,1q\nnested=0m01,0m12,1n01,1n12\nmanualPair=0a",
-  "rts": "",
+  "rts": "entries=0:a,1:b,2:c\nidxOnly=0,1,2\nvalOnly=a,b,c\npairShape=true2,true2,true2\nwithDefault=0aDEF,1bDEF,2cDEF\nrestPair=0->a,1->b,2->c\nkeys=0,1,2\nvalues=a,b,c\nvaluesMatchDefault=true\nletRebind=0A,10B,20C\nbreak=a|len=1\ncontinue=a,c\nsparse=0:x,1:undefined,2:z\nempty=0\nlive=0p\nnested=0m01,0m12,1n01,1n12\nmanualPair=0a",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: no Registry entry for `Array.next(0 args)` (callback methods like .map/.filter/.reduce bail by design)\n      at run of tests/cross-runtime/array/claude-entries-for-of-pair-destructuring.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -1222,7 +1222,7 @@
   "status": "rts_diverge",
   "bun": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\nextra:false",
   "node": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\nextra:false",
-  "rts": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\n:{}",
+  "rts": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\n:false",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -1508,7 +1508,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught TypeError: [object Object] is not a function\n      at run of tests/cross-runtime/classes/271_computed_class_members.ts failed"
+  "rts_error": "error: Uncaught TypeError: symbol property is not a function\n      at run of tests/cross-runtime/classes/271_computed_class_members.ts failed"
 }
 ,
 {
@@ -2143,16 +2143,16 @@
 ,
 {
   "name": "claude-map-set-iterators-independent",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "it1_first=a\nit2_first=a\nit1_second=b\nit2_still_second=b\ndistinct_objects=false\nk_v_distinct=false\nk_first=a\nv_first=1\ne_first=a:1\nr1=x:false\nr2=undefined:true\nr3_still_done=undefined:true\nit4_done=true\nit4_after_growth=undefined:true\nit5_a=a\nit5_sees_b=b\nit5_done=true\nit6_a=a\nit6_skips_b=c\niterator_self=true\nspread_iterator=a,b,c\nrest_spread=b,c\nmap_iter_is_entries=true\ndefault_iter_pair=a:1\nfresh1=a,b,c\nfresh2=a,b,c\npairs_not_shared=false\npairs_equal=true\nset_keys_is_values=true\nset_iter_is_values=true\nset_entry=10:10:true\nset_indep=10:10:20",
   "node": "it1_first=a\nit2_first=a\nit1_second=b\nit2_still_second=b\ndistinct_objects=false\nk_v_distinct=false\nk_first=a\nv_first=1\ne_first=a:1\nr1=x:false\nr2=undefined:true\nr3_still_done=undefined:true\nit4_done=true\nit4_after_growth=undefined:true\nit5_a=a\nit5_sees_b=b\nit5_done=true\nit6_a=a\nit6_skips_b=c\niterator_self=true\nspread_iterator=a,b,c\nrest_spread=b,c\nmap_iter_is_entries=true\ndefault_iter_pair=a:1\nfresh1=a,b,c\nfresh2=a,b,c\npairs_not_shared=false\npairs_equal=true\nset_keys_is_values=true\nset_iter_is_values=true\nset_entry=10:10:true\nset_indep=10:10:20",
-  "rts": "",
+  "rts": "it1_first=a\nit2_first=a\nit1_second=b\nit2_still_second=b\ndistinct_objects=false\nk_v_distinct=false\nk_first=a\nv_first=1\ne_first=a:1\nr1=x:false\nr2=undefined:true\nr3_still_done=undefined:true\nit4_done=true\nit4_after_growth=undefined:true\nit5_a=a\nit5_sees_b=undefined\nit5_done=true\nit6_a=a\nit6_skips_b=b\niterator_self=false\nspread_iterator=a,b,c\nrest_spread=a,b,c\nmap_iter_is_entries=false\ndefault_iter_pair=a:1\nfresh1=a,b,c\nfresh2=a,b,c\npairs_not_shared=false\npairs_equal=true\nset_keys_is_values=false\nset_iter_is_values=false\nset_entry=10:10:true\nset_indep=10:10:20",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: no Registry entry for `Array.next(0 args)` (callback methods like .map/.filter/.reduce bail by design)\n      at run of tests/cross-runtime/collections/claude-map-set-iterators-independent.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -3431,16 +3431,72 @@
 ,
 {
   "name": "379_yield_star",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done\n1,2,4,5,3,6\n1,2,3,4,5\n1,2,3,4,5",
   "node": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done\n1,2,4,5,3,6\n1,2,3,4,5\n1,2,3,4,5",
-  "rts": "",
+  "rts": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done\n1,2,4,5,3,6\n1,2,3,4,5\n1,2,3,4,5",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__agen_state_asyncOuter`: unsupported in the numeric subset: expression raw/unrecognized: Fn(FnExpr { ident: None, function: Function { params: [], decorators: [], span: \n      at run of tests/cross-runtime/generators/379_yield_star.ts failed"
+  "rts_error": ""
+}
+,
+{
+  "name": "claude-generator-alias-iteration",
+  "status": "pass",
+  "bun": "spreadViaAlias=1,2\nforOfViaAlias=3\nnextViaAlias=1\nspreadExprEager=3,4\nspreadExprLazy=1,2,3\nnextExprLazy=1\nforOfExprLazy=6\naliasChain=1,2\nspreadDirect=1,2\nforOfDirect=3",
+  "node": "spreadViaAlias=1,2\nforOfViaAlias=3\nnextViaAlias=1\nspreadExprEager=3,4\nspreadExprLazy=1,2,3\nnextExprLazy=1\nforOfExprLazy=6\naliasChain=1,2\nspreadDirect=1,2\nforOfDirect=3",
+  "rts": "spreadViaAlias=1,2\nforOfViaAlias=3\nnextViaAlias=1\nspreadExprEager=3,4\nspreadExprLazy=1,2,3\nnextExprLazy=1\nforOfExprLazy=6\naliasChain=1,2\nspreadDirect=1,2\nforOfDirect=3",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "claude-generator-crosses-dynamic-boundaries",
+  "status": "pass",
+  "bun": "array=1\nobjectField=1\nargument=1\npush=1\nclassField=1\nmapValue=1\ndestructuring=1\ncursorAdvances=6\nresultObject={\"value\":1,\"done\":false}\nafterExhaustion={\"done\":true}\nreturnMethod={\"value\":99,\"done\":true}\nafterReturn={\"done\":true}\ndirect=1\nintInArray=42\nbigIntInArray=9007199254740991\nplainArrayNext=undefined\nspread=1,2,3\nforOf=6",
+  "node": "array=1\nobjectField=1\nargument=1\npush=1\nclassField=1\nmapValue=1\ndestructuring=1\ncursorAdvances=6\nresultObject={\"value\":1,\"done\":false}\nafterExhaustion={\"done\":true}\nreturnMethod={\"value\":99,\"done\":true}\nafterReturn={\"done\":true}\ndirect=1\nintInArray=42\nbigIntInArray=9007199254740991\nplainArrayNext=undefined\nspread=1,2,3\nforOf=6",
+  "rts": "array=1\nobjectField=1\nargument=1\npush=1\nclassField=1\nmapValue=1\ndestructuring=1\ncursorAdvances=6\nresultObject={\"value\":1,\"done\":false}\nafterExhaustion={\"done\":true}\nreturnMethod={\"value\":99,\"done\":true}\nafterReturn={\"done\":true}\ndirect=1\nintInArray=42\nbigIntInArray=9007199254740991\nplainArrayNext=undefined\nspread=1,2,3\nforOf=6",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "claude-generator-untyped-param",
+  "status": "pass",
+  "bun": "spread=10,11,12\nnext=10\nforOf=6\nacrossBoundary=10\ncursorAdvances=303\nresultObject={\"value\":10,\"done\":false}\nafterExhaustion={\"done\":true}\ntakeInfinite=1,2,3,4,5\ntakeInfiniteFrom=10,11,12,13\nannotated=10,11,12\nnoParams=1,2,3\ndefaultOmitted=1,2,3\ndefaultPassed=5,6,7\nstringParam=x0,x1\neagerParam=7,8",
+  "node": "spread=10,11,12\nnext=10\nforOf=6\nacrossBoundary=10\ncursorAdvances=303\nresultObject={\"value\":10,\"done\":false}\nafterExhaustion={\"done\":true}\ntakeInfinite=1,2,3,4,5\ntakeInfiniteFrom=10,11,12,13\nannotated=10,11,12\nnoParams=1,2,3\ndefaultOmitted=1,2,3\ndefaultPassed=5,6,7\nstringParam=x0,x1\neagerParam=7,8",
+  "rts": "spread=10,11,12\nnext=10\nforOf=6\nacrossBoundary=10\ncursorAdvances=303\nresultObject={\"value\":10,\"done\":false}\nafterExhaustion={\"done\":true}\ntakeInfinite=1,2,3,4,5\ntakeInfiniteFrom=10,11,12,13\nannotated=10,11,12\nnoParams=1,2,3\ndefaultOmitted=1,2,3\ndefaultPassed=5,6,7\nstringParam=x0,x1\neagerParam=7,8",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "claude-native-iterator-next",
+  "status": "pass",
+  "bun": "first=1\nsecond=2\nexhausted={\"done\":true}\nkeys=0\nentries=[0,9]\nsetValues=5\nsetKeys=5\nmapEntries=[\"k\",9]\nmapKeys=k\nmapValues=9\nindependent=10\ntake=1,2,3\ntakeBeyondEnd=1,2\nsymIterTypeof=object\nsymIterFirst=1\nsymIterSecond=2\nsymIterSpread=4,5\nplainArrayNext=undefined\nspreadValues=1,2\nspreadKeys=0,1\nforOfValues=6\nforOfEntries=0:9 1:8 ",
+  "node": "first=1\nsecond=2\nexhausted={\"done\":true}\nkeys=0\nentries=[0,9]\nsetValues=5\nsetKeys=5\nmapEntries=[\"k\",9]\nmapKeys=k\nmapValues=9\nindependent=10\ntake=1,2,3\ntakeBeyondEnd=1,2\nsymIterTypeof=object\nsymIterFirst=1\nsymIterSecond=2\nsymIterSpread=4,5\nplainArrayNext=undefined\nspreadValues=1,2\nspreadKeys=0,1\nforOfValues=6\nforOfEntries=0:9 1:8 ",
+  "rts": "first=1\nsecond=2\nexhausted={\"done\":true}\nkeys=0\nentries=[0,9]\nsetValues=5\nsetKeys=5\nmapEntries=[\"k\",9]\nmapKeys=k\nmapValues=9\nindependent=10\ntake=1,2,3\ntakeBeyondEnd=1,2\nsymIterTypeof=object\nsymIterFirst=1\nsymIterSecond=2\nsymIterSpread=4,5\nplainArrayNext=undefined\nspreadValues=1,2\nspreadKeys=0,1\nforOfValues=6\nforOfEntries=0:9 1:8 ",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
 }
 ,
 {
@@ -3602,7 +3658,7 @@
   "status": "rts_diverge",
   "bun": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
   "node": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
-  "rts": "undefined",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -3658,27 +3714,27 @@
   "status": "rts_error",
   "bun": "a1={\"value\":1,\"done\":false}\na2={\"value\":2,\"done\":false}\na3={\"done\":true}\na4={\"done\":true}\na5={\"done\":true}\nstableDone=true|true\nstableValue=true,true\nfreshResults=true\nkeys=done,value\nemptyFirst={\"done\":true}\nindependent=3,1\nlive=2,3|done=true\nshrunk={\"done\":true}\nm1={\"value\":\"m\",\"done\":false}\nm2={\"value\":\"post\",\"done\":true}\nm3={\"value\":\"post\",\"done\":true}\nmanualCalls=3\nresume=2,3,4\nspreadRest=3,4\ns1=a\ns2=b\ns3=undefined|done=true\nset1={\"value\":1,\"done\":false}\nset2={\"done\":true}\nset3={\"done\":true}",
   "node": "a1={\"value\":1,\"done\":false}\na2={\"value\":2,\"done\":false}\na3={\"done\":true}\na4={\"done\":true}\na5={\"done\":true}\nstableDone=true|true\nstableValue=true,true\nfreshResults=true\nkeys=done,value\nemptyFirst={\"done\":true}\nindependent=3,1\nlive=2,3|done=true\nshrunk={\"done\":true}\nm1={\"value\":\"m\",\"done\":false}\nm2={\"value\":\"post\",\"done\":true}\nm3={\"value\":\"post\",\"done\":true}\nmanualCalls=3\nresume=2,3,4\nspreadRest=3,4\ns1=a\ns2=b\ns3=undefined|done=true\nset1={\"value\":1,\"done\":false}\nset2={\"done\":true}\nset3={\"done\":true}",
-  "rts": "",
+  "rts": "a1={\"value\":1,\"done\":false}\na2={\"value\":2,\"done\":false}\na3={\"done\":true}\na4={\"done\":true}\na5={\"done\":true}\nstableDone=true|true\nstableValue=true,true\nfreshResults=true\nkeys=done,value\nemptyFirst={\"done\":true}\nindependent=3,1\nlive=2,undefined|done=true\nshrunk={\"value\":2,\"done\":false}\nm1={\"value\":\"m\",\"done\":false}\nm2={\"value\":\"post\",\"done\":true}\nm3={\"value\":\"post\",\"done\":true}\nmanualCalls=3\nresume=1,2,3,4\nspreadRest=1,2,3,4",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught TypeError: [object Object] is not a function\n      at run of tests/cross-runtime/iteration/claude-manual-iterator-past-done.ts failed"
+  "rts_error": "error: Uncaught TypeError: symbol property is not a function\n      at run of tests/cross-runtime/iteration/claude-manual-iterator-past-done.ts failed"
 }
 ,
 {
   "name": "claude-map-set-for-of-shape",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "mapPairs=true:2:a=1|true:2:b=2|true:2:c=3\nmapDestructured=a=1,b=2,c=3\nmapDefaultIsEntries=true\nmapKeys=a,b,c\nmapValues=1,2,3\nmapEntries=a1,b2,c3\noverwriteOrder=x,y\nreaddOrder=q,p\nemptyMap=0\nsetValues=10,20,30\nsetDefaultIsValues=true\nsetKeysIsValues=true\nsetEntries=10:10,20:20,30:30\nsetDedup=3,1,2|size=3\nmi1=[\"a\",1]\nmi2=[\"b\",2]\nmi3=[\"c\",3]\nmi4=undefined|done=true\niterSelfIterable=true\nspreadPairsLen=3|first=a=1\nfromMatchesSpread=true",
   "node": "mapPairs=true:2:a=1|true:2:b=2|true:2:c=3\nmapDestructured=a=1,b=2,c=3\nmapDefaultIsEntries=true\nmapKeys=a,b,c\nmapValues=1,2,3\nmapEntries=a1,b2,c3\noverwriteOrder=x,y\nreaddOrder=q,p\nemptyMap=0\nsetValues=10,20,30\nsetDefaultIsValues=true\nsetKeysIsValues=true\nsetEntries=10:10,20:20,30:30\nsetDedup=3,1,2|size=3\nmi1=[\"a\",1]\nmi2=[\"b\",2]\nmi3=[\"c\",3]\nmi4=undefined|done=true\niterSelfIterable=true\nspreadPairsLen=3|first=a=1\nfromMatchesSpread=true",
-  "rts": "",
+  "rts": "mapPairs=true:2:a=1|true:2:b=2|true:2:c=3\nmapDestructured=a=1,b=2,c=3\nmapDefaultIsEntries=false\nmapKeys=a,b,c\nmapValues=1,2,3\nmapEntries=a1,b2,c3\noverwriteOrder=x,y\nreaddOrder=q,p\nemptyMap=0\nsetValues=10,20,30\nsetDefaultIsValues=false\nsetKeysIsValues=false\nsetEntries=10:10,20:20,30:30\nsetDedup=3,1,2|size=3\nmi1=[\"a\",1]\nmi2=[\"b\",2]\nmi3=[\"c\",3]\nmi4=undefined|done=true\niterSelfIterable=false\nspreadPairsLen=3|first=a=1\nfromMatchesSpread=true",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: no Registry entry for `Array.next(0 args)` (callback methods like .map/.filter/.reduce bail by design)\n      at run of tests/cross-runtime/iteration/claude-map-set-for-of-shape.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -3706,7 +3762,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught TypeError: [object Object] is not a function\n      at run of tests/cross-runtime/iteration/claude-string-iterator-code-points.ts failed"
+  "rts_error": "error: Uncaught TypeError: symbol property is not a function\n      at run of tests/cross-runtime/iteration/claude-string-iterator-code-points.ts failed"
 }
 ,
 {
@@ -3935,10 +3991,10 @@
 ,
 {
   "name": "claude-stringify-number-edges",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "neg_zero=0\nneg_zero_obj={\"a\":0}\nneg_zero_arr=[0,0]\npos_zero=0\ninf=null\nneg_inf=null\nnan=null\nnonfinite_obj={\"a\":null,\"b\":null,\"c\":null}\nnonfinite_arr=[null,null,null]\ndiv_zero=null\nmax_safe=9007199254740991\nmax_safe_plus=9007199254740992\nmax_value=1.7976931348623157e+308\nmin_value=5e-324\ne21=1e+21\ne20=100000000000000000000\nneg_e21=-1e+21\ne_minus_7=1e-7\ne_minus_6=0.000001\nthird=0.3333333333333333\npoint_sum=0.30000000000000004\nbig_frac=123456789.12345679\nneg_frac=-0.5\noverflow=null\nwrapper=5\nwrapper_nan=null\nneg_big=-9007199254740991\nint_round=100\nfloat_int=100",
   "node": "neg_zero=0\nneg_zero_obj={\"a\":0}\nneg_zero_arr=[0,0]\npos_zero=0\ninf=null\nneg_inf=null\nnan=null\nnonfinite_obj={\"a\":null,\"b\":null,\"c\":null}\nnonfinite_arr=[null,null,null]\ndiv_zero=null\nmax_safe=9007199254740991\nmax_safe_plus=9007199254740992\nmax_value=1.7976931348623157e+308\nmin_value=5e-324\ne21=1e+21\ne20=100000000000000000000\nneg_e21=-1e+21\ne_minus_7=1e-7\ne_minus_6=0.000001\nthird=0.3333333333333333\npoint_sum=0.30000000000000004\nbig_frac=123456789.12345679\nneg_frac=-0.5\noverflow=null\nwrapper=5\nwrapper_nan=null\nneg_big=-9007199254740991\nint_round=100\nfloat_int=100",
-  "rts": "neg_zero=0\nneg_zero_obj={\"a\":0}\nneg_zero_arr=[0,0]\npos_zero=0\ninf=null\nneg_inf=null\nnan=null\nnonfinite_obj={\"a\":null,\"b\":null,\"c\":null}\nnonfinite_arr=[null,null,null]\ndiv_zero=null\nmax_safe=9007199254740991\nmax_safe_plus=9007199254740992\nmax_value=1.7976931348623157e+308\nmin_value=5e-324\ne21=1e+21\ne20=100000000000000000000\nneg_e21=-1e+21\ne_minus_7=1e-7\ne_minus_6=0.000001\nthird=0.3333333333333333\npoint_sum=0.30000000000000004\nbig_frac=123456789.12345679\nneg_frac=-0.5\noverflow=null\nwrapper={}\nwrapper_nan={}\nneg_big=-9007199254740991\nint_round=100\nfloat_int=100",
+  "rts": "neg_zero=0\nneg_zero_obj={\"a\":0}\nneg_zero_arr=[0,0]\npos_zero=0\ninf=null\nneg_inf=null\nnan=null\nnonfinite_obj={\"a\":null,\"b\":null,\"c\":null}\nnonfinite_arr=[null,null,null]\ndiv_zero=null\nmax_safe=9007199254740991\nmax_safe_plus=9007199254740992\nmax_value=1.7976931348623157e+308\nmin_value=5e-324\ne21=1e+21\ne20=100000000000000000000\nneg_e21=-1e+21\ne_minus_7=1e-7\ne_minus_6=0.000001\nthird=0.3333333333333333\npoint_sum=0.30000000000000004\nbig_frac=123456789.12345679\nneg_frac=-0.5\noverflow=null\nwrapper=5\nwrapper_nan=null\nneg_big=-9007199254740991\nint_round=100\nfloat_int=100",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -3981,6 +4037,20 @@
   "bun": "top_undef=undefined\ntop_undef_isundef=true\ntop_fn=undefined\ntop_fn_isundef=true\ntop_sym=undefined\ntop_sym_isundef=true\nobj_undef={\"a\":1,\"c\":2}\nobj_fn={\"a\":1,\"c\":2}\nobj_sym={\"a\":1,\"c\":2}\nobj_all_gone={}\narr_undef=[1,null,2]\narr_fn=[1,null,2]\narr_sym=[1,null,2]\narr_all_null=[null,null,null]\narr_hole=[1,null,null,4]\nnested={\"a\":[null,{\"c\":3}]}\nmix={\"list\":[null]}\ntojson_undef_top_isundef=true\ntojson_undef_in_obj={\"b\":1}\ntojson_undef_in_arr=[null,1]\nreplacer_undef={\"a\":1}",
   "node": "top_undef=undefined\ntop_undef_isundef=true\ntop_fn=undefined\ntop_fn_isundef=true\ntop_sym=undefined\ntop_sym_isundef=true\nobj_undef={\"a\":1,\"c\":2}\nobj_fn={\"a\":1,\"c\":2}\nobj_sym={\"a\":1,\"c\":2}\nobj_all_gone={}\narr_undef=[1,null,2]\narr_fn=[1,null,2]\narr_sym=[1,null,2]\narr_all_null=[null,null,null]\narr_hole=[1,null,null,4]\nnested={\"a\":[null,{\"c\":3}]}\nmix={\"list\":[null]}\ntojson_undef_top_isundef=true\ntojson_undef_in_obj={\"b\":1}\ntojson_undef_in_arr=[null,1]\nreplacer_undef={\"a\":1}",
   "rts": "top_undef=undefined\ntop_undef_isundef=true\ntop_fn=undefined\ntop_fn_isundef=true\ntop_sym={}\ntop_sym_isundef=false\nobj_undef={\"a\":1,\"c\":2}\nobj_fn={\"a\":1,\"c\":2}\nobj_sym={\"a\":1,\"b\":{},\"c\":2}\nobj_all_gone={\"d\":{}}\narr_undef=[1,null,2]\narr_fn=[1,null,2]\narr_sym=[1,{},2]\narr_all_null=[null,null,{}]\narr_hole=[1,null,null,4]\nnested={\"a\":[null,{\"c\":3}]}\nmix={\"list\":[null]}\ntojson_undef_top_isundef=true\ntojson_undef_in_obj={\"b\":1}\ntojson_undef_in_arr=[null,1]\nreplacer_undef={\"a\":1}",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "claude-stringify-wrapper-objects",
+  "status": "pass",
+  "bun": "number=5\nnumberNaN=null\nnumberInfinity=null\nnumberNegZero=0\nstring=\"hi\"\nstringQuoted=\"a\\\"b\"\nstringEmpty=\"\"\nboolTrue=true\nboolFalse=false\nnested={\"a\":7}\ninArray=[1,\"x\",false]\ndeep={\"a\":{\"b\":[3]}}\nexpandoIgnored=5\nobjectWrapperNum=5\nobjectWrapperStr=\"h\"\nplainObject={\"a\":1}\nobjectWithValueOf={\"a\":1}\nplainArray=[1,2]\nprimNumber=5\nprimString=\"hi\"\nprimBool=true\nprimNull=null",
+  "node": "number=5\nnumberNaN=null\nnumberInfinity=null\nnumberNegZero=0\nstring=\"hi\"\nstringQuoted=\"a\\\"b\"\nstringEmpty=\"\"\nboolTrue=true\nboolFalse=false\nnested={\"a\":7}\ninArray=[1,\"x\",false]\ndeep={\"a\":{\"b\":[3]}}\nexpandoIgnored=5\nobjectWrapperNum=5\nobjectWrapperStr=\"h\"\nplainObject={\"a\":1}\nobjectWithValueOf={\"a\":1}\nplainArray=[1,2]\nprimNumber=5\nprimString=\"hi\"\nprimBool=true\nprimNull=null",
+  "rts": "number=5\nnumberNaN=null\nnumberInfinity=null\nnumberNegZero=0\nstring=\"hi\"\nstringQuoted=\"a\\\"b\"\nstringEmpty=\"\"\nboolTrue=true\nboolFalse=false\nnested={\"a\":7}\ninArray=[1,\"x\",false]\ndeep={\"a\":{\"b\":[3]}}\nexpandoIgnored=5\nobjectWrapperNum=5\nobjectWrapperStr=\"h\"\nplainObject={\"a\":1}\nobjectWithValueOf={\"a\":1}\nplainArray=[1,2]\nprimNumber=5\nprimString=\"hi\"\nprimBool=true\nprimNull=null",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -5867,16 +5937,16 @@
 ,
 {
   "name": "368_iterator_protocol",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1,2,3,4,5\n10,11,12,13\n1a\n2b\n3c\n1,2,3,4,5\n1,2,3,4\n4\nfirst\ncaught:oops\n1\n99\ntrue",
   "node": "1,2,3,4,5\n10,11,12,13\n1a\n2b\n3c\n1,2,3,4,5\n1,2,3,4\n4\nfirst\ncaught:oops\n1\n99\ntrue",
-  "rts": "",
+  "rts": "1,2,3,4,5\n10,11,12,13\n1a\n2b\n3c\n1,2,3,4,5\n1,2,3,4\n4\nfirst\ncaught:oops\n1\n99\ntrue",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught TypeError: next is not a function\n      at run of tests/cross-runtime/object-meta/368_iterator_protocol.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -6188,6 +6258,20 @@
 }
 ,
 {
+  "name": "claude-object-statics-as-values",
+  "status": "pass",
+  "bun": "defineProperty=function\ndefineProperties=function\nfromEntries=function\ncreate=function\nsetPrototypeOf=function\ngetOwnPropertyDescriptor=function\ngetOwnPropertySymbols=function\npreventExtensions=function\nisExtensible=function\ndefinePropertyWorks=7\nfromEntriesWorks={\"k\":1}\ndescriptorWorks=5\nkeys=function\nassign=function\nkeysWorks=x,y",
+  "node": "defineProperty=function\ndefineProperties=function\nfromEntries=function\ncreate=function\nsetPrototypeOf=function\ngetOwnPropertyDescriptor=function\ngetOwnPropertySymbols=function\npreventExtensions=function\nisExtensible=function\ndefinePropertyWorks=7\nfromEntriesWorks={\"k\":1}\ndescriptorWorks=5\nkeys=function\nassign=function\nkeysWorks=x,y",
+  "rts": "defineProperty=function\ndefineProperties=function\nfromEntries=function\ncreate=function\nsetPrototypeOf=function\ngetOwnPropertyDescriptor=function\ngetOwnPropertySymbols=function\npreventExtensions=function\nisExtensible=function\ndefinePropertyWorks=7\nfromEntriesWorks={\"k\":1}\ndescriptorWorks=5\nkeys=function\nassign=function\nkeysWorks=x,y",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
   "name": "claude-spread-getter-to-data",
   "status": "rts_diverge",
   "bun": "1\n2\n2\ntrue\n1\ntrue true true",
@@ -6259,16 +6343,16 @@
 ,
 {
   "name": "codex_freeze_typedarray_error",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "true\nTypeError\n1",
   "node": "true\nTypeError\n1",
-  "rts": "",
+  "rts": "true\n1",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: Object static on an ARRAY receiver (array key/value enumeration is a later increment)\n      at run of tests/cross-runtime/object-meta/codex_freeze_typedarray_error.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -6399,16 +6483,16 @@
 ,
 {
   "name": "codex_proxy_getprototypeof_invariant",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "TypeError\ntrue",
   "node": "TypeError\ntrue",
-  "rts": "",
+  "rts": "true",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: Object static on `target` whose shape is not statically proven (param/return/reassigned)\n      at run of tests/cross-runtime/object-meta/codex_proxy_getprototypeof_invariant.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -6581,16 +6665,16 @@
 ,
 {
   "name": "codex_lru_cache_map_order",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1\nc3,a1,d4\n-1",
   "node": "1\nc3,a1,d4\n-1",
-  "rts": "",
+  "rts": "1\nc3,a1,d4\n-1",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsn_method_Lru_set`: unsupported in the numeric subset: no Registry entry for `Array.next(0 args)` (callback methods like .map/.filter/.reduce bail by design)\n      at run of tests/cross-runtime/patterns/codex_lru_cache_map_order.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -6738,7 +6822,7 @@
   "status": "rts_diverge",
   "bun": "one=3\ntwo=5\nall=a,b\nasync=9",
   "node": "one=3\ntwo=5\nall=a,b\nasync=9",
-  "rts": "one=3\ntwo=4\nall=1.390671161569955e-309,1.39067116156996e-309\nasync=9",
+  "rts": "one=3\ntwo=4\nall=1.39067116157e-309,1.390671161570005e-309\nasync=9",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -6794,7 +6878,7 @@
   "status": "rts_diverge",
   "bun": "AggregateError\na,b,c",
   "node": "AggregateError\na,b,c",
-  "rts": "",
+  "rts": "undefined",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9381,16 +9465,16 @@
 ,
 {
   "name": "codex_url_relative_resolution",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "https://example.com/a/d/e?space=a%20b&plus=a+b#frag\n/a/d/e\na b\na b\n?space=a+b&plus=a+b&emoji=%F0%9F%99%82",
   "node": "https://example.com/a/d/e?space=a%20b&plus=a+b#frag\n/a/d/e\na b\na b\n?space=a+b&plus=a+b&emoji=%F0%9F%99%82",
-  "rts": "",
+  "rts": "\n\nnull\nnull",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new URL(..)` — argument 1 is not a proven string\n      at run of tests/cross-runtime/url/codex_url_relative_resolution.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -9505,4 +9589,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":679,"pass":470,"rts_diverge":110,"bun_node_diverge":18,"errors":81,"rejected":0}}
+],"summary":{"total":685,"pass":480,"rts_diverge":115,"bun_node_diverge":18,"errors":72,"rejected":0}}
