@@ -11,18 +11,37 @@
 struct GenExprHoister {
     hoisted: Vec<swc_ecma_ast::FnDecl>,
     counter: usize,
+    /// `(nome original, nome levantado)` dos generators DECLARADOS levantados no
+    /// bloco que está sendo visitado. Consumido por `visit_mut_block_stmt`, que
+    /// aplica o rename APENAS àquele bloco — o escopo em que a declaração valia.
+    pendentes: Vec<(String, String)>,
+    /// Profundidade de blocos: `0` = topo do módulo, onde `lower_decl` já cuida
+    /// dos generators e este hoister não deve mexer.
+    dentro_de_bloco: usize,
 }
 
 impl swc_ecma_visit::VisitMut for GenExprHoister {
-    fn visit_mut_function(&mut self, _f: &mut SwcFunction) {
-        // no-op: do not descend into function bodies (avoid capturing hoists)
+    /// DESCE em corpos de função para achar generators ANINHADOS.
+    ///
+    /// Antes era no-op ("avoid capturing hoists"), e a consequência era que o
+    /// desugar de generator só alcançava o TOPO do módulo: `function* g(){…}`
+    /// dentro de qualquer função — ou dentro de `new Function` — chegava ao
+    /// lowering como `Raw` e morria em "unrecognized statement". Num bundle
+    /// minificado real isso derruba o arquivo inteiro.
+    ///
+    /// O receio da captura continua respeitado: só se hoisteia um generator cujo
+    /// corpo NÃO referencia nada do escopo em que está (ver `sem_captura`) — um
+    /// generator que captura fica onde está e mantém a falha honesta.
+    fn visit_mut_function(&mut self, f: &mut SwcFunction) {
+        use swc_ecma_visit::VisitMutWith;
+        f.visit_mut_children_with(self);
     }
 
     fn visit_mut_expr(&mut self, e: &mut Expr) {
         use swc_ecma_visit::VisitMutWith;
         e.visit_mut_children_with(self);
         if let Expr::Fn(fe) = e {
-            if fe.function.is_generator {
+            if fe.function.is_generator && Self::sem_captura(&fe.function) {
                 let name = format!("__genexpr_{}", self.counter);
                 self.counter += 1;
                 let ident = swc_ecma_ast::Ident {
@@ -39,6 +58,151 @@ impl swc_ecma_visit::VisitMut for GenExprHoister {
                 *e = Expr::Ident(ident);
             }
         }
+    }
+
+    /// Uma DECLARAÇÃO de generator aninhada (`function* g(){…}` dentro de outra
+    /// função) é levantada para o topo pelo nome que ela já tem, e o statement
+    /// original vira vazio. É o mesmo tratamento da fn-expression, só que o nome
+    /// não precisa ser sintetizado.
+    /// Depois de visitar um BLOCO, aplica os renames que os hoists feitos dentro
+    /// dele deixaram pendentes — e só a ele. É o que mantém o rename escopado:
+    /// `function* g` de duas funções irmãs vira `__gendecl_0`/`__gendecl_1`, cada
+    /// um visível apenas no corpo que o declarava.
+    fn visit_mut_block_stmt(&mut self, b: &mut swc_ecma_ast::BlockStmt) {
+        use swc_ecma_visit::VisitMutWith;
+        let marca = self.pendentes.len();
+        self.dentro_de_bloco += 1;
+        b.visit_mut_children_with(self);
+        self.dentro_de_bloco -= 1;
+        if self.pendentes.len() > marca {
+            let novos: Vec<(String, String)> = self.pendentes.drain(marca..).collect();
+            for (de, para) in &novos {
+                let mut r = RenomeiaIdent {
+                    de: de.clone(),
+                    para: para.clone(),
+                };
+                b.visit_mut_with(&mut r);
+            }
+        }
+    }
+
+    fn visit_mut_stmt(&mut self, s: &mut swc_ecma_ast::Stmt) {
+        use swc_ecma_visit::VisitMutWith;
+        s.visit_mut_children_with(self);
+        if let swc_ecma_ast::Stmt::Decl(swc_ecma_ast::Decl::Fn(fd)) = s {
+            // `dentro_de_bloco == 0` é uma declaração de TOPO do módulo: aquela
+            // já é tratada por `lower_decl` (o caminho que sempre funcionou), e
+            // levantá-la de novo só renomeava a função e quebrava as chamadas.
+            if self.dentro_de_bloco > 0
+                && fd.function.is_generator
+                && Self::sem_captura(&fd.function)
+            {
+                // O nome vai para o TOPO do módulo, então tem de ser único: duas
+                // funções irmãs podem ambas declarar `function* g(){…}` (nome
+                // curto é a regra em código minificado, e `g` é o favorito), e
+                // levantar as duas com o nome original dava "Duplicate
+                // definition of identifier". Renomeia para `__gendecl_N` e
+                // reescreve as referências DENTRO do escopo que a declarava.
+                let novo = format!("__gendecl_{}", self.counter);
+                self.counter += 1;
+                let ident = swc_ecma_ast::Ident {
+                    span: Default::default(),
+                    ctxt: Default::default(),
+                    sym: novo.as_str().into(),
+                    optional: false,
+                };
+                let original = fd.ident.sym.to_string();
+                let mut levantada = fd.clone();
+                levantada.ident = ident.clone();
+                self.hoisted.push(levantada);
+                // O rename fica PENDENTE e é aplicado só ao bloco que continha a
+                // declaração (ver `visit_mut_block_stmt`). Aplicá-lo globalmente
+                // vazava entre escopos: dois `function* g` irmãos faziam o
+                // segundo resolver para o primeiro — resultado errado, calado.
+                self.pendentes.push((original, novo));
+                *s = swc_ecma_ast::Stmt::Empty(swc_ecma_ast::EmptyStmt {
+                    span: Default::default(),
+                });
+            }
+        }
+    }
+}
+
+/// Troca um identificador por outro numa subárvore (o rename escopado do
+/// generator levantado).
+struct RenomeiaIdent {
+    de: String,
+    para: String,
+}
+
+impl swc_ecma_visit::VisitMut for RenomeiaIdent {
+    fn visit_mut_ident(&mut self, i: &mut swc_ecma_ast::Ident) {
+        if i.sym.as_ref() == self.de {
+            i.sym = self.para.as_str().into();
+        }
+    }
+}
+
+impl GenExprHoister {
+    /// O corpo do generator só menciona nomes que ele mesmo liga (params +
+    /// declarações locais) ou globais conhecidos? Levantar um que CAPTURA o
+    /// escopo de fora quebraria a captura silenciosamente — nesse caso ele fica
+    /// onde está e o lowering falha honestamente, como antes.
+    ///
+    /// Aproximação conservadora e barata: coleta os identificadores livres do
+    /// corpo e exige que todos estejam ligados pelo próprio generator. Um falso
+    /// negativo (deixar de hoistear algo que seria seguro) só preserva o
+    /// comportamento anterior; um falso positivo é o que não pode acontecer.
+    fn sem_captura(f: &SwcFunction) -> bool {
+        use swc_ecma_visit::{Visit, VisitWith};
+
+        #[derive(Default)]
+        struct Livres {
+            ligados: std::collections::HashSet<String>,
+            usados: Vec<String>,
+        }
+        impl Visit for Livres {
+            fn visit_ident(&mut self, i: &swc_ecma_ast::Ident) {
+                self.usados.push(i.sym.to_string());
+            }
+            fn visit_var_declarator(&mut self, d: &swc_ecma_ast::VarDeclarator) {
+                if let swc_ecma_ast::Pat::Ident(bi) = &d.name {
+                    self.ligados.insert(bi.id.sym.to_string());
+                }
+                d.visit_children_with(self);
+            }
+            fn visit_fn_decl(&mut self, fd: &swc_ecma_ast::FnDecl) {
+                self.ligados.insert(fd.ident.sym.to_string());
+                fd.visit_children_with(self);
+            }
+            fn visit_param(&mut self, p: &swc_ecma_ast::Param) {
+                if let swc_ecma_ast::Pat::Ident(bi) = &p.pat {
+                    self.ligados.insert(bi.id.sym.to_string());
+                }
+                p.visit_children_with(self);
+            }
+        }
+
+        let mut v = Livres::default();
+        for p in &f.params {
+            if let swc_ecma_ast::Pat::Ident(bi) = &p.pat {
+                v.ligados.insert(bi.id.sym.to_string());
+            }
+        }
+        if let Some(b) = &f.body {
+            b.visit_with(&mut v);
+        }
+        // Globais que qualquer escopo enxerga — mencioná-los não é captura.
+        const GLOBAIS: &[&str] = &[
+            "undefined", "null", "true", "false", "this", "arguments", "console",
+            "Object", "Array", "String", "Number", "Boolean", "Math", "JSON",
+            "Date", "RegExp", "Error", "TypeError", "RangeError", "Promise",
+            "Symbol", "Map", "Set", "WeakMap", "WeakSet", "Infinity", "NaN",
+            "globalThis", "window", "document", "self", "parseInt", "parseFloat",
+        ];
+        v.usados
+            .iter()
+            .all(|u| v.ligados.contains(u) || GLOBAIS.contains(&u.as_str()))
     }
 }
 
