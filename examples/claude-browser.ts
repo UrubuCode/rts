@@ -272,17 +272,29 @@ io.print("[boot] home instantânea (digite uma URL e Enter)");
 // abre direto no site (dispara o download assíncrono já no boot, mostrando a
 // tela de "Carregando"); sem a variável, abre na home embutida.
 const urlBoot = env.get_var("RTS_URL");
-if (urlBoot.length > 0) {
+// Sem "." nem http, é o NOME de uma página local (site/<nome>.html) — mesmo
+// atalho que a barra de URL já aceita digitado.
+const bootLocal = urlBoot.length > 0 && urlBoot.indexOf(".") < 0
+  && urlBoot.indexOf("http") !== 0 ? 1 : 0;
+if (urlBoot.length > 0 && bootLocal === 0) {
   io.print("[boot] abrindo direto: " + urlBoot);
   pendingUrl = urlBoot;
   pendingTicket = fetchNs.fetchTextAsync(normalize(urlBoot));
   d = loadingPage(d, urlBoot);
+} else if (bootLocal === 1) {
+  io.print("[boot] pagina local: " + urlBoot);
+  d = localPage(d, urlBoot);
 } else {
   d = localPage(d, "home");
 }
 // Fachada Document sobre o handle corrente — o runScripts/pumpEventCallbacks
 // do prelude falam a fachada. Recriada a cada navegação (d muda).
 let docF = new Document(d);
+// Página local também executa os <script> dela (a home embutida não tem nenhum;
+// o caminho remoto roda os seus quando o download completa).
+if (bootLocal === 1) {
+  io.print("[js] scripts locais executados: " + runScriptsAt(docF, "https://localhost/" + urlBoot));
+}
 io.print("[boot] urlbar node=" + urlInput(d) + " inputs=" + dom.querySelectorAllCount(d, "input") + " val='" + dom.inputValue(d, urlInput(d)) + "'");
 
 let frame = 0;
@@ -391,6 +403,7 @@ while (egui.isOpen(win) !== 0) {
   // Entrega os cliques do frame aos addEventListener registrados pelos <script>
   // da página (hit-test do render → fila crua → callbacks, PRs #1884/#1885).
   pumpEventCallbacks(docF);
+  pumpTimerCallbacks(docF);
 }
 
 dom.free(d);

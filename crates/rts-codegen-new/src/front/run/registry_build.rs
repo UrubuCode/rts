@@ -192,6 +192,11 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     // returns). `File` embeds a `Blob` + forwards (composition, `extends =
     // "Blob"` for `instanceof`).
     ns::dom::scriptscope::register,
+    // `DomTimers` — fila de timers de página por documento (setTimeout/
+    // setInterval dos <script>), bombeada pelo frame do host
+    // (`pumpTimerCallbacks`). Rust pelo mesmo motivo do DomScope: estado
+    // compartilhado ENTRE programas (cada `new Function` é um programa novo).
+    ns::dom::timerscope::register,
     ns::globals::node_constants::register,
     ns::globals::storage::register,
     ns::globals::blob::register_blob_class_spec,
