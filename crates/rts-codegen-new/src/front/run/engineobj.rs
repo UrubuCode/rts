@@ -176,36 +176,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if method == "obj_has" {
             return self.lower_engine_obj_has(module, args);
         }
-        // `run_event_loop()` — drena microtasks/timers/promises pendentes.
-        //
-        // O host já chama isto depois do `__rts_startup`, mas um `<script>` de
-        // PÁGINA roda DENTRO daquele task: o `.then` que ele registra fica na
-        // fila e nunca era drenado, então o callback simplesmente não acontecia
-        // (`Promise.resolve(7).then(cb)` numa página não chamava `cb`). O
-        // prelude do DOM chama isto ao fim de `runScripts` para fechar o task
-        // da página, como o browser faz.
-        // `fetch_text(url)` — GET síncrono devolvendo o corpo. Existe porque o
-        // `.ts` do prelude não alcança um namespace do Registry (só o motor
-        // alcança) e a PÁGINA precisa de um `fetch` global. Delega ao MESMO
-        // membro de Registry que `import f from "rts:fetch"; f.fetchText(u)`
-        // usa — nenhuma marshalling nova, nenhuma reimplementação.
-        if method == "fetch_text" {
-            return self.lower_builtin_call(module, "fetch", "fetchText", args);
-        }
-        if method == "run_event_loop" {
-            if !args.is_empty() {
-                return unsupported!(
-                    "engine.run_event_loop expects 0 args, got {}",
-                    args.len()
-                );
-            }
-            self.call_runtime(module, "__rtsn_run_event_loop", &[])?;
-            let undef = self.builder.ins().iconst(
-                types::I64,
-                crate::value::PolyValue::undefined().raw() as i64,
-            );
-            return Ok(Val::tagged_kind(undef, JsKind::Undefined));
-        }
         // Property descriptors + extensibility bridges (real state — Object/Reflect
         // defineProperty/getOwnPropertyDescriptor/isExtensible/preventExtensions).
         // The `.ts` unpacks the descriptor object (value + flags) and packs the

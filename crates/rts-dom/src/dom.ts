@@ -1045,12 +1045,6 @@ function runScriptsAt(doc: Document, url: string): number {
     ran = ran + __runScriptAt(doc, j, url);
     j = j + 1;
   }
-  // Fecha o TASK da página: drena microtasks/timers que os scripts enfileiraram.
-  // Sem isto, um `.then`/`queueMicrotask` registrado por um `<script>` ficava na
-  // fila para sempre — o callback simplesmente nunca acontecia, sem erro. O host
-  // drena depois do `__rts_startup`, mas o script da página roda DENTRO daquele
-  // task; o browser fecha o task ao fim do script, e é o que fazemos aqui.
-  engine.run_event_loop();
   return ran;
 }
 
