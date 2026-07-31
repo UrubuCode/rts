@@ -311,6 +311,24 @@ fn build_linker_args(
             args.push("-lm".to_string());
             args.push("-lpthread".to_string());
             args.push("-ldl".to_string());
+            // cpal (áudio, sempre no runtime archive) referencia ALSA
+            // (`snd_pcm_*`). `-lasound` só resolve com o pacote -dev instalado
+            // (dono do symlink `libasound.so`); a lib de RUNTIME
+            // (`libasound.so.2`) está em quase toda máquina — mesma situação do
+            // libgcc_s.so.1 abaixo. Proba as duas formas em todos os diretórios
+            // de sistema e passa o caminho versionado quando só ele existe.
+            {
+                let asound_dirs = elf_sysroot_lib_paths(&target.triple);
+                if asound_dirs.iter().any(|p| p.join("libasound.so").is_file()) {
+                    args.push("-lasound".to_string());
+                } else if let Some(so2) = asound_dirs
+                    .iter()
+                    .map(|p| p.join("libasound.so.2"))
+                    .find(|p| p.is_file())
+                {
+                    args.push(so2.display().to_string());
+                }
+            }
             if !syslib_paths.is_empty() {
                 args.push("-lc".to_string());
                 // libgcc_s provides stack unwinding; only link if present on this

@@ -61,6 +61,16 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
+      # AOT smoke linka ALSA (cpal no runtime archive → `snd_pcm_*`). O runner
+      # traz a lib de runtime (libasound.so.2), mas não o symlink de dev
+      # (libasound.so) que `-lasound` exige; o linker do rts proba o .so.2 por
+      # caminho completo, e o -dev aqui deixa o caso canônico coberto também.
+      # Retry: o apt do runner flakeia (ver cross-runtime.yml).
+      - name: Install ALSA dev (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          for i in 1 2 3; do sudo apt-get update && sudo apt-get install -y libasound2-dev && break || sleep 5; done
+
       # MSVC env must be a job step: env it exports via GITHUB_ENV does not
       # propagate out of a composite action, so the bundled link.exe stays off
       # PATH and build.rs fails to link.
