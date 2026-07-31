@@ -47,6 +47,13 @@ const itB = base.values();
 itA.next();
 const independentes = itB.next().value;
 
+// `arr[Symbol.iterator]()` — a CHAMADA (a leitura já devolvia uma função).
+const simIt = [1, 2, 3][Symbol.iterator]();
+const simTypeof = typeof simIt;
+const simPrimeiro = simIt.next().value;
+const simSegundo = simIt.next().value;
+const simSpread = [...[4, 5][Symbol.iterator]()].join(",");
+
 // `take` sobre iterador — a forma que os bundles usam
 function take(iter, n) {
   const out: any[] = [];
@@ -119,6 +126,22 @@ describe("protocolo .next() em iteradores nativos", () => {
 
   test("take() sobre iterador — a forma dos bundles", () => {
     expect(viaTake).toBe("1,2,3");
+  });
+
+  test("arr[Symbol.iterator]() devolve um objeto, não um número", () => {
+    expect(simTypeof).toBe("object");
+  });
+
+  test("arr[Symbol.iterator]().next() rende o primeiro valor", () => {
+    expect(simPrimeiro).toBe(1);
+  });
+
+  test("arr[Symbol.iterator]() avança o cursor", () => {
+    expect(simSegundo).toBe(2);
+  });
+
+  test("spread de arr[Symbol.iterator]()", () => {
+    expect(simSpread).toBe("4,5");
   });
 });
 

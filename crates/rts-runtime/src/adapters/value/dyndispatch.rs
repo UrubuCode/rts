@@ -918,6 +918,26 @@ pub fn rtsadp_idx_call(recv: u64, key: u64, a0: u64, a1: u64, argc: u64) -> u64 
             PolyValue::from_i32(argc as i32).raw(),
         );
     }
+    // A SYMBOL key is not a member NAME. `ToString` on it yields "[object
+    // Object]", which then misses every row and surfaced as the nonsense
+    // TypeError "[object Object] is not a function". Resolve the property the way
+    // `__rtsadp_dyn_idx_get` already does (it has this branch) and INVOKE the
+    // result, so `arr[Symbol.iterator]()` calls the native values-iterator
+    // instead of dying on a stringified symbol (issue #2042).
+    if kv.is_object() {
+        use rts_runtime::namespaces::gc::handles as rt_handles;
+        let kh = rt_handles::__rtsn_poly_to_handle(kv.as_handle());
+        let is_symbol =
+            rt_handles::with_entry(kh, |e| matches!(e, Some(rt_handles::Entry::Symbol { .. })));
+        if is_symbol {
+            let m = __rtsadp_idx_get(recv, key);
+            if PolyValue::from_raw(m).is_function() {
+                return super::funcops::__rtsadp_fn_invoke_method(m, recv, a0, a1, undef(), 0);
+            }
+            super::errslot::throw_js_error("TypeError", "symbol property is not a function");
+            return undef();
+        }
+    }
     let name = if kv.is_string() {
         abi_adapter::resolve_poly(kv)
     } else {

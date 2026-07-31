@@ -47,6 +47,16 @@ function take(iter, n) {
 console.log("take=" + take([1, 2, 3, 4].values(), 3).join(","));
 console.log("takeBeyondEnd=" + take([1, 2].values(), 5).join(","));
 
+// `arr[Symbol.iterator]()` — the CALL. Reading the property already yielded a
+// function; calling it went through `__rtsadp_idx_call`, which ToString'd the
+// symbol key to "[object Object]", and the native fn's handle return was then
+// re-read as a number by the legacy invoker.
+const symIt = [1, 2, 3][Symbol.iterator]();
+console.log("symIterTypeof=" + typeof symIt);
+console.log("symIterFirst=" + symIt.next().value);
+console.log("symIterSecond=" + symIt.next().value);
+console.log("symIterSpread=" + [...[4, 5][Symbol.iterator]()].join(","));
+
 // ── non-regressions ─────────────────────────────────────────────────────────
 console.log("plainArrayNext=" + ([1, 2] as any).next);
 console.log("spreadValues=" + [...[1, 2].values()].join(","));
