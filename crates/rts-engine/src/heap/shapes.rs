@@ -22,6 +22,47 @@ pub type GlobalShapeId = u32;
 struct GlobalShapeRegistry {
     keys: Vec<Vec<String>>,
     by_keys: HashMap<Vec<String>, GlobalShapeId>,
+    /// Key → slot index, PARALLEL to `keys` by position: `slots[i]` indexes
+    /// `keys[i]`. `None` for a shape below [`SLOT_INDEX_MIN_KEYS`], where the
+    /// linear scan genuinely wins (hashing a key costs more than a handful of
+    /// `str` compares).
+    ///
+    /// An index keyed by NAME ALONE was tried before and diverged from `keys`
+    /// under the parallel suite. This one cannot: it is only ever written by
+    /// [`GlobalShapeRegistry::push_shape`], the single function that pushes to
+    /// `keys`, so the two vectors advance together or not at all.
+    slots: Vec<Option<HashMap<String, u32>>>,
+}
+
+/// Below this key count no index is built — the linear scan is already free
+/// there, and the map would only cost memory.
+///
+/// MEASURED (200k dynamic reads, release, worst-case last-key lookup): at 16
+/// keys index and scan are indistinguishable (85 vs 87 ms); at 256 keys the
+/// index is 86 ms against 178 ms — 2.07×. The counterfactual was run by
+/// building with this constant at `usize::MAX`, not assumed.
+const SLOT_INDEX_MIN_KEYS: usize = 8;
+
+impl GlobalShapeRegistry {
+    /// Append one shape's key list and its matching slot index. THE only way to
+    /// grow `keys` — see the `slots` doc for why that matters.
+    fn push_shape(&mut self, keys: Vec<String>) {
+        self.slots.push(Self::build_index(&keys));
+        self.keys.push(keys);
+    }
+
+    fn build_index(keys: &[String]) -> Option<HashMap<String, u32>> {
+        if keys.len() < SLOT_INDEX_MIN_KEYS {
+            return None;
+        }
+        let mut m = HashMap::with_capacity(keys.len());
+        // FIRST occurrence wins, matching `keys.iter().position(..)` exactly —
+        // a duplicated key in a shape must resolve to the same slot both ways.
+        for (i, k) in keys.iter().enumerate() {
+            m.entry(k.clone()).or_insert(i as u32);
+        }
+        Some(m)
+    }
 }
 
 fn registry() -> &'static Mutex<GlobalShapeRegistry> {
@@ -30,6 +71,7 @@ fn registry() -> &'static Mutex<GlobalShapeRegistry> {
         Mutex::new(GlobalShapeRegistry {
             keys: Vec::new(),
             by_keys: HashMap::new(),
+            slots: Vec::new(),
         })
     })
 }
@@ -78,7 +120,7 @@ pub fn intern_global_shape(keys: &[String]) -> GlobalShapeId {
         }
     }
     let id = GLOBAL_SHAPE_BASE + reg.keys.len() as GlobalShapeId;
-    reg.keys.push(keys.to_vec());
+    reg.push_shape(keys.to_vec());
     // Overwrite a class row's content entry with this layout id, so later
     // interns of the same key list hit immediately instead of re-checking.
     reg.by_keys.insert(keys.to_vec(), id);
@@ -96,7 +138,7 @@ pub fn intern_global_shape(keys: &[String]) -> GlobalShapeId {
 pub fn intern_class_shape(keys: &[String]) -> GlobalShapeId {
     let mut reg = registry().lock().expect("global shape registry poisoned");
     let id = GLOBAL_SHAPE_BASE + reg.keys.len() as GlobalShapeId;
-    reg.keys.push(keys.to_vec());
+    reg.push_shape(keys.to_vec());
     id
 }
 
@@ -108,6 +150,8 @@ pub fn reset_global_shapes() {
     reg.keys.shrink_to_fit();
     reg.by_keys.clear();
     reg.by_keys.shrink_to_fit();
+    reg.slots.clear();
+    reg.slots.shrink_to_fit();
     if let Ok(mut t) = error_classes().lock() {
         t.clear();
     }
@@ -248,6 +292,7 @@ pub fn seed_global_shapes(snapshot: Vec<Vec<String>>) {
             .or_insert(GLOBAL_SHAPE_BASE + i as GlobalShapeId);
     }
     reg.by_keys = by_keys;
+    reg.slots = snapshot.iter().map(|k| GlobalShapeRegistry::build_index(k)).collect();
     reg.keys = snapshot;
 }
 
@@ -401,6 +446,20 @@ pub fn global_shape_keys(id: GlobalShapeId) -> Option<Vec<String>> {
     reg.keys.get(idx as usize).cloned()
 }
 
+/// The KEY COUNT of a global shape, or `None` if the id was never interned.
+///
+/// The array-vs-object discriminator ([`looks_like_object`]) only ever needed
+/// this number, but reached it through [`global_shape_keys`] — which CLONES the
+/// whole key vector, i.e. one `String` malloc PER FIELD, on EVERY property
+/// access. Measured on 200k dynamic reads: 4 fields 178 ms → 48 fields 1030 ms,
+/// growth that survived indexing the slot lookup because the clone, not the
+/// scan, was paying for it.
+pub fn global_shape_len(id: GlobalShapeId) -> Option<usize> {
+    let idx = id.checked_sub(GLOBAL_SHAPE_BASE)?;
+    let reg = registry().lock().expect("global shape registry poisoned");
+    reg.keys.get(idx as usize).map(|k| k.len())
+}
+
 /// The SLOT INDEX of `key` in a global shape, resolved UNDER the lock — no clone.
 ///
 /// `global_shape_keys` hands back an owned `Vec<String>`, so every property read
@@ -414,10 +473,19 @@ pub fn global_shape_keys(id: GlobalShapeId) -> Option<Vec<String>> {
 pub fn global_shape_slot_of(id: GlobalShapeId, key: &str) -> Option<usize> {
     let idx = id.checked_sub(GLOBAL_SHAPE_BASE)?;
     let reg = registry().lock().expect("global shape registry poisoned");
-    // Busca sob o lock, SEM clonar (que era o custo dominante). Um índice
-    // nome→slot chegou a ser tentado, mas divergiu do `keys` em execução
-    // paralela da suíte (21 falhas vs 9) — a lista é a fonte de verdade única.
-    let keys = reg.keys.get(idx as usize)?;
+    // Busca sob o lock, SEM clonar (que era o custo dominante).
+    //
+    // Para um shape LARGO (`SLOT_INDEX_MIN_KEYS`+ chaves) responde pelo índice
+    // O(1) construído junto com `keys` — a varredura linear custava ~0,10 µs por
+    // campo POR LEITURA (medido: 4 campos 178 ms, 48 campos 1030 ms em 200k
+    // leituras). Um índice nome→slot GLOBAL já tinha sido tentado e divergiu do
+    // `keys`; este não pode, porque é posicional e só cresce em `push_shape`,
+    // a única função que empurra em `keys`.
+    let idx = idx as usize;
+    if let Some(Some(map)) = reg.slots.get(idx) {
+        return map.get(key).map(|&i| i as usize);
+    }
+    let keys = reg.keys.get(idx)?;
     keys.iter().position(|k| k == key)
 }
 

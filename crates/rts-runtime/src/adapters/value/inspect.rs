@@ -142,8 +142,11 @@ pub(crate) fn looks_like_object(v: PolyValue) -> bool {
     if !slot0.is_int32() {
         return false;
     }
-    match global_shape_keys(slot0.as_i32() as u32) {
-        Some(keys) => keys.len() as i64 + 1 == len,
+    // `global_shape_len`, NOT `global_shape_keys`: only the COUNT is needed, and
+    // the keys variant clones the whole Vec<String> (a malloc per field) on a
+    // path that runs for EVERY property access.
+    match rts_engine::heap::shapes::global_shape_len(slot0.as_i32() as u32) {
+        Some(n) => n as i64 + 1 == len,
         None => false,
     }
 }
