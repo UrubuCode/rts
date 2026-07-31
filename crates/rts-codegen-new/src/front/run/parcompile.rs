@@ -203,16 +203,18 @@ pub(super) fn compile_and_define(
                 .define_function_bytes(e.id, e.alignment, &e.bytes, &e.relocs)
                 .map_err(|err| Unsupported::new(format!("define `{}`: {err}", e.name)))?;
             // JIT GC PLUMBING (inert): stash this function's stack-map entries
-            // (keyed by raw FuncId) in the pending registry so
-            // `module_jit::compile_program` can resolve them to absolute
-            // return PCs once `finalize_definitions()` has run. Serial order
-            // matters (the registry is a plain append), which is exactly
-            // where this call sits. `push_pending` no-ops on an empty `Vec`,
-            // so this costs nothing while `stack_maps` is always empty (AOT
-            // included — see `module_aot.rs`, which never drains the
-            // registry, so a pending push there is simply inert bookkeeping
-            // that is dropped with the process, not a leak of anything the
-            // GC reads).
+            // (keyed by raw FuncId) so `module_jit::compile_program` can
+            // resolve them to absolute return PCs once `finalize_definitions()`
+            // has run. Serial order matters (the collection is a plain append),
+            // which is exactly where this call sits.
+            //
+            // The push is DISCARDED unless the caller opened a collection —
+            // `module_jit::compile_program` does; the bake scratch module and
+            // AOT do not. That is deliberate, not an oversight: `FuncId`
+            // numbering restarts per module, so entries from a module nobody
+            // will resolve must never reach a resolver. It also no-ops on an
+            // empty `Vec`, so it costs nothing while `stack_maps` is always
+            // empty.
             rts_engine::collector::stack_map_registry::push_pending(e.id.as_u32(), e.stack_maps);
         }
         Ok(())

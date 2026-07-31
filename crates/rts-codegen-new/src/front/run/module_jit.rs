@@ -138,20 +138,28 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
     super::dynfn::register_hook();
     let mut module = crate::timing::phase("make_module", make_module);
     crate::timing::note("funcs to compile", prog.funcs.len());
+    // JIT GC PLUMBING — open the stack-map collection for THIS module, and only
+    // this one. `parcompile`'s serial define loop pushes into it; the drain
+    // below resolves it. A producer that never opens a collection (the bake
+    // scratch module in `bake.rs::capture_compiled`, and AOT in
+    // `module_aot.rs`) has its pushes discarded at the source, which is the
+    // point: `FuncId` numbering restarts per module, so resolving another
+    // module's ids here would panic in `get_finalized_function` or silently
+    // produce garbage return PCs. See `stack_map_registry`'s module doc.
+    let _stack_maps = rts_engine::collector::stack_map_registry::begin_collection();
     let main_id = crate::timing::phase("populate_module (clif)", || {
         populate_module(&mut module, prog)
     })?;
     crate::timing::phase("finalize_definitions", || module.finalize_definitions())
         .map_err(|e| Unsupported::new(format!("finalize module: {e}")))?;
-    // JIT GC PLUMBING (inert until a lowering pass calls
-    // `declare_value_needs_stack_map` — a separate task): resolve every
-    // pending stack-map entry collected in `parcompile::compile_and_define`'s
-    // serial define phase to an ABSOLUTE return PC now that
-    // `finalize_definitions()` has mapped every function into this JIT's
-    // executable memory, then hand them to the collector's registry for the
-    // (still fully conservative) scanner to eventually consult. A no-op
-    // today: nothing yet pushes a non-empty `maps` list, so `drain_pending()`
-    // returns empty and this loop never runs its body.
+    // Resolve every entry collected above into an ABSOLUTE return PC, now that
+    // `finalize_definitions()` has mapped this module's functions into
+    // executable memory, and hand them to the collector's registry.
+    //
+    // Still inert: nothing calls `declare_value_needs_stack_map`, so
+    // `drain_pending()` returns empty and this loop never runs its body. The
+    // entries it WOULD return are guaranteed to be this module's, because the
+    // collection is scoped to the guard opened above.
     for entry in rts_engine::collector::stack_map_registry::drain_pending() {
         let fid = FuncId::from_u32(entry.func_id_raw);
         let base = module.get_finalized_function(fid) as usize;

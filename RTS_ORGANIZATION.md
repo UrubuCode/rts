@@ -344,13 +344,53 @@ consumer, dominated by collections → give it to A), the multi-family codegen
 literals in `rts-codegen-new/src/front/run/` (one "codegen sweeper" owner), and
 the `gc_surface.rs` seam (→ F).
 
-**N6 — wire the precise scan.** Call `declare_value_needs_stack_map` for
-`Repr::Ref(_)` / `Repr::Tagged` values, consume the registered PCs, and make the
-scanner precise. **Fix `CLAUDE.md` and `.claude/rules/02-runtime.md`, which
-currently claim this already works.** Note the scratch-module hazard first
-(`docs/specs/no-mangle-drain.md` §7): `PENDING`/`REGISTRY` are process-global
-while `bake.rs::capture_compiled` populates a separate `JITModule` with its own
-`FuncId` numbering.
+**N6 — wire the precise scan.** Four phases, and only the first two are safe to
+do without the third.
+
+**N6-A — de-globalize the transport. ✅ DONE (2026-07-31).** `PENDING` is now a
+thread-local scoped to a `CollectionGuard`: a push is recorded only while the
+module that will RESOLVE it holds the guard, and discarded otherwise.
+`module_jit::compile_program` opens one; `bake.rs::capture_compiled` (a separate
+throwaway `JITModule`) and `module_aot.rs` do not, so their entries can no longer
+reach a resolver. The guard saves and restores the previous collection, so
+`dynfn` compiling a `new Function` inside a running program nests safely. Pure
+no-op today — nothing produces a map — which is exactly why it was worth landing
+alone.
+
+**N6-B — the lying docs. ✅ DONE (2026-07-31).** `CLAUDE.md` and
+`.claude/rules/02-runtime.md` said "precise mark+sweep using Cranelift
+`UserStackMap`" and "codegen calls `declare_value_needs_stack_map`". Neither was
+true; one named `jit.rs`, deleted at the P5 cutover, as the extractor. Both now
+describe the conservative scan and say what the transport actually carries
+(nothing).
+
+**N6-C — produce the maps.** Behind an env gate. The site count is the surprise:
+`Val` is constructed in **~318 places**, so per-site insertion is not viable.
+Two real chokepoints exist — `FunctionBuilder::declare_var_needs_stack_map` at
+the **~8** `declare_var` sites in `front/run/` covers every named local and
+parameter, and a thread-local recorded in `Val::new`/`tagged_kind`/
+`new_with_kind` and drained at `parcompile.rs`'s `fb.finalize()` covers the
+temporaries with no call-site churn. Note `Repr::Ref(_)` is currently
+UNREACHABLE (`lower.rs` has `unreachable!` on it), so the root set is
+`Repr::Tagged` PLUS the raw-`i64` handle vars at `newexpr.rs`, `trycatch.rs` and
+`gcell.rs` — a naive `repr == Tagged` filter MISSES those, which is the
+highest-probability soundness bug in this phase.
+
+**N6-D — consume, with a conservative fallback per frame.** This is the
+dangerous direction and the reason C and D must not ship as one flag:
+conservative OVER-approximates (a false root costs one extra cycle), precise
+UNDER-approximates. Any frame without a map — the `thunk.rs` builders, the AOT
+`main` shim, every replayed/baked function (`BakedFn` has no stack-map field, so
+the whole-program cache and `resident::replay` are map-less by construction),
+`new Function` bodies — loses its roots and frees live memory. Fall back to
+`scan_range` for any frame that misses, never global-switch. Also: `lookup` takes
+a `Mutex`, and `scan.rs` documents that only lock-free work is allowed while a
+thread is SUSPENDED — call it after `ResumeThread` or make `REGISTRY` a
+read-mostly snapshot, or the process deadlocks at zero CPU.
+
+Acceptance test that already exists: `tests/claude-scriptscan-paridade.test.ts`
+records a function-local array collected mid-loop (`spans.length` → -1), which is
+precisely what precise scanning fixes.
 
 **N7 — audit the dead. AUDITED, not yet deleted; full list in
 `docs/specs/dead-symbols-n7.md`.** Measured **173**, not ~150. The families named
