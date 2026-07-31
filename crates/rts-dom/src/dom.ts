@@ -1045,6 +1045,18 @@ function runScriptsAt(doc: Document, url: string): number {
     ran = ran + __runScriptAt(doc, j, url);
     j = j + 1;
   }
+  // Fecha o TASK da página: drena microtasks/timers que os scripts enfileiraram.
+  // Sem isto, um `.then`/`queueMicrotask` registrado por um `<script>` ficava na
+  // fila para sempre — o callback nunca acontecia, sem erro nenhum.
+  engine.run_event_loop();
+  // ISOLA como o console do browser: um callback de terceiro que LANÇA não pode
+  // derrubar a página inteira. O erro vive no slot do MOTOR — um canal lateral
+  // que um `try/catch` de `.ts` não observa —, então é preciso consumi-lo
+  // explicitamente. Reporta e segue, que é o que o browser faz.
+  const __erroMicro = engine.take_error();
+  if (__erroMicro !== undefined) {
+    console.error("[page] erro em microtask: " + __erroMicro);
+  }
   return ran;
 }
 
