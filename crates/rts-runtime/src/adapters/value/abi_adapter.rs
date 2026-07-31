@@ -88,6 +88,93 @@ pub fn intern_poly_const(s: &str) -> PolyValue {
     pv
 }
 
+/// The PROGRAM GENERATION: bumped once per program-state reset — which is
+/// exactly when `reset_codegen_state` drains the string pool AND the global
+/// shape registry, so every string handle and every shape id minted by the
+/// previous program becomes stale.
+///
+/// Anything CACHED across calls that holds one of those must be keyed on this.
+/// A plain `OnceLock<u64>` cache is WRONG across a reset: the next program reads
+/// a recycled slot holding somebody else's value — the same hazard
+/// `reset_codegen_state` documents for the other word-keyed globals.
+static PROGRAM_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// The current program generation (see [`PROGRAM_GENERATION`]).
+pub fn program_generation() -> u64 {
+    PROGRAM_GENERATION.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Invalidate every generation-keyed cache. MUST be called from the
+/// program-state reset (`objops::reset_state`, itself called by
+/// `reset_codegen_state`), alongside the tables that key on HandleTable words.
+pub fn bump_program_generation() {
+    PROGRAM_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// A SHAPE ID for a fixed key list, interned once per (thread, program
+/// generation) instead of once per object built.
+///
+/// Same reasoning as [`cached_key_word!`], for the other half of building a
+/// runtime object: `intern_global_shape` takes the global shape mutex, hashes
+/// the whole key vector, and — on the interning path — allocates a `String` per
+/// key. A trampoline whose key list is a compile-time constant should pay that
+/// once, not per object.
+#[macro_export]
+macro_rules! cached_shape_id {
+    ($($k:expr),+ $(,)?) => {{
+        thread_local! {
+            static CELL: ::std::cell::Cell<(u64, u32)> = const { ::std::cell::Cell::new((0, 0)) };
+        }
+        CELL.with(|c| {
+            let generation = $crate::adapters::value::abi_adapter::program_generation();
+            let (cached_gen, id) = c.get();
+            if cached_gen == generation {
+                id
+            } else {
+                let keys: ::std::vec::Vec<::std::string::String> =
+                    ::std::vec![$(::std::string::String::from($k)),+];
+                let id = ::rts_engine::heap::shapes::intern_global_shape(&keys);
+                c.set((generation, id));
+                id
+            }
+        })
+    }};
+}
+
+/// A CONSTANT property-key word (`"value"`, `"writable"`, …), interned once per
+/// (thread, pool generation) instead of once per call.
+///
+/// `intern_poly` is not an intern at all — it is `gc.string_new`, a fresh
+/// allocation every time. A trampoline that names a fixed key was therefore
+/// allocating a string and a handle on EVERY call;
+/// `Object.getOwnPropertyDescriptor` did it four times per descriptor.
+///
+/// The cache is a thread-local so the read is lock-free, and it re-interns
+/// whenever [`program_generation`] moves, so it can never hand back a slot the
+/// reset recycled. The handle is PINNED (`intern_poly_const`) because a word
+/// parked in a thread-local is invisible to the conservative scanner — that is
+/// bounded at a handful of constants per (thread, program), not the unbounded
+/// per-transient-string pinning that once caused the collector to thrash.
+#[macro_export]
+macro_rules! cached_key_word {
+    ($s:expr) => {{
+        thread_local! {
+            static CELL: ::std::cell::Cell<(u64, u64)> = const { ::std::cell::Cell::new((0, 0)) };
+        }
+        CELL.with(|c| {
+            let generation = $crate::adapters::value::abi_adapter::program_generation();
+            let (cached_gen, word) = c.get();
+            if cached_gen == generation {
+                word
+            } else {
+                let word = $crate::adapters::value::abi_adapter::intern_poly_const($s).raw();
+                c.set((generation, word));
+                word
+            }
+        })
+    }};
+}
+
 /// Box an already-allocated real string handle as a string `PolyValue`, storing
 /// its bare 48-bit slot+shard payload (no side table).
 pub fn poly_from_real_handle(handle: u64) -> PolyValue {

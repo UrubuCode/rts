@@ -95,7 +95,7 @@ pub(crate) fn is_proxy_word(obj_word: u64) -> bool {
 /// `__rtsadp_fn_invoke` callback bridge with `(target, key)` — the same bridge the
 /// EventEmitter listeners use.
 fn proxy_get(target_word: u64, handler_word: u64, key_str_handle: u64) -> u64 {
-    let get_key = abi_adapter::intern_poly("get").raw();
+    let get_key = crate::cached_key_word!("get");
     let trap = __rtsadp_obj_get(handler_word, get_key);
     if PolyValue::from_raw(trap).is_function() {
         let undef = PolyValue::undefined().raw();
@@ -109,7 +109,7 @@ fn proxy_get(target_word: u64, handler_word: u64, key_str_handle: u64) -> u64 {
 /// `set` FUNCTION; otherwise write straight to the target. JS assignment evaluates
 /// to the assigned `value` regardless of the trap's own return.
 fn proxy_set(target_word: u64, handler_word: u64, key_str_handle: u64, val_word: u64) -> u64 {
-    let set_key = abi_adapter::intern_poly("set").raw();
+    let set_key = crate::cached_key_word!("set");
     let trap = __rtsadp_obj_get(handler_word, set_key);
     if PolyValue::from_raw(trap).is_function() {
         let undef = PolyValue::undefined().raw();
@@ -657,14 +657,36 @@ pub fn rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word: u64) -> u64 
     let obj = PolyValue::from_raw(obj_word);
     if obj.is_object() && looks_like_object(obj) && !is_non_extensible(obj_word) {
         let handle = rt_handles::__rtsn_poly_to_handle(obj.as_handle());
-        let mut keys = object_keys_vec(obj_word);
-        keys.push(key_text(key_str_handle));
-        let new_shape = rts_engine::heap::shapes::intern_global_shape(&keys);
-        let slot0 = PolyValue::from_i32(new_shape as i32).raw() as i64;
-        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(handle, 0, slot0);
-        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle, val_word as i64);
+        if let Some(new_shape) = added_key_shape(obj_word, key_str_handle) {
+            let slot0 = PolyValue::from_i32(new_shape as i32).raw() as i64;
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(handle, 0, slot0);
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle, val_word as i64);
+        }
     }
     val_word
+}
+
+/// The shape `obj_word` takes on once `key` is appended to it, via the shape
+/// registry's memoized TRANSITION edge.
+///
+/// The previous route — materialize the key list, push, re-intern — cost one
+/// `String` malloc per EXISTING key on every added key, so building an object
+/// key by key was O(n²). Measured on `Object.getOwnPropertyDescriptors` over a
+/// 128-key object (300 iterations): 406 ms before this,
+/// see the commit message for the after figure.
+fn added_key_shape(obj_word: u64, key_str_handle: u64) -> Option<u32> {
+    let obj = PolyValue::from_raw(obj_word);
+    let handle = rt_handles::__rtsn_poly_to_handle(obj.as_handle());
+    let slot0 = PolyValue::from_raw(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 0) as u64);
+    let from = slot0.is_int32().then(|| slot0.as_i32() as u32)?;
+    // Borrow the key's bytes for the common string key; anything else (symbol,
+    // number, bool) needs `key_text`'s full ToPropertyKey normalization.
+    match with_key_str(key_str_handle, |k| {
+        rts_engine::heap::shapes::shape_with_added_key(from, k)
+    }) {
+        Some(hit) => hit,
+        None => rts_engine::heap::shapes::shape_with_added_key(from, &key_text(key_str_handle)),
+    }
 }
 
 /// `Object.fromEntries(entries)` — build a keyed object from an array of `[k, v]`
@@ -717,7 +739,7 @@ pub fn rtsadp_obj_from_entries(entries_word: u64) -> u64 {
 #[rtse::abi]
 pub fn rtsadp_obj_has(obj_word: u64, key_str_handle: u64) -> i64 {
     if let Some((target, handler)) = proxy_parts(obj_word) {
-        let has_key = abi_adapter::intern_poly("has").raw();
+        let has_key = crate::cached_key_word!("has");
         let trap = __rtsadp_obj_get(handler, has_key);
         if PolyValue::from_raw(trap).is_function() {
             let undef = PolyValue::undefined().raw();
@@ -740,7 +762,7 @@ pub fn rtsadp_obj_has(obj_word: u64, key_str_handle: u64) -> i64 {
     // holds a string): its UTF-16 code-unit indices are own properties, so the
     // for-in [[HasProperty]] re-check accepts the index keys `obj_keys` lists.
     {
-        let prim_key = abi_adapter::intern_poly("__prim").raw();
+        let prim_key = crate::cached_key_word!("__prim");
         if let Some((handle, pi)) = resolve_slot(obj_word, prim_key) {
             let pw = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 1 + pi) as u64;
             let pv = PolyValue::from_raw(pw);
@@ -893,6 +915,9 @@ pub fn reset_state() {
     if let Ok(mut t) = non_extensible_table().lock() {
         t.clear();
     }
+    // Every `cached_key_word!` cache keys on this, so bumping it here retires
+    // the constant key handles the drained pool is about to recycle.
+    abi_adapter::bump_program_generation();
 }
 
 /// Store a CLASS METHOD on a prototype object: a plain `obj_set` plus the
@@ -978,7 +1003,7 @@ pub fn rtsadp_define_prop(
     // descriptor object was unpacked by the `.ts` caller). No trap → forward the
     // define to the target.
     if let Some((target, handler)) = proxy_parts(obj_word) {
-        let trap_key = abi_adapter::intern_poly("defineProperty").raw();
+        let trap_key = crate::cached_key_word!("defineProperty");
         let trap = __rtsadp_obj_get(handler, trap_key);
         if PolyValue::from_raw(trap).is_function() {
             let undef = PolyValue::undefined().raw();
@@ -1019,7 +1044,7 @@ pub fn rtsadp_obj_get_own_property_descriptor(obj_word: u64, key_word: u64) -> u
     // PROXY (#218 phase 3): the `getOwnPropertyDescriptor` trap returns the
     // descriptor object verbatim; no trap → synthesize from the target.
     if let Some((target, handler)) = proxy_parts(obj_word) {
-        let trap_key = abi_adapter::intern_poly("getOwnPropertyDescriptor").raw();
+        let trap_key = crate::cached_key_word!("getOwnPropertyDescriptor");
         let trap = __rtsadp_obj_get(handler, trap_key);
         if PolyValue::from_raw(trap).is_function() {
             let undef = PolyValue::undefined().raw();
@@ -1031,21 +1056,20 @@ pub fn rtsadp_obj_get_own_property_descriptor(obj_word: u64, key_word: u64) -> u
     if flags < 0 {
         return PolyValue::undefined().raw();
     }
-    let obj_handle = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
-    let empty_shape = rts_engine::heap::shapes::intern_global_shape(&[]);
-    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(
-        obj_handle,
-        PolyValue::from_i32(empty_shape as i32).raw() as i64,
-    );
-    let desc =
-        PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(obj_handle)).raw();
     let val = __rtsadp_obj_get(obj_word, key_word);
-    __rtsadp_obj_set(desc, abi_adapter::intern_poly("value").raw(), val);
-    let b = |bit: i64| PolyValue::bool(flags & bit != 0).raw();
-    __rtsadp_obj_set(desc, abi_adapter::intern_poly("writable").raw(), b(1));
-    __rtsadp_obj_set(desc, abi_adapter::intern_poly("enumerable").raw(), b(2));
-    __rtsadp_obj_set(desc, abi_adapter::intern_poly("configurable").raw(), b(4));
-    desc
+    let b = |bit: i64| PolyValue::bool(flags & bit != 0).raw() as i64;
+    // Build the descriptor in ONE allocation with its shape already known,
+    // instead of an empty object plus four `obj_set` calls. Each of those ran
+    // the full generic write path — proxy probe, typed-array probe, own-slot
+    // resolve, dictionary probe, then a shape transition — to add a key this
+    // function knows statically. The key list is a compile-time constant, so its
+    // shape id is cached per program generation.
+    let shape = crate::cached_shape_id!("value", "writable", "enumerable", "configurable");
+    let handle = rts_engine::heap::shapes::alloc_shaped_object_with_id(
+        shape,
+        &[val as i64, b(1), b(2), b(4)],
+    );
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(handle)).raw()
 }
 
 /// `Object.getOwnPropertyDescriptors(obj)` — an object mapping each own key to its
@@ -1102,11 +1126,11 @@ fn accessor_descriptor(obj_word: u64, name: &str) -> u64 {
     .raw();
     let getter = __rtsadp_obj_get(obj_word, abi_adapter::intern_poly(&format!("__get_{name}")).raw());
     let setter = __rtsadp_obj_get(obj_word, abi_adapter::intern_poly(&format!("__set_{name}")).raw());
-    __rtsadp_obj_set(desc, abi_adapter::intern_poly("get").raw(), getter);
-    __rtsadp_obj_set(desc, abi_adapter::intern_poly("set").raw(), setter);
+    __rtsadp_obj_set(desc, crate::cached_key_word!("get"), getter);
+    __rtsadp_obj_set(desc, crate::cached_key_word!("set"), setter);
     let t = PolyValue::bool(true).raw();
-    __rtsadp_obj_set(desc, abi_adapter::intern_poly("enumerable").raw(), t);
-    __rtsadp_obj_set(desc, abi_adapter::intern_poly("configurable").raw(), t);
+    __rtsadp_obj_set(desc, crate::cached_key_word!("enumerable"), t);
+    __rtsadp_obj_set(desc, crate::cached_key_word!("configurable"), t);
     desc
 }
 
@@ -1136,8 +1160,8 @@ pub fn rtsadp_obj_define_property(obj_word: u64, key_word: u64, desc_word: u64) 
     // an object-literal getter uses) — the dynamic `obj_get` invokes `__get_<k>`
     // on a key miss (walking the prototype chain), so a
     // `defineProperty(C.prototype, k, { get })` read works on every instance.
-    let getter = __rtsadp_obj_get(desc_word, abi_adapter::intern_poly("get").raw());
-    let setter = __rtsadp_obj_get(desc_word, abi_adapter::intern_poly("set").raw());
+    let getter = __rtsadp_obj_get(desc_word, crate::cached_key_word!("get"));
+    let setter = __rtsadp_obj_get(desc_word, crate::cached_key_word!("set"));
     if PolyValue::from_raw(getter).is_function() || PolyValue::from_raw(setter).is_function() {
         let key = key_text(key_word);
         if PolyValue::from_raw(getter).is_function() {
@@ -1173,7 +1197,7 @@ pub fn rtsadp_obj_define_property(obj_word: u64, key_word: u64, desc_word: u64) 
             || (has("enumerable") && asked("enumerable") != prop_enumerable(obj_word, &key_txt))
             || (has("writable") && asked("writable") && !prop_writable(obj_word, &key_txt))
             || (!prop_writable(obj_word, &key_txt) && has("value") && {
-                let nv = __rtsadp_obj_get(desc_word, abi_adapter::intern_poly("value").raw());
+                let nv = __rtsadp_obj_get(desc_word, crate::cached_key_word!("value"));
                 let cur = __rtsadp_obj_get(obj_word, key_word);
                 nv != cur
             });
@@ -1185,7 +1209,7 @@ pub fn rtsadp_obj_define_property(obj_word: u64, key_word: u64, desc_word: u64) 
             return obj_word;
         }
     }
-    let val = __rtsadp_obj_get(desc_word, abi_adapter::intern_poly("value").raw());
+    let val = __rtsadp_obj_get(desc_word, crate::cached_key_word!("value"));
     let flags = flag("writable", prop_writable(obj_word, &key_txt))
         | (flag("enumerable", prop_enumerable(obj_word, &key_txt)) << 1)
         | (flag("configurable", prop_configurable(obj_word, &key_txt)) << 2);
@@ -1204,12 +1228,11 @@ fn define_write_slot(obj_word: u64, key_str_handle: u64, val_word: u64) {
     let obj = PolyValue::from_raw(obj_word);
     if obj.is_object() && looks_like_object(obj) {
         let handle = rt_handles::__rtsn_poly_to_handle(obj.as_handle());
-        let mut keys = object_keys_vec(obj_word);
-        keys.push(key_text(key_str_handle));
-        let new_shape = rts_engine::heap::shapes::intern_global_shape(&keys);
-        let slot0 = PolyValue::from_i32(new_shape as i32).raw() as i64;
-        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(handle, 0, slot0);
-        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle, val_word as i64);
+        if let Some(new_shape) = added_key_shape(obj_word, key_str_handle) {
+            let slot0 = PolyValue::from_i32(new_shape as i32).raw() as i64;
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(handle, 0, slot0);
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(handle, val_word as i64);
+        }
     }
 }
 
@@ -1380,7 +1403,7 @@ pub fn rtsadp_is_extensible(obj_word: u64) -> i64 {
 #[rtse::abi]
 pub fn rtsadp_obj_delete(obj_word: u64, key_str_handle: u64) -> i64 {
     if let Some((target, handler)) = proxy_parts(obj_word) {
-        let trap_key = abi_adapter::intern_poly("deleteProperty").raw();
+        let trap_key = crate::cached_key_word!("deleteProperty");
         let trap = __rtsadp_obj_get(handler, trap_key);
         if PolyValue::from_raw(trap).is_function() {
             let undef = PolyValue::undefined().raw();
