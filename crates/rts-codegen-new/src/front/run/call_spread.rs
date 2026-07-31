@@ -146,7 +146,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // via `Entry::GenState` — so the identity survives all of them at once.
             // The static paths that want the bare handle re-derive it by coercion
             // (`generator_receiver_handle`). Issue #2042.
-            Some(_) if sig.ret_lazy_gen => {
+            // Só o CTOR devolve o handle CRU (`Repr::Int64`, carimbado em
+            // `sig.rs`) e portanto precisa ser boxado aqui. Uma função que apenas
+            // REPASSA (`function w(){ return g(); }`) já devolve a word BOXADA —
+            // boxá-la de novo destruía o handle, e o generator alcançado através
+            // de outra função perdia tudo (`it.next()` → undefined).
+            Some(Repr::Int64) if sig.ret_lazy_gen => {
                 let v = self.builder.inst_results(call)[0];
                 let word = crate::value::emit_marshal::emit_box_object_handle(
                     module,
