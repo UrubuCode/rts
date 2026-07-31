@@ -2087,16 +2087,16 @@
 ,
 {
   "name": "claude-map-foreach-callback-contract",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "triple=a=1:same_map=true:args=3|b=2:same_map=true:args=3\narg_order=first=v,second=k\nreturns=undefined\nthisArg=CTX:x1|CTX:y2\narrow_ignores_thisArg=OUTER\nempty_calls=0\ncount=3:seq=a,b,c\nadded_during=a,b\ndeleted_during=a,c\nlive_values=a=1,b=99\nreadd_during=a,b,a\nthrows=stop\nset_triple=p:true:same_set=true:args=3|q:true:same_set=true:args=3\nset_thisArg=6\nset_returns=undefined",
   "node": "triple=a=1:same_map=true:args=3|b=2:same_map=true:args=3\narg_order=first=v,second=k\nreturns=undefined\nthisArg=CTX:x1|CTX:y2\narrow_ignores_thisArg=OUTER\nempty_calls=0\ncount=3:seq=a,b,c\nadded_during=a,b\ndeleted_during=a,c\nlive_values=a=1,b=99\nreadd_during=a,b,a\nthrows=stop\nset_triple=p:true:same_set=true:args=3|q:true:same_set=true:args=3\nset_thisArg=6\nset_returns=undefined",
-  "rts": "",
+  "rts": "triple=a=1:same_map=true:args=4|b=2:same_map=true:args=4\narg_order=first=v,second=k\nreturns=undefined\nthisArg=\narrow_ignores_thisArg=OUTER\nempty_calls=0\ncount=3:seq=a,b,c\nadded_during=a,b\ndeleted_during=a,c\nlive_values=a=1,b=99\nreadd_during=a,a\nthrows=stop\nset_triple=p:true:same_set=true:args=4|q:true:same_set=true:args=4\nset_thisArg=0\nset_returns=undefined",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught ReferenceError: arguments is not defined"
+  "rts_error": ""
 }
 ,
 {
@@ -3000,7 +3000,7 @@
   "status": "rts_diverge",
   "bun": "mutated_in_finally=finally\nreturned=1 closure=100\ncatch_binding=boom/changed\ncatch_shadow=thrown_e:outer_e\nfinally_no_return=from_try:b\nmade_in_finally=in_finally\nloop_try=ok0,err1,ok2\npartial=a,b,caught,count=2",
   "node": "mutated_in_finally=finally\nreturned=1 closure=100\ncatch_binding=boom/changed\ncatch_shadow=thrown_e:outer_e\nfinally_no_return=from_try:b\nmade_in_finally=in_finally\nloop_try=ok0,err1,ok2\npartial=a,b,caught,count=2",
-  "rts": "mutated_in_finally=finally\nreturned=1 closure=100\ncatch_binding=boom/changed\ncatch_shadow=thrown_e:thrown_e\nfinally_no_return=from_try:b\nmade_in_finally=in_finally\nloop_try=ok0,err0,ok0\npartial=a,b,caught,count=2",
+  "rts": "mutated_in_finally=finally\nreturned=1 closure=100\ncatch_binding=boom/changed\ncatch_shadow=thrown_e:outer_e\nfinally_no_return=from_try:b\nmade_in_finally=in_finally\nloop_try=ok0,err0,ok0\npartial=a,b,caught,count=2",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -4327,9 +4327,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "order=micro|immediate|timeout",
   "bun_exit": 0,
   "node_exit": 0,
@@ -9505,4 +9505,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":679,"pass":469,"rts_diverge":109,"bun_node_diverge":19,"errors":82,"rejected":0}}
+],"summary":{"total":679,"pass":470,"rts_diverge":110,"bun_node_diverge":18,"errors":81,"rejected":0}}
