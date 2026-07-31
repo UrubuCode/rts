@@ -3431,16 +3431,16 @@
 ,
 {
   "name": "379_yield_star",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done\n1,2,4,5,3,6\n1,2,3,4,5\n1,2,3,4,5",
   "node": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done\n1,2,4,5,3,6\n1,2,3,4,5\n1,2,3,4,5",
-  "rts": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done\n1,2,4,5,3,6",
+  "rts": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done\n1,2,4,5,3,6\n,,,,\n1,2,3,4,5",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 124,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "timeout apos 10s"
+  "rts_error": ""
 }
 ,
 {
@@ -3602,7 +3602,7 @@
   "status": "rts_diverge",
   "bun": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
   "node": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
-  "rts": "",
+  "rts": "undefined",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -5870,13 +5870,13 @@
   "status": "rts_error",
   "bun": "1,2,3,4,5\n10,11,12,13\n1a\n2b\n3c\n1,2,3,4,5\n1,2,3,4\n4\nfirst\ncaught:oops\n1\n99\ntrue",
   "node": "1,2,3,4,5\n10,11,12,13\n1a\n2b\n3c\n1,2,3,4,5\n1,2,3,4\n4\nfirst\ncaught:oops\n1\n99\ntrue",
-  "rts": "",
+  "rts": ",,,,\n,,,",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 124,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught TypeError: next is not a function\n      at run of tests/cross-runtime/object-meta/368_iterator_protocol.ts failed"
+  "rts_error": "timeout apos 10s"
 }
 ,
 {
@@ -9505,4 +9505,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":679,"pass":470,"rts_diverge":113,"bun_node_diverge":18,"errors":78,"rejected":0}}
+],"summary":{"total":679,"pass":470,"rts_diverge":114,"bun_node_diverge":18,"errors":77,"rejected":0}}
