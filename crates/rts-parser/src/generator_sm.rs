@@ -679,21 +679,26 @@ impl SmBuilder {
             Stmt::Block(b) => self.lower_seq(&b.stmts, cur),
             // `if` sem yield no corpo: mantemos verbatim (efeito colateral puro).
             Stmt::If(i) => {
-                if stmt_has_yield(&i.cons) || i.alt.as_deref().map(stmt_has_yield).unwrap_or(false)
-                    || expr_has_yield(&i.test)
-                {
-                    return None; // if com yield => inelegivel nesta fatia
+                // `yield` no TESTE exigiria suspender NO MEIO da avaliacao da
+                // condicao — a SM nao modela isso. Segue inelegivel.
+                if expr_has_yield(&i.test) {
+                    return None;
                 }
+                // `yield` nos RAMOS agora vai por estados ramificados, o mesmo
+                // caminho que o `return` ja usava. Antes isto bailava e caia no
+                // eager-buffer, onde um `yield` de VALOR (`const a = yield x`)
+                // era reescrito para `push(...)` — o `if` com yield-de-valor
+                // devolvia valor ERRADO em silencio (`1,undefined` onde o Node
+                // da `1,5`).
+                let has_yield = stmt_has_yield(&i.cons)
+                    || i.alt.as_deref().map(stmt_has_yield).unwrap_or(false);
                 // Um `return` dentro do if (mesmo sem yield) NAO pode ir verbatim:
                 // o `return;`/`return X;` cru nao casa com a assinatura i64 da fn
                 // de estado (verifier error). Lower em estados ramificados:
                 // Cond(test, then, else) e o `return` no then vira DONE.
                 let has_return = stmt_has_return(&i.cons)
                     || i.alt.as_deref().map(stmt_has_return).unwrap_or(false);
-                if has_return {
-                    if expr_has_yield(&i.test) {
-                        return None;
-                    }
+                if has_return || has_yield {
                     let then_entry = self.new_state();
                     let after = self.new_state();
                     let else_entry = if i.alt.is_some() {
