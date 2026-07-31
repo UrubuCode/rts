@@ -13,8 +13,8 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_NEW(ptr: *const u8, len: i64) -> u64 {
     alloc_entry(Entry::String(slice.to_vec()))
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_STRING_LEN(handle: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_GC_STRING_LEN")]
+pub fn __RTS_FN_NS_GC_STRING_LEN(handle: u64) -> i64 {
     with_entry(handle, |entry| match entry {
         Some(Entry::String(bytes)) => bytes.len() as i64,
         _ => -1,
@@ -33,8 +33,8 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_PTR(handle: u64) -> *const u8 {
     })
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_STRING_FREE(handle: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_GC_STRING_FREE")]
+pub fn __RTS_FN_NS_GC_STRING_FREE(handle: u64) -> i64 {
     if free_handle(handle) { 1 } else { 0 }
 }
 
@@ -124,8 +124,8 @@ pub extern "C" fn __RTS_FN_NS_GC_IS_PROMISE(handle: u64) -> i64 {
     })
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_I64(value: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_GC_STRING_FROM_I64")]
+pub fn __RTS_FN_NS_GC_STRING_FROM_I64(value: i64) -> u64 {
     // Raw i64 -> decimal string. This fn is the primitive exposed via
     // `gc.string_from_i64` (e.g. num.checked_* returning i64::MIN on
     // overflow needs to become "-9223372036854775808"). JS sentinels
@@ -191,8 +191,8 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_FROM_STATIC(ptr: *const u8, len: i64) ->
 }
 
 /// Compares two string handles by content. Returns 1 if equal, 0 otherwise.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_STRING_EQ(a: u64, b: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_GC_STRING_EQ")]
+pub fn __RTS_FN_NS_GC_STRING_EQ(a: u64, b: u64) -> i64 {
     if a == b {
         return 1;
     }
@@ -206,8 +206,8 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_EQ(a: u64, b: u64) -> i64 {
 
 /// Lexicographic comparison of two string handles by content (memcmp + length).
 /// Returns -1 if a < b, 0 if equal, 1 if a > b. Matches JS string ordering.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_STRING_CMP(a: u64, b: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_GC_STRING_CMP")]
+pub fn __RTS_FN_NS_GC_STRING_CMP(a: u64, b: u64) -> i64 {
     if a == b {
         return 0;
     }
@@ -232,8 +232,8 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_CMP(a: u64, b: u64) -> i64 {
 /// - Others -> "[object <Kind>]"
 ///
 /// Invalid handles become the empty string (JS template-literal semantics).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_GC_STRING_CONCAT(a: u64, b: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_GC_STRING_CONCAT")]
+pub fn __RTS_FN_NS_GC_STRING_CONCAT(a: u64, b: u64) -> u64 {
     use super::snapshot::{EntrySnap, snapshot_entry, snapshot_to_bytes};
     // Handle 0 = JS null — displayed as "null" in string context (JS spec: null + "" = "null").
     let snap_a = if a == 0 { EntrySnap::Str(b"null".to_vec()) } else { snapshot_entry(a) };

@@ -238,30 +238,14 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
             params: &[Handle],
             ret: U64,
         },
-        "__RTS_FN_NS_GC_STRING_LEN" => SymSig {
-            params: &[Handle],
-            ret: I64,
-        },
-        "__RTS_FN_NS_GC_STRING_FREE" => SymSig {
-            params: &[Handle],
-            ret: I64,
-        },
-        "__RTS_FN_NS_GC_STRING_CONCAT" => SymSig {
-            params: &[Handle, Handle],
-            ret: Handle,
-        },
-        "__RTS_FN_NS_GC_STRING_EQ" => SymSig {
-            params: &[Handle, Handle],
-            ret: I64,
-        },
-        "__RTS_FN_NS_GC_STRING_CMP" => SymSig {
-            params: &[Handle, Handle],
-            ret: I64,
-        },
-        "__RTS_FN_NS_GC_STRING_FROM_I64" => SymSig {
-            params: &[I64],
-            ret: Handle,
-        },
+        // (`gc.string_len/free/concat/eq/cmp/from_i64` were CONVERTED to
+        // `#[rtse::abi("<legacy symbol>")]` on 2026-07-30 — the baked table now
+        // derives their signatures from the Rust ones, identical to the rows that
+        // used to sit here modulo the `Handle`→`U64` spelling, which lowers to the
+        // same single i64 slot. `string_new`/`string_ptr` did NOT convert: `new`
+        // takes raw `(*const u8, i64)` bytes and must NOT gain the UTF-8 validation
+        // a `&str` param would impose, and `ptr` returns `*const u8`, which has no
+        // written-token spelling in `rts_abi::tymap`.)
         // (`__rtsn_string_from_f64` was CONVERTED to `#[rtse::abi]` in
         // `rts-engine` — the baked table derives `[F64] -> Handle` from the Rust
         // signature, identical to the row that used to sit here.)

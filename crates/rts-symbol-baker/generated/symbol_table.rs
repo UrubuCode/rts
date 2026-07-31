@@ -8780,14 +8780,14 @@ pub fn aot_symbols() -> ::std::vec::Vec<&'static str> {
 /// ABI signatures derived from the Rust signatures of `#[rtse::abi]` fns.
 ///
 /// Sorted ascending by name, like the symbol table, so a lookup is a binary
-/// search. 816 of 2184 symbols carry one; the rest are not yet declared with
+/// search. 822 of 2184 symbols carry one; the rest are not yet declared with
 /// `#[rtse::abi]`.
 pub fn signatures() -> ::std::vec::Vec<(&'static str, &'static [::rts_abi::AbiType], ::rts_abi::AbiType)> {
     // The element type is spelled out: without it the `&[]` of a zero-arg
     // row would fix the param type to `&[AbiType; 0]` and every later row
     // would be a type error.
     let mut out: ::std::vec::Vec<(&'static str, &'static [::rts_abi::AbiType], ::rts_abi::AbiType)> =
-        ::std::vec::Vec::with_capacity(816);
+        ::std::vec::Vec::with_capacity(822);
     out.push(("__RTS_FN_NS_ENGINE_ARCH", &[], ::rts_abi::AbiType::Handle));
     out.push(("__RTS_FN_NS_ENGINE_FS_APPEND_BYTES", &[::rts_abi::AbiType::PolyValue, ::rts_abi::AbiType::PolyValue], ::rts_abi::AbiType::PolyValue));
     out.push(("__RTS_FN_NS_ENGINE_FS_OPEN_HANDLE", &[::rts_abi::AbiType::PolyValue, ::rts_abi::AbiType::PolyValue], ::rts_abi::AbiType::PolyValue));
@@ -8801,6 +8801,12 @@ pub fn signatures() -> ::std::vec::Vec<(&'static str, &'static [::rts_abi::AbiTy
     out.push(("__RTS_FN_NS_ENGINE_TRACE_PUSH", &[::rts_abi::AbiType::StrPtr, ::rts_abi::AbiType::StrPtr, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void));
     out.push(("__RTS_FN_NS_ENGINE_UNIX_MS", &[], ::rts_abi::AbiType::I64));
     out.push(("__RTS_FN_NS_ENGINE_UNIX_NS", &[], ::rts_abi::AbiType::I64));
+    out.push(("__RTS_FN_NS_GC_STRING_CMP", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64], ::rts_abi::AbiType::I64));
+    out.push(("__RTS_FN_NS_GC_STRING_CONCAT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64], ::rts_abi::AbiType::U64));
+    out.push(("__RTS_FN_NS_GC_STRING_EQ", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64], ::rts_abi::AbiType::I64));
+    out.push(("__RTS_FN_NS_GC_STRING_FREE", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::I64));
+    out.push(("__RTS_FN_NS_GC_STRING_FROM_I64", &[::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64));
+    out.push(("__RTS_FN_NS_GC_STRING_LEN", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::I64));
     out.push(("__rtsadp_add", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64], ::rts_abi::AbiType::U64));
     out.push(("__rtsadp_arr_at", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64));
     out.push(("__rtsadp_arr_at_w", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64], ::rts_abi::AbiType::U64));
