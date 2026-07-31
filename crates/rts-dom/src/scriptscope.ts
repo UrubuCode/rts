@@ -605,7 +605,36 @@ function __inRanges(ranges: i64[], pos: i64): i64 {
 
 // Reescreve toda ocorrência LIVRE de cada nome de `names` para `__G.<nome>`,
 // pulando string/comentário e não tocando em `a.nome` (campo) nem `{nome:` (chave).
+// A reescrita vive em RUST (`scriptscan.rs::qualify`). O laço `.ts` perdia
+// ocorrências num bundle grande — 92 de 278 chamadas de `__d` qualificadas — e
+// a página morria em "call to unknown function `__d`". A causa medida NÃO era o
+// algoritmo (o mesmo laço fora do motor acerta 278/278): era o GC coletando o
+// array `spans`, um LOCAL DE FUNÇÃO ainda vivo, durante a chamada alocadora
+// seguinte — `spans.length` virava -1 e o `while` terminava calado. O motor novo
+// não emite `declare_value_needs_stack_map`, então o scanner conservativo não
+// enxerga locais de função (issue aberta). Em Rust o array não é um handle do
+// heap do motor e o sítio deixa de depender dessa cobertura.
 function __qualify(src: string, names: string[]): string {
+  if (names.length === 0) return src;
+  return ScriptScan.qualify(src, __juntaLinhas(names));
+}
+
+// `names.join("\n")` escrito sem literal de escape: o gerador que mantém este
+// arquivo materializava o `\n` como quebra REAL, partindo a string em duas
+// linhas e quebrando o parse do prelude inteiro.
+function __juntaLinhas(names: string[]): string {
+  let out = "";
+  let i = 0;
+  while (i < names.length) {
+    if (i > 0) out = out + String.fromCharCode(10);
+    out = out + names[i];
+    i = i + 1;
+  }
+  return out;
+}
+
+// Versão `.ts` de referência (oráculo do teste de paridade, fora do caminho quente).
+function __qualifyTs(src: string, names: string[]): string {
   if (names.length === 0) return src;
   const spans = __codeSpans(src);
   const classRanges = __classBodyRanges(src);

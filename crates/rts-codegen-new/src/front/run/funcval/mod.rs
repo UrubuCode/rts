@@ -567,6 +567,16 @@ pub fn extract_arrows(
     let mut i = 0;
     while i < ctx.synthesized.len() {
         let mut f = ctx.synthesized[i].clone();
+        // HOISTING de `function` declarada no corpo — o mesmo pré-passo que os
+        // corpos de topo recebem (`front/run/mod.rs`). Sem isto ele só alcançava
+        // DOIS níveis (o main e um corpo de `Item::Function`): a partir do
+        // terceiro, um `function` aninhado só vira `HirFunc` AQUI, depois dos
+        // dois sítios de hoist, e uma referência ADIANTE dele
+        // (`… y() … function y(){}`, JS válido e hoisted) morria com "call to
+        // unknown function `y`". Rodar dentro do fixpoint compõe em qualquer
+        // profundidade: cada corpo sintetizado é hoisted antes de a extração
+        // descer nele.
+        super::fnhoist::hoist_fn_decls(&mut f.body);
         let params: HashSet<String> = f.params.iter().map(|p| p.name.clone()).collect();
         let mutated = mutated_names(&f.body);
         ctx.current_fn = f.name.clone();

@@ -692,6 +692,93 @@ fn unqualify_instanceof(src: &[u8]) -> Vec<u8> {
     out
 }
 
+/// Reescreve toda ocorrência LIVRE de cada nome de `names` para `__G.<nome>`.
+///
+/// Varredura CONTÍNUA (os spans dizem o que IGNORAR, nunca onde parar) — pelo
+/// mesmo motivo de `scan_declared`: iterando por span, o laço `.ts` reconhecia
+/// só 176 das 278 chamadas de `__d` num bundle real, e as 102 restantes ficavam
+/// sem qualificar → "call to unknown function `__d`" e a página não montava.
+///
+/// Não toca em: campo (`a.nome`), chave de objeto (`{nome: …}`), label, e campo
+/// de classe (`class C { nome = 1 }` — qualificar gerava `class C { __G.nome = 1 }`,
+/// um SyntaxError). `case nome:` É qualificado (deixá-lo livre dava
+/// ReferenceError na comparação). O shorthand `{ nome }` vira a forma explícita
+/// `{ nome: __G.nome }`, porque `{ __G.nome }` não é sintaxe válida.
+fn qualify(src: &[u8], names: &[String]) -> Vec<u8> {
+    if names.is_empty() {
+        return src.to_vec();
+    }
+    let n = src.len();
+    let spans = code_spans(src);
+    let class_ranges = class_body_ranges(src, &spans);
+    let mut code = vec![false; n];
+    for &(s, e) in &spans {
+        for c in code.iter_mut().take(e.min(n)).skip(s.min(n)) {
+            *c = true;
+        }
+    }
+    let alvos: std::collections::HashSet<&str> = names.iter().map(String::as_str).collect();
+    let mut out: Vec<u8> = Vec::with_capacity(n + names.len() * 8);
+    let mut run_start = 0usize;
+    let mut i = 0usize;
+    while i < n {
+        if !code[i] || !is_id_start(src[i]) {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < n && code[i] && is_id_part(src[i]) {
+            i += 1;
+        }
+        let word = match std::str::from_utf8(&src[start..i]) {
+            Ok(w) => w,
+            Err(_) => continue,
+        };
+        if !alvos.contains(word) {
+            continue;
+        }
+        // caractere significativo ANTES (pula espaço)
+        let mut p = start as isize - 1;
+        while p >= 0 && src[p as usize].is_ascii_whitespace() {
+            p -= 1;
+        }
+        let prev = if p >= 0 { src[p as usize] } else { 0 };
+        // caractere significativo DEPOIS
+        let mut j = i;
+        while j < n && src[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        let next = if j < n { src[j] } else { 0 };
+        // `nome:` é chave/label — MENOS em `case nome:`
+        let we = (p + 1).max(0) as usize;
+        let mut ws = we;
+        while ws > 0 && is_id_part(src[ws - 1]) {
+            ws -= 1;
+        }
+        let eh_case = &src[ws..we] == b"case";
+        let shorthand = (prev == b'{' || prev == b',') && (next == b',' || next == b'}');
+
+        if prev == b'.' {
+            // campo: nada a fazer
+        } else if in_ranges(&class_ranges, start) && next == b'=' {
+            // `class C { nome = 1 }` — declaração de campo
+        } else if shorthand {
+            out.extend_from_slice(&src[run_start..start]);
+            out.extend_from_slice(word.as_bytes());
+            out.extend_from_slice(b": __G.");
+            run_start = start;
+        } else if next == b':' && !eh_case {
+            // chave de objeto ou label
+        } else {
+            out.extend_from_slice(&src[run_start..start]);
+            out.extend_from_slice(b"__G.");
+            run_start = start;
+        }
+    }
+    out.extend_from_slice(&src[run_start..n]);
+    out
+}
+
 // O resultado da última varredura, para o `.ts` ler item a item (um `Vec<String>`
 // não atravessa a borda; índice + `nameAt` atravessa).
 thread_local! {
@@ -740,6 +827,18 @@ impl ScriptScan {
     #[rtse::statical]
     fn codeSpanCount(src: &str) -> f64 {
         code_spans(src.as_bytes()).len() as f64
+    }
+
+    /// Reescreve as ocorrências LIVRES de cada nome de `names` (separados por
+    /// `\n` — um `string[]` não atravessa a borda) para `__G.<nome>`.
+    #[rtse::statical]
+    fn qualify(src: &str, names: &str) -> String {
+        let lista: Vec<String> = names
+            .split('\n')
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect();
+        String::from_utf8_lossy(&qualify(src.as_bytes(), &lista)).into_owned()
     }
 
     /// TODA a normalização sintática numa passada: `arguments` → rest, sequência
