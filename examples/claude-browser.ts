@@ -11,7 +11,7 @@ import dom from "rts:dom";
 import input from "rts:input";
 import fetchNs from "rts:fetch";
 import imgdec from "rts:imgdec";
-import { fs, io, buffer } from "rts";
+import { fs, io, buffer, env, time } from "rts";
 
 const KEY_ENTER = 1;
 const KEY_BACKSPACE = 4;
@@ -71,14 +71,9 @@ function resolveUrl(base: string, href: string): string {
 function extractSite(rawHtml: string, pageUrl: string): string {
   const site = dom.parseHtml(rawHtml);
   let styles = "";
-  // 1) <style> inline.
+  // 1) <style> inline: contados só para o log — as tags ficam onde estão, dentro
+  //    do head/body preservados abaixo (mover mudaria a cascade; duplicar, pior).
   const sc = dom.querySelectorAllCount(site, "style");
-  let i = 0;
-  while (i < sc) {
-    const s = dom.querySelectorAllAt(site, "style", i);
-    styles = styles + "<style>" + dom.getText(site, s) + "</style>";
-    i = i + 1;
-  }
   // 2) <link rel=stylesheet> → baixa o CSS e injeta como <style>.
   const lc = dom.querySelectorAllCount(site, "link");
   let cssCount = 0;
@@ -100,36 +95,46 @@ function extractSite(rawHtml: string, pageUrl: string): string {
     }
     j = j + 1;
   }
-  // 3) <script> INLINE (head+body): preserva o fonte para o runScripts executar
-  //    depois do parse da página montada. <script src> é logado mas não baixado
-  //    (o JS externo de sites grandes é minificado além do subset — baixar
-  //    megabytes que vão bailar não vale o tempo de load; o inline roda).
-  let scripts = "";
+  // 3) <script>: preserva o FONTE para o runScripts executar depois do parse da
+  //    página montada. Três origens:
+  //      • inline — o texto do próprio nó;
+  //      • `src="data:...;base64,…"` — a tag passa INTACTA (o motor decodifica
+  //        ao executar). Não é caso de nicho: WhatsApp/Meta embutem quase todo o
+  //        bootstrap assim (numa carga real, 33 dos 42 `<script src>` são
+  //        data-URI), então ignorá-los era descartar o loader da página;
+  //      • `src="http(s)://…"` — ainda NÃO baixado. São os bundles de aplicação
+  //        (no WhatsApp, 9 arquivos somando ~15 MB); já compilam sem estourar
+  //        memória, mas cada um leva segundos, o que travaria o load da janela.
   const scc = dom.querySelectorAllCount(site, "script");
   let k = 0;
   let inlineCount = 0;
+  let dataCount = 0;
+  let extCount = 0;
   while (k < scc) {
     const s = dom.querySelectorAllAt(site, "script", k);
     const src = dom.getAttribute(site, s, "src");
-    const stype = dom.getAttribute(site, s, "type");
-    const isJs = stype.length === 0 || stype === "text/javascript" || stype === "module";
-    if (src.length > 0) {
-      io.print("[js] externo (nao baixado): " + src);
-    } else if (isJs) {
-      const code = dom.getText(site, s);
-      if (code.length > 0) {
-        scripts = scripts + "<script>" + code + "</script>";
-        inlineCount = inlineCount + 1;
-      }
-    }
+    if (src.length > 5 && src.substring(0, 5) === "data:") dataCount = dataCount + 1;
+    else if (src.length > 0) extCount = extCount + 1;
+    else if (dom.getText(site, s).length > 0) inlineCount = inlineCount + 1;
     k = k + 1;
   }
-  // 4) innerHTML do body.
+  if (extCount > 0) io.print("[js] " + extCount + " <script src=http> nao baixados (bundles de aplicacao)");
+  // 4) head + body na ORDEM ORIGINAL, com os <script> onde o autor os pôs. Duas
+  //    lições de uma carga real do WhatsApp aqui:
+  //      • re-embutir código decodificado como <script> inline estilhaça a
+  //        página (JS minificado tem `<`, `&`, `</script>` em strings — o parser
+  //        HTML corta no primeiro `</script>`); as tags `src=data:` ficam
+  //        intactas e o `__runScriptAt` do motor decodifica ao executar;
+  //      • mover os scripts para o fim REORDENA: o loader (`requireLazy`) mora
+  //        no <head> e os 25 chamadores no <body> — com o head atrás, todos
+  //        falhavam com "call to unknown function `requireLazy`".
+  const headEl = dom.querySelector(site, "head");
+  const headInner = headEl >= 0 ? dom.innerHtml(site, headEl) : "";
   const body = dom.querySelector(site, "body");
   const inner = body >= 0 ? dom.innerHtml(site, body) : rawHtml;
-  io.print("[site] styles_inline=" + sc + " css_baixados=" + cssCount + " scripts_inline=" + inlineCount + " body=" + inner.length + "B");
+  io.print("[site] styles_inline=" + sc + " css_baixados=" + cssCount + " scripts_inline=" + inlineCount + " scripts_data=" + dataCount + " body=" + inner.length + "B");
   dom.free(site);
-  return styles + inner + scripts;
+  return styles + headInner + inner;
 }
 
 // Percorre os <img> do doc já montado, baixa cada src (binário) + decodifica +
@@ -263,10 +268,33 @@ function loadingPage(cur: i64, val: string): number {
 
 // Abre na HOME (instantânea).
 io.print("[boot] home instantânea (digite uma URL e Enter)");
-d = localPage(d, "home");
+// URL inicial: `RTS_URL=https://exemplo.com rts run examples/claude-browser.ts`
+// abre direto no site (dispara o download assíncrono já no boot, mostrando a
+// tela de "Carregando"); sem a variável, abre na home embutida.
+const urlBoot = env.get_var("RTS_URL");
+// Sem "." nem http, é o NOME de uma página local (site/<nome>.html) — mesmo
+// atalho que a barra de URL já aceita digitado.
+const bootLocal = urlBoot.length > 0 && urlBoot.indexOf(".") < 0
+  && urlBoot.indexOf("http") !== 0 ? 1 : 0;
+if (urlBoot.length > 0 && bootLocal === 0) {
+  io.print("[boot] abrindo direto: " + urlBoot);
+  pendingUrl = urlBoot;
+  pendingTicket = fetchNs.fetchTextAsync(normalize(urlBoot));
+  d = loadingPage(d, urlBoot);
+} else if (bootLocal === 1) {
+  io.print("[boot] pagina local: " + urlBoot);
+  d = localPage(d, urlBoot);
+} else {
+  d = localPage(d, "home");
+}
 // Fachada Document sobre o handle corrente — o runScripts/pumpEventCallbacks
 // do prelude falam a fachada. Recriada a cada navegação (d muda).
 let docF = new Document(d);
+// Página local também executa os <script> dela (a home embutida não tem nenhum;
+// o caminho remoto roda os seus quando o download completa).
+if (bootLocal === 1) {
+  io.print("[js] scripts locais executados: " + runScriptsAt(docF, "https://localhost/" + urlBoot));
+}
 io.print("[boot] urlbar node=" + urlInput(d) + " inputs=" + dom.querySelectorAllCount(d, "input") + " val='" + dom.inputValue(d, urlInput(d)) + "'");
 
 let frame = 0;
@@ -294,8 +322,25 @@ while (egui.isOpen(win) !== 0) {
       // apontando pra este DOM). Script que não compila no subset é isolado
       // (loga o erro e segue — como o console do browser).
       docF = new Document(d);
+      // Baixa os recursos EXTERNOS que a página pede (`<link rel=stylesheet>` e
+      // `<script src=http>`) e materializa o fonte no nó — é o que o browser faz
+      // antes de executar. Ligado por padrão desde que o pré-passo saiu do `.ts`
+      // para Rust: os bundles de aplicação da Meta somam ~15 MB e o pré-passo
+      // sozinho levava 49 s (varredura quadrática nossa, não bundle patológico);
+      // hoje é ~1 s e o custo real vira compilação. `RTS_NO_EXT=1` desliga.
+      // `< 1` e não `=== 0`: variável AUSENTE devolve length -1 (não 0).
+      if (env.get_var("RTS_NO_EXT").length < 1) {
+        const tRes = time.now_ms();
+        const nres = loadResources(docF, normalize(pendingUrl));
+        io.print("[res] " + nres + " recursos externos em " + (time.now_ms() - tRes) + "ms");
+      }
+      const tJs = time.now_ms();
       const njs = runScriptsAt(docF, normalize(pendingUrl));
-      io.print("[js] scripts executados: " + njs);
+      // Globais que o bootstrap da página publicou (o `requireLazy` da Meta e
+      // companhia). Lido via `docF._dom`, NUNCA pelo `d` solto: handle passado
+      // como valor entre chamadas corrompe (#1870) e o contador vem 0.
+      io.print("[js] globais da pagina: " + DomScope.count(docF._dom));
+      io.print("[js] scripts executados: " + njs + " em " + (time.now_ms() - tJs) + "ms");
     } else if (st < 0) {
       pendingTicket = 0; // ticket inválido: aborta
     }
@@ -369,6 +414,7 @@ while (egui.isOpen(win) !== 0) {
   // Entrega os cliques do frame aos addEventListener registrados pelos <script>
   // da página (hit-test do render → fila crua → callbacks, PRs #1884/#1885).
   pumpEventCallbacks(docF);
+  pumpTimerCallbacks(docF);
 }
 
 dom.free(d);

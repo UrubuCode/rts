@@ -984,6 +984,26 @@ function pumpEventCallbacks(doc: Document): number {
   return despachados;
 }
 
+// Bomba de TIMERS da página: dispara os `setTimeout`/`setInterval` que os
+// `<script>` agendaram (fila POR DOCUMENTO em Rust — `DomTimers`; o relógio é
+// medido lá). Chamar uma vez por frame, ao lado de `pumpEventCallbacks`:
+//   while (win.isOpen()) { ... pumpEventCallbacks(doc); pumpTimerCallbacks(doc); }
+// Um interval re-arma ao disparar; o teto de 64/frame impede um interval de 1ms
+// de travar o loop. Devolve quantos callbacks dispararam no frame.
+function pumpTimerCallbacks(doc: Document): number {
+  const h: i64 = doc._dom;
+  let disparados = 0;
+  let guard = 0;
+  while (guard < 64) {
+    const f = DomTimers.takeDue(h);
+    if (f === undefined) return disparados;
+    f();
+    disparados = disparados + 1;
+    guard = guard + 1;
+  }
+  return disparados;
+}
+
 // ── Execução de <script> — o "bloco JS" da página ──────────────────────────────
 //
 // `runScripts(doc)` compila e roda cada `<script>` do documento, em ordem de
@@ -1064,7 +1084,15 @@ function __runScriptAt(h: i64, j: number, url: string): number {
     + "const document = window.document;\n"
     + "const self = window; const globalThis = window; const top = window; const parent = window;\n"
     + "const location = window.location; const navigator = window.navigator;\n"
-    + "const history = window.history; const localStorage = window.localStorage;\n";
+    + "const history = window.history; const localStorage = window.localStorage;\n"
+    // Timers CHAMADOS NUS caem na fila por documento (window.setTimeout →
+    // DomTimers), não nos timers do motor — só a fila é bombeada pelo frame do
+    // host (`pumpTimerCallbacks`).
+    + "const setTimeout = function(f: any, ms: any){ return window.setTimeout(f, ms); };\n"
+    + "const clearTimeout = function(id: any){ window.clearTimeout(id); };\n"
+    + "const setInterval = function(f: any, ms: any){ return window.setInterval(f, ms); };\n"
+    + "const clearInterval = function(id: any){ window.clearInterval(id); };\n"
+    + "const requestAnimationFrame = function(f: any){ return window.requestAnimationFrame(f); };\n";
   // Escopo global COMPARTILHADO: o que scripts anteriores publicaram (`known`)
   // é qualificado para `__G.<nome>` neste script também — é o que faz o loader
   // criado pelo script 2 estar disponível para o script 30.

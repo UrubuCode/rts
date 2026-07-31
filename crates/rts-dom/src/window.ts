@@ -202,11 +202,15 @@ class WindowImpl {
   get top(): WindowImpl { return this; }
   get parent(): WindowImpl { return this; }
 
-  // Timers / codecs / fetch: espelham os globais do motor (window.X === X).
-  setTimeout(fn: any, ms: number): number { return setTimeout(fn, ms); }
-  clearTimeout(id: number): void { clearTimeout(id); }
-  setInterval(fn: any, ms: number): number { return setInterval(fn, ms); }
-  clearInterval(id: number): void { clearInterval(id); }
+  // Timers: vão para a FILA POR DOCUMENTO em Rust (`DomTimers`), dirigida pelo
+  // frame do host via `pumpTimerCallbacks(doc)` — NÃO para os timers do motor
+  // (que agendam noutro caminho e nunca disparam no loop da janela). Rust
+  // porque cada `new Function` é um programa novo: fila `.ts` seria
+  // por-programa e o pump do host bombearia uma fila vazia para sempre.
+  setTimeout(fn: any, ms: number): number { return DomTimers.add(this._doc._dom, fn, ms, 0); }
+  clearTimeout(id: number): void { DomTimers.cancel(this._doc._dom, id); }
+  setInterval(fn: any, ms: number): number { return DomTimers.add(this._doc._dom, fn, ms, 1); }
+  clearInterval(id: number): void { DomTimers.cancel(this._doc._dom, id); }
   atob(s: string): string { return atob(s); }
   btoa(s: string): string { return btoa(s); }
   encodeURIComponent(s: string): string { return encodeURIComponent(s); }
@@ -249,8 +253,8 @@ class WindowImpl {
   // `requestAnimationFrame` — sem loop de tempo no script (o host dirige o
   // frame). v1: agenda como um setTimeout de ~16ms (não é o rAF real, mas o
   // callback dispara). `cancelAnimationFrame` = clearTimeout.
-  requestAnimationFrame(cb: any): number { return setTimeout(cb, 16); }
-  cancelAnimationFrame(id: number): void { clearTimeout(id); }
+  requestAnimationFrame(cb: any): number { return DomTimers.add(this._doc._dom, cb, 16, 0); }
+  cancelAnimationFrame(id: number): void { DomTimers.cancel(this._doc._dom, id); }
 
   // `queueMicrotask` — espelha o global (já existe no motor).
   queueMicrotask(cb: any): void { queueMicrotask(cb); }
@@ -387,6 +391,7 @@ function __globalsFor(h: i64, url: string, vw: number, vh: number): any {
 
 // Descarta o escopo global do documento `h` (chamado no `free` do documento).
 function __dropWindow(h: i64): void {
+  DomTimers.drop(h);
   const idx = __winIndex(h);
   if (idx < 0) return;
   __winKeys.splice(idx, 1);

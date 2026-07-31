@@ -286,9 +286,39 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // shape slots by key for a `.ts` Error and reads `undefined` for a
             // non-object throw — both JS-correct. `e instanceof Error` resolves via
             // the normal user-class dynamic-instanceof (Error is a prelude class).
+            //
+            // The binding is scoped to the CATCH BLOCK (spec): save whatever the
+            // name meant before and restore it after the handler. Leaving it in
+            // `locals` shadowed a same-named outer function for the REST of the
+            // enclosing body — `function e(..){..} … try{..}catch(e){..} e(x)`
+            // died with "not a function" (real minified-bundle pattern: helpers
+            // named `e`/`t` + `catch(e)`).
+            let saved_local = self.locals.get(name.as_str()).cloned();
+            let saved_shape = self.local_shapes.get(name.as_str()).cloned();
+            let saved_class = self.local_classes.get(name.as_str()).cloned();
+            let saved_obj = self.object_locals.contains(name.as_str());
             self.bind_catch_local(name, word);
+            self.lower_block(module, &handler.body)?;
+            match saved_local {
+                Some(l) => {
+                    self.locals.insert(name.clone(), l);
+                }
+                None => {
+                    self.locals.remove(name.as_str());
+                }
+            }
+            if let Some(s) = saved_shape {
+                self.local_shapes.insert(name.clone(), s);
+            }
+            if let Some(c) = saved_class {
+                self.local_classes.insert(name.clone(), c);
+            }
+            if saved_obj {
+                self.object_locals.insert(name.clone());
+            }
+        } else {
+            self.lower_block(module, &handler.body)?;
         }
-        self.lower_block(module, &handler.body)?;
         if !self.block_terminated {
             self.builder.ins().jump(next, &[]);
         }

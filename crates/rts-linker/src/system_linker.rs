@@ -239,6 +239,17 @@ fn build_linker_args(
             args.push("-o".to_string());
             args.push(output_path.display().to_string());
 
+            // AOT objects are non-PIC on Linux (module_aot::make_object_module
+            // deliberately leaves `is_pic` off — same bytes as the JIT), so the
+            // emitted .text carries absolute relocations. Modern clang/gcc
+            // default to PIE, which forbids text relocations ("relocation
+            // against `SYM` in read-only section `.text`" → link failure).
+            // Force a classic non-PIE executable; raw linkers (ld.lld) already
+            // default to ET_EXEC and take no `-no-pie`.
+            if linker.is_compiler_driver() {
+                args.push("-no-pie".to_string());
+            }
+
             // Raw linkers (ld.lld, rust-lld) don't add CRT startup code automatically.
             // Probe system lib paths and prepend crt1.o + crti.o before user objects.
             let syslib_paths = if linker.is_raw_linker() {
@@ -300,6 +311,24 @@ fn build_linker_args(
             args.push("-lm".to_string());
             args.push("-lpthread".to_string());
             args.push("-ldl".to_string());
+            // cpal (áudio, sempre no runtime archive) referencia ALSA
+            // (`snd_pcm_*`). `-lasound` só resolve com o pacote -dev instalado
+            // (dono do symlink `libasound.so`); a lib de RUNTIME
+            // (`libasound.so.2`) está em quase toda máquina — mesma situação do
+            // libgcc_s.so.1 abaixo. Proba as duas formas em todos os diretórios
+            // de sistema e passa o caminho versionado quando só ele existe.
+            {
+                let asound_dirs = elf_sysroot_lib_paths(&target.triple);
+                if asound_dirs.iter().any(|p| p.join("libasound.so").is_file()) {
+                    args.push("-lasound".to_string());
+                } else if let Some(so2) = asound_dirs
+                    .iter()
+                    .map(|p| p.join("libasound.so.2"))
+                    .find(|p| p.is_file())
+                {
+                    args.push(so2.display().to_string());
+                }
+            }
             if !syslib_paths.is_empty() {
                 args.push("-lc".to_string());
                 // libgcc_s provides stack unwinding; only link if present on this

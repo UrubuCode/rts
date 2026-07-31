@@ -354,7 +354,7 @@ function __collectPattern(src: string, from: i64, out: string[]): i64 {
   return j;
 }
 
-function __scanDeclared(src: string): string[] {
+function __scanDeclaredTs(src: string): string[] {
   const out: string[] = [];
   let i = 0;
   const n = src.length;
@@ -447,7 +447,30 @@ function __scanDeclared(src: string): string[] {
 // Varre `src` pulando comentário e string, e devolve os nomes que aparecem como
 // `NOME =` (mas não `==`, `===`, `=>`, `>=`, `<=`, `!=`) sem `var`/`let`/`const`
 // imediatamente antes e sem `.` antes (que seria campo).
+// A varredura em si vive em RUST (`scriptscan.rs`): o laço `.ts` custava ~1 µs
+// por caractere, e num bundle real da Meta (6 MB) o pré-passo levava 49 s contra
+// 113 ms de compilação de verdade. A REESCRITA continua aqui; o que mudou de
+// lado é só o scanner, que é o que escala com o tamanho do arquivo.
 function __scanImplicitGlobals(src: string): string[] {
+  const n = ScriptScan.implicitGlobals(src);
+  const out: string[] = [];
+  let i = 0;
+  while (i < n) { out.push(ScriptScan.nameAt(i)); i = i + 1; }
+  return out;
+}
+
+function __scanDeclared(src: string): string[] {
+  const n = ScriptScan.declaredNames(src);
+  const out: string[] = [];
+  let i = 0;
+  while (i < n) { out.push(ScriptScan.nameAt(i)); i = i + 1; }
+  return out;
+}
+
+// Versão `.ts` de referência do scanner de globais implícitos — mantida como
+// ORÁCULO do teste que compara os dois (`claude-scriptscan-paridade`), não usada
+// no caminho quente.
+function __scanImplicitGlobalsTs(src: string): string[] {
   const out: string[] = [];
   const spans = __codeSpans(src);
   const classRanges = __classBodyRanges(src);
@@ -541,7 +564,17 @@ function __classBodyRanges(src: string): i64[] {
           const at: i64 = openAt[openAt.length - 1];
           openIsClass.pop();
           openAt.pop();
-          if (wasClass === 1) { ranges.push(at); ranges.push(i); }
+          // Inserção ORDENADA por posição de abertura: os pares saem na ordem de
+          // FECHAMENTO (uma classe aninhada fecha antes da externa), e a busca
+          // binária de `__inRanges` exige ordem de abertura. São poucos pares,
+          // então a inserção linear aqui não pesa — o que pesava era consultar
+          // linearmente a cada identificador do script.
+          if (wasClass === 1) {
+            let q = ranges.length;
+            while (q >= 2 && ranges[q - 2] > at) q = q - 2;
+            ranges.splice(q, 0, at);
+            ranges.splice(q + 1, 0, i);
+          }
         }
       } else if (c === ";") {
         sawClassHead = 0;
@@ -552,11 +585,20 @@ function __classBodyRanges(src: string): i64[] {
   return ranges;
 }
 
+// (Busca BINÁRIA: `__classBodyRanges` emite os pares já ordenados por posição de
+// abertura e sem sobreposição — corpos aninhados fecham antes do próximo abrir.
+// A varredura linear rodava a CADA identificador do script, então num bundle com
+// centenas de classes o scan inteiro virava quadrático.)
 function __inRanges(ranges: i64[], pos: i64): i64 {
-  let k = 0;
-  while (k < ranges.length) {
-    if (pos > ranges[k] && pos < ranges[k + 1]) return 1;
-    k = k + 2;
+  let lo = 0;
+  let hi = ranges.length / 2 - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) / 2;
+    const ini: i64 = ranges[mid * 2];
+    const fim: i64 = ranges[mid * 2 + 1];
+    if (pos <= ini) hi = mid - 1;
+    else if (pos >= fim) lo = mid + 1;
+    else return 1;
   }
   return 0;
 }
@@ -656,7 +698,10 @@ function __qualify(src: string, names: string[]): string {
 // NOME de parâmetro, daí o `__rtsargs`.
 function __rewriteArguments(src: string): string {
   if (src.indexOf("arguments") < 0) return src;
-  let out = "";
+  // (runStart+parts — o `out = out + src.substring(i, i+1)` por caractere era
+  // O(n²); num bundle de 6 MB o pré-passo inteiro virava hora de parede.)
+  const parts: string[] = [];
+  let runStart = 0;
   let i = 0;
   const n = src.length;
   while (i < n) {
@@ -687,24 +732,29 @@ function __rewriteArguments(src: string): string {
           if (bodyTxt.indexOf("arguments") >= 0) {
             // `src[i..j]` = "function[ nome]", depois abrimos a lista nós mesmos:
             // `(...__rtsargs)` — o `)` original está em `k` e é descartado.
-            out = out + src.substring(i, j) + "(...__rtsargs)";
-            out = out + __replaceIdent(bodyTxt, "arguments", "__rtsargs");
+            parts.push(src.substring(runStart, j));
+            parts.push("(...__rtsargs)");
+            parts.push(__replaceIdent(bodyTxt, "arguments", "__rtsargs"));
             i = e + 1;
+            runStart = i;
             continue;
           }
         }
       }
     }
-    out = out + src.substring(i, i + 1);
     i = i + 1;
   }
-  return out;
+  parts.push(src.substring(runStart, n));
+  return parts.join("");
 }
 
 // Troca ocorrências do identificador `from` por `to` (só identificador inteiro,
 // não `.from` nem dentro de outro nome).
+// (runStart+parts, não `out = out + c` — concat por caractere é O(n²) e num
+// bundle de 6 MB vira hora de parede; medido no pré-passo do WhatsApp.)
 function __replaceIdent(src: string, from: string, to: string): string {
-  let out = "";
+  const parts: string[] = [];
+  let runStart = 0;
   let i = 0;
   const n = src.length;
   while (i < n) {
@@ -716,13 +766,17 @@ function __replaceIdent(src: string, from: string, to: string): string {
       let p = s - 1;
       while (p >= 0 && __isSpace(src.substring(p, p + 1))) p = p - 1;
       const prevCh = p >= 0 ? src.substring(p, p + 1) : "";
-      out = out + (w === from && prevCh !== "." ? to : w);
+      if (w === from && prevCh !== ".") {
+        parts.push(src.substring(runStart, s));
+        parts.push(to);
+        runStart = i;
+      }
       continue;
     }
-    out = out + c;
     i = i + 1;
   }
-  return out;
+  parts.push(src.substring(runStart, n));
+  return parts.join("");
 }
 
 // ── SEQUÊNCIA (`a=1, b=function(){}`) → statements ────────────────────────────
@@ -733,8 +787,11 @@ function __replaceIdent(src: string, from: string, to: string): string {
 // sequência é só "faça isto, depois aquilo", trocar a vírgula separadora por `;`
 // preserva a semântica. Só quebra vírgulas em profundidade ZERO de (), [], {} e
 // fora de string — as vírgulas de argumento/array/objeto ficam intactas.
+// (runStart+parts: o texto entre vírgulas trocadas é copiado em FATIAS — o
+// `out = out + c` por caractere era O(n²) e dominava o load de bundle grande.)
 function __splitTopLevelSequences(src: string): string {
-  let out = "";
+  const parts: string[] = [];
+  let runStart = 0;
   let i = 0;
   const n = src.length;
   let par = 0;
@@ -745,23 +802,18 @@ function __splitTopLevelSequences(src: string): string {
     if (c === "/" && i + 1 < n) {
       const c2 = src.substring(i + 1, i + 2);
       if (c2 === "/") {
-        const s = i;
         while (i < n && src.substring(i, i + 1) !== "\n") i = i + 1;
-        out = out + src.substring(s, i);
         continue;
       }
       if (c2 === "*") {
-        const s = i;
         i = i + 2;
         while (i + 1 < n && !(src.substring(i, i + 1) === "*" && src.substring(i + 1, i + 2) === "/")) i = i + 1;
         i = i + 2;
-        out = out + src.substring(s, i);
         continue;
       }
     }
     if (c === "\"" || c === "'" || c === "`") {
       const q = c;
-      const s = i;
       i = i + 1;
       while (i < n) {
         const d = src.substring(i, i + 1);
@@ -769,7 +821,6 @@ function __splitTopLevelSequences(src: string): string {
         if (d === q) { i = i + 1; break; }
         i = i + 1;
       }
-      out = out + src.substring(s, i);
       continue;
     }
     if (c === "(") par = par + 1;
@@ -779,11 +830,15 @@ function __splitTopLevelSequences(src: string): string {
     else if (c === "{") brc = brc + 1;
     else if (c === "}") brc = brc - 1;
     // vírgula separadora de sequência no topo → `;`
-    if (c === "," && par === 0 && brk === 0 && brc === 0) out = out + ";";
-    else out = out + c;
+    if (c === "," && par === 0 && brk === 0 && brc === 0) {
+      parts.push(src.substring(runStart, i));
+      parts.push(";");
+      runStart = i + 1;
+    }
     i = i + 1;
   }
-  return out;
+  parts.push(src.substring(runStart, n));
+  return parts.join("");
 }
 
 // Remove de `names` tudo que o script DECLARA (var/let/const/function/param).
@@ -865,6 +920,14 @@ function __unqualifyInstanceof(src: string): string {
 // precisam enxergar exatamente o mesmo texto (os nomes detectados têm de bater
 // com o texto que vai ser compilado).
 function __normalizeScript(code: string): string {
+  // A normalização inteira vive em RUST (`scriptscan.rs`) — os passes `.ts`
+  // abaixo ficam como ORÁCULO do teste de paridade. Varrer 6 MB de bundle a
+  // ~1 µs/char levava 17 s aqui contra ~1 s lá.
+  return ScriptScan.normalize(code);
+}
+
+// Versão `.ts` de referência (oráculo do teste, fora do caminho quente).
+function __normalizeScriptTs(code: string): string {
   return __unqualifyInstanceof(__splitTopLevelSequences(__rewriteArguments(code)));
 }
 

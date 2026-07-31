@@ -1313,9 +1313,14 @@ impl Ctx {
         }
         // Bind a NAMED fn-expression's self-name: internal references become
         // references to the synthesized top-level name (registered below), so
-        // they are neither free nor captures.
+        // they are neither free nor captures. A body-declared binding with the
+        // SAME name shadows the self-name (`function t(e){ var t; t = e; … }` —
+        // `var` re-declares it for the whole function scope, a minified-bundle
+        // staple): every internal reference is then the local, and renaming it
+        // turned `t = e` into an assignment to the synthesized name
+        // ("assignment to unbound `__rtsn_arrow_N`").
         if let Some(sn) = &self_name {
-            if !param_names.contains(sn) {
+            if !param_names.contains(sn) && !declared_locals(&body_stmts).contains(sn) {
                 rename_ident_stmts(&mut body_stmts, sn, &name);
             }
         }
@@ -1343,6 +1348,11 @@ impl Ctx {
         for id in &free {
             if param_names.contains(id)
                 || id == &name
+                // `arguments` é binding PRÓPRIO de uma função não-arrow, não uma
+                // captura do escopo externo. Sem isto ele surge como ident livre
+                // desconhecido e a extração aborta ("expression arrow") — era o
+                // que impedia `f = function(){ … arguments … }` de compilar.
+                || (!is_async && is_fn_expr && id == "arguments")
                 || GLOBALS.contains(&id.as_str())
                 // A top-level CLOSURE (a synthesized fn WITH captures) is NOT
                 // skippable: its direct name cannot be called from a scope that
@@ -1511,7 +1521,10 @@ impl Ctx {
             ret: ret.clone(),
             body: body_stmts,
             is_async,
-            is_arrow: true,
+            // `is_arrow` no `HirFunc` = NÃO é function-expression. É o que o
+            // `argsobj` consulta para decidir se materializa `arguments`: uma
+            // arrow de verdade não tem o objeto próprio, uma fn-expr tem.
+            is_arrow: !is_fn_expr,
         });
         Some(name)
     }
