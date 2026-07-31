@@ -164,8 +164,8 @@ fn invoke_worker(fn_ptr: u64, arg: u64) -> u64 {
 }
 
 /// Spawns an OS thread running `fn_ptr(arg)`. JoinHandle, 0 on null fn.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN(fn_ptr: U64, arg: U64) -> U64 {
+#[rtse::abi("__RTS_FN_NS_THREAD_SPAWN")]
+pub fn __RTS_FN_NS_THREAD_SPAWN(fn_ptr: U64, arg: U64) -> U64 {
     if fn_ptr == 0 {
         return 0;
     }
@@ -188,8 +188,8 @@ pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN(fn_ptr: U64, arg: U64) -> U64 {
 }
 
 /// Fire-and-forget `fn_ptr(arg)` on the shared tokio runtime (spawn_blocking).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN_ASYNC(fn_ptr: U64, arg: U64) {
+#[rtse::abi("__RTS_FN_NS_THREAD_SPAWN_ASYNC")]
+pub fn __RTS_FN_NS_THREAD_SPAWN_ASYNC(fn_ptr: U64, arg: U64) {
     if fn_ptr == 0 {
         return;
     }
@@ -201,8 +201,8 @@ pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN_ASYNC(fn_ptr: U64, arg: U64) {
 }
 
 /// Like spawn_async but returns an id for `join_async`. 0 on null fn.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN_ASYNC_JOIN(fn_ptr: U64, arg: U64) -> U64 {
+#[rtse::abi("__RTS_FN_NS_THREAD_SPAWN_ASYNC_JOIN")]
+pub fn __RTS_FN_NS_THREAD_SPAWN_ASYNC_JOIN(fn_ptr: U64, arg: U64) -> U64 {
     if fn_ptr == 0 {
         return 0;
     }
@@ -234,14 +234,14 @@ fn join_async(id: U64) -> U64 {
 }
 
 /// Submits `fn_ptr(arg)` to the global worker pool (fire-and-forget).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN_DETACHED(fn_ptr: U64, arg: U64) {
+#[rtse::abi("__RTS_FN_NS_THREAD_SPAWN_DETACHED")]
+pub fn __RTS_FN_NS_THREAD_SPAWN_DETACHED(fn_ptr: U64, arg: U64) {
     pool_submit(fn_ptr, arg);
 }
 
 /// Spawns an OS thread running `fn_ptr(userdata, arg)`. JoinHandle, 0 on null fn.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_THREAD_SPAWN_WITH_UD(fn_ptr: U64, arg: U64, userdata: U64) -> U64 {
+#[rtse::abi("__RTS_FN_NS_THREAD_SPAWN_WITH_UD")]
+pub fn __RTS_FN_NS_THREAD_SPAWN_WITH_UD(fn_ptr: U64, arg: U64, userdata: U64) -> U64 {
     if fn_ptr == 0 {
         return 0;
     }

@@ -247,8 +247,8 @@ fn invoke_timer_cb(fp: u64) {
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TIMERS_SET_TIMEOUT(fp: u64, delay_ms: i64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_TIMERS_SET_TIMEOUT")]
+pub fn __RTS_FN_GL_TIMERS_SET_TIMEOUT(fp: u64, delay_ms: i64) -> u64 {
     let cancelled = Arc::new(AtomicBool::new(false));
     let flag = cancelled.clone();
     let delay = if delay_ms > 0 { delay_ms as u64 } else { 0 };
@@ -266,13 +266,13 @@ pub extern "C" fn __RTS_FN_GL_TIMERS_SET_TIMEOUT(fp: u64, delay_ms: i64) -> u64 
     handle
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TIMERS_CLEAR_TIMEOUT(handle: u64) {
+#[rtse::abi("__RTS_FN_GL_TIMERS_CLEAR_TIMEOUT")]
+pub fn __RTS_FN_GL_TIMERS_CLEAR_TIMEOUT(handle: u64) {
     cancel_timer(handle);
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TIMERS_SET_INTERVAL(fp: u64, interval_ms: i64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_TIMERS_SET_INTERVAL")]
+pub fn __RTS_FN_GL_TIMERS_SET_INTERVAL(fp: u64, interval_ms: i64) -> u64 {
     let cancelled = Arc::new(AtomicBool::new(false));
     let flag = cancelled.clone();
     let ms = if interval_ms > 0 {
@@ -290,8 +290,8 @@ pub extern "C" fn __RTS_FN_GL_TIMERS_SET_INTERVAL(fp: u64, interval_ms: i64) -> 
     handle
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TIMERS_CLEAR_INTERVAL(handle: u64) {
+#[rtse::abi("__RTS_FN_GL_TIMERS_CLEAR_INTERVAL")]
+pub fn __RTS_FN_GL_TIMERS_CLEAR_INTERVAL(handle: u64) {
     cancel_timer(handle);
 }
 
@@ -312,8 +312,8 @@ fn immediate_queue() -> Arc<Mutex<Vec<ImmediateEntry>>> {
         .clone()
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TIMERS_SET_IMMEDIATE(fp: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_TIMERS_SET_IMMEDIATE")]
+pub fn __RTS_FN_GL_TIMERS_SET_IMMEDIATE(fp: u64) -> u64 {
     let cancelled = Arc::new(AtomicBool::new(false));
     let ran = Arc::new(AtomicBool::new(false));
     let handle = alloc_entry(Entry::Env(vec![0]));
@@ -366,7 +366,7 @@ pub fn drain_pending_timers() {
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TIMERS_CLEAR_IMMEDIATE(handle: u64) {
+#[rtse::abi("__RTS_FN_GL_TIMERS_CLEAR_IMMEDIATE")]
+pub fn __RTS_FN_GL_TIMERS_CLEAR_IMMEDIATE(handle: u64) {
     cancel_timer(handle);
 }

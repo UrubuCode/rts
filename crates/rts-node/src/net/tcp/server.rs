@@ -67,15 +67,15 @@ fn build(options: u64, listener: u64) -> u64 {
 }
 
 /// `net.createServer()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_CREATE_SERVER() -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_CREATE_SERVER")]
+pub fn __RTS_FN_NODE_NET_CREATE_SERVER() -> u64 {
     build(0, 0)
 }
 
 /// `net.createServer(options | connectionListener)` — overloaded BY VALUE, the
 /// same branch Node's own JS takes.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_CREATE_SERVER1(a0: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_CREATE_SERVER1")]
+pub fn __RTS_FN_NODE_NET_CREATE_SERVER1(a0: u64) -> u64 {
     match val(a0) {
         Val::Func(_) => build(0, a0),
         Val::Obj(o) => build(o, 0),
@@ -84,8 +84,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_CREATE_SERVER1(a0: u64) -> u64 {
 }
 
 /// `net.createServer(options, connectionListener)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_CREATE_SERVER2(options: u64, listener: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_CREATE_SERVER2")]
+pub fn __RTS_FN_NODE_NET_CREATE_SERVER2(options: u64, listener: u64) -> u64 {
     match val(options) {
         Val::Obj(o) => build(o, listener),
         _ => build(0, listener),
@@ -263,8 +263,8 @@ fn accept_one(st: &Arc<ServerState>, stream: std::net::TcpStream) {
 }
 
 /// `server.listen()` — an OS-assigned port on the default host.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SERVER_LISTEN0(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SERVER_LISTEN0")]
+pub fn __RTS_FN_NODE_NET_SERVER_LISTEN0(this: u64) -> u64 {
     listen_impl(this, ListenArgs::default(), 0)
 }
 
@@ -305,26 +305,26 @@ fn listen_args(this: u64, words: &[u64]) -> u64 {
 }
 
 /// `server.listen(portOrOptionsOrCallback)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SERVER_LISTEN1(this: u64, a0: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SERVER_LISTEN1")]
+pub fn __RTS_FN_NODE_NET_SERVER_LISTEN1(this: u64, a0: u64) -> u64 {
     listen_args(this, &[a0])
 }
 
 /// `server.listen(port, hostOrBacklogOrCallback)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SERVER_LISTEN2(this: u64, a0: u64, a1: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SERVER_LISTEN2")]
+pub fn __RTS_FN_NODE_NET_SERVER_LISTEN2(this: u64, a0: u64, a1: u64) -> u64 {
     listen_args(this, &[a0, a1])
 }
 
 /// `server.listen(port, host, backlogOrCallback)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SERVER_LISTEN3(this: u64, a0: u64, a1: u64, a2: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SERVER_LISTEN3")]
+pub fn __RTS_FN_NODE_NET_SERVER_LISTEN3(this: u64, a0: u64, a1: u64, a2: u64) -> u64 {
     listen_args(this, &[a0, a1, a2])
 }
 
 /// `server.listen(port, host, backlog, callback)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SERVER_LISTEN4(this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SERVER_LISTEN4")]
+pub fn __RTS_FN_NODE_NET_SERVER_LISTEN4(this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     listen_args(this, &[a0, a1, a2, a3])
 }
 
@@ -362,14 +362,14 @@ fn close_impl(this: u64, cb: u64) -> u64 {
 }
 
 /// `server.close()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SERVER_CLOSE0(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SERVER_CLOSE0")]
+pub fn __RTS_FN_NODE_NET_SERVER_CLOSE0(this: u64) -> u64 {
     close_impl(this, 0)
 }
 
 /// `server.close(callback)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SERVER_CLOSE1(this: u64, cb: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SERVER_CLOSE1")]
+pub fn __RTS_FN_NODE_NET_SERVER_CLOSE1(this: u64, cb: u64) -> u64 {
     close_impl(this, val(cb).as_func().unwrap_or(0))
 }
 
@@ -387,8 +387,8 @@ pub fn finalize(this: u64) {
 }
 
 /// `server.address()` — `null` before `'listening'` and after `close()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SERVER_ADDRESS(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SERVER_ADDRESS")]
+pub fn __RTS_FN_NODE_NET_SERVER_ADDRESS(this: u64) -> u64 {
     let Some(st) = state::server(this) else { return 0 };
     match *st.bound.lock().unwrap() {
         // A 0 handle boxes as null on a nullable `): object` return.
@@ -399,8 +399,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SERVER_ADDRESS(this: u64) -> u64 {
 
 /// `server.getConnections(callback)` — Node documents it as asynchronous, so the
 /// count is read now and the callback fires on a later turn.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SERVER_GET_CONNECTIONS(this: u64, cb: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SERVER_GET_CONNECTIONS")]
+pub fn __RTS_FN_NODE_NET_SERVER_GET_CONNECTIONS(this: u64, cb: u64) -> u64 {
     let Some(st) = state::server(this) else { return this };
     if let Val::Func(cb) = val(cb) {
         st.push(ServerEvent::Connections { cb, count: st.connections.load(Ordering::Acquire) });
@@ -410,8 +410,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SERVER_GET_CONNECTIONS(this: u64, cb: u64) -
 }
 
 /// `server.listening`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SERVER_LISTENING(this: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SERVER_LISTENING")]
+pub fn __RTS_FN_NODE_NET_SERVER_LISTENING(this: u64) -> i64 {
     state::server(this)
         .map(|st| i64::from(st.listening.load(Ordering::Acquire)))
         .unwrap_or(0)
@@ -422,8 +422,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SERVER_LISTENING(this: u64) -> i64 {
 
 
 /// `server.ref()` — chainable.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SERVER_REF(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SERVER_REF")]
+pub fn __RTS_FN_NODE_NET_SERVER_REF(this: u64) -> u64 {
     if let Some(st) = state::server(this) {
         st.refd.store(true, Ordering::Release);
         keep_alive(&st, true);
@@ -432,8 +432,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SERVER_REF(this: u64) -> u64 {
 }
 
 /// `server.unref()` — chainable.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SERVER_UNREF(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SERVER_UNREF")]
+pub fn __RTS_FN_NODE_NET_SERVER_UNREF(this: u64) -> u64 {
     if let Some(st) = state::server(this) {
         st.refd.store(false, Ordering::Release);
         keep_alive(&st, false);
@@ -456,14 +456,18 @@ fn emit_words(this: u64, ep: *const u8, el: i64, args: Vec<u64>) -> i64 {
 }
 
 /// `server.emit(event)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SERVER_EMIT0(this: u64, ep: *const u8, el: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SERVER_EMIT0")]
+pub fn __RTS_FN_NODE_NET_SERVER_EMIT0(this: u64, ep: u64, el: i64) -> i64 {
+    let ep = ep as *const u8;
+
     emit_words(this, ep, el, Vec::new())
 }
 
 /// `server.emit(event, a0)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SERVER_EMIT1(this: u64, ep: *const u8, el: i64, a0: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SERVER_EMIT1")]
+pub fn __RTS_FN_NODE_NET_SERVER_EMIT1(this: u64, ep: u64, el: i64, a0: u64) -> i64 {
+    let ep = ep as *const u8;
+
     emit_words(this, ep, el, vec![a0])
 }
 

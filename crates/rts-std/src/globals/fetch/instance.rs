@@ -28,8 +28,8 @@ fn request_overrides() -> &'static RwLock<RequestOverrides> {
 
 /// `fetch.setUserAgent(ua)` — sobrescreve o User-Agent do caminho do browser.
 /// String vazia volta ao default de navegador.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FETCH_SET_USER_AGENT(ua_ptr: i64, ua_len: i64) {
+#[rtse::abi("__RTS_FN_NS_FETCH_SET_USER_AGENT")]
+pub fn __RTS_FN_NS_FETCH_SET_USER_AGENT(ua_ptr: i64, ua_len: i64) {
     let ua = str_from_parts(ua_ptr, ua_len);
     let mut o = request_overrides().write().unwrap_or_else(|e| e.into_inner());
     o.user_agent = if ua.is_empty() { None } else { Some(ua.to_string()) };
@@ -37,8 +37,8 @@ pub extern "C" fn __RTS_FN_NS_FETCH_SET_USER_AGENT(ua_ptr: i64, ua_len: i64) {
 
 /// `fetch.setHeader(name, value)` — injeta/sobrescreve um header do caminho do
 /// browser (Cookie, Referer, X-*, o que for). Valor vazio REMOVE o override.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FETCH_SET_HEADER(
+#[rtse::abi("__RTS_FN_NS_FETCH_SET_HEADER")]
+pub fn __RTS_FN_NS_FETCH_SET_HEADER(
     name_ptr: i64,
     name_len: i64,
     val_ptr: i64,
@@ -57,8 +57,8 @@ pub extern "C" fn __RTS_FN_NS_FETCH_SET_HEADER(
 }
 
 /// `fetch.clearOverrides()` — descarta todos os overrides (volta ao default).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FETCH_CLEAR_OVERRIDES() {
+#[rtse::abi("__RTS_FN_NS_FETCH_CLEAR_OVERRIDES")]
+pub fn __RTS_FN_NS_FETCH_CLEAR_OVERRIDES() {
     let mut o = request_overrides().write().unwrap_or_else(|e| e.into_inner());
     o.user_agent = None;
     o.headers.clear();
@@ -262,8 +262,8 @@ fn cp1252_char(b: u8) -> char {
 
 /// fetch(url: string, opts?: RequestInit) -> Promise<Response>
 /// opts is a Map handle (object literal from codegen). 0 = no opts.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FETCH(url_ptr: i64, url_len: i64, opts_h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_FETCH")]
+pub fn __RTS_FN_GL_FETCH(url_ptr: i64, url_len: i64, opts_h: u64) -> u64 {
     let url = str_from_parts(url_ptr, url_len);
     do_fetch(url, opts_h)
 }
@@ -272,8 +272,8 @@ pub extern "C" fn __RTS_FN_GL_FETCH(url_ptr: i64, url_len: i64, opts_h: u64) -> 
 /// pool GC), numa só chamada síncrona. Conveniência para o mini-browser: junta o
 /// `fetch(url)` + `.text()` sem exigir o `fetch()` global no front do engine nem a
 /// máquina de Promise. Erro de rede → string vazia (o browser mostra "falhou").
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_TEXT(url_ptr: i64, url_len: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_FETCH_FETCH_TEXT")]
+pub fn __RTS_FN_NS_FETCH_FETCH_TEXT(url_ptr: i64, url_len: i64) -> u64 {
     let url = str_from_parts(url_ptr, url_len);
     let resp_h = do_fetch_ua(url, 0, true);
     let body = with_response(resp_h, |r| r.body.clone()).unwrap_or_default();
@@ -303,8 +303,8 @@ fn next_ticket() -> u64 {
 
 /// `fetchTextAsync(url)` → dispara o GET numa thread e devolve um TICKET (u64)
 /// imediatamente (NÃO bloqueia). O corpo fica disponível via `fetchPoll`/`fetchTake`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_TEXT_ASYNC(url_ptr: i64, url_len: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_FETCH_FETCH_TEXT_ASYNC")]
+pub fn __RTS_FN_NS_FETCH_FETCH_TEXT_ASYNC(url_ptr: i64, url_len: i64) -> u64 {
     let url = str_from_parts(url_ptr, url_len).to_string();
     let ticket = next_ticket();
     async_fetches().lock().unwrap().insert(ticket, None); // pendente
@@ -321,8 +321,8 @@ pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_TEXT_ASYNC(url_ptr: i64, url_len: i64)
 
 /// `fetchPoll(ticket)` → `1` se o download terminou (corpo pronto p/ `fetchTake`),
 /// `0` se ainda baixando, `-1` se o ticket é inválido. Não bloqueia.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_POLL(ticket: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_FETCH_FETCH_POLL")]
+pub fn __RTS_FN_NS_FETCH_FETCH_POLL(ticket: u64) -> i64 {
     match async_fetches().lock().unwrap().get(&ticket) {
         Some(Some(_)) => 1,
         Some(None) => 0,
@@ -332,8 +332,8 @@ pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_POLL(ticket: u64) -> i64 {
 
 /// `fetchTake(ticket)` → o corpo baixado como STRING (handle do pool GC) e REMOVE o
 /// ticket. `""` se não está pronto / inválido. Chamar após `fetchPoll` == 1.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_TAKE(ticket: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_FETCH_FETCH_TAKE")]
+pub fn __RTS_FN_NS_FETCH_FETCH_TAKE(ticket: u64) -> u64 {
     let taken = async_fetches().lock().unwrap().remove(&ticket).flatten();
     alloc_entry(Entry::String(taken.unwrap_or_default().into_bytes()))
 }
@@ -366,8 +366,8 @@ fn async_byte_fetches() -> &'static Mutex<HashMap<u64, Option<Vec<u8>>>> {
 }
 
 /// `fetchBytesAsync(url)` → dispara um GET BINÁRIO numa thread; ticket na hora.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_BYTES_ASYNC(url_ptr: i64, url_len: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_FETCH_FETCH_BYTES_ASYNC")]
+pub fn __RTS_FN_NS_FETCH_FETCH_BYTES_ASYNC(url_ptr: i64, url_len: i64) -> u64 {
     let url = str_from_parts(url_ptr, url_len).to_string();
     let ticket = next_ticket();
     async_byte_fetches().lock().unwrap().insert(ticket, None);
@@ -379,8 +379,8 @@ pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_BYTES_ASYNC(url_ptr: i64, url_len: i64
 }
 
 /// `fetchBytesPoll(ticket)` → 1 pronto / 0 baixando / -1 inválido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_BYTES_POLL(ticket: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_FETCH_FETCH_BYTES_POLL")]
+pub fn __RTS_FN_NS_FETCH_FETCH_BYTES_POLL(ticket: u64) -> i64 {
     match async_byte_fetches().lock().unwrap().get(&ticket) {
         Some(Some(_)) => 1,
         Some(None) => 0,
@@ -390,8 +390,8 @@ pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_BYTES_POLL(ticket: u64) -> i64 {
 
 /// `fetchBytesTake(ticket)` → os bytes crus como Buffer (handle) e remove o ticket.
 /// Buffer vazio se não pronto/inválido. Passe `buffer.ptr`/`buffer.len` ao imgdec.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FETCH_FETCH_BYTES_TAKE(ticket: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_FETCH_FETCH_BYTES_TAKE")]
+pub fn __RTS_FN_NS_FETCH_FETCH_BYTES_TAKE(ticket: u64) -> u64 {
     let taken = async_byte_fetches().lock().unwrap().remove(&ticket).flatten();
     alloc_entry(Entry::Buffer(taken.unwrap_or_default()))
 }
@@ -418,8 +418,8 @@ fn classify(handle: u64) -> PromiseKind {
 
 /// promise.then(onFul, onRej?) — versao 2-arg.
 /// Variante 1-arg eh `__RTS_FN_GL_PROMISE_THEN` que delega.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_PROMISE_THEN2(promise_h: u64, on_ful: u64, on_rej: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_PROMISE_THEN2")]
+pub fn __RTS_FN_GL_PROMISE_THEN2(promise_h: u64, on_ful: u64, on_rej: u64) -> u64 {
     use crate::promise_slot;
 
     match classify(promise_h) {
@@ -484,23 +484,23 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_THEN2(promise_h: u64, on_ful: u64, on_rej:
 }
 
 /// promise.then(fn) → versao 1-arg, delega pra THEN2 sem onRej.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_PROMISE_THEN(promise_h: u64, fp: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_PROMISE_THEN")]
+pub fn __RTS_FN_GL_PROMISE_THEN(promise_h: u64, fp: u64) -> u64 {
     __RTS_FN_GL_PROMISE_THEN2(promise_h, fp, 0)
 }
 
 /// promise.catch(fn) → atalho de then(undefined, fn). Recupera de
 /// rejection via callback que retorna novo valor. Sem callback é passthrough.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_PROMISE_CATCH(promise_h: u64, fp: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_PROMISE_CATCH")]
+pub fn __RTS_FN_GL_PROMISE_CATCH(promise_h: u64, fp: u64) -> u64 {
     __RTS_FN_GL_PROMISE_THEN2(promise_h, 0, fp)
 }
 
 /// promise.finally(fn) — chama fn() ao settle (independente de
 /// fulfilled/rejected) e retorna nova Promise com mesmo state/value
 /// da original.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_PROMISE_FINALLY(promise_h: u64, fp: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_PROMISE_FINALLY")]
+pub fn __RTS_FN_GL_PROMISE_FINALLY(promise_h: u64, fp: u64) -> u64 {
     use crate::promise_slot;
 
     match classify(promise_h) {
@@ -553,14 +553,14 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_FINALLY(promise_h: u64, fp: u64) -> u64 {
 
 /// `Promise.resolve(v)` — JS spec: se `v` ja eh Promise, retorna ela
 /// mesma; caso contrario cria nova `PromiseAsync` ja fulfilled.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVE_EMPTY() -> i64 {
+#[rtse::abi("__RTS_FN_GL_PROMISE_RESOLVE_EMPTY")]
+pub fn __RTS_FN_GL_PROMISE_RESOLVE_EMPTY() -> i64 {
     // Promise.resolve() — equivalente a Promise.resolve(undefined).
     __RTS_FN_GL_PROMISE_RESOLVE(0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVE(value: u64) -> i64 {
+#[rtse::abi("__RTS_FN_GL_PROMISE_RESOLVE")]
+pub fn __RTS_FN_GL_PROMISE_RESOLVE(value: u64) -> i64 {
     let already_promise = with_entry(value, |entry| {
         matches!(entry, Some(Entry::PromiseAsync(_)))
     });
@@ -585,8 +585,8 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_RESOLVE(value: u64) -> i64 {
 /// `Promise.reject(reason)` — cria PromiseAsync ja rejected.
 /// Antes era alias de RESOLVE, o que quebrava `.catch`, `Promise.any`
 /// e `Promise.allSettled` que precisam distinguir state.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_PROMISE_REJECT(reason: u64) -> i64 {
+#[rtse::abi("__RTS_FN_GL_PROMISE_REJECT")]
+pub fn __RTS_FN_GL_PROMISE_REJECT(reason: u64) -> i64 {
     let slot = crate::promise_slot::new_rejected(reason as i64);
     alloc_entry(Entry::PromiseAsync(slot)) as i64
 }
@@ -595,8 +595,8 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_REJECT(reason: u64) -> i64 {
 /// retorna Promise.resolve(retval) (ou Promise.reject(err) se fn lancar).
 /// Spec ES2025: equivalente a `Promise.resolve().then(fn)` mas com fn
 /// executada sync em vez de microtask.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_PROMISE_TRY(fp: u64) -> i64 {
+#[rtse::abi("__RTS_FN_GL_PROMISE_TRY")]
+pub fn __RTS_FN_GL_PROMISE_TRY(fp: u64) -> i64 {
     use crate::gc_surface as error;
     if fp == 0 {
         let slot = crate::promise_slot::new_fulfilled(0);
@@ -648,8 +648,8 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_TRY(fp: u64) -> i64 {
 /// O executor pode chamar resolve/reject sincronamente OU agendar via
 /// setTimeout/spawn_blocking. Em ambos os casos, settle eh idempotente
 /// e wait_blocking acorda waiters via oneshot::Sender.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_PROMISE_NEW(executor_h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_PROMISE_NEW")]
+pub fn __RTS_FN_GL_PROMISE_NEW(executor_h: u64) -> u64 {
     use crate::{gc_surface as error, promise_slot};
     let slot = promise_slot::new_pending();
     let promise_h = alloc_entry(Entry::PromiseAsync(slot.clone()));
@@ -681,8 +681,8 @@ pub extern "C" fn __RTS_FN_GL_PROMISE_NEW(executor_h: u64) -> u64 {
 /// (cross-runtime #92) `Promise.withResolvers()` — ES2024.
 /// Retorna Map { promise, resolve, reject }. `resolve(v)` e `reject(e)`
 /// sao Function handles que settle a promise quando chamados.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_PROMISE_WITH_RESOLVERS() -> u64 {
+#[rtse::abi("__RTS_FN_GL_PROMISE_WITH_RESOLVERS")]
+pub fn __RTS_FN_GL_PROMISE_WITH_RESOLVERS() -> u64 {
     use rts_engine::heap::shapes::{alloc_shaped_object, handle_word_auto};
     let slot = crate::promise_slot::new_pending();
     let promise_h = alloc_entry(Entry::PromiseAsync(slot.clone()));
@@ -771,12 +771,17 @@ fn with_response<T>(h: u64, f: impl FnOnce(&HttpResponseData) -> T) -> Option<T>
 }
 
 /// response.status → number
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_STATUS(h: u64) -> i64 {
+#[rtse::abi("__RTS_FN_GL_FETCH_RESPONSE_STATUS")]
+pub fn __RTS_FN_GL_FETCH_RESPONSE_STATUS(h: u64) -> i64 {
     with_response(h, |r| r.status as i64).unwrap_or(0)
 }
 
 /// response.ok → boolean (status 200-299)
+// NOT `#[rtse::abi]`: returns `i8`, which has no ABI spelling — deliberately
+// left alone rather than "fixed" here. CLAUDE.md is explicit that a Bool
+// crosses as i64 and NEVER as i8, so this return type is suspect on its own
+// terms; changing it is an ABI change that needs its own verified commit, not a
+// side effect of a mechanical drain.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_OK(h: u64) -> i8 {
     let status = with_response(h, |r| r.status).unwrap_or(0);
@@ -788,8 +793,8 @@ pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_OK(h: u64) -> i8 {
 }
 
 /// response.statusText → string handle (e.g. "OK", "Not Found")
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_STATUS_TEXT(h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_FETCH_RESPONSE_STATUS_TEXT")]
+pub fn __RTS_FN_GL_FETCH_RESPONSE_STATUS_TEXT(h: u64) -> u64 {
     let status = with_response(h, |r| r.status).unwrap_or(0);
     let text = match status {
         200 => "OK",
@@ -813,16 +818,16 @@ pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_STATUS_TEXT(h: u64) -> u64 {
 }
 
 /// response.url → string handle
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_URL(h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_FETCH_RESPONSE_URL")]
+pub fn __RTS_FN_GL_FETCH_RESPONSE_URL(h: u64) -> u64 {
     let url = with_response(h, |r| r.url.as_bytes().to_vec()).unwrap_or_default();
     alloc_entry(Entry::String(url))
 }
 
 /// response.text() → Promise<string>. Dual-mode: HttpResponse (fetch) OU
 /// Map (new Response(body, init)). Promise resolvido p/ `await res.text()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_TEXT(h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_FETCH_RESPONSE_TEXT")]
+pub fn __RTS_FN_GL_FETCH_RESPONSE_TEXT(h: u64) -> u64 {
     // (cross-runtime #85) Map-based Response guarda "body" como string handle.
     let map_body = with_entry(h, |e| match e {
         Some(Entry::Map(m)) => Some(m.get("body").copied().unwrap_or(0) as u64),
@@ -839,8 +844,8 @@ pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_TEXT(h: u64) -> u64 {
 }
 
 /// response.json() → JSON handle (RTS sync — sem Promise wrapper)
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_JSON(h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_FETCH_RESPONSE_JSON")]
+pub fn __RTS_FN_GL_FETCH_RESPONSE_JSON(h: u64) -> u64 {
     let body = with_response(h, |r| r.body.clone()).unwrap_or_default();
     let json_val =
         serde_json::from_slice::<serde_json::Value>(&body).unwrap_or(serde_json::Value::Null);
@@ -848,8 +853,8 @@ pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_JSON(h: u64) -> u64 {
 }
 
 /// response.arrayBuffer() / response.blob() → Buffer handle (RTS sync)
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_ARRAY_BUFFER(h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_FETCH_RESPONSE_ARRAY_BUFFER")]
+pub fn __RTS_FN_GL_FETCH_RESPONSE_ARRAY_BUFFER(h: u64) -> u64 {
     let body = with_response(h, |r| r.body.clone()).unwrap_or_default();
     alloc_entry(Entry::Buffer(body))
 }
@@ -890,8 +895,8 @@ fn opt_str_field(map_h: u64, key: &str) -> Option<u64> {
 }
 
 /// new Response(body, init) — body string + init.headers/status.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_NEW(body_ptr: i64, body_len: i64, init_h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_FETCH_RESPONSE_NEW")]
+pub fn __RTS_FN_GL_FETCH_RESPONSE_NEW(body_ptr: i64, body_len: i64, init_h: u64) -> u64 {
     use indexmap::IndexMap;
     let body = str_from_parts(body_ptr, body_len).to_owned();
     let body_h = alloc_entry(Entry::String(body.into_bytes())) as i64;
@@ -917,8 +922,8 @@ pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_NEW(body_ptr: i64, body_len: i64, i
 }
 
 /// response.headers → Headers handle (Map-based Response).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_HEADERS(h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_FETCH_RESPONSE_HEADERS")]
+pub fn __RTS_FN_GL_FETCH_RESPONSE_HEADERS(h: u64) -> u64 {
     with_entry(h, |e| match e {
         Some(Entry::Map(m)) => m.get("headers").copied().unwrap_or(0) as u64,
         _ => 0,
@@ -926,8 +931,8 @@ pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_HEADERS(h: u64) -> u64 {
 }
 
 /// new Request(url, init) — url string + init.method/body.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REQUEST_NEW(url_ptr: i64, url_len: i64, init_h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_REQUEST_NEW")]
+pub fn __RTS_FN_GL_REQUEST_NEW(url_ptr: i64, url_len: i64, init_h: u64) -> u64 {
     use indexmap::IndexMap;
     let url = str_from_parts(url_ptr, url_len).to_owned();
     let url_h = alloc_entry(Entry::String(url.into_bytes())) as i64;
@@ -946,16 +951,16 @@ pub extern "C" fn __RTS_FN_GL_REQUEST_NEW(url_ptr: i64, url_len: i64, init_h: u6
     alloc_entry(Entry::Map(Box::new(m)))
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REQUEST_METHOD(h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_REQUEST_METHOD")]
+pub fn __RTS_FN_GL_REQUEST_METHOD(h: u64) -> u64 {
     with_entry(h, |e| match e {
         Some(Entry::Map(m)) => m.get("method").copied().unwrap_or(0) as u64,
         _ => 0,
     })
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REQUEST_URL(h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_REQUEST_URL")]
+pub fn __RTS_FN_GL_REQUEST_URL(h: u64) -> u64 {
     with_entry(h, |e| match e {
         Some(Entry::Map(m)) => m.get("url").copied().unwrap_or(0) as u64,
         _ => 0,
@@ -963,8 +968,8 @@ pub extern "C" fn __RTS_FN_GL_REQUEST_URL(h: u64) -> u64 {
 }
 
 /// request.text() → Promise<string> (body).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REQUEST_TEXT(h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_REQUEST_TEXT")]
+pub fn __RTS_FN_GL_REQUEST_TEXT(h: u64) -> u64 {
     let body_h = with_entry(h, |e| match e {
         Some(Entry::Map(m)) => m.get("body").copied().unwrap_or(0) as u64,
         _ => 0,
@@ -979,8 +984,8 @@ pub extern "C" fn __RTS_FN_GL_REQUEST_TEXT(h: u64) -> u64 {
 /// permite encadear `.then` sem segfault quando o callback retorna handle de
 /// outro tipo (Map, String, Buffer) — o segundo `.then` ataca o Promise, não
 /// o handle bruto. (#379)
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_THEN(h: u64, fp: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_FETCH_RESPONSE_THEN")]
+pub fn __RTS_FN_GL_FETCH_RESPONSE_THEN(h: u64, fp: u64) -> u64 {
     if fp == 0 {
         let slot = crate::promise_slot::new_fulfilled(h as i64);
         return alloc_entry(Entry::PromiseAsync(slot));
@@ -998,8 +1003,8 @@ pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_THEN(h: u64, fp: u64) -> u64 {
 }
 
 /// response.free() — libera o handle do Response.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FETCH_RESPONSE_FREE(h: u64) {
+#[rtse::abi("__RTS_FN_GL_FETCH_RESPONSE_FREE")]
+pub fn __RTS_FN_GL_FETCH_RESPONSE_FREE(h: u64) {
     free_handle(h);
 }
 

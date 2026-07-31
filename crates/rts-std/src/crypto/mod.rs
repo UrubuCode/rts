@@ -234,8 +234,8 @@ fn os_random_into(buf: &mut [u8]) -> bool {
 /// `crypto.subtle.digest("SHA-256", data)` — NOT a namespace member. Takes the
 /// HANDLE of the input (Buffer/Vec) and returns a Promise fulfilled with a
 /// Buffer of the 32 raw digest bytes.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_CRYPTO_SHA256_DIGEST(src: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_CRYPTO_SHA256_DIGEST")]
+pub fn __RTS_FN_NS_CRYPTO_SHA256_DIGEST(src: u64) -> u64 {
     let bytes: Vec<u8> = with_entry(src, |entry| match entry {
         Some(Entry::Buffer(b)) => b.clone(),
         Some(Entry::Vec(v)) => v.iter().map(|&x| x as u8).collect(),
@@ -270,8 +270,8 @@ fn random_i64() -> I64 {
 }
 
 /// Allocates a Buffer of `len` random bytes. Handle, or 0 on error.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_CRYPTO_RANDOM_BUFFER(len: I64) -> Handle {
+#[rtse::abi("__RTS_FN_NS_CRYPTO_RANDOM_BUFFER")]
+pub fn __RTS_FN_NS_CRYPTO_RANDOM_BUFFER(len: I64) -> Handle {
     if len < 0 {
         return 0;
     }
@@ -283,8 +283,8 @@ pub extern "C" fn __RTS_FN_NS_CRYPTO_RANDOM_BUFFER(len: I64) -> Handle {
 }
 
 /// UUID v4 (RFC 4122) — `crypto.randomUUID()`. String handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_CRYPTO_RANDOM_UUID() -> Handle {
+#[rtse::abi("__RTS_FN_NS_CRYPTO_RANDOM_UUID")]
+pub fn __RTS_FN_NS_CRYPTO_RANDOM_UUID() -> Handle {
     let mut bytes = [0u8; 16];
     if !os_random_into(&mut bytes) {
         return 0;
@@ -314,8 +314,10 @@ pub extern "C" fn __RTS_FN_NS_CRYPTO_RANDOM_UUID() -> Handle {
 }
 
 /// `crypto.createHash("sha256")` — new streaming hasher. 0 if unsupported.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_CRYPTO_HASH_NEW(alg_ptr: *const u8, alg_len: i64) -> Handle {
+#[rtse::abi("__RTS_FN_NS_CRYPTO_HASH_NEW")]
+pub fn __RTS_FN_NS_CRYPTO_HASH_NEW(alg_ptr: u64, alg_len: i64) -> Handle {
+    let alg_ptr = alg_ptr as *const u8;
+
     let alg = match unsafe { rts_engine::abi::str_abi::from_abi(alg_ptr, alg_len) } {
         Some(s) => s,
         None => return 0,
@@ -328,8 +330,10 @@ pub extern "C" fn __RTS_FN_NS_CRYPTO_HASH_NEW(alg_ptr: *const u8, alg_len: i64) 
 }
 
 /// `hash.update(data: string)` — feed bytes into the streaming hasher.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_CRYPTO_HASH_UPDATE_STR(h: Handle, data_ptr: *const u8, data_len: i64) -> I64 {
+#[rtse::abi("__RTS_FN_NS_CRYPTO_HASH_UPDATE_STR")]
+pub fn __RTS_FN_NS_CRYPTO_HASH_UPDATE_STR(h: Handle, data_ptr: u64, data_len: i64) -> I64 {
+    let data_ptr = data_ptr as *const u8;
+
     let data = match unsafe { rts_engine::abi::str_abi::from_abi(data_ptr, data_len) } {
         Some(s) => s,
         None => return 0,
@@ -348,8 +352,8 @@ fn hash_update_bytes(h: Handle, ptr: I64, len: I64) -> I64 {
 }
 
 /// `hash.digest("hex")` — finalize, return a hex string handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_CRYPTO_HASH_DIGEST_HEX(h: Handle) -> Handle {
+#[rtse::abi("__RTS_FN_NS_CRYPTO_HASH_DIGEST_HEX")]
+pub fn __RTS_FN_NS_CRYPTO_HASH_DIGEST_HEX(h: Handle) -> Handle {
     let d = finalize_hasher(h);
     if d.is_empty() {
         return 0;
@@ -358,8 +362,8 @@ pub extern "C" fn __RTS_FN_NS_CRYPTO_HASH_DIGEST_HEX(h: Handle) -> Handle {
 }
 
 /// `hash.digest("base64")` — finalize, return a base64 string handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_CRYPTO_HASH_DIGEST_BASE64(h: Handle) -> Handle {
+#[rtse::abi("__RTS_FN_NS_CRYPTO_HASH_DIGEST_BASE64")]
+pub fn __RTS_FN_NS_CRYPTO_HASH_DIGEST_BASE64(h: Handle) -> Handle {
     let d = finalize_hasher(h);
     if d.is_empty() {
         return 0;
@@ -368,8 +372,10 @@ pub extern "C" fn __RTS_FN_NS_CRYPTO_HASH_DIGEST_BASE64(h: Handle) -> Handle {
 }
 
 /// SHA-256 of a string, lowercase hex. String handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_CRYPTO_SHA256_STR(s_ptr: *const u8, s_len: i64) -> Handle {
+#[rtse::abi("__RTS_FN_NS_CRYPTO_SHA256_STR")]
+pub fn __RTS_FN_NS_CRYPTO_SHA256_STR(s_ptr: u64, s_len: i64) -> Handle {
+    let s_ptr = s_ptr as *const u8;
+
     let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr, s_len) } {
         Some(s) => s,
         None => return 0,

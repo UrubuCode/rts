@@ -135,8 +135,8 @@ pub(crate) fn new_linked(ctl: u64, transformer: u64, m: i64, deflate: bool) -> u
 
 /// `stream.getWriter()` — hand-written (needs `recv`, the stream's OWN
 /// handle; see the module doc comment).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_WRITABLESTREAM_GET_WRITER(recv: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_WRITABLESTREAM_GET_WRITER")]
+pub fn __RTS_FN_GL_WRITABLESTREAM_GET_WRITER(recv: u64) -> u64 {
     alloc_rtse(
         "WritableStreamDefaultWriter",
         super::writer::WritableStreamDefaultWriter { stream: recv },

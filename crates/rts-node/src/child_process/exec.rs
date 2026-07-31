@@ -73,8 +73,10 @@ fn shell(command: &str) -> Command {
 
 /// `execSync(command)` → stdout string; throws on non-zero exit (carrying the
 /// stderr text, like Node's `ExecException`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CP_EXEC(p: *const u8, l: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_CP_EXEC")]
+pub fn __RTS_FN_NODE_CP_EXEC(p: u64, l: i64) -> u64 {
+    let p = p as *const u8;
+
     let command = read(p, l);
     match shell(&command).output() {
         Ok(out) => {
@@ -95,8 +97,10 @@ pub extern "C" fn __RTS_FN_NODE_CP_EXEC(p: *const u8, l: i64) -> u64 {
 }
 
 /// `execFileSync(file, args)` → stdout string; throws on non-zero exit.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CP_EXEC_FILE(p: *const u8, l: i64, args: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_CP_EXEC_FILE")]
+pub fn __RTS_FN_NODE_CP_EXEC_FILE(p: u64, l: i64, args: u64) -> u64 {
+    let p = p as *const u8;
+
     let file = read(p, l);
     match Command::new(&file).args(read_str_array(args)).output() {
         Ok(out) => {
@@ -115,8 +119,10 @@ pub extern "C" fn __RTS_FN_NODE_CP_EXEC_FILE(p: *const u8, l: i64, args: u64) ->
 }
 
 /// `spawnSync(command, args)` → `{ pid, status, signal, stdout, stderr }`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CP_SPAWN(p: *const u8, l: i64, args: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_CP_SPAWN")]
+pub fn __RTS_FN_NODE_CP_SPAWN(p: u64, l: i64, args: u64) -> u64 {
+    let p = p as *const u8;
+
     let command = read(p, l);
     let spawn = Command::new(&command)
         .args(read_str_array(args))

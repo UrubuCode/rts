@@ -42,8 +42,8 @@ fn throw(msg: &str) {
 }
 
 /// `v8.serialize(value)` → Buffer.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_V8_SERIALIZE(value: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_V8_SERIALIZE")]
+pub fn __RTS_FN_NODE_V8_SERIALIZE(value: u64) -> u64 {
     match pickle::serialize_value(value) {
         Ok(out) => byte_array(&out),
         Err(e) => {
@@ -54,8 +54,8 @@ pub extern "C" fn __RTS_FN_NODE_V8_SERIALIZE(value: u64) -> u64 {
 }
 
 /// `v8.deserialize(buffer)` → value.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_V8_DESERIALIZE(buffer: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_V8_DESERIALIZE")]
+pub fn __RTS_FN_NODE_V8_DESERIALIZE(buffer: u64) -> u64 {
     match pickle::deserialize_value(&read_bytes(buffer)) {
         Ok(word) => word,
         Err(e) => {

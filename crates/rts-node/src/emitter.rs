@@ -166,32 +166,42 @@ fn add_word(this: u64, ep: *const u8, el: i64, listener: u64, once: bool, prepen
 }
 
 /// `emitter.on(event, listener)` / `addListener`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_EE_ON(this: u64, ep: *const u8, el: i64, l: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_EE_ON")]
+pub fn __RTS_FN_NODE_EE_ON(this: u64, ep: u64, el: i64, l: u64) -> u64 {
+    let ep = ep as *const u8;
+
     add_word(this, ep, el, l, false, false)
 }
 
 /// `emitter.once(event, listener)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_EE_ONCE(this: u64, ep: *const u8, el: i64, l: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_EE_ONCE")]
+pub fn __RTS_FN_NODE_EE_ONCE(this: u64, ep: u64, el: i64, l: u64) -> u64 {
+    let ep = ep as *const u8;
+
     add_word(this, ep, el, l, true, false)
 }
 
 /// `emitter.prependListener(event, listener)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_EE_PREPEND(this: u64, ep: *const u8, el: i64, l: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_EE_PREPEND")]
+pub fn __RTS_FN_NODE_EE_PREPEND(this: u64, ep: u64, el: i64, l: u64) -> u64 {
+    let ep = ep as *const u8;
+
     add_word(this, ep, el, l, false, true)
 }
 
 /// `emitter.prependOnceListener(event, listener)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_EE_PREPEND_ONCE(this: u64, ep: *const u8, el: i64, l: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_EE_PREPEND_ONCE")]
+pub fn __RTS_FN_NODE_EE_PREPEND_ONCE(this: u64, ep: u64, el: i64, l: u64) -> u64 {
+    let ep = ep as *const u8;
+
     add_word(this, ep, el, l, true, true)
 }
 
 /// `emitter.off(event, listener)` / `removeListener`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_EE_OFF(this: u64, ep: *const u8, el: i64, l: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_EE_OFF")]
+pub fn __RTS_FN_NODE_EE_OFF(this: u64, ep: u64, el: i64, l: u64) -> u64 {
+    let ep = ep as *const u8;
+
     let Val::Func(cb) = val(l) else { return this };
     let event = read(ep, el);
     let key = identity(cb);
@@ -215,8 +225,10 @@ pub extern "C" fn __RTS_FN_NODE_EE_OFF(this: u64, ep: *const u8, el: i64, l: u64
 }
 
 /// `emitter.removeAllListeners(event)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_EE_REMOVE_ALL(this: u64, ep: *const u8, el: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_EE_REMOVE_ALL")]
+pub fn __RTS_FN_NODE_EE_REMOVE_ALL(this: u64, ep: u64, el: i64) -> u64 {
+    let ep = ep as *const u8;
+
     let event = read(ep, el);
     let dropped: Vec<u64> = {
         let mut t = table();
@@ -232,22 +244,26 @@ pub extern "C" fn __RTS_FN_NODE_EE_REMOVE_ALL(this: u64, ep: *const u8, el: i64)
 }
 
 /// `emitter.removeAllListeners()` — every event.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_EE_REMOVE_ALL0(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_EE_REMOVE_ALL0")]
+pub fn __RTS_FN_NODE_EE_REMOVE_ALL0(this: u64) -> u64 {
     release_all(this);
     this
 }
 
 /// `emitter.listenerCount(event)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_EE_LISTENER_COUNT(this: u64, ep: *const u8, el: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NODE_EE_LISTENER_COUNT")]
+pub fn __RTS_FN_NODE_EE_LISTENER_COUNT(this: u64, ep: u64, el: i64) -> i64 {
+    let ep = ep as *const u8;
+
     let event = read(ep, el);
     table().get(&this).map(|l| l.get(&event).len() as i64).unwrap_or(0)
 }
 
 /// `emitter.listeners(event)` / `rawListeners(event)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_EE_LISTENERS(this: u64, ep: *const u8, el: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_EE_LISTENERS")]
+pub fn __RTS_FN_NODE_EE_LISTENERS(this: u64, ep: u64, el: i64) -> u64 {
+    let ep = ep as *const u8;
+
     let event = read(ep, el);
     let words: Vec<i64> = table()
         .get(&this)
@@ -262,8 +278,8 @@ pub extern "C" fn __RTS_FN_NODE_EE_LISTENERS(this: u64, ep: *const u8, el: i64) 
 }
 
 /// `emitter.eventNames()` — the events that currently have listeners.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_EE_EVENT_NAMES(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_EE_EVENT_NAMES")]
+pub fn __RTS_FN_NODE_EE_EVENT_NAMES(this: u64) -> u64 {
     let names: Vec<String> = table()
         .get(&this)
         .map(|l| {
@@ -278,8 +294,8 @@ pub extern "C" fn __RTS_FN_NODE_EE_EVENT_NAMES(this: u64) -> u64 {
 }
 
 /// `emitter.getMaxListeners()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_EE_GET_MAX(this: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NODE_EE_GET_MAX")]
+pub fn __RTS_FN_NODE_EE_GET_MAX(this: u64) -> i64 {
     table()
         .get(&this)
         .map(|l| if l.max == 0 { DEFAULT_MAX_LISTENERS } else { l.max })
@@ -287,8 +303,8 @@ pub extern "C" fn __RTS_FN_NODE_EE_GET_MAX(this: u64) -> i64 {
 }
 
 /// `emitter.setMaxListeners(n)` — returns `this`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_EE_SET_MAX(this: u64, n: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_EE_SET_MAX")]
+pub fn __RTS_FN_NODE_EE_SET_MAX(this: u64, n: i64) -> u64 {
     table().entry(this).or_default().max = n;
     this
 }

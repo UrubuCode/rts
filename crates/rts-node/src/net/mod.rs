@@ -152,22 +152,22 @@ fn set_default_auto_select_family_attempt_timeout(value: f64) {
 
 /// `net.connect(...)`/`net.createConnection(...)` — build a `Socket` and start
 /// connecting; the same overloads `socket.connect` takes.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_CONNECT1(a0: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_CONNECT1")]
+pub fn __RTS_FN_NODE_NET_CONNECT1(a0: u64) -> u64 {
     let s = tcp::socket::__RTS_FN_NODE_NET_SOCKET_NEW();
     tcp::socket::__RTS_FN_NODE_NET_SOCKET_CONNECT1(s, a0);
     s
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_CONNECT2(a0: u64, a1: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_CONNECT2")]
+pub fn __RTS_FN_NODE_NET_CONNECT2(a0: u64, a1: u64) -> u64 {
     let s = tcp::socket::__RTS_FN_NODE_NET_SOCKET_NEW();
     tcp::socket::__RTS_FN_NODE_NET_SOCKET_CONNECT2(s, a0, a1);
     s
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_CONNECT3(a0: u64, a1: u64, a2: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_CONNECT3")]
+pub fn __RTS_FN_NODE_NET_CONNECT3(a0: u64, a1: u64, a2: u64) -> u64 {
     let s = tcp::socket::__RTS_FN_NODE_NET_SOCKET_NEW();
     tcp::socket::__RTS_FN_NODE_NET_SOCKET_CONNECT3(s, a0, a1, a2);
     s
@@ -175,8 +175,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_CONNECT3(a0: u64, a1: u64, a2: u64) -> u64 {
 
 /// `net.SOMAXCONN` — the platform listen-backlog maximum (libuv reports the
 /// system `SOMAXCONN`: `0x7fffffff` on Windows, `128` on typical Unix).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOMAXCONN() -> i64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOMAXCONN")]
+pub fn __RTS_FN_NODE_NET_SOMAXCONN() -> i64 {
     #[cfg(windows)]
     { 0x7fff_ffff }
     #[cfg(not(windows))]
@@ -268,27 +268,27 @@ fn register_socket(e: &mut Engine) {
 }
 
 /// `socket.setNoDelay()` — Node's default arg is `true`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_SET_NO_DELAY_D(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_SET_NO_DELAY_D")]
+pub fn __RTS_FN_NODE_NET_SOCKET_SET_NO_DELAY_D(this: u64) -> u64 {
     tcp::props::__RTS_FN_NODE_NET_SOCKET_SET_NO_DELAY(this, 1)
 }
 
 /// `socket.setKeepAlive()` — defaults `enable = false`, `initialDelay = 0`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_SET_KEEP_ALIVE_D(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_SET_KEEP_ALIVE_D")]
+pub fn __RTS_FN_NODE_NET_SOCKET_SET_KEEP_ALIVE_D(this: u64) -> u64 {
     tcp::props::__RTS_FN_NODE_NET_SOCKET_SET_KEEP_ALIVE(this, 0, 0.0)
 }
 
 /// `socket.setKeepAlive(enable)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_SET_KEEP_ALIVE1(this: u64, enable: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_SET_KEEP_ALIVE1")]
+pub fn __RTS_FN_NODE_NET_SOCKET_SET_KEEP_ALIVE1(this: u64, enable: i64) -> u64 {
     tcp::props::__RTS_FN_NODE_NET_SOCKET_SET_KEEP_ALIVE(this, enable, 0.0)
 }
 
 /// `socket.setTimeout(timeout, callback)` — the callback is a one-time
 /// `'timeout'` listener.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_SET_TIMEOUT_CB(this: u64, ms: f64, cb: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_SET_TIMEOUT_CB")]
+pub fn __RTS_FN_NODE_NET_SOCKET_SET_TIMEOUT_CB(this: u64, ms: f64, cb: u64) -> u64 {
     if let crate::values::Val::Func(f) = crate::values::val(cb) {
         crate::emitter::add(this, "timeout", f, true, false);
     }

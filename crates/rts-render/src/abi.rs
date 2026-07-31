@@ -10,14 +10,14 @@ use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use AbiType::{F64, I64, StrPtr, U64 as Handle};
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_RENDER_BEGIN_FRAME(target: u64) {
+#[rtse::abi("__RTS_FN_NS_RENDER_BEGIN_FRAME")]
+pub fn __RTS_FN_NS_RENDER_BEGIN_FRAME(target: u64) {
     crate::with_backend(|r| r.begin_frame(target));
 }
 
-#[unsafe(no_mangle)]
+#[rtse::abi("__RTS_FN_NS_RENDER_RECT")]
 #[allow(clippy::too_many_arguments)]
-pub extern "C" fn __RTS_FN_NS_RENDER_RECT(
+pub fn __RTS_FN_NS_RENDER_RECT(
     target: u64,
     x: f64,
     y: f64,
@@ -43,26 +43,28 @@ pub extern "C" fn __RTS_FN_NS_RENDER_RECT(
     });
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_RENDER_TEXT(
+#[rtse::abi("__RTS_FN_NS_RENDER_TEXT")]
+pub fn __RTS_FN_NS_RENDER_TEXT(
     target: u64,
     x: f64,
     y: f64,
-    text_ptr: *const u8,
+    text_ptr: u64,
     text_len: i64,
     color: i64,
     size: f64,
     flags: i64,
 ) {
+    let text_ptr = text_ptr as *const u8;
+
     let text = unsafe { str_abi::from_abi(text_ptr, text_len) }.unwrap_or("");
     crate::with_backend(|r| {
         r.text(target, x as f32, y as f32, text, color as u32, size as f32, flags)
     });
 }
 
-#[unsafe(no_mangle)]
+#[rtse::abi("__RTS_FN_NS_RENDER_LINE")]
 #[allow(clippy::too_many_arguments)]
-pub extern "C" fn __RTS_FN_NS_RENDER_LINE(
+pub fn __RTS_FN_NS_RENDER_LINE(
     target: u64,
     x1: f64,
     y1: f64,
@@ -76,14 +78,16 @@ pub extern "C" fn __RTS_FN_NS_RENDER_LINE(
     });
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_RENDER_MEASURE_TEXT(
+#[rtse::abi("__RTS_FN_NS_RENDER_MEASURE_TEXT")]
+pub fn __RTS_FN_NS_RENDER_MEASURE_TEXT(
     target: u64,
-    text_ptr: *const u8,
+    text_ptr: u64,
     text_len: i64,
     size: f64,
     bold: i64,
 ) -> f64 {
+    let text_ptr = text_ptr as *const u8;
+
     let text = unsafe { str_abi::from_abi(text_ptr, text_len) }.unwrap_or("");
     crate::with_backend(|r| r.measure_text(target, text, size as f32, bold != 0) as f64)
         .unwrap_or(-1.0)
@@ -92,9 +96,9 @@ pub extern "C" fn __RTS_FN_NS_RENDER_MEASURE_TEXT(
 /// `render.image(target, x, y, w, h, pixelsPtr, imgW, imgH)` — desenha um bitmap
 /// RGBA8 (do ponteiro) escalado no retângulo. O ptr vem como `u64` (o TS o obtém
 /// via `buffer.ptr(handle)`). Base de vídeo/imagem/viewport.
-#[unsafe(no_mangle)]
+#[rtse::abi("__RTS_FN_NS_RENDER_IMAGE")]
 #[allow(clippy::too_many_arguments)]
-pub extern "C" fn __RTS_FN_NS_RENDER_IMAGE(
+pub fn __RTS_FN_NS_RENDER_IMAGE(
     target: u64,
     x: f64,
     y: f64,
@@ -113,8 +117,8 @@ pub extern "C" fn __RTS_FN_NS_RENDER_IMAGE(
     });
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_RENDER_END_FRAME(target: u64) {
+#[rtse::abi("__RTS_FN_NS_RENDER_END_FRAME")]
+pub fn __RTS_FN_NS_RENDER_END_FRAME(target: u64) {
     crate::with_backend(|r| r.end_frame(target));
 }
 

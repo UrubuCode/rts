@@ -62,8 +62,10 @@ fn read_all(path: &str, buf_ptr: U64, buf_len: I64) -> I64 {
 /// `Entry::String` with NO UTF-8 validation (binary-safe passthrough); a
 /// native Rust `String` return type requires valid UTF-8, which would
 /// silently corrupt a non-UTF-8 file read through this path.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_FS_READ_TEXT(path_ptr: *const u8, path_len: i64) -> Handle {
+#[rtse::abi("__RTS_FN_NS_FS_READ_TEXT")]
+pub fn __RTS_FN_NS_FS_READ_TEXT(path_ptr: u64, path_len: i64) -> Handle {
+    let path_ptr = path_ptr as *const u8;
+
     let path = match unsafe { rts_engine::abi::str_abi::from_abi(path_ptr, path_len) } {
         Some(s) => s,
         None => return 0,

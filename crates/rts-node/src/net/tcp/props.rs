@@ -13,8 +13,8 @@ use super::state;
 use crate::values::{intern, read, string_array};
 
 /// `socket.setNoDelay([noDelay])` — Nagle off (Node's default arg is `true`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_SET_NO_DELAY(this: u64, on: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_SET_NO_DELAY")]
+pub fn __RTS_FN_NODE_NET_SOCKET_SET_NO_DELAY(this: u64, on: i64) -> u64 {
     if let Some(st) = state::socket(this) {
         st.opts.lock().unwrap().no_delay = on != 0;
         if let Some(s) = st.clone_stream() {
@@ -25,8 +25,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_SET_NO_DELAY(this: u64, on: i64) -> u
 }
 
 /// `socket.setKeepAlive([enable][, initialDelay])`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_SET_KEEP_ALIVE(this: u64, enable: i64, delay_ms: f64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_SET_KEEP_ALIVE")]
+pub fn __RTS_FN_NODE_NET_SOCKET_SET_KEEP_ALIVE(this: u64, enable: i64, delay_ms: f64) -> u64 {
     let Some(st) = state::socket(this) else { return this };
     {
         let mut o = st.opts.lock().unwrap();
@@ -50,8 +50,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_SET_KEEP_ALIVE(this: u64, enable: i64
 
 /// `socket.setTimeout(timeout[, callback])` — 0 disables. The idle timer lives in
 /// the read loop; `'timeout'` does NOT destroy the socket.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_SET_TIMEOUT(this: u64, ms: f64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_SET_TIMEOUT")]
+pub fn __RTS_FN_NODE_NET_SOCKET_SET_TIMEOUT(this: u64, ms: f64) -> u64 {
     if let Some(st) = state::socket(this) {
         st.timeout_ms.store(ms.max(0.0) as i64, Ordering::Release);
     }
@@ -59,8 +59,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_SET_TIMEOUT(this: u64, ms: f64) -> u6
 }
 
 /// `socket.timeout` — `-1` where Node reports `undefined`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_GET_TIMEOUT(this: u64) -> f64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_GET_TIMEOUT")]
+pub fn __RTS_FN_NODE_NET_SOCKET_GET_TIMEOUT(this: u64) -> f64 {
     state::socket(this)
         .map(|st| match st.timeout_ms.load(Ordering::Acquire) {
             0 => -1.0,
@@ -70,8 +70,10 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_GET_TIMEOUT(this: u64) -> f64 {
 }
 
 /// `socket.setEncoding([encoding])` — `'data'` then delivers strings.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_SET_ENCODING(this: u64, p: *const u8, l: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_SET_ENCODING")]
+pub fn __RTS_FN_NODE_NET_SOCKET_SET_ENCODING(this: u64, p: u64, l: i64) -> u64 {
+    let p = p as *const u8;
+
     if let Some(st) = state::socket(this) {
         let enc = read(p, l);
         *st.encoding.lock().unwrap() = (!enc.is_empty()).then_some(enc);
@@ -80,8 +82,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_SET_ENCODING(this: u64, p: *const u8,
 }
 
 /// `socket.pause()` — the read loop parks; no `'data'` until `resume()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_PAUSE(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_PAUSE")]
+pub fn __RTS_FN_NODE_NET_SOCKET_PAUSE(this: u64) -> u64 {
     if let Some(st) = state::socket(this) {
         st.paused.store(true, Ordering::Release);
     }
@@ -89,8 +91,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_PAUSE(this: u64) -> u64 {
 }
 
 /// `socket.resume()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_RESUME(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_RESUME")]
+pub fn __RTS_FN_NODE_NET_SOCKET_RESUME(this: u64) -> u64 {
     if let Some(st) = state::socket(this) {
         st.paused.store(false, Ordering::Release);
     }
@@ -98,8 +100,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_RESUME(this: u64) -> u64 {
 }
 
 /// `socket.ref()` — chainable.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_REF(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_REF")]
+pub fn __RTS_FN_NODE_NET_SOCKET_REF(this: u64) -> u64 {
     if let Some(st) = state::socket(this) {
         st.refd.store(true, Ordering::Release);
         super::socket::keep_alive(&st, true);
@@ -108,8 +110,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_REF(this: u64) -> u64 {
 }
 
 /// `socket.unref()` — chainable.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_UNREF(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_UNREF")]
+pub fn __RTS_FN_NODE_NET_SOCKET_UNREF(this: u64) -> u64 {
     if let Some(st) = state::socket(this) {
         st.refd.store(false, Ordering::Release);
         super::socket::keep_alive(&st, false);
@@ -185,8 +187,8 @@ fn set_tclass_v6(_stream: &std::net::TcpStream, _tos: u32) -> std::io::Result<()
 }
 
 /// `socket.getTypeOfService()` — the IP TOS byte (IPv6: the Traffic Class).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_GET_TOS(this: u64) -> f64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_GET_TOS")]
+pub fn __RTS_FN_NODE_NET_SOCKET_GET_TOS(this: u64) -> f64 {
     let Some(st) = state::socket(this) else {
         opts::throw("ERR_SOCKET_CLOSED", "Socket is closed");
         return 0.0;
@@ -211,8 +213,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_GET_TOS(this: u64) -> f64 {
 }
 
 /// `socket.setTypeOfService(tos)` — 0..255.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_SET_TOS(this: u64, tos: f64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_SET_TOS")]
+pub fn __RTS_FN_NODE_NET_SOCKET_SET_TOS(this: u64, tos: f64) -> u64 {
     let Some(st) = state::socket(this) else {
         opts::throw("ERR_SOCKET_CLOSED", "Socket is closed");
         return this;
@@ -241,8 +243,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_SET_TOS(this: u64, tos: f64) -> u64 {
 }
 
 /// `socket.address()` — `{}` before the socket is connected/bound.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_ADDRESS(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_ADDRESS")]
+pub fn __RTS_FN_NODE_NET_SOCKET_ADDRESS(this: u64) -> u64 {
     let Some(st) = state::socket(this) else { return 0 };
     match *st.local.lock().unwrap() {
         Some(addr) => super::super::address_info(&addr),
@@ -260,14 +262,14 @@ fn str_or_empty(s: Option<String>) -> u64 {
 }
 
 /// `socket.remoteAddress`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_REMOTE_ADDRESS(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_REMOTE_ADDRESS")]
+pub fn __RTS_FN_NODE_NET_SOCKET_REMOTE_ADDRESS(this: u64) -> u64 {
     str_or_empty(state::socket(this).and_then(|st| st.peer_addr()).map(|a| a.ip().to_string()))
 }
 
 /// `socket.remoteFamily`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_REMOTE_FAMILY(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_REMOTE_FAMILY")]
+pub fn __RTS_FN_NODE_NET_SOCKET_REMOTE_FAMILY(this: u64) -> u64 {
     str_or_empty(
         state::socket(this)
             .and_then(|st| st.peer_addr())
@@ -276,8 +278,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_REMOTE_FAMILY(this: u64) -> u64 {
 }
 
 /// `socket.remotePort` — `-1` where Node reports `undefined`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_REMOTE_PORT(this: u64) -> f64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_REMOTE_PORT")]
+pub fn __RTS_FN_NODE_NET_SOCKET_REMOTE_PORT(this: u64) -> f64 {
     state::socket(this)
         .and_then(|st| st.peer_addr())
         .map(|a| f64::from(a.port()))
@@ -285,8 +287,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_REMOTE_PORT(this: u64) -> f64 {
 }
 
 /// `socket.localAddress`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_LOCAL_ADDRESS(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_LOCAL_ADDRESS")]
+pub fn __RTS_FN_NODE_NET_SOCKET_LOCAL_ADDRESS(this: u64) -> u64 {
     str_or_empty(
         state::socket(this)
             .and_then(|st| *st.local.lock().unwrap())
@@ -295,8 +297,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_LOCAL_ADDRESS(this: u64) -> u64 {
 }
 
 /// `socket.localFamily`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_LOCAL_FAMILY(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_LOCAL_FAMILY")]
+pub fn __RTS_FN_NODE_NET_SOCKET_LOCAL_FAMILY(this: u64) -> u64 {
     str_or_empty(
         state::socket(this)
             .and_then(|st| *st.local.lock().unwrap())
@@ -305,8 +307,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_LOCAL_FAMILY(this: u64) -> u64 {
 }
 
 /// `socket.localPort`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_LOCAL_PORT(this: u64) -> f64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_LOCAL_PORT")]
+pub fn __RTS_FN_NODE_NET_SOCKET_LOCAL_PORT(this: u64) -> f64 {
     state::socket(this)
         .and_then(|st| *st.local.lock().unwrap())
         .map(|a| f64::from(a.port()))
@@ -314,16 +316,16 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_LOCAL_PORT(this: u64) -> f64 {
 }
 
 /// `socket.bytesRead`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_BYTES_READ(this: u64) -> f64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_BYTES_READ")]
+pub fn __RTS_FN_NODE_NET_SOCKET_BYTES_READ(this: u64) -> f64 {
     state::socket(this)
         .map(|st| st.bytes_read.load(Ordering::Acquire) as f64)
         .unwrap_or(0.0)
 }
 
 /// `socket.bytesWritten`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_BYTES_WRITTEN(this: u64) -> f64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_BYTES_WRITTEN")]
+pub fn __RTS_FN_NODE_NET_SOCKET_BYTES_WRITTEN(this: u64) -> f64 {
     state::socket(this)
         .map(|st| st.bytes_written.load(Ordering::Acquire) as f64)
         .unwrap_or(0.0)
@@ -332,24 +334,24 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_BYTES_WRITTEN(this: u64) -> f64 {
 /// `socket.bufferSize` — DEPRECATED since v14.6.0 in favour of
 /// `writable.writableLength`; Node itself documents it as an approximation, and
 /// this is the same number: the bytes handed to `write()` the OS has not taken.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_BUFFER_SIZE(this: u64) -> f64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_BUFFER_SIZE")]
+pub fn __RTS_FN_NODE_NET_SOCKET_BUFFER_SIZE(this: u64) -> f64 {
     state::socket(this)
         .map(|st| st.buffered.load(Ordering::Acquire) as f64)
         .unwrap_or(0.0)
 }
 
 /// `socket.connecting`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_CONNECTING(this: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_CONNECTING")]
+pub fn __RTS_FN_NODE_NET_SOCKET_CONNECTING(this: u64) -> i64 {
     state::socket(this)
         .map(|st| i64::from(st.connecting.load(Ordering::Acquire)))
         .unwrap_or(0)
 }
 
 /// `socket.pending` — created but not yet connecting/connected.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_PENDING(this: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_PENDING")]
+pub fn __RTS_FN_NODE_NET_SOCKET_PENDING(this: u64) -> i64 {
     state::socket(this)
         .map(|st| {
             i64::from(st.peer_addr().is_none() && !st.connecting.load(Ordering::Acquire))
@@ -359,22 +361,22 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_PENDING(this: u64) -> i64 {
 
 /// `socket.destroyed` — a finalized socket is gone from the table, which is the
 /// same answer.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_DESTROYED(this: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_DESTROYED")]
+pub fn __RTS_FN_NODE_NET_SOCKET_DESTROYED(this: u64) -> i64 {
     state::socket(this).map(|st| i64::from(st.is_destroyed())).unwrap_or(1)
 }
 
 /// `socket.readyState` — derived, never stored.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_READY_STATE(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_READY_STATE")]
+pub fn __RTS_FN_NODE_NET_SOCKET_READY_STATE(this: u64) -> u64 {
     let s = state::socket(this).map(|st| st.ready_state()).unwrap_or("closed");
     intern(s)
 }
 
 /// `socket.autoSelectFamilyAttemptedAddresses` — the `"$IP:$PORT"` list the
 /// racer actually tried (empty when it never ran).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_ATTEMPTED(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_ATTEMPTED")]
+pub fn __RTS_FN_NODE_NET_SOCKET_ATTEMPTED(this: u64) -> u64 {
     let list = state::socket(this)
         .map(|st| st.attempted.lock().unwrap().clone())
         .unwrap_or_default();

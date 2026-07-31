@@ -156,8 +156,8 @@ impl Headers {
 // ---------------------------------------------------------------------------
 
 /// `h.entries()` — Vec de `[name_handle, joined_value_handle]`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_HEADERS_ENTRIES(h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_HEADERS_ENTRIES")]
+pub fn __RTS_FN_GL_HEADERS_ENTRIES(h: u64) -> u64 {
     use rts_engine::heap::shapes::{handle_word_auto, string_word};
     let pairs: Vec<(String, String)> = with_rtse::<Headers, _>(h, |s| {
         s.map(|s| {
@@ -181,8 +181,8 @@ pub extern "C" fn __RTS_FN_GL_HEADERS_ENTRIES(h: u64) -> u64 {
 
 /// `h.forEach(callback)` — invoca `callback(value, key, headers)` por par, em
 /// ordem de inserção (snapshot).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_HEADERS_FOR_EACH(h: u64, cb: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_HEADERS_FOR_EACH")]
+pub fn __RTS_FN_GL_HEADERS_FOR_EACH(h: u64, cb: u64) -> u64 {
     use rts_engine::heap::poly::POLY_UNDEFINED;
     use rts_engine::heap::shapes::{handle_word_auto, string_word};
     let pairs: Vec<(String, String)> = with_rtse::<Headers, _>(h, |s| {

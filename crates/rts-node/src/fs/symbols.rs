@@ -18,8 +18,8 @@ use rts_engine::abi::ty::Handle;
 ///
 /// NOT converted: `MemberKind::Constant`, a kind `#[rtse::function]` cannot
 /// express (it always emits `MemberKind::Function`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_CONSTANTS() -> u64 {
+#[rtse::abi("__RTS_FN_NODE_FS_CONSTANTS")]
+pub fn __RTS_FN_NODE_FS_CONSTANTS() -> u64 {
     let num = |v: f64| v.to_bits() as i64;
     rts_engine::heap::shapes::alloc_shaped_object(
         &["F_OK", "R_OK", "W_OK", "X_OK", "COPYFILE_EXCL", "COPYFILE_FICLONE", "COPYFILE_FICLONE_FORCE"],

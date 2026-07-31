@@ -16,3 +16,4 @@ edition = "2024"
 
 [dependencies]
 rts-engine = { path = "../rts-engine" }
+rtse = { package = "rts-macro", path = "../rts-macro" }

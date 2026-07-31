@@ -51,14 +51,14 @@ pub fn register(st: Arc<SocketState>) -> u64 {
 }
 
 /// `new Socket()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_NEW() -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_NEW")]
+pub fn __RTS_FN_NODE_NET_SOCKET_NEW() -> u64 {
     register(Arc::new(SocketState::new(SocketOpts::default())))
 }
 
 /// `new Socket(options)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_NEW_OPTS(options: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_NEW_OPTS")]
+pub fn __RTS_FN_NODE_NET_SOCKET_NEW_OPTS(options: u64) -> u64 {
     if !opts::reject_unsupported(options) {
         return 0;
     }
@@ -390,20 +390,20 @@ fn transient(e: &std::io::Error) -> bool {
 }
 
 /// `socket.connect(port)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_CONNECT1(this: u64, a0: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_CONNECT1")]
+pub fn __RTS_FN_NODE_NET_SOCKET_CONNECT1(this: u64, a0: u64) -> u64 {
     connect_impl(this, &[a0])
 }
 
 /// `socket.connect(port, hostOrCallback)` / `connect(options, callback)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_CONNECT2(this: u64, a0: u64, a1: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_CONNECT2")]
+pub fn __RTS_FN_NODE_NET_SOCKET_CONNECT2(this: u64, a0: u64, a1: u64) -> u64 {
     connect_impl(this, &[a0, a1])
 }
 
 /// `socket.connect(port, host, callback)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_CONNECT3(this: u64, a0: u64, a1: u64, a2: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_CONNECT3")]
+pub fn __RTS_FN_NODE_NET_SOCKET_CONNECT3(this: u64, a0: u64, a1: u64, a2: u64) -> u64 {
     connect_impl(this, &[a0, a1, a2])
 }
 
@@ -465,14 +465,14 @@ fn write_impl(this: u64, data: u64, encoding: Option<String>, cb: u64) -> i64 {
 }
 
 /// `socket.write(data)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_WRITE1(this: u64, data: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_WRITE1")]
+pub fn __RTS_FN_NODE_NET_SOCKET_WRITE1(this: u64, data: u64) -> i64 {
     write_impl(this, data, None, 0)
 }
 
 /// `socket.write(data, encodingOrCallback)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_WRITE2(this: u64, data: u64, a1: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_WRITE2")]
+pub fn __RTS_FN_NODE_NET_SOCKET_WRITE2(this: u64, data: u64, a1: u64) -> i64 {
     match val(a1) {
         Val::Str(enc) => write_impl(this, data, Some(enc), 0),
         Val::Func(cb) => write_impl(this, data, None, cb),
@@ -481,8 +481,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_WRITE2(this: u64, data: u64, a1: u64)
 }
 
 /// `socket.write(data, encoding, callback)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_WRITE3(this: u64, data: u64, enc: u64, cb: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_WRITE3")]
+pub fn __RTS_FN_NODE_NET_SOCKET_WRITE3(this: u64, data: u64, enc: u64, cb: u64) -> i64 {
     let encoding = match val(enc) {
         Val::Str(s) => Some(s),
         _ => None,
@@ -510,14 +510,14 @@ fn end_impl(this: u64, data: u64, encoding: Option<String>, cb: u64) -> u64 {
 }
 
 /// `socket.end()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_END0(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_END0")]
+pub fn __RTS_FN_NODE_NET_SOCKET_END0(this: u64) -> u64 {
     end_impl(this, 0, None, 0)
 }
 
 /// `socket.end(dataOrCallback)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_END1(this: u64, a0: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_END1")]
+pub fn __RTS_FN_NODE_NET_SOCKET_END1(this: u64, a0: u64) -> u64 {
     match val(a0) {
         Val::Func(cb) => end_impl(this, 0, None, cb),
         _ => end_impl(this, a0, None, 0),
@@ -525,8 +525,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_END1(this: u64, a0: u64) -> u64 {
 }
 
 /// `socket.end(data, encodingOrCallback)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_END2(this: u64, a0: u64, a1: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_END2")]
+pub fn __RTS_FN_NODE_NET_SOCKET_END2(this: u64, a0: u64, a1: u64) -> u64 {
     match val(a1) {
         Val::Str(enc) => end_impl(this, a0, Some(enc), 0),
         Val::Func(cb) => end_impl(this, a0, None, cb),
@@ -535,8 +535,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_END2(this: u64, a0: u64, a1: u64) -> 
 }
 
 /// `socket.end(data, encoding, callback)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_END3(this: u64, a0: u64, enc: u64, cb: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_END3")]
+pub fn __RTS_FN_NODE_NET_SOCKET_END3(this: u64, a0: u64, enc: u64, cb: u64) -> u64 {
     let encoding = match val(enc) {
         Val::Str(s) => Some(s),
         _ => None,
@@ -563,8 +563,8 @@ pub fn destroy(this: u64, st: &Arc<SocketState>, had_error: bool) {
 }
 
 /// `socket.destroy()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_DESTROY0(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_DESTROY0")]
+pub fn __RTS_FN_NODE_NET_SOCKET_DESTROY0(this: u64) -> u64 {
     if let Some(st) = state::socket(this) {
         destroy(this, &st, false);
     }
@@ -573,8 +573,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_DESTROY0(this: u64) -> u64 {
 
 /// `socket.destroy(error)` — the error is emitted, then `'close'` with
 /// `hadError = true` (Node always pairs them on a Socket).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_DESTROY1(this: u64, err: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_DESTROY1")]
+pub fn __RTS_FN_NODE_NET_SOCKET_DESTROY1(this: u64, err: u64) -> u64 {
     let Some(st) = state::socket(this) else { return this };
     if val(err).is_nullish() {
         destroy(this, &st, false);
@@ -588,8 +588,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_DESTROY1(this: u64, err: u64) -> u64 
 
 /// `socket.destroySoon()` — end, then destroy once flushed. Writes here are
 /// synchronous, so the flush is already done by the time `end` returns.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_DESTROY_SOON(this: u64) {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_DESTROY_SOON")]
+pub fn __RTS_FN_NODE_NET_SOCKET_DESTROY_SOON(this: u64) {
     end_impl(this, 0, None, 0);
     if let Some(st) = state::socket(this) {
         destroy(this, &st, false);
@@ -597,8 +597,8 @@ pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_DESTROY_SOON(this: u64) {
 }
 
 /// `socket.resetAndDestroy()` — an RST, not a FIN (TCP only).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_RESET_AND_DESTROY(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_RESET_AND_DESTROY")]
+pub fn __RTS_FN_NODE_NET_SOCKET_RESET_AND_DESTROY(this: u64) -> u64 {
     let Some(st) = state::socket(this) else {
         opts::throw("ERR_SOCKET_CLOSED", "Socket is closed");
         return this;
@@ -642,13 +642,17 @@ fn emit_words(this: u64, ep: *const u8, el: i64, args: Vec<u64>) -> i64 {
 }
 
 /// `socket.emit(event)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_EMIT0(this: u64, ep: *const u8, el: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_EMIT0")]
+pub fn __RTS_FN_NODE_NET_SOCKET_EMIT0(this: u64, ep: u64, el: i64) -> i64 {
+    let ep = ep as *const u8;
+
     emit_words(this, ep, el, Vec::new())
 }
 
 /// `socket.emit(event, a0)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_NET_SOCKET_EMIT1(this: u64, ep: *const u8, el: i64, a0: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NODE_NET_SOCKET_EMIT1")]
+pub fn __RTS_FN_NODE_NET_SOCKET_EMIT1(this: u64, ep: u64, el: i64, a0: u64) -> i64 {
+    let ep = ep as *const u8;
+
     emit_words(this, ep, el, vec![a0])
 }

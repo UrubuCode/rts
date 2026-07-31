@@ -39,6 +39,8 @@ pub fn ensure_registered() {
 }
 
 /// Drain every server's and socket's pending events on this (the JS) thread.
+// NOT `#[rtse::abi]`: a `PumpFn` fn POINTER (see dgram/pump.rs) — the
+// `register_pump` contract returns `usize`, which has no ABI spelling.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_NET_PUMP() -> usize {
     let mut delivered = 0usize;

@@ -4176,6 +4176,7 @@ name = "rts-input"
 version = "0.1.0"
 dependencies = [
  "rts-engine",
+ "rts-macro",
 ]
 
 [[package]]
@@ -4275,6 +4276,7 @@ name = "rts-render"
 version = "0.1.0"
 dependencies = [
  "rts-engine",
+ "rts-macro",
 ]
 
 [[package]]

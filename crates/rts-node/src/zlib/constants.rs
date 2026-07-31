@@ -89,8 +89,8 @@ fn entries() -> Vec<(&'static str, f64)> {
 }
 
 /// `zlib.constants` — a `Constant` property getter returning the frozen object.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_ZLIB_CONSTANTS() -> u64 {
+#[rtse::abi("__RTS_FN_NODE_ZLIB_CONSTANTS")]
+pub fn __RTS_FN_NODE_ZLIB_CONSTANTS() -> u64 {
     let es = entries();
     let keys: Vec<String> = es.iter().map(|(k, _)| k.to_string()).collect();
     let values: Vec<i64> = es.iter().map(|(_, v)| v.to_bits() as i64).collect();

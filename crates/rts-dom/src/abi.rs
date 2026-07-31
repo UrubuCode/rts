@@ -48,22 +48,24 @@ const NODE_NONE: i64 = -1;
 
 /// `parseHtml(html)` → handle do DOM avulso (≥ 1). Parseia a string numa árvore
 /// retida nova (geração própria). É o entry-point headless.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_PARSE_HTML(ptr: *const u8, len: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_DOM_PARSE_HTML")]
+pub fn __RTS_FN_NS_DOM_PARSE_HTML(ptr: u64, len: i64) -> u64 {
+    let ptr = ptr as *const u8;
+
     let html = unsafe { str_abi::from_abi(ptr, len) }.unwrap_or("");
     insert(parse_html_to_dom(html))
 }
 
 /// `createDocument()` → handle de um DOM vazio (só `#document`), para montar a
 /// árvore por `createElement`/`appendChild` sem parsear HTML.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_CREATE_DOCUMENT() -> u64 {
+#[rtse::abi("__RTS_FN_NS_DOM_CREATE_DOCUMENT")]
+pub fn __RTS_FN_NS_DOM_CREATE_DOCUMENT() -> u64 {
     insert(parse_html_to_dom(""))
 }
 
 /// `free(domHandle)` — libera o DOM avulso (o handle fica inválido).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_FREE(h: u64) {
+#[rtse::abi("__RTS_FN_NS_DOM_FREE")]
+pub fn __RTS_FN_NS_DOM_FREE(h: u64) {
     crate::store::remove(h);
     // O saco de globais e a fila de timers da PÁGINA morrem com o documento.
     // Sem isto, o que um documento publicou continuava visível para o próximo
@@ -74,31 +76,38 @@ pub extern "C" fn __RTS_FN_NS_DOM_FREE(h: u64) {
 }
 
 /// `querySelector(domHandle, selector)` → `NodeId` versionado (`i64` ≥ 0) ou `-1`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_QUERY_SELECTOR(h: u64, sel_ptr: *const u8, sel_len: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_QUERY_SELECTOR")]
+pub fn __RTS_FN_NS_DOM_QUERY_SELECTOR(h: u64, sel_ptr: u64, sel_len: i64) -> i64 {
+    let sel_ptr = sel_ptr as *const u8;
+
     let sel = unsafe { str_abi::from_abi(sel_ptr, sel_len) }.unwrap_or("");
     with(h, |dom| dom.query(sel).map(|id| id.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
 }
 
 /// `setText(domHandle, node, text)` — `element.textContent = text`. `node` é o
 /// `NodeId` VERSIONADO (i64); um id de árvore velha é rejeitado pelo `gen`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_SET_TEXT(h: u64, id: i64, ptr: *const u8, len: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_SET_TEXT")]
+pub fn __RTS_FN_NS_DOM_SET_TEXT(h: u64, id: i64, ptr: u64, len: i64) {
+    let ptr = ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return };
     let txt = unsafe { str_abi::from_abi(ptr, len) }.unwrap_or("").to_string();
     with_mut(h, |dom| dom.set_text(node, &txt));
 }
 
 /// `setAttr(domHandle, node, name, value)` — `element.setAttribute`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_SET_ATTR(
+#[rtse::abi("__RTS_FN_NS_DOM_SET_ATTR")]
+pub fn __RTS_FN_NS_DOM_SET_ATTR(
     h: u64,
     id: i64,
-    name_ptr: *const u8,
+    name_ptr: u64,
     name_len: i64,
-    val_ptr: *const u8,
+    val_ptr: u64,
     val_len: i64,
 ) {
+    let name_ptr = name_ptr as *const u8;
+    let val_ptr = val_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return };
     let name = unsafe { str_abi::from_abi(name_ptr, name_len) }.unwrap_or("").to_string();
     let val = unsafe { str_abi::from_abi(val_ptr, val_len) }.unwrap_or("").to_string();
@@ -107,15 +116,17 @@ pub extern "C" fn __RTS_FN_NS_DOM_SET_ATTR(
 
 /// `createElement(domHandle, tag)` → `NodeId` versionado (≥ 0) do elemento solto,
 /// ou `-1` se o handle não existe. Ligue com `appendChild`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_CREATE_ELEMENT(h: u64, tag_ptr: *const u8, tag_len: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_CREATE_ELEMENT")]
+pub fn __RTS_FN_NS_DOM_CREATE_ELEMENT(h: u64, tag_ptr: u64, tag_len: i64) -> i64 {
+    let tag_ptr = tag_ptr as *const u8;
+
     let tag = unsafe { str_abi::from_abi(tag_ptr, tag_len) }.unwrap_or("").to_string();
     with_mut(h, |dom| dom.create_element(&tag).to_abi()).unwrap_or(NODE_NONE)
 }
 
 /// `appendChild(domHandle, parent, child)` — `parent.appendChild(child)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_APPEND_CHILD(h: u64, parent: i64, child: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_APPEND_CHILD")]
+pub fn __RTS_FN_NS_DOM_APPEND_CHILD(h: u64, parent: i64, child: i64) {
     let (Some(parent), Some(child)) = (NodeId::from_abi(parent), NodeId::from_abi(child)) else {
         return;
     };
@@ -123,24 +134,26 @@ pub extern "C" fn __RTS_FN_NS_DOM_APPEND_CHILD(h: u64, parent: i64, child: i64) 
 }
 
 /// `removeNode(domHandle, node)` — `element.remove()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_REMOVE_NODE(h: u64, id: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_REMOVE_NODE")]
+pub fn __RTS_FN_NS_DOM_REMOVE_NODE(h: u64, id: i64) {
     let Some(node) = NodeId::from_abi(id) else { return };
     with_mut(h, |dom| dom.remove_node(node));
 }
 
 /// `createTextNode(domHandle, text)` → `NodeId` de um nó de texto solto (≥ 0), ou
 /// `-1`. Ligue com `appendChild`/`insertBefore`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_CREATE_TEXT_NODE(h: u64, ptr: *const u8, len: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_CREATE_TEXT_NODE")]
+pub fn __RTS_FN_NS_DOM_CREATE_TEXT_NODE(h: u64, ptr: u64, len: i64) -> i64 {
+    let ptr = ptr as *const u8;
+
     let text = unsafe { str_abi::from_abi(ptr, len) }.unwrap_or("").to_string();
     with_mut(h, |dom| dom.create_text_node(&text).to_abi()).unwrap_or(NODE_NONE)
 }
 
 /// `insertBefore(domHandle, parent, child, reference)` — `parent.insertBefore(
 /// child, reference)`. `reference = -1` (ou não-filho) → anexa ao fim.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_INSERT_BEFORE(h: u64, parent: i64, child: i64, reference: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_INSERT_BEFORE")]
+pub fn __RTS_FN_NS_DOM_INSERT_BEFORE(h: u64, parent: i64, child: i64, reference: i64) {
     let (Some(parent), Some(child)) = (NodeId::from_abi(parent), NodeId::from_abi(child)) else {
         return;
     };
@@ -153,37 +166,37 @@ pub extern "C" fn __RTS_FN_NS_DOM_INSERT_BEFORE(h: u64, parent: i64, child: i64,
 // retorno para uma const antes de comparar com -1 (limite do motor i64-cmp inline).
 
 /// `parentNode(domHandle, node)` → `NodeId` do pai, ou `-1` (raiz / inválido).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_PARENT_NODE(h: u64, id: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_PARENT_NODE")]
+pub fn __RTS_FN_NS_DOM_PARENT_NODE(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
     with(h, |dom| dom.parent_of(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
 }
 
 /// `firstChild(domHandle, node)` → 1º filho (qualquer tipo, inclui Text), ou `-1`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_FIRST_CHILD(h: u64, id: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_FIRST_CHILD")]
+pub fn __RTS_FN_NS_DOM_FIRST_CHILD(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
     with(h, |dom| dom.first_child(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
 }
 
 /// `lastChild(domHandle, node)` → último filho, ou `-1`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_LAST_CHILD(h: u64, id: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_LAST_CHILD")]
+pub fn __RTS_FN_NS_DOM_LAST_CHILD(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
     with(h, |dom| dom.last_child(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
 }
 
 /// `nextSibling(domHandle, node)` → próximo irmão, ou `-1` (é o último).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_NEXT_SIBLING(h: u64, id: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_NEXT_SIBLING")]
+pub fn __RTS_FN_NS_DOM_NEXT_SIBLING(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
     with(h, |dom| dom.next_sibling(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE))
         .unwrap_or(NODE_NONE)
 }
 
 /// `previousSibling(domHandle, node)` → irmão anterior, ou `-1` (é o primeiro).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_PREVIOUS_SIBLING(h: u64, id: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_PREVIOUS_SIBLING")]
+pub fn __RTS_FN_NS_DOM_PREVIOUS_SIBLING(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
     with(h, |dom| dom.previous_sibling(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE))
         .unwrap_or(NODE_NONE)
@@ -191,15 +204,15 @@ pub extern "C" fn __RTS_FN_NS_DOM_PREVIOUS_SIBLING(h: u64, id: i64) -> i64 {
 
 /// `childNodesCount(domHandle, node)` → nº de filhos TOTAL (inclui Text); par com
 /// `childNodeAt` (igual a childCount/childAt, mas SEM filtrar elementos).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_CHILD_NODES_COUNT(h: u64, id: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_CHILD_NODES_COUNT")]
+pub fn __RTS_FN_NS_DOM_CHILD_NODES_COUNT(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return 0 };
     with(h, |dom| dom.child_nodes(node).len() as i64).unwrap_or(0)
 }
 
 /// `childNodeAt(domHandle, node, index)` → o índice-ésimo filho (inclui Text), -1.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_CHILD_NODE_AT(h: u64, id: i64, index: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_CHILD_NODE_AT")]
+pub fn __RTS_FN_NS_DOM_CHILD_NODE_AT(h: u64, id: i64, index: i64) -> i64 {
     if index < 0 {
         return NODE_NONE;
     }
@@ -212,30 +225,30 @@ pub extern "C" fn __RTS_FN_NS_DOM_CHILD_NODE_AT(h: u64, id: i64, index: i64) -> 
 
 /// `nodeType(domHandle, node)` → código DOM: Element=1, Text=3, Comment=8,
 /// Document=9; `-1` se inválido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_NODE_TYPE(h: u64, id: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_NODE_TYPE")]
+pub fn __RTS_FN_NS_DOM_NODE_TYPE(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
     with(h, |dom| dom.node_type(node)).unwrap_or(NODE_NONE)
 }
 
 /// `nodeName(domHandle, node)` → nome DOM (tag p/ Element; `#text`/`#comment`/
 /// `#document`), como handle de string. Vazio se inválido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_NODE_NAME(h: u64, id: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_DOM_NODE_NAME")]
+pub fn __RTS_FN_NS_DOM_NODE_NAME(h: u64, id: i64) -> u64 {
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let name = with(h, |dom| dom.node_name(node).unwrap_or_default()).unwrap_or_default();
     intern(&name)
 }
 
 /// `rootId(domHandle)` → `NodeId` versionado da raiz `#document` (≥ 0), ou `-1`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_ROOT_ID(h: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_ROOT_ID")]
+pub fn __RTS_FN_NS_DOM_ROOT_ID(h: u64) -> i64 {
     with(h, |dom| dom.root_id().to_abi()).unwrap_or(NODE_NONE)
 }
 
 /// `dump(domHandle)` — imprime a árvore (devtools-style) no stderr, para inspeção.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_DUMP(h: u64) {
+#[rtse::abi("__RTS_FN_NS_DOM_DUMP")]
+pub fn __RTS_FN_NS_DOM_DUMP(h: u64) {
     if let Some(s) = with(h, |dom| dom.dump()) {
         eprint!("{s}");
     }
@@ -245,8 +258,8 @@ pub extern "C" fn __RTS_FN_NS_DOM_DUMP(h: u64) {
 /// largura de viewport dada) e imprime um JSON com cada item (tipo + x/y/w/h + cor),
 /// para COMPARAR número-a-número com o render do navegador (o JSON do
 /// `extrair-render.js`). Usa o medidor aproximado (headless, determinístico).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_DUMP_LAYOUT(h: u64, viewport_w: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_DUMP_LAYOUT")]
+pub fn __RTS_FN_NS_DOM_DUMP_LAYOUT(h: u64, viewport_w: i64) {
     use crate::layout::{layout_document, ApproxMeasurer, DisplayItem, LayoutCtx};
     let vw = viewport_w.max(1) as f32;
     let json = with(h, |dom| {
@@ -308,8 +321,8 @@ pub extern "C" fn __RTS_FN_NS_DOM_DUMP_LAYOUT(h: u64, viewport_w: i64) {
 /// CADA nó (`node_rects`) + tag/id/class, indentada, para COMPARAR a geometria
 /// nó-a-nó com o `getBoundingClientRect` do Chrome (a ferramenta de diagnóstico da
 /// paridade de layout). Só elementos com rect (os que o layout posicionou).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_DUMP_TREE(h: u64, viewport_w: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_DUMP_TREE")]
+pub fn __RTS_FN_NS_DOM_DUMP_TREE(h: u64, viewport_w: i64) {
     use crate::layout::{layout_document, ApproxMeasurer, LayoutCtx};
     let vw = viewport_w.max(1) as f32;
     let out = with(h, |dom| {
@@ -370,8 +383,8 @@ thread_local! {
 /// Componente do border-box de um nó (`which`: 0=x 1=y 2=width 3=height), em
 /// pontos × 1000. `-1` se o nó não tem rect (texto/inline/display:none/inválido) —
 /// distinto de 0 (um rect legítimo de tamanho 0 dá 0, não -1). A fachada divide /1000.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_BOUNDING_COMPONENT(h: u64, id: i64, viewport_w: i64, which: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_BOUNDING_COMPONENT")]
+pub fn __RTS_FN_NS_DOM_BOUNDING_COMPONENT(h: u64, id: i64, viewport_w: i64, which: i64) -> i64 {
     use crate::layout::{ApproxMeasurer, LayoutCtx};
     let Some(node) = NodeId::from_abi(id) else { return -1 };
     let vw = viewport_w.max(1);
@@ -428,8 +441,8 @@ pub extern "C" fn __RTS_FN_NS_DOM_BOUNDING_COMPONENT(h: u64, id: i64, viewport_w
 /// `inputAt(dom, viewportW, x, y)` → o `NodeId` do `<input>`/`<textarea>` cujo
 /// border-box contém a coord `(x, y)` (coords de conteúdo da página, × 1). `-1` se
 /// nenhum. Usa o layout cacheado (mesmo GEOM_CACHE do getBoundingClientRect).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_INPUT_AT(h: u64, viewport_w: i64, x: i64, y: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_INPUT_AT")]
+pub fn __RTS_FN_NS_DOM_INPUT_AT(h: u64, viewport_w: i64, x: i64, y: i64) -> i64 {
     use crate::layout::{ApproxMeasurer, LayoutCtx};
     let vw = viewport_w.max(1);
     let (px, py) = (x as f32, y as f32);
@@ -473,8 +486,8 @@ pub extern "C" fn __RTS_FN_NS_DOM_INPUT_AT(h: u64, viewport_w: i64, x: i64, y: i
 
 /// `focusInput(dom, node)` → dá o foco a `node` (recebe teclas); `node == -1` tira
 /// o foco de todos. O caller (loop TS) chama após um clique (via `inputAt`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_FOCUS_INPUT(h: u64, id: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_FOCUS_INPUT")]
+pub fn __RTS_FN_NS_DOM_FOCUS_INPUT(h: u64, id: i64) {
     let node = NodeId::from_abi(id);
     with_mut(h, |dom| {
         let idx = node.and_then(|n| dom.resolve(n));
@@ -485,8 +498,8 @@ pub extern "C" fn __RTS_FN_NS_DOM_FOCUS_INPUT(h: u64, id: i64) {
 /// `setImage(dom, node, bufferHandle, off, w, h)` → associa a um `<img>` os pixels
 /// RGBA já decodificados (o browser baixa via fetchBytes + decodifica via imgdec e
 /// chama isto). O layout então emite a imagem. `off` = offset dos pixels no buffer.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_SET_IMAGE(
+#[rtse::abi("__RTS_FN_NS_DOM_SET_IMAGE")]
+pub fn __RTS_FN_NS_DOM_SET_IMAGE(
     h: u64, id: i64, buffer_handle: u64, off: i64, w: i64, hgt: i64,
 ) {
     let Some(node) = NodeId::from_abi(id) else {
@@ -498,8 +511,8 @@ pub extern "C" fn __RTS_FN_NS_DOM_SET_IMAGE(
 }
 
 /// `hasImage(dom, node)` → 1 se o nó tem imagem setada (diagnóstico), 0 senão.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_HAS_IMAGE(h: u64, id: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_HAS_IMAGE")]
+pub fn __RTS_FN_NS_DOM_HAS_IMAGE(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return 0 };
     with(h, |dom| {
         dom.resolve(node).and_then(|idx| dom.image_of(idx)).is_some() as i64
@@ -508,30 +521,32 @@ pub extern "C" fn __RTS_FN_NS_DOM_HAS_IMAGE(h: u64, id: i64) -> i64 {
 }
 
 /// `focusedInput(dom)` → o `NodeId` do input focado (-1 se nenhum).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_FOCUSED_INPUT(h: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_FOCUSED_INPUT")]
+pub fn __RTS_FN_NS_DOM_FOCUSED_INPUT(h: u64) -> i64 {
     with(h, |dom| dom.focused_input().map(|i| dom.id_of_idx(i).to_abi()).unwrap_or(NODE_NONE))
         .unwrap_or(NODE_NONE)
 }
 
 /// `inputFeedText(dom, text)` → anexa `text` ao input focado (os caracteres do
 /// frame). `1` se algo mudou (pede repaint), `0` senão.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_INPUT_FEED_TEXT(h: u64, t_ptr: *const u8, t_len: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_INPUT_FEED_TEXT")]
+pub fn __RTS_FN_NS_DOM_INPUT_FEED_TEXT(h: u64, t_ptr: u64, t_len: i64) -> i64 {
+    let t_ptr = t_ptr as *const u8;
+
     let t = unsafe { str_abi::from_abi(t_ptr, t_len) }.unwrap_or("").to_string();
     with_mut(h, |dom| dom.input_feed_text(&t) as i64).unwrap_or(0)
 }
 
 /// `inputBackspace(dom)` → apaga o último char do input focado. `1` se mudou.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_INPUT_BACKSPACE(h: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_INPUT_BACKSPACE")]
+pub fn __RTS_FN_NS_DOM_INPUT_BACKSPACE(h: u64) -> i64 {
     with_mut(h, |dom| dom.input_backspace() as i64).unwrap_or(0)
 }
 
 /// `inputValue(dom, node)` → o texto corrente do input (value digitado ou atributo)
 /// como STRING (handle do pool GC). `""` se não for input.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_INPUT_VALUE(h: u64, id: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_DOM_INPUT_VALUE")]
+pub fn __RTS_FN_NS_DOM_INPUT_VALUE(h: u64, id: i64) -> u64 {
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let v = with(h, |dom| {
         dom.resolve(node).map(|idx| dom.input_value(idx)).unwrap_or_default()
@@ -549,8 +564,8 @@ pub extern "C" fn __RTS_FN_NS_DOM_INPUT_VALUE(h: u64, id: i64) -> u64 {
 
 /// `getText(domHandle, node)` → `node.textContent` como STRING (handle do pool
 /// GC). Concatena o texto de todos os descendentes. Nó inválido ⇒ `""`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_GET_TEXT(h: u64, id: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_DOM_GET_TEXT")]
+pub fn __RTS_FN_NS_DOM_GET_TEXT(h: u64, id: i64) -> u64 {
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let txt = with(h, |dom| dom.text_content(node).unwrap_or_default()).unwrap_or_default();
     intern(&txt)
@@ -558,16 +573,16 @@ pub extern "C" fn __RTS_FN_NS_DOM_GET_TEXT(h: u64, id: i64) -> u64 {
 
 /// `innerHtml(domHandle, node)` → `element.innerHTML` como STRING (handle do pool
 /// GC): o HTML serializado dos FILHOS do nó. Nó inválido ⇒ `""`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_INNER_HTML(h: u64, id: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_DOM_INNER_HTML")]
+pub fn __RTS_FN_NS_DOM_INNER_HTML(h: u64, id: i64) -> u64 {
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let s = with(h, |dom| dom.inner_html(node).unwrap_or_default()).unwrap_or_default();
     intern(&s)
 }
 
 /// `outerHtml(domHandle, node)` → `element.outerHTML` (inclui o próprio elemento).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_OUTER_HTML(h: u64, id: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_DOM_OUTER_HTML")]
+pub fn __RTS_FN_NS_DOM_OUTER_HTML(h: u64, id: i64) -> u64 {
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let s = with(h, |dom| dom.outer_html(node).unwrap_or_default()).unwrap_or_default();
     intern(&s)
@@ -576,8 +591,10 @@ pub extern "C" fn __RTS_FN_NS_DOM_OUTER_HTML(h: u64, id: i64) -> u64 {
 /// `setInnerHtml(domHandle, node, html)` → `element.innerHTML = html`: parseia o
 /// HTML e SUBSTITUI os filhos do nó pela nova subárvore. Nó inválido / não-elemento
 /// ⇒ no-op.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_SET_INNER_HTML(h: u64, id: i64, html_ptr: *const u8, html_len: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_SET_INNER_HTML")]
+pub fn __RTS_FN_NS_DOM_SET_INNER_HTML(h: u64, id: i64, html_ptr: u64, html_len: i64) {
+    let html_ptr = html_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return };
     let html = unsafe { str_abi::from_abi(html_ptr, html_len) }.unwrap_or("").to_string();
     with_mut(h, |dom| dom.set_inner_html(node, &html));
@@ -586,33 +603,41 @@ pub extern "C" fn __RTS_FN_NS_DOM_SET_INNER_HTML(h: u64, id: i64, html_ptr: *con
 // ── Traversal por elemento — #1757 ──────────────────────────────────────────────
 
 /// Macro de navegação que devolve um `NodeId` (ou `-1`). Reduz boilerplate.
+/// Bare `#[rtse::abi]` prefixes the Rust fn name with `__` and renames the fn
+/// to the result, so passing the name WITHOUT its two leading underscores
+/// reproduces the existing symbol exactly — and the Rust ident is `__RTS_…`
+/// again after expansion, so nothing that referenced it has to move.
 macro_rules! nav_fn {
     ($fn:ident, $method:ident) => {
-        #[unsafe(no_mangle)]
-        pub extern "C" fn $fn(h: u64, id: i64) -> i64 {
+        #[rtse::abi]
+        pub fn $fn(h: u64, id: i64) -> i64 {
             let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
             with(h, |dom| dom.$method(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
         }
     };
 }
-nav_fn!(__RTS_FN_NS_DOM_FIRST_ELEMENT_CHILD, first_element_child);
-nav_fn!(__RTS_FN_NS_DOM_LAST_ELEMENT_CHILD, last_element_child);
-nav_fn!(__RTS_FN_NS_DOM_NEXT_ELEMENT_SIBLING, next_element_sibling);
-nav_fn!(__RTS_FN_NS_DOM_PREVIOUS_ELEMENT_SIBLING, previous_element_sibling);
-nav_fn!(__RTS_FN_NS_DOM_PARENT_ELEMENT, parent_element);
+nav_fn!(RTS_FN_NS_DOM_FIRST_ELEMENT_CHILD, first_element_child);
+nav_fn!(RTS_FN_NS_DOM_LAST_ELEMENT_CHILD, last_element_child);
+nav_fn!(RTS_FN_NS_DOM_NEXT_ELEMENT_SIBLING, next_element_sibling);
+nav_fn!(RTS_FN_NS_DOM_PREVIOUS_ELEMENT_SIBLING, previous_element_sibling);
+nav_fn!(RTS_FN_NS_DOM_PARENT_ELEMENT, parent_element);
 
 /// `closest(domHandle, node, selector)` → o NodeId do ancestral (ou o próprio) que
 /// casa o seletor simples, ou `-1`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_CLOSEST(h: u64, id: i64, sel_ptr: *const u8, sel_len: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_CLOSEST")]
+pub fn __RTS_FN_NS_DOM_CLOSEST(h: u64, id: i64, sel_ptr: u64, sel_len: i64) -> i64 {
+    let sel_ptr = sel_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
     let sel = unsafe { str_abi::from_abi(sel_ptr, sel_len) }.unwrap_or("").to_string();
     with(h, |dom| dom.closest(node, &sel).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
 }
 
 /// `matches(domHandle, node, selector)` → 1 se o nó casa o seletor, 0 senão.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_MATCHES(h: u64, id: i64, sel_ptr: *const u8, sel_len: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_MATCHES")]
+pub fn __RTS_FN_NS_DOM_MATCHES(h: u64, id: i64, sel_ptr: u64, sel_len: i64) -> i64 {
+    let sel_ptr = sel_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return 0 };
     let sel = unsafe { str_abi::from_abi(sel_ptr, sel_len) }.unwrap_or("").to_string();
     with(h, |dom| dom.matches_selector(node, &sel) as i64).unwrap_or(0)
@@ -621,46 +646,50 @@ pub extern "C" fn __RTS_FN_NS_DOM_MATCHES(h: u64, id: i64, sel_ptr: *const u8, s
 // ── Node utils — #1762 ──────────────────────────────────────────────────────────
 
 /// `contains(domHandle, node, other)` → 1 se `node` contém `other` (ou é ele), 0 senão.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_CONTAINS(h: u64, id: i64, other: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_CONTAINS")]
+pub fn __RTS_FN_NS_DOM_CONTAINS(h: u64, id: i64, other: i64) -> i64 {
     let (Some(node), Some(o)) = (NodeId::from_abi(id), NodeId::from_abi(other)) else { return 0 };
     with(h, |dom| dom.contains(node, o) as i64).unwrap_or(0)
 }
 
 /// `hasChildNodes(domHandle, node)` → 1 se tem ao menos um filho, 0 senão.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_HAS_CHILD_NODES(h: u64, id: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_HAS_CHILD_NODES")]
+pub fn __RTS_FN_NS_DOM_HAS_CHILD_NODES(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return 0 };
     with(h, |dom| dom.has_child_nodes(node) as i64).unwrap_or(0)
 }
 
 /// `nodeValue(domHandle, node)` → o texto cru de um nó Text/Comment como STRING; ""
 /// para Element/Document (nodeValue null).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_NODE_VALUE(h: u64, id: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_DOM_NODE_VALUE")]
+pub fn __RTS_FN_NS_DOM_NODE_VALUE(h: u64, id: i64) -> u64 {
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let v = with(h, |dom| dom.node_value(node).unwrap_or_default()).unwrap_or_default();
     intern(&v)
 }
 
 /// `setNodeValue(domHandle, node, value)` → substitui o texto de um nó Text/Comment.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_SET_NODE_VALUE(h: u64, id: i64, v_ptr: *const u8, v_len: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_SET_NODE_VALUE")]
+pub fn __RTS_FN_NS_DOM_SET_NODE_VALUE(h: u64, id: i64, v_ptr: u64, v_len: i64) {
+    let v_ptr = v_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return };
     let v = unsafe { str_abi::from_abi(v_ptr, v_len) }.unwrap_or("").to_string();
     with_mut(h, |dom| dom.set_node_value(node, &v));
 }
 
 /// `createComment(domHandle, text)` → NodeId de um nó de comentário solto.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_CREATE_COMMENT(h: u64, t_ptr: *const u8, t_len: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_CREATE_COMMENT")]
+pub fn __RTS_FN_NS_DOM_CREATE_COMMENT(h: u64, t_ptr: u64, t_len: i64) -> i64 {
+    let t_ptr = t_ptr as *const u8;
+
     let text = unsafe { str_abi::from_abi(t_ptr, t_len) }.unwrap_or("").to_string();
     with_mut(h, |dom| dom.create_comment(&text).to_abi()).unwrap_or(NODE_NONE)
 }
 
 /// `normalize(domHandle, node)` → funde nós de texto adjacentes + remove vazios.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_NORMALIZE(h: u64, id: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_NORMALIZE")]
+pub fn __RTS_FN_NS_DOM_NORMALIZE(h: u64, id: i64) {
     let Some(node) = NodeId::from_abi(id) else { return };
     with_mut(h, |dom| dom.normalize(node));
 }
@@ -668,8 +697,10 @@ pub extern "C" fn __RTS_FN_NS_DOM_NORMALIZE(h: u64, id: i64) {
 // ── Atributos extra — #1761 ─────────────────────────────────────────────────────
 
 /// `removeAttr(domHandle, node, name)` → remove o atributo (no-op se ausente).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_REMOVE_ATTR(h: u64, id: i64, n_ptr: *const u8, n_len: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_REMOVE_ATTR")]
+pub fn __RTS_FN_NS_DOM_REMOVE_ATTR(h: u64, id: i64, n_ptr: u64, n_len: i64) {
+    let n_ptr = n_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return };
     let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("").to_string();
     with_mut(h, |dom| dom.remove_attr(node, &name));
@@ -677,31 +708,33 @@ pub extern "C" fn __RTS_FN_NS_DOM_REMOVE_ATTR(h: u64, id: i64, n_ptr: *const u8,
 
 /// `hasAttr(domHandle, node, name)` → 1 se o atributo está PRESENTE (mesmo vazio),
 /// 0 senão. Corrige atributos booleanos (`hidden`/`disabled`, valor `""`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_HAS_ATTR(h: u64, id: i64, n_ptr: *const u8, n_len: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_HAS_ATTR")]
+pub fn __RTS_FN_NS_DOM_HAS_ATTR(h: u64, id: i64, n_ptr: u64, n_len: i64) -> i64 {
+    let n_ptr = n_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return 0 };
     let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("").to_string();
     with(h, |dom| dom.has_attr(node, &name) as i64).unwrap_or(0)
 }
 
 /// `attrCount(domHandle, node)` → nº de atributos (para getAttributeNames/attributes).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_ATTR_COUNT(h: u64, id: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_ATTR_COUNT")]
+pub fn __RTS_FN_NS_DOM_ATTR_COUNT(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return 0 };
     with(h, |dom| dom.attr_names(node).len() as i64).unwrap_or(0)
 }
 
 /// `attrNameAt(domHandle, node, i)` → nome do i-ésimo atributo como STRING.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_ATTR_NAME_AT(h: u64, id: i64, i: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_DOM_ATTR_NAME_AT")]
+pub fn __RTS_FN_NS_DOM_ATTR_NAME_AT(h: u64, id: i64, i: i64) -> u64 {
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let name = with(h, |dom| dom.attr_names(node).get(i as usize).cloned().unwrap_or_default()).unwrap_or_default();
     intern(&name)
 }
 
 /// `attrValueAt(domHandle, node, i)` → valor do i-ésimo atributo como STRING.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_ATTR_VALUE_AT(h: u64, id: i64, i: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_DOM_ATTR_VALUE_AT")]
+pub fn __RTS_FN_NS_DOM_ATTR_VALUE_AT(h: u64, id: i64, i: i64) -> u64 {
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let val = with(h, |dom| dom.attr_value_at(node, i as usize).unwrap_or_default()).unwrap_or_default();
     intern(&val)
@@ -711,61 +744,79 @@ pub extern "C" fn __RTS_FN_NS_DOM_ATTR_VALUE_AT(h: u64, id: i64, i: i64) -> u64 
 // Mesmo padrão count+at do querySelectorAll (re-roda a coleção por índice).
 
 /// `getByClassCount`/`getByClassAt` — elementos com a classe (HTMLCollection).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_GET_BY_CLASS_COUNT(h: u64, n_ptr: *const u8, n_len: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_GET_BY_CLASS_COUNT")]
+pub fn __RTS_FN_NS_DOM_GET_BY_CLASS_COUNT(h: u64, n_ptr: u64, n_len: i64) -> i64 {
+    let n_ptr = n_ptr as *const u8;
+
     let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("");
     with(h, |dom| dom.get_elements_by_class_name(name).len() as i64).unwrap_or(0)
 }
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_GET_BY_CLASS_AT(h: u64, n_ptr: *const u8, n_len: i64, i: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_GET_BY_CLASS_AT")]
+pub fn __RTS_FN_NS_DOM_GET_BY_CLASS_AT(h: u64, n_ptr: u64, n_len: i64, i: i64) -> i64 {
+    let n_ptr = n_ptr as *const u8;
+
     if i < 0 { return NODE_NONE; }
     let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("");
     with(h, |dom| dom.get_elements_by_class_name(name).get(i as usize).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
 }
 
 /// `getByTagCount`/`getByTagAt` — elementos da tag (`*` = todos).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_GET_BY_TAG_COUNT(h: u64, n_ptr: *const u8, n_len: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_GET_BY_TAG_COUNT")]
+pub fn __RTS_FN_NS_DOM_GET_BY_TAG_COUNT(h: u64, n_ptr: u64, n_len: i64) -> i64 {
+    let n_ptr = n_ptr as *const u8;
+
     let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("");
     with(h, |dom| dom.get_elements_by_tag_name(name).len() as i64).unwrap_or(0)
 }
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_GET_BY_TAG_AT(h: u64, n_ptr: *const u8, n_len: i64, i: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_GET_BY_TAG_AT")]
+pub fn __RTS_FN_NS_DOM_GET_BY_TAG_AT(h: u64, n_ptr: u64, n_len: i64, i: i64) -> i64 {
+    let n_ptr = n_ptr as *const u8;
+
     if i < 0 { return NODE_NONE; }
     let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("");
     with(h, |dom| dom.get_elements_by_tag_name(name).get(i as usize).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
 }
 
 /// `getByNameCount`/`getByNameAt` — elementos com atributo `name`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_GET_BY_NAME_COUNT(h: u64, n_ptr: *const u8, n_len: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_GET_BY_NAME_COUNT")]
+pub fn __RTS_FN_NS_DOM_GET_BY_NAME_COUNT(h: u64, n_ptr: u64, n_len: i64) -> i64 {
+    let n_ptr = n_ptr as *const u8;
+
     let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("");
     with(h, |dom| dom.get_elements_by_name(name).len() as i64).unwrap_or(0)
 }
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_GET_BY_NAME_AT(h: u64, n_ptr: *const u8, n_len: i64, i: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_GET_BY_NAME_AT")]
+pub fn __RTS_FN_NS_DOM_GET_BY_NAME_AT(h: u64, n_ptr: u64, n_len: i64, i: i64) -> i64 {
+    let n_ptr = n_ptr as *const u8;
+
     if i < 0 { return NODE_NONE; }
     let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("");
     with(h, |dom| dom.get_elements_by_name(name).get(i as usize).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
 }
 
 /// `queryWithin(domHandle, root, selector)` → 1º descendente de `root` que casa, ou -1.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_QUERY_WITHIN(h: u64, id: i64, sel_ptr: *const u8, sel_len: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_QUERY_WITHIN")]
+pub fn __RTS_FN_NS_DOM_QUERY_WITHIN(h: u64, id: i64, sel_ptr: u64, sel_len: i64) -> i64 {
+    let sel_ptr = sel_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
     let sel = unsafe { str_abi::from_abi(sel_ptr, sel_len) }.unwrap_or("").to_string();
     with(h, |dom| dom.query_within(node, &sel).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
 }
 
 /// `queryAllWithinCount`/`At` — descendentes de `root` que casam (subárvore).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_QUERY_ALL_WITHIN_COUNT(h: u64, id: i64, sel_ptr: *const u8, sel_len: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_QUERY_ALL_WITHIN_COUNT")]
+pub fn __RTS_FN_NS_DOM_QUERY_ALL_WITHIN_COUNT(h: u64, id: i64, sel_ptr: u64, sel_len: i64) -> i64 {
+    let sel_ptr = sel_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return 0 };
     let sel = unsafe { str_abi::from_abi(sel_ptr, sel_len) }.unwrap_or("").to_string();
     with(h, |dom| dom.query_all_within(node, &sel).len() as i64).unwrap_or(0)
 }
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_QUERY_ALL_WITHIN_AT(h: u64, id: i64, sel_ptr: *const u8, sel_len: i64, i: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_QUERY_ALL_WITHIN_AT")]
+pub fn __RTS_FN_NS_DOM_QUERY_ALL_WITHIN_AT(h: u64, id: i64, sel_ptr: u64, sel_len: i64, i: i64) -> i64 {
+    let sel_ptr = sel_ptr as *const u8;
+
     if i < 0 { return NODE_NONE; }
     let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
     let sel = unsafe { str_abi::from_abi(sel_ptr, sel_len) }.unwrap_or("").to_string();
@@ -775,50 +826,50 @@ pub extern "C" fn __RTS_FN_NS_DOM_QUERY_ALL_WITHIN_AT(h: u64, id: i64, sel_ptr: 
 // ── Mutação rica — #1756 ─────────────────────────────────────────────────────────
 
 /// `cloneNode(domHandle, node, deep)` → NodeId do clone solto (deep!=0 = com filhos).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_CLONE_NODE(h: u64, id: i64, deep: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_CLONE_NODE")]
+pub fn __RTS_FN_NS_DOM_CLONE_NODE(h: u64, id: i64, deep: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
     with_mut(h, |dom| dom.clone_node(node, deep != 0).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
 }
 
 /// `prepend(domHandle, parent, child)` → insere child no início dos filhos.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_PREPEND(h: u64, parent: i64, child: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_PREPEND")]
+pub fn __RTS_FN_NS_DOM_PREPEND(h: u64, parent: i64, child: i64) {
     let (Some(p), Some(c)) = (NodeId::from_abi(parent), NodeId::from_abi(child)) else { return };
     with_mut(h, |dom| dom.prepend_child(p, c));
 }
 
 /// `insertAdjacent(domHandle, node, other, after)` → other como irmão antes/depois.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_INSERT_ADJACENT(h: u64, node: i64, other: i64, after: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_INSERT_ADJACENT")]
+pub fn __RTS_FN_NS_DOM_INSERT_ADJACENT(h: u64, node: i64, other: i64, after: i64) {
     let (Some(n), Some(o)) = (NodeId::from_abi(node), NodeId::from_abi(other)) else { return };
     with_mut(h, |dom| dom.insert_adjacent(n, o, after != 0));
 }
 
 /// `replaceWith(domHandle, node, other)` → substitui node por other.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_REPLACE_WITH(h: u64, node: i64, other: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_REPLACE_WITH")]
+pub fn __RTS_FN_NS_DOM_REPLACE_WITH(h: u64, node: i64, other: i64) {
     let (Some(n), Some(o)) = (NodeId::from_abi(node), NodeId::from_abi(other)) else { return };
     with_mut(h, |dom| dom.replace_with(n, o));
 }
 
 /// `replaceChild(domHandle, parent, new, old)` → substitui old por new.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_REPLACE_CHILD(h: u64, parent: i64, new_child: i64, old_child: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_REPLACE_CHILD")]
+pub fn __RTS_FN_NS_DOM_REPLACE_CHILD(h: u64, parent: i64, new_child: i64, old_child: i64) {
     let (Some(p), Some(nw), Some(od)) = (NodeId::from_abi(parent), NodeId::from_abi(new_child), NodeId::from_abi(old_child)) else { return };
     with_mut(h, |dom| dom.replace_child(p, nw, od));
 }
 
 /// `removeChild(domHandle, parent, child)` → remove child se for filho de parent.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_REMOVE_CHILD(h: u64, parent: i64, child: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_REMOVE_CHILD")]
+pub fn __RTS_FN_NS_DOM_REMOVE_CHILD(h: u64, parent: i64, child: i64) {
     let (Some(p), Some(c)) = (NodeId::from_abi(parent), NodeId::from_abi(child)) else { return };
     with_mut(h, |dom| dom.remove_child(p, c));
 }
 
 /// `clearChildren(domHandle, parent)` → remove todos os filhos (base de replaceChildren).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_CLEAR_CHILDREN(h: u64, parent: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_CLEAR_CHILDREN")]
+pub fn __RTS_FN_NS_DOM_CLEAR_CHILDREN(h: u64, parent: i64) {
     let Some(p) = NodeId::from_abi(parent) else { return };
     with_mut(h, |dom| dom.clear_children(p));
 }
@@ -827,8 +878,10 @@ pub extern "C" fn __RTS_FN_NS_DOM_CLEAR_CHILDREN(h: u64, parent: i64) {
 
 /// `computedProperty(domHandle, node, name)` → valor COMPUTADO da prop (após
 /// cascade) como STRING, formato do browser. "" se ausente.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_COMPUTED_PROPERTY(h: u64, id: i64, n_ptr: *const u8, n_len: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_DOM_COMPUTED_PROPERTY")]
+pub fn __RTS_FN_NS_DOM_COMPUTED_PROPERTY(h: u64, id: i64, n_ptr: u64, n_len: i64) -> u64 {
+    let n_ptr = n_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("").to_string();
     let v = with(h, |dom| dom.computed_property(node, &name)).unwrap_or_default();
@@ -836,8 +889,10 @@ pub extern "C" fn __RTS_FN_NS_DOM_COMPUTED_PROPERTY(h: u64, id: i64, n_ptr: *con
 }
 
 /// `inlineProperty(domHandle, node, name)` → valor INLINE da prop (só `style=""`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_INLINE_PROPERTY(h: u64, id: i64, n_ptr: *const u8, n_len: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_DOM_INLINE_PROPERTY")]
+pub fn __RTS_FN_NS_DOM_INLINE_PROPERTY(h: u64, id: i64, n_ptr: u64, n_len: i64) -> u64 {
+    let n_ptr = n_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("").to_string();
     let v = with(h, |dom| dom.inline_property(node, &name)).unwrap_or_default();
@@ -845,16 +900,18 @@ pub extern "C" fn __RTS_FN_NS_DOM_INLINE_PROPERTY(h: u64, id: i64, n_ptr: *const
 }
 
 /// `cssText(domHandle, node)` → o `style=""` cru.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_CSS_TEXT(h: u64, id: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_DOM_CSS_TEXT")]
+pub fn __RTS_FN_NS_DOM_CSS_TEXT(h: u64, id: i64) -> u64 {
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let v = with(h, |dom| dom.css_text(node)).unwrap_or_default();
     intern(&v)
 }
 
 /// `setCssText(domHandle, node, text)` → substitui o `style=""` inteiro.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_SET_CSS_TEXT(h: u64, id: i64, t_ptr: *const u8, t_len: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_SET_CSS_TEXT")]
+pub fn __RTS_FN_NS_DOM_SET_CSS_TEXT(h: u64, id: i64, t_ptr: u64, t_len: i64) {
+    let t_ptr = t_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return };
     let text = unsafe { str_abi::from_abi(t_ptr, t_len) }.unwrap_or("").to_string();
     with_mut(h, |dom| dom.set_css_text(node, &text));
@@ -865,8 +922,10 @@ pub extern "C" fn __RTS_FN_NS_DOM_SET_CSS_TEXT(h: u64, id: i64, t_ptr: *const u8
 /// desempatam por cima). Usado pela camada TS de carregamento de recursos para ligar
 /// CSS externo (`<link rel=stylesheet>`, `@import`) à cascade — o Rust não conhece a
 /// tag `<link>` nem lê o arquivo; o TS resolve/baixa e chama isto com o CSS pronto.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_ADD_STYLESHEET(h: u64, css_ptr: *const u8, css_len: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_ADD_STYLESHEET")]
+pub fn __RTS_FN_NS_DOM_ADD_STYLESHEET(h: u64, css_ptr: u64, css_len: i64) {
+    let css_ptr = css_ptr as *const u8;
+
     let css = unsafe { str_abi::from_abi(css_ptr, css_len) }.unwrap_or("").to_string();
     with_mut(h, |dom| dom.add_stylesheet(&css));
 }
@@ -876,18 +935,23 @@ pub extern "C" fn __RTS_FN_NS_DOM_ADD_STYLESHEET(h: u64, css_ptr: *const u8, css
 /// novo não tem eval in-process com acesso ao DOM (ver a nota em `__loadScriptAt`).
 /// Carregar ≠ executar — quando o eval in-process existir, este primitivo evolui para
 /// disparar a execução de fato.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_RUN_SCRIPT(h: u64, id: i64, c_ptr: *const u8, c_len: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_RUN_SCRIPT")]
+pub fn __RTS_FN_NS_DOM_RUN_SCRIPT(h: u64, id: i64, c_ptr: u64, c_len: i64) {
+    let c_ptr = c_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return };
     let code = unsafe { str_abi::from_abi(c_ptr, c_len) }.unwrap_or("").to_string();
     with_mut(h, |dom| dom.set_text(node, &code));
 }
 
 /// `setStyleProperty(domHandle, node, name, value)` → define UMA prop no `style=""`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_SET_STYLE_PROPERTY(
-    h: u64, id: i64, n_ptr: *const u8, n_len: i64, v_ptr: *const u8, v_len: i64,
+#[rtse::abi("__RTS_FN_NS_DOM_SET_STYLE_PROPERTY")]
+pub fn __RTS_FN_NS_DOM_SET_STYLE_PROPERTY(
+    h: u64, id: i64, n_ptr: u64, n_len: i64, v_ptr: u64, v_len: i64,
 ) {
+    let n_ptr = n_ptr as *const u8;
+    let v_ptr = v_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return };
     let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("").to_string();
     let value = unsafe { str_abi::from_abi(v_ptr, v_len) }.unwrap_or("").to_string();
@@ -895,8 +959,10 @@ pub extern "C" fn __RTS_FN_NS_DOM_SET_STYLE_PROPERTY(
 }
 
 /// `removeStyleProperty(domHandle, node, name)` → remove a prop do `style=""`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_REMOVE_STYLE_PROPERTY(h: u64, id: i64, n_ptr: *const u8, n_len: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_REMOVE_STYLE_PROPERTY")]
+pub fn __RTS_FN_NS_DOM_REMOVE_STYLE_PROPERTY(h: u64, id: i64, n_ptr: u64, n_len: i64) {
+    let n_ptr = n_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return };
     let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("").to_string();
     with_mut(h, |dom| dom.remove_style_property(node, &name));
@@ -912,8 +978,10 @@ thread_local! {
 }
 
 /// `addListener(domHandle, node, type)` → registra que o nó escuta o tipo.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_ADD_LISTENER(h: u64, id: i64, t_ptr: *const u8, t_len: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_ADD_LISTENER")]
+pub fn __RTS_FN_NS_DOM_ADD_LISTENER(h: u64, id: i64, t_ptr: u64, t_len: i64) {
+    let t_ptr = t_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return };
     let t = unsafe { str_abi::from_abi(t_ptr, t_len) }.unwrap_or("").to_string();
     with_mut(h, |dom| dom.add_event_listener(node, &t));
@@ -921,14 +989,16 @@ pub extern "C" fn __RTS_FN_NS_DOM_ADD_LISTENER(h: u64, id: i64, t_ptr: *const u8
 
 /// `addListenerCb(domHandle, node, type, cb)` → registra o tipo E o callback
 /// (word/handle i64 da Function, guardado OPACO — quem invoca é a fachada TS).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_ADD_LISTENER_CB(
+#[rtse::abi("__RTS_FN_NS_DOM_ADD_LISTENER_CB")]
+pub fn __RTS_FN_NS_DOM_ADD_LISTENER_CB(
     h: u64,
     id: i64,
-    t_ptr: *const u8,
+    t_ptr: u64,
     t_len: i64,
     cb: i64,
 ) {
+    let t_ptr = t_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return };
     let t = unsafe { str_abi::from_abi(t_ptr, t_len) }.unwrap_or("").to_string();
     with_mut(h, |dom| dom.add_event_listener_cb(node, &t, cb));
@@ -937,22 +1007,24 @@ pub extern "C" fn __RTS_FN_NS_DOM_ADD_LISTENER_CB(
 /// `dispatchCollect(domHandle, target, type, bubbles)` → dispara COLETANDO os
 /// callbacks (alvo → bubbling) no scratch do Dom; devolve quantos coletou. A
 /// fachada TS lê com `dispatchCbAt`/`dispatchCbNode` e COPIA antes de invocar.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_DISPATCH_COLLECT(
+#[rtse::abi("__RTS_FN_NS_DOM_DISPATCH_COLLECT")]
+pub fn __RTS_FN_NS_DOM_DISPATCH_COLLECT(
     h: u64,
     id: i64,
-    t_ptr: *const u8,
+    t_ptr: u64,
     t_len: i64,
     bubbles: i64,
 ) -> i64 {
+    let t_ptr = t_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return 0 };
     let t = unsafe { str_abi::from_abi(t_ptr, t_len) }.unwrap_or("").to_string();
     with_mut(h, |dom| dom.dispatch_event_collect(node, &t, bubbles != 0)).unwrap_or(0)
 }
 
 /// `dispatchCbAt(domHandle, i)` → o i-ésimo callback-word coletado (0 fora do range).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_DISPATCH_CB_AT(h: u64, i: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_DISPATCH_CB_AT")]
+pub fn __RTS_FN_NS_DOM_DISPATCH_CB_AT(h: u64, i: i64) -> i64 {
     with(h, |dom| {
         dom.last_dispatch_at(i.max(0) as usize)
             .map(|(_, cb)| cb)
@@ -963,8 +1035,8 @@ pub extern "C" fn __RTS_FN_NS_DOM_DISPATCH_CB_AT(h: u64, i: i64) -> i64 {
 
 /// `dispatchCbNode(domHandle, i)` → o NodeId do nó que escuta no i-ésimo par
 /// coletado (-1 fora do range) — vira o `currentTarget` do handler na fachada.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_DISPATCH_CB_NODE(h: u64, i: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_DISPATCH_CB_NODE")]
+pub fn __RTS_FN_NS_DOM_DISPATCH_CB_NODE(h: u64, i: i64) -> i64 {
     with(h, |dom| {
         dom.last_dispatch_at(i.max(0) as usize)
             .map(|(n, _)| n.to_abi())
@@ -974,16 +1046,20 @@ pub extern "C" fn __RTS_FN_NS_DOM_DISPATCH_CB_NODE(h: u64, i: i64) -> i64 {
 }
 
 /// `removeListener(domHandle, node, type)` → para de escutar o tipo.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_REMOVE_LISTENER(h: u64, id: i64, t_ptr: *const u8, t_len: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_REMOVE_LISTENER")]
+pub fn __RTS_FN_NS_DOM_REMOVE_LISTENER(h: u64, id: i64, t_ptr: u64, t_len: i64) {
+    let t_ptr = t_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return };
     let t = unsafe { str_abi::from_abi(t_ptr, t_len) }.unwrap_or("").to_string();
     with_mut(h, |dom| dom.remove_event_listener(node, &t));
 }
 
 /// `hasListener(domHandle, node, type)` → 1 se o nó escuta o tipo, 0 senão.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_HAS_LISTENER(h: u64, id: i64, t_ptr: *const u8, t_len: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_HAS_LISTENER")]
+pub fn __RTS_FN_NS_DOM_HAS_LISTENER(h: u64, id: i64, t_ptr: u64, t_len: i64) -> i64 {
+    let t_ptr = t_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return 0 };
     let t = unsafe { str_abi::from_abi(t_ptr, t_len) }.unwrap_or("").to_string();
     with(h, |dom| dom.has_listener(node, &t) as i64).unwrap_or(0)
@@ -991,8 +1067,10 @@ pub extern "C" fn __RTS_FN_NS_DOM_HAS_LISTENER(h: u64, id: i64, t_ptr: *const u8
 
 /// `dispatchEvent(domHandle, target, type, bubbles)` → dispara; `bubbles!=0` sobe
 /// pelos ancestrais. Devolve quantos listeners foram enfileirados.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_DISPATCH_EVENT(h: u64, id: i64, t_ptr: *const u8, t_len: i64, bubbles: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_DISPATCH_EVENT")]
+pub fn __RTS_FN_NS_DOM_DISPATCH_EVENT(h: u64, id: i64, t_ptr: u64, t_len: i64, bubbles: i64) -> i64 {
+    let t_ptr = t_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return 0 };
     let t = unsafe { str_abi::from_abi(t_ptr, t_len) }.unwrap_or("").to_string();
     with_mut(h, |dom| dom.dispatch_event(node, &t, bubbles != 0)).unwrap_or(0)
@@ -1000,8 +1078,8 @@ pub extern "C" fn __RTS_FN_NS_DOM_DISPATCH_EVENT(h: u64, id: i64, t_ptr: *const 
 
 /// `pollEvent(domHandle)` → NodeId do próximo evento pendente (ou -1 se a fila está
 /// vazia). GUARDA o tipo p/ `pollEventType` ler em seguida.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_POLL_EVENT(h: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_POLL_EVENT")]
+pub fn __RTS_FN_NS_DOM_POLL_EVENT(h: u64) -> i64 {
     match with_mut(h, |dom| dom.poll_event()) {
         Some(Some((node, t))) => {
             LAST_EVENT_TYPE.with(|c| *c.borrow_mut() = t);
@@ -1016,8 +1094,8 @@ pub extern "C" fn __RTS_FN_NS_DOM_POLL_EVENT(h: u64) -> i64 {
 
 /// `pollEventType(domHandle)` → o tipo do evento entregue no último `pollEvent` (""
 /// se nenhum). Ler imediatamente após `pollEvent`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_POLL_EVENT_TYPE(_h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_DOM_POLL_EVENT_TYPE")]
+pub fn __RTS_FN_NS_DOM_POLL_EVENT_TYPE(_h: u64) -> u64 {
     let t = LAST_EVENT_TYPE.with(|c| c.borrow().clone());
     intern(&t)
 }
@@ -1025,8 +1103,8 @@ pub extern "C" fn __RTS_FN_NS_DOM_POLL_EVENT_TYPE(_h: u64) -> u64 {
 /// `setHovered(domHandle, node)` → informa o nó sob o cursor (`-1` = nenhum) — o
 /// estado do `:hover` vivo. O backend real chama por frame via hit-test; este
 /// membro cobre testes headless e backends alternativos.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_SET_HOVERED(h: u64, id: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_SET_HOVERED")]
+pub fn __RTS_FN_NS_DOM_SET_HOVERED(h: u64, id: i64) {
     with_mut(h, |dom| {
         let idx = NodeId::from_abi(id).and_then(|n| dom.resolve(n));
         dom.set_hovered(idx);
@@ -1036,8 +1114,10 @@ pub extern "C" fn __RTS_FN_NS_DOM_SET_HOVERED(h: u64, id: i64) {
 /// `pushRawEvent(domHandle, node, type)` → empurra um evento CRU na fila do
 /// backend (o mesmo caminho do hit-test do mouse) — para eventos sintéticos e
 /// testes headless do ciclo completo.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_PUSH_RAW_EVENT(h: u64, id: i64, t_ptr: *const u8, t_len: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_PUSH_RAW_EVENT")]
+pub fn __RTS_FN_NS_DOM_PUSH_RAW_EVENT(h: u64, id: i64, t_ptr: u64, t_len: i64) {
+    let t_ptr = t_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return };
     let t = unsafe { str_abi::from_abi(t_ptr, t_len) }.unwrap_or("").to_string();
     with_mut(h, |dom| {
@@ -1050,8 +1130,8 @@ pub extern "C" fn __RTS_FN_NS_DOM_PUSH_RAW_EVENT(h: u64, id: i64, t_ptr: *const 
 /// `pollRawEvent(domHandle)` → NodeId do próximo evento CRU do backend (hit-test do
 /// mouse), ou -1. GUARDA o tipo p/ `pollRawEventType` ler em seguida. A fachada TS
 /// (`pumpEventCallbacks`) drena e faz o dispatch completo (bubbling + callbacks).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_POLL_RAW_EVENT(h: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_POLL_RAW_EVENT")]
+pub fn __RTS_FN_NS_DOM_POLL_RAW_EVENT(h: u64) -> i64 {
     match with_mut(h, |dom| dom.poll_raw_event()) {
         Some(Some((node, t))) => {
             LAST_RAW_EVENT_TYPE.with(|c| *c.borrow_mut() = t);
@@ -1066,8 +1146,8 @@ pub extern "C" fn __RTS_FN_NS_DOM_POLL_RAW_EVENT(h: u64) -> i64 {
 
 /// `pollRawEventType(domHandle)` → o tipo do evento entregue no último
 /// `pollRawEvent` ("" se nenhum). Ler imediatamente após.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_POLL_RAW_EVENT_TYPE(_h: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_DOM_POLL_RAW_EVENT_TYPE")]
+pub fn __RTS_FN_NS_DOM_POLL_RAW_EVENT_TYPE(_h: u64) -> u64 {
     let t = LAST_RAW_EVENT_TYPE.with(|c| c.borrow().clone());
     intern(&t)
 }
@@ -1075,21 +1155,23 @@ pub extern "C" fn __RTS_FN_NS_DOM_POLL_RAW_EVENT_TYPE(_h: u64) -> u64 {
 /// `advance(domHandle, nowMs)` → avança as animações para o instante `nowMs` (o LOOP
 /// INTERNO ao DOM; #1776). Devolve 1 se há animação ATIVA (o backend deve repintar o
 /// próximo frame), 0 se tudo estático. O egui só chama isto passando o tempo do frame.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_ADVANCE(h: u64, now_ms: f64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_ADVANCE")]
+pub fn __RTS_FN_NS_DOM_ADVANCE(h: u64, now_ms: f64) -> i64 {
     with_mut(h, |dom| dom.advance(now_ms as f32) as i64).unwrap_or(0)
 }
 
 /// `getAttribute(domHandle, node, name)` → valor do atributo como STRING (handle
 /// do pool GC). Atributo ausente / nó inválido ⇒ `""` (a fachada TS converte ""
 /// para `null` se quiser semântica de browser).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_GET_ATTRIBUTE(
+#[rtse::abi("__RTS_FN_NS_DOM_GET_ATTRIBUTE")]
+pub fn __RTS_FN_NS_DOM_GET_ATTRIBUTE(
     h: u64,
     id: i64,
-    name_ptr: *const u8,
+    name_ptr: u64,
     name_len: i64,
 ) -> u64 {
+    let name_ptr = name_ptr as *const u8;
+
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let name = unsafe { str_abi::from_abi(name_ptr, name_len) }.unwrap_or("");
     let val = with(h, |dom| dom.get_attr(node, name).unwrap_or("").to_string())
@@ -1100,8 +1182,8 @@ pub extern "C" fn __RTS_FN_NS_DOM_GET_ATTRIBUTE(
 /// `tagName(domHandle, node)` → nome da tag em minúsculas como STRING (handle do
 /// pool GC). Nó inválido / não-elemento (Document/Text) ⇒ `""`. (A fachada TS faz
 /// o upper-case que o browser devolve.)
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_TAG_NAME(h: u64, id: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_DOM_TAG_NAME")]
+pub fn __RTS_FN_NS_DOM_TAG_NAME(h: u64, id: i64) -> u64 {
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let tag = with(h, |dom| dom.tag_name(node).unwrap_or("").to_string()).unwrap_or_default();
     intern(&tag)
@@ -1119,12 +1201,14 @@ pub extern "C" fn __RTS_FN_NS_DOM_TAG_NAME(h: u64, id: i64) -> u64 {
 /// `querySelectorAllCount(domHandle, selector)` → quantos nós casam o seletor
 /// simples (`tag`/`#id`/`.class`), em ordem de documento. `0` se nada casa ou o
 /// handle é inválido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_COUNT(
+#[rtse::abi("__RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_COUNT")]
+pub fn __RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_COUNT(
     h: u64,
-    sel_ptr: *const u8,
+    sel_ptr: u64,
     sel_len: i64,
 ) -> i64 {
+    let sel_ptr = sel_ptr as *const u8;
+
     let sel = unsafe { str_abi::from_abi(sel_ptr, sel_len) }.unwrap_or("");
     with(h, |dom| dom.query_all(sel).len() as i64).unwrap_or(0)
 }
@@ -1132,13 +1216,15 @@ pub extern "C" fn __RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_COUNT(
 /// `querySelectorAllAt(domHandle, selector, index)` → o `NodeId` do `index`-ésimo
 /// nó que casa o seletor (ordem de documento), ou `-1` se fora do intervalo /
 /// handle inválido. Pareie com `querySelectorAllCount` para iterar.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_AT(
+#[rtse::abi("__RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_AT")]
+pub fn __RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_AT(
     h: u64,
-    sel_ptr: *const u8,
+    sel_ptr: u64,
     sel_len: i64,
     index: i64,
 ) -> i64 {
+    let sel_ptr = sel_ptr as *const u8;
+
     if index < 0 {
         return NODE_NONE;
     }
@@ -1151,16 +1237,16 @@ pub extern "C" fn __RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_AT(
 
 /// `childCount(domHandle, node)` → quantos filhos ELEMENTO o nó tem (exclui nós de
 /// texto, como `element.children`). `0` se o nó é inválido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_CHILD_COUNT(h: u64, id: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_CHILD_COUNT")]
+pub fn __RTS_FN_NS_DOM_CHILD_COUNT(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return 0 };
     with(h, |dom| dom.child_elements(node).len() as i64).unwrap_or(0)
 }
 
 /// `childAt(domHandle, node, index)` → o `NodeId` do `index`-ésimo filho ELEMENTO,
 /// ou `-1` se fora do intervalo / nó inválido. Pareie com `childCount`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_CHILD_AT(h: u64, id: i64, index: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_CHILD_AT")]
+pub fn __RTS_FN_NS_DOM_CHILD_AT(h: u64, id: i64, index: i64) -> i64 {
     if index < 0 {
         return NODE_NONE;
     }
@@ -1176,8 +1262,8 @@ pub extern "C" fn __RTS_FN_NS_DOM_CHILD_AT(h: u64, id: i64, index: i64) -> i64 {
 /// inline < override por-nó), ou `-1` se não-setado/inválido.
 /// É como o LAYOUT (em TS) lê o estilo computado de cada nó. Slots: 0=color 1=bg
 /// 2=font_size 3=padding 4=margin 5=border_width 6=border_color 7=corner_radius.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_NODE_STYLE_SLOT(h: u64, id: i64, slot: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_NODE_STYLE_SLOT")]
+pub fn __RTS_FN_NS_DOM_NODE_STYLE_SLOT(h: u64, id: i64, slot: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return -1 };
     with(h, |dom| dom.computed_style(node).map(|s| s.slot_value(slot)).unwrap_or(-1)).unwrap_or(-1)
 }
@@ -1185,8 +1271,8 @@ pub extern "C" fn __RTS_FN_NS_DOM_NODE_STYLE_SLOT(h: u64, id: i64, slot: i64) ->
 /// `displayOf(domHandle, node)` → o código de `display` do nó (0=vertical 1=wrap
 /// 2=horizontal 3=grid), ou `-1` se a tag não é bloco (inline/desconhecida). O
 /// LAYOUT (em TS) usa isso para decidir o eixo de empilhamento.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_DISPLAY_OF(h: u64, id: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_DOM_DISPLAY_OF")]
+pub fn __RTS_FN_NS_DOM_DISPLAY_OF(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return -1 };
     with(h, |dom| dom.display_of(node)).unwrap_or(-1)
 }
@@ -1200,13 +1286,15 @@ pub extern "C" fn __RTS_FN_NS_DOM_DISPLAY_OF(h: u64, id: i64) -> i64 {
 /// de uma TAG: 0=color 1=bg 2=font_size 3=padding 4=margin 5=border_width
 /// 6=border_color 7=corner_radius (cores como `u32` `0xRRGGBBAA`). O TS mapeia
 /// nome-CSS→slot; o Rust nunca casa string CSS. Acumula por tag.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_DEFINE_STYLE(
-    tag_ptr: *const u8,
+#[rtse::abi("__RTS_FN_NS_DOM_DEFINE_STYLE")]
+pub fn __RTS_FN_NS_DOM_DEFINE_STYLE(
+    tag_ptr: u64,
     tag_len: i64,
     slot: i64,
     val: i64,
 ) {
+    let tag_ptr = tag_ptr as *const u8;
+
     let tag = unsafe { str_abi::from_abi(tag_ptr, tag_len) }.unwrap_or("");
     if tag.is_empty() {
         return;
@@ -1217,8 +1305,8 @@ pub extern "C" fn __RTS_FN_NS_DOM_DEFINE_STYLE(
 /// `setStyle(domHandle, node, slot, val)` — aplica UM slot de estilo OPACO a UM
 /// NÓ (override por-nó, vence tag e `style=""` inline). Mesmos slots do
 /// `defineStyle`. Para muitos nós/props use `setStyleBatch` (invariante 6).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_SET_STYLE(h: u64, id: i64, slot: i64, val: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_SET_STYLE")]
+pub fn __RTS_FN_NS_DOM_SET_STYLE(h: u64, id: i64, slot: i64, val: i64) {
     let Some(node) = NodeId::from_abi(id) else { return };
     with_mut(h, |dom| dom.set_node_style_slot(node, slot, val));
 }
@@ -1229,8 +1317,8 @@ pub extern "C" fn __RTS_FN_NS_DOM_SET_STYLE(h: u64, id: i64, slot: i64, val: i64
 /// `count*3` inteiros i64 LITTLE-ENDIAN consecutivos (`[id0,slot0,val0, id1,…]`).
 /// Lê via a HandleTable do engine (sem dep de `rts-shared` — camada). Triplas com
 /// id inválido são ignoradas.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_SET_STYLE_BATCH(h: u64, buffer: u64, count: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_SET_STYLE_BATCH")]
+pub fn __RTS_FN_NS_DOM_SET_STYLE_BATCH(h: u64, buffer: u64, count: i64) {
     if count <= 0 {
         return;
     }
@@ -1261,15 +1349,17 @@ pub extern "C" fn __RTS_FN_NS_DOM_SET_STYLE_BATCH(h: u64, buffer: u64, count: i6
 /// pontos (ou tamanho de fonte quando `flags` tem HEADING); `prefix` 0=none
 /// 1=bullet 2=number; `flags` bitmask MONO=1|PRESERVE_WS=2|HEADING=4|BOLD=8|
 /// ITALIC=16. Nenhum nome de tag é hardcodado no Rust.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_DEFINE_BLOCK(
-    tag_ptr: *const u8,
+#[rtse::abi("__RTS_FN_NS_DOM_DEFINE_BLOCK")]
+pub fn __RTS_FN_NS_DOM_DEFINE_BLOCK(
+    tag_ptr: u64,
     tag_len: i64,
     display: i64,
     indent: f64,
     prefix: i64,
     flags: i64,
 ) {
+    let tag_ptr = tag_ptr as *const u8;
+
     let tag = unsafe { str_abi::from_abi(tag_ptr, tag_len) }.unwrap_or("");
     if tag.is_empty() {
         return;
@@ -1283,8 +1373,10 @@ pub extern "C" fn __RTS_FN_NS_DOM_DEFINE_BLOCK(
 /// `defineInline(tag, flags)` — registra o estilo INLINE de uma tag (`<b>`/`<i>`/
 /// `<code>`…): `flags` bitmask BOLD=8|ITALIC=16|MONO=1. Uma tag inline só liga os
 /// bits de estilo e desce nos filhos (transparente). Nenhum nome de tag no Rust.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_DOM_DEFINE_INLINE(tag_ptr: *const u8, tag_len: i64, flags: i64) {
+#[rtse::abi("__RTS_FN_NS_DOM_DEFINE_INLINE")]
+pub fn __RTS_FN_NS_DOM_DEFINE_INLINE(tag_ptr: u64, tag_len: i64, flags: i64) {
+    let tag_ptr = tag_ptr as *const u8;
+
     let tag = unsafe { str_abi::from_abi(tag_ptr, tag_len) }.unwrap_or("");
     if tag.is_empty() {
         return;

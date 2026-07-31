@@ -274,39 +274,39 @@ fn spawn_resolving_send(st: Arc<SocketState>, payload: Vec<u8>, host: String, po
 }
 
 /// `socket.send(msg)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_SEND1(this: u64, a0: u64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_SEND1")]
+pub fn __RTS_FN_NODE_DGRAM_SEND1(this: u64, a0: u64) {
     send_impl(this, &[a0]);
 }
 
 /// `socket.send(msg, portOrCallback)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_SEND2(this: u64, a0: u64, a1: u64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_SEND2")]
+pub fn __RTS_FN_NODE_DGRAM_SEND2(this: u64, a0: u64, a1: u64) {
     send_impl(this, &[a0, a1]);
 }
 
 /// `socket.send(msg, port, addressOrCallback)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_SEND3(this: u64, a0: u64, a1: u64, a2: u64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_SEND3")]
+pub fn __RTS_FN_NODE_DGRAM_SEND3(this: u64, a0: u64, a1: u64, a2: u64) {
     send_impl(this, &[a0, a1, a2]);
 }
 
 /// `socket.send(msg, port, address, callback)` / `send(msg, offset, length, port)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_SEND4(this: u64, a0: u64, a1: u64, a2: u64, a3: u64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_SEND4")]
+pub fn __RTS_FN_NODE_DGRAM_SEND4(this: u64, a0: u64, a1: u64, a2: u64, a3: u64) {
     send_impl(this, &[a0, a1, a2, a3]);
 }
 
 /// `socket.send(msg, offset, length, port, address)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_SEND5(this: u64, a0: u64, a1: u64, a2: u64, a3: u64, a4: u64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_SEND5")]
+pub fn __RTS_FN_NODE_DGRAM_SEND5(this: u64, a0: u64, a1: u64, a2: u64, a3: u64, a4: u64) {
     send_impl(this, &[a0, a1, a2, a3, a4]);
 }
 
 /// `socket.send(msg, offset, length, port, address, callback)`.
-#[unsafe(no_mangle)]
+#[rtse::abi("__RTS_FN_NODE_DGRAM_SEND6")]
 #[allow(clippy::too_many_arguments)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_SEND6(
+pub fn __RTS_FN_NODE_DGRAM_SEND6(
     this: u64,
     a0: u64,
     a1: u64,

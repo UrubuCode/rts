@@ -144,8 +144,8 @@ fn pairs_snapshot(h: Handle) -> Vec<(String, String)> {
 
 /// `fd.entries()` — an array of `[name, value]` string pairs (insertion
 /// order, with duplicates). Each pair is a boxed 2-element array word.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FORM_DATA_ENTRIES(h: Handle) -> Handle {
+#[rtse::abi("__RTS_FN_GL_FORM_DATA_ENTRIES")]
+pub fn __RTS_FN_GL_FORM_DATA_ENTRIES(h: Handle) -> Handle {
     use rts_engine::heap::handles::{Entry, alloc_entry};
     use rts_engine::heap::shapes::{handle_word_auto, string_word};
     let mut out: Vec<i64> = Vec::new();
@@ -161,8 +161,8 @@ pub extern "C" fn __RTS_FN_GL_FORM_DATA_ENTRIES(h: Handle) -> Handle {
 
 /// `fd.forEach(callback)` — invokes `callback(value, name, fd)` per pair, in
 /// insertion order (over a snapshot). Returns `undefined`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FORM_DATA_FOR_EACH(h: Handle, cb: Handle) -> Handle {
+#[rtse::abi("__RTS_FN_GL_FORM_DATA_FOR_EACH")]
+pub fn __RTS_FN_GL_FORM_DATA_FOR_EACH(h: Handle, cb: Handle) -> Handle {
     use rts_engine::heap::poly::POLY_UNDEFINED;
     use rts_engine::heap::shapes::{handle_word_auto, string_word};
     let self_word = handle_word_auto(h);

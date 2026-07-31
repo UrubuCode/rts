@@ -55,8 +55,8 @@ unsafe extern "C" {
 /// `x.toString(radix)` on a DYNAMIC (unproven-type) receiver — wraps the Number
 /// value-class's radix formatter. Called directly (a plain Rust fn, not a
 /// Registry member) by `rts-runtime`'s `__rtsadp_dyn_to_string_radix`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_ENGINE_NUM_TO_STRING_RADIX(v: f64, radix: i64) -> Handle {
+#[rtse::abi("__RTS_FN_NS_ENGINE_NUM_TO_STRING_RADIX")]
+pub fn __RTS_FN_NS_ENGINE_NUM_TO_STRING_RADIX(v: f64, radix: i64) -> Handle {
     unsafe { __RTS_FN_GL_NUMBER_TO_STRING_RADIX(v, radix) }
 }
 

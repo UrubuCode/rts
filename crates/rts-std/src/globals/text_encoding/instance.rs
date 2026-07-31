@@ -26,8 +26,8 @@ fn str_from_parts(ptr: i64, len: i64) -> &'static str {
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TEXTENC_ENCODE(ptr: i64, len: i64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_TEXTENC_ENCODE")]
+pub fn __RTS_FN_GL_TEXTENC_ENCODE(ptr: i64, len: i64) -> u64 {
     let s = str_from_parts(ptr, len);
     alloc_entry(Entry::Buffer(s.as_bytes().to_vec()))
 }
@@ -54,8 +54,8 @@ pub(crate) fn slot_byte(x: i64) -> u8 {
     f64::from_bits(u) as u8
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TEXTENC_DECODE(buf_handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_TEXTENC_DECODE")]
+pub fn __RTS_FN_GL_TEXTENC_DECODE(buf_handle: u64) -> u64 {
     let bytes = with_entry(buf_handle, |entry| match entry {
         Some(Entry::Buffer(v)) | Some(Entry::String(v)) => Some(v.clone()),
         // A Vec-backed TypedArray (or a `slice` of one): each slot is one byte
@@ -249,8 +249,8 @@ fn clone_handle_deep(handle: u64, visited: &mut std::collections::HashMap<u64, u
     new_h
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TEXTENC_STRUCTURED_CLONE(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_TEXTENC_STRUCTURED_CLONE")]
+pub fn __RTS_FN_GL_TEXTENC_STRUCTURED_CLONE(handle: u64) -> u64 {
     let mut visited = std::collections::HashMap::new();
     clone_handle_deep(handle, &mut visited)
 }
@@ -338,8 +338,8 @@ thread_local! {
     static MICROTASK_INFLIGHT: RefCell<Vec<Microtask>> = const { RefCell::new(Vec::new()) };
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TEXTENC_QUEUE_MICROTASK(fp: u64) {
+#[rtse::abi("__RTS_FN_GL_TEXTENC_QUEUE_MICROTASK")]
+pub fn __RTS_FN_GL_TEXTENC_QUEUE_MICROTASK(fp: u64) {
     // (cross-runtime #56) JS spec: queueMicrotask enfileira; drena no fim
     // do script sync. Antes executava inline para "preservar FIFO com
     // Promise.then fast-path", mas isso quebrava ordem com sync:end

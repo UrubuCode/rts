@@ -92,8 +92,8 @@ impl Blob {
 
 /// `blob.arrayBuffer()` — UTF-8 bytes as a plain `number[]` (matches
 /// `webapi.ts`'s `__utf8_encode`; not yet a real `ArrayBuffer` object).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_BLOB_ARRAY_BUFFER(h: Handle) -> Handle {
+#[rtse::abi("__RTS_FN_GL_BLOB_ARRAY_BUFFER")]
+pub fn __RTS_FN_GL_BLOB_ARRAY_BUFFER(h: Handle) -> Handle {
     let text = with_rtse::<Blob, _>(h, |s| s.map(|b| b.text.clone())).unwrap_or_default();
     text_to_byte_array(&text)
 }
@@ -101,8 +101,8 @@ pub extern "C" fn __RTS_FN_GL_BLOB_ARRAY_BUFFER(h: Handle) -> Handle {
 /// `blob.slice(start?, end?, contentType?)` — byte-range extraction into a
 /// FRESH `Blob`. `contentType`, when a string handle, becomes the new blob's
 /// `type` (lowercased); otherwise the slice keeps the source's `type`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_BLOB_SLICE(h: Handle, start: i64, end: i64, content_type: Handle) -> Handle {
+#[rtse::abi("__RTS_FN_GL_BLOB_SLICE")]
+pub fn __RTS_FN_GL_BLOB_SLICE(h: Handle, start: i64, end: i64, content_type: Handle) -> Handle {
     let (text, kind) =
         with_rtse::<Blob, _>(h, |s| s.map(|b| (b.text.clone(), b.kind.clone()))).unwrap_or_default();
     let piece = slice_text(&text, start, end);

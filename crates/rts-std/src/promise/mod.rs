@@ -943,8 +943,8 @@ pub fn register(e: &mut Engine) {
 /// reject via error slot); senao devolve o proprio handle inalterado. Usado pelo
 /// `for await (const v of arr)` para aguardar CADA elemento (array de Promises),
 /// sem quebrar o caso non-Promise (valores ja' resolvidos de async gen drain).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_PROMISE_AWAIT_VALUE(handle: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_PROMISE_AWAIT_VALUE")]
+pub fn __RTS_FN_NS_PROMISE_AWAIT_VALUE(handle: u64) -> i64 {
     let is_promise = with_entry(handle, |e| matches!(e, Some(Entry::PromiseAsync(_))));
     if is_promise {
         __rtsm_promise_wait(handle)
@@ -961,8 +961,8 @@ pub extern "C" fn __RTS_FN_NS_PROMISE_AWAIT_VALUE(handle: u64) -> i64 {
 ///   Retorna Promise rejeitado.
 ///
 /// `fn_ptr=0` => sem mapper. Caller faz invoke_typed (1 arg, retorna i64/handle).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_ASYNC(iterable: u64, mapper_handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_ARRAY_FROM_ASYNC")]
+pub fn __RTS_FN_GL_ARRAY_FROM_ASYNC(iterable: u64, mapper_handle: u64) -> u64 {
     // Suporte minimo: iterable e' Vec. Aplica mapper sync (se houver),
     // wrap cada valor em Promise.resolve se ja' nao for, faz Promise.all.
     use rts_primitives::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED;

@@ -15,8 +15,8 @@ mod signals;
 use super::words::{num_word, object_word};
 
 /// `os.constants` — the assembled constants object.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_CONSTANTS() -> u64 {
+#[rtse::abi("__RTS_FN_NODE_OS_CONSTANTS")]
+pub fn __RTS_FN_NODE_OS_CONSTANTS() -> u64 {
     let signals = group_object(signals::entries());
     let errno = group_object(errno::entries());
     let dlopen = group_object(other::dlopen_entries());

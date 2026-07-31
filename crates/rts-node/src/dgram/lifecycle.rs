@@ -198,26 +198,26 @@ pub fn keep_alive(st: &SocketState, want: bool) {
 }
 
 /// `socket.bind()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_BIND0(this: u64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_BIND0")]
+pub fn __RTS_FN_NODE_DGRAM_BIND0(this: u64) {
     bind_impl(this, &[]);
 }
 
 /// `socket.bind(portOrOptionsOrCallback)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_BIND1(this: u64, a0: u64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_BIND1")]
+pub fn __RTS_FN_NODE_DGRAM_BIND1(this: u64, a0: u64) {
     bind_impl(this, &[a0]);
 }
 
 /// `socket.bind(port, addressOrCallback)` / `bind(options, callback)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_BIND2(this: u64, a0: u64, a1: u64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_BIND2")]
+pub fn __RTS_FN_NODE_DGRAM_BIND2(this: u64, a0: u64, a1: u64) {
     bind_impl(this, &[a0, a1]);
 }
 
 /// `socket.bind(port, address, callback)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_BIND3(this: u64, a0: u64, a1: u64, a2: u64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_BIND3")]
+pub fn __RTS_FN_NODE_DGRAM_BIND3(this: u64, a0: u64, a1: u64, a2: u64) {
     bind_impl(this, &[a0, a1, a2]);
 }
 
@@ -239,14 +239,14 @@ fn close_impl(this: u64, cb: u64) {
 }
 
 /// `socket.close()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_CLOSE0(this: u64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_CLOSE0")]
+pub fn __RTS_FN_NODE_DGRAM_CLOSE0(this: u64) {
     close_impl(this, 0);
 }
 
 /// `socket.close(callback)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_CLOSE1(this: u64, cb: u64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_CLOSE1")]
+pub fn __RTS_FN_NODE_DGRAM_CLOSE1(this: u64, cb: u64) {
     let cb = val(cb).as_func().unwrap_or(0);
     close_impl(this, cb);
 }
@@ -336,26 +336,26 @@ pub fn default_peer(v6: bool) -> IpAddr {
 }
 
 /// `socket.connect(port)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_CONNECT1(this: u64, a0: u64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_CONNECT1")]
+pub fn __RTS_FN_NODE_DGRAM_CONNECT1(this: u64, a0: u64) {
     connect_impl(this, &[a0]);
 }
 
 /// `socket.connect(port, addressOrCallback)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_CONNECT2(this: u64, a0: u64, a1: u64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_CONNECT2")]
+pub fn __RTS_FN_NODE_DGRAM_CONNECT2(this: u64, a0: u64, a1: u64) {
     connect_impl(this, &[a0, a1]);
 }
 
 /// `socket.connect(port, address, callback)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_CONNECT3(this: u64, a0: u64, a1: u64, a2: u64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_CONNECT3")]
+pub fn __RTS_FN_NODE_DGRAM_CONNECT3(this: u64, a0: u64, a1: u64, a2: u64) {
     connect_impl(this, &[a0, a1, a2]);
 }
 
 /// `socket.disconnect()` — back to an unconnected (but still bound) socket.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_DISCONNECT(this: u64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_DISCONNECT")]
+pub fn __RTS_FN_NODE_DGRAM_DISCONNECT(this: u64) {
     let Some(st) = open(this) else { return };
     if st.peer_addr().is_none() {
         errors::throw(errors::NOT_CONNECTED, "Not connected");
@@ -410,8 +410,8 @@ pub fn address_info(addr: &SocketAddr) -> u64 {
 }
 
 /// `socket.address()` — throws `EBADF` on an unbound socket.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_ADDRESS(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_ADDRESS")]
+pub fn __RTS_FN_NODE_DGRAM_ADDRESS(this: u64) -> u64 {
     let Some(st) = open(this) else { return 0 };
     if !st.is_bound() {
         errors::throw_unbound();
@@ -428,8 +428,8 @@ pub extern "C" fn __RTS_FN_NODE_DGRAM_ADDRESS(this: u64) -> u64 {
 
 /// `socket.remoteAddress()` — throws `ERR_SOCKET_DGRAM_NOT_CONNECTED` unless
 /// `connect()`ed.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_REMOTE_ADDRESS(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_REMOTE_ADDRESS")]
+pub fn __RTS_FN_NODE_DGRAM_REMOTE_ADDRESS(this: u64) -> u64 {
     let Some(st) = open(this) else { return 0 };
     match st.peer_addr() {
         Some(addr) => address_info(&addr),
@@ -442,8 +442,8 @@ pub extern "C" fn __RTS_FN_NODE_DGRAM_REMOTE_ADDRESS(this: u64) -> u64 {
 
 /// `socket.ref()` — restore the default "an open socket keeps the process
 /// alive" accounting. Chainable.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_REF(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_REF")]
+pub fn __RTS_FN_NODE_DGRAM_REF(this: u64) -> u64 {
     if let Some(st) = state::get(this) {
         st.refd.store(true, Ordering::Release);
         keep_alive(&st, true);
@@ -453,8 +453,8 @@ pub extern "C" fn __RTS_FN_NODE_DGRAM_REF(this: u64) -> u64 {
 
 /// `socket.unref()` — exclude this socket from the loop's keep-alive
 /// accounting, so the process may exit with it still open. Chainable.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_UNREF(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_UNREF")]
+pub fn __RTS_FN_NODE_DGRAM_UNREF(this: u64) -> u64 {
     if let Some(st) = state::get(this) {
         st.refd.store(false, Ordering::Release);
         keep_alive(&st, false);

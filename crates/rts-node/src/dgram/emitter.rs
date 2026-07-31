@@ -31,19 +31,25 @@ fn emit_words(this: u64, ep: *const u8, el: i64, args: Vec<u64>) -> i64 {
 }
 
 /// `socket.emit(event)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_EMIT0(this: u64, ep: *const u8, el: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_EMIT0")]
+pub fn __RTS_FN_NODE_DGRAM_EMIT0(this: u64, ep: u64, el: i64) -> i64 {
+    let ep = ep as *const u8;
+
     emit_words(this, ep, el, Vec::new())
 }
 
 /// `socket.emit(event, a0)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_EMIT1(this: u64, ep: *const u8, el: i64, a0: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_EMIT1")]
+pub fn __RTS_FN_NODE_DGRAM_EMIT1(this: u64, ep: u64, el: i64, a0: u64) -> i64 {
+    let ep = ep as *const u8;
+
     emit_words(this, ep, el, vec![a0])
 }
 
 /// `socket.emit(event, a0, a1)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_EMIT2(this: u64, ep: *const u8, el: i64, a0: u64, a1: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_EMIT2")]
+pub fn __RTS_FN_NODE_DGRAM_EMIT2(this: u64, ep: u64, el: i64, a0: u64, a1: u64) -> i64 {
+    let ep = ep as *const u8;
+
     emit_words(this, ep, el, vec![a0, a1])
 }

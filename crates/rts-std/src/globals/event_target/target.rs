@@ -132,8 +132,8 @@ pub(crate) fn dispatch_on(base: &mut EventTarget, self_handle: u64, ev: u64) -> 
 
 /// `target.dispatchEvent(ev)` — hand-written (needs `self_handle`, see the
 /// module doc comment); delegates to [`dispatch_on`].
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_EVENTTARGET_DISPATCH_EVENT(h: u64, ev: u64) -> i64 {
+#[rtse::abi("__RTS_FN_GL_EVENTTARGET_DISPATCH_EVENT")]
+pub fn __RTS_FN_GL_EVENTTARGET_DISPATCH_EVENT(h: u64, ev: u64) -> i64 {
     let mut cloned: EventTarget = with_rtse::<EventTarget, _>(h, |s| s.cloned()).unwrap_or_default();
     let result = dispatch_on(&mut cloned, h, ev);
     with_rtse_mut::<EventTarget, _>(h, |slot| {

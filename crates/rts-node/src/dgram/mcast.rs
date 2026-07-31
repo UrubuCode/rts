@@ -128,38 +128,48 @@ fn membership(this: u64, gp: *const u8, gl: i64, iface: Option<String>, join: bo
 }
 
 /// `socket.addMembership(multicastAddress)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_ADD_MEMBERSHIP(this: u64, gp: *const u8, gl: i64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_ADD_MEMBERSHIP")]
+pub fn __RTS_FN_NODE_DGRAM_ADD_MEMBERSHIP(this: u64, gp: u64, gl: i64) {
+    let gp = gp as *const u8;
+
     membership(this, gp, gl, None, true);
 }
 
 /// `socket.addMembership(multicastAddress, multicastInterface)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_ADD_MEMBERSHIP_IF(
+#[rtse::abi("__RTS_FN_NODE_DGRAM_ADD_MEMBERSHIP_IF")]
+pub fn __RTS_FN_NODE_DGRAM_ADD_MEMBERSHIP_IF(
     this: u64,
-    gp: *const u8,
+    gp: u64,
     gl: i64,
-    ip: *const u8,
+    ip: u64,
     il: i64,
 ) {
+    let gp = gp as *const u8;
+    let ip = ip as *const u8;
+
     membership(this, gp, gl, Some(read(ip, il)), true);
 }
 
 /// `socket.dropMembership(multicastAddress)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_DROP_MEMBERSHIP(this: u64, gp: *const u8, gl: i64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_DROP_MEMBERSHIP")]
+pub fn __RTS_FN_NODE_DGRAM_DROP_MEMBERSHIP(this: u64, gp: u64, gl: i64) {
+    let gp = gp as *const u8;
+
     membership(this, gp, gl, None, false);
 }
 
 /// `socket.dropMembership(multicastAddress, multicastInterface)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_DROP_MEMBERSHIP_IF(
+#[rtse::abi("__RTS_FN_NODE_DGRAM_DROP_MEMBERSHIP_IF")]
+pub fn __RTS_FN_NODE_DGRAM_DROP_MEMBERSHIP_IF(
     this: u64,
-    gp: *const u8,
+    gp: u64,
     gl: i64,
-    ip: *const u8,
+    ip: u64,
     il: i64,
 ) {
+    let gp = gp as *const u8;
+    let ip = ip as *const u8;
+
     membership(this, gp, gl, Some(read(ip, il)), false);
 }
 
@@ -337,61 +347,77 @@ unsafe fn setsockopt_raw(
 }
 
 /// `socket.addSourceSpecificMembership(sourceAddress, groupAddress)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_ADD_SSM(
+#[rtse::abi("__RTS_FN_NODE_DGRAM_ADD_SSM")]
+pub fn __RTS_FN_NODE_DGRAM_ADD_SSM(
     this: u64,
-    sp: *const u8,
+    sp: u64,
     sl: i64,
-    gp: *const u8,
+    gp: u64,
     gl: i64,
 ) {
+    let sp = sp as *const u8;
+    let gp = gp as *const u8;
+
     ssm(this, read(sp, sl), read(gp, gl), None, true);
 }
 
 /// `socket.addSourceSpecificMembership(sourceAddress, groupAddress, iface)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_ADD_SSM_IF(
+#[rtse::abi("__RTS_FN_NODE_DGRAM_ADD_SSM_IF")]
+pub fn __RTS_FN_NODE_DGRAM_ADD_SSM_IF(
     this: u64,
-    sp: *const u8,
+    sp: u64,
     sl: i64,
-    gp: *const u8,
+    gp: u64,
     gl: i64,
-    ip: *const u8,
+    ip: u64,
     il: i64,
 ) {
+    let sp = sp as *const u8;
+    let gp = gp as *const u8;
+    let ip = ip as *const u8;
+
     ssm(this, read(sp, sl), read(gp, gl), Some(read(ip, il)), true);
 }
 
 /// `socket.dropSourceSpecificMembership(sourceAddress, groupAddress)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_DROP_SSM(
+#[rtse::abi("__RTS_FN_NODE_DGRAM_DROP_SSM")]
+pub fn __RTS_FN_NODE_DGRAM_DROP_SSM(
     this: u64,
-    sp: *const u8,
+    sp: u64,
     sl: i64,
-    gp: *const u8,
+    gp: u64,
     gl: i64,
 ) {
+    let sp = sp as *const u8;
+    let gp = gp as *const u8;
+
     ssm(this, read(sp, sl), read(gp, gl), None, false);
 }
 
 /// `socket.dropSourceSpecificMembership(sourceAddress, groupAddress, iface)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_DROP_SSM_IF(
+#[rtse::abi("__RTS_FN_NODE_DGRAM_DROP_SSM_IF")]
+pub fn __RTS_FN_NODE_DGRAM_DROP_SSM_IF(
     this: u64,
-    sp: *const u8,
+    sp: u64,
     sl: i64,
-    gp: *const u8,
+    gp: u64,
     gl: i64,
-    ip: *const u8,
+    ip: u64,
     il: i64,
 ) {
+    let sp = sp as *const u8;
+    let gp = gp as *const u8;
+    let ip = ip as *const u8;
+
     ssm(this, read(sp, sl), read(gp, gl), Some(read(ip, il)), false);
 }
 
 /// `socket.setMulticastInterface(multicastInterface)` — the interface outgoing
 /// multicast leaves from. `'0.0.0.0'`/`'::'` restores the system default.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_SET_MULTICAST_IF(this: u64, p: *const u8, l: i64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_SET_MULTICAST_IF")]
+pub fn __RTS_FN_NODE_DGRAM_SET_MULTICAST_IF(this: u64, p: u64, l: i64) {
+    let p = p as *const u8;
+
     let Some(st) = open(this) else { return };
     if !st.is_bound() {
         return errors::throw_unbound();

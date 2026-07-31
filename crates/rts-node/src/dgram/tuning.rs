@@ -34,8 +34,8 @@ fn apply(result: std::io::Result<()>, op: &str) {
 }
 
 /// `socket.setTTL(ttl)` — the unicast hop limit (1–255).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_SET_TTL(this: u64, ttl: i64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_SET_TTL")]
+pub fn __RTS_FN_NODE_DGRAM_SET_TTL(this: u64, ttl: i64) {
     let Some(st) = tunable(this, false) else { return };
     let hops = ttl.clamp(0, u32::MAX as i64) as u32;
     let result = if st.v6 {
@@ -47,8 +47,8 @@ pub extern "C" fn __RTS_FN_NODE_DGRAM_SET_TTL(this: u64, ttl: i64) {
 }
 
 /// `socket.setMulticastTTL(ttl)` — the multicast hop limit (0–255).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_SET_MULTICAST_TTL(this: u64, ttl: i64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_SET_MULTICAST_TTL")]
+pub fn __RTS_FN_NODE_DGRAM_SET_MULTICAST_TTL(this: u64, ttl: i64) {
     let Some(st) = tunable(this, false) else { return };
     let hops = ttl.clamp(0, u32::MAX as i64) as u32;
     let result = if st.v6 {
@@ -61,8 +61,8 @@ pub extern "C" fn __RTS_FN_NODE_DGRAM_SET_MULTICAST_TTL(this: u64, ttl: i64) {
 
 /// `socket.setMulticastLoopback(flag)` — whether this host receives its own
 /// multicast.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_SET_MULTICAST_LOOPBACK(this: u64, flag: i64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_SET_MULTICAST_LOOPBACK")]
+pub fn __RTS_FN_NODE_DGRAM_SET_MULTICAST_LOOPBACK(this: u64, flag: i64) {
     let Some(st) = tunable(this, false) else { return };
     let on = flag != 0;
     let result = if st.v6 {
@@ -74,8 +74,8 @@ pub extern "C" fn __RTS_FN_NODE_DGRAM_SET_MULTICAST_LOOPBACK(this: u64, flag: i6
 }
 
 /// `socket.setBroadcast(flag)` — SO_BROADCAST.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_SET_BROADCAST(this: u64, flag: i64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_SET_BROADCAST")]
+pub fn __RTS_FN_NODE_DGRAM_SET_BROADCAST(this: u64, flag: i64) {
     let Some(st) = tunable(this, false) else { return };
     apply(st.sock.set_broadcast(flag != 0), "setBroadcast");
 }
@@ -121,26 +121,26 @@ fn get_buffer(this: u64, send: bool, op: &str) -> i64 {
 }
 
 /// `socket.setSendBufferSize(size)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_SET_SEND_BUFFER_SIZE(this: u64, size: i64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_SET_SEND_BUFFER_SIZE")]
+pub fn __RTS_FN_NODE_DGRAM_SET_SEND_BUFFER_SIZE(this: u64, size: i64) {
     set_buffer(this, size, true, "setSendBufferSize");
 }
 
 /// `socket.setRecvBufferSize(size)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_SET_RECV_BUFFER_SIZE(this: u64, size: i64) {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_SET_RECV_BUFFER_SIZE")]
+pub fn __RTS_FN_NODE_DGRAM_SET_RECV_BUFFER_SIZE(this: u64, size: i64) {
     set_buffer(this, size, false, "setRecvBufferSize");
 }
 
 /// `socket.getSendBufferSize()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_GET_SEND_BUFFER_SIZE(this: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_GET_SEND_BUFFER_SIZE")]
+pub fn __RTS_FN_NODE_DGRAM_GET_SEND_BUFFER_SIZE(this: u64) -> i64 {
     get_buffer(this, true, "getSendBufferSize")
 }
 
 /// `socket.getRecvBufferSize()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_GET_RECV_BUFFER_SIZE(this: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_GET_RECV_BUFFER_SIZE")]
+pub fn __RTS_FN_NODE_DGRAM_GET_RECV_BUFFER_SIZE(this: u64) -> i64 {
     get_buffer(this, false, "getRecvBufferSize")
 }
 
@@ -154,8 +154,8 @@ pub extern "C" fn __RTS_FN_NODE_DGRAM_GET_RECV_BUFFER_SIZE(this: u64) -> i64 {
 /// flight (send.rs). The number is therefore real, not an invented constant —
 /// though it will read differently from Node under heavy async backpressure
 /// (dgram.md §7).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_GET_SEND_QUEUE_SIZE(this: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_GET_SEND_QUEUE_SIZE")]
+pub fn __RTS_FN_NODE_DGRAM_GET_SEND_QUEUE_SIZE(this: u64) -> i64 {
     state::get(this)
         .map(|st| st.queue_bytes.load(Ordering::Acquire))
         .unwrap_or(0)
@@ -163,8 +163,8 @@ pub extern "C" fn __RTS_FN_NODE_DGRAM_GET_SEND_QUEUE_SIZE(this: u64) -> i64 {
 
 /// `socket.getSendQueueCount()` — how many such sends are outstanding. Same
 /// accounting as [`__RTS_FN_NODE_DGRAM_GET_SEND_QUEUE_SIZE`].
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_DGRAM_GET_SEND_QUEUE_COUNT(this: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NODE_DGRAM_GET_SEND_QUEUE_COUNT")]
+pub fn __RTS_FN_NODE_DGRAM_GET_SEND_QUEUE_COUNT(this: u64) -> i64 {
     state::get(this)
         .map(|st| st.queue_count.load(Ordering::Acquire))
         .unwrap_or(0)

@@ -87,16 +87,16 @@ impl File {
 // ---------------------------------------------------------------------------
 
 /// `file.arrayBuffer()` — forwarded to the embedded `Blob`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FILE_ARRAY_BUFFER(h: Handle) -> Handle {
+#[rtse::abi("__RTS_FN_GL_FILE_ARRAY_BUFFER")]
+pub fn __RTS_FN_GL_FILE_ARRAY_BUFFER(h: Handle) -> Handle {
     let text = with_rtse::<File, _>(h, |s| s.map(|f| f.base.text_ref().to_string())).unwrap_or_default();
     text_to_byte_array(&text)
 }
 
 /// `file.slice(start?, end?, contentType?)` — per spec, `Blob.prototype.slice`
 /// always returns a plain `Blob`, never the subclass.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FILE_SLICE(h: Handle, start: i64, end: i64, content_type: Handle) -> Handle {
+#[rtse::abi("__RTS_FN_GL_FILE_SLICE")]
+pub fn __RTS_FN_GL_FILE_SLICE(h: Handle, start: i64, end: i64, content_type: Handle) -> Handle {
     let (text, kind) = with_rtse::<File, _>(h, |s| {
         s.map(|f| (f.base.text_ref().to_string(), f.base.kind_ref().to_string()))
     })

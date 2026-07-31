@@ -40,6 +40,10 @@ pub fn ensure_registered() {
 /// Drain every socket's pending events, delivering each on this (the JS) thread.
 /// Returns how many events were delivered — the loop uses it as its activity
 /// signal.
+// NOT `#[rtse::abi]`: this is a `PumpFn` — a fn POINTER handed to
+// `rts_engine::loop_sources::register_pump`, whose contract is `-> usize`, and
+// `usize` has no ABI spelling. It is never called by symbol from generated
+// code, so it gains nothing from a descriptor.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NODE_DGRAM_PUMP() -> usize {
     let mut delivered = 0usize;

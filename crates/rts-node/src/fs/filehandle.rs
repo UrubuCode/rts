@@ -99,8 +99,8 @@ fn open_handle(path_word: Poly, flags_word: Poly) -> Poly {
 }
 
 /// `filehandle.close()` → `Promise<void>`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_FH_CLOSE(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_FS_FH_CLOSE")]
+pub fn __RTS_FN_NODE_FS_FH_CLOSE(this: u64) -> u64 {
     if let Some(fd) = fd_of(this) {
         super::fd::close_fd(fd);
     }
@@ -120,8 +120,8 @@ fn read_all(this: u64) -> std::io::Result<Vec<u8>> {
 }
 
 /// `filehandle.readFile()` → `Promise<Buffer>`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_FH_READ_FILE(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_FS_FH_READ_FILE")]
+pub fn __RTS_FN_NODE_FS_FH_READ_FILE(this: u64) -> u64 {
     match read_all(this) {
         Ok(bytes) => resolve(handle_word_auto(byte_array(&bytes))),
         Err(e) => reject(&e, "read", ""),
@@ -129,8 +129,10 @@ pub extern "C" fn __RTS_FN_NODE_FS_FH_READ_FILE(this: u64) -> u64 {
 }
 
 /// `filehandle.readFile(encoding)` → `Promise<string>`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_FH_READ_FILE_ENC(this: u64, ep: *const u8, el: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_FS_FH_READ_FILE_ENC")]
+pub fn __RTS_FN_NODE_FS_FH_READ_FILE_ENC(this: u64, ep: u64, el: i64) -> u64 {
+    let ep = ep as *const u8;
+
     let enc = read(ep, el);
     match read_all(this) {
         Ok(bytes) => resolve(str_word(&encode_bytes(&bytes, &enc))),
@@ -139,8 +141,8 @@ pub extern "C" fn __RTS_FN_NODE_FS_FH_READ_FILE_ENC(this: u64, ep: *const u8, el
 }
 
 /// `filehandle.writeFile(data)` → `Promise<void>` (truncates then writes).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_FH_WRITE_FILE(this: u64, data: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_FS_FH_WRITE_FILE")]
+pub fn __RTS_FN_NODE_FS_FH_WRITE_FILE(this: u64, data: u64) -> u64 {
     let Some(fd) = fd_of(this) else { return reject(&ebadf(), "write", "") };
     let bytes = read_bytes(data);
     let r = super::fd::with_file(fd, |f| {
@@ -153,8 +155,8 @@ pub extern "C" fn __RTS_FN_NODE_FS_FH_WRITE_FILE(this: u64, data: u64) -> u64 {
 }
 
 /// `filehandle.stat()` → `Promise<Stats>`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_FH_STAT(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_FS_FH_STAT")]
+pub fn __RTS_FN_NODE_FS_FH_STAT(this: u64) -> u64 {
     let Some(fd) = fd_of(this) else { return reject(&ebadf(), "fstat", "") };
     match super::fd::with_file(fd, |f| f.metadata()) {
         Some(Ok(m)) => resolve(handle_word_auto(stats::build(&m))),
@@ -164,32 +166,32 @@ pub extern "C" fn __RTS_FN_NODE_FS_FH_STAT(this: u64) -> u64 {
 }
 
 /// `filehandle.truncate(len)` → `Promise<void>`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_FH_TRUNCATE(this: u64, len: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_FS_FH_TRUNCATE")]
+pub fn __RTS_FN_NODE_FS_FH_TRUNCATE(this: u64, len: i64) -> u64 {
     let Some(fd) = fd_of(this) else { return reject(&ebadf(), "ftruncate", "") };
     let r = super::fd::with_file(fd, |f| f.set_len(len.max(0) as u64)).unwrap_or_else(|| Err(ebadf()));
     settle_void(r, "ftruncate")
 }
 
 /// `filehandle.sync()` → `Promise<void>` (flush data + metadata).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_FH_SYNC(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_FS_FH_SYNC")]
+pub fn __RTS_FN_NODE_FS_FH_SYNC(this: u64) -> u64 {
     let Some(fd) = fd_of(this) else { return reject(&ebadf(), "fsync", "") };
     let r = super::fd::with_file(fd, |f| f.sync_all()).unwrap_or_else(|| Err(ebadf()));
     settle_void(r, "fsync")
 }
 
 /// `filehandle.datasync()` → `Promise<void>` (flush data only).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_FH_DATASYNC(this: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_FS_FH_DATASYNC")]
+pub fn __RTS_FN_NODE_FS_FH_DATASYNC(this: u64) -> u64 {
     let Some(fd) = fd_of(this) else { return reject(&ebadf(), "fdatasync", "") };
     let r = super::fd::with_file(fd, |f| f.sync_data()).unwrap_or_else(|| Err(ebadf()));
     settle_void(r, "fdatasync")
 }
 
 /// `filehandle.chmod(mode)` → `Promise<void>`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_FH_CHMOD(this: u64, mode: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NODE_FS_FH_CHMOD")]
+pub fn __RTS_FN_NODE_FS_FH_CHMOD(this: u64, mode: i64) -> u64 {
     let Some(fd) = fd_of(this) else { return reject(&ebadf(), "fchmod", "") };
     let r = super::fd::with_file(fd, |f| {
         let md = f.metadata()?;

@@ -97,8 +97,8 @@ fn field(this: u64, key: &str) -> i64 {
 
 /// `fswatcher.close()` — stop the OS watch, release the loop's keep-alive, and
 /// unpin the listener. Idempotent (a second close is a no-op).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_WATCHER_CLOSE(this: u64) {
+#[rtse::abi("__RTS_FN_NODE_FS_WATCHER_CLOSE")]
+pub fn __RTS_FN_NODE_FS_WATCHER_CLOSE(this: u64) {
     let id = field(this, "__id") as u64;
     if id == 0 {
         return;

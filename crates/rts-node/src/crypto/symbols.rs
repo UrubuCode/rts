@@ -266,8 +266,8 @@ fn x25519_diffie_hellman(private_key: Handle, public_key: Handle) -> Handle {
 /// OpenSSL values, field-accessible via `crypto.constants.RSA_PKCS1_OAEP_PADDING`).
 /// Hand-written: `#[rtse::function]` only emits `MemberKind::Function`, not
 /// `MemberKind::Constant`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_CRYPTO_CONSTANTS() -> u64 {
+#[rtse::abi("__RTS_FN_NODE_CRYPTO_CONSTANTS")]
+pub fn __RTS_FN_NODE_CRYPTO_CONSTANTS() -> u64 {
     let num = |v: f64| v.to_bits() as i64;
     rts_engine::heap::shapes::alloc_shaped_object(
         &[

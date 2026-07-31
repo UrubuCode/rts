@@ -47,8 +47,10 @@ fn status_codes() -> Handle {
 }
 
 /// `http.validateHeaderName(name)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_HTTP_VALIDATE_NAME(p: *const u8, l: i64) {
+#[rtse::abi("__RTS_FN_NODE_HTTP_VALIDATE_NAME")]
+pub fn __RTS_FN_NODE_HTTP_VALIDATE_NAME(p: u64, l: i64) {
+    let p = p as *const u8;
+
     let name = read(p, l);
     if !data::valid_header_name(&name) {
         throw_type(&format!("Header name must be a valid HTTP token [\"{name}\"]"));
@@ -56,8 +58,11 @@ pub extern "C" fn __RTS_FN_NODE_HTTP_VALIDATE_NAME(p: *const u8, l: i64) {
 }
 
 /// `http.validateHeaderValue(name, value)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_HTTP_VALIDATE_VALUE(np: *const u8, nl: i64, vp: *const u8, vl: i64) {
+#[rtse::abi("__RTS_FN_NODE_HTTP_VALIDATE_VALUE")]
+pub fn __RTS_FN_NODE_HTTP_VALIDATE_VALUE(np: u64, nl: i64, vp: u64, vl: i64) {
+    let np = np as *const u8;
+    let vp = vp as *const u8;
+
     let name = read(np, nl);
     let value = read(vp, vl);
     if !data::valid_header_value(&value) {

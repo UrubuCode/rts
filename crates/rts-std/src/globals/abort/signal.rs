@@ -123,8 +123,8 @@ pub(crate) fn do_abort(h: u64, reason: u64, default_name: &str, default_message:
 
 /// `AbortSignal.abort(reason?)` — a signal already aborted with `reason`
 /// (defaulting to `{name: "AbortError", message: "This operation was aborted"}`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ABORTSIGNAL_STATIC_ABORT(reason: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_ABORTSIGNAL_STATIC_ABORT")]
+pub fn __RTS_FN_GL_ABORTSIGNAL_STATIC_ABORT(reason: u64) -> u64 {
     let h = alloc_rtse("AbortSignal", AbortSignal::default());
     do_abort(h, reason, "AbortError", "This operation was aborted");
     h
@@ -136,8 +136,8 @@ pub extern "C" fn __RTS_FN_GL_ABORTSIGNAL_STATIC_ABORT(reason: u64) -> u64 {
 /// duration (`pin_handle`/`unpin_handle`, the same mechanism `fs.watch` uses)
 /// so a sweep during the sleep can't free it out from under the timer — a
 /// real fix over the pre-migration Rust code, which raced the GC here.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ABORTSIGNAL_STATIC_TIMEOUT(ms: i64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_ABORTSIGNAL_STATIC_TIMEOUT")]
+pub fn __RTS_FN_GL_ABORTSIGNAL_STATIC_TIMEOUT(ms: i64) -> u64 {
     let h = alloc_rtse("AbortSignal", AbortSignal::default());
     pin_handle(h);
     let delay = if ms > 0 { ms as u64 } else { 0 };
@@ -154,8 +154,8 @@ pub extern "C" fn __RTS_FN_GL_ABORTSIGNAL_STATIC_TIMEOUT(ms: i64) -> u64 {
 /// `AbortSignal.any(signals)` — a signal that aborts when any input signal
 /// aborts (already-aborted checked synchronously first, matching the `.ts`;
 /// otherwise a background poller mirrors the prior Rust implementation).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ABORTSIGNAL_STATIC_ANY(signals_arr: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_ABORTSIGNAL_STATIC_ANY")]
+pub fn __RTS_FN_GL_ABORTSIGNAL_STATIC_ANY(signals_arr: u64) -> u64 {
     use rts_engine::heap::handles::{Entry, with_entry};
     let signals: Vec<u64> = with_entry(signals_arr, |e| match e {
         Some(Entry::Vec(v)) => v.iter().map(|&x| x as u64).collect(),

@@ -61,16 +61,16 @@ fn to_unicode(domain: &str) -> String {
 }
 
 /// `punycode.version` (constant getter).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PUNYCODE_VERSION() -> u64 {
+#[rtse::abi("__RTS_FN_NODE_PUNYCODE_VERSION")]
+pub fn __RTS_FN_NODE_PUNYCODE_VERSION() -> u64 {
     intern(VERSION)
 }
 
 /// `punycode.ucs2.decode(string)` — UNIFORM-thunk word ABI
 /// (`(env, a0, a1, a2, a3, rest) -> word`): the string value word `a0` → array
 /// of code-point numbers (Rust `chars()` already yields combined code points).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PUNYCODE_UCS2_DECODE(
+#[rtse::abi("__RTS_FN_NODE_PUNYCODE_UCS2_DECODE")]
+pub fn __RTS_FN_NODE_PUNYCODE_UCS2_DECODE(
     _env: u64,
     a0: u64,
     _a1: u64,
@@ -86,8 +86,8 @@ pub extern "C" fn __RTS_FN_NODE_PUNYCODE_UCS2_DECODE(
 /// `punycode.ucs2.encode(codePoints)` — UNIFORM-thunk word ABI: number array
 /// word `a0` → string (astral code points become surrogate pairs). Throws
 /// `RangeError` on an out-of-range / non-integer code point.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PUNYCODE_UCS2_ENCODE(
+#[rtse::abi("__RTS_FN_NODE_PUNYCODE_UCS2_ENCODE")]
+pub fn __RTS_FN_NODE_PUNYCODE_UCS2_ENCODE(
     _env: u64,
     a0: u64,
     _a1: u64,
@@ -117,8 +117,8 @@ pub extern "C" fn __RTS_FN_NODE_PUNYCODE_UCS2_ENCODE(
 }
 
 /// `punycode.ucs2` (constant getter) — a real object of two callable functions.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_PUNYCODE_UCS2() -> u64 {
+#[rtse::abi("__RTS_FN_NODE_PUNYCODE_UCS2")]
+pub fn __RTS_FN_NODE_PUNYCODE_UCS2() -> u64 {
     let keys: &[&str] = &["decode", "encode"];
     let values: [i64; 2] = [
         fn_value(__RTS_FN_NODE_PUNYCODE_UCS2_DECODE as *const u8, "decode", 1),

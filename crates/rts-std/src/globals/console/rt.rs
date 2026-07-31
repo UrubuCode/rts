@@ -23,13 +23,15 @@ thread_local! {
 /// `(console as any).<method> = fn` — grava o override. `fn == 0` apaga.
 /// `variadic != 0` indica callback `(...args)` — o call site empacota todos
 /// os args num unico array (#310).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_CONSOLE_SET_OVERRIDE(
-    method_ptr: *const u8,
+#[rtse::abi("__RTS_FN_RT_CONSOLE_SET_OVERRIDE")]
+pub fn __RTS_FN_RT_CONSOLE_SET_OVERRIDE(
+    method_ptr: u64,
     method_len: i64,
     fn_handle: i64,
     variadic: i64,
 ) {
+    let method_ptr = method_ptr as *const u8;
+
     let method = read_method(method_ptr, method_len);
     CONSOLE_OVERRIDES.with(|c| {
         let mut m = c.borrow_mut();
@@ -43,19 +45,23 @@ pub extern "C" fn __RTS_FN_RT_CONSOLE_SET_OVERRIDE(
 
 /// `console.<method>(...)` call site — devolve o handle do override ou 0
 /// (nativo). O codegen, se != 0, invoca via INVOKE_AUTO com os args.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_CONSOLE_GET_OVERRIDE(method_ptr: *const u8, method_len: i64) -> i64 {
+#[rtse::abi("__RTS_FN_RT_CONSOLE_GET_OVERRIDE")]
+pub fn __RTS_FN_RT_CONSOLE_GET_OVERRIDE(method_ptr: u64, method_len: i64) -> i64 {
+    let method_ptr = method_ptr as *const u8;
+
     let method = read_method(method_ptr, method_len);
     CONSOLE_OVERRIDES.with(|c| c.borrow().get(&method).map(|(h, _)| *h).unwrap_or(0))
 }
 
 /// (#310) True (1) se o override do metodo eh variadic (`...args`) — o call
 /// site empacota os args num unico array antes de INVOKE_AUTO.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_CONSOLE_OVERRIDE_IS_VARIADIC(
-    method_ptr: *const u8,
+#[rtse::abi("__RTS_FN_RT_CONSOLE_OVERRIDE_IS_VARIADIC")]
+pub fn __RTS_FN_RT_CONSOLE_OVERRIDE_IS_VARIADIC(
+    method_ptr: u64,
     method_len: i64,
 ) -> i64 {
+    let method_ptr = method_ptr as *const u8;
+
     let method = read_method(method_ptr, method_len);
     CONSOLE_OVERRIDES.with(|c| c.borrow().get(&method).map(|(_, v)| *v as i64).unwrap_or(0))
 }
@@ -124,13 +130,15 @@ fn print_handle(msg: u64, is_err: bool) {
 /// `console.<method>(...)` drenado. `display_vec` = handles já coergidos p/
 /// exibição (join no runtime); `raw_vec` = valores crus (override/assert).
 /// Despacha override runtime se houver; senão imprime no fd do método.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_CONSOLE_WRITE_AUTO(
-    method_ptr: *const u8,
+#[rtse::abi("__RTS_FN_GL_CONSOLE_WRITE_AUTO")]
+pub fn __RTS_FN_GL_CONSOLE_WRITE_AUTO(
+    method_ptr: u64,
     method_len: i64,
     display_vec: u64,
     raw_vec: u64,
 ) -> i64 {
+    let method_ptr = method_ptr as *const u8;
+
     let method = read_method(method_ptr, method_len);
 
     // 1) Override runtime: `(console as any).m = fn`. Variádico empacota raw_vec

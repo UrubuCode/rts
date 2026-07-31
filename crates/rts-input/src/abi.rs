@@ -7,110 +7,112 @@ use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use AbiType::{F64, I64, StrPtr, U64 as Handle};
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_MOUSE_X(target: u64) -> f64 {
+#[rtse::abi("__RTS_FN_NS_INPUT_MOUSE_X")]
+pub fn __RTS_FN_NS_INPUT_MOUSE_X(target: u64) -> f64 {
     crate::with_input(|i| i.mouse_pos(target).0 as f64).unwrap_or(-1.0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_MOUSE_Y(target: u64) -> f64 {
+#[rtse::abi("__RTS_FN_NS_INPUT_MOUSE_Y")]
+pub fn __RTS_FN_NS_INPUT_MOUSE_Y(target: u64) -> f64 {
     crate::with_input(|i| i.mouse_pos(target).1 as f64).unwrap_or(-1.0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_MOUSE_DOWN(target: u64, button: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_INPUT_MOUSE_DOWN")]
+pub fn __RTS_FN_NS_INPUT_MOUSE_DOWN(target: u64, button: i64) -> i64 {
     crate::with_input(|i| i.mouse_down(target, button) as i64).unwrap_or(0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_MOUSE_CLICKED(target: u64, button: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_INPUT_MOUSE_CLICKED")]
+pub fn __RTS_FN_NS_INPUT_MOUSE_CLICKED(target: u64, button: i64) -> i64 {
     crate::with_input(|i| i.mouse_clicked(target, button) as i64).unwrap_or(0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_MOUSE_PRESSED(target: u64, button: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_INPUT_MOUSE_PRESSED")]
+pub fn __RTS_FN_NS_INPUT_MOUSE_PRESSED(target: u64, button: i64) -> i64 {
     crate::with_input(|i| i.mouse_pressed(target, button) as i64).unwrap_or(0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_MOUSE_RELEASED(target: u64, button: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_INPUT_MOUSE_RELEASED")]
+pub fn __RTS_FN_NS_INPUT_MOUSE_RELEASED(target: u64, button: i64) -> i64 {
     crate::with_input(|i| i.mouse_released(target, button) as i64).unwrap_or(0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_MOUSE_DOUBLE_CLICKED(target: u64, button: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_INPUT_MOUSE_DOUBLE_CLICKED")]
+pub fn __RTS_FN_NS_INPUT_MOUSE_DOUBLE_CLICKED(target: u64, button: i64) -> i64 {
     crate::with_input(|i| i.mouse_double_clicked(target, button) as i64).unwrap_or(0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_MOUSE_DELTA_X(target: u64) -> f64 {
+#[rtse::abi("__RTS_FN_NS_INPUT_MOUSE_DELTA_X")]
+pub fn __RTS_FN_NS_INPUT_MOUSE_DELTA_X(target: u64) -> f64 {
     crate::with_input(|i| i.mouse_delta(target).0 as f64).unwrap_or(0.0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_MOUSE_DELTA_Y(target: u64) -> f64 {
+#[rtse::abi("__RTS_FN_NS_INPUT_MOUSE_DELTA_Y")]
+pub fn __RTS_FN_NS_INPUT_MOUSE_DELTA_Y(target: u64) -> f64 {
     crate::with_input(|i| i.mouse_delta(target).1 as f64).unwrap_or(0.0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_DRAGGING(target: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_INPUT_DRAGGING")]
+pub fn __RTS_FN_NS_INPUT_DRAGGING(target: u64) -> i64 {
     crate::with_input(|i| i.dragging(target) as i64).unwrap_or(0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_WHEEL(target: u64) -> f64 {
+#[rtse::abi("__RTS_FN_NS_INPUT_WHEEL")]
+pub fn __RTS_FN_NS_INPUT_WHEEL(target: u64) -> f64 {
     crate::with_input(|i| i.wheel(target) as f64).unwrap_or(0.0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_WHEEL_X(target: u64) -> f64 {
+#[rtse::abi("__RTS_FN_NS_INPUT_WHEEL_X")]
+pub fn __RTS_FN_NS_INPUT_WHEEL_X(target: u64) -> f64 {
     crate::with_input(|i| i.wheel_x(target) as f64).unwrap_or(0.0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_SET_CURSOR(target: u64, kind: i64) {
+#[rtse::abi("__RTS_FN_NS_INPUT_SET_CURSOR")]
+pub fn __RTS_FN_NS_INPUT_SET_CURSOR(target: u64, kind: i64) {
     crate::with_input(|i| i.set_cursor(target, kind));
 }
 
 /// Estado de uma tecla numa fase (`phase`: 0=down, 1=pressed, 2=released — ver
 /// `KEY_PHASE_*`). Símbolo ÚNICO que substitui os antigos KEY_DOWN/PRESSED/
 /// RELEASED; o `.ts` (canvas) expõe os atalhos `keyDown`/`keyPressed`/`keyReleased`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_KEY(target: u64, key: i64, phase: i64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_INPUT_KEY")]
+pub fn __RTS_FN_NS_INPUT_KEY(target: u64, key: i64, phase: i64) -> i64 {
     crate::with_input(|i| i.key_state(target, key, phase) as i64).unwrap_or(0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_MOD_CTRL(target: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_INPUT_MOD_CTRL")]
+pub fn __RTS_FN_NS_INPUT_MOD_CTRL(target: u64) -> i64 {
     crate::with_input(|i| i.modifiers(target).ctrl as i64).unwrap_or(0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_MOD_SHIFT(target: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_INPUT_MOD_SHIFT")]
+pub fn __RTS_FN_NS_INPUT_MOD_SHIFT(target: u64) -> i64 {
     crate::with_input(|i| i.modifiers(target).shift as i64).unwrap_or(0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_MOD_ALT(target: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_INPUT_MOD_ALT")]
+pub fn __RTS_FN_NS_INPUT_MOD_ALT(target: u64) -> i64 {
     crate::with_input(|i| i.modifiers(target).alt as i64).unwrap_or(0)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_MOD_CMD(target: u64) -> i64 {
+#[rtse::abi("__RTS_FN_NS_INPUT_MOD_CMD")]
+pub fn __RTS_FN_NS_INPUT_MOD_CMD(target: u64) -> i64 {
     crate::with_input(|i| i.modifiers(target).cmd as i64).unwrap_or(0)
 }
 
 /// `input.textInput(target)` → texto digitado neste frame, como handle de string
 /// GC (o que o TS recebe como `string`). String vazia se nada.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_TEXT(target: u64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_INPUT_TEXT")]
+pub fn __RTS_FN_NS_INPUT_TEXT(target: u64) -> u64 {
     let s = crate::with_input(|i| i.text_input(target)).unwrap_or_default();
     unsafe { __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64) }
 }
 
 /// `input.copyText(target, text)` — coloca `text` no clipboard do SO (Ctrl+C).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_INPUT_COPY_TEXT(target: u64, ptr: *const u8, len: i64) {
+#[rtse::abi("__RTS_FN_NS_INPUT_COPY_TEXT")]
+pub fn __RTS_FN_NS_INPUT_COPY_TEXT(target: u64, ptr: u64, len: i64) {
+    let ptr = ptr as *const u8;
+
     if ptr.is_null() || len <= 0 {
         return;
     }

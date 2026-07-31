@@ -142,7 +142,7 @@ fn eol() -> String {
 }
 
 /// `os.devNull` — the null device path (`Constant` property getter).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_OS_DEV_NULL() -> u64 {
+#[rtse::abi("__RTS_FN_NODE_OS_DEV_NULL")]
+pub fn __RTS_FN_NODE_OS_DEV_NULL() -> u64 {
     intern(if cfg!(windows) { "\\\\.\\nul" } else { "/dev/null" })
 }

@@ -144,8 +144,10 @@ fn unwatch_file(path: &str) {
 /// a HARDCODED literal symbol string, the same constraint documented on
 /// `filehandle::open_handle`/`streambridge::{read,write,append}_bytes`. Its
 /// linker name must stay exactly `__RTS_FN_NODE_FS_WATCHFILE_FIRE`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NODE_FS_WATCHFILE_FIRE(listener: u64, path_ptr: *const u8, path_len: i64) {
+#[rtse::abi("__RTS_FN_NODE_FS_WATCHFILE_FIRE")]
+pub fn __RTS_FN_NODE_FS_WATCHFILE_FIRE(listener: u64, path_ptr: u64, path_len: i64) {
+    let path_ptr = path_ptr as *const u8;
+
     let path = read(path_ptr, path_len);
     let Ok(md) = std::fs::metadata(&path) else {
         return; // file vanished — skip this tick (a delete/recreate settles next)
