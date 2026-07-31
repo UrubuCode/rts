@@ -2786,6 +2786,20 @@
 }
 ,
 {
+  "name": "claude-promise-resolve-then-number",
+  "status": "pass",
+  "bun": "num=7\nneg=-42\nfrac=3.5\nzero=0\nbool=true\nnull=null\nstr=oi\nobj={\"a\":1}\narr=1,2\nchain=10\nawait=11",
+  "node": "num=7\nneg=-42\nfrac=3.5\nzero=0\nbool=true\nnull=null\nstr=oi\nobj={\"a\":1}\narr=1,2\nchain=10\nawait=11",
+  "rts": "num=7\nneg=-42\nfrac=3.5\nzero=0\nbool=true\nnull=null\nstr=oi\nobj={\"a\":1}\narr=1,2\nchain=10\nawait=11",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
   "name": "179_function_name_length",
   "status": "pass",
   "bun": "name=foo\nlength=2\nanon_name=bar\nanon_length=1\narrow_name=arrow\narrow_length=3\nnoargs_length=0",
@@ -6805,10 +6819,10 @@
 ,
 {
   "name": "116_promise_finally",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "log=then:4631107791820423000,catch:error,finally1,finally2,then2:9223372036854776000",
+  "rts": "log=then:42,catch:error,finally1,finally2,then2:84",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -6906,7 +6920,7 @@
   "status": "rts_diverge",
   "bun": "one=3\ntwo=5\nall=a,b\nasync=9",
   "node": "one=3\ntwo=5\nall=a,b\nasync=9",
-  "rts": "one=3\ntwo=4\nall=1.39067116157e-309,1.390671161570005e-309\nasync=9",
+  "rts": "one=3\ntwo=5\nall=1.39067116157e-309,1.390671161570005e-309\nasync=9",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -6962,7 +6976,7 @@
   "status": "rts_diverge",
   "bun": "AggregateError\na,b,c",
   "node": "AggregateError\na,b,c",
-  "rts": "undefined",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9673,4 +9687,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":691,"pass":486,"rts_diverge":115,"bun_node_diverge":18,"errors":72,"rejected":0}}
+],"summary":{"total":692,"pass":488,"rts_diverge":114,"bun_node_diverge":18,"errors":72,"rejected":0}}
