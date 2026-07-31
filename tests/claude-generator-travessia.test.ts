@@ -17,9 +17,11 @@ import { describe, test, expect } from "rts:test";
 //   2. o despacho dinâmico reconhece a `Entry::GenState` pelo HANDLE
 //      (dyndispatch), então o protocolo não depende só do rastreio estático.
 //
-// LIMITE CONHECIDO, honesto: atravessar um ARRAY (`const a = [g()]; a[0].next()`)
-// ainda perde o protocolo — o handle é re-boxado ao entrar no array e vira outro.
-// Fica na issue #2042; este teste cobre o que passou a funcionar.
+// A travessia por ARRAY (e por objeto/argumento/campo/Map/destructuring) era o
+// limite que sobrava aqui. A causa não era re-boxing: o handle da GenState nunca
+// era boxado — `Val::new` carimba todo `Repr::Int64` como `JsKind::Number`, então
+// cruzar uma borda o convertia em double. Corrigido boxando-o como word
+// `TAG_OBJECT` no retorno do ctor; cobertura em `claude-generator-bordas.test.ts`.
 //
 // Valores conferidos contra o Node. Pré-computado no top-level.
 

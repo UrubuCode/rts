@@ -429,6 +429,28 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
     }
 
+    /// The bare `Entry::GenState` handle behind a LAZY-generator value. Since #2042
+    /// such a value rides as a `TAG_OBJECT` PolyValue word (so its identity survives
+    /// array/object/arg/field/Map), so the handle is recovered from the word exactly
+    /// as an array word's is. A value still carried in a raw `Int64` (a path that
+    /// produces the handle directly) rides verbatim.
+    pub(super) fn gen_state_handle(
+        &mut self,
+        module: &mut dyn Module,
+        v: crate::front::run::lower::Val,
+    ) -> FrontResult<cranelift_codegen::ir::Value> {
+        if v.repr == Repr::Tagged {
+            let word = self.box_value(v);
+            Ok(crate::value::emit_marshal::emit_table_load(
+                module,
+                self.builder,
+                word,
+            ))
+        } else {
+            self.coerce(v, Repr::Int64)
+        }
+    }
+
     /// The runtime GenState/Vec handle of a GENERATOR-valued receiver (a generator
     /// local, or a direct `g()` call), for `GENERATOR_NEXT`/`RETURN`/`THROW`. EAGER
     /// (`__gen_buf` array word) → its real Vec handle (`POLY_TO_HANDLE`); LAZY (raw
@@ -451,7 +473,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         };
         let v = self.lower_expr(module, recv)?;
         let handle = if is_lazy {
-            self.coerce(v, Repr::Int64)?
+            self.gen_state_handle(module, v)?
         } else {
             let word = self.box_value(v);
             crate::value::emit_marshal::emit_table_load(module, self.builder, word)

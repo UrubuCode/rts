@@ -327,7 +327,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // DRAIN returns the RAW Vec handle; rebox it as a TAG_OBJECT array
             // word (the spread-append consumer reads a word — a raw id there
             // appended nothing).
-            let handle = self.coerce(res, Repr::Int64)?;
+            let handle = self.gen_state_handle(module, res)?;
             let arr = self
                 .call_runtime(module, "__rtsn_gen_sm_drain", &[handle])?
                 .expect("GEN_SM_DRAIN returns a Vec handle");
@@ -367,7 +367,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // The GenState handle rides a raw `Int64`; pass it verbatim to DRAIN.
         // DRAIN returns the RAW Vec handle → rebox as a TAG_OBJECT array word
         // (spread-append / element reads consume a word).
-        let handle = self.coerce(h, Repr::Int64)?;
+        let handle = self.gen_state_handle(module, h)?;
         let arr = self
             .call_runtime(module, "__rtsn_gen_sm_drain", &[handle])?
             .expect("GEN_SM_DRAIN returns a Vec handle");
