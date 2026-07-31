@@ -106,4 +106,16 @@ class Object {
   static isSealed(o: any): boolean { return Object.isSealed(o); }
   static getPrototypeOf(o: any): any { return Object.getPrototypeOf(o); }
   static getOwnPropertyNames(o: any): any { return Object.getOwnPropertyNames(o); }
+  // O resto da superfície estática que o caminho nativo JÁ lowera na forma
+  // CHAMADA. Sem estes shims a forma LIDA continuava bailando — e é a forma que
+  // bundle minificado usa o tempo todo (`var d = Object.defineProperty`).
+  static defineProperty(o: any, k: any, d: any): any { return Object.defineProperty(o, k, d); }
+  static defineProperties(o: any, d: any): any { return Object.defineProperties(o, d); }
+  static fromEntries(it: any[]): any { return Object.fromEntries(it); }
+  static create(proto: any): any { return Object.create(proto); }
+  static setPrototypeOf(o: any, proto: any): any { return Object.setPrototypeOf(o, proto); }
+  static getOwnPropertyDescriptor(o: any, k: any): any { return Object.getOwnPropertyDescriptor(o, k); }
+  static getOwnPropertySymbols(o: any): any { return Object.getOwnPropertySymbols(o); }
+  static preventExtensions(o: any): any { return Object.preventExtensions(o); }
+  static isExtensible(o: any): boolean { return Object.isExtensible(o); }
 }
