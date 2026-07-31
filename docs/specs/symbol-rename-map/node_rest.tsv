@@ -1,0 +1,43 @@
+__RTS_FN_NODE_EE_ON	module = "node:events", value = "on"	__rtsm_node_events_on
+__RTS_FN_NODE_EE_ONCE	module = "node:events", value = "once"	__rtsm_node_events_once
+__RTS_FN_NODE_EE_PREPEND	module = "node:events", value = "prependListener"	__rtsm_node_events_prependListener
+__RTS_FN_NODE_EE_PREPEND_ONCE	module = "node:events", value = "prependOnceListener"	__rtsm_node_events_prependOnceListener
+__RTS_FN_NODE_EE_OFF	module = "node:events", value = "off"	__rtsm_node_events_off
+__RTS_FN_NODE_EE_REMOVE_ALL0	module = "node:events", value = "removeAllListeners"	__rtsm_node_events_removeAllListeners
+__RTS_FN_NODE_EE_REMOVE_ALL	module = "node:events", value = "removeAllListeners", overload = "event"	__rtsm_node_events_removeAllListeners_event
+__RTS_FN_NODE_EE_LISTENER_COUNT	module = "node:events", value = "listenerCount"	__rtsm_node_events_listenerCount
+__RTS_FN_NODE_EE_LISTENERS	module = "node:events", value = "listeners"	__rtsm_node_events_listeners
+__RTS_FN_NODE_EE_EVENT_NAMES	module = "node:events", value = "eventNames"	__rtsm_node_events_eventNames
+__RTS_FN_NODE_EE_GET_MAX	module = "node:events", value = "getMaxListeners"	__rtsm_node_events_getMaxListeners
+__RTS_FN_NODE_EE_SET_MAX	module = "node:events", value = "setMaxListeners"	__rtsm_node_events_setMaxListeners
+__RTS_FN_NODE_FS_FH_CLOSE	global = "FileHandle", value = "close"	__rtsm_global_FileHandle_close
+__RTS_FN_NODE_FS_FH_READ_FILE	global = "FileHandle", value = "readFile"	__rtsm_global_FileHandle_readFile
+__RTS_FN_NODE_FS_FH_READ_FILE_ENC	global = "FileHandle", value = "readFile", overload = "enc"	__rtsm_global_FileHandle_readFile_enc
+__RTS_FN_NODE_FS_FH_WRITE_FILE	global = "FileHandle", value = "writeFile"	__rtsm_global_FileHandle_writeFile
+__RTS_FN_NODE_FS_FH_STAT	global = "FileHandle", value = "stat"	__rtsm_global_FileHandle_stat
+__RTS_FN_NODE_FS_FH_TRUNCATE	global = "FileHandle", value = "truncate"	__rtsm_global_FileHandle_truncate
+__RTS_FN_NODE_FS_FH_SYNC	global = "FileHandle", value = "sync"	__rtsm_global_FileHandle_sync
+__RTS_FN_NODE_FS_FH_DATASYNC	global = "FileHandle", value = "datasync"	__rtsm_global_FileHandle_datasync
+__RTS_FN_NODE_FS_FH_CHMOD	global = "FileHandle", value = "chmod"	__rtsm_global_FileHandle_chmod
+__RTS_FN_NODE_FS_WATCHER_CLOSE	global = "FSWatcher", value = "close"	__rtsm_global_FSWatcher_close
+__RTS_FN_NODE_FS_CONSTANTS	module = "node:fs", value = "constants"	__rtsm_node_fs_constants
+__RTS_FN_NODE_FS_WATCHFILE_FIRE	abi, value = "watchfile_fire"	__rtsa_watchfile_fire
+__RTS_FN_NODE_PUNYCODE_VERSION	module = "node:punycode", value = "version"	__rtsm_node_punycode_version
+__RTS_FN_NODE_PUNYCODE_UCS2	module = "node:punycode", value = "ucs2"	__rtsm_node_punycode_ucs2
+__RTS_FN_NODE_PUNYCODE_UCS2_DECODE	module = "node:punycode/ucs2", value = "decode"	__rtsm_node_punycode_ucs2_decode
+__RTS_FN_NODE_PUNYCODE_UCS2_ENCODE	module = "node:punycode/ucs2", value = "encode"	__rtsm_node_punycode_ucs2_encode
+__RTS_FN_NODE_PATH_POSIX_SEP	module = "node:path/posix", value = "sep"	__rtsm_node_path_posix_sep
+__RTS_FN_NODE_PATH_POSIX_DELIMITER	module = "node:path/posix", value = "delimiter"	__rtsm_node_path_posix_delimiter
+__RTS_FN_NODE_PATH_WIN32_SEP	module = "node:path/win32", value = "sep"	__rtsm_node_path_win32_sep
+__RTS_FN_NODE_PATH_WIN32_DELIMITER	module = "node:path/win32", value = "delimiter"	__rtsm_node_path_win32_delimiter
+__RTS_FN_NODE_CP_EXEC	module = "node:child_process", value = "execSync"	__rtsm_node_child_process_execSync
+__RTS_FN_NODE_CP_EXEC_FILE	module = "node:child_process", value = "execFileSync"	__rtsm_node_child_process_execFileSync
+__RTS_FN_NODE_CP_SPAWN	module = "node:child_process", value = "spawnSync"	__rtsm_node_child_process_spawnSync
+__RTS_FN_NODE_V8_SERIALIZE	module = "node:v8", value = "serialize"	__rtsm_node_v8_serialize
+__RTS_FN_NODE_V8_DESERIALIZE	module = "node:v8", value = "deserialize"	__rtsm_node_v8_deserialize
+__RTS_FN_NODE_HTTP_VALIDATE_NAME	module = "node:http", value = "validateHeaderName"	__rtsm_node_http_validateHeaderName
+__RTS_FN_NODE_HTTP_VALIDATE_VALUE	module = "node:http", value = "validateHeaderValue"	__rtsm_node_http_validateHeaderValue
+__RTS_FN_NODE_ZLIB_CONSTANTS	module = "node:zlib", value = "constants"	__rtsm_node_zlib_constants
+__RTS_FN_NODE_OS_DEV_NULL	module = "node:os", value = "devNull"	__rtsm_node_os_devNull
+__RTS_FN_NODE_OS_CONSTANTS	module = "node:os", value = "constants"	__rtsm_node_os_constants
+__RTS_FN_NODE_CRYPTO_CONSTANTS	module = "node:crypto", value = "constants"	__rtsm_node_crypto_constants

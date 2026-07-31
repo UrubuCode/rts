@@ -1,0 +1,45 @@
+__RTS_FN_NS_INPUT_MOUSE_X	module = "input", value = "mouseX"	__rtsm_input_mouseX
+__RTS_FN_NS_INPUT_MOUSE_Y	module = "input", value = "mouseY"	__rtsm_input_mouseY
+__RTS_FN_NS_INPUT_MOUSE_DOWN	module = "input", value = "mouseDown"	__rtsm_input_mouseDown
+__RTS_FN_NS_INPUT_MOUSE_CLICKED	module = "input", value = "mouseClicked"	__rtsm_input_mouseClicked
+__RTS_FN_NS_INPUT_MOUSE_PRESSED	module = "input", value = "mousePressed"	__rtsm_input_mousePressed
+__RTS_FN_NS_INPUT_MOUSE_RELEASED	module = "input", value = "mouseReleased"	__rtsm_input_mouseReleased
+__RTS_FN_NS_INPUT_MOUSE_DOUBLE_CLICKED	module = "input", value = "mouseDoubleClicked"	__rtsm_input_mouseDoubleClicked
+__RTS_FN_NS_INPUT_MOUSE_DELTA_X	module = "input", value = "mouseDeltaX"	__rtsm_input_mouseDeltaX
+__RTS_FN_NS_INPUT_MOUSE_DELTA_Y	module = "input", value = "mouseDeltaY"	__rtsm_input_mouseDeltaY
+__RTS_FN_NS_INPUT_DRAGGING	module = "input", value = "dragging"	__rtsm_input_dragging
+__RTS_FN_NS_INPUT_WHEEL	module = "input", value = "wheel"	__rtsm_input_wheel
+__RTS_FN_NS_INPUT_WHEEL_X	module = "input", value = "wheelX"	__rtsm_input_wheelX
+__RTS_FN_NS_INPUT_SET_CURSOR	module = "input", value = "setCursor"	__rtsm_input_setCursor
+__RTS_FN_NS_INPUT_KEY	module = "input", value = "key"	__rtsm_input_key
+__RTS_FN_NS_INPUT_MOD_CTRL	module = "input", value = "modCtrl"	__rtsm_input_modCtrl
+__RTS_FN_NS_INPUT_MOD_SHIFT	module = "input", value = "modShift"	__rtsm_input_modShift
+__RTS_FN_NS_INPUT_MOD_ALT	module = "input", value = "modAlt"	__rtsm_input_modAlt
+__RTS_FN_NS_INPUT_MOD_CMD	module = "input", value = "modCmd"	__rtsm_input_modCmd
+__RTS_FN_NS_INPUT_TEXT	module = "input", value = "textInput"	__rtsm_input_textInput
+__RTS_FN_NS_INPUT_COPY_TEXT	module = "input", value = "copyText"	__rtsm_input_copyText
+__RTS_FN_NS_RENDER_BEGIN_FRAME	module = "render", value = "beginFrame"	__rtsm_render_beginFrame
+__RTS_FN_NS_RENDER_RECT	module = "render", value = "rect"	__rtsm_render_rect
+__RTS_FN_NS_RENDER_TEXT	module = "render", value = "text"	__rtsm_render_text
+__RTS_FN_NS_RENDER_LINE	module = "render", value = "line"	__rtsm_render_line
+__RTS_FN_NS_RENDER_MEASURE_TEXT	module = "render", value = "measureText"	__rtsm_render_measureText
+__RTS_FN_NS_RENDER_IMAGE	module = "render", value = "image"	__rtsm_render_image
+__RTS_FN_NS_RENDER_END_FRAME	module = "render", value = "endFrame"	__rtsm_render_endFrame
+__RTS_FN_NS_GC_STRING_LEN	abi, value = "string_len"	__rtsa_string_len
+__RTS_FN_NS_GC_STRING_FREE	abi, value = "string_free"	__rtsa_string_free
+__RTS_FN_NS_GC_HANDLE_LEN	abi, value = "handle_len"	__rtsa_handle_len
+__RTS_FN_NS_GC_IS_DATE	abi, value = "is_date"	__rtsa_is_date
+__RTS_FN_NS_GC_IS_REGEX	abi, value = "is_regex"	__rtsa_is_regex
+__RTS_FN_NS_GC_STRING_FROM_I64	module = "gc", value = "string_from_i64"	__rtsm_gc_string_from_i64
+__RTS_FN_NS_GC_STRING_EQ	abi, value = "string_eq"	__rtsa_string_eq
+__RTS_FN_NS_GC_STRING_CMP	abi, value = "string_cmp"	__rtsa_string_cmp
+__RTS_FN_NS_GC_STRING_CONCAT	abi, value = "string_concat"	__rtsa_string_concat
+__RTS_FN_NS_GC_PIN_HANDLE	module = "gc", value = "pin_handle"	__rtsm_gc_pin_handle
+__RTS_FN_NS_GC_UNPIN_HANDLE	module = "gc", value = "unpin_handle"	__rtsm_gc_unpin_handle
+__RTS_FN_RT_THIS_PUSH	abi, value = "this_push"	__rtsa_this_push
+__RTS_FN_RT_THIS_POP	abi, value = "this_pop"	__rtsa_this_pop
+__RTS_FN_RT_THIS_GET	abi, value = "this_get"	__rtsa_this_get
+__RTS_FN_RT_TRUTHY	abi, value = "truthy"	__rtsa_truthy
+__RTS_FN_RT_TO_STRING_HANDLE	abi, value = "to_string_handle"	__rtsa_to_string_handle
+__RTS_FN_RT_INIT	abi, value = "rt_init"	__rtsa_rt_init
+__RTS_FN_RT_SEED_SHAPES	abi, value = "seed_shapes"	__rtsa_seed_shapes
