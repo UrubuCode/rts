@@ -79,6 +79,18 @@ pub fn try_build(name: &str, function: &Function) -> Option<(FnDecl, FnDecl)> {
     if !body_needs_lazy(&body.stmts) {
         return None;
     }
+    // `break`/`continue` NAO sao modelados pela state-machine: o corpo do loop
+    // vira ESTADOS, e um `break` emitido verbatim dentro do estado nao tem loop
+    // para sair — a maquina ignorava o corte e o generator rodava PARA SEMPRE
+    // (`while(true){ if(i>=2) break; yield i; i=i+1 }` travava, sem erro).
+    //
+    // Inelegivel => cai no eager-buffer, que mantem o corpo verbatim e portanto
+    // respeita o `break` corretamente. Perde-se a lazy nesses corpos; ganha-se
+    // terminar. Voltar a aceita-los exige modelar break/continue como alvo de
+    // estado (com pilha de alvos p/ rotulos), nao apenas relaxar esta guarda.
+    if body.stmts.iter().any(stmt_has_break_or_continue) {
+        return None;
+    }
 
     let mut builder = SmBuilder::new();
     // Pre-registra params como locais (slots 0..n).
@@ -1387,6 +1399,27 @@ fn stmt_has_return(s: &Stmt) -> bool {
         Stmt::Switch(sw) => sw.cases.iter().any(|c| c.cons.iter().any(stmt_has_return)),
         _ => false,
     }
+}
+
+/// True se o stmt contem `break`/`continue` em qualquer profundidade, SEM descer
+/// em funcoes aninhadas (um `break` la dentro pertence a outro corpo).
+fn stmt_has_break_or_continue(s: &Stmt) -> bool {
+    use swc_ecma_visit::{Visit, VisitWith};
+    #[derive(Default)]
+    struct Achou(bool);
+    impl Visit for Achou {
+        fn visit_break_stmt(&mut self, _: &swc_ecma_ast::BreakStmt) {
+            self.0 = true;
+        }
+        fn visit_continue_stmt(&mut self, _: &swc_ecma_ast::ContinueStmt) {
+            self.0 = true;
+        }
+        fn visit_function(&mut self, _: &Function) {}
+        fn visit_arrow_expr(&mut self, _: &swc_ecma_ast::ArrowExpr) {}
+    }
+    let mut v = Achou::default();
+    s.visit_with(&mut v);
+    v.0
 }
 
 fn stmt_has_yield(s: &Stmt) -> bool {
