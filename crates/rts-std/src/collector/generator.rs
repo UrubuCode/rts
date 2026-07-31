@@ -987,7 +987,10 @@ pub fn iterator_fn() -> u64 {
         is_arrow: false,
         has_this_param: true,
         param_kinds: Vec::new(),
-        return_kind: 0,
+        // The iterator is a HANDLE, not a number: `return_kind: 0` (i64) let the
+        // legacy invoker box it as a plain number, so `arr[Symbol.iterator]()`
+        // read `typeof === "number"` and had no `.next` (issue #2042).
+        return_kind: 5,
         packed_shim: 0,
         source: None,
         keep_alive: None,
