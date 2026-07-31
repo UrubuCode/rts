@@ -415,6 +415,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let HirExprKind::Ident(f) = &callee.kind else {
             return None;
         };
+        // Segue o alias (`const g = gg; g()`) até a função real: `sigs` só
+        // conhece o nome DECLARADO, e sem este salto o iterador devolvido por
+        // um alias perdia o protocolo (`it.next` virava `undefined`).
+        let f = self.generator_aliases.get(f).unwrap_or(f);
         let s = self.sigs.get(f)?;
         if s.ret_lazy_gen {
             Some(true)

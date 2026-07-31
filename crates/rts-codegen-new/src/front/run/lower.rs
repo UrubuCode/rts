@@ -249,6 +249,12 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// (GenState handle, `Int64`); `false` = EAGER (`__gen_buf` ARRAY word).
     /// `it.next()`/`.return()`/`.throw()` route to `GENERATOR_*` by this kind.
     pub generator_locals: HashMap<String, bool>,
+    /// Nome local → nome da FUNÇÃO GENERATOR que ele aliasa (`const g = gg`).
+    /// Sem isto, `g()` não era reconhecido como chamada de generator: o
+    /// `gen_call_kind` só olhava `sigs`, onde o alias não existe, e o `.next()`
+    /// do iterador resultante não resolvia (`typeof it.next === "undefined"`).
+    /// É a forma que um bundle minificado usa o tempo todo.
+    pub generator_aliases: HashMap<String, String>,
     /// Name → the statically-known RUNTIME/Registry class of a local holding a
     /// `new Map()`/`new Set()`/`new Error()`/… instance (P5.3). Distinct from
     /// `local_classes` (user classes): these dispatch through the global-class
@@ -485,6 +491,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             local_elem_classes: HashMap::new(),
             local_class_refs: HashMap::new(),
             generator_locals: HashMap::new(),
+            generator_aliases: HashMap::new(),
             global_instance_classes: HashMap::new(),
             shapes: ShapeTable::new(),
             ret: sig.ret,

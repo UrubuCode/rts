@@ -174,6 +174,21 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(());
         }
 
+        // `const g = gg` onde `gg` é uma FUNÇÃO GENERATOR: registra o alias para
+        // que `g()` seja reconhecido como chamada de generator (ver
+        // `gen_call_kind`). Só o caso Ident→Ident, que é o que um bundle
+        // minificado gera; qualquer coisa mais complexa segue o caminho normal.
+        if let HirExprKind::Ident(alvo) = &init.kind {
+            if self
+                .sigs
+                .get(alvo.as_str())
+                .is_some_and(|s| s.ret_lazy_gen || s.ret_eager_gen)
+            {
+                self.generator_aliases
+                    .insert(name.to_string(), alvo.clone());
+            }
+        }
+
         // Object/array literal initializers: lower specially and RECORD the
         // local's proven heap shape, so later `obj.key` / `arr[i]` / `arr.length`
         // resolve to constant-slot `VEC_GET`/`VEC_SET`. The local rides `Tagged`
