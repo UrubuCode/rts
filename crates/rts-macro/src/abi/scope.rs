@@ -1,6 +1,6 @@
 //! `#[rtse::abi(...)]` argument PARSING. The naming RULE itself (the enums,
 //! `symbol_for`, `segments`) lives in `rts_abi::scope` — see that module for the
-//! full convention doc and the `__rtsm_`/`__rtsn_`/`__rtsa_` table. This file
+//! full convention doc and the `__rtsm_`/`__rtsn_` table. This file
 //! only owns the `syn::Parse` impl, because a `Parse` impl needs a local type
 //! and a proc-macro crate cannot be depended on as an ordinary library (so the
 //! symbol baker, which needs the same rule, calls `rts_abi::scope` directly).
@@ -105,7 +105,6 @@ impl Parse for AbiArgs {
                 ("module", Some(m)) => scope = Some(Scope::Module(m)),
                 ("global", g) => scope = Some(Scope::Global(g)),
                 ("native", None) => scope = Some(Scope::Native),
-                ("abi", None) => scope = Some(Scope::Abi),
                 ("value", Some(v)) => value = Some(v),
                 ("module", None) => {
                     return Err(syn::Error::new_spanned(
@@ -113,10 +112,18 @@ impl Parse for AbiArgs {
                         "#[rtse::abi]: `module` needs a specifier — `module = \"node:fs\"`",
                     ));
                 }
-                ("native", Some(_)) | ("abi", Some(_)) => {
+                ("native", Some(_)) => {
                     return Err(syn::Error::new_spanned(
                         &key,
-                        "#[rtse::abi]: `native`/`abi` are bare flags — put the name in `value = \"…\"`",
+                        "#[rtse::abi]: `native` is a bare flag — put the name in `value = \"…\"`",
+                    ));
+                }
+                // Deleted 2026-07-31 (RTS_ORGANIZATION.md N4). It named zero
+                // symbols and meant the same thing as `native`.
+                ("abi", _) => {
+                    return Err(syn::Error::new_spanned(
+                        &key,
+                        "#[rtse::abi]: the `abi` scope was deleted — use `native` (`__rtsn_`)",
                     ));
                 }
                 ("value", None) => {

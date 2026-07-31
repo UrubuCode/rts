@@ -62,6 +62,6 @@ __RTS_FN_NS_ALLOC_ALLOC	module = "alloc", value = "alloc"	__rtsm_alloc_alloc
 __RTS_FN_NS_ALLOC_ALLOC_ZEROED	module = "alloc", value = "alloc_zeroed"	__rtsm_alloc_alloc_zeroed
 __RTS_FN_NS_ALLOC_DEALLOC	module = "alloc", value = "dealloc"	__rtsm_alloc_dealloc
 __RTS_FN_NS_ALLOC_REALLOC	module = "alloc", value = "realloc"	__rtsm_alloc_realloc
-__RTS_FN_RT_OPAQUE_TO_STRING	abi, value = "opaque_to_string"	__rtsa_opaque_to_string
-__RTS_FN_RT_OPAQUE_HAS_NUMBER	abi, value = "opaque_has_number"	__rtsa_opaque_has_number
-__RTS_FN_RT_OPAQUE_TO_NUMBER	abi, value = "opaque_to_number"	__rtsa_opaque_to_number
+__RTS_FN_RT_OPAQUE_TO_STRING	native, value = "opaque_to_string"	__rtsn_opaque_to_string
+__RTS_FN_RT_OPAQUE_HAS_NUMBER	native, value = "opaque_has_number"	__rtsn_opaque_has_number
+__RTS_FN_RT_OPAQUE_TO_NUMBER	native, value = "opaque_to_number"	__rtsn_opaque_to_number

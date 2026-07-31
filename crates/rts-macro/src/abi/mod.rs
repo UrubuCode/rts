@@ -25,13 +25,19 @@
 //! ```ignore
 //! #[rtse::abi(module = "io", value = "print")]        // __rtsm_io_print
 //! #[rtse::abi(module = "node:fs")]                    // __rtsm_node_fs_<fn name>
-//! #[rtse::abi(global = "String", value = "toUpperCase")] // __rtsm_global_string_toUpperCase
+//! #[rtse::abi(global = "String", value = "toUpperCase")] // __rtsm_global_String_toUpperCase
 //! #[rtse::abi(global, value = "parseInt")]            // __rtsm_global_parseInt
 //! #[rtse::abi(native)]                                // __rtsn_<fn name>   (NATIVE, not node)
-//! #[rtse::abi(abi, value = "obj_get")]                // __rtsa_obj_get
-//! #[rtse::abi("__rtsa_legacy")]                       // explicit escape hatch
+//! #[rtse::abi(native, value = "obj_get")]             // __rtsn_obj_get
+//! #[rtse::abi("__rtsn_legacy")]                       // explicit escape hatch
 //! #[rtse::abi]                                        // transitional: `__` + fn name
 //! ```
+//!
+//! There is no `abi` scope. It existed briefly as a fifth prefix (`__rtsa_`) and
+//! was deleted on 2026-07-31 having named zero symbols: everything it covered is
+//! "the Cranelift IR cannot express this", which is what `native`/`__rtsn_`
+//! already means, and the name collided with the crate `rts-abi` (the contract,
+//! not an `extern "C"` function). See `rts_abi::scope` and `RTS_ORGANIZATION.md` §4.
 //!
 //! `<value>` keeps the JS spelling verbatim (`readFileSync`); the scope segments
 //! are lower-cased and `_`-joined. There are no uppercase block segments any
@@ -40,7 +46,7 @@
 //! spelling predates the convention until their group is converted.
 //!
 //! The const's name is the symbol with its prefix stripped, upper-cased,
-//! suffixed `_ABI` — `__rtsa_obj_get` → `OBJ_GET_ABI`.
+//! suffixed `_ABI` — `__rtsn_obj_get` → `OBJ_GET_ABI`.
 //!
 //! `abi` is its OWN category, deliberately separate from `#[rtse::class]`: a
 //! class member is resolved by NAME through the Registry at runtime, while an

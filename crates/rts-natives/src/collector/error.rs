@@ -6,8 +6,7 @@
 
 use std::cell::RefCell;
 
-use super::handles::{Entry, alloc_entry, free_handle, with_entry};
-use super::string_pool::read_string_handle;
+use crate::heap::handles::{Entry, alloc_entry, free_handle, read_string_handle, with_entry};
 use rts_engine::abi::JsErrorKind;
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -39,8 +38,26 @@ thread_local! {
     static ERROR_SLOT: RefCell<ErrorSlot> = const { RefCell::new(ErrorSlot { message: 0, stack: 0 }) };
 }
 
+/// Renders the current JS call stack as `Error.prototype.stack` text.
+///
+/// Installed by the layer that OWNS the frame stack (`rts-shared`'s
+/// `trace::frame_stack`), because that is where the frames are pushed. The error
+/// slot is machinery — what `throw`/`catch` need and the Cranelift IR cannot
+/// express — but the *text* of a stack trace is a product of the tracing
+/// namespace above, not of the slot. Absent an installer the slot still works;
+/// the thrown error simply carries no `.stack`.
+static STACK_CAPTURE: std::sync::OnceLock<fn() -> String> = std::sync::OnceLock::new();
+
+/// Install the stack-text renderer. Idempotent (first writer wins).
+pub fn set_stack_capture(f: fn() -> String) {
+    let _ = STACK_CAPTURE.set(f);
+}
+
 fn capture_stack_handle() -> u64 {
-    let text = rts_shared::trace::frame_stack::capture_string();
+    let Some(capture) = STACK_CAPTURE.get() else {
+        return 0;
+    };
+    let text = capture();
     if text.is_empty() {
         return 0;
     }

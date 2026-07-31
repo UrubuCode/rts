@@ -35,12 +35,17 @@ silently:
 * `<value>` is the JS spelling verbatim.
 * Overloads use `overload = "…"` (`rts_abi::scope::with_overload`), so
   `setInt32` / `setInt32_LE` do not collide.
-* **`__rtsa_` / `Scope::Abi` is being deleted** (`RTS_ORGANIZATION.md` §N4). The
-  50 rows currently spelled `__rtsa_*` in these files must be re-pointed at
-  `__rtsn_*` before the rename runs. They were written before that decision.
+* **`__rtsa_` / `Scope::Abi` was DELETED on 2026-07-31** (`RTS_ORGANIZATION.md`
+  §4): it named zero symbols, and everything it was meant to carry is "the
+  Cranelift IR cannot express this" — which is what `__rtsn_` already means. The
+  50 rows first written as `abi, value = "…"` → `__rtsa_*` (they predate the
+  decision) have been re-pointed at `native, value = "…"` → `__rtsn_*`:
+  `primitives_std` 22, `input_render_engine` 15, `math_buffer` 9, `shared_b` 3,
+  `node_rest` 1.
 
-Distribution: 576 `__rtsm_`, 50 `__rtsa_` (→ `__rtsn_`), 0 `__rtsn_`.
-Verified: zero duplicates within the map, zero collisions against the baked table.
+Distribution: 576 `__rtsm_`, 50 `__rtsn_`, 0 `__rtsa_`.
+Verified: zero duplicates within the map, zero collisions against the baked table
+(re-checked after the `__rtsn_` re-point).
 
 ## MISSING — two areas still to map
 

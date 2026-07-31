@@ -291,43 +291,43 @@ fn register_typed_array_class_specs(e: &mut Engine) {
     let ctors: &[(&str, &str, *const u8)] = &[
         (
             "Uint8Array",
-            "__rtsa_ta_new_u8",
-            ta::__rtsa_ta_new_u8 as *const u8,
+            "__rtsn_ta_new_u8",
+            ta::__rtsn_ta_new_u8 as *const u8,
         ),
         (
             "Int8Array",
-            "__rtsa_ta_new_i8",
-            ta::__rtsa_ta_new_i8 as *const u8,
+            "__rtsn_ta_new_i8",
+            ta::__rtsn_ta_new_i8 as *const u8,
         ),
         (
             "Uint16Array",
-            "__rtsa_ta_new_u16",
-            ta::__rtsa_ta_new_u16 as *const u8,
+            "__rtsn_ta_new_u16",
+            ta::__rtsn_ta_new_u16 as *const u8,
         ),
         (
             "Int16Array",
-            "__rtsa_ta_new_i16",
-            ta::__rtsa_ta_new_i16 as *const u8,
+            "__rtsn_ta_new_i16",
+            ta::__rtsn_ta_new_i16 as *const u8,
         ),
         (
             "Uint32Array",
-            "__rtsa_ta_new_u32",
-            ta::__rtsa_ta_new_u32 as *const u8,
+            "__rtsn_ta_new_u32",
+            ta::__rtsn_ta_new_u32 as *const u8,
         ),
         (
             "Int32Array",
-            "__rtsa_ta_new_i32",
-            ta::__rtsa_ta_new_i32 as *const u8,
+            "__rtsn_ta_new_i32",
+            ta::__rtsn_ta_new_i32 as *const u8,
         ),
         (
             "Float32Array",
-            "__rtsa_ta_new_f32",
-            ta::__rtsa_ta_new_f32 as *const u8,
+            "__rtsn_ta_new_f32",
+            ta::__rtsn_ta_new_f32 as *const u8,
         ),
         (
             "Float64Array",
-            "__rtsa_ta_new_f64",
-            ta::__rtsa_ta_new_f64 as *const u8,
+            "__rtsn_ta_new_f64",
+            ta::__rtsn_ta_new_f64 as *const u8,
         ),
     ];
     for (class, symbol, ptr) in ctors {

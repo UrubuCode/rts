@@ -41,9 +41,9 @@
 //!    (drops the shard lock; write-back for `&mut self`) so a body touching a 2nd
 //!    handle can't self-deadlock — the struct must be `Clone`.
 //!  - Class-member symbols follow the ONE convention derived in `abi::scope`:
-//!    `__rtsm_global_<class>_<member>`. The class segment is lower-cased and
-//!    `_`-joined (`Intl.NumberFormat` → `intl_numberformat`); the member segment
-//!    is VERBATIM (case-preserved), so `fn Foo` vs `fn foo` stay distinct. A
+//!    `__rtsm_global_<Class>_<member>`. The class segment is `_`-joined with its
+//!    case PRESERVED (`Intl.NumberFormat` → `Intl_NumberFormat`), as is the
+//!    member segment, so `fn Foo` vs `fn foo` stay distinct. A
 //!    `#[rtse::variable]` field's accessors suffix the pair: `…_<field>__get` /
 //!    `…_<field>__set`.
 //!  - `-> Option<Self>` (fallible ctor/factory → JS null on `None`) and
@@ -72,9 +72,10 @@
 //! their own:
 //!  - `class` — `#[rtse::class]` expansion (impl form + struct form).
 //!  - `abi` — `#[rtse::abi]` expansion: `abi::scope` parses the declared scope
-//!    and DERIVES the linker symbol (`__rtsm_` module / `__rtsn_` native /
-//!    `__rtsa_` ABI-contract); `abi::params` maps the Rust signature to ABI
-//!    slots; `abi::expand` emits the symbol + its `SymbolDesc` const.
+//!    and DERIVES the linker symbol (`__rtsm_` module/global, `__rtsn_` native —
+//!    the two prefixes left after `__rtsa_` was deleted on 2026-07-31);
+//!    `abi::params` maps the Rust signature to ABI slots; `abi::expand` emits
+//!    the symbol + its `SymbolDesc` const.
 //!  - `constant` — `#[rtse::constant]` expansion: a Rust `const` → getter symbol
 //!    + `SymbolDesc` + a `Member` the owning declaration pushes with `.member()`.
 //!  - `function` — `#[rtse::function]` expansion: a FREE function (no receiver,
@@ -106,7 +107,7 @@ pub fn class(args: TokenStream, item: TokenStream) -> TokenStream {
 
 /// `#[rtse::abi]` — emit a `SymbolDesc` const next to an `extern "C"` symbol,
 /// with BOTH the linker name (from the declared scope: `module`/`global`/
-/// `native`/`abi`) and the ABI shape derived from the Rust signature. See the
+/// `native`) and the ABI shape derived from the Rust signature. See the
 /// `abi` module doc for the naming convention and the parameter-kind table.
 #[proc_macro_attribute]
 pub fn abi(a: TokenStream, item: TokenStream) -> TokenStream {

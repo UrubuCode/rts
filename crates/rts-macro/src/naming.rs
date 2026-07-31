@@ -7,9 +7,10 @@
 //! `abi_const_name` (the generated `SymbolDesc` const's Rust identifier).
 //!
 //! The symbol convention itself is derived in `abi::scope`:
-//! `__rtsm_<module>_<value>` / `__rtsm_global_<class>_<value>` for module and
-//! global-class symbols, `__rtsn_<value>` for NATIVE helpers, `__rtsa_<value>`
-//! for the codegen<->runtime ABI contract.
+//! `__rtsm_<module>_<value>` / `__rtsm_global_<Class>_<value>` for module and
+//! global-class symbols, `__rtsn_<value>` for NATIVE helpers — everything the
+//! generated code must call out for because the IR cannot express it. (A third
+//! prefix, `__rtsa_`, was deleted on 2026-07-31: it duplicated `__rtsn_`.)
 //!
 //! `member_sym_const_name` is the THIRD const-naming rule (alongside
 //! `abi_const_name` above and `class::member::gen_member`'s own `Member`
@@ -35,7 +36,7 @@ pub(crate) fn to_camel(s: &str) -> String {
 }
 
 /// The generated const's identifier for symbol `sym`: strip the scope prefix,
-/// upper-case, suffix `_ABI`. `__rtsa_obj_get` → `OBJ_GET_ABI`;
+/// upper-case, suffix `_ABI`. `__rtsn_obj_get` → `OBJ_GET_ABI`;
 /// `__rtsm_node_fs_readFileSync` → `NODE_FS_READFILESYNC_ABI`.
 ///
 /// A symbol carrying a spelling from before the convention (the transitional
@@ -46,7 +47,6 @@ pub(crate) fn abi_const_name(sym: &str) -> String {
     let base = sym
         .strip_prefix("__rtsm_")
         .or_else(|| sym.strip_prefix("__rtsn_"))
-        .or_else(|| sym.strip_prefix("__rtsa_"))
         .or_else(|| sym.strip_prefix("__rtsadp_"))
         .unwrap_or(sym);
     format!("{}_ABI", base.trim_start_matches('_').to_uppercase())

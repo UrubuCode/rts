@@ -2,9 +2,12 @@
 //!
 //! ## How it works
 //!
-//! 1. Every `GC_TICK_INTERVAL` allocations, `handles::alloc_entry` fires
-//!    [`finish_cycle`] via the `GC_COLLECT_HOOK` (installed by [`runtime_init`]
-//!    at startup — the engine can't name `rts-std`'s `finish_cycle` directly).
+//! 1. Every `GC_TICK_INTERVAL` allocations, `handles::alloc_entry` calls
+//!    [`finish_cycle`] directly, once [`runtime_init`] has armed the collector.
+//!    Both are in this crate now: until 2026-07-31 this half lived in `rts-std`
+//!    and the call went through a `GC_COLLECT_HOOK` function pointer, so a
+//!    single cycle crossed the crate boundary twice (engine fires the hook →
+//!    `finish_cycle` in the backend → `scan_all_roots` back in the engine).
 //! 2. [`finish_cycle`] calls [`super::scan::scan_all_roots`], the CONSERVATIVE
 //!    scanner: it walks `rsp..stack_high` word-by-word (+ other RTS threads via
 //!    SuspendThread + global cells) and treats any word with a non-zero handle
@@ -22,7 +25,7 @@
 //! pointers are never confused with handles: the 48-bit payload is a HandleTable
 //! slot index, not an address.
 
-use super::handles::{live_handle_count, mark_handle, sweep_all_shards};
+use crate::heap::handles::{live_handle_count, mark_handle, sweep_all_shards};
 
 // ─── Module-level mutable global cells ────────────────────────────────────────
 //
@@ -116,11 +119,17 @@ pub fn finish_cycle() {
     // dos limites de stack; candidatos inválidos são filtrados por geração + slot.
     unsafe { super::scan::scan_all_roots(&mut |c| mark_handle(c)) };
 
-    // (cross-runtime #344/#393) Mark handles held only by pending microtasks
-    // (async/Promise callback closures, generator drives) — they live in the
-    // heap microtask queue, not on any scanned stack, so without this a GC tick
-    // during synchronous code sweeps live async state.
-    crate::globals::text_encoding::instance::mark_microtask_roots();
+    // (cross-runtime #344/#393) Off-stack roots contributed by the layers above:
+    // handles held only inside one of their Rust containers — a pending
+    // microtask's callback closure and bound args, a generator being driven.
+    // They live in no scanned stack, so without this a GC tick during
+    // synchronous code sweeps live async state.
+    //
+    // This used to be a hardcoded call to `rts-std`'s microtask queue, which is
+    // why the whole cycle had to live up there. See `super::root_sources` for
+    // why registration is the right direction of knowledge and the deleted
+    // `GC_COLLECT_HOOK` was not.
+    super::root_sources::mark_all();
 
     // Module-level mutable globals (epic #195): keep boxed-handle cell contents
     // (e.g. an accumulating string) alive across the sweep.
@@ -130,7 +139,7 @@ pub fn finish_cycle() {
     // LITERAL once and uses its handle as a code immediate (not on any stack /
     // cell / global), so the conservative scanner can't see it. Pinned roots
     // keep them alive for the whole program (their correct lifetime).
-    super::handles::mark_pinned_roots();
+    crate::heap::handles::mark_pinned_roots();
 
     sweep_all_shards();
 }
@@ -144,13 +153,20 @@ pub fn collect_debt() {}
 ///
 /// Wires the two things the automatic GC needs that nothing else does anymore:
 ///
-/// 1. **Installs the GC tick hook.** `handles::alloc_entry` fires
-///    [`finish_cycle`] every `GC_TICK_INTERVAL` allocations through the
-///    `GC_COLLECT_HOOK` indirection (the engine can't name `rts-std`'s
-///    `finish_cycle` directly). The OLD engine's `jit.rs` installed this; the P5
-///    cutover deleted that file and the install was never reconnected, so the
-///    periodic GC silently never ran — an allocation-heavy loop (e.g. a UI/game
-///    frame loop) leaked handles until the 5M abort. This reinstalls it.
+/// 1. **Arms the periodic collector.** `handles::alloc_entry` then calls
+///    [`finish_cycle`] every `GC_TICK_INTERVAL` allocations — a DIRECT call now
+///    that both halves of the GC live in this crate. It used to go through a
+///    `GC_COLLECT_HOOK` function pointer for one reason: the engine could not
+///    name `rts-std`'s `finish_cycle`. That indirection cost a real bug — the
+///    OLD engine's `jit.rs` installed the hook, the P5 cutover deleted that file
+///    and nobody reconnected the install, so the periodic GC silently never ran
+///    and an allocation-heavy loop (a UI/game frame loop) leaked handles until
+///    the 5M abort.
+///
+///    What survives is a plain boolean, not a callback: before this point the
+///    process may still be COMPILING, and the codegen holds interned string
+///    handles in ordinary Rust collections rather than as words on the scanned
+///    stack, so a conservative cycle then would sweep anything not yet pinned.
 /// 2. **Registers the main thread** in the `thread_registry`, so the conservative
 ///    root scanner ([`super::scan::scan_all_roots`]) covers the main thread's
 ///    stack via the same path it already uses for worker threads. Workers
@@ -158,11 +174,10 @@ pub fn collect_debt() {}
 ///    no-op for the common single-thread program, but correct for GC that
 ///    suspends+scans other threads).
 ///
-/// Idempotent: the hook install is a `OnceLock::set` (later calls are ignored)
-/// and `register_current` de-dups by thread id. Safe to call from both the JIT
-/// host path and the AOT `main` shim.
+/// Idempotent: arming is a relaxed store and `register_current` de-dups by
+/// thread id. Safe to call from both the JIT host path and the AOT `main` shim.
 pub fn runtime_init() {
-    super::handles::install_gc_hook(finish_cycle);
+    crate::heap::handles::arm_gc();
     super::thread_registry::register_current();
 }
 

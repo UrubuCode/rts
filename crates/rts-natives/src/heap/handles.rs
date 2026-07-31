@@ -16,7 +16,7 @@ use std::cell::Cell;
 use std::collections::HashSet;
 use std::sync::Mutex;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 // Layout do handle (gen/slot/shard) e' compartilhado com `ui::store` via
 // `crate::abi::handles` (#283). Mudancas aqui invalidam handles existentes.
@@ -1383,14 +1383,26 @@ fn gc_disabled() -> bool {
     std::env::var("RTS_GC_DISABLE").ok().as_deref() == Some("1")
 }
 
-/// Hook instalado por `collector::install_gc_hook()` para disparar
-/// finish_cycle sem dependência circular handles → collector.
-static GC_COLLECT_HOOK: OnceLock<fn()> = OnceLock::new();
+/// Is the periodic collector armed?
+///
+/// This used to be `GC_COLLECT_HOOK: OnceLock<fn()>` — a function pointer the
+/// backend installed at startup, for one reason only: the two halves of the GC
+/// lived in different crates and *the engine could not name `rts-std`'s
+/// `finish_cycle`*. With both halves in `rts-natives` the call below is direct,
+/// and what is left is the only thing the indirection ever really encoded: a
+/// BOOLEAN saying the runtime has booted.
+///
+/// The flag is not ceremony. Before `runtime_init` runs, the process may be
+/// *compiling* — and the codegen holds interned string handles in ordinary Rust
+/// collections, not as words on the scanned stack. Running the conservative
+/// cycle then would sweep anything not yet pinned. So the collector stays off
+/// until the runtime says it owns the process.
+static GC_ARMED: AtomicBool = AtomicBool::new(false);
 
-/// Instala o hook de GC automático. Chamado uma vez por `collector` na
-/// inicialização do runtime JIT.
-pub fn install_gc_hook(f: fn()) {
-    let _ = GC_COLLECT_HOOK.set(f);
+/// Arm the periodic collector. Called once by [`crate::collector::cycle::runtime_init`]
+/// at startup; idempotent.
+pub fn arm_gc() {
+    GC_ARMED.store(true, Ordering::Relaxed);
 }
 
 /// Allocates `entry` in the next shard (round-robin per thread).
@@ -1501,12 +1513,14 @@ pub fn alloc_entry(entry: Entry) -> u64 {
     // what catches a rewriting loop, which stays far under the handle floor while
     // retaining gigabytes (see [`GC_LIVE_BYTES_FLOOR`]).
     if tick % GC_TICK_INTERVAL == 0
+        && GC_ARMED.load(Ordering::Relaxed)
         && !gc_disabled()
         && (live_handle_count() >= GC_LIVE_FLOOR || live_byte_count() >= GC_LIVE_BYTES_FLOOR)
     {
-        if let Some(f) = GC_COLLECT_HOOK.get() {
-            f();
-        }
+        // Direct call — same crate. This used to cross the crate boundary
+        // through a function pointer, and the cycle then crossed BACK
+        // (`finish_cycle` → `scan_all_roots`) for every collection.
+        crate::collector::cycle::finish_cycle();
     }
 
     let shard_idx = ALLOC_SHARD.with(|s| {

@@ -234,17 +234,26 @@ proc-macro):
 
 ```text
 __rtsm_<module>_<value>          module symbol   __rtsm_io_print, __rtsm_node_fs_readFile
-__rtsm_global_<class>_<value>    global class    __rtsm_global_string_toUpperCase
+__rtsm_global_<Class>_<value>    global class    __rtsm_global_String_toUpperCase
 __rtsm_global_<value>            bare global     __rtsm_global_parseInt
 __rtsn_<value>                   NATIVE          Rust helpers covering a Cranelift gap
                                                  (the `n` is NATIVE, NOT "node")
-__rtsa_<value>                   ABI             the codegen↔runtime contract
 ```
 
-Separator is always `_`, never `-`; a module specifier is normalized
-(`node:fs` → `node_fs`, `Intl.NumberFormat` → `intl_numberformat`). The trailing
-segment is the JS spelling **verbatim** — case preserved, because folding it
-collides members that differ only by case.
+`__rtsn_` is the ONLY snake_case engine prefix. A fifth form, `__rtsa_` ("ABI"),
+was deleted on 2026-07-31: it named zero symbols, and everything it was meant to
+carry (coroutines, the exception slot, the trace stack, gcells, the GC) is "the
+Cranelift IR cannot express this" — which is what `__rtsn_` already means. Two
+drawers for one rule only produce per-site judgement calls. There is therefore no
+`abi` scope argument; use `native`. (`__rtsadp_*`, the value model, is unaffected
+— it uses the bare verbatim form and declares no scope.)
+
+Separator is always `_`, never `-`; a module specifier or class name is
+normalized into segments (`node:fs` → `node_fs`, `Intl.NumberFormat` →
+`Intl_NumberFormat`). Every segment keeps its case — the trailing one is the JS
+spelling **verbatim**, because folding it collides members that differ only by
+case, and folding the class segment destroys the word boundaries of a PascalCase
+name.
 
 `#[rtse::abi]` with no args gives the legacy `__`-prefixed verbatim form (a
 transitional spelling being drained). Declare the scope instead:

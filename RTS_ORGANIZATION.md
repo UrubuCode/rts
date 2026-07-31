@@ -1,11 +1,13 @@
 # RTS crate reorganization — `rts-natives` and the end of `__rtsa_`
 
-**Status:** plan, not yet executed. **Owner directive, 2026-07-31:** *"the engine
-MANAGES rts, not how it works internally"* — that sentence is the whole
-partition rule, and everything below is its consequence.
+**Status:** N0–N2 and N4 EXECUTED (2026-07-31). N3, N5, N6, N7 open — and three
+of them are bigger than this document originally claimed; see §8, which records
+what execution measured and this plan got wrong. **Owner directive, 2026-07-31:**
+*"the engine MANAGES rts, not how it works internally"* — that sentence is the
+whole partition rule, and everything below is its consequence.
 
 Every number here was **measured**, not estimated. Re-measure before trusting
-any of them.
+any of them — including the ones execution has since corrected.
 
 ---
 
@@ -99,7 +101,10 @@ __rtsn_    63 symbols
 __rtsadp_ 1035 symbols   (value model, bare/Verbatim form — uses no scope)
 ```
 
-`Scope::Abi` exists in `rts_abi::scope` and has **never been used**. It also
+`Scope::Abi` exists in `rts_abi::scope` and names **zero rows of the baked
+table**. Its only users in source were the 8 `ta_ctor!` TypedArray constructors,
+which the baker cannot see at all (they are emitted from a `macro_rules!` body —
+see `docs/specs/no-mangle-drain.md` §1); they are now `native`. It also
 collides conceptually with the crate named `rts-abi`, which holds the *contract*
 (`AbiType`, `SymbolDesc`, the naming rule) and not a single `extern "C"`
 function. Two names, opposite meanings, same repo.
@@ -209,29 +214,125 @@ No compatibility shims, no deprecated aliases: the project is pre-production
 Each phase must end green — `cargo check --workspace`, the baker's `--check`,
 and the TS suite showing the same failing SET as the measured baseline.
 
-**N0 — create `rts-natives`, empty, wired into the graph.**
-Crate + `Cargo.toml` + a place in the workspace. Nothing moves yet.
+**N0 — create `rts-natives`, empty, wired into the graph. ✅ DONE (2026-07-31).**
+Crate + `Cargo.toml` + workspace member + a row in the baker's `SCANNED_CRATES`.
 
-**N1 — move the heap.** `rts-engine/src/heap/*` → `rts-natives`. Biggest single
-move (6186 lines) but purely mechanical: it is a leaf of the engine, and
-`rts-engine` re-exports during the move so nothing above notices.
+**N1 — move the heap. ✅ DONE (2026-07-31).** `rts-engine/src/heap/*` →
+`rts-natives`, and `collector/*` + `numfmt.rs` went WITH it rather than waiting
+for N2: they are mutually coupled (`heap` calls `crate::Traceable` and
+`collector::debug`), so splitting them across the phase boundary would not have
+compiled. Purely mechanical otherwise — measured, the dispatch half
+(builder/member/registry/sig) referenced them in exactly ONE line, the `pub use`
+in `lib.rs` — and `rts-engine` re-exports so nothing above notices.
 
-**N2 — unify the GC.** `rts-engine/src/collector/*` and
-`rts-std/src/collector/{collector,gcells,stack,error,string_pool}.rs` both land
-in `rts-natives`. **Kill `GC_COLLECT_HOOK`** — with both halves in one crate the
-call is direct. Delete the four `gc_surface.rs`.
+What left with them, unplanned and worth recording: `regex`, `fancy-regex`,
+`serde_json`, `sha2`, `rustls`, `indexmap`. Every use of those in the old
+`rts-engine` was inside `heap/` or `collector/`; they were `Entry`-payload
+dependencies. A crate that only decides dispatch no longer links a TLS stack.
 
-**N3 — move the state machines.** `rts-std/src/collector/generator.rs` (1210,
-38 `__rtsn_` symbols) → `rts-natives`.
+**N2 — unify the GC. ✅ DONE (2026-07-31), with two corrections.**
+`rts-std/src/collector/{collector→cycle,gcells,stack,error}.rs` landed in
+`rts-natives`. **`GC_COLLECT_HOOK` is dead** — with both halves in one crate
+`alloc_entry` calls `finish_cycle` directly; what survives is a plain
+`GC_ARMED: AtomicBool`, because before `runtime_init` the process may still be
+COMPILING and the codegen holds interned handles in Rust collections rather than
+as words on the scanned stack.
 
-**N4 — delete `Scope::Abi`.** Remove the variant, the `abi` attribute argument,
-and the `__rtsa_` branch from `symbol_for`; re-point the ~50 mapped symbols at
-`__rtsn_`. Re-bake.
+Corrections, both found by the move failing to compile:
 
-**N5 — the 868-symbol rename** (the campaign already mapped, in
-`docs/specs/no-mangle-drain.md`): `__RTS_FN_*` → `__rtsm_`/`__rtsn_`.
-Independent of N0–N4 and can run before or after; keeping it separate keeps the
-diagnosis clean if something breaks.
+- **`string_pool.rs` did not move.** It reads and formats `Entry` values and
+  spreads iterables, and to do that it asks the CLASS layer above
+  (`rts_shared::collections::map::{handle_is_map_kind, handle_is_set_kind,
+  MAP_VALUES}`) what a handle is. That fails both clauses of §1 — it is not
+  machinery, so it stays in `rts-std`. §2.2's inventory counted it as escaped
+  machinery; it is not.
+- **`finish_cycle` could not take the microtask roots with it.** The microtask
+  queue lives in `rts-std/src/globals/text_encoding/instance.rs` — a 928-line
+  file that has nothing to do with text encoding — and the cycle hardcoded a call
+  into it. That call is now `collector::root_sources`, a registry any layer uses
+  to contribute handles it holds in its own Rust containers. **This is not the
+  hook wearing a new name.** `GC_COLLECT_HOOK` let the collector call *upward to
+  run the cycle*, an inversion that existed only because the halves were split.
+  Root contribution is the opposite direction of knowledge: the collector owns
+  the cycle and always will, but it cannot own the exhaustive list of every
+  container in every layer without depending on all of them.
+
+Two other things a low layer legitimately needs from above are now explicit
+rather than hidden: `error.rs` takes an installed `fn() -> String` for the
+`Error.prototype.stack` text (the frames are pushed by `rts-shared`'s `trace`),
+and `stack.rs` link-resolves `__RTS_FN_GL_RANGE_ERROR_NEW` for "Maximum call
+stack size exceeded". Deleting the four `gc_surface.rs` is NOT part of this phase
+— see N2b.
+
+**N2b — delete the four `gc_surface.rs`.** Measured: **~40 consumers across 8
+crates** (`rts-node` 14, `rts-primitives` 5, `rts-shared` 4, `rts-egui`,
+`rts-dom`, `rts-input`, `rts-napi`, `rts-runtime`). Most of what it declares is
+now a REAL re-export of `rts-natives` code, not an inverted extern; what is left
+inverted after N3 is four symbols owned by `rts-primitives`/`rts-std`
+(`__RTS_FN_RT_INVOKE_AUTO`, `__RTS_FN_GL_FUNCTION_CALL`,
+`__RTS_FN_GL_PROMISE_RESOLVE`/`_REJECT`). Its own phase so a breakage in a
+40-site sweep has one candidate cause.
+
+**N3 — SPLIT the state machines, not move them.** The plan called
+`rts-std/src/collector/generator.rs` (1210 lines, 38 `__rtsn_`) a relocation. It
+is not: measured, it has **21 call sites into five `rts-std` modules** —
+`promise_slot`, `globals::timers`, the microtask queue, `promise`, and
+`runtime::async_rt`. The file holds two things at once:
+
+- lines 1–618, the **sync generator + lazy state machine** (`iter_*`,
+  `generator_*`, `gen_sm_*`) — machinery by clause (a), and its only upward
+  reference is the async-generator branch of `gen_sm_drain`;
+- lines 619–end, the **async driver** (`async_sm_*`, `agen_*`) — tokio guards,
+  timer polling, microtask enqueue. That is backend, and it belongs where it is.
+
+So N3 is: sync half down, async driver stays, and `gen_sm_drain`'s
+`is_async_gen` branch becomes a registered delegate in the same shape as
+`root_sources`.
+
+**N4 — delete `Scope::Abi`. ✅ DONE (2026-07-31).** The variant, the `abi`
+attribute argument and the `__rtsa_` branch of `symbol_for` are gone; the 8 real
+users (`ta_ctor!` in `adapters/value/taops.rs`) now declare `native` and emit
+`__rtsn_ta_new_*`; the 50 mapped rows in `docs/specs/symbol-rename-map/` were
+re-pointed at `native`/`__rtsn_` (primitives_std 22, input_render_engine 15,
+math_buffer 9, shared_b 3, node_rest 1 — re-verified: no duplicates in the map,
+no collision against the baked table). Every doc, doc-comment and unit test that
+described `__rtsa_` as a valid prefix was updated in the same pass;
+`validate_symbol("__rtsa_…")` is now `SymbolError::MissingPrefix`. Re-bake so the
+generated header stops naming `__rtsa_` as an example scope.
+
+**N5 — the rename** (mapped in `docs/specs/symbol-rename-map/` and
+`docs/specs/no-mangle-drain.md`): `__RTS_FN_*` → `__rtsm_`/`__rtsn_`. **Run it
+AFTER N7**, not before or after at will — see N7 for why the two collide.
+
+Scope, re-measured 2026-07-31 (the map is 626 rows against **943** baked
+`__RTS_FN_*`):
+
+- **317 symbols are unmapped, not the 236 this plan implied.** The two gaps §5
+  named are exact — `collections` 125, `rts-node` net+dgram 111 — but there are
+  three more nobody listed: **`NS_EGUI` 45**, **`NS_ENGINE` 13**, **`NS_GPU` 12**,
+  plus 20 strays (`RT_NAPI`, `NS_GC_STRING_*`, `RT_MAP_*`, `RT_PROXY_RESOLVE`,
+  `RT_FOR_OF_NORMALIZE`, `GL_FETCH_RESPONSE_OK`, `GL_ARRAY_FROM_VEC`). The egui
+  ones are blocked anyway by the MANDATORY egui-plan rule in `CLAUDE.md`.
+- The surface a rename must sweep, per symbol: the Rust item name *is* the symbol
+  (`pub fn __RTS_FN_…`), so renaming it renames a Rust item and its whole `use`
+  graph; **1431** bare `"__RTS_…"` registration string literals; 16
+  `Member { symbol: … }` rows; `declare_function`/`call_runtime` literals in
+  `rts-codegen-new` (**unchecked at compile time — these fail at RUNTIME**); 30
+  files with hand-written `extern "C"` blocks; the `abi_sig.rs` rows.
+- **Out of scope, and a regex will eat them:** the `__RTS_GEN_SM_*` /
+  `__RTS_AGEN_*` / `__RTS_ASYNC_SM_*` family (~130 occurrences in
+  `rts-parser/src/generator_sm.rs` and `rts-codegen-new`) are codegen-internal
+  JIT function names, not runtime symbols. They are not in the baked table.
+
+Partition for parallel execution, by DEFINING file: **A** collections (125) ·
+**B** `rts-shared` rest (275) · **C** `rts-node` (167) · **D** UI/host —
+dom/egui/input/render (186, egui blocked) · **E** primitives+std (185) ·
+**F** engine core (~40). Files that straddle areas and must have exactly ONE
+owner: the generated `symbol_table.rs` (nobody edits it — regenerate once, at the
+end), the whole `rts-runtime/src/adapters/value/` tree (zero definitions, pure
+consumer, dominated by collections → give it to A), the multi-family codegen
+literals in `rts-codegen-new/src/front/run/` (one "codegen sweeper" owner), and
+the `gc_surface.rs` seam (→ F).
 
 **N6 — wire the precise scan.** Call `declare_value_needs_stack_map` for
 `Repr::Ref(_)` / `Repr::Tagged` values, consume the registered PCs, and make the
@@ -241,10 +342,32 @@ currently claim this already works.** Note the scratch-module hazard first
 while `bake.rs::capture_compiled` populates a separate `JITModule` with its own
 `FuncId` numbering.
 
-**N7 — audit the dead.** ~150 symbols have no consumer at all (all the buffer
-`ATOMICS_*`, 4 `JSON_STRINGIFY_*`, ~104 of `collections` such as `SET_UNION` /
-`VEC_TO_SPLICED`, `THIS_GET`, `STRING_FREE`). Own campaign, own verification —
-deliberately not mixed into a rename, so a breakage has one candidate cause.
+**N7 — audit the dead. AUDITED, not yet deleted; full list in
+`docs/specs/dead-symbols-n7.md`.** Measured **173**, not ~150. The families named
+above check out — `ATOMICS_*` 4/4, `JSON_STRINGIFY_*` 4 of 6, `THIS_GET`,
+`STRING_FREE`, `SET_UNION` — **except the collections number, which is wrong in a
+way that breaks the build**: 119 `NS_COLLECTIONS_*` exist, **75 are dead and 44
+are live**, so deleting 104 is roughly 29 link errors.
+
+Three things that audit established and this plan did not account for:
+
+- **Never delete by prefix.** `VEC_TO_SPLICED` is dead but `VEC_TO_SPLICED_AUTO`
+  is live; `VEC_SPLICE_REMOVE`/`_INSERT` are dead but `VEC_SPLICE_AUTO` is live.
+  `grep VEC_TO_SPLICED` returns 7 hits for a symbol that has 2 — it is matching
+  the live siblings.
+- **370 symbols have no Rust caller and must not be deleted**: they are Registry
+  members, reachable from TS by their JS name. A call-graph audit calls all of
+  them dead. (All 926 `__rtsm_*` are in this class by construction.)
+- **N7 must run BEFORE N5**, because 71 of the 173 corpses have rows in the
+  rename map. Those rows do not merely need dropping: as written they would turn
+  an unreachable symbol into an `__rtsm_global_*` registry member — N5 would
+  *resurrect* the `Error`/`Reflect`/fetch families as TS surface rather than
+  delete them. Decide per family before either campaign runs.
+
+One corpse is a missing feature, not debt: `__rtsn_stack_push`/`_pop` are the
+recursion-depth guard the codegen was supposed to emit at every non-tail user
+function. Dead means **the codegen stopped emitting them**, and `stack.rs`'s
+`RangeError` path goes with them. Confirm before deleting.
 
 ---
 

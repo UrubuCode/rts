@@ -4,7 +4,7 @@
 // `cargo run -p rts-symbol-baker -- --check` (CI runs the latter).
 //
 // ORDERING INVARIANT: entries are in strictly ascending byte order of the
-// symbol name, so lookup is a binary search and every scope (`__rtsa_`,
+// symbol name, so lookup is a binary search and every scope (`__rtsn_`,
 // `__rtsm_node_fs_`, …) is ONE contiguous range. See `rts_abi::table`.
 //
 // STATIC, not built at startup: SYMBOLS / AOT_SYMBOLS / SIGNATURES below are

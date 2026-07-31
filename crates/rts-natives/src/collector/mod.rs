@@ -28,8 +28,20 @@
 //! e `trace` só é usado pelo coletor de ciclos — **sem mudança no codegen**,
 //! porque os símbolos e a forma das ops não mudam.
 
+/// The collection cycle itself: mark (conservative scan + gcells + pinned +
+/// registered root sources) then sweep, plus `runtime_init`. Moved down from
+/// `rts-std::collector::collector` (RTS_ORGANIZATION.md N2) — it was the OTHER
+/// half of this GC, and the split is what forced the `GC_COLLECT_HOOK` function
+/// pointer and made one cycle cross the crate boundary twice.
+pub mod cycle;
 /// Flag de debug do GC (`RTS_GC_DEBUG`). Std puro.
 pub mod debug;
+/// The pending-error slot (`throw`/`catch` transport) — what the Cranelift IR
+/// cannot express: unwinding. Moved down from `rts-std::collector::error`.
+pub mod error;
+/// Module-level mutable globals as CELLS (epic #195) — the mutable shared cell
+/// the IR cannot express. Moved down from `rts-std::collector::gcells`.
+pub mod gcells;
 /// Mapa thread-local `handle -> stack_text` p/ `Error.prototype.stack` (#745).
 /// Puro (sem GC); o slot de erro pendente fica no runtime. Std puro.
 pub mod err_stack;
@@ -40,6 +52,12 @@ pub mod global_roots;
 /// mecanismo de root-finding, parametrizado por um `visit` callback. O runtime
 /// passa `mark_handle`. Ver [`scan::scan_all_roots`].
 pub mod scan;
+/// Off-stack root contribution: a layer above registers a marker for handles it
+/// holds in its own Rust containers, which the stack scanner cannot see.
+pub mod root_sources;
+/// The trace/frame stack behind Bun-style error traces — what the IR cannot
+/// express. Moved down from `rts-std::collector::stack`.
+pub mod stack;
 /// Registry de stack maps do JIT (PCs de safepoint → SP-offsets) — escrito pelo
 /// codegen após `finalize_definitions`, lido pelo scanner do collector. Std puro.
 pub mod stack_map_registry;
@@ -47,6 +65,21 @@ pub mod stack_map_registry;
 /// + varrer a stack/registradores de cada uma. Std + FFI `extern "system"`
 /// (SuspendThread/GetThreadContext, cfg Windows) — sem dep de crate.
 pub mod thread_registry;
+
+// NOT moved down, and the plan's inventory was wrong about both — measured
+// 2026-07-31, after the move failed to compile:
+//
+// * `rts-std::collector::string_pool` (376 lines) is not machinery. It reads
+//   and formats `Entry` values and spreads iterables, and for that it calls
+//   `rts_shared::collections::map::{handle_is_map_kind, handle_is_set_kind,
+//   MAP_VALUES}` — Map and Set are non-primordial classes registered a layer
+//   ABOVE. A helper that has to ask the class layer what a handle is fails both
+//   clauses of the partition rule; it stays in `rts-std`.
+// * `rts-std::collector::generator` is not the pure relocation N3 describes: 21
+//   call sites into five `rts-std` modules (`promise_slot`, `globals::timers`,
+//   the microtask queue, `promise`, `runtime::async_rt`). The state machine and
+//   its tokio/timer-bound DRIVER share one file and must be split before either
+//   half can move. That is what N3 actually is.
 
 pub use crate::abi::handles::{
     HANDLE_GEN_SHIFT, HANDLE_N_SHARDS, HANDLE_SHARD_BITS, HANDLE_SHARD_MASK, HANDLE_SLOT_MASK,

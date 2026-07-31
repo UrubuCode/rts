@@ -406,7 +406,6 @@ fn parse_naming(attr: &syn::Attribute) -> Result<Naming> {
                 ("module", Some(m)) => scope = Some(Scope::Module(m)),
                 ("global", g) => scope = Some(Scope::Global(g)),
                 ("native", None) => scope = Some(Scope::Native),
-                ("abi", None) => scope = Some(Scope::Abi),
                 ("value", Some(v)) => value = Some(v),
                 ("overload", Some(o)) => overload = Some(o),
                 // Args that do not affect the SYMBOL — they set fields on the

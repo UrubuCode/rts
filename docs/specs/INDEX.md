@@ -96,7 +96,8 @@ rule forbids. Stale test numbers were stripped from `js-parity-epic-226.md`.
 - [How to add a namespace or a class](namespace-creation-guide.md) — **Rewritten
   2026-07-28** for the single-source-of-truth flow: declare with `#[rtse::*]`
   (or the `e.module(…)` builder), symbol name DERIVED by `rts_abi::scope`
-  (`__rtsm_`/`__rtsn_`/`__rtsa_`), one row in `REGISTER`, then re-bake with
+  (`__rtsm_`/`__rtsn_` — `__rtsa_` was deleted 2026-07-31), one row in
+  `REGISTER`, then re-bake with
   `cargo run -p rts-symbol-baker`. Never hand-write a symbol or signature row.
 - [Immediate-mode GUI via egui — `rts-egui` crate + `ui` namespace](egui-ui-crate-design.md)
   — Design of the cross-platform GUI: egui (immediate-mode, no FLTK) in a new crate,

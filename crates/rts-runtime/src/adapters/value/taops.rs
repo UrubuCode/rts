@@ -273,13 +273,19 @@ fn finish(vec_handle: u64) -> u64 {
 
 /// One TypedArray constructor per element kind.
 ///
-/// `#[rtse::abi(abi)]` with no `value=` derives the symbol from the Rust fn
-/// name (`ta_new_u8` → `__rtsa_ta_new_u8`), so the name is spelled ONCE — at
+/// `#[rtse::abi(native)]` with no `value=` derives the symbol from the Rust fn
+/// name (`ta_new_u8` → `__rtsn_ta_new_u8`), so the name is spelled ONCE — at
 /// the invocation below — instead of being duplicated as an ident and a
 /// string. `registry_build.rs` registers these by that same derived symbol.
+///
+/// Was `abi` (`__rtsa_`) until 2026-07-31, when that scope was deleted for
+/// meaning the same thing as `native` (RTS_ORGANIZATION.md N4). These eight were
+/// its ONLY users, and they are invisible to `rts-symbol-baker` because a source
+/// scanner cannot see through `macro_rules!` — which is why they are also the
+/// last hand-written rows in `registry_build.rs`.
 macro_rules! ta_ctor {
     ($name:ident, $bytes:expr, $signed:expr, $float:expr) => {
-        #[rtse::abi(abi)]
+        #[rtse::abi(native)]
         pub fn $name(arg_word: u64) -> u64 {
             ta_new(
                 arg_word,

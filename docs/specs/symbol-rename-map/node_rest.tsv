@@ -21,7 +21,7 @@ __RTS_FN_NODE_FS_FH_DATASYNC	global = "FileHandle", value = "datasync"	__rtsm_gl
 __RTS_FN_NODE_FS_FH_CHMOD	global = "FileHandle", value = "chmod"	__rtsm_global_FileHandle_chmod
 __RTS_FN_NODE_FS_WATCHER_CLOSE	global = "FSWatcher", value = "close"	__rtsm_global_FSWatcher_close
 __RTS_FN_NODE_FS_CONSTANTS	module = "node:fs", value = "constants"	__rtsm_node_fs_constants
-__RTS_FN_NODE_FS_WATCHFILE_FIRE	abi, value = "watchfile_fire"	__rtsa_watchfile_fire
+__RTS_FN_NODE_FS_WATCHFILE_FIRE	native, value = "watchfile_fire"	__rtsn_watchfile_fire
 __RTS_FN_NODE_PUNYCODE_VERSION	module = "node:punycode", value = "version"	__rtsm_node_punycode_version
 __RTS_FN_NODE_PUNYCODE_UCS2	module = "node:punycode", value = "ucs2"	__rtsm_node_punycode_ucs2
 __RTS_FN_NODE_PUNYCODE_UCS2_DECODE	module = "node:punycode/ucs2", value = "decode"	__rtsm_node_punycode_ucs2_decode

@@ -2,8 +2,8 @@
 //! view to a correct (base, count, elem_bytes), and a non-view returns 0.
 unsafe extern "C" {
     fn __RTS_FN_NS_BUFFER_ALLOC_ZEROED(size: i64) -> u64;
-    fn __rtsa_ta_new_u8(arg: u64) -> u64;
-    fn __rtsa_ta_new_u32(arg: u64) -> u64;
+    fn __rtsn_ta_new_u8(arg: u64) -> u64;
+    fn __rtsn_ta_new_u32(arg: u64) -> u64;
     fn __RTS_FN_GL_TA_SET_ELEM(handle: u64, index: i64, elem_bytes: i64, is_float: i64, val: i64);
     fn __rtsadp_ta_view_base_len(view_word: u64, out_base: *mut i64, out_count: *mut i64) -> i64;
     fn __rtsn_poly_from_handle(handle: u64) -> u64;
@@ -25,7 +25,7 @@ fn view_word_over(buf_bytes: i64, ctor: unsafe extern "C" fn(u64) -> u64) -> (u6
 
 #[test]
 fn base_len_u8() {
-    let (bh, vw) = view_word_over(16, __rtsa_ta_new_u8);
+    let (bh, vw) = view_word_over(16, __rtsn_ta_new_u8);
     // Write a known byte through the buffer so we can verify the base points at it.
     unsafe { __RTS_FN_GL_TA_SET_ELEM(bh, 3, 1, 0, 0x7a) };
     let (mut base, mut count) = (0i64, 0i64);
@@ -39,7 +39,7 @@ fn base_len_u8() {
 
 #[test]
 fn base_len_u32() {
-    let (_bh, vw) = view_word_over(16, __rtsa_ta_new_u32);
+    let (_bh, vw) = view_word_over(16, __rtsn_ta_new_u32);
     let (mut base, mut count) = (0i64, 0i64);
     let ebytes = unsafe { __rtsadp_ta_view_base_len(vw, &mut base, &mut count) };
     assert_eq!(ebytes, 4, "u32 elem bytes");

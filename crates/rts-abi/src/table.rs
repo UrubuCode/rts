@@ -25,7 +25,7 @@
 //!   ordering rule — it is what actually happens: there is no `Vec` build to
 //!   amortize against in the first place.
 //! - **Every scope is a contiguous RANGE.** The prefixes sort as
-//!   `__RTS…` < `__rtsa_` < `__rtsadp_` < `__rtsm_` < `__rtsn_`, and within
+//!   `__RTS…` < `__rtsadp_` < `__rtsm_` < `__rtsn_`, and within
 //!   `__rtsm_` a module's members sort together (`__rtsm_node_fs_*` is one
 //!   unbroken run). So "all members of `node:fs`" is [`range_with_prefix`] — two
 //!   binary searches returning a subslice — instead of a filter over the whole
@@ -63,7 +63,7 @@ pub fn lookup(table: &[SymbolEntry], name: &str) -> Option<*const u8> {
 /// The contiguous subslice of entries whose name starts with `prefix`.
 ///
 /// Sorted order makes this two binary searches; the result is the whole scope
-/// (`__rtsm_node_fs_`) or the whole prefix class (`__rtsa_`) with no scan.
+/// (`__rtsm_node_fs_`) or the whole prefix class (`__rtsn_`) with no scan.
 pub fn range_with_prefix<'a>(table: &'a [SymbolEntry], prefix: &str) -> &'a [SymbolEntry] {
     let start = table.partition_point(|e| e.name < prefix);
     let end = start
@@ -95,7 +95,7 @@ mod tests {
 
     #[test]
     fn lookup_finds_and_misses() {
-        let table = t(&["__rtsa_obj_get", "__rtsm_io_print", "__rtsn_fmod"]);
+        let table = t(&["__rtsm_io_print", "__rtsn_fmod", "__rtsn_obj_get"]);
         assert!(lookup(&table, "__rtsm_io_print").is_some());
         assert!(lookup(&table, "__rtsm_io_nope").is_none());
     }
@@ -103,16 +103,16 @@ mod tests {
     #[test]
     fn a_scope_is_one_contiguous_range() {
         let table = t(&[
-            "__rtsa_obj_get",
             "__rtsm_io_print",
             "__rtsm_node_fs_readFileSync",
             "__rtsm_node_fs_writeFileSync",
             "__rtsn_fmod",
+            "__rtsn_obj_get",
         ]);
         assert!(is_sorted_unique(&table));
         let fs = range_with_prefix(&table, "__rtsm_node_fs_");
         assert_eq!(fs.len(), 2);
-        assert_eq!(range_with_prefix(&table, "__rtsn_").len(), 1);
+        assert_eq!(range_with_prefix(&table, "__rtsn_").len(), 2);
         assert_eq!(range_with_prefix(&table, "__rtsz_").len(), 0);
     }
 }

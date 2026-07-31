@@ -113,8 +113,11 @@ now use `#[rtse::abi]`. Two idioms keep the name from being spelled twice:
   to the result. So invoking the macro with the name minus its two leading
   underscores reproduces the existing symbol exactly, and the Rust ident is
   `__RTS_…` again after expansion — nothing referencing it has to move.
-* **`#[rtse::abi(abi)]`** derives `__rtsa_<fn name>`; used where a rename was
-  acceptable (`ta_ctor!`).
+* **`#[rtse::abi(native)]`** derives `__rtsn_<fn name>`; used where a rename was
+  acceptable (`ta_ctor!` → `__rtsn_ta_new_*`). These 8 originally used the `abi`
+  scope (`__rtsa_*`); that scope was deleted on 2026-07-31 — it duplicated
+  `native`, since everything it covered is "the Cranelift IR cannot express
+  this" — and they were re-pointed at `native`.
 
 They still do not reach the baked table. That is a real baker limitation, now
 stated rather than an unexamined silence.

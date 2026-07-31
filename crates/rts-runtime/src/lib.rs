@@ -91,16 +91,17 @@ pub mod adapters;
 /// top-level (`__rts_startup`). The AOT `main` shim calls this symbol; the JIT path
 /// calls [`runtime_init`] directly host-side.
 ///
-/// It lives in the FACADE (not `rts-std`) because it wires TWO subsystems from
-/// different crates: the GC bootstrap (`rts-std`'s `collector::runtime_init` —
-/// install the GC tick hook + register the main thread) AND the UI render/input
+/// It lives in the FACADE (not `rts-std`) because it wires subsystems from
+/// different crates: the GC bootstrap (`rts-natives`' `collector::cycle::
+/// runtime_init` — arm the collector + register the main thread), the microtask
+/// queue's off-stack GC roots (owned by `rts-std`), and the UI render/input
 /// backend (`rts-egui`'s `register_backend` — the egui backend lives in a
 /// `thread_local!` set by the namespace `register()`, which only runs at compile
 /// time, so an AOT binary must install it here, on the main thread, or `render.*`
 /// draws nothing). Keeping it in the facade lets the ENGINE name ONE generic
 /// `RT`-scope symbol and never name `egui`/`render` (PRIMORDIAL-vs-Registry).
 ///
-/// Idempotent: the GC hook is a `OnceLock::set`, `register_current` de-dups by
+/// Idempotent: arming the GC is a relaxed store, `register_current` de-dups by
 /// thread id, and `register_backend` just overwrites the backend box.
 pub fn runtime_init() {
     // Opt-in AOT startup profiling: `RTS_AOT_TIMING=1` prints the wall time of
@@ -109,6 +110,19 @@ pub fn runtime_init() {
     let timing = std::env::var("RTS_AOT_TIMING").map(|v| v == "1").unwrap_or(false);
     let t0 = std::time::Instant::now();
     rts_std::collector::collector::runtime_init();
+    // The microtask queue holds handles (callback closures, bound args, settled
+    // values, a generator being driven) in its own Rust container, so no stack
+    // scan can see them. It contributes them as a registered root source rather
+    // than the collector hardcoding a call into the backend — which is what used
+    // to pin the whole GC cycle inside `rts-std`.
+    rts_engine::collector::root_sources::register(
+        rts_std::globals::text_encoding::instance::mark_microtask_roots,
+    );
+    // `Error.prototype.stack` text. The error SLOT is machinery (`throw`/`catch`
+    // is what the Cranelift IR cannot express), but the frames it renders are
+    // pushed by the `trace` namespace a layer above, so the renderer is
+    // installed rather than named downward.
+    rts_engine::collector::error::set_stack_capture(rts_shared::trace::frame_stack::capture_string);
     if timing {
         eprintln!("[aot-init] gc+thread   {:.2} ms", t0.elapsed().as_secs_f64() * 1e3);
     }

@@ -13,16 +13,30 @@
 
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-pub mod collector;
-pub mod gcells;
-pub mod error;
 pub mod generator;
-// `global_roots`, `stack_map_registry`, `thread_registry`, `debug` e o `scan`
-// (scanner conservativo) migraram pro `rts-engine` (SPLIT fatias 3a-3c —
-// mecanismo std/FFI escrito pelo codegen / usado pelo scanner). Re-exportados
-// aqui como fachada: os `super::` internos + `namespaces::gc::*` (alias) +
-// jit.rs resolvem pro MESMO static no engine, sem editar consumidores.
-pub use rts_engine::collector::{debug, global_roots, scan, stack_map_registry, thread_registry};
+// The GC is ONE crate now (`rts-natives`, RTS_ORGANIZATION.md N2). This half —
+// `collector` (the cycle + `runtime_init`), `gcells`, `error`, `stack`,
+// `string_pool` — used to live HERE, in the backend crate, which is what forced
+// the `GC_COLLECT_HOOK` function pointer and made every collection cross the
+// crate boundary twice. Re-exported as a facade under the ORIGINAL names so
+// `super::`, `namespaces::gc::*` and every external consumer keep resolving
+// without an edit; `collector::collector` is now `collector::cycle` upstream.
+//
+// `generator` is the one that did NOT move: measured, it is not the pure
+// relocation the plan describes — 21 call sites into five `rts-std` modules
+// (`promise_slot`, `globals::timers`, the microtask queue, `promise`,
+// `runtime::async_rt`). The state machine and its tokio/timer-bound DRIVER share
+// one file and have to be split first. That is N3.
+pub use rts_engine::collector::cycle as collector;
+pub use rts_engine::collector::{
+    debug, error, gcells, global_roots, scan, stack, stack_map_registry, thread_registry,
+};
+// STAYED here, against the plan's inventory: `string_pool` reads/formats `Entry`
+// values and spreads iterables, and to do that it asks the CLASS layer above
+// (`rts_shared::collections::map`) whether a handle is a Map or a Set. That is
+// neither "the IR cannot express it" nor "it is the value representation" — so
+// it is not machinery, and it stays in the backend.
+pub mod string_pool;
 /// `handles` (Entry + HandleTable + heap GC tipado) migrou pro motor
 /// (`rts_engine::heap::handles`, Fase 1a). Facade → `super::handles` (dos siblings)
 /// + `rts_engine::heap::handles::*` (consumidores) seguem resolvendo.
@@ -35,8 +49,6 @@ pub use rts_engine::heap::payload_ops;
 /// motor novo usa cells PolyValue (#195) + Vec keyed (__rtsadp_obj_*).
 pub use rts_engine::heap::{class_registry, this_slot};
 pub use crate::promise_slot;
-pub mod stack;
-pub mod string_pool;
 
 /// Membro `external`: a SPEC referencia o `symbol` cujo `#[no_mangle] extern
 /// "C"` vive num submódulo. `fn_ptr` é null (o submódulo dono registra o ponteiro

@@ -23,7 +23,7 @@
 //! (`rts-engine <- rts-primitives + rts-shared <- rts-std`), so these three
 //! cannot move down without an upward (cyclic) dependency.
 
-use super::handles::{Entry, with_entry, with_entry_mut};
+use rts_engine::heap::handles::{Entry, with_entry, with_entry_mut};
 pub use rts_engine::heap::string_pool::*;
 
 /// Spread universal: copia elementos de `src` para o Vec `dst`.

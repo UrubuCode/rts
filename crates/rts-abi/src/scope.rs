@@ -9,8 +9,22 @@
 //! __rtsm_global_<value>            bare global      __rtsm_global_parseInt
 //! __rtsn_<value>                   NATIVE           Rust helpers compensating what Cranelift
 //!                                                   lacks. The `n` is NATIVE, NOT "node".
-//! __rtsa_<value>                   ABI              the codegen<->runtime contract.
 //! ```
+//!
+//! `__rtsn_` is the ONLY snake_case engine prefix. There used to be a second,
+//! `__rtsa_` ("ABI"), deleted on 2026-07-31. It named ZERO rows of the baked
+//! table and had exactly 8 users in source — the `ta_ctor!` TypedArray
+//! constructors in `rts-runtime`, invisible to `rts-symbol-baker` because a
+//! source scanner cannot see through a `macro_rules!` body — all re-pointed at
+//! `native`. Everything it was meant to cover — coroutines, the exception slot,
+//! the trace stack, gcells, the GC — is "the Cranelift IR cannot express this",
+//! which is exactly what `__rtsn_` already means. Two drawers for one
+//! rule only produce per-site judgement calls. It also collided with the crate
+//! `rts-abi`, which holds the CONTRACT and not one `extern "C"` function: two
+//! names, opposite meanings, same repo. See `RTS_ORGANIZATION.md` §4.
+//!
+//! (`__rtsadp_*`, the value model, is unaffected — it uses the bare
+//! [`Naming::Verbatim`] form and no scope at all.)
 //!
 //! Two rules make the name mechanical:
 //!
@@ -58,10 +72,9 @@ pub enum Scope {
     /// `global = "String"` → `__rtsm_global_String_<value>`; bare `global` (no
     /// class) → `__rtsm_global_<value>`.
     Global(Option<String>),
-    /// `native` → `__rtsn_<value>`.
+    /// `native` → `__rtsn_<value>`. The ONE snake_case engine prefix: anything
+    /// the generated code has to call out for because the IR cannot express it.
     Native,
-    /// `abi` → `__rtsa_<value>`.
-    Abi,
 }
 
 /// Compose the symbol's trailing segment for an ARITY OVERLOAD.
@@ -96,7 +109,6 @@ pub fn symbol_for(naming: &Naming, fn_name: &str) -> String {
                 Scope::Global(Some(c)) => format!("__rtsm_global_{}_{}", segments(c), v),
                 Scope::Global(None) => format!("__rtsm_global_{v}"),
                 Scope::Native => format!("__rtsn_{v}"),
-                Scope::Abi => format!("__rtsa_{v}"),
             }
         }
     }
@@ -170,12 +182,6 @@ mod tests {
             value: None,
         };
         assert_eq!(symbol_for(&n, "fmod"), "__rtsn_fmod");
-
-        let a = Naming::Scoped {
-            scope: Scope::Abi,
-            value: Some("obj_get".into()),
-        };
-        assert_eq!(symbol_for(&a, "x"), "__rtsa_obj_get");
     }
 
     #[test]

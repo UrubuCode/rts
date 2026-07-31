@@ -108,7 +108,7 @@ fn header(s: &mut String, n: usize) {
          // `cargo run -p rts-symbol-baker -- --check` (CI runs the latter).\n\
          //\n\
          // ORDERING INVARIANT: entries are in strictly ascending byte order of the\n\
-         // symbol name, so lookup is a binary search and every scope (`__rtsa_`,\n\
+         // symbol name, so lookup is a binary search and every scope (`__rtsn_`,\n\
          // `__rtsm_node_fs_`, …) is ONE contiguous range. See `rts_abi::table`.\n\
          //\n\
          // STATIC, not built at startup: SYMBOLS / AOT_SYMBOLS / SIGNATURES below are\n\
@@ -432,9 +432,9 @@ mod tests {
 
     #[test]
     fn output_is_sorted_and_deterministic() {
-        let input = vec![decl("__rtsn_b", &[]), decl("__rtsa_a", &[])];
+        let input = vec![decl("__rtsn_b", &[]), decl("__rtsm_a_a", &[])];
         let out = render(input.clone()).unwrap();
-        assert!(out.find("__rtsa_a").unwrap() < out.find("__rtsn_b").unwrap());
+        assert!(out.find("__rtsm_a_a").unwrap() < out.find("__rtsn_b").unwrap());
         // Re-rendering a permutation gives the identical file.
         let mut rev = input;
         rev.reverse();

@@ -5,13 +5,21 @@
 //!
 //! ```text
 //! __rtsm_<module>_<value>          module symbol    __rtsm_io_print, __rtsm_node_fs_readFile
-//! __rtsm_global_<class>_<value>    global class     __rtsm_global_string_toUpperCase
+//! __rtsm_global_<Class>_<value>    global class     __rtsm_global_String_toUpperCase
 //! __rtsm_global_<value>            bare global      __rtsm_global_parseInt
 //! __rtsn_<value>                   NATIVE           Rust helpers compensating what Cranelift
 //!                                                   lacks (arithmetic/computation LLVM has).
 //!                                                   The `n` is NATIVE — it is NOT "node".
-//! __rtsa_<value>                   ABI              the codegen<->runtime contract.
 //! ```
+//!
+//! A fifth prefix, `__rtsa_` ("ABI"), was DELETED on 2026-07-31: it named zero
+//! symbols and everything it was meant to cover — coroutines, the exception
+//! slot, the trace stack, gcells, the GC — is "the Cranelift IR cannot express
+//! this", which is exactly what `__rtsn_` already means. It also collided with
+//! the crate `rts-abi`, which holds the CONTRACT and not one `extern "C"`
+//! function. [`validate_symbol`] rejects it as [`SymbolError::MissingPrefix`].
+//! (`__rtsadp_*`, the value model, is unaffected — it carries no scope at all.)
+//! See `RTS_ORGANIZATION.md` §4 and [`crate::scope`].
 //!
 //! Three rules define the shape:
 //!
@@ -42,10 +50,7 @@ pub fn validate_symbol(symbol: &str) -> Result<(), SymbolError> {
         // A module symbol always carries a scope AND a value (`io` + `print`);
         // a bare `__rtsm_print` names no module and is not resolvable.
         (t, 2)
-    } else if let Some(t) = symbol
-        .strip_prefix("__rtsn_")
-        .or_else(|| symbol.strip_prefix("__rtsa_"))
-    {
+    } else if let Some(t) = symbol.strip_prefix("__rtsn_") {
         (t, 1)
     } else {
         return Err(SymbolError::MissingPrefix);
@@ -73,7 +78,7 @@ pub fn validate_symbol(symbol: &str) -> Result<(), SymbolError> {
 /// Structured error produced by [`validate_symbol`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolError {
-    /// Not one of `__rtsm_` / `__rtsn_` / `__rtsa_`.
+    /// Not one of `__rtsm_` / `__rtsn_` (the deleted `__rtsa_` lands here too).
     MissingPrefix,
     /// The superseded `__RTS_<KIND>_<SCOPE>_<NS>_<NAME>` convention.
     LegacyForm,
@@ -94,7 +99,7 @@ mod tests {
         assert!(validate_symbol("__rtsm_global_string_toUpperCase").is_ok());
         assert!(validate_symbol("__rtsm_global_parseInt").is_ok());
         assert!(validate_symbol("__rtsn_fmod").is_ok());
-        assert!(validate_symbol("__rtsa_obj_get").is_ok());
+        assert!(validate_symbol("__rtsn_obj_get").is_ok());
     }
 
     #[test]
@@ -116,7 +121,12 @@ mod tests {
             validate_symbol("__rtsadp_obj_get"),
             Err(SymbolError::MissingPrefix)
         );
-        assert_eq!(validate_symbol("__rtsa_"), Err(SymbolError::MissingName));
+        assert_eq!(validate_symbol("__rtsn_"), Err(SymbolError::MissingName));
+        // `__rtsa_` was deleted on 2026-07-31 — it is no longer a valid prefix.
+        assert_eq!(
+            validate_symbol("__rtsa_obj_get"),
+            Err(SymbolError::MissingPrefix)
+        );
         // A module symbol needs a scope segment as well as a value.
         assert_eq!(validate_symbol("__rtsm_print"), Err(SymbolError::MissingName));
         // A specifier that was not normalized into `_` segments.
