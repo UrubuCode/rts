@@ -755,15 +755,24 @@ pub fn rtsadp_promise_resolve_w(word: u64) -> u64 {
             return out;
         }
     }
-    // Plain value / existing promise: the legacy resolve path (word passes as
-    // handle-or-value exactly like the static marshal did).
-    let raw = if v.is_object() || v.is_function() || v.is_string() {
-        rt_handles::__rtsn_poly_to_handle(v.as_handle())
-    } else {
-        word
-    };
-    let r = rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_GL_PROMISE_RESOLVE(raw);
-    r as u64
+    // Valor com HANDLE por trás (objeto/função/string): caminho legado, que já
+    // trata passthrough de Promise existente e thenable.
+    if v.is_object() || v.is_function() || v.is_string() {
+        let h = rt_handles::__rtsn_poly_to_handle(v.as_handle());
+        return rts_runtime::namespaces::globals::fetch::instance::__RTS_FN_GL_PROMISE_RESOLVE(h)
+            as u64;
+    }
+    // Valor SEM handle (número, bool, null, undefined): a WORD é o valor. Passá-la
+    // ao caminho legado guardava a word num slot marcado como NÃO-word, e o
+    // `.then` entregava os bits crus ao callback — `Promise.resolve(7).then(v =>
+    // …)` via `4619567317775286272`, que são exatamente os bits de f64 de `7.0`.
+    // (O `await` escapava por converter por heurística em `normalize_settled_i64`,
+    // o que explica `await` certo e `.then` errado no MESMO valor.)
+    //
+    // Marcar o slot com `resolve_word` é o que faz a entrega reboxar direito.
+    let slot = promise_slot::new_pending();
+    promise_slot::resolve_word(&slot, word as i64);
+    rt_handles::alloc_entry(rt_handles::Entry::PromiseAsync(slot))
 }
 
 /// `recv.method(a0..a2)` — GENERIC dynamic method dispatch on a Tagged
