@@ -89,9 +89,39 @@ const t1 = time.now_ms();
 __scanImplicitGlobals(normGrande);
 const msScan = time.now_ms() - t1;
 
+// ── qualificação: `nome` → `__G.nome` nas ocorrências LIVRES ───────────────
+// Moveu-se para Rust por um motivo diferente do custo: o laço `.ts` PERDIA
+// ocorrências num bundle grande (92 de 278 chamadas de `__d` qualificadas), e a
+// causa medida não era o algoritmo — era o GC coletando o array `spans`, um
+// local de função ainda vivo, durante a chamada alocadora seguinte
+// (`spans.length` virava -1 e o laço terminava calado). O motor novo não emite
+// `declare_value_needs_stack_map`, então o scanner conservativo não enxerga
+// locais de função; em Rust o array não é um handle do heap do motor.
+const casosQ: string[] = [
+  "foo(1); foo(2);",              // duas chamadas livres
+  "var s='x'; foo(2);",           // string no meio não atrapalha
+  "a.foo = 1; foo();",            // campo `a.foo` NÃO é qualificado
+  "{foo: 1}",                     // chave de objeto NÃO é qualificada
+  "{foo}",                        // shorthand vira `{foo: __G.foo}`
+  "case foo: 1;",                 // `case` É qualificado
+  "class C { foo = 1 }",          // campo de classe NÃO é qualificado
+  "foo(1); /* c */ foo(2);",      // comentário no meio
+  "var r=/a/; foo(2);",           // regex no meio
+];
+let qualDif = 0;
+let q = 0;
+while (q < casosQ.length) {
+  if (__qualifyTs(casosQ[q], ["foo"]) !== __qualify(casosQ[q], ["foo"])) qualDif = qualDif + 1;
+  q = q + 1;
+}
+
 describe("ScriptScan (Rust) tem paridade com o oráculo .ts", () => {
   test("normalização gera texto idêntico", () => {
     expect(normDif).toBe(0);
+  });
+
+  test("qualificação gera texto idêntico", () => {
+    expect(qualDif).toBe(0);
   });
 
   test("globais implícitos dão o mesmo conjunto", () => {

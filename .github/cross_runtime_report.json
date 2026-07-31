@@ -612,7 +612,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: Array.fromAsync(2 args) static method (later increment)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: Array.fromAsync(2 args) static method (later increment)\n      at run of tests/cross-runtime/array/303_array_fromasync.ts failed"
 }
 ,
 {
@@ -738,7 +738,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: class `PlainArray` extends unknown class `Array` (not a user class in this program nor an engine-prelude class)"
+  "rts_error": "error: unsupported in the numeric subset: class `PlainArray` extends unknown class `Array` (not a user class in this program nor an engine-prelude class)\n      at run of tests/cross-runtime/array/418_array_species_subclass.ts failed"
 }
 ,
 {
@@ -822,7 +822,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: no Registry entry for `Array.next(0 args)` (callback methods like .map/.filter/.reduce bail by design)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: no Registry entry for `Array.next(0 args)` (callback methods like .map/.filter/.reduce bail by design)\n      at run of tests/cross-runtime/array/claude-entries-for-of-pair-destructuring.ts failed"
 }
 ,
 {
@@ -976,7 +976,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught ReferenceError: Symbol is not defined"
+  "rts_error": "error: Uncaught ReferenceError: Symbol is not defined\n      at run of tests/cross-runtime/array/codex_array_concat_spreadable_edges.ts failed"
 }
 ,
 {
@@ -1032,7 +1032,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: no Registry entry for `Array.map(2 args)` (callback methods like .map/.filter/.reduce bail by design)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: no Registry entry for `Array.map(2 args)` (callback methods like .map/.filter/.reduce bail by design)\n      at run of tests/cross-runtime/array/codex_array_methods_thisarg_mutation.ts failed"
 }
 ,
 {
@@ -1074,7 +1074,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: class `Weird` extends unknown class `Array` (not a user class in this program nor an engine-prelude class)"
+  "rts_error": "error: unsupported in the numeric subset: class `Weird` extends unknown class `Array` (not a user class in this program nor an engine-prelude class)\n      at run of tests/cross-runtime/array/codex_array_species_constructor_poison.ts failed"
 }
 ,
 {
@@ -1158,7 +1158,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new BigInt64Array(..)` — class `BigInt64Array` is not a user class in this program (a global/Registry class or `extends` class is a later increment)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new BigInt64Array(..)` — class `BigInt64Array` is not a user class in this program (a global/Registry class or `extends` class is a later increment)\n      at run of tests/cross-runtime/bigint/65_bigint_typed_arrays.ts failed"
 }
 ,
 {
@@ -1186,7 +1186,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new BigInt64Array(..)` — class `BigInt64Array` is not a user class in this program (a global/Registry class or `extends` class is a later increment)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new BigInt64Array(..)` — class `BigInt64Array` is not a user class in this program (a global/Registry class or `extends` class is a later increment)\n      at run of tests/cross-runtime/bigint/codex_bigint_typedarray_clamp_wrap.ts failed"
 }
 ,
 {
@@ -1452,7 +1452,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: call to unknown function `eval`"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: call to unknown function `eval`\n      at run of tests/cross-runtime/classes/267_private_fields.ts failed"
 }
 ,
 {
@@ -1466,7 +1466,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: call to unknown function `eval`"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: call to unknown function `eval`\n      at run of tests/cross-runtime/classes/268_private_methods.ts failed"
 }
 ,
 {
@@ -1494,7 +1494,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsn_ctor_Base`: unsupported in the numeric subset: expression raw/unrecognized: OptChain(OptChainExpr { span: 244..260, optional: true, base: Member(MemberExpr "
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsn_ctor_Base`: unsupported in the numeric subset: expression raw/unrecognized: OptChain(OptChainExpr { span: 244..260, optional: true, base: Member(MemberExpr \n      at run of tests/cross-runtime/classes/270_new_target.ts failed"
 }
 ,
 {
@@ -1508,7 +1508,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught TypeError: [object Object] is not a function"
+  "rts_error": "error: Uncaught TypeError: [object Object] is not a function\n      at run of tests/cross-runtime/classes/271_computed_class_members.ts failed"
 }
 ,
 {
@@ -1522,7 +1522,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "/home/runner/work/rts/rts/tests/cross-runtime/classes/370_advanced_classes.ts:22\nclass User {\n  constructor(public name: string, public age: number) {}\n                     ^^^^^^^^^^^^\n}\n\nSyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript parameter property is not supported in strip-only mode\n    at parseTypeScript (node:internal/modules/typescript:63:40)\n    at processTypeScriptCode (node:internal/modules/typescript:133:42)\n    at stripTypeScriptModuleTypes (node:internal/modules/typescript:163:10)\n    at Module._compile (node:internal/modules/cjs/loader:1733:15)\n    at Object..js (node:internal/modules/cjs/loader:1913:10)\n    at Module.load (node:internal/modules/cjs/loader:1505:32)\n    at Function._load (node:internal/modules/cjs/loader:1309:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\n    at node:internal/main/run_main_module:36:49 {\n  code: 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'\n}\n\nNode.js v22.23.1",
-  "rts_error": "error: unsupported in the numeric subset: in fn `Serializable`: unsupported in the numeric subset: expression raw/unrecognized: Class(ClassExpr { ident: None, class: Class { span: 240..387, ctxt: #0, decorato"
+  "rts_error": "error: unsupported in the numeric subset: in fn `Serializable`: unsupported in the numeric subset: expression raw/unrecognized: Class(ClassExpr { ident: None, class: Class { span: 240..387, ctxt: #0, decorato\n      at run of tests/cross-runtime/classes/370_advanced_classes.ts failed"
 }
 ,
 {
@@ -1606,7 +1606,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsn_arrow_0`: unsupported in the numeric subset: private name `#subscribers` is not accessible here — a `#name` is lexically scoped to the body of its declaring class (JS spec)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsn_arrow_0`: unsupported in the numeric subset: private name `#subscribers` is not accessible here — a `#name` is lexically scoped to the body of its declaring class (JS spec)\n      at run of tests/cross-runtime/classes/376_private_pattern_advanced.ts failed"
 }
 ,
 {
@@ -1620,7 +1620,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "/home/runner/work/rts/rts/tests/cross-runtime/classes/381_dynamic_extends.ts:15\n\nclass User { constructor(public name: string) {} }\n                                ^^^^^^^^^^^^\n\nSyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript parameter property is not supported in strip-only mode\n    at parseTypeScript (node:internal/modules/typescript:63:40)\n    at processTypeScriptCode (node:internal/modules/typescript:133:42)\n    at stripTypeScriptModuleTypes (node:internal/modules/typescript:163:10)\n    at Module._compile (node:internal/modules/cjs/loader:1733:15)\n    at Object..js (node:internal/modules/cjs/loader:1913:10)\n    at Module.load (node:internal/modules/cjs/loader:1505:32)\n    at Function._load (node:internal/modules/cjs/loader:1309:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\n    at node:internal/main/run_main_module:36:49 {\n  code: 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'\n}\n\nNode.js v22.23.1",
-  "rts_error": "error: unsupported in the numeric subset: in fn `Timestamped`: unsupported in the numeric subset: expression raw/unrecognized: Class(ClassExpr { ident: None, class: Class { span: 142..236, ctxt: #0, decorato"
+  "rts_error": "error: unsupported in the numeric subset: in fn `Timestamped`: unsupported in the numeric subset: expression raw/unrecognized: Class(ClassExpr { ident: None, class: Class { span: 142..236, ctxt: #0, decorato\n      at run of tests/cross-runtime/classes/381_dynamic_extends.ts failed"
 }
 ,
 {
@@ -1634,7 +1634,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "/home/runner/work/rts/rts/tests/cross-runtime/classes/383_computed_class_members.ts:48\nclass Payload {\n  constructor(public data: any) {}\n                     ^^^^^^^^^\n  [kSerialize]() { return JSON.stringify(this.data); }\n\nSyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript parameter property is not supported in strip-only mode\n    at parseTypeScript (node:internal/modules/typescript:63:40)\n    at processTypeScriptCode (node:internal/modules/typescript:133:42)\n    at stripTypeScriptModuleTypes (node:internal/modules/typescript:163:10)\n    at Module._compile (node:internal/modules/cjs/loader:1733:15)\n    at Object..js (node:internal/modules/cjs/loader:1913:10)\n    at Module.load (node:internal/modules/cjs/loader:1505:32)\n    at Function._load (node:internal/modules/cjs/loader:1309:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\n    at node:internal/main/run_main_module:36:49 {\n  code: 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'\n}\n\nNode.js v22.23.1",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `Config.getWidthValue()` — no such method on class `Config` (a field-as-function / dynamic method is a later increment)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `Config.getWidthValue()` — no such method on class `Config` (a field-as-function / dynamic method is a later increment)\n      at run of tests/cross-runtime/classes/383_computed_class_members.ts failed"
 }
 ,
 {
@@ -1676,7 +1676,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `makeClass`: unsupported in the numeric subset: expression raw/unrecognized: Class(ClassExpr { ident: None, class: Class { span: 1560..1708, ctxt: #0, decora"
+  "rts_error": "error: unsupported in the numeric subset: in fn `makeClass`: unsupported in the numeric subset: expression raw/unrecognized: Class(ClassExpr { ident: None, class: Class { span: 1560..1708, ctxt: #0, decora\n      at run of tests/cross-runtime/classes/claude-class-expression-const.ts failed"
 }
 ,
 {
@@ -1690,7 +1690,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsn_static_Box_staticArrow`: unsupported in the numeric subset: expression arrow"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsn_static_Box_staticArrow`: unsupported in the numeric subset: expression arrow\n      at run of tests/cross-runtime/classes/claude-closure-this-arrow-vs-function.ts failed"
 }
 ,
 {
@@ -1774,7 +1774,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: `this` inside static method `Shape.describe` (no instance receiver)"
+  "rts_error": "error: unsupported in the numeric subset: `this` inside static method `Shape.describe` (no instance receiver)\n      at run of tests/cross-runtime/classes/claude-static-inheritance-and-super.ts failed"
 }
 ,
 {
@@ -1816,7 +1816,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `C.m()` — no such method on class `C` (a field-as-function / dynamic method is a later increment)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `C.m()` — no such method on class `C` (a field-as-function / dynamic method is a later increment)\n      at run of tests/cross-runtime/classes/codex_class_computed_private_static_order.ts failed"
 }
 ,
 {
@@ -1830,7 +1830,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: unrecognized statement ``"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: unrecognized statement ``\n      at run of tests/cross-runtime/classes/codex_class_static_block_throw_order.ts failed"
 }
 ,
 {
@@ -2152,7 +2152,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: no Registry entry for `Array.next(0 args)` (callback methods like .map/.filter/.reduce bail by design)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: no Registry entry for `Array.next(0 args)` (callback methods like .map/.filter/.reduce bail by design)\n      at run of tests/cross-runtime/collections/claude-map-set-iterators-independent.ts failed"
 }
 ,
 {
@@ -2488,7 +2488,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new Date(x)` with a non-number / non-string argument (the overload dispatch depends on the runtime type — a later increment)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new Date(x)` with a non-number / non-string argument (the overload dispatch depends on the runtime type — a later increment)\n      at run of tests/cross-runtime/date/claude-date-numeric-coercion.ts failed"
 }
 ,
 {
@@ -2530,7 +2530,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught ReferenceError: Date is not defined"
+  "rts_error": "error: Uncaught ReferenceError: Date is not defined\n      at run of tests/cross-runtime/date/claude-date-symbol-toprimitive.ts failed"
 }
 ,
 {
@@ -2558,7 +2558,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `Date.UTC(1 args)` — no overload accepts 1 arg(s)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `Date.UTC(1 args)` — no overload accepts 1 arg(s)\n      at run of tests/cross-runtime/date/claude-date-utc-arity.ts failed"
 }
 ,
 {
@@ -2628,7 +2628,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught ReferenceError: crypto is not defined"
+  "rts_error": "error: Uncaught ReferenceError: crypto is not defined\n      at run of tests/cross-runtime/encoding/79_subtle_digest.ts failed"
 }
 ,
 {
@@ -2894,7 +2894,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught ReferenceError: arguments is not defined"
+  "rts_error": "error: Uncaught ReferenceError: arguments is not defined\n      at run of tests/cross-runtime/fn-meta/391_arguments_object.ts failed"
 }
 ,
 {
@@ -2978,7 +2978,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `makeParamCounter`: unsupported in the numeric subset: expression arrow"
+  "rts_error": "error: unsupported in the numeric subset: in fn `makeParamCounter`: unsupported in the numeric subset: expression arrow\n      at run of tests/cross-runtime/fn-meta/claude-closure-captures-mutable-param.ts failed"
 }
 ,
 {
@@ -2992,7 +2992,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: expression arrow"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: expression arrow\n      at run of tests/cross-runtime/fn-meta/claude-closure-for-of-per-iteration.ts failed"
 }
 ,
 {
@@ -3034,7 +3034,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `paramLive`: unsupported in the numeric subset: expression arrow"
+  "rts_error": "error: unsupported in the numeric subset: in fn `paramLive`: unsupported in the numeric subset: expression arrow\n      at run of tests/cross-runtime/fn-meta/claude-closure-reads-live-not-snapshot.ts failed"
 }
 ,
 {
@@ -3062,7 +3062,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: assignment to unbound `pipe`"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: assignment to unbound `pipe`\n      at run of tests/cross-runtime/fn-meta/claude-compose-reassigned-binding.ts failed"
 }
 ,
 {
@@ -3258,7 +3258,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: call to unknown function `Function`"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: call to unknown function `Function`\n      at run of tests/cross-runtime/fn-meta/codex_arguments_callee_shape.ts failed"
 }
 ,
 {
@@ -3272,7 +3272,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `Point.bind()` — no such static method on class `Point`"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `Point.bind()` — no such static method on class `Point`\n      at run of tests/cross-runtime/fn-meta/codex_bound_constructor_new_target.ts failed"
 }
 ,
 {
@@ -3286,7 +3286,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsl_method___rtsl_lit_0_inc`: unsupported in the numeric subset: call to unknown function `eval`"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsl_method___rtsl_lit_0_inc`: unsupported in the numeric subset: call to unknown function `eval`\n      at run of tests/cross-runtime/fn-meta/codex_closure_eval_mutates_outer.ts failed"
 }
 ,
 {
@@ -3300,7 +3300,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `make`: unsupported in the numeric subset: call to unknown function `Function`"
+  "rts_error": "error: unsupported in the numeric subset: in fn `make`: unsupported in the numeric subset: call to unknown function `Function`\n      at run of tests/cross-runtime/fn-meta/codex_function_constructor_scope.ts failed"
 }
 ,
 {
@@ -3314,7 +3314,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught ReferenceError: a is not defined"
+  "rts_error": "error: Uncaught ReferenceError: a is not defined\n      at run of tests/cross-runtime/fn-meta/codex_function_name_inferred_destructure.ts failed"
 }
 ,
 {
@@ -3342,7 +3342,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: registry call `__rtsm_global_finalizationregistry_register` expects 2 args, got 0"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: registry call `__rtsm_global_finalizationregistry_register` expects 2 args, got 0\n      at run of tests/cross-runtime/gc-weak/308_finalization_registry_shape.ts failed"
 }
 ,
 {
@@ -3440,7 +3440,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__agen_state_asyncOuter`: unsupported in the numeric subset: expression raw/unrecognized: Fn(FnExpr { ident: None, function: Function { params: [], decorators: [], span: "
+  "rts_error": "error: unsupported in the numeric subset: in fn `__agen_state_asyncOuter`: unsupported in the numeric subset: expression raw/unrecognized: Fn(FnExpr { ident: None, function: Function { params: [], decorators: [], span: \n      at run of tests/cross-runtime/generators/379_yield_star.ts failed"
 }
 ,
 {
@@ -3538,7 +3538,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught ReferenceError: Intl is not defined"
+  "rts_error": "error: Uncaught ReferenceError: Intl is not defined\n      at run of tests/cross-runtime/intl/59_intl_basics.ts failed"
 }
 ,
 {
@@ -3552,7 +3552,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught ReferenceError: Intl is not defined"
+  "rts_error": "error: Uncaught ReferenceError: Intl is not defined\n      at run of tests/cross-runtime/intl/71_intl_segmenter.ts failed"
 }
 ,
 {
@@ -3566,7 +3566,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught ReferenceError: Intl is not defined"
+  "rts_error": "error: Uncaught ReferenceError: Intl is not defined\n      at run of tests/cross-runtime/intl/78_intl_more.ts failed"
 }
 ,
 {
@@ -3580,7 +3580,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: no Registry entry for `Array.take(1 args)` (callback methods like .map/.filter/.reduce bail by design)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: no Registry entry for `Array.take(1 args)` (callback methods like .map/.filter/.reduce bail by design)\n      at run of tests/cross-runtime/iteration/305_iterator_helpers.ts failed"
 }
 ,
 {
@@ -3636,7 +3636,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: closure captures `i` which is not a simple local in scope"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: closure captures `i` which is not a simple local in scope\n      at run of tests/cross-runtime/iteration/claude-custom-symbol-iterator-manual-next.ts failed"
 }
 ,
 {
@@ -3650,7 +3650,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsl_method___rtsl_lit_3_next`: unsupported in the numeric subset: `++`/`--` on unbound `i`"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsl_method___rtsl_lit_3_next`: unsupported in the numeric subset: `++`/`--` on unbound `i`\n      at run of tests/cross-runtime/iteration/claude-destructuring-lazy-iterator-pull.ts failed"
 }
 ,
 {
@@ -3664,7 +3664,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught TypeError: [object Object] is not a function"
+  "rts_error": "error: Uncaught TypeError: [object Object] is not a function\n      at run of tests/cross-runtime/iteration/claude-manual-iterator-past-done.ts failed"
 }
 ,
 {
@@ -3678,7 +3678,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: no Registry entry for `Array.next(0 args)` (callback methods like .map/.filter/.reduce bail by design)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: no Registry entry for `Array.next(0 args)` (callback methods like .map/.filter/.reduce bail by design)\n      at run of tests/cross-runtime/iteration/claude-map-set-for-of-shape.ts failed"
 }
 ,
 {
@@ -3692,7 +3692,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsl_method___rtsl_lit_1_next`: unsupported in the numeric subset: `++`/`--` on unbound `i`"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsl_method___rtsl_lit_1_next`: unsupported in the numeric subset: `++`/`--` on unbound `i`\n      at run of tests/cross-runtime/iteration/claude-spread-custom-iterable.ts failed"
 }
 ,
 {
@@ -3706,7 +3706,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught TypeError: [object Object] is not a function"
+  "rts_error": "error: Uncaught TypeError: [object Object] is not a function\n      at run of tests/cross-runtime/iteration/claude-string-iterator-code-points.ts failed"
 }
 ,
 {
@@ -3720,7 +3720,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsl_method___rtsl_lit_2_next`: unsupported in the numeric subset: `++`/`--` on unbound `i`"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsl_method___rtsl_lit_2_next`: unsupported in the numeric subset: `++`/`--` on unbound `i`\n      at run of tests/cross-runtime/iteration/claude-symbol-iterator-inherited-lookup.ts failed"
 }
 ,
 {
@@ -3734,7 +3734,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsl_method___rtsl_lit_0_@@asyncIterator`: unsupported in the numeric subset: object literal with an unsupported member (getter/setter/computed/generator/async method or spread)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsl_method___rtsl_lit_0_@@asyncIterator`: unsupported in the numeric subset: object literal with an unsupported member (getter/setter/computed/generator/async method or spread)\n      at run of tests/cross-runtime/iteration/codex_async_iterator_break_close.ts failed"
 }
 ,
 {
@@ -4014,7 +4014,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught ReferenceError: BigInt is not defined"
+  "rts_error": "error: Uncaught ReferenceError: BigInt is not defined\n      at run of tests/cross-runtime/json/codex_json_bigint_tojson_monkeypatch.ts failed"
 }
 ,
 {
@@ -4294,7 +4294,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `main`: unsupported in the numeric subset: expression raw/unrecognized: callee"
+  "rts_error": "error: unsupported in the numeric subset: in fn `main`: unsupported in the numeric subset: expression raw/unrecognized: callee\n      at run of tests/cross-runtime/misc-platform/100_dynamic_import.ts failed"
 }
 ,
 {
@@ -4406,7 +4406,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__extends`: unsupported in the numeric subset: expression arrow"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `Derived.greet()` — no such method on class `Derived` (a field-as-function / dynamic method is a later increment)\n      at run of tests/cross-runtime/misc-platform/344_bundler_helpers.ts failed"
 }
 ,
 {
@@ -4700,7 +4700,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: Number.parseInt (unknown Number constant/static value)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: Number.parseInt (unknown Number constant/static value)\n      at run of tests/cross-runtime/numeric/198_number_parseint_parsefloat.ts failed"
 }
 ,
 {
@@ -5624,7 +5624,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `RegExp.toString(0 args)` — no such method on runtime class `RegExp`"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `RegExp.toString(0 args)` — no such method on runtime class `RegExp`\n      at run of tests/cross-runtime/object-meta/210_object_tostring.ts failed"
 }
 ,
 {
@@ -5876,7 +5876,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught TypeError: next is not a function"
+  "rts_error": "error: Uncaught TypeError: next is not a function\n      at run of tests/cross-runtime/object-meta/368_iterator_protocol.ts failed"
 }
 ,
 {
@@ -5890,7 +5890,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "/home/runner/work/rts/rts/tests/cross-runtime/object-meta/380_proxy_advanced.ts:13\n// construct trap\nclass Point { constructor(public x: number, public y: number) {} }\n                                 ^^^^^^^^^\nconst PPoint = new Proxy(Point, {\n\nSyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript parameter property is not supported in strip-only mode\n    at parseTypeScript (node:internal/modules/typescript:63:40)\n    at processTypeScriptCode (node:internal/modules/typescript:133:42)\n    at stripTypeScriptModuleTypes (node:internal/modules/typescript:163:10)\n    at Module._compile (node:internal/modules/cjs/loader:1733:15)\n    at Object..js (node:internal/modules/cjs/loader:1913:10)\n    at Module.load (node:internal/modules/cjs/loader:1505:32)\n    at Function._load (node:internal/modules/cjs/loader:1309:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\n    at node:internal/main/run_main_module:36:49 {\n  code: 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'\n}\n\nNode.js v22.23.1",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsl_method___rtsl_lit_1_construct`: unsupported in the numeric subset: expression spread"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsl_method___rtsl_lit_1_construct`: unsupported in the numeric subset: expression spread\n      at run of tests/cross-runtime/object-meta/380_proxy_advanced.ts failed"
 }
 ,
 {
@@ -5904,7 +5904,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsn_ctor_Counter`: unsupported in the numeric subset: expression raw/unrecognized: This(ThisExpr { span: 1628..1632 })"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsn_ctor_Counter`: unsupported in the numeric subset: expression raw/unrecognized: This(ThisExpr { span: 1628..1632 })\n      at run of tests/cross-runtime/object-meta/382_field_init_order.ts failed"
 }
 ,
 {
@@ -5918,7 +5918,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new Circle(..)` — class `Circle` is not a user class in this program (a global/Registry class or `extends` class is a later increment)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new Circle(..)` — class `Circle` is not a user class in this program (a global/Registry class or `extends` class is a later increment)\n      at run of tests/cross-runtime/object-meta/387_object_create_descriptors.ts failed"
 }
 ,
 {
@@ -5932,7 +5932,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught ReferenceError: Array is not defined"
+  "rts_error": "error: Uncaught ReferenceError: Array is not defined\n      at run of tests/cross-runtime/object-meta/388_globalThis.ts failed"
 }
 ,
 {
@@ -5946,7 +5946,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `__rtsl_lit_2.hello()` — no such method on class `__rtsl_lit_2` (a field-as-function / dynamic method is a later increment)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `__rtsl_lit_2.hello()` — no such method on class `__rtsl_lit_2` (a field-as-function / dynamic method is a later increment)\n      at run of tests/cross-runtime/object-meta/389_proto_accessor.ts failed"
 }
 ,
 {
@@ -6268,7 +6268,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: Object static on an ARRAY receiver (array key/value enumeration is a later increment)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: Object static on an ARRAY receiver (array key/value enumeration is a later increment)\n      at run of tests/cross-runtime/object-meta/codex_freeze_typedarray_error.ts failed"
 }
 ,
 {
@@ -6366,7 +6366,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new P(..)` — class `P` is not a user class in this program (a global/Registry class or `extends` class is a later increment)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new P(..)` — class `P` is not a user class in this program (a global/Registry class or `extends` class is a later increment)\n      at run of tests/cross-runtime/object-meta/codex_proxy_construct_apply_newtarget.ts failed"
 }
 ,
 {
@@ -6408,7 +6408,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: Object static on `target` whose shape is not statically proven (param/return/reassigned)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: Object static on `target` whose shape is not statically proven (param/return/reassigned)\n      at run of tests/cross-runtime/object-meta/codex_proxy_getprototypeof_invariant.ts failed"
 }
 ,
 {
@@ -6436,7 +6436,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `Proxy.revocable()` — no such static on `Proxy`"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `Proxy.revocable()` — no such static on `Proxy`\n      at run of tests/cross-runtime/object-meta/codex_proxy_revocable_edges.ts failed"
 }
 ,
 {
@@ -6506,7 +6506,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "/home/runner/work/rts/rts/tests/cross-runtime/patterns/364_design_patterns.ts:48\nclass Circle implements Shape {\n  constructor(private r: number) {}\n                      ^^^^^^^^^\n  area() { return Math.PI * this.r * this.r; }\n\nSyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript parameter property is not supported in strip-only mode\n    at parseTypeScript (node:internal/modules/typescript:63:40)\n    at processTypeScriptCode (node:internal/modules/typescript:133:42)\n    at stripTypeScriptModuleTypes (node:internal/modules/typescript:163:10)\n    at Module._compile (node:internal/modules/cjs/loader:1733:15)\n    at Object..js (node:internal/modules/cjs/loader:1913:10)\n    at Module.load (node:internal/modules/cjs/loader:1505:32)\n    at Function._load (node:internal/modules/cjs/loader:1309:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\n    at node:internal/main/run_main_module:36:49 {\n  code: 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'\n}\n\nNode.js v22.23.1",
-  "rts_error": "error: unsupported in the numeric subset: `this` inside static method `Config.getInstance` (no instance receiver)"
+  "rts_error": "error: unsupported in the numeric subset: `this` inside static method `Config.getInstance` (no instance receiver)\n      at run of tests/cross-runtime/patterns/364_design_patterns.ts failed"
 }
 ,
 {
@@ -6534,7 +6534,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "/home/runner/work/rts/rts/tests/cross-runtime/patterns/385_monad_patterns.ts:41\nclass Result<T, E> {\n  private constructor(private _ok: T | null, private _err: E | null) {}\n                              ^^^^^^^^^^^^^\n  static ok<T, E>(v: T): Result<T, E> { return new Result<T, E>(v, null); }\n\nSyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript parameter property is not supported in strip-only mode\n    at parseTypeScript (node:internal/modules/typescript:63:40)\n    at processTypeScriptCode (node:internal/modules/typescript:133:42)\n    at stripTypeScriptModuleTypes (node:internal/modules/typescript:163:10)\n    at Module._compile (node:internal/modules/cjs/loader:1733:15)\n    at Object..js (node:internal/modules/cjs/loader:1913:10)\n    at Module.load (node:internal/modules/cjs/loader:1505:32)\n    at Function._load (node:internal/modules/cjs/loader:1309:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\n    at node:internal/main/run_main_module:36:49 {\n  code: 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'\n}\n\nNode.js v22.23.1",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: no Registry entry for `Number.map(1 args)`"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: no Registry entry for `Number.map(1 args)`\n      at run of tests/cross-runtime/patterns/385_monad_patterns.ts failed"
 }
 ,
 {
@@ -6590,7 +6590,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsn_method_Lru_set`: unsupported in the numeric subset: no Registry entry for `Array.next(0 args)` (callback methods like .map/.filter/.reduce bail by design)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsn_method_Lru_set`: unsupported in the numeric subset: no Registry entry for `Array.next(0 args)` (callback methods like .map/.filter/.reduce bail by design)\n      at run of tests/cross-runtime/patterns/codex_lru_cache_map_order.ts failed"
 }
 ,
 {
@@ -6632,7 +6632,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught TypeError: not a function"
+  "rts_error": "error: Uncaught TypeError: not a function\n      at run of tests/cross-runtime/patterns/codex_reactive_dependency_tracker.ts failed"
 }
 ,
 {
@@ -6702,7 +6702,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught ReferenceError: Promise is not defined"
+  "rts_error": "error: Uncaught ReferenceError: Promise is not defined\n      at run of tests/cross-runtime/promises/304_promise_try.ts failed"
 }
 ,
 {
@@ -6786,7 +6786,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught TypeError: not a function"
+  "rts_error": "error: Uncaught TypeError: not a function\n      at run of tests/cross-runtime/promises/codex_promise_all_order_thenables.ts failed"
 }
 ,
 {
@@ -7122,7 +7122,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: closure captures `bytes` which is not a simple local in scope"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: closure captures `bytes` which is not a simple local in scope\n      at run of tests/cross-runtime/streams/64_readable_stream.ts failed"
 }
 ,
 {
@@ -7136,7 +7136,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `Blob.stream(0 args)` — no such method on runtime class `Blob`"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `Blob.stream(0 args)` — no such method on runtime class `Blob`\n      at run of tests/cross-runtime/streams/86_blob_stream.ts failed"
 }
 ,
 {
@@ -7150,7 +7150,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new CompressionStream(..)` — class `CompressionStream` is not a user class in this program (a global/Registry class or `extends` class is a later increment)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new CompressionStream(..)` — class `CompressionStream` is not a user class in this program (a global/Registry class or `extends` class is a later increment)\n      at run of tests/cross-runtime/streams/88_compression_stream.ts failed"
 }
 ,
 {
@@ -7766,7 +7766,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: registry call `__rtsm_global_string_concat` expects 4 args, got 5"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: registry call `__rtsm_global_string_concat` expects 4 args, got 5\n      at run of tests/cross-runtime/string/claude-concat-many-args.ts failed"
 }
 ,
 {
@@ -7794,7 +7794,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught ReferenceError: String is not defined"
+  "rts_error": "error: Uncaught ReferenceError: String is not defined\n      at run of tests/cross-runtime/string/claude-fromcharcode-as-value.ts failed"
 }
 ,
 {
@@ -7920,7 +7920,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: no Registry entry for `String.split(0 args)`"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: no Registry entry for `String.split(0 args)`\n      at run of tests/cross-runtime/string/claude-split-undefined-separator.ts failed"
 }
 ,
 {
@@ -8088,7 +8088,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: object literal with an unsupported member (getter/setter/computed/generator/async method or spread)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: object literal with an unsupported member (getter/setter/computed/generator/async method or spread)\n      at run of tests/cross-runtime/symbol/273_symbol_asynciterator.ts failed"
 }
 ,
 {
@@ -8116,7 +8116,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "/home/runner/work/rts/rts/tests/cross-runtime/symbol/339_symbol_iterator.ts:3\nclass Range {\n  constructor(private start: number, private end: number) {}\n                      ^^^^^^^^^^^^^\n  [Symbol.iterator]() {\n\nSyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript parameter property is not supported in strip-only mode\n    at parseTypeScript (node:internal/modules/typescript:63:40)\n    at processTypeScriptCode (node:internal/modules/typescript:133:42)\n    at stripTypeScriptModuleTypes (node:internal/modules/typescript:163:10)\n    at Module._compile (node:internal/modules/cjs/loader:1733:15)\n    at Object..js (node:internal/modules/cjs/loader:1913:10)\n    at Module.load (node:internal/modules/cjs/loader:1505:32)\n    at Function._load (node:internal/modules/cjs/loader:1309:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\n    at node:internal/main/run_main_module:36:49 {\n  code: 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'\n}\n\nNode.js v22.23.1",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: spread of a non-iterable value in an array literal (number/bool, or a class with no iterator)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: spread of a non-iterable value in an array literal (number/bool, or a class with no iterator)\n      at run of tests/cross-runtime/symbol/339_symbol_iterator.ts failed"
 }
 ,
 {
@@ -8144,7 +8144,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: class `PowerArray` extends unknown class `Array` (not a user class in this program nor an engine-prelude class)"
+  "rts_error": "error: unsupported in the numeric subset: class `PowerArray` extends unknown class `Array` (not a user class in this program nor an engine-prelude class)\n      at run of tests/cross-runtime/symbol/378_symbol_species_hasinstance.ts failed"
 }
 ,
 {
@@ -8214,7 +8214,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `Box.toString()` — no such method on class `Box` (a field-as-function / dynamic method is a later increment)"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `Box.toString()` — no such method on class `Box` (a field-as-function / dynamic method is a later increment)\n      at run of tests/cross-runtime/symbol/codex_symbol_toStringTag_custom.ts failed"
 }
 ,
 {
@@ -8228,7 +8228,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: call to unknown function `Function`"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: call to unknown function `Function`\n      at run of tests/cross-runtime/symbol/codex_symbol_unscopables_with.ts failed"
 }
 ,
 {
@@ -8494,7 +8494,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: call to unknown function `Function`"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: call to unknown function `Function`\n      at run of tests/cross-runtime/syntax/300_this_strict_top_level.ts failed"
 }
 ,
 {
@@ -8732,7 +8732,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "/home/runner/work/rts/rts/tests/cross-runtime/syntax/390_with_statement.ts:10\n// @ts-ignore — with is valid JS but TypeScript disallows it\nwith (rect) {\n^^^^\n  area = width * height;   // resolves width/height from rect\n\nSyntaxError [ERR_INVALID_TYPESCRIPT_SYNTAX]: The 'with' statement is not supported. All symbols in a 'with' block will have type 'any'.\n    at parseTypeScript (node:internal/modules/typescript:67:36)\n    at processTypeScriptCode (node:internal/modules/typescript:133:42)\n    at stripTypeScriptModuleTypes (node:internal/modules/typescript:163:10)\n    at Module._compile (node:internal/modules/cjs/loader:1733:15)\n    at Object..js (node:internal/modules/cjs/loader:1913:10)\n    at Module.load (node:internal/modules/cjs/loader:1505:32)\n    at Function._load (node:internal/modules/cjs/loader:1309:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\n    at node:internal/main/run_main_module:36:49 {\n  code: 'ERR_INVALID_TYPESCRIPT_SYNTAX'\n}\n\nNode.js v22.23.1",
-  "rts_error": "error: unsupported in the numeric subset: in fn `compute`: unsupported in the numeric subset: unrecognized statement `with (vals) {\n    out = a * b + c;\n  }`"
+  "rts_error": "<eval>:10:1\n    | \n 10 | with (rect) {\n    | ^^^^\nerror[E0001]: The 'with' statement is not supported. All symbols in a 'with' block will have type 'any'.\n\n<eval>:20:1\n    | \n 20 | with (Math) {\n    | ^^^^\nerror[E0001]: The 'with' statement is not supported. All symbols in a 'with' block will have type 'any'.\n\n<eval>:29:3\n    | \n 29 |   with (vals) {\n    |   ^^^^\nerror[E0001]: The 'with' statement is not supported. All symbols in a 'with' block will have type 'any'.\n\n<eval>:38:1\n    | \n 38 | with ({ x: 10 }) {\n    | ^^^^\nerror[E0001]: The 'with' statement is not supported. All symbols in a 'with' block will have type 'any'.\n\n4 error(s)"
 }
 ,
 {
@@ -8760,7 +8760,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `g`: unsupported in the numeric subset: expression arrow"
+  "rts_error": "error: unsupported in the numeric subset: in fn `g`: unsupported in the numeric subset: expression arrow\n      at run of tests/cross-runtime/syntax/399_default_param_temporal_order.ts failed"
 }
 ,
 {
@@ -8774,7 +8774,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `probe`: unsupported in the numeric subset: call to unknown function `eval`"
+  "rts_error": "error: unsupported in the numeric subset: in fn `probe`: unsupported in the numeric subset: call to unknown function `eval`\n      at run of tests/cross-runtime/syntax/400_eval_scope_edges.ts failed"
 }
 ,
 {
@@ -8984,7 +8984,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "/home/runner/work/rts/rts/tests/cross-runtime/syntax/claude-unicode-escape-forms.ts:30\n// --- the two forms ADJACENT in one literal ---\nconst mix1 = \"\\uD83D\\u{1F600}\";\n              ^^^^^^^^\nconsole.log(\"mix-hi-then-brace-len=\" + mix1.length);\n\nSyntaxError [ERR_INVALID_TYPESCRIPT_SYNTAX]: Bad character escape sequence, expected 4 hex characters\n    at parseTypeScript (node:internal/modules/typescript:67:36)\n    at processTypeScriptCode (node:internal/modules/typescript:133:42)\n    at stripTypeScriptModuleTypes (node:internal/modules/typescript:163:10)\n    at Module._compile (node:internal/modules/cjs/loader:1733:15)\n    at Object..js (node:internal/modules/cjs/loader:1913:10)\n    at Module.load (node:internal/modules/cjs/loader:1505:32)\n    at Function._load (node:internal/modules/cjs/loader:1309:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\n    at node:internal/main/run_main_module:36:49 {\n  code: 'ERR_INVALID_TYPESCRIPT_SYNTAX'\n}\n\nNode.js v22.23.1",
-  "rts_error": "error: unsupported in the numeric subset: module parse error: /home/runner/work/rts/rts/tests/cross-runtime/syntax/claude-unicode-escape-forms.ts: syntax error"
+  "rts_error": "<eval>:30:15\n    | \n 30 | const mix1 = \"\\uD83D\\u{1F600}\";\n    |               ^^^^^^^^\nerror[E0001]: Bad character escape sequence, expected 4 hex characters\n\n1 error(s)"
 }
 ,
 {
@@ -9236,7 +9236,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new DataView(3 args)` — no matching constructor"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new DataView(3 args)` — no matching constructor\n      at run of tests/cross-runtime/typed-buffers/codex_dataview_offsets_endian_mix.ts failed"
 }
 ,
 {
@@ -9264,7 +9264,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: class `MyU8` extends unknown class `Uint8Array` (not a user class in this program nor an engine-prelude class)"
+  "rts_error": "error: unsupported in the numeric subset: class `MyU8` extends unknown class `Uint8Array` (not a user class in this program nor an engine-prelude class)\n      at run of tests/cross-runtime/typed-buffers/codex_typedarray_species_slice.ts failed"
 }
 ,
 {
@@ -9390,7 +9390,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new URL(..)` — argument 1 is not a proven string"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new URL(..)` — argument 1 is not a proven string\n      at run of tests/cross-runtime/url/codex_url_relative_resolution.ts failed"
 }
 ,
 {

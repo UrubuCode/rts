@@ -295,84 +295,104 @@ fn in_ranges(ranges: &[(usize, usize)], pos: usize) -> bool {
 
 /// Nomes DECLARADOS pelo script (`var`/`let`/`const`/`function`/`class`/`catch`
 /// e parâmetros de função). Um nome daqui nunca é global implícito.
+///
+/// A varredura é CONTÍNUA sobre o texto: os spans dizem apenas o que IGNORAR
+/// (conteúdo de string/comentário/regex), nunca onde PARAR. A versão anterior
+/// iterava por span e terminava a lista de declaradores na fronteira — e uma
+/// cadeia `var a={…},b="txt",c=function(){}` atravessa spans a cada literal,
+/// então tudo depois do primeiro literal ficava fora de `declared`. Consequência
+/// real: no bundle da Meta, `Me` (declarado no meio de uma cadeia de 5 KB) era
+/// classificado como global implícito, virava `__G.Me` numa posição de BINDING
+/// (`var …,__G.Me=function(){}`) e o parser recusava — `var a.b = …` não é JS.
 fn scan_declared(src: &[u8], spans: &[(usize, usize)]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    for &(start, end) in spans {
-        let mut i = start;
-        while i < end {
-            if !is_id_start(src[i]) {
-                i += 1;
+    let n = src.len();
+    // `code[i]` = o byte `i` está em trecho de CÓDIGO (fora de string/comentário).
+    let mut code = vec![false; n];
+    for &(s, e) in spans {
+        for c in code.iter_mut().take(e.min(n)).skip(s.min(n)) {
+            *c = true;
+        }
+    }
+    let mut i = 0usize;
+    while i < n {
+        if !code[i] || !is_id_start(src[i]) {
+            i += 1;
+            continue;
+        }
+        let s = i;
+        while i < n && code[i] && is_id_part(src[i]) {
+            i += 1;
+        }
+        let w = &src[s..i];
+        let is_decl = w == b"var" || w == b"let" || w == b"const";
+        let is_fn = w == b"function" || w == b"class" || w == b"catch";
+        if !(is_decl || is_fn) {
+            continue;
+        }
+        // `var a = 1, b = 2` → a lista inteira até `;`/`)`, atravessando os
+        // literais que aparecerem no meio (só o CONTEÚDO deles é ignorado).
+        let mut j = i;
+        let mut guard = 0;
+        while j < n && guard < 4096 {
+            guard += 1;
+            while j < n && (!code[j] || src[j].is_ascii_whitespace()) {
+                j += 1;
+            }
+            if j < n && is_id_start(src[j]) {
+                let ns = j;
+                while j < n && code[j] && is_id_part(src[j]) {
+                    j += 1;
+                }
+                let name = String::from_utf8_lossy(&src[ns..j]).into_owned();
+                if !out.contains(&name) {
+                    out.push(name);
+                }
+            } else if j < n && (src[j] == b'(' || src[j] == b'{' || src[j] == b'[') {
+                // params / destructuring: entra e segue colhendo nomes
+                j += 1;
                 continue;
             }
-            let s = i;
-            while i < end && is_id_part(src[i]) {
-                i += 1;
+            while j < n && (!code[j] || src[j].is_ascii_whitespace()) {
+                j += 1;
             }
-            let w = &src[s..i];
-            let is_decl = w == b"var" || w == b"let" || w == b"const";
-            let is_fn = w == b"function" || w == b"class" || w == b"catch";
-            if !(is_decl || is_fn) {
+            if j >= n {
+                break;
+            }
+            // continua a lista só em `,`; qualquer outra coisa encerra
+            if src[j] == b',' {
+                j += 1;
                 continue;
             }
-            // `var a = 1, b = 2` → a lista inteira até `;`/`)`.
-            let mut j = i;
-            let mut guard = 0;
-            while j < end && guard < 4096 {
-                guard += 1;
-                while j < end && src[j].is_ascii_whitespace() {
-                    j += 1;
-                }
-                if j < end && is_id_start(src[j]) {
-                    let ns = j;
-                    while j < end && is_id_part(src[j]) {
-                        j += 1;
-                    }
-                    let name = String::from_utf8_lossy(&src[ns..j]).into_owned();
-                    if !out.contains(&name) {
-                        out.push(name);
-                    }
-                } else if j < end && (src[j] == b'(' || src[j] == b'{' || src[j] == b'[') {
-                    // params / destructuring: entra e segue colhendo nomes
-                    j += 1;
-                    continue;
-                }
-                while j < end && src[j].is_ascii_whitespace() {
-                    j += 1;
-                }
-                if j >= end {
-                    break;
-                }
-                // continua a lista só em `,`; qualquer outra coisa encerra
-                if src[j] == b',' {
-                    j += 1;
-                    continue;
-                }
-                if src[j] == b'=' {
-                    // pula o inicializador até a vírgula de topo ou o fim
-                    let mut depth = 0i32;
-                    while j < end {
-                        let d = src[j];
-                        if d == b'(' || d == b'[' || d == b'{' {
-                            depth += 1;
-                        } else if d == b')' || d == b']' || d == b'}' {
-                            if depth == 0 {
-                                break;
-                            }
-                            depth -= 1;
-                        } else if (d == b',' || d == b';') && depth == 0 {
-                            break;
-                        }
-                        j += 1;
-                    }
-                    if j < end && src[j] == b',' {
+            if src[j] == b'=' {
+                // pula o inicializador até a vírgula de topo ou o fim
+                let mut depth = 0i32;
+                while j < n {
+                    if !code[j] {
                         j += 1;
                         continue;
                     }
+                    let d = src[j];
+                    if d == b'(' || d == b'[' || d == b'{' {
+                        depth += 1;
+                    } else if d == b')' || d == b']' || d == b'}' {
+                        if depth == 0 {
+                            break;
+                        }
+                        depth -= 1;
+                    } else if (d == b',' || d == b';') && depth == 0 {
+                        break;
+                    }
+                    j += 1;
                 }
-                break;
+                if j < n && src[j] == b',' {
+                    j += 1;
+                    continue;
+                }
             }
-            i = i.max(s + 1);
+            break;
         }
+        i = i.max(s + 1);
     }
     out
 }
@@ -672,6 +692,93 @@ fn unqualify_instanceof(src: &[u8]) -> Vec<u8> {
     out
 }
 
+/// Reescreve toda ocorrência LIVRE de cada nome de `names` para `__G.<nome>`.
+///
+/// Varredura CONTÍNUA (os spans dizem o que IGNORAR, nunca onde parar) — pelo
+/// mesmo motivo de `scan_declared`: iterando por span, o laço `.ts` reconhecia
+/// só 176 das 278 chamadas de `__d` num bundle real, e as 102 restantes ficavam
+/// sem qualificar → "call to unknown function `__d`" e a página não montava.
+///
+/// Não toca em: campo (`a.nome`), chave de objeto (`{nome: …}`), label, e campo
+/// de classe (`class C { nome = 1 }` — qualificar gerava `class C { __G.nome = 1 }`,
+/// um SyntaxError). `case nome:` É qualificado (deixá-lo livre dava
+/// ReferenceError na comparação). O shorthand `{ nome }` vira a forma explícita
+/// `{ nome: __G.nome }`, porque `{ __G.nome }` não é sintaxe válida.
+fn qualify(src: &[u8], names: &[String]) -> Vec<u8> {
+    if names.is_empty() {
+        return src.to_vec();
+    }
+    let n = src.len();
+    let spans = code_spans(src);
+    let class_ranges = class_body_ranges(src, &spans);
+    let mut code = vec![false; n];
+    for &(s, e) in &spans {
+        for c in code.iter_mut().take(e.min(n)).skip(s.min(n)) {
+            *c = true;
+        }
+    }
+    let alvos: std::collections::HashSet<&str> = names.iter().map(String::as_str).collect();
+    let mut out: Vec<u8> = Vec::with_capacity(n + names.len() * 8);
+    let mut run_start = 0usize;
+    let mut i = 0usize;
+    while i < n {
+        if !code[i] || !is_id_start(src[i]) {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < n && code[i] && is_id_part(src[i]) {
+            i += 1;
+        }
+        let word = match std::str::from_utf8(&src[start..i]) {
+            Ok(w) => w,
+            Err(_) => continue,
+        };
+        if !alvos.contains(word) {
+            continue;
+        }
+        // caractere significativo ANTES (pula espaço)
+        let mut p = start as isize - 1;
+        while p >= 0 && src[p as usize].is_ascii_whitespace() {
+            p -= 1;
+        }
+        let prev = if p >= 0 { src[p as usize] } else { 0 };
+        // caractere significativo DEPOIS
+        let mut j = i;
+        while j < n && src[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        let next = if j < n { src[j] } else { 0 };
+        // `nome:` é chave/label — MENOS em `case nome:`
+        let we = (p + 1).max(0) as usize;
+        let mut ws = we;
+        while ws > 0 && is_id_part(src[ws - 1]) {
+            ws -= 1;
+        }
+        let eh_case = &src[ws..we] == b"case";
+        let shorthand = (prev == b'{' || prev == b',') && (next == b',' || next == b'}');
+
+        if prev == b'.' {
+            // campo: nada a fazer
+        } else if in_ranges(&class_ranges, start) && next == b'=' {
+            // `class C { nome = 1 }` — declaração de campo
+        } else if shorthand {
+            out.extend_from_slice(&src[run_start..start]);
+            out.extend_from_slice(word.as_bytes());
+            out.extend_from_slice(b": __G.");
+            run_start = start;
+        } else if next == b':' && !eh_case {
+            // chave de objeto ou label
+        } else {
+            out.extend_from_slice(&src[run_start..start]);
+            out.extend_from_slice(b"__G.");
+            run_start = start;
+        }
+    }
+    out.extend_from_slice(&src[run_start..n]);
+    out
+}
+
 // O resultado da última varredura, para o `.ts` ler item a item (um `Vec<String>`
 // não atravessa a borda; índice + `nameAt` atravessa).
 thread_local! {
@@ -720,6 +827,18 @@ impl ScriptScan {
     #[rtse::statical]
     fn codeSpanCount(src: &str) -> f64 {
         code_spans(src.as_bytes()).len() as f64
+    }
+
+    /// Reescreve as ocorrências LIVRES de cada nome de `names` (separados por
+    /// `\n` — um `string[]` não atravessa a borda) para `__G.<nome>`.
+    #[rtse::statical]
+    fn qualify(src: &str, names: &str) -> String {
+        let lista: Vec<String> = names
+            .split('\n')
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect();
+        String::from_utf8_lossy(&qualify(src.as_bytes(), &lista)).into_owned()
     }
 
     /// TODA a normalização sintática numa passada: `arguments` → rest, sequência

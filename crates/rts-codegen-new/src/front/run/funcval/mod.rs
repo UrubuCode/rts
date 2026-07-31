@@ -567,6 +567,16 @@ pub fn extract_arrows(
     let mut i = 0;
     while i < ctx.synthesized.len() {
         let mut f = ctx.synthesized[i].clone();
+        // HOISTING de `function` declarada no corpo — o mesmo pré-passo que os
+        // corpos de topo recebem (`front/run/mod.rs`). Sem isto ele só alcançava
+        // DOIS níveis (o main e um corpo de `Item::Function`): a partir do
+        // terceiro, um `function` aninhado só vira `HirFunc` AQUI, depois dos
+        // dois sítios de hoist, e uma referência ADIANTE dele
+        // (`… y() … function y(){}`, JS válido e hoisted) morria com "call to
+        // unknown function `y`". Rodar dentro do fixpoint compõe em qualquer
+        // profundidade: cada corpo sintetizado é hoisted antes de a extração
+        // descer nele.
+        super::fnhoist::hoist_fn_decls(&mut f.body);
         let params: HashSet<String> = f.params.iter().map(|p| p.name.clone()).collect();
         let mutated = mutated_names(&f.body);
         ctx.current_fn = f.name.clone();
@@ -877,7 +887,7 @@ fn hoist_captures(funcs: &mut [HirFunc], main: &HirFunc, ctx: &mut Ctx) {
 /// The `let`/`const` names declared directly in `stmts` (one level — the names a
 /// hoisted function at this scope could capture). Does not descend into nested
 /// blocks/control flow (a capture across those is not in the accepted subset).
-fn declared_locals(stmts: &[HirStmt]) -> HashSet<String> {
+pub(super) fn declared_locals(stmts: &[HirStmt]) -> HashSet<String> {
     let mut out = HashSet::new();
     collect_declared(stmts, &mut out);
     out
@@ -1480,31 +1490,37 @@ impl Ctx {
             rename_ident_stmts(&mut body_stmts, "this", this_rename);
         }
 
-        // A synthesized `this` must be params[0] for `FnSig::has_this` to see it and
-        // for the method-aware invoker to bind the receiver into the thunk's a0 —
-        // but CAPTURES are prepended ahead of it. Rather than emit a function whose
-        // receiver lands in a capture slot (a wrong value), bail honestly: a
-        // capturing `function(){ … this … }` stays a later increment.
-        if this_synthesized && !captures.is_empty() {
-            return None;
-        }
-        // Prepend each captured var as a leading Tagged param (the thunk fills these
-        // from the env array; the arrow's own params follow, filled from a0..a3).
-        let mut all_params: Vec<HirParam> = captures
-            .iter()
-            .map(|n| HirParam {
-                name: if n == "this" {
-                    this_rename.to_string()
-                } else {
-                    n.clone()
-                },
-                ty: HirType::Any,
-                variadic: false,
-                has_default: false,
-                optional: false,
-                default_expr: None,
-            })
-            .collect();
+        // Um `this` SINTETIZADO tem de ser `params[0]` — é assim que
+        // `FnSig::has_this` o enxerga e o invoker liga o receiver em a0. Quando a
+        // função também CAPTURA, o layout é `[this, ...captures, ...params]`: o
+        // `this` fica na frente e as capturas vêm depois dele (o thunk lê o env a
+        // partir do índice 1 nesse caso — ver `thunk.rs::cap_lo`).
+        //
+        // Antes isso era um bail ("capturing `function(){ … this … }` stays a
+        // later increment") e custava caro: é EXATAMENTE a forma do
+        // `babelHelpers.inheritsLoose` (`function t(){ return e.apply(this,
+        // arguments) || this }`), que todo bundle transpilado por Babel emite —
+        // 19 ocorrências independentes num único arquivo do WhatsApp Web, e a
+        // primeira delas derrubava o script inteiro como "expression arrow".
+        let this_param = if this_synthesized {
+            Some(params.remove(0))
+        } else {
+            None
+        };
+        let mut all_params: Vec<HirParam> = Vec::new();
+        all_params.extend(this_param);
+        all_params.extend(captures.iter().map(|n| HirParam {
+            name: if n == "this" {
+                this_rename.to_string()
+            } else {
+                n.clone()
+            },
+            ty: HirType::Any,
+            variadic: false,
+            has_default: false,
+            optional: false,
+            default_expr: None,
+        }));
         all_params.extend(params.iter().cloned());
 
         if !captures.is_empty() {

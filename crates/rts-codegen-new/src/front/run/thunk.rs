@@ -149,11 +149,19 @@ fn build_thunk_body(
     // A closure's leading `capture_count` real params come from `env[i]`; the rest
     // are the arrow's own declared params, riding a0..a3 / rest at the SHIFTED
     // position `i - capture_count` (the env params do not consume positional slots).
+    // A `this`-first CLOSURE (`function(){ … this … }` que também captura — o
+    // helper `inheritsLoose` que todo bundle transpilado por Babel emite) tem o
+    // layout `[this, ...captures, ...params]`: `this` PRECISA ser `params[0]`
+    // (é assim que `FnSig::has_this` o enxerga e o invoker liga o receiver em
+    // a0), então as capturas vêm DEPOIS dele e o env começa no índice 1.
+    let this_first = sig.has_this && capture_count > 0;
+    let cap_lo = usize::from(this_first);
+    let cap_hi = cap_lo + capture_count;
     let mut call_args: Vec<Value> = Vec::with_capacity(sig.params.len());
     for (i, &repr) in sig.params.iter().enumerate() {
-        let word = if i < capture_count {
+        let word = if i >= cap_lo && i < cap_hi {
             // Captured var: read the snapshot from the env array.
-            let idx = fb.ins().iconst(types::I64, i as i64);
+            let idx = fb.ins().iconst(types::I64, (i - cap_lo) as i64);
             emit_marshal::emit_vec_get(module, fb, env_word, idx)
         } else if sig.rest_param == Some(i) {
             // The `...rest` param: PACK the remaining positional slots (trailing
@@ -161,7 +169,7 @@ fn build_thunk_body(
             // EXPLICIT trailing `undefined` argument is indistinguishable from an
             // absent one; a documented divergence) plus the overflow array into
             // one fresh array word.
-            let pos = i - capture_count;
+            let pos = i - capture_count - cap_lo;
             let start = fb.ins().iconst(types::I64, pos as i64);
             let pack = emit_marshal::emit_call(
                 module,
@@ -178,7 +186,9 @@ fn build_thunk_body(
             );
             pack.expect("__rtsadp_pack_rest returns a value")
         } else {
-            let pos = i - capture_count;
+            // `this` (quando é params[0] num closure) fica em a0; os params
+            // próprios vêm depois do bloco de capturas.
+            let pos = if i < cap_lo { i } else { i - capture_count };
             if pos < POSITIONAL {
                 positional[pos]
             } else {
