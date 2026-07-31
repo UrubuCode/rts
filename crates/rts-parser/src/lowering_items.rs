@@ -7,6 +7,25 @@
 /// resumption value. `visit_mut_function` is a no-op so we never descend into a
 /// function body — only generators that capture nothing (true top-level) are
 /// hoisted, avoiding broken captures.
+/// Nomes que qualquer escopo enxerga — mencioná-los NÃO é captura.
+///
+/// É uma HEURÍSTICA de otimização, não um requisito de correção, e é por isso
+/// que uma lista parcial é tolerável: um global ausente daqui é classificado
+/// como captura, e o único efeito é o generator levantado recebê-lo como
+/// PARÂMETRO — que o wrapper passa a partir do escopo original, onde o nome
+/// resolve como global de qualquer forma. O resultado continua certo; perde-se
+/// apenas a chance de levantar sem wrapper.
+///
+/// Uma fonte de verdade só: `sem_captura_ext` (que responde se a lista é vazia)
+/// e `capturas` (que devolve a lista) leem daqui.
+const GLOBAIS_VISIVEIS: &[&str] = &[
+    "undefined", "null", "true", "false", "this", "arguments", "console",
+    "Object", "Array", "String", "Number", "Boolean", "Math", "JSON",
+    "Date", "RegExp", "Error", "TypeError", "RangeError", "Promise",
+    "Symbol", "Map", "Set", "WeakMap", "WeakSet", "Infinity", "NaN",
+    "globalThis", "window", "document", "self", "parseInt", "parseFloat",
+];
+
 #[derive(Default)]
 struct GenExprHoister {
     hoisted: Vec<swc_ecma_ast::FnDecl>,
@@ -72,6 +91,7 @@ impl swc_ecma_visit::VisitMut for GenExprHoister {
             // for-of / spread seguem funcionando sobre o buffer.
             if fe.function.is_generator && !pode_levantar {
                 if let Some(corpo) = fe.function.body.as_ref() {
+                    let de_valor = Self::usa_yield_como_valor(corpo);
                     let desugarado = crate::generator_desugar::desugar_generator_body(corpo);
                     // O eager-buffer só expressa `yield` em posição de STATEMENT
                     // (vira `__gen_buf.push`). Um `yield` usado como VALOR
@@ -80,9 +100,87 @@ impl swc_ecma_visit::VisitMut for GenExprHoister {
                     // state-machine — que exige o hoist —, então cai no caminho
                     // de sempre: continua levantando (e continua perdendo a
                     // captura, honestamente, como antes).
-                    if !Self::contem_yield(&desugarado) {
+                    if !de_valor {
                         fe.function.body = Some(desugarado);
                         fe.function.is_generator = false;
+                        return;
+                    }
+                    // Corpo com `yield` em posição de VALOR precisa da
+                    // state-machine, que exige o hoist — e o hoist perderia a
+                    // captura. Sai da contradição levantando com as CAPTURAS
+                    // COMO PARÂMETROS (o corpo já as referencia por esses nomes,
+                    // então nada é renomeado) e deixando no lugar um wrapper
+                    // COMUM que as repassa: o wrapper captura pelo caminho de
+                    // closure que já existe, e o generator vira decl de topo,
+                    // onde a state-machine funciona.
+                    //
+                    //   const g = function*(){ const a = yield o.v; };
+                    // vira
+                    //   function* __genexpr_N(o){ const a = yield o.v; }
+                    //   const g = function(){ return __genexpr_N(o); };
+                    let caps = Self::capturas(&fe.function, &self.irmas_do_bloco);
+                    if !caps.is_empty() {
+                        let name = format!("__genexpr_{}", self.counter);
+                        self.counter += 1;
+                        let ident_de = |n: &str| swc_ecma_ast::Ident {
+                            span: Default::default(),
+                            ctxt: Default::default(),
+                            sym: n.into(),
+                            optional: false,
+                        };
+                        let id_gen = ident_de(&name);
+                        let mut levantada = fe.function.clone();
+                        let mut ps: Vec<swc_ecma_ast::Param> = caps
+                            .iter()
+                            .map(|c| swc_ecma_ast::Param {
+                                span: Default::default(),
+                                decorators: Vec::new(),
+                                pat: swc_ecma_ast::Pat::Ident(ident_de(c).into()),
+                            })
+                            .collect();
+                        ps.extend(fe.function.params.clone());
+                        levantada.params = ps;
+                        self.hoisted.push(swc_ecma_ast::FnDecl {
+                            ident: id_gen.clone(),
+                            declare: false,
+                            function: levantada,
+                        });
+                        let mut args: Vec<swc_ecma_ast::ExprOrSpread> = caps
+                            .iter()
+                            .map(|c| swc_ecma_ast::ExprOrSpread {
+                                spread: None,
+                                expr: Box::new(Expr::Ident(ident_de(c))),
+                            })
+                            .collect();
+                        for pp in &fe.function.params {
+                            if let swc_ecma_ast::Pat::Ident(bi) = &pp.pat {
+                                args.push(swc_ecma_ast::ExprOrSpread {
+                                    spread: None,
+                                    expr: Box::new(Expr::Ident(ident_de(&bi.id.sym.to_string()))),
+                                });
+                            }
+                        }
+                        let chamada = Expr::Call(swc_ecma_ast::CallExpr {
+                            span: Default::default(),
+                            ctxt: Default::default(),
+                            callee: swc_ecma_ast::Callee::Expr(Box::new(Expr::Ident(id_gen))),
+                            args,
+                            type_args: None,
+                        });
+                        let mut wrapper = fe.function.clone();
+                        wrapper.is_generator = false;
+                        wrapper.body = Some(swc_ecma_ast::BlockStmt {
+                            span: Default::default(),
+                            ctxt: Default::default(),
+                            stmts: vec![Stmt::Return(swc_ecma_ast::ReturnStmt {
+                                span: Default::default(),
+                                arg: Some(Box::new(chamada)),
+                            })],
+                        });
+                        *e = Expr::Fn(swc_ecma_ast::FnExpr {
+                            ident: None,
+                            function: wrapper,
+                        });
                         return;
                     }
                 }
@@ -305,15 +403,39 @@ impl GenExprHoister {
         u.0
     }
 
-    /// Sobrou algum `yield` no corpo depois do desugar eager? Só resta quando o
-    /// `yield` estava em posição de VALOR — o buffer não tem como expressá-lo.
-    fn contem_yield(b: &swc_ecma_ast::BlockStmt) -> bool {
+    /// O corpo usa `yield` em posição de VALOR (`const a = yield b`, `f(yield b)`)?
+    ///
+    /// Tem de ser decidido no corpo ORIGINAL, ANTES do desugar: o eager-buffer
+    /// NÃO deixa o `yield` sobrando para ser detectado depois — ele reescreve
+    /// todo `yield X` para `__gen_buf.push(X)`, inclusive em posição de valor,
+    /// e aí `const a = yield x` silenciosamente vira `const a = push(...)`. Um
+    /// valor errado, não um erro.
+    ///
+    /// A regra: um `yield` em posição de STATEMENT é o `expr` direto de um
+    /// `ExprStmt` — esse o buffer expressa. Qualquer outro é de valor.
+    fn usa_yield_como_valor(b: &swc_ecma_ast::BlockStmt) -> bool {
         use swc_ecma_visit::{Visit, VisitWith};
         #[derive(Default)]
-        struct Achou(bool);
+        struct Achou {
+            de_valor: bool,
+        }
         impl Visit for Achou {
-            fn visit_yield_expr(&mut self, _: &swc_ecma_ast::YieldExpr) {
-                self.0 = true;
+            fn visit_stmt(&mut self, st: &Stmt) {
+                // `yield X;` sozinho: o buffer expressa. Desce só nos FILHOS do
+                // yield (o argumento pode conter outro yield de valor).
+                if let Stmt::Expr(es) = st {
+                    if let Expr::Yield(y) = es.expr.as_ref() {
+                        if let Some(arg) = &y.arg {
+                            arg.visit_with(self);
+                        }
+                        return;
+                    }
+                }
+                st.visit_children_with(self);
+            }
+            fn visit_yield_expr(&mut self, y: &swc_ecma_ast::YieldExpr) {
+                self.de_valor = true;
+                y.visit_children_with(self);
             }
             // NÃO desce em funções aninhadas: um `yield` lá dentro pertence a
             // OUTRO generator, não a este corpo.
@@ -322,7 +444,61 @@ impl GenExprHoister {
         }
         let mut v = Achou::default();
         b.visit_with(&mut v);
-        v.0
+        v.de_valor
+    }
+
+    /// Os nomes LIVRES do corpo — o que a função captura do escopo em que está.
+    /// Mesma análise de `sem_captura_ext` (que só responde se a lista é vazia),
+    /// aqui devolvendo a lista em ordem de primeiro uso, sem repetição.
+    fn capturas(f: &SwcFunction, irmas: &std::collections::HashSet<String>) -> Vec<String> {
+        use swc_ecma_visit::{Visit, VisitWith};
+
+        #[derive(Default)]
+        struct Livres {
+            ligados: std::collections::HashSet<String>,
+            usados: Vec<String>,
+        }
+        impl Visit for Livres {
+            fn visit_ident(&mut self, i: &swc_ecma_ast::Ident) {
+                self.usados.push(i.sym.to_string());
+            }
+            fn visit_var_declarator(&mut self, d: &swc_ecma_ast::VarDeclarator) {
+                if let swc_ecma_ast::Pat::Ident(bi) = &d.name {
+                    self.ligados.insert(bi.id.sym.to_string());
+                }
+                d.visit_children_with(self);
+            }
+            fn visit_fn_decl(&mut self, fd: &swc_ecma_ast::FnDecl) {
+                self.ligados.insert(fd.ident.sym.to_string());
+                fd.visit_children_with(self);
+            }
+            fn visit_param(&mut self, p: &swc_ecma_ast::Param) {
+                if let swc_ecma_ast::Pat::Ident(bi) = &p.pat {
+                    self.ligados.insert(bi.id.sym.to_string());
+                }
+                p.visit_children_with(self);
+            }
+        }
+
+        let mut v = Livres::default();
+        for p in &f.params {
+            if let swc_ecma_ast::Pat::Ident(bi) = &p.pat {
+                v.ligados.insert(bi.id.sym.to_string());
+            }
+        }
+        if let Some(b) = &f.body {
+            b.visit_with(&mut v);
+        }
+        let mut out: Vec<String> = Vec::new();
+        for u in &v.usados {
+            if v.ligados.contains(u) || GLOBAIS_VISIVEIS.contains(&u.as_str()) || irmas.contains(u) {
+                continue;
+            }
+            if !out.contains(u) {
+                out.push(u.clone());
+            }
+        }
+        out
     }
 
     fn sem_captura(f: &SwcFunction) -> bool {
@@ -368,16 +544,8 @@ impl GenExprHoister {
         if let Some(b) = &f.body {
             b.visit_with(&mut v);
         }
-        // Globais que qualquer escopo enxerga — mencioná-los não é captura.
-        const GLOBAIS: &[&str] = &[
-            "undefined", "null", "true", "false", "this", "arguments", "console",
-            "Object", "Array", "String", "Number", "Boolean", "Math", "JSON",
-            "Date", "RegExp", "Error", "TypeError", "RangeError", "Promise",
-            "Symbol", "Map", "Set", "WeakMap", "WeakSet", "Infinity", "NaN",
-            "globalThis", "window", "document", "self", "parseInt", "parseFloat",
-        ];
         v.usados.iter().all(|u| {
-            v.ligados.contains(u) || GLOBAIS.contains(&u.as_str()) || irmas.contains(u)
+            v.ligados.contains(u) || GLOBAIS_VISIVEIS.contains(&u.as_str()) || irmas.contains(u)
         })
     }
 }
