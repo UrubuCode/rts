@@ -11,7 +11,7 @@ import dom from "rts:dom";
 import input from "rts:input";
 import fetchNs from "rts:fetch";
 import imgdec from "rts:imgdec";
-import { fs, io, buffer, env } from "rts";
+import { fs, io, buffer, env, time } from "rts";
 
 const KEY_ENTER = 1;
 const KEY_BACKSPACE = 4;
@@ -322,14 +322,25 @@ while (egui.isOpen(win) !== 0) {
       // apontando pra este DOM). Script que não compila no subset é isolado
       // (loga o erro e segue — como o console do browser).
       docF = new Document(d);
+      // Baixa os recursos EXTERNOS que a página pede (`<link rel=stylesheet>` e
+      // `<script src=http>`) e materializa o fonte no nó — é o que o browser faz
+      // antes de executar. Ligado por padrão desde que o pré-passo saiu do `.ts`
+      // para Rust: os bundles de aplicação da Meta somam ~15 MB e o pré-passo
+      // sozinho levava 49 s (varredura quadrática nossa, não bundle patológico);
+      // hoje é ~1 s e o custo real vira compilação. `RTS_NO_EXT=1` desliga.
+      // `< 1` e não `=== 0`: variável AUSENTE devolve length -1 (não 0).
+      if (env.get_var("RTS_NO_EXT").length < 1) {
+        const tRes = time.now_ms();
+        const nres = loadResources(docF, normalize(pendingUrl));
+        io.print("[res] " + nres + " recursos externos em " + (time.now_ms() - tRes) + "ms");
+      }
+      const tJs = time.now_ms();
       const njs = runScriptsAt(docF, normalize(pendingUrl));
       // Globais que o bootstrap da página publicou (o `requireLazy` da Meta e
       // companhia). Lido via `docF._dom`, NUNCA pelo `d` solto: handle passado
       // como valor entre chamadas corrompe (#1870) e o contador vem 0.
       io.print("[js] globais da pagina: " + DomScope.count(docF._dom));
-      let __gi = 0;
-      while (__gi < DomScope.count(docF._dom)) { io.print("   g: " + DomScope.nameAt(docF._dom, __gi)); __gi = __gi + 1; }
-      io.print("[js] scripts executados: " + njs);
+      io.print("[js] scripts executados: " + njs + " em " + (time.now_ms() - tJs) + "ms");
     } else if (st < 0) {
       pendingTicket = 0; // ticket inválido: aborta
     }
