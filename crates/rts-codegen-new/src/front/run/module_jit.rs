@@ -312,10 +312,13 @@ pub(crate) fn populate_module(
             if let Some(s) = sigs.get_mut(&f.name) {
                 s.ret_lazy_gen = lazy;
                 s.ret_eager_gen = eager;
-                // O repasse tem de manter a REPR do alvo: um generator lazy é um
-                // handle cru (`Int64`); coagi-lo perde o handle.
+                // Um REPASSE devolve o que o alvo já devolveu — e desde #2042 o
+                // call site do ctor lazy BOXA o handle como word `TAG_OBJECT`.
+                // Então o repassador carrega uma word `Tagged`, não o handle cru:
+                // marcá-lo `Int64` fazia o call site boxar de novo e destruir o
+                // handle (generator via outra função lia `undefined`).
                 if lazy {
-                    s.ret = Some(crate::repr::Repr::Int64);
+                    s.ret = Some(crate::repr::Repr::Tagged);
                 } else if eager {
                     s.ret = Some(crate::repr::Repr::Tagged);
                 }
