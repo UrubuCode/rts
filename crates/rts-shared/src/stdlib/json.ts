@@ -95,9 +95,17 @@ function __json_render(v: any, pad: string, depth: number, keyFilter: any, fnRep
   if (t === "undefined" || t === "function") return undefined;
   // A Boolean/Number/String WRAPPER object serializes as its wrapped PRIMITIVE
   // (SerializeJSONProperty reads [[BooleanData]]/ToNumber/ToString of the box) —
-  // expando properties are ignored. `__prim` is the engine-owned wrapper slot.
+  // expando properties are ignored.
+  //
+  // The engine has TWO wrapper forms and both must unwrap: `Object(5)` builds the
+  // shape object `{ __prim: 5 }`, while `new Number(5)` builds a class instance
+  // whose primitive is reached through `valueOf()`. Checking only `__prim` made
+  // `JSON.stringify(new Number(5))` render `{}` instead of `5` (issue #2017).
   if (t === "object" && typeof v.__prim !== "undefined") {
     return __json_render(v.__prim, pad, depth, keyFilter, fnReplacer, seen);
+  }
+  if (t === "object" && (v instanceof Number || v instanceof String || v instanceof Boolean)) {
+    return __json_render(v.valueOf(), pad, depth, keyFilter, fnReplacer, seen);
   }
   // Cycle detection (ECMAScript SerializeJSON*): re-entering a value already on
   // the render stack throws.
