@@ -81,7 +81,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // through the Registry — the SAME path a direct `rts:<ns>` member-import call
         // uses. An unknown member / unregistered namespace bails honestly.
         if let HirExprKind::Ident(obj) = &object.kind {
-            if let Some((_ns, member)) = self.builtins.get(obj).cloned() {
+            // Um LOCAL de mesmo nome SOMBREIA o import — é o escopo de JS. Sem
+            // esta guarda, `import f from "rts:fetch"` no programa do usuário
+            // fazia o `const f = this.__fwd; f.write(chunk)` do PRELUDE
+            // (streams.ts) resolver `write` contra o namespace `rts:fetch`, e o
+            // programa inteiro morria em "no matching namespace function".
+            // Ou seja: o NOME que o usuário escolhe no import podia quebrar o
+            // prelude — e código minificado usa nomes de uma letra o tempo todo.
+            let sombreado = self.local(obj).is_some() || self.classes.get(obj).is_some();
+            if let Some((_ns, member)) = self.builtins.get(obj).cloned().filter(|_| !sombreado) {
                 if member.is_empty() {
                     return self
                         .lower_builtin_call(module, &_ns, method, args)
