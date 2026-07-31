@@ -22,7 +22,7 @@
 
 use crate::abi::AbiType;
 use std::collections::HashMap;
-use std::sync::{OnceLock, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 /// One resolved native instance method: its raw fn pointer plus the ABI
 /// signature the marshaller needs to build the call.
@@ -46,10 +46,25 @@ pub struct CiMethod {
 unsafe impl Send for CiMethod {}
 unsafe impl Sync for CiMethod {}
 
-type Key = (String, String, usize);
+/// The arity overloads of ONE `(class, method)` pair. Tiny in practice (a method
+/// declares one signature, at most a handful of arity variants), so the `_ge`
+/// searches scan it directly instead of paying an index.
+type Overloads = Vec<(usize, Arc<CiMethod>)>;
 
-fn table() -> &'static RwLock<HashMap<Key, CiMethod>> {
-    static TABLE: OnceLock<RwLock<HashMap<Key, CiMethod>>> = OnceLock::new();
+/// `class -> method -> [(arity, method)]`.
+///
+/// NESTED on purpose. The flat `HashMap<(String, String, usize), _>` this
+/// replaces could not be probed without allocating: a `(String, String, usize)`
+/// key does not `Borrow` from a `(&str, &str, usize)`, so every lookup built two
+/// `String`s just to hash them — and every miss (the common case for `_ge`, whose
+/// whole job is to NOT match the exact arity) fell back to scanning the entire
+/// process-global table: every method of every registered class, on every dynamic
+/// property read and method call. Nesting restores `Borrow<str>`, so a lookup is
+/// two allocation-free hash probes plus a scan of that one method's overloads.
+type Table = HashMap<String, HashMap<String, Overloads>>;
+
+fn table() -> &'static RwLock<Table> {
+    static TABLE: OnceLock<RwLock<Table>> = OnceLock::new();
     TABLE.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
@@ -66,30 +81,37 @@ pub fn register_ci(
     ret: AbiType,
     is_getter: bool,
 ) {
-    table().write().unwrap().insert(
-        (class.to_string(), method.to_string(), arity),
-        CiMethod { fn_ptr, args, ret, is_getter },
-    );
+    let ci = Arc::new(CiMethod { fn_ptr, args, ret, is_getter });
+    let mut t = table().write().unwrap();
+    let overloads = t
+        .entry(class.to_string())
+        .or_default()
+        .entry(method.to_string())
+        .or_default();
+    match overloads.iter_mut().find(|(a, _)| *a == arity) {
+        Some(slot) => slot.1 = ci,
+        None => overloads.push((arity, ci)),
+    }
 }
 
-/// Like [`lookup_ci`] but tolerant of OPTIONAL trailing params: when no method is
-/// registered at exactly `min_arity`, return the one with the SMALLEST arity `>=
-/// min_arity` (a value-class method with defaulted trailing args — `indexOf(needle,
-/// position?)` called with one arg). The caller pads the omitted arg slots with
-/// `undefined` (which the body reads as its own default). `None` when no overload
-/// admits that arg count.
-pub fn lookup_ci_ge(class: &str, method: &str, min_arity: usize) -> Option<CiMethod> {
+/// Resolve `(class, method)` to its arity overloads, tolerant of OPTIONAL
+/// trailing params: when no method is registered at exactly `min_arity`, return
+/// the one with the SMALLEST arity `>= min_arity` (a value-class method with
+/// defaulted trailing args — `indexOf(needle, position?)` called with one arg).
+/// The caller pads the omitted arg slots with `undefined` (which the body reads
+/// as its own default). `None` when no overload admits that arg count.
+pub fn lookup_ci_ge(class: &str, method: &str, min_arity: usize) -> Option<Arc<CiMethod>> {
     let t = table().read().unwrap();
-    if let Some(ci) = t.get(&(class.to_string(), method.to_string(), min_arity)) {
+    let overloads = t.get(class)?.get(method)?;
+    if let Some((_, ci)) = overloads.iter().find(|(a, _)| *a == min_arity) {
         return Some(ci.clone());
     }
-    if let Some(ci) = t
+    if let Some((_, ci)) = overloads
         .iter()
-        .filter(|((c, m, a), ci)| c == class && m == method && *a >= min_arity && !ci.is_getter)
-        .min_by_key(|((_, _, a), _)| *a)
-        .map(|(_, ci)| ci.clone())
+        .filter(|(a, ci)| *a >= min_arity && !ci.is_getter)
+        .min_by_key(|(a, _)| *a)
     {
-        return Some(ci);
+        return Some(ci.clone());
     }
     // EXTRA args are IGNORED in JS: a call with more arguments than the method
     // declares is not an error, the surplus is dropped. So when no overload
@@ -98,9 +120,10 @@ pub fn lookup_ci_ge(class: &str, method: &str, min_arity: usize) -> Option<CiMet
     // whole JSON `toJSON` hook threw `TypeError: toJSON is not a function`
     // because nothing accepted 2 slots). The caller's surplus arg words are
     // simply not marshalled.
-    t.iter()
-        .filter(|((c, m, a), ci)| c == class && m == method && *a < min_arity && !ci.is_getter)
-        .max_by_key(|((_, _, a), _)| *a)
+    overloads
+        .iter()
+        .filter(|(a, ci)| *a < min_arity && !ci.is_getter)
+        .max_by_key(|(a, _)| *a)
         .map(|(_, ci)| ci.clone())
 }
 
@@ -109,21 +132,8 @@ pub fn lookup_ci_ge(class: &str, method: &str, min_arity: usize) -> Option<CiMet
 /// read yields a BOUND method value (`s["toUpperCase"]`), a miss falls through to
 /// the normal property lookup. Getters are excluded (they read as a value).
 pub fn has_instance_method(class: &str, method: &str) -> bool {
-    table()
-        .read()
-        .unwrap()
-        .iter()
-        .any(|((c, m, _), ci)| c == class && m == method && !ci.is_getter)
-}
-
-/// Look up a native instance method by the runtime class tag, method name, and
-/// full arity (receiver + explicit args). `None` when the class does not carry
-/// that method at that arity — the caller then falls back to its normal miss
-/// behavior (a `TypeError`).
-pub fn lookup_ci(class: &str, method: &str, arity: usize) -> Option<CiMethod> {
-    table()
-        .read()
-        .unwrap()
-        .get(&(class.to_string(), method.to_string(), arity))
-        .cloned()
+    let t = table().read().unwrap();
+    t.get(class)
+        .and_then(|methods| methods.get(method))
+        .is_some_and(|overloads| overloads.iter().any(|(_, ci)| !ci.is_getter))
 }

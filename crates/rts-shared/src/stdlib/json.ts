@@ -183,16 +183,34 @@ function __json_repeat(pad: string, n: number): string {
 // (for-of), never by UTF-16 unit index: `s[i]` on half a surrogate pair reads
 // a LONE surrogate the engine's UTF-8 pool cannot hold (it became U+FFFD —
 // JSON.stringify("😀") printed replacement chars).
+//
+// Run technique (same as `parseString` below / `__json_wrap` above): the old
+// `out += c` per code point cloned the whole accumulator on every call
+// (non-amortized `+=`), called once per string char AND once per object key —
+// O(k²) per string. `uidx` tracks the UTF-16 CODE-UNIT offset in lockstep with
+// the code-point for-of (`c.length` is 1 for a BMP code point, 2 for a
+// surrogate pair), so `substring` — itself UTF-16-code-unit indexed — always
+// lands on a code-point boundary. A run is only broken at an actual escape
+// target; everything else is copied in ONE `substring` per run.
 function __json_quote(s: string): string {
   let out = '"';
+  let uidx = 0;
+  let runStart = 0;
   for (const c of s) {
-    if (c === '"') out += '\\"';
-    else if (c === "\\") out += "\\\\";
-    else if (c === "\n") out += "\\n";
-    else if (c === "\r") out += "\\r";
-    else if (c === "\t") out += "\\t";
-    else out += c;
+    let esc = "";
+    if (c === '"') esc = '\\"';
+    else if (c === "\\") esc = "\\\\";
+    else if (c === "\n") esc = "\\n";
+    else if (c === "\r") esc = "\\r";
+    else if (c === "\t") esc = "\\t";
+    if (esc !== "") {
+      if (uidx > runStart) out += s.substring(runStart, uidx);
+      out += esc;
+      runStart = uidx + c.length;
+    }
+    uidx += c.length;
   }
+  if (uidx > runStart) out += s.substring(runStart, uidx);
   return out + '"';
 }
 

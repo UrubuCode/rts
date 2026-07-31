@@ -138,13 +138,19 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 .object_proto_unary(module, args, "__rtsadp_obj_proto_of")
                 .map(Some),
             "setPrototypeOf" => self.object_set_proto(module, args).map(Some),
-            // `Object.groupBy(items, cb)` (ES2024) → the prelude `.ts`
-            // `__object_group_by` (object.ts), same routing as `Object(x)` →
-            // `ObjectFactory`.
-            "groupBy" if args.len() == 2 && self.sigs.contains_key("__object_group_by") => {
-                let v = self.call_synth_fn(module, "__object_group_by", None, args)?;
-                let word = self.box_value(v);
-                Ok(Some(Val::tagged_kind(word, JsKind::Object)))
+            // `Object.groupBy(items, cb)` (ES2024) → the runtime trampoline.
+            // WAS the `.ts` prelude `__object_group_by`; moved to Rust so the
+            // per-element bucket lookup is the engine's shape-indexed property
+            // read instead of a linear scan over a parallel key array.
+            "groupBy" if args.len() == 2 => {
+                let items = self.lower_expr(module, &args[0])?;
+                let items_word = self.box_value(items);
+                let cb = self.lower_expr(module, &args[1])?;
+                let cb_word = self.box_value(cb);
+                let res = self
+                    .call_runtime(module, "__rtsadp_obj_group_by", &[items_word, cb_word])?
+                    .expect("__rtsadp_obj_group_by returns an object word");
+                Ok(Some(Val::tagged_kind(res, JsKind::Object)))
             }
             other => unsupported!("Object.{other}(...) static method (later increment)"),
         }

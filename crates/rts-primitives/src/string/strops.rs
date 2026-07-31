@@ -111,10 +111,43 @@ pub fn code_point_at(s: &str, idx: i64) -> u64 {
 
 /// `str.at(idx)` — the CODE POINT at `idx` (negative counts from the end). OOB
 /// yields the literal string `"undefined"` (the historical bridge's sentinel).
+///
+/// Two fast paths, chosen to avoid the O(n^2) blowup a `for (i..) s.at(i)` loop
+/// hit before (the original always did TWO full `chars()` walks — one to count,
+/// one to seek — per call):
+/// - Whole string is ASCII: byte index and code-point index coincide 1:1, so
+///   indexing is O(1) direct — no `chars()` walk at all. Note this does NOT
+///   reuse `utf16_unit_at`'s per-byte "is this one byte ASCII" trick: that
+///   trick is sound for its own use (byte offset == UTF-16 code-unit offset
+///   only needs the checked byte, since a `< 0x80` byte can never be a
+///   continuation byte) but does NOT carry over to code-point indexing here —
+///   a single ASCII byte later in the string does not imply every code point
+///   before it was single-byte, so it cannot stand in for a whole-string
+///   ASCII check. `bytes.is_ascii()` is a vectorized single scan, cheap enough
+///   to gate on directly.
+/// - Non-ASCII, non-negative `idx`: `chars().nth(idx)` alone already reports
+///   out-of-range, so the count-first walk is skipped (only a NEGATIVE idx
+///   needs the total count to resolve `count + idx`) — one walk instead of two.
 pub fn at(s: &str, idx: i64) -> String {
+    let bytes = s.as_bytes();
+    if bytes.is_ascii() {
+        let count = bytes.len() as i64;
+        let i = if idx < 0 { count + idx } else { idx };
+        return if i < 0 || i >= count {
+            "undefined".to_string()
+        } else {
+            (bytes[i as usize] as char).to_string()
+        };
+    }
+    if idx >= 0 {
+        return match s.chars().nth(idx as usize) {
+            Some(ch) => ch.to_string(),
+            None => "undefined".to_string(),
+        };
+    }
     let count = s.chars().count() as i64;
-    let i = if idx < 0 { count + idx } else { idx };
-    if i < 0 || i >= count {
+    let i = count + idx;
+    if i < 0 {
         return "undefined".to_string();
     }
     match s.chars().nth(i as usize) {

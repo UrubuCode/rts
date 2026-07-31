@@ -23,10 +23,13 @@ fn non_enumerable_set() -> &'static Mutex<HashSet<(u64, String)>> {
 }
 
 pub fn is_non_enumerable(handle: u64, key: &str) -> bool {
-    non_enumerable_set()
-        .lock()
-        .unwrap()
-        .contains(&(handle, key.to_string()))
+    let set = non_enumerable_set().lock().unwrap();
+    // Almost every program never marks a property non-enumerable — skip the
+    // `key.to_string()` allocation when the set is guaranteed empty.
+    if set.is_empty() {
+        return false;
+    }
+    set.contains(&(handle, key.to_string()))
 }
 
 pub fn mark_non_enumerable(handle: u64, key: &str) {
@@ -52,10 +55,11 @@ fn non_writable_set() -> &'static Mutex<HashSet<(u64, String)>> {
 }
 
 pub fn is_non_writable(handle: u64, key: &str) -> bool {
-    non_writable_set()
-        .lock()
-        .unwrap()
-        .contains(&(handle, key.to_string()))
+    let set = non_writable_set().lock().unwrap();
+    if set.is_empty() {
+        return false;
+    }
+    set.contains(&(handle, key.to_string()))
 }
 
 pub fn mark_non_writable(handle: u64, key: &str) {
@@ -81,10 +85,11 @@ fn non_configurable_set() -> &'static Mutex<HashSet<(u64, String)>> {
 }
 
 pub fn is_non_configurable(handle: u64, key: &str) -> bool {
-    non_configurable_set()
-        .lock()
-        .unwrap()
-        .contains(&(handle, key.to_string()))
+    let set = non_configurable_set().lock().unwrap();
+    if set.is_empty() {
+        return false;
+    }
+    set.contains(&(handle, key.to_string()))
 }
 
 pub fn mark_non_configurable(handle: u64, key: &str) {

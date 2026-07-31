@@ -23,6 +23,8 @@
 //! `&'static str` symbol with no copy; the `AbiType`s are `Copy` so the small
 //! `arg_abis` vec is the only allocation per resolution.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use rts_engine::abi::{AbiType, DefaultArg, MemberFlags, MemberKind};
@@ -639,31 +641,71 @@ pub fn instanceof_predicate(class: &str) -> Option<&'static str> {
     c.instanceof_predicate.as_deref()
 }
 
+thread_local! {
+    /// Per-thread memo of [`dyn_getter_candidates`], keyed by the queried
+    /// property name. Safe with NO invalidation path: `registry()` is a
+    /// `Box::leak`ed, PROCESS-LIFETIME `&'static Registry` built exactly once
+    /// (see its doc) and never rebuilt — `crate::state::reset_codegen_state`
+    /// (the engine's explicit process-global-state drain, read before adding
+    /// this cache) does NOT touch it, because unlike the tables it DOES drain
+    /// (shape ids / ctor tables / gcells, all keyed by a specific program's LIVE
+    /// heap words) the Registry holds no per-program data — it is pure spec
+    /// metadata harvested from `#[rtse::*]` declarations at process start. So
+    /// the candidate set for a given key is invariant for the life of the
+    /// process, across however many programs compile/run in it.
+    // NOT a `const { … }` initializer (the idiom used by the other thread-locals
+    // in this crate): `HashMap::new` builds a `RandomState`, so it is not a
+    // `const fn`. Lazy init on first `with` instead.
+    static GETTER_CANDIDATES_CACHE: RefCell<HashMap<String, Vec<(String, &'static str, ResolvedCall)>>> =
+        RefCell::new(HashMap::new());
+    /// Per-thread memo of [`dyn_instance_candidates`], keyed by `(method,
+    /// argc)`. Same invariant-Registry justification as
+    /// [`GETTER_CANDIDATES_CACHE`].
+    static INSTANCE_CANDIDATES_CACHE: RefCell<HashMap<(String, usize), Vec<(String, &'static str, ResolvedCall)>>> =
+        RefCell::new(HashMap::new());
+}
+
 /// The candidate set for the DYNAMIC (runtime-predicate) Registry instance
 /// GETTER dispatch: every Registry class that declares an `instanceof_predicate`
 /// AND an instance getter `prop`. Data-driven — the front names no class.
+/// Memoized per thread (see [`GETTER_CANDIDATES_CACHE`]): this used to re-scan
+/// EVERY registered class on every dynamic-getter call site lowered, uncached.
 pub fn dyn_getter_candidates(prop: &str) -> Vec<(String, &'static str, ResolvedCall)> {
+    if let Some(hit) = GETTER_CANDIDATES_CACHE.with(|c| c.borrow().get(prop).cloned()) {
+        return hit;
+    }
     let reg: &'static rts_engine::Registry = registry();
-    reg.classes()
+    let out: Vec<(String, &'static str, ResolvedCall)> = reg
+        .classes()
         .filter_map(|c| {
             let pred = c.instanceof_predicate.as_deref()?;
             let m = c.instance_getter(prop)?;
             Some((c.name.clone(), pred, instance_call(m)))
         })
-        .collect()
+        .collect();
+    GETTER_CANDIDATES_CACHE.with(|c| c.borrow_mut().insert(prop.to_string(), out.clone()));
+    out
 }
 
 /// The candidate set for the DYNAMIC (runtime-predicate) Registry instance
 /// dispatch: every Registry class that BOTH declares an `instanceof_predicate`
 /// AND resolves instance method `method` for a call with `argc` explicit args
 /// (arity window `[required, total]`, same rule the static instance path uses).
-/// Ordered as registered. Data-driven — the front names no class.
+/// Ordered as registered. Data-driven — the front names no class. Memoized per
+/// thread (see [`INSTANCE_CANDIDATES_CACHE`]): this used to re-scan EVERY
+/// registered class on every dynamic-dispatch call site lowered, uncached.
 pub fn dyn_instance_candidates(
     method: &str,
     argc: usize,
 ) -> Vec<(String, &'static str, ResolvedCall)> {
+    if let Some(hit) =
+        INSTANCE_CANDIDATES_CACHE.with(|c| c.borrow().get(&(method.to_string(), argc)).cloned())
+    {
+        return hit;
+    }
     let reg: &'static rts_engine::Registry = registry();
-    reg.classes()
+    let out: Vec<(String, &'static str, ResolvedCall)> = reg
+        .classes()
         .filter_map(|c| {
             let pred = c.instanceof_predicate.as_deref()?;
             let m = c.resolve_instance_method(method, argc)?;
@@ -686,7 +728,10 @@ pub fn dyn_instance_candidates(
             }
             Some((c.name.clone(), pred, call))
         })
-        .collect()
+        .collect();
+    INSTANCE_CANDIDATES_CACHE
+        .with(|c| c.borrow_mut().insert((method.to_string(), argc), out.clone()));
+    out
 }
 
 /// Generate `rts.d.ts` from the live Registry — classes, `rts:`/`node:` modules,

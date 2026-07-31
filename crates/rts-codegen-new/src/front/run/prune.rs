@@ -101,8 +101,8 @@ const ENGINE_CALLED_PRELUDE_FNS: &[&str] = &[
     // `StringFactory`/`BooleanFactory`/`NumberFactory` no longer exist — String/
     // Boolean/Number all moved to pure-Rust value-classes (`rts-primitives/src/
     // string/value_class.rs`, `boolean.rs`, `number/mod.rs`).
-    // `Object.groupBy(..)` → `__object_group_by(..)` (objstatic.rs)
-    "__object_group_by",
+    // `Object.groupBy(..)` no longer belongs here — it moved from the prelude
+    // `__object_group_by` to the Rust trampoline `__rtsadp_obj_group_by`.
 ];
 
 /// Drop every prelude function unreachable from `main` + the user functions.

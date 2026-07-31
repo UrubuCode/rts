@@ -33,6 +33,9 @@
 //! is a data row, never a code arm — which is what makes the harvest swap
 //! mechanical rather than a rewrite.
 
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
 use rts_runtime::abi::AbiType;
 
 /// The class implied by a receiver value, as the engine can prove it statically.
@@ -139,20 +142,52 @@ pub fn array_method_returns_array(method: &str) -> bool {
         .any(|(name, _, spec)| *name == method && spec.ret_is_array)
 }
 
+/// Name → `(arity, spec)` rows index, built ONCE from a class's static row
+/// table. `resolve_method` is called at RUNTIME from the dynamic-receiver
+/// dispatch path (`arrayrow::dispatch`), so a linear scan of ~60 `ARRAY_ROWS`
+/// entries per call was a real per-call cost; this mirrors the `symbol_addrs()`
+/// `OnceLock<HashMap<...>>` idiom already used in `value/arrayrow.rs` — a
+/// pure re-index of static data, no behavior change.
+fn rows_index(
+    rows: &'static [(&'static str, usize, MethodSpec)],
+) -> HashMap<&'static str, Vec<(usize, MethodSpec)>> {
+    let mut map: HashMap<&'static str, Vec<(usize, MethodSpec)>> = HashMap::new();
+    for (name, arity, spec) in rows.iter().copied() {
+        map.entry(name).or_default().push((arity, spec));
+    }
+    map
+}
+
+fn string_rows_index() -> &'static HashMap<&'static str, Vec<(usize, MethodSpec)>> {
+    static MAP: OnceLock<HashMap<&'static str, Vec<(usize, MethodSpec)>>> = OnceLock::new();
+    MAP.get_or_init(|| rows_index(STRING_ROWS))
+}
+
+fn number_rows_index() -> &'static HashMap<&'static str, Vec<(usize, MethodSpec)>> {
+    static MAP: OnceLock<HashMap<&'static str, Vec<(usize, MethodSpec)>>> = OnceLock::new();
+    MAP.get_or_init(|| rows_index(NUMBER_ROWS))
+}
+
+fn array_rows_index() -> &'static HashMap<&'static str, Vec<(usize, MethodSpec)>> {
+    static MAP: OnceLock<HashMap<&'static str, Vec<(usize, MethodSpec)>>> = OnceLock::new();
+    MAP.get_or_init(|| rows_index(ARRAY_ROWS))
+}
+
 /// Resolve `recv_class.method(argc explicit args)` to a real [`MethodSpec`], or
-/// `None` when the metadata has no matching `(method, arity)` row. ONE generic
-/// path: a linear scan of the class's static method table for a name + exact
-/// explicit-arity match (mirroring `Class::resolve_instance_method`'s exact-arity
-/// rule). `None` makes the lowering BAIL explicitly — never a guess.
+/// `None` when the metadata has no matching `(method, arity)` row. Looks up the
+/// method NAME in the class's `OnceLock`-cached index (O(1)), then scans only
+/// that name's few registered arities (mirroring `Class::resolve_instance_method`'s
+/// exact-arity rule). `None` makes the lowering BAIL explicitly — never a guess.
 pub fn resolve_method(recv_class: RecvClass, method: &str, argc: usize) -> Option<MethodSpec> {
-    let rows: &[(&'static str, usize, MethodSpec)] = match recv_class {
-        RecvClass::String => STRING_ROWS,
-        RecvClass::Number => NUMBER_ROWS,
-        RecvClass::Array => ARRAY_ROWS,
+    let idx = match recv_class {
+        RecvClass::String => string_rows_index(),
+        RecvClass::Number => number_rows_index(),
+        RecvClass::Array => array_rows_index(),
     };
-    rows.iter()
-        .find(|(name, arity, _)| *name == method && *arity == argc)
-        .map(|(_, _, spec)| *spec)
+    idx.get(method)?
+        .iter()
+        .find(|(arity, _)| *arity == argc)
+        .map(|(_, spec)| *spec)
 }
 
 // ===========================================================================

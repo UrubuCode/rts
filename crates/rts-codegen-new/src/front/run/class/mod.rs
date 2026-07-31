@@ -40,7 +40,7 @@
 //! `extends` of an unknown parent, mixing field+accessor) makes the whole class
 //! [`Unsupported`] — the program never runs with a partially-modeled class.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use rts_ast::ast::{ClassDecl, ClassMember, MethodRole};
 
@@ -159,9 +159,12 @@ impl ClassDesc {
 }
 
 /// name → descriptor for every supported class in the program.
+///
+/// Backed by a `BTreeMap` (not a `HashMap`) SPECIFICALLY so iteration order is
+/// the class-name sort order for free — see [`Self::sorted`].
 #[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ClassTable {
-    by_name: HashMap<String, ClassDesc>,
+    by_name: BTreeMap<String, ClassDesc>,
 }
 
 impl ClassTable {
@@ -172,19 +175,27 @@ impl ClassTable {
 
     /// Every collected class descriptor (the METHOD-TABLE prologue walks all
     /// classes to register their methods with the runtime), in DETERMINISTIC
-    /// name order — a `HashMap::values()` iteration order is randomized per
-    /// process, and here it feeds code emission (new-thunk definition order,
-    /// method-table registration order), so leaving it random makes the emitted
-    /// object non-deterministic across compiles of the same source.
+    /// name order — this feeds code emission (new-thunk definition order,
+    /// method-table registration order), so a random order would make the
+    /// emitted object non-deterministic across compiles of the same source.
     pub fn descs(&self) -> impl Iterator<Item = &ClassDesc> {
         self.sorted()
     }
 
     /// The descriptors in stable name order (the deterministic-emission basis).
+    ///
+    /// `by_name` is keyed by the class name (the same string as
+    /// `ClassDesc.name` — see [`Self::insert`]), and it is a `BTreeMap`, whose
+    /// `values()` iterates in ascending KEY order for free. So this is just
+    /// `self.by_name.values()`: no per-call allocation, no per-call sort — the
+    /// determinism invariant holds BY CONSTRUCTION (the map's own ordering)
+    /// instead of by re-sorting a freshly collected `Vec` on every call. This
+    /// matters because `descs()`/`iter()` are called from inside per-call-site
+    /// lowering (e.g. `class/vdispatch.rs`, `optchain_lower.rs`,
+    /// `globalclass.rs`), so the old `Vec` + `sort_by` cost was paid
+    /// O(call sites × C log C) per compile.
     fn sorted(&self) -> impl Iterator<Item = &ClassDesc> {
-        let mut v: Vec<&ClassDesc> = self.by_name.values().collect();
-        v.sort_by(|a, b| a.name.cmp(&b.name));
-        v.into_iter()
+        self.by_name.values()
     }
 
     /// Whether class `name` is already collected (used by the literal-class

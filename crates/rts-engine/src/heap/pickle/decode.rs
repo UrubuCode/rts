@@ -6,6 +6,8 @@
 //! otherwise sweep entries only reachable from this Rust-heap state, which the
 //! conservative stack scanner cannot see) and unpinned before returning.
 
+use std::collections::HashMap;
+
 use super::super::handles::{
     alloc_entry, pin_handle, unpin_handle, with_entry_mut, ArrayBufferBacking, ArrayBufferData,
     BigIntData, Entry, FunctionData,
@@ -198,9 +200,20 @@ impl<'a> Dec<'a> {
                 // Fields matched BY KEY against the destination layout: extra
                 // stream fields drop, missing ones stay undefined (schema
                 // evolution tolerated — stricter than Python only in shape).
+                //
+                // Name → slot built ONCE here (not per incoming field): the
+                // stream must still be walked in ORDER (`self.value` consumes
+                // bytes sequentially, so the loop itself can't reorder), but the
+                // destination lookup no longer needs an O(dest_keys) linear scan
+                // per incoming field.
+                let dest_key_pos: HashMap<&str, usize> = dest_keys
+                    .iter()
+                    .enumerate()
+                    .map(|(i, k)| (k.as_str(), i))
+                    .collect();
                 for key in &keys {
                     let v = self.value(depth + 1)? as i64;
-                    if let Some(pos) = dest_keys.iter().position(|k| k == key) {
+                    if let Some(&pos) = dest_key_pos.get(key.as_str()) {
                         with_entry_mut(h, |e| {
                             if let Some(Entry::Vec(s)) = e {
                                 s[1 + pos] = v;

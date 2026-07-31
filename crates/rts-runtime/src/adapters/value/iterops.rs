@@ -19,6 +19,8 @@
 //! as a raw `u64` PolyValue word; the result is a fresh `Entry::Vec` boxed as a
 //! `TAG_OBJECT` array PolyValue word.
 
+use std::collections::HashSet;
+
 use rts_runtime::namespaces::collections::vec as rt_vec;
 use rts_runtime::namespaces::gc::handles as rt_handles;
 
@@ -320,7 +322,7 @@ fn obj_keys_impl(obj_word: u64, enumerable_only: bool) -> u64 {
                     }
                 }
             }
-            let mut listed: Vec<String> = Vec::new();
+            let mut listed: HashSet<String> = HashSet::new();
             for k in reorder_enum_keys(keys) {
                 // Symbol-keyed entries (`@@sym:<handle>` canonical repr, #798) are
                 // NOT string-enumerable: `Object.keys`/for-in/`JSON.stringify`
@@ -350,10 +352,10 @@ fn obj_keys_impl(obj_word: u64, enumerable_only: bool) -> u64 {
                     .or_else(|| k.strip_prefix("__set_"))
                     .unwrap_or(&k)
                     .to_string();
-                if listed.iter().any(|x| x == &name) {
+                if listed.contains(&name) {
                     continue;
                 }
-                listed.push(name.clone());
+                listed.insert(name.clone());
                 let word = abi_adapter::intern_poly(&name).raw() as i64;
                 rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, word);
             }
@@ -399,7 +401,10 @@ pub fn rtsadp_for_in_keys(obj_word: u64) -> u64 {
         return own;
     }
     let out_h = rt_handles::__rtsn_poly_to_handle(PolyValue::from_raw(own).as_handle());
-    let mut seen: Vec<String> = {
+    // Membership-only set (never iterated for order — output order comes solely
+    // from the VEC_PUSH sequence below), so a HashSet avoids the O(n^2) rescan a
+    // Vec + `.contains()` would cost across many prototype levels.
+    let mut seen: HashSet<String> = {
         let len = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(out_h).max(0);
         (0..len)
             .map(|i| {
@@ -434,7 +439,7 @@ pub fn rtsadp_for_in_keys(obj_word: u64) -> u64 {
             if s == "constructor" || seen.contains(&s) {
                 continue;
             }
-            seen.push(s);
+            seen.insert(s);
             rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out_h, w as i64);
         }
         cur = proto;

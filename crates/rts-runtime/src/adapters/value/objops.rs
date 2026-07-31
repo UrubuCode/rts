@@ -586,28 +586,34 @@ pub fn rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word: u64) -> u64 
             }
         }
     }
+    // Resolved ONCE for the rest of the function. The accessor probe below and
+    // the data-slot write under it asked the exact same two questions —
+    // `key_text` three times, `resolve_slot` twice — for the same
+    // `(obj, key)` on every write to an existing field, the hot path. Neither
+    // answer can change in between: the accessor branch RETURNS when it fires,
+    // so nothing it might mutate is observed here, and the GC is non-moving, so
+    // an allocation in the probe cannot invalidate a resolved slot.
+    let key = key_text(key_str_handle);
+    let slot = resolve_slot(obj_word, key_str_handle);
     // An ACCESSOR property (a `__set_<key>` slot from a literal setter /
     // defineProperty accessor) with NO data slot of the same name: assignment
     // INVOKES the setter (chain walk, `this` = the original receiver — the
     // mirror of the getter read in `obj_get`).
-    {
-        let key = key_text(key_str_handle);
-        if resolve_slot(obj_word, key_str_handle).is_none() && !key.starts_with("__") {
-            let skey = abi_adapter::intern_poly(&format!("__set_{key}")).raw();
-            let setter = lookup_chain(obj_word, skey, 0);
-            if PolyValue::from_raw(setter).is_function() {
-                let undef = PolyValue::undefined().raw();
-                super::funcops::__rtsadp_fn_invoke_method(
-                    setter, obj_word, val_word, undef, undef, 0,
-                );
-                return val_word;
-            }
+    if slot.is_none() && !key.starts_with("__") {
+        let skey = abi_adapter::intern_poly(&format!("__set_{key}")).raw();
+        let setter = lookup_chain(obj_word, skey, 0);
+        if PolyValue::from_raw(setter).is_function() {
+            let undef = PolyValue::undefined().raw();
+            super::funcops::__rtsadp_fn_invoke_method(
+                setter, obj_word, val_word, undef, undef, 0,
+            );
+            return val_word;
         }
     }
-    if let Some((handle, idx)) = resolve_slot(obj_word, key_str_handle) {
+    if let Some((handle, idx)) = slot {
         // A `writable:false` data property (set via defineProperty) blocks
         // re-assignment (sloppy mode: silent no-op, returns the value).
-        if !prop_writable(obj_word, &key_text(key_str_handle)) {
+        if !prop_writable(obj_word, &key) {
             return val_word;
         }
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_SET(handle, 1 + idx, val_word as i64);
@@ -726,6 +732,63 @@ pub fn rtsadp_obj_from_entries(entries_word: u64) -> u64 {
             let key_str = super::genops::__rtsadp_to_string(k_word);
             __rtsadp_obj_set(obj_word, key_str, v_word);
         }
+    }
+    obj_word
+}
+
+/// `Object.groupBy(items, cb)` — ES2024. Groups `items` into a fresh keyed
+/// object; the property key is `ToPropertyKey(cb(element, index))` and each
+/// bucket is an array in first-seen key order.
+///
+/// This REPLACES the `.ts` prelude `__object_group_by`, which carried the bucket
+/// index as a parallel `keys` array scanned linearly per element — O(items x
+/// distinct-keys), quadratic for a high-cardinality grouping key. Here the
+/// bucket lookup IS the engine's own shape-indexed property read on the object
+/// under construction, so it is O(1) per element with no second index to keep in
+/// sync.
+///
+/// A key that collides with an inherited member (`"toString"`, `"constructor"`)
+/// reads back as a FUNCTION, not an object, so it correctly falls through to
+/// "no bucket yet" and `obj_set` shadows it with an own array — the same
+/// behaviour the `.ts` version had.
+///
+/// Element words are read out of the source Vec and handed straight to the
+/// callback: `VEC_GET` releases the shard lock before returning, so no lock is
+/// held across a reentrant invoke (the [`super::arraycb`] rule).
+#[rtse::abi]
+pub fn rtsadp_obj_group_by(items_word: u64, cb_word: u64) -> u64 {
+    // Empty keyed object (slot 0 = empty-shape id, like a `{}` literal).
+    let obj_handle = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    let empty_shape = rts_engine::heap::shapes::intern_global_shape(&[]);
+    let slot0 = PolyValue::from_i32(empty_shape as i32).raw() as i64;
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(obj_handle, slot0);
+    let obj_word =
+        PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(obj_handle)).raw();
+
+    let items = PolyValue::from_raw(items_word);
+    if !items.is_object() {
+        return obj_word;
+    }
+    let ih = rt_handles::__rtsn_poly_to_handle(items.as_handle());
+    let n = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(ih).max(0);
+    let undef = PolyValue::undefined().raw();
+    for i in 0..n {
+        let elem = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(ih, i) as u64;
+        let idx_word = PolyValue::from_i32(i as i32).raw();
+        let k_word =
+            super::funcops::__rtsadp_fn_invoke(cb_word, elem, idx_word, undef, undef, undef);
+        let key_str = super::genops::__rtsadp_to_string(k_word);
+        let existing = PolyValue::from_raw(__rtsadp_obj_get(obj_word, key_str));
+        let bucket_h = if existing.is_object() {
+            rt_handles::__rtsn_poly_to_handle(existing.as_handle())
+        } else {
+            let fresh = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+            let fresh_word =
+                PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(fresh)).raw();
+            __rtsadp_obj_set(obj_word, key_str, fresh_word);
+            fresh
+        };
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(bucket_h, elem as i64);
     }
     obj_word
 }
@@ -946,10 +1009,17 @@ fn non_extensible_table() -> &'static Mutex<HashSet<u64>> {
 /// for a normal data property (no entry).
 fn prop_writable(obj_word: u64, key: &str) -> bool {
     match desc_flags_table().lock() {
-        Ok(t) => t
-            .get(&(obj_word, key.to_string()))
-            .map(|f| f & 1 != 0)
-            .unwrap_or(true),
+        Ok(t) => {
+            // Overwhelming majority of programs never call `defineProperty`, so
+            // the table is empty — skip the `key.to_string()` allocation entirely
+            // in that case instead of probing a guaranteed-empty map.
+            if t.is_empty() {
+                return true;
+            }
+            t.get(&(obj_word, key.to_string()))
+                .map(|f| f & 1 != 0)
+                .unwrap_or(true)
+        }
         Err(_) => true,
     }
 }
@@ -959,10 +1029,14 @@ fn prop_writable(obj_word: u64, key: &str) -> bool {
 /// skip a `defineProperty(.., {enumerable:false})` property through this.
 pub(crate) fn prop_enumerable(obj_word: u64, key: &str) -> bool {
     match desc_flags_table().lock() {
-        Ok(t) => t
-            .get(&(obj_word, key.to_string()))
-            .map(|f| f & 2 != 0)
-            .unwrap_or(true),
+        Ok(t) => {
+            if t.is_empty() {
+                return true;
+            }
+            t.get(&(obj_word, key.to_string()))
+                .map(|f| f & 2 != 0)
+                .unwrap_or(true)
+        }
         Err(_) => true,
     }
 }
@@ -970,10 +1044,14 @@ pub(crate) fn prop_enumerable(obj_word: u64, key: &str) -> bool {
 /// Whether `obj_word.key` is configurable (bit2; absent ⇒ true).
 pub(crate) fn prop_configurable(obj_word: u64, key: &str) -> bool {
     match desc_flags_table().lock() {
-        Ok(t) => t
-            .get(&(obj_word, key.to_string()))
-            .map(|f| f & 4 != 0)
-            .unwrap_or(true),
+        Ok(t) => {
+            if t.is_empty() {
+                return true;
+            }
+            t.get(&(obj_word, key.to_string()))
+                .map(|f| f & 4 != 0)
+                .unwrap_or(true)
+        }
         Err(_) => true,
     }
 }

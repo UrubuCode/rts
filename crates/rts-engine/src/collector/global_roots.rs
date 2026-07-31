@@ -14,12 +14,20 @@
 //! Thread-safety: registry é populado uma vez no startup, depois só leitura.
 //! `RwLock` cobre a fase de bootstrap; reads no GC são paralelas.
 
+use std::collections::HashSet;
 use std::sync::OnceLock;
 use std::sync::RwLock;
 
-fn registry() -> &'static RwLock<Vec<usize>> {
-    static R: OnceLock<RwLock<Vec<usize>>> = OnceLock::new();
-    R.get_or_init(|| RwLock::new(Vec::new()))
+// `HashSet`, NOT `Vec`: `add` is a SET-membership operation (register-once, no
+// ordering requirement) — the GC's `for_each` only ever marks each address's
+// handle independently, so iteration order is irrelevant to correctness. The
+// previous `Vec` + linear `contains()` de-dup made every `add` O(n) in the
+// number of already-registered globals. Same precedent as `PINNED_ROOTS`
+// (`handles.rs`): a `Vec` + linear `contains()` used purely for membership is
+// the wrong structure once the set grows.
+fn registry() -> &'static RwLock<HashSet<usize>> {
+    static R: OnceLock<RwLock<HashSet<usize>>> = OnceLock::new();
+    R.get_or_init(|| RwLock::new(HashSet::new()))
 }
 
 /// Adiciona um endereço ao registry. `addr` deve apontar para um
@@ -31,9 +39,7 @@ pub fn add(addr: usize) {
         return;
     }
     let mut guard = registry().write().unwrap_or_else(|e| e.into_inner());
-    if !guard.contains(&addr) {
-        guard.push(addr);
-    }
+    guard.insert(addr);
 }
 
 /// Itera sobre os endereços registrados. O GC chama no `mark_stack_roots`
@@ -48,7 +54,7 @@ pub fn for_each<F: FnMut(usize)>(mut f: F) {
 /// Remove um endereço (útil em hot-reload onde o módulo JIT é recompilado).
 pub fn remove(addr: usize) {
     let mut guard = registry().write().unwrap_or_else(|e| e.into_inner());
-    guard.retain(|a| *a != addr);
+    guard.remove(&addr);
 }
 
 /// Limpa todo o registry. Útil pra testes / hot-reload completo.

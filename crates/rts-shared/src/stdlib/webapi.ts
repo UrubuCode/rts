@@ -54,8 +54,32 @@ function __utf8_encode(s: string): number[] {
 
 // Decode a UTF-8 byte source (Uint8Array-like: `.length` + numeric indexing)
 // into a JS string.
+//
+// This used to `out += String.fromCodePoint(cp)` once per decoded code point.
+// `+=` on this engine clones the WHOLE accumulator on every concat
+// (`__RTS_FN_NS_GC_STRING_CONCAT` is not amortized), so decoding an n-code-point
+// buffer was O(n²) — a real cost for `TextDecoder.decode()` on a multi-MB file
+// (the `node:fs`/`node:stream`/`node:net` preludes all go through this).
+//
+// Fix: push each decoded code point as its own one-char string into an array,
+// then join ONCE at the end. Checked BOTH alternatives before picking this one:
+//   - `Array.prototype.join` here is a real native Rust `String` build
+//     (`__rtsadp_arr_join` in `rts-runtime/src/adapters/value/arrayops.rs`
+//     ToStrings each element and `push_str`s it — amortized, not per-char `+=`),
+//     and `Array.prototype.push` is a native Vec append (O(1) amortized). So
+//     collect-then-join is genuinely O(total output length), not O(n²).
+//   - `String.fromCharCode(...codes)` ALSO has a native array trampoline
+//     (`__rtsadp_str_from_char_code_arr`), which looked tempting to batch runs
+//     through. But it decodes per UTF-16 CODE UNIT, one call per element — a
+//     lone surrogate half decodes to `""` (see `strops::from_char_code`'s own
+//     doc comment) — so batching supplementary-plane code points as two
+//     surrogate units through it would silently DROP every astral character
+//     (emoji, etc). Not safe here. `String.fromCodePoint` per element sidesteps
+//     that entirely (it takes a full code point, not a UTF-16 unit) and is only
+//     allocation-bound, not concatenation-bound — cheap relative to the O(n²)
+//     it replaces.
 function __utf8_decode(bytes: any): string {
-  let out = "";
+  const parts: string[] = [];
   let i = 0;
   const len = bytes.length;
   while (i < len) {
@@ -70,9 +94,9 @@ function __utf8_decode(bytes: any): string {
     for (let j = 0; j < extra; j++) {
       if (i < len) { cp = (cp << 6) | (bytes[i] & 0x3f); i++; }
     }
-    out += String.fromCodePoint(cp);
+    parts.push(String.fromCodePoint(cp));
   }
-  return out;
+  return parts.join("");
 }
 
 // `FormData`/`Blob`/`File` used to live here as pure `.ts` value holders.

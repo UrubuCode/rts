@@ -15,7 +15,7 @@
 //! declared ABI, and calls the real `fn_ptr`. The class comes from the VALUE, so
 //! the engine never names a non-primordial class; it is pure data dispatch.
 
-use rts_engine::runtime_ci::{lookup_ci_ge, CiMethod};
+use rts_engine::runtime_ci::lookup_ci_ge;
 use rts_engine::AbiType;
 use rts_engine::heap::handles::{with_entry, Entry};
 use rts_runtime::namespaces::gc::handles as rt_handles;
@@ -122,7 +122,7 @@ pub fn try_runtime_ci(recv: u64, key: u64, a0: u64, a1: u64, a2: u64, js_argc: u
     // method with defaulted trailing params (`indexOf(needle, position?)` called
     // with one arg) — the omitted arg slots (`a1`/`a2`) are already `undefined`,
     // which each body reads as its own default.
-    let m: CiMethod = lookup_ci_ge(&class, &method, js_argc + 1)?;
+    let m = lookup_ci_ge(&class, &method, js_argc + 1)?;
     let recv_h = any_handle(recv);
 
     use AbiType::{Bool, Handle, I64, PolyValue as APoly, StrPtr, Void};
