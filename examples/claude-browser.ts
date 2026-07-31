@@ -71,14 +71,9 @@ function resolveUrl(base: string, href: string): string {
 function extractSite(rawHtml: string, pageUrl: string): string {
   const site = dom.parseHtml(rawHtml);
   let styles = "";
-  // 1) <style> inline.
+  // 1) <style> inline: contados só para o log — as tags ficam onde estão, dentro
+  //    do head/body preservados abaixo (mover mudaria a cascade; duplicar, pior).
   const sc = dom.querySelectorAllCount(site, "style");
-  let i = 0;
-  while (i < sc) {
-    const s = dom.querySelectorAllAt(site, "style", i);
-    styles = styles + "<style>" + dom.getText(site, s) + "</style>";
-    i = i + 1;
-  }
   // 2) <link rel=stylesheet> → baixa o CSS e injeta como <style>.
   const lc = dom.querySelectorAllCount(site, "link");
   let cssCount = 0;
@@ -103,14 +98,13 @@ function extractSite(rawHtml: string, pageUrl: string): string {
   // 3) <script>: preserva o FONTE para o runScripts executar depois do parse da
   //    página montada. Três origens:
   //      • inline — o texto do próprio nó;
-  //      • `src="data:...;base64,…"` — DECODIFICADO aqui. Não é caso de nicho:
-  //        WhatsApp/Meta embutem quase todo o bootstrap assim (numa carga real,
-  //        33 dos 42 `<script src>` são data-URI), então ignorá-los era descartar
-  //        o loader inteiro da página;
+  //      • `src="data:...;base64,…"` — a tag passa INTACTA (o motor decodifica
+  //        ao executar). Não é caso de nicho: WhatsApp/Meta embutem quase todo o
+  //        bootstrap assim (numa carga real, 33 dos 42 `<script src>` são
+  //        data-URI), então ignorá-los era descartar o loader da página;
   //      • `src="http(s)://…"` — ainda NÃO baixado. São os bundles de aplicação
   //        (no WhatsApp, 9 arquivos somando ~15 MB); já compilam sem estourar
   //        memória, mas cada um leva segundos, o que travaria o load da janela.
-  let scripts = "";
   const scc = dom.querySelectorAllCount(site, "script");
   let k = 0;
   let inlineCount = 0;
@@ -119,42 +113,28 @@ function extractSite(rawHtml: string, pageUrl: string): string {
   while (k < scc) {
     const s = dom.querySelectorAllAt(site, "script", k);
     const src = dom.getAttribute(site, s, "src");
-    const stype = dom.getAttribute(site, s, "type").toLowerCase();
-    // `type="application/json"` e afins são DADOS, não código — executá-los
-    // gerava erro de sintaxe em massa.
-    const isJs = stype.length === 0 || stype === "text/javascript"
-      || stype === "application/javascript" || stype === "module"
-      || stype === "application/x-javascript" || stype === "text/ecmascript";
-    if (src.length > 5 && src.substring(0, 5) === "data:") {
-      const comma = src.indexOf(",");
-      if (comma >= 0) {
-        const meta = src.substring(0, comma);
-        const payload = src.substring(comma + 1);
-        const code = meta.indexOf("base64") >= 0 ? atob(payload) : decodeURIComponent(payload);
-        if (code.length > 0) {
-          scripts = scripts + "<script>" + code + "</script>";
-          dataCount = dataCount + 1;
-          
-        }
-      }
-    } else if (src.length > 0) {
-      extCount = extCount + 1;
-    } else if (isJs) {
-      const code = dom.getText(site, s);
-      if (code.length > 0) {
-        scripts = scripts + "<script>" + code + "</script>";
-        inlineCount = inlineCount + 1;
-      }
-    }
+    if (src.length > 5 && src.substring(0, 5) === "data:") dataCount = dataCount + 1;
+    else if (src.length > 0) extCount = extCount + 1;
+    else if (dom.getText(site, s).length > 0) inlineCount = inlineCount + 1;
     k = k + 1;
   }
   if (extCount > 0) io.print("[js] " + extCount + " <script src=http> nao baixados (bundles de aplicacao)");
-  // 4) innerHTML do body.
+  // 4) head + body na ORDEM ORIGINAL, com os <script> onde o autor os pôs. Duas
+  //    lições de uma carga real do WhatsApp aqui:
+  //      • re-embutir código decodificado como <script> inline estilhaça a
+  //        página (JS minificado tem `<`, `&`, `</script>` em strings — o parser
+  //        HTML corta no primeiro `</script>`); as tags `src=data:` ficam
+  //        intactas e o `__runScriptAt` do motor decodifica ao executar;
+  //      • mover os scripts para o fim REORDENA: o loader (`requireLazy`) mora
+  //        no <head> e os 25 chamadores no <body> — com o head atrás, todos
+  //        falhavam com "call to unknown function `requireLazy`".
+  const headEl = dom.querySelector(site, "head");
+  const headInner = headEl >= 0 ? dom.innerHtml(site, headEl) : "";
   const body = dom.querySelector(site, "body");
   const inner = body >= 0 ? dom.innerHtml(site, body) : rawHtml;
   io.print("[site] styles_inline=" + sc + " css_baixados=" + cssCount + " scripts_inline=" + inlineCount + " scripts_data=" + dataCount + " body=" + inner.length + "B");
   dom.free(site);
-  return styles + inner + scripts;
+  return styles + headInner + inner;
 }
 
 // Percorre os <img> do doc já montado, baixa cada src (binário) + decodifica +
@@ -335,6 +315,8 @@ while (egui.isOpen(win) !== 0) {
       // companhia). Lido via `docF._dom`, NUNCA pelo `d` solto: handle passado
       // como valor entre chamadas corrompe (#1870) e o contador vem 0.
       io.print("[js] globais da pagina: " + DomScope.count(docF._dom));
+      let __gi = 0;
+      while (__gi < DomScope.count(docF._dom)) { io.print("   g: " + DomScope.nameAt(docF._dom, __gi)); __gi = __gi + 1; }
       io.print("[js] scripts executados: " + njs);
     } else if (st < 0) {
       pendingTicket = 0; // ticket inválido: aborta
