@@ -18,6 +18,12 @@ struct GenExprHoister {
     /// Profundidade de blocos: `0` = topo do módulo, onde `lower_decl` já cuida
     /// dos generators e este hoister não deve mexer.
     dentro_de_bloco: usize,
+    /// Nomes de funções AUXILIARES já copiadas para o topo — impede subir a
+    /// mesma irmã duas vezes (dois generators do mesmo bloco a usam).
+    aux_subidas: std::collections::HashSet<String>,
+    /// Funções declaradas no bloco corrente: contam como ligadas ao decidir se
+    /// um generator pode ser levantado, porque sobem junto com ele.
+    irmas_do_bloco: std::collections::HashSet<String>,
 }
 
 impl swc_ecma_visit::VisitMut for GenExprHoister {
@@ -76,9 +82,96 @@ impl swc_ecma_visit::VisitMut for GenExprHoister {
     fn visit_mut_block_stmt(&mut self, b: &mut swc_ecma_ast::BlockStmt) {
         use swc_ecma_visit::VisitMutWith;
         let marca = self.pendentes.len();
+        let marca_hoisted = self.hoisted.len();
+        let irmas_anteriores = std::mem::replace(
+            &mut self.irmas_do_bloco,
+            b.stmts
+                .iter()
+                .filter_map(|st| match st {
+                    swc_ecma_ast::Stmt::Decl(swc_ecma_ast::Decl::Fn(fd))
+                        if !fd.function.is_generator =>
+                    {
+                        Some(fd.ident.sym.to_string())
+                    }
+                    _ => None,
+                })
+                .collect(),
+        );
         self.dentro_de_bloco += 1;
         b.visit_mut_children_with(self);
         self.dentro_de_bloco -= 1;
+
+        // Um generator levantado que CHAMA uma função irmã (`function* g(){
+        // yield o() }` ao lado de `function o(){…}`) perderia acesso a ela no
+        // topo — a irmã continua no escopo original. É a forma canônica de um
+        // módulo minificado (generator + auxiliares lado a lado na fábrica do
+        // módulo), então as irmãs que ele usa sobem JUNTO.
+        //
+        // A cópia vai com o NOME ORIGINAL, não renomeada: a referência dentro da
+        // fn levantada já usa esse nome, e renomeá-la exigiria reescrever de
+        // forma consistente os dois lados — foi assim que uma tentativa anterior
+        // produziu `call to unknown function __genaux_N`. Só sobe irmã cujo nome
+        // ainda não exista no topo, para não colidir.
+        if self.hoisted.len() > marca_hoisted {
+            let usados: std::collections::HashSet<String> = self.hoisted[marca_hoisted..]
+                .iter()
+                .flat_map(|fd| Self::idents_livres(&fd.function))
+                .collect();
+            let ja_no_topo: std::collections::HashSet<String> = self
+                .hoisted
+                .iter()
+                .map(|fd| fd.ident.sym.to_string())
+                .collect();
+            let mut sobem: Vec<swc_ecma_ast::FnDecl> = Vec::new();
+            let mut renomes_aux: Vec<(String, String)> = Vec::new();
+            for st in &b.stmts {
+                if let swc_ecma_ast::Stmt::Decl(swc_ecma_ast::Decl::Fn(fd)) = st {
+                    let nome = fd.ident.sym.to_string();
+                    if !fd.function.is_generator
+                        && usados.contains(&nome)
+                        && !ja_no_topo.contains(&nome)
+                        && !self.aux_subidas.contains(&nome)
+                        && Self::sem_captura(&fd.function)
+                    {
+                        self.aux_subidas.insert(nome);
+                        sobem.push(fd.clone());
+                    } else if !fd.function.is_generator
+                        && usados.contains(&nome)
+                        && (ja_no_topo.contains(&nome) || self.aux_subidas.contains(&nome))
+                        && Self::sem_captura(&fd.function)
+                    {
+                        // Uma irmã HOMÔNIMA de outro bloco já subiu (nome curto
+                        // reciclado é a regra em código minificado). Sobe ESTA com
+                        // um nome único e reescreve as referências a ela DENTRO
+                        // das fns levantadas deste bloco — sem isto o generator
+                        // daqui chamaria a irmã do OUTRO bloco, resultado errado e
+                        // calado (`1,1` onde o Node dá `1,2`).
+                        let unico = format!("__genaux_{}", self.counter);
+                        self.counter += 1;
+                        let mut copia = fd.clone();
+                        copia.ident = swc_ecma_ast::Ident {
+                            span: Default::default(),
+                            ctxt: Default::default(),
+                            sym: unico.as_str().into(),
+                            optional: false,
+                        };
+                        renomes_aux.push((nome, unico));
+                        sobem.push(copia);
+                    }
+                }
+            }
+            self.hoisted.extend(sobem);
+            // As fns levantadas DESTE bloco passam a chamar a cópia renomeada.
+            for (de, para) in &renomes_aux {
+                for fd in &mut self.hoisted[marca_hoisted..] {
+                    fd.function.visit_mut_with(&mut RenomeiaIdent {
+                        de: de.clone(),
+                        para: para.clone(),
+                    });
+                }
+            }
+        }
+
         if self.pendentes.len() > marca {
             let novos: Vec<(String, String)> = self.pendentes.drain(marca..).collect();
             for (de, para) in &novos {
@@ -89,6 +182,7 @@ impl swc_ecma_visit::VisitMut for GenExprHoister {
                 b.visit_mut_with(&mut r);
             }
         }
+        self.irmas_do_bloco = irmas_anteriores;
     }
 
     fn visit_mut_stmt(&mut self, s: &mut swc_ecma_ast::Stmt) {
@@ -100,7 +194,7 @@ impl swc_ecma_visit::VisitMut for GenExprHoister {
             // levantá-la de novo só renomeava a função e quebrava as chamadas.
             if self.dentro_de_bloco > 0
                 && fd.function.is_generator
-                && Self::sem_captura(&fd.function)
+                && Self::sem_captura_ext(&fd.function, &self.irmas_do_bloco)
             {
                 // O nome vai para o TOPO do módulo, então tem de ser único: duas
                 // funções irmãs podem ambas declarar `function* g(){…}` (nome
@@ -158,7 +252,29 @@ impl GenExprHoister {
     /// corpo e exige que todos estejam ligados pelo próprio generator. Um falso
     /// negativo (deixar de hoistear algo que seria seguro) só preserva o
     /// comportamento anterior; um falso positivo é o que não pode acontecer.
+    /// Os identificadores que o corpo de `f` menciona (aproximação barata, usada
+    /// só para decidir quais irmãs precisam subir junto).
+    fn idents_livres(f: &SwcFunction) -> std::collections::HashSet<String> {
+        use swc_ecma_visit::{Visit, VisitWith};
+        #[derive(Default)]
+        struct Usa(std::collections::HashSet<String>);
+        impl Visit for Usa {
+            fn visit_ident(&mut self, i: &swc_ecma_ast::Ident) {
+                self.0.insert(i.sym.to_string());
+            }
+        }
+        let mut u = Usa::default();
+        if let Some(b) = &f.body {
+            b.visit_with(&mut u);
+        }
+        u.0
+    }
+
     fn sem_captura(f: &SwcFunction) -> bool {
+        Self::sem_captura_ext(f, &std::collections::HashSet::new())
+    }
+
+    fn sem_captura_ext(f: &SwcFunction, irmas: &std::collections::HashSet<String>) -> bool {
         use swc_ecma_visit::{Visit, VisitWith};
 
         #[derive(Default)]
@@ -205,9 +321,9 @@ impl GenExprHoister {
             "Symbol", "Map", "Set", "WeakMap", "WeakSet", "Infinity", "NaN",
             "globalThis", "window", "document", "self", "parseInt", "parseFloat",
         ];
-        v.usados
-            .iter()
-            .all(|u| v.ligados.contains(u) || GLOBAIS.contains(&u.as_str()))
+        v.usados.iter().all(|u| {
+            v.ligados.contains(u) || GLOBAIS.contains(&u.as_str()) || irmas.contains(u)
+        })
     }
 }
 
