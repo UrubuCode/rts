@@ -235,6 +235,18 @@ impl FnSig {
         if is_eager_generator {
             ret = Repr::Tagged;
         }
+        // A LAZY generator ctor hands back the opaque `Entry::GenState` HANDLE, so its
+        // return must stay `Int64` even when a rule above already widened it. The
+        // Tagged-param rule (an UNANNOTATED param is `Tagged`) would otherwise force
+        // `Tagged` here, and the return coercion converts the handle with
+        // `fcvt_from_sint` — the GenState identity is destroyed and the iterator
+        // silently yields nothing (`[...g(1)]` → `[]`, issue #2044). Unlike a genuine
+        // value this handle is NOT a PolyValue: it is consumed as a raw i64 by
+        // `GENERATOR_NEXT`/`GEN_SM_DRAIN`, and the boxing for dynamic consumers
+        // happens at the CALL SITE (`call_spread.rs`, issue #2042) — not here.
+        if is_lazy_gen {
+            ret = Repr::Int64;
+        }
         FnSig {
             name: func.name.clone(),
             params,
