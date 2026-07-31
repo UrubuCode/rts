@@ -2786,6 +2786,20 @@
 }
 ,
 {
+  "name": "claude-promise-resolve-then-number",
+  "status": "pass",
+  "bun": "num=7\nneg=-42\nfrac=3.5\nzero=0\nbool=true\nnull=null\nstr=oi\nobj={\"a\":1}\narr=1,2\nchain=10\nawait=11",
+  "node": "num=7\nneg=-42\nfrac=3.5\nzero=0\nbool=true\nnull=null\nstr=oi\nobj={\"a\":1}\narr=1,2\nchain=10\nawait=11",
+  "rts": "num=7\nneg=-42\nfrac=3.5\nzero=0\nbool=true\nnull=null\nstr=oi\nobj={\"a\":1}\narr=1,2\nchain=10\nawait=11",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
   "name": "179_function_name_length",
   "status": "pass",
   "bun": "name=foo\nlength=2\nanon_name=bar\nanon_length=1\narrow_name=arrow\narrow_length=3\nnoargs_length=0",
@@ -3458,11 +3472,95 @@
 }
 ,
 {
+  "name": "claude-generator-break-continue",
+  "status": "pass",
+  "bun": "breakWhile=0,1\nbreakFor=0,1\ncontinueForOf=1,3\nbreakDoWhile=0,1\ncontinueWhile=1,3\nnext=0,1,{\"done\":true}\ninfiniteStaysLazy=0,1\nsentValue=0,2\nnoBreak=0,1",
+  "node": "breakWhile=0,1\nbreakFor=0,1\ncontinueForOf=1,3\nbreakDoWhile=0,1\ncontinueWhile=1,3\nnext=0,1,{\"done\":true}\ninfiniteStaysLazy=0,1\nsentValue=0,2\nnoBreak=0,1",
+  "rts": "breakWhile=0,1\nbreakFor=0,1\ncontinueForOf=1,3\nbreakDoWhile=0,1\ncontinueWhile=1,3\nnext=0,1,{\"done\":true}\ninfiniteStaysLazy=0,1\nsentValue=0,2\nnoBreak=0,1",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "claude-generator-capture-value-yield",
+  "status": "pass",
+  "bun": "captureObject=5,20\ncaptureFnAndConst=2,12\ncaptureParam=2,12\nindependentA=1,101\nindependentB=50,150\ncaptureStatementYield=10,11\ntopLevelValueYield=1,6\nnestedNoCapture=42\ndeclaration=1,12",
+  "node": "captureObject=5,20\ncaptureFnAndConst=2,12\ncaptureParam=2,12\nindependentA=1,101\nindependentB=50,150\ncaptureStatementYield=10,11\ntopLevelValueYield=1,6\nnestedNoCapture=42\ndeclaration=1,12",
+  "rts": "captureObject=5,20\ncaptureFnAndConst=2,12\ncaptureParam=2,12\nindependentA=1,101\nindependentB=50,150\ncaptureStatementYield=10,11\ntopLevelValueYield=1,6\nnestedNoCapture=42\ndeclaration=1,12",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
   "name": "claude-generator-crosses-dynamic-boundaries",
   "status": "pass",
   "bun": "array=1\nobjectField=1\nargument=1\npush=1\nclassField=1\nmapValue=1\ndestructuring=1\ncursorAdvances=6\nresultObject={\"value\":1,\"done\":false}\nafterExhaustion={\"done\":true}\nreturnMethod={\"value\":99,\"done\":true}\nafterReturn={\"done\":true}\ndirect=1\nintInArray=42\nbigIntInArray=9007199254740991\nplainArrayNext=undefined\nspread=1,2,3\nforOf=6",
   "node": "array=1\nobjectField=1\nargument=1\npush=1\nclassField=1\nmapValue=1\ndestructuring=1\ncursorAdvances=6\nresultObject={\"value\":1,\"done\":false}\nafterExhaustion={\"done\":true}\nreturnMethod={\"value\":99,\"done\":true}\nafterReturn={\"done\":true}\ndirect=1\nintInArray=42\nbigIntInArray=9007199254740991\nplainArrayNext=undefined\nspread=1,2,3\nforOf=6",
   "rts": "array=1\nobjectField=1\nargument=1\npush=1\nclassField=1\nmapValue=1\ndestructuring=1\ncursorAdvances=6\nresultObject={\"value\":1,\"done\":false}\nafterExhaustion={\"done\":true}\nreturnMethod={\"value\":99,\"done\":true}\nafterReturn={\"done\":true}\ndirect=1\nintInArray=42\nbigIntInArray=9007199254740991\nplainArrayNext=undefined\nspread=1,2,3\nforOf=6",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "claude-generator-expr-capture",
+  "status": "pass",
+  "bun": "next=6\nspread=10,11\nforOf=12\nparam=3,6\ntwoLevels=120\nindependentA=1,2\nindependentB=50,51\ntopLevel=7\nnestedNoCapture=42\ndeclaration=1,2",
+  "node": "next=6\nspread=10,11\nforOf=12\nparam=3,6\ntwoLevels=120\nindependentA=1,2\nindependentB=50,51\ntopLevel=7\nnestedNoCapture=42\ndeclaration=1,2",
+  "rts": "next=6\nspread=10,11\nforOf=12\nparam=3,6\ntwoLevels=120\nindependentA=1,2\nindependentB=50,51\ntopLevel=7\nnestedNoCapture=42\ndeclaration=1,2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "claude-generator-forwarded",
+  "status": "pass",
+  "bun": "first=5\nsent=20\nnoParamFirst=1\nnoParamSent=10\nspread=0,1,2\nforOf=3\ntwoLevels=0,1\nindependent=0\nresultObject={\"value\":1,\"done\":false}\ndirectFirst=1\ndirectSent=5\ndirectSpread=0,1",
+  "node": "first=5\nsent=20\nnoParamFirst=1\nnoParamSent=10\nspread=0,1,2\nforOf=3\ntwoLevels=0,1\nindependent=0\nresultObject={\"value\":1,\"done\":false}\ndirectFirst=1\ndirectSent=5\ndirectSpread=0,1",
+  "rts": "first=5\nsent=20\nnoParamFirst=1\nnoParamSent=10\nspread=0,1,2\nforOf=3\ntwoLevels=0,1\nindependent=0\nresultObject={\"value\":1,\"done\":false}\ndirectFirst=1\ndirectSent=5\ndirectSpread=0,1",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "claude-generator-if-yield",
+  "status": "pass",
+  "bun": "blockFirst=1\nblockSent=5\nthenTaken=10\nelseTaken=-1\nnested=1,20,8\ninsideLoop=0,2\nelseIfChain=dois\nbranchNotTaken=1\nnoBraces=1,3\nwithReturn=|\nnoIf=1,12",
+  "node": "blockFirst=1\nblockSent=5\nthenTaken=10\nelseTaken=-1\nnested=1,20,8\ninsideLoop=0,2\nelseIfChain=dois\nbranchNotTaken=1\nnoBraces=1,3\nwithReturn=|\nnoIf=1,12",
+  "rts": "blockFirst=1\nblockSent=5\nthenTaken=10\nelseTaken=-1\nnested=1,20,8\ninsideLoop=0,2\nelseIfChain=dois\nbranchNotTaken=1\nnoBraces=1,3\nwithReturn=|\nnoIf=1,12",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "claude-generator-try-yield",
+  "status": "pass",
+  "bun": "emptyFirst=1\nemptySent=5\ncatchYieldSent=5\nafter=1,6,99\ncatchNotRun=0\nresultObject={\"value\":1,\"done\":false}\ntryFinally=1,2\nnoTry=1,12",
+  "node": "emptyFirst=1\nemptySent=5\ncatchYieldSent=5\nafter=1,6,99\ncatchNotRun=0\nresultObject={\"value\":1,\"done\":false}\ntryFinally=1,2\nnoTry=1,12",
+  "rts": "emptyFirst=1\nemptySent=5\ncatchYieldSent=5\nafter=1,6,99\ncatchNotRun=0\nresultObject={\"value\":1,\"done\":false}\ntryFinally=1,2\nnoTry=1,12",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -3658,7 +3756,7 @@
   "status": "rts_diverge",
   "bun": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
   "node": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
-  "rts": "",
+  "rts": "undefined",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -6721,10 +6819,10 @@
 ,
 {
   "name": "116_promise_finally",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "log=then:42,catch:error,finally1,finally2,then2:84",
   "node": "log=then:42,catch:error,finally1,finally2,then2:84",
-  "rts": "log=then:4631107791820423000,catch:error,finally1,finally2,then2:9223372036854776000",
+  "rts": "log=then:42,catch:error,finally1,finally2,then2:84",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -6822,7 +6920,7 @@
   "status": "rts_diverge",
   "bun": "one=3\ntwo=5\nall=a,b\nasync=9",
   "node": "one=3\ntwo=5\nall=a,b\nasync=9",
-  "rts": "one=3\ntwo=4\nall=1.39067116157e-309,1.390671161570005e-309\nasync=9",
+  "rts": "one=3\ntwo=5\nall=1.39067116157e-309,1.390671161570005e-309\nasync=9",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -6878,7 +6976,7 @@
   "status": "rts_diverge",
   "bun": "AggregateError\na,b,c",
   "node": "AggregateError\na,b,c",
-  "rts": "undefined",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9589,4 +9687,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":685,"pass":480,"rts_diverge":115,"bun_node_diverge":18,"errors":72,"rejected":0}}
+],"summary":{"total":692,"pass":488,"rts_diverge":114,"bun_node_diverge":18,"errors":72,"rejected":0}}
