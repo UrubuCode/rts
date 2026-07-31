@@ -3444,6 +3444,20 @@
 }
 ,
 {
+  "name": "claude-generator-alias-iteration",
+  "status": "pass",
+  "bun": "spreadViaAlias=1,2\nforOfViaAlias=3\nnextViaAlias=1\nspreadExprEager=3,4\nspreadExprLazy=1,2,3\nnextExprLazy=1\nforOfExprLazy=6\naliasChain=1,2\nspreadDirect=1,2\nforOfDirect=3",
+  "node": "spreadViaAlias=1,2\nforOfViaAlias=3\nnextViaAlias=1\nspreadExprEager=3,4\nspreadExprLazy=1,2,3\nnextExprLazy=1\nforOfExprLazy=6\naliasChain=1,2\nspreadDirect=1,2\nforOfDirect=3",
+  "rts": "spreadViaAlias=1,2\nforOfViaAlias=3\nnextViaAlias=1\nspreadExprEager=3,4\nspreadExprLazy=1,2,3\nnextExprLazy=1\nforOfExprLazy=6\naliasChain=1,2\nspreadDirect=1,2\nforOfDirect=3",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
   "name": "claude-generator-crosses-dynamic-boundaries",
   "status": "pass",
   "bun": "array=1\nobjectField=1\nargument=1\npush=1\nclassField=1\nmapValue=1\ndestructuring=1\ncursorAdvances=6\nresultObject={\"value\":1,\"done\":false}\nafterExhaustion={\"done\":true}\nreturnMethod={\"value\":99,\"done\":true}\nafterReturn={\"done\":true}\ndirect=1\nintInArray=42\nbigIntInArray=9007199254740991\nplainArrayNext=undefined\nspread=1,2,3\nforOf=6",
@@ -3644,7 +3658,7 @@
   "status": "rts_diverge",
   "bun": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
   "node": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
-  "rts": "undefined",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -4383,9 +4397,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "order=micro|immediate|timeout",
   "bun_exit": 0,
   "node_exit": 0,
@@ -6244,6 +6258,20 @@
 }
 ,
 {
+  "name": "claude-object-statics-as-values",
+  "status": "pass",
+  "bun": "defineProperty=function\ndefineProperties=function\nfromEntries=function\ncreate=function\nsetPrototypeOf=function\ngetOwnPropertyDescriptor=function\ngetOwnPropertySymbols=function\npreventExtensions=function\nisExtensible=function\ndefinePropertyWorks=7\nfromEntriesWorks={\"k\":1}\ndescriptorWorks=5\nkeys=function\nassign=function\nkeysWorks=x,y",
+  "node": "defineProperty=function\ndefineProperties=function\nfromEntries=function\ncreate=function\nsetPrototypeOf=function\ngetOwnPropertyDescriptor=function\ngetOwnPropertySymbols=function\npreventExtensions=function\nisExtensible=function\ndefinePropertyWorks=7\nfromEntriesWorks={\"k\":1}\ndescriptorWorks=5\nkeys=function\nassign=function\nkeysWorks=x,y",
+  "rts": "defineProperty=function\ndefineProperties=function\nfromEntries=function\ncreate=function\nsetPrototypeOf=function\ngetOwnPropertyDescriptor=function\ngetOwnPropertySymbols=function\npreventExtensions=function\nisExtensible=function\ndefinePropertyWorks=7\nfromEntriesWorks={\"k\":1}\ndescriptorWorks=5\nkeys=function\nassign=function\nkeysWorks=x,y",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
   "name": "claude-spread-getter-to-data",
   "status": "rts_diverge",
   "bun": "1\n2\n2\ntrue\n1\ntrue true true",
@@ -6794,7 +6822,7 @@
   "status": "rts_diverge",
   "bun": "one=3\ntwo=5\nall=a,b\nasync=9",
   "node": "one=3\ntwo=5\nall=a,b\nasync=9",
-  "rts": "one=3\ntwo=4\nall=1.390671161569965e-309,1.39067116156997e-309\nasync=9",
+  "rts": "one=3\ntwo=4\nall=1.39067116157e-309,1.390671161570005e-309\nasync=9",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9561,4 +9589,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":683,"pass":477,"rts_diverge":115,"bun_node_diverge":19,"errors":72,"rejected":0}}
+],"summary":{"total":685,"pass":480,"rts_diverge":115,"bun_node_diverge":18,"errors":72,"rejected":0}}
