@@ -176,6 +176,50 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if method == "obj_has" {
             return self.lower_engine_obj_has(module, args);
         }
+        // `run_event_loop()` — drena microtasks/timers pendentes. O host chama
+        // isto depois do `__rts_startup`, mas um `<script>` de PÁGINA roda DENTRO
+        // daquele task: o `.then` que ele registra ficava na fila e NUNCA era
+        // drenado — o callback simplesmente não acontecia, sem erro. O prelude do
+        // DOM chama isto ao fim de `runScripts`, como o browser fecha o task.
+        if method == "run_event_loop" {
+            if !args.is_empty() {
+                return unsupported!("engine.run_event_loop expects 0 args, got {}", args.len());
+            }
+            self.call_runtime(module, "__rtsn_run_event_loop", &[])?;
+            let undef = self
+                .builder
+                .ins()
+                .iconst(types::I64, crate::value::PolyValue::undefined().raw() as i64);
+            return Ok(Val::tagged_kind(undef, JsKind::Undefined));
+        }
+        // `take_error()` — consome o erro PENDENTE do motor e devolve a word (ou
+        // `undefined` se não houver). Existe para ISOLAR o drain da página: um
+        // callback de terceiro que lança não pode derrubar a página inteira, e um
+        // `try/catch` de `.ts` não contém esse erro (ele vive no slot do motor, um
+        // canal lateral que o `catch` não observa).
+        if method == "take_error" {
+            if !args.is_empty() {
+                return unsupported!("engine.take_error expects 0 args, got {}", args.len());
+            }
+            let pend = self
+                .call_runtime(module, "__rtsadp_err_pending", &[])?
+                .expect("err_pending returns a flag");
+            let taken = self
+                .call_runtime(module, "__rtsadp_err_take", &[])?
+                .expect("err_take returns a word");
+            let undef = self
+                .builder
+                .ins()
+                .iconst(types::I64, crate::value::PolyValue::undefined().raw() as i64);
+            let zero = self.builder.ins().iconst(types::I64, 0);
+            let tem = self.builder.ins().icmp(
+                cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+                pend,
+                zero,
+            );
+            let w = self.builder.ins().select(tem, taken, undef);
+            return Ok(Val::new(w, crate::repr::Repr::Tagged));
+        }
         // Property descriptors + extensibility bridges (real state — Object/Reflect
         // defineProperty/getOwnPropertyDescriptor/isExtensible/preventExtensions).
         // The `.ts` unpacks the descriptor object (value + flags) and packs the
