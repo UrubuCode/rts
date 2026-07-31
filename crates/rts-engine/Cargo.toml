@@ -16,9 +16,18 @@ rts-abi = { path = "../rts-abi" }
 # dependency), so this edge is acyclic — the stray dep that used to make it look
 # cyclic was removed with this change.
 rtse = { package = "rts-macro", path = "../rts-macro" }
-# O heap GC tipado (Entry/HandleTable) migrou pro motor (Fase 1a da partição).
-# Os payloads do Entry puxam estas libs — TEMP até a Fase 2 (Entry::Backend(dyn
-# Traceable) devolve os payloads backend pro rts-std e limpa rustls daqui).
+# HOW IT WORKS INSIDE — the heap/HandleTable/shapes/NaN-box + the GC, moved OUT
+# of this crate (RTS_ORGANIZATION.md N1/N2). The engine MANAGES; it does not own
+# the value representation. Re-exported verbatim from `lib.rs` (`heap`,
+# `collector`, `numfmt`) so every `rts_engine::heap::…` path above still
+# resolves. This edge is the direction the crate already wanted: it used to fake
+# it with `extern "C"` forward declarations pointing at code that lived above.
+#
+# Note what LEFT with it: regex / fancy-regex / serde_json / sha2 / rustls /
+# indexmap were `Entry`-payload dependencies, and measurement showed the
+# dispatch half (registry/builder/member/sig) used none of them. A crate that
+# only decides dispatch has no business linking a TLS stack.
+rts-natives = { path = "../rts-natives" }
 # Cranelift — um membro do Registry pode declarar um EMITTER nativo (ver
 # `member::NativeEmit`) que emite IR direto em vez de `call <symbol>`. Isso põe a
 # emissão junto do spec, não dentro do motor, e é o que permite tratar as ops
@@ -30,9 +39,3 @@ cranelift-frontend = "0.131"
 # real Rust `async fn` body to completion synchronously (interim engine async is
 # synchronous). Pure, no C deps, no tokio — keeps the universal layer wasm-safe.
 pollster = "0.3"
-indexmap = "2.14.0"
-regex = "1"
-fancy-regex = "0.13"
-serde_json = { version = "1.0", features = ["preserve_order"] }
-sha2 = "0.10"
-rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }

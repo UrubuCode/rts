@@ -73,6 +73,7 @@ pub const SCANNED_CRATES: &[&str] = &[
     "rts-engine",
     "rts-input",
     "rts-napi",
+    "rts-natives",
     "rts-node",
     "rts-primitives",
     "rts-render",

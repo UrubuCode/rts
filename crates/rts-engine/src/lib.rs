@@ -45,11 +45,8 @@
 extern crate self as rts_engine;
 
 pub mod abi;
-pub mod collector;
 pub mod gc_surface;
-pub mod heap;
 pub mod loop_sources;
-pub mod numfmt;
 pub mod runtime_ci;
 pub mod watch_queue;
 
@@ -58,11 +55,19 @@ mod member;
 mod registry;
 mod sig;
 
+// HOW IT WORKS INSIDE — re-exported verbatim from `rts-natives`, which now owns
+// the heap/HandleTable/shapes/NaN-box, the GC and the number formatter
+// (RTS_ORGANIZATION.md N1/N2). The engine MANAGES dispatch; it does not own the
+// value representation. Re-exporting rather than relocating the call sites is
+// deliberate: `rts_engine::heap::…` is what ~15 crates and every `#[rtse::*]`
+// expansion above already write, and a pure move must be invisible to them.
+pub use rts_natives::{collector, heap, numfmt};
+
 pub use builder::{
     ClassBuilder, Engine, GlobalBuilder, GlobalRegistryItem, GlobalScope, ModuleBuilder,
     ModuleScope, RegistryItem,
 };
-pub use collector::{GcPayload, Traceable};
+pub use rts_natives::{GcPayload, Traceable};
 pub use member::{FnPtr, Member, VarKind, NativeEmit};
 pub use registry::{Class, Module, Registry};
 pub use sig::Sig;

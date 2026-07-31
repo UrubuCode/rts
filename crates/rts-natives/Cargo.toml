@@ -1,0 +1,42 @@
+[package]
+name = "rts-natives"
+version = "0.1.0"
+edition = "2024"
+
+# rts-natives — HOW IT WORKS INSIDE: the extent of Cranelift.
+#
+# The partition rule (owner directive, 2026-07-31): "rts-engine MANAGES rts, not
+# how it works internally". An item lives HERE when either clause holds:
+#
+#   (a) the Cranelift IR cannot express it, so generated code has to call out —
+#       coroutines, exceptions, a garbage collector, a mutable shared cell, a
+#       trace stack;
+#   (b) it IS the runtime value representation, or has to know that
+#       representation from the inside — the heap, `Entry`, the HandleTable,
+#       hidden classes, the NaN-box, and anything that pattern-matches `Entry`
+#       exhaustively.
+#
+# It lives in `rts-engine` instead when it DECIDES DISPATCH: the Registry, the
+# builder, the member/spec vocabulary.
+#
+# Every `__rtsn_` symbol lives here. See RTS_ORGANIZATION.md.
+[dependencies]
+# The ABI contract (AbiType / SymbolDesc / the naming rule). Bottom of the
+# graph, zero dependencies — re-exported here as `abi` so the `#[rtse::*]`-
+# emitted `::rts_engine::abi::*` paths resolve inside this crate too (see the
+# `extern crate self as rts_engine` shim in lib.rs).
+rts-abi = { path = "../rts-abi" }
+# The `#[rtse::*]` authoring macros. Acyclic: `rts-macro` only EMITS paths, it
+# does not depend on any of the crates that use it.
+rtse = { package = "rts-macro", path = "../rts-macro" }
+# The `Entry` payload libraries. These are here and NOT in `rts-engine` because
+# they are payloads of the runtime value representation — clause (b). Measured
+# 2026-07-31: every use of regex/fancy-regex/serde_json/sha2/rustls/indexmap in
+# the old `rts-engine` was inside `heap/` or `collector/`; the dispatch half
+# (registry/builder/member/sig) used none of them.
+indexmap = "2.14.0"
+regex = "1"
+fancy-regex = "0.13"
+serde_json = { version = "1.0", features = ["preserve_order"] }
+sha2 = "0.10"
+rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }

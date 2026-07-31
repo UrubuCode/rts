@@ -4151,15 +4151,10 @@ version = "0.1.0"
 dependencies = [
  "cranelift-codegen",
  "cranelift-frontend",
- "fancy-regex",
- "indexmap",
  "pollster 0.3.0",
- "regex",
  "rts-abi",
  "rts-macro",
- "rustls",
- "serde_json",
- "sha2 0.10.9",
+ "rts-natives",
 ]
 
 [[package]]
@@ -4214,6 +4209,20 @@ dependencies = [
  "rts-engine",
  "rts-macro",
  "rts-shared",
+]
+
+[[package]]
+name = "rts-natives"
+version = "0.1.0"
+dependencies = [
+ "fancy-regex",
+ "indexmap",
+ "regex",
+ "rts-abi",
+ "rts-macro",
+ "rustls",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
