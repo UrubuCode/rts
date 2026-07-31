@@ -31,6 +31,20 @@ fn vec_len(vec_handle: u64) -> i64 {
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_LEN(vec_handle).max(0)
 }
 
+/// Mark a freshly-built Vec as an OPEN ITERATOR — what `values()`/`keys()`/
+/// `entries()` hand back is an iterator object in JS, not an array, so `.next()`
+/// must walk it while a plain array's `.next` stays `undefined`.
+///
+/// The array stays materialized (`for-of`/spread keep consuming it exactly as
+/// before); registering the cursor at CREATION is what makes the two
+/// distinguishable at runtime. It has to happen here rather than being inferred
+/// later: `generator_next` inserts a cursor with `or_insert(0)` for any handle it
+/// is given, so "has a cursor" only means "was created as an iterator" if nothing
+/// else can put it there first (issue #2042).
+fn open_as_iterator(vec_handle: u64) {
+    rts_std::collector::generator::open_vec_iterator(vec_handle);
+}
+
 /// Read slot `i` of the real Vec as a raw PolyValue word. Caller guarantees
 /// `0 <= i < len` (we never call it out of range).
 fn vec_word(vec_handle: u64, i: i64) -> u64 {
@@ -477,6 +491,7 @@ pub fn rtsadp_arr_entries(vec_handle: u64) -> u64 {
             PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(pair)).raw();
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, pair_word as i64);
     }
+    open_as_iterator(out);
     PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(out)).raw()
 }
 
@@ -488,6 +503,7 @@ pub fn rtsadp_arr_keys(vec_handle: u64) -> u64 {
     for i in 0..len {
         rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, PolyValue::from_i32(i as i32).raw() as i64);
     }
+    open_as_iterator(out);
     PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(out)).raw()
 }
 
@@ -496,6 +512,7 @@ pub fn rtsadp_arr_keys(vec_handle: u64) -> u64 {
 #[rtse::abi]
 pub fn rtsadp_arr_values(vec_handle: u64) -> u64 {
     let copy = copy_vec(vec_handle);
+    open_as_iterator(copy);
     PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(copy)).raw()
 }
 

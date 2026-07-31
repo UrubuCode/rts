@@ -230,6 +230,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(self.poly_bool_to_bool(res));
         }
 
+        // The ITERATOR protocol on an array-shaped receiver: `values()`/`keys()`/
+        // `entries()`/`Iterator.from` return a materialized array that is ALSO an
+        // open iterator, and `Array` has no Registry row for `next`/`return`/`throw`
+        // — so a static bail here would reject `[1,2].values().next()` at COMPILE
+        // time. Route it to the dynamic dispatch, which walks the cursor only when
+        // the handle was registered as an iterator; on a plain array the property
+        // read stays `undefined`, exactly as JS (issue #2042).
+        if matches!(method, "next" | "return" | "throw")
+            && resolve_method(RecvClass::Array, method, argc).is_none()
+        {
+            let recv = self.lower_expr(module, object)?;
+            if let Some(v) = self.try_generic_dyn_method_call(module, recv, method, args)? {
+                return Ok(v);
+            }
+        }
+
         let Some(spec) = resolve_method(RecvClass::Array, method, argc) else {
             return Err(crate::front::error::Unsupported::new(format!(
                 "no Registry entry for `Array.{method}({argc} args)` \
