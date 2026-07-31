@@ -1343,6 +1343,11 @@ impl Ctx {
         for id in &free {
             if param_names.contains(id)
                 || id == &name
+                // `arguments` é binding PRÓPRIO de uma função não-arrow, não uma
+                // captura do escopo externo. Sem isto ele surge como ident livre
+                // desconhecido e a extração aborta ("expression arrow") — era o
+                // que impedia `f = function(){ … arguments … }` de compilar.
+                || (!is_async && is_fn_expr && id == "arguments")
                 || GLOBALS.contains(&id.as_str())
                 // A top-level CLOSURE (a synthesized fn WITH captures) is NOT
                 // skippable: its direct name cannot be called from a scope that
@@ -1511,7 +1516,10 @@ impl Ctx {
             ret: ret.clone(),
             body: body_stmts,
             is_async,
-            is_arrow: true,
+            // `is_arrow` no `HirFunc` = NÃO é function-expression. É o que o
+            // `argsobj` consulta para decidir se materializa `arguments`: uma
+            // arrow de verdade não tem o objeto próprio, uma fn-expr tem.
+            is_arrow: !is_fn_expr,
         });
         Some(name)
     }

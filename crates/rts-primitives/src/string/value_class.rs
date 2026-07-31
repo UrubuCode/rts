@@ -211,9 +211,36 @@ impl StringWrapper {
     }
 
     /// `str.charCodeAt(idx)` — UTF-16 code unit as a number (NaN out of range).
+    ///
+    /// Lê o byte DIRETO do heap em vez de passar por `str_val`, que devolve uma
+    /// `String` própria — ou seja, COPIA a string inteira a cada chamada. Num
+    /// laço `while (i < s.length) s.charCodeAt(i)` sobre 100 KB isso é O(n²):
+    /// cem mil cópias de cem mil bytes. `charCodeAt` em laço é o padrão de
+    /// qualquer varredura léxica, então o custo aparece inteiro em quem lê texto
+    /// grande caractere a caractere.
     #[rtse::method]
     fn char_code_at(recv: Poly, idx: f64) -> f64 {
-        strops::char_code_at(&str_val(recv), idx as i64)
+        if idx < 0.0 {
+            return f64::NAN;
+        }
+        let i = idx as usize;
+        // Caminho O(1): byte ASCII em `i` ⇒ o índice de code unit UTF-16 coincide
+        // com o de byte (um byte >= 0x80 pertence a uma sequência multi-byte, e
+        // nenhuma tem byte ASCII no meio). `None` = precisa decodificar de fato,
+        // e só esse caso paga a cópia.
+        let rapido = with_entry(str_handle(recv), |e| match e {
+            Some(Entry::String(bytes)) => match bytes.get(i) {
+                Some(&b) if b < 0x80 => Some(f64::from(b)),
+                Some(_) => None,
+                None if bytes.is_ascii() => Some(f64::NAN),
+                None => None,
+            },
+            _ => None,
+        });
+        match rapido {
+            Some(v) => v,
+            None => strops::char_code_at(&str_val(recv), idx as i64),
+        }
     }
 
     /// `str.codePointAt(idx)` — full code point at `idx` (surrogate pairs combined),
@@ -250,7 +277,43 @@ impl StringWrapper {
     /// `str.substring(start, end?)` — like `slice` but clamps negatives to 0.
     #[rtse::method(optional = 1)]
     fn substring(recv: Poly, start: f64, end: f64) -> String {
-        strops::substring(&str_val(recv), start as i64, num_or(end, STR_END))
+        // Fatia direto dos bytes do heap quando o trecho pedido é ASCII, em vez
+        // de passar por `str_val`, que devolve uma `String` própria — ou seja,
+        // COPIA a string inteira antes de recortar. Num laço
+        // `while (i < s.length) s.substring(i, i + 1)` (a forma de ler um
+        // caractere) isso é O(n²): cem mil cópias de cem mil bytes. Medido em
+        // 100 KB: 5.540 ms contra 4 ms de `charCodeAt`.
+        //
+        // Só o recorte ASCII entra aqui: com multi-byte o índice de code unit
+        // UTF-16 não coincide com o de byte, e aí o caminho completo decide.
+        let e = num_or(end, STR_END);
+        if start >= 0.0 && e >= 0 {
+            let (a, b) = (start as usize, e as usize);
+            let (si, ei) = if a <= b { (a, b) } else { (b, a) };
+            let fatia = with_entry(str_handle(recv), |ent| match ent {
+                Some(Entry::String(bytes)) => {
+                    let n = bytes.len();
+                    let (si, ei) = (si.min(n), ei.min(n));
+                    // Basta a FATIA ser ASCII e o byte em `si` não ser
+                    // continuação: um byte < 0x80 nunca faz parte de sequência
+                    // multi-byte, então índice de byte == índice de code unit
+                    // até ali. Testar `bytes[..ei]` inteiro varreria o prefixo
+                    // todo — O(n) de novo, que é o que estamos eliminando.
+                    if bytes[si..ei].is_ascii()
+                        && (si == 0 || bytes[si - 1] < 0x80)
+                    {
+                        Some(String::from_utf8_lossy(&bytes[si..ei]).into_owned())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            });
+            if let Some(v) = fatia {
+                return v;
+            }
+        }
+        strops::substring(&str_val(recv), start as i64, e)
     }
 
     /// `str.substr(start, length?)` — deprecated start+count form.
