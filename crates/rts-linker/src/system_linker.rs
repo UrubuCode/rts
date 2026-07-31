@@ -239,6 +239,17 @@ fn build_linker_args(
             args.push("-o".to_string());
             args.push(output_path.display().to_string());
 
+            // AOT objects are non-PIC on Linux (module_aot::make_object_module
+            // deliberately leaves `is_pic` off — same bytes as the JIT), so the
+            // emitted .text carries absolute relocations. Modern clang/gcc
+            // default to PIE, which forbids text relocations ("relocation
+            // against `SYM` in read-only section `.text`" → link failure).
+            // Force a classic non-PIE executable; raw linkers (ld.lld) already
+            // default to ET_EXEC and take no `-no-pie`.
+            if linker.is_compiler_driver() {
+                args.push("-no-pie".to_string());
+            }
+
             // Raw linkers (ld.lld, rust-lld) don't add CRT startup code automatically.
             // Probe system lib paths and prepend crt1.o + crti.o before user objects.
             let syslib_paths = if linker.is_raw_linker() {
