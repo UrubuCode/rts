@@ -54,8 +54,8 @@ pub(super) fn to_string_radix(v: f64, radix: i64) -> String {
 /// `n.toString(radix)` as a real extern — the DYNAMIC/unproven-receiver path
 /// (`rts-runtime::adapters::value::dyndispatch::__rtsadp_dyn_to_string_radix`, reached via
 /// the `rts-std` `engine` bridge re-export) calls this directly. LOAD-BEARING.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_NUMBER_TO_STRING_RADIX(v: f64, radix: i64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_NUMBER_TO_STRING_RADIX")]
+pub fn __RTS_FN_GL_NUMBER_TO_STRING_RADIX(v: f64, radix: i64) -> u64 {
     alloc_entry(Entry::String(to_string_radix(v, radix).into_bytes()))
 }
 

@@ -50,8 +50,8 @@ fn alloc_str(s: &str) -> u64 {
 /// `Reflect.getOwnPropertyDescriptor(obj, key)` — devolve um Map com
 /// `{value, writable, enumerable, configurable}` quando a propriedade
 /// existe; 0 (handle invalido) quando nao existe.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR(
+#[rtse::abi("__RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR")]
+pub fn __RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR(
     obj: u64,
     key_handle: u64,
 ) -> u64 {
@@ -106,8 +106,8 @@ pub extern "C" fn __RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR(
 /// Data props -> {value, writable, enumerable, configurable}.
 /// Accessor props (#110 slots `__get_<name>`/`__set_<name>`) ->
 /// {get, set, enumerable, configurable} — JS spec.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS(obj: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS")]
+pub fn __RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS(obj: u64) -> u64 {
     let pairs: Vec<(String, i64)> = with_entry(obj, |e| match e {
         Some(Entry::Map(m)) => m
             .iter()
@@ -197,8 +197,8 @@ pub extern "C" fn __RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS(obj: u64) -> u
 /// Ignora writable/enumerable/configurable (sempre tratado como true)
 /// e accessor descriptors. Sempre tem sucesso em v0 (nao ha objects
 /// frozen/sealed reais).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REFLECT_DEFINE_PROPERTY(
+#[rtse::abi("__RTS_FN_GL_REFLECT_DEFINE_PROPERTY")]
+pub fn __RTS_FN_GL_REFLECT_DEFINE_PROPERTY(
     obj: u64,
     key_handle: u64,
     descriptor: u64,

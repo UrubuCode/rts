@@ -20,27 +20,27 @@ use crate::gc_surface::__RTS_FN_RT_TO_STRING_HANDLE;
 
 static FN_PROPS: Mutex<Option<HashMap<String, i64>>> = Mutex::new(None);
 
-fn key(name_ptr: *const u8, name_len: i64, prop_ptr: *const u8, prop_len: i64) -> Option<String> {
+fn key(name_ptr: u64, name_len: i64, prop_ptr: u64, prop_len: i64) -> Option<String> {
     let name = read_str(name_ptr, name_len)?;
     let prop = read_str(prop_ptr, prop_len)?;
     Some(format!("{name}\u{0}{prop}"))
 }
 
-fn read_str(ptr: *const u8, len: i64) -> Option<String> {
-    if ptr.is_null() || len <= 0 {
+fn read_str(ptr: u64, len: i64) -> Option<String> {
+    if ptr == 0 || len <= 0 {
         return None;
     }
-    let slice = unsafe { std::slice::from_raw_parts(ptr, len as usize) };
+    let slice = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
     Some(String::from_utf8_lossy(slice).into_owned())
 }
 
 /// `(<fn> as any).<prop> = value` — installs an own property on the function
 /// named `name`. `value == 0` removes it.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_FUNCTION_SET_PROP(
-    name_ptr: *const u8,
+#[rtse::abi("__RTS_FN_RT_FUNCTION_SET_PROP")]
+pub fn __RTS_FN_RT_FUNCTION_SET_PROP(
+    name_ptr: u64,
     name_len: i64,
-    prop_ptr: *const u8,
+    prop_ptr: u64,
     prop_len: i64,
     value: i64,
 ) {
@@ -57,11 +57,11 @@ pub extern "C" fn __RTS_FN_RT_FUNCTION_SET_PROP(
 }
 
 /// Reads an installed own property (`0` if absent).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_FUNCTION_GET_PROP(
-    name_ptr: *const u8,
+#[rtse::abi("__RTS_FN_RT_FUNCTION_GET_PROP")]
+pub fn __RTS_FN_RT_FUNCTION_GET_PROP(
+    name_ptr: u64,
     name_len: i64,
-    prop_ptr: *const u8,
+    prop_ptr: u64,
     prop_len: i64,
 ) -> i64 {
     let Some(k) = key(name_ptr, name_len, prop_ptr, prop_len) else {
@@ -77,15 +77,15 @@ pub extern "C" fn __RTS_FN_RT_FUNCTION_GET_PROP(
 
 /// `<fn>.toString()` — if a `toString` own property was installed, invokes it
 /// (zero args) and returns its result; otherwise the native function string.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_FUNCTION_TO_STRING_DYN(
-    name_ptr: *const u8,
+#[rtse::abi("__RTS_FN_RT_FUNCTION_TO_STRING_DYN")]
+pub fn __RTS_FN_RT_FUNCTION_TO_STRING_DYN(
+    name_ptr: u64,
     name_len: i64,
     fn_handle: i64,
 ) -> u64 {
     let prop = b"toString";
     let override_h =
-        __RTS_FN_RT_FUNCTION_GET_PROP(name_ptr, name_len, prop.as_ptr(), prop.len() as i64);
+        __RTS_FN_RT_FUNCTION_GET_PROP(name_ptr, name_len, prop.as_ptr() as u64, prop.len() as i64);
     if override_h != 0 {
         // Invoke the override (no args / no this). INVOKE_AUTO detects whether
         // the stored value is a Function handle or a raw func_addr (a lifted

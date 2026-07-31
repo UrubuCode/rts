@@ -25,8 +25,8 @@ const VEC_MAX_LEN: i64 = 1_000_000;
 /// nao undefined — `0 in new Array(3)` eh false. Leitura `a[0] === undefined`
 /// continua true (codegen trata MIN+4 como undefined-equivalente). Limitado
 /// ao `VEC_MAX_LEN` pra evitar OOM.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ARRAY_NEW_WITH_LENGTH(len: i64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_ARRAY_NEW_WITH_LENGTH")]
+pub fn __RTS_FN_GL_ARRAY_NEW_WITH_LENGTH(len: i64) -> u64 {
     let len = len.max(0).min(VEC_MAX_LEN) as usize;
     let v = vec![i64::MIN + 4; len];
     alloc_entry(Entry::Vec(Box::new(v)))
@@ -35,8 +35,8 @@ pub extern "C" fn __RTS_FN_GL_ARRAY_NEW_WITH_LENGTH(len: i64) -> u64 {
 /// (#208) `Array.from({length: n}, fn?)` — gera Vec [fn(0), fn(1), ...].
 /// Se fn_ptr == 0, gera [0, 1, ..., n-1] (sem mapeamento).
 /// fn_ptr e' `extern "C" fn(item: i64, idx: i64) -> i64`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ARRAY_FROM_LENGTH(n: i64, fn_ptr: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_ARRAY_FROM_LENGTH")]
+pub fn __RTS_FN_GL_ARRAY_FROM_LENGTH(n: i64, fn_ptr: u64) -> u64 {
     if n < 0 || n > VEC_MAX_LEN {
         return alloc_entry(Entry::Vec(Box::new(Vec::new())));
     }

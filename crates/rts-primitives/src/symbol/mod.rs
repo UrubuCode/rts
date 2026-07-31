@@ -76,32 +76,32 @@ pub(crate) fn well_known_handle(name: &str) -> u64 {
 }
 
 /// Symbol.iterator — well-known symbol pra iteration protocol.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_SYMBOL_ITERATOR() -> Handle {
+#[rtse::abi("__RTS_FN_GL_SYMBOL_ITERATOR")]
+pub fn __RTS_FN_GL_SYMBOL_ITERATOR() -> Handle {
     well_known_handle("iterator")
 }
 
 /// Symbol.asyncIterator — async iteration protocol.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_SYMBOL_ASYNC_ITERATOR() -> Handle {
+#[rtse::abi("__RTS_FN_GL_SYMBOL_ASYNC_ITERATOR")]
+pub fn __RTS_FN_GL_SYMBOL_ASYNC_ITERATOR() -> Handle {
     well_known_handle("asyncIterator")
 }
 
 /// Symbol.hasInstance — controla instanceof.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_SYMBOL_HAS_INSTANCE() -> Handle {
+#[rtse::abi("__RTS_FN_GL_SYMBOL_HAS_INSTANCE")]
+pub fn __RTS_FN_GL_SYMBOL_HAS_INSTANCE() -> Handle {
     well_known_handle("hasInstance")
 }
 
 /// Symbol.toPrimitive — controla coercao.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_SYMBOL_TO_PRIMITIVE() -> Handle {
+#[rtse::abi("__RTS_FN_GL_SYMBOL_TO_PRIMITIVE")]
+pub fn __RTS_FN_GL_SYMBOL_TO_PRIMITIVE() -> Handle {
     well_known_handle("toPrimitive")
 }
 
 /// Symbol.toStringTag — customiza Object.prototype.toString.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_SYMBOL_TO_STRING_TAG() -> Handle {
+#[rtse::abi("__RTS_FN_GL_SYMBOL_TO_STRING_TAG")]
+pub fn __RTS_FN_GL_SYMBOL_TO_STRING_TAG() -> Handle {
     well_known_handle("toStringTag")
 }
 
@@ -204,8 +204,8 @@ use crate::gc_surface::__RTS_FN_RT_INVOKE_AUTO;
 /// contrario devolve `obj` inalterado (caller cai no coerce default).
 ///
 /// hint_code: 0 = "number", 1 = "string", 2 = "default".
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_TO_PRIMITIVE(obj: i64, hint_code: i32) -> i64 {
+#[rtse::abi("__RTS_FN_RT_TO_PRIMITIVE")]
+pub fn __RTS_FN_RT_TO_PRIMITIVE(obj: i64, hint_code: i32) -> i64 {
     let obj_h = obj as u64;
     // So' Map pode ter [Symbol.toPrimitive]. Resolve o handle do well-known.
     let tp_sym = __RTS_FN_GL_SYMBOL_TO_PRIMITIVE();

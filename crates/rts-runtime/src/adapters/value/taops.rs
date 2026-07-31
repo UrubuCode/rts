@@ -271,10 +271,16 @@ fn finish(vec_handle: u64) -> u64 {
     vec_handle
 }
 
+/// One TypedArray constructor per element kind.
+///
+/// `#[rtse::abi(abi)]` with no `value=` derives the symbol from the Rust fn
+/// name (`ta_new_u8` → `__rtsa_ta_new_u8`), so the name is spelled ONCE — at
+/// the invocation below — instead of being duplicated as an ident and a
+/// string. `registry_build.rs` registers these by that same derived symbol.
 macro_rules! ta_ctor {
     ($name:ident, $bytes:expr, $signed:expr, $float:expr) => {
-        #[unsafe(no_mangle)]
-        pub extern "C" fn $name(arg_word: u64) -> u64 {
+        #[rtse::abi(abi)]
+        pub fn $name(arg_word: u64) -> u64 {
             ta_new(
                 arg_word,
                 Kind {
@@ -287,14 +293,14 @@ macro_rules! ta_ctor {
     };
 }
 
-ta_ctor!(__RTS_FN_GL_TA_NEW_U8, 1, false, false);
-ta_ctor!(__RTS_FN_GL_TA_NEW_I8, 1, true, false);
-ta_ctor!(__RTS_FN_GL_TA_NEW_U16, 2, false, false);
-ta_ctor!(__RTS_FN_GL_TA_NEW_I16, 2, true, false);
-ta_ctor!(__RTS_FN_GL_TA_NEW_U32, 4, false, false);
-ta_ctor!(__RTS_FN_GL_TA_NEW_I32, 4, true, false);
-ta_ctor!(__RTS_FN_GL_TA_NEW_F32, 4, false, true);
-ta_ctor!(__RTS_FN_GL_TA_NEW_F64, 8, false, true);
+ta_ctor!(ta_new_u8, 1, false, false);
+ta_ctor!(ta_new_i8, 1, true, false);
+ta_ctor!(ta_new_u16, 2, false, false);
+ta_ctor!(ta_new_i16, 2, true, false);
+ta_ctor!(ta_new_u32, 4, false, false);
+ta_ctor!(ta_new_i32, 4, true, false);
+ta_ctor!(ta_new_f32, 4, false, true);
+ta_ctor!(ta_new_f64, 8, false, true);
 
 /// `ta.set(src, offset?)` — copy `src`'s elements into the array starting at
 /// NATIVE element-path entry point (`CRANELIFT_IMPLEMENTATION.md` step 5b):
@@ -425,11 +431,15 @@ fn num(v: i64) -> u64 {
     PolyValue::from_f64(v as f64).raw()
 }
 
+/// The RMW half of `Atomics.*`. Bare `#[rtse::abi]` prefixes the Rust fn name
+/// with `__`, which is exactly how the sibling `rtsadp_atomics_load`/`_store`/
+/// `_cmpxchg` in this file are declared — so the symbols keep their
+/// `__rtsadp_atomics_*` spelling while the name is written once.
 macro_rules! atomics_rmw {
     ($name:ident, $op:expr) => {
         /// Atomics RMW op — returns the PREVIOUS value (JS semantics).
-        #[unsafe(no_mangle)]
-        pub extern "C" fn $name(arr_word: u64, idx_word: u64, val_word: u64) -> u64 {
+        #[rtse::abi]
+        pub fn $name(arr_word: u64, idx_word: u64, val_word: u64) -> u64 {
             let Some((loc, cur)) = atomics_loc(arr_word, idx_word) else {
                 return PolyValue::undefined().raw();
             };
@@ -442,12 +452,12 @@ macro_rules! atomics_rmw {
     };
 }
 
-atomics_rmw!(__rtsadp_atomics_add, |a, b| a.wrapping_add(b));
-atomics_rmw!(__rtsadp_atomics_sub, |a, b| a.wrapping_sub(b));
-atomics_rmw!(__rtsadp_atomics_and, |a, b| a & b);
-atomics_rmw!(__rtsadp_atomics_or, |a, b| a | b);
-atomics_rmw!(__rtsadp_atomics_xor, |a, b| a ^ b);
-atomics_rmw!(__rtsadp_atomics_exchange, |_a, b| b);
+atomics_rmw!(rtsadp_atomics_add, |a, b| a.wrapping_add(b));
+atomics_rmw!(rtsadp_atomics_sub, |a, b| a.wrapping_sub(b));
+atomics_rmw!(rtsadp_atomics_and, |a, b| a & b);
+atomics_rmw!(rtsadp_atomics_or, |a, b| a | b);
+atomics_rmw!(rtsadp_atomics_xor, |a, b| a ^ b);
+atomics_rmw!(rtsadp_atomics_exchange, |_a, b| b);
 
 /// `Atomics.load(ta, i)` — the current value.
 #[rtse::abi]

@@ -583,8 +583,8 @@ pub fn invoke_array_callback(handle_or_ptr: u64, extra: &[i64]) -> i64 {
 /// Reifica uma user fn estatica (fn_ptr conhecido em compile time) num
 /// handle Function. Codegen emite essa call quando ve member access em
 /// ident de user fn (ex: `myFn.bind(this)` ou `myFn.name`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY(
+#[rtse::abi("__RTS_FN_GL_FUNCTION_REIFY")]
+pub fn __RTS_FN_GL_FUNCTION_REIFY(
     fn_ptr: u64,
     arity: i64,
     name_ptr: i64,
@@ -611,8 +611,8 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY(
 /// `c.add` em posição de valor → handle Function pré-bindado em `c`.
 /// Quando `bind_this != 0`, o handle resultante tem `has_bound_this=true`
 /// e `bound_this=bind_this`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY_BOUND(
+#[rtse::abi("__RTS_FN_GL_FUNCTION_REIFY_BOUND")]
+pub fn __RTS_FN_GL_FUNCTION_REIFY_BOUND(
     fn_ptr: u64,
     arity: i64,
     name_ptr: i64,
@@ -641,8 +641,8 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY_BOUND(
 /// Usado para reificação de método de classe com tipos não-i64.
 /// `param_kinds` codifica cada param: 0=i64, 1=f64, 2=bool, 3=i32 (este
 /// codifica o param já incluindo `this` quando aplicável).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED(
+#[rtse::abi("__RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED")]
+pub fn __RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED(
     fn_ptr: u64,
     arity: i64,
     name_ptr: i64,
@@ -700,8 +700,8 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED(
 ///
 /// `param_kinds_ptr/len` descreve TODOS os params (capturas + proprios) pra
 /// que `invoke_typed` reinterprete f64-bits corretamente.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY_CAPTURED(
+#[rtse::abi("__RTS_FN_GL_FUNCTION_REIFY_CAPTURED")]
+pub fn __RTS_FN_GL_FUNCTION_REIFY_CAPTURED(
     fn_ptr: u64,
     arity: i64,
     name_ptr: i64,
@@ -754,8 +754,8 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_REIFY_CAPTURED(
 /// `new Function(...args, body)` — compila body em runtime via eval.
 /// Args: `params_handle` (string handle com nomes separados por virgula),
 /// `body_handle` (string handle com codigo do body).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FUNCTION_NEW(params_handle: u64, body_handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_FUNCTION_NEW")]
+pub fn __RTS_FN_GL_FUNCTION_NEW(params_handle: u64, body_handle: u64) -> u64 {
     let params_str = with_entry(params_handle, |e| {
         if let Some(Entry::String(b)) = e {
             std::str::from_utf8(b).map(|s| s.to_owned()).ok()
@@ -817,8 +817,8 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_NEW(params_handle: u64, body_handle: u64)
 }
 
 /// `fn.call(thisArg, argsVec)`. Args vem como Vec handle (codegen empacota).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_handle: u64) -> i64 {
+#[rtse::abi("__RTS_FN_GL_FUNCTION_CALL")]
+pub fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_handle: u64) -> i64 {
     // (#218 phase2) Proxy callable: redireciona pra trap apply ou forward.
     if let Some((target, handler)) = proxy_resolve(handle) {
         return unsafe { __RTS_FN_RT_PROXY_DISPATCH_APPLY(target, handler, this_arg, args_handle) };
@@ -963,8 +963,8 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_han
 }
 
 /// `fn.apply(thisArg, argsArray)`. Mesmo dispatch de call.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FUNCTION_APPLY(handle: u64, this_arg: i64, args_handle: u64) -> i64 {
+#[rtse::abi("__RTS_FN_GL_FUNCTION_APPLY")]
+pub fn __RTS_FN_GL_FUNCTION_APPLY(handle: u64, this_arg: i64, args_handle: u64) -> i64 {
     __RTS_FN_GL_FUNCTION_CALL(handle, this_arg, args_handle)
 }
 
@@ -973,8 +973,8 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_APPLY(handle: u64, this_arg: i64, args_ha
 /// param_kinds do callee. Vec<i64> de fixture (`[10, 20]`) tem numbers
 /// como i64 puros — sem essa conversao, invoke_typed os interpretaria
 /// como bits denormal f64.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FUNCTION_APPLY_TYPED(
+#[rtse::abi("__RTS_FN_GL_FUNCTION_APPLY_TYPED")]
+pub fn __RTS_FN_GL_FUNCTION_APPLY_TYPED(
     handle: u64,
     this_arg: i64,
     args_handle: u64,
@@ -1033,8 +1033,8 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_APPLY_TYPED(
 }
 
 /// `fn.bind(thisArg, ...args)` — retorna nova Function com partial.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FUNCTION_BIND(handle: u64, this_arg: i64, args_handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_FUNCTION_BIND")]
+pub fn __RTS_FN_GL_FUNCTION_BIND(handle: u64, this_arg: i64, args_handle: u64) -> u64 {
     let original = with_entry(handle, |e| {
         if let Some(Entry::Function(d)) = e {
             Some((
@@ -1165,8 +1165,8 @@ pub fn registered_fn_kinds(fn_ptr: u64) -> Option<(Vec<u8>, u8)> {
 
 /// Registra a ABI (param_kinds + return_kind) de uma user fn pelo seu endereço.
 /// Emitido pelo codegen no início de `__rts_startup` para cada fn address-taken.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_REGISTER_FN_KINDS(
+#[rtse::abi("__RTS_FN_RT_REGISTER_FN_KINDS")]
+pub fn __RTS_FN_RT_REGISTER_FN_KINDS(
     fn_ptr: u64,
     kinds_ptr: i64,
     kinds_len: i64,
@@ -1201,8 +1201,8 @@ fn fn_defaults_registry() -> &'static std::sync::RwLock<std::collections::HashMa
 }
 
 /// Registra os defaults (já encodados) de uma user fn pelo endereço.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_REGISTER_FN_DEFAULTS(
+#[rtse::abi("__RTS_FN_RT_REGISTER_FN_DEFAULTS")]
+pub fn __RTS_FN_RT_REGISTER_FN_DEFAULTS(
     fn_ptr: u64,
     defaults_ptr: i64,
     defaults_len: i64,
@@ -1294,8 +1294,8 @@ pub fn invoke_fn_ptr_with_registry(fn_ptr: u64, args: &[i64]) -> i64 {
 /// que NAO pode alcancar o rts-runtime (rts-shared/rts-primitives estao ABAIXO
 /// dele). Reps incompativeis (Map vs Vec-keyed) + layering ⇒ NAO e' uma duplicata
 /// de proto do engine a unificar; e' um artefato de camada aceito.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE() -> u64 {
+#[rtse::abi("__RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE")]
+pub fn __RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE() -> u64 {
     static SINGLETON: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
     *SINGLETON.get_or_init(|| {
         let proto = unsafe { __RTS_FN_NS_COLLECTIONS_MAP_NEW() };
@@ -1332,8 +1332,8 @@ pub extern "C" fn __RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE() -> u64 {
 /// Constructor functions usam isto pra anexar metodos compartilhados.
 /// Primeiro acesso aloca um Map vazio; chamadas subsequentes retornam o mesmo
 /// (indexado pelo fn_ptr da Function entry, estavel entre REIFYs).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FUNCTION_PROTOTYPE_GET(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_FUNCTION_PROTOTYPE_GET")]
+pub fn __RTS_FN_GL_FUNCTION_PROTOTYPE_GET(handle: u64) -> u64 {
     let fn_ptr = with_entry(handle, |e| {
         if let Some(Entry::Function(d)) = e {
             Some(d.fn_ptr)
@@ -1395,8 +1395,8 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_PROTOTYPE_GET(handle: u64) -> u64 {
 /// `Dog.prototype = Object.create(Animal.prototype)`: a chain da instancia
 /// passa por Dog.prototype e Animal.prototype, entao `d instanceof Animal`
 /// tambem casa. Retorna 0/1 (bool sentinel decidido pelo codegen).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_INSTANCEOF_PROTO(instance_h: u64, ctor_h: u64) -> i64 {
+#[rtse::abi("__RTS_FN_RT_INSTANCEOF_PROTO")]
+pub fn __RTS_FN_RT_INSTANCEOF_PROTO(instance_h: u64, ctor_h: u64) -> i64 {
     // Resolve Ctor.prototype (lazy-aloca se preciso — mesma fn que `new` usa).
     let target_proto = __RTS_FN_GL_FUNCTION_PROTOTYPE_GET(ctor_h);
     if target_proto == 0 {
@@ -1425,8 +1425,8 @@ pub extern "C" fn __RTS_FN_RT_INSTANCEOF_PROTO(instance_h: u64, ctor_h: u64) -> 
 ///
 /// `this_arg` so eh empilhado quando callee eh Function handle (caminho
 /// classes). Args vem de Vec<i64> handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_INVOKE_AUTO(callee: i64, this_arg: i64, args_handle: u64) -> i64 {
+#[rtse::abi("__RTS_FN_RT_INVOKE_AUTO")]
+pub fn __RTS_FN_RT_INVOKE_AUTO(callee: i64, this_arg: i64, args_handle: u64) -> i64 {
     invoke_auto_impl(callee, this_arg, args_handle, None)
 }
 
@@ -1436,8 +1436,8 @@ pub extern "C" fn __RTS_FN_RT_INVOKE_AUTO(callee: i64, this_arg: i64, args_handl
 /// return_kind proprio (rk=0). Usado quando o codegen sabe o tipo de retorno
 /// do metodo de prototype (ex: `circ.area(): number` via Math.sqrt) — sem
 /// isso o trampolim invoca como `-> i64` e trunca o f64 (le RAX/XMM0 errado).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_INVOKE_AUTO_TYPED(
+#[rtse::abi("__RTS_FN_RT_INVOKE_AUTO_TYPED")]
+pub fn __RTS_FN_RT_INVOKE_AUTO_TYPED(
     callee: i64,
     this_arg: i64,
     args_handle: u64,
@@ -1458,8 +1458,8 @@ pub extern "C" fn __RTS_FN_RT_INVOKE_AUTO_TYPED(
 /// unifica: f64-ret -> bits ja' corretos; i64-ret -> converte (i as f64) e
 /// devolve os bits. O codegen sempre bitcast o resultado p/ f64. Sem isto, o
 /// mesmo `f(x)` no body de `apply` nao saberia tratar os dois callees.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_INVOKE_AUTO_AS_F64(
+#[rtse::abi("__RTS_FN_RT_INVOKE_AUTO_AS_F64")]
+pub fn __RTS_FN_RT_INVOKE_AUTO_AS_F64(
     callee: i64,
     this_arg: i64,
     args_handle: u64,
@@ -1746,8 +1746,8 @@ fn invoke_auto_impl(
 /// (#264 PR4+) Substitui o prototype Map de uma user fn.
 /// \`Dog.prototype = Object.create(Animal.prototype)\` precisa atualizar
 /// o registry para que \`new Dog\` instale a chain correta.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FUNCTION_PROTOTYPE_SET(handle: u64, new_proto: u64) {
+#[rtse::abi("__RTS_FN_GL_FUNCTION_PROTOTYPE_SET")]
+pub fn __RTS_FN_GL_FUNCTION_PROTOTYPE_SET(handle: u64, new_proto: u64) {
     let fn_ptr = with_entry(handle, |e| {
         if let Some(Entry::Function(d)) = e {
             Some(d.fn_ptr)
@@ -1770,8 +1770,8 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_PROTOTYPE_SET(handle: u64, new_proto: u64
     });
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FUNCTION_NAME(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_FUNCTION_NAME")]
+pub fn __RTS_FN_GL_FUNCTION_NAME(handle: u64) -> u64 {
     let name = with_entry(handle, |e| {
         if let Some(Entry::Function(d)) = e {
             d.name.to_string()
@@ -1782,8 +1782,8 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_NAME(handle: u64) -> u64 {
     alloc_entry(Entry::String(name.into_bytes()))
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FUNCTION_LENGTH(handle: u64) -> i64 {
+#[rtse::abi("__RTS_FN_GL_FUNCTION_LENGTH")]
+pub fn __RTS_FN_GL_FUNCTION_LENGTH(handle: u64) -> i64 {
     with_entry(handle, |e| {
         if let Some(Entry::Function(d)) = e {
             (d.arity as i64)
@@ -1795,8 +1795,8 @@ pub extern "C" fn __RTS_FN_GL_FUNCTION_LENGTH(handle: u64) -> i64 {
     })
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_FUNCTION_TO_STRING(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_FUNCTION_TO_STRING")]
+pub fn __RTS_FN_GL_FUNCTION_TO_STRING(handle: u64) -> u64 {
     let s = with_entry(handle, |e| {
         if let Some(Entry::Function(d)) = e {
             if let Some(src) = &d.source {

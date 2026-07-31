@@ -120,8 +120,12 @@ pub fn runtime_init() {
 }
 
 /// `extern "C"` entry the AOT `main` shim calls before `__rts_startup`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_INIT() {
+///
+/// Keeps its legacy symbol name: `module_aot.rs` declares it by that string as
+/// an `Import` when it emits the shim, so the name is part of the AOT contract
+/// rather than something the naming rule may re-derive.
+#[rtse::abi("__RTS_FN_RT_INIT")]
+pub fn __RTS_FN_RT_INIT() {
     runtime_init();
 }
 
@@ -134,14 +138,20 @@ pub extern "C" fn __RTS_FN_RT_INIT() {
 /// it shares the compile-time registry in-process. Safe: `ptr`/`len` name a
 /// codegen-emitted, linker-placed data object (never user input).
 ///
+/// Keeps its legacy symbol name for the same reason as [`__RTS_FN_RT_INIT`].
+/// The blob address crosses as `U64` — the spelling `rts_abi::tymap` sanctions
+/// for an address — because the payload is arbitrary bytes, so the `&str` form
+/// (which would impose UTF-8 validation) is wrong here. Both spellings lower to
+/// the same single i64 slot, so the shim's declared signature is unchanged.
+///
 /// # Safety
-/// `ptr` must point at `len` valid bytes produced by `export_seed_blob`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __RTS_FN_RT_SEED_SHAPES(ptr: *const u8, len: usize) {
-    if ptr.is_null() || len == 0 {
+/// `ptr` must be the address of `len` valid bytes produced by `export_seed_blob`.
+#[rtse::abi("__RTS_FN_RT_SEED_SHAPES")]
+pub fn __RTS_FN_RT_SEED_SHAPES(ptr: u64, len: i64) {
+    if ptr == 0 || len <= 0 {
         return;
     }
-    let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
+    let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
     rts_engine::heap::shapes::seed_from_blob(bytes);
 }
 

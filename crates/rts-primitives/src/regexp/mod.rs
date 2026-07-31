@@ -22,12 +22,12 @@ use rts_engine::heap::handles::{Entry, alloc_entry, with_entry, with_entry_mut};
 // the `rts-runtime` facade, so the symbols are guaranteed present at link time.
 unsafe extern "C" {
     fn __RTS_FN_NS_REGEX_COMPILE(
-        pattern_ptr: *const u8,
+        pattern_ptr: u64,
         pattern_len: i64,
-        flags_ptr: *const u8,
+        flags_ptr: u64,
         flags_len: i64,
     ) -> Handle;
-    fn __RTS_FN_NS_REGEX_TEST(handle: Handle, s_ptr: *const u8, s_len: i64) -> Bool;
+    fn __RTS_FN_NS_REGEX_TEST(handle: Handle, s_ptr: u64, s_len: i64) -> Bool;
 }
 
 // ── Helpers (side-table indices_vec_handle -> groups_map_handle) ───────────────
@@ -49,55 +49,55 @@ fn register_indices_groups(indices_vec: u64, groups_map: u64) {
 // ── Externs de membros (`extern "C"` hand-written, antes via macro) ────────────
 
 /// `new RegExp(pattern)` — no flags.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REGEXP_NEW(pattern_ptr: *const u8, pattern_len: i64) -> Handle {
-    let pattern = match unsafe { rts_engine::abi::str_abi::from_abi(pattern_ptr, pattern_len) } {
+#[rtse::abi("__RTS_FN_GL_REGEXP_NEW")]
+pub fn __RTS_FN_GL_REGEXP_NEW(pattern_ptr: u64, pattern_len: i64) -> Handle {
+    let pattern = match unsafe { rts_engine::abi::str_abi::from_abi(pattern_ptr as *const u8, pattern_len) } {
         Some(s) => s,
         None => return 0,
     };
-    unsafe { __RTS_FN_NS_REGEX_COMPILE(pattern.as_ptr(), pattern.len() as i64, "".as_ptr(), 0) }
+    unsafe { __RTS_FN_NS_REGEX_COMPILE(pattern.as_ptr() as u64, pattern.len() as i64, "".as_ptr() as u64, 0) }
 }
 
 /// `new RegExp(pattern, flags)` — with flags like "gi", "im", "s".
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REGEXP_NEW_WITH_FLAGS(
-    pattern_ptr: *const u8,
+#[rtse::abi("__RTS_FN_GL_REGEXP_NEW_WITH_FLAGS")]
+pub fn __RTS_FN_GL_REGEXP_NEW_WITH_FLAGS(
+    pattern_ptr: u64,
     pattern_len: i64,
-    flags_ptr: *const u8,
+    flags_ptr: u64,
     flags_len: i64,
 ) -> Handle {
-    let pattern = match unsafe { rts_engine::abi::str_abi::from_abi(pattern_ptr, pattern_len) } {
+    let pattern = match unsafe { rts_engine::abi::str_abi::from_abi(pattern_ptr as *const u8, pattern_len) } {
         Some(s) => s,
         None => return 0,
     };
-    let flags = match unsafe { rts_engine::abi::str_abi::from_abi(flags_ptr, flags_len) } {
+    let flags = match unsafe { rts_engine::abi::str_abi::from_abi(flags_ptr as *const u8, flags_len) } {
         Some(s) => s,
         None => return 0,
     };
     unsafe {
         __RTS_FN_NS_REGEX_COMPILE(
-            pattern.as_ptr(),
+            pattern.as_ptr() as u64,
             pattern.len() as i64,
-            flags.as_ptr(),
+            flags.as_ptr() as u64,
             flags.len() as i64,
         )
     }
 }
 
 /// `re.test(str)` — returns 1 if match, 0 otherwise.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REGEXP_TEST(handle: Handle, s_ptr: *const u8, s_len: i64) -> Bool {
-    let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr, s_len) } {
+#[rtse::abi("__RTS_FN_GL_REGEXP_TEST")]
+pub fn __RTS_FN_GL_REGEXP_TEST(handle: Handle, s_ptr: u64, s_len: i64) -> Bool {
+    let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr as *const u8, s_len) } {
         Some(s) => s,
         None => return 0,
     };
-    unsafe { __RTS_FN_NS_REGEX_TEST(handle, s.as_ptr(), s.len() as i64) }
+    unsafe { __RTS_FN_NS_REGEX_TEST(handle, s.as_ptr() as u64, s.len() as i64) }
 }
 
 /// `re.exec(str)` — JS Array-like (Map) com matched + captures + groups.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REGEXP_EXEC(handle: Handle, s_ptr: *const u8, s_len: i64) -> Handle {
-    let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr, s_len) } {
+#[rtse::abi("__RTS_FN_GL_REGEXP_EXEC")]
+pub fn __RTS_FN_GL_REGEXP_EXEC(handle: Handle, s_ptr: u64, s_len: i64) -> Handle {
+    let s = match unsafe { rts_engine::abi::str_abi::from_abi(s_ptr as *const u8, s_len) } {
         Some(s) => s,
         None => return 0,
     };
@@ -267,8 +267,8 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_EXEC(handle: Handle, s_ptr: *const u8, s_le
 }
 
 /// `re.source` — returns pattern string as a handle.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REGEXP_SOURCE(handle: Handle) -> Handle {
+#[rtse::abi("__RTS_FN_GL_REGEXP_SOURCE")]
+pub fn __RTS_FN_GL_REGEXP_SOURCE(handle: Handle) -> Handle {
     let source: Option<String> = with_entry(handle, |entry| match entry {
         Some(Entry::Regex(rx)) => Some(rx.engine.source()),
         _ => None,
@@ -281,8 +281,8 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_SOURCE(handle: Handle) -> Handle {
 }
 
 /// (#781) `re.flags` — string canonica das flags (ex: "gi").
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REGEXP_FLAGS(handle: Handle) -> Handle {
+#[rtse::abi("__RTS_FN_GL_REGEXP_FLAGS")]
+pub fn __RTS_FN_GL_REGEXP_FLAGS(handle: Handle) -> Handle {
     let f: Option<String> = with_entry(handle, |entry| match entry {
         Some(Entry::Regex(rx)) => Some(rx.flags.clone()),
         _ => None,
@@ -294,8 +294,8 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_FLAGS(handle: Handle) -> Handle {
 }
 
 /// `re.global` — flag 'g' setada?
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REGEXP_GLOBAL(handle: Handle) -> Bool {
+#[rtse::abi("__RTS_FN_GL_REGEXP_GLOBAL")]
+pub fn __RTS_FN_GL_REGEXP_GLOBAL(handle: Handle) -> Bool {
     with_entry(handle, |entry| match entry {
         Some(Entry::Regex(rx)) => {
             if rx.flags.contains('g') {
@@ -309,8 +309,8 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_GLOBAL(handle: Handle) -> Bool {
 }
 
 /// `re.ignoreCase` — flag 'i' setada?
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REGEXP_IGNORE_CASE(handle: Handle) -> Bool {
+#[rtse::abi("__RTS_FN_GL_REGEXP_IGNORE_CASE")]
+pub fn __RTS_FN_GL_REGEXP_IGNORE_CASE(handle: Handle) -> Bool {
     with_entry(handle, |entry| match entry {
         Some(Entry::Regex(rx)) => {
             if rx.flags.contains('i') {
@@ -324,8 +324,8 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_IGNORE_CASE(handle: Handle) -> Bool {
 }
 
 /// (#782) `re.lastIndex` getter.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REGEXP_LAST_INDEX_GET(handle: Handle) -> I64 {
+#[rtse::abi("__RTS_FN_GL_REGEXP_LAST_INDEX_GET")]
+pub fn __RTS_FN_GL_REGEXP_LAST_INDEX_GET(handle: Handle) -> I64 {
     with_entry(handle, |entry| match entry {
         Some(Entry::Regex(rx)) => rx.last_index as i64,
         _ => 0,
@@ -333,8 +333,8 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_LAST_INDEX_GET(handle: Handle) -> I64 {
 }
 
 /// `re.multiline` — flag 'm' setada?
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REGEXP_MULTILINE(handle: Handle) -> Bool {
+#[rtse::abi("__RTS_FN_GL_REGEXP_MULTILINE")]
+pub fn __RTS_FN_GL_REGEXP_MULTILINE(handle: Handle) -> Bool {
     with_entry(handle, |entry| match entry {
         Some(Entry::Regex(rx)) => {
             if rx.flags.contains('m') {
@@ -490,8 +490,8 @@ pub fn register_regexp_class_spec(e: &mut Engine) {
 
 /// (#70/#1162) Lookup: dado handle de indices Vec, retorna handle do Map de
 /// named groups indices. 0 se nao registrado.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REGEXP_INDICES_GROUPS(vec_handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_REGEXP_INDICES_GROUPS")]
+pub fn __RTS_FN_GL_REGEXP_INDICES_GROUPS(vec_handle: u64) -> u64 {
     indices_groups_table()
         .lock()
         .ok()
@@ -500,8 +500,8 @@ pub extern "C" fn __RTS_FN_GL_REGEXP_INDICES_GROUPS(vec_handle: u64) -> u64 {
 }
 
 /// (#782) `re.lastIndex = N` — setter direto.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REGEXP_LAST_INDEX_SET(handle: u64, n: i64) {
+#[rtse::abi("__RTS_FN_GL_REGEXP_LAST_INDEX_SET")]
+pub fn __RTS_FN_GL_REGEXP_LAST_INDEX_SET(handle: u64, n: i64) {
     let v = if n < 0 { 0 } else { n as usize };
     with_entry_mut(handle, |entry| {
         if let Some(Entry::Regex(rx)) = entry {

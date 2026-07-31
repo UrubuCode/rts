@@ -60,6 +60,12 @@ pub fn resolve_proxy(handle: u64) -> Option<(u64, u64)> {
 
 /// `resolve_proxy` via ABI: escreve target/handler nos out-params e devolve 1
 /// se `handle` for Proxy; 0 caso contrário (out-params intocados).
+///
+// NOT `#[rtse::abi]`: the two `*mut u64` out-params have no single-slot ABI
+// spelling — they are stack slots the emitted code owns and writes THROUGH, not
+// values crossing by copy, so the `U64`-address escape used for the `*const u8`
+// string pairs would be a lie about the direction of the data. Same carve-out,
+// for the same reason, as `__rtsadp_ta_view_base_len`.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_RT_PROXY_RESOLVE(
     handle: u64,
@@ -79,8 +85,8 @@ pub extern "C" fn __RTS_FN_RT_PROXY_RESOLVE(
 }
 
 /// `dispatch_apply` via símbolo (assinatura já ABI-compatível).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_PROXY_DISPATCH_APPLY(
+#[rtse::abi("__RTS_FN_RT_PROXY_DISPATCH_APPLY")]
+pub fn __RTS_FN_RT_PROXY_DISPATCH_APPLY(
     target: u64,
     handler: u64,
     this_arg: i64,
@@ -282,8 +288,8 @@ pub fn dispatch_construct(target: u64, handler: u64, args_handle: u64) -> u64 {
 /// target eh Proxy, dispara trap construct. Senao, faz o caminho default
 /// (alocar Map + apply). Mantido como fn separada do codegen pra evitar
 /// duplicar logica em cada call site.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REFLECT_CONSTRUCT(target: u64, args_handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_REFLECT_CONSTRUCT")]
+pub fn __RTS_FN_GL_REFLECT_CONSTRUCT(target: u64, args_handle: u64) -> u64 {
     if let Some((real_target, handler)) = resolve_proxy(target) {
         return dispatch_construct(real_target, handler, args_handle);
     }
@@ -317,8 +323,8 @@ pub fn dispatch_set_proto(target: u64, handler: u64, proto: u64) -> i64 {
 
 /// Wrapper: `Reflect.setPrototypeOf(target, proto)`. Detecta Proxy e
 /// despacha a trap correspondente; senao faz forward direto.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REFLECT_SET_PROTOTYPE_OF(target: u64, proto: u64) -> i64 {
+#[rtse::abi("__RTS_FN_GL_REFLECT_SET_PROTOTYPE_OF")]
+pub fn __RTS_FN_GL_REFLECT_SET_PROTOTYPE_OF(target: u64, proto: u64) -> i64 {
     if let Some((real_target, handler)) = resolve_proxy(target) {
         return dispatch_set_proto(real_target, handler, proto);
     }
@@ -444,8 +450,8 @@ fn forward_get_own_property_descriptor(target: u64, key_handle: u64) -> u64 {
 
 /// Wrappers expostos pra codegen — trocam os entry-points existentes
 /// em globals/reflect/ops.rs por versoes proxy-aware.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REFLECT_DEFINE_PROPERTY_PROXY(
+#[rtse::abi("__RTS_FN_GL_REFLECT_DEFINE_PROPERTY_PROXY")]
+pub fn __RTS_FN_GL_REFLECT_DEFINE_PROPERTY_PROXY(
     target: u64,
     key_handle: u64,
     descriptor: u64,
@@ -456,8 +462,8 @@ pub extern "C" fn __RTS_FN_GL_REFLECT_DEFINE_PROPERTY_PROXY(
     forward_define_property(target, key_handle, descriptor)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_PROXY(
+#[rtse::abi("__RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_PROXY")]
+pub fn __RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_PROXY(
     target: u64,
     key_handle: u64,
 ) -> u64 {

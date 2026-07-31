@@ -70,53 +70,53 @@ fn extract_cause(options: u64) -> u64 {
     })
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ERROR_NEW(ptr: i64, len: i64, options: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_ERROR_NEW")]
+pub fn __RTS_FN_GL_ERROR_NEW(ptr: i64, len: i64, options: u64) -> u64 {
     let msg = unsafe { str_from_raw(ptr, len) };
     alloc_error_with_cause("Error", msg, extract_cause(options))
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_TYPE_ERROR_NEW(ptr: i64, len: i64, options: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_TYPE_ERROR_NEW")]
+pub fn __RTS_FN_GL_TYPE_ERROR_NEW(ptr: i64, len: i64, options: u64) -> u64 {
     let msg = unsafe { str_from_raw(ptr, len) };
     alloc_error_with_cause("TypeError", msg, extract_cause(options))
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_RANGE_ERROR_NEW(ptr: i64, len: i64, options: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_RANGE_ERROR_NEW")]
+pub fn __RTS_FN_GL_RANGE_ERROR_NEW(ptr: i64, len: i64, options: u64) -> u64 {
     let msg = unsafe { str_from_raw(ptr, len) };
     alloc_error_with_cause("RangeError", msg, extract_cause(options))
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_REF_ERROR_NEW(ptr: i64, len: i64, options: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_REF_ERROR_NEW")]
+pub fn __RTS_FN_GL_REF_ERROR_NEW(ptr: i64, len: i64, options: u64) -> u64 {
     let msg = unsafe { str_from_raw(ptr, len) };
     alloc_error_with_cause("ReferenceError", msg, extract_cause(options))
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_SYNTAX_ERROR_NEW(ptr: i64, len: i64, options: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_SYNTAX_ERROR_NEW")]
+pub fn __RTS_FN_GL_SYNTAX_ERROR_NEW(ptr: i64, len: i64, options: u64) -> u64 {
     let msg = unsafe { str_from_raw(ptr, len) };
     alloc_error_with_cause("SyntaxError", msg, extract_cause(options))
 }
 
 /// (cross-runtime #277) `error.cause` — retorna handle armazenado ou 0.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ERROR_CAUSE(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_ERROR_CAUSE")]
+pub fn __RTS_FN_GL_ERROR_CAUSE(handle: u64) -> u64 {
     with_entry(handle, |e| match e {
         Some(Entry::ErrorObj { cause, .. }) => *cause,
         _ => 0,
     })
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_URI_ERROR_NEW(ptr: i64, len: i64, options: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_URI_ERROR_NEW")]
+pub fn __RTS_FN_GL_URI_ERROR_NEW(ptr: i64, len: i64, options: u64) -> u64 {
     let msg = unsafe { str_from_raw(ptr, len) };
     alloc_error_with_cause("URIError", msg, extract_cause(options))
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_EVAL_ERROR_NEW(ptr: i64, len: i64, options: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_EVAL_ERROR_NEW")]
+pub fn __RTS_FN_GL_EVAL_ERROR_NEW(ptr: i64, len: i64, options: u64) -> u64 {
     let msg = unsafe { str_from_raw(ptr, len) };
     alloc_error_with_cause("EvalError", msg, extract_cause(options))
 }
@@ -125,15 +125,15 @@ pub extern "C" fn __RTS_FN_GL_EVAL_ERROR_NEW(ptr: i64, len: i64, options: u64) -
 /// e' handle de Vec<i64> contendo os erros aggregados. Armazenamos o
 /// handle de errors no slot `cause` da ErrorObj (single i64 disponivel
 /// sem refactor de Entry); `.errors` lê esse slot.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_AGGREGATE_ERROR_NEW(errors: u64, ptr: i64, len: i64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_AGGREGATE_ERROR_NEW")]
+pub fn __RTS_FN_GL_AGGREGATE_ERROR_NEW(errors: u64, ptr: i64, len: i64) -> u64 {
     let msg = unsafe { str_from_raw(ptr, len) };
     alloc_error_with_cause("AggregateError", msg, errors)
 }
 
 /// `agg.errors` — retorna o handle do Vec passado no construtor.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_AGGREGATE_ERROR_ERRORS(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_AGGREGATE_ERROR_ERRORS")]
+pub fn __RTS_FN_GL_AGGREGATE_ERROR_ERRORS(handle: u64) -> u64 {
     with_entry(handle, |entry| match entry {
         Some(Entry::ErrorObj { cause, .. }) => *cause,
         _ => 0,
@@ -145,8 +145,8 @@ pub extern "C" fn __RTS_FN_GL_AGGREGATE_ERROR_ERRORS(handle: u64) -> u64 {
 /// `instanceof Error` (any subtype) — handle aponta para Entry::ErrorObj
 /// OU Entry::Map com slots "name"+"message" (subclass user que estende
 /// Error/TypeError/etc via super()).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_IS_ERROR(handle: u64) -> i64 {
+#[rtse::abi("__RTS_FN_GL_IS_ERROR")]
+pub fn __RTS_FN_GL_IS_ERROR(handle: u64) -> i64 {
     with_entry(handle, |entry| match entry {
         Some(Entry::ErrorObj { .. }) => 1,
         Some(Entry::Map(m)) => {
@@ -166,8 +166,8 @@ pub extern "C" fn __RTS_FN_GL_IS_ERROR(handle: u64) -> i64 {
 /// (#663/47) Entry::Map com slot "name" string handle == want — cobre
 /// `class CustomTypeError extends TypeError` onde super(msg) faz a
 /// instancia user (Map) carregar o name "TypeError" via super constructor.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_IS_ERROR_NAMED(handle: u64, name_ptr: i64, name_len: i64) -> i64 {
+#[rtse::abi("__RTS_FN_GL_IS_ERROR_NAMED")]
+pub fn __RTS_FN_GL_IS_ERROR_NAMED(handle: u64, name_ptr: i64, name_len: i64) -> i64 {
     if name_ptr == 0 || name_len <= 0 {
         return 0;
     }
@@ -281,13 +281,13 @@ pub extern "C" fn __RTS_FN_GL_IS_ERROR_NAMED(handle: u64, name_ptr: i64, name_le
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ERROR_MESSAGE(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_ERROR_MESSAGE")]
+pub fn __RTS_FN_GL_ERROR_MESSAGE(handle: u64) -> u64 {
     alloc_str(get_field(handle, "message"))
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ERROR_NAME(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_ERROR_NAME")]
+pub fn __RTS_FN_GL_ERROR_NAME(handle: u64) -> u64 {
     alloc_str(get_field(handle, "name"))
 }
 
@@ -295,8 +295,8 @@ pub extern "C" fn __RTS_FN_GL_ERROR_NAME(handle: u64) -> u64 {
 /// no momento de ERROR_SET via trace::frame_stack — se houver stack
 /// pendente, prefixa header "<name>: <msg>" + frames. Caso contrario,
 /// retorna apenas o header (typeof string ainda eh true).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ERROR_STACK(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_ERROR_STACK")]
+pub fn __RTS_FN_GL_ERROR_STACK(handle: u64) -> u64 {
     let name = get_field(handle, "name");
     let msg = get_field(handle, "message");
     let header = if msg.is_empty() {
@@ -315,8 +315,8 @@ pub extern "C" fn __RTS_FN_GL_ERROR_STACK(handle: u64) -> u64 {
     alloc_str(s)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ERROR_TO_STRING(handle: u64) -> u64 {
+#[rtse::abi("__RTS_FN_GL_ERROR_TO_STRING")]
+pub fn __RTS_FN_GL_ERROR_TO_STRING(handle: u64) -> u64 {
     let name = get_field(handle, "name");
     let msg = get_field(handle, "message");
     let s = if msg.is_empty() {
@@ -330,5 +330,5 @@ pub extern "C" fn __RTS_FN_GL_ERROR_TO_STRING(handle: u64) -> u64 {
 /// `Error.captureStackTrace(target, ctor?)` — no-op. V8/Node populariam
 /// `target.stack`; RTS nao mantem stack traces de erro (formato diverge por
 /// design). Aceita os dois handles e nao faz nada.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_GL_ERROR_CAPTURE_STACK_TRACE(_target: u64, _ctor: u64) {}
+#[rtse::abi("__RTS_FN_GL_ERROR_CAPTURE_STACK_TRACE")]
+pub fn __RTS_FN_GL_ERROR_CAPTURE_STACK_TRACE(_target: u64, _ctor: u64) {}
