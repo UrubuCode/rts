@@ -156,16 +156,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let Some(is_lazy) = self.gen_call_kind(init) {
             let val = self.lower_expr(module, init)?;
             if is_lazy {
-                let h = self.coerce(val, Repr::Int64)?;
-                let var = self.builder.declare_var(cl_type(Repr::Int64));
-                self.builder.def_var(var, h);
-                self.locals.insert(
-                    name.to_string(),
-                    Local {
-                        var,
-                        repr: Repr::Int64,
-                    },
-                );
+                // Since #2042 a lazy generator rides as a TAG_OBJECT PolyValue word
+                // (so its identity survives array/object/arg/field/Map). Bind the
+                // local as Tagged — truncating it back to a raw `Int64` here would
+                // re-strip the tag the moment the local crossed any boundary.
+                self.bind_tagged_local(name, val);
             } else {
                 self.bind_tagged_local(name, val);
                 self.local_shapes.insert(name.to_string(), HeapShape::Array);

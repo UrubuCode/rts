@@ -1232,7 +1232,12 @@ fn try_generator_dyn(recv: u64, metodo: &str, a0: u64) -> Option<u64> {
         .into_iter()
         .find(|&c| c != 0 && with_entry(c, |e| matches!(e, Some(Entry::GenState(_)))))?;
     let undef = PolyValue::undefined().raw();
-    Some(match metodo {
+    // The `__rtsn_gen*` entry points hand back the RAW handle of the `{value, done}`
+    // result — the front's STATIC path converts it via `build_iter_result`. Here the
+    // word returns DIRECTLY to the caller, so it must be boxed as an OBJECT: a raw
+    // handle is not in the boxed quadrant and would be read as a denormal double
+    // (`1.39e-309` — literally the handle's bits). Issue #2042.
+    let bruto = match metodo {
         "next" if a0 != undef => {
             rts_std::collector::generator::__rtsn_generator_next_sent(h, a0 as i64)
         }
@@ -1240,5 +1245,11 @@ fn try_generator_dyn(recv: u64, metodo: &str, a0: u64) -> Option<u64> {
         "return" => rts_std::collector::generator::__rtsn_gen_sm_return(h, a0 as i64),
         "throw" => rts_std::collector::generator::__rtsn_gen_sm_throw(h, a0 as i64),
         _ => return None,
-    })
+    };
+    Some(
+        PolyValue::from_object_handle(
+            rts_runtime::namespaces::gc::handles::__rtsn_poly_from_handle(bruto),
+        )
+        .raw(),
+    )
 }
