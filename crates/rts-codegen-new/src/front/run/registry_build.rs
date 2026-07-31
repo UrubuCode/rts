@@ -500,18 +500,8 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
         source: rts_runtime::ERROR_TS,
         why: "Error + subclasses (shape-based)",
     },
-    // Object — the statics-read-as-a-VALUE block ONLY (`const f = Object.keys`).
-    // `desc.statics` is populated by an AMBIENT class and nothing else, so this
-    // is the one part of `Object` that cannot be a Registry class yet. The
-    // INSTANCE surface is the pure-Rust `#[rtse::class("Object", value)]`
-    // registered above; `try_primitive_class_method` consults this ambient
-    // descriptor first and falls through to that class, so the two coexist
-    // cleanly while the drain finishes.
-    PreludeTs {
-        label: "Object",
-        source: rts_runtime::OBJECT_TS,
-        why: "Object statics reified as values",
-    },
+    // Object has NO prelude entry: it is fully `rtse`-declared (instance surface
+    // AND statics) in `rts-primitives/src/object/`, registered above.
     // The rest of Object — MIGRATED to Rust: `hasOwnProperty`/
     // `isPrototypeOf`/`propertyIsEnumerable` are native
     // (`method.rs::try_object_protocol_method`); `Object(x)`/`new Object(x)` is

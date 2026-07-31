@@ -64,11 +64,9 @@ pub use rts_shared::stdlib;
 /// engine reaches it through the facade (`rts_runtime::ERROR_TS`). Included by the
 /// engine ahead of the Map/Set stdlib prelude.
 pub use rts_primitives::ERROR_TS;
-/// `Object`'s remaining `.ts` prelude — ONLY the statics-read-as-a-value block
-/// (see `rts_primitives::OBJECT_TS`). The instance surface is the pure-Rust
-/// `#[rtse::class("Object", value)]`; `Object(x)`/`new Object(x)` route to the
-/// `__rtsadp_obj_factory` trampoline (`src/adapters/value/objops.rs`).
-pub use rts_primitives::OBJECT_TS;
+// No `OBJECT_TS`: `Object` is fully `rtse`-declared in `rts-primitives`
+// (`src/object/`), with `Object(x)`/`new Object(x)` on the
+// `__rtsadp_obj_factory` trampoline (`src/adapters/value/objops.rs`).
 /// The pure-Rust `Number` value-class type, re-exported from `rts-primitives`
 /// so the new engine can name it in `rtse::sym!(NumberWrapper::is_nan)` calls
 /// (P5.4 pilot, `docs/specs/rts-macro-single-source.md`) without a second

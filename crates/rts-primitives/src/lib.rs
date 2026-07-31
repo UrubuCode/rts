@@ -24,15 +24,10 @@ pub mod gc_surface;
 /// program; declaration order within the include string matters).
 pub const ERROR_TS: &str = include_str!("error.ts");
 
-/// `Object`'s LAST `.ts` remnant: the static surface read as a VALUE
-/// (`const f = Object.keys`). The generic class-static reader looks in
-/// `desc.statics`, which only an AMBIENT class populates — there is no path yet
-/// for a Registry class static read as a value, so this block cannot follow the
-/// rest of `Object` into Rust. Everything else already did: the instance
-/// surface is `#[rtse::class("Object", value)]` in `src/object/`, and
-/// `Object(x)` / `Object.groupBy` are `__rtsadp_*` trampolines. See
-/// `src/object.ts` and `src/object/mod.rs`.
-pub const OBJECT_TS: &str = include_str!("object.ts");
+// `Object` has NO `.ts` prelude — it is fully in the `rtse` system now
+// (`src/object/`): instance surface + statics as `#[rtse::class("Object",
+// value)]`, `Object(x)` / `Object.groupBy` as `__rtsadp_*` trampolines. See
+// `src/object/mod.rs` for what the deletion cost and what still owes a path.
 
 // The rest of the Object migration, following what Boolean/Number/String proved.
 // `hasOwnProperty`/`isPrototypeOf`/`propertyIsEnumerable` were ALREADY native
