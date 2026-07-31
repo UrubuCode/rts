@@ -451,6 +451,29 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
     }
 
+    /// The signature of a callee IDENT, following a generator ALIAS first
+    /// (`const g = gg; g()` — and every hoisted generator EXPRESSION, which the
+    /// parser rewrites to `__genexpr_N` + `const g = __genexpr_N`).
+    ///
+    /// `sigs` is keyed by the DECLARED name, so a bare `sigs.get(name)` misses the
+    /// alias and the call looks like an ordinary function: `for-of`/spread then
+    /// stopped recognizing the generator and silently produced NOTHING
+    /// (`[...g()]` → `""` where `[...gg()]` → `"1,2"`). `gen_call_kind` already
+    /// followed the alias; the iteration paths did not (issue #2042).
+    /// Follows a CHAIN (`const a = gg; const b = a`). The hop budget is the map's
+    /// own size: a chain longer than that must revisit a name, i.e. it is a cycle,
+    /// so this terminates without needing an arbitrary cap.
+    pub(super) fn sig_following_alias(&self, name: &str) -> Option<&super::sig::FnSig> {
+        let mut real = name;
+        for _ in 0..self.generator_aliases.len() {
+            match self.generator_aliases.get(real) {
+                Some(next) if next.as_str() != real => real = next.as_str(),
+                _ => break,
+            }
+        }
+        self.sigs.get(real)
+    }
+
     /// The runtime GenState/Vec handle of a GENERATOR-valued receiver (a generator
     /// local, or a direct `g()` call), for `GENERATOR_NEXT`/`RETURN`/`THROW`. EAGER
     /// (`__gen_buf` array word) → its real Vec handle (`POLY_TO_HANDLE`); LAZY (raw

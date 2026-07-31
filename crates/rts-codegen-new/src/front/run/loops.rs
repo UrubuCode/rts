@@ -351,7 +351,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     ) -> FrontResult<Option<Value>> {
         let is_lazy = match &iterable.kind {
             HirExprKind::Call { callee, .. } => match &callee.kind {
-                HirExprKind::Ident(f) => self.sigs.get(f).is_some_and(|s| s.ret_lazy_gen),
+                HirExprKind::Ident(f) => {
+                    self.sig_following_alias(f).is_some_and(|s| s.ret_lazy_gen)
+                }
                 _ => false,
             },
             // A LAZY generator LOCAL (`const gen = counter(..); for (const v

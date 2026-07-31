@@ -173,10 +173,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // que `g()` seja reconhecido como chamada de generator (ver
         // `gen_call_kind`). Só o caso Ident→Ident, que é o que um bundle
         // minificado gera; qualquer coisa mais complexa segue o caminho normal.
+        // Resolve o alvo SEGUINDO alias (`sig_following_alias`), não por
+        // `sigs.get` direto: um alias não está em `sigs` (que é indexado pelo nome
+        // DECLARADO), então uma CADEIA `const a = gg; const b = a` parava no
+        // segundo elo — `b()` deixava de ser reconhecido como generator.
         if let HirExprKind::Ident(alvo) = &init.kind {
             if self
-                .sigs
-                .get(alvo.as_str())
+                .sig_following_alias(alvo.as_str())
                 .is_some_and(|s| s.ret_lazy_gen || s.ret_eager_gen)
             {
                 self.generator_aliases
