@@ -310,7 +310,7 @@ Carried over, so it is not lost:
   collection is the class that deliberately does NOT trace its keys).
 * **GC precise scanning is transport-only.** `parcompile`/`module_jit` extract
   and register `UserStackMap`s, but nothing calls
-  `declare_value_needs_stack_map` — the three occurrences in the tree are
+  `declare_value_needs_stack_map` — the four occurrences in the tree are
   comments. The root set is `Repr::Ref(_)` / `Repr::Tagged` (`repr.rs`). Fix the
   scratch-module hazard FIRST: `PENDING`/`REGISTRY` are process-global while
   `bake.rs::capture_compiled` populates a separate `JITModule` with its own

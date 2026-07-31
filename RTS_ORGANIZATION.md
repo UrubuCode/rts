@@ -1,8 +1,10 @@
 # RTS crate reorganization — `rts-natives` and the end of `__rtsa_`
 
-**Status:** N0–N2 and N4 EXECUTED (2026-07-31). N3, N5, N6, N7 open — and three
-of them are bigger than this document originally claimed; see §8, which records
-what execution measured and this plan got wrong. **Owner directive, 2026-07-31:**
+**Status:** N0–N4 EXECUTED (2026-07-31). N2b (new), N5, N6, N7 open — and each is
+bigger than this document originally claimed; **see §8**, which records what
+execution measured and this plan got wrong. §2 is left as WRITTEN, not corrected
+in place: it is the diagnosis that motivated the work, and §8 says where it was
+mistaken. **Owner directive, 2026-07-31:**
 *"the engine MANAGES rts, not how it works internally"* — that sentence is the
 whole partition rule, and everything below is its consequence.
 
@@ -124,7 +126,8 @@ mark+sweep using Cranelift `UserStackMap`"*. Measured:
 ```
 declare_value_needs_stack_map   4 occurrences, ALL of them comments
 UserStackMap extracted by       rts-codegen-new/{module_jit,parcompile}.rs
-rts-engine/collector/stack_map_registry.rs   only RECEIVES the PCs
+rts-natives/collector/stack_map_registry.rs  only RECEIVES the PCs (and
+                                            `lookup` has ZERO callers)
 ```
 
 The transport exists; nothing feeds it. The scan is conservative. **This is a
@@ -144,16 +147,23 @@ rts-abi        the CONTRACT. Zero dependencies, bottom of the graph.
                reimplement symbol_for, which is the exact drift the single
                source of truth exists to kill.
    ↑
-rts-natives    HOW IT WORKS INSIDE — the extend of Cranelift.
-               heap + HandleTable            6186
-               GC, unified + stack maps       935 + 206
-               generator/async state machines 1210
-               error slot / unwind             245
-               string pool                     376
-               gcells                          165
-               trace stack                      73
+rts-natives    HOW IT WORKS INSIDE — the extent of Cranelift.
+               heap + HandleTable            6186   ✅ N1
+               GC, unified + stack maps       935 + 206   ✅ N2
+               generator STATE MACHINE       ~900   ✅ N3 (not 1210 — the async
+                                                    DRIVER stayed in rts-std)
+               error slot / unwind             245   ✅ N2
+               gcells                          165   ✅ N2
+               trace/depth guard                73   ✅ N2
                shapes, poly (NaN-box)         (inside heap/)
                → every __rtsn_ symbol lives here
+
+               NOT here, against this plan's original inventory:
+               string pool                     376   stays in rts-std — it asks
+                                                    the CLASS layer what a handle
+                                                    is (see §8)
+               async driver (async_sm_*/agen_*) ~310  stays in rts-std — timers,
+                                                    tokio, microtasks: scheduling
    ↑
 rts-engine     MANAGES — decides dispatch.
                Registry + builder + member + sig + loop_sources   ~1.45k
@@ -430,3 +440,64 @@ startup-installed function pointers (`set_class_revive_hook`,
 `GC_COLLECT_HOOK`. It needs things that live above it. Choosing a crate does not
 address that; it deserves its own item and should not be folded into this
 reorganization.
+
+---
+
+## 8. What execution measured — and what this plan got wrong
+
+Written after N0–N4 landed (2026-07-31). Every entry here was found by the work
+failing, not by review, which is the point of recording them: the plan read as
+confident in exactly the places it was wrong.
+
+### The partition rule held. The inventory did not.
+
+§1's two clauses decided every case cleanly, including the ones that had to be
+overruled. What repeatedly failed was §2.2's list of "machinery that escaped
+upward into the backend" — it was assembled by looking at where files SIT, not at
+what they CALL.
+
+| plan said | measured |
+|---|---|
+| `string_pool.rs` (376) is escaped machinery | It calls `rts_shared::collections::map::{handle_is_map_kind, handle_is_set_kind, MAP_VALUES}`. A helper that has to ask the CLASS layer what a handle is fails both clauses. **Stays in `rts-std`.** |
+| `generator.rs` (1210) is a move | 21 call sites into five `rts-std` modules. It is a state machine AND its scheduler in one file. **Split**, ~900 down and ~310 staying. |
+| `__rtsa_` names 0 symbols, `Scope::Abi` "has never been used" | 0 rows of the BAKED TABLE, but **8 real users** — `ta_ctor!` in `taops.rs`, invisible to the baker because a source scanner cannot see through `macro_rules!`. "Never used" would have led a reader to re-point nothing. |
+| N7: ~150 dead, "~104 of `collections`" | **173** dead; collections is **75 of 119**, not 104. Deleting 104 is ~29 link errors. |
+| N5: two areas unmapped (collections 125, node net 111) | **317** unmapped. Three more areas nobody listed: egui 45, engine 13, gpu 12, plus 20 strays. |
+| N2 deletes the four `gc_surface.rs` | ~40 consumers across 8 crates, and most of what it declares is now a REAL re-export rather than an inversion. Own phase (N2b). |
+
+### Three things the rule could not decide on its own
+
+Each is a low layer genuinely needing something from above. None is the
+`GC_COLLECT_HOOK` pattern, and the difference is worth stating because it is the
+one judgement this reorganization keeps having to make:
+
+1. **Off-stack GC roots** (`collector::root_sources`). The collector owns the
+   cycle and always will; it cannot own the list of every container in every
+   layer that might hold a handle. Contribution by registration is what a correct
+   GC needs, not a workaround for a bad partition.
+2. **The async-generator driver** (`generator::AgenDriver`). A state machine is a
+   data structure with a `step`; deciding WHEN to step it is scheduling, and
+   scheduling is backend.
+3. **Constructing a JS value of a class defined above** — `RangeError` for stack
+   overflow, `Function.prototype.call` for a user iterator's own `next`. These
+   are link-resolved `extern "C"` declarations, the same mechanism `gc_surface`
+   uses, and they are legitimate: the layer below owns the mechanism, the class
+   above owns the value.
+
+The test that separates these from the deleted hook: **which direction does the
+KNOWLEDGE flow?** `GC_COLLECT_HOOK` had the lower layer asking the upper one to
+run the lower one's own algorithm. All three above have the upper layer supplying
+something only it can know.
+
+### Verification notes for whoever runs N5/N6/N7
+
+- The NAME-SET bijection (§6.1) caught nothing across N0–N4 because all four were
+  pure moves — 2191 → 2191 every time. That is the point: it is cheap and it is
+  the only proof that a "move" was a move. Run it anyway.
+- A mechanical `sed` rename broke two `rts-abi/src/table.rs` test fixtures by
+  making an ascending symbol list non-ascending (`__rtsn_` sorts after
+  `__rtsm_`), which would have failed the contiguous-range invariant. `cargo test
+  -p <crate> --lib` catches it; `cargo check` does not.
+- The full TS suite ran clean against the measured baseline (772/775 files,
+  2841/2853 tests) after N2 and again after N3, with the failing SET re-run
+  individually rather than inferred from the counts.

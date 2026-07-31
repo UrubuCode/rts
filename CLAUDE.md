@@ -848,13 +848,38 @@ opaque u64; Rust-rich types (Arc<T>, Channel, JoinHandle, JITModule) live in the
 shard map keyed by that id, or in GC handles with a lifetime guard.
 
 ### GC — mark+sweep with Cranelift stack maps
-GC is precise mark+sweep using Cranelift `UserStackMap`, with conservative scan via
-`SuspendThread + GetThreadContext` for all registered threads. Codegen calls
-`declare_value_needs_stack_map(val)`; the JIT emitter registers return-PCs in
-`stack_map_registry`. Every `GC_TICK_INTERVAL = 256` allocs, `finish_cycle()`
-runs `mark_stack_roots()` + `sweep_all_shards()`. `mark_stack_roots()` on Windows
-uses `GetCurrentThreadStackLimits` (Win32) — **not** `gs:[0x10]` (TIB.StackBase
-sometimes < RSP → scanner marks nothing → live handles collected; bug PR #400).
+GC is **CONSERVATIVE** mark+sweep. This paragraph claimed "precise mark+sweep
+using Cranelift `UserStackMap`" until 2026-07-31; it was **false**, and the
+correction is recorded here rather than quietly deleted because acting on it is
+how a real bug gets misdiagnosed.
+
+What actually runs: `scan_all_roots` walks `rsp..stack_high` word by word (plus
+the callee-saved registers, other RTS threads via `SuspendThread +
+GetThreadContext`, and the global cells) and treats any word with a non-zero
+handle generation as a root candidate. Every `GC_TICK_INTERVAL = 256` allocs
+`alloc_entry` calls `finish_cycle()` (a direct call since RTS_ORGANIZATION.md N2
+— it used to be a fn pointer across a crate boundary), which marks and then
+`sweep_all_shards()`. The Windows scan uses `GetCurrentThreadStackLimits`
+(Win32) — **not** `gs:[0x10]` (TIB.StackBase sometimes < RSP → scanner marks
+nothing → live handles collected; bug PR #400). Because it reads raw stack words
+and needs no stack maps, the same cycle runs for JIT frames and for an
+AOT-compiled binary.
+
+The stack-map TRANSPORT exists and is wired end to end — `parcompile.rs` extracts
+`UserStackMap`s and calls `push_pending`, `module_jit.rs` drains and registers
+absolute return-PCs — but **nothing produces any maps**: `declare_value_needs_
+stack_map` appears 4 times in the tree and all 4 are comments, and
+`stack_map_registry::lookup` has zero callers. So the transport moves an empty
+set and the scanner never consults it.
+
+Making it precise is `RTS_ORGANIZATION.md` N6, and it is not a small change.
+Conservative over-approximates (a false root only keeps a slot alive one extra
+cycle); precise UNDER-approximates, so any frame without a map — thunks, the AOT
+`main` shim, replayed/baked functions (`BakedFn` has no stack-map field), `new
+Function` bodies — silently loses its roots and frees live memory. It also needs
+the process-global `PENDING`/`REGISTRY` de-globalized first: `bake.rs::
+capture_compiled` populates a SEPARATE `JITModule` with its own `FuncId`
+numbering and never drains, so those entries poison the next real compile.
 
 **Required change for the new engine (design doc §5.4, Pilar 1):** the
 conservative stack scanner must learn to recognize **NaN-boxed `PolyValue` handle

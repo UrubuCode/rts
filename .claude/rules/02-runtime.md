@@ -39,23 +39,45 @@ scanner marking nothing and the sweep collecting live handles (bug found
 `thread_registry` via `SuspendThread + GetThreadContext` + callee-saved register
 scan.
 
-## GC — mark+sweep with Cranelift stack maps
+## GC — CONSERVATIVE mark+sweep (the stack-map path is transport only)
 
-**Current state:** precise mark+sweep using
-Cranelift's `UserStackMap`, with a conservative scanner via `SuspendThread +
-GetThreadContext` to cover all RTS threads registered in `thread_registry`.
-Details:
+**Corrected 2026-07-31.** This section claimed "precise mark+sweep using
+Cranelift's `UserStackMap`" and listed `declare_value_needs_stack_map` as
+something the codegen calls. Both were **false**, and it named `jit.rs` as the
+extractor — a file the P5 cutover deleted. The correction is written down rather
+than quietly replaced because a wrong mental model of the GC is how a real
+collection bug gets misdiagnosed.
 
-- Codegen calls `builder.declare_value_needs_stack_map(val)` for each handle
-- `jit.rs` extracts `UserStackMap` after `define_function` and registers absolute
-  return-PCs in `stack_map_registry`
-- Every N allocations (`GC_TICK_INTERVAL = 256`), `finish_cycle()` runs
-  `mark_stack_roots()` (scans the current thread's stack + other threads' stacks
-  via SuspendThread) and `sweep_all_shards()` frees what was not marked
-- `mark_stack_roots()` on Windows uses `GetCurrentThreadStackLimits` (official
-  Win32 API). Do not use `gs:[0x10]` — in some contexts it returns StackBase <
-  RSP, leaving the scanner marking nothing and the sweep collecting live handles
-  (bug PR #400)
+**Current state:** conservative mark+sweep.
+
+- `scan_all_roots` (`rts-natives/src/collector/scan.rs`) captures RSP and the
+  callee-saved registers with inline asm, then walks `rsp..stack_high` WORD BY
+  WORD, visiting any word whose handle generation is non-zero. It also covers
+  other RTS threads in `thread_registry` via `SuspendThread +
+  GetThreadContext`, and the global cells.
+- Every N allocations (`GC_TICK_INTERVAL = 256`), `alloc_entry` calls
+  `finish_cycle()` DIRECTLY (`rts-natives/src/collector/cycle.rs`; it used to go
+  through a `GC_COLLECT_HOOK` fn pointer across a crate boundary — see
+  `RTS_ORGANIZATION.md` N2). That marks stack roots, gcells, pinned roots and the
+  registered `root_sources`, then `sweep_all_shards()` frees what was not marked.
+- On Windows the scan uses `GetCurrentThreadStackLimits` (official Win32 API).
+  Do not use `gs:[0x10]` — in some contexts it returns StackBase < RSP, leaving
+  the scanner marking nothing and the sweep collecting live handles (bug PR #400).
+- Non-x86-64: the scanner is a no-op, so `finish_cycle` skips the WHOLE cycle
+  (a sweep without a mark collects live stack handles — observed on CI macOS
+  arm64). Handles stay live until explicit free.
+- False positives only keep a slot alive one extra cycle — never corruption. A
+  real pointer is never confused with a handle: the 48-bit payload is a
+  HandleTable slot index, not an address.
+
+**The stack-map path is wired but carries nothing.** `parcompile.rs` extracts
+`UserStackMap`s and calls `stack_map_registry::push_pending`; `module_jit.rs`
+drains them after `finalize_definitions` and registers absolute return-PCs. But
+`declare_value_needs_stack_map` appears 4 times in the tree and **all 4 are
+comments**, and `stack_map_registry::lookup` has **zero callers** — so the
+transport moves an empty set and the scanner never consults it. Making it real is
+`RTS_ORGANIZATION.md` N6; note that precise scanning UNDER-approximates, so it is
+only safe with a conservative fallback for every frame that has no map.
 
 ### Required change for the new engine — recognize NaN-boxed PolyValue roots
 
