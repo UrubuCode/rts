@@ -586,7 +586,14 @@ impl SmBuilder {
                 // fora desta fatia (bail).
                 if let Some(h) = &t.handler {
                     let catch_has_yield = h.body.stmts.iter().any(stmt_has_yield);
-                    if catch_has_yield && t.finalizer.is_none() {
+                    // Basta o TRY suspender para precisar deste caminho — o catch
+                    // não precisa ter yield. `try { ...yield... } catch(e) { trata }`
+                    // é a forma comum, e antes ela caía no `return None` abaixo e
+                    // ia para o eager-buffer, onde um `yield` de VALOR vira
+                    // `push(...)`. O catch sem yield é lowerado como statements
+                    // ordinários dentro do estado do catch — nada mais é preciso.
+                    let body_has_yield = t.block.stmts.iter().any(stmt_has_yield);
+                    if (catch_has_yield || body_has_yield) && t.finalizer.is_none() {
                         // param do catch: ident simples (ou ausente).
                         let catch_param = match h.param.as_ref() {
                             Some(swc_ecma_ast::Pat::Ident(id)) => {
