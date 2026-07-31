@@ -197,6 +197,10 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     // (`pumpTimerCallbacks`). Rust pelo mesmo motivo do DomScope: estado
     // compartilhado ENTRE programas (cada `new Function` é um programa novo).
     ns::dom::timerscope::register,
+    // `ScriptScan` — varredura léxica do JS de página em Rust (code spans,
+    // globais implícitos, nomes declarados). Em `.ts` custava ~1 µs/char: num
+    // bundle de 6 MB o pré-passo levava 49 s contra 113 ms de compilação real.
+    ns::dom::scriptscan::register,
     ns::globals::node_constants::register,
     ns::globals::storage::register,
     ns::globals::blob::register_blob_class_spec,

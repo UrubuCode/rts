@@ -19,6 +19,7 @@
 //! `u64` (extern "C") através de [`register`]; a camada ergonômica
 //! (`Document`/`Element`) é TS. Depende só de `rts-engine`.
 
+pub mod scriptscan;
 pub mod scriptscope;
 pub mod timerscope;
 pub mod abi;
