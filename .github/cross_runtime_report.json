@@ -4406,7 +4406,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__extends`: unsupported in the numeric subset: expression arrow\n      at run of tests/cross-runtime/misc-platform/344_bundler_helpers.ts failed"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `Derived.greet()` — no such method on class `Derived` (a field-as-function / dynamic method is a later increment)\n      at run of tests/cross-runtime/misc-platform/344_bundler_helpers.ts failed"
 }
 ,
 {
