@@ -6794,7 +6794,7 @@
   "status": "rts_diverge",
   "bun": "AggregateError\na,b,c",
   "node": "AggregateError\na,b,c",
-  "rts": "",
+  "rts": "undefined",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9381,16 +9381,16 @@
 ,
 {
   "name": "codex_url_relative_resolution",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "https://example.com/a/d/e?space=a%20b&plus=a+b#frag\n/a/d/e\na b\na b\n?space=a+b&plus=a+b&emoji=%F0%9F%99%82",
   "node": "https://example.com/a/d/e?space=a%20b&plus=a+b#frag\n/a/d/e\na b\na b\n?space=a+b&plus=a+b&emoji=%F0%9F%99%82",
-  "rts": "",
+  "rts": "\n\nnull\nnull",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new URL(..)` — argument 1 is not a proven string\n      at run of tests/cross-runtime/url/codex_url_relative_resolution.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -9505,4 +9505,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":679,"pass":470,"rts_diverge":110,"bun_node_diverge":18,"errors":81,"rejected":0}}
+],"summary":{"total":679,"pass":470,"rts_diverge":111,"bun_node_diverge":18,"errors":80,"rejected":0}}
