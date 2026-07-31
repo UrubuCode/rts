@@ -1228,10 +1228,46 @@ fn try_generator_dyn(recv: u64, metodo: &str, a0: u64) -> Option<u64> {
         if pv.is_object() { pv.as_handle() } else { 0 },
         recv,
     ];
-    let h = candidatos
-        .into_iter()
-        .find(|&c| c != 0 && with_entry(c, |e| matches!(e, Some(Entry::GenState(_)))))?;
+    // A receiver is an iterator when its handle is either a `GenState` (a lazy
+    // generator) or a Vec that was OPENED as an iterator — what `arr.values()`/
+    // `keys()`/`entries()`/`Iterator.from` return. The Vec case is gated on
+    // `vec_is_open_iterator`, never on "is a Vec": a plain array must keep reading
+    // `.next` as `undefined` (`[1,2].next`), so only a handle REGISTERED as an
+    // iterator at creation qualifies.
+    let mut is_vec_iter = false;
+    let h = candidatos.into_iter().find(|&c| {
+        if c == 0 {
+            return false;
+        }
+        if with_entry(c, |e| matches!(e, Some(Entry::GenState(_)))) {
+            return true;
+        }
+        if with_entry(c, |e| matches!(e, Some(Entry::Vec(_))))
+            && rts_std::collector::generator::vec_is_open_iterator(c)
+        {
+            is_vec_iter = true;
+            return true;
+        }
+        false
+    })?;
     let undef = PolyValue::undefined().raw();
+    // A Vec iterator walks its cursor through `generator_next` (the polymorphic
+    // entry point that handles both GenState and cursored Vec); `gen_sm_next` is
+    // GenState-only and would read nothing from a Vec.
+    if is_vec_iter {
+        let bruto = match metodo {
+            "next" => rts_std::collector::generator::__rtsn_generator_next(h),
+            "return" => rts_std::collector::generator::__rtsn_generator_return(h, a0 as i64),
+            "throw" => rts_std::collector::generator::__rtsn_generator_throw(h, a0 as i64),
+            _ => return None,
+        };
+        return Some(
+            PolyValue::from_object_handle(
+                rts_runtime::namespaces::gc::handles::__rtsn_poly_from_handle(bruto),
+            )
+            .raw(),
+        );
+    }
     // The `__rtsn_gen*` entry points hand back the RAW handle of the `{value, done}`
     // result — the front's STATIC path converts it via `build_iter_result`. Here the
     // word returns DIRECTLY to the caller, so it must be boxed as an OBJECT: a raw

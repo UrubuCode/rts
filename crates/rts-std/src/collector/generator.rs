@@ -54,6 +54,31 @@ thread_local! {
     static GEN_RETS: RefCell<HashMap<u64, i64>> = RefCell::new(HashMap::new());
 }
 
+/// Whether `handle` is a Vec that was OPENED as an iterator — i.e. registered in
+/// `GEN_CURSORS` at CREATION (`Iterator.from`, `arr.values()`), not merely one
+/// that `generator_next` cursored on the way past.
+///
+/// The distinction matters and is easy to get wrong: `generator_next` uses
+/// `or_insert(0)`, so it CREATES a cursor for whatever handle it is handed. Asking
+/// "is there a cursor?" after the fact therefore answers yes for a plain array
+/// too. This predicate is `contains_key` ONLY — it never inserts — so it stays a
+/// property of how the handle was created. That is what lets the dynamic dispatch
+/// accept `Entry::Vec` as an iterator without `[1,2].next()` starting to work
+/// (issue #2042: a plain array must keep reading `.next` as `undefined`).
+pub fn vec_is_open_iterator(handle: u64) -> bool {
+    GEN_CURSORS.with(|c| c.borrow().contains_key(&handle))
+}
+
+/// Register `handle` as an OPEN ITERATOR positioned at element 0 — what
+/// `arr.values()`/`keys()`/`entries()` and `Iterator.from` hand back. Pairs with
+/// [`vec_is_open_iterator`]: this is the ONLY way a Vec becomes an iterator, so a
+/// plain array never answers `.next()`.
+pub fn open_vec_iterator(handle: u64) {
+    GEN_CURSORS.with(|c| {
+        c.borrow_mut().insert(handle, 0);
+    });
+}
+
 /// `__RTS_GEN_FINISH(buf, ret)` — registra o ret_value do generator (do
 /// `return X`) e devolve o proprio Vec. Chamado no `return` desugarado.
 #[rtse::abi(native, value = "generator_set_ret")]
