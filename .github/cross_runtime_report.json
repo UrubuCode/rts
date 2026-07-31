@@ -3434,13 +3434,13 @@
   "status": "rts_error",
   "bun": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done\n1,2,4,5,3,6\n1,2,3,4,5\n1,2,3,4,5",
   "node": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done\n1,2,4,5,3,6\n1,2,3,4,5\n1,2,3,4,5",
-  "rts": "",
+  "rts": "0,10,11,12,20,30,31,32,a,b,c\n1,2,result:done\n1,2,4,5,3,6",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 124,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__agen_state_asyncOuter`: unsupported in the numeric subset: expression raw/unrecognized: Fn(FnExpr { ident: None, function: Function { params: [], decorators: [], span: \n      at run of tests/cross-runtime/generators/379_yield_star.ts failed"
+  "rts_error": "timeout apos 10s"
 }
 ,
 {
@@ -6259,16 +6259,16 @@
 ,
 {
   "name": "codex_freeze_typedarray_error",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "true\nTypeError\n1",
   "node": "true\nTypeError\n1",
-  "rts": "",
+  "rts": "true\n1",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: Object static on an ARRAY receiver (array key/value enumeration is a later increment)\n      at run of tests/cross-runtime/object-meta/codex_freeze_typedarray_error.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -6399,16 +6399,16 @@
 ,
 {
   "name": "codex_proxy_getprototypeof_invariant",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "TypeError\ntrue",
   "node": "TypeError\ntrue",
-  "rts": "",
+  "rts": "true",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: Object static on `target` whose shape is not statically proven (param/return/reassigned)\n      at run of tests/cross-runtime/object-meta/codex_proxy_getprototypeof_invariant.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -6738,7 +6738,7 @@
   "status": "rts_diverge",
   "bun": "one=3\ntwo=5\nall=a,b\nasync=9",
   "node": "one=3\ntwo=5\nall=a,b\nasync=9",
-  "rts": "one=3\ntwo=4\nall=1.390671161569955e-309,1.39067116156996e-309\nasync=9",
+  "rts": "one=3\ntwo=4\nall=1.390671161569965e-309,1.39067116156997e-309\nasync=9",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -6794,7 +6794,7 @@
   "status": "rts_diverge",
   "bun": "AggregateError\na,b,c",
   "node": "AggregateError\na,b,c",
-  "rts": "undefined",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9505,4 +9505,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":679,"pass":470,"rts_diverge":111,"bun_node_diverge":18,"errors":80,"rejected":0}}
+],"summary":{"total":679,"pass":470,"rts_diverge":113,"bun_node_diverge":18,"errors":78,"rejected":0}}
