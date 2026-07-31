@@ -82,4 +82,28 @@ class Object {
   valueOf(): any {
     return this;
   }
+
+  // ── ESTÁTICOS lidos como VALOR ───────────────────────────────────────────
+  //
+  // A forma CHAMADA (`Object.keys(o)`) nunca passa por aqui: o
+  // `front/run/objstatic.rs` a intercepta antes e lowerizada nativa, por shape
+  // — caminho rápido, intacto (ele tem um carve-out explícito para não deixar
+  // esta classe ambiente sombreá-lo).
+  //
+  // Estes existem para a forma LIDA (`const f = Object.keys`), que antes
+  // bailava com "no such static field on class `Object`": o leitor genérico de
+  // estático de classe procura em `desc.statics`, e este bloco é o que o
+  // popula. É o mesmo mecanismo que já faz `JSON.stringify` ser reificável.
+  //
+  // Cada um delega ao próprio caminho nativo — sem reimplementar nada.
+  static keys(o: any): any { return Object.keys(o); }
+  static values(o: any): any { return Object.values(o); }
+  static entries(o: any): any { return Object.entries(o); }
+  static assign(alvo: any, fonte: any): any { return Object.assign(alvo, fonte); }
+  static freeze(o: any): any { return Object.freeze(o); }
+  static isFrozen(o: any): boolean { return Object.isFrozen(o); }
+  static seal(o: any): any { return Object.seal(o); }
+  static isSealed(o: any): boolean { return Object.isSealed(o); }
+  static getPrototypeOf(o: any): any { return Object.getPrototypeOf(o); }
+  static getOwnPropertyNames(o: any): any { return Object.getOwnPropertyNames(o); }
 }
