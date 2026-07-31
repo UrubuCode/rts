@@ -297,6 +297,43 @@ class MutationObserver {
   takeRecords(): any[] { return []; }
 }
 
+// `Response` — o resultado de `fetch()`. Superfície mínima do que a página usa:
+// `.ok`/`.status`/`.url` e os leitores `.text()`/`.json()`, ambos Promise como
+// manda a spec.
+//
+// LIMITE honesto: o corpo já vem MATERIALIZADO (o `fetch` abaixo é síncrono por
+// baixo), então `.text()` é uma Promise já resolvida — não há streaming, e um
+// erro de rede chega como corpo vazio com `ok=false`, não como rejeição.
+class Response {
+  _body: string;
+  constructor(body: string) {
+    this._body = body;
+  }
+  get ok(): boolean { return this._body.length > 0; }
+  get status(): number { return this._body.length > 0 ? 200 : 0; }
+  // `url`/`statusText` FICAM DE FORA de propósito: um getter que devolve STRING
+  // nesta classe lê vazio no escopo de página (os de boolean/number funcionam) —
+  // gap do motor, ainda não diagnosticado. Expor os dois faria `res.url` valer
+  // `undefined` calado, e valor errado é pior que membro ausente: código que
+  // testa `if (res.url)` decidiria errado. Voltam quando o getter-string voltar.
+  text(): any { return Promise.resolve(this._body); }
+  json(): any { return Promise.resolve(JSON.parse(this._body)); }
+}
+
+// `fetch(url)` — o global que a PÁGINA enxerga. Antes `typeof fetch` era
+// `undefined` dentro de um `<script>`: o `fetch` do motor é membro de namespace
+// (`rts:fetch`), e namespace não é alcançável do escopo de página nem de um
+// prelude `.ts`. A ponte PRIVADA `engine.fetch_text` resolve isso delegando ao
+// MESMO membro de Registry.
+//
+// LIMITE honesto: é um GET síncrono embrulhado numa Promise já resolvida.
+// `init` (método/headers/body) é aceito e IGNORADO — POST ainda não existe.
+// Ficam de fora streaming, abort e redirect manual.
+function fetch(url: string, init?: any): any {
+  const corpo = engine.fetch_text(url);
+  return Promise.resolve(new Response(corpo));
+}
+
 // Fábrica usada pelo `runScripts` para injetar o window num <script>. `vw/vh` são
 // o viewport (o host passa; default 1000x800 quando não sabe).
 function __makeWindow(domHandle: i64, url: string, vw: number, vh: number): WindowImpl {
