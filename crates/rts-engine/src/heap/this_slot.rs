@@ -15,14 +15,14 @@ thread_local! {
 }
 
 /// Push thisArg ao topo da pilha. Chamado pela runtime de Function antes do invoke.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_THIS_PUSH(value: i64) {
+#[rtse::abi("__RTS_FN_RT_THIS_PUSH")]
+pub fn __RTS_FN_RT_THIS_PUSH(value: i64) {
     THIS_STACK.with(|s| s.borrow_mut().push(value));
 }
 
 /// Pop do topo. Chamado pela runtime de Function apos o invoke retornar.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_THIS_POP() {
+#[rtse::abi("__RTS_FN_RT_THIS_POP")]
+pub fn __RTS_FN_RT_THIS_POP() {
     THIS_STACK.with(|s| {
         let _ = s.borrow_mut().pop();
     });
@@ -31,7 +31,7 @@ pub extern "C" fn __RTS_FN_RT_THIS_POP() {
 /// Le topo da pilha. `i64::MIN + 2` (undefined sentinel) quando nao ha
 /// `this` corrente. JS spec strict mode: fn nao-method tem `this === undefined`.
 /// (cross-runtime #300)
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_RT_THIS_GET() -> i64 {
+#[rtse::abi("__RTS_FN_RT_THIS_GET")]
+pub fn __RTS_FN_RT_THIS_GET() -> i64 {
     THIS_STACK.with(|s| s.borrow().last().copied().unwrap_or(i64::MIN + 2))
 }

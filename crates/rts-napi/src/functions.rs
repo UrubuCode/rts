@@ -124,6 +124,10 @@ pub unsafe extern "C" fn napi_create_function(
 ///
 /// # Safety
 /// `out_result` deve ser um ponteiro válido para i64.
+// NOT `#[rtse::abi]`: `out_result: *mut i64` is an out-param — a stack slot the
+// caller owns and this function writes THROUGH, not a value crossing by copy —
+// and an out-param has no single-slot ABI spelling. Same carve-out, same
+// reason, as `__rtsadp_ta_view_base_len` and `__RTS_FN_RT_PROXY_RESOLVE`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __RTS_FN_RT_NAPI_DISPATCH_CALLBACK(
     handle: u64,

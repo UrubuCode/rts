@@ -168,8 +168,8 @@ pub unsafe extern "C" fn napi_new_instance(
 ///
 /// # Safety
 /// `ctor_handle`/`args_handle` são handles válidos da HandleTable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __RTS_FN_RT_NAPI_NEW_INSTANCE(
+#[rtse::abi("__RTS_FN_RT_NAPI_NEW_INSTANCE")]
+pub unsafe fn __RTS_FN_RT_NAPI_NEW_INSTANCE(
     ctor_handle: u64,
     args_handle: u64,
 ) -> u64 {
@@ -202,6 +202,10 @@ pub unsafe extern "C" fn __RTS_FN_RT_NAPI_NEW_INSTANCE(
 ///
 /// # Safety
 /// `args_ptr`/`argc` descrevem `argc` handles i64; `out` é ptr válido.
+// NOT `#[rtse::abi]`: `out: *mut i64` is an out-param — a stack slot the caller
+// owns and this function writes THROUGH, not a value crossing by copy — and an
+// out-param has no single-slot ABI spelling. Same carve-out, same reason, as
+// `__rtsadp_ta_view_base_len` and `__RTS_FN_RT_PROXY_RESOLVE`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __RTS_FN_RT_NAPI_INVOKE_METHOD(
     recv: u64,

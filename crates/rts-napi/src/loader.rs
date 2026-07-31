@@ -49,8 +49,9 @@ static LOADED_ADDONS: Mutex<Option<HashMap<String, LoadedAddon>>> = Mutex::new(N
 /// # Safety
 /// `path_ptr`/`path_len` devem descrever uma UTF-8 válida (vêm de uma string
 /// literal do codegen).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __RTS_FN_NS_NAPI_LOAD_ADDON(path_ptr: *const u8, path_len: i64) -> u64 {
+#[rtse::abi("__RTS_FN_NS_NAPI_LOAD_ADDON")]
+pub unsafe fn __RTS_FN_NS_NAPI_LOAD_ADDON(path_ptr: u64, path_len: i64) -> u64 {
+    let path_ptr = path_ptr as *const u8;
     if path_ptr.is_null() || path_len < 0 {
         return 0;
     }
@@ -166,15 +167,15 @@ mod tests {
     #[test]
     fn load_invalid_path_returns_zero() {
         let path = "this_addon_does_not_exist_xyz.node";
-        let h = unsafe { __RTS_FN_NS_NAPI_LOAD_ADDON(path.as_ptr(), path.len() as i64) };
+        let h = unsafe { __RTS_FN_NS_NAPI_LOAD_ADDON(path.as_ptr() as u64, path.len() as i64) };
         assert_eq!(h, 0);
     }
 
     /// Ptr nulo / len negativo → 0, sem panic.
     #[test]
     fn load_null_or_negative_returns_zero() {
-        assert_eq!(unsafe { __RTS_FN_NS_NAPI_LOAD_ADDON(std::ptr::null(), 5) }, 0);
+        assert_eq!(unsafe { __RTS_FN_NS_NAPI_LOAD_ADDON(0, 5) }, 0);
         let p = b"x";
-        assert_eq!(unsafe { __RTS_FN_NS_NAPI_LOAD_ADDON(p.as_ptr(), -1) }, 0);
+        assert_eq!(unsafe { __RTS_FN_NS_NAPI_LOAD_ADDON(p.as_ptr() as u64, -1) }, 0);
     }
 }

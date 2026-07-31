@@ -89,7 +89,7 @@ fn load_real_addon_returns_valid_exports_handle() {
 
     let path_str = node_path.to_string_lossy().to_string();
     let handle = unsafe {
-        rts_napi::loader::__RTS_FN_NS_NAPI_LOAD_ADDON(path_str.as_ptr(), path_str.len() as i64)
+        rts_napi::loader::__RTS_FN_NS_NAPI_LOAD_ADDON(path_str.as_ptr() as u64, path_str.len() as i64)
     };
 
     assert_ne!(handle, 0, "loader deve devolver um handle de exports não-nulo");
@@ -104,7 +104,7 @@ fn load_real_addon_returns_valid_exports_handle() {
 
     // Idempotência: carregar de novo o mesmo path devolve o MESMO handle.
     let handle2 = unsafe {
-        rts_napi::loader::__RTS_FN_NS_NAPI_LOAD_ADDON(path_str.as_ptr(), path_str.len() as i64)
+        rts_napi::loader::__RTS_FN_NS_NAPI_LOAD_ADDON(path_str.as_ptr() as u64, path_str.len() as i64)
     };
     assert_eq!(handle, handle2, "mesmo path deve ser idempotente (cache)");
 

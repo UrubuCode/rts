@@ -4212,6 +4212,7 @@ dependencies = [
  "indexmap",
  "libloading",
  "rts-engine",
+ "rts-macro",
  "rts-shared",
 ]
 

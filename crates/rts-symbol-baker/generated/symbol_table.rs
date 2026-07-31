@@ -8823,9 +8823,9 @@ pub fn aot_symbols() -> ::rts_abi::table::AotSymbols { &AOT_SYMBOLS }
 /// ABI signatures derived from the Rust signatures of `#[rtse::abi]` fns.
 ///
 /// A `static` array in `.rodata`, sorted ascending by name like `SYMBOLS` — a
-/// lookup is a binary search, no `HashMap` build at startup. 1681 of 2191 symbols
+/// lookup is a binary search, no `HashMap` build at startup. 1686 of 2191 symbols
 /// carry one; the rest are not yet declared with `#[rtse::abi]`.
-pub static SIGNATURES: [(&'static str, &'static [::rts_abi::AbiType], ::rts_abi::AbiType); 1681] = [
+pub static SIGNATURES: [(&'static str, &'static [::rts_abi::AbiType], ::rts_abi::AbiType); 1686] = [
     ("__RTS_FN_GL_ABORTSIGNAL_STATIC_ABORT", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::U64),
     ("__RTS_FN_GL_ABORTSIGNAL_STATIC_ANY", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::U64),
     ("__RTS_FN_GL_ABORTSIGNAL_STATIC_TIMEOUT", &[::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
@@ -9577,6 +9577,7 @@ pub static SIGNATURES: [(&'static str, &'static [::rts_abi::AbiType], ::rts_abi:
     ("__RTS_FN_NS_MEM_SIZE_OF_I32", &[], ::rts_abi::AbiType::I64),
     ("__RTS_FN_NS_MEM_SIZE_OF_I64", &[], ::rts_abi::AbiType::I64),
     ("__RTS_FN_NS_MEM_SWAP_I64", &[::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__RTS_FN_NS_NAPI_LOAD_ADDON", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
     ("__RTS_FN_NS_NUM_CHECKED_ADD", &[::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
     ("__RTS_FN_NS_NUM_CHECKED_DIV", &[::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
     ("__RTS_FN_NS_NUM_CHECKED_MUL", &[::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
@@ -9691,6 +9692,7 @@ pub static SIGNATURES: [(&'static str, &'static [::rts_abi::AbiType], ::rts_abi:
     ("__RTS_FN_RT_MAP_GET_STR", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
     ("__RTS_FN_RT_MAP_MARK_NON_ENUM", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
     ("__RTS_FN_RT_MAP_SET_STR", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__RTS_FN_RT_NAPI_NEW_INSTANCE", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64], ::rts_abi::AbiType::U64),
     ("__RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE", &[], ::rts_abi::AbiType::U64),
     ("__RTS_FN_RT_OPAQUE_HAS_NUMBER", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::I64),
     ("__RTS_FN_RT_OPAQUE_TO_NUMBER", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::F64),
@@ -9699,6 +9701,9 @@ pub static SIGNATURES: [(&'static str, &'static [::rts_abi::AbiType], ::rts_abi:
     ("__RTS_FN_RT_REGISTER_FN_DEFAULTS", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
     ("__RTS_FN_RT_REGISTER_FN_KINDS", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I32], ::rts_abi::AbiType::Void),
     ("__RTS_FN_RT_SEED_SHAPES", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__RTS_FN_RT_THIS_GET", &[], ::rts_abi::AbiType::I64),
+    ("__RTS_FN_RT_THIS_POP", &[], ::rts_abi::AbiType::Void),
+    ("__RTS_FN_RT_THIS_PUSH", &[::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
     ("__RTS_FN_RT_TO_PRIMITIVE", &[::rts_abi::AbiType::I64, ::rts_abi::AbiType::I32], ::rts_abi::AbiType::I64),
     ("__RTS_FN_RT_TO_STRING_HANDLE", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::U64),
     ("__RTS_FN_RT_TRUTHY", &[::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),

@@ -5,6 +5,12 @@ Every runtime symbol is declared with the `rtse` macros and linked by
 `rts-symbol-baker`, per the binding rule in `CLAUDE.md`
 ("MANDATORY RULE: SINGLE SOURCE OF TRUTH").
 
+**Status 2026-07-31: 1126 → 233 attributes.** Of what remains, 157 are the
+permanent N-API contract (§2), 57 are `rts-egui` (blocked on the MANDATORY
+egui-plan rule), 6 are `rts-macro`'s own generator source (the `no_mangle` the
+macro EMITS — not a symbol), and **13 are genuine carve-outs**, each with its
+reason written next to the declaration (§2b). See §6 for what is left to do.
+
 This document is the working plan. It records what was **measured**, not
 estimated — re-measure before trusting any number here.
 
@@ -12,7 +18,7 @@ Canonical background: `docs/specs/rts-macro-single-source.md`.
 
 ---
 
-## 1. The landscape, measured 2026-07-31
+## 1. The landscape
 
 Counting the ATTRIBUTE (`#[unsafe(no_mangle)]` / `#[no_mangle]` at line start),
 not textual mentions — the naive `grep -c no_mangle` over the tree returns 1184
@@ -22,7 +28,7 @@ because the macro and the baker carry the string in their own generator source.
 grep -rhoE "^\s*#\[(unsafe\()?no_mangle" crates/ --include=*.rs | wc -l
 ```
 
-**1126 attributes**, across 12 crates:
+### Measured 2026-07-31, BEFORE the campaign — 1126 attributes
 
 | crate | count | note |
 |---|---:|---|
@@ -39,15 +45,79 @@ grep -rhoE "^\s*#\[(unsafe\()?no_mangle" crates/ --include=*.rs | wc -l
 | `rts-macro` | 6 | generator source, not real symbols |
 | `rts-runtime` | 5 | |
 
-Classified by symbol NAME (the convention tells you whether it is ours):
+### Measured 2026-07-31, AFTER — 233 attributes
 
-| convention | count | disposition |
+| crate | count | what is left |
 |---|---:|---|
-| `__RTS_FN_*` | **951** | the real conversion target |
-| `napi_*` / `node_api_*` | ~154 | **permanent carve-out**, see §2 |
-| other | ~21 | baker/macro test fns + a few already on the new `__rtsadp_*` / `__rtsn_*` convention |
+| `rts-napi` | 159 | 157 N-API contract (§2) + 2 out-param carve-outs |
+| `rts-egui` | 57 | **untouched** — blocked on the MANDATORY egui-plan rule |
+| `rts-macro` | 6 | generator source: the `no_mangle` the macro EMITS, not a symbol |
+| `rts-engine` | 3 | `STRING_NEW`/`STRING_PTR`/`STRING_FROM_STATIC` (§2b) |
+| `rts-node` | 2 | the two `PumpFn` pointers (§2b) |
+| `rts-std` | 1 | `FETCH_RESPONSE_OK` — returns `i8` (§2b) |
+| `rts-runtime` | 1 | `__rtsadp_ta_view_base_len` — out-params (§2b) |
+| `rts-primitives` | 1 | `__RTS_FN_RT_PROXY_RESOLVE` — out-params (§2b) |
 
-**So the campaign is ~951 symbols, not 1184.**
+`rts-shared`, `rts-dom`, `rts-input` and `rts-render` are at **zero**. Excluding
+the two blocked//not-a-symbol groups (`rts-egui` 57, `rts-macro` 6) and the
+N-API contract (157), **13 hand-written declarations remain**, each with its
+reason written next to it in the source.
+
+## 2b. The carve-outs that are NOT N-API
+
+Seven distinct reasons, all discovered by the macro REFUSING the signature —
+which is the system working. None is a workaround; each is recorded in the
+source next to the declaration.
+
+* **Out-params.** `*mut T` is a stack slot the caller owns and the callee writes
+  THROUGH, not a value crossing by copy. There is no single-slot ABI spelling
+  for that, and the `U64`-address escape used for `*const u8` would misstate the
+  direction of the data. `__rtsadp_ta_view_base_len`,
+  `__RTS_FN_RT_PROXY_RESOLVE`, `__RTS_FN_RT_NAPI_INVOKE_METHOD`,
+  `__RTS_FN_RT_NAPI_DISPATCH_CALLBACK`.
+* **Raw bytes that must not be validated.** `__RTS_FN_NS_GC_STRING_NEW` and
+  `__RTS_FN_NS_GC_STRING_FROM_STATIC` take `(*const u8, i64)` that must NOT gain
+  the UTF-8 validation a `&str` param imposes, and `__RTS_FN_NS_GC_STRING_PTR`
+  RETURNS `*const u8`, which has no spelling in `rts_abi::tymap`. (Elsewhere the
+  `(u64, i64)` address form solved this; here the pair is also named by a
+  hand-written `abi_sig` row as `StrPtr`, so it stays as the pair it is.)
+* **`usize` returns.** `__RTS_FN_NODE_DGRAM_PUMP` / `__RTS_FN_NODE_NET_PUMP` are
+  `PumpFn` fn POINTERS registered with `rts_engine::loop_sources::register_pump`,
+  whose contract returns `usize`. They are never called by symbol from generated
+  code, so a descriptor buys nothing.
+* **`i8` return — a flag, not a carve-out.** `__RTS_FN_GL_FETCH_RESPONSE_OK`
+  returns `i8`. CLAUDE.md is explicit that a Bool crosses as **i64 and never as
+  i8**, so this return type is suspect on its own terms. It was deliberately NOT
+  "fixed" during a mechanical drain: correcting it is an ABI change that needs
+  its own verified commit.
+
+### The address spelling (`u64`), and when NOT to use `&str`
+
+129 functions took a raw `(*const u8, i64)` pair. Each became `(u64, i64)` with
+the pointer re-introduced as the body's first statement
+(`let ptr = ptr as *const u8;`), so no function body changed. `U64 + I64` and
+`StrPtr` both lower to the same two i64 slots, so the machine ABI is identical.
+
+`&str` is the other option the macro offers and is the WRONG one for these: the
+bytes come out of `Entry::String`, and `&str` would impose UTF-8 validation the
+current path does not perform.
+
+### `macro_rules!` bodies are invisible to the baker
+
+The baker walks syn items, so a `#[unsafe(no_mangle)]` emitted from inside a
+`macro_rules!` body is in NOBODY's source of truth. Four such factories existed
+(`ta_ctor!`, `atomics_rmw!`, `nav_fn!`, `arity_variants!` — 64 symbols). All four
+now use `#[rtse::abi]`. Two idioms keep the name from being spelled twice:
+
+* **Bare `#[rtse::abi]`** prefixes the Rust fn name with `__` and RENAMES the fn
+  to the result. So invoking the macro with the name minus its two leading
+  underscores reproduces the existing symbol exactly, and the Rust ident is
+  `__RTS_…` again after expansion — nothing referencing it has to move.
+* **`#[rtse::abi(abi)]`** derives `__rtsa_<fn name>`; used where a rename was
+  acceptable (`ta_ctor!`).
+
+They still do not reach the baked table. That is a real baker limitation, now
+stated rather than an unexamined silence.
 
 ## 2. The carve-out: N-API is a FOREIGN ABI, do not convert it
 
@@ -134,27 +204,89 @@ Per change:
 2. Before commit: `cargo build --release`, `target/release/rts.exe test`,
    `cargo test --release -p <crate> --lib` for each touched crate, and
    `bash scripts/read_before_commit.sh`.
-3. `cargo test --release --workspace --lib` **does not link** — `rts-std` /
-   `rts-node` test binaries reference `__rtsadp_*` symbols that live in
-   `rts-runtime`, a crate above them. Run per crate. Note also that
-   `cargo test --release --lib` alone runs **0 tests** (root lib only).
+3. `cargo test --release --workspace --lib` **does not link** — test binaries
+   reference `__rtsadp_*` symbols that live in `rts-runtime`, a crate above
+   them. Measured 2026-07-31 on clean `main`: this affects `rts-std`,
+   `rts-node`, **and also `rts-shared` (36 unresolved), `rts-primitives` (35)
+   and `rts-napi` (36)** — i.e. every crate below `rts-runtime`, not just the
+   two originally listed. Do not read those link failures as a regression. Note
+   also that `cargo test --release --lib` alone runs **0 tests** (root lib only).
 4. Diff the failing-test SET against the clean tree, not the count.
+5. Bake the symbol table before and after and diff the NAME SET (§6). A
+   name-preserving slice must show zero added and zero removed.
 
-## 6. Suggested order
+### The baseline, measured on clean `main` 2026-07-31
 
-Lowest risk first, so the mechanics are proven before the big surface:
+Re-measure rather than trusting these, but they are what "no regression" meant
+throughout this campaign:
 
-1. **`rts-runtime` (5)** and **`rts-engine` (40)** — small, and the engine's are
-   GC/env internals with few consumers.
-2. **`rts-primitives` (73)** — primordials, the pattern is already proven here
-   (String/Boolean/Number/Object are done; `error.ts` is the last `.ts` left).
-3. **`rts-shared` (404)** — the bulk. Namespace-shaped (`__RTS_FN_NS_<NS>_*`),
-   so it drains namespace by namespace: `alloc`, `bigfloat`, `math`, `num`, …
-4. **`rts-dom` (103)**, **`rts-node` (157)** — already partly drained.
-5. **`rts-std` (90)** — mostly drained already.
-6. **`rts-egui` (57)** — ONLY after reading the frozen egui plan
-   (`docs/specs/html-engine/`), per the MANDATORY rule.
-7. `rts-napi` — only the 4 `__RTS_*`; leave the N-API contract alone.
+* `target/release/rts.exe test` → **771/774 files, 2837/2849 tests**. The three
+  failing files are `claude-dom-script-globals` (1 test),
+  `claude-object-statics-como-valor` (crashes) and
+  `claude-stringify-wrapper-objects` (10 tests) — the last two are the §7
+  regressions.
+* `cargo test --release -p rts-codegen-new --lib` → **837 passed, 7 failed** on
+  clean `main`, including
+  `abi_sig::baked_existence::every_named_symbol_is_in_the_baked_table`, whose
+  own source-extraction sanity check trips (it finds 4 names for 6 match arms).
+  That guard is currently not guarding anything; worth its own fix.
+* `cargo test -p rts-engine --lib` → 45 passed (was 48 before the dead `env.rs`
+  tests went with the dead code they tested).
+
+## 6. Order — DONE except `rts-egui`
+
+Lowest risk first, so the mechanics were proven before the big surface:
+
+1. ✅ **`rts-runtime` (5 → 1)** and **`rts-engine` (40 → 3)**.
+2. ✅ **`rts-primitives` (73 → 1)**.
+3. ✅ **`rts-shared` (404 → 0)** — the bulk.
+4. ✅ **`rts-dom` (103 → 0)**, **`rts-node` (157 → 2)**.
+5. ✅ **`rts-std` (90 → 1)**, plus **`rts-input` (20 → 0)** and
+   **`rts-render` (7 → 0)**, neither of which exported a foreign-ABI name.
+6. ⛔ **`rts-egui` (57)** — the ONLY remaining convertible group. Read the frozen
+   egui plan (`docs/specs/html-engine/rts-html-roadmap.md` F0–F5 +
+   `rts-html-north-star.md` + `arquitetura.md` +
+   `docs/specs/egui-ui-crate-design.md`) IN FULL first, per the MANDATORY rule in
+   `CLAUDE.md`. Not started here for exactly that reason.
+7. ✅ `rts-napi` — the convertible `__RTS_*` are done
+   (`__RTS_FN_NS_NAPI_LOAD_ADDON`, `__RTS_FN_RT_NAPI_NEW_INSTANCE`); the other
+   two have out-params (§2b). The N-API contract is untouched.
+
+### The one strong invariant this campaign held
+
+Every slice was checked by baking the symbol table before and after and diffing
+the NAME SET. For the `rts-std`/`rts-node`/`rts-dom`/`rts-input`/`rts-render`
+slice and for the `rts-napi` slice the result was **2191 symbols before, 2191
+after, zero added, zero removed** — mechanical proof that the conversion is
+name-preserving, which no amount of reading the diff would give you.
+
+Use it on any future slice: it is cheaper than the release build and catches the
+§4 rename trap directly.
+
+## 6b. Dead symbols found and deleted along the way
+
+The drain doubled as an audit: a symbol nothing names is a symbol you notice
+when you have to touch every one of them. 27 in `rts-engine` turned out to be
+unreachable leftovers of the DELETED engine's overloaded-i64 value model and
+were removed rather than converted — whole files in four cases. `cell.rs`
+(codegen cells are `emit_vec_get`/`_set`), `tagged_raw.rs` (`.raw` is desugared
+in `desugar/tpl.rs`), `float_box.rs` (CLAUDE.md already recorded PolyValue as
+deleting these), `env.rs` (only its own `#[cfg(test)]` called it), the
+`i64::MIN+n` sentinel family in `coerce.rs`, four probes in `alloc.rs`
+(`Array.isArray` runs through `adapters/value/globalops.rs`), and
+`CLASS_REGISTER_PARENT` (codegen seeds via the Rust `register_parent`).
+
+Each was confirmed by grepping the name across `*.rs` AND `*.ts` — which
+matches string literals, so a Registry `instanceof_predicate("…")` or a codegen
+`call_runtime("…")` would have shown up. The full suite then agreed.
+
+Still-live dead-ish code NOT removed, for the record: `this_slot.rs` is
+**write-only**. `rts-primitives/src/function/ops.rs` pushes and pops the
+thread-local `this` stack in seven places and NOTHING reads it —
+`__RTS_FN_RT_THIS_GET` has no caller anywhere, and the engine passes `this` by
+other means. It was converted rather than deleted because unpicking the
+`pushed_this_slot` control flow in the hot dispatch path is its own change with
+its own verification, not a drain side effect.
 
 ## 7. Open work that is NOT part of this campaign
 
