@@ -123,6 +123,10 @@ pub fn runtime_init() {
     // pushed by the `trace` namespace a layer above, so the renderer is
     // installed rather than named downward.
     rts_engine::collector::error::set_stack_capture(rts_shared::trace::frame_stack::capture_string);
+    // An ASYNC generator's `.next()` returns a Promise, so the state machine —
+    // which is machinery and lives in `rts-natives` — needs the scheduler, which
+    // is backend and lives in `rts-std`. Same seam as `root_sources`.
+    rts_std::collector::generator::install_agen_driver();
     if timing {
         eprintln!("[aot-init] gc+thread   {:.2} ms", t0.elapsed().as_secs_f64() * 1e3);
     }

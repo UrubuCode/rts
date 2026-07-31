@@ -63,7 +63,7 @@ pub fn spread_into_vec(dst: u64, src: u64) {
     // (#477) Generator lazy (state-machine): drena ate done num Vec, depois
     // spread normal. Para generator infinito o spread roda pra sempre — igual JS.
     if with_entry(src, |e| matches!(e, Some(Entry::GenState(_)))) {
-        let drained = crate::collector::generator::__rtsn_gen_sm_drain(src);
+        let drained = rts_engine::collector::generator::__rtsn_gen_sm_drain(src);
         let items = with_entry(drained, |entry| match entry {
             Some(Entry::Vec(slots)) => slots.as_ref().clone(),
             _ => Vec::new(),

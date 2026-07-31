@@ -42,6 +42,10 @@ pub mod error;
 /// Module-level mutable globals as CELLS (epic #195) — the mutable shared cell
 /// the IR cannot express. Moved down from `rts-std::collector::gcells`.
 pub mod gcells;
+/// Generators and the lazy state machine — coroutines, which the IR cannot
+/// express. The ASYNC DRIVER stays in `rts-std`: it schedules (timers, tokio,
+/// microtasks) rather than steps. See the module doc.
+pub mod generator;
 /// Mapa thread-local `handle -> stack_text` p/ `Error.prototype.stack` (#745).
 /// Puro (sem GC); o slot de erro pendente fica no runtime. Std puro.
 pub mod err_stack;
