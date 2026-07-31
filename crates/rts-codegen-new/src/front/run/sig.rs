@@ -654,3 +654,77 @@ fn params_called_as_fn(func: &HirFunc) -> std::collections::HashSet<String> {
     walk_stmts(&func.body, &param_names, &mut called);
     called
 }
+
+/// A função `f` só REPASSA o resultado de um generator? Devolve
+/// `(lazy, eager)` do alvo quando TODO `return` dela é uma chamada direta a uma
+/// função marcada como generator em `conhecidas`; `None` caso contrário.
+///
+/// Conservador de propósito: um único `return` que não seja isso já desqualifica,
+/// então a marca nunca é aplicada a uma função que devolve outra coisa.
+pub fn returned_generator_kind(
+    f: &HirFunc,
+    conhecidas: &std::collections::HashMap<String, (bool, bool)>,
+) -> Option<(bool, bool)> {
+    use rts_hir::ir::HirExprKind;
+
+    fn colhe(stmts: &[HirStmt], out: &mut Vec<Option<HirExpr>>) {
+        for st in stmts {
+            match st {
+                HirStmt::Return(e) => out.push(e.clone()),
+                HirStmt::If { then, else_, .. } => {
+                    colhe(then, out);
+                    if let Some(e) = else_ {
+                        colhe(e, out);
+                    }
+                }
+                HirStmt::Block(b)
+                | HirStmt::While { body: b, .. }
+                | HirStmt::DoWhile { body: b, .. }
+                | HirStmt::ForOf { body: b, .. }
+                | HirStmt::ForIn { body: b, .. }
+                | HirStmt::For { body: b, .. } => colhe(b, out),
+                HirStmt::Try {
+                    body,
+                    catch,
+                    finally,
+                } => {
+                    colhe(body, out);
+                    if let Some(c) = catch {
+                        colhe(&c.body, out);
+                    }
+                    if let Some(fin) = finally {
+                        colhe(fin, out);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let mut retornos = Vec::new();
+    colhe(&f.body, &mut retornos);
+    if retornos.is_empty() {
+        return None;
+    }
+    let mut kind: Option<(bool, bool)> = None;
+    for r in &retornos {
+        let Some(e) = r else { return None };
+        let HirExprKind::Call { callee, .. } = &e.kind else {
+            return None;
+        };
+        let HirExprKind::Ident(alvo) = &callee.kind else {
+            return None;
+        };
+        let &(lazy, eager) = conhecidas.get(alvo.as_str())?;
+        if !lazy && !eager {
+            return None;
+        }
+        match kind {
+            None => kind = Some((lazy, eager)),
+            Some(k) if k == (lazy, eager) => {}
+            // Retornos de tipos DIFERENTES de generator: não marca.
+            Some(_) => return None,
+        }
+    }
+    kind
+}

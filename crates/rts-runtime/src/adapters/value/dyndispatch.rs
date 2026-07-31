@@ -791,6 +791,19 @@ pub fn rtsadp_dyn_method_call(
     // otherwise be misrouted by the `is_array_word` gate below. Returns `None`
     // (falls through) for any receiver without a matching `(class, method)`.
     let js_argc = [a0, a1, a2].iter().filter(|&&w| w != undef).count();
+
+    // PROTOCOLO DE GENERATOR por HANDLE: o iterador de um generator lazy é um
+    // handle de `Entry::GenState`. Quando ele atravessa um array/campo, o
+    // rastreio estático do codegen não o alcança e o `.next` cai aqui. O handle
+    // sabe o que é, então o protocolo sobrevive à travessia (issue #2042).
+    {
+        let m = nome_metodo_gen(key);
+        if matches!(m.as_str(), "next" | "return" | "throw") {
+            if let Some(out) = try_generator_dyn(recv, &m, a0) {
+                return out;
+            }
+        }
+    }
     if let Some(out) = super::dynci::try_runtime_ci(recv, key, a0, a1, a2, js_argc) {
         return out;
     }
@@ -1180,4 +1193,52 @@ pub fn rtsadp_dyn_to_string_radix(recv: u64, radix: u64) -> u64 {
         return box_str(h);
     }
     __rtsadp_dyn_to_string(recv)
+}
+
+/// O nome do método a partir da word da chave (string boxada); "" se não for string.
+fn nome_metodo_gen(key: u64) -> String {
+    let pv = PolyValue::from_raw(key);
+    if !pv.is_string() {
+        return String::new();
+    }
+    super::abi_adapter::real_handle_to_string(super::abi_adapter::real_handle_of(pv))
+}
+
+/// O receiver é um iterador de generator vivo? Executa o método do protocolo
+/// direto sobre a `GenState`. `None` quando não é generator — segue o fluxo normal.
+///
+/// O handle chega de formas diferentes conforme o caminho que o valor percorreu
+/// (boxado como OBJECT, inline como int/double, ou cru), então testa os
+/// candidatos e fica com o que for uma GenState VIVA. Um receiver que não seja
+/// generator nunca casa, então isto não pode desviar outro despacho.
+fn try_generator_dyn(recv: u64, metodo: &str, a0: u64) -> Option<u64> {
+    use rts_runtime::namespaces::gc::handles::{Entry, with_entry};
+    let pv = PolyValue::from_raw(recv);
+    let candidatos: [u64; 5] = [
+        if pv.is_object() {
+            rts_runtime::namespaces::gc::handles::__rtsn_poly_to_handle(pv.as_handle())
+        } else {
+            0
+        },
+        if pv.is_int32() { pv.as_i32() as u64 } else { 0 },
+        if pv.is_double() { pv.as_f64() as u64 } else { 0 },
+        // O PAYLOAD cru de 48 bits: um handle de GenState que foi boxado como
+        // OBJECT sem passar pela tabela de handles do poly (o array guarda a
+        // word já boxada) decodifica por aqui.
+        if pv.is_object() { pv.as_handle() } else { 0 },
+        recv,
+    ];
+    let h = candidatos
+        .into_iter()
+        .find(|&c| c != 0 && with_entry(c, |e| matches!(e, Some(Entry::GenState(_)))))?;
+    let undef = PolyValue::undefined().raw();
+    Some(match metodo {
+        "next" if a0 != undef => {
+            rts_std::collector::generator::__rtsn_generator_next_sent(h, a0 as i64)
+        }
+        "next" => rts_std::collector::generator::__rtsn_gen_sm_next(h),
+        "return" => rts_std::collector::generator::__rtsn_gen_sm_return(h, a0 as i64),
+        "throw" => rts_std::collector::generator::__rtsn_gen_sm_throw(h, a0 as i64),
+        _ => return None,
+    })
 }

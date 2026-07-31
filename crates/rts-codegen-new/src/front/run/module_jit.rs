@@ -286,6 +286,47 @@ pub(crate) fn populate_module(
             break;
         }
     }
+    // FIXPOINT do GENERATOR: uma função que só REPASSA o resultado de um
+    // generator (`function h(){ return g() }`) herda a marca de generator do
+    // alvo. Sem isto o iterador perdia o protocolo ao atravessar o retorno —
+    // `h().next()` chegava ao despacho como `Number.next` e bailava, e no
+    // runtime o receiver chegava zerado (issue #2042). É a forma que os bundles
+    // minificados usam (`function getIterables(){ return [generator(), …] }`).
+    // Monotônico (só ACRESCENTA a marca), então termina.
+    loop {
+        let alvo_gen: HashMap<String, (bool, bool)> = sigs
+            .iter()
+            .map(|(k, v)| (k.clone(), (v.ret_lazy_gen, v.ret_eager_gen)))
+            .collect();
+        let mut mudou = false;
+        for f in funcs {
+            let ja = sigs
+                .get(&f.name)
+                .is_some_and(|s| s.ret_lazy_gen || s.ret_eager_gen);
+            if ja {
+                continue;
+            }
+            let Some((lazy, eager)) = super::sig::returned_generator_kind(f, &alvo_gen) else {
+                continue;
+            };
+            if let Some(s) = sigs.get_mut(&f.name) {
+                s.ret_lazy_gen = lazy;
+                s.ret_eager_gen = eager;
+                // O repasse tem de manter a REPR do alvo: um generator lazy é um
+                // handle cru (`Int64`); coagi-lo perde o handle.
+                if lazy {
+                    s.ret = Some(crate::repr::Repr::Int64);
+                } else if eager {
+                    s.ret = Some(crate::repr::Repr::Tagged);
+                }
+                mudou = true;
+            }
+        }
+        if !mudou {
+            break;
+        }
+    }
+
     // Program-wide `globalThis.<key>` → class, by the all-agree pre-pass: a key is
     // a static class only if EVERY `globalThis.key = <Class>` across all functions
     // + main agrees on one known class (a single non-class / disagreeing write
