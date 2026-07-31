@@ -1222,7 +1222,7 @@
   "status": "rts_diverge",
   "bun": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\nextra:false",
   "node": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\nextra:false",
-  "rts": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\n:false",
+  "rts": "truthy:object:undefined:undefined\ntruthy:object:undefined:undefined\ntruthy:object:undefined:undefined\n:undefined",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -1793,10 +1793,10 @@
 ,
 {
   "name": "claude-tostring-valueof-coercion",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "unary_plus=5\nmul=10\nsub=4\ncmp=true\nnumber=5\ntemplate=$5\nstring=$5\nconcat_str=v:$5\nplus_str=5\nplus_num=6\ntag_str=42\ntag_num=42\ntag_plus=421\nbad_num=NaN\nbad_plus=abc1\nraw_num=9\nraw_str=[object Object]\nraw_template=[object Object]\ncents_str=$3c\ncents_num=3\ncents_plus=4\njoin=$1|$2\nsorted=$1,$2,$3",
   "node": "unary_plus=5\nmul=10\nsub=4\ncmp=true\nnumber=5\ntemplate=$5\nstring=$5\nconcat_str=v:$5\nplus_str=5\nplus_num=6\ntag_str=42\ntag_num=42\ntag_plus=421\nbad_num=NaN\nbad_plus=abc1\nraw_num=9\nraw_str=[object Object]\nraw_template=[object Object]\ncents_str=$3c\ncents_num=3\ncents_plus=4\njoin=$1|$2\nsorted=$1,$2,$3",
-  "rts": "unary_plus=5\nmul=10\nsub=4\ncmp=true\nnumber=5\ntemplate=$5\nstring=$5\nconcat_str=v:$5\nplus_str=5\nplus_num=6\ntag_str=42\ntag_num=42\ntag_plus=421\nbad_num=NaN\nbad_plus=abc1\nraw_num=9\nraw_str=[object Object]\nraw_template=[object Object]\ncents_str=$3c\ncents_num=3\ncents_plus=4\njoin=$1|$2\nsorted=$1,$2,$3",
+  "rts": "unary_plus=5\nmul=10\nsub=4\ncmp=true\nnumber=5\ntemplate=$5\nstring=$5\nconcat_str=v:$5\nplus_str=5\nplus_num=6\ntag_str=42\ntag_num=42\ntag_plus=421\nbad_num=NaN\nbad_plus=abc1\nraw_num=9\nraw_str=9\nraw_template=9\ncents_str=$3c\ncents_num=3\ncents_plus=4\njoin=$1|$2\nsorted=$1,$2,$3",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -2104,7 +2104,7 @@
   "status": "rts_diverge",
   "bun": "obj_keys=odd,even\nobj_even=2,4\nobj_odd=1,3,5\nobj_num_keys=0,1\nobj_key_types=string,string\nobj_get_0=2,4:2,4\nobj_proto_null=true\nobj_no_tostring=undefined\nmap_keys=1,0\nmap_key_types=number,number\nmap_get_num=2,4\nmap_get_str_miss=undefined\nmap_obj_size=2\nmap_obj_A=4,5\nmap_obj_B=1,2,3\nmap_obj_key_names=B,A\nmap_obj_fresh_key_miss=undefined\nsvz_size=2\nsvz_zero=1,2\nsvz_key_1_div=Infinity\nsvz_nan=3\nobj_coerced_keys=0|NaN|undefined|null\ncb_args=a@0,b@1\nobj_cb_args=a@0,b@1\norder=3,1,2\ngroups=3+3|1+1|2\nbool_keys=false,true:types=boolean,boolean\nbool_true=3,4,5\nempty_map=0\nempty_obj=0\nfrom_set=1,0:odd=1,3\nvalues_are_arrays=true",
   "node": "obj_keys=odd,even\nobj_even=2,4\nobj_odd=1,3,5\nobj_num_keys=0,1\nobj_key_types=string,string\nobj_get_0=2,4:2,4\nobj_proto_null=true\nobj_no_tostring=undefined\nmap_keys=1,0\nmap_key_types=number,number\nmap_get_num=2,4\nmap_get_str_miss=undefined\nmap_obj_size=2\nmap_obj_A=4,5\nmap_obj_B=1,2,3\nmap_obj_key_names=B,A\nmap_obj_fresh_key_miss=undefined\nsvz_size=2\nsvz_zero=1,2\nsvz_key_1_div=Infinity\nsvz_nan=3\nobj_coerced_keys=0|NaN|undefined|null\ncb_args=a@0,b@1\nobj_cb_args=a@0,b@1\norder=3,1,2\ngroups=3+3|1+1|2\nbool_keys=false,true:types=boolean,boolean\nbool_true=3,4,5\nempty_map=0\nempty_obj=0\nfrom_set=1,0:odd=1,3\nvalues_are_arrays=true",
-  "rts": "obj_keys=odd,even\nobj_even=2,4\nobj_odd=1,3,5\nobj_num_keys=0,1\nobj_key_types=string,string\nobj_get_0=2,4:2,4\nobj_proto_null=false\nobj_no_tostring=undefined\nmap_keys=1,0\nmap_key_types=number,number\nmap_get_num=2,4\nmap_get_str_miss=undefined\nmap_obj_size=2\nmap_obj_A=4,5\nmap_obj_B=1,2,3\nmap_obj_key_names=B,A\nmap_obj_fresh_key_miss=undefined\nsvz_size=2\nsvz_zero=1,2\nsvz_key_1_div=-Infinity\nsvz_nan=3\nobj_coerced_keys=0|NaN|undefined|null\ncb_args=a@0,b@1\nobj_cb_args=a@0,b@1\norder=3,1,2\ngroups=3+3|1+1|2\nbool_keys=false,true:types=boolean,boolean\nbool_true=3,4,5\nempty_map=0\nempty_obj=0\nfrom_set=1,NaN:odd=1073741835,7\nvalues_are_arrays=true",
+  "rts": "obj_keys=odd,even\nobj_even=2,4\nobj_odd=1,3,5\nobj_num_keys=0,1\nobj_key_types=string,string\nobj_get_0=2,4:2,4\nobj_proto_null=false\nobj_no_tostring=undefined\nmap_keys=1,0\nmap_key_types=number,number\nmap_get_num=2,4\nmap_get_str_miss=undefined\nmap_obj_size=2\nmap_obj_A=4,5\nmap_obj_B=1,2,3\nmap_obj_key_names=B,A\nmap_obj_fresh_key_miss=undefined\nsvz_size=2\nsvz_zero=1,2\nsvz_key_1_div=-Infinity\nsvz_nan=3\nobj_coerced_keys=0|NaN|undefined|null\ncb_args=a@0,b@1\nobj_cb_args=a@0,b@1\norder=3,1,2\ngroups=3+3|1+1|2\nbool_keys=false,true:types=boolean,boolean\nbool_true=3,4,5\nempty_map=0\nempty_obj=0\nfrom_set=0,NaN,1:odd=7\nvalues_are_arrays=true",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -2160,7 +2160,7 @@
   "status": "rts_diverge",
   "bun": "add_returns_self=true\nadd_returns_set=true\nchain=1,2,3\nchain_size=3\nchain_dup=1,2:size=2\ninline=a,b\nchain_size_inline=2\nset_returns_self=true\nset_returns_map=true\nmap_chain=a:1|b:2|c:3\nchain_overwrite=a,b:a=99\nchain_get=5\nset_delete_hit=true\nset_delete_miss=false\nmap_delete_hit=true\nmap_delete_miss=false\nset_clear=undefined:size=0\nmap_clear=undefined:size=0\nset_has=true:false\nmap_has=true:false\nmixed_chain_size=6\nmixed_has=truetruetruetruetruetrue\nfeed_keys=x,y\nnested=1,2,3",
   "node": "add_returns_self=true\nadd_returns_set=true\nchain=1,2,3\nchain_size=3\nchain_dup=1,2:size=2\ninline=a,b\nchain_size_inline=2\nset_returns_self=true\nset_returns_map=true\nmap_chain=a:1|b:2|c:3\nchain_overwrite=a,b:a=99\nchain_get=5\nset_delete_hit=true\nset_delete_miss=false\nmap_delete_hit=true\nmap_delete_miss=false\nset_clear=undefined:size=0\nmap_clear=undefined:size=0\nset_has=true:false\nmap_has=true:false\nmixed_chain_size=6\nmixed_has=truetruetruetruetruetrue\nfeed_keys=x,y\nnested=1,2,3",
-  "rts": "add_returns_self=true\nadd_returns_set=true\nchain=1,2,3\nchain_size=3\nchain_dup=1,2:size=2\ninline=a,b\nchain_size_inline=2\nset_returns_self=true\nset_returns_map=true\nmap_chain=a:1|b:2|c:3\nchain_overwrite=a,b:a=99\nchain_get=5\nset_delete_hit=true\nset_delete_miss=false\nmap_delete_hit=true\nmap_delete_miss=false\nset_clear=undefined:size=0\nmap_clear=undefined:size=0\nset_has=true:false\nmap_has=true:false\nmixed_chain_size=6\nmixed_has=truetruetruetruetruetrue\nfeed_keys=x,y\nnested=1073741835,1,2,-1,0,1,-1,-1,-1,-1,-1,-1,-1,7,3",
+  "rts": "add_returns_self=true\nadd_returns_set=true\nchain=1,2,3\nchain_size=3\nchain_dup=1,2:size=2\ninline=a,b\nchain_size_inline=2\nset_returns_self=true\nset_returns_map=true\nmap_chain=a:1|b:2|c:3\nchain_overwrite=a,b:a=99\nchain_get=5\nset_delete_hit=true\nset_delete_miss=false\nmap_delete_hit=true\nmap_delete_miss=false\nset_clear=undefined:size=0\nmap_clear=undefined:size=0\nset_has=true:false\nmap_has=true:false\nmixed_chain_size=6\nmixed_has=truetruetruetruetruetrue\nfeed_keys=x,y\nnested=1073741834,1,2,-1,0,1,-1,-1,-1,-1,-1,-1,-1,7,3",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -3616,7 +3616,7 @@
   "status": "rts_diverge",
   "bun": "{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return",
   "node": "{\"value\":\"n\",\"done\":false}\n{\"value\":\"handled\",\"done\":false}\n{\"done\":true}\nnext|throw:E|return",
-  "rts": "{\"value\":1073741886,\"done\":false}\n{\"value\":{\"message\":\"E\",\"name\":\"Error\",\"stack\":\"\"},\"done\":true}\n{\"value\":\"R\",\"done\":true}",
+  "rts": "{\"value\":1073741885,\"done\":false}\n{\"value\":{\"message\":\"E\",\"name\":\"Error\",\"stack\":\"\"},\"done\":true}\n{\"value\":\"R\",\"done\":true}",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -3756,7 +3756,7 @@
   "status": "rts_diverge",
   "bun": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
   "node": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
-  "rts": "undefined",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -4089,10 +4089,10 @@
 ,
 {
   "name": "claude-stringify-number-edges",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "neg_zero=0\nneg_zero_obj={\"a\":0}\nneg_zero_arr=[0,0]\npos_zero=0\ninf=null\nneg_inf=null\nnan=null\nnonfinite_obj={\"a\":null,\"b\":null,\"c\":null}\nnonfinite_arr=[null,null,null]\ndiv_zero=null\nmax_safe=9007199254740991\nmax_safe_plus=9007199254740992\nmax_value=1.7976931348623157e+308\nmin_value=5e-324\ne21=1e+21\ne20=100000000000000000000\nneg_e21=-1e+21\ne_minus_7=1e-7\ne_minus_6=0.000001\nthird=0.3333333333333333\npoint_sum=0.30000000000000004\nbig_frac=123456789.12345679\nneg_frac=-0.5\noverflow=null\nwrapper=5\nwrapper_nan=null\nneg_big=-9007199254740991\nint_round=100\nfloat_int=100",
   "node": "neg_zero=0\nneg_zero_obj={\"a\":0}\nneg_zero_arr=[0,0]\npos_zero=0\ninf=null\nneg_inf=null\nnan=null\nnonfinite_obj={\"a\":null,\"b\":null,\"c\":null}\nnonfinite_arr=[null,null,null]\ndiv_zero=null\nmax_safe=9007199254740991\nmax_safe_plus=9007199254740992\nmax_value=1.7976931348623157e+308\nmin_value=5e-324\ne21=1e+21\ne20=100000000000000000000\nneg_e21=-1e+21\ne_minus_7=1e-7\ne_minus_6=0.000001\nthird=0.3333333333333333\npoint_sum=0.30000000000000004\nbig_frac=123456789.12345679\nneg_frac=-0.5\noverflow=null\nwrapper=5\nwrapper_nan=null\nneg_big=-9007199254740991\nint_round=100\nfloat_int=100",
-  "rts": "neg_zero=0\nneg_zero_obj={\"a\":0}\nneg_zero_arr=[0,0]\npos_zero=0\ninf=null\nneg_inf=null\nnan=null\nnonfinite_obj={\"a\":null,\"b\":null,\"c\":null}\nnonfinite_arr=[null,null,null]\ndiv_zero=null\nmax_safe=9007199254740991\nmax_safe_plus=9007199254740992\nmax_value=1.7976931348623157e+308\nmin_value=5e-324\ne21=1e+21\ne20=100000000000000000000\nneg_e21=-1e+21\ne_minus_7=1e-7\ne_minus_6=0.000001\nthird=0.3333333333333333\npoint_sum=0.30000000000000004\nbig_frac=123456789.12345679\nneg_frac=-0.5\noverflow=null\nwrapper=5\nwrapper_nan=null\nneg_big=-9007199254740991\nint_round=100\nfloat_int=100",
+  "rts": "neg_zero=0\nneg_zero_obj={\"a\":0}\nneg_zero_arr=[0,0]\npos_zero=0\ninf=null\nneg_inf=null\nnan=null\nnonfinite_obj={\"a\":null,\"b\":null,\"c\":null}\nnonfinite_arr=[null,null,null]\ndiv_zero=null\nmax_safe=9007199254740991\nmax_safe_plus=9007199254740992\nmax_value=1.7976931348623157e+308\nmin_value=5e-324\ne21=1e+21\ne20=100000000000000000000\nneg_e21=-1e+21\ne_minus_7=1e-7\ne_minus_6=0.000001\nthird=0.3333333333333333\npoint_sum=0.30000000000000004\nbig_frac=123456789.12345679\nneg_frac=-0.5\noverflow=null\nwrapper=undefined\nwrapper_nan=undefined\nneg_big=-9007199254740991\nint_round=100\nfloat_int=100",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -4145,10 +4145,10 @@
 ,
 {
   "name": "claude-stringify-wrapper-objects",
-  "status": "pass",
+  "status": "rts_diverge",
   "bun": "number=5\nnumberNaN=null\nnumberInfinity=null\nnumberNegZero=0\nstring=\"hi\"\nstringQuoted=\"a\\\"b\"\nstringEmpty=\"\"\nboolTrue=true\nboolFalse=false\nnested={\"a\":7}\ninArray=[1,\"x\",false]\ndeep={\"a\":{\"b\":[3]}}\nexpandoIgnored=5\nobjectWrapperNum=5\nobjectWrapperStr=\"h\"\nplainObject={\"a\":1}\nobjectWithValueOf={\"a\":1}\nplainArray=[1,2]\nprimNumber=5\nprimString=\"hi\"\nprimBool=true\nprimNull=null",
   "node": "number=5\nnumberNaN=null\nnumberInfinity=null\nnumberNegZero=0\nstring=\"hi\"\nstringQuoted=\"a\\\"b\"\nstringEmpty=\"\"\nboolTrue=true\nboolFalse=false\nnested={\"a\":7}\ninArray=[1,\"x\",false]\ndeep={\"a\":{\"b\":[3]}}\nexpandoIgnored=5\nobjectWrapperNum=5\nobjectWrapperStr=\"h\"\nplainObject={\"a\":1}\nobjectWithValueOf={\"a\":1}\nplainArray=[1,2]\nprimNumber=5\nprimString=\"hi\"\nprimBool=true\nprimNull=null",
-  "rts": "number=5\nnumberNaN=null\nnumberInfinity=null\nnumberNegZero=0\nstring=\"hi\"\nstringQuoted=\"a\\\"b\"\nstringEmpty=\"\"\nboolTrue=true\nboolFalse=false\nnested={\"a\":7}\ninArray=[1,\"x\",false]\ndeep={\"a\":{\"b\":[3]}}\nexpandoIgnored=5\nobjectWrapperNum=5\nobjectWrapperStr=\"h\"\nplainObject={\"a\":1}\nobjectWithValueOf={\"a\":1}\nplainArray=[1,2]\nprimNumber=5\nprimString=\"hi\"\nprimBool=true\nprimNull=null",
+  "rts": "number=undefined\nnumberNaN=undefined\nnumberInfinity=undefined\nnumberNegZero=undefined\nstring=undefined\nstringQuoted=undefined\nstringEmpty=undefined\nboolTrue=undefined\nboolFalse=undefined\nnested={}\ninArray=[null,null,null]\ndeep={\"a\":{\"b\":[null]}}\nexpandoIgnored=undefined\nobjectWrapperNum=5\nobjectWrapperStr=\"h\"\nplainObject={\"a\":1}\nobjectWithValueOf={\"a\":1}\nplainArray=[1,2]\nprimNumber=5\nprimString=\"hi\"\nprimBool=true\nprimNull=null",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -4495,9 +4495,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "order=micro|immediate|timeout",
   "bun_exit": 0,
   "node_exit": 0,
@@ -6357,16 +6357,16 @@
 ,
 {
   "name": "claude-object-statics-as-values",
-  "status": "pass",
+  "status": "rts_error",
   "bun": "defineProperty=function\ndefineProperties=function\nfromEntries=function\ncreate=function\nsetPrototypeOf=function\ngetOwnPropertyDescriptor=function\ngetOwnPropertySymbols=function\npreventExtensions=function\nisExtensible=function\ndefinePropertyWorks=7\nfromEntriesWorks={\"k\":1}\ndescriptorWorks=5\nkeys=function\nassign=function\nkeysWorks=x,y",
   "node": "defineProperty=function\ndefineProperties=function\nfromEntries=function\ncreate=function\nsetPrototypeOf=function\ngetOwnPropertyDescriptor=function\ngetOwnPropertySymbols=function\npreventExtensions=function\nisExtensible=function\ndefinePropertyWorks=7\nfromEntriesWorks={\"k\":1}\ndescriptorWorks=5\nkeys=function\nassign=function\nkeysWorks=x,y",
-  "rts": "defineProperty=function\ndefineProperties=function\nfromEntries=function\ncreate=function\nsetPrototypeOf=function\ngetOwnPropertyDescriptor=function\ngetOwnPropertySymbols=function\npreventExtensions=function\nisExtensible=function\ndefinePropertyWorks=7\nfromEntriesWorks={\"k\":1}\ndescriptorWorks=5\nkeys=function\nassign=function\nkeysWorks=x,y",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 0,
+  "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": ""
+  "rts_error": "error: Uncaught ReferenceError: Object is not defined\n      at run of tests/cross-runtime/object-meta/claude-object-statics-as-values.ts failed"
 }
 ,
 {
@@ -6920,7 +6920,7 @@
   "status": "rts_diverge",
   "bun": "one=3\ntwo=5\nall=a,b\nasync=9",
   "node": "one=3\ntwo=5\nall=a,b\nasync=9",
-  "rts": "one=3\ntwo=5\nall=1.39067116157e-309,1.390671161570005e-309\nasync=9",
+  "rts": "one=3\ntwo=5\nall=1.39067116156993e-309,1.390671161569936e-309\nasync=9",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9687,4 +9687,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":692,"pass":487,"rts_diverge":114,"bun_node_diverge":19,"errors":72,"rejected":0}}
+],"summary":{"total":692,"pass":484,"rts_diverge":117,"bun_node_diverge":18,"errors":73,"rejected":0}}
