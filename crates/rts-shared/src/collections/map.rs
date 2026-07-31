@@ -784,11 +784,12 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_DIRECT(
     0
 }
 
-// (LAYERING FIX 2026-07-24) __RTS_FN_GL_OBJECT_CREATE/APPLY_DESCRIPTORS/
-// HAS_OWN_PROPERTY/GET_OWN_PROPERTY_SYMBOLS + o null-proto tracking MUDARAM
-// para `rts-primitives::object` — Object é PRIMORDIAL, não pertence à camada
-// non-primordial de rts-shared. Ver esse módulo para os corpos.
-pub use rts_primitives::object::is_null_proto_handle;
+// The `__RTS_FN_GL_OBJECT_*` bodies and the `null_proto_set` that used to be
+// re-exported here are GONE — every one of them was dead, superseded by the
+// `__rtsadp_obj_*` trampolines on the shape-based value model. A null prototype
+// is recorded as the explicit `0` sentinel in the `__proto__` slot, which the
+// code below and `rts-std`'s inspector already read directly. See
+// `rts-primitives/src/object/mod.rs` for the full account of the drain.
 
 /// (cross-runtime #753) Resolve um handle de "chave qualquer" para a
 /// representacao canonica em string usada no IndexMap.
@@ -1550,11 +1551,6 @@ pub extern "C" fn __RTS_FN_NS_COLLECTIONS_MAP_GET_PROTO(handle: u64) -> u64 {
     // (#218 phase2) Proxy: trap `getPrototypeOf` ou forward.
     if let Some((target, handler)) = rts_primitives::proxy::ops::resolve_proxy(handle) {
         return rts_primitives::proxy::ops::dispatch_get_proto(target, handler);
-    }
-    // (#1080-format) Object.create(null) handles tem proto = null mesmo
-    // que .__proto__ slot tenha sido sobrescrito pelo user (regular prop).
-    if is_null_proto_handle(handle) {
-        return 0;
     }
     // (cross-runtime #336) Topo da prototype chain: o singleton
     // Object.prototype (Map real instalado como __proto__ raiz das classes)

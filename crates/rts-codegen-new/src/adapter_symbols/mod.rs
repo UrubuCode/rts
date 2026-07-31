@@ -36,16 +36,15 @@
 
 /// One installable JIT symbol: an extern "C" name and its function pointer. The
 /// pointer is to a `#[no_mangle] extern "C"` function with static lifetime.
-#[derive(Clone, Copy)]
-pub struct JitSymbol {
-    pub name: &'static str,
-    pub ptr: *const u8,
-}
-
-// SAFETY: every `ptr` is to static `extern "C"` code (the runtime binary or this
-// crate), never dereferenced as data — sound to share across threads.
-unsafe impl Send for JitSymbol {}
-unsafe impl Sync for JitSymbol {}
+///
+/// A type ALIAS of the baked table's own [`rts_engine::abi::table::SymbolEntry`]
+/// — same two fields, same Send/Sync justification (see that type) — not a
+/// second nominal struct the baked half has to be re-mapped into. `symbols()`
+/// now returns `&'static [SymbolEntry]` directly, so [`jit_symbols`] appends the
+/// baked half with one `extend_from_slice` and no per-row transformation at
+/// all, instead of allocating a full second `Vec` just to rename the type of
+/// every baked row.
+pub type JitSymbol = rts_engine::abi::table::SymbolEntry;
 
 #[inline]
 fn sym(name: &'static str, ptr: *const u8) -> JitSymbol {
@@ -54,15 +53,14 @@ fn sym(name: &'static str, ptr: *const u8) -> JitSymbol {
 
 /// The full JIT symbol table: the baked table, then the Registry harvest.
 pub fn jit_symbols() -> Vec<JitSymbol> {
-    let mut syms: Vec<JitSymbol> = rts_runtime::symbol_table::symbols()
-        .into_iter()
-        .map(|e| sym(e.name, e.ptr))
-        .collect();
-    syms.extend(
-        crate::front::run::registry::all_jit_symbols()
-            .into_iter()
-            .map(|(name, ptr)| sym(name, ptr)),
-    );
+    let baked = rts_runtime::symbol_table::symbols();
+    let harvest = crate::front::run::registry::all_jit_symbols();
+    let mut syms: Vec<JitSymbol> = Vec::with_capacity(baked.len() + harvest.len());
+    // `JitSymbol` IS `SymbolEntry` now, so the baked half needs no per-row `map`
+    // — just a slice copy (both are `Copy`, so this is `extend_from_slice`, not
+    // an element-by-element rebuild).
+    syms.extend_from_slice(baked);
+    syms.extend(harvest.into_iter().map(|(name, ptr)| sym(name, ptr)));
     syms
 }
 
@@ -70,7 +68,7 @@ pub fn jit_symbols() -> Vec<JitSymbol> {
 /// assert that nothing re-grows a hand-written mirror of it.
 pub fn baked_names() -> std::collections::HashSet<&'static str> {
     rts_runtime::symbol_table::symbols()
-        .into_iter()
+        .iter()
         .map(|e| e.name)
         .collect()
 }

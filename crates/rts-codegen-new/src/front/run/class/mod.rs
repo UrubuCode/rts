@@ -255,20 +255,27 @@ pub(crate) fn collect_classes(
             // Resolve the parent: a class earlier in THIS program first, else an
             // AMBIENT prelude class (`Error`/`Map`/`Set`). An `extends` of anything
             // else (an unmodeled builtin like `Array`) bails with a precise message.
-            Some(p) => Some(
-                table
-                    .by_name
-                    .get(p)
-                    .or_else(|| ambient.get(p))
-                    .cloned()
-                    .ok_or_else(|| {
-                        Unsupported::new(format!(
-                            "class `{}` extends unknown class `{p}` (not a user class \
-                             in this program nor an engine-prelude class)",
-                            decl.name
-                        ))
-                    })?,
-            ),
+            Some(p) => match table.by_name.get(p).or_else(|| ambient.get(p)) {
+                Some(d) => Some(d.clone()),
+                // `extends Object` is the IMPLICIT root of every class: a JS
+                // object already inherits `Object.prototype`, so an explicit
+                // `extends Object` contributes no members and lowers exactly
+                // like a class with no `extends` at all. This used to resolve
+                // through the ambient `.ts class Object`, which no longer
+                // exists — its instance surface moved to the Registry
+                // (`rts-primitives/src/object/`), and a Registry class is not
+                // an inheritable DESCRIPTOR. Naming `Object` here is inside the
+                // doctrine: it is PRIMORDIAL.
+                None if p == "Object" => None,
+                None => {
+                    return Err(Unsupported::new(format!(
+                        "class `{}` extends unknown class `{p}` (not a user class \
+                         in this program nor an engine-prelude class)",
+                        decl.name
+                    ))
+                    .into());
+                }
+            },
             None => None,
         };
         let (desc, fns) = synth::build_class(decl, parent_desc.as_ref(), &class_names)?;

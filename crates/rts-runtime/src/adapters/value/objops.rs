@@ -736,6 +736,46 @@ pub fn rtsadp_obj_from_entries(entries_word: u64) -> u64 {
     obj_word
 }
 
+/// `Object(value)` (call-without-`new`) / `new Object(value)` — the PRIMORDIAL
+/// `Object` factory. Reproduces the deleted `.ts` `ObjectFactory` EXACTLY (see
+/// `rts-primitives/src/lib.rs`'s migration comment):
+/// - `undefined`/`null` (including the 0-arg call, which the lowering supplies
+///   as `undefined`) → a fresh empty keyed object (the `{}` shape).
+/// - a PRIMITIVE (`typeof` `"number"`/`"string"`/`"boolean"`) → the autobox
+///   wrapper `{ __prim: value }` — the SAME `__prim`-slot convention `new
+///   String(..)`/`new Number(..)`/`new Boolean(..)` use, so `valueOf`/
+///   `toString` on the result read the identical slot. There is no `"bigint"`
+///   arm: that tag is reserved but unimplemented (`PolyValue::typeof_str`
+///   never returns it today), matching the `.ts` version's own dead branch.
+/// - anything else (an object/array/function) passes THROUGH unchanged (JS:
+///   `Object(x)` for an object argument returns `x` itself, dropping nothing).
+#[rtse::abi]
+pub fn rtsadp_obj_factory(value_word: u64) -> u64 {
+    let v = PolyValue::from_raw(value_word);
+    if v.is_undefined() || v.is_null() {
+        return new_empty_object();
+    }
+    if v.is_string() || v.is_int32() || v.is_double() || v.is_bool() {
+        let obj_word = new_empty_object();
+        let prim_key = crate::cached_key_word!("__prim");
+        __rtsadp_obj_set(obj_word, prim_key, value_word);
+        return obj_word;
+    }
+    value_word
+}
+
+/// A fresh empty keyed object word (the `{}` shape header, no slots) — used by
+/// [`rtsadp_obj_factory`]. The same 4-line preamble is inlined (not refactored
+/// to call this) in [`rtsadp_obj_from_entries`] and [`rtsadp_obj_group_by`],
+/// which predate this helper — left as-is to keep this change additive.
+fn new_empty_object() -> u64 {
+    let obj_handle = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    let empty_shape = rts_engine::heap::shapes::intern_global_shape(&[]);
+    let slot0 = PolyValue::from_i32(empty_shape as i32).raw() as i64;
+    rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(obj_handle, slot0);
+    PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(obj_handle)).raw()
+}
+
 /// `Object.groupBy(items, cb)` — ES2024. Groups `items` into a fresh keyed
 /// object; the property key is `ToPropertyKey(cb(element, index))` and each
 /// bucket is an array in first-seen key order.
@@ -892,8 +932,7 @@ pub fn rtsadp_obj_has(obj_word: u64, key_str_handle: u64) -> i64 {
         Some(0) => 0,
         Some(proto) => __rtsadp_obj_has(proto, key_str_handle),
         // No recorded proto = a plain object's IMPLICIT Object.prototype tail:
-        // continue the walk into the shared root, whose members are REAL slots
-        // (methodtable prologue), so no hardcoded member list is needed.
+        // continue the walk into the shared root, then into the Registry.
         None => {
             let is_obj = PolyValue::from_raw(obj_word).is_object();
             if !is_obj {
@@ -901,9 +940,20 @@ pub fn rtsadp_obj_has(obj_word: u64, key_str_handle: u64) -> i64 {
             }
             let root = super::protos::object_proto_root();
             if obj_word == root {
-                // The root's own slots were already checked at the top; its own
-                // chain ends here (no extra Object.prototype loop).
-                return 0;
+                // End of the chain. The root's own SLOTS were already checked at
+                // the top, but `Object.prototype`'s members are no longer
+                // materialized there: they were slots only while the ambient
+                // `.ts class Object` existed and the methodtable prologue
+                // installed them. That class is gone — the surface moved to the
+                // Registry (`rts-primitives/src/object/`) — so a slot walk alone
+                // now reports `"toString" in obj` as FALSE.
+                //
+                // Ask the class table instead, which is the truth about what
+                // `Object.prototype` carries. Data-driven: the only name here is
+                // `Object` itself, which is PRIMORDIAL and therefore inside the
+                // doctrine, and the MEMBER set comes entirely from the Registry.
+                let key = key_text(key_str_handle);
+                return rts_engine::runtime_ci::has_instance_method("Object", &key) as i64;
             }
             __rtsadp_obj_has(root, key_str_handle)
         }

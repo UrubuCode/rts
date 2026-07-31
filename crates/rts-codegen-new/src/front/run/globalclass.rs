@@ -103,7 +103,24 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// reach the global-ctor path here.
     pub(super) fn is_global_class_ctor(&self, class: &str) -> bool {
         self.classes.get(class).is_none()
-            && (class_meta(class).is_some() || super::registry::has_class(class))
+            && (class_meta(class).is_some() || self.registry_class_is_constructible(class))
+    }
+
+    /// Whether a Registry class can actually be reached by `new C(..)`.
+    ///
+    /// Being REGISTERED is not enough: a class may publish only an INSTANCE
+    /// surface and be constructed some other way. `Object` is the case that
+    /// forced this — its `Object.prototype` members (`toString`/`valueOf`) live
+    /// in the Registry, but `new Object(x)` must produce a plain shaped object
+    /// through the `__rtsadp_obj_factory` trampoline, NOT an `Entry::Rtse`
+    /// struct. Without this check, registering those three methods silently
+    /// rerouted construction into `emit_registry_ctor`, which then failed with
+    /// "no matching constructor".
+    ///
+    /// Decided by DATA (does the registered class carry a ctor?), never by a
+    /// class name — so any future instance-only class inherits the behaviour.
+    fn registry_class_is_constructible(&self, class: &str) -> bool {
+        super::registry::has_class(class) && !super::registry::class_ctors(class).is_empty()
     }
 
     /// Whether `class` is a PURE runtime/Registry class — constructed and

@@ -95,15 +95,17 @@ use super::class::ClassTable;
 ///
 /// `prelude_synth_fns_exist` below fails if one of these disappears from the
 /// prelude (a rename), which is the drift this list is exposed to.
-const ENGINE_CALLED_PRELUDE_FNS: &[&str] = &[
-    // `Object(x)` / `new Object(x)` → `ObjectFactory(x)` (globals.rs, newexpr.rs)
-    "ObjectFactory",
-    // `StringFactory`/`BooleanFactory`/`NumberFactory` no longer exist — String/
-    // Boolean/Number all moved to pure-Rust value-classes (`rts-primitives/src/
-    // string/value_class.rs`, `boolean.rs`, `number/mod.rs`).
-    // `Object.groupBy(..)` no longer belongs here — it moved from the prelude
-    // `__object_group_by` to the Rust trampoline `__rtsadp_obj_group_by`.
-];
+///
+/// Currently EMPTY: `ObjectFactory` (the last entry) is GONE — `Object(x)`/
+/// `new Object(x)` now call the Rust trampoline `__rtsadp_obj_factory`
+/// (`globals.rs`, `newexpr.rs`), which needs no prune seed (it is not prelude
+/// source, so pruning cannot touch it). `StringFactory`/`BooleanFactory`/
+/// `NumberFactory` and `Object.groupBy`'s `__object_group_by` were removed the
+/// same way earlier. Kept as a (currently empty) named const — not deleted —
+/// so a FUTURE prelude rewrite that reintroduces an engine-called-by-name
+/// synth fn has an obvious place to seed it, and so `prelude_synth_fns_exist`
+/// keeps guarding whatever lands here next.
+const ENGINE_CALLED_PRELUDE_FNS: &[&str] = &[];
 
 /// Drop every prelude function unreachable from `main` + the user functions.
 /// A no-op when there is no prelude, or when `RTS_NO_PRUNE` is set.
@@ -170,17 +172,21 @@ pub(super) fn prune_prelude(prog: &mut LoweredProgram) {
     for wrapper in ["String", "Number", "Boolean"] {
         mentions.insert(wrapper.to_string());
     }
-    // …and so are the prelude helpers the ENGINE ITSELF calls by name. The
-    // lowering rewrites certain syntax to a prelude function the source never
-    // spells — `Object(x)` / `new Object(x)` become `ObjectFactory(x)`
-    // (`globals.rs`, `newexpr.rs`), `Object.groupBy` becomes
-    // `__object_group_by` (`objstatic.rs`). A name-reachability pass cannot see
-    // a rewrite that happens AFTER it, so these must be seeded.
+    // …and so would be the prelude helpers the ENGINE ITSELF calls by name, IF
+    // any remained: the lowering used to rewrite `Object(x)` / `new Object(x)`
+    // to a prelude `ObjectFactory(x)` and `Object.groupBy` to a prelude
+    // `__object_group_by` — a name-reachability pass cannot see a rewrite that
+    // happens AFTER it, so those had to be seeded here. Both are now Rust
+    // trampolines (`__rtsadp_obj_factory`, `__rtsadp_obj_group_by`), which are
+    // not prelude source and so need no seed. `ENGINE_CALLED_PRELUDE_FNS` is
+    // currently empty; this loop is a no-op until a future engine-called-by-
+    // name prelude fn reintroduces the pattern.
     //
-    // Missing this was a real regression: `console.log(typeof Object(null))`
-    // failed with "call to unknown function `Object`" once the factory was
-    // pruned. It went unnoticed because the crate's unit tests could not run to
-    // completion at the time — see `ENGINE_CALLED_PRELUDE_FNS`.
+    // Missing this seed was a real regression once before: `console.log(typeof
+    // Object(null))` failed with "call to unknown function `Object`" when
+    // `ObjectFactory` was still prelude source and got pruned unseeded. It went
+    // unnoticed because the crate's unit tests could not run to completion at
+    // the time — see `ENGINE_CALLED_PRELUDE_FNS`.
     for name in ENGINE_CALLED_PRELUDE_FNS {
         mentions.insert((*name).to_string());
     }

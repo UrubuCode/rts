@@ -284,3 +284,26 @@ pub(crate) fn take_variable(attrs: &mut Vec<syn::Attribute>) -> Option<bool> {
     });
     found
 }
+
+/// Detect + strip a bare `#[rtse::trace]` marker on a struct field. Opts the
+/// field into the struct's generated `RtseTrace::trace_handles` impl (see
+/// `class::mod::gen_struct`), so the GC's collector can find a heap handle the
+/// field's own value carries (a raw handle word, or a container of them —
+/// anything implementing `rts_engine::heap::handles::TraceWord`).
+///
+/// Independent of `#[rtse::variable]`: a field may carry `#[rtse::trace]` only
+/// (a Rust-internal field with no JS-visible accessor that still owns a live
+/// handle), `#[rtse::variable]` only, both, or neither — so this must be
+/// stripped and checked regardless of whether the field is also `variable`.
+pub(crate) fn take_trace(attrs: &mut Vec<syn::Attribute>) -> bool {
+    let mut found = false;
+    attrs.retain(|a| {
+        let segs = &a.path().segments;
+        if segs.len() == 2 && segs[0].ident == "rtse" && segs[1].ident == "trace" {
+            found = true;
+            return false;
+        }
+        true
+    });
+    found
+}

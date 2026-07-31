@@ -14,6 +14,31 @@
 //! assigned `__rts_sym_<i>` AFTER sorting, and nothing timestamped or
 //! path-absolute is written. Two bakes of unchanged sources are byte-identical,
 //! which is what makes `--check` a usable CI drift guard.
+//!
+//! ## The tables are `static`, not built at startup
+//!
+//! `SYMBOLS` / `AOT_SYMBOLS` / `SIGNATURES` are `pub static` arrays — placed in
+//! `.rodata` by the linker — not functions that assemble a `Vec` with 2000+
+//! `push` calls on every JIT/AOT compile. `rts_abi::table`'s own doc-comment
+//! promises "no allocation, no hashing, no startup cost proportional to the
+//! table"; a `static` array is what makes that literally true instead of
+//! aspirational. A function address IS a legal `static` initializer (its value
+//! is resolved by the linker, not computed at const-eval time), so each row
+//! reads `SymbolEntry { name: "…", ptr: __rts_sym_i as *const u8 }` directly in
+//! the array literal — no per-row runtime work at all.
+//!
+//! A `#[cfg]`-gated platform-alternative pair (e.g. posix vs win32, sharing one
+//! symbol NAME) cannot sit on an array ELEMENT — `#[cfg]` on a bare expression
+//! is not stable Rust — so such a group is instead emitted as one `const` per
+//! alternative, all sharing the SAME identifier: exactly one definition
+//! compiles per platform (the alternatives are mutually exclusive by
+//! construction, see [`check_duplicates`]), and the array references that one
+//! identifier. This keeps the array's LENGTH — and therefore the whole table's
+//! shape — identical on every platform, which a fixed-size `static` array
+//! requires. A symbol `#[cfg]`-gated with no matching alternative (no pairing)
+//! cannot be represented this way — its row would have to vanish on the
+//! non-matching platform, changing the array length — so [`check_duplicates`]
+//! rejects it at bake time instead of silently miscompiling one platform.
 
 use std::collections::BTreeMap;
 
@@ -40,6 +65,13 @@ pub fn render(mut decls: Vec<Declaration>) -> Result<String> {
 /// the platform-alternative shape (`posix` vs `win32`). Two ungated definitions
 /// of one name are a real collision: the linker would pick one and the table
 /// would silently install the wrong address.
+///
+/// A symbol `#[cfg]`-gated with NO alternative (declared once, under a single
+/// `#[cfg]`) is also rejected: the baked tables are fixed-size `static` arrays
+/// now, so a row's presence cannot vary by platform. Only a complete
+/// alternative SET (2+ declarations sharing one symbol name, every one
+/// `#[cfg]`-gated) can be merged into one row that compiles identically-sized
+/// on every platform — see the module doc.
 fn check_duplicates(decls: &[Declaration]) -> Result<()> {
     let mut groups: BTreeMap<&str, Vec<&Declaration>> = BTreeMap::new();
     for d in decls {
@@ -53,6 +85,16 @@ fn check_duplicates(decls: &[Declaration]) -> Result<()> {
                 .collect::<Vec<_>>()
                 .join(", ");
             bail!("symbol `{name}` is declared more than once without a #[cfg] gate: {where_}");
+        }
+        if group.len() == 1 && !group[0].cfgs.is_empty() {
+            bail!(
+                "symbol `{name}` (at {}) is #[cfg]-gated with no platform-alternative \
+                 pair. The baked table is a fixed-size `static` array, so a row's \
+                 presence cannot vary by platform: give it a matching #[cfg]-gated \
+                 alternative under the SAME symbol name (so exactly one compiles per \
+                 platform), or drop the #[cfg].",
+                group[0].origin
+            );
         }
     }
     Ok(())
@@ -68,6 +110,12 @@ fn header(s: &mut String, n: usize) {
          // ORDERING INVARIANT: entries are in strictly ascending byte order of the\n\
          // symbol name, so lookup is a binary search and every scope (`__rtsa_`,\n\
          // `__rtsm_node_fs_`, …) is ONE contiguous range. See `rts_abi::table`.\n\
+         //\n\
+         // STATIC, not built at startup: SYMBOLS / AOT_SYMBOLS / SIGNATURES below are\n\
+         // `static` arrays in `.rodata`, not `Vec`s assembled by a `push` loop at\n\
+         // JIT/AOT startup. `lookup` is therefore a real O(log n) binary search over a\n\
+         // slice already in memory — no allocation, no hashing, nothing proportional\n\
+         // to the table's size on every compile.\n\
          //\n",
     );
     s.push_str(&format!("// {n} symbols.\n\n"));
@@ -102,45 +150,163 @@ fn externs(s: &mut String, decls: &[Declaration]) {
     s.push_str("}\n\n");
 }
 
+/// Group an already symbol-sorted slice into contiguous runs sharing the same
+/// `symbol` name — a `#[cfg]`-gated platform-alternative set lands in one run.
+/// Requires `decls` sorted by symbol, which `render`'s initial sort guarantees.
+fn group_by_symbol(decls: &[Declaration]) -> Vec<Vec<&Declaration>> {
+    let mut groups: Vec<Vec<&Declaration>> = Vec::new();
+    for d in decls {
+        match groups.last_mut() {
+            Some(g) if g[0].symbol == d.symbol => g.push(d),
+            _ => groups.push(vec![d]),
+        }
+    }
+    groups
+}
+
+/// Same grouping, over a slice of references (the `with_sig` subset) rather
+/// than owned `Declaration`s.
+fn group_ref_slice_by_symbol<'a>(items: &[&'a Declaration]) -> Vec<Vec<&'a Declaration>> {
+    let mut groups: Vec<Vec<&Declaration>> = Vec::new();
+    for d in items {
+        match groups.last_mut() {
+            Some(g) if g[0].symbol == d.symbol => g.push(*d),
+            _ => groups.push(vec![*d]),
+        }
+    }
+    groups
+}
+
+/// Same grouping, additionally carrying each declaration's position in the
+/// FULL, flat `decls` slice — the index `externs()` used for its `__rts_sym_i`
+/// identifier. Needed only by the JIT table: it is the only table that
+/// addresses an extern (`AOT_SYMBOLS`/`SIGNATURES` are pure data, no `ptr`).
+fn group_by_symbol_indexed(decls: &[Declaration]) -> Vec<Vec<(usize, &Declaration)>> {
+    let mut groups: Vec<Vec<(usize, &Declaration)>> = Vec::new();
+    for (i, d) in decls.iter().enumerate() {
+        match groups.last_mut() {
+            Some(g) if g[0].1.symbol == d.symbol => g.push((i, d)),
+            _ => groups.push(vec![(i, d)]),
+        }
+    }
+    groups
+}
+
 fn jit_table(s: &mut String, decls: &[Declaration]) {
     s.push_str(
         "/// Every RTS symbol with its address, for `JITBuilder::symbol`.\n\
          ///\n\
-         /// Sorted ascending by name; `#[cfg]`-gated rows drop out on platforms where\n\
-         /// they do not exist, which preserves the order of the rows that remain.\n",
+         /// A `static` array in `.rodata`, sorted ascending by name, one row per\n\
+         /// unique symbol name. A `#[cfg]`-gated platform-alternative pair shares ONE\n\
+         /// row via a same-named `const` defined once per branch — exactly one\n\
+         /// definition compiles per platform, so the row count never varies.\n",
     );
-    s.push_str(&format!(
-        "pub fn symbols() -> ::std::vec::Vec<::rts_abi::table::SymbolEntry> {{\n    \
-         let mut out = ::std::vec::Vec::with_capacity({});\n",
-        decls.len()
-    ));
-    for (i, d) in decls.iter().enumerate() {
-        push_row(
-            s,
-            &d.cfgs,
-            &format!(
-                "out.push(::rts_abi::table::SymbolEntry {{ name: \"{}\", ptr: __rts_sym_{i} as *const u8 }});",
+    let groups = group_by_symbol_indexed(decls);
+    let mut consts = String::new();
+    let mut elems: Vec<String> = Vec::with_capacity(groups.len());
+    for (k, group) in groups.iter().enumerate() {
+        if let [(i, d)] = group.as_slice() {
+            debug_assert!(
+                d.cfgs.is_empty(),
+                "a lone #[cfg]-gated row must have been rejected by check_duplicates"
+            );
+            elems.push(format!(
+                "::rts_abi::table::SymbolEntry {{ name: \"{}\", ptr: __rts_sym_{i} as *const u8 }}",
                 d.symbol
-            ),
-        );
+            ));
+        } else {
+            let name = format!("__RTS_SYM_ROW_{k}");
+            for (i, d) in group {
+                for cfg in &d.cfgs {
+                    consts.push_str(cfg);
+                    consts.push('\n');
+                }
+                consts.push_str(&format!(
+                    "const {name}: ::rts_abi::table::SymbolEntry = ::rts_abi::table::SymbolEntry {{ name: \"{}\", ptr: __rts_sym_{i} as *const u8 }};\n",
+                    d.symbol
+                ));
+            }
+            elems.push(name);
+        }
     }
-    s.push_str("    out\n}\n\n");
+    s.push_str(&consts);
+    s.push_str(&format!(
+        "pub static SYMBOLS: [::rts_abi::table::SymbolEntry; {}] = [\n",
+        groups.len()
+    ));
+    for e in &elems {
+        s.push_str(&format!("    {e},\n"));
+    }
+    s.push_str("];\n\n");
+    s.push_str(
+        "/// Slice accessor, kept for source compatibility with callers written\n\
+         /// against the previous `Vec`-returning `symbols()` — now a zero-cost borrow\n\
+         /// of the `static` table above, not a fresh allocation.\n\
+         pub fn symbols() -> &'static [::rts_abi::table::SymbolEntry] { &SYMBOLS }\n\n",
+    );
 }
 
 fn aot_table(s: &mut String, decls: &[Declaration]) {
     s.push_str(
         "/// The same symbols as names only, for the AOT object module's declaration\n\
-         /// list. Same order, same `#[cfg]` gating — the two paths cannot diverge.\n",
+         /// list. Same order as `SYMBOLS`; the two cannot diverge — both are grouped\n\
+         /// from the same declarations. A `static` array in `.rodata`, like `SYMBOLS`.\n",
     );
-    s.push_str(&format!(
-        "pub fn aot_symbols() -> ::std::vec::Vec<&'static str> {{\n    \
-         let mut out = ::std::vec::Vec::with_capacity({});\n",
-        decls.len()
-    ));
-    for d in decls {
-        push_row(s, &d.cfgs, &format!("out.push(\"{}\");", d.symbol));
+    let groups = group_by_symbol(decls);
+    let mut consts = String::new();
+    let mut elems: Vec<String> = Vec::with_capacity(groups.len());
+    for (k, group) in groups.iter().enumerate() {
+        if let [d] = group.as_slice() {
+            debug_assert!(
+                d.cfgs.is_empty(),
+                "a lone #[cfg]-gated row must have been rejected by check_duplicates"
+            );
+            elems.push(format!("\"{}\"", d.symbol));
+        } else {
+            // Every alternative in a platform-alternative group shares the SAME
+            // symbol NAME (that is what makes them a group), so the row's payload
+            // never actually varies by platform here — only `SYMBOLS`' address
+            // does. Still gated per branch, for the same reason `SYMBOLS` is: it
+            // keeps "exactly one definition compiles" a single mechanical rule
+            // rather than a special case for the (currently never exercised) shape
+            // where a future alternative's exported name really does differ.
+            let name = format!("__RTS_AOT_ROW_{k}");
+            for d in group {
+                for cfg in &d.cfgs {
+                    consts.push_str(cfg);
+                    consts.push('\n');
+                }
+                consts.push_str(&format!("const {name}: &'static str = \"{}\";\n", d.symbol));
+            }
+            elems.push(name);
+        }
     }
-    s.push_str("    out\n}\n");
+    s.push_str(&consts);
+    s.push_str(&format!(
+        "pub static AOT_SYMBOLS: [&'static str; {}] = [\n",
+        groups.len()
+    ));
+    for e in &elems {
+        s.push_str(&format!("    {e},\n"));
+    }
+    s.push_str("];\n\n");
+    s.push_str(
+        "/// Slice accessor returning the shared [`rts_abi::table::AotSymbols`] type —\n\
+         /// the same alias the AOT declaration list is meant to consume.\n\
+         pub fn aot_symbols() -> ::rts_abi::table::AotSymbols { &AOT_SYMBOLS }\n\n",
+    );
+}
+
+/// The literal expression for one signature row: `("name", &[Type, …], Ret)`.
+fn sig_row_expr(d: &Declaration) -> String {
+    let (params, ret) = d.sig.as_ref().expect("filtered to Some");
+    let ps: Vec<String> = params.iter().map(|p| abi_path(*p)).collect();
+    format!(
+        "(\"{}\", &[{}], {})",
+        d.symbol,
+        ps.join(", "),
+        abi_path(*ret)
+    )
 }
 
 /// The ABI SIGNATURES, for every `#[rtse::abi]` declaration whose types all have
@@ -157,37 +323,58 @@ fn aot_table(s: &mut String, decls: &[Declaration]) {
 /// one: the caller falls back to whatever it used before.
 fn sig_table(s: &mut String, decls: &[Declaration]) {
     let with_sig: Vec<&Declaration> = decls.iter().filter(|d| d.sig.is_some()).collect();
+    let groups = group_ref_slice_by_symbol(&with_sig);
     s.push_str(&format!(
         "\n/// ABI signatures derived from the Rust signatures of `#[rtse::abi]` fns.\n\
          ///\n\
-         /// Sorted ascending by name, like the symbol table, so a lookup is a binary\n\
-         /// search. {} of {} symbols carry one; the rest are not yet declared with\n\
-         /// `#[rtse::abi]`.\n\
-         pub fn signatures() -> ::std::vec::Vec<(&'static str, &'static [::rts_abi::AbiType], ::rts_abi::AbiType)> {{\n    \
-         // The element type is spelled out: without it the `&[]` of a zero-arg\n    \
-         // row would fix the param type to `&[AbiType; 0]` and every later row\n    \
-         // would be a type error.\n    \
-         let mut out: ::std::vec::Vec<(&'static str, &'static [::rts_abi::AbiType], ::rts_abi::AbiType)> =\n        \
-         ::std::vec::Vec::with_capacity({});\n",
+         /// A `static` array in `.rodata`, sorted ascending by name like `SYMBOLS` — a\n\
+         /// lookup is a binary search, no `HashMap` build at startup. {} of {} symbols\n\
+         /// carry one; the rest are not yet declared with `#[rtse::abi]`.\n",
         with_sig.len(),
         decls.len(),
-        with_sig.len(),
     ));
-    for d in &with_sig {
-        let (params, ret) = d.sig.as_ref().expect("filtered to Some");
-        let ps: Vec<String> = params.iter().map(|p| abi_path(*p)).collect();
-        push_row(
-            s,
-            &d.cfgs,
-            &format!(
-                "out.push((\"{}\", &[{}], {}));",
-                d.symbol,
-                ps.join(", "),
-                abi_path(*ret),
-            ),
-        );
+    let mut consts = String::new();
+    let mut elems: Vec<String> = Vec::with_capacity(groups.len());
+    for (k, group) in groups.iter().enumerate() {
+        if let [d] = group.as_slice() {
+            // `group: &Vec<&Declaration>`, so the slice pattern binds `d` one
+            // reference deeper than the element type (`&&Declaration`) —
+            // deref once to match `sig_row_expr`'s `&Declaration` explicitly
+            // rather than lean on call-site deref coercion.
+            let d: &Declaration = *d;
+            debug_assert!(
+                d.cfgs.is_empty(),
+                "a lone #[cfg]-gated row must have been rejected by check_duplicates"
+            );
+            elems.push(sig_row_expr(d));
+        } else {
+            let name = format!("__RTS_SIG_ROW_{k}");
+            for d in group {
+                let d: &Declaration = *d;
+                for cfg in &d.cfgs {
+                    consts.push_str(cfg);
+                    consts.push('\n');
+                }
+                consts.push_str(&format!(
+                    "const {name}: (&'static str, &'static [::rts_abi::AbiType], ::rts_abi::AbiType) = {};\n",
+                    sig_row_expr(d)
+                ));
+            }
+            elems.push(name);
+        }
     }
-    s.push_str("    out\n}\n");
+    s.push_str(&consts);
+    s.push_str(&format!(
+        "pub static SIGNATURES: [(&'static str, &'static [::rts_abi::AbiType], ::rts_abi::AbiType); {}] = [\n",
+        groups.len()
+    ));
+    for e in &elems {
+        s.push_str(&format!("    {e},\n"));
+    }
+    s.push_str("];\n\n");
+    s.push_str(
+        "pub fn signatures() -> &'static [(&'static str, &'static [::rts_abi::AbiType], ::rts_abi::AbiType)] { &SIGNATURES }\n",
+    );
 }
 
 /// The path spelling of an `AbiType` variant, for the generated source.
@@ -206,20 +393,6 @@ fn abi_path(t: rts_abi::AbiType) -> String {
     format!("::rts_abi::AbiType::{v}")
 }
 
-/// One `#[cfg]`-gated statement. A `#[cfg]` cannot sit on an array element, so
-/// the table is built by `push` — which is also why the invariant is "sorted",
-/// not "indexed by position".
-fn push_row(s: &mut String, cfgs: &[String], stmt: &str) {
-    if cfgs.is_empty() {
-        s.push_str(&format!("    {stmt}\n"));
-        return;
-    }
-    for cfg in cfgs {
-        s.push_str(&format!("    {cfg}\n"));
-    }
-    s.push_str(&format!("    {{\n        {stmt}\n    }}\n"));
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,7 +407,7 @@ mod tests {
     }
 
     /// A `#[rtse::abi]` declaration carries a derived signature into the emitted
-    /// `signatures()` table; a `#[no_mangle]` one contributes no row at all
+    /// `SIGNATURES` table; a `#[no_mangle]` one contributes no row at all
     /// (absent, never guessed).
     #[test]
     fn signatures_table_holds_only_declarations_that_have_one() {
@@ -246,14 +419,14 @@ mod tests {
         let out = render(vec![with, decl("__rtsadp_b", &[])]).expect("render");
         assert!(
             out.contains(
-                "out.push((\"__rtsadp_a\", &[::rts_abi::AbiType::U64, \
-                 ::rts_abi::AbiType::StrPtr], ::rts_abi::AbiType::Handle));"
+                "(\"__rtsadp_a\", &[::rts_abi::AbiType::U64, \
+                 ::rts_abi::AbiType::StrPtr], ::rts_abi::AbiType::Handle)"
             ),
             "the derived signature row is missing:\n{out}"
         );
         assert!(
-            !out.contains("out.push((\"__rtsadp_b\""),
-            "a declaration with no signature must not get a row:\n{out}"
+            !out.contains("(\"__rtsadp_b\""),
+            "a declaration with no signature must not get a row in SIGNATURES:\n{out}"
         );
     }
 
@@ -289,5 +462,27 @@ mod tests {
         let out = render(d).unwrap();
         assert!(out.contains("#[cfg(unix)]"));
         assert!(out.contains("#[cfg(windows)]"));
+    }
+
+    /// The counterpart to the test above: a `#[cfg]`-gated symbol with NO
+    /// alternative cannot size a fixed-length `static` array (its row would
+    /// have to vanish on the non-matching platform), so it is a bake-time
+    /// error rather than a silent per-platform table-shape difference.
+    #[test]
+    fn lone_cfg_without_platform_alternative_is_an_error() {
+        let d = vec![decl("__rtsn_lonely", &["#[cfg(unix)]"])];
+        assert!(render(d).is_err());
+    }
+
+    /// The tables are real `static` arrays, not `Vec`-building functions — the
+    /// whole point of this emitter shape (see the module doc).
+    #[test]
+    fn tables_are_static_arrays_not_runtime_built_vecs() {
+        let out = render(vec![decl("__rtsn_only", &[])]).unwrap();
+        assert!(out.contains("pub static SYMBOLS: ["), "{out}");
+        assert!(out.contains("pub static AOT_SYMBOLS: ["), "{out}");
+        assert!(out.contains("pub static SIGNATURES: ["), "{out}");
+        assert!(!out.contains("Vec::with_capacity"), "{out}");
+        assert!(!out.contains("out.push"), "{out}");
     }
 }

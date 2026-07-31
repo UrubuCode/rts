@@ -16,7 +16,7 @@ use quote::{format_ident, quote};
 use syn::{ImplItem, ItemImpl, Type};
 
 use crate::abi::scope::{Scope, symbol_for};
-use kind::{take_kind, take_symbol_key, take_variable};
+use kind::{take_kind, take_symbol_key, take_trace, take_variable};
 
 /// The linker symbol of one member of a global class, DERIVED by the same rule
 /// `#[rtse::abi]` uses (`rts_abi::scope::symbol_for`) — a class member is exactly
@@ -217,8 +217,15 @@ fn gen_struct(class_name: String, mut s: syn::ItemStruct) -> TokenStream {
     let mut externs = Vec::new();
     let mut members = Vec::new();
     let mut keep = Vec::new();
+    // Fields opted into `RtseTrace` via `#[rtse::trace]` — independent of
+    // `#[rtse::variable]`, so this is checked/stripped for every field, not only
+    // ones that fall into the `variable` branch below.
+    let mut traced_fields: Vec<proc_macro2::Ident> = Vec::new();
     if let syn::Fields::Named(named) = &mut s.fields {
         for f in named.named.iter_mut() {
+            if take_trace(&mut f.attrs) {
+                traced_fields.push(f.ident.clone().unwrap());
+            }
             let Some(readonly) = take_variable(&mut f.attrs) else {
                 continue;
             };
@@ -236,10 +243,34 @@ fn gen_struct(class_name: String, mut s: syn::ItemStruct) -> TokenStream {
     }
     let keep_tok = keep_static(&class_upper, "_FIELDS", &keep);
     let fields_fn = format_ident!("__rtse_fields_{}", class_upper);
+    // Emitted ONLY when at least one field carries `#[rtse::trace]` — a class
+    // with no such field must compile identically to before this existed (no new
+    // impl, no new bound on `#self_ty`).
+    let trace_impl = if traced_fields.is_empty() {
+        quote!()
+    } else {
+        quote! {
+            /// Declares the heap handles this struct owns in its OWN fields (via
+            /// `#[rtse::trace]`) to the collector — see
+            /// `rts_engine::heap::handles::RtseTrace`. Read by `trace_children`
+            /// only when the instance was allocated with `alloc_rtse_traced`.
+            impl ::rts_engine::heap::handles::RtseTrace for #self_ty {
+                fn trace_handles(&self, visit: &mut dyn FnMut(u64)) {
+                    #(
+                        ::rts_engine::heap::handles::TraceWord::trace_word(
+                            &self.#traced_fields,
+                            visit,
+                        );
+                    )*
+                }
+            }
+        }
+    };
     quote! {
         #s
         #(#externs)*
         #keep_tok
+        #trace_impl
         /// Add this class's `#[rtse::variable]` field accessors to `cb`. Called by
         /// the impl's generated `register`.
         pub fn #fields_fn(cb: ::rts_engine::ClassBuilder) -> ::rts_engine::ClassBuilder {

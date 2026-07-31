@@ -1,11 +1,13 @@
 //! The generated symbol table's shared vocabulary: one entry type, one ordering
 //! invariant, one lookup.
 //!
-//! `rts-symbol-baker` emits a `.rs` file whose `symbols()` returns a
-//! `Vec<SymbolEntry>` built with these types. The engine installs that vector
-//! into the `JITBuilder`; the AOT path declares [`AotSymbols`] names into the
-//! object module. Both sides read the SAME table, so a symbol cannot exist for
-//! one path and be missing from the other.
+//! `rts-symbol-baker` emits a `.rs` file declaring a `pub static SYMBOLS: [SymbolEntry; N]`
+//! built with these types — a real array in `.rodata`, not a `Vec` assembled by
+//! a `push` loop at startup — plus a thin `symbols() -> &'static [SymbolEntry]`
+//! accessor that borrows it. The engine installs that slice into the
+//! `JITBuilder`; the AOT path declares [`AotSymbols`] names into the object
+//! module. Both sides read the SAME table, so a symbol cannot exist for one
+//! path and be missing from the other.
 //!
 //! # The ordering invariant (binding)
 //!
@@ -18,7 +20,10 @@
 //!
 //! - **Lookup is a binary search, not a scan or a hash build.** [`lookup`] is
 //!   `O(log n)` over a slice already in memory — no allocation, no hashing, no
-//!   startup cost proportional to the table.
+//!   startup cost proportional to the table. Because the table is now a real
+//!   `static` (see above), this is no longer just the intent behind the
+//!   ordering rule — it is what actually happens: there is no `Vec` build to
+//!   amortize against in the first place.
 //! - **Every scope is a contiguous RANGE.** The prefixes sort as
 //!   `__RTS…` < `__rtsa_` < `__rtsadp_` < `__rtsm_` < `__rtsn_`, and within
 //!   `__rtsm_` a module's members sort together (`__rtsm_node_fs_*` is one

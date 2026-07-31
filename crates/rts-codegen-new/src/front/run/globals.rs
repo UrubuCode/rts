@@ -129,13 +129,28 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             "parseInt" => self.parse_int_call(module, args).map(Some),
             "Array" => self.array_ctor_call(module, args).map(Some),
             "Object" => {
-                // `Object(x)` (no `new`) → the prelude `.ts` `ObjectFactory`
-                // (null/undefined → a fresh object; an object passes through).
-                // 0-arg `Object()` → `ObjectFactory()` (→ `{}`). `Ok(None)` if the
-                // prelude factory is absent (defensive) — the caller bails.
-                if args.len() <= 1 && self.sigs.contains_key("ObjectFactory") {
-                    let v = self.call_synth_fn(module, "ObjectFactory", None, args)?;
-                    return Ok(Some(v));
+                // `Object(x)` (no `new`) → the Rust `__rtsadp_obj_factory`
+                // trampoline (null/undefined — including the 0-arg call, which
+                // supplies `undefined` — → a fresh object; a primitive autoboxes;
+                // an object passes through). Replaces the deleted `.ts`
+                // `ObjectFactory` (see `rts-primitives/src/lib.rs`'s migration
+                // comment). `args.len() > 1` is not a real JS form — falls
+                // through (`Ok(None)`), matching the old defensive guard.
+                if args.len() <= 1 {
+                    let word = match args.first() {
+                        Some(a) => {
+                            let v = self.lower_expr(module, a)?;
+                            self.box_value(v)
+                        }
+                        None => self
+                            .builder
+                            .ins()
+                            .iconst(types::I64, value::PolyValue::undefined().raw() as i64),
+                    };
+                    let res = self
+                        .call_runtime(module, "__rtsadp_obj_factory", &[word])?
+                        .expect("__rtsadp_obj_factory returns a word");
+                    return Ok(Some(Val::tagged_kind(res, JsKind::Object)));
                 }
                 Ok(None)
             }

@@ -116,7 +116,22 @@ fn rebox(ret: AbiType, raw: u64) -> u64 {
 /// not one this marshaller supports (the caller then falls back to its miss/throw
 /// path). `js_argc` is the count of real (non-undefined) leading args.
 pub fn try_runtime_ci(recv: u64, key: u64, a0: u64, a1: u64, a2: u64, js_argc: usize) -> Option<u64> {
-    let class = class_tag_of(recv)?;
+    // An untagged OBJECT receiver still inherits `Object.prototype`, so it falls
+    // back to the primordial `Object` class rather than failing outright. This is
+    // what makes a borrowed prototype method work on a plain object —
+    // `Object.prototype.hasOwnProperty.call(o, k)`, the shape every transpiled
+    // bundle uses — now that those members live in the Registry instead of being
+    // materialized as slots by the deleted ambient `.ts class Object`.
+    //
+    // Not a widening of dispatch: `lookup_ci_ge` only answers for a
+    // `(method, arity)` the `Object` class actually declares, so an unknown name
+    // still misses and the caller keeps its own fallback. `Object` is
+    // PRIMORDIAL, so naming it here is inside the doctrine.
+    let class = match class_tag_of(recv) {
+        Some(c) => c,
+        None if PolyValue::from_raw(recv).is_object() => "Object".to_string(),
+        None => return None,
+    };
     let method = abi_adapter::resolve_poly(PolyValue::from_raw(key));
     // Full sig arity = receiver + explicit js args. `_ge` tolerates a value-class
     // method with defaulted trailing params (`indexOf(needle, position?)` called
@@ -263,6 +278,30 @@ pub fn try_runtime_ci(recv: u64, key: u64, a0: u64, a1: u64, a2: u64, js_argc: u
             ([APoly], AbiType::F64) => {
                 let f: extern "C" fn(u64) -> f64 = std::mem::transmute(m.fn_ptr);
                 rebox(AbiType::F64, f(recv).to_bits())
+            }
+            // A value-class method that takes the receiver AND arguments as raw
+            // PolyValue words and returns one. `Object.prototype`'s members are
+            // the first to need it (`hasOwnProperty(recv, key)`,
+            // `isPrototypeOf(recv, obj)`, `valueOf(recv)`): unlike the
+            // Handle-receiver object-backed classes above, a plain object's
+            // receiver IS a boxed word, and the answer is a boxed word too.
+            //
+            // Their absence was not a missing feature so much as a silent one:
+            // an unlisted ABI shape makes this whole function return `None`, and
+            // the caller then reports `<m> is not a function` — a real method
+            // reading as absent purely because the marshaller had no arm for its
+            // signature.
+            ([APoly], AbiType::PolyValue) => {
+                let f: extern "C" fn(u64) -> u64 = std::mem::transmute(m.fn_ptr);
+                f(recv)
+            }
+            ([APoly, APoly], AbiType::PolyValue) => {
+                let f: extern "C" fn(u64, u64) -> u64 = std::mem::transmute(m.fn_ptr);
+                f(recv, a0)
+            }
+            ([APoly, APoly, APoly], AbiType::PolyValue) => {
+                let f: extern "C" fn(u64, u64, u64) -> u64 = std::mem::transmute(m.fn_ptr);
+                f(recv, a0, a1)
             }
             ([APoly, AbiType::F64], Handle) => {
                 let f: extern "C" fn(u64, f64) -> u64 = std::mem::transmute(m.fn_ptr);

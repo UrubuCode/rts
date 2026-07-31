@@ -259,14 +259,15 @@ fn inspect_handle(h: u64, depth: usize) -> String {
             format!("[ {} ]", parts.join(", "))
         }
         R::Map(entries) => {
-            // (#1080) Object.create(null) — handle marcado em null_proto_set
-            // (preserva mesmo se user setar __proto__ depois) ou slot
-            // __proto__ existe com valor 0. Node/Bun imprimem como
-            // `[Object: null prototype] {...}`.
-            let is_null_proto = rts_primitives::object::is_null_proto_handle(h)
-                || entries
-                    .iter()
-                    .any(|(k, v)| k == b"__proto__" && *v == 0);
+            // (#1080) `Object.create(null)` — the `__proto__` slot carries the
+            // explicit `0` sentinel. Node/Bun print `[Object: null prototype]
+            // {...}`. The `null_proto_set` side-table this used to also consult
+            // is gone: its only writer was a dead `__RTS_FN_GL_OBJECT_CREATE`,
+            // so it could only ever answer `false` (see
+            // `rts-primitives/src/object/mod.rs`).
+            let is_null_proto = entries
+                .iter()
+                .any(|(k, v)| k == b"__proto__" && *v == 0);
             // (PR #1214) Map/Set instances — Bun/Node imprimem como `Map(N) { k: v, ... }`
             // e `Set(N) { v1, v2, ... }`. RTS armazena Map JS como Entry::Map
             // tagged em set_kind_set/map_kind_set (separado de obj literal Map).

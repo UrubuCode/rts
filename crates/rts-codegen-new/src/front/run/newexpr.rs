@@ -113,10 +113,30 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .unwrap_or_else(|| class.to_string());
         let class: &str = &class_owned;
         // `new Object(x)` ≡ `Object(x)` (spec: the Object constructor passes an
-        // object argument THROUGH) — route the prelude `ObjectFactory` instead of
-        // constructing a fresh empty ambient-class instance that drops `x`.
-        if class == "Object" && args.len() == 1 && self.sigs.contains_key("ObjectFactory") {
-            let v = self.call_synth_fn(module, "ObjectFactory", None, args)?;
+        // object argument THROUGH, and `new Object()`/`new Object(undefined)`
+        // yields a fresh `{}` just like the bare call) — route the Rust
+        // `__rtsadp_obj_factory` trampoline (replaces the deleted `.ts`
+        // `ObjectFactory`; see `rts-primitives/src/lib.rs`'s migration comment)
+        // instead of constructing a fresh empty ambient-class instance that
+        // dropped `x`. `args.len() <= 1` covers BOTH `new Object()` (0-arg) and
+        // `new Object(x)` (1-arg) — the former used to fall through to the
+        // generic `self.classes.get(class)` ctor path below, which only worked
+        // because the (now-deleted) ambient `.ts class Object` existed there.
+        if class == "Object" && args.len() <= 1 {
+            let word = match args.first() {
+                Some(a) => {
+                    let v = self.lower_expr(module, a)?;
+                    self.box_value(v)
+                }
+                None => self
+                    .builder
+                    .ins()
+                    .iconst(types::I64, crate::value::PolyValue::undefined().raw() as i64),
+            };
+            let res = self
+                .call_runtime(module, "__rtsadp_obj_factory", &[word])?
+                .expect("__rtsadp_obj_factory returns a word");
+            let v = Val::tagged_kind(res, JsKind::Object);
             let shape_id = self.shapes.intern(&[]);
             return Ok((v, "Object".to_string(), shape_id));
         }

@@ -142,7 +142,7 @@ pub fn cranelift_sig_from_abis(module: &dyn Module, params: &[AbiType], ret: Abi
     sig
 }
 
-/// The BAKED signature table, indexed once per process.
+/// The BAKED signature table, looked up by binary search.
 ///
 /// `rts-symbol-baker` derives a signature for every `#[rtse::abi]` declaration
 /// from its Rust signature (through `rts_abi::tymap`, the same mapping the macro
@@ -150,15 +150,16 @@ pub fn cranelift_sig_from_abis(module: &dyn Module, params: &[AbiType], ret: Abi
 /// it. Consulted before the hand table below, which is why converting a symbol
 /// to `#[rtse::abi]` deletes its hand row: the baked entry takes over and the
 /// row becomes unreachable.
-fn baked_sigs() -> &'static std::collections::HashMap<&'static str, SymSig> {
-    static SIGS: std::sync::OnceLock<std::collections::HashMap<&'static str, SymSig>> =
-        std::sync::OnceLock::new();
-    SIGS.get_or_init(|| {
-        rts_runtime::symbol_table::signatures()
-            .into_iter()
-            .map(|(name, params, ret)| (name, SymSig { params, ret }))
-            .collect()
-    })
+///
+/// `rts_runtime::symbol_table::SIGNATURES` is a `static` array sorted ascending
+/// by name (the same order `SYMBOLS` uses), so this is a real `O(log n)`
+/// binary search over memory already resident in `.rodata` — no `HashMap`
+/// build, no `OnceLock`, nothing to warm on first call.
+fn baked_sigs(name: &str) -> Option<SymSig> {
+    let table = rts_runtime::symbol_table::signatures();
+    let i = table.binary_search_by(|row| row.0.cmp(name)).ok()?;
+    let (_, params, ret) = table[i];
+    Some(SymSig { params, ret })
 }
 
 /// The REGISTRY's signatures, indexed by SYMBOL.
@@ -213,8 +214,8 @@ fn registry_sigs() -> &'static std::collections::HashMap<&'static str, SymSig> {
 /// `None` for an unknown symbol (the lowering turns that into an explicit
 /// `Unsupported` bail, never a guess).
 pub fn sig_of(name: &str) -> Option<SymSig> {
-    if let Some(s) = baked_sigs().get(name) {
-        return Some(*s);
+    if let Some(s) = baked_sigs(name) {
+        return Some(s);
     }
     if let Some(s) = registry_sigs().get(name) {
         return Some(*s);
@@ -552,7 +553,7 @@ pub(super) mod baked_existence {
             names.len()
         );
         let baked: std::collections::HashSet<&str> = rts_runtime::symbol_table::symbols()
-            .into_iter()
+            .iter()
             .map(|e| e.name)
             .collect();
         let mut missing: Vec<&str> = names
@@ -583,8 +584,8 @@ mod hand_rows_are_drained {
     #[test]
     fn no_hand_row_is_shadowed_by_a_derived_signature() {
         let baked: std::collections::HashSet<&str> = rts_runtime::symbol_table::signatures()
-            .into_iter()
-            .map(|(n, _, _)| n)
+            .iter()
+            .map(|&(n, _, _)| n)
             .collect();
         // A row is also unreachable when the REGISTRY carries the signature: the
         // lookup order is baked -> registry -> hand.
@@ -613,8 +614,8 @@ mod remaining_rows_report {
     fn report() {
         let names = super::baked_existence::table_names();
         let baked: std::collections::HashSet<&str> = rts_runtime::symbol_table::signatures()
-            .into_iter()
-            .map(|(n, _, _)| n)
+            .iter()
+            .map(|&(n, _, _)| n)
             .collect();
         let mut adp = 0;
         let mut rt = 0;

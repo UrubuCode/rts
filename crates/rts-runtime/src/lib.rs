@@ -64,11 +64,9 @@ pub use rts_shared::stdlib;
 /// engine reaches it through the facade (`rts_runtime::ERROR_TS`). Included by the
 /// engine ahead of the Map/Set stdlib prelude.
 pub use rts_primitives::ERROR_TS;
-/// Embedded TS source of the PRIMORDIAL `Object` instance-method library +
-/// factory, re-exported from `rts-primitives` so the new engine reaches it through
-/// the facade (`rts_runtime::OBJECT_TS`). Included as a declarations-only prelude;
-/// an object-receiver method call routes into its ambient `class Object`.
-pub use rts_primitives::OBJECT_TS;
+// Object is now Rust-only — there is no `OBJECT_TS` prelude anymore (same
+// drain as Boolean/Number/String). `Object(x)`/`new Object(x)` route to the
+// `__rtsadp_obj_factory` trampoline (`rts-runtime/src/adapters/value/objops.rs`).
 /// The pure-Rust `Number` value-class type, re-exported from `rts-primitives`
 /// so the new engine can name it in `rtse::sym!(NumberWrapper::is_nan)` calls
 /// (P5.4 pilot, `docs/specs/rts-macro-single-source.md`) without a second

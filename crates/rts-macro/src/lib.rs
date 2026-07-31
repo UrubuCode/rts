@@ -186,6 +186,14 @@ pub fn setter(_a: TokenStream, item: TokenStream) -> TokenStream {
 pub fn instanceof(_a: TokenStream, item: TokenStream) -> TokenStream {
     item
 }
+// `#[rtse::trace]` on a `#[rtse::class]` struct field opts it into the
+// generated `RtseTrace::trace_handles` impl (see `class::kind::take_trace` +
+// `class::mod::gen_struct`) — stripped there, same inert-standalone-marker
+// pattern as the others in this block.
+#[proc_macro_attribute]
+pub fn trace(_a: TokenStream, item: TokenStream) -> TokenStream {
+    item
+}
 // `#[rtse::symbol(...)]` is stripped and interpreted by `class::kind::take_symbol_key`
 // while `#[rtse::class]` expands the enclosing impl (same pattern as the other
 // markers above) — this entry only exists so a stray/standalone use still

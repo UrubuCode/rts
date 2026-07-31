@@ -66,6 +66,13 @@ pub(super) struct Emitted {
     pub alignment: u64,
     pub bytes: Vec<u8>,
     pub relocs: Vec<ModuleReloc>,
+    /// JIT GC PLUMBING (inert): this function's Cranelift user stack maps,
+    /// converted to the `stack_map_registry::PendingEntry` shape — one
+    /// `(ret_pc_offset_from_fn_start, sp_offsets)` pair per safepoint. Empty
+    /// today because nothing yet calls `declare_value_needs_stack_map` (a
+    /// separate task selects which IR values are GC roots); once it does,
+    /// these ride the existing serial define loop with no further wiring.
+    pub stack_maps: Vec<(u32, Vec<u32>)>,
 }
 
 thread_local! {
@@ -84,6 +91,7 @@ impl Clone for Emitted {
             alignment: self.alignment,
             bytes: self.bytes.clone(),
             relocs: self.relocs.clone(),
+            stack_maps: self.stack_maps.clone(),
         }
     }
 }
@@ -129,12 +137,31 @@ pub(super) fn compile_and_define(
                 .iter()
                 .map(|r| ModuleReloc::from_mach_reloc(r, &p.ctx.func, p.id))
                 .collect();
+            // JIT GC PLUMBING (inert): `user_stack_maps()` is
+            // `&[(CodeOffset, u32, ir::UserStackMap)]` — `(return_pc_offset,
+            // active_frame_span_bytes, stack_map)`. The registry only wants the
+            // offset plus each entry's SP-relative offset
+            // (`UserStackMap::entries() -> impl Iterator<Item = (ir::Type,
+            // u32)>`); the frame-span byte count is not needed here. Always
+            // empty today (no lowering pass calls
+            // `declare_value_needs_stack_map` yet), so this is a zero-cost
+            // no-op pass over an empty slice.
+            let stack_maps = code
+                .buffer
+                .user_stack_maps()
+                .iter()
+                .map(|(ret_pc_offset, _span, map)| {
+                    let offsets = map.entries().map(|(_ty, sp_off)| sp_off).collect();
+                    (*ret_pc_offset, offsets)
+                })
+                .collect();
             Ok(Emitted {
                 id: p.id,
                 name: p.name.clone(),
                 alignment,
                 bytes: code.buffer.data().to_vec(),
                 relocs,
+                stack_maps,
             })
         };
         if jobs() == 1 {
@@ -166,12 +193,27 @@ pub(super) fn compile_and_define(
     });
 
     // SERIAL PHASE. Definition order is the input order, so the module layout
-    // does not depend on which worker finished first.
+    // does not depend on which worker finished first. This is also the last
+    // use of `emitted` (the CAPTURE stash above only cloned from it), so the
+    // loop takes it by value — letting each `Emitted::stack_maps` move into
+    // `push_pending` instead of a per-function clone.
     crate::timing::phase("  define_function_bytes", || {
-        for e in &emitted {
+        for e in emitted {
             module
                 .define_function_bytes(e.id, e.alignment, &e.bytes, &e.relocs)
                 .map_err(|err| Unsupported::new(format!("define `{}`: {err}", e.name)))?;
+            // JIT GC PLUMBING (inert): stash this function's stack-map entries
+            // (keyed by raw FuncId) in the pending registry so
+            // `module_jit::compile_program` can resolve them to absolute
+            // return PCs once `finalize_definitions()` has run. Serial order
+            // matters (the registry is a plain append), which is exactly
+            // where this call sits. `push_pending` no-ops on an empty `Vec`,
+            // so this costs nothing while `stack_maps` is always empty (AOT
+            // included — see `module_aot.rs`, which never drains the
+            // registry, so a pending push there is simply inert bookkeeping
+            // that is dropped with the process, not a leak of anything the
+            // GC reads).
+            rts_engine::collector::stack_map_registry::push_pending(e.id.as_u32(), e.stack_maps);
         }
         Ok(())
     })

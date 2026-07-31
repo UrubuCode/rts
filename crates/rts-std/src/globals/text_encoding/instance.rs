@@ -192,12 +192,16 @@ fn clone_handle_deep(handle: u64, visited: &mut std::collections::HashMap<u64, u
         Some(Entry::Json(j)) => Some(Entry::Json(j.clone())),
         // `Date` (a `#[rtse::class]` struct via `Entry::Rtse`) clones into a fresh
         // handle (distinct identity, like the other value kinds).
-        Some(Entry::Rtse { class, data, .. }) if *class == "Date" => data
+        // `trace` is carried over rather than reset: the clone is the SAME
+        // concrete `T`, so the source's tracer is exactly the right one, and a
+        // future decision to trace `Date` cannot leave the clone untraced.
+        Some(Entry::Rtse { class, data, trace, .. }) if *class == "Date" => data
             .downcast_ref::<rts_shared::globals::date::instance::Date>()
             .map(|d| Entry::Rtse {
                 class: *class,
                 data: Box::new(d.clone()),
                 props: Default::default(),
+                trace: *trace,
             }),
         // (#1068) RegExp: clona para um novo handle (identidade distinta do
         // original — `structuredClone(re) === re` deve ser `false`).

@@ -157,6 +157,12 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     // MERGE onto the same "Number" Registry class entry via a second call —
     // see `number/statics.rs`'s module doc.
     ns::globals::boolean::register,
+    // `Object` — the `Object.prototype` INSTANCE surface that survived the
+    // `object.ts` deletion: `toString`/`toLocaleString`/`valueOf`, the three
+    // members with no native equivalent. The other three protocol methods are
+    // resolved by the engine itself before class dispatch, so they are
+    // deliberately absent here rather than declared and unreachable.
+    ns::globals::object::register,
     ns::globals::number::register,
     ns::globals::number::register_number_statics,
     ns::globals::string::register_string_class_spec,
@@ -494,12 +500,11 @@ pub(super) static PRELUDE_TS: &[PreludeTs] = &[
         source: rts_runtime::ERROR_TS,
         why: "Error + subclasses (shape-based)",
     },
-    // PRIMORDIAL Object instance methods + factory.
-    PreludeTs {
-        label: "Object",
-        source: rts_runtime::OBJECT_TS,
-        why: "hasOwnProperty/toString/valueOf",
-    },
+    // Object — MIGRATED to Rust-only (no `.ts` prelude): `hasOwnProperty`/
+    // `isPrototypeOf`/`propertyIsEnumerable` are native
+    // (`method.rs::try_object_protocol_method`); `Object(x)`/`new Object(x)` is
+    // the `__rtsadp_obj_factory` trampoline. See `rts-primitives/src/lib.rs`'s
+    // migration comment for the `toString`/`valueOf` gap this left open.
     // Boolean/Number — MIGRATED to pure-Rust `#[rtse::class(.., value)]`
     // value-classes (rts-primitives/src/boolean.rs, src/number/mod.rs); NO `.ts`
     // prelude (same drain as String).

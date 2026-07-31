@@ -24,15 +24,31 @@ pub mod gc_surface;
 /// program; declaration order within the include string matters).
 pub const ERROR_TS: &str = include_str!("error.ts");
 
-/// Embedded TypeScript source of the PRIMORDIAL `Object` instance-method library
-/// + factory. Object is NOT a primitive with an autobox — every `{}` is already a
-/// shape-based object, so the methods read `this` AS THE OBJECT (no `__prim`).
-/// `obj.hasOwnProperty(k)`/`.toString()`/`.valueOf()`/… route into this ambient
-/// `class Object` via the OBJECT-receiver dispatch in the new engine, with the
-/// object as `this`; presence checks ride the shape-aware `engine.obj_has` bridge.
-/// The STATIC surface (`Object.keys`/…) stays codegen-native (shape-based) and is
-/// transparent to this instance-only class.
-pub const OBJECT_TS: &str = include_str!("object.ts");
+// Object is now Rust-only — the `.ts` prelude (`OBJECT_TS`, `object.ts`) was
+// DELETED, following the same migration Boolean/Number/String proved.
+// `hasOwnProperty`/`isPrototypeOf`/`propertyIsEnumerable` were ALREADY native
+// (never read the `.ts` class): `front/run/method.rs::try_object_protocol_method`
+// routes them straight to `__rtsadp_has_own`/`__rtsadp_is_prototype_of`/
+// `__rtsadp_prop_is_enumerable` before any class dispatch runs. `Object(x)` /
+// `new Object(x)` (the former `ObjectFactory`) is now the Rust trampoline
+// `__rtsadp_obj_factory` (`rts-runtime/src/adapters/value/objops.rs`), called
+// directly from `front/run/globals.rs` / `front/run/newexpr.rs` — no Registry
+// class needed, since it never dispatches by method name.
+//
+// GAP NOT CLOSED BY THIS MIGRATION: the `.ts` class's `toString()` /
+// `toLocaleString()` / `valueOf()` INSTANCE METHODS (explicit `obj.toString()`
+// call syntax on a plain/whole-heap object) had no Registry/native replacement
+// registered at the time of this migration — `front/run/method.rs`'s
+// `try_primitive_class_method(.., "Object", ..)` MIGRATED branch
+// (`registry::class_member("Object", ..)`) resolves nothing because no
+// `#[rtse::class("Object", ..)]` exists. The RUNTIME-side piece already exists
+// (`rtsadp_dyn_to_string` in `rts-runtime/src/adapters/value/dyndispatch.rs`
+// already returns `"[object Object]"` for a keyed object via the engine's ONE
+// ToString path — reuse it, do not duplicate); `valueOf` needs no call at all
+// (identity — return the receiver unchanged). The missing piece is WIRING in
+// `front/run/method.rs`'s `is_whole_heap_value` branch, mirroring
+// `try_object_protocol_method`'s pattern. See
+// `crates/rts-codegen-new/src/front/run/tests/object_class.rs::to_string_default_tag`.
 
 // Boolean is now a pure-Rust `#[rtse::class("Boolean", value)]` value-class
 // (`boolean.rs`) — the `.ts` prelude (`BOOLEAN_TS`) was DELETED, following the

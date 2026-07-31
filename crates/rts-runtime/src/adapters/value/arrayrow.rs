@@ -36,7 +36,7 @@ fn symbol_addrs() -> &'static HashMap<&'static str, usize> {
     static MAP: OnceLock<HashMap<&'static str, usize>> = OnceLock::new();
     MAP.get_or_init(|| {
         rts_runtime::symbol_table::symbols()
-            .into_iter()
+            .iter()
             .map(|e| (e.name, e.ptr as usize))
             .collect()
     })

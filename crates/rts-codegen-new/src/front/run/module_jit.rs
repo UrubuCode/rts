@@ -143,6 +143,23 @@ pub(crate) fn compile_program(prog: &super::LoweredProgram) -> FrontResult<Progr
     })?;
     crate::timing::phase("finalize_definitions", || module.finalize_definitions())
         .map_err(|e| Unsupported::new(format!("finalize module: {e}")))?;
+    // JIT GC PLUMBING (inert until a lowering pass calls
+    // `declare_value_needs_stack_map` — a separate task): resolve every
+    // pending stack-map entry collected in `parcompile::compile_and_define`'s
+    // serial define phase to an ABSOLUTE return PC now that
+    // `finalize_definitions()` has mapped every function into this JIT's
+    // executable memory, then hand them to the collector's registry for the
+    // (still fully conservative) scanner to eventually consult. A no-op
+    // today: nothing yet pushes a non-empty `maps` list, so `drain_pending()`
+    // returns empty and this loop never runs its body.
+    for entry in rts_engine::collector::stack_map_registry::drain_pending() {
+        let fid = FuncId::from_u32(entry.func_id_raw);
+        let base = module.get_finalized_function(fid) as usize;
+        for (ret_pc_offset, sp_offsets) in entry.maps {
+            let return_pc = base + ret_pc_offset as usize;
+            rts_engine::collector::stack_map_registry::register(return_pc, sp_offsets);
+        }
+    }
     let main = module.get_finalized_function(main_id);
     register_pickle_fns(&module, prog);
     Ok(Program {
