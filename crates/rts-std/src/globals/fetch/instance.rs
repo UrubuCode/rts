@@ -595,7 +595,7 @@ pub fn __RTS_FN_GL_PROMISE_REJECT(reason: u64) -> i64 {
 /// executada sync em vez de microtask.
 #[rtse::abi("__RTS_FN_GL_PROMISE_TRY")]
 pub fn __RTS_FN_GL_PROMISE_TRY(fp: u64) -> i64 {
-    use crate::gc_surface as error;
+    use rts_engine::collector::error;
     if fp == 0 {
         let slot = crate::promise_slot::new_fulfilled(0);
         return alloc_entry(Entry::PromiseAsync(slot)) as i64;
@@ -648,7 +648,8 @@ pub fn __RTS_FN_GL_PROMISE_TRY(fp: u64) -> i64 {
 /// e wait_blocking acorda waiters via oneshot::Sender.
 #[rtse::abi("__RTS_FN_GL_PROMISE_NEW")]
 pub fn __RTS_FN_GL_PROMISE_NEW(executor_h: u64) -> u64 {
-    use crate::{gc_surface as error, promise_slot};
+    use rts_engine::collector::error;
+    use crate::promise_slot;
     let slot = promise_slot::new_pending();
     let promise_h = alloc_entry(Entry::PromiseAsync(slot.clone()));
     if executor_h == 0 {
@@ -665,7 +666,7 @@ pub fn __RTS_FN_GL_PROMISE_NEW(executor_h: u64) -> u64 {
     // antigo de outra fn confundiria a propagacao).
     error::__rtsn_error_clear();
     // INVOKE_AUTO detecta executor como Function handle e despacha.
-    use crate::gc_surface::__RTS_FN_RT_INVOKE_AUTO;
+    use rts_engine::externs::__RTS_FN_RT_INVOKE_AUTO;
     let _ = unsafe { __RTS_FN_RT_INVOKE_AUTO(executor_h as i64, 0, args_vec) };
     // Se executor lancou, propaga como reject (JS spec).
     let err = error::__rtsn_error_get();

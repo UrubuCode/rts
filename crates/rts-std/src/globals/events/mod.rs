@@ -289,7 +289,7 @@ fn invoke_listener(fn_ptr: u64, args: [u64; 4]) {
     let is_poly_fn = (fn_ptr & POLY_BOX_BASE) == POLY_BOX_BASE
         && ((fn_ptr >> POLY_TAG_SHIFT) & 0x7) == POLY_TAG_FUNCTION;
     if is_poly_fn {
-        crate::gc_surface::__rtsadp_fn_invoke(
+        rts_engine::externs::__rtsadp_fn_invoke(
             fn_ptr, args[0], args[1], args[2], args[3], POLY_UNDEFINED,
         );
         return;

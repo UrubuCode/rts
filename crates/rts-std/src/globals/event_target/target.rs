@@ -117,7 +117,7 @@ pub(crate) fn dispatch_on(base: &mut EventTarget, self_handle: u64, ev: u64) -> 
     let ev_word = handle_word_auto(ev);
     for cb in to_call {
         let fn_word = handle_word_auto(cb);
-        crate::gc_surface::__rtsadp_fn_invoke(
+        rts_engine::externs::__rtsadp_fn_invoke(
             fn_word,
             ev_word,
             POLY_UNDEFINED,

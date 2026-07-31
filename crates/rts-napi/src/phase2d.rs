@@ -12,7 +12,7 @@ use crate::types::{napi_env, napi_status, napi_value};
 use napi_status::{napi_invalid_arg, napi_ok};
 
 #[cfg(not(test))]
-use rts_engine::gc_surface::__RTS_FN_GL_FUNCTION_CALL;
+use rts_engine::externs::__RTS_FN_GL_FUNCTION_CALL;
 #[cfg(test)]
 unsafe fn __RTS_FN_GL_FUNCTION_CALL(_h: u64, _t: i64, _a: u64) -> i64 {
     0

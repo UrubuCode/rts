@@ -8,7 +8,7 @@ use std::env;
 use std::path::Path;
 
 use rts_engine::abi::ty::Handle;
-use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
+use rts_engine::heap::string_pool::__RTS_FN_NS_GC_STRING_NEW;
 use rts_engine::Engine;
 
 /// Interns `s` into the GC string pool, returning its handle.

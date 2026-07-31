@@ -55,7 +55,7 @@ fn drain_native_events() {
     use rts_engine::{loop_sources, watch_queue};
     use std::time::{Duration, Instant};
 
-    use rts_engine::gc_surface::__RTS_FN_RT_INVOKE_AUTO;
+    use rts_engine::externs::__RTS_FN_RT_INVOKE_AUTO;
     unsafe extern "C" {
         // watchFile change → node-side fire (builds the curr/prev Stats args the
         // listener expects; rts-std cannot build a Stats — that lives in rts-node).

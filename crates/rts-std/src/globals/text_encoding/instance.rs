@@ -691,7 +691,7 @@ pub fn drain_microtasks() {
                                 )
                             });
                         if is_fn_handle {
-                            use crate::gc_surface::__RTS_FN_RT_INVOKE_AUTO;
+                            use rts_engine::externs::__RTS_FN_RT_INVOKE_AUTO;
                             let empty_args = rts_engine::heap::handles::alloc_entry(
                                 rts_engine::heap::handles::Entry::Vec(Box::new(Vec::new())),
                             );
@@ -868,7 +868,7 @@ pub fn drain_microtasks() {
                         // criar ciclo std→runtime. Usá-la em vez de re-declarar
                         // localmente evita o warning `clashing_extern_declarations`
                         // (safe vs unsafe) sem mudar o símbolo nem o link.
-                        crate::gc_surface::__rtsn_async_sm_resume(
+                        rts_engine::externs::__rtsn_async_sm_resume(
                             gen_handle,
                             value,
                             if rejected { 1 } else { 0 },

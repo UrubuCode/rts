@@ -388,7 +388,7 @@ pub fn wait_raw(promise: u64) -> i64 {
     // thread-local que `try/catch` ja' le. O slot eh da thread atual
     // (caller do `promise.wait`) — wait_blocking nao migra threads.
     if state == promise_slot::STATE_REJECTED {
-        crate::gc_surface::__rtsn_error_set(value as u64);
+        crate::collector::error::__rtsn_error_set(value as u64);
     }
     value
 }
@@ -516,7 +516,7 @@ fn finally(p_handle: U64, fp: U64) -> Handle {
 /// Le e limpa o slot de erro thread-local. Retorna handle do erro pendente ou 0 se nao houver. Usado internamente pelo codegen de async fn (F5 #416) — apos chamar o body, watcher checa este slot pra decidir entre `resolve` e `reject`.
 #[rtse::function(module = "promise", value = "take_error")]
 fn take_error() -> I64 {
-    use crate::gc_surface as error;
+    use rts_engine::collector::error;
     let h = error::__rtsn_error_get();
     if h != 0 {
         error::__rtsn_error_clear();
@@ -781,9 +781,9 @@ fn create_spawn(
         // Checa AMBOS os slots de erro pra detectar throw dentro do body: o
         // handle-slot legado E o errslot do motor novo (via hook — um `throw`
         // novo-motor grava a WORD lançada lá, não aqui).
-        let err = crate::gc_surface::__rtsn_error_get();
+        let err = crate::collector::error::__rtsn_error_get();
         if err != 0 {
-            crate::gc_surface::__rtsn_error_clear();
+            crate::collector::error::__rtsn_error_clear();
             promise_slot::reject(&result_clone, err as i64);
         } else if let Some(word) = take_engine_pending_error() {
             promise_slot::reject(&result_clone, word as i64);

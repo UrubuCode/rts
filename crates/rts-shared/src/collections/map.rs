@@ -425,14 +425,14 @@ pub fn __RTS_FN_NS_COLLECTIONS_MAP_GET_KH(obj_h: U64, key_h: U64) -> I64 {
         }
         // (#216/299) `arr[Symbol.iterator]` -> handle Function nativo.
         if key_is_well_known_iterator(&key) {
-            return crate::gc_surface::__rtsm_global_Array_iterator_fn() as i64;
+            return rts_engine::collector::generator::__rtsm_global_Array_iterator_fn() as i64;
         }
         return 0;
     }
     // Map: valor armazenado vence; fallback iterator nativo.
     let stored = with_map(obj_h, 0, |m| m.get(&key).copied().unwrap_or(0));
     if stored == 0 && key_is_well_known_iterator(&key) {
-        return crate::gc_surface::__rtsm_global_Array_iterator_fn() as i64;
+        return rts_engine::collector::generator::__rtsm_global_Array_iterator_fn() as i64;
     }
     stored
 }
@@ -471,7 +471,7 @@ pub fn __RTS_FN_NS_COLLECTIONS_MAP_KEY_AT(h: U64, idx: I64) -> Handle {
         }
     });
     match key_opt {
-        Some(s) => crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64),
+        Some(s) => rts_engine::heap::string_pool::__RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64),
         None => 0,
     }
 }
@@ -515,7 +515,7 @@ pub fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(h: U64) -> Handle {
     });
     let mut vec: Vec<i64> = Vec::with_capacity(keys.len());
     for k in keys {
-        let h2 = crate::gc_surface::__RTS_FN_NS_GC_STRING_NEW(k.as_ptr(), k.len() as i64);
+        let h2 = rts_engine::heap::string_pool::__RTS_FN_NS_GC_STRING_NEW(k.as_ptr(), k.len() as i64);
         vec.push(h2 as i64);
     }
     rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(Box::new(vec)))
@@ -1158,7 +1158,7 @@ pub fn __RTS_FN_NS_COLLECTIONS_MAP_DEFINE_PROPERTY(
             msg.len() as i64,
             0,
         );
-        crate::gc_surface::__rtsn_error_set(err_h);
+        rts_engine::collector::error::__rtsn_error_set(err_h);
         return obj;
     }
     if matches!(is_enumerable, Some(false)) {

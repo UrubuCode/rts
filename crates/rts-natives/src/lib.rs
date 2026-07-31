@@ -50,6 +50,9 @@ extern crate self as rts_engine;
 
 pub mod abi;
 pub mod collector;
+/// The ONE declaration site for symbols whose bodies live ABOVE this crate and
+/// are bound by the linker. Replaces the four `gc_surface.rs` files (N2b).
+pub mod externs;
 pub mod heap;
 pub mod numfmt;
 

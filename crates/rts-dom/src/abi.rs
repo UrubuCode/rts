@@ -23,7 +23,7 @@ use crate::dom::{parse_html_to_dom, NodeId};
 // (collector::string_pool, símbolo `__RTS_FN_NS_GC_STRING_NEW`), resolvida via
 // `rts_engine::gc_surface` (site único de declaração, link-time) — mantém a
 // doutrina "rts-dom depende só de rts-engine".
-use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
+use rts_engine::heap::string_pool::__RTS_FN_NS_GC_STRING_NEW;
 
 /// Interna uma `&str` no pool de strings GC e devolve o handle (`0` p/ vazia é
 /// válido — `gc.string_new` aceita len 0). É a forma de DEVOLVER string do Rust

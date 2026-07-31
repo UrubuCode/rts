@@ -7,7 +7,7 @@
 use rts_engine::heap::handles::{alloc_entry, read_string_handle, Entry};
 use rts_engine::heap::shapes::{alloc_shaped_object, null_word, string_word};
 
-use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
+use rts_engine::heap::string_pool::__RTS_FN_NS_GC_STRING_NEW;
 
 unsafe extern "C" {
     // WHATWG URL (runtime layer, globals/url). `ptr`/`len` are the i64-cast

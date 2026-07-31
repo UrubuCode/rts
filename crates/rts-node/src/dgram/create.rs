@@ -20,7 +20,7 @@ use super::state::{self, SocketState};
 use crate::net::blocklist::rules::Rule;
 use crate::values::{opt_bool, opt_has, opt_num, opt_str, opt_word, val, Val};
 
-use rts_engine::gc_surface::__RTS_FN_NS_GC_PIN_HANDLE;
+use rts_engine::heap::handles::__RTS_FN_NS_GC_PIN_HANDLE;
 
 /// The options `createSocket` accepts, already normalized.
 struct Options {

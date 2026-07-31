@@ -36,7 +36,7 @@ use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, ClientConnection, RootCertStore};
 use std::sync::Arc;
 
-use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
+use rts_engine::heap::string_pool::__RTS_FN_NS_GC_STRING_NEW;
 
 fn intern(s: &str) -> u64 {
     unsafe { __RTS_FN_NS_GC_STRING_NEW(s.as_ptr(), s.len() as i64) }

@@ -198,7 +198,7 @@ pub fn __RTS_FN_GL_HEADERS_FOR_EACH(h: u64, cb: u64) -> u64 {
     for (k, v) in pairs {
         let vw = string_word(v.as_bytes());
         let kw = string_word(k.as_bytes());
-        crate::gc_surface::__rtsadp_fn_invoke(cb, vw, kw, self_word, POLY_UNDEFINED, POLY_UNDEFINED);
+        rts_engine::externs::__rtsadp_fn_invoke(cb, vw, kw, self_word, POLY_UNDEFINED, POLY_UNDEFINED);
     }
     POLY_UNDEFINED
 }

@@ -22,7 +22,7 @@ use super::opts;
 use super::state::{self, SockEvent, SocketOpts, SocketState};
 use crate::values::{read, read_bytes, val, Val};
 
-use rts_engine::gc_surface::{__RTS_FN_NS_GC_PIN_HANDLE, __RTS_FN_NS_GC_UNPIN_HANDLE};
+use rts_engine::heap::handles::{__RTS_FN_NS_GC_PIN_HANDLE, __RTS_FN_NS_GC_UNPIN_HANDLE};
 
 pub const CLASS: &str = "Socket";
 

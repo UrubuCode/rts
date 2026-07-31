@@ -45,7 +45,6 @@
 extern crate self as rts_engine;
 
 pub mod abi;
-pub mod gc_surface;
 pub mod loop_sources;
 pub mod runtime_ci;
 pub mod watch_queue;
@@ -61,7 +60,7 @@ mod sig;
 // value representation. Re-exporting rather than relocating the call sites is
 // deliberate: `rts_engine::heap::…` is what ~15 crates and every `#[rtse::*]`
 // expansion above already write, and a pure move must be invisible to them.
-pub use rts_natives::{collector, heap, numfmt};
+pub use rts_natives::{collector, externs, heap, numfmt};
 
 pub use builder::{
     ClassBuilder, Engine, GlobalBuilder, GlobalRegistryItem, GlobalScope, ModuleBuilder,

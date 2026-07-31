@@ -169,7 +169,7 @@ pub fn __RTS_FN_GL_FORM_DATA_FOR_EACH(h: Handle, cb: Handle) -> Handle {
     for (k, v) in pairs_snapshot(h) {
         let vw = string_word(v.as_bytes());
         let kw = string_word(k.as_bytes());
-        crate::gc_surface::__rtsadp_fn_invoke(cb, vw, kw, self_word, POLY_UNDEFINED, POLY_UNDEFINED);
+        rts_engine::externs::__rtsadp_fn_invoke(cb, vw, kw, self_word, POLY_UNDEFINED, POLY_UNDEFINED);
     }
     POLY_UNDEFINED
 }

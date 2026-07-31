@@ -18,7 +18,7 @@ use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
 use rts_engine::heap::poly::poly_handle_normalize;
 use rts_engine::watch_queue;
 
-use rts_engine::gc_surface::{__RTS_FN_NS_GC_PIN_HANDLE, __RTS_FN_NS_GC_UNPIN_HANDLE};
+use rts_engine::heap::handles::{__RTS_FN_NS_GC_PIN_HANDLE, __RTS_FN_NS_GC_UNPIN_HANDLE};
 
 /// Live watchers, keyed by id. Keeping the `RecommendedWatcher` here keeps the OS
 /// watch active; dropping it (on `close`) stops the notifications.

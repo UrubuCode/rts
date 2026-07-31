@@ -17,17 +17,11 @@ use crate::heap::handles::{Entry, with_entry};
 use super::sm::{__rtsn_gen_sm_next, __rtsn_gen_sm_return, __rtsn_gen_sm_throw};
 use super::{GEN_CURSORS, GEN_RETS, UNDEFINED, make_result, read_result_parts};
 
-unsafe extern "C" {
-    /// `Function.prototype.call`-style invocation of a Function-class handle.
-    ///
-    /// A USER iterator object (`{ next() {...} }`) carries its own `next`, and
-    /// the eager protocol has to invoke it. `Function` is a PRIMORDIAL class
-    /// whose body correctly lives in `rts-primitives`, one layer ABOVE this
-    /// crate, so this resolves by LINK — the JIT registers the symbol and the
-    /// AOT staticlib exports it. Calling back into user code is not something
-    /// the iteration protocol can own; owning the protocol is.
-    fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_handle: u64) -> i64;
-}
+// A USER iterator object (`{ next() {...} }`) carries its own `next`, and the
+// eager protocol has to invoke it. That is a link-resolved call into
+// `rts-primitives` — declared once in `crate::externs`, never per call site,
+// because ~15 hand-rolled copies of these blocks is what drifted before.
+use crate::externs::__RTS_FN_GL_FUNCTION_CALL;
 
 
 /// (motor NOVO) Lê o campo `value` do `{value, done}` (Entry::Map) que
@@ -114,7 +108,7 @@ pub fn generator_next(vec_handle: u64) -> u64 {
         _ => None,
     });
     if let Some(next_fn) = custom_next {
-        return unsafe { __RTS_FN_GL_FUNCTION_CALL(next_fn as u64, vec_handle as i64, 0) } as u64;
+        return __RTS_FN_GL_FUNCTION_CALL(next_fn as u64, vec_handle as i64, 0) as u64;
     }
     let len = with_entry(vec_handle, |e| match e {
         Some(Entry::Vec(v)) => Some(v.len()),

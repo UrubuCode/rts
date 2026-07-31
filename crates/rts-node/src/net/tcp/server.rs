@@ -20,7 +20,7 @@ use super::opts::{self, ListenArgs};
 use super::state::{self, ServerEvent, ServerState, SocketOpts};
 use crate::values::{opt_word, val, Val};
 
-use rts_engine::gc_surface::{__RTS_FN_NS_GC_PIN_HANDLE, __RTS_FN_NS_GC_UNPIN_HANDLE};
+use rts_engine::heap::handles::{__RTS_FN_NS_GC_PIN_HANDLE, __RTS_FN_NS_GC_UNPIN_HANDLE};
 
 pub const CLASS: &str = "Server";
 

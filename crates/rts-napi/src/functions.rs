@@ -31,7 +31,7 @@ use napi_status::{napi_function_expected, napi_invalid_arg, napi_ok};
 // símbolos `__RTS_*` cross-crate para o link de um `cargo test -p rts-napi`
 // isolado. O dispatch é validado por e2e no bin.
 #[cfg(not(test))]
-use rts_engine::gc_surface::__RTS_FN_GL_FUNCTION_CALL;
+use rts_engine::externs::__RTS_FN_GL_FUNCTION_CALL;
 
 // Stub só para o build de teste do crate isolado: fornece o símbolo (que no bin
 // vem de rts-primitives) para que `cargo test -p rts-napi` linke. O dispatch

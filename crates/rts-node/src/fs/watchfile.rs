@@ -20,9 +20,8 @@ use rts_engine::abi::ty::Poly;
 use super::stats;
 use super::words::read;
 
-use rts_engine::gc_surface::{
-    __RTS_FN_NS_GC_PIN_HANDLE, __RTS_FN_NS_GC_UNPIN_HANDLE, __RTS_FN_RT_INVOKE_AUTO,
-};
+use rts_engine::externs::__RTS_FN_RT_INVOKE_AUTO;
+use rts_engine::heap::handles::{__RTS_FN_NS_GC_PIN_HANDLE, __RTS_FN_NS_GC_UNPIN_HANDLE};
 
 /// Active polling watchers: `path` → its running flag (cleared by `unwatchFile`).
 fn watchers() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {

@@ -9,7 +9,6 @@ pub mod buffer;
 pub mod collections;
 pub mod date;
 pub mod fmt;
-pub mod gc_surface;
 pub mod globals;
 pub mod hash;
 pub mod hint;

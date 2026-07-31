@@ -22,7 +22,7 @@ use rts_engine::heap::handles::{Entry, alloc_entry};
 
 // `string_pool` (intern de strings GC) fica no backend (rts-runtime collector);
 // resolvida via `rts_engine::gc_surface` (site único, link-time).
-use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
+use rts_engine::heap::string_pool::__RTS_FN_NS_GC_STRING_NEW;
 
 /// Reads up to `bufLen` bytes from `path` into the buffer. Count, 0 on EOF, -1 on error.
 #[rtse::function(module = "fs", value = "read")]

@@ -277,7 +277,7 @@ fn stringify_any_inner(handle: u64) -> Option<String> {
             name: "TypeError".to_owned(),
             cause: 0,
         });
-        crate::gc_surface::__rtsn_error_set(err);
+        rts_engine::collector::error::__rtsn_error_set(err);
         return None;
     }
     if circular {
@@ -288,7 +288,7 @@ fn stringify_any_inner(handle: u64) -> Option<String> {
             name: "TypeError".to_owned(),
             cause: 0,
         });
-        crate::gc_surface::__rtsn_error_set(err);
+        rts_engine::collector::error::__rtsn_error_set(err);
         return None;
     }
     r

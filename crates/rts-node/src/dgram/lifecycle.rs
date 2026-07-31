@@ -22,7 +22,7 @@ use super::reader;
 use super::state::{self, SockEvent, SocketState};
 use crate::values::{opt_has, opt_num, opt_str, val, Val};
 
-use rts_engine::gc_surface::__RTS_FN_NS_GC_UNPIN_HANDLE;
+use rts_engine::heap::handles::__RTS_FN_NS_GC_UNPIN_HANDLE;
 
 /// The `bind` arguments after Node's normalization.
 #[derive(Default)]

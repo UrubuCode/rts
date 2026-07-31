@@ -7,7 +7,7 @@ use rts_engine::heap::shapes::{alloc_shaped_object, string_word};
 
 use super::parse::Parsed;
 
-use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
+use rts_engine::heap::string_pool::__RTS_FN_NS_GC_STRING_NEW;
 
 /// Intern a Rust string as a GC string handle (an ABI `Handle` return).
 pub fn intern(s: &str) -> u64 {

@@ -27,7 +27,7 @@ use rts_engine::{ClassBuilder, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use crate::values::{read, string_array, val, Val};
 
-use rts_engine::gc_surface::{__RTS_FN_NS_GC_PIN_HANDLE, __RTS_FN_NS_GC_UNPIN_HANDLE};
+use rts_engine::heap::handles::{__RTS_FN_NS_GC_PIN_HANDLE, __RTS_FN_NS_GC_UNPIN_HANDLE};
 
 /// Node's `EventEmitter.defaultMaxListeners`.
 pub const DEFAULT_MAX_LISTENERS: i64 = 10;

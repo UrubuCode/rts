@@ -24,23 +24,10 @@ fn stack_limit() -> u32 {
     })
 }
 
-unsafe extern "C" {
-    /// Construct a `RangeError` instance, returning its handle.
-    ///
-    /// `RangeError` is a PRIMORDIAL class and its body correctly lives in
-    /// `rts-primitives`, one layer ABOVE this crate — so this is resolved by
-    /// LINK, not by a dependency edge: the JIT registers the symbol in its
-    /// table and the AOT staticlib exports it, and the declaration is enough
-    /// for either to bind.
-    ///
-    /// This is not the inversion `RTS_ORGANIZATION.md` deletes. That one was
-    /// `rts-engine` forward-declaring machinery that had escaped UPWARD and
-    /// should have been below it. Here the depth guard is genuinely machinery
-    /// (the IR cannot express a recursion limit) and `RangeError` is genuinely
-    /// a language class; a low layer producing a JS value of a class defined
-    /// above it is a real cross-layer need, not a misplacement.
-    fn __RTS_FN_GL_RANGE_ERROR_NEW(msg_ptr: i64, msg_len: i64, cause: u64) -> u64;
-}
+// The depth guard raises "Maximum call stack size exceeded" as a real
+// `RangeError`, whose body is a primordial class in `rts-primitives` one layer
+// ABOVE. Link-resolved, declared once in `crate::externs`.
+use crate::externs::__RTS_FN_GL_RANGE_ERROR_NEW;
 
 fn set_stack_overflow_error() {
     // (cross-runtime #200) Cria um `RangeError` real em vez de string handle —
@@ -48,7 +35,7 @@ fn set_stack_overflow_error() {
     // `"Maximum call stack size exceeded"` e `"RangeError"` respectivamente.
     let msg = b"Maximum call stack size exceeded";
     let handle =
-        unsafe { __RTS_FN_GL_RANGE_ERROR_NEW(msg.as_ptr() as i64, msg.len() as i64, 0) };
+        __RTS_FN_GL_RANGE_ERROR_NEW(msg.as_ptr() as i64, msg.len() as i64, 0);
     super::error::__rtsn_error_set(handle);
 }
 

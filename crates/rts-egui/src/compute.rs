@@ -512,7 +512,7 @@ pub(crate) fn buffer_handle(id: u64) -> Option<wgpu::Buffer> {
 /// Nome do adapter (debug/telemetria). Handle de string GC, 0 sem GPU.
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GPU_ADAPTER_NAME() -> Handle {
-    use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
+    use rts_engine::heap::string_pool::__RTS_FN_NS_GC_STRING_NEW;
     with_gpu(0, |c| {
         let info = c.gpu.adapter.get_info();
         let name = info.name;

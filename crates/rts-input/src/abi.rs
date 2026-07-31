@@ -122,7 +122,7 @@ pub fn __RTS_FN_NS_INPUT_COPY_TEXT(target: u64, ptr: u64, len: i64) {
     crate::with_input(|i| i.copy_text(target, text));
 }
 
-use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
+use rts_engine::heap::string_pool::__RTS_FN_NS_GC_STRING_NEW;
 
 fn func(name: &str, symbol: &str, sig: Sig, ts: &str, doc: &str, fp: *const u8) -> Member {
     Member {

@@ -8,7 +8,6 @@
 //! p/ cá um a um, com gate de build+suíte a cada passo. Crate só depende de
 //! `rts-engine` (universal/wasm-safe).
 
-pub mod gc_surface;
 
 /// Embedded TypeScript source of the PRIMORDIAL `Error` family (Error +
 /// TypeError/RangeError/ReferenceError/SyntaxError/URIError/EvalError/

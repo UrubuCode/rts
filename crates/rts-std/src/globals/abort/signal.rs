@@ -73,7 +73,7 @@ impl AbortSignal {
     #[rtse::method(name = "throwIfAborted", throws)]
     fn throw_if_aborted(self: &AbortSignal) {
         if self.aborted {
-            crate::gc_surface::__rtsn_error_set(self.reason);
+            crate::collector::error::__rtsn_error_set(self.reason);
         }
     }
 }
@@ -110,7 +110,7 @@ pub(crate) fn do_abort(h: u64, reason: u64, default_name: &str, default_message:
     if onabort != 0 {
         use rts_engine::heap::poly::POLY_UNDEFINED;
         use rts_engine::heap::shapes::handle_word_auto;
-        crate::gc_surface::__rtsadp_fn_invoke(
+        rts_engine::externs::__rtsadp_fn_invoke(
             handle_word_auto(onabort),
             handle_word_auto(ev),
             POLY_UNDEFINED,
