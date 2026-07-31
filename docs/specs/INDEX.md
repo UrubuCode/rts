@@ -32,6 +32,15 @@ rule forbids. Stale test numbers were stripped from `js-parity-epic-226.md`.
   hand-written rows**, `adapter_symbols/list_a.rs` + `list_b.rs` DELETED, the JIT
   table now two generated sources. Phases F0→F13, with what remains (F7) spelled
   out.
+- [Draining `no_mangle`](no-mangle-drain.md) — **the working plan for the
+  hand-written-symbol campaign.** Measured landscape (1126 attributes, of which
+  **~951 are the real target** and ~154 are the N-API C contract that must NOT
+  be renamed), per-crate order of attack, the conversion mechanics, and the
+  traps — each observed rather than predicted (an unlisted marshaller ABI shape
+  reads as "not a function"; deleting a `.ts` prelude class costs FOUR roles, one
+  of which has no replacement in the engine today). Also carries the open work
+  that is not part of the campaign: the two live regressions, `RtseTrace` with no
+  users, GC precise scanning wired but inert, and `STRING_CONCAT`'s O(n²).
 - [Engine redesign (rts-codegen-new)](rts-codegen-new-design.md) — **the
   canonical direction.** PolyValue, Repr lattice, shapes + data ICs, single
   lowering, data-driven dispatch + generated ABI. Migration phases P0→P5.
