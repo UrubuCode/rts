@@ -343,8 +343,16 @@ function __winIndex(h: i64): number {
 // por todos os <script> seguintes (é o que faz `window.x = 1` num script ser
 // visível no próximo, como no browser).
 function __winFor(h: i64, url: string, vw: number, vh: number): WindowImpl {
-  const idx = __winIndex(h);
-  if (idx >= 0) return __winVals[idx];
+  // A busca compara o handle COMPLETO (`_doc._dom` do window guardado), não o
+  // `h` que chegou por parâmetro: um handle repassado como param `i64` chega
+  // TRUNCADO (#1870), e dois documentos distintos colapsavam no mesmo índice —
+  // os globais de uma página vazavam para a outra.
+  let i = 0;
+  while (i < __winVals.length) {
+    const w = __winVals[i];
+    if (w.document._dom === h) return w;
+    i = i + 1;
+  }
   const w = new WindowImpl(h, url, vw, vh);
   __winKeys.push(h);
   __winVals.push(w);
@@ -365,6 +373,12 @@ function __globalNames(h: i64, url: string, vw: number, vh: number): string[] {
 // O SACO DE GLOBAIS do documento `h` — onde moram os globais que os scripts
 // criam em runtime (`requireLazy`, `__d`, `_btldr`, …).
 function __globalsFor(h: i64, url: string, vw: number, vh: number): any {
+  // O saco é chaveado pelo handle do DOCUMENTO do `window` — não pelo `h` que
+  // chegou por parâmetro. Um handle repassado como param `i64` chega TRUNCADO
+  // (#1870): o Proxy gravava sob a chave truncada e o leitor de fora procurava
+  // sob a completa, então `__d`/`requireLazy` sumiam entre um <script> e o
+  // seguinte. `__winFor` é a fonte única — dele sai o mesmo `_dom` que
+  // `__scopeKey` usa.
   // O saco vive em RUST (`scriptscope.rs`), num `thread_local` compartilhado
   // ENTRE PROGRAMAS — cada `new Function` é um programa novo, então um saco
   // `.ts` seria por-programa e o script N+1 não veria o do script N. Aqui ele é
@@ -374,7 +388,7 @@ function __globalsFor(h: i64, url: string, vw: number, vh: number): any {
   // O handle é CAPTURADO léxicamente (`const doc = h`), nunca repassado como
   // parâmetro para outra função `.ts`: handle via parâmetro corrompe (#1870 —
   // medido aqui: `DomScope.count(h)` direto devolve 1, via param devolve 0).
-  const doc: i64 = h;
+  const doc: i64 = __winFor(h, url, vw, vh).document._dom;
   return new Proxy({}, {
     get: function (alvo: any, chave: any) {
       return DomScope.get(doc, "" + chave);
@@ -387,6 +401,31 @@ function __globalsFor(h: i64, url: string, vw: number, vh: number): any {
       return DomScope.has(doc, "" + chave) === 1;
     },
   });
+}
+
+// A CHAVE do saco de globais deste documento.
+//
+// Existe porque o handle chega com DOIS valores diferentes conforme o caminho:
+// o campo `doc._dom` carrega o valor completo, e uma variável/param `i64` recebe
+// uma versão truncada (#1870). Os dois endereçam o mesmo DOM nas fns de
+// namespace, mas seriam CHAVES distintas aqui — e foi isso que fez o `__d` da
+// Meta ser publicado sob uma e procurado sob a outra. Todo mundo passa por esta
+// função, então existe UMA chave só, seja qual for o valor que ela normaliza.
+
+
+// Os nomes globais do documento `h` lidos do `DomScope` (Rust) — a lista que
+// SOBREVIVE entre scripts. Cada `<script>` é um programa novo (`new Function`),
+// então um array `.ts` de prelude é por-programa e não serve para "o que o
+// script anterior publicou".
+function __scopeNames(doc: Document): string[] {
+  // Recebe o DOCUMENT: um handle repassado como parâmetro `i64` chega TRUNCADO
+  // (#1870) e viraria uma CHAVE diferente da que o Proxy usa para gravar — foi
+  // o que fez `__d`/`requireLazy` sumirem entre um <script> e o seguinte.
+  const out: string[] = [];
+  const n = DomScope.count(doc._dom);
+  let i = 0;
+  while (i < n) { out.push(DomScope.nameAt(doc._dom, i)); i = i + 1; }
+  return out;
 }
 
 // Descarta o escopo global do documento `h` (chamado no `free` do documento).

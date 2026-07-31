@@ -1031,14 +1031,18 @@ function runScripts(doc: Document): number {
 // Como `runScripts`, mas com a URL da página (vira `window.location`). Use quando
 // o browser sabe a URL de origem (o `window.location.href`/`origin` dos scripts).
 function runScriptsAt(doc: Document, url: string): number {
-  // `: i64` no handle e no param da helper: handle via param `number` corrompe
-  // (fcvt vs bitcast — issue #1870 do motor).
-  const h: i64 = doc._dom;
+  // O DOC (não o handle solto) é o que atravessa: `const h: i64 = doc._dom`
+  // TRUNCA — medido, o campo carrega `281474976710656` e a variável fica com
+  // `1`. Os dois valores endereçam o mesmo DOM nas fns de namespace, mas viram
+  // CHAVES DIFERENTES no saco de globais: o script publicava `__d` sob uma e o
+  // script seguinte procurava sob a outra, e os 9 bundles da Meta morriam em
+  // "call to unknown function `__d`". Enquanto #1870 estiver aberto, passe o
+  // Document.
   let ran = 0;
-  const scriptCount = dom.getByTagCount(h, "script");
+  const scriptCount = dom.getByTagCount(doc._dom, "script");
   let j = 0;
   while (j < scriptCount) {
-    ran = ran + __runScriptAt(h, j, url);
+    ran = ran + __runScriptAt(doc, j, url);
     j = j + 1;
   }
   return ran;
@@ -1046,13 +1050,15 @@ function runScriptsAt(doc: Document, url: string): number {
 
 // Roda o j-ésimo `<script>`: inline usa o texto do nó; externo usa o fonte que o
 // `loadResources` materializou no nó (mesmo caminho). Devolve 1 (rodou) ou 0.
-function __runScriptAt(h: i64, j: number, url: string): number {
-  const node = dom.getByTagAt(h, "script", j);
+function __runScriptAt(doc: Document, j: number, url: string): number {
+  // Recebe o DOCUMENT, não o handle: `doc._dom` numa variável `i64` trunca
+  // (#1870) e o saco de globais passa a ser chaveado por dois valores.
+  const node = dom.getByTagAt(doc._dom, "script", j);
   if (node === __DOM_NONE) return 0;
   // Só executa JAVASCRIPT: `type` vazio/`text|application/javascript`/`module`.
   // `type="application/json"` (dados de config — o WhatsApp/Meta usa MUITO) e
   // outros tipos NÃO são código; executá-los gerava `syntax error` em massa.
-  const st = dom.getAttribute(h, node, "type").toLowerCase();
+  const st = dom.getAttribute(doc._dom, node, "type").toLowerCase();
   const isJs = st.length === 0 || st === "text/javascript"
     || st === "application/javascript" || st === "module"
     || st === "application/x-javascript" || st === "text/ecmascript";
@@ -1061,8 +1067,8 @@ function __runScriptAt(h: i64, j: number, url: string): number {
   // WhatsApp/Meta embutem quase todo o JS assim). data-URI base64 é decodificado
   // via `atob`; data-URI de texto puro (`data:...,<code>`) usa o payload direto.
   // `src=http(s)` externo NÃO é baixado aqui (o extractSite do browser decide).
-  let code = dom.getText(h, node);
-  const src = dom.getAttribute(h, node, "src");
+  let code = dom.getText(doc._dom, node);
+  const src = dom.getAttribute(doc._dom, node, "src");
   if (src.length > 5 && src.substring(0, 5) === "data:") {
     const comma = src.indexOf(",");
     if (comma < 0) return 0;
@@ -1096,22 +1102,28 @@ function __runScriptAt(h: i64, j: number, url: string): number {
   // Escopo global COMPARTILHADO: o que scripts anteriores publicaram (`known`)
   // é qualificado para `__G.<nome>` neste script também — é o que faz o loader
   // criado pelo script 2 estar disponível para o script 30.
-  const known = __globalNames(h, url, 1000, 800);
+  // Os nomes que scripts ANTERIORES publicaram vêm do `DomScope` (Rust): é a
+  // ÚNICA lista que sobrevive entre scripts. Um array `.ts` não serve — cada
+  // `<script>` é compilado como um PROGRAMA novo (`new Function`), então o
+  // `push` de um se perde antes do próximo ler. Era exatamente este o bug:
+  // `__d` (o registrador de módulos da Meta) era publicado pelo script 1, o
+  // array `.ts` esquecia, e os 9 bundles de aplicação morriam em "call to
+  // unknown function `__d`" — a página nunca montava.
+  const known = __scopeNames(doc);
   const created = __scanImplicitGlobals(__normalizeScript(code));
   const body = prologue + __bindGlobals(code, known) + "\nreturn 0;";
   let ok = 1;
   try {
     const f = new Function("__h", "__url", body);
-    f(h, url);
+    f(doc._dom, url);
     // Só depois de RODAR é que os nomes viram "publicados" (um script que falhou
-    // não deixa seus globais no escopo — como no browser).
+    // não deixa seus globais no escopo — como no browser). Um nome CRIADO mas
+    // ainda não escrito (`x = undefined`) precisa constar mesmo assim: é o que
+    // faz o próximo script qualificá-lo em vez de tratá-lo como não-ligado.
     let i = 0;
     while (i < created.length) {
       const nm = created[i];
-      let dup = 0;
-      let k = 0;
-      while (k < known.length) { if (known[k] === nm) dup = 1; k = k + 1; }
-      if (dup === 0) known.push(nm);
+      if (DomScope.has(doc._dom, nm) === 0) DomScope.set(doc._dom, nm, undefined);
       i = i + 1;
     }
   } catch (e) {

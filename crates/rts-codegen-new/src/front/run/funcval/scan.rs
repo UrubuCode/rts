@@ -245,14 +245,29 @@ fn collect_mutated_expr(e: &HirExpr, out: &mut HashSet<String>) {
         HirExprKind::Object(fields) => fields
             .iter()
             .for_each(|(_, v)| collect_mutated_expr(v, out)),
-        // A nested arrow's assignments to its OWN params/locals are irrelevant to
-        // the outer scope; conservatively descend (over-approximating mutation is
-        // sound — it only makes us bail more). Its captures are handled when it is
-        // itself extracted.
-        HirExprKind::Arrow { body, .. } => match body {
-            HirArrowBody::Expr(inner) => collect_mutated_expr(inner, out),
-            HirArrowBody::Block(stmts) => stmts.iter().for_each(|st| collect_mutated_stmt(st, out)),
-        },
+        // Uma arrow/fn aninhada: as escritas nos BINDINGS PRÓPRIOS dela (params e
+        // `var`/`let`/`const` do corpo) não dizem nada sobre o escopo de fora — são
+        // variáveis DIFERENTES que apenas repetem o nome. Descer sem filtrar
+        // ("over-approximating mutation is sound") custava caro na prática: um
+        // minificador reusa `r`/`t`/`n` como nome curto dezenas de vezes por
+        // arquivo, então UMA colisão em qualquer função irmã envenenava todas as
+        // capturas daquele nome no módulo inteiro — e a extração da closure
+        // bailava com "expression arrow". Uma escrita LIVRE (sem declaração local
+        // do mesmo nome) continua contando, que é o caso genuíno de mutação.
+        HirExprKind::Arrow { params, body, .. } => {
+            let mut proprios: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
+            let mut interno = HashSet::new();
+            match body {
+                HirArrowBody::Expr(inner) => collect_mutated_expr(inner, &mut interno),
+                HirArrowBody::Block(stmts) => {
+                    proprios.extend(super::declared_locals(stmts));
+                    stmts
+                        .iter()
+                        .for_each(|st| collect_mutated_stmt(st, &mut interno));
+                }
+            }
+            out.extend(interno.into_iter().filter(|n| !proprios.contains(n)));
+        }
         HirExprKind::Cast { expr, .. } => collect_mutated_expr(expr, out),
         HirExprKind::Await(inner) | HirExprKind::Spread(inner) => collect_mutated_expr(inner, out),
         HirExprKind::Seq(items) => items.iter().for_each(|it| collect_mutated_expr(it, out)),
