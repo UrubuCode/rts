@@ -19,7 +19,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::time::Instant;
 
-use rts_engine::abi::ty::{Handle, Poly};
+use rts_engine::abi::ty::Poly;
 
 struct Timer {
     id: i64,
@@ -93,6 +93,11 @@ fn t_drop(h: u64) {
     });
 }
 
+/// Descarta o estado deste documento (chamado pelo `free` do DOM).
+pub fn drop_timers(h: u64) {
+    t_drop(h);
+}
+
 /// Portador da fila de timers por documento. Só membros estáticos.
 ///
 /// Classe (e não `#[rtse::function]` livre) porque o `rts-symbol-baker` ainda
@@ -106,22 +111,22 @@ impl DomTimers {
     /// Agenda `f` para daqui `ms` ms; `repeat != 0` re-arma (interval).
     /// Devolve o id (para `cancel`).
     #[rtse::statical]
-    fn add(h: Handle, f: Poly, ms: f64, repeat: f64) -> f64 {
+    fn add(h: f64, f: Poly, ms: f64, repeat: f64) -> f64 {
         let ms = if ms.is_finite() && ms > 0.0 { ms as u64 } else { 0 };
-        t_add(h, f, ms, repeat != 0.0) as f64
+        t_add(h as u64, f, ms, repeat != 0.0) as f64
     }
 
     /// Cancela o timer `id` deste documento (no-op se não existe).
     #[rtse::statical]
-    fn cancel(h: Handle, id: f64) {
-        t_cancel(h, id as i64);
+    fn cancel(h: f64, id: f64) {
+        t_cancel(h as u64, id as i64);
     }
 
     /// A fn de UM timer vencido (interval re-armado, one-shot removido);
     /// `undefined` se nada venceu. Chamar num laço com teto por frame.
     #[rtse::statical]
-    fn takeDue(h: Handle) -> Poly {
-        let w = t_take_due(h);
+    fn takeDue(h: f64) -> Poly {
+        let w = t_take_due(h as u64);
         if w == 0 {
             rts_engine::heap::poly::POLY_UNDEFINED
         } else {
@@ -131,13 +136,13 @@ impl DomTimers {
 
     /// Quantos timers este documento tem pendentes (diagnóstico).
     #[rtse::statical]
-    fn count(h: Handle) -> f64 {
-        t_count(h) as f64
+    fn count(h: f64) -> f64 {
+        t_count(h as u64) as f64
     }
 
     /// Descarta a fila deste documento.
     #[rtse::statical]
-    fn drop(h: Handle) {
-        t_drop(h);
+    fn drop(h: f64) {
+        t_drop(h as u64);
     }
 }

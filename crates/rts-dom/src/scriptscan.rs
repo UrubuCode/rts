@@ -295,84 +295,104 @@ fn in_ranges(ranges: &[(usize, usize)], pos: usize) -> bool {
 
 /// Nomes DECLARADOS pelo script (`var`/`let`/`const`/`function`/`class`/`catch`
 /// e parâmetros de função). Um nome daqui nunca é global implícito.
+///
+/// A varredura é CONTÍNUA sobre o texto: os spans dizem apenas o que IGNORAR
+/// (conteúdo de string/comentário/regex), nunca onde PARAR. A versão anterior
+/// iterava por span e terminava a lista de declaradores na fronteira — e uma
+/// cadeia `var a={…},b="txt",c=function(){}` atravessa spans a cada literal,
+/// então tudo depois do primeiro literal ficava fora de `declared`. Consequência
+/// real: no bundle da Meta, `Me` (declarado no meio de uma cadeia de 5 KB) era
+/// classificado como global implícito, virava `__G.Me` numa posição de BINDING
+/// (`var …,__G.Me=function(){}`) e o parser recusava — `var a.b = …` não é JS.
 fn scan_declared(src: &[u8], spans: &[(usize, usize)]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    for &(start, end) in spans {
-        let mut i = start;
-        while i < end {
-            if !is_id_start(src[i]) {
-                i += 1;
+    let n = src.len();
+    // `code[i]` = o byte `i` está em trecho de CÓDIGO (fora de string/comentário).
+    let mut code = vec![false; n];
+    for &(s, e) in spans {
+        for c in code.iter_mut().take(e.min(n)).skip(s.min(n)) {
+            *c = true;
+        }
+    }
+    let mut i = 0usize;
+    while i < n {
+        if !code[i] || !is_id_start(src[i]) {
+            i += 1;
+            continue;
+        }
+        let s = i;
+        while i < n && code[i] && is_id_part(src[i]) {
+            i += 1;
+        }
+        let w = &src[s..i];
+        let is_decl = w == b"var" || w == b"let" || w == b"const";
+        let is_fn = w == b"function" || w == b"class" || w == b"catch";
+        if !(is_decl || is_fn) {
+            continue;
+        }
+        // `var a = 1, b = 2` → a lista inteira até `;`/`)`, atravessando os
+        // literais que aparecerem no meio (só o CONTEÚDO deles é ignorado).
+        let mut j = i;
+        let mut guard = 0;
+        while j < n && guard < 4096 {
+            guard += 1;
+            while j < n && (!code[j] || src[j].is_ascii_whitespace()) {
+                j += 1;
+            }
+            if j < n && is_id_start(src[j]) {
+                let ns = j;
+                while j < n && code[j] && is_id_part(src[j]) {
+                    j += 1;
+                }
+                let name = String::from_utf8_lossy(&src[ns..j]).into_owned();
+                if !out.contains(&name) {
+                    out.push(name);
+                }
+            } else if j < n && (src[j] == b'(' || src[j] == b'{' || src[j] == b'[') {
+                // params / destructuring: entra e segue colhendo nomes
+                j += 1;
                 continue;
             }
-            let s = i;
-            while i < end && is_id_part(src[i]) {
-                i += 1;
+            while j < n && (!code[j] || src[j].is_ascii_whitespace()) {
+                j += 1;
             }
-            let w = &src[s..i];
-            let is_decl = w == b"var" || w == b"let" || w == b"const";
-            let is_fn = w == b"function" || w == b"class" || w == b"catch";
-            if !(is_decl || is_fn) {
+            if j >= n {
+                break;
+            }
+            // continua a lista só em `,`; qualquer outra coisa encerra
+            if src[j] == b',' {
+                j += 1;
                 continue;
             }
-            // `var a = 1, b = 2` → a lista inteira até `;`/`)`.
-            let mut j = i;
-            let mut guard = 0;
-            while j < end && guard < 4096 {
-                guard += 1;
-                while j < end && src[j].is_ascii_whitespace() {
-                    j += 1;
-                }
-                if j < end && is_id_start(src[j]) {
-                    let ns = j;
-                    while j < end && is_id_part(src[j]) {
-                        j += 1;
-                    }
-                    let name = String::from_utf8_lossy(&src[ns..j]).into_owned();
-                    if !out.contains(&name) {
-                        out.push(name);
-                    }
-                } else if j < end && (src[j] == b'(' || src[j] == b'{' || src[j] == b'[') {
-                    // params / destructuring: entra e segue colhendo nomes
-                    j += 1;
-                    continue;
-                }
-                while j < end && src[j].is_ascii_whitespace() {
-                    j += 1;
-                }
-                if j >= end {
-                    break;
-                }
-                // continua a lista só em `,`; qualquer outra coisa encerra
-                if src[j] == b',' {
-                    j += 1;
-                    continue;
-                }
-                if src[j] == b'=' {
-                    // pula o inicializador até a vírgula de topo ou o fim
-                    let mut depth = 0i32;
-                    while j < end {
-                        let d = src[j];
-                        if d == b'(' || d == b'[' || d == b'{' {
-                            depth += 1;
-                        } else if d == b')' || d == b']' || d == b'}' {
-                            if depth == 0 {
-                                break;
-                            }
-                            depth -= 1;
-                        } else if (d == b',' || d == b';') && depth == 0 {
-                            break;
-                        }
-                        j += 1;
-                    }
-                    if j < end && src[j] == b',' {
+            if src[j] == b'=' {
+                // pula o inicializador até a vírgula de topo ou o fim
+                let mut depth = 0i32;
+                while j < n {
+                    if !code[j] {
                         j += 1;
                         continue;
                     }
+                    let d = src[j];
+                    if d == b'(' || d == b'[' || d == b'{' {
+                        depth += 1;
+                    } else if d == b')' || d == b']' || d == b'}' {
+                        if depth == 0 {
+                            break;
+                        }
+                        depth -= 1;
+                    } else if (d == b',' || d == b';') && depth == 0 {
+                        break;
+                    }
+                    j += 1;
                 }
-                break;
+                if j < n && src[j] == b',' {
+                    j += 1;
+                    continue;
+                }
             }
-            i = i.max(s + 1);
+            break;
         }
+        i = i.max(s + 1);
     }
     out
 }

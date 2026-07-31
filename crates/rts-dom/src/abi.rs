@@ -65,6 +65,12 @@ pub extern "C" fn __RTS_FN_NS_DOM_CREATE_DOCUMENT() -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_DOM_FREE(h: u64) {
     crate::store::remove(h);
+    // O saco de globais e a fila de timers da PÁGINA morrem com o documento.
+    // Sem isto, o que um documento publicou continuava visível para o próximo
+    // (os handles são monotônicos, mas o estado ficava órfão no mapa) e um
+    // `setInterval` de uma página já fechada seguia disparando.
+    crate::scriptscope::drop_scope(h);
+    crate::timerscope::drop_timers(h);
 }
 
 /// `querySelector(domHandle, selector)` → `NodeId` versionado (`i64` ≥ 0) ou `-1`.
