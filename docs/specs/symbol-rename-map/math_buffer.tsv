@@ -97,10 +97,3 @@ __RTS_FN_GL_DATAVIEW_SET_BIGUINT64	global = "DataView", value = "setBigUint64"	_
 __RTS_FN_GL_DATAVIEW_GET_BIGUINT64	global = "DataView", value = "getBigUint64"	__rtsm_global_DataView_getBigUint64
 __RTS_FN_GL_TA_GET_ELEM	native, value = "ta_get_elem"	__rtsn_ta_get_elem
 __RTS_FN_GL_TA_SET_ELEM	native, value = "ta_set_elem"	__rtsn_ta_set_elem
-__RTS_FN_GL_TA_SET_FROM	native, value = "ta_set_from"	__rtsn_ta_set_from
-__RTS_FN_GL_TA_LENGTH	native, value = "ta_length"	__rtsn_ta_length
-__RTS_FN_GL_BUFFER_DETACH	native, value = "buffer_detach"	__rtsn_buffer_detach
-__RTS_FN_GL_ATOMICS_RMW	native, value = "atomics_rmw"	__rtsn_atomics_rmw
-__RTS_FN_GL_ATOMICS_CAS	native, value = "atomics_cas"	__rtsn_atomics_cas
-__RTS_FN_GL_ATOMICS_LOAD	native, value = "atomics_load"	__rtsn_atomics_load
-__RTS_FN_GL_ATOMICS_STORE	native, value = "atomics_store"	__rtsn_atomics_store

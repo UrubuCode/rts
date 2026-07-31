@@ -7,7 +7,7 @@
 
 use crate::heap::handles::{Entry, alloc_entry, with_entry};
 
-use super::{GEN_CURSORS, UNDEFINED, eager::open_vec_iterator};
+use super::GEN_CURSORS;
 
 // ── Iterator helpers (#306) ─────────────────────────────────────────────────
 // `Iterator.from(arr)` cria um iterator-wrapper: clona o Vec e usa o cursor

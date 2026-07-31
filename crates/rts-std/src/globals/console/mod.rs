@@ -2,14 +2,20 @@
 //! `#[rts_namespace]` pro modelo builder hand-written do `rts-engine` (rumo à
 //! remoção da `rts-macro`). Todos os membros são `external`: os símbolos
 //! apontam para `io.*` (codegen concatena os args variádicos antes de chamar);
-//! `fn_ptr` é null (o namespace `io` provê o ponteiro real). O runtime override
-//! side-table (`rt.rs`) fica intacto.
+//! `fn_ptr` é null (o namespace `io` provê o ponteiro real).
 //!
 //! Codegen ainda especializa `console.*` porque os métodos são variádicos
 //! (nº arbitrário de args de qualquer tipo), o que não cabe no ABI fixo
 //! `AbiType[]`; os `symbol` apontam para os alvos `io.*` reais.
-
-pub mod rt;
+//!
+//! **`rt.rs` was DELETED (2026-07-31, RTS_ORGANIZATION.md N7)**, and the doc
+//! line here that promised it "fica intacto" went with it. It held the runtime
+//! `console` override side-table (#310/#311/#312) and a `WRITE_AUTO` writer, all
+//! four symbols measured consumerless. Note what that means: because the members
+//! above are registered `external` against `__RTS_FN_NS_IO_PRINT`, the codegen
+//! never emitted a call to the override lookups — so runtime
+//! `(console as any).log = fn` was ALREADY non-functional. The deletion records
+//! that, it does not cause it.
 
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 

@@ -5,7 +5,9 @@ and step 6 of [`../no-mangle-drain.md`](../no-mangle-drain.md).
 
 ## What this is
 
-626 legacy symbols mapped to the new convention. Each row is TSV:
+**552** legacy symbols mapped to the new convention (626 originally; **74 rows
+were dropped on 2026-07-31 when N7 deleted the symbols they named** — see the N7
+section below). Each row is TSV:
 
 ```
 <legacy symbol>	<body of #[rtse::abi(...)]>	<resulting linker symbol>
@@ -64,10 +66,22 @@ data was never committed. Re-run one agent each (cheap, ~2 min):
   DRAIN_MOTOR; that dispatch is hardcoded in the front-end. Owner decision
   2026-07-31: map them as `__rtsm_global_<Class>_<js>` anyway — they WILL get a
   Registry row so JS can see them.
-* **~150 symbols have no consumer whatsoever** (every buffer `ATOMICS_*`, 4
-  `JSON_STRINGIFY_*`, ~104 of `collections` such as `SET_UNION` /
-  `VEC_TO_SPLICED`, `THIS_GET`, `STRING_FREE`). Owner decision: rename now,
-  audit for deletion separately (phase N7) — mixing deletion into a rename
-  destroys the diagnosis if something breaks.
+* **The consumerless symbols were DELETED, not renamed — N7 ran first
+  (2026-07-31).** The earlier plan here ("rename now, audit for deletion
+  separately") had the order backwards, and the reason is not bookkeeping: a row
+  mapping a dead `__RTS_FN_*` to `__rtsm_global_<Class>_<js>` would have given it
+  a Registry name and **resurrected it as TS surface** rather than deleting it.
+  The `Error`, `Reflect`, fetch `Response`/`Request` and console-override
+  families were all in that shape.
+
+  Measured: **173 dead, not ~150**, and the audit's "~104 of `collections`" was
+  wrong in a way that breaks the link — 119 exist, **75 dead, 44 live**. Full
+  list and the prefix traps: [`../dead-symbols-n7.md`](../dead-symbols-n7.md).
+
+  **166 symbols were deleted**; this map's rows were then filtered mechanically
+  against the re-baked table, dropping every row whose legacy name no longer
+  exists: `primitives_std` 59, `math_buffer` 7, `input_render_engine` 4,
+  `shared_a` 4 — **74 total**. That filter, not a hand review, is what makes the
+  remaining 552 a bijection with zero orphans.
 * `__RTS_FN_NS_GC_*` are NOT members of the `gc` namespace: `e.ns("gc")` exposes
   only `collect` / `live_count`, both already `__rtsn_*`.

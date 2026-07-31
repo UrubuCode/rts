@@ -47,9 +47,10 @@ pub use sm::*;
 
 /// Sentinel `undefined` (i64::MIN+2) — convencao do codegen/INSPECT.
 pub(crate) const UNDEFINED: i64 = i64::MIN + 2;
-/// Sentinels de bool: MIN = false, MIN+1 = true (igual TPL_COERCE_AUTO).
-pub(crate) const BOOL_FALSE: i64 = i64::MIN;
-pub(crate) const BOOL_TRUE: i64 = i64::MIN + 1;
+// The bool sentinels (MIN = false, MIN+1 = true) used to sit here beside
+// UNDEFINED. Nothing in the machinery half reads them — `make_result` writes a
+// real PolyValue `bool_word` and `read_result_parts` compares against it — so
+// they went with the split rather than being carried across for symmetry.
 
 thread_local! {
     /// Cursor de iteracao por handle de Vec consumido via `.next()`.

@@ -1,8 +1,7 @@
 //! `crypto` namespace — cryptographic primitives.
 //!
 //! SHA-256 (inline FIPS 180-4 + a streaming `sha2` hasher), hex/base64
-//! encode/decode, and an OS CSPRNG. `SHA256_DIGEST` (crypto.subtle.digest) is
-//! NOT a namespace member — it stays a free extern below.
+//! encode/decode, and an OS CSPRNG.
 //!
 //! Migrado do `#[rts_namespace]` pro modelo builder hand-written do `rts-engine`
 //! (rumo à remoção da `rts-macro`; ver pilotos hint/hash/ptr/mem/runtime).
@@ -11,7 +10,7 @@ use rts_engine::abi::ty::{Handle, I64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 use sha2::Digest;
 
-use rts_engine::heap::handles::{Entry, HasherState, alloc_entry, with_entry, with_entry_mut};
+use rts_engine::heap::handles::{Entry, HasherState, alloc_entry, with_entry_mut};
 
 use rts_engine::gc_surface::__RTS_FN_NS_GC_STRING_NEW;
 
@@ -229,22 +228,6 @@ fn os_random_into(buf: &mut [u8]) -> bool {
         Ok(mut f) => f.read_exact(buf).is_ok(),
         Err(_) => false,
     }
-}
-
-/// `crypto.subtle.digest("SHA-256", data)` — NOT a namespace member. Takes the
-/// HANDLE of the input (Buffer/Vec) and returns a Promise fulfilled with a
-/// Buffer of the 32 raw digest bytes.
-#[rtse::abi("__RTS_FN_NS_CRYPTO_SHA256_DIGEST")]
-pub fn __RTS_FN_NS_CRYPTO_SHA256_DIGEST(src: u64) -> u64 {
-    let bytes: Vec<u8> = with_entry(src, |entry| match entry {
-        Some(Entry::Buffer(b)) => b.clone(),
-        Some(Entry::Vec(v)) => v.iter().map(|&x| x as u8).collect(),
-        _ => Vec::new(),
-    });
-    let digest = sha256(&bytes);
-    let buf_h = alloc_entry(Entry::Buffer(digest.to_vec())) as i64;
-    let slot = crate::promise_slot::new_fulfilled(buf_h);
-    alloc_entry(Entry::PromiseAsync(slot))
 }
 
 /// Fills `len` bytes at `ptr` with CSPRNG data. 0 on success, -1 on error.

@@ -1,7 +1,26 @@
 # N7 — the consumerless symbols, measured
 
-**Status:** audit complete, deletion not yet executed. Measured 2026-07-31 against
-the baked table (`crates/rts-symbol-baker/generated/symbol_table.rs`, 2191 rows).
+**Status: EXECUTED 2026-07-31. 166 symbols deleted**, baked table 2191 → 2025,
+diff shows **166 removed and zero added**. Full TS suite unchanged against the
+baseline (772/775 files, 2841/2853 tests, same failing set re-run individually).
+
+Kept out of this pass, deliberately:
+
+- the **13 macro-named `__rtsn_`/`__rtsadp_` machinery** entries at the bottom of
+  this document. `__rtsn_stack_push`/`_pop`/`_depth` are the recursion-depth
+  guard, and "dead" there means the CODEGEN STOPPED EMITTING THEM — a missing
+  feature wearing a corpse's clothes. Deleting them would delete the diagnosis;
+- the **10 `rts-egui/src/widgets.rs`** entries. `rts-egui` is under the MANDATORY
+  egui-plan rule (`CLAUDE.md`): its frozen plan must be read in full first.
+
+**One entry in this audit was WRONG and the deletion agent refused it**, which is
+the check working: `__RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED` is listed below as
+second-wave ("only caller is a first-wave corpse"). It is not — it is also called
+by `__RTS_FN_GL_FUNCTION_REIFY` at `function/ops.rs:592`, which is live and on no
+list. Deleting it would have been a hard compile error. Kept.
+
+Measured 2026-07-31 against the baked table
+(`crates/rts-symbol-baker/generated/symbol_table.rs`, 2191 rows at the time).
 
 `RTS_ORGANIZATION.md` §5 N7 estimated "~150 symbols have no consumer at all".
 Measured: **173**. The families it names are right; **its collections number is

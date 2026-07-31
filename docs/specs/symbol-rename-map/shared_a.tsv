@@ -56,10 +56,6 @@ __RTS_FN_NS_JSON_AS_F64	module = "json", value = "as_f64"	__rtsm_json_as_f64
 __RTS_FN_NS_JSON_AS_STRING	module = "json", value = "as_string"	__rtsm_json_as_string
 __RTS_FN_NS_JSON_OBJECT_HAS	module = "json", value = "object_has"	__rtsm_json_object_has
 __RTS_FN_NS_JSON_PARSE5	module = "JSON5", value = "parse"	__rtsm_JSON5_parse
-__RTS_FN_NS_JSON_STRINGIFY_KEYS	module = "json", value = "stringify_keys"	__rtsm_json_stringify_keys
-__RTS_FN_NS_JSON_STRINGIFY_PRETTY_STR	module = "json", value = "stringify_pretty_str"	__rtsm_json_stringify_pretty_str
-__RTS_FN_NS_JSON_STRINGIFY_REPLACER_FN	module = "json", value = "stringify_replacer_fn"	__rtsm_json_stringify_replacer_fn
-__RTS_FN_NS_JSON_STRINGIFY_TYPED	module = "json", value = "stringify_typed"	__rtsm_json_stringify_typed
 __RTS_FN_NS_PTR_NULL	module = "ptr", value = "null"	__rtsm_ptr_null
 __RTS_FN_NS_PTR_IS_NULL	module = "ptr", value = "is_null"	__rtsm_ptr_is_null
 __RTS_FN_NS_PTR_READ_I64	module = "ptr", value = "read_i64"	__rtsm_ptr_read_i64

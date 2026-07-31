@@ -284,25 +284,6 @@ pub fn dispatch_construct(target: u64, handler: u64, args_handle: u64) -> u64 {
     r as u64
 }
 
-/// Wrapper exposto pra codegen: `Reflect.construct(target, args)`. Quando
-/// target eh Proxy, dispara trap construct. Senao, faz o caminho default
-/// (alocar Map + apply). Mantido como fn separada do codegen pra evitar
-/// duplicar logica em cada call site.
-#[rtse::abi("__RTS_FN_GL_REFLECT_CONSTRUCT")]
-pub fn __RTS_FN_GL_REFLECT_CONSTRUCT(target: u64, args_handle: u64) -> u64 {
-    if let Some((real_target, handler)) = resolve_proxy(target) {
-        return dispatch_construct(real_target, handler, args_handle);
-    }
-    // Forward default: aloca instancia + apply.
-    let inst = alloc_entry(Entry::Map(Box::new(indexmap::IndexMap::new())));
-    let _ = crate::function::ops::__RTS_FN_GL_FUNCTION_APPLY_TYPED(
-        target,
-        inst as i64,
-        args_handle,
-    );
-    inst
-}
-
 /// Trap `setPrototypeOf(target, proto)`. Retorna 1 (true) na convencao
 /// JS spec (failure-modes em invariants ficam pra phase com
 /// preventExtensions real).
@@ -319,20 +300,6 @@ pub fn dispatch_set_proto(target: u64, handler: u64, proto: u64) -> i64 {
     let trap_args = build_args_vec(&[target as i64, proto as i64]);
     let r = unsafe { __RTS_FN_RT_INVOKE_AUTO(trap, 0, trap_args) };
     if r != 0 { 1 } else { 0 }
-}
-
-/// Wrapper: `Reflect.setPrototypeOf(target, proto)`. Detecta Proxy e
-/// despacha a trap correspondente; senao faz forward direto.
-#[rtse::abi("__RTS_FN_GL_REFLECT_SET_PROTOTYPE_OF")]
-pub fn __RTS_FN_GL_REFLECT_SET_PROTOTYPE_OF(target: u64, proto: u64) -> i64 {
-    if let Some((real_target, handler)) = resolve_proxy(target) {
-        return dispatch_set_proto(real_target, handler, proto);
-    }
-    let key = "__proto__";
-    unsafe {
-        __RTS_FN_NS_COLLECTIONS_MAP_SET(target, key.as_ptr(), key.len() as i64, proto as i64);
-    }
-    1
 }
 
 /// Trap `defineProperty(target, key, descriptor)`. Retorna 1 (true) em
@@ -446,31 +413,6 @@ fn forward_get_own_property_descriptor(target: u64, key_handle: u64) -> u64 {
         },
     );
     alloc_entry(Entry::Map(Box::new(desc)))
-}
-
-/// Wrappers expostos pra codegen — trocam os entry-points existentes
-/// em globals/reflect/ops.rs por versoes proxy-aware.
-#[rtse::abi("__RTS_FN_GL_REFLECT_DEFINE_PROPERTY_PROXY")]
-pub fn __RTS_FN_GL_REFLECT_DEFINE_PROPERTY_PROXY(
-    target: u64,
-    key_handle: u64,
-    descriptor: u64,
-) -> i64 {
-    if let Some((real_target, handler)) = resolve_proxy(target) {
-        return dispatch_define_property(real_target, handler, key_handle, descriptor);
-    }
-    forward_define_property(target, key_handle, descriptor)
-}
-
-#[rtse::abi("__RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_PROXY")]
-pub fn __RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_PROXY(
-    target: u64,
-    key_handle: u64,
-) -> u64 {
-    if let Some((real_target, handler)) = resolve_proxy(target) {
-        return dispatch_get_own_property_descriptor(real_target, handler, key_handle);
-    }
-    forward_get_own_property_descriptor(target, key_handle)
 }
 
 #[cfg(test)]

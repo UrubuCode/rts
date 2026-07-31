@@ -90,7 +90,14 @@ pub mod number;
 pub mod object;
 pub mod promise;
 pub mod proxy;
-pub mod reflect;
+// `reflect` was DELETED 2026-07-31 (RTS_ORGANIZATION.md N7). Its three symbols —
+// `REFLECT_GET_OWN_PROPERTY_DESCRIPTOR`, `OBJECT_GET_OWN_PROPERTY_DESCRIPTORS`,
+// `REFLECT_DEFINE_PROPERTY` — had no consumer of any kind, and nothing else
+// lived in the module. That leaves `Reflect` fully served the way its own doc
+// already said the rest of it was: `get`/`set`/`has`/`deleteProperty`/`ownKeys`/
+// `getPrototypeOf`/`setPrototypeOf`/`isExtensible`/`preventExtensions` are
+// dispatched in `lower_call` straight onto `collections.map_*` / `Object.*`,
+// with no dedicated fn here (#218).
 pub mod regexp;
 pub mod string;
 pub mod symbol;

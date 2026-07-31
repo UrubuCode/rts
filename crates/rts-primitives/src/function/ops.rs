@@ -4,9 +4,7 @@
 //! por aridade ate 8. Funciona porque user fns com address taken usam
 //! default_call_conv (SystemV/Win64), igual extern "C" Rust.
 
-use rts_engine::heap::handles::{
-    alloc_entry, with_entry, with_entry_mut, Entry, FunctionData,
-};
+use rts_engine::heap::handles::{alloc_entry, with_entry, Entry, FunctionData};
 use std::sync::{Arc, Mutex, OnceLock};
 
 // (Fase 2.3) Function é primordial e migra p/ `rts-primitives`, que NÃO pode
@@ -17,7 +15,6 @@ use std::sync::{Arc, Mutex, OnceLock};
 unsafe extern "C" {
     fn __RTS_FN_NS_COLLECTIONS_MAP_NEW() -> u64;
     fn __RTS_FN_RT_MAP_SET_STR(map: u64, key_ptr: *const u8, key_len: i64, val: i64);
-    fn __RTS_FN_RT_MAP_GET_STR(map: u64, key_ptr: *const u8, key_len: i64) -> i64;
     fn __RTS_FN_RT_MAP_MARK_NON_ENUM(map: u64, key_ptr: *const u8, key_len: i64);
     fn __RTS_FN_RT_PROXY_RESOLVE(handle: u64, out_target: *mut u64, out_handler: *mut u64) -> i64;
     fn __RTS_FN_RT_PROXY_DISPATCH_APPLY(
@@ -607,37 +604,7 @@ pub fn __RTS_FN_GL_FUNCTION_REIFY(
     )
 }
 
-/// REIFY com bound_this. Usado para reificação de método de instância:
-/// `c.add` em posição de valor → handle Function pré-bindado em `c`.
-/// Quando `bind_this != 0`, o handle resultante tem `has_bound_this=true`
-/// e `bound_this=bind_this`.
-#[rtse::abi("__RTS_FN_GL_FUNCTION_REIFY_BOUND")]
-pub fn __RTS_FN_GL_FUNCTION_REIFY_BOUND(
-    fn_ptr: u64,
-    arity: i64,
-    name_ptr: i64,
-    name_len: i64,
-    is_arrow: i32,
-    has_this_param: i32,
-    bound_this: i64,
-    has_bound_this: i32,
-) -> u64 {
-    __RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED(
-        fn_ptr,
-        arity,
-        name_ptr,
-        name_len,
-        is_arrow,
-        has_this_param,
-        bound_this,
-        has_bound_this,
-        0,
-        0,
-        0,
-    )
-}
-
-/// REIFY_BOUND com signature ABI (`param_kinds_ptr/len`, `return_kind`).
+/// REIFY com signature ABI (`param_kinds_ptr/len`, `return_kind`).
 /// Usado para reificação de método de classe com tipos não-i64.
 /// `param_kinds` codifica cada param: 0=i64, 1=f64, 2=bool, 3=i32 (este
 /// codifica o param já incluindo `this` quando aplicável).
@@ -687,66 +654,6 @@ pub fn __RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED(
         keep_alive: None,
         prototype_handle: 0,
         rest_param_idx: -1,
-        uniform_thunk: false,
-    })))
-}
-
-/// (#195) Reifica uma arrow liftada com variaveis CAPTURADAS por valor.
-/// `bound_args_handle` aponta um `Entry::Vec` com os valores das capturas, na
-/// mesma ordem em que aparecem como params INICIAIS da fn liftada. Em cada
-/// invocacao, FUNCTION_CALL/INVOKE_AUTO fazem `all_args = bound_args ++
-/// args_reais` — semantica de captura-por-valor por-ativacao (curry/recursao
-/// corretos, ao contrario do antigo promote-to-global compartilhado).
-///
-/// `param_kinds_ptr/len` descreve TODOS os params (capturas + proprios) pra
-/// que `invoke_typed` reinterprete f64-bits corretamente.
-#[rtse::abi("__RTS_FN_GL_FUNCTION_REIFY_CAPTURED")]
-pub fn __RTS_FN_GL_FUNCTION_REIFY_CAPTURED(
-    fn_ptr: u64,
-    arity: i64,
-    name_ptr: i64,
-    name_len: i64,
-    is_arrow: i32,
-    has_this_param: i32,
-    bound_args_handle: u64,
-    param_kinds_ptr: i64,
-    param_kinds_len: i64,
-    return_kind: i32,
-    rest_idx: i32,
-) -> u64 {
-    let name = if name_ptr != 0 && name_len > 0 {
-        unsafe {
-            let bytes = std::slice::from_raw_parts(name_ptr as *const u8, name_len as usize);
-            std::str::from_utf8(bytes).unwrap_or("anonymous").to_owned()
-        }
-    } else {
-        "anonymous".to_owned()
-    };
-    let bound_args = read_args_vec(bound_args_handle);
-    let param_kinds = if param_kinds_ptr != 0 && param_kinds_len > 0 {
-        unsafe {
-            std::slice::from_raw_parts(param_kinds_ptr as *const u8, param_kinds_len as usize)
-                .to_vec()
-        }
-    } else {
-        Vec::new()
-    };
-    alloc_entry(Entry::Function(Box::new(FunctionData {
-        fn_ptr,
-        arity: arity.clamp(0, 255) as u8,
-        name: name.into_boxed_str(),
-        bound_this: 0,
-        has_bound_this: false,
-        bound_args,
-        is_arrow: is_arrow != 0,
-        has_this_param: has_this_param != 0,
-        param_kinds,
-        return_kind: return_kind.clamp(0, 4) as u8,
-        packed_shim: 0,
-        source: None,
-        keep_alive: None,
-        prototype_handle: 0,
-        rest_param_idx: rest_idx,
         uniform_thunk: false,
     })))
 }
@@ -1032,110 +939,6 @@ pub fn __RTS_FN_GL_FUNCTION_APPLY_TYPED(
     __RTS_FN_GL_FUNCTION_CALL(handle, this_arg, new_handle)
 }
 
-/// `fn.bind(thisArg, ...args)` — retorna nova Function com partial.
-#[rtse::abi("__RTS_FN_GL_FUNCTION_BIND")]
-pub fn __RTS_FN_GL_FUNCTION_BIND(handle: u64, this_arg: i64, args_handle: u64) -> u64 {
-    let original = with_entry(handle, |e| {
-        if let Some(Entry::Function(d)) = e {
-            Some((
-                d.fn_ptr,
-                d.arity,
-                d.name.clone(),
-                d.bound_args.clone(),
-                d.is_arrow,
-                d.has_this_param,
-                d.param_kinds.clone(),
-                d.return_kind,
-                d.source.clone(),
-                d.keep_alive.clone(),
-                d.has_bound_this,
-                d.bound_this,
-                d.packed_shim,
-            ))
-        } else {
-            None
-        }
-    });
-    let Some((
-        fn_ptr,
-        arity,
-        name,
-        mut bound_args,
-        is_arrow,
-        has_this_param,
-        param_kinds,
-        return_kind,
-        source,
-        keep_alive,
-        had_bound_this,
-        prev_bound_this,
-        packed_shim,
-    )) = original
-    else {
-        return 0;
-    };
-
-    // (cross-runtime #49) Converte args int->f64.to_bits baseado em
-    // param_kinds antes de armazenar — bound_args fica em formato
-    // consistente com APPLY_TYPED, que invoke_typed depois interpreta
-    // como bits f64 quando pk[i]==1. Sem isso, `add.bind(null, 5)`
-    // armazenava `5` como i64 puro e invoke_typed via como denormal.
-    let new_args = read_args_vec(args_handle);
-    let prev_n = bound_args.len();
-    let offset = if !is_arrow && has_this_param { 1 } else { 0 };
-    let last_kind = param_kinds.last().copied().unwrap_or(0);
-    for (i, &v) in new_args.iter().enumerate() {
-        let pk_idx = i + offset + prev_n;
-        let pk = param_kinds.get(pk_idx).copied().unwrap_or(last_kind);
-        let converted = if pk == 1 { f64_to_i64(v as f64) } else { v };
-        bound_args.push(converted);
-    }
-
-    // Bind preserva primeiro bind feito (Node spec: re-bind nao troca thisArg).
-    let (final_this, final_has) = if had_bound_this {
-        (prev_bound_this, true)
-    } else {
-        (this_arg, true)
-    };
-
-    alloc_entry(Entry::Function(Box::new(FunctionData {
-        fn_ptr,
-        arity,
-        name,
-        bound_this: final_this,
-        has_bound_this: final_has,
-        bound_args,
-        is_arrow,
-        has_this_param,
-        param_kinds,
-        return_kind,
-        packed_shim,
-        source,
-        keep_alive,
-        prototype_handle: 0,
-        rest_param_idx: -1,
-        uniform_thunk: false,
-    })))
-}
-
-/// (#264) Registry global `fn_ptr → prototype_handle`. Indexa pelo
-/// endereco de codigo da user fn (estavel ao longo da execucao do JIT).
-/// Necessario porque cada `Animal.prototype` no codigo TS cria nova
-/// Entry::Function via REIFY — armazenar prototype dentro da Entry
-/// faria cada acesso retornar Map diferente.
-///
-/// NB: isto e' `F.prototype` (o OBJETO que `new F()` da como `[[Prototype]]` das
-/// instancias), NAO o `[[Prototype]]` da PROPRIA funcao (que e' `Function.prototype`,
-/// resolvido pelo resolver unificado `proto_of_value` → `function_proto_root`).
-/// Conceitos distintos — este registry NAO e' uma duplicata do proto-foundation.
-static FN_PROTOTYPE_REGISTRY: std::sync::OnceLock<
-    std::sync::Mutex<std::collections::HashMap<u64, u64>>,
-> = std::sync::OnceLock::new();
-
-fn proto_registry() -> &'static std::sync::Mutex<std::collections::HashMap<u64, u64>> {
-    FN_PROTOTYPE_REGISTRY.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
-}
-
 /// (cross-runtime closures) Registry `fn_ptr -> (param_kinds, return_kind)`.
 /// O codegen reifica VALORES de user fn como `func_addr` cru (não handle) para
 /// preservar o `call_indirect` rápido; mas quando essa fn vira uma captura/arg
@@ -1198,25 +1001,6 @@ static FN_DEFAULTS_REGISTRY: std::sync::OnceLock<
 
 fn fn_defaults_registry() -> &'static std::sync::RwLock<std::collections::HashMap<u64, Vec<i64>>> {
     FN_DEFAULTS_REGISTRY.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()))
-}
-
-/// Registra os defaults (já encodados) de uma user fn pelo endereço.
-#[rtse::abi("__RTS_FN_RT_REGISTER_FN_DEFAULTS")]
-pub fn __RTS_FN_RT_REGISTER_FN_DEFAULTS(
-    fn_ptr: u64,
-    defaults_ptr: i64,
-    defaults_len: i64,
-) {
-    if fn_ptr == 0 || defaults_ptr == 0 || defaults_len <= 0 {
-        return;
-    }
-    let defs: Vec<i64> =
-        unsafe { std::slice::from_raw_parts(defaults_ptr as *const i64, defaults_len as usize) }
-            .to_vec();
-    let mut reg = fn_defaults_registry()
-        .write()
-        .unwrap_or_else(|e| e.into_inner());
-    reg.insert(fn_ptr, defs);
 }
 
 /// Preenche `args` até `arity` usando os defaults registrados de `fn_ptr`
@@ -1328,95 +1112,6 @@ pub fn __RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE() -> u64 {
     })
 }
 
-/// (#264) Lazy-aloca e retorna o handle de `fn.prototype`.
-/// Constructor functions usam isto pra anexar metodos compartilhados.
-/// Primeiro acesso aloca um Map vazio; chamadas subsequentes retornam o mesmo
-/// (indexado pelo fn_ptr da Function entry, estavel entre REIFYs).
-#[rtse::abi("__RTS_FN_GL_FUNCTION_PROTOTYPE_GET")]
-pub fn __RTS_FN_GL_FUNCTION_PROTOTYPE_GET(handle: u64) -> u64 {
-    let fn_ptr = with_entry(handle, |e| {
-        if let Some(Entry::Function(d)) = e {
-            Some(d.fn_ptr)
-        } else {
-            None
-        }
-    });
-    // (cross-runtime #344) A closure / address-taken fn may reach here as a raw
-    // func_addr (not a reified Entry::Function handle). Key the prototype
-    // registry by the address itself so GET/SET on the same value round-trip.
-    let fn_ptr = fn_ptr.unwrap_or(handle);
-    // Caminho rapido: ja existe.
-    {
-        let registry = proto_registry().lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(&h) = registry.get(&fn_ptr) {
-            return h;
-        }
-    }
-    // Aloca novo Map FORA do lock pra evitar reentrant locks com shards.
-    let new_proto = unsafe { __RTS_FN_NS_COLLECTIONS_MAP_NEW() };
-    // (cross-runtime #336) Popula `constructor` slot no prototype Map.
-    // JS spec: `C.prototype.constructor === C`. Sem isso,
-    // `Object.getPrototypeOf(c).constructor` retorna 0 e iteracao do
-    // prototype chain (`while (proto) { chain.push(proto.constructor.name); }`)
-    // nao consegue extrair nomes das classes da hierarquia.
-    unsafe {
-        __RTS_FN_RT_MAP_SET_STR(new_proto, b"constructor".as_ptr(), 11, handle as i64);
-    }
-    // (cross-runtime #377) `constructor` slot eh non-enumerable em JS spec
-    // — class methods (incluindo constructor sintetico) nao aparecem em
-    // `for...in`. Sem isso, fixture 377_for_in_detail reportava
-    // `x,constructor` em vez de so' `x`.
-    unsafe {
-        __RTS_FN_RT_MAP_MARK_NON_ENUM(new_proto, b"constructor".as_ptr(), 11);
-    }
-    // Insere; se outra thread venceu a corrida, descarta o nosso.
-    let mut registry = proto_registry().lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(&existing) = registry.get(&fn_ptr) {
-        drop(registry);
-        let _ = rts_engine::heap::handles::free_handle(new_proto);
-        return existing;
-    }
-    registry.insert(fn_ptr, new_proto);
-    // Tambem atualiza o slot (mantido para tracing GC transitivo via mark).
-    drop(registry);
-    let _ = with_entry_mut(handle, |e| {
-        if let Some(Entry::Function(d)) = e {
-            d.prototype_handle = new_proto;
-        }
-        ()
-    });
-    new_proto
-}
-
-/// (cross-runtime #387) `instance instanceof Ctor` para FUNCAO-CONSTRUTORA
-/// (pre-ES6). Semantica JS: anda a `__proto__` chain de `instance` e
-/// retorna true se algum elo for identico a `Ctor.prototype` (`ctor_h` eh o
-/// handle Function da fn-construtora). Cobre heranca via
-/// `Dog.prototype = Object.create(Animal.prototype)`: a chain da instancia
-/// passa por Dog.prototype e Animal.prototype, entao `d instanceof Animal`
-/// tambem casa. Retorna 0/1 (bool sentinel decidido pelo codegen).
-#[rtse::abi("__RTS_FN_RT_INSTANCEOF_PROTO")]
-pub fn __RTS_FN_RT_INSTANCEOF_PROTO(instance_h: u64, ctor_h: u64) -> i64 {
-    // Resolve Ctor.prototype (lazy-aloca se preciso — mesma fn que `new` usa).
-    let target_proto = __RTS_FN_GL_FUNCTION_PROTOTYPE_GET(ctor_h);
-    if target_proto == 0 {
-        return 0;
-    }
-    let read_proto =
-        |h: u64| -> i64 { unsafe { __RTS_FN_RT_MAP_GET_STR(h, b"__proto__".as_ptr(), 9) } };
-    // Anda a __proto__ chain da instancia.
-    let mut current = read_proto(instance_h);
-    let mut depth = 0u32;
-    while current != 0 && depth < 64 {
-        if current as u64 == target_proto {
-            return 1;
-        }
-        current = read_proto(current as u64);
-        depth += 1;
-    }
-    0
-}
-
 /// (#proto-method) Auto-dispatch: se \`callee\` eh handle Function valido,
 /// chama via invoke_typed (com return_kind correto). Senao trata como
 /// fn_ptr cru e faz invoke_n (todos i64). Usado por
@@ -1428,66 +1123,6 @@ pub fn __RTS_FN_RT_INSTANCEOF_PROTO(instance_h: u64, ctor_h: u64) -> i64 {
 #[rtse::abi("__RTS_FN_RT_INVOKE_AUTO")]
 pub fn __RTS_FN_RT_INVOKE_AUTO(callee: i64, this_arg: i64, args_handle: u64) -> i64 {
     invoke_auto_impl(callee, this_arg, args_handle, None)
-}
-
-/// (#1078/#341) INVOKE_AUTO com return_kind explicito do call site.
-/// `override_return_kind`: 255 = usar o do handle; 0/1/2/3 = forcar
-/// i64/f64/bool/i32. O override so' eh aplicado quando o handle nao tem
-/// return_kind proprio (rk=0). Usado quando o codegen sabe o tipo de retorno
-/// do metodo de prototype (ex: `circ.area(): number` via Math.sqrt) — sem
-/// isso o trampolim invoca como `-> i64` e trunca o f64 (le RAX/XMM0 errado).
-#[rtse::abi("__RTS_FN_RT_INVOKE_AUTO_TYPED")]
-pub fn __RTS_FN_RT_INVOKE_AUTO_TYPED(
-    callee: i64,
-    this_arg: i64,
-    args_handle: u64,
-    override_return_kind: i32,
-) -> i64 {
-    let ov = if override_return_kind == 255 {
-        None
-    } else {
-        Some(override_return_kind as u8)
-    };
-    invoke_auto_impl(callee, this_arg, args_handle, ov)
-}
-
-/// (issue-pai invoke/param_kinds) Invoca o callable e NORMALIZA o retorno para
-/// f64-bits, qualquer que seja o return_kind real. Resolve HOF: `apply(f, x)`
-/// onde `f: (n)=>number` — o callee pode ser user fn f64-ret (handle, retorna
-/// bits f64), OU function expression i64-ret (fn_ptr raw, retorna int). Esta fn
-/// unifica: f64-ret -> bits ja' corretos; i64-ret -> converte (i as f64) e
-/// devolve os bits. O codegen sempre bitcast o resultado p/ f64. Sem isto, o
-/// mesmo `f(x)` no body de `apply` nao saberia tratar os dois callees.
-#[rtse::abi("__RTS_FN_RT_INVOKE_AUTO_AS_F64")]
-pub fn __RTS_FN_RT_INVOKE_AUTO_AS_F64(
-    callee: i64,
-    this_arg: i64,
-    args_handle: u64,
-) -> i64 {
-    // Handle Function declara param_kinds/return_kind; fn_ptr raw (function
-    // expression hoistada) eh i64-ABI sem kinds.
-    let fdata = read_function_data(callee as u64);
-    let is_handle = fdata.is_some();
-    let rk = fdata
-        .map(|(_, _, _, _, _, _, _, return_kind)| return_kind)
-        .unwrap_or(0);
-    if !is_handle {
-        // fn_ptr raw i64-ABI: o caller empacotou os args number como bits f64.
-        // Converte cada arg de bits-f64 -> i64 truncado antes de invocar, p/
-        // que a fn i64-param (function expression) receba o numero correto.
-        // Depois converte o retorno i64 -> bits f64 (normalizacao).
-        let conv = convert_f64bits_args_to_i64(args_handle);
-        let r = invoke_auto_impl(callee, this_arg, conv, None);
-        return f64_to_i64(r as f64);
-    }
-    let r = invoke_auto_impl(callee, this_arg, args_handle, None);
-    if rk == 1 {
-        // Handle f64-ret ja' retorna bits f64 — passa direto.
-        r
-    } else {
-        // Handle i64-ret/bool: converte p/ f64 e devolve os bits.
-        f64_to_i64(r as f64)
-    }
 }
 
 /// Invoca um CALLABLE em qualquer das convenções vivas, com args crus:
@@ -1599,31 +1234,6 @@ fn word_to_raw(w: u64) -> i64 {
     } else {
         w as i64
     }
-}
-
-/// (issue-pai) Para invoke de fn_ptr raw i64-ABI: os args number vieram como
-/// bits-f64 (convencao do call site dinamico). Aloca um novo args Vec com cada
-/// elemento convertido de bits-f64 -> i64 truncado, p/ a fn i64-param ler o
-/// valor inteiro correto. Handles/sentinels (fora do range f64 finito comum)
-/// passam direto.
-fn convert_f64bits_args_to_i64(args_handle: u64) -> u64 {
-    let args = read_args_vec(args_handle);
-    let conv: Vec<i64> = args
-        .iter()
-        .map(|&a| {
-            let f = i64_to_f64(a);
-            // So' converte quando parece um number f64 finito "limpo"; handles
-            // (valores grandes/NaN bits) passam crus.
-            if f.is_finite() && f.fract() == 0.0 && f.abs() < 9.007e15 {
-                f as i64
-            } else {
-                a
-            }
-        })
-        .collect();
-    rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(
-        Box::new(conv),
-    ))
 }
 
 fn invoke_auto_impl(
@@ -1743,33 +1353,6 @@ fn invoke_auto_impl(
     r
 }
 
-/// (#264 PR4+) Substitui o prototype Map de uma user fn.
-/// \`Dog.prototype = Object.create(Animal.prototype)\` precisa atualizar
-/// o registry para que \`new Dog\` instale a chain correta.
-#[rtse::abi("__RTS_FN_GL_FUNCTION_PROTOTYPE_SET")]
-pub fn __RTS_FN_GL_FUNCTION_PROTOTYPE_SET(handle: u64, new_proto: u64) {
-    let fn_ptr = with_entry(handle, |e| {
-        if let Some(Entry::Function(d)) = e {
-            Some(d.fn_ptr)
-        } else {
-            None
-        }
-    });
-    // (cross-runtime #344) Raw func_addr (closure / address-taken fn): key by the
-    // address itself, matching FUNCTION_PROTOTYPE_GET's fallback.
-    let fn_ptr = fn_ptr.unwrap_or(handle);
-    let mut registry = proto_registry().lock().unwrap_or_else(|e| e.into_inner());
-    registry.insert(fn_ptr, new_proto);
-    drop(registry);
-    // Atualiza tambem o slot da Function para tracing GC continuar valido.
-    let _ = with_entry_mut(handle, |e| {
-        if let Some(Entry::Function(d)) = e {
-            d.prototype_handle = new_proto;
-        }
-        ()
-    });
-}
-
 #[rtse::abi("__RTS_FN_GL_FUNCTION_NAME")]
 pub fn __RTS_FN_GL_FUNCTION_NAME(handle: u64) -> u64 {
     let name = with_entry(handle, |e| {
@@ -1793,20 +1376,4 @@ pub fn __RTS_FN_GL_FUNCTION_LENGTH(handle: u64) -> i64 {
             0
         }
     })
-}
-
-#[rtse::abi("__RTS_FN_GL_FUNCTION_TO_STRING")]
-pub fn __RTS_FN_GL_FUNCTION_TO_STRING(handle: u64) -> u64 {
-    let s = with_entry(handle, |e| {
-        if let Some(Entry::Function(d)) = e {
-            if let Some(src) = &d.source {
-                src.to_string()
-            } else {
-                format!("function {}() {{ [native code] }}", d.name)
-            }
-        } else {
-            String::new()
-        }
-    });
-    alloc_entry(Entry::String(s.into_bytes()))
 }

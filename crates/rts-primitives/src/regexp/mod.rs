@@ -3,10 +3,6 @@
 //! Migrado do `#[rts_class]` (macro) pro modelo builder hand-written do
 //! `rts-engine` (rumo à remoção da `rts-macro`). Os externs
 //! `__RTS_FN_GL_REGEXP_*` + `register_regexp_class_spec()` são escritos à mão.
-//! As fns `__RTS_FN_GL_REGEXP_LAST_INDEX_SET` e
-//! `__RTS_FN_GL_REGEXP_INDICES_GROUPS` NAO sao membros da classe (chamadas pelo
-//! codegen por simbolo) e ficam como free fns abaixo, junto dos helpers da
-//! side-table.
 
 use rts_engine::abi::ty::{Bool, Handle, I64};
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
@@ -484,28 +480,4 @@ pub fn register_regexp_class_spec(e: &mut Engine) {
         ))
         .instanceof_predicate("__RTS_FN_NS_GC_IS_REGEX")
         .done();
-}
-
-// ── Non-member externs (codegen calls by symbol). ────────────────────────────
-
-/// (#70/#1162) Lookup: dado handle de indices Vec, retorna handle do Map de
-/// named groups indices. 0 se nao registrado.
-#[rtse::abi("__RTS_FN_GL_REGEXP_INDICES_GROUPS")]
-pub fn __RTS_FN_GL_REGEXP_INDICES_GROUPS(vec_handle: u64) -> u64 {
-    indices_groups_table()
-        .lock()
-        .ok()
-        .and_then(|t| t.get(&vec_handle).copied())
-        .unwrap_or(0)
-}
-
-/// (#782) `re.lastIndex = N` — setter direto.
-#[rtse::abi("__RTS_FN_GL_REGEXP_LAST_INDEX_SET")]
-pub fn __RTS_FN_GL_REGEXP_LAST_INDEX_SET(handle: u64, n: i64) {
-    let v = if n < 0 { 0 } else { n as usize };
-    with_entry_mut(handle, |entry| {
-        if let Some(Entry::Regex(rx)) = entry {
-            rx.last_index = v;
-        }
-    });
 }

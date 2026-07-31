@@ -1,44 +1,16 @@
 __RTS_FN_GL_FUNCTION_REIFY	native, value = "function_reify"	__rtsn_function_reify
-__RTS_FN_GL_FUNCTION_REIFY_BOUND	native, value = "function_reify_bound"	__rtsn_function_reify_bound
 __RTS_FN_GL_FUNCTION_REIFY_BOUND_TYPED	native, value = "function_reify_bound_typed"	__rtsn_function_reify_bound_typed
-__RTS_FN_GL_FUNCTION_REIFY_CAPTURED	native, value = "function_reify_captured"	__rtsn_function_reify_captured
 __RTS_FN_GL_FUNCTION_NEW	global = "Function", value = "new"	__rtsm_global_Function_new
 __RTS_FN_GL_FUNCTION_CALL	global = "Function", value = "call"	__rtsm_global_Function_call
 __RTS_FN_GL_FUNCTION_APPLY	global = "Function", value = "apply"	__rtsm_global_Function_apply
 __RTS_FN_GL_FUNCTION_APPLY_TYPED	global = "Function", value = "apply", overload = "typed"	__rtsm_global_Function_apply_typed
-__RTS_FN_GL_FUNCTION_BIND	global = "Function", value = "bind"	__rtsm_global_Function_bind
-__RTS_FN_GL_FUNCTION_PROTOTYPE_GET	global = "Function", value = "prototype"	__rtsm_global_Function_prototype
-__RTS_FN_GL_FUNCTION_PROTOTYPE_SET	global = "Function", value = "prototype", overload = "set"	__rtsm_global_Function_prototype_set
 __RTS_FN_GL_FUNCTION_NAME	global = "Function", value = "name"	__rtsm_global_Function_name
 __RTS_FN_GL_FUNCTION_LENGTH	global = "Function", value = "length"	__rtsm_global_Function_length
-__RTS_FN_GL_FUNCTION_TO_STRING	global = "Function", value = "toString"	__rtsm_global_Function_toString
 __RTS_FN_RT_REGISTER_FN_KINDS	native, value = "register_fn_kinds"	__rtsn_register_fn_kinds
-__RTS_FN_RT_REGISTER_FN_DEFAULTS	native, value = "register_fn_defaults"	__rtsn_register_fn_defaults
 __RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE	native, value = "object_prototype_handle"	__rtsn_object_prototype_handle
-__RTS_FN_RT_INSTANCEOF_PROTO	native, value = "instanceof_proto"	__rtsn_instanceof_proto
 __RTS_FN_RT_INVOKE_AUTO	native, value = "invoke_auto"	__rtsn_invoke_auto
-__RTS_FN_RT_INVOKE_AUTO_TYPED	native, value = "invoke_auto_typed"	__rtsn_invoke_auto_typed
-__RTS_FN_RT_INVOKE_AUTO_AS_F64	native, value = "invoke_auto_as_f64"	__rtsn_invoke_auto_as_f64
-__RTS_FN_RT_FUNCTION_SET_PROP	native, value = "function_set_prop"	__rtsn_function_set_prop
-__RTS_FN_RT_FUNCTION_GET_PROP	native, value = "function_get_prop"	__rtsn_function_get_prop
-__RTS_FN_RT_FUNCTION_TO_STRING_DYN	native, value = "function_to_string_dyn"	__rtsn_function_to_string_dyn
-__RTS_FN_GL_ERROR_NEW	global = "Error", value = "new"	__rtsm_global_Error_new
 __RTS_FN_GL_TYPE_ERROR_NEW	global = "TypeError", value = "new"	__rtsm_global_TypeError_new
 __RTS_FN_GL_RANGE_ERROR_NEW	global = "RangeError", value = "new"	__rtsm_global_RangeError_new
-__RTS_FN_GL_REF_ERROR_NEW	global = "ReferenceError", value = "new"	__rtsm_global_ReferenceError_new
-__RTS_FN_GL_SYNTAX_ERROR_NEW	global = "SyntaxError", value = "new"	__rtsm_global_SyntaxError_new
-__RTS_FN_GL_URI_ERROR_NEW	global = "URIError", value = "new"	__rtsm_global_URIError_new
-__RTS_FN_GL_EVAL_ERROR_NEW	global = "EvalError", value = "new"	__rtsm_global_EvalError_new
-__RTS_FN_GL_AGGREGATE_ERROR_NEW	global = "AggregateError", value = "new"	__rtsm_global_AggregateError_new
-__RTS_FN_GL_AGGREGATE_ERROR_ERRORS	global = "AggregateError", value = "errors"	__rtsm_global_AggregateError_errors
-__RTS_FN_GL_ERROR_CAUSE	global = "Error", value = "cause"	__rtsm_global_Error_cause
-__RTS_FN_GL_ERROR_MESSAGE	global = "Error", value = "message"	__rtsm_global_Error_message
-__RTS_FN_GL_ERROR_NAME	global = "Error", value = "name"	__rtsm_global_Error_name
-__RTS_FN_GL_ERROR_STACK	global = "Error", value = "stack"	__rtsm_global_Error_stack
-__RTS_FN_GL_ERROR_TO_STRING	global = "Error", value = "toString"	__rtsm_global_Error_toString
-__RTS_FN_GL_ERROR_CAPTURE_STACK_TRACE	global = "Error", value = "captureStackTrace"	__rtsm_global_Error_captureStackTrace
-__RTS_FN_GL_IS_ERROR	native, value = "is_error"	__rtsn_is_error
-__RTS_FN_GL_IS_ERROR_NAMED	native, value = "is_error_named"	__rtsn_is_error_named
 __RTS_FN_GL_REGEXP_NEW	global = "RegExp", value = "new"	__rtsm_global_RegExp_new
 __RTS_FN_GL_REGEXP_NEW_WITH_FLAGS	global = "RegExp", value = "new", overload = "flags"	__rtsm_global_RegExp_new_flags
 __RTS_FN_GL_REGEXP_TEST	global = "RegExp", value = "test"	__rtsm_global_RegExp_test
@@ -49,22 +21,12 @@ __RTS_FN_GL_REGEXP_GLOBAL	global = "RegExp", value = "global"	__rtsm_global_RegE
 __RTS_FN_GL_REGEXP_IGNORE_CASE	global = "RegExp", value = "ignoreCase"	__rtsm_global_RegExp_ignoreCase
 __RTS_FN_GL_REGEXP_MULTILINE	global = "RegExp", value = "multiline"	__rtsm_global_RegExp_multiline
 __RTS_FN_GL_REGEXP_LAST_INDEX_GET	global = "RegExp", value = "lastIndex"	__rtsm_global_RegExp_lastIndex
-__RTS_FN_GL_REGEXP_LAST_INDEX_SET	global = "RegExp", value = "lastIndex", overload = "set"	__rtsm_global_RegExp_lastIndex_set
-__RTS_FN_GL_REGEXP_INDICES_GROUPS	native, value = "regexp_indices_groups"	__rtsn_regexp_indices_groups
 __RTS_FN_GL_SYMBOL_ITERATOR	global = "Symbol", value = "iterator"	__rtsm_global_Symbol_iterator
 __RTS_FN_GL_SYMBOL_ASYNC_ITERATOR	global = "Symbol", value = "asyncIterator"	__rtsm_global_Symbol_asyncIterator
 __RTS_FN_GL_SYMBOL_HAS_INSTANCE	global = "Symbol", value = "hasInstance"	__rtsm_global_Symbol_hasInstance
 __RTS_FN_GL_SYMBOL_TO_PRIMITIVE	global = "Symbol", value = "toPrimitive"	__rtsm_global_Symbol_toPrimitive
 __RTS_FN_GL_SYMBOL_TO_STRING_TAG	global = "Symbol", value = "toStringTag"	__rtsm_global_Symbol_toStringTag
-__RTS_FN_RT_TO_PRIMITIVE	native, value = "to_primitive"	__rtsn_to_primitive
 __RTS_FN_RT_PROXY_DISPATCH_APPLY	native, value = "proxy_dispatch_apply"	__rtsn_proxy_dispatch_apply
-__RTS_FN_GL_REFLECT_CONSTRUCT	global = "Reflect", value = "construct"	__rtsm_global_Reflect_construct
-__RTS_FN_GL_REFLECT_SET_PROTOTYPE_OF	global = "Reflect", value = "setPrototypeOf"	__rtsm_global_Reflect_setPrototypeOf
-__RTS_FN_GL_REFLECT_DEFINE_PROPERTY_PROXY	global = "Reflect", value = "defineProperty", overload = "proxy"	__rtsm_global_Reflect_defineProperty_proxy
-__RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR_PROXY	global = "Reflect", value = "getOwnPropertyDescriptor", overload = "proxy"	__rtsm_global_Reflect_getOwnPropertyDescriptor_proxy
-__RTS_FN_GL_REFLECT_GET_OWN_PROPERTY_DESCRIPTOR	global = "Reflect", value = "getOwnPropertyDescriptor"	__rtsm_global_Reflect_getOwnPropertyDescriptor
-__RTS_FN_GL_REFLECT_DEFINE_PROPERTY	global = "Reflect", value = "defineProperty"	__rtsm_global_Reflect_defineProperty
-__RTS_FN_GL_OBJECT_GET_OWN_PROPERTY_DESCRIPTORS	global = "Object", value = "getOwnPropertyDescriptors"	__rtsm_global_Object_getOwnPropertyDescriptors
 __RTS_FN_GL_ARRAY_BUFFER_NEW	global = "ArrayBuffer", value = "new"	__rtsm_global_ArrayBuffer_new
 __RTS_FN_GL_ARRAY_BUFFER_SLICE	global = "ArrayBuffer", value = "slice"	__rtsm_global_ArrayBuffer_slice
 __RTS_FN_GL_ARRAY_NEW_WITH_LENGTH	global = "Array", value = "new"	__rtsm_global_Array_new
@@ -81,20 +43,6 @@ __RTS_FN_NS_FETCH_FETCH_TAKE	module = "fetch", value = "fetchTake"	__rtsm_fetch_
 __RTS_FN_NS_FETCH_FETCH_BYTES_ASYNC	module = "fetch", value = "fetchBytesAsync"	__rtsm_fetch_fetchBytesAsync
 __RTS_FN_NS_FETCH_FETCH_BYTES_POLL	module = "fetch", value = "fetchBytesPoll"	__rtsm_fetch_fetchBytesPoll
 __RTS_FN_NS_FETCH_FETCH_BYTES_TAKE	module = "fetch", value = "fetchBytesTake"	__rtsm_fetch_fetchBytesTake
-__RTS_FN_GL_FETCH_RESPONSE_STATUS	global = "Response", value = "status"	__rtsm_global_Response_status
-__RTS_FN_GL_FETCH_RESPONSE_STATUS_TEXT	global = "Response", value = "statusText"	__rtsm_global_Response_statusText
-__RTS_FN_GL_FETCH_RESPONSE_URL	global = "Response", value = "url"	__rtsm_global_Response_url
-__RTS_FN_GL_FETCH_RESPONSE_TEXT	global = "Response", value = "text"	__rtsm_global_Response_text
-__RTS_FN_GL_FETCH_RESPONSE_JSON	global = "Response", value = "json"	__rtsm_global_Response_json
-__RTS_FN_GL_FETCH_RESPONSE_ARRAY_BUFFER	global = "Response", value = "arrayBuffer"	__rtsm_global_Response_arrayBuffer
-__RTS_FN_GL_FETCH_RESPONSE_NEW	global = "Response", value = "new"	__rtsm_global_Response_new
-__RTS_FN_GL_FETCH_RESPONSE_HEADERS	global = "Response", value = "headers"	__rtsm_global_Response_headers
-__RTS_FN_GL_FETCH_RESPONSE_THEN	global = "Response", value = "then"	__rtsm_global_Response_then
-__RTS_FN_GL_FETCH_RESPONSE_FREE	global = "Response", value = "free"	__rtsm_global_Response_free
-__RTS_FN_GL_REQUEST_NEW	global = "Request", value = "new"	__rtsm_global_Request_new
-__RTS_FN_GL_REQUEST_METHOD	global = "Request", value = "method"	__rtsm_global_Request_method
-__RTS_FN_GL_REQUEST_URL	global = "Request", value = "url"	__rtsm_global_Request_url
-__RTS_FN_GL_REQUEST_TEXT	global = "Request", value = "text"	__rtsm_global_Request_text
 __RTS_FN_GL_PROMISE_NEW	global = "Promise", value = "new"	__rtsm_global_Promise_new
 __RTS_FN_GL_PROMISE_THEN	global = "Promise", value = "then"	__rtsm_global_Promise_then
 __RTS_FN_GL_PROMISE_THEN2	global = "Promise", value = "then", overload = "2"	__rtsm_global_Promise_then_2
@@ -122,7 +70,6 @@ __RTS_FN_NS_CRYPTO_HASH_UPDATE_STR	module = "crypto", value = "hash_update_str"	
 __RTS_FN_NS_CRYPTO_HASH_DIGEST_HEX	module = "crypto", value = "hash_digest_hex"	__rtsm_crypto_hash_digest_hex
 __RTS_FN_NS_CRYPTO_HASH_DIGEST_BASE64	module = "crypto", value = "hash_digest_base64"	__rtsm_crypto_hash_digest_base64
 __RTS_FN_NS_CRYPTO_SHA256_STR	module = "crypto", value = "sha256_str"	__rtsm_crypto_sha256_str
-__RTS_FN_NS_CRYPTO_SHA256_DIGEST	module = "crypto", value = "sha256_digest"	__rtsm_crypto_sha256_digest
 __RTS_FN_GL_TIMERS_SET_TIMEOUT	module = "timers", value = "setTimeout"	__rtsm_timers_setTimeout
 __RTS_FN_GL_TIMERS_CLEAR_TIMEOUT	module = "timers", value = "clearTimeout"	__rtsm_timers_clearTimeout
 __RTS_FN_GL_TIMERS_SET_INTERVAL	module = "timers", value = "setInterval"	__rtsm_timers_setInterval
@@ -138,15 +85,9 @@ __RTS_FN_GL_TEXTENC_ENCODE	module = "text_encoding", value = "encode"	__rtsm_tex
 __RTS_FN_GL_TEXTENC_DECODE	module = "text_encoding", value = "decode"	__rtsm_text_encoding_decode
 __RTS_FN_GL_TEXTENC_STRUCTURED_CLONE	global, value = "structuredClone"	__rtsm_global_structuredClone
 __RTS_FN_GL_TEXTENC_QUEUE_MICROTASK	global, value = "queueMicrotask"	__rtsm_global_queueMicrotask
-__RTS_FN_RT_CONSOLE_SET_OVERRIDE	native, value = "console_set_override"	__rtsn_console_set_override
-__RTS_FN_RT_CONSOLE_GET_OVERRIDE	native, value = "console_get_override"	__rtsn_console_get_override
-__RTS_FN_RT_CONSOLE_OVERRIDE_IS_VARIADIC	native, value = "console_override_is_variadic"	__rtsn_console_override_is_variadic
-__RTS_FN_GL_CONSOLE_WRITE_AUTO	global = "console", value = "write_auto"	__rtsm_global_console_write_auto
 __RTS_FN_GL_ABORTSIGNAL_STATIC_ABORT	global = "AbortSignal", value = "abort"	__rtsm_global_AbortSignal_abort
 __RTS_FN_GL_ABORTSIGNAL_STATIC_TIMEOUT	global = "AbortSignal", value = "timeout"	__rtsm_global_AbortSignal_timeout
 __RTS_FN_GL_ABORTSIGNAL_STATIC_ANY	global = "AbortSignal", value = "any"	__rtsm_global_AbortSignal_any
-__RTS_FN_NS_PROMISE_AWAIT_VALUE	module = "promise", value = "await_value"	__rtsm_promise_await_value
-__RTS_FN_GL_ARRAY_FROM_ASYNC	global = "Array", value = "fromAsync"	__rtsm_global_Array_fromAsync
 __RTS_FN_GL_HEADERS_ENTRIES	global = "Headers", value = "entries"	__rtsm_global_Headers_entries
 __RTS_FN_GL_HEADERS_FOR_EACH	global = "Headers", value = "forEach"	__rtsm_global_Headers_forEach
 __RTS_FN_GL_FORM_DATA_ENTRIES	global = "FormData", value = "entries"	__rtsm_global_FormData_entries

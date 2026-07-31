@@ -10,12 +10,12 @@
 //! INFINITE generators (`while (true) yield`) overflow the eager buffer and need
 //! the real state machine — that is [`super::sm`] (#477).
 
-use std::collections::HashMap;
+
 
 use crate::heap::handles::{Entry, with_entry};
 
 use super::sm::{__rtsn_gen_sm_next, __rtsn_gen_sm_return, __rtsn_gen_sm_throw};
-use super::{BOOL_FALSE, BOOL_TRUE, GEN_CURSORS, GEN_RETS, UNDEFINED, make_result, read_result_parts};
+use super::{GEN_CURSORS, GEN_RETS, UNDEFINED, make_result, read_result_parts};
 
 unsafe extern "C" {
     /// `Function.prototype.call`-style invocation of a Function-class handle.

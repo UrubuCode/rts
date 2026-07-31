@@ -1,7 +1,7 @@
 //! String allocation, identity, and cheap-shape-probe ABI (`gc.string_*`,
-//! `gc.is_*`, `gc.handle_len`).
+//! `gc.is_*`).
 
-use crate::heap::handles::{Entry, alloc_entry, free_handle, rtse_class_of, with_entry, with_two_entries};
+use crate::heap::handles::{Entry, alloc_entry, rtse_class_of, with_entry, with_two_entries};
 
 /// Allocates a new string by copying `len` bytes from `ptr`.
 #[unsafe(no_mangle)]
@@ -33,51 +33,6 @@ pub extern "C" fn __RTS_FN_NS_GC_STRING_PTR(handle: u64) -> *const u8 {
     })
 }
 
-#[rtse::abi("__RTS_FN_NS_GC_STRING_FREE")]
-pub fn __RTS_FN_NS_GC_STRING_FREE(handle: u64) -> i64 {
-    if free_handle(handle) { 1 } else { 0 }
-}
-
-/// Generic length dispatcher — backs `.size`/`.length` in codegen.
-#[rtse::abi("__RTS_FN_NS_GC_HANDLE_LEN")]
-pub fn __RTS_FN_NS_GC_HANDLE_LEN(handle: u64) -> i64 {
-    // (#1023) StringBox unwrap before dispatch — recurse once.
-    let unwrap: Option<u64> = with_entry(handle, |entry| match entry {
-        Some(Entry::StringBox(h)) => Some(*h),
-        _ => None,
-    });
-    if let Some(inner) = unwrap {
-        return __RTS_FN_NS_GC_HANDLE_LEN(inner);
-    }
-    with_entry(handle, |entry| match entry {
-        // JS spec: String.length = number of UTF-16 code units, not bytes.
-        Some(Entry::String(b)) => {
-            // FAST PATH ASCII: byte count == code-unit count. `encode_utf16()
-            // .count()` walked the WHOLE string on every `.length` read, which
-            // in a `while (i < s.length)` loop costs O(n^2).
-            if b.is_ascii() {
-                return b.len() as i64;
-            }
-            match std::str::from_utf8(b) {
-                Ok(s) => s.encode_utf16().count() as i64,
-                Err(_) => b.len() as i64,
-            }
-        }
-        Some(Entry::Map(m)) => {
-            // Array-like maps (e.g. regex match results) store a "length" key.
-            if let Some(&v) = m.get("length") {
-                v
-            } else {
-                m.len() as i64
-            }
-        }
-        Some(Entry::Vec(v)) => v.len() as i64,
-        Some(Entry::Buffer(b)) => b.len() as i64,
-        Some(Entry::Env(s)) => s.len() as i64,
-        _ => -1,
-    })
-}
-
 /// `instanceof Date` — the handle points at an `Entry::Rtse` of class "Date"
 /// (the `#[rtse::class("Date")]` struct in rts-shared).
 #[rtse::abi("__RTS_FN_NS_GC_IS_DATE")]
@@ -92,14 +47,6 @@ pub fn __RTS_FN_NS_GC_IS_REGEX(handle: u64) -> i64 {
         Some(Entry::Regex(_)) => 1,
         _ => 0,
     })
-}
-
-#[rtse::abi("__RTS_FN_NS_GC_STRING_FROM_I64")]
-pub fn __RTS_FN_NS_GC_STRING_FROM_I64(value: i64) -> u64 {
-    // Raw i64 -> decimal string. This fn is the primitive exposed via
-    // `gc.string_from_i64` (e.g. num.checked_* returning i64::MIN on
-    // overflow needs to become "-9223372036854775808").
-    alloc_entry(Entry::String(value.to_string().into_bytes()))
 }
 
 #[rtse::abi(native, value = "string_from_f64")]

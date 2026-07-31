@@ -13,10 +13,10 @@ use std::collections::HashMap;
 
 use crate::heap::handles::{Entry, alloc_entry, with_entry};
 
-use super::eager::__rtsn_generator_next;
+
 use super::iterhelp::{__rtsm_global_Array_iterator_fn, __rtsm_global_Iterator_from};
-use super::sm;
-use super::{GEN_CURSORS, UNDEFINED, make_result, read_result_parts};
+
+use super::{GEN_CURSORS, UNDEFINED};
 
 // ── yield* lazy delegation (#477/#211) ───────────────────────────────────────
 // `yield* SRC` na state-machine: em vez de materializar SRC inteiro (eager,

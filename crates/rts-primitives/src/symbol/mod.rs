@@ -12,9 +12,7 @@
 //! machinery `#[rtse::statical]` already has minus the JS args — not added
 //! here, out of this change's scope). `well_known.rs` is the compile-time-
 //! checked source for the well-known set that `#[rtse::symbol(Symbol::iterator)]`
-//! (rts-macro) points at. `__RTS_FN_RT_TO_PRIMITIVE` + the well-known externs
-//! are not `Member`s of the class — they are free fns below, called by codegen
-//! by symbol.
+//! (rts-macro) points at.
 
 pub mod wellknown;
 
@@ -27,7 +25,7 @@ use std::sync::{Mutex, OnceLock};
 use rts_engine::abi::ty::Handle;
 use rts_engine::{AbiType, Engine, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
-use rts_engine::heap::handles::{Entry, alloc_entry, with_entry};
+use rts_engine::heap::handles::{Entry, alloc_entry};
 
 /// Global registry para Symbol.for / Symbol.keyFor.
 fn registry() -> &'static Mutex<HashMap<String, u64>> {
@@ -192,40 +190,6 @@ pub fn register_symbol_class_spec(e: &mut Engine) {
             emit: None,
         })
         .done();
-}
-
-// ── Non-member externs (codegen calls by symbol). ────────────────────────────
-
-use crate::gc_surface::__RTS_FN_RT_INVOKE_AUTO;
-
-/// (#216/274) Coercao via `[Symbol.toPrimitive](hint)`. Se `obj` for um Map
-/// que tem a key `@@sym:<toPrimitive_handle>`, invoca o metodo passando o
-/// hint string ("number"/"string"/"default") e devolve o resultado. Caso
-/// contrario devolve `obj` inalterado (caller cai no coerce default).
-///
-/// hint_code: 0 = "number", 1 = "string", 2 = "default".
-#[rtse::abi("__RTS_FN_RT_TO_PRIMITIVE")]
-pub fn __RTS_FN_RT_TO_PRIMITIVE(obj: i64, hint_code: i32) -> i64 {
-    let obj_h = obj as u64;
-    // So' Map pode ter [Symbol.toPrimitive]. Resolve o handle do well-known.
-    let tp_sym = __RTS_FN_GL_SYMBOL_TO_PRIMITIVE();
-    let key = format!("@@sym:{tp_sym}");
-    let method: Option<i64> = with_entry(obj_h, |e| match e {
-        Some(Entry::Map(m)) => m.get(&key).copied().filter(|v| *v != 0),
-        _ => None,
-    });
-    let Some(method) = method else {
-        return obj; // sem toPrimitive — caller usa coerce default.
-    };
-    let hint = match hint_code {
-        0 => "number",
-        1 => "string",
-        _ => "default",
-    };
-    let hint_h = alloc_entry(Entry::String(hint.as_bytes().to_vec()));
-    let args = alloc_entry(Entry::Vec(Box::new(vec![hint_h as i64])));
-    // this = obj (o metodo pode usar this.<campo>).
-    unsafe { __RTS_FN_RT_INVOKE_AUTO(method, obj, args) }
 }
 
 // ── `#[rtse::symbol]` demo/test class ────────────────────────────────────────

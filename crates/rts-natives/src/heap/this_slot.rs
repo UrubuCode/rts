@@ -3,10 +3,14 @@
 //! Quando uma fn nao-arrow plain eh chamada via `fn.call(thisArg, ...)` ou
 //! `fn.apply(thisArg, args)`, RTS nao consegue passar `this` como param real
 //! (mudaria callconv de toda user fn). Em vez disso, a runtime de Function
-//! empilha o `thisArg` neste slot antes do invoke e desempilha depois;
-//! `Expr::This` em fn plain emite call para `__RTS_FN_RT_THIS_GET`.
+//! empilha o `thisArg` neste slot antes do invoke e desempilha depois.
 //!
 //! Stack-based para suportar nesting (`a.call(x, () => b.call(y, ...))`).
+//!
+//! O slot eh hoje WRITE-ONLY: o leitor (`__RTS_FN_RT_THIS_GET`) foi removido
+//! porque o motor passa `this` por outro caminho e ninguem chamava o simbolo.
+//! O par push/pop continua vivo — desfazer o `pushed_this_slot` do dispatch de
+//! Function eh mudanca propria, com verificacao propria.
 
 use std::cell::RefCell;
 
@@ -26,12 +30,4 @@ pub fn __RTS_FN_RT_THIS_POP() {
     THIS_STACK.with(|s| {
         let _ = s.borrow_mut().pop();
     });
-}
-
-/// Le topo da pilha. `i64::MIN + 2` (undefined sentinel) quando nao ha
-/// `this` corrente. JS spec strict mode: fn nao-method tem `this === undefined`.
-/// (cross-runtime #300)
-#[rtse::abi("__RTS_FN_RT_THIS_GET")]
-pub fn __RTS_FN_RT_THIS_GET() -> i64 {
-    THIS_STACK.with(|s| s.borrow().last().copied().unwrap_or(i64::MIN + 2))
 }

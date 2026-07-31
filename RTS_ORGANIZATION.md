@@ -402,9 +402,14 @@ rename traps in this campaign already:
    `claude-object-statics-como-valor` (crash),
    `claude-stringify-wrapper-objects` (10).
 5. `cargo test --workspace --lib` **does not link** — every crate below
-   `rts-runtime` references `__rtsadp_*` symbols that live above it
-   (`rts-shared` 36 unresolved, `rts-primitives` 35, `rts-napi` 36). Run per
-   crate; do not read this as a regression.
+   `rts-runtime` references symbols whose bodies live above it, resolved only in
+   the final link (`rts-shared` 36 unresolved `__rtsadp_*`, `rts-primitives` 35,
+   `rts-napi` 36, and **`rts-natives` 2**: `__RTS_FN_GL_FUNCTION_CALL` and
+   `__RTS_FN_GL_RANGE_ERROR_NEW`, the two link-resolved externs N2/N3 added by
+   design). Running per crate does NOT avoid this — the failure is at LINK, not
+   at compile, so `cargo test -p <crate> --lib` fails too for exactly these
+   crates. Do not read it as a regression; `cargo check` is the compile signal
+   and the TS suite is the behaviour signal.
 
 ---
 

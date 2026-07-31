@@ -32,7 +32,6 @@ pub use rts_shared::globals::json;
 pub use rts_shared::globals::json5;
 pub use rts_std::globals::performance;
 pub use rts_primitives::proxy;
-pub use rts_primitives::reflect;
 pub use rts_primitives::regexp;
 pub use rts_primitives::string;
 pub use rts_primitives::symbol;

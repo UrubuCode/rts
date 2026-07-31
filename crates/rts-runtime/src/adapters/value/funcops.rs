@@ -625,7 +625,7 @@ extern "C" fn box_async_result(fn_ptr: u64, raw: i64) -> i64 {
 /// counted args vec instead.
 #[rtse::abi]
 pub fn rtsadp_invoke_auto_word(callee_word: u64, this_word: u64, args_vec: u64) -> u64 {
-    use rts_engine::heap::handles::{alloc_entry, with_entry, Entry as E};
+
     let h = rts_engine::heap::poly::poly_handle_normalize(callee_word).unwrap_or(callee_word);
     // A VARIADIC uniform-thunk callee needs NO pre-packing here: the THUNK
     // packs the positional tail into the rest array itself (`__rtsadp_pack_rest`)

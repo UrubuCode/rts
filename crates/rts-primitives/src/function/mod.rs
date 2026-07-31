@@ -21,4 +21,3 @@
 //!   fns nao tem slot reservado pra this implicito).
 
 pub mod ops;
-pub mod props;
