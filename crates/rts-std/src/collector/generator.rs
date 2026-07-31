@@ -967,7 +967,7 @@ fn read_result_parts(h: u64) -> Option<(i64, bool)> {
 /// o resultado e protocolo iteravel manual (`it.next()`).
 #[rtse::abi(global = "Array", value = "values_iter")]
 pub fn values_iter(this_arr: i64) -> i64 {
-    __rtsm_global_iterator_from(this_arr as u64) as i64
+    __rtsm_global_Iterator_from(this_arr as u64) as i64
 }
 
 /// (#216/299) Devolve um handle Function que, chamado com `this`=arr, produz
@@ -978,7 +978,7 @@ pub fn values_iter(this_arr: i64) -> i64 {
 pub fn iterator_fn() -> u64 {
     use rts_engine::heap::handles::FunctionData;
     alloc_entry(Entry::Function(Box::new(FunctionData {
-        fn_ptr: __rtsm_global_array_values_iter as *const () as u64,
+        fn_ptr: __rtsm_global_Array_values_iter as *const () as u64,
         arity: 1,
         name: "[Symbol.iterator]".into(),
         bound_this: 0,
@@ -1093,7 +1093,7 @@ pub fn gen_delegate_start(src: i64) -> i64 {
         // Generator: ja' eh iterador — devolve o HANDLE NORMALIZADO (o `src`
         // cru pode ser o word boxed; NEXT/DONE fazem with_entry direto).
         1 => h as i64,
-        2 => __rtsm_global_iterator_from(h) as i64,
+        2 => __rtsm_global_Iterator_from(h) as i64,
         3 => {
             // String iteravel: cada char vira um handle de String de 1 char.
             let s: String = with_entry(h, |e| match e {
@@ -1193,7 +1193,7 @@ pub fn symbol_iterator_of(obj: i64) -> i64 {
         )
     });
     if iterable {
-        __rtsm_global_array_iterator_fn() as i64
+        __rtsm_global_Array_iterator_fn() as i64
     } else {
         UNDEFINED
     }

@@ -4,7 +4,7 @@
 //! primordial's implementation belongs in `rts-primitives`, the bottom of the
 //! chain any consumer can reach). `rts-runtime::adapters::value::globalops` and
 //! `rts-shared::fmt` both call the `#[rtse::statical]` externs this module's
-//! `mod.rs` generates (`__rtsm_global_number_parse_int`/`_parse_float`)
+//! `mod.rs` generates (`__rtsm_global_Number_parse_int`/`_parse_float`)
 //! instead of carrying their own copy.
 
 /// JS `parseInt(s, radix)` returning the parsed `f64` (`NaN` on failure).

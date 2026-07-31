@@ -18,7 +18,7 @@ unsafe extern "C" {
     // (rts-shared does not gain a Cargo dep on rts-primitives). `parseInt` is
     // NOT reused here — see `__RTS_FN_NS_FMT_PARSE_I64`'s doc for why its
     // contract genuinely differs and stays its own body.
-    fn __rtsm_global_number_parse_float(ptr: i64, len: i64) -> f64;
+    fn __rtsm_global_Number_parse_float(ptr: i64, len: i64) -> f64;
 }
 
 fn intern(s: &str) -> u64 {
@@ -54,7 +54,7 @@ pub fn __RTS_FN_NS_FMT_PARSE_F64(ptr: u64, len: i64) -> f64 {
     let Some(s) = (unsafe { from_abi(ptr, len) }) else {
         return f64::NAN;
     };
-    unsafe { __rtsm_global_number_parse_float(s.as_ptr() as i64, s.len() as i64) }
+    unsafe { __rtsm_global_Number_parse_float(s.as_ptr() as i64, s.len() as i64) }
 }
 
 /// Parses 'true'/'false'/'1'/'0' (case-insensitive). Returns -1 on error.

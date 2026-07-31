@@ -19,8 +19,8 @@ fn hash_slice(bytes: &[u8]) -> i64 {
 }
 
 /// SipHash de uma string UTF-8.
-#[rtse::abi("__RTS_FN_NS_HASH_HASH_STR")]
-pub fn __RTS_FN_NS_HASH_HASH_STR(ptr: u64, len: i64) -> i64 {
+#[rtse::abi(module = "hash", value = "hash_str")]
+pub fn __rtsm_hash_hash_str(ptr: u64, len: i64) -> i64 {
     let ptr = ptr as *const u8;
 
     let s = match unsafe { rts_engine::abi::str_abi::from_abi(ptr, len) } {
@@ -31,8 +31,8 @@ pub fn __RTS_FN_NS_HASH_HASH_STR(ptr: u64, len: i64) -> i64 {
 }
 
 /// SipHash de uma regiao de memoria (ptr + len). Use com buffer.ptr(handle).
-#[rtse::abi("__RTS_FN_NS_HASH_HASH_BYTES")]
-pub fn __RTS_FN_NS_HASH_HASH_BYTES(ptr: i64, len: i64) -> i64 {
+#[rtse::abi(module = "hash", value = "hash_bytes")]
+pub fn __rtsm_hash_hash_bytes(ptr: i64, len: i64) -> i64 {
     if ptr == 0 || len < 0 {
         return 0;
     }
@@ -42,16 +42,16 @@ pub fn __RTS_FN_NS_HASH_HASH_BYTES(ptr: i64, len: i64) -> i64 {
 }
 
 /// SipHash de um inteiro de 64 bits.
-#[rtse::abi("__RTS_FN_NS_HASH_HASH_I64")]
-pub fn __RTS_FN_NS_HASH_HASH_I64(value: i64) -> i64 {
+#[rtse::abi(module = "hash", value = "hash_i64")]
+pub fn __rtsm_hash_hash_i64(value: i64) -> i64 {
     let mut hasher = DefaultHasher::new();
     value.hash(&mut hasher);
     hasher.finish() as i64
 }
 
 /// Combina dois hashes preservando entropia (estilo boost::hash_combine).
-#[rtse::abi("__RTS_FN_NS_HASH_HASH_COMBINE")]
-pub fn __RTS_FN_NS_HASH_HASH_COMBINE(h1: i64, h2: i64) -> i64 {
+#[rtse::abi(module = "hash", value = "hash_combine")]
+pub fn __rtsm_hash_hash_combine(h1: i64, h2: i64) -> i64 {
     // Constante = golden ratio truncada. Aritmetica bitwise em u64 pra preservar
     // os bits altos; shift << 6 em i64 sinalizado seria ambiguo em negativos.
     let (a, b) = (h1 as u64, h2 as u64);
@@ -94,35 +94,35 @@ pub fn register(e: &mut Engine) {
         .doc("Non-cryptographic hashing via std::hash::DefaultHasher (SipHash-1-3).")
         .member(pure_func(
             "hash_str",
-            "__RTS_FN_NS_HASH_HASH_STR",
+            "__rtsm_hash_hash_str",
             sig!(StrPtr => I64),
             "hash_str(s: string): number",
             "SipHash de uma string UTF-8.",
-            __RTS_FN_NS_HASH_HASH_STR as *const u8,
+            __rtsm_hash_hash_str as *const u8,
         ))
         .member(pure_func(
             "hash_bytes",
-            "__RTS_FN_NS_HASH_HASH_BYTES",
+            "__rtsm_hash_hash_bytes",
             sig!(I64, I64 => I64),
             "hash_bytes(ptr: number, len: number): number",
             "SipHash de uma regiao de memoria (ptr + len). Use com buffer.ptr(handle).",
-            __RTS_FN_NS_HASH_HASH_BYTES as *const u8,
+            __rtsm_hash_hash_bytes as *const u8,
         ))
         .member(pure_func(
             "hash_i64",
-            "__RTS_FN_NS_HASH_HASH_I64",
+            "__rtsm_hash_hash_i64",
             sig!(I64 => I64),
             "hash_i64(value: number): number",
             "SipHash de um inteiro de 64 bits.",
-            __RTS_FN_NS_HASH_HASH_I64 as *const u8,
+            __rtsm_hash_hash_i64 as *const u8,
         ))
         .member(pure_func(
             "hash_combine",
-            "__RTS_FN_NS_HASH_HASH_COMBINE",
+            "__rtsm_hash_hash_combine",
             sig!(I64, I64 => I64),
             "hash_combine(h1: number, h2: number): number",
             "Combina dois hashes preservando entropia (estilo boost::hash_combine).",
-            __RTS_FN_NS_HASH_HASH_COMBINE as *const u8,
+            __rtsm_hash_hash_combine as *const u8,
         ))
         .done();
 }

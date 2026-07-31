@@ -62,7 +62,7 @@ unsafe extern "C" {
 
     /// Handle of the native Function backing `Array.prototype[Symbol.iterator]`.
     /// (`rts-std` `collector::generator`)
-    pub safe fn __rtsm_global_array_iterator_fn() -> u64;
+    pub safe fn __rtsm_global_Array_iterator_fn() -> u64;
 
     /// Create an already-fulfilled Promise wrapping `value`, return its
     /// handle. (`rts-std` `globals::fetch::instance`)

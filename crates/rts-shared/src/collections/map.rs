@@ -438,14 +438,14 @@ pub fn __RTS_FN_NS_COLLECTIONS_MAP_GET_KH(obj_h: U64, key_h: U64) -> I64 {
         }
         // (#216/299) `arr[Symbol.iterator]` -> handle Function nativo.
         if key_is_well_known_iterator(&key) {
-            return crate::gc_surface::__rtsm_global_array_iterator_fn() as i64;
+            return crate::gc_surface::__rtsm_global_Array_iterator_fn() as i64;
         }
         return 0;
     }
     // Map: valor armazenado vence; fallback iterator nativo.
     let stored = with_map(obj_h, 0, |m| m.get(&key).copied().unwrap_or(0));
     if stored == 0 && key_is_well_known_iterator(&key) {
-        return crate::gc_surface::__rtsm_global_array_iterator_fn() as i64;
+        return crate::gc_surface::__rtsm_global_Array_iterator_fn() as i64;
     }
     stored
 }

@@ -38,8 +38,8 @@ use super::{PolyValue, abi_adapter, genops};
 // owned by the `#[rtse::statical]` declaration in `rts-primitives` either way.
 #[allow(clashing_extern_declarations)]
 unsafe extern "C" {
-    fn __rtsm_global_number_parse_int(ptr: i64, len: i64, radix: f64) -> f64;
-    fn __rtsm_global_number_parse_float(ptr: i64, len: i64) -> f64;
+    fn __rtsm_global_Number_parse_int(ptr: i64, len: i64, radix: f64) -> f64;
+    fn __rtsm_global_Number_parse_float(ptr: i64, len: i64) -> f64;
 }
 
 /// Box a fresh real Vec handle as a `TAG_OBJECT` array PolyValue word (the engine's
@@ -167,7 +167,7 @@ pub fn rtsadp_g_parse_int(value: u64, radix: u64) -> u64 {
     // the extern's absent-radix sentinel).
     let r = to_number(PolyValue::from_raw(radix));
     let radix_f = if r.is_finite() { r } else { f64::NAN };
-    let f = unsafe { __rtsm_global_number_parse_int(s.as_ptr() as i64, s.len() as i64, radix_f) };
+    let f = unsafe { __rtsm_global_Number_parse_int(s.as_ptr() as i64, s.len() as i64, radix_f) };
     genops::number_result(f).raw()
 }
 
@@ -178,7 +178,7 @@ pub fn rtsadp_g_parse_int(value: u64, radix: u64) -> u64 {
 #[rtse::abi]
 pub fn rtsadp_g_parse_float(value: u64) -> u64 {
     let s = poly_to_string(value);
-    let f = unsafe { __rtsm_global_number_parse_float(s.as_ptr() as i64, s.len() as i64) };
+    let f = unsafe { __rtsm_global_Number_parse_float(s.as_ptr() as i64, s.len() as i64) };
     genops::number_result(f).raw()
 }
 

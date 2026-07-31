@@ -56,8 +56,8 @@ mod tests {
     #[test]
     fn deref_returns_target() {
         let target = alloc_entry(Entry::String(b"hello".to_vec()));
-        let wr = __rtsm_global_weakref_new(target);
-        assert_eq!(__rtsm_global_weakref_deref(wr), target);
+        let wr = __rtsm_global_WeakRef_new(target);
+        assert_eq!(__rtsm_global_WeakRef_deref(wr), target);
     }
 
     #[test]
@@ -67,7 +67,7 @@ mod tests {
         // simula um target já coletado/reusado: deref deve devolver undefined (0),
         // não o handle stale (o use-after-free que o v0 tinha).
         let stale: Handle = 5; // gen=0, slot=5
-        let wr = __rtsm_global_weakref_new(stale);
-        assert_eq!(__rtsm_global_weakref_deref(wr), 0);
+        let wr = __rtsm_global_WeakRef_new(stale);
+        assert_eq!(__rtsm_global_WeakRef_deref(wr), 0);
     }
 }

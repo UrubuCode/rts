@@ -308,8 +308,8 @@ mod tests {
         let mut out = Vec::new();
         super::super::visit_items(&ast.items, "x.rs", &mut out).unwrap();
         let syms: Vec<_> = out.iter().map(|x| x.symbol.as_str()).collect();
-        assert!(syms.contains(&"__rtsm_global_url_href__get"));
-        assert!(syms.contains(&"__rtsm_global_url_href__set"));
+        assert!(syms.contains(&"__rtsm_global_URL_href__get"));
+        assert!(syms.contains(&"__rtsm_global_URL_href__set"));
         assert!(syms.contains(&"__rtsm_global_url_length__get"));
         assert!(!syms.contains(&"__rtsm_global_url_length__set"));
     }
@@ -337,6 +337,6 @@ mod tests {
             r#"#[rtse::constant(global = "Number", value = "MAX_SAFE_INTEGER")]
                pub const MAX_SAFE: f64 = 1.0;"#,
         );
-        assert_eq!(d2[0].symbol, "__rtsm_global_number_MAX_SAFE_INTEGER");
+        assert_eq!(d2[0].symbol, "__rtsm_global_Number_MAX_SAFE_INTEGER");
     }
 }

@@ -457,7 +457,7 @@ pub fn rtsadp_idx_get(recv: u64, idx: u64) -> u64 {
                     let iter_sym =
                         rts_runtime::namespaces::globals::symbol::__RTS_FN_GL_SYMBOL_ITERATOR();
                     if kh == iter_sym {
-                        let f = rts_runtime::namespaces::gc::generator::__rtsm_global_array_iterator_fn();
+                        let f = rts_runtime::namespaces::gc::generator::__rtsm_global_Array_iterator_fn();
                         let slot = rt_handles::__rtsn_poly_from_handle(f);
                         return PolyValue::from_function_handle(slot).raw();
                     }

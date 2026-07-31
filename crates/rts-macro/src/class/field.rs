@@ -38,7 +38,7 @@ pub(crate) fn gen_field(
     let field_name = fname.to_string(); // verbatim (case-preserved)
     // An accessor pair needs two symbols for ONE JS property, so the accessor
     // marker is a `__get`/`__set` SUFFIX after the verbatim field name:
-    // `__rtsm_global_url_href__get`. A suffix (not a `get_` prefix) is what makes
+    // `__rtsm_global_URL_href__get`. A suffix (not a `get_` prefix) is what makes
     // the encoding collision-free — the derivation is injective. A prefix form
     // (`..._get_href`) collides with the ordinary member symbol of a method
     // written `fn get_href`, which is a completely normal Rust spelling; with the

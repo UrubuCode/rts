@@ -11,7 +11,7 @@ use rts_engine::heap::handles::rtse_class_of;
 unsafe extern "C" {
     // The shared WHATWG `URL` serializer (globals/url) — recomposes the current
     // href (reflecting setters + searchParams mutations). Returns a string handle.
-    fn __rtsm_global_url_to_string(handle: u64) -> u64;
+    fn __rtsm_global_URL_to_string(handle: u64) -> u64;
 }
 
 /// A WHATWG `URL` instance is a `#[rtse::class]`-backed `Entry::Rtse` classed
@@ -77,7 +77,7 @@ fn format(url_object: Handle) -> Handle {
     // `url.format(URL)` (WHATWG instance) → the serialized href. `url.format(
     // urlObject)` (legacy plain object) → recompose from its fields (below).
     if is_whatwg_url(url_object) {
-        return unsafe { __rtsm_global_url_to_string(url_object) };
+        return unsafe { __rtsm_global_URL_to_string(url_object) };
     }
     let mut fields: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut slashes = false;

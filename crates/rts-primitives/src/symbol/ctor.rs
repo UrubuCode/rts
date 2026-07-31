@@ -85,24 +85,24 @@ mod tests {
         // Absent description: empty StrPtr slice (ptr/len both zero-ish), the
         // same "absent = empty string" convention every optional-`&str` ctor
         // in this codebase uses at the raw-extern call boundary.
-        let a = __rtsm_global_symbol_new(0, 0);
-        let b = __rtsm_global_symbol_new(0, 0);
+        let a = __rtsm_global_Symbol_new(0, 0);
+        let b = __rtsm_global_Symbol_new(0, 0);
         assert_ne!(a, b);
     }
 
     #[test]
     fn for_same_key_returns_same_handle() {
         let key = b"my_key_ctor_test";
-        let a = __rtsm_global_symbol_for_key(key.as_ptr() as *const u8 as i64, key.len() as i64);
-        let b = __rtsm_global_symbol_for_key(key.as_ptr() as *const u8 as i64, key.len() as i64);
+        let a = __rtsm_global_Symbol_for_key(key.as_ptr() as *const u8 as i64, key.len() as i64);
+        let b = __rtsm_global_Symbol_for_key(key.as_ptr() as *const u8 as i64, key.len() as i64);
         assert_eq!(a, b);
     }
 
     #[test]
     fn key_for_returns_registered_key() {
         let key = b"another_key_ctor_test";
-        let h = __rtsm_global_symbol_for_key(key.as_ptr() as i64, key.len() as i64);
-        let result = __rtsm_global_symbol_key_for(h);
+        let h = __rtsm_global_Symbol_for_key(key.as_ptr() as i64, key.len() as i64);
+        let result = __rtsm_global_Symbol_key_for(h);
         let s = rts_engine::heap::handles::with_entry(result, |e| match e {
             Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
             _ => None,
@@ -112,8 +112,8 @@ mod tests {
 
     #[test]
     fn key_for_unregistered_returns_undefined_sentinel() {
-        let h = __rtsm_global_symbol_new(0, 0);
-        let result = __rtsm_global_symbol_key_for(h);
+        let h = __rtsm_global_Symbol_new(0, 0);
+        let result = __rtsm_global_Symbol_key_for(h);
         let s = rts_engine::heap::handles::with_entry(result, |e| match e {
             Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
             _ => None,

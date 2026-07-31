@@ -67,7 +67,7 @@ mod tests {
         let h = alloc_entry(Entry::Symbol {
             description: Some("hello".to_string()),
         });
-        let result = __rtsm_global_symbol_description(h);
+        let result = __rtsm_global_Symbol_description(h);
         let s = with_entry(result, |e| match e {
             Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
             _ => None,
@@ -78,7 +78,7 @@ mod tests {
     #[test]
     fn description_none_returns_zero() {
         let h = alloc_entry(Entry::Symbol { description: None });
-        assert_eq!(__rtsm_global_symbol_description(h), 0);
+        assert_eq!(__rtsm_global_Symbol_description(h), 0);
     }
 
     #[test]
@@ -86,7 +86,7 @@ mod tests {
         let h = alloc_entry(Entry::Symbol {
             description: Some("foo".to_string()),
         });
-        let result = __rtsm_global_symbol_js_to_string(h);
+        let result = __rtsm_global_Symbol_js_to_string(h);
         let s = with_entry(result, |e| match e {
             Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
             _ => None,
@@ -97,7 +97,7 @@ mod tests {
     #[test]
     fn to_string_without_description() {
         let h = alloc_entry(Entry::Symbol { description: None });
-        let result = __rtsm_global_symbol_js_to_string(h);
+        let result = __rtsm_global_Symbol_js_to_string(h);
         let s = with_entry(result, |e| match e {
             Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
             _ => None,

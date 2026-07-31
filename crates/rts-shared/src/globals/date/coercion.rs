@@ -7,7 +7,7 @@
 
 use rts_engine::heap::handles::{Entry, alloc_entry, rtse_class_of, with_entry};
 
-use super::instance::{__rtsm_global_date_to_string, __rtsm_global_date_value_of};
+use super::instance::{__rtsm_global_Date_to_string, __rtsm_global_Date_value_of};
 
 /// ToString of an OPAQUE heap-entry (non-Vec/non-keyed): a `Date` → its
 /// `toString()`, a `RegExp` → `/src/flags`. `0` = "don't know" (caller uses
@@ -15,7 +15,7 @@ use super::instance::{__rtsm_global_date_to_string, __rtsm_global_date_value_of}
 #[rtse::abi("__RTS_FN_RT_OPAQUE_TO_STRING")]
 pub fn __RTS_FN_RT_OPAQUE_TO_STRING(handle: u64) -> u64 {
     if rtse_class_of(handle) == Some("Date") {
-        return __rtsm_global_date_to_string(handle);
+        return __rtsm_global_Date_to_string(handle);
     }
     let regex_text = with_entry(handle, |e| match e {
         Some(Entry::Regex(rx)) => {
@@ -55,7 +55,7 @@ pub fn __RTS_FN_RT_OPAQUE_HAS_NUMBER(handle: u64) -> i64 {
 #[rtse::abi("__RTS_FN_RT_OPAQUE_TO_NUMBER")]
 pub fn __RTS_FN_RT_OPAQUE_TO_NUMBER(handle: u64) -> f64 {
     if rtse_class_of(handle) == Some("Date") {
-        __rtsm_global_date_value_of(handle)
+        __rtsm_global_Date_value_of(handle)
     } else {
         f64::NAN
     }

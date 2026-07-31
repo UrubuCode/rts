@@ -40,7 +40,7 @@ unsafe extern "C" {
 /// Chamado pelo ctor `#[rtse::class]` em `mod.rs` (que via a escape hatch de
 /// retorno `-> Handle` devolve esse word direto, sem `alloc_rtse`). Plain Rust
 /// fn (não `extern "C"`) — o `#[rtse::ctor]` já gera o wrapper `extern "C"`
-/// `__rtsm_global_proxy_new` publicado no Registry; esta é a impl interna.
+/// `__rtsm_global_Proxy_new` publicado no Registry; esta é a impl interna.
 pub fn new_proxy(target: u64, handler: u64) -> u64 {
     alloc_entry(Entry::Proxy { target, handler })
 }

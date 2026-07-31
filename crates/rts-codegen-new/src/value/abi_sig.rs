@@ -437,10 +437,10 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
         // `#[rtse::class]`-derived `SymbolDesc` (`NumberWrapper::IS_*_SYM`)
         // instead of hand-typing them — the drift this file's own doc warns
         // about is now a copy, not a second derivation.
-        "__rtsm_global_number_is_integer" => from_desc(rts_runtime::NumberWrapper::IS_INTEGER_SYM),
-        "__rtsm_global_number_is_finite" => from_desc(rts_runtime::NumberWrapper::IS_FINITE_SYM),
-        "__rtsm_global_number_is_nan" => from_desc(rts_runtime::NumberWrapper::IS_NAN_SYM),
-        "__rtsm_global_number_is_safe_integer" => {
+        "__rtsm_global_Number_is_integer" => from_desc(rts_runtime::NumberWrapper::IS_INTEGER_SYM),
+        "__rtsm_global_Number_is_finite" => from_desc(rts_runtime::NumberWrapper::IS_FINITE_SYM),
+        "__rtsm_global_Number_is_nan" => from_desc(rts_runtime::NumberWrapper::IS_NAN_SYM),
+        "__rtsm_global_Number_is_safe_integer" => {
             from_desc(rts_runtime::NumberWrapper::IS_SAFE_INTEGER_SYM)
         }
 

@@ -252,7 +252,7 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
     // is_pure_registry_class (the engine NEVER names "Symbol" in control flow).
     ns::globals::symbol::register_symbol_class_spec,
     // `Proxy` — backend/Registry class (#218), migrated to `#[rtse::class]` (macro
-    // ctor escape hatch: `new Proxy(target, handler)` → `__rtsm_global_proxy_new`
+    // ctor escape hatch: `new Proxy(target, handler)` → `__rtsm_global_Proxy_new`
     // returns a raw `Handle` into its OWN `Entry::Proxy`, not an `alloc_rtse` box).
     // The get/set TRAPS are resolved at runtime in the dynamic property
     // trampolines (`__rtsadp_obj_get`/`_set` detect a Proxy receiver via

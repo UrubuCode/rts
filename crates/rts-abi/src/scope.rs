@@ -5,7 +5,7 @@
 //!
 //! ```text
 //! __rtsm_<module>_<value>          module symbol    __rtsm_io_print, __rtsm_node_fs_readFile
-//! __rtsm_global_<class>_<value>    global class     __rtsm_global_string_toUpperCase
+//! __rtsm_global_<Class>_<value>    global class     __rtsm_global_String_toUpperCase
 //! __rtsm_global_<value>            bare global      __rtsm_global_parseInt
 //! __rtsn_<value>                   NATIVE           Rust helpers compensating what Cranelift
 //!                                                   lacks. The `n` is NATIVE, NOT "node".
@@ -14,12 +14,14 @@
 //!
 //! Two rules make the name mechanical:
 //!
-//! - The separator is ALWAYS `_`, never a hyphen. A module specifier is
-//!   normalized into segments by [`segments`]: `node:fs` → `node_fs`,
-//!   `Intl.NumberFormat` → `intl_numberformat`.
-//! - The trailing `<value>` segment is the JS member spelling VERBATIM
-//!   (`readFileSync`, `toUpperCase`). Case is deliberately preserved — folding
-//!   it collides distinct JS members that differ only by case.
+//! - The separator is ALWAYS `_`, never a hyphen. A module specifier or class
+//!   name is normalized into segments by [`segments`]: `node:fs` → `node_fs`,
+//!   `Intl.NumberFormat` → `Intl_NumberFormat`.
+//! - **Every segment keeps its case** — the scope one as much as the trailing
+//!   `<value>`. Folding the member would collide JS members differing only by
+//!   case; folding the CLASS destroyed the word boundaries of a PascalCase name
+//!   (`readablestreamdefaultcontroller`), so the symbol could not be read back.
+//!   Both are verbatim, which makes the whole name reversible.
 //!
 //! # Why this lives in `rts-abi` and not in the proc-macro
 //!
@@ -53,7 +55,7 @@ pub enum Naming {
 pub enum Scope {
     /// `module = "node:fs"` → `__rtsm_node_fs_<value>`.
     Module(String),
-    /// `global = "String"` → `__rtsm_global_string_<value>`; bare `global` (no
+    /// `global = "String"` → `__rtsm_global_String_<value>`; bare `global` (no
     /// class) → `__rtsm_global_<value>`.
     Global(Option<String>),
     /// `native` → `__rtsn_<value>`.
@@ -101,11 +103,18 @@ pub fn symbol_for(naming: &Naming, fn_name: &str) -> String {
 }
 
 /// Normalize a module specifier or class name into underscore-joined symbol
-/// segments: lower-cased, every run of non-alphanumeric characters collapsed to
-/// a single `_`, no leading/trailing separator. `node:fs` → `node_fs`,
-/// `Intl.NumberFormat` → `intl_numberformat`, `text-encoding` → `text_encoding`.
+/// segments: every run of non-alphanumeric characters collapsed to a single
+/// `_`, no leading/trailing separator. `node:fs` → `node_fs`,
+/// `Intl.NumberFormat` → `Intl_NumberFormat`, `text-encoding` → `text_encoding`.
 ///
-/// Only this SCOPE part is case-folded. The `<value>` segment is never touched.
+/// **Case is PRESERVED** (owner decision, 2026-07-31). It used to be folded to
+/// lower, which destroyed the word boundaries of a PascalCase class name: the
+/// symbol read `__rtsm_global_ReadableStreamDefaultController_close`, from which
+/// you cannot recover `ReadableStreamDefaultController`. Preserving the case
+/// makes the symbol REVERSIBLE — scope and member are both readable straight off
+/// the linker name — and it makes the rule uniform, since the `<value>` segment
+/// was already verbatim. A module specifier is lower-case in JS anyway, so this
+/// changes nothing for `node:fs`/`io`; it is the class segment that gains.
 pub fn segments(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut pending = false;
@@ -115,7 +124,7 @@ pub fn segments(s: &str) -> String {
                 out.push('_');
             }
             pending = false;
-            out.push(c.to_ascii_lowercase());
+            out.push(c);
         } else {
             pending = true;
         }
@@ -130,7 +139,7 @@ mod tests {
     #[test]
     fn segments_collapse_to_underscores() {
         assert_eq!(segments("node:fs"), "node_fs");
-        assert_eq!(segments("Intl.NumberFormat"), "intl_numberformat");
+        assert_eq!(segments("Intl.NumberFormat"), "Intl_NumberFormat");
         assert_eq!(segments("text-encoding"), "text_encoding");
         assert_eq!(segments("io"), "io");
     }
@@ -147,7 +156,7 @@ mod tests {
             scope: Scope::Global(Some("String".into())),
             value: Some("toUpperCase".into()),
         };
-        assert_eq!(symbol_for(&g, "upper"), "__rtsm_global_string_toUpperCase");
+        assert_eq!(symbol_for(&g, "upper"), "__rtsm_global_String_toUpperCase");
 
         let bare = Naming::Scoped {
             scope: Scope::Global(None),

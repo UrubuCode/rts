@@ -38,7 +38,10 @@ This is the first and most important rule. It governs all others.
 - **MANDATORY RULE: SINGLE SOURCE OF TRUTH** — `rts-macro` declares/types every
   symbol, `rts-symbol-baker` bakes the ordered table that is both the JIT vtable
   and the AOT symbol set. No hand-written symbol / signature / metadata rows;
-  crate-dependency-direction bans are REMOVED (2026-07-28)
+  crate-dependency-direction bans are REMOVED (2026-07-28). **ONE permanent
+  exception: `rts-napi`'s 157 `napi_*`/`node_api_*` — a foreign C ABI whose
+  names are the interface** (owner decision 2026-07-31; see the dedicated
+  subsection)
 - **MANDATORY RULE: read_before_commit.sh GATE + FILE LAYOUT** — run
   `bash scripts/read_before_commit.sh` and read its whole output before every commit
   touching the engine; file-size ceilings codegen ≤1000 / engine ≤700 / rest ≤500 (split into a
@@ -361,11 +364,44 @@ must exist in the baked table, so a renamed symbol is a test failure instead of 
 runtime SIGILL. That guard immediately found **11 dead rows** in `abi_sig.rs`
 naming `__rtsadp_map_*`/`__rtsadp_set_*` symbols that exist nowhere in the tree.
 
+### THE ONE EXCEPTION: N-API is a FOREIGN ABI (owner decision, 2026-07-31)
+
+`crates/rts-napi`'s **157 `napi_*` / `node_api_*`** declarations are the ONLY
+hand-written `#[unsafe(no_mangle)] extern "C"` symbols this rule permits, and
+they are permanent. They are the **Node-API C contract**: a compiled `.node`
+addon links against those exact names, so the name IS the interface, not a
+spelling we own. The 5 `__RTS_*` symbols inside `rts-napi` are ours and ARE
+declared with `rtse::*`.
+
+Three independent reasons, each measured rather than assumed — and note the
+FIRST one is not the reason: the naming rule would NOT break them, because
+`#[rtse::abi("napi_x")]` (`Naming::Explicit`) returns the name verbatim.
+
+1. **Type, not name.** `rts_abi::tymap::single_slot` covers
+   `bool/f64/i32/i64/u64` + `Handle`/`Poly`/`Bool` + `&str`/`String`/`Vec`. The
+   N-API signatures are built from what it does not cover: `napi_env` (134
+   occurrences), `napi_value` (97), `*mut napi_value` (46), `*mut c_void` (38),
+   `usize` (26), `*mut bool` (20), `*const c_char` (15). Of the 157, exactly
+   **one** has a fully mappable signature.
+2. **Semantics.** The baked table IS the JIT vtable and the AOT symbol set — it
+   answers "how does the codegen emit THIS call". No RTS codegen ever calls a
+   `napi_*` by symbol; the compiled `.node` addon does, through the OS loader. A
+   `SymbolDesc` for one would describe a call that does not exist.
+3. **The baker already excludes them — by accident.** `scan/mod.rs` gates on
+   `has_no_mangle(&f.attrs) && name.starts_with("__")`, and `napi_*` does not
+   start with `__`, so the table holds **0** `napi_*` rows today. That exclusion
+   is emergent from a prefix filter, not a declared rule: one edit to that
+   condition would silently readmit 157 wrong symbols. If the gate ever counts
+   `no_mangle`, it must exclude `crates/rts-napi/` BY NAME and cite this section.
+
+Do not "finish the drain" by converting them. Do not treat their presence as
+debt. `docs/specs/no-mangle-drain.md` §2/§2b carries the same reasoning.
+
 ### How to apply
 
 1. **Never add a row** to any table above, and never hand-write a
-   `#[no_mangle] extern "C"` symbol name. Declare it with `rtse::*`; the baker
-   picks it up.
+   `#[no_mangle] extern "C"` symbol name — the N-API carve-out above is the one
+   exception. Declare it with `rtse::*`; the baker picks it up.
 2. After adding/renaming a symbol run `cargo run -p rts-symbol-baker` and commit
    the regenerated artefact. `cargo run -p rts-symbol-baker -- --check` must be
    clean — the gate HARD-fails on drift.
