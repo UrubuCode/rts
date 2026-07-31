@@ -813,16 +813,16 @@
 ,
 {
   "name": "claude-entries-for-of-pair-destructuring",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "entries=0:a,1:b,2:c\nidxOnly=0,1,2\nvalOnly=a,b,c\npairShape=true2,true2,true2\nwithDefault=0aDEF,1bDEF,2cDEF\nrestPair=0->a,1->b,2->c\nkeys=0,1,2\nvalues=a,b,c\nvaluesMatchDefault=true\nletRebind=0A,10B,20C\nbreak=a|len=1\ncontinue=a,c\nsparse=0:x,1:undefined,2:z\nempty=0\nlive=0p,1q\nnested=0m01,0m12,1n01,1n12\nmanualPair=0a",
   "node": "entries=0:a,1:b,2:c\nidxOnly=0,1,2\nvalOnly=a,b,c\npairShape=true2,true2,true2\nwithDefault=0aDEF,1bDEF,2cDEF\nrestPair=0->a,1->b,2->c\nkeys=0,1,2\nvalues=a,b,c\nvaluesMatchDefault=true\nletRebind=0A,10B,20C\nbreak=a|len=1\ncontinue=a,c\nsparse=0:x,1:undefined,2:z\nempty=0\nlive=0p,1q\nnested=0m01,0m12,1n01,1n12\nmanualPair=0a",
-  "rts": "",
+  "rts": "entries=0:a,1:b,2:c\nidxOnly=0,1,2\nvalOnly=a,b,c\npairShape=true2,true2,true2\nwithDefault=0aDEF,1bDEF,2cDEF\nrestPair=0->a,1->b,2->c\nkeys=0,1,2\nvalues=a,b,c\nvaluesMatchDefault=true\nletRebind=0A,10B,20C\nbreak=a|len=1\ncontinue=a,c\nsparse=0:x,1:undefined,2:z\nempty=0\nlive=0p\nnested=0m01,0m12,1n01,1n12\nmanualPair=0a",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: no Registry entry for `Array.next(0 args)` (callback methods like .map/.filter/.reduce bail by design)\n      at run of tests/cross-runtime/array/claude-entries-for-of-pair-destructuring.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -2146,13 +2146,13 @@
   "status": "rts_error",
   "bun": "it1_first=a\nit2_first=a\nit1_second=b\nit2_still_second=b\ndistinct_objects=false\nk_v_distinct=false\nk_first=a\nv_first=1\ne_first=a:1\nr1=x:false\nr2=undefined:true\nr3_still_done=undefined:true\nit4_done=true\nit4_after_growth=undefined:true\nit5_a=a\nit5_sees_b=b\nit5_done=true\nit6_a=a\nit6_skips_b=c\niterator_self=true\nspread_iterator=a,b,c\nrest_spread=b,c\nmap_iter_is_entries=true\ndefault_iter_pair=a:1\nfresh1=a,b,c\nfresh2=a,b,c\npairs_not_shared=false\npairs_equal=true\nset_keys_is_values=true\nset_iter_is_values=true\nset_entry=10:10:true\nset_indep=10:10:20",
   "node": "it1_first=a\nit2_first=a\nit1_second=b\nit2_still_second=b\ndistinct_objects=false\nk_v_distinct=false\nk_first=a\nv_first=1\ne_first=a:1\nr1=x:false\nr2=undefined:true\nr3_still_done=undefined:true\nit4_done=true\nit4_after_growth=undefined:true\nit5_a=a\nit5_sees_b=b\nit5_done=true\nit6_a=a\nit6_skips_b=c\niterator_self=true\nspread_iterator=a,b,c\nrest_spread=b,c\nmap_iter_is_entries=true\ndefault_iter_pair=a:1\nfresh1=a,b,c\nfresh2=a,b,c\npairs_not_shared=false\npairs_equal=true\nset_keys_is_values=true\nset_iter_is_values=true\nset_entry=10:10:true\nset_indep=10:10:20",
-  "rts": "",
+  "rts": "it1_first=a\nit2_first=a\nit1_second=b\nit2_still_second=b\ndistinct_objects=false\nk_v_distinct=false\nk_first=a\nv_first=1\ne_first=a:1\nr1=x:false\nr2=undefined:true\nr3_still_done=undefined:true\nit4_done=true\nit4_after_growth=undefined:true\nit5_a=a\nit5_sees_b=undefined\nit5_done=true\nit6_a=a\nit6_skips_b=b",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: no Registry entry for `Array.next(0 args)` (callback methods like .map/.filter/.reduce bail by design)\n      at run of tests/cross-runtime/collections/claude-map-set-iterators-independent.ts failed"
+  "rts_error": "error: Uncaught TypeError: [object Object] is not a function\n      at run of tests/cross-runtime/collections/claude-map-set-iterators-independent.ts failed"
 }
 ,
 {
@@ -3458,6 +3458,34 @@
 }
 ,
 {
+  "name": "claude-generator-untyped-param",
+  "status": "pass",
+  "bun": "spread=10,11,12\nnext=10\nforOf=6\nacrossBoundary=10\ncursorAdvances=303\nresultObject={\"value\":10,\"done\":false}\nafterExhaustion={\"done\":true}\ntakeInfinite=1,2,3,4,5\ntakeInfiniteFrom=10,11,12,13\nannotated=10,11,12\nnoParams=1,2,3\ndefaultOmitted=1,2,3\ndefaultPassed=5,6,7\nstringParam=x0,x1\neagerParam=7,8",
+  "node": "spread=10,11,12\nnext=10\nforOf=6\nacrossBoundary=10\ncursorAdvances=303\nresultObject={\"value\":10,\"done\":false}\nafterExhaustion={\"done\":true}\ntakeInfinite=1,2,3,4,5\ntakeInfiniteFrom=10,11,12,13\nannotated=10,11,12\nnoParams=1,2,3\ndefaultOmitted=1,2,3\ndefaultPassed=5,6,7\nstringParam=x0,x1\neagerParam=7,8",
+  "rts": "spread=10,11,12\nnext=10\nforOf=6\nacrossBoundary=10\ncursorAdvances=303\nresultObject={\"value\":10,\"done\":false}\nafterExhaustion={\"done\":true}\ntakeInfinite=1,2,3,4,5\ntakeInfiniteFrom=10,11,12,13\nannotated=10,11,12\nnoParams=1,2,3\ndefaultOmitted=1,2,3\ndefaultPassed=5,6,7\nstringParam=x0,x1\neagerParam=7,8",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "claude-native-iterator-next",
+  "status": "pass",
+  "bun": "first=1\nsecond=2\nexhausted={\"done\":true}\nkeys=0\nentries=[0,9]\nsetValues=5\nsetKeys=5\nmapEntries=[\"k\",9]\nmapKeys=k\nmapValues=9\nindependent=10\ntake=1,2,3\ntakeBeyondEnd=1,2\nplainArrayNext=undefined\nspreadValues=1,2\nspreadKeys=0,1\nforOfValues=6\nforOfEntries=0:9 1:8 ",
+  "node": "first=1\nsecond=2\nexhausted={\"done\":true}\nkeys=0\nentries=[0,9]\nsetValues=5\nsetKeys=5\nmapEntries=[\"k\",9]\nmapKeys=k\nmapValues=9\nindependent=10\ntake=1,2,3\ntakeBeyondEnd=1,2\nplainArrayNext=undefined\nspreadValues=1,2\nspreadKeys=0,1\nforOfValues=6\nforOfEntries=0:9 1:8 ",
+  "rts": "first=1\nsecond=2\nexhausted={\"done\":true}\nkeys=0\nentries=[0,9]\nsetValues=5\nsetKeys=5\nmapEntries=[\"k\",9]\nmapKeys=k\nmapValues=9\nindependent=10\ntake=1,2,3\ntakeBeyondEnd=1,2\nplainArrayNext=undefined\nspreadValues=1,2\nspreadKeys=0,1\nforOfValues=6\nforOfEntries=0:9 1:8 ",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
   "name": "codex_async_generator_yield_await_finally",
   "status": "rts_diverge",
   "bun": "{\"value\":\"a\",\"done\":false}\n{\"value\":\"fin\",\"done\":false}\n{\"value\":\"ret\",\"done\":true}",
@@ -3686,13 +3714,13 @@
   "status": "rts_error",
   "bun": "mapPairs=true:2:a=1|true:2:b=2|true:2:c=3\nmapDestructured=a=1,b=2,c=3\nmapDefaultIsEntries=true\nmapKeys=a,b,c\nmapValues=1,2,3\nmapEntries=a1,b2,c3\noverwriteOrder=x,y\nreaddOrder=q,p\nemptyMap=0\nsetValues=10,20,30\nsetDefaultIsValues=true\nsetKeysIsValues=true\nsetEntries=10:10,20:20,30:30\nsetDedup=3,1,2|size=3\nmi1=[\"a\",1]\nmi2=[\"b\",2]\nmi3=[\"c\",3]\nmi4=undefined|done=true\niterSelfIterable=true\nspreadPairsLen=3|first=a=1\nfromMatchesSpread=true",
   "node": "mapPairs=true:2:a=1|true:2:b=2|true:2:c=3\nmapDestructured=a=1,b=2,c=3\nmapDefaultIsEntries=true\nmapKeys=a,b,c\nmapValues=1,2,3\nmapEntries=a1,b2,c3\noverwriteOrder=x,y\nreaddOrder=q,p\nemptyMap=0\nsetValues=10,20,30\nsetDefaultIsValues=true\nsetKeysIsValues=true\nsetEntries=10:10,20:20,30:30\nsetDedup=3,1,2|size=3\nmi1=[\"a\",1]\nmi2=[\"b\",2]\nmi3=[\"c\",3]\nmi4=undefined|done=true\niterSelfIterable=true\nspreadPairsLen=3|first=a=1\nfromMatchesSpread=true",
-  "rts": "",
+  "rts": "mapPairs=true:2:a=1|true:2:b=2|true:2:c=3\nmapDestructured=a=1,b=2,c=3\nmapDefaultIsEntries=false\nmapKeys=a,b,c\nmapValues=1,2,3\nmapEntries=a1,b2,c3\noverwriteOrder=x,y\nreaddOrder=q,p\nemptyMap=0\nsetValues=10,20,30\nsetDefaultIsValues=false\nsetKeysIsValues=false\nsetEntries=10:10,20:20,30:30\nsetDedup=3,1,2|size=3\nmi1=[\"a\",1]\nmi2=[\"b\",2]\nmi3=[\"c\",3]\nmi4=undefined|done=true",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: no Registry entry for `Array.next(0 args)` (callback methods like .map/.filter/.reduce bail by design)\n      at run of tests/cross-runtime/iteration/claude-map-set-for-of-shape.ts failed"
+  "rts_error": "error: Uncaught TypeError: [object Object] is not a function\n      at run of tests/cross-runtime/iteration/claude-map-set-for-of-shape.ts failed"
 }
 ,
 {
@@ -5884,13 +5912,13 @@
   "status": "rts_error",
   "bun": "1,2,3,4,5\n10,11,12,13\n1a\n2b\n3c\n1,2,3,4,5\n1,2,3,4\n4\nfirst\ncaught:oops\n1\n99\ntrue",
   "node": "1,2,3,4,5\n10,11,12,13\n1a\n2b\n3c\n1,2,3,4,5\n1,2,3,4\n4\nfirst\ncaught:oops\n1\n99\ntrue",
-  "rts": "",
+  "rts": "1,2,3,4,5\n10,11,12,13",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 124,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: Uncaught TypeError: next is not a function\n      at run of tests/cross-runtime/object-meta/368_iterator_protocol.ts failed"
+  "rts_error": "timeout apos 10s"
 }
 ,
 {
@@ -6595,16 +6623,16 @@
 ,
 {
   "name": "codex_lru_cache_map_order",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "1\nc3,a1,d4\n-1",
   "node": "1\nc3,a1,d4\n-1",
-  "rts": "",
+  "rts": "1\nc3,a1,d4\n-1",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsn_method_Lru_set`: unsupported in the numeric subset: no Registry entry for `Array.next(0 args)` (callback methods like .map/.filter/.reduce bail by design)\n      at run of tests/cross-runtime/patterns/codex_lru_cache_map_order.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -9519,4 +9547,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":680,"pass":472,"rts_diverge":113,"bun_node_diverge":18,"errors":77,"rejected":0}}
+],"summary":{"total":682,"pass":475,"rts_diverge":114,"bun_node_diverge":18,"errors":75,"rejected":0}}
