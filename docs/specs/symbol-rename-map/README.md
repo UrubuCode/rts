@@ -5,9 +5,10 @@ and step 6 of [`../no-mangle-drain.md`](../no-mangle-drain.md).
 
 ## What this is
 
-**552** legacy symbols mapped to the new convention (626 originally; **74 rows
-were dropped on 2026-07-31 when N7 deleted the symbols they named** — see the N7
-section below). Each row is TSV:
+**450** legacy symbols still to rename. Started at 626; **74 rows dropped** on
+2026-07-31 when N7 deleted the symbols they named (see the N7 section), and
+**`dom.tsv` (102 rows) EXECUTED and retired** the same day. Each remaining row is
+TSV:
 
 ```
 <legacy symbol>	<body of #[rtse::abi(...)]>	<resulting linker symbol>
@@ -85,3 +86,45 @@ data was never committed. Re-run one agent each (cheap, ~2 min):
   remaining 552 a bijection with zero orphans.
 * `__RTS_FN_NS_GC_*` are NOT members of the `gc` namespace: `e.ns("gc")` exposes
   only `collect` / `live_count`, both already `__rtsn_*`.
+
+## Execution record
+
+### `dom` — DONE (2026-07-31, 102 symbols)
+
+The first area executed, and picked because it is the cleanest: **zero consumers
+outside `rts-dom`**, all 463 occurrences in one file (`crates/rts-dom/src/abi.rs`).
+
+Mechanism, per row, and it is worth copying:
+
+1. rewrite the attribute `#[rtse::abi("__RTS_FN_NS_DOM_X")]` →
+   `#[rtse::abi(module = "dom", value = "jsName")]`;
+2. substitute the OLD NAME everywhere else in the file with the new symbol —
+   that one substitution covers the Rust fn name, the Registry `symbol` string,
+   the `X as *const u8` address and any internal call, because in this
+   convention **the Rust item name IS the symbol**.
+
+Two things that would have broken it:
+
+- **Process rows LONGEST-NAME-FIRST.** `__RTS_FN_NS_DOM_ADD_LISTENER` is a
+  prefix of `__RTS_FN_NS_DOM_ADD_LISTENER_CB`; a shortest-first or unordered
+  sweep corrupts the longer name. Word boundaries alone are not enough.
+- **Check the `value` against the name ALREADY REGISTERED.** The symbol is
+  invisible to TypeScript, but `value` also names the Registry member. Here the
+  registration already read `"addListener"` and the map said
+  `value = "addListener"`, so the rename was symbol-only. Had they differed, the
+  rename would silently have changed the JS API.
+
+**The map had a systematic gap: `macro_rules!`-generated symbols.** It was built
+by scanning `#[rtse::abi("…")]` textually, so the five `nav_fn!` navigation
+getters (`firstElementChild`, `lastElementChild`, `nextElementSibling`,
+`previousElementSibling`, `parentElement`) were absent — 102 of this file's 107.
+They surfaced only as a leftover grep. This is the same blindness that hid the
+eight `ta_ctor!` TypedArray constructors from `rts-symbol-baker` in N4.
+**Every remaining area should expect it: after applying the map, grep the file
+for the old prefix and expect ZERO.**
+
+Verified: baked before and after — 102 removed, 102 added, table total unchanged;
+every removed name is `__RTS_FN_NS_DOM_*`, every added name is `__rtsm_dom_*`,
+and each mapped target was checked present, giving zero orphans. Repo-wide grep
+for the old prefix across `*.rs` AND `*.ts`: zero. Full TS suite unchanged
+(772/775 files, 2841/2853 tests).

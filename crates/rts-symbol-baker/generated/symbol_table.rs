@@ -711,1479 +711,1479 @@ unsafe extern "C" {
     fn __rts_sym_339();
     #[link_name = "__RTS_FN_NS_DATE_YEAR"]
     fn __rts_sym_340();
-    #[link_name = "__RTS_FN_NS_DOM_ADD_LISTENER"]
-    fn __rts_sym_341();
-    #[link_name = "__RTS_FN_NS_DOM_ADD_LISTENER_CB"]
-    fn __rts_sym_342();
-    #[link_name = "__RTS_FN_NS_DOM_ADD_STYLESHEET"]
-    fn __rts_sym_343();
-    #[link_name = "__RTS_FN_NS_DOM_ADVANCE"]
-    fn __rts_sym_344();
-    #[link_name = "__RTS_FN_NS_DOM_APPEND_CHILD"]
-    fn __rts_sym_345();
-    #[link_name = "__RTS_FN_NS_DOM_ATTR_COUNT"]
-    fn __rts_sym_346();
-    #[link_name = "__RTS_FN_NS_DOM_ATTR_NAME_AT"]
-    fn __rts_sym_347();
-    #[link_name = "__RTS_FN_NS_DOM_ATTR_VALUE_AT"]
-    fn __rts_sym_348();
-    #[link_name = "__RTS_FN_NS_DOM_BOUNDING_COMPONENT"]
-    fn __rts_sym_349();
-    #[link_name = "__RTS_FN_NS_DOM_CHILD_AT"]
-    fn __rts_sym_350();
-    #[link_name = "__RTS_FN_NS_DOM_CHILD_COUNT"]
-    fn __rts_sym_351();
-    #[link_name = "__RTS_FN_NS_DOM_CHILD_NODES_COUNT"]
-    fn __rts_sym_352();
-    #[link_name = "__RTS_FN_NS_DOM_CHILD_NODE_AT"]
-    fn __rts_sym_353();
-    #[link_name = "__RTS_FN_NS_DOM_CLEAR_CHILDREN"]
-    fn __rts_sym_354();
-    #[link_name = "__RTS_FN_NS_DOM_CLONE_NODE"]
-    fn __rts_sym_355();
-    #[link_name = "__RTS_FN_NS_DOM_CLOSEST"]
-    fn __rts_sym_356();
-    #[link_name = "__RTS_FN_NS_DOM_COMPUTED_PROPERTY"]
-    fn __rts_sym_357();
-    #[link_name = "__RTS_FN_NS_DOM_CONTAINS"]
-    fn __rts_sym_358();
-    #[link_name = "__RTS_FN_NS_DOM_CREATE_COMMENT"]
-    fn __rts_sym_359();
-    #[link_name = "__RTS_FN_NS_DOM_CREATE_DOCUMENT"]
-    fn __rts_sym_360();
-    #[link_name = "__RTS_FN_NS_DOM_CREATE_ELEMENT"]
-    fn __rts_sym_361();
-    #[link_name = "__RTS_FN_NS_DOM_CREATE_TEXT_NODE"]
-    fn __rts_sym_362();
-    #[link_name = "__RTS_FN_NS_DOM_CSS_TEXT"]
-    fn __rts_sym_363();
-    #[link_name = "__RTS_FN_NS_DOM_DEFINE_BLOCK"]
-    fn __rts_sym_364();
-    #[link_name = "__RTS_FN_NS_DOM_DEFINE_INLINE"]
-    fn __rts_sym_365();
-    #[link_name = "__RTS_FN_NS_DOM_DEFINE_STYLE"]
-    fn __rts_sym_366();
-    #[link_name = "__RTS_FN_NS_DOM_DISPATCH_CB_AT"]
-    fn __rts_sym_367();
-    #[link_name = "__RTS_FN_NS_DOM_DISPATCH_CB_NODE"]
-    fn __rts_sym_368();
-    #[link_name = "__RTS_FN_NS_DOM_DISPATCH_COLLECT"]
-    fn __rts_sym_369();
-    #[link_name = "__RTS_FN_NS_DOM_DISPATCH_EVENT"]
-    fn __rts_sym_370();
-    #[link_name = "__RTS_FN_NS_DOM_DISPLAY_OF"]
-    fn __rts_sym_371();
-    #[link_name = "__RTS_FN_NS_DOM_DUMP"]
-    fn __rts_sym_372();
-    #[link_name = "__RTS_FN_NS_DOM_DUMP_LAYOUT"]
-    fn __rts_sym_373();
-    #[link_name = "__RTS_FN_NS_DOM_DUMP_TREE"]
-    fn __rts_sym_374();
-    #[link_name = "__RTS_FN_NS_DOM_FIRST_CHILD"]
-    fn __rts_sym_375();
-    #[link_name = "__RTS_FN_NS_DOM_FOCUSED_INPUT"]
-    fn __rts_sym_376();
-    #[link_name = "__RTS_FN_NS_DOM_FOCUS_INPUT"]
-    fn __rts_sym_377();
-    #[link_name = "__RTS_FN_NS_DOM_FREE"]
-    fn __rts_sym_378();
-    #[link_name = "__RTS_FN_NS_DOM_GET_ATTRIBUTE"]
-    fn __rts_sym_379();
-    #[link_name = "__RTS_FN_NS_DOM_GET_BY_CLASS_AT"]
-    fn __rts_sym_380();
-    #[link_name = "__RTS_FN_NS_DOM_GET_BY_CLASS_COUNT"]
-    fn __rts_sym_381();
-    #[link_name = "__RTS_FN_NS_DOM_GET_BY_NAME_AT"]
-    fn __rts_sym_382();
-    #[link_name = "__RTS_FN_NS_DOM_GET_BY_NAME_COUNT"]
-    fn __rts_sym_383();
-    #[link_name = "__RTS_FN_NS_DOM_GET_BY_TAG_AT"]
-    fn __rts_sym_384();
-    #[link_name = "__RTS_FN_NS_DOM_GET_BY_TAG_COUNT"]
-    fn __rts_sym_385();
-    #[link_name = "__RTS_FN_NS_DOM_GET_TEXT"]
-    fn __rts_sym_386();
-    #[link_name = "__RTS_FN_NS_DOM_HAS_ATTR"]
-    fn __rts_sym_387();
-    #[link_name = "__RTS_FN_NS_DOM_HAS_CHILD_NODES"]
-    fn __rts_sym_388();
-    #[link_name = "__RTS_FN_NS_DOM_HAS_IMAGE"]
-    fn __rts_sym_389();
-    #[link_name = "__RTS_FN_NS_DOM_HAS_LISTENER"]
-    fn __rts_sym_390();
-    #[link_name = "__RTS_FN_NS_DOM_INLINE_PROPERTY"]
-    fn __rts_sym_391();
-    #[link_name = "__RTS_FN_NS_DOM_INNER_HTML"]
-    fn __rts_sym_392();
-    #[link_name = "__RTS_FN_NS_DOM_INPUT_AT"]
-    fn __rts_sym_393();
-    #[link_name = "__RTS_FN_NS_DOM_INPUT_BACKSPACE"]
-    fn __rts_sym_394();
-    #[link_name = "__RTS_FN_NS_DOM_INPUT_FEED_TEXT"]
-    fn __rts_sym_395();
-    #[link_name = "__RTS_FN_NS_DOM_INPUT_VALUE"]
-    fn __rts_sym_396();
-    #[link_name = "__RTS_FN_NS_DOM_INSERT_ADJACENT"]
-    fn __rts_sym_397();
-    #[link_name = "__RTS_FN_NS_DOM_INSERT_BEFORE"]
-    fn __rts_sym_398();
-    #[link_name = "__RTS_FN_NS_DOM_LAST_CHILD"]
-    fn __rts_sym_399();
-    #[link_name = "__RTS_FN_NS_DOM_MATCHES"]
-    fn __rts_sym_400();
-    #[link_name = "__RTS_FN_NS_DOM_NEXT_SIBLING"]
-    fn __rts_sym_401();
-    #[link_name = "__RTS_FN_NS_DOM_NODE_NAME"]
-    fn __rts_sym_402();
-    #[link_name = "__RTS_FN_NS_DOM_NODE_STYLE_SLOT"]
-    fn __rts_sym_403();
-    #[link_name = "__RTS_FN_NS_DOM_NODE_TYPE"]
-    fn __rts_sym_404();
-    #[link_name = "__RTS_FN_NS_DOM_NODE_VALUE"]
-    fn __rts_sym_405();
-    #[link_name = "__RTS_FN_NS_DOM_NORMALIZE"]
-    fn __rts_sym_406();
-    #[link_name = "__RTS_FN_NS_DOM_OUTER_HTML"]
-    fn __rts_sym_407();
-    #[link_name = "__RTS_FN_NS_DOM_PARENT_NODE"]
-    fn __rts_sym_408();
-    #[link_name = "__RTS_FN_NS_DOM_PARSE_HTML"]
-    fn __rts_sym_409();
-    #[link_name = "__RTS_FN_NS_DOM_POLL_EVENT"]
-    fn __rts_sym_410();
-    #[link_name = "__RTS_FN_NS_DOM_POLL_EVENT_TYPE"]
-    fn __rts_sym_411();
-    #[link_name = "__RTS_FN_NS_DOM_POLL_RAW_EVENT"]
-    fn __rts_sym_412();
-    #[link_name = "__RTS_FN_NS_DOM_POLL_RAW_EVENT_TYPE"]
-    fn __rts_sym_413();
-    #[link_name = "__RTS_FN_NS_DOM_PREPEND"]
-    fn __rts_sym_414();
-    #[link_name = "__RTS_FN_NS_DOM_PREVIOUS_SIBLING"]
-    fn __rts_sym_415();
-    #[link_name = "__RTS_FN_NS_DOM_PUSH_RAW_EVENT"]
-    fn __rts_sym_416();
-    #[link_name = "__RTS_FN_NS_DOM_QUERY_ALL_WITHIN_AT"]
-    fn __rts_sym_417();
-    #[link_name = "__RTS_FN_NS_DOM_QUERY_ALL_WITHIN_COUNT"]
-    fn __rts_sym_418();
-    #[link_name = "__RTS_FN_NS_DOM_QUERY_SELECTOR"]
-    fn __rts_sym_419();
-    #[link_name = "__RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_AT"]
-    fn __rts_sym_420();
-    #[link_name = "__RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_COUNT"]
-    fn __rts_sym_421();
-    #[link_name = "__RTS_FN_NS_DOM_QUERY_WITHIN"]
-    fn __rts_sym_422();
-    #[link_name = "__RTS_FN_NS_DOM_REMOVE_ATTR"]
-    fn __rts_sym_423();
-    #[link_name = "__RTS_FN_NS_DOM_REMOVE_CHILD"]
-    fn __rts_sym_424();
-    #[link_name = "__RTS_FN_NS_DOM_REMOVE_LISTENER"]
-    fn __rts_sym_425();
-    #[link_name = "__RTS_FN_NS_DOM_REMOVE_NODE"]
-    fn __rts_sym_426();
-    #[link_name = "__RTS_FN_NS_DOM_REMOVE_STYLE_PROPERTY"]
-    fn __rts_sym_427();
-    #[link_name = "__RTS_FN_NS_DOM_REPLACE_CHILD"]
-    fn __rts_sym_428();
-    #[link_name = "__RTS_FN_NS_DOM_REPLACE_WITH"]
-    fn __rts_sym_429();
-    #[link_name = "__RTS_FN_NS_DOM_ROOT_ID"]
-    fn __rts_sym_430();
-    #[link_name = "__RTS_FN_NS_DOM_RUN_SCRIPT"]
-    fn __rts_sym_431();
-    #[link_name = "__RTS_FN_NS_DOM_SET_ATTR"]
-    fn __rts_sym_432();
-    #[link_name = "__RTS_FN_NS_DOM_SET_CSS_TEXT"]
-    fn __rts_sym_433();
-    #[link_name = "__RTS_FN_NS_DOM_SET_HOVERED"]
-    fn __rts_sym_434();
-    #[link_name = "__RTS_FN_NS_DOM_SET_IMAGE"]
-    fn __rts_sym_435();
-    #[link_name = "__RTS_FN_NS_DOM_SET_INNER_HTML"]
-    fn __rts_sym_436();
-    #[link_name = "__RTS_FN_NS_DOM_SET_NODE_VALUE"]
-    fn __rts_sym_437();
-    #[link_name = "__RTS_FN_NS_DOM_SET_STYLE"]
-    fn __rts_sym_438();
-    #[link_name = "__RTS_FN_NS_DOM_SET_STYLE_BATCH"]
-    fn __rts_sym_439();
-    #[link_name = "__RTS_FN_NS_DOM_SET_STYLE_PROPERTY"]
-    fn __rts_sym_440();
-    #[link_name = "__RTS_FN_NS_DOM_SET_TEXT"]
-    fn __rts_sym_441();
-    #[link_name = "__RTS_FN_NS_DOM_TAG_NAME"]
-    fn __rts_sym_442();
     #[link_name = "__RTS_FN_NS_EGUI_APPEND_CHILD"]
-    fn __rts_sym_443();
+    fn __rts_sym_341();
     #[link_name = "__RTS_FN_NS_EGUI_BEGIN_FRAME"]
-    fn __rts_sym_444();
+    fn __rts_sym_342();
     #[link_name = "__RTS_FN_NS_EGUI_BUTTON"]
-    fn __rts_sym_445();
+    fn __rts_sym_343();
     #[link_name = "__RTS_FN_NS_EGUI_CLOSE"]
-    fn __rts_sym_446();
+    fn __rts_sym_344();
     #[link_name = "__RTS_FN_NS_EGUI_CREATE_ELEMENT"]
-    fn __rts_sym_447();
+    fn __rts_sym_345();
     #[link_name = "__RTS_FN_NS_EGUI_DEFINE_BLOCK"]
-    fn __rts_sym_448();
+    fn __rts_sym_346();
     #[link_name = "__RTS_FN_NS_EGUI_DEFINE_INLINE"]
-    fn __rts_sym_449();
+    fn __rts_sym_347();
     #[link_name = "__RTS_FN_NS_EGUI_DEFINE_STYLE"]
-    fn __rts_sym_450();
+    fn __rts_sym_348();
     #[link_name = "__RTS_FN_NS_EGUI_DOM_DUMP"]
-    fn __rts_sym_451();
+    fn __rts_sym_349();
     #[link_name = "__RTS_FN_NS_EGUI_DRAW_LINE"]
-    fn __rts_sym_452();
+    fn __rts_sym_350();
     #[link_name = "__RTS_FN_NS_EGUI_DRAW_MESH"]
-    fn __rts_sym_453();
+    fn __rts_sym_351();
     #[link_name = "__RTS_FN_NS_EGUI_DRAW_RECT"]
-    fn __rts_sym_454();
+    fn __rts_sym_352();
     #[link_name = "__RTS_FN_NS_EGUI_DRAW_TEXT"]
-    fn __rts_sym_455();
+    fn __rts_sym_353();
     #[link_name = "__RTS_FN_NS_EGUI_DRAW_WATER"]
-    fn __rts_sym_456();
+    fn __rts_sym_354();
     #[link_name = "__RTS_FN_NS_EGUI_END_FRAME"]
-    fn __rts_sym_457();
+    fn __rts_sym_355();
     #[link_name = "__RTS_FN_NS_EGUI_HORIZONTAL_BEGIN"]
-    fn __rts_sym_458();
+    fn __rts_sym_356();
     #[link_name = "__RTS_FN_NS_EGUI_HORIZONTAL_END"]
-    fn __rts_sym_459();
+    fn __rts_sym_357();
     #[link_name = "__RTS_FN_NS_EGUI_HTML"]
-    fn __rts_sym_460();
+    fn __rts_sym_358();
     #[link_name = "__RTS_FN_NS_EGUI_IS_OPEN"]
-    fn __rts_sym_461();
+    fn __rts_sym_359();
     #[link_name = "__RTS_FN_NS_EGUI_LABEL"]
-    fn __rts_sym_462();
+    fn __rts_sym_360();
     #[link_name = "__RTS_FN_NS_EGUI_MEASURE_TEXT"]
-    fn __rts_sym_463();
+    fn __rts_sym_361();
     #[link_name = "__RTS_FN_NS_EGUI_MESH_FREE"]
-    fn __rts_sym_464();
+    fn __rts_sym_362();
     #[link_name = "__RTS_FN_NS_EGUI_MESH_UPLOAD"]
-    fn __rts_sym_465();
+    fn __rts_sym_363();
     #[link_name = "__RTS_FN_NS_EGUI_MOUSE_LOCK"]
-    fn __rts_sym_466();
+    fn __rts_sym_364();
     #[link_name = "__RTS_FN_NS_EGUI_MOVE_WINDOW"]
-    fn __rts_sym_467();
+    fn __rts_sym_365();
     #[link_name = "__RTS_FN_NS_EGUI_OPEN_WINDOW"]
-    fn __rts_sym_468();
+    fn __rts_sym_366();
     #[link_name = "__RTS_FN_NS_EGUI_PUMP"]
-    fn __rts_sym_469();
+    fn __rts_sym_367();
     #[link_name = "__RTS_FN_NS_EGUI_QUERY_SELECTOR"]
-    fn __rts_sym_470();
+    fn __rts_sym_368();
     #[link_name = "__RTS_FN_NS_EGUI_REMOVE_NODE"]
-    fn __rts_sym_471();
+    fn __rts_sym_369();
     #[link_name = "__RTS_FN_NS_EGUI_RENDER"]
-    fn __rts_sym_472();
+    fn __rts_sym_370();
     #[link_name = "__RTS_FN_NS_EGUI_SET_ATTR"]
-    fn __rts_sym_473();
+    fn __rts_sym_371();
     #[link_name = "__RTS_FN_NS_EGUI_SET_CAMERA"]
-    fn __rts_sym_474();
+    fn __rts_sym_372();
     #[link_name = "__RTS_FN_NS_EGUI_SET_CAMERA_LOOKAT"]
-    fn __rts_sym_475();
+    fn __rts_sym_373();
     #[link_name = "__RTS_FN_NS_EGUI_SET_CLEAR_COLOR"]
-    fn __rts_sym_476();
+    fn __rts_sym_374();
     #[link_name = "__RTS_FN_NS_EGUI_SET_LIGHT"]
-    fn __rts_sym_477();
+    fn __rts_sym_375();
     #[link_name = "__RTS_FN_NS_EGUI_SET_NEXT_POS"]
-    fn __rts_sym_478();
+    fn __rts_sym_376();
     #[link_name = "__RTS_FN_NS_EGUI_SET_SHADOW"]
-    fn __rts_sym_479();
+    fn __rts_sym_377();
     #[link_name = "__RTS_FN_NS_EGUI_SET_SKYBOX"]
-    fn __rts_sym_480();
+    fn __rts_sym_378();
     #[link_name = "__RTS_FN_NS_EGUI_SET_TEXT"]
-    fn __rts_sym_481();
+    fn __rts_sym_379();
     #[link_name = "__RTS_FN_NS_EGUI_SET_VSYNC"]
-    fn __rts_sym_482();
+    fn __rts_sym_380();
     #[link_name = "__RTS_FN_NS_EGUI_SLIDER"]
-    fn __rts_sym_483();
+    fn __rts_sym_381();
     #[link_name = "__RTS_FN_NS_EGUI_SNAPSHOT"]
-    fn __rts_sym_484();
+    fn __rts_sym_382();
     #[link_name = "__RTS_FN_NS_EGUI_TEXTURE_UPLOAD"]
-    fn __rts_sym_485();
+    fn __rts_sym_383();
     #[link_name = "__RTS_FN_NS_EGUI_WIN_HEIGHT"]
-    fn __rts_sym_486();
+    fn __rts_sym_384();
     #[link_name = "__RTS_FN_NS_EGUI_WIN_WIDTH"]
-    fn __rts_sym_487();
+    fn __rts_sym_385();
     #[link_name = "__RTS_FN_NS_ENGINE_ARCH"]
-    fn __rts_sym_488();
+    fn __rts_sym_386();
     #[link_name = "__RTS_FN_NS_ENGINE_BUFFER_CLONE"]
-    fn __rts_sym_489();
+    fn __rts_sym_387();
     #[link_name = "__RTS_FN_NS_ENGINE_BUFFER_DETACH"]
-    fn __rts_sym_490();
+    fn __rts_sym_388();
     #[link_name = "__RTS_FN_NS_ENGINE_FS_APPEND_BYTES"]
-    fn __rts_sym_491();
+    fn __rts_sym_389();
     #[link_name = "__RTS_FN_NS_ENGINE_FS_OPEN_HANDLE"]
-    fn __rts_sym_492();
+    fn __rts_sym_390();
     #[link_name = "__RTS_FN_NS_ENGINE_FS_READ_BYTES"]
-    fn __rts_sym_493();
+    fn __rts_sym_391();
     #[link_name = "__RTS_FN_NS_ENGINE_FS_WRITE_BYTES"]
-    fn __rts_sym_494();
+    fn __rts_sym_392();
     #[link_name = "__RTS_FN_NS_ENGINE_IS_BUFFER"]
-    fn __rts_sym_495();
+    fn __rts_sym_393();
     #[link_name = "__RTS_FN_NS_ENGINE_NOW_MS"]
-    fn __rts_sym_496();
+    fn __rts_sym_394();
     #[link_name = "__RTS_FN_NS_ENGINE_NOW_NS"]
-    fn __rts_sym_497();
+    fn __rts_sym_395();
     #[link_name = "__RTS_FN_NS_ENGINE_NUM_TO_STRING_RADIX"]
-    fn __rts_sym_498();
+    fn __rts_sym_396();
     #[link_name = "__RTS_FN_NS_ENGINE_TRACE_CAPTURE"]
-    fn __rts_sym_499();
+    fn __rts_sym_397();
     #[link_name = "__RTS_FN_NS_ENGINE_TRACE_POP"]
-    fn __rts_sym_500();
+    fn __rts_sym_398();
     #[link_name = "__RTS_FN_NS_ENGINE_TRACE_PRINT"]
-    fn __rts_sym_501();
+    fn __rts_sym_399();
     #[link_name = "__RTS_FN_NS_ENGINE_TRACE_PUSH"]
-    fn __rts_sym_502();
+    fn __rts_sym_400();
     #[link_name = "__RTS_FN_NS_ENGINE_UNIX_MS"]
-    fn __rts_sym_503();
+    fn __rts_sym_401();
     #[link_name = "__RTS_FN_NS_ENGINE_UNIX_NS"]
-    fn __rts_sym_504();
+    fn __rts_sym_402();
     #[link_name = "__RTS_FN_NS_FETCH_CLEAR_OVERRIDES"]
-    fn __rts_sym_505();
+    fn __rts_sym_403();
     #[link_name = "__RTS_FN_NS_FETCH_FETCH_BYTES_ASYNC"]
-    fn __rts_sym_506();
+    fn __rts_sym_404();
     #[link_name = "__RTS_FN_NS_FETCH_FETCH_BYTES_POLL"]
-    fn __rts_sym_507();
+    fn __rts_sym_405();
     #[link_name = "__RTS_FN_NS_FETCH_FETCH_BYTES_TAKE"]
-    fn __rts_sym_508();
+    fn __rts_sym_406();
     #[link_name = "__RTS_FN_NS_FETCH_FETCH_POLL"]
-    fn __rts_sym_509();
+    fn __rts_sym_407();
     #[link_name = "__RTS_FN_NS_FETCH_FETCH_TAKE"]
-    fn __rts_sym_510();
+    fn __rts_sym_408();
     #[link_name = "__RTS_FN_NS_FETCH_FETCH_TEXT"]
-    fn __rts_sym_511();
+    fn __rts_sym_409();
     #[link_name = "__RTS_FN_NS_FETCH_FETCH_TEXT_ASYNC"]
-    fn __rts_sym_512();
+    fn __rts_sym_410();
     #[link_name = "__RTS_FN_NS_FETCH_SET_HEADER"]
-    fn __rts_sym_513();
+    fn __rts_sym_411();
     #[link_name = "__RTS_FN_NS_FETCH_SET_USER_AGENT"]
-    fn __rts_sym_514();
+    fn __rts_sym_412();
     #[link_name = "__RTS_FN_NS_FMT_FMT_BIN"]
-    fn __rts_sym_515();
+    fn __rts_sym_413();
     #[link_name = "__RTS_FN_NS_FMT_FMT_BOOL"]
-    fn __rts_sym_516();
+    fn __rts_sym_414();
     #[link_name = "__RTS_FN_NS_FMT_FMT_F64"]
-    fn __rts_sym_517();
+    fn __rts_sym_415();
     #[link_name = "__RTS_FN_NS_FMT_FMT_F64_PREC"]
-    fn __rts_sym_518();
+    fn __rts_sym_416();
     #[link_name = "__RTS_FN_NS_FMT_FMT_HEX"]
-    fn __rts_sym_519();
+    fn __rts_sym_417();
     #[link_name = "__RTS_FN_NS_FMT_FMT_I64"]
-    fn __rts_sym_520();
+    fn __rts_sym_418();
     #[link_name = "__RTS_FN_NS_FMT_FMT_OCT"]
-    fn __rts_sym_521();
+    fn __rts_sym_419();
     #[link_name = "__RTS_FN_NS_FMT_PARSE_BOOL"]
-    fn __rts_sym_522();
+    fn __rts_sym_420();
     #[link_name = "__RTS_FN_NS_FMT_PARSE_F64"]
-    fn __rts_sym_523();
+    fn __rts_sym_421();
     #[link_name = "__RTS_FN_NS_FMT_PARSE_I64"]
-    fn __rts_sym_524();
+    fn __rts_sym_422();
     #[link_name = "__RTS_FN_NS_FS_READ_TEXT"]
-    fn __rts_sym_525();
+    fn __rts_sym_423();
     #[link_name = "__RTS_FN_NS_GC_IS_DATE"]
-    fn __rts_sym_526();
+    fn __rts_sym_424();
     #[link_name = "__RTS_FN_NS_GC_IS_REGEX"]
-    fn __rts_sym_527();
+    fn __rts_sym_425();
     #[link_name = "__RTS_FN_NS_GC_PIN_HANDLE"]
-    fn __rts_sym_528();
+    fn __rts_sym_426();
     #[link_name = "__RTS_FN_NS_GC_STRING_CMP"]
-    fn __rts_sym_529();
+    fn __rts_sym_427();
     #[link_name = "__RTS_FN_NS_GC_STRING_CONCAT"]
-    fn __rts_sym_530();
+    fn __rts_sym_428();
     #[link_name = "__RTS_FN_NS_GC_STRING_EQ"]
-    fn __rts_sym_531();
+    fn __rts_sym_429();
     #[link_name = "__RTS_FN_NS_GC_STRING_FROM_STATIC"]
-    fn __rts_sym_532();
+    fn __rts_sym_430();
     #[link_name = "__RTS_FN_NS_GC_STRING_LEN"]
-    fn __rts_sym_533();
+    fn __rts_sym_431();
     #[link_name = "__RTS_FN_NS_GC_STRING_NEW"]
-    fn __rts_sym_534();
+    fn __rts_sym_432();
     #[link_name = "__RTS_FN_NS_GC_STRING_PTR"]
-    fn __rts_sym_535();
+    fn __rts_sym_433();
     #[link_name = "__RTS_FN_NS_GC_UNPIN_HANDLE"]
-    fn __rts_sym_536();
+    fn __rts_sym_434();
     #[link_name = "__RTS_FN_NS_GPU_ADAPTER_NAME"]
-    fn __rts_sym_537();
+    fn __rts_sym_435();
     #[link_name = "__RTS_FN_NS_GPU_AVAILABLE"]
-    fn __rts_sym_538();
+    fn __rts_sym_436();
     #[link_name = "__RTS_FN_NS_GPU_BIND"]
-    fn __rts_sym_539();
+    fn __rts_sym_437();
     #[link_name = "__RTS_FN_NS_GPU_BUFFER"]
-    fn __rts_sym_540();
+    fn __rts_sym_438();
     #[link_name = "__RTS_FN_NS_GPU_BUFFER_FREE"]
-    fn __rts_sym_541();
+    fn __rts_sym_439();
     #[link_name = "__RTS_FN_NS_GPU_DISPATCH"]
-    fn __rts_sym_542();
+    fn __rts_sym_440();
     #[link_name = "__RTS_FN_NS_GPU_READ"]
-    fn __rts_sym_543();
+    fn __rts_sym_441();
     #[link_name = "__RTS_FN_NS_GPU_READ_BEGIN"]
-    fn __rts_sym_544();
+    fn __rts_sym_442();
     #[link_name = "__RTS_FN_NS_GPU_READ_POLL"]
-    fn __rts_sym_545();
+    fn __rts_sym_443();
     #[link_name = "__RTS_FN_NS_GPU_SHADER"]
-    fn __rts_sym_546();
+    fn __rts_sym_444();
     #[link_name = "__RTS_FN_NS_GPU_WRITE"]
-    fn __rts_sym_547();
+    fn __rts_sym_445();
     #[link_name = "__RTS_FN_NS_GPU_WRITE_AT"]
-    fn __rts_sym_548();
+    fn __rts_sym_446();
     #[link_name = "__RTS_FN_NS_HINT_ASSERT_UNCHECKED"]
-    fn __rts_sym_549();
+    fn __rts_sym_447();
     #[link_name = "__RTS_FN_NS_HINT_BLACK_BOX_F64"]
-    fn __rts_sym_550();
+    fn __rts_sym_448();
     #[link_name = "__RTS_FN_NS_HINT_BLACK_BOX_I64"]
-    fn __rts_sym_551();
+    fn __rts_sym_449();
     #[link_name = "__RTS_FN_NS_HINT_SPIN_LOOP"]
-    fn __rts_sym_552();
+    fn __rts_sym_450();
     #[link_name = "__RTS_FN_NS_HINT_UNREACHABLE"]
-    fn __rts_sym_553();
+    fn __rts_sym_451();
     #[link_name = "__RTS_FN_NS_IMGDEC_DECODE"]
-    fn __rts_sym_554();
+    fn __rts_sym_452();
     #[link_name = "__RTS_FN_NS_IMGDEC_DECODE_GIF"]
-    fn __rts_sym_555();
+    fn __rts_sym_453();
     #[link_name = "__RTS_FN_NS_IMGDEC_GIF_COUNT"]
-    fn __rts_sym_556();
+    fn __rts_sym_454();
     #[link_name = "__RTS_FN_NS_IMGDEC_GIF_DELAY"]
-    fn __rts_sym_557();
+    fn __rts_sym_455();
     #[link_name = "__RTS_FN_NS_IMGDEC_GIF_HEIGHT"]
-    fn __rts_sym_558();
+    fn __rts_sym_456();
     #[link_name = "__RTS_FN_NS_IMGDEC_GIF_PIXELS_PTR"]
-    fn __rts_sym_559();
+    fn __rts_sym_457();
     #[link_name = "__RTS_FN_NS_IMGDEC_GIF_WIDTH"]
-    fn __rts_sym_560();
+    fn __rts_sym_458();
     #[link_name = "__RTS_FN_NS_IMGDEC_HEIGHT"]
-    fn __rts_sym_561();
+    fn __rts_sym_459();
     #[link_name = "__RTS_FN_NS_IMGDEC_PIXELS_PTR"]
-    fn __rts_sym_562();
+    fn __rts_sym_460();
     #[link_name = "__RTS_FN_NS_IMGDEC_WIDTH"]
-    fn __rts_sym_563();
+    fn __rts_sym_461();
     #[link_name = "__RTS_FN_NS_INPUT_COPY_TEXT"]
-    fn __rts_sym_564();
+    fn __rts_sym_462();
     #[link_name = "__RTS_FN_NS_INPUT_DRAGGING"]
-    fn __rts_sym_565();
+    fn __rts_sym_463();
     #[link_name = "__RTS_FN_NS_INPUT_KEY"]
-    fn __rts_sym_566();
+    fn __rts_sym_464();
     #[link_name = "__RTS_FN_NS_INPUT_MOD_ALT"]
-    fn __rts_sym_567();
+    fn __rts_sym_465();
     #[link_name = "__RTS_FN_NS_INPUT_MOD_CMD"]
-    fn __rts_sym_568();
+    fn __rts_sym_466();
     #[link_name = "__RTS_FN_NS_INPUT_MOD_CTRL"]
-    fn __rts_sym_569();
+    fn __rts_sym_467();
     #[link_name = "__RTS_FN_NS_INPUT_MOD_SHIFT"]
-    fn __rts_sym_570();
+    fn __rts_sym_468();
     #[link_name = "__RTS_FN_NS_INPUT_MOUSE_CLICKED"]
-    fn __rts_sym_571();
+    fn __rts_sym_469();
     #[link_name = "__RTS_FN_NS_INPUT_MOUSE_DELTA_X"]
-    fn __rts_sym_572();
+    fn __rts_sym_470();
     #[link_name = "__RTS_FN_NS_INPUT_MOUSE_DELTA_Y"]
-    fn __rts_sym_573();
+    fn __rts_sym_471();
     #[link_name = "__RTS_FN_NS_INPUT_MOUSE_DOUBLE_CLICKED"]
-    fn __rts_sym_574();
+    fn __rts_sym_472();
     #[link_name = "__RTS_FN_NS_INPUT_MOUSE_DOWN"]
-    fn __rts_sym_575();
+    fn __rts_sym_473();
     #[link_name = "__RTS_FN_NS_INPUT_MOUSE_PRESSED"]
-    fn __rts_sym_576();
+    fn __rts_sym_474();
     #[link_name = "__RTS_FN_NS_INPUT_MOUSE_RELEASED"]
-    fn __rts_sym_577();
+    fn __rts_sym_475();
     #[link_name = "__RTS_FN_NS_INPUT_MOUSE_X"]
-    fn __rts_sym_578();
+    fn __rts_sym_476();
     #[link_name = "__RTS_FN_NS_INPUT_MOUSE_Y"]
-    fn __rts_sym_579();
+    fn __rts_sym_477();
     #[link_name = "__RTS_FN_NS_INPUT_SET_CURSOR"]
-    fn __rts_sym_580();
+    fn __rts_sym_478();
     #[link_name = "__RTS_FN_NS_INPUT_TEXT"]
-    fn __rts_sym_581();
+    fn __rts_sym_479();
     #[link_name = "__RTS_FN_NS_INPUT_WHEEL"]
-    fn __rts_sym_582();
+    fn __rts_sym_480();
     #[link_name = "__RTS_FN_NS_INPUT_WHEEL_X"]
-    fn __rts_sym_583();
+    fn __rts_sym_481();
     #[link_name = "__RTS_FN_NS_JSON_AS_BOOL"]
-    fn __rts_sym_584();
+    fn __rts_sym_482();
     #[link_name = "__RTS_FN_NS_JSON_AS_F64"]
-    fn __rts_sym_585();
+    fn __rts_sym_483();
     #[link_name = "__RTS_FN_NS_JSON_AS_I64"]
-    fn __rts_sym_586();
+    fn __rts_sym_484();
     #[link_name = "__RTS_FN_NS_JSON_AS_STRING"]
-    fn __rts_sym_587();
+    fn __rts_sym_485();
     #[link_name = "__RTS_FN_NS_JSON_FREE"]
-    fn __rts_sym_588();
+    fn __rts_sym_486();
     #[link_name = "__RTS_FN_NS_JSON_OBJECT_HAS"]
-    fn __rts_sym_589();
+    fn __rts_sym_487();
     #[link_name = "__RTS_FN_NS_JSON_PARSE"]
-    fn __rts_sym_590();
+    fn __rts_sym_488();
     #[link_name = "__RTS_FN_NS_JSON_PARSE5"]
-    fn __rts_sym_591();
+    fn __rts_sym_489();
     #[link_name = "__RTS_FN_NS_JSON_PARSE_REVIVER"]
-    fn __rts_sym_592();
+    fn __rts_sym_490();
     #[link_name = "__RTS_FN_NS_JSON_STRINGIFY"]
-    fn __rts_sym_593();
+    fn __rts_sym_491();
     #[link_name = "__RTS_FN_NS_JSON_STRINGIFY_PRETTY"]
-    fn __rts_sym_594();
+    fn __rts_sym_492();
     #[link_name = "__RTS_FN_NS_JSON_TYPE_OF"]
-    fn __rts_sym_595();
+    fn __rts_sym_493();
     #[link_name = "__RTS_FN_NS_MATH_ABS_F64"]
-    fn __rts_sym_596();
+    fn __rts_sym_494();
     #[link_name = "__RTS_FN_NS_MATH_ABS_I64"]
-    fn __rts_sym_597();
+    fn __rts_sym_495();
     #[link_name = "__RTS_FN_NS_MATH_ACOS"]
-    fn __rts_sym_598();
+    fn __rts_sym_496();
     #[link_name = "__RTS_FN_NS_MATH_ACOSH"]
-    fn __rts_sym_599();
+    fn __rts_sym_497();
     #[link_name = "__RTS_FN_NS_MATH_ASIN"]
-    fn __rts_sym_600();
+    fn __rts_sym_498();
     #[link_name = "__RTS_FN_NS_MATH_ASINH"]
-    fn __rts_sym_601();
+    fn __rts_sym_499();
     #[link_name = "__RTS_FN_NS_MATH_ATAN"]
-    fn __rts_sym_602();
+    fn __rts_sym_500();
     #[link_name = "__RTS_FN_NS_MATH_ATAN2"]
-    fn __rts_sym_603();
+    fn __rts_sym_501();
     #[link_name = "__RTS_FN_NS_MATH_ATANH"]
-    fn __rts_sym_604();
+    fn __rts_sym_502();
     #[link_name = "__RTS_FN_NS_MATH_CBRT"]
-    fn __rts_sym_605();
+    fn __rts_sym_503();
     #[link_name = "__RTS_FN_NS_MATH_CEIL"]
-    fn __rts_sym_606();
+    fn __rts_sym_504();
     #[link_name = "__RTS_FN_NS_MATH_CLAMP_F64"]
-    fn __rts_sym_607();
+    fn __rts_sym_505();
     #[link_name = "__RTS_FN_NS_MATH_CLAMP_I64"]
-    fn __rts_sym_608();
+    fn __rts_sym_506();
     #[link_name = "__RTS_FN_NS_MATH_CLZ32"]
-    fn __rts_sym_609();
+    fn __rts_sym_507();
     #[link_name = "__RTS_FN_NS_MATH_COS"]
-    fn __rts_sym_610();
+    fn __rts_sym_508();
     #[link_name = "__RTS_FN_NS_MATH_COSH"]
-    fn __rts_sym_611();
+    fn __rts_sym_509();
     #[link_name = "__RTS_FN_NS_MATH_E"]
-    fn __rts_sym_612();
+    fn __rts_sym_510();
     #[link_name = "__RTS_FN_NS_MATH_EXP"]
-    fn __rts_sym_613();
+    fn __rts_sym_511();
     #[link_name = "__RTS_FN_NS_MATH_EXPM1"]
-    fn __rts_sym_614();
+    fn __rts_sym_512();
     #[link_name = "__RTS_FN_NS_MATH_F16ROUND"]
-    fn __rts_sym_615();
+    fn __rts_sym_513();
     #[link_name = "__RTS_FN_NS_MATH_FLOOR"]
-    fn __rts_sym_616();
+    fn __rts_sym_514();
     #[link_name = "__RTS_FN_NS_MATH_FROUND"]
-    fn __rts_sym_617();
+    fn __rts_sym_515();
     #[link_name = "__RTS_FN_NS_MATH_HYPOT"]
-    fn __rts_sym_618();
+    fn __rts_sym_516();
     #[link_name = "__RTS_FN_NS_MATH_IMUL"]
-    fn __rts_sym_619();
+    fn __rts_sym_517();
     #[link_name = "__RTS_FN_NS_MATH_INFINITY"]
-    fn __rts_sym_620();
+    fn __rts_sym_518();
     #[link_name = "__RTS_FN_NS_MATH_LN"]
-    fn __rts_sym_621();
+    fn __rts_sym_519();
     #[link_name = "__RTS_FN_NS_MATH_LN10"]
-    fn __rts_sym_622();
+    fn __rts_sym_520();
     #[link_name = "__RTS_FN_NS_MATH_LN2"]
-    fn __rts_sym_623();
+    fn __rts_sym_521();
     #[link_name = "__RTS_FN_NS_MATH_LOG10"]
-    fn __rts_sym_624();
+    fn __rts_sym_522();
     #[link_name = "__RTS_FN_NS_MATH_LOG10E"]
-    fn __rts_sym_625();
+    fn __rts_sym_523();
     #[link_name = "__RTS_FN_NS_MATH_LOG1P"]
-    fn __rts_sym_626();
+    fn __rts_sym_524();
     #[link_name = "__RTS_FN_NS_MATH_LOG2"]
-    fn __rts_sym_627();
+    fn __rts_sym_525();
     #[link_name = "__RTS_FN_NS_MATH_LOG2E"]
-    fn __rts_sym_628();
+    fn __rts_sym_526();
     #[link_name = "__RTS_FN_NS_MATH_MAX_F64"]
-    fn __rts_sym_629();
+    fn __rts_sym_527();
     #[link_name = "__RTS_FN_NS_MATH_MAX_I64"]
-    fn __rts_sym_630();
+    fn __rts_sym_528();
     #[link_name = "__RTS_FN_NS_MATH_MIN_F64"]
-    fn __rts_sym_631();
+    fn __rts_sym_529();
     #[link_name = "__RTS_FN_NS_MATH_MIN_I64"]
-    fn __rts_sym_632();
+    fn __rts_sym_530();
     #[link_name = "__RTS_FN_NS_MATH_NAN"]
-    fn __rts_sym_633();
+    fn __rts_sym_531();
     #[link_name = "__RTS_FN_NS_MATH_PI"]
-    fn __rts_sym_634();
+    fn __rts_sym_532();
     #[link_name = "__RTS_FN_NS_MATH_POW"]
-    fn __rts_sym_635();
+    fn __rts_sym_533();
     #[link_name = "__RTS_FN_NS_MATH_RANDOM_F64"]
-    fn __rts_sym_636();
+    fn __rts_sym_534();
     #[link_name = "__RTS_FN_NS_MATH_RANDOM_I64_RANGE"]
-    fn __rts_sym_637();
+    fn __rts_sym_535();
     #[link_name = "__RTS_FN_NS_MATH_ROUND"]
-    fn __rts_sym_638();
+    fn __rts_sym_536();
     #[link_name = "__RTS_FN_NS_MATH_SEED"]
-    fn __rts_sym_639();
+    fn __rts_sym_537();
     #[link_name = "__RTS_FN_NS_MATH_SIGN"]
-    fn __rts_sym_640();
+    fn __rts_sym_538();
     #[link_name = "__RTS_FN_NS_MATH_SIN"]
-    fn __rts_sym_641();
+    fn __rts_sym_539();
     #[link_name = "__RTS_FN_NS_MATH_SINH"]
-    fn __rts_sym_642();
+    fn __rts_sym_540();
     #[link_name = "__RTS_FN_NS_MATH_SQRT"]
-    fn __rts_sym_643();
+    fn __rts_sym_541();
     #[link_name = "__RTS_FN_NS_MATH_SQRT1_2"]
-    fn __rts_sym_644();
+    fn __rts_sym_542();
     #[link_name = "__RTS_FN_NS_MATH_SQRT2"]
-    fn __rts_sym_645();
+    fn __rts_sym_543();
     #[link_name = "__RTS_FN_NS_MATH_TAN"]
-    fn __rts_sym_646();
+    fn __rts_sym_544();
     #[link_name = "__RTS_FN_NS_MATH_TANH"]
-    fn __rts_sym_647();
+    fn __rts_sym_545();
     #[link_name = "__RTS_FN_NS_MATH_TRUNC"]
-    fn __rts_sym_648();
+    fn __rts_sym_546();
     #[link_name = "__RTS_FN_NS_MEM_ALIGN_OF_F64"]
-    fn __rts_sym_649();
+    fn __rts_sym_547();
     #[link_name = "__RTS_FN_NS_MEM_ALIGN_OF_I64"]
-    fn __rts_sym_650();
+    fn __rts_sym_548();
     #[link_name = "__RTS_FN_NS_MEM_DROP_HANDLE"]
-    fn __rts_sym_651();
+    fn __rts_sym_549();
     #[link_name = "__RTS_FN_NS_MEM_FORGET_HANDLE"]
-    fn __rts_sym_652();
+    fn __rts_sym_550();
     #[link_name = "__RTS_FN_NS_MEM_REPLACE_I64"]
-    fn __rts_sym_653();
+    fn __rts_sym_551();
     #[link_name = "__RTS_FN_NS_MEM_SIZE_OF_BOOL"]
-    fn __rts_sym_654();
+    fn __rts_sym_552();
     #[link_name = "__RTS_FN_NS_MEM_SIZE_OF_F64"]
-    fn __rts_sym_655();
+    fn __rts_sym_553();
     #[link_name = "__RTS_FN_NS_MEM_SIZE_OF_I32"]
-    fn __rts_sym_656();
+    fn __rts_sym_554();
     #[link_name = "__RTS_FN_NS_MEM_SIZE_OF_I64"]
-    fn __rts_sym_657();
+    fn __rts_sym_555();
     #[link_name = "__RTS_FN_NS_MEM_SWAP_I64"]
-    fn __rts_sym_658();
+    fn __rts_sym_556();
     #[link_name = "__RTS_FN_NS_NAPI_LOAD_ADDON"]
-    fn __rts_sym_659();
+    fn __rts_sym_557();
     #[link_name = "__RTS_FN_NS_NUM_CHECKED_ADD"]
-    fn __rts_sym_660();
+    fn __rts_sym_558();
     #[link_name = "__RTS_FN_NS_NUM_CHECKED_DIV"]
-    fn __rts_sym_661();
+    fn __rts_sym_559();
     #[link_name = "__RTS_FN_NS_NUM_CHECKED_MUL"]
-    fn __rts_sym_662();
+    fn __rts_sym_560();
     #[link_name = "__RTS_FN_NS_NUM_CHECKED_SUB"]
-    fn __rts_sym_663();
+    fn __rts_sym_561();
     #[link_name = "__RTS_FN_NS_NUM_COUNT_ONES"]
-    fn __rts_sym_664();
+    fn __rts_sym_562();
     #[link_name = "__RTS_FN_NS_NUM_COUNT_ZEROS"]
-    fn __rts_sym_665();
+    fn __rts_sym_563();
     #[link_name = "__RTS_FN_NS_NUM_F64_FROM_BITS"]
-    fn __rts_sym_666();
+    fn __rts_sym_564();
     #[link_name = "__RTS_FN_NS_NUM_F64_TO_BITS"]
-    fn __rts_sym_667();
+    fn __rts_sym_565();
     #[link_name = "__RTS_FN_NS_NUM_LEADING_ZEROS"]
-    fn __rts_sym_668();
+    fn __rts_sym_566();
     #[link_name = "__RTS_FN_NS_NUM_REVERSE_BITS"]
-    fn __rts_sym_669();
+    fn __rts_sym_567();
     #[link_name = "__RTS_FN_NS_NUM_ROTATE_LEFT"]
-    fn __rts_sym_670();
+    fn __rts_sym_568();
     #[link_name = "__RTS_FN_NS_NUM_ROTATE_RIGHT"]
-    fn __rts_sym_671();
+    fn __rts_sym_569();
     #[link_name = "__RTS_FN_NS_NUM_SATURATING_ADD"]
-    fn __rts_sym_672();
+    fn __rts_sym_570();
     #[link_name = "__RTS_FN_NS_NUM_SATURATING_MUL"]
-    fn __rts_sym_673();
+    fn __rts_sym_571();
     #[link_name = "__RTS_FN_NS_NUM_SATURATING_SUB"]
-    fn __rts_sym_674();
+    fn __rts_sym_572();
     #[link_name = "__RTS_FN_NS_NUM_SWAP_BYTES"]
-    fn __rts_sym_675();
+    fn __rts_sym_573();
     #[link_name = "__RTS_FN_NS_NUM_TRAILING_ZEROS"]
-    fn __rts_sym_676();
+    fn __rts_sym_574();
     #[link_name = "__RTS_FN_NS_NUM_WRAPPING_ADD"]
-    fn __rts_sym_677();
+    fn __rts_sym_575();
     #[link_name = "__RTS_FN_NS_NUM_WRAPPING_MUL"]
-    fn __rts_sym_678();
+    fn __rts_sym_576();
     #[link_name = "__RTS_FN_NS_NUM_WRAPPING_NEG"]
-    fn __rts_sym_679();
+    fn __rts_sym_577();
     #[link_name = "__RTS_FN_NS_NUM_WRAPPING_SHL"]
-    fn __rts_sym_680();
+    fn __rts_sym_578();
     #[link_name = "__RTS_FN_NS_NUM_WRAPPING_SHR"]
-    fn __rts_sym_681();
+    fn __rts_sym_579();
     #[link_name = "__RTS_FN_NS_NUM_WRAPPING_SUB"]
-    fn __rts_sym_682();
+    fn __rts_sym_580();
     #[link_name = "__RTS_FN_NS_PATH_EXT"]
-    fn __rts_sym_683();
+    fn __rts_sym_581();
     #[link_name = "__RTS_FN_NS_PATH_FILE_NAME"]
-    fn __rts_sym_684();
+    fn __rts_sym_582();
     #[link_name = "__RTS_FN_NS_PATH_IS_ABSOLUTE"]
-    fn __rts_sym_685();
+    fn __rts_sym_583();
     #[link_name = "__RTS_FN_NS_PATH_JOIN"]
-    fn __rts_sym_686();
+    fn __rts_sym_584();
     #[link_name = "__RTS_FN_NS_PATH_NORMALIZE"]
-    fn __rts_sym_687();
+    fn __rts_sym_585();
     #[link_name = "__RTS_FN_NS_PATH_PARENT"]
-    fn __rts_sym_688();
+    fn __rts_sym_586();
     #[link_name = "__RTS_FN_NS_PATH_STEM"]
-    fn __rts_sym_689();
+    fn __rts_sym_587();
     #[link_name = "__RTS_FN_NS_PATH_WITH_EXT"]
-    fn __rts_sym_690();
+    fn __rts_sym_588();
     #[link_name = "__RTS_FN_NS_PROTOBUF_DECODE_VARINT"]
-    fn __rts_sym_691();
+    fn __rts_sym_589();
     #[link_name = "__RTS_FN_NS_PROTOBUF_ENCODE_VARINT"]
-    fn __rts_sym_692();
+    fn __rts_sym_590();
     #[link_name = "__RTS_FN_NS_PROTOBUF_NEW_READER"]
-    fn __rts_sym_693();
+    fn __rts_sym_591();
     #[link_name = "__RTS_FN_NS_PROTOBUF_NEW_WRITER"]
-    fn __rts_sym_694();
+    fn __rts_sym_592();
     #[link_name = "__RTS_FN_NS_PROTOBUF_READER_BYTES"]
-    fn __rts_sym_695();
+    fn __rts_sym_593();
     #[link_name = "__RTS_FN_NS_PROTOBUF_READER_FIELD_NUM"]
-    fn __rts_sym_696();
+    fn __rts_sym_594();
     #[link_name = "__RTS_FN_NS_PROTOBUF_READER_FIXED32"]
-    fn __rts_sym_697();
+    fn __rts_sym_595();
     #[link_name = "__RTS_FN_NS_PROTOBUF_READER_FIXED64"]
-    fn __rts_sym_698();
+    fn __rts_sym_596();
     #[link_name = "__RTS_FN_NS_PROTOBUF_READER_SKIP"]
-    fn __rts_sym_699();
+    fn __rts_sym_597();
     #[link_name = "__RTS_FN_NS_PROTOBUF_READER_TAG"]
-    fn __rts_sym_700();
+    fn __rts_sym_598();
     #[link_name = "__RTS_FN_NS_PROTOBUF_READER_VARINT"]
-    fn __rts_sym_701();
+    fn __rts_sym_599();
     #[link_name = "__RTS_FN_NS_PROTOBUF_READER_ZIGZAG"]
-    fn __rts_sym_702();
+    fn __rts_sym_600();
     #[link_name = "__RTS_FN_NS_PROTOBUF_WRITER_BYTES"]
-    fn __rts_sym_703();
+    fn __rts_sym_601();
     #[link_name = "__RTS_FN_NS_PROTOBUF_WRITER_FINISH"]
-    fn __rts_sym_704();
+    fn __rts_sym_602();
     #[link_name = "__RTS_FN_NS_PROTOBUF_WRITER_FIXED32"]
-    fn __rts_sym_705();
+    fn __rts_sym_603();
     #[link_name = "__RTS_FN_NS_PROTOBUF_WRITER_FIXED64"]
-    fn __rts_sym_706();
+    fn __rts_sym_604();
     #[link_name = "__RTS_FN_NS_PROTOBUF_WRITER_TAG"]
-    fn __rts_sym_707();
+    fn __rts_sym_605();
     #[link_name = "__RTS_FN_NS_PROTOBUF_WRITER_VARINT"]
-    fn __rts_sym_708();
+    fn __rts_sym_606();
     #[link_name = "__RTS_FN_NS_PROTOBUF_WRITER_ZIGZAG"]
-    fn __rts_sym_709();
+    fn __rts_sym_607();
     #[link_name = "__RTS_FN_NS_PROTOBUF_WT_I32"]
-    fn __rts_sym_710();
+    fn __rts_sym_608();
     #[link_name = "__RTS_FN_NS_PROTOBUF_WT_I64"]
-    fn __rts_sym_711();
+    fn __rts_sym_609();
     #[link_name = "__RTS_FN_NS_PROTOBUF_WT_LEN"]
-    fn __rts_sym_712();
+    fn __rts_sym_610();
     #[link_name = "__RTS_FN_NS_PROTOBUF_WT_VARINT"]
-    fn __rts_sym_713();
+    fn __rts_sym_611();
     #[link_name = "__RTS_FN_NS_PTR_COPY"]
-    fn __rts_sym_714();
+    fn __rts_sym_612();
     #[link_name = "__RTS_FN_NS_PTR_COPY_NONOVERLAPPING"]
-    fn __rts_sym_715();
+    fn __rts_sym_613();
     #[link_name = "__RTS_FN_NS_PTR_IS_NULL"]
-    fn __rts_sym_716();
+    fn __rts_sym_614();
     #[link_name = "__RTS_FN_NS_PTR_NULL"]
-    fn __rts_sym_717();
+    fn __rts_sym_615();
     #[link_name = "__RTS_FN_NS_PTR_OFFSET"]
-    fn __rts_sym_718();
+    fn __rts_sym_616();
     #[link_name = "__RTS_FN_NS_PTR_READ_F64"]
-    fn __rts_sym_719();
+    fn __rts_sym_617();
     #[link_name = "__RTS_FN_NS_PTR_READ_I32"]
-    fn __rts_sym_720();
+    fn __rts_sym_618();
     #[link_name = "__RTS_FN_NS_PTR_READ_I64"]
-    fn __rts_sym_721();
+    fn __rts_sym_619();
     #[link_name = "__RTS_FN_NS_PTR_READ_U8"]
-    fn __rts_sym_722();
+    fn __rts_sym_620();
     #[link_name = "__RTS_FN_NS_PTR_WRITE_BYTES"]
-    fn __rts_sym_723();
+    fn __rts_sym_621();
     #[link_name = "__RTS_FN_NS_PTR_WRITE_F64"]
-    fn __rts_sym_724();
+    fn __rts_sym_622();
     #[link_name = "__RTS_FN_NS_PTR_WRITE_I32"]
-    fn __rts_sym_725();
+    fn __rts_sym_623();
     #[link_name = "__RTS_FN_NS_PTR_WRITE_I64"]
-    fn __rts_sym_726();
+    fn __rts_sym_624();
     #[link_name = "__RTS_FN_NS_PTR_WRITE_U8"]
-    fn __rts_sym_727();
+    fn __rts_sym_625();
     #[link_name = "__RTS_FN_NS_REGEX_COMPILE"]
-    fn __rts_sym_728();
+    fn __rts_sym_626();
     #[link_name = "__RTS_FN_NS_REGEX_FIND"]
-    fn __rts_sym_729();
+    fn __rts_sym_627();
     #[link_name = "__RTS_FN_NS_REGEX_FIND_AT"]
-    fn __rts_sym_730();
+    fn __rts_sym_628();
     #[link_name = "__RTS_FN_NS_REGEX_FREE"]
-    fn __rts_sym_731();
+    fn __rts_sym_629();
     #[link_name = "__RTS_FN_NS_REGEX_MATCH_ALL"]
-    fn __rts_sym_732();
+    fn __rts_sym_630();
     #[link_name = "__RTS_FN_NS_REGEX_MATCH_COUNT"]
-    fn __rts_sym_733();
+    fn __rts_sym_631();
     #[link_name = "__RTS_FN_NS_REGEX_MATCH_GROUPS"]
-    fn __rts_sym_734();
+    fn __rts_sym_632();
     #[link_name = "__RTS_FN_NS_REGEX_REPLACE"]
-    fn __rts_sym_735();
+    fn __rts_sym_633();
     #[link_name = "__RTS_FN_NS_REGEX_REPLACE_ALL"]
-    fn __rts_sym_736();
+    fn __rts_sym_634();
     #[link_name = "__RTS_FN_NS_REGEX_SPLIT"]
-    fn __rts_sym_737();
+    fn __rts_sym_635();
     #[link_name = "__RTS_FN_NS_REGEX_TEST"]
-    fn __rts_sym_738();
+    fn __rts_sym_636();
     #[link_name = "__RTS_FN_NS_RENDER_BEGIN_FRAME"]
-    fn __rts_sym_739();
+    fn __rts_sym_637();
     #[link_name = "__RTS_FN_NS_RENDER_END_FRAME"]
-    fn __rts_sym_740();
+    fn __rts_sym_638();
     #[link_name = "__RTS_FN_NS_RENDER_IMAGE"]
-    fn __rts_sym_741();
+    fn __rts_sym_639();
     #[link_name = "__RTS_FN_NS_RENDER_LINE"]
-    fn __rts_sym_742();
+    fn __rts_sym_640();
     #[link_name = "__RTS_FN_NS_RENDER_MEASURE_TEXT"]
-    fn __rts_sym_743();
+    fn __rts_sym_641();
     #[link_name = "__RTS_FN_NS_RENDER_RECT"]
-    fn __rts_sym_744();
+    fn __rts_sym_642();
     #[link_name = "__RTS_FN_NS_RENDER_TEXT"]
-    fn __rts_sym_745();
+    fn __rts_sym_643();
     #[link_name = "__RTS_FN_NS_THREAD_SPAWN"]
-    fn __rts_sym_746();
+    fn __rts_sym_644();
     #[link_name = "__RTS_FN_NS_THREAD_SPAWN_ASYNC"]
-    fn __rts_sym_747();
+    fn __rts_sym_645();
     #[link_name = "__RTS_FN_NS_THREAD_SPAWN_ASYNC_JOIN"]
-    fn __rts_sym_748();
+    fn __rts_sym_646();
     #[link_name = "__RTS_FN_NS_THREAD_SPAWN_DETACHED"]
-    fn __rts_sym_749();
+    fn __rts_sym_647();
     #[link_name = "__RTS_FN_NS_THREAD_SPAWN_WITH_UD"]
-    fn __rts_sym_750();
+    fn __rts_sym_648();
     #[link_name = "__RTS_FN_NS_TRACE_CAPTURE"]
-    fn __rts_sym_751();
+    fn __rts_sym_649();
     #[link_name = "__RTS_FN_NS_TRACE_DEPTH"]
-    fn __rts_sym_752();
+    fn __rts_sym_650();
     #[link_name = "__RTS_FN_NS_TRACE_FREE"]
-    fn __rts_sym_753();
+    fn __rts_sym_651();
     #[link_name = "__RTS_FN_NS_TRACE_POP_FRAME"]
-    fn __rts_sym_754();
+    fn __rts_sym_652();
     #[link_name = "__RTS_FN_NS_TRACE_PRINT"]
-    fn __rts_sym_755();
+    fn __rts_sym_653();
     #[link_name = "__RTS_FN_NS_TRACE_PUSH_FRAME"]
-    fn __rts_sym_756();
+    fn __rts_sym_654();
     #[link_name = "__RTS_FN_RT_INIT"]
-    fn __rts_sym_757();
+    fn __rts_sym_655();
     #[link_name = "__RTS_FN_RT_INVOKE_AUTO"]
-    fn __rts_sym_758();
+    fn __rts_sym_656();
     #[link_name = "__RTS_FN_RT_MAP_GET_STR"]
-    fn __rts_sym_759();
+    fn __rts_sym_657();
     #[link_name = "__RTS_FN_RT_MAP_MARK_NON_ENUM"]
-    fn __rts_sym_760();
+    fn __rts_sym_658();
     #[link_name = "__RTS_FN_RT_MAP_SET_STR"]
-    fn __rts_sym_761();
+    fn __rts_sym_659();
     #[link_name = "__RTS_FN_RT_NAPI_DISPATCH_CALLBACK"]
-    fn __rts_sym_762();
+    fn __rts_sym_660();
     #[link_name = "__RTS_FN_RT_NAPI_INVOKE_METHOD"]
-    fn __rts_sym_763();
+    fn __rts_sym_661();
     #[link_name = "__RTS_FN_RT_NAPI_NEW_INSTANCE"]
-    fn __rts_sym_764();
+    fn __rts_sym_662();
     #[link_name = "__RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE"]
-    fn __rts_sym_765();
+    fn __rts_sym_663();
     #[link_name = "__RTS_FN_RT_OPAQUE_HAS_NUMBER"]
-    fn __rts_sym_766();
+    fn __rts_sym_664();
     #[link_name = "__RTS_FN_RT_OPAQUE_TO_NUMBER"]
-    fn __rts_sym_767();
+    fn __rts_sym_665();
     #[link_name = "__RTS_FN_RT_OPAQUE_TO_STRING"]
-    fn __rts_sym_768();
+    fn __rts_sym_666();
     #[link_name = "__RTS_FN_RT_PROXY_DISPATCH_APPLY"]
-    fn __rts_sym_769();
+    fn __rts_sym_667();
     #[link_name = "__RTS_FN_RT_PROXY_RESOLVE"]
-    fn __rts_sym_770();
+    fn __rts_sym_668();
     #[link_name = "__RTS_FN_RT_REGISTER_FN_KINDS"]
-    fn __rts_sym_771();
+    fn __rts_sym_669();
     #[link_name = "__RTS_FN_RT_SEED_SHAPES"]
-    fn __rts_sym_772();
+    fn __rts_sym_670();
     #[link_name = "__RTS_FN_RT_THIS_POP"]
-    fn __rts_sym_773();
+    fn __rts_sym_671();
     #[link_name = "__RTS_FN_RT_THIS_PUSH"]
-    fn __rts_sym_774();
+    fn __rts_sym_672();
     #[link_name = "__RTS_FN_RT_TO_STRING_HANDLE"]
-    fn __rts_sym_775();
+    fn __rts_sym_673();
     #[link_name = "__RTS_FN_RT_TRUTHY"]
-    fn __rts_sym_776();
+    fn __rts_sym_674();
     #[link_name = "__rtsadp_add"]
-    fn __rts_sym_777();
+    fn __rts_sym_675();
     #[link_name = "__rtsadp_arr_at"]
-    fn __rts_sym_778();
+    fn __rts_sym_676();
     #[link_name = "__rtsadp_arr_at_w"]
-    fn __rts_sym_779();
+    fn __rts_sym_677();
     #[link_name = "__rtsadp_arr_concat"]
-    fn __rts_sym_780();
+    fn __rts_sym_678();
     #[link_name = "__rtsadp_arr_copy_within"]
-    fn __rts_sym_781();
+    fn __rts_sym_679();
     #[link_name = "__rtsadp_arr_copy_within1"]
-    fn __rts_sym_782();
+    fn __rts_sym_680();
     #[link_name = "__rtsadp_arr_copy_within2"]
-    fn __rts_sym_783();
+    fn __rts_sym_681();
     #[link_name = "__rtsadp_arr_entries"]
-    fn __rts_sym_784();
+    fn __rts_sym_682();
     #[link_name = "__rtsadp_arr_every"]
-    fn __rts_sym_785();
+    fn __rts_sym_683();
     #[link_name = "__rtsadp_arr_fill"]
-    fn __rts_sym_786();
+    fn __rts_sym_684();
     #[link_name = "__rtsadp_arr_fill2"]
-    fn __rts_sym_787();
+    fn __rts_sym_685();
     #[link_name = "__rtsadp_arr_fill3"]
-    fn __rts_sym_788();
+    fn __rts_sym_686();
     #[link_name = "__rtsadp_arr_filter"]
-    fn __rts_sym_789();
+    fn __rts_sym_687();
     #[link_name = "__rtsadp_arr_find"]
-    fn __rts_sym_790();
+    fn __rts_sym_688();
     #[link_name = "__rtsadp_arr_find_index"]
-    fn __rts_sym_791();
+    fn __rts_sym_689();
     #[link_name = "__rtsadp_arr_find_last"]
-    fn __rts_sym_792();
+    fn __rts_sym_690();
     #[link_name = "__rtsadp_arr_find_last_index"]
-    fn __rts_sym_793();
+    fn __rts_sym_691();
     #[link_name = "__rtsadp_arr_flat"]
-    fn __rts_sym_794();
+    fn __rts_sym_692();
     #[link_name = "__rtsadp_arr_flat_depth"]
-    fn __rts_sym_795();
+    fn __rts_sym_693();
     #[link_name = "__rtsadp_arr_flat_map"]
-    fn __rts_sym_796();
+    fn __rts_sym_694();
     #[link_name = "__rtsadp_arr_for_each"]
-    fn __rts_sym_797();
+    fn __rts_sym_695();
     #[link_name = "__rtsadp_arr_from"]
-    fn __rts_sym_798();
+    fn __rts_sym_696();
     #[link_name = "__rtsadp_arr_includes"]
-    fn __rts_sym_799();
+    fn __rts_sym_697();
     #[link_name = "__rtsadp_arr_includes_from"]
-    fn __rts_sym_800();
+    fn __rts_sym_698();
     #[link_name = "__rtsadp_arr_index_of"]
-    fn __rts_sym_801();
+    fn __rts_sym_699();
     #[link_name = "__rtsadp_arr_index_of_from"]
-    fn __rts_sym_802();
+    fn __rts_sym_700();
     #[link_name = "__rtsadp_arr_is_array"]
-    fn __rts_sym_803();
+    fn __rts_sym_701();
     #[link_name = "__rtsadp_arr_join"]
-    fn __rts_sym_804();
+    fn __rts_sym_702();
     #[link_name = "__rtsadp_arr_join0"]
-    fn __rts_sym_805();
+    fn __rts_sym_703();
     #[link_name = "__rtsadp_arr_keys"]
-    fn __rts_sym_806();
+    fn __rts_sym_704();
     #[link_name = "__rtsadp_arr_last_index_of"]
-    fn __rts_sym_807();
+    fn __rts_sym_705();
     #[link_name = "__rtsadp_arr_last_index_of_from"]
-    fn __rts_sym_808();
+    fn __rts_sym_706();
     #[link_name = "__rtsadp_arr_map"]
-    fn __rts_sym_809();
+    fn __rts_sym_707();
     #[link_name = "__rtsadp_arr_new_sized"]
-    fn __rts_sym_810();
+    fn __rts_sym_708();
     #[link_name = "__rtsadp_arr_pop"]
-    fn __rts_sym_811();
+    fn __rts_sym_709();
     #[link_name = "__rtsadp_arr_push"]
-    fn __rts_sym_812();
+    fn __rts_sym_710();
     #[link_name = "__rtsadp_arr_reduce"]
-    fn __rts_sym_813();
+    fn __rts_sym_711();
     #[link_name = "__rtsadp_arr_reduce_right"]
-    fn __rts_sym_814();
+    fn __rts_sym_712();
     #[link_name = "__rtsadp_arr_reverse"]
-    fn __rts_sym_815();
+    fn __rts_sym_713();
     #[link_name = "__rtsadp_arr_set_length"]
-    fn __rts_sym_816();
+    fn __rts_sym_714();
     #[link_name = "__rtsadp_arr_shift"]
-    fn __rts_sym_817();
+    fn __rts_sym_715();
     #[link_name = "__rtsadp_arr_slice"]
-    fn __rts_sym_818();
+    fn __rts_sym_716();
     #[link_name = "__rtsadp_arr_slice0"]
-    fn __rts_sym_819();
+    fn __rts_sym_717();
     #[link_name = "__rtsadp_arr_slice1"]
-    fn __rts_sym_820();
+    fn __rts_sym_718();
     #[link_name = "__rtsadp_arr_some"]
-    fn __rts_sym_821();
+    fn __rts_sym_719();
     #[link_name = "__rtsadp_arr_sort"]
-    fn __rts_sym_822();
+    fn __rts_sym_720();
     #[link_name = "__rtsadp_arr_sort_cmp"]
-    fn __rts_sym_823();
+    fn __rts_sym_721();
     #[link_name = "__rtsadp_arr_splice"]
-    fn __rts_sym_824();
+    fn __rts_sym_722();
     #[link_name = "__rtsadp_arr_spread_append"]
-    fn __rts_sym_825();
+    fn __rts_sym_723();
     #[link_name = "__rtsadp_arr_subarray"]
-    fn __rts_sym_826();
+    fn __rts_sym_724();
     #[link_name = "__rtsadp_arr_subarray1"]
-    fn __rts_sym_827();
+    fn __rts_sym_725();
     #[link_name = "__rtsadp_arr_ta_set"]
-    fn __rts_sym_828();
+    fn __rts_sym_726();
     #[link_name = "__rtsadp_arr_ta_set1"]
-    fn __rts_sym_829();
+    fn __rts_sym_727();
     #[link_name = "__rtsadp_arr_to_reversed"]
-    fn __rts_sym_830();
+    fn __rts_sym_728();
     #[link_name = "__rtsadp_arr_to_sorted"]
-    fn __rts_sym_831();
+    fn __rts_sym_729();
     #[link_name = "__rtsadp_arr_to_sorted_cmp"]
-    fn __rts_sym_832();
+    fn __rts_sym_730();
     #[link_name = "__rtsadp_arr_to_spliced"]
-    fn __rts_sym_833();
+    fn __rts_sym_731();
     #[link_name = "__rtsadp_arr_to_spliced_var"]
-    fn __rts_sym_834();
+    fn __rts_sym_732();
     #[link_name = "__rtsadp_arr_to_string"]
-    fn __rts_sym_835();
+    fn __rts_sym_733();
     #[link_name = "__rtsadp_arr_unshift"]
-    fn __rts_sym_836();
+    fn __rts_sym_734();
     #[link_name = "__rtsadp_arr_values"]
-    fn __rts_sym_837();
+    fn __rts_sym_735();
     #[link_name = "__rtsadp_arr_with"]
-    fn __rts_sym_838();
+    fn __rts_sym_736();
     #[link_name = "__rtsadp_atomics_cmpxchg"]
-    fn __rts_sym_839();
+    fn __rts_sym_737();
     #[link_name = "__rtsadp_atomics_load"]
-    fn __rts_sym_840();
+    fn __rts_sym_738();
     #[link_name = "__rtsadp_atomics_store"]
-    fn __rts_sym_841();
+    fn __rts_sym_739();
     #[link_name = "__rtsadp_await"]
-    fn __rts_sym_842();
+    fn __rts_sym_740();
     #[link_name = "__rtsadp_band"]
-    fn __rts_sym_843();
+    fn __rts_sym_741();
     #[link_name = "__rtsadp_bigint_as_intn"]
-    fn __rts_sym_844();
+    fn __rts_sym_742();
     #[link_name = "__rtsadp_bigint_as_uintn"]
-    fn __rts_sym_845();
+    fn __rts_sym_743();
     #[link_name = "__rtsadp_bnot"]
-    fn __rts_sym_846();
+    fn __rts_sym_744();
     #[link_name = "__rtsadp_bor"]
-    fn __rts_sym_847();
+    fn __rts_sym_745();
     #[link_name = "__rtsadp_box_handle_auto"]
-    fn __rts_sym_848();
+    fn __rts_sym_746();
     #[link_name = "__rtsadp_bxor"]
-    fn __rts_sym_849();
+    fn __rts_sym_747();
     #[link_name = "__rtsadp_canon_double"]
-    fn __rts_sym_850();
+    fn __rts_sym_748();
     #[link_name = "__rtsadp_class_proto"]
-    fn __rts_sym_851();
+    fn __rts_sym_749();
     #[link_name = "__rtsadp_class_proto_init"]
-    fn __rts_sym_852();
+    fn __rts_sym_750();
     #[link_name = "__rtsadp_class_proto_set"]
-    fn __rts_sym_853();
+    fn __rts_sym_751();
     #[link_name = "__rtsadp_clear_timer"]
-    fn __rts_sym_854();
+    fn __rts_sym_752();
     #[link_name = "__rtsadp_coerce_fn_value"]
-    fn __rts_sym_855();
+    fn __rts_sym_753();
     #[link_name = "__rtsadp_construct"]
-    fn __rts_sym_856();
+    fn __rts_sym_754();
     #[link_name = "__rtsadp_ctor_mark"]
-    fn __rts_sym_857();
+    fn __rts_sym_755();
     #[link_name = "__rtsadp_define_prop"]
-    fn __rts_sym_858();
+    fn __rts_sym_756();
     #[link_name = "__rtsadp_div"]
-    fn __rts_sym_859();
+    fn __rts_sym_757();
     #[link_name = "__rtsadp_dyn_at"]
-    fn __rts_sym_860();
+    fn __rts_sym_758();
     #[link_name = "__rtsadp_dyn_char_at"]
-    fn __rts_sym_861();
+    fn __rts_sym_759();
     #[link_name = "__rtsadp_dyn_char_code_at"]
-    fn __rts_sym_862();
+    fn __rts_sym_760();
     #[link_name = "__rtsadp_dyn_ci_or_undef"]
-    fn __rts_sym_863();
+    fn __rts_sym_761();
     #[link_name = "__rtsadp_dyn_code_point_at"]
-    fn __rts_sym_864();
+    fn __rts_sym_762();
     #[link_name = "__rtsadp_dyn_concat"]
-    fn __rts_sym_865();
+    fn __rts_sym_763();
     #[link_name = "__rtsadp_dyn_ends_with"]
-    fn __rts_sym_866();
+    fn __rts_sym_764();
     #[link_name = "__rtsadp_dyn_includes"]
-    fn __rts_sym_867();
+    fn __rts_sym_765();
     #[link_name = "__rtsadp_dyn_index_of"]
-    fn __rts_sym_868();
+    fn __rts_sym_766();
     #[link_name = "__rtsadp_dyn_join"]
-    fn __rts_sym_869();
+    fn __rts_sym_767();
     #[link_name = "__rtsadp_dyn_length"]
-    fn __rts_sym_870();
+    fn __rts_sym_768();
     #[link_name = "__rtsadp_dyn_locale_compare"]
-    fn __rts_sym_871();
+    fn __rts_sym_769();
     #[link_name = "__rtsadp_dyn_method_call"]
-    fn __rts_sym_872();
+    fn __rts_sym_770();
     #[link_name = "__rtsadp_dyn_p_catch"]
-    fn __rts_sym_873();
+    fn __rts_sym_771();
     #[link_name = "__rtsadp_dyn_p_finally"]
-    fn __rts_sym_874();
+    fn __rts_sym_772();
     #[link_name = "__rtsadp_dyn_p_then"]
-    fn __rts_sym_875();
+    fn __rts_sym_773();
     #[link_name = "__rtsadp_dyn_p_then2"]
-    fn __rts_sym_876();
+    fn __rts_sym_774();
     #[link_name = "__rtsadp_dyn_pop"]
-    fn __rts_sym_877();
+    fn __rts_sym_775();
     #[link_name = "__rtsadp_dyn_push"]
-    fn __rts_sym_878();
+    fn __rts_sym_776();
     #[link_name = "__rtsadp_dyn_repeat"]
-    fn __rts_sym_879();
+    fn __rts_sym_777();
     #[link_name = "__rtsadp_dyn_reverse"]
-    fn __rts_sym_880();
+    fn __rts_sym_778();
     #[link_name = "__rtsadp_dyn_slice"]
-    fn __rts_sym_881();
+    fn __rts_sym_779();
     #[link_name = "__rtsadp_dyn_sort"]
-    fn __rts_sym_882();
+    fn __rts_sym_780();
     #[link_name = "__rtsadp_dyn_split"]
-    fn __rts_sym_883();
+    fn __rts_sym_781();
     #[link_name = "__rtsadp_dyn_starts_with"]
-    fn __rts_sym_884();
+    fn __rts_sym_782();
     #[link_name = "__rtsadp_dyn_to_lower_case"]
-    fn __rts_sym_885();
+    fn __rts_sym_783();
     #[link_name = "__rtsadp_dyn_to_string"]
-    fn __rts_sym_886();
+    fn __rts_sym_784();
     #[link_name = "__rtsadp_dyn_to_string_radix"]
-    fn __rts_sym_887();
+    fn __rts_sym_785();
     #[link_name = "__rtsadp_dyn_to_upper_case"]
-    fn __rts_sym_888();
+    fn __rts_sym_786();
     #[link_name = "__rtsadp_dyn_trim"]
-    fn __rts_sym_889();
+    fn __rts_sym_787();
     #[link_name = "__rtsadp_dyn_trim_end"]
-    fn __rts_sym_890();
+    fn __rts_sym_788();
     #[link_name = "__rtsadp_dyn_trim_start"]
-    fn __rts_sym_891();
+    fn __rts_sym_789();
     #[link_name = "__rtsadp_engine_bootstrap"]
-    fn __rts_sym_892();
+    fn __rts_sym_790();
     #[link_name = "__rtsadp_err_clear"]
-    fn __rts_sym_893();
+    fn __rts_sym_791();
     #[link_name = "__rtsadp_err_pending"]
-    fn __rts_sym_894();
+    fn __rts_sym_792();
     #[link_name = "__rtsadp_err_take"]
-    fn __rts_sym_895();
+    fn __rts_sym_793();
     #[link_name = "__rtsadp_fmod_f64"]
-    fn __rts_sym_896();
+    fn __rts_sym_794();
     #[link_name = "__rtsadp_fn_apply_arr"]
-    fn __rts_sym_897();
+    fn __rts_sym_795();
     #[link_name = "__rtsadp_fn_apply_this"]
-    fn __rts_sym_898();
+    fn __rts_sym_796();
     #[link_name = "__rtsadp_fn_bind"]
-    fn __rts_sym_899();
+    fn __rts_sym_797();
     #[link_name = "__rtsadp_fn_get_prop"]
-    fn __rts_sym_900();
+    fn __rts_sym_798();
     #[link_name = "__rtsadp_fn_invoke"]
-    fn __rts_sym_901();
+    fn __rts_sym_799();
     #[link_name = "__rtsadp_fn_invoke_method"]
-    fn __rts_sym_902();
+    fn __rts_sym_800();
     #[link_name = "__rtsadp_fn_new"]
-    fn __rts_sym_903();
+    fn __rts_sym_801();
     #[link_name = "__rtsadp_fn_ptr"]
-    fn __rts_sym_904();
+    fn __rts_sym_802();
     #[link_name = "__rtsadp_fn_reify"]
-    fn __rts_sym_905();
+    fn __rts_sym_803();
     #[link_name = "__rtsadp_fn_reify_this"]
-    fn __rts_sym_906();
+    fn __rts_sym_804();
     #[link_name = "__rtsadp_fn_set_prop"]
-    fn __rts_sym_907();
+    fn __rts_sym_805();
     #[link_name = "__rtsadp_for_in_keys"]
-    fn __rts_sym_908();
+    fn __rts_sym_806();
     #[link_name = "__rtsadp_freeze"]
-    fn __rts_sym_909();
+    fn __rts_sym_807();
     #[link_name = "__rtsadp_g_boolean"]
-    fn __rts_sym_910();
+    fn __rts_sym_808();
     #[link_name = "__rtsadp_g_is_finite"]
-    fn __rts_sym_911();
+    fn __rts_sym_809();
     #[link_name = "__rtsadp_g_is_nan"]
-    fn __rts_sym_912();
+    fn __rts_sym_810();
     #[link_name = "__rtsadp_g_number"]
-    fn __rts_sym_913();
+    fn __rts_sym_811();
     #[link_name = "__rtsadp_g_parse_float"]
-    fn __rts_sym_914();
+    fn __rts_sym_812();
     #[link_name = "__rtsadp_g_parse_int"]
-    fn __rts_sym_915();
+    fn __rts_sym_813();
     #[link_name = "__rtsadp_g_string"]
-    fn __rts_sym_916();
+    fn __rts_sym_814();
     #[link_name = "__rtsadp_ge"]
-    fn __rts_sym_917();
+    fn __rts_sym_815();
     #[link_name = "__rtsadp_globalthis"]
-    fn __rts_sym_918();
+    fn __rts_sym_816();
     #[link_name = "__rtsadp_gt"]
-    fn __rts_sym_919();
+    fn __rts_sym_817();
     #[link_name = "__rtsadp_has_own"]
-    fn __rts_sym_920();
+    fn __rts_sym_818();
     #[link_name = "__rtsadp_ic_miss"]
-    fn __rts_sym_921();
+    fn __rts_sym_819();
     #[link_name = "__rtsadp_idx_call"]
-    fn __rts_sym_922();
+    fn __rts_sym_820();
     #[link_name = "__rtsadp_idx_get"]
-    fn __rts_sym_923();
+    fn __rts_sym_821();
     #[link_name = "__rtsadp_import_meta"]
-    fn __rts_sym_924();
+    fn __rts_sym_822();
     #[link_name = "__rtsadp_inspect"]
-    fn __rts_sym_925();
+    fn __rts_sym_823();
     #[link_name = "__rtsadp_inspect_object"]
-    fn __rts_sym_926();
+    fn __rts_sym_824();
     #[link_name = "__rtsadp_instanceof_fn"]
-    fn __rts_sym_927();
+    fn __rts_sym_825();
     #[link_name = "__rtsadp_instanceof_walk"]
-    fn __rts_sym_928();
+    fn __rts_sym_826();
     #[link_name = "__rtsadp_invoke_auto_word"]
-    fn __rts_sym_929();
+    fn __rts_sym_827();
     #[link_name = "__rtsadp_invoke_cb"]
-    fn __rts_sym_930();
+    fn __rts_sym_828();
     #[link_name = "__rtsadp_is_extensible"]
-    fn __rts_sym_931();
+    fn __rts_sym_829();
     #[link_name = "__rtsadp_is_frozen"]
-    fn __rts_sym_932();
+    fn __rts_sym_830();
     #[link_name = "__rtsadp_is_prototype_of"]
-    fn __rts_sym_933();
+    fn __rts_sym_831();
     #[link_name = "__rtsadp_is_sealed"]
-    fn __rts_sym_934();
+    fn __rts_sym_832();
     #[link_name = "__rtsadp_iter_close"]
-    fn __rts_sym_935();
+    fn __rts_sym_833();
     #[link_name = "__rtsadp_iter_next"]
-    fn __rts_sym_936();
+    fn __rts_sym_834();
     #[link_name = "__rtsadp_iter_open"]
-    fn __rts_sym_937();
+    fn __rts_sym_835();
     #[link_name = "__rtsadp_le"]
-    fn __rts_sym_938();
+    fn __rts_sym_836();
     #[link_name = "__rtsadp_loose_eq"]
-    fn __rts_sym_939();
+    fn __rts_sym_837();
     #[link_name = "__rtsadp_loose_neq"]
-    fn __rts_sym_940();
+    fn __rts_sym_838();
     #[link_name = "__rtsadp_lt"]
-    fn __rts_sym_941();
+    fn __rts_sym_839();
     #[link_name = "__rtsadp_make_js_error"]
-    fn __rts_sym_942();
+    fn __rts_sym_840();
     #[link_name = "__rtsadp_math_fn_value"]
-    fn __rts_sym_943();
+    fn __rts_sym_841();
     #[link_name = "__rtsadp_math_reduce"]
-    fn __rts_sym_944();
+    fn __rts_sym_842();
     #[link_name = "__rtsadp_mod"]
-    fn __rts_sym_945();
+    fn __rts_sym_843();
     #[link_name = "__rtsadp_mul"]
-    fn __rts_sym_946();
+    fn __rts_sym_844();
     #[link_name = "__rtsadp_neg"]
-    fn __rts_sym_947();
+    fn __rts_sym_845();
     #[link_name = "__rtsadp_new_invoke"]
-    fn __rts_sym_948();
+    fn __rts_sym_846();
     #[link_name = "__rtsadp_not"]
-    fn __rts_sym_949();
+    fn __rts_sym_847();
     #[link_name = "__rtsadp_num_is_finite"]
-    fn __rts_sym_950();
+    fn __rts_sym_848();
     #[link_name = "__rtsadp_num_is_integer"]
-    fn __rts_sym_951();
+    fn __rts_sym_849();
     #[link_name = "__rtsadp_num_is_nan"]
-    fn __rts_sym_952();
+    fn __rts_sym_850();
     #[link_name = "__rtsadp_num_is_safe_integer"]
-    fn __rts_sym_953();
+    fn __rts_sym_851();
     #[link_name = "__rtsadp_obj_assign"]
-    fn __rts_sym_954();
+    fn __rts_sym_852();
     #[link_name = "__rtsadp_obj_create"]
-    fn __rts_sym_955();
+    fn __rts_sym_853();
     #[link_name = "__rtsadp_obj_define_properties"]
-    fn __rts_sym_956();
+    fn __rts_sym_854();
     #[link_name = "__rtsadp_obj_define_property"]
-    fn __rts_sym_957();
+    fn __rts_sym_855();
     #[link_name = "__rtsadp_obj_delete"]
-    fn __rts_sym_958();
+    fn __rts_sym_856();
     #[link_name = "__rtsadp_obj_entries"]
-    fn __rts_sym_959();
+    fn __rts_sym_857();
     #[link_name = "__rtsadp_obj_factory"]
-    fn __rts_sym_960();
+    fn __rts_sym_858();
     #[link_name = "__rtsadp_obj_from_entries"]
-    fn __rts_sym_961();
+    fn __rts_sym_859();
     #[link_name = "__rtsadp_obj_get"]
-    fn __rts_sym_962();
+    fn __rts_sym_860();
     #[link_name = "__rtsadp_obj_get_own_property_descriptor"]
-    fn __rts_sym_963();
+    fn __rts_sym_861();
     #[link_name = "__rtsadp_obj_get_own_property_descriptors"]
-    fn __rts_sym_964();
+    fn __rts_sym_862();
     #[link_name = "__rtsadp_obj_group_by"]
-    fn __rts_sym_965();
+    fn __rts_sym_863();
     #[link_name = "__rtsadp_obj_has"]
-    fn __rts_sym_966();
+    fn __rts_sym_864();
     #[link_name = "__rtsadp_obj_keys"]
-    fn __rts_sym_967();
+    fn __rts_sym_865();
     #[link_name = "__rtsadp_obj_own_names"]
-    fn __rts_sym_968();
+    fn __rts_sym_866();
     #[link_name = "__rtsadp_obj_own_symbols"]
-    fn __rts_sym_969();
+    fn __rts_sym_867();
     #[link_name = "__rtsadp_obj_proto_of"]
-    fn __rts_sym_970();
+    fn __rts_sym_868();
     #[link_name = "__rtsadp_obj_set"]
-    fn __rts_sym_971();
+    fn __rts_sym_869();
     #[link_name = "__rtsadp_obj_set_proto"]
-    fn __rts_sym_972();
+    fn __rts_sym_870();
     #[link_name = "__rtsadp_obj_values"]
-    fn __rts_sym_973();
+    fn __rts_sym_871();
     #[link_name = "__rtsadp_own_keys_raw"]
-    fn __rts_sym_974();
+    fn __rts_sym_872();
     #[link_name = "__rtsadp_pack_rest"]
-    fn __rts_sym_975();
+    fn __rts_sym_873();
     #[link_name = "__rtsadp_pos"]
-    fn __rts_sym_976();
+    fn __rts_sym_874();
     #[link_name = "__rtsadp_pow"]
-    fn __rts_sym_977();
+    fn __rts_sym_875();
     #[link_name = "__rtsadp_prevent_ext"]
-    fn __rts_sym_978();
+    fn __rts_sym_876();
     #[link_name = "__rtsadp_print_line"]
-    fn __rts_sym_979();
+    fn __rts_sym_877();
     #[link_name = "__rtsadp_promise_resolve_w"]
-    fn __rts_sym_980();
+    fn __rts_sym_878();
     #[link_name = "__rtsadp_promise_spawn"]
-    fn __rts_sym_981();
+    fn __rts_sym_879();
     #[link_name = "__rtsadp_prop_flags"]
-    fn __rts_sym_982();
+    fn __rts_sym_880();
     #[link_name = "__rtsadp_prop_is_enumerable"]
-    fn __rts_sym_983();
+    fn __rts_sym_881();
     #[link_name = "__rtsadp_proto_method_value"]
-    fn __rts_sym_984();
+    fn __rts_sym_882();
     #[link_name = "__rtsadp_proto_set_method"]
-    fn __rts_sym_985();
+    fn __rts_sym_883();
     #[link_name = "__rtsadp_queue_microtask"]
-    fn __rts_sym_986();
+    fn __rts_sym_884();
     #[link_name = "__rtsadp_re_compile"]
-    fn __rts_sym_987();
+    fn __rts_sym_885();
     #[link_name = "__rtsadp_re_exec"]
-    fn __rts_sym_988();
+    fn __rts_sym_886();
     #[link_name = "__rtsadp_re_flags"]
-    fn __rts_sym_989();
+    fn __rts_sym_887();
     #[link_name = "__rtsadp_re_global"]
-    fn __rts_sym_990();
+    fn __rts_sym_888();
     #[link_name = "__rtsadp_re_ignore_case"]
-    fn __rts_sym_991();
+    fn __rts_sym_889();
     #[link_name = "__rtsadp_re_last_index"]
-    fn __rts_sym_992();
+    fn __rts_sym_890();
     #[link_name = "__rtsadp_re_multiline"]
-    fn __rts_sym_993();
+    fn __rts_sym_891();
     #[link_name = "__rtsadp_re_source"]
-    fn __rts_sym_994();
+    fn __rts_sym_892();
     #[link_name = "__rtsadp_re_str_match"]
-    fn __rts_sym_995();
+    fn __rts_sym_893();
     #[link_name = "__rtsadp_re_str_replace_fn"]
-    fn __rts_sym_996();
+    fn __rts_sym_894();
     #[link_name = "__rtsadp_re_str_search"]
-    fn __rts_sym_997();
+    fn __rts_sym_895();
     #[link_name = "__rtsadp_re_str_split"]
-    fn __rts_sym_998();
+    fn __rts_sym_896();
     #[link_name = "__rtsadp_re_test"]
-    fn __rts_sym_999();
+    fn __rts_sym_897();
     #[link_name = "__rtsadp_record_registry_class"]
-    fn __rts_sym_1000();
+    fn __rts_sym_898();
     #[link_name = "__rtsadp_register_ctor_thunk"]
-    fn __rts_sym_1001();
+    fn __rts_sym_899();
     #[link_name = "__rtsadp_register_fn_abi"]
-    fn __rts_sym_1002();
+    fn __rts_sym_900();
     #[link_name = "__rtsadp_same_value"]
-    fn __rts_sym_1003();
+    fn __rts_sym_901();
     #[link_name = "__rtsadp_seal"]
-    fn __rts_sym_1004();
+    fn __rts_sym_902();
     #[link_name = "__rtsadp_set_immediate"]
-    fn __rts_sym_1005();
+    fn __rts_sym_903();
     #[link_name = "__rtsadp_set_interval"]
-    fn __rts_sym_1006();
+    fn __rts_sym_904();
     #[link_name = "__rtsadp_set_proto_check"]
-    fn __rts_sym_1007();
+    fn __rts_sym_905();
     #[link_name = "__rtsadp_set_timeout"]
-    fn __rts_sym_1008();
+    fn __rts_sym_906();
     #[link_name = "__rtsadp_shl"]
-    fn __rts_sym_1009();
+    fn __rts_sym_907();
     #[link_name = "__rtsadp_shr"]
-    fn __rts_sym_1010();
+    fn __rts_sym_908();
     #[link_name = "__rtsadp_str_chars"]
-    fn __rts_sym_1011();
+    fn __rts_sym_909();
     #[link_name = "__rtsadp_str_from_char_code"]
-    fn __rts_sym_1012();
+    fn __rts_sym_910();
     #[link_name = "__rtsadp_str_from_char_code_arr"]
-    fn __rts_sym_1013();
+    fn __rts_sym_911();
     #[link_name = "__rtsadp_str_from_code_point"]
-    fn __rts_sym_1014();
+    fn __rts_sym_912();
     #[link_name = "__rtsadp_str_match_all_auto"]
-    fn __rts_sym_1015();
+    fn __rts_sym_913();
     #[link_name = "__rtsadp_str_match_auto"]
-    fn __rts_sym_1016();
+    fn __rts_sym_914();
     #[link_name = "__rtsadp_str_match_w"]
-    fn __rts_sym_1017();
+    fn __rts_sym_915();
     #[link_name = "__rtsadp_str_replace_w"]
-    fn __rts_sym_1018();
+    fn __rts_sym_916();
     #[link_name = "__rtsadp_str_search_auto"]
-    fn __rts_sym_1019();
+    fn __rts_sym_917();
     #[link_name = "__rtsadp_str_split"]
-    fn __rts_sym_1020();
+    fn __rts_sym_918();
     #[link_name = "__rtsadp_str_split_w"]
-    fn __rts_sym_1021();
+    fn __rts_sym_919();
     #[link_name = "__rtsadp_strict_eq"]
-    fn __rts_sym_1022();
+    fn __rts_sym_920();
     #[link_name = "__rtsadp_strict_neq"]
-    fn __rts_sym_1023();
+    fn __rts_sym_921();
     #[link_name = "__rtsadp_string_raw"]
-    fn __rts_sym_1024();
+    fn __rts_sym_922();
     #[link_name = "__rtsadp_sub"]
-    fn __rts_sym_1025();
+    fn __rts_sym_923();
     #[link_name = "__rtsadp_ta_view_base_len"]
-    fn __rts_sym_1026();
+    fn __rts_sym_924();
     #[link_name = "__rtsadp_throw_js_error"]
-    fn __rts_sym_1027();
+    fn __rts_sym_925();
     #[link_name = "__rtsadp_throw_set"]
-    fn __rts_sym_1028();
+    fn __rts_sym_926();
     #[link_name = "__rtsadp_to_boolean"]
-    fn __rts_sym_1029();
+    fn __rts_sym_927();
     #[link_name = "__rtsadp_to_iter_array"]
-    fn __rts_sym_1030();
+    fn __rts_sym_928();
     #[link_name = "__rtsadp_to_string"]
-    fn __rts_sym_1031();
+    fn __rts_sym_929();
     #[link_name = "__rtsadp_tsa_raw"]
-    fn __rts_sym_1032();
+    fn __rts_sym_930();
     #[link_name = "__rtsadp_typeof"]
-    fn __rts_sym_1033();
+    fn __rts_sym_931();
     #[link_name = "__rtsadp_ushr"]
-    fn __rts_sym_1034();
+    fn __rts_sym_932();
     #[link_name = "__rtsadp_word_to_abi_i64"]
-    fn __rts_sym_1035();
+    fn __rts_sym_933();
     #[link_name = "__rtsm_atomic_bool_load"]
-    fn __rts_sym_1036();
+    fn __rts_sym_934();
     #[link_name = "__rtsm_atomic_bool_new"]
-    fn __rts_sym_1037();
+    fn __rts_sym_935();
     #[link_name = "__rtsm_atomic_bool_store"]
-    fn __rts_sym_1038();
+    fn __rts_sym_936();
     #[link_name = "__rtsm_atomic_bool_swap"]
-    fn __rts_sym_1039();
+    fn __rts_sym_937();
     #[link_name = "__rtsm_atomic_f64_fetch_add"]
-    fn __rts_sym_1040();
+    fn __rts_sym_938();
     #[link_name = "__rtsm_atomic_f64_load"]
-    fn __rts_sym_1041();
+    fn __rts_sym_939();
     #[link_name = "__rtsm_atomic_f64_new"]
-    fn __rts_sym_1042();
+    fn __rts_sym_940();
     #[link_name = "__rtsm_atomic_f64_store"]
-    fn __rts_sym_1043();
+    fn __rts_sym_941();
     #[link_name = "__rtsm_atomic_f64_swap"]
-    fn __rts_sym_1044();
+    fn __rts_sym_942();
     #[link_name = "__rtsm_atomic_fence_acquire"]
-    fn __rts_sym_1045();
+    fn __rts_sym_943();
     #[link_name = "__rtsm_atomic_fence_release"]
-    fn __rts_sym_1046();
+    fn __rts_sym_944();
     #[link_name = "__rtsm_atomic_fence_seq_cst"]
-    fn __rts_sym_1047();
+    fn __rts_sym_945();
     #[link_name = "__rtsm_atomic_i64_cas"]
-    fn __rts_sym_1048();
+    fn __rts_sym_946();
     #[link_name = "__rtsm_atomic_i64_fetch_add"]
-    fn __rts_sym_1049();
+    fn __rts_sym_947();
     #[link_name = "__rtsm_atomic_i64_fetch_and"]
-    fn __rts_sym_1050();
+    fn __rts_sym_948();
     #[link_name = "__rtsm_atomic_i64_fetch_or"]
-    fn __rts_sym_1051();
+    fn __rts_sym_949();
     #[link_name = "__rtsm_atomic_i64_fetch_sub"]
-    fn __rts_sym_1052();
+    fn __rts_sym_950();
     #[link_name = "__rtsm_atomic_i64_fetch_xor"]
-    fn __rts_sym_1053();
+    fn __rts_sym_951();
     #[link_name = "__rtsm_atomic_i64_load"]
-    fn __rts_sym_1054();
+    fn __rts_sym_952();
     #[link_name = "__rtsm_atomic_i64_new"]
-    fn __rts_sym_1055();
+    fn __rts_sym_953();
     #[link_name = "__rtsm_atomic_i64_store"]
-    fn __rts_sym_1056();
+    fn __rts_sym_954();
     #[link_name = "__rtsm_atomic_i64_swap"]
-    fn __rts_sym_1057();
+    fn __rts_sym_955();
     #[link_name = "__rtsm_audio_available_frames"]
-    fn __rts_sym_1058();
+    fn __rts_sym_956();
     #[link_name = "__rtsm_audio_channels"]
-    fn __rts_sym_1059();
+    fn __rts_sym_957();
     #[link_name = "__rtsm_audio_close"]
-    fn __rts_sym_1060();
+    fn __rts_sym_958();
     #[link_name = "__rtsm_audio_default_channels"]
-    fn __rts_sym_1061();
+    fn __rts_sym_959();
     #[link_name = "__rtsm_audio_default_sample_rate"]
-    fn __rts_sym_1062();
+    fn __rts_sym_960();
     #[link_name = "__rtsm_audio_is_open"]
-    fn __rts_sym_1063();
+    fn __rts_sym_961();
     #[link_name = "__rtsm_audio_master_volume"]
-    fn __rts_sym_1064();
+    fn __rts_sym_962();
     #[link_name = "__rtsm_audio_open_output"]
-    fn __rts_sym_1065();
+    fn __rts_sym_963();
     #[link_name = "__rtsm_audio_queued_frames"]
-    fn __rts_sym_1066();
+    fn __rts_sym_964();
     #[link_name = "__rtsm_audio_sample_rate"]
-    fn __rts_sym_1067();
+    fn __rts_sym_965();
     #[link_name = "__rtsm_audio_underruns"]
-    fn __rts_sym_1068();
+    fn __rts_sym_966();
     #[link_name = "__rtsm_audio_write"]
-    fn __rts_sym_1069();
+    fn __rts_sym_967();
     #[link_name = "__rtsm_crypto_base64_decode"]
-    fn __rts_sym_1070();
+    fn __rts_sym_968();
     #[link_name = "__rtsm_crypto_base64_encode"]
-    fn __rts_sym_1071();
+    fn __rts_sym_969();
     #[link_name = "__rtsm_crypto_hash_update_bytes"]
-    fn __rts_sym_1072();
+    fn __rts_sym_970();
     #[link_name = "__rtsm_crypto_hex_decode"]
-    fn __rts_sym_1073();
+    fn __rts_sym_971();
     #[link_name = "__rtsm_crypto_hex_encode"]
-    fn __rts_sym_1074();
+    fn __rts_sym_972();
     #[link_name = "__rtsm_crypto_random_bytes"]
-    fn __rts_sym_1075();
+    fn __rts_sym_973();
     #[link_name = "__rtsm_crypto_random_i64"]
-    fn __rts_sym_1076();
+    fn __rts_sym_974();
     #[link_name = "__rtsm_crypto_sha256_bytes"]
+    fn __rts_sym_975();
+    #[link_name = "__rtsm_dom_addListener"]
+    fn __rts_sym_976();
+    #[link_name = "__rtsm_dom_addListenerCb"]
+    fn __rts_sym_977();
+    #[link_name = "__rtsm_dom_addStylesheet"]
+    fn __rts_sym_978();
+    #[link_name = "__rtsm_dom_advance"]
+    fn __rts_sym_979();
+    #[link_name = "__rtsm_dom_appendChild"]
+    fn __rts_sym_980();
+    #[link_name = "__rtsm_dom_attrCount"]
+    fn __rts_sym_981();
+    #[link_name = "__rtsm_dom_attrNameAt"]
+    fn __rts_sym_982();
+    #[link_name = "__rtsm_dom_attrValueAt"]
+    fn __rts_sym_983();
+    #[link_name = "__rtsm_dom_boundingComponent"]
+    fn __rts_sym_984();
+    #[link_name = "__rtsm_dom_childAt"]
+    fn __rts_sym_985();
+    #[link_name = "__rtsm_dom_childCount"]
+    fn __rts_sym_986();
+    #[link_name = "__rtsm_dom_childNodeAt"]
+    fn __rts_sym_987();
+    #[link_name = "__rtsm_dom_childNodesCount"]
+    fn __rts_sym_988();
+    #[link_name = "__rtsm_dom_clearChildren"]
+    fn __rts_sym_989();
+    #[link_name = "__rtsm_dom_cloneNode"]
+    fn __rts_sym_990();
+    #[link_name = "__rtsm_dom_closest"]
+    fn __rts_sym_991();
+    #[link_name = "__rtsm_dom_computedProperty"]
+    fn __rts_sym_992();
+    #[link_name = "__rtsm_dom_contains"]
+    fn __rts_sym_993();
+    #[link_name = "__rtsm_dom_createComment"]
+    fn __rts_sym_994();
+    #[link_name = "__rtsm_dom_createDocument"]
+    fn __rts_sym_995();
+    #[link_name = "__rtsm_dom_createElement"]
+    fn __rts_sym_996();
+    #[link_name = "__rtsm_dom_createTextNode"]
+    fn __rts_sym_997();
+    #[link_name = "__rtsm_dom_cssText"]
+    fn __rts_sym_998();
+    #[link_name = "__rtsm_dom_defineBlock"]
+    fn __rts_sym_999();
+    #[link_name = "__rtsm_dom_defineInline"]
+    fn __rts_sym_1000();
+    #[link_name = "__rtsm_dom_defineStyle"]
+    fn __rts_sym_1001();
+    #[link_name = "__rtsm_dom_dispatchCbAt"]
+    fn __rts_sym_1002();
+    #[link_name = "__rtsm_dom_dispatchCbNode"]
+    fn __rts_sym_1003();
+    #[link_name = "__rtsm_dom_dispatchCollect"]
+    fn __rts_sym_1004();
+    #[link_name = "__rtsm_dom_dispatchEvent"]
+    fn __rts_sym_1005();
+    #[link_name = "__rtsm_dom_displayOf"]
+    fn __rts_sym_1006();
+    #[link_name = "__rtsm_dom_dump"]
+    fn __rts_sym_1007();
+    #[link_name = "__rtsm_dom_dumpLayout"]
+    fn __rts_sym_1008();
+    #[link_name = "__rtsm_dom_dumpTree"]
+    fn __rts_sym_1009();
+    #[link_name = "__rtsm_dom_firstChild"]
+    fn __rts_sym_1010();
+    #[link_name = "__rtsm_dom_focusInput"]
+    fn __rts_sym_1011();
+    #[link_name = "__rtsm_dom_focusedInput"]
+    fn __rts_sym_1012();
+    #[link_name = "__rtsm_dom_free"]
+    fn __rts_sym_1013();
+    #[link_name = "__rtsm_dom_getAttribute"]
+    fn __rts_sym_1014();
+    #[link_name = "__rtsm_dom_getByClassAt"]
+    fn __rts_sym_1015();
+    #[link_name = "__rtsm_dom_getByClassCount"]
+    fn __rts_sym_1016();
+    #[link_name = "__rtsm_dom_getByNameAt"]
+    fn __rts_sym_1017();
+    #[link_name = "__rtsm_dom_getByNameCount"]
+    fn __rts_sym_1018();
+    #[link_name = "__rtsm_dom_getByTagAt"]
+    fn __rts_sym_1019();
+    #[link_name = "__rtsm_dom_getByTagCount"]
+    fn __rts_sym_1020();
+    #[link_name = "__rtsm_dom_getText"]
+    fn __rts_sym_1021();
+    #[link_name = "__rtsm_dom_hasAttr"]
+    fn __rts_sym_1022();
+    #[link_name = "__rtsm_dom_hasChildNodes"]
+    fn __rts_sym_1023();
+    #[link_name = "__rtsm_dom_hasImage"]
+    fn __rts_sym_1024();
+    #[link_name = "__rtsm_dom_hasListener"]
+    fn __rts_sym_1025();
+    #[link_name = "__rtsm_dom_inlineProperty"]
+    fn __rts_sym_1026();
+    #[link_name = "__rtsm_dom_innerHtml"]
+    fn __rts_sym_1027();
+    #[link_name = "__rtsm_dom_inputAt"]
+    fn __rts_sym_1028();
+    #[link_name = "__rtsm_dom_inputBackspace"]
+    fn __rts_sym_1029();
+    #[link_name = "__rtsm_dom_inputFeedText"]
+    fn __rts_sym_1030();
+    #[link_name = "__rtsm_dom_inputValue"]
+    fn __rts_sym_1031();
+    #[link_name = "__rtsm_dom_insertAdjacent"]
+    fn __rts_sym_1032();
+    #[link_name = "__rtsm_dom_insertBefore"]
+    fn __rts_sym_1033();
+    #[link_name = "__rtsm_dom_lastChild"]
+    fn __rts_sym_1034();
+    #[link_name = "__rtsm_dom_matches"]
+    fn __rts_sym_1035();
+    #[link_name = "__rtsm_dom_nextSibling"]
+    fn __rts_sym_1036();
+    #[link_name = "__rtsm_dom_nodeName"]
+    fn __rts_sym_1037();
+    #[link_name = "__rtsm_dom_nodeStyleSlot"]
+    fn __rts_sym_1038();
+    #[link_name = "__rtsm_dom_nodeType"]
+    fn __rts_sym_1039();
+    #[link_name = "__rtsm_dom_nodeValue"]
+    fn __rts_sym_1040();
+    #[link_name = "__rtsm_dom_normalize"]
+    fn __rts_sym_1041();
+    #[link_name = "__rtsm_dom_outerHtml"]
+    fn __rts_sym_1042();
+    #[link_name = "__rtsm_dom_parentNode"]
+    fn __rts_sym_1043();
+    #[link_name = "__rtsm_dom_parseHtml"]
+    fn __rts_sym_1044();
+    #[link_name = "__rtsm_dom_pollEvent"]
+    fn __rts_sym_1045();
+    #[link_name = "__rtsm_dom_pollEventType"]
+    fn __rts_sym_1046();
+    #[link_name = "__rtsm_dom_pollRawEvent"]
+    fn __rts_sym_1047();
+    #[link_name = "__rtsm_dom_pollRawEventType"]
+    fn __rts_sym_1048();
+    #[link_name = "__rtsm_dom_prepend"]
+    fn __rts_sym_1049();
+    #[link_name = "__rtsm_dom_previousSibling"]
+    fn __rts_sym_1050();
+    #[link_name = "__rtsm_dom_pushRawEvent"]
+    fn __rts_sym_1051();
+    #[link_name = "__rtsm_dom_queryAllWithinAt"]
+    fn __rts_sym_1052();
+    #[link_name = "__rtsm_dom_queryAllWithinCount"]
+    fn __rts_sym_1053();
+    #[link_name = "__rtsm_dom_querySelector"]
+    fn __rts_sym_1054();
+    #[link_name = "__rtsm_dom_querySelectorAllAt"]
+    fn __rts_sym_1055();
+    #[link_name = "__rtsm_dom_querySelectorAllCount"]
+    fn __rts_sym_1056();
+    #[link_name = "__rtsm_dom_queryWithin"]
+    fn __rts_sym_1057();
+    #[link_name = "__rtsm_dom_removeAttr"]
+    fn __rts_sym_1058();
+    #[link_name = "__rtsm_dom_removeChild"]
+    fn __rts_sym_1059();
+    #[link_name = "__rtsm_dom_removeListener"]
+    fn __rts_sym_1060();
+    #[link_name = "__rtsm_dom_removeNode"]
+    fn __rts_sym_1061();
+    #[link_name = "__rtsm_dom_removeStyleProperty"]
+    fn __rts_sym_1062();
+    #[link_name = "__rtsm_dom_replaceChild"]
+    fn __rts_sym_1063();
+    #[link_name = "__rtsm_dom_replaceWith"]
+    fn __rts_sym_1064();
+    #[link_name = "__rtsm_dom_rootId"]
+    fn __rts_sym_1065();
+    #[link_name = "__rtsm_dom_runScript"]
+    fn __rts_sym_1066();
+    #[link_name = "__rtsm_dom_setAttr"]
+    fn __rts_sym_1067();
+    #[link_name = "__rtsm_dom_setCssText"]
+    fn __rts_sym_1068();
+    #[link_name = "__rtsm_dom_setHovered"]
+    fn __rts_sym_1069();
+    #[link_name = "__rtsm_dom_setImage"]
+    fn __rts_sym_1070();
+    #[link_name = "__rtsm_dom_setInnerHtml"]
+    fn __rts_sym_1071();
+    #[link_name = "__rtsm_dom_setNodeValue"]
+    fn __rts_sym_1072();
+    #[link_name = "__rtsm_dom_setStyle"]
+    fn __rts_sym_1073();
+    #[link_name = "__rtsm_dom_setStyleBatch"]
+    fn __rts_sym_1074();
+    #[link_name = "__rtsm_dom_setStyleProperty"]
+    fn __rts_sym_1075();
+    #[link_name = "__rtsm_dom_setText"]
+    fn __rts_sym_1076();
+    #[link_name = "__rtsm_dom_tagName"]
     fn __rts_sym_1077();
     #[link_name = "__rtsm_env_arg_at"]
     fn __rts_sym_1078();
@@ -4429,743 +4429,743 @@ pub static SYMBOLS: [::rts_abi::table::SymbolEntry; 2025] = [
     ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DATE_TO_ISO", ptr: __rts_sym_338 as *const u8 },
     ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DATE_WEEKDAY", ptr: __rts_sym_339 as *const u8 },
     ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DATE_YEAR", ptr: __rts_sym_340 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_ADD_LISTENER", ptr: __rts_sym_341 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_ADD_LISTENER_CB", ptr: __rts_sym_342 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_ADD_STYLESHEET", ptr: __rts_sym_343 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_ADVANCE", ptr: __rts_sym_344 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_APPEND_CHILD", ptr: __rts_sym_345 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_ATTR_COUNT", ptr: __rts_sym_346 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_ATTR_NAME_AT", ptr: __rts_sym_347 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_ATTR_VALUE_AT", ptr: __rts_sym_348 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_BOUNDING_COMPONENT", ptr: __rts_sym_349 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_CHILD_AT", ptr: __rts_sym_350 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_CHILD_COUNT", ptr: __rts_sym_351 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_CHILD_NODES_COUNT", ptr: __rts_sym_352 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_CHILD_NODE_AT", ptr: __rts_sym_353 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_CLEAR_CHILDREN", ptr: __rts_sym_354 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_CLONE_NODE", ptr: __rts_sym_355 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_CLOSEST", ptr: __rts_sym_356 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_COMPUTED_PROPERTY", ptr: __rts_sym_357 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_CONTAINS", ptr: __rts_sym_358 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_CREATE_COMMENT", ptr: __rts_sym_359 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_CREATE_DOCUMENT", ptr: __rts_sym_360 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_CREATE_ELEMENT", ptr: __rts_sym_361 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_CREATE_TEXT_NODE", ptr: __rts_sym_362 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_CSS_TEXT", ptr: __rts_sym_363 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_DEFINE_BLOCK", ptr: __rts_sym_364 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_DEFINE_INLINE", ptr: __rts_sym_365 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_DEFINE_STYLE", ptr: __rts_sym_366 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_DISPATCH_CB_AT", ptr: __rts_sym_367 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_DISPATCH_CB_NODE", ptr: __rts_sym_368 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_DISPATCH_COLLECT", ptr: __rts_sym_369 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_DISPATCH_EVENT", ptr: __rts_sym_370 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_DISPLAY_OF", ptr: __rts_sym_371 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_DUMP", ptr: __rts_sym_372 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_DUMP_LAYOUT", ptr: __rts_sym_373 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_DUMP_TREE", ptr: __rts_sym_374 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_FIRST_CHILD", ptr: __rts_sym_375 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_FOCUSED_INPUT", ptr: __rts_sym_376 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_FOCUS_INPUT", ptr: __rts_sym_377 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_FREE", ptr: __rts_sym_378 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_GET_ATTRIBUTE", ptr: __rts_sym_379 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_GET_BY_CLASS_AT", ptr: __rts_sym_380 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_GET_BY_CLASS_COUNT", ptr: __rts_sym_381 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_GET_BY_NAME_AT", ptr: __rts_sym_382 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_GET_BY_NAME_COUNT", ptr: __rts_sym_383 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_GET_BY_TAG_AT", ptr: __rts_sym_384 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_GET_BY_TAG_COUNT", ptr: __rts_sym_385 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_GET_TEXT", ptr: __rts_sym_386 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_HAS_ATTR", ptr: __rts_sym_387 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_HAS_CHILD_NODES", ptr: __rts_sym_388 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_HAS_IMAGE", ptr: __rts_sym_389 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_HAS_LISTENER", ptr: __rts_sym_390 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_INLINE_PROPERTY", ptr: __rts_sym_391 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_INNER_HTML", ptr: __rts_sym_392 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_INPUT_AT", ptr: __rts_sym_393 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_INPUT_BACKSPACE", ptr: __rts_sym_394 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_INPUT_FEED_TEXT", ptr: __rts_sym_395 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_INPUT_VALUE", ptr: __rts_sym_396 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_INSERT_ADJACENT", ptr: __rts_sym_397 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_INSERT_BEFORE", ptr: __rts_sym_398 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_LAST_CHILD", ptr: __rts_sym_399 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_MATCHES", ptr: __rts_sym_400 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_NEXT_SIBLING", ptr: __rts_sym_401 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_NODE_NAME", ptr: __rts_sym_402 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_NODE_STYLE_SLOT", ptr: __rts_sym_403 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_NODE_TYPE", ptr: __rts_sym_404 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_NODE_VALUE", ptr: __rts_sym_405 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_NORMALIZE", ptr: __rts_sym_406 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_OUTER_HTML", ptr: __rts_sym_407 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_PARENT_NODE", ptr: __rts_sym_408 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_PARSE_HTML", ptr: __rts_sym_409 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_POLL_EVENT", ptr: __rts_sym_410 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_POLL_EVENT_TYPE", ptr: __rts_sym_411 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_POLL_RAW_EVENT", ptr: __rts_sym_412 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_POLL_RAW_EVENT_TYPE", ptr: __rts_sym_413 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_PREPEND", ptr: __rts_sym_414 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_PREVIOUS_SIBLING", ptr: __rts_sym_415 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_PUSH_RAW_EVENT", ptr: __rts_sym_416 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_QUERY_ALL_WITHIN_AT", ptr: __rts_sym_417 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_QUERY_ALL_WITHIN_COUNT", ptr: __rts_sym_418 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_QUERY_SELECTOR", ptr: __rts_sym_419 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_AT", ptr: __rts_sym_420 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_COUNT", ptr: __rts_sym_421 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_QUERY_WITHIN", ptr: __rts_sym_422 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_REMOVE_ATTR", ptr: __rts_sym_423 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_REMOVE_CHILD", ptr: __rts_sym_424 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_REMOVE_LISTENER", ptr: __rts_sym_425 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_REMOVE_NODE", ptr: __rts_sym_426 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_REMOVE_STYLE_PROPERTY", ptr: __rts_sym_427 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_REPLACE_CHILD", ptr: __rts_sym_428 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_REPLACE_WITH", ptr: __rts_sym_429 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_ROOT_ID", ptr: __rts_sym_430 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_RUN_SCRIPT", ptr: __rts_sym_431 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_SET_ATTR", ptr: __rts_sym_432 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_SET_CSS_TEXT", ptr: __rts_sym_433 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_SET_HOVERED", ptr: __rts_sym_434 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_SET_IMAGE", ptr: __rts_sym_435 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_SET_INNER_HTML", ptr: __rts_sym_436 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_SET_NODE_VALUE", ptr: __rts_sym_437 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_SET_STYLE", ptr: __rts_sym_438 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_SET_STYLE_BATCH", ptr: __rts_sym_439 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_SET_STYLE_PROPERTY", ptr: __rts_sym_440 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_SET_TEXT", ptr: __rts_sym_441 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_DOM_TAG_NAME", ptr: __rts_sym_442 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_APPEND_CHILD", ptr: __rts_sym_443 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_BEGIN_FRAME", ptr: __rts_sym_444 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_BUTTON", ptr: __rts_sym_445 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_CLOSE", ptr: __rts_sym_446 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_CREATE_ELEMENT", ptr: __rts_sym_447 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_DEFINE_BLOCK", ptr: __rts_sym_448 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_DEFINE_INLINE", ptr: __rts_sym_449 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_DEFINE_STYLE", ptr: __rts_sym_450 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_DOM_DUMP", ptr: __rts_sym_451 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_DRAW_LINE", ptr: __rts_sym_452 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_DRAW_MESH", ptr: __rts_sym_453 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_DRAW_RECT", ptr: __rts_sym_454 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_DRAW_TEXT", ptr: __rts_sym_455 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_DRAW_WATER", ptr: __rts_sym_456 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_END_FRAME", ptr: __rts_sym_457 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_HORIZONTAL_BEGIN", ptr: __rts_sym_458 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_HORIZONTAL_END", ptr: __rts_sym_459 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_HTML", ptr: __rts_sym_460 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_IS_OPEN", ptr: __rts_sym_461 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_LABEL", ptr: __rts_sym_462 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_MEASURE_TEXT", ptr: __rts_sym_463 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_MESH_FREE", ptr: __rts_sym_464 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_MESH_UPLOAD", ptr: __rts_sym_465 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_MOUSE_LOCK", ptr: __rts_sym_466 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_MOVE_WINDOW", ptr: __rts_sym_467 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_OPEN_WINDOW", ptr: __rts_sym_468 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_PUMP", ptr: __rts_sym_469 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_QUERY_SELECTOR", ptr: __rts_sym_470 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_REMOVE_NODE", ptr: __rts_sym_471 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_RENDER", ptr: __rts_sym_472 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SET_ATTR", ptr: __rts_sym_473 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SET_CAMERA", ptr: __rts_sym_474 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SET_CAMERA_LOOKAT", ptr: __rts_sym_475 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SET_CLEAR_COLOR", ptr: __rts_sym_476 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SET_LIGHT", ptr: __rts_sym_477 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SET_NEXT_POS", ptr: __rts_sym_478 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SET_SHADOW", ptr: __rts_sym_479 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SET_SKYBOX", ptr: __rts_sym_480 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SET_TEXT", ptr: __rts_sym_481 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SET_VSYNC", ptr: __rts_sym_482 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SLIDER", ptr: __rts_sym_483 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SNAPSHOT", ptr: __rts_sym_484 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_TEXTURE_UPLOAD", ptr: __rts_sym_485 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_WIN_HEIGHT", ptr: __rts_sym_486 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_WIN_WIDTH", ptr: __rts_sym_487 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_ARCH", ptr: __rts_sym_488 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_BUFFER_CLONE", ptr: __rts_sym_489 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_BUFFER_DETACH", ptr: __rts_sym_490 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_FS_APPEND_BYTES", ptr: __rts_sym_491 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_FS_OPEN_HANDLE", ptr: __rts_sym_492 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_FS_READ_BYTES", ptr: __rts_sym_493 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_FS_WRITE_BYTES", ptr: __rts_sym_494 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_IS_BUFFER", ptr: __rts_sym_495 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_NOW_MS", ptr: __rts_sym_496 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_NOW_NS", ptr: __rts_sym_497 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_NUM_TO_STRING_RADIX", ptr: __rts_sym_498 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_TRACE_CAPTURE", ptr: __rts_sym_499 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_TRACE_POP", ptr: __rts_sym_500 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_TRACE_PRINT", ptr: __rts_sym_501 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_TRACE_PUSH", ptr: __rts_sym_502 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_UNIX_MS", ptr: __rts_sym_503 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_UNIX_NS", ptr: __rts_sym_504 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FETCH_CLEAR_OVERRIDES", ptr: __rts_sym_505 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FETCH_FETCH_BYTES_ASYNC", ptr: __rts_sym_506 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FETCH_FETCH_BYTES_POLL", ptr: __rts_sym_507 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FETCH_FETCH_BYTES_TAKE", ptr: __rts_sym_508 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FETCH_FETCH_POLL", ptr: __rts_sym_509 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FETCH_FETCH_TAKE", ptr: __rts_sym_510 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FETCH_FETCH_TEXT", ptr: __rts_sym_511 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FETCH_FETCH_TEXT_ASYNC", ptr: __rts_sym_512 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FETCH_SET_HEADER", ptr: __rts_sym_513 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FETCH_SET_USER_AGENT", ptr: __rts_sym_514 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FMT_FMT_BIN", ptr: __rts_sym_515 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FMT_FMT_BOOL", ptr: __rts_sym_516 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FMT_FMT_F64", ptr: __rts_sym_517 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FMT_FMT_F64_PREC", ptr: __rts_sym_518 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FMT_FMT_HEX", ptr: __rts_sym_519 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FMT_FMT_I64", ptr: __rts_sym_520 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FMT_FMT_OCT", ptr: __rts_sym_521 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FMT_PARSE_BOOL", ptr: __rts_sym_522 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FMT_PARSE_F64", ptr: __rts_sym_523 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FMT_PARSE_I64", ptr: __rts_sym_524 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FS_READ_TEXT", ptr: __rts_sym_525 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GC_IS_DATE", ptr: __rts_sym_526 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GC_IS_REGEX", ptr: __rts_sym_527 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GC_PIN_HANDLE", ptr: __rts_sym_528 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GC_STRING_CMP", ptr: __rts_sym_529 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GC_STRING_CONCAT", ptr: __rts_sym_530 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GC_STRING_EQ", ptr: __rts_sym_531 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GC_STRING_FROM_STATIC", ptr: __rts_sym_532 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GC_STRING_LEN", ptr: __rts_sym_533 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GC_STRING_NEW", ptr: __rts_sym_534 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GC_STRING_PTR", ptr: __rts_sym_535 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GC_UNPIN_HANDLE", ptr: __rts_sym_536 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_ADAPTER_NAME", ptr: __rts_sym_537 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_AVAILABLE", ptr: __rts_sym_538 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_BIND", ptr: __rts_sym_539 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_BUFFER", ptr: __rts_sym_540 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_BUFFER_FREE", ptr: __rts_sym_541 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_DISPATCH", ptr: __rts_sym_542 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_READ", ptr: __rts_sym_543 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_READ_BEGIN", ptr: __rts_sym_544 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_READ_POLL", ptr: __rts_sym_545 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_SHADER", ptr: __rts_sym_546 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_WRITE", ptr: __rts_sym_547 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_WRITE_AT", ptr: __rts_sym_548 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_HINT_ASSERT_UNCHECKED", ptr: __rts_sym_549 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_HINT_BLACK_BOX_F64", ptr: __rts_sym_550 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_HINT_BLACK_BOX_I64", ptr: __rts_sym_551 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_HINT_SPIN_LOOP", ptr: __rts_sym_552 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_HINT_UNREACHABLE", ptr: __rts_sym_553 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_IMGDEC_DECODE", ptr: __rts_sym_554 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_IMGDEC_DECODE_GIF", ptr: __rts_sym_555 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_IMGDEC_GIF_COUNT", ptr: __rts_sym_556 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_IMGDEC_GIF_DELAY", ptr: __rts_sym_557 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_IMGDEC_GIF_HEIGHT", ptr: __rts_sym_558 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_IMGDEC_GIF_PIXELS_PTR", ptr: __rts_sym_559 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_IMGDEC_GIF_WIDTH", ptr: __rts_sym_560 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_IMGDEC_HEIGHT", ptr: __rts_sym_561 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_IMGDEC_PIXELS_PTR", ptr: __rts_sym_562 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_IMGDEC_WIDTH", ptr: __rts_sym_563 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_COPY_TEXT", ptr: __rts_sym_564 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_DRAGGING", ptr: __rts_sym_565 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_KEY", ptr: __rts_sym_566 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOD_ALT", ptr: __rts_sym_567 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOD_CMD", ptr: __rts_sym_568 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOD_CTRL", ptr: __rts_sym_569 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOD_SHIFT", ptr: __rts_sym_570 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOUSE_CLICKED", ptr: __rts_sym_571 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOUSE_DELTA_X", ptr: __rts_sym_572 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOUSE_DELTA_Y", ptr: __rts_sym_573 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOUSE_DOUBLE_CLICKED", ptr: __rts_sym_574 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOUSE_DOWN", ptr: __rts_sym_575 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOUSE_PRESSED", ptr: __rts_sym_576 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOUSE_RELEASED", ptr: __rts_sym_577 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOUSE_X", ptr: __rts_sym_578 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOUSE_Y", ptr: __rts_sym_579 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_SET_CURSOR", ptr: __rts_sym_580 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_TEXT", ptr: __rts_sym_581 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_WHEEL", ptr: __rts_sym_582 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_WHEEL_X", ptr: __rts_sym_583 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_AS_BOOL", ptr: __rts_sym_584 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_AS_F64", ptr: __rts_sym_585 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_AS_I64", ptr: __rts_sym_586 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_AS_STRING", ptr: __rts_sym_587 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_FREE", ptr: __rts_sym_588 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_OBJECT_HAS", ptr: __rts_sym_589 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_PARSE", ptr: __rts_sym_590 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_PARSE5", ptr: __rts_sym_591 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_PARSE_REVIVER", ptr: __rts_sym_592 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_STRINGIFY", ptr: __rts_sym_593 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_STRINGIFY_PRETTY", ptr: __rts_sym_594 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_TYPE_OF", ptr: __rts_sym_595 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_ABS_F64", ptr: __rts_sym_596 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_ABS_I64", ptr: __rts_sym_597 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_ACOS", ptr: __rts_sym_598 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_ACOSH", ptr: __rts_sym_599 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_ASIN", ptr: __rts_sym_600 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_ASINH", ptr: __rts_sym_601 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_ATAN", ptr: __rts_sym_602 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_ATAN2", ptr: __rts_sym_603 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_ATANH", ptr: __rts_sym_604 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_CBRT", ptr: __rts_sym_605 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_CEIL", ptr: __rts_sym_606 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_CLAMP_F64", ptr: __rts_sym_607 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_CLAMP_I64", ptr: __rts_sym_608 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_CLZ32", ptr: __rts_sym_609 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_COS", ptr: __rts_sym_610 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_COSH", ptr: __rts_sym_611 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_E", ptr: __rts_sym_612 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_EXP", ptr: __rts_sym_613 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_EXPM1", ptr: __rts_sym_614 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_F16ROUND", ptr: __rts_sym_615 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_FLOOR", ptr: __rts_sym_616 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_FROUND", ptr: __rts_sym_617 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_HYPOT", ptr: __rts_sym_618 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_IMUL", ptr: __rts_sym_619 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_INFINITY", ptr: __rts_sym_620 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_LN", ptr: __rts_sym_621 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_LN10", ptr: __rts_sym_622 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_LN2", ptr: __rts_sym_623 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_LOG10", ptr: __rts_sym_624 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_LOG10E", ptr: __rts_sym_625 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_LOG1P", ptr: __rts_sym_626 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_LOG2", ptr: __rts_sym_627 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_LOG2E", ptr: __rts_sym_628 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_MAX_F64", ptr: __rts_sym_629 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_MAX_I64", ptr: __rts_sym_630 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_MIN_F64", ptr: __rts_sym_631 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_MIN_I64", ptr: __rts_sym_632 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_NAN", ptr: __rts_sym_633 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_PI", ptr: __rts_sym_634 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_POW", ptr: __rts_sym_635 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_RANDOM_F64", ptr: __rts_sym_636 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_RANDOM_I64_RANGE", ptr: __rts_sym_637 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_ROUND", ptr: __rts_sym_638 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_SEED", ptr: __rts_sym_639 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_SIGN", ptr: __rts_sym_640 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_SIN", ptr: __rts_sym_641 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_SINH", ptr: __rts_sym_642 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_SQRT", ptr: __rts_sym_643 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_SQRT1_2", ptr: __rts_sym_644 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_SQRT2", ptr: __rts_sym_645 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_TAN", ptr: __rts_sym_646 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_TANH", ptr: __rts_sym_647 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_TRUNC", ptr: __rts_sym_648 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MEM_ALIGN_OF_F64", ptr: __rts_sym_649 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MEM_ALIGN_OF_I64", ptr: __rts_sym_650 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MEM_DROP_HANDLE", ptr: __rts_sym_651 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MEM_FORGET_HANDLE", ptr: __rts_sym_652 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MEM_REPLACE_I64", ptr: __rts_sym_653 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MEM_SIZE_OF_BOOL", ptr: __rts_sym_654 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MEM_SIZE_OF_F64", ptr: __rts_sym_655 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MEM_SIZE_OF_I32", ptr: __rts_sym_656 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MEM_SIZE_OF_I64", ptr: __rts_sym_657 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MEM_SWAP_I64", ptr: __rts_sym_658 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NAPI_LOAD_ADDON", ptr: __rts_sym_659 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_CHECKED_ADD", ptr: __rts_sym_660 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_CHECKED_DIV", ptr: __rts_sym_661 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_CHECKED_MUL", ptr: __rts_sym_662 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_CHECKED_SUB", ptr: __rts_sym_663 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_COUNT_ONES", ptr: __rts_sym_664 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_COUNT_ZEROS", ptr: __rts_sym_665 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_F64_FROM_BITS", ptr: __rts_sym_666 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_F64_TO_BITS", ptr: __rts_sym_667 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_LEADING_ZEROS", ptr: __rts_sym_668 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_REVERSE_BITS", ptr: __rts_sym_669 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_ROTATE_LEFT", ptr: __rts_sym_670 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_ROTATE_RIGHT", ptr: __rts_sym_671 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_SATURATING_ADD", ptr: __rts_sym_672 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_SATURATING_MUL", ptr: __rts_sym_673 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_SATURATING_SUB", ptr: __rts_sym_674 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_SWAP_BYTES", ptr: __rts_sym_675 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_TRAILING_ZEROS", ptr: __rts_sym_676 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_WRAPPING_ADD", ptr: __rts_sym_677 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_WRAPPING_MUL", ptr: __rts_sym_678 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_WRAPPING_NEG", ptr: __rts_sym_679 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_WRAPPING_SHL", ptr: __rts_sym_680 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_WRAPPING_SHR", ptr: __rts_sym_681 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_WRAPPING_SUB", ptr: __rts_sym_682 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PATH_EXT", ptr: __rts_sym_683 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PATH_FILE_NAME", ptr: __rts_sym_684 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PATH_IS_ABSOLUTE", ptr: __rts_sym_685 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PATH_JOIN", ptr: __rts_sym_686 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PATH_NORMALIZE", ptr: __rts_sym_687 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PATH_PARENT", ptr: __rts_sym_688 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PATH_STEM", ptr: __rts_sym_689 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PATH_WITH_EXT", ptr: __rts_sym_690 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_DECODE_VARINT", ptr: __rts_sym_691 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_ENCODE_VARINT", ptr: __rts_sym_692 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_NEW_READER", ptr: __rts_sym_693 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_NEW_WRITER", ptr: __rts_sym_694 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_READER_BYTES", ptr: __rts_sym_695 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_READER_FIELD_NUM", ptr: __rts_sym_696 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_READER_FIXED32", ptr: __rts_sym_697 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_READER_FIXED64", ptr: __rts_sym_698 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_READER_SKIP", ptr: __rts_sym_699 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_READER_TAG", ptr: __rts_sym_700 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_READER_VARINT", ptr: __rts_sym_701 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_READER_ZIGZAG", ptr: __rts_sym_702 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_WRITER_BYTES", ptr: __rts_sym_703 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_WRITER_FINISH", ptr: __rts_sym_704 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_WRITER_FIXED32", ptr: __rts_sym_705 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_WRITER_FIXED64", ptr: __rts_sym_706 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_WRITER_TAG", ptr: __rts_sym_707 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_WRITER_VARINT", ptr: __rts_sym_708 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_WRITER_ZIGZAG", ptr: __rts_sym_709 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_WT_I32", ptr: __rts_sym_710 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_WT_I64", ptr: __rts_sym_711 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_WT_LEN", ptr: __rts_sym_712 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_WT_VARINT", ptr: __rts_sym_713 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_COPY", ptr: __rts_sym_714 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_COPY_NONOVERLAPPING", ptr: __rts_sym_715 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_IS_NULL", ptr: __rts_sym_716 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_NULL", ptr: __rts_sym_717 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_OFFSET", ptr: __rts_sym_718 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_READ_F64", ptr: __rts_sym_719 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_READ_I32", ptr: __rts_sym_720 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_READ_I64", ptr: __rts_sym_721 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_READ_U8", ptr: __rts_sym_722 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_WRITE_BYTES", ptr: __rts_sym_723 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_WRITE_F64", ptr: __rts_sym_724 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_WRITE_I32", ptr: __rts_sym_725 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_WRITE_I64", ptr: __rts_sym_726 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_WRITE_U8", ptr: __rts_sym_727 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_REGEX_COMPILE", ptr: __rts_sym_728 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_REGEX_FIND", ptr: __rts_sym_729 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_REGEX_FIND_AT", ptr: __rts_sym_730 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_REGEX_FREE", ptr: __rts_sym_731 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_REGEX_MATCH_ALL", ptr: __rts_sym_732 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_REGEX_MATCH_COUNT", ptr: __rts_sym_733 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_REGEX_MATCH_GROUPS", ptr: __rts_sym_734 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_REGEX_REPLACE", ptr: __rts_sym_735 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_REGEX_REPLACE_ALL", ptr: __rts_sym_736 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_REGEX_SPLIT", ptr: __rts_sym_737 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_REGEX_TEST", ptr: __rts_sym_738 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_RENDER_BEGIN_FRAME", ptr: __rts_sym_739 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_RENDER_END_FRAME", ptr: __rts_sym_740 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_RENDER_IMAGE", ptr: __rts_sym_741 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_RENDER_LINE", ptr: __rts_sym_742 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_RENDER_MEASURE_TEXT", ptr: __rts_sym_743 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_RENDER_RECT", ptr: __rts_sym_744 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_RENDER_TEXT", ptr: __rts_sym_745 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_THREAD_SPAWN", ptr: __rts_sym_746 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_THREAD_SPAWN_ASYNC", ptr: __rts_sym_747 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_THREAD_SPAWN_ASYNC_JOIN", ptr: __rts_sym_748 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_THREAD_SPAWN_DETACHED", ptr: __rts_sym_749 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_THREAD_SPAWN_WITH_UD", ptr: __rts_sym_750 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_TRACE_CAPTURE", ptr: __rts_sym_751 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_TRACE_DEPTH", ptr: __rts_sym_752 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_TRACE_FREE", ptr: __rts_sym_753 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_TRACE_POP_FRAME", ptr: __rts_sym_754 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_TRACE_PRINT", ptr: __rts_sym_755 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_TRACE_PUSH_FRAME", ptr: __rts_sym_756 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_INIT", ptr: __rts_sym_757 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_INVOKE_AUTO", ptr: __rts_sym_758 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_MAP_GET_STR", ptr: __rts_sym_759 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_MAP_MARK_NON_ENUM", ptr: __rts_sym_760 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_MAP_SET_STR", ptr: __rts_sym_761 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_NAPI_DISPATCH_CALLBACK", ptr: __rts_sym_762 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_NAPI_INVOKE_METHOD", ptr: __rts_sym_763 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_NAPI_NEW_INSTANCE", ptr: __rts_sym_764 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE", ptr: __rts_sym_765 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_OPAQUE_HAS_NUMBER", ptr: __rts_sym_766 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_OPAQUE_TO_NUMBER", ptr: __rts_sym_767 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_OPAQUE_TO_STRING", ptr: __rts_sym_768 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_PROXY_DISPATCH_APPLY", ptr: __rts_sym_769 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_PROXY_RESOLVE", ptr: __rts_sym_770 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_REGISTER_FN_KINDS", ptr: __rts_sym_771 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_SEED_SHAPES", ptr: __rts_sym_772 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_THIS_POP", ptr: __rts_sym_773 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_THIS_PUSH", ptr: __rts_sym_774 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_TO_STRING_HANDLE", ptr: __rts_sym_775 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_TRUTHY", ptr: __rts_sym_776 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_add", ptr: __rts_sym_777 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_at", ptr: __rts_sym_778 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_at_w", ptr: __rts_sym_779 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_concat", ptr: __rts_sym_780 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_copy_within", ptr: __rts_sym_781 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_copy_within1", ptr: __rts_sym_782 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_copy_within2", ptr: __rts_sym_783 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_entries", ptr: __rts_sym_784 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_every", ptr: __rts_sym_785 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_fill", ptr: __rts_sym_786 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_fill2", ptr: __rts_sym_787 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_fill3", ptr: __rts_sym_788 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_filter", ptr: __rts_sym_789 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_find", ptr: __rts_sym_790 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_find_index", ptr: __rts_sym_791 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_find_last", ptr: __rts_sym_792 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_find_last_index", ptr: __rts_sym_793 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_flat", ptr: __rts_sym_794 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_flat_depth", ptr: __rts_sym_795 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_flat_map", ptr: __rts_sym_796 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_for_each", ptr: __rts_sym_797 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_from", ptr: __rts_sym_798 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_includes", ptr: __rts_sym_799 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_includes_from", ptr: __rts_sym_800 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_index_of", ptr: __rts_sym_801 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_index_of_from", ptr: __rts_sym_802 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_is_array", ptr: __rts_sym_803 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_join", ptr: __rts_sym_804 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_join0", ptr: __rts_sym_805 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_keys", ptr: __rts_sym_806 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_last_index_of", ptr: __rts_sym_807 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_last_index_of_from", ptr: __rts_sym_808 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_map", ptr: __rts_sym_809 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_new_sized", ptr: __rts_sym_810 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_pop", ptr: __rts_sym_811 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_push", ptr: __rts_sym_812 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_reduce", ptr: __rts_sym_813 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_reduce_right", ptr: __rts_sym_814 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_reverse", ptr: __rts_sym_815 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_set_length", ptr: __rts_sym_816 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_shift", ptr: __rts_sym_817 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_slice", ptr: __rts_sym_818 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_slice0", ptr: __rts_sym_819 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_slice1", ptr: __rts_sym_820 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_some", ptr: __rts_sym_821 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_sort", ptr: __rts_sym_822 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_sort_cmp", ptr: __rts_sym_823 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_splice", ptr: __rts_sym_824 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_spread_append", ptr: __rts_sym_825 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_subarray", ptr: __rts_sym_826 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_subarray1", ptr: __rts_sym_827 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_ta_set", ptr: __rts_sym_828 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_ta_set1", ptr: __rts_sym_829 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_to_reversed", ptr: __rts_sym_830 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_to_sorted", ptr: __rts_sym_831 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_to_sorted_cmp", ptr: __rts_sym_832 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_to_spliced", ptr: __rts_sym_833 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_to_spliced_var", ptr: __rts_sym_834 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_to_string", ptr: __rts_sym_835 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_unshift", ptr: __rts_sym_836 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_values", ptr: __rts_sym_837 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_with", ptr: __rts_sym_838 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_atomics_cmpxchg", ptr: __rts_sym_839 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_atomics_load", ptr: __rts_sym_840 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_atomics_store", ptr: __rts_sym_841 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_await", ptr: __rts_sym_842 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_band", ptr: __rts_sym_843 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_bigint_as_intn", ptr: __rts_sym_844 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_bigint_as_uintn", ptr: __rts_sym_845 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_bnot", ptr: __rts_sym_846 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_bor", ptr: __rts_sym_847 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_box_handle_auto", ptr: __rts_sym_848 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_bxor", ptr: __rts_sym_849 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_canon_double", ptr: __rts_sym_850 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_class_proto", ptr: __rts_sym_851 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_class_proto_init", ptr: __rts_sym_852 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_class_proto_set", ptr: __rts_sym_853 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_clear_timer", ptr: __rts_sym_854 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_coerce_fn_value", ptr: __rts_sym_855 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_construct", ptr: __rts_sym_856 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_ctor_mark", ptr: __rts_sym_857 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_define_prop", ptr: __rts_sym_858 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_div", ptr: __rts_sym_859 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_at", ptr: __rts_sym_860 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_char_at", ptr: __rts_sym_861 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_char_code_at", ptr: __rts_sym_862 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_ci_or_undef", ptr: __rts_sym_863 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_code_point_at", ptr: __rts_sym_864 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_concat", ptr: __rts_sym_865 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_ends_with", ptr: __rts_sym_866 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_includes", ptr: __rts_sym_867 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_index_of", ptr: __rts_sym_868 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_join", ptr: __rts_sym_869 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_length", ptr: __rts_sym_870 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_locale_compare", ptr: __rts_sym_871 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_method_call", ptr: __rts_sym_872 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_p_catch", ptr: __rts_sym_873 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_p_finally", ptr: __rts_sym_874 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_p_then", ptr: __rts_sym_875 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_p_then2", ptr: __rts_sym_876 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_pop", ptr: __rts_sym_877 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_push", ptr: __rts_sym_878 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_repeat", ptr: __rts_sym_879 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_reverse", ptr: __rts_sym_880 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_slice", ptr: __rts_sym_881 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_sort", ptr: __rts_sym_882 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_split", ptr: __rts_sym_883 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_starts_with", ptr: __rts_sym_884 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_to_lower_case", ptr: __rts_sym_885 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_to_string", ptr: __rts_sym_886 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_to_string_radix", ptr: __rts_sym_887 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_to_upper_case", ptr: __rts_sym_888 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_trim", ptr: __rts_sym_889 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_trim_end", ptr: __rts_sym_890 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_trim_start", ptr: __rts_sym_891 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_engine_bootstrap", ptr: __rts_sym_892 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_err_clear", ptr: __rts_sym_893 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_err_pending", ptr: __rts_sym_894 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_err_take", ptr: __rts_sym_895 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fmod_f64", ptr: __rts_sym_896 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fn_apply_arr", ptr: __rts_sym_897 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fn_apply_this", ptr: __rts_sym_898 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fn_bind", ptr: __rts_sym_899 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fn_get_prop", ptr: __rts_sym_900 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fn_invoke", ptr: __rts_sym_901 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fn_invoke_method", ptr: __rts_sym_902 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fn_new", ptr: __rts_sym_903 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fn_ptr", ptr: __rts_sym_904 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fn_reify", ptr: __rts_sym_905 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fn_reify_this", ptr: __rts_sym_906 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fn_set_prop", ptr: __rts_sym_907 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_for_in_keys", ptr: __rts_sym_908 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_freeze", ptr: __rts_sym_909 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_g_boolean", ptr: __rts_sym_910 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_g_is_finite", ptr: __rts_sym_911 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_g_is_nan", ptr: __rts_sym_912 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_g_number", ptr: __rts_sym_913 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_g_parse_float", ptr: __rts_sym_914 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_g_parse_int", ptr: __rts_sym_915 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_g_string", ptr: __rts_sym_916 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_ge", ptr: __rts_sym_917 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_globalthis", ptr: __rts_sym_918 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_gt", ptr: __rts_sym_919 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_has_own", ptr: __rts_sym_920 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_ic_miss", ptr: __rts_sym_921 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_idx_call", ptr: __rts_sym_922 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_idx_get", ptr: __rts_sym_923 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_import_meta", ptr: __rts_sym_924 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_inspect", ptr: __rts_sym_925 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_inspect_object", ptr: __rts_sym_926 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_instanceof_fn", ptr: __rts_sym_927 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_instanceof_walk", ptr: __rts_sym_928 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_invoke_auto_word", ptr: __rts_sym_929 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_invoke_cb", ptr: __rts_sym_930 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_is_extensible", ptr: __rts_sym_931 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_is_frozen", ptr: __rts_sym_932 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_is_prototype_of", ptr: __rts_sym_933 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_is_sealed", ptr: __rts_sym_934 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_iter_close", ptr: __rts_sym_935 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_iter_next", ptr: __rts_sym_936 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_iter_open", ptr: __rts_sym_937 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_le", ptr: __rts_sym_938 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_loose_eq", ptr: __rts_sym_939 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_loose_neq", ptr: __rts_sym_940 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_lt", ptr: __rts_sym_941 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_make_js_error", ptr: __rts_sym_942 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_math_fn_value", ptr: __rts_sym_943 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_math_reduce", ptr: __rts_sym_944 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_mod", ptr: __rts_sym_945 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_mul", ptr: __rts_sym_946 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_neg", ptr: __rts_sym_947 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_new_invoke", ptr: __rts_sym_948 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_not", ptr: __rts_sym_949 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_num_is_finite", ptr: __rts_sym_950 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_num_is_integer", ptr: __rts_sym_951 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_num_is_nan", ptr: __rts_sym_952 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_num_is_safe_integer", ptr: __rts_sym_953 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_assign", ptr: __rts_sym_954 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_create", ptr: __rts_sym_955 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_define_properties", ptr: __rts_sym_956 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_define_property", ptr: __rts_sym_957 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_delete", ptr: __rts_sym_958 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_entries", ptr: __rts_sym_959 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_factory", ptr: __rts_sym_960 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_from_entries", ptr: __rts_sym_961 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_get", ptr: __rts_sym_962 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_get_own_property_descriptor", ptr: __rts_sym_963 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_get_own_property_descriptors", ptr: __rts_sym_964 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_group_by", ptr: __rts_sym_965 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_has", ptr: __rts_sym_966 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_keys", ptr: __rts_sym_967 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_own_names", ptr: __rts_sym_968 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_own_symbols", ptr: __rts_sym_969 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_proto_of", ptr: __rts_sym_970 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_set", ptr: __rts_sym_971 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_set_proto", ptr: __rts_sym_972 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_values", ptr: __rts_sym_973 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_own_keys_raw", ptr: __rts_sym_974 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_pack_rest", ptr: __rts_sym_975 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_pos", ptr: __rts_sym_976 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_pow", ptr: __rts_sym_977 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_prevent_ext", ptr: __rts_sym_978 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_print_line", ptr: __rts_sym_979 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_promise_resolve_w", ptr: __rts_sym_980 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_promise_spawn", ptr: __rts_sym_981 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_prop_flags", ptr: __rts_sym_982 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_prop_is_enumerable", ptr: __rts_sym_983 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_proto_method_value", ptr: __rts_sym_984 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_proto_set_method", ptr: __rts_sym_985 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_queue_microtask", ptr: __rts_sym_986 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_compile", ptr: __rts_sym_987 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_exec", ptr: __rts_sym_988 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_flags", ptr: __rts_sym_989 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_global", ptr: __rts_sym_990 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_ignore_case", ptr: __rts_sym_991 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_last_index", ptr: __rts_sym_992 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_multiline", ptr: __rts_sym_993 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_source", ptr: __rts_sym_994 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_str_match", ptr: __rts_sym_995 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_str_replace_fn", ptr: __rts_sym_996 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_str_search", ptr: __rts_sym_997 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_str_split", ptr: __rts_sym_998 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_test", ptr: __rts_sym_999 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_record_registry_class", ptr: __rts_sym_1000 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_register_ctor_thunk", ptr: __rts_sym_1001 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_register_fn_abi", ptr: __rts_sym_1002 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_same_value", ptr: __rts_sym_1003 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_seal", ptr: __rts_sym_1004 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_set_immediate", ptr: __rts_sym_1005 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_set_interval", ptr: __rts_sym_1006 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_set_proto_check", ptr: __rts_sym_1007 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_set_timeout", ptr: __rts_sym_1008 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_shl", ptr: __rts_sym_1009 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_shr", ptr: __rts_sym_1010 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_str_chars", ptr: __rts_sym_1011 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_str_from_char_code", ptr: __rts_sym_1012 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_str_from_char_code_arr", ptr: __rts_sym_1013 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_str_from_code_point", ptr: __rts_sym_1014 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_str_match_all_auto", ptr: __rts_sym_1015 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_str_match_auto", ptr: __rts_sym_1016 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_str_match_w", ptr: __rts_sym_1017 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_str_replace_w", ptr: __rts_sym_1018 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_str_search_auto", ptr: __rts_sym_1019 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_str_split", ptr: __rts_sym_1020 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_str_split_w", ptr: __rts_sym_1021 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_strict_eq", ptr: __rts_sym_1022 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_strict_neq", ptr: __rts_sym_1023 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_string_raw", ptr: __rts_sym_1024 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_sub", ptr: __rts_sym_1025 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_ta_view_base_len", ptr: __rts_sym_1026 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_throw_js_error", ptr: __rts_sym_1027 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_throw_set", ptr: __rts_sym_1028 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_to_boolean", ptr: __rts_sym_1029 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_to_iter_array", ptr: __rts_sym_1030 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_to_string", ptr: __rts_sym_1031 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_tsa_raw", ptr: __rts_sym_1032 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_typeof", ptr: __rts_sym_1033 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_ushr", ptr: __rts_sym_1034 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsadp_word_to_abi_i64", ptr: __rts_sym_1035 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_bool_load", ptr: __rts_sym_1036 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_bool_new", ptr: __rts_sym_1037 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_bool_store", ptr: __rts_sym_1038 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_bool_swap", ptr: __rts_sym_1039 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_f64_fetch_add", ptr: __rts_sym_1040 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_f64_load", ptr: __rts_sym_1041 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_f64_new", ptr: __rts_sym_1042 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_f64_store", ptr: __rts_sym_1043 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_f64_swap", ptr: __rts_sym_1044 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_fence_acquire", ptr: __rts_sym_1045 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_fence_release", ptr: __rts_sym_1046 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_fence_seq_cst", ptr: __rts_sym_1047 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_i64_cas", ptr: __rts_sym_1048 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_i64_fetch_add", ptr: __rts_sym_1049 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_i64_fetch_and", ptr: __rts_sym_1050 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_i64_fetch_or", ptr: __rts_sym_1051 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_i64_fetch_sub", ptr: __rts_sym_1052 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_i64_fetch_xor", ptr: __rts_sym_1053 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_i64_load", ptr: __rts_sym_1054 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_i64_new", ptr: __rts_sym_1055 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_i64_store", ptr: __rts_sym_1056 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_i64_swap", ptr: __rts_sym_1057 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_available_frames", ptr: __rts_sym_1058 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_channels", ptr: __rts_sym_1059 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_close", ptr: __rts_sym_1060 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_default_channels", ptr: __rts_sym_1061 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_default_sample_rate", ptr: __rts_sym_1062 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_is_open", ptr: __rts_sym_1063 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_master_volume", ptr: __rts_sym_1064 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_open_output", ptr: __rts_sym_1065 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_queued_frames", ptr: __rts_sym_1066 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_sample_rate", ptr: __rts_sym_1067 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_underruns", ptr: __rts_sym_1068 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_write", ptr: __rts_sym_1069 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_crypto_base64_decode", ptr: __rts_sym_1070 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_crypto_base64_encode", ptr: __rts_sym_1071 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_crypto_hash_update_bytes", ptr: __rts_sym_1072 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_crypto_hex_decode", ptr: __rts_sym_1073 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_crypto_hex_encode", ptr: __rts_sym_1074 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_crypto_random_bytes", ptr: __rts_sym_1075 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_crypto_random_i64", ptr: __rts_sym_1076 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsm_crypto_sha256_bytes", ptr: __rts_sym_1077 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_APPEND_CHILD", ptr: __rts_sym_341 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_BEGIN_FRAME", ptr: __rts_sym_342 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_BUTTON", ptr: __rts_sym_343 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_CLOSE", ptr: __rts_sym_344 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_CREATE_ELEMENT", ptr: __rts_sym_345 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_DEFINE_BLOCK", ptr: __rts_sym_346 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_DEFINE_INLINE", ptr: __rts_sym_347 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_DEFINE_STYLE", ptr: __rts_sym_348 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_DOM_DUMP", ptr: __rts_sym_349 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_DRAW_LINE", ptr: __rts_sym_350 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_DRAW_MESH", ptr: __rts_sym_351 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_DRAW_RECT", ptr: __rts_sym_352 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_DRAW_TEXT", ptr: __rts_sym_353 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_DRAW_WATER", ptr: __rts_sym_354 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_END_FRAME", ptr: __rts_sym_355 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_HORIZONTAL_BEGIN", ptr: __rts_sym_356 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_HORIZONTAL_END", ptr: __rts_sym_357 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_HTML", ptr: __rts_sym_358 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_IS_OPEN", ptr: __rts_sym_359 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_LABEL", ptr: __rts_sym_360 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_MEASURE_TEXT", ptr: __rts_sym_361 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_MESH_FREE", ptr: __rts_sym_362 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_MESH_UPLOAD", ptr: __rts_sym_363 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_MOUSE_LOCK", ptr: __rts_sym_364 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_MOVE_WINDOW", ptr: __rts_sym_365 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_OPEN_WINDOW", ptr: __rts_sym_366 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_PUMP", ptr: __rts_sym_367 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_QUERY_SELECTOR", ptr: __rts_sym_368 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_REMOVE_NODE", ptr: __rts_sym_369 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_RENDER", ptr: __rts_sym_370 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SET_ATTR", ptr: __rts_sym_371 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SET_CAMERA", ptr: __rts_sym_372 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SET_CAMERA_LOOKAT", ptr: __rts_sym_373 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SET_CLEAR_COLOR", ptr: __rts_sym_374 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SET_LIGHT", ptr: __rts_sym_375 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SET_NEXT_POS", ptr: __rts_sym_376 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SET_SHADOW", ptr: __rts_sym_377 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SET_SKYBOX", ptr: __rts_sym_378 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SET_TEXT", ptr: __rts_sym_379 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SET_VSYNC", ptr: __rts_sym_380 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SLIDER", ptr: __rts_sym_381 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_SNAPSHOT", ptr: __rts_sym_382 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_TEXTURE_UPLOAD", ptr: __rts_sym_383 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_WIN_HEIGHT", ptr: __rts_sym_384 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_EGUI_WIN_WIDTH", ptr: __rts_sym_385 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_ARCH", ptr: __rts_sym_386 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_BUFFER_CLONE", ptr: __rts_sym_387 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_BUFFER_DETACH", ptr: __rts_sym_388 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_FS_APPEND_BYTES", ptr: __rts_sym_389 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_FS_OPEN_HANDLE", ptr: __rts_sym_390 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_FS_READ_BYTES", ptr: __rts_sym_391 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_FS_WRITE_BYTES", ptr: __rts_sym_392 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_IS_BUFFER", ptr: __rts_sym_393 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_NOW_MS", ptr: __rts_sym_394 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_NOW_NS", ptr: __rts_sym_395 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_NUM_TO_STRING_RADIX", ptr: __rts_sym_396 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_TRACE_CAPTURE", ptr: __rts_sym_397 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_TRACE_POP", ptr: __rts_sym_398 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_TRACE_PRINT", ptr: __rts_sym_399 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_TRACE_PUSH", ptr: __rts_sym_400 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_UNIX_MS", ptr: __rts_sym_401 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_ENGINE_UNIX_NS", ptr: __rts_sym_402 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FETCH_CLEAR_OVERRIDES", ptr: __rts_sym_403 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FETCH_FETCH_BYTES_ASYNC", ptr: __rts_sym_404 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FETCH_FETCH_BYTES_POLL", ptr: __rts_sym_405 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FETCH_FETCH_BYTES_TAKE", ptr: __rts_sym_406 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FETCH_FETCH_POLL", ptr: __rts_sym_407 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FETCH_FETCH_TAKE", ptr: __rts_sym_408 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FETCH_FETCH_TEXT", ptr: __rts_sym_409 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FETCH_FETCH_TEXT_ASYNC", ptr: __rts_sym_410 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FETCH_SET_HEADER", ptr: __rts_sym_411 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FETCH_SET_USER_AGENT", ptr: __rts_sym_412 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FMT_FMT_BIN", ptr: __rts_sym_413 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FMT_FMT_BOOL", ptr: __rts_sym_414 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FMT_FMT_F64", ptr: __rts_sym_415 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FMT_FMT_F64_PREC", ptr: __rts_sym_416 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FMT_FMT_HEX", ptr: __rts_sym_417 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FMT_FMT_I64", ptr: __rts_sym_418 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FMT_FMT_OCT", ptr: __rts_sym_419 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FMT_PARSE_BOOL", ptr: __rts_sym_420 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FMT_PARSE_F64", ptr: __rts_sym_421 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FMT_PARSE_I64", ptr: __rts_sym_422 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_FS_READ_TEXT", ptr: __rts_sym_423 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GC_IS_DATE", ptr: __rts_sym_424 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GC_IS_REGEX", ptr: __rts_sym_425 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GC_PIN_HANDLE", ptr: __rts_sym_426 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GC_STRING_CMP", ptr: __rts_sym_427 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GC_STRING_CONCAT", ptr: __rts_sym_428 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GC_STRING_EQ", ptr: __rts_sym_429 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GC_STRING_FROM_STATIC", ptr: __rts_sym_430 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GC_STRING_LEN", ptr: __rts_sym_431 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GC_STRING_NEW", ptr: __rts_sym_432 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GC_STRING_PTR", ptr: __rts_sym_433 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GC_UNPIN_HANDLE", ptr: __rts_sym_434 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_ADAPTER_NAME", ptr: __rts_sym_435 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_AVAILABLE", ptr: __rts_sym_436 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_BIND", ptr: __rts_sym_437 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_BUFFER", ptr: __rts_sym_438 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_BUFFER_FREE", ptr: __rts_sym_439 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_DISPATCH", ptr: __rts_sym_440 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_READ", ptr: __rts_sym_441 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_READ_BEGIN", ptr: __rts_sym_442 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_READ_POLL", ptr: __rts_sym_443 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_SHADER", ptr: __rts_sym_444 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_WRITE", ptr: __rts_sym_445 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_GPU_WRITE_AT", ptr: __rts_sym_446 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_HINT_ASSERT_UNCHECKED", ptr: __rts_sym_447 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_HINT_BLACK_BOX_F64", ptr: __rts_sym_448 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_HINT_BLACK_BOX_I64", ptr: __rts_sym_449 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_HINT_SPIN_LOOP", ptr: __rts_sym_450 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_HINT_UNREACHABLE", ptr: __rts_sym_451 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_IMGDEC_DECODE", ptr: __rts_sym_452 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_IMGDEC_DECODE_GIF", ptr: __rts_sym_453 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_IMGDEC_GIF_COUNT", ptr: __rts_sym_454 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_IMGDEC_GIF_DELAY", ptr: __rts_sym_455 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_IMGDEC_GIF_HEIGHT", ptr: __rts_sym_456 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_IMGDEC_GIF_PIXELS_PTR", ptr: __rts_sym_457 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_IMGDEC_GIF_WIDTH", ptr: __rts_sym_458 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_IMGDEC_HEIGHT", ptr: __rts_sym_459 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_IMGDEC_PIXELS_PTR", ptr: __rts_sym_460 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_IMGDEC_WIDTH", ptr: __rts_sym_461 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_COPY_TEXT", ptr: __rts_sym_462 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_DRAGGING", ptr: __rts_sym_463 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_KEY", ptr: __rts_sym_464 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOD_ALT", ptr: __rts_sym_465 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOD_CMD", ptr: __rts_sym_466 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOD_CTRL", ptr: __rts_sym_467 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOD_SHIFT", ptr: __rts_sym_468 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOUSE_CLICKED", ptr: __rts_sym_469 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOUSE_DELTA_X", ptr: __rts_sym_470 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOUSE_DELTA_Y", ptr: __rts_sym_471 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOUSE_DOUBLE_CLICKED", ptr: __rts_sym_472 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOUSE_DOWN", ptr: __rts_sym_473 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOUSE_PRESSED", ptr: __rts_sym_474 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOUSE_RELEASED", ptr: __rts_sym_475 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOUSE_X", ptr: __rts_sym_476 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_MOUSE_Y", ptr: __rts_sym_477 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_SET_CURSOR", ptr: __rts_sym_478 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_TEXT", ptr: __rts_sym_479 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_WHEEL", ptr: __rts_sym_480 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_INPUT_WHEEL_X", ptr: __rts_sym_481 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_AS_BOOL", ptr: __rts_sym_482 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_AS_F64", ptr: __rts_sym_483 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_AS_I64", ptr: __rts_sym_484 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_AS_STRING", ptr: __rts_sym_485 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_FREE", ptr: __rts_sym_486 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_OBJECT_HAS", ptr: __rts_sym_487 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_PARSE", ptr: __rts_sym_488 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_PARSE5", ptr: __rts_sym_489 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_PARSE_REVIVER", ptr: __rts_sym_490 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_STRINGIFY", ptr: __rts_sym_491 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_STRINGIFY_PRETTY", ptr: __rts_sym_492 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_JSON_TYPE_OF", ptr: __rts_sym_493 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_ABS_F64", ptr: __rts_sym_494 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_ABS_I64", ptr: __rts_sym_495 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_ACOS", ptr: __rts_sym_496 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_ACOSH", ptr: __rts_sym_497 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_ASIN", ptr: __rts_sym_498 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_ASINH", ptr: __rts_sym_499 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_ATAN", ptr: __rts_sym_500 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_ATAN2", ptr: __rts_sym_501 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_ATANH", ptr: __rts_sym_502 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_CBRT", ptr: __rts_sym_503 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_CEIL", ptr: __rts_sym_504 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_CLAMP_F64", ptr: __rts_sym_505 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_CLAMP_I64", ptr: __rts_sym_506 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_CLZ32", ptr: __rts_sym_507 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_COS", ptr: __rts_sym_508 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_COSH", ptr: __rts_sym_509 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_E", ptr: __rts_sym_510 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_EXP", ptr: __rts_sym_511 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_EXPM1", ptr: __rts_sym_512 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_F16ROUND", ptr: __rts_sym_513 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_FLOOR", ptr: __rts_sym_514 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_FROUND", ptr: __rts_sym_515 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_HYPOT", ptr: __rts_sym_516 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_IMUL", ptr: __rts_sym_517 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_INFINITY", ptr: __rts_sym_518 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_LN", ptr: __rts_sym_519 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_LN10", ptr: __rts_sym_520 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_LN2", ptr: __rts_sym_521 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_LOG10", ptr: __rts_sym_522 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_LOG10E", ptr: __rts_sym_523 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_LOG1P", ptr: __rts_sym_524 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_LOG2", ptr: __rts_sym_525 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_LOG2E", ptr: __rts_sym_526 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_MAX_F64", ptr: __rts_sym_527 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_MAX_I64", ptr: __rts_sym_528 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_MIN_F64", ptr: __rts_sym_529 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_MIN_I64", ptr: __rts_sym_530 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_NAN", ptr: __rts_sym_531 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_PI", ptr: __rts_sym_532 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_POW", ptr: __rts_sym_533 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_RANDOM_F64", ptr: __rts_sym_534 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_RANDOM_I64_RANGE", ptr: __rts_sym_535 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_ROUND", ptr: __rts_sym_536 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_SEED", ptr: __rts_sym_537 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_SIGN", ptr: __rts_sym_538 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_SIN", ptr: __rts_sym_539 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_SINH", ptr: __rts_sym_540 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_SQRT", ptr: __rts_sym_541 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_SQRT1_2", ptr: __rts_sym_542 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_SQRT2", ptr: __rts_sym_543 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_TAN", ptr: __rts_sym_544 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_TANH", ptr: __rts_sym_545 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MATH_TRUNC", ptr: __rts_sym_546 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MEM_ALIGN_OF_F64", ptr: __rts_sym_547 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MEM_ALIGN_OF_I64", ptr: __rts_sym_548 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MEM_DROP_HANDLE", ptr: __rts_sym_549 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MEM_FORGET_HANDLE", ptr: __rts_sym_550 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MEM_REPLACE_I64", ptr: __rts_sym_551 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MEM_SIZE_OF_BOOL", ptr: __rts_sym_552 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MEM_SIZE_OF_F64", ptr: __rts_sym_553 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MEM_SIZE_OF_I32", ptr: __rts_sym_554 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MEM_SIZE_OF_I64", ptr: __rts_sym_555 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_MEM_SWAP_I64", ptr: __rts_sym_556 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NAPI_LOAD_ADDON", ptr: __rts_sym_557 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_CHECKED_ADD", ptr: __rts_sym_558 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_CHECKED_DIV", ptr: __rts_sym_559 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_CHECKED_MUL", ptr: __rts_sym_560 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_CHECKED_SUB", ptr: __rts_sym_561 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_COUNT_ONES", ptr: __rts_sym_562 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_COUNT_ZEROS", ptr: __rts_sym_563 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_F64_FROM_BITS", ptr: __rts_sym_564 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_F64_TO_BITS", ptr: __rts_sym_565 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_LEADING_ZEROS", ptr: __rts_sym_566 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_REVERSE_BITS", ptr: __rts_sym_567 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_ROTATE_LEFT", ptr: __rts_sym_568 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_ROTATE_RIGHT", ptr: __rts_sym_569 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_SATURATING_ADD", ptr: __rts_sym_570 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_SATURATING_MUL", ptr: __rts_sym_571 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_SATURATING_SUB", ptr: __rts_sym_572 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_SWAP_BYTES", ptr: __rts_sym_573 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_TRAILING_ZEROS", ptr: __rts_sym_574 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_WRAPPING_ADD", ptr: __rts_sym_575 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_WRAPPING_MUL", ptr: __rts_sym_576 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_WRAPPING_NEG", ptr: __rts_sym_577 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_WRAPPING_SHL", ptr: __rts_sym_578 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_WRAPPING_SHR", ptr: __rts_sym_579 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_NUM_WRAPPING_SUB", ptr: __rts_sym_580 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PATH_EXT", ptr: __rts_sym_581 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PATH_FILE_NAME", ptr: __rts_sym_582 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PATH_IS_ABSOLUTE", ptr: __rts_sym_583 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PATH_JOIN", ptr: __rts_sym_584 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PATH_NORMALIZE", ptr: __rts_sym_585 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PATH_PARENT", ptr: __rts_sym_586 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PATH_STEM", ptr: __rts_sym_587 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PATH_WITH_EXT", ptr: __rts_sym_588 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_DECODE_VARINT", ptr: __rts_sym_589 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_ENCODE_VARINT", ptr: __rts_sym_590 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_NEW_READER", ptr: __rts_sym_591 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_NEW_WRITER", ptr: __rts_sym_592 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_READER_BYTES", ptr: __rts_sym_593 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_READER_FIELD_NUM", ptr: __rts_sym_594 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_READER_FIXED32", ptr: __rts_sym_595 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_READER_FIXED64", ptr: __rts_sym_596 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_READER_SKIP", ptr: __rts_sym_597 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_READER_TAG", ptr: __rts_sym_598 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_READER_VARINT", ptr: __rts_sym_599 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_READER_ZIGZAG", ptr: __rts_sym_600 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_WRITER_BYTES", ptr: __rts_sym_601 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_WRITER_FINISH", ptr: __rts_sym_602 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_WRITER_FIXED32", ptr: __rts_sym_603 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_WRITER_FIXED64", ptr: __rts_sym_604 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_WRITER_TAG", ptr: __rts_sym_605 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_WRITER_VARINT", ptr: __rts_sym_606 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_WRITER_ZIGZAG", ptr: __rts_sym_607 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_WT_I32", ptr: __rts_sym_608 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_WT_I64", ptr: __rts_sym_609 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_WT_LEN", ptr: __rts_sym_610 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PROTOBUF_WT_VARINT", ptr: __rts_sym_611 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_COPY", ptr: __rts_sym_612 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_COPY_NONOVERLAPPING", ptr: __rts_sym_613 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_IS_NULL", ptr: __rts_sym_614 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_NULL", ptr: __rts_sym_615 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_OFFSET", ptr: __rts_sym_616 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_READ_F64", ptr: __rts_sym_617 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_READ_I32", ptr: __rts_sym_618 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_READ_I64", ptr: __rts_sym_619 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_READ_U8", ptr: __rts_sym_620 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_WRITE_BYTES", ptr: __rts_sym_621 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_WRITE_F64", ptr: __rts_sym_622 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_WRITE_I32", ptr: __rts_sym_623 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_WRITE_I64", ptr: __rts_sym_624 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_PTR_WRITE_U8", ptr: __rts_sym_625 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_REGEX_COMPILE", ptr: __rts_sym_626 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_REGEX_FIND", ptr: __rts_sym_627 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_REGEX_FIND_AT", ptr: __rts_sym_628 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_REGEX_FREE", ptr: __rts_sym_629 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_REGEX_MATCH_ALL", ptr: __rts_sym_630 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_REGEX_MATCH_COUNT", ptr: __rts_sym_631 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_REGEX_MATCH_GROUPS", ptr: __rts_sym_632 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_REGEX_REPLACE", ptr: __rts_sym_633 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_REGEX_REPLACE_ALL", ptr: __rts_sym_634 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_REGEX_SPLIT", ptr: __rts_sym_635 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_REGEX_TEST", ptr: __rts_sym_636 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_RENDER_BEGIN_FRAME", ptr: __rts_sym_637 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_RENDER_END_FRAME", ptr: __rts_sym_638 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_RENDER_IMAGE", ptr: __rts_sym_639 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_RENDER_LINE", ptr: __rts_sym_640 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_RENDER_MEASURE_TEXT", ptr: __rts_sym_641 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_RENDER_RECT", ptr: __rts_sym_642 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_RENDER_TEXT", ptr: __rts_sym_643 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_THREAD_SPAWN", ptr: __rts_sym_644 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_THREAD_SPAWN_ASYNC", ptr: __rts_sym_645 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_THREAD_SPAWN_ASYNC_JOIN", ptr: __rts_sym_646 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_THREAD_SPAWN_DETACHED", ptr: __rts_sym_647 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_THREAD_SPAWN_WITH_UD", ptr: __rts_sym_648 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_TRACE_CAPTURE", ptr: __rts_sym_649 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_TRACE_DEPTH", ptr: __rts_sym_650 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_TRACE_FREE", ptr: __rts_sym_651 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_TRACE_POP_FRAME", ptr: __rts_sym_652 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_TRACE_PRINT", ptr: __rts_sym_653 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_NS_TRACE_PUSH_FRAME", ptr: __rts_sym_654 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_INIT", ptr: __rts_sym_655 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_INVOKE_AUTO", ptr: __rts_sym_656 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_MAP_GET_STR", ptr: __rts_sym_657 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_MAP_MARK_NON_ENUM", ptr: __rts_sym_658 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_MAP_SET_STR", ptr: __rts_sym_659 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_NAPI_DISPATCH_CALLBACK", ptr: __rts_sym_660 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_NAPI_INVOKE_METHOD", ptr: __rts_sym_661 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_NAPI_NEW_INSTANCE", ptr: __rts_sym_662 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_OBJECT_PROTOTYPE_HANDLE", ptr: __rts_sym_663 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_OPAQUE_HAS_NUMBER", ptr: __rts_sym_664 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_OPAQUE_TO_NUMBER", ptr: __rts_sym_665 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_OPAQUE_TO_STRING", ptr: __rts_sym_666 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_PROXY_DISPATCH_APPLY", ptr: __rts_sym_667 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_PROXY_RESOLVE", ptr: __rts_sym_668 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_REGISTER_FN_KINDS", ptr: __rts_sym_669 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_SEED_SHAPES", ptr: __rts_sym_670 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_THIS_POP", ptr: __rts_sym_671 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_THIS_PUSH", ptr: __rts_sym_672 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_TO_STRING_HANDLE", ptr: __rts_sym_673 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__RTS_FN_RT_TRUTHY", ptr: __rts_sym_674 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_add", ptr: __rts_sym_675 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_at", ptr: __rts_sym_676 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_at_w", ptr: __rts_sym_677 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_concat", ptr: __rts_sym_678 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_copy_within", ptr: __rts_sym_679 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_copy_within1", ptr: __rts_sym_680 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_copy_within2", ptr: __rts_sym_681 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_entries", ptr: __rts_sym_682 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_every", ptr: __rts_sym_683 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_fill", ptr: __rts_sym_684 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_fill2", ptr: __rts_sym_685 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_fill3", ptr: __rts_sym_686 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_filter", ptr: __rts_sym_687 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_find", ptr: __rts_sym_688 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_find_index", ptr: __rts_sym_689 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_find_last", ptr: __rts_sym_690 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_find_last_index", ptr: __rts_sym_691 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_flat", ptr: __rts_sym_692 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_flat_depth", ptr: __rts_sym_693 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_flat_map", ptr: __rts_sym_694 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_for_each", ptr: __rts_sym_695 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_from", ptr: __rts_sym_696 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_includes", ptr: __rts_sym_697 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_includes_from", ptr: __rts_sym_698 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_index_of", ptr: __rts_sym_699 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_index_of_from", ptr: __rts_sym_700 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_is_array", ptr: __rts_sym_701 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_join", ptr: __rts_sym_702 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_join0", ptr: __rts_sym_703 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_keys", ptr: __rts_sym_704 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_last_index_of", ptr: __rts_sym_705 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_last_index_of_from", ptr: __rts_sym_706 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_map", ptr: __rts_sym_707 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_new_sized", ptr: __rts_sym_708 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_pop", ptr: __rts_sym_709 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_push", ptr: __rts_sym_710 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_reduce", ptr: __rts_sym_711 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_reduce_right", ptr: __rts_sym_712 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_reverse", ptr: __rts_sym_713 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_set_length", ptr: __rts_sym_714 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_shift", ptr: __rts_sym_715 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_slice", ptr: __rts_sym_716 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_slice0", ptr: __rts_sym_717 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_slice1", ptr: __rts_sym_718 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_some", ptr: __rts_sym_719 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_sort", ptr: __rts_sym_720 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_sort_cmp", ptr: __rts_sym_721 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_splice", ptr: __rts_sym_722 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_spread_append", ptr: __rts_sym_723 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_subarray", ptr: __rts_sym_724 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_subarray1", ptr: __rts_sym_725 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_ta_set", ptr: __rts_sym_726 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_ta_set1", ptr: __rts_sym_727 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_to_reversed", ptr: __rts_sym_728 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_to_sorted", ptr: __rts_sym_729 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_to_sorted_cmp", ptr: __rts_sym_730 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_to_spliced", ptr: __rts_sym_731 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_to_spliced_var", ptr: __rts_sym_732 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_to_string", ptr: __rts_sym_733 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_unshift", ptr: __rts_sym_734 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_values", ptr: __rts_sym_735 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_arr_with", ptr: __rts_sym_736 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_atomics_cmpxchg", ptr: __rts_sym_737 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_atomics_load", ptr: __rts_sym_738 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_atomics_store", ptr: __rts_sym_739 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_await", ptr: __rts_sym_740 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_band", ptr: __rts_sym_741 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_bigint_as_intn", ptr: __rts_sym_742 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_bigint_as_uintn", ptr: __rts_sym_743 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_bnot", ptr: __rts_sym_744 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_bor", ptr: __rts_sym_745 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_box_handle_auto", ptr: __rts_sym_746 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_bxor", ptr: __rts_sym_747 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_canon_double", ptr: __rts_sym_748 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_class_proto", ptr: __rts_sym_749 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_class_proto_init", ptr: __rts_sym_750 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_class_proto_set", ptr: __rts_sym_751 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_clear_timer", ptr: __rts_sym_752 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_coerce_fn_value", ptr: __rts_sym_753 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_construct", ptr: __rts_sym_754 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_ctor_mark", ptr: __rts_sym_755 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_define_prop", ptr: __rts_sym_756 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_div", ptr: __rts_sym_757 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_at", ptr: __rts_sym_758 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_char_at", ptr: __rts_sym_759 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_char_code_at", ptr: __rts_sym_760 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_ci_or_undef", ptr: __rts_sym_761 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_code_point_at", ptr: __rts_sym_762 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_concat", ptr: __rts_sym_763 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_ends_with", ptr: __rts_sym_764 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_includes", ptr: __rts_sym_765 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_index_of", ptr: __rts_sym_766 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_join", ptr: __rts_sym_767 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_length", ptr: __rts_sym_768 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_locale_compare", ptr: __rts_sym_769 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_method_call", ptr: __rts_sym_770 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_p_catch", ptr: __rts_sym_771 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_p_finally", ptr: __rts_sym_772 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_p_then", ptr: __rts_sym_773 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_p_then2", ptr: __rts_sym_774 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_pop", ptr: __rts_sym_775 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_push", ptr: __rts_sym_776 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_repeat", ptr: __rts_sym_777 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_reverse", ptr: __rts_sym_778 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_slice", ptr: __rts_sym_779 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_sort", ptr: __rts_sym_780 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_split", ptr: __rts_sym_781 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_starts_with", ptr: __rts_sym_782 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_to_lower_case", ptr: __rts_sym_783 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_to_string", ptr: __rts_sym_784 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_to_string_radix", ptr: __rts_sym_785 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_to_upper_case", ptr: __rts_sym_786 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_trim", ptr: __rts_sym_787 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_trim_end", ptr: __rts_sym_788 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_dyn_trim_start", ptr: __rts_sym_789 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_engine_bootstrap", ptr: __rts_sym_790 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_err_clear", ptr: __rts_sym_791 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_err_pending", ptr: __rts_sym_792 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_err_take", ptr: __rts_sym_793 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fmod_f64", ptr: __rts_sym_794 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fn_apply_arr", ptr: __rts_sym_795 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fn_apply_this", ptr: __rts_sym_796 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fn_bind", ptr: __rts_sym_797 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fn_get_prop", ptr: __rts_sym_798 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fn_invoke", ptr: __rts_sym_799 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fn_invoke_method", ptr: __rts_sym_800 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fn_new", ptr: __rts_sym_801 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fn_ptr", ptr: __rts_sym_802 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fn_reify", ptr: __rts_sym_803 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fn_reify_this", ptr: __rts_sym_804 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_fn_set_prop", ptr: __rts_sym_805 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_for_in_keys", ptr: __rts_sym_806 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_freeze", ptr: __rts_sym_807 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_g_boolean", ptr: __rts_sym_808 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_g_is_finite", ptr: __rts_sym_809 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_g_is_nan", ptr: __rts_sym_810 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_g_number", ptr: __rts_sym_811 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_g_parse_float", ptr: __rts_sym_812 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_g_parse_int", ptr: __rts_sym_813 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_g_string", ptr: __rts_sym_814 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_ge", ptr: __rts_sym_815 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_globalthis", ptr: __rts_sym_816 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_gt", ptr: __rts_sym_817 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_has_own", ptr: __rts_sym_818 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_ic_miss", ptr: __rts_sym_819 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_idx_call", ptr: __rts_sym_820 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_idx_get", ptr: __rts_sym_821 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_import_meta", ptr: __rts_sym_822 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_inspect", ptr: __rts_sym_823 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_inspect_object", ptr: __rts_sym_824 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_instanceof_fn", ptr: __rts_sym_825 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_instanceof_walk", ptr: __rts_sym_826 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_invoke_auto_word", ptr: __rts_sym_827 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_invoke_cb", ptr: __rts_sym_828 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_is_extensible", ptr: __rts_sym_829 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_is_frozen", ptr: __rts_sym_830 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_is_prototype_of", ptr: __rts_sym_831 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_is_sealed", ptr: __rts_sym_832 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_iter_close", ptr: __rts_sym_833 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_iter_next", ptr: __rts_sym_834 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_iter_open", ptr: __rts_sym_835 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_le", ptr: __rts_sym_836 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_loose_eq", ptr: __rts_sym_837 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_loose_neq", ptr: __rts_sym_838 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_lt", ptr: __rts_sym_839 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_make_js_error", ptr: __rts_sym_840 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_math_fn_value", ptr: __rts_sym_841 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_math_reduce", ptr: __rts_sym_842 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_mod", ptr: __rts_sym_843 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_mul", ptr: __rts_sym_844 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_neg", ptr: __rts_sym_845 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_new_invoke", ptr: __rts_sym_846 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_not", ptr: __rts_sym_847 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_num_is_finite", ptr: __rts_sym_848 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_num_is_integer", ptr: __rts_sym_849 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_num_is_nan", ptr: __rts_sym_850 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_num_is_safe_integer", ptr: __rts_sym_851 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_assign", ptr: __rts_sym_852 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_create", ptr: __rts_sym_853 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_define_properties", ptr: __rts_sym_854 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_define_property", ptr: __rts_sym_855 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_delete", ptr: __rts_sym_856 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_entries", ptr: __rts_sym_857 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_factory", ptr: __rts_sym_858 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_from_entries", ptr: __rts_sym_859 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_get", ptr: __rts_sym_860 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_get_own_property_descriptor", ptr: __rts_sym_861 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_get_own_property_descriptors", ptr: __rts_sym_862 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_group_by", ptr: __rts_sym_863 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_has", ptr: __rts_sym_864 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_keys", ptr: __rts_sym_865 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_own_names", ptr: __rts_sym_866 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_own_symbols", ptr: __rts_sym_867 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_proto_of", ptr: __rts_sym_868 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_set", ptr: __rts_sym_869 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_set_proto", ptr: __rts_sym_870 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_obj_values", ptr: __rts_sym_871 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_own_keys_raw", ptr: __rts_sym_872 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_pack_rest", ptr: __rts_sym_873 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_pos", ptr: __rts_sym_874 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_pow", ptr: __rts_sym_875 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_prevent_ext", ptr: __rts_sym_876 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_print_line", ptr: __rts_sym_877 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_promise_resolve_w", ptr: __rts_sym_878 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_promise_spawn", ptr: __rts_sym_879 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_prop_flags", ptr: __rts_sym_880 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_prop_is_enumerable", ptr: __rts_sym_881 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_proto_method_value", ptr: __rts_sym_882 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_proto_set_method", ptr: __rts_sym_883 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_queue_microtask", ptr: __rts_sym_884 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_compile", ptr: __rts_sym_885 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_exec", ptr: __rts_sym_886 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_flags", ptr: __rts_sym_887 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_global", ptr: __rts_sym_888 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_ignore_case", ptr: __rts_sym_889 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_last_index", ptr: __rts_sym_890 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_multiline", ptr: __rts_sym_891 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_source", ptr: __rts_sym_892 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_str_match", ptr: __rts_sym_893 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_str_replace_fn", ptr: __rts_sym_894 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_str_search", ptr: __rts_sym_895 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_str_split", ptr: __rts_sym_896 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_re_test", ptr: __rts_sym_897 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_record_registry_class", ptr: __rts_sym_898 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_register_ctor_thunk", ptr: __rts_sym_899 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_register_fn_abi", ptr: __rts_sym_900 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_same_value", ptr: __rts_sym_901 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_seal", ptr: __rts_sym_902 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_set_immediate", ptr: __rts_sym_903 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_set_interval", ptr: __rts_sym_904 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_set_proto_check", ptr: __rts_sym_905 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_set_timeout", ptr: __rts_sym_906 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_shl", ptr: __rts_sym_907 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_shr", ptr: __rts_sym_908 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_str_chars", ptr: __rts_sym_909 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_str_from_char_code", ptr: __rts_sym_910 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_str_from_char_code_arr", ptr: __rts_sym_911 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_str_from_code_point", ptr: __rts_sym_912 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_str_match_all_auto", ptr: __rts_sym_913 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_str_match_auto", ptr: __rts_sym_914 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_str_match_w", ptr: __rts_sym_915 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_str_replace_w", ptr: __rts_sym_916 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_str_search_auto", ptr: __rts_sym_917 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_str_split", ptr: __rts_sym_918 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_str_split_w", ptr: __rts_sym_919 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_strict_eq", ptr: __rts_sym_920 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_strict_neq", ptr: __rts_sym_921 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_string_raw", ptr: __rts_sym_922 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_sub", ptr: __rts_sym_923 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_ta_view_base_len", ptr: __rts_sym_924 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_throw_js_error", ptr: __rts_sym_925 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_throw_set", ptr: __rts_sym_926 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_to_boolean", ptr: __rts_sym_927 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_to_iter_array", ptr: __rts_sym_928 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_to_string", ptr: __rts_sym_929 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_tsa_raw", ptr: __rts_sym_930 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_typeof", ptr: __rts_sym_931 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_ushr", ptr: __rts_sym_932 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsadp_word_to_abi_i64", ptr: __rts_sym_933 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_bool_load", ptr: __rts_sym_934 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_bool_new", ptr: __rts_sym_935 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_bool_store", ptr: __rts_sym_936 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_bool_swap", ptr: __rts_sym_937 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_f64_fetch_add", ptr: __rts_sym_938 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_f64_load", ptr: __rts_sym_939 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_f64_new", ptr: __rts_sym_940 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_f64_store", ptr: __rts_sym_941 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_f64_swap", ptr: __rts_sym_942 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_fence_acquire", ptr: __rts_sym_943 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_fence_release", ptr: __rts_sym_944 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_fence_seq_cst", ptr: __rts_sym_945 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_i64_cas", ptr: __rts_sym_946 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_i64_fetch_add", ptr: __rts_sym_947 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_i64_fetch_and", ptr: __rts_sym_948 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_i64_fetch_or", ptr: __rts_sym_949 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_i64_fetch_sub", ptr: __rts_sym_950 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_i64_fetch_xor", ptr: __rts_sym_951 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_i64_load", ptr: __rts_sym_952 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_i64_new", ptr: __rts_sym_953 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_i64_store", ptr: __rts_sym_954 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_atomic_i64_swap", ptr: __rts_sym_955 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_available_frames", ptr: __rts_sym_956 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_channels", ptr: __rts_sym_957 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_close", ptr: __rts_sym_958 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_default_channels", ptr: __rts_sym_959 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_default_sample_rate", ptr: __rts_sym_960 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_is_open", ptr: __rts_sym_961 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_master_volume", ptr: __rts_sym_962 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_open_output", ptr: __rts_sym_963 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_queued_frames", ptr: __rts_sym_964 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_sample_rate", ptr: __rts_sym_965 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_underruns", ptr: __rts_sym_966 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_audio_write", ptr: __rts_sym_967 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_crypto_base64_decode", ptr: __rts_sym_968 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_crypto_base64_encode", ptr: __rts_sym_969 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_crypto_hash_update_bytes", ptr: __rts_sym_970 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_crypto_hex_decode", ptr: __rts_sym_971 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_crypto_hex_encode", ptr: __rts_sym_972 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_crypto_random_bytes", ptr: __rts_sym_973 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_crypto_random_i64", ptr: __rts_sym_974 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_crypto_sha256_bytes", ptr: __rts_sym_975 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_addListener", ptr: __rts_sym_976 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_addListenerCb", ptr: __rts_sym_977 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_addStylesheet", ptr: __rts_sym_978 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_advance", ptr: __rts_sym_979 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_appendChild", ptr: __rts_sym_980 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_attrCount", ptr: __rts_sym_981 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_attrNameAt", ptr: __rts_sym_982 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_attrValueAt", ptr: __rts_sym_983 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_boundingComponent", ptr: __rts_sym_984 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_childAt", ptr: __rts_sym_985 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_childCount", ptr: __rts_sym_986 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_childNodeAt", ptr: __rts_sym_987 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_childNodesCount", ptr: __rts_sym_988 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_clearChildren", ptr: __rts_sym_989 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_cloneNode", ptr: __rts_sym_990 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_closest", ptr: __rts_sym_991 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_computedProperty", ptr: __rts_sym_992 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_contains", ptr: __rts_sym_993 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_createComment", ptr: __rts_sym_994 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_createDocument", ptr: __rts_sym_995 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_createElement", ptr: __rts_sym_996 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_createTextNode", ptr: __rts_sym_997 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_cssText", ptr: __rts_sym_998 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_defineBlock", ptr: __rts_sym_999 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_defineInline", ptr: __rts_sym_1000 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_defineStyle", ptr: __rts_sym_1001 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_dispatchCbAt", ptr: __rts_sym_1002 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_dispatchCbNode", ptr: __rts_sym_1003 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_dispatchCollect", ptr: __rts_sym_1004 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_dispatchEvent", ptr: __rts_sym_1005 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_displayOf", ptr: __rts_sym_1006 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_dump", ptr: __rts_sym_1007 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_dumpLayout", ptr: __rts_sym_1008 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_dumpTree", ptr: __rts_sym_1009 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_firstChild", ptr: __rts_sym_1010 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_focusInput", ptr: __rts_sym_1011 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_focusedInput", ptr: __rts_sym_1012 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_free", ptr: __rts_sym_1013 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_getAttribute", ptr: __rts_sym_1014 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_getByClassAt", ptr: __rts_sym_1015 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_getByClassCount", ptr: __rts_sym_1016 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_getByNameAt", ptr: __rts_sym_1017 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_getByNameCount", ptr: __rts_sym_1018 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_getByTagAt", ptr: __rts_sym_1019 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_getByTagCount", ptr: __rts_sym_1020 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_getText", ptr: __rts_sym_1021 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_hasAttr", ptr: __rts_sym_1022 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_hasChildNodes", ptr: __rts_sym_1023 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_hasImage", ptr: __rts_sym_1024 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_hasListener", ptr: __rts_sym_1025 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_inlineProperty", ptr: __rts_sym_1026 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_innerHtml", ptr: __rts_sym_1027 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_inputAt", ptr: __rts_sym_1028 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_inputBackspace", ptr: __rts_sym_1029 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_inputFeedText", ptr: __rts_sym_1030 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_inputValue", ptr: __rts_sym_1031 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_insertAdjacent", ptr: __rts_sym_1032 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_insertBefore", ptr: __rts_sym_1033 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_lastChild", ptr: __rts_sym_1034 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_matches", ptr: __rts_sym_1035 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_nextSibling", ptr: __rts_sym_1036 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_nodeName", ptr: __rts_sym_1037 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_nodeStyleSlot", ptr: __rts_sym_1038 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_nodeType", ptr: __rts_sym_1039 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_nodeValue", ptr: __rts_sym_1040 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_normalize", ptr: __rts_sym_1041 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_outerHtml", ptr: __rts_sym_1042 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_parentNode", ptr: __rts_sym_1043 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_parseHtml", ptr: __rts_sym_1044 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_pollEvent", ptr: __rts_sym_1045 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_pollEventType", ptr: __rts_sym_1046 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_pollRawEvent", ptr: __rts_sym_1047 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_pollRawEventType", ptr: __rts_sym_1048 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_prepend", ptr: __rts_sym_1049 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_previousSibling", ptr: __rts_sym_1050 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_pushRawEvent", ptr: __rts_sym_1051 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_queryAllWithinAt", ptr: __rts_sym_1052 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_queryAllWithinCount", ptr: __rts_sym_1053 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_querySelector", ptr: __rts_sym_1054 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_querySelectorAllAt", ptr: __rts_sym_1055 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_querySelectorAllCount", ptr: __rts_sym_1056 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_queryWithin", ptr: __rts_sym_1057 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_removeAttr", ptr: __rts_sym_1058 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_removeChild", ptr: __rts_sym_1059 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_removeListener", ptr: __rts_sym_1060 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_removeNode", ptr: __rts_sym_1061 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_removeStyleProperty", ptr: __rts_sym_1062 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_replaceChild", ptr: __rts_sym_1063 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_replaceWith", ptr: __rts_sym_1064 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_rootId", ptr: __rts_sym_1065 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_runScript", ptr: __rts_sym_1066 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_setAttr", ptr: __rts_sym_1067 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_setCssText", ptr: __rts_sym_1068 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_setHovered", ptr: __rts_sym_1069 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_setImage", ptr: __rts_sym_1070 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_setInnerHtml", ptr: __rts_sym_1071 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_setNodeValue", ptr: __rts_sym_1072 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_setStyle", ptr: __rts_sym_1073 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_setStyleBatch", ptr: __rts_sym_1074 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_setStyleProperty", ptr: __rts_sym_1075 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_setText", ptr: __rts_sym_1076 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsm_dom_tagName", ptr: __rts_sym_1077 as *const u8 },
     ::rts_abi::table::SymbolEntry { name: "__rtsm_env_arg_at", ptr: __rts_sym_1078 as *const u8 },
     ::rts_abi::table::SymbolEntry { name: "__rtsm_env_args_count", ptr: __rts_sym_1079 as *const u8 },
     ::rts_abi::table::SymbolEntry { name: "__rtsm_env_cwd", ptr: __rts_sym_1080 as *const u8 },
@@ -6465,108 +6465,6 @@ pub static AOT_SYMBOLS: [&'static str; 2025] = [
     "__RTS_FN_NS_DATE_TO_ISO",
     "__RTS_FN_NS_DATE_WEEKDAY",
     "__RTS_FN_NS_DATE_YEAR",
-    "__RTS_FN_NS_DOM_ADD_LISTENER",
-    "__RTS_FN_NS_DOM_ADD_LISTENER_CB",
-    "__RTS_FN_NS_DOM_ADD_STYLESHEET",
-    "__RTS_FN_NS_DOM_ADVANCE",
-    "__RTS_FN_NS_DOM_APPEND_CHILD",
-    "__RTS_FN_NS_DOM_ATTR_COUNT",
-    "__RTS_FN_NS_DOM_ATTR_NAME_AT",
-    "__RTS_FN_NS_DOM_ATTR_VALUE_AT",
-    "__RTS_FN_NS_DOM_BOUNDING_COMPONENT",
-    "__RTS_FN_NS_DOM_CHILD_AT",
-    "__RTS_FN_NS_DOM_CHILD_COUNT",
-    "__RTS_FN_NS_DOM_CHILD_NODES_COUNT",
-    "__RTS_FN_NS_DOM_CHILD_NODE_AT",
-    "__RTS_FN_NS_DOM_CLEAR_CHILDREN",
-    "__RTS_FN_NS_DOM_CLONE_NODE",
-    "__RTS_FN_NS_DOM_CLOSEST",
-    "__RTS_FN_NS_DOM_COMPUTED_PROPERTY",
-    "__RTS_FN_NS_DOM_CONTAINS",
-    "__RTS_FN_NS_DOM_CREATE_COMMENT",
-    "__RTS_FN_NS_DOM_CREATE_DOCUMENT",
-    "__RTS_FN_NS_DOM_CREATE_ELEMENT",
-    "__RTS_FN_NS_DOM_CREATE_TEXT_NODE",
-    "__RTS_FN_NS_DOM_CSS_TEXT",
-    "__RTS_FN_NS_DOM_DEFINE_BLOCK",
-    "__RTS_FN_NS_DOM_DEFINE_INLINE",
-    "__RTS_FN_NS_DOM_DEFINE_STYLE",
-    "__RTS_FN_NS_DOM_DISPATCH_CB_AT",
-    "__RTS_FN_NS_DOM_DISPATCH_CB_NODE",
-    "__RTS_FN_NS_DOM_DISPATCH_COLLECT",
-    "__RTS_FN_NS_DOM_DISPATCH_EVENT",
-    "__RTS_FN_NS_DOM_DISPLAY_OF",
-    "__RTS_FN_NS_DOM_DUMP",
-    "__RTS_FN_NS_DOM_DUMP_LAYOUT",
-    "__RTS_FN_NS_DOM_DUMP_TREE",
-    "__RTS_FN_NS_DOM_FIRST_CHILD",
-    "__RTS_FN_NS_DOM_FOCUSED_INPUT",
-    "__RTS_FN_NS_DOM_FOCUS_INPUT",
-    "__RTS_FN_NS_DOM_FREE",
-    "__RTS_FN_NS_DOM_GET_ATTRIBUTE",
-    "__RTS_FN_NS_DOM_GET_BY_CLASS_AT",
-    "__RTS_FN_NS_DOM_GET_BY_CLASS_COUNT",
-    "__RTS_FN_NS_DOM_GET_BY_NAME_AT",
-    "__RTS_FN_NS_DOM_GET_BY_NAME_COUNT",
-    "__RTS_FN_NS_DOM_GET_BY_TAG_AT",
-    "__RTS_FN_NS_DOM_GET_BY_TAG_COUNT",
-    "__RTS_FN_NS_DOM_GET_TEXT",
-    "__RTS_FN_NS_DOM_HAS_ATTR",
-    "__RTS_FN_NS_DOM_HAS_CHILD_NODES",
-    "__RTS_FN_NS_DOM_HAS_IMAGE",
-    "__RTS_FN_NS_DOM_HAS_LISTENER",
-    "__RTS_FN_NS_DOM_INLINE_PROPERTY",
-    "__RTS_FN_NS_DOM_INNER_HTML",
-    "__RTS_FN_NS_DOM_INPUT_AT",
-    "__RTS_FN_NS_DOM_INPUT_BACKSPACE",
-    "__RTS_FN_NS_DOM_INPUT_FEED_TEXT",
-    "__RTS_FN_NS_DOM_INPUT_VALUE",
-    "__RTS_FN_NS_DOM_INSERT_ADJACENT",
-    "__RTS_FN_NS_DOM_INSERT_BEFORE",
-    "__RTS_FN_NS_DOM_LAST_CHILD",
-    "__RTS_FN_NS_DOM_MATCHES",
-    "__RTS_FN_NS_DOM_NEXT_SIBLING",
-    "__RTS_FN_NS_DOM_NODE_NAME",
-    "__RTS_FN_NS_DOM_NODE_STYLE_SLOT",
-    "__RTS_FN_NS_DOM_NODE_TYPE",
-    "__RTS_FN_NS_DOM_NODE_VALUE",
-    "__RTS_FN_NS_DOM_NORMALIZE",
-    "__RTS_FN_NS_DOM_OUTER_HTML",
-    "__RTS_FN_NS_DOM_PARENT_NODE",
-    "__RTS_FN_NS_DOM_PARSE_HTML",
-    "__RTS_FN_NS_DOM_POLL_EVENT",
-    "__RTS_FN_NS_DOM_POLL_EVENT_TYPE",
-    "__RTS_FN_NS_DOM_POLL_RAW_EVENT",
-    "__RTS_FN_NS_DOM_POLL_RAW_EVENT_TYPE",
-    "__RTS_FN_NS_DOM_PREPEND",
-    "__RTS_FN_NS_DOM_PREVIOUS_SIBLING",
-    "__RTS_FN_NS_DOM_PUSH_RAW_EVENT",
-    "__RTS_FN_NS_DOM_QUERY_ALL_WITHIN_AT",
-    "__RTS_FN_NS_DOM_QUERY_ALL_WITHIN_COUNT",
-    "__RTS_FN_NS_DOM_QUERY_SELECTOR",
-    "__RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_AT",
-    "__RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_COUNT",
-    "__RTS_FN_NS_DOM_QUERY_WITHIN",
-    "__RTS_FN_NS_DOM_REMOVE_ATTR",
-    "__RTS_FN_NS_DOM_REMOVE_CHILD",
-    "__RTS_FN_NS_DOM_REMOVE_LISTENER",
-    "__RTS_FN_NS_DOM_REMOVE_NODE",
-    "__RTS_FN_NS_DOM_REMOVE_STYLE_PROPERTY",
-    "__RTS_FN_NS_DOM_REPLACE_CHILD",
-    "__RTS_FN_NS_DOM_REPLACE_WITH",
-    "__RTS_FN_NS_DOM_ROOT_ID",
-    "__RTS_FN_NS_DOM_RUN_SCRIPT",
-    "__RTS_FN_NS_DOM_SET_ATTR",
-    "__RTS_FN_NS_DOM_SET_CSS_TEXT",
-    "__RTS_FN_NS_DOM_SET_HOVERED",
-    "__RTS_FN_NS_DOM_SET_IMAGE",
-    "__RTS_FN_NS_DOM_SET_INNER_HTML",
-    "__RTS_FN_NS_DOM_SET_NODE_VALUE",
-    "__RTS_FN_NS_DOM_SET_STYLE",
-    "__RTS_FN_NS_DOM_SET_STYLE_BATCH",
-    "__RTS_FN_NS_DOM_SET_STYLE_PROPERTY",
-    "__RTS_FN_NS_DOM_SET_TEXT",
-    "__RTS_FN_NS_DOM_TAG_NAME",
     "__RTS_FN_NS_EGUI_APPEND_CHILD",
     "__RTS_FN_NS_EGUI_BEGIN_FRAME",
     "__RTS_FN_NS_EGUI_BUTTON",
@@ -7202,6 +7100,108 @@ pub static AOT_SYMBOLS: [&'static str; 2025] = [
     "__rtsm_crypto_random_bytes",
     "__rtsm_crypto_random_i64",
     "__rtsm_crypto_sha256_bytes",
+    "__rtsm_dom_addListener",
+    "__rtsm_dom_addListenerCb",
+    "__rtsm_dom_addStylesheet",
+    "__rtsm_dom_advance",
+    "__rtsm_dom_appendChild",
+    "__rtsm_dom_attrCount",
+    "__rtsm_dom_attrNameAt",
+    "__rtsm_dom_attrValueAt",
+    "__rtsm_dom_boundingComponent",
+    "__rtsm_dom_childAt",
+    "__rtsm_dom_childCount",
+    "__rtsm_dom_childNodeAt",
+    "__rtsm_dom_childNodesCount",
+    "__rtsm_dom_clearChildren",
+    "__rtsm_dom_cloneNode",
+    "__rtsm_dom_closest",
+    "__rtsm_dom_computedProperty",
+    "__rtsm_dom_contains",
+    "__rtsm_dom_createComment",
+    "__rtsm_dom_createDocument",
+    "__rtsm_dom_createElement",
+    "__rtsm_dom_createTextNode",
+    "__rtsm_dom_cssText",
+    "__rtsm_dom_defineBlock",
+    "__rtsm_dom_defineInline",
+    "__rtsm_dom_defineStyle",
+    "__rtsm_dom_dispatchCbAt",
+    "__rtsm_dom_dispatchCbNode",
+    "__rtsm_dom_dispatchCollect",
+    "__rtsm_dom_dispatchEvent",
+    "__rtsm_dom_displayOf",
+    "__rtsm_dom_dump",
+    "__rtsm_dom_dumpLayout",
+    "__rtsm_dom_dumpTree",
+    "__rtsm_dom_firstChild",
+    "__rtsm_dom_focusInput",
+    "__rtsm_dom_focusedInput",
+    "__rtsm_dom_free",
+    "__rtsm_dom_getAttribute",
+    "__rtsm_dom_getByClassAt",
+    "__rtsm_dom_getByClassCount",
+    "__rtsm_dom_getByNameAt",
+    "__rtsm_dom_getByNameCount",
+    "__rtsm_dom_getByTagAt",
+    "__rtsm_dom_getByTagCount",
+    "__rtsm_dom_getText",
+    "__rtsm_dom_hasAttr",
+    "__rtsm_dom_hasChildNodes",
+    "__rtsm_dom_hasImage",
+    "__rtsm_dom_hasListener",
+    "__rtsm_dom_inlineProperty",
+    "__rtsm_dom_innerHtml",
+    "__rtsm_dom_inputAt",
+    "__rtsm_dom_inputBackspace",
+    "__rtsm_dom_inputFeedText",
+    "__rtsm_dom_inputValue",
+    "__rtsm_dom_insertAdjacent",
+    "__rtsm_dom_insertBefore",
+    "__rtsm_dom_lastChild",
+    "__rtsm_dom_matches",
+    "__rtsm_dom_nextSibling",
+    "__rtsm_dom_nodeName",
+    "__rtsm_dom_nodeStyleSlot",
+    "__rtsm_dom_nodeType",
+    "__rtsm_dom_nodeValue",
+    "__rtsm_dom_normalize",
+    "__rtsm_dom_outerHtml",
+    "__rtsm_dom_parentNode",
+    "__rtsm_dom_parseHtml",
+    "__rtsm_dom_pollEvent",
+    "__rtsm_dom_pollEventType",
+    "__rtsm_dom_pollRawEvent",
+    "__rtsm_dom_pollRawEventType",
+    "__rtsm_dom_prepend",
+    "__rtsm_dom_previousSibling",
+    "__rtsm_dom_pushRawEvent",
+    "__rtsm_dom_queryAllWithinAt",
+    "__rtsm_dom_queryAllWithinCount",
+    "__rtsm_dom_querySelector",
+    "__rtsm_dom_querySelectorAllAt",
+    "__rtsm_dom_querySelectorAllCount",
+    "__rtsm_dom_queryWithin",
+    "__rtsm_dom_removeAttr",
+    "__rtsm_dom_removeChild",
+    "__rtsm_dom_removeListener",
+    "__rtsm_dom_removeNode",
+    "__rtsm_dom_removeStyleProperty",
+    "__rtsm_dom_replaceChild",
+    "__rtsm_dom_replaceWith",
+    "__rtsm_dom_rootId",
+    "__rtsm_dom_runScript",
+    "__rtsm_dom_setAttr",
+    "__rtsm_dom_setCssText",
+    "__rtsm_dom_setHovered",
+    "__rtsm_dom_setImage",
+    "__rtsm_dom_setInnerHtml",
+    "__rtsm_dom_setNodeValue",
+    "__rtsm_dom_setStyle",
+    "__rtsm_dom_setStyleBatch",
+    "__rtsm_dom_setStyleProperty",
+    "__rtsm_dom_setText",
+    "__rtsm_dom_tagName",
     "__rtsm_env_arg_at",
     "__rtsm_env_args_count",
     "__rtsm_env_cwd",
@@ -8501,108 +8501,6 @@ pub static SIGNATURES: [(&'static str, &'static [::rts_abi::AbiType], ::rts_abi:
     ("__RTS_FN_NS_DATE_TO_ISO", &[::rts_abi::AbiType::I64], ::rts_abi::AbiType::Handle),
     ("__RTS_FN_NS_DATE_WEEKDAY", &[::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
     ("__RTS_FN_NS_DATE_YEAR", &[::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_ADD_LISTENER", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_ADD_LISTENER_CB", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_ADD_STYLESHEET", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_ADVANCE", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::F64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_APPEND_CHILD", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_ATTR_COUNT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_ATTR_NAME_AT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
-    ("__RTS_FN_NS_DOM_ATTR_VALUE_AT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
-    ("__RTS_FN_NS_DOM_BOUNDING_COMPONENT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_CHILD_AT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_CHILD_COUNT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_CHILD_NODES_COUNT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_CHILD_NODE_AT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_CLEAR_CHILDREN", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_CLONE_NODE", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_CLOSEST", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_COMPUTED_PROPERTY", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
-    ("__RTS_FN_NS_DOM_CONTAINS", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_CREATE_COMMENT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_CREATE_DOCUMENT", &[], ::rts_abi::AbiType::U64),
-    ("__RTS_FN_NS_DOM_CREATE_ELEMENT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_CREATE_TEXT_NODE", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_CSS_TEXT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
-    ("__RTS_FN_NS_DOM_DEFINE_BLOCK", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::F64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_DEFINE_INLINE", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_DEFINE_STYLE", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_DISPATCH_CB_AT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_DISPATCH_CB_NODE", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_DISPATCH_COLLECT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_DISPATCH_EVENT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_DISPLAY_OF", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_DUMP", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_DUMP_LAYOUT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_DUMP_TREE", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_FIRST_CHILD", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_FOCUSED_INPUT", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_FOCUS_INPUT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_FREE", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_GET_ATTRIBUTE", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
-    ("__RTS_FN_NS_DOM_GET_BY_CLASS_AT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_GET_BY_CLASS_COUNT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_GET_BY_NAME_AT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_GET_BY_NAME_COUNT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_GET_BY_TAG_AT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_GET_BY_TAG_COUNT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_GET_TEXT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
-    ("__RTS_FN_NS_DOM_HAS_ATTR", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_HAS_CHILD_NODES", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_HAS_IMAGE", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_HAS_LISTENER", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_INLINE_PROPERTY", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
-    ("__RTS_FN_NS_DOM_INNER_HTML", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
-    ("__RTS_FN_NS_DOM_INPUT_AT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_INPUT_BACKSPACE", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_INPUT_FEED_TEXT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_INPUT_VALUE", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
-    ("__RTS_FN_NS_DOM_INSERT_ADJACENT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_INSERT_BEFORE", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_LAST_CHILD", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_MATCHES", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_NEXT_SIBLING", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_NODE_NAME", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
-    ("__RTS_FN_NS_DOM_NODE_STYLE_SLOT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_NODE_TYPE", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_NODE_VALUE", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
-    ("__RTS_FN_NS_DOM_NORMALIZE", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_OUTER_HTML", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
-    ("__RTS_FN_NS_DOM_PARENT_NODE", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_PARSE_HTML", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
-    ("__RTS_FN_NS_DOM_POLL_EVENT", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_POLL_EVENT_TYPE", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::U64),
-    ("__RTS_FN_NS_DOM_POLL_RAW_EVENT", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_POLL_RAW_EVENT_TYPE", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::U64),
-    ("__RTS_FN_NS_DOM_PREPEND", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_PREVIOUS_SIBLING", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_PUSH_RAW_EVENT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_QUERY_ALL_WITHIN_AT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_QUERY_ALL_WITHIN_COUNT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_QUERY_SELECTOR", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_AT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_COUNT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_QUERY_WITHIN", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_REMOVE_ATTR", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_REMOVE_CHILD", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_REMOVE_LISTENER", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_REMOVE_NODE", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_REMOVE_STYLE_PROPERTY", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_REPLACE_CHILD", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_REPLACE_WITH", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_ROOT_ID", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::I64),
-    ("__RTS_FN_NS_DOM_RUN_SCRIPT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_SET_ATTR", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_SET_CSS_TEXT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_SET_HOVERED", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_SET_IMAGE", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_SET_INNER_HTML", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_SET_NODE_VALUE", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_SET_STYLE", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_SET_STYLE_BATCH", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_SET_STYLE_PROPERTY", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_SET_TEXT", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
-    ("__RTS_FN_NS_DOM_TAG_NAME", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
     ("__RTS_FN_NS_ENGINE_ARCH", &[], ::rts_abi::AbiType::Handle),
     ("__RTS_FN_NS_ENGINE_BUFFER_CLONE", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::U64),
     ("__RTS_FN_NS_ENGINE_BUFFER_DETACH", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::U64),
@@ -9174,6 +9072,108 @@ pub static SIGNATURES: [(&'static str, &'static [::rts_abi::AbiType], ::rts_abi:
     ("__rtsm_crypto_random_bytes", &[::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
     ("__rtsm_crypto_random_i64", &[], ::rts_abi::AbiType::I64),
     ("__rtsm_crypto_sha256_bytes", &[::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Handle),
+    ("__rtsm_dom_addListener", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_addListenerCb", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_addStylesheet", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_advance", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::F64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_appendChild", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_attrCount", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_attrNameAt", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
+    ("__rtsm_dom_attrValueAt", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
+    ("__rtsm_dom_boundingComponent", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_childAt", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_childCount", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_childNodeAt", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_childNodesCount", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_clearChildren", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_cloneNode", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_closest", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_computedProperty", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
+    ("__rtsm_dom_contains", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_createComment", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_createDocument", &[], ::rts_abi::AbiType::U64),
+    ("__rtsm_dom_createElement", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_createTextNode", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_cssText", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
+    ("__rtsm_dom_defineBlock", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::F64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_defineInline", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_defineStyle", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_dispatchCbAt", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_dispatchCbNode", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_dispatchCollect", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_dispatchEvent", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_displayOf", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_dump", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_dumpLayout", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_dumpTree", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_firstChild", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_focusInput", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_focusedInput", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_free", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_getAttribute", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
+    ("__rtsm_dom_getByClassAt", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_getByClassCount", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_getByNameAt", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_getByNameCount", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_getByTagAt", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_getByTagCount", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_getText", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
+    ("__rtsm_dom_hasAttr", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_hasChildNodes", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_hasImage", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_hasListener", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_inlineProperty", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
+    ("__rtsm_dom_innerHtml", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
+    ("__rtsm_dom_inputAt", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_inputBackspace", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_inputFeedText", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_inputValue", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
+    ("__rtsm_dom_insertAdjacent", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_insertBefore", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_lastChild", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_matches", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_nextSibling", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_nodeName", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
+    ("__rtsm_dom_nodeStyleSlot", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_nodeType", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_nodeValue", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
+    ("__rtsm_dom_normalize", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_outerHtml", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
+    ("__rtsm_dom_parentNode", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_parseHtml", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
+    ("__rtsm_dom_pollEvent", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_pollEventType", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::U64),
+    ("__rtsm_dom_pollRawEvent", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_pollRawEventType", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::U64),
+    ("__rtsm_dom_prepend", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_previousSibling", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_pushRawEvent", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_queryAllWithinAt", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_queryAllWithinCount", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_querySelector", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_querySelectorAllAt", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_querySelectorAllCount", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_queryWithin", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_removeAttr", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_removeChild", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_removeListener", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_removeNode", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_removeStyleProperty", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_replaceChild", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_replaceWith", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_rootId", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::I64),
+    ("__rtsm_dom_runScript", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_setAttr", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_setCssText", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_setHovered", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_setImage", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_setInnerHtml", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_setNodeValue", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_setStyle", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_setStyleBatch", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_setStyleProperty", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_setText", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::Void),
+    ("__rtsm_dom_tagName", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
     ("__rtsm_env_arg_at", &[::rts_abi::AbiType::I64], ::rts_abi::AbiType::Handle),
     ("__rtsm_env_args_count", &[], ::rts_abi::AbiType::I64),
     ("__rtsm_env_cwd", &[], ::rts_abi::AbiType::Handle),

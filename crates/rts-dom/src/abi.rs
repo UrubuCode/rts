@@ -48,8 +48,8 @@ const NODE_NONE: i64 = -1;
 
 /// `parseHtml(html)` → handle do DOM avulso (≥ 1). Parseia a string numa árvore
 /// retida nova (geração própria). É o entry-point headless.
-#[rtse::abi("__RTS_FN_NS_DOM_PARSE_HTML")]
-pub fn __RTS_FN_NS_DOM_PARSE_HTML(ptr: u64, len: i64) -> u64 {
+#[rtse::abi(module = "dom", value = "parseHtml")]
+pub fn __rtsm_dom_parseHtml(ptr: u64, len: i64) -> u64 {
     let ptr = ptr as *const u8;
 
     let html = unsafe { str_abi::from_abi(ptr, len) }.unwrap_or("");
@@ -58,14 +58,14 @@ pub fn __RTS_FN_NS_DOM_PARSE_HTML(ptr: u64, len: i64) -> u64 {
 
 /// `createDocument()` → handle de um DOM vazio (só `#document`), para montar a
 /// árvore por `createElement`/`appendChild` sem parsear HTML.
-#[rtse::abi("__RTS_FN_NS_DOM_CREATE_DOCUMENT")]
-pub fn __RTS_FN_NS_DOM_CREATE_DOCUMENT() -> u64 {
+#[rtse::abi(module = "dom", value = "createDocument")]
+pub fn __rtsm_dom_createDocument() -> u64 {
     insert(parse_html_to_dom(""))
 }
 
 /// `free(domHandle)` — libera o DOM avulso (o handle fica inválido).
-#[rtse::abi("__RTS_FN_NS_DOM_FREE")]
-pub fn __RTS_FN_NS_DOM_FREE(h: u64) {
+#[rtse::abi(module = "dom", value = "free")]
+pub fn __rtsm_dom_free(h: u64) {
     crate::store::remove(h);
     // O saco de globais e a fila de timers da PÁGINA morrem com o documento.
     // Sem isto, o que um documento publicou continuava visível para o próximo
@@ -76,8 +76,8 @@ pub fn __RTS_FN_NS_DOM_FREE(h: u64) {
 }
 
 /// `querySelector(domHandle, selector)` → `NodeId` versionado (`i64` ≥ 0) ou `-1`.
-#[rtse::abi("__RTS_FN_NS_DOM_QUERY_SELECTOR")]
-pub fn __RTS_FN_NS_DOM_QUERY_SELECTOR(h: u64, sel_ptr: u64, sel_len: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "querySelector")]
+pub fn __rtsm_dom_querySelector(h: u64, sel_ptr: u64, sel_len: i64) -> i64 {
     let sel_ptr = sel_ptr as *const u8;
 
     let sel = unsafe { str_abi::from_abi(sel_ptr, sel_len) }.unwrap_or("");
@@ -86,8 +86,8 @@ pub fn __RTS_FN_NS_DOM_QUERY_SELECTOR(h: u64, sel_ptr: u64, sel_len: i64) -> i64
 
 /// `setText(domHandle, node, text)` — `element.textContent = text`. `node` é o
 /// `NodeId` VERSIONADO (i64); um id de árvore velha é rejeitado pelo `gen`.
-#[rtse::abi("__RTS_FN_NS_DOM_SET_TEXT")]
-pub fn __RTS_FN_NS_DOM_SET_TEXT(h: u64, id: i64, ptr: u64, len: i64) {
+#[rtse::abi(module = "dom", value = "setText")]
+pub fn __rtsm_dom_setText(h: u64, id: i64, ptr: u64, len: i64) {
     let ptr = ptr as *const u8;
 
     let Some(node) = NodeId::from_abi(id) else { return };
@@ -96,8 +96,8 @@ pub fn __RTS_FN_NS_DOM_SET_TEXT(h: u64, id: i64, ptr: u64, len: i64) {
 }
 
 /// `setAttr(domHandle, node, name, value)` — `element.setAttribute`.
-#[rtse::abi("__RTS_FN_NS_DOM_SET_ATTR")]
-pub fn __RTS_FN_NS_DOM_SET_ATTR(
+#[rtse::abi(module = "dom", value = "setAttr")]
+pub fn __rtsm_dom_setAttr(
     h: u64,
     id: i64,
     name_ptr: u64,
@@ -116,8 +116,8 @@ pub fn __RTS_FN_NS_DOM_SET_ATTR(
 
 /// `createElement(domHandle, tag)` → `NodeId` versionado (≥ 0) do elemento solto,
 /// ou `-1` se o handle não existe. Ligue com `appendChild`.
-#[rtse::abi("__RTS_FN_NS_DOM_CREATE_ELEMENT")]
-pub fn __RTS_FN_NS_DOM_CREATE_ELEMENT(h: u64, tag_ptr: u64, tag_len: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "createElement")]
+pub fn __rtsm_dom_createElement(h: u64, tag_ptr: u64, tag_len: i64) -> i64 {
     let tag_ptr = tag_ptr as *const u8;
 
     let tag = unsafe { str_abi::from_abi(tag_ptr, tag_len) }.unwrap_or("").to_string();
@@ -125,8 +125,8 @@ pub fn __RTS_FN_NS_DOM_CREATE_ELEMENT(h: u64, tag_ptr: u64, tag_len: i64) -> i64
 }
 
 /// `appendChild(domHandle, parent, child)` — `parent.appendChild(child)`.
-#[rtse::abi("__RTS_FN_NS_DOM_APPEND_CHILD")]
-pub fn __RTS_FN_NS_DOM_APPEND_CHILD(h: u64, parent: i64, child: i64) {
+#[rtse::abi(module = "dom", value = "appendChild")]
+pub fn __rtsm_dom_appendChild(h: u64, parent: i64, child: i64) {
     let (Some(parent), Some(child)) = (NodeId::from_abi(parent), NodeId::from_abi(child)) else {
         return;
     };
@@ -134,16 +134,16 @@ pub fn __RTS_FN_NS_DOM_APPEND_CHILD(h: u64, parent: i64, child: i64) {
 }
 
 /// `removeNode(domHandle, node)` — `element.remove()`.
-#[rtse::abi("__RTS_FN_NS_DOM_REMOVE_NODE")]
-pub fn __RTS_FN_NS_DOM_REMOVE_NODE(h: u64, id: i64) {
+#[rtse::abi(module = "dom", value = "removeNode")]
+pub fn __rtsm_dom_removeNode(h: u64, id: i64) {
     let Some(node) = NodeId::from_abi(id) else { return };
     with_mut(h, |dom| dom.remove_node(node));
 }
 
 /// `createTextNode(domHandle, text)` → `NodeId` de um nó de texto solto (≥ 0), ou
 /// `-1`. Ligue com `appendChild`/`insertBefore`.
-#[rtse::abi("__RTS_FN_NS_DOM_CREATE_TEXT_NODE")]
-pub fn __RTS_FN_NS_DOM_CREATE_TEXT_NODE(h: u64, ptr: u64, len: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "createTextNode")]
+pub fn __rtsm_dom_createTextNode(h: u64, ptr: u64, len: i64) -> i64 {
     let ptr = ptr as *const u8;
 
     let text = unsafe { str_abi::from_abi(ptr, len) }.unwrap_or("").to_string();
@@ -152,8 +152,8 @@ pub fn __RTS_FN_NS_DOM_CREATE_TEXT_NODE(h: u64, ptr: u64, len: i64) -> i64 {
 
 /// `insertBefore(domHandle, parent, child, reference)` — `parent.insertBefore(
 /// child, reference)`. `reference = -1` (ou não-filho) → anexa ao fim.
-#[rtse::abi("__RTS_FN_NS_DOM_INSERT_BEFORE")]
-pub fn __RTS_FN_NS_DOM_INSERT_BEFORE(h: u64, parent: i64, child: i64, reference: i64) {
+#[rtse::abi(module = "dom", value = "insertBefore")]
+pub fn __rtsm_dom_insertBefore(h: u64, parent: i64, child: i64, reference: i64) {
     let (Some(parent), Some(child)) = (NodeId::from_abi(parent), NodeId::from_abi(child)) else {
         return;
     };
@@ -166,37 +166,37 @@ pub fn __RTS_FN_NS_DOM_INSERT_BEFORE(h: u64, parent: i64, child: i64, reference:
 // retorno para uma const antes de comparar com -1 (limite do motor i64-cmp inline).
 
 /// `parentNode(domHandle, node)` → `NodeId` do pai, ou `-1` (raiz / inválido).
-#[rtse::abi("__RTS_FN_NS_DOM_PARENT_NODE")]
-pub fn __RTS_FN_NS_DOM_PARENT_NODE(h: u64, id: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "parentNode")]
+pub fn __rtsm_dom_parentNode(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
     with(h, |dom| dom.parent_of(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
 }
 
 /// `firstChild(domHandle, node)` → 1º filho (qualquer tipo, inclui Text), ou `-1`.
-#[rtse::abi("__RTS_FN_NS_DOM_FIRST_CHILD")]
-pub fn __RTS_FN_NS_DOM_FIRST_CHILD(h: u64, id: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "firstChild")]
+pub fn __rtsm_dom_firstChild(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
     with(h, |dom| dom.first_child(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
 }
 
 /// `lastChild(domHandle, node)` → último filho, ou `-1`.
-#[rtse::abi("__RTS_FN_NS_DOM_LAST_CHILD")]
-pub fn __RTS_FN_NS_DOM_LAST_CHILD(h: u64, id: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "lastChild")]
+pub fn __rtsm_dom_lastChild(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
     with(h, |dom| dom.last_child(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
 }
 
 /// `nextSibling(domHandle, node)` → próximo irmão, ou `-1` (é o último).
-#[rtse::abi("__RTS_FN_NS_DOM_NEXT_SIBLING")]
-pub fn __RTS_FN_NS_DOM_NEXT_SIBLING(h: u64, id: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "nextSibling")]
+pub fn __rtsm_dom_nextSibling(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
     with(h, |dom| dom.next_sibling(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE))
         .unwrap_or(NODE_NONE)
 }
 
 /// `previousSibling(domHandle, node)` → irmão anterior, ou `-1` (é o primeiro).
-#[rtse::abi("__RTS_FN_NS_DOM_PREVIOUS_SIBLING")]
-pub fn __RTS_FN_NS_DOM_PREVIOUS_SIBLING(h: u64, id: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "previousSibling")]
+pub fn __rtsm_dom_previousSibling(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
     with(h, |dom| dom.previous_sibling(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE))
         .unwrap_or(NODE_NONE)
@@ -204,15 +204,15 @@ pub fn __RTS_FN_NS_DOM_PREVIOUS_SIBLING(h: u64, id: i64) -> i64 {
 
 /// `childNodesCount(domHandle, node)` → nº de filhos TOTAL (inclui Text); par com
 /// `childNodeAt` (igual a childCount/childAt, mas SEM filtrar elementos).
-#[rtse::abi("__RTS_FN_NS_DOM_CHILD_NODES_COUNT")]
-pub fn __RTS_FN_NS_DOM_CHILD_NODES_COUNT(h: u64, id: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "childNodesCount")]
+pub fn __rtsm_dom_childNodesCount(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return 0 };
     with(h, |dom| dom.child_nodes(node).len() as i64).unwrap_or(0)
 }
 
 /// `childNodeAt(domHandle, node, index)` → o índice-ésimo filho (inclui Text), -1.
-#[rtse::abi("__RTS_FN_NS_DOM_CHILD_NODE_AT")]
-pub fn __RTS_FN_NS_DOM_CHILD_NODE_AT(h: u64, id: i64, index: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "childNodeAt")]
+pub fn __rtsm_dom_childNodeAt(h: u64, id: i64, index: i64) -> i64 {
     if index < 0 {
         return NODE_NONE;
     }
@@ -225,30 +225,30 @@ pub fn __RTS_FN_NS_DOM_CHILD_NODE_AT(h: u64, id: i64, index: i64) -> i64 {
 
 /// `nodeType(domHandle, node)` → código DOM: Element=1, Text=3, Comment=8,
 /// Document=9; `-1` se inválido.
-#[rtse::abi("__RTS_FN_NS_DOM_NODE_TYPE")]
-pub fn __RTS_FN_NS_DOM_NODE_TYPE(h: u64, id: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "nodeType")]
+pub fn __rtsm_dom_nodeType(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
     with(h, |dom| dom.node_type(node)).unwrap_or(NODE_NONE)
 }
 
 /// `nodeName(domHandle, node)` → nome DOM (tag p/ Element; `#text`/`#comment`/
 /// `#document`), como handle de string. Vazio se inválido.
-#[rtse::abi("__RTS_FN_NS_DOM_NODE_NAME")]
-pub fn __RTS_FN_NS_DOM_NODE_NAME(h: u64, id: i64) -> u64 {
+#[rtse::abi(module = "dom", value = "nodeName")]
+pub fn __rtsm_dom_nodeName(h: u64, id: i64) -> u64 {
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let name = with(h, |dom| dom.node_name(node).unwrap_or_default()).unwrap_or_default();
     intern(&name)
 }
 
 /// `rootId(domHandle)` → `NodeId` versionado da raiz `#document` (≥ 0), ou `-1`.
-#[rtse::abi("__RTS_FN_NS_DOM_ROOT_ID")]
-pub fn __RTS_FN_NS_DOM_ROOT_ID(h: u64) -> i64 {
+#[rtse::abi(module = "dom", value = "rootId")]
+pub fn __rtsm_dom_rootId(h: u64) -> i64 {
     with(h, |dom| dom.root_id().to_abi()).unwrap_or(NODE_NONE)
 }
 
 /// `dump(domHandle)` — imprime a árvore (devtools-style) no stderr, para inspeção.
-#[rtse::abi("__RTS_FN_NS_DOM_DUMP")]
-pub fn __RTS_FN_NS_DOM_DUMP(h: u64) {
+#[rtse::abi(module = "dom", value = "dump")]
+pub fn __rtsm_dom_dump(h: u64) {
     if let Some(s) = with(h, |dom| dom.dump()) {
         eprint!("{s}");
     }
@@ -258,8 +258,8 @@ pub fn __RTS_FN_NS_DOM_DUMP(h: u64) {
 /// largura de viewport dada) e imprime um JSON com cada item (tipo + x/y/w/h + cor),
 /// para COMPARAR número-a-número com o render do navegador (o JSON do
 /// `extrair-render.js`). Usa o medidor aproximado (headless, determinístico).
-#[rtse::abi("__RTS_FN_NS_DOM_DUMP_LAYOUT")]
-pub fn __RTS_FN_NS_DOM_DUMP_LAYOUT(h: u64, viewport_w: i64) {
+#[rtse::abi(module = "dom", value = "dumpLayout")]
+pub fn __rtsm_dom_dumpLayout(h: u64, viewport_w: i64) {
     use crate::layout::{layout_document, ApproxMeasurer, DisplayItem, LayoutCtx};
     let vw = viewport_w.max(1) as f32;
     let json = with(h, |dom| {
@@ -321,8 +321,8 @@ pub fn __RTS_FN_NS_DOM_DUMP_LAYOUT(h: u64, viewport_w: i64) {
 /// CADA nó (`node_rects`) + tag/id/class, indentada, para COMPARAR a geometria
 /// nó-a-nó com o `getBoundingClientRect` do Chrome (a ferramenta de diagnóstico da
 /// paridade de layout). Só elementos com rect (os que o layout posicionou).
-#[rtse::abi("__RTS_FN_NS_DOM_DUMP_TREE")]
-pub fn __RTS_FN_NS_DOM_DUMP_TREE(h: u64, viewport_w: i64) {
+#[rtse::abi(module = "dom", value = "dumpTree")]
+pub fn __rtsm_dom_dumpTree(h: u64, viewport_w: i64) {
     use crate::layout::{layout_document, ApproxMeasurer, LayoutCtx};
     let vw = viewport_w.max(1) as f32;
     let out = with(h, |dom| {
@@ -383,8 +383,8 @@ thread_local! {
 /// Componente do border-box de um nó (`which`: 0=x 1=y 2=width 3=height), em
 /// pontos × 1000. `-1` se o nó não tem rect (texto/inline/display:none/inválido) —
 /// distinto de 0 (um rect legítimo de tamanho 0 dá 0, não -1). A fachada divide /1000.
-#[rtse::abi("__RTS_FN_NS_DOM_BOUNDING_COMPONENT")]
-pub fn __RTS_FN_NS_DOM_BOUNDING_COMPONENT(h: u64, id: i64, viewport_w: i64, which: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "boundingComponent")]
+pub fn __rtsm_dom_boundingComponent(h: u64, id: i64, viewport_w: i64, which: i64) -> i64 {
     use crate::layout::{ApproxMeasurer, LayoutCtx};
     let Some(node) = NodeId::from_abi(id) else { return -1 };
     let vw = viewport_w.max(1);
@@ -441,8 +441,8 @@ pub fn __RTS_FN_NS_DOM_BOUNDING_COMPONENT(h: u64, id: i64, viewport_w: i64, whic
 /// `inputAt(dom, viewportW, x, y)` → o `NodeId` do `<input>`/`<textarea>` cujo
 /// border-box contém a coord `(x, y)` (coords de conteúdo da página, × 1). `-1` se
 /// nenhum. Usa o layout cacheado (mesmo GEOM_CACHE do getBoundingClientRect).
-#[rtse::abi("__RTS_FN_NS_DOM_INPUT_AT")]
-pub fn __RTS_FN_NS_DOM_INPUT_AT(h: u64, viewport_w: i64, x: i64, y: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "inputAt")]
+pub fn __rtsm_dom_inputAt(h: u64, viewport_w: i64, x: i64, y: i64) -> i64 {
     use crate::layout::{ApproxMeasurer, LayoutCtx};
     let vw = viewport_w.max(1);
     let (px, py) = (x as f32, y as f32);
@@ -486,8 +486,8 @@ pub fn __RTS_FN_NS_DOM_INPUT_AT(h: u64, viewport_w: i64, x: i64, y: i64) -> i64 
 
 /// `focusInput(dom, node)` → dá o foco a `node` (recebe teclas); `node == -1` tira
 /// o foco de todos. O caller (loop TS) chama após um clique (via `inputAt`).
-#[rtse::abi("__RTS_FN_NS_DOM_FOCUS_INPUT")]
-pub fn __RTS_FN_NS_DOM_FOCUS_INPUT(h: u64, id: i64) {
+#[rtse::abi(module = "dom", value = "focusInput")]
+pub fn __rtsm_dom_focusInput(h: u64, id: i64) {
     let node = NodeId::from_abi(id);
     with_mut(h, |dom| {
         let idx = node.and_then(|n| dom.resolve(n));
@@ -498,8 +498,8 @@ pub fn __RTS_FN_NS_DOM_FOCUS_INPUT(h: u64, id: i64) {
 /// `setImage(dom, node, bufferHandle, off, w, h)` → associa a um `<img>` os pixels
 /// RGBA já decodificados (o browser baixa via fetchBytes + decodifica via imgdec e
 /// chama isto). O layout então emite a imagem. `off` = offset dos pixels no buffer.
-#[rtse::abi("__RTS_FN_NS_DOM_SET_IMAGE")]
-pub fn __RTS_FN_NS_DOM_SET_IMAGE(
+#[rtse::abi(module = "dom", value = "setImage")]
+pub fn __rtsm_dom_setImage(
     h: u64, id: i64, buffer_handle: u64, off: i64, w: i64, hgt: i64,
 ) {
     let Some(node) = NodeId::from_abi(id) else {
@@ -511,8 +511,8 @@ pub fn __RTS_FN_NS_DOM_SET_IMAGE(
 }
 
 /// `hasImage(dom, node)` → 1 se o nó tem imagem setada (diagnóstico), 0 senão.
-#[rtse::abi("__RTS_FN_NS_DOM_HAS_IMAGE")]
-pub fn __RTS_FN_NS_DOM_HAS_IMAGE(h: u64, id: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "hasImage")]
+pub fn __rtsm_dom_hasImage(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return 0 };
     with(h, |dom| {
         dom.resolve(node).and_then(|idx| dom.image_of(idx)).is_some() as i64
@@ -521,16 +521,16 @@ pub fn __RTS_FN_NS_DOM_HAS_IMAGE(h: u64, id: i64) -> i64 {
 }
 
 /// `focusedInput(dom)` → o `NodeId` do input focado (-1 se nenhum).
-#[rtse::abi("__RTS_FN_NS_DOM_FOCUSED_INPUT")]
-pub fn __RTS_FN_NS_DOM_FOCUSED_INPUT(h: u64) -> i64 {
+#[rtse::abi(module = "dom", value = "focusedInput")]
+pub fn __rtsm_dom_focusedInput(h: u64) -> i64 {
     with(h, |dom| dom.focused_input().map(|i| dom.id_of_idx(i).to_abi()).unwrap_or(NODE_NONE))
         .unwrap_or(NODE_NONE)
 }
 
 /// `inputFeedText(dom, text)` → anexa `text` ao input focado (os caracteres do
 /// frame). `1` se algo mudou (pede repaint), `0` senão.
-#[rtse::abi("__RTS_FN_NS_DOM_INPUT_FEED_TEXT")]
-pub fn __RTS_FN_NS_DOM_INPUT_FEED_TEXT(h: u64, t_ptr: u64, t_len: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "inputFeedText")]
+pub fn __rtsm_dom_inputFeedText(h: u64, t_ptr: u64, t_len: i64) -> i64 {
     let t_ptr = t_ptr as *const u8;
 
     let t = unsafe { str_abi::from_abi(t_ptr, t_len) }.unwrap_or("").to_string();
@@ -538,15 +538,15 @@ pub fn __RTS_FN_NS_DOM_INPUT_FEED_TEXT(h: u64, t_ptr: u64, t_len: i64) -> i64 {
 }
 
 /// `inputBackspace(dom)` → apaga o último char do input focado. `1` se mudou.
-#[rtse::abi("__RTS_FN_NS_DOM_INPUT_BACKSPACE")]
-pub fn __RTS_FN_NS_DOM_INPUT_BACKSPACE(h: u64) -> i64 {
+#[rtse::abi(module = "dom", value = "inputBackspace")]
+pub fn __rtsm_dom_inputBackspace(h: u64) -> i64 {
     with_mut(h, |dom| dom.input_backspace() as i64).unwrap_or(0)
 }
 
 /// `inputValue(dom, node)` → o texto corrente do input (value digitado ou atributo)
 /// como STRING (handle do pool GC). `""` se não for input.
-#[rtse::abi("__RTS_FN_NS_DOM_INPUT_VALUE")]
-pub fn __RTS_FN_NS_DOM_INPUT_VALUE(h: u64, id: i64) -> u64 {
+#[rtse::abi(module = "dom", value = "inputValue")]
+pub fn __rtsm_dom_inputValue(h: u64, id: i64) -> u64 {
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let v = with(h, |dom| {
         dom.resolve(node).map(|idx| dom.input_value(idx)).unwrap_or_default()
@@ -564,8 +564,8 @@ pub fn __RTS_FN_NS_DOM_INPUT_VALUE(h: u64, id: i64) -> u64 {
 
 /// `getText(domHandle, node)` → `node.textContent` como STRING (handle do pool
 /// GC). Concatena o texto de todos os descendentes. Nó inválido ⇒ `""`.
-#[rtse::abi("__RTS_FN_NS_DOM_GET_TEXT")]
-pub fn __RTS_FN_NS_DOM_GET_TEXT(h: u64, id: i64) -> u64 {
+#[rtse::abi(module = "dom", value = "getText")]
+pub fn __rtsm_dom_getText(h: u64, id: i64) -> u64 {
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let txt = with(h, |dom| dom.text_content(node).unwrap_or_default()).unwrap_or_default();
     intern(&txt)
@@ -573,16 +573,16 @@ pub fn __RTS_FN_NS_DOM_GET_TEXT(h: u64, id: i64) -> u64 {
 
 /// `innerHtml(domHandle, node)` → `element.innerHTML` como STRING (handle do pool
 /// GC): o HTML serializado dos FILHOS do nó. Nó inválido ⇒ `""`.
-#[rtse::abi("__RTS_FN_NS_DOM_INNER_HTML")]
-pub fn __RTS_FN_NS_DOM_INNER_HTML(h: u64, id: i64) -> u64 {
+#[rtse::abi(module = "dom", value = "innerHtml")]
+pub fn __rtsm_dom_innerHtml(h: u64, id: i64) -> u64 {
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let s = with(h, |dom| dom.inner_html(node).unwrap_or_default()).unwrap_or_default();
     intern(&s)
 }
 
 /// `outerHtml(domHandle, node)` → `element.outerHTML` (inclui o próprio elemento).
-#[rtse::abi("__RTS_FN_NS_DOM_OUTER_HTML")]
-pub fn __RTS_FN_NS_DOM_OUTER_HTML(h: u64, id: i64) -> u64 {
+#[rtse::abi(module = "dom", value = "outerHtml")]
+pub fn __rtsm_dom_outerHtml(h: u64, id: i64) -> u64 {
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let s = with(h, |dom| dom.outer_html(node).unwrap_or_default()).unwrap_or_default();
     intern(&s)
@@ -591,8 +591,8 @@ pub fn __RTS_FN_NS_DOM_OUTER_HTML(h: u64, id: i64) -> u64 {
 /// `setInnerHtml(domHandle, node, html)` → `element.innerHTML = html`: parseia o
 /// HTML e SUBSTITUI os filhos do nó pela nova subárvore. Nó inválido / não-elemento
 /// ⇒ no-op.
-#[rtse::abi("__RTS_FN_NS_DOM_SET_INNER_HTML")]
-pub fn __RTS_FN_NS_DOM_SET_INNER_HTML(h: u64, id: i64, html_ptr: u64, html_len: i64) {
+#[rtse::abi(module = "dom", value = "setInnerHtml")]
+pub fn __rtsm_dom_setInnerHtml(h: u64, id: i64, html_ptr: u64, html_len: i64) {
     let html_ptr = html_ptr as *const u8;
 
     let Some(node) = NodeId::from_abi(id) else { return };
@@ -607,25 +607,39 @@ pub fn __RTS_FN_NS_DOM_SET_INNER_HTML(h: u64, id: i64, html_ptr: u64, html_len: 
 /// to the result, so passing the name WITHOUT its two leading underscores
 /// reproduces the existing symbol exactly — and the Rust ident is `__RTS_…`
 /// again after expansion, so nothing that referenced it has to move.
+/// The five element-navigation getters, which differ only by which `Dom` method
+/// they call.
+///
+/// `$fn` is the SYMBOL, spelled out. It used to be the bare `#[rtse::abi]`
+/// (`Naming::Verbatim`) form with the caller passing `RTS_FN_NS_DOM_…` and the
+/// macro prefixing `__`; it now names the derived symbol directly and declares
+/// its scope, so these five stop being the odd ones out in this file.
+///
+/// **They were invisible to the rename map for the same reason the `ta_ctor!`
+/// TypedArray constructors were invisible to `rts-symbol-baker`: a source
+/// scanner cannot see through a `macro_rules!` body.** The map was built by
+/// scanning `#[rtse::abi("…")]` textually, so it holds 102 of this file's 107
+/// symbols and these five had to be found by the leftover grep. Any remaining
+/// N5 area should expect the same gap.
 macro_rules! nav_fn {
-    ($fn:ident, $method:ident) => {
-        #[rtse::abi]
+    ($fn:ident, $js:literal, $method:ident) => {
+        #[rtse::abi(module = "dom", value = $js)]
         pub fn $fn(h: u64, id: i64) -> i64 {
             let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
             with(h, |dom| dom.$method(node).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
         }
     };
 }
-nav_fn!(RTS_FN_NS_DOM_FIRST_ELEMENT_CHILD, first_element_child);
-nav_fn!(RTS_FN_NS_DOM_LAST_ELEMENT_CHILD, last_element_child);
-nav_fn!(RTS_FN_NS_DOM_NEXT_ELEMENT_SIBLING, next_element_sibling);
-nav_fn!(RTS_FN_NS_DOM_PREVIOUS_ELEMENT_SIBLING, previous_element_sibling);
-nav_fn!(RTS_FN_NS_DOM_PARENT_ELEMENT, parent_element);
+nav_fn!(__rtsm_dom_firstElementChild, "firstElementChild", first_element_child);
+nav_fn!(__rtsm_dom_lastElementChild, "lastElementChild", last_element_child);
+nav_fn!(__rtsm_dom_nextElementSibling, "nextElementSibling", next_element_sibling);
+nav_fn!(__rtsm_dom_previousElementSibling, "previousElementSibling", previous_element_sibling);
+nav_fn!(__rtsm_dom_parentElement, "parentElement", parent_element);
 
 /// `closest(domHandle, node, selector)` → o NodeId do ancestral (ou o próprio) que
 /// casa o seletor simples, ou `-1`.
-#[rtse::abi("__RTS_FN_NS_DOM_CLOSEST")]
-pub fn __RTS_FN_NS_DOM_CLOSEST(h: u64, id: i64, sel_ptr: u64, sel_len: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "closest")]
+pub fn __rtsm_dom_closest(h: u64, id: i64, sel_ptr: u64, sel_len: i64) -> i64 {
     let sel_ptr = sel_ptr as *const u8;
 
     let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
@@ -634,8 +648,8 @@ pub fn __RTS_FN_NS_DOM_CLOSEST(h: u64, id: i64, sel_ptr: u64, sel_len: i64) -> i
 }
 
 /// `matches(domHandle, node, selector)` → 1 se o nó casa o seletor, 0 senão.
-#[rtse::abi("__RTS_FN_NS_DOM_MATCHES")]
-pub fn __RTS_FN_NS_DOM_MATCHES(h: u64, id: i64, sel_ptr: u64, sel_len: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "matches")]
+pub fn __rtsm_dom_matches(h: u64, id: i64, sel_ptr: u64, sel_len: i64) -> i64 {
     let sel_ptr = sel_ptr as *const u8;
 
     let Some(node) = NodeId::from_abi(id) else { return 0 };
@@ -646,31 +660,31 @@ pub fn __RTS_FN_NS_DOM_MATCHES(h: u64, id: i64, sel_ptr: u64, sel_len: i64) -> i
 // ── Node utils — #1762 ──────────────────────────────────────────────────────────
 
 /// `contains(domHandle, node, other)` → 1 se `node` contém `other` (ou é ele), 0 senão.
-#[rtse::abi("__RTS_FN_NS_DOM_CONTAINS")]
-pub fn __RTS_FN_NS_DOM_CONTAINS(h: u64, id: i64, other: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "contains")]
+pub fn __rtsm_dom_contains(h: u64, id: i64, other: i64) -> i64 {
     let (Some(node), Some(o)) = (NodeId::from_abi(id), NodeId::from_abi(other)) else { return 0 };
     with(h, |dom| dom.contains(node, o) as i64).unwrap_or(0)
 }
 
 /// `hasChildNodes(domHandle, node)` → 1 se tem ao menos um filho, 0 senão.
-#[rtse::abi("__RTS_FN_NS_DOM_HAS_CHILD_NODES")]
-pub fn __RTS_FN_NS_DOM_HAS_CHILD_NODES(h: u64, id: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "hasChildNodes")]
+pub fn __rtsm_dom_hasChildNodes(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return 0 };
     with(h, |dom| dom.has_child_nodes(node) as i64).unwrap_or(0)
 }
 
 /// `nodeValue(domHandle, node)` → o texto cru de um nó Text/Comment como STRING; ""
 /// para Element/Document (nodeValue null).
-#[rtse::abi("__RTS_FN_NS_DOM_NODE_VALUE")]
-pub fn __RTS_FN_NS_DOM_NODE_VALUE(h: u64, id: i64) -> u64 {
+#[rtse::abi(module = "dom", value = "nodeValue")]
+pub fn __rtsm_dom_nodeValue(h: u64, id: i64) -> u64 {
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let v = with(h, |dom| dom.node_value(node).unwrap_or_default()).unwrap_or_default();
     intern(&v)
 }
 
 /// `setNodeValue(domHandle, node, value)` → substitui o texto de um nó Text/Comment.
-#[rtse::abi("__RTS_FN_NS_DOM_SET_NODE_VALUE")]
-pub fn __RTS_FN_NS_DOM_SET_NODE_VALUE(h: u64, id: i64, v_ptr: u64, v_len: i64) {
+#[rtse::abi(module = "dom", value = "setNodeValue")]
+pub fn __rtsm_dom_setNodeValue(h: u64, id: i64, v_ptr: u64, v_len: i64) {
     let v_ptr = v_ptr as *const u8;
 
     let Some(node) = NodeId::from_abi(id) else { return };
@@ -679,8 +693,8 @@ pub fn __RTS_FN_NS_DOM_SET_NODE_VALUE(h: u64, id: i64, v_ptr: u64, v_len: i64) {
 }
 
 /// `createComment(domHandle, text)` → NodeId de um nó de comentário solto.
-#[rtse::abi("__RTS_FN_NS_DOM_CREATE_COMMENT")]
-pub fn __RTS_FN_NS_DOM_CREATE_COMMENT(h: u64, t_ptr: u64, t_len: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "createComment")]
+pub fn __rtsm_dom_createComment(h: u64, t_ptr: u64, t_len: i64) -> i64 {
     let t_ptr = t_ptr as *const u8;
 
     let text = unsafe { str_abi::from_abi(t_ptr, t_len) }.unwrap_or("").to_string();
@@ -688,8 +702,8 @@ pub fn __RTS_FN_NS_DOM_CREATE_COMMENT(h: u64, t_ptr: u64, t_len: i64) -> i64 {
 }
 
 /// `normalize(domHandle, node)` → funde nós de texto adjacentes + remove vazios.
-#[rtse::abi("__RTS_FN_NS_DOM_NORMALIZE")]
-pub fn __RTS_FN_NS_DOM_NORMALIZE(h: u64, id: i64) {
+#[rtse::abi(module = "dom", value = "normalize")]
+pub fn __rtsm_dom_normalize(h: u64, id: i64) {
     let Some(node) = NodeId::from_abi(id) else { return };
     with_mut(h, |dom| dom.normalize(node));
 }
@@ -697,8 +711,8 @@ pub fn __RTS_FN_NS_DOM_NORMALIZE(h: u64, id: i64) {
 // ── Atributos extra — #1761 ─────────────────────────────────────────────────────
 
 /// `removeAttr(domHandle, node, name)` → remove o atributo (no-op se ausente).
-#[rtse::abi("__RTS_FN_NS_DOM_REMOVE_ATTR")]
-pub fn __RTS_FN_NS_DOM_REMOVE_ATTR(h: u64, id: i64, n_ptr: u64, n_len: i64) {
+#[rtse::abi(module = "dom", value = "removeAttr")]
+pub fn __rtsm_dom_removeAttr(h: u64, id: i64, n_ptr: u64, n_len: i64) {
     let n_ptr = n_ptr as *const u8;
 
     let Some(node) = NodeId::from_abi(id) else { return };
@@ -708,8 +722,8 @@ pub fn __RTS_FN_NS_DOM_REMOVE_ATTR(h: u64, id: i64, n_ptr: u64, n_len: i64) {
 
 /// `hasAttr(domHandle, node, name)` → 1 se o atributo está PRESENTE (mesmo vazio),
 /// 0 senão. Corrige atributos booleanos (`hidden`/`disabled`, valor `""`).
-#[rtse::abi("__RTS_FN_NS_DOM_HAS_ATTR")]
-pub fn __RTS_FN_NS_DOM_HAS_ATTR(h: u64, id: i64, n_ptr: u64, n_len: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "hasAttr")]
+pub fn __rtsm_dom_hasAttr(h: u64, id: i64, n_ptr: u64, n_len: i64) -> i64 {
     let n_ptr = n_ptr as *const u8;
 
     let Some(node) = NodeId::from_abi(id) else { return 0 };
@@ -718,23 +732,23 @@ pub fn __RTS_FN_NS_DOM_HAS_ATTR(h: u64, id: i64, n_ptr: u64, n_len: i64) -> i64 
 }
 
 /// `attrCount(domHandle, node)` → nº de atributos (para getAttributeNames/attributes).
-#[rtse::abi("__RTS_FN_NS_DOM_ATTR_COUNT")]
-pub fn __RTS_FN_NS_DOM_ATTR_COUNT(h: u64, id: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "attrCount")]
+pub fn __rtsm_dom_attrCount(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return 0 };
     with(h, |dom| dom.attr_names(node).len() as i64).unwrap_or(0)
 }
 
 /// `attrNameAt(domHandle, node, i)` → nome do i-ésimo atributo como STRING.
-#[rtse::abi("__RTS_FN_NS_DOM_ATTR_NAME_AT")]
-pub fn __RTS_FN_NS_DOM_ATTR_NAME_AT(h: u64, id: i64, i: i64) -> u64 {
+#[rtse::abi(module = "dom", value = "attrNameAt")]
+pub fn __rtsm_dom_attrNameAt(h: u64, id: i64, i: i64) -> u64 {
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let name = with(h, |dom| dom.attr_names(node).get(i as usize).cloned().unwrap_or_default()).unwrap_or_default();
     intern(&name)
 }
 
 /// `attrValueAt(domHandle, node, i)` → valor do i-ésimo atributo como STRING.
-#[rtse::abi("__RTS_FN_NS_DOM_ATTR_VALUE_AT")]
-pub fn __RTS_FN_NS_DOM_ATTR_VALUE_AT(h: u64, id: i64, i: i64) -> u64 {
+#[rtse::abi(module = "dom", value = "attrValueAt")]
+pub fn __rtsm_dom_attrValueAt(h: u64, id: i64, i: i64) -> u64 {
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let val = with(h, |dom| dom.attr_value_at(node, i as usize).unwrap_or_default()).unwrap_or_default();
     intern(&val)
@@ -744,15 +758,15 @@ pub fn __RTS_FN_NS_DOM_ATTR_VALUE_AT(h: u64, id: i64, i: i64) -> u64 {
 // Mesmo padrão count+at do querySelectorAll (re-roda a coleção por índice).
 
 /// `getByClassCount`/`getByClassAt` — elementos com a classe (HTMLCollection).
-#[rtse::abi("__RTS_FN_NS_DOM_GET_BY_CLASS_COUNT")]
-pub fn __RTS_FN_NS_DOM_GET_BY_CLASS_COUNT(h: u64, n_ptr: u64, n_len: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "getByClassCount")]
+pub fn __rtsm_dom_getByClassCount(h: u64, n_ptr: u64, n_len: i64) -> i64 {
     let n_ptr = n_ptr as *const u8;
 
     let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("");
     with(h, |dom| dom.get_elements_by_class_name(name).len() as i64).unwrap_or(0)
 }
-#[rtse::abi("__RTS_FN_NS_DOM_GET_BY_CLASS_AT")]
-pub fn __RTS_FN_NS_DOM_GET_BY_CLASS_AT(h: u64, n_ptr: u64, n_len: i64, i: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "getByClassAt")]
+pub fn __rtsm_dom_getByClassAt(h: u64, n_ptr: u64, n_len: i64, i: i64) -> i64 {
     let n_ptr = n_ptr as *const u8;
 
     if i < 0 { return NODE_NONE; }
@@ -761,15 +775,15 @@ pub fn __RTS_FN_NS_DOM_GET_BY_CLASS_AT(h: u64, n_ptr: u64, n_len: i64, i: i64) -
 }
 
 /// `getByTagCount`/`getByTagAt` — elementos da tag (`*` = todos).
-#[rtse::abi("__RTS_FN_NS_DOM_GET_BY_TAG_COUNT")]
-pub fn __RTS_FN_NS_DOM_GET_BY_TAG_COUNT(h: u64, n_ptr: u64, n_len: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "getByTagCount")]
+pub fn __rtsm_dom_getByTagCount(h: u64, n_ptr: u64, n_len: i64) -> i64 {
     let n_ptr = n_ptr as *const u8;
 
     let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("");
     with(h, |dom| dom.get_elements_by_tag_name(name).len() as i64).unwrap_or(0)
 }
-#[rtse::abi("__RTS_FN_NS_DOM_GET_BY_TAG_AT")]
-pub fn __RTS_FN_NS_DOM_GET_BY_TAG_AT(h: u64, n_ptr: u64, n_len: i64, i: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "getByTagAt")]
+pub fn __rtsm_dom_getByTagAt(h: u64, n_ptr: u64, n_len: i64, i: i64) -> i64 {
     let n_ptr = n_ptr as *const u8;
 
     if i < 0 { return NODE_NONE; }
@@ -778,15 +792,15 @@ pub fn __RTS_FN_NS_DOM_GET_BY_TAG_AT(h: u64, n_ptr: u64, n_len: i64, i: i64) -> 
 }
 
 /// `getByNameCount`/`getByNameAt` — elementos com atributo `name`.
-#[rtse::abi("__RTS_FN_NS_DOM_GET_BY_NAME_COUNT")]
-pub fn __RTS_FN_NS_DOM_GET_BY_NAME_COUNT(h: u64, n_ptr: u64, n_len: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "getByNameCount")]
+pub fn __rtsm_dom_getByNameCount(h: u64, n_ptr: u64, n_len: i64) -> i64 {
     let n_ptr = n_ptr as *const u8;
 
     let name = unsafe { str_abi::from_abi(n_ptr, n_len) }.unwrap_or("");
     with(h, |dom| dom.get_elements_by_name(name).len() as i64).unwrap_or(0)
 }
-#[rtse::abi("__RTS_FN_NS_DOM_GET_BY_NAME_AT")]
-pub fn __RTS_FN_NS_DOM_GET_BY_NAME_AT(h: u64, n_ptr: u64, n_len: i64, i: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "getByNameAt")]
+pub fn __rtsm_dom_getByNameAt(h: u64, n_ptr: u64, n_len: i64, i: i64) -> i64 {
     let n_ptr = n_ptr as *const u8;
 
     if i < 0 { return NODE_NONE; }
@@ -795,8 +809,8 @@ pub fn __RTS_FN_NS_DOM_GET_BY_NAME_AT(h: u64, n_ptr: u64, n_len: i64, i: i64) ->
 }
 
 /// `queryWithin(domHandle, root, selector)` → 1º descendente de `root` que casa, ou -1.
-#[rtse::abi("__RTS_FN_NS_DOM_QUERY_WITHIN")]
-pub fn __RTS_FN_NS_DOM_QUERY_WITHIN(h: u64, id: i64, sel_ptr: u64, sel_len: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "queryWithin")]
+pub fn __rtsm_dom_queryWithin(h: u64, id: i64, sel_ptr: u64, sel_len: i64) -> i64 {
     let sel_ptr = sel_ptr as *const u8;
 
     let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
@@ -805,16 +819,16 @@ pub fn __RTS_FN_NS_DOM_QUERY_WITHIN(h: u64, id: i64, sel_ptr: u64, sel_len: i64)
 }
 
 /// `queryAllWithinCount`/`At` — descendentes de `root` que casam (subárvore).
-#[rtse::abi("__RTS_FN_NS_DOM_QUERY_ALL_WITHIN_COUNT")]
-pub fn __RTS_FN_NS_DOM_QUERY_ALL_WITHIN_COUNT(h: u64, id: i64, sel_ptr: u64, sel_len: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "queryAllWithinCount")]
+pub fn __rtsm_dom_queryAllWithinCount(h: u64, id: i64, sel_ptr: u64, sel_len: i64) -> i64 {
     let sel_ptr = sel_ptr as *const u8;
 
     let Some(node) = NodeId::from_abi(id) else { return 0 };
     let sel = unsafe { str_abi::from_abi(sel_ptr, sel_len) }.unwrap_or("").to_string();
     with(h, |dom| dom.query_all_within(node, &sel).len() as i64).unwrap_or(0)
 }
-#[rtse::abi("__RTS_FN_NS_DOM_QUERY_ALL_WITHIN_AT")]
-pub fn __RTS_FN_NS_DOM_QUERY_ALL_WITHIN_AT(h: u64, id: i64, sel_ptr: u64, sel_len: i64, i: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "queryAllWithinAt")]
+pub fn __rtsm_dom_queryAllWithinAt(h: u64, id: i64, sel_ptr: u64, sel_len: i64, i: i64) -> i64 {
     let sel_ptr = sel_ptr as *const u8;
 
     if i < 0 { return NODE_NONE; }
@@ -826,50 +840,50 @@ pub fn __RTS_FN_NS_DOM_QUERY_ALL_WITHIN_AT(h: u64, id: i64, sel_ptr: u64, sel_le
 // ── Mutação rica — #1756 ─────────────────────────────────────────────────────────
 
 /// `cloneNode(domHandle, node, deep)` → NodeId do clone solto (deep!=0 = com filhos).
-#[rtse::abi("__RTS_FN_NS_DOM_CLONE_NODE")]
-pub fn __RTS_FN_NS_DOM_CLONE_NODE(h: u64, id: i64, deep: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "cloneNode")]
+pub fn __rtsm_dom_cloneNode(h: u64, id: i64, deep: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return NODE_NONE };
     with_mut(h, |dom| dom.clone_node(node, deep != 0).map(|n| n.to_abi()).unwrap_or(NODE_NONE)).unwrap_or(NODE_NONE)
 }
 
 /// `prepend(domHandle, parent, child)` → insere child no início dos filhos.
-#[rtse::abi("__RTS_FN_NS_DOM_PREPEND")]
-pub fn __RTS_FN_NS_DOM_PREPEND(h: u64, parent: i64, child: i64) {
+#[rtse::abi(module = "dom", value = "prepend")]
+pub fn __rtsm_dom_prepend(h: u64, parent: i64, child: i64) {
     let (Some(p), Some(c)) = (NodeId::from_abi(parent), NodeId::from_abi(child)) else { return };
     with_mut(h, |dom| dom.prepend_child(p, c));
 }
 
 /// `insertAdjacent(domHandle, node, other, after)` → other como irmão antes/depois.
-#[rtse::abi("__RTS_FN_NS_DOM_INSERT_ADJACENT")]
-pub fn __RTS_FN_NS_DOM_INSERT_ADJACENT(h: u64, node: i64, other: i64, after: i64) {
+#[rtse::abi(module = "dom", value = "insertAdjacent")]
+pub fn __rtsm_dom_insertAdjacent(h: u64, node: i64, other: i64, after: i64) {
     let (Some(n), Some(o)) = (NodeId::from_abi(node), NodeId::from_abi(other)) else { return };
     with_mut(h, |dom| dom.insert_adjacent(n, o, after != 0));
 }
 
 /// `replaceWith(domHandle, node, other)` → substitui node por other.
-#[rtse::abi("__RTS_FN_NS_DOM_REPLACE_WITH")]
-pub fn __RTS_FN_NS_DOM_REPLACE_WITH(h: u64, node: i64, other: i64) {
+#[rtse::abi(module = "dom", value = "replaceWith")]
+pub fn __rtsm_dom_replaceWith(h: u64, node: i64, other: i64) {
     let (Some(n), Some(o)) = (NodeId::from_abi(node), NodeId::from_abi(other)) else { return };
     with_mut(h, |dom| dom.replace_with(n, o));
 }
 
 /// `replaceChild(domHandle, parent, new, old)` → substitui old por new.
-#[rtse::abi("__RTS_FN_NS_DOM_REPLACE_CHILD")]
-pub fn __RTS_FN_NS_DOM_REPLACE_CHILD(h: u64, parent: i64, new_child: i64, old_child: i64) {
+#[rtse::abi(module = "dom", value = "replaceChild")]
+pub fn __rtsm_dom_replaceChild(h: u64, parent: i64, new_child: i64, old_child: i64) {
     let (Some(p), Some(nw), Some(od)) = (NodeId::from_abi(parent), NodeId::from_abi(new_child), NodeId::from_abi(old_child)) else { return };
     with_mut(h, |dom| dom.replace_child(p, nw, od));
 }
 
 /// `removeChild(domHandle, parent, child)` → remove child se for filho de parent.
-#[rtse::abi("__RTS_FN_NS_DOM_REMOVE_CHILD")]
-pub fn __RTS_FN_NS_DOM_REMOVE_CHILD(h: u64, parent: i64, child: i64) {
+#[rtse::abi(module = "dom", value = "removeChild")]
+pub fn __rtsm_dom_removeChild(h: u64, parent: i64, child: i64) {
     let (Some(p), Some(c)) = (NodeId::from_abi(parent), NodeId::from_abi(child)) else { return };
     with_mut(h, |dom| dom.remove_child(p, c));
 }
 
 /// `clearChildren(domHandle, parent)` → remove todos os filhos (base de replaceChildren).
-#[rtse::abi("__RTS_FN_NS_DOM_CLEAR_CHILDREN")]
-pub fn __RTS_FN_NS_DOM_CLEAR_CHILDREN(h: u64, parent: i64) {
+#[rtse::abi(module = "dom", value = "clearChildren")]
+pub fn __rtsm_dom_clearChildren(h: u64, parent: i64) {
     let Some(p) = NodeId::from_abi(parent) else { return };
     with_mut(h, |dom| dom.clear_children(p));
 }
@@ -878,8 +892,8 @@ pub fn __RTS_FN_NS_DOM_CLEAR_CHILDREN(h: u64, parent: i64) {
 
 /// `computedProperty(domHandle, node, name)` → valor COMPUTADO da prop (após
 /// cascade) como STRING, formato do browser. "" se ausente.
-#[rtse::abi("__RTS_FN_NS_DOM_COMPUTED_PROPERTY")]
-pub fn __RTS_FN_NS_DOM_COMPUTED_PROPERTY(h: u64, id: i64, n_ptr: u64, n_len: i64) -> u64 {
+#[rtse::abi(module = "dom", value = "computedProperty")]
+pub fn __rtsm_dom_computedProperty(h: u64, id: i64, n_ptr: u64, n_len: i64) -> u64 {
     let n_ptr = n_ptr as *const u8;
 
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
@@ -889,8 +903,8 @@ pub fn __RTS_FN_NS_DOM_COMPUTED_PROPERTY(h: u64, id: i64, n_ptr: u64, n_len: i64
 }
 
 /// `inlineProperty(domHandle, node, name)` → valor INLINE da prop (só `style=""`).
-#[rtse::abi("__RTS_FN_NS_DOM_INLINE_PROPERTY")]
-pub fn __RTS_FN_NS_DOM_INLINE_PROPERTY(h: u64, id: i64, n_ptr: u64, n_len: i64) -> u64 {
+#[rtse::abi(module = "dom", value = "inlineProperty")]
+pub fn __rtsm_dom_inlineProperty(h: u64, id: i64, n_ptr: u64, n_len: i64) -> u64 {
     let n_ptr = n_ptr as *const u8;
 
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
@@ -900,16 +914,16 @@ pub fn __RTS_FN_NS_DOM_INLINE_PROPERTY(h: u64, id: i64, n_ptr: u64, n_len: i64) 
 }
 
 /// `cssText(domHandle, node)` → o `style=""` cru.
-#[rtse::abi("__RTS_FN_NS_DOM_CSS_TEXT")]
-pub fn __RTS_FN_NS_DOM_CSS_TEXT(h: u64, id: i64) -> u64 {
+#[rtse::abi(module = "dom", value = "cssText")]
+pub fn __rtsm_dom_cssText(h: u64, id: i64) -> u64 {
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let v = with(h, |dom| dom.css_text(node)).unwrap_or_default();
     intern(&v)
 }
 
 /// `setCssText(domHandle, node, text)` → substitui o `style=""` inteiro.
-#[rtse::abi("__RTS_FN_NS_DOM_SET_CSS_TEXT")]
-pub fn __RTS_FN_NS_DOM_SET_CSS_TEXT(h: u64, id: i64, t_ptr: u64, t_len: i64) {
+#[rtse::abi(module = "dom", value = "setCssText")]
+pub fn __rtsm_dom_setCssText(h: u64, id: i64, t_ptr: u64, t_len: i64) {
     let t_ptr = t_ptr as *const u8;
 
     let Some(node) = NodeId::from_abi(id) else { return };
@@ -922,8 +936,8 @@ pub fn __RTS_FN_NS_DOM_SET_CSS_TEXT(h: u64, id: i64, t_ptr: u64, t_len: i64) {
 /// desempatam por cima). Usado pela camada TS de carregamento de recursos para ligar
 /// CSS externo (`<link rel=stylesheet>`, `@import`) à cascade — o Rust não conhece a
 /// tag `<link>` nem lê o arquivo; o TS resolve/baixa e chama isto com o CSS pronto.
-#[rtse::abi("__RTS_FN_NS_DOM_ADD_STYLESHEET")]
-pub fn __RTS_FN_NS_DOM_ADD_STYLESHEET(h: u64, css_ptr: u64, css_len: i64) {
+#[rtse::abi(module = "dom", value = "addStylesheet")]
+pub fn __rtsm_dom_addStylesheet(h: u64, css_ptr: u64, css_len: i64) {
     let css_ptr = css_ptr as *const u8;
 
     let css = unsafe { str_abi::from_abi(css_ptr, css_len) }.unwrap_or("").to_string();
@@ -935,8 +949,8 @@ pub fn __RTS_FN_NS_DOM_ADD_STYLESHEET(h: u64, css_ptr: u64, css_len: i64) {
 /// novo não tem eval in-process com acesso ao DOM (ver a nota em `__loadScriptAt`).
 /// Carregar ≠ executar — quando o eval in-process existir, este primitivo evolui para
 /// disparar a execução de fato.
-#[rtse::abi("__RTS_FN_NS_DOM_RUN_SCRIPT")]
-pub fn __RTS_FN_NS_DOM_RUN_SCRIPT(h: u64, id: i64, c_ptr: u64, c_len: i64) {
+#[rtse::abi(module = "dom", value = "runScript")]
+pub fn __rtsm_dom_runScript(h: u64, id: i64, c_ptr: u64, c_len: i64) {
     let c_ptr = c_ptr as *const u8;
 
     let Some(node) = NodeId::from_abi(id) else { return };
@@ -945,8 +959,8 @@ pub fn __RTS_FN_NS_DOM_RUN_SCRIPT(h: u64, id: i64, c_ptr: u64, c_len: i64) {
 }
 
 /// `setStyleProperty(domHandle, node, name, value)` → define UMA prop no `style=""`.
-#[rtse::abi("__RTS_FN_NS_DOM_SET_STYLE_PROPERTY")]
-pub fn __RTS_FN_NS_DOM_SET_STYLE_PROPERTY(
+#[rtse::abi(module = "dom", value = "setStyleProperty")]
+pub fn __rtsm_dom_setStyleProperty(
     h: u64, id: i64, n_ptr: u64, n_len: i64, v_ptr: u64, v_len: i64,
 ) {
     let n_ptr = n_ptr as *const u8;
@@ -959,8 +973,8 @@ pub fn __RTS_FN_NS_DOM_SET_STYLE_PROPERTY(
 }
 
 /// `removeStyleProperty(domHandle, node, name)` → remove a prop do `style=""`.
-#[rtse::abi("__RTS_FN_NS_DOM_REMOVE_STYLE_PROPERTY")]
-pub fn __RTS_FN_NS_DOM_REMOVE_STYLE_PROPERTY(h: u64, id: i64, n_ptr: u64, n_len: i64) {
+#[rtse::abi(module = "dom", value = "removeStyleProperty")]
+pub fn __rtsm_dom_removeStyleProperty(h: u64, id: i64, n_ptr: u64, n_len: i64) {
     let n_ptr = n_ptr as *const u8;
 
     let Some(node) = NodeId::from_abi(id) else { return };
@@ -978,8 +992,8 @@ thread_local! {
 }
 
 /// `addListener(domHandle, node, type)` → registra que o nó escuta o tipo.
-#[rtse::abi("__RTS_FN_NS_DOM_ADD_LISTENER")]
-pub fn __RTS_FN_NS_DOM_ADD_LISTENER(h: u64, id: i64, t_ptr: u64, t_len: i64) {
+#[rtse::abi(module = "dom", value = "addListener")]
+pub fn __rtsm_dom_addListener(h: u64, id: i64, t_ptr: u64, t_len: i64) {
     let t_ptr = t_ptr as *const u8;
 
     let Some(node) = NodeId::from_abi(id) else { return };
@@ -989,8 +1003,8 @@ pub fn __RTS_FN_NS_DOM_ADD_LISTENER(h: u64, id: i64, t_ptr: u64, t_len: i64) {
 
 /// `addListenerCb(domHandle, node, type, cb)` → registra o tipo E o callback
 /// (word/handle i64 da Function, guardado OPACO — quem invoca é a fachada TS).
-#[rtse::abi("__RTS_FN_NS_DOM_ADD_LISTENER_CB")]
-pub fn __RTS_FN_NS_DOM_ADD_LISTENER_CB(
+#[rtse::abi(module = "dom", value = "addListenerCb")]
+pub fn __rtsm_dom_addListenerCb(
     h: u64,
     id: i64,
     t_ptr: u64,
@@ -1007,8 +1021,8 @@ pub fn __RTS_FN_NS_DOM_ADD_LISTENER_CB(
 /// `dispatchCollect(domHandle, target, type, bubbles)` → dispara COLETANDO os
 /// callbacks (alvo → bubbling) no scratch do Dom; devolve quantos coletou. A
 /// fachada TS lê com `dispatchCbAt`/`dispatchCbNode` e COPIA antes de invocar.
-#[rtse::abi("__RTS_FN_NS_DOM_DISPATCH_COLLECT")]
-pub fn __RTS_FN_NS_DOM_DISPATCH_COLLECT(
+#[rtse::abi(module = "dom", value = "dispatchCollect")]
+pub fn __rtsm_dom_dispatchCollect(
     h: u64,
     id: i64,
     t_ptr: u64,
@@ -1023,8 +1037,8 @@ pub fn __RTS_FN_NS_DOM_DISPATCH_COLLECT(
 }
 
 /// `dispatchCbAt(domHandle, i)` → o i-ésimo callback-word coletado (0 fora do range).
-#[rtse::abi("__RTS_FN_NS_DOM_DISPATCH_CB_AT")]
-pub fn __RTS_FN_NS_DOM_DISPATCH_CB_AT(h: u64, i: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "dispatchCbAt")]
+pub fn __rtsm_dom_dispatchCbAt(h: u64, i: i64) -> i64 {
     with(h, |dom| {
         dom.last_dispatch_at(i.max(0) as usize)
             .map(|(_, cb)| cb)
@@ -1035,8 +1049,8 @@ pub fn __RTS_FN_NS_DOM_DISPATCH_CB_AT(h: u64, i: i64) -> i64 {
 
 /// `dispatchCbNode(domHandle, i)` → o NodeId do nó que escuta no i-ésimo par
 /// coletado (-1 fora do range) — vira o `currentTarget` do handler na fachada.
-#[rtse::abi("__RTS_FN_NS_DOM_DISPATCH_CB_NODE")]
-pub fn __RTS_FN_NS_DOM_DISPATCH_CB_NODE(h: u64, i: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "dispatchCbNode")]
+pub fn __rtsm_dom_dispatchCbNode(h: u64, i: i64) -> i64 {
     with(h, |dom| {
         dom.last_dispatch_at(i.max(0) as usize)
             .map(|(n, _)| n.to_abi())
@@ -1046,8 +1060,8 @@ pub fn __RTS_FN_NS_DOM_DISPATCH_CB_NODE(h: u64, i: i64) -> i64 {
 }
 
 /// `removeListener(domHandle, node, type)` → para de escutar o tipo.
-#[rtse::abi("__RTS_FN_NS_DOM_REMOVE_LISTENER")]
-pub fn __RTS_FN_NS_DOM_REMOVE_LISTENER(h: u64, id: i64, t_ptr: u64, t_len: i64) {
+#[rtse::abi(module = "dom", value = "removeListener")]
+pub fn __rtsm_dom_removeListener(h: u64, id: i64, t_ptr: u64, t_len: i64) {
     let t_ptr = t_ptr as *const u8;
 
     let Some(node) = NodeId::from_abi(id) else { return };
@@ -1056,8 +1070,8 @@ pub fn __RTS_FN_NS_DOM_REMOVE_LISTENER(h: u64, id: i64, t_ptr: u64, t_len: i64) 
 }
 
 /// `hasListener(domHandle, node, type)` → 1 se o nó escuta o tipo, 0 senão.
-#[rtse::abi("__RTS_FN_NS_DOM_HAS_LISTENER")]
-pub fn __RTS_FN_NS_DOM_HAS_LISTENER(h: u64, id: i64, t_ptr: u64, t_len: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "hasListener")]
+pub fn __rtsm_dom_hasListener(h: u64, id: i64, t_ptr: u64, t_len: i64) -> i64 {
     let t_ptr = t_ptr as *const u8;
 
     let Some(node) = NodeId::from_abi(id) else { return 0 };
@@ -1067,8 +1081,8 @@ pub fn __RTS_FN_NS_DOM_HAS_LISTENER(h: u64, id: i64, t_ptr: u64, t_len: i64) -> 
 
 /// `dispatchEvent(domHandle, target, type, bubbles)` → dispara; `bubbles!=0` sobe
 /// pelos ancestrais. Devolve quantos listeners foram enfileirados.
-#[rtse::abi("__RTS_FN_NS_DOM_DISPATCH_EVENT")]
-pub fn __RTS_FN_NS_DOM_DISPATCH_EVENT(h: u64, id: i64, t_ptr: u64, t_len: i64, bubbles: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "dispatchEvent")]
+pub fn __rtsm_dom_dispatchEvent(h: u64, id: i64, t_ptr: u64, t_len: i64, bubbles: i64) -> i64 {
     let t_ptr = t_ptr as *const u8;
 
     let Some(node) = NodeId::from_abi(id) else { return 0 };
@@ -1078,8 +1092,8 @@ pub fn __RTS_FN_NS_DOM_DISPATCH_EVENT(h: u64, id: i64, t_ptr: u64, t_len: i64, b
 
 /// `pollEvent(domHandle)` → NodeId do próximo evento pendente (ou -1 se a fila está
 /// vazia). GUARDA o tipo p/ `pollEventType` ler em seguida.
-#[rtse::abi("__RTS_FN_NS_DOM_POLL_EVENT")]
-pub fn __RTS_FN_NS_DOM_POLL_EVENT(h: u64) -> i64 {
+#[rtse::abi(module = "dom", value = "pollEvent")]
+pub fn __rtsm_dom_pollEvent(h: u64) -> i64 {
     match with_mut(h, |dom| dom.poll_event()) {
         Some(Some((node, t))) => {
             LAST_EVENT_TYPE.with(|c| *c.borrow_mut() = t);
@@ -1094,8 +1108,8 @@ pub fn __RTS_FN_NS_DOM_POLL_EVENT(h: u64) -> i64 {
 
 /// `pollEventType(domHandle)` → o tipo do evento entregue no último `pollEvent` (""
 /// se nenhum). Ler imediatamente após `pollEvent`.
-#[rtse::abi("__RTS_FN_NS_DOM_POLL_EVENT_TYPE")]
-pub fn __RTS_FN_NS_DOM_POLL_EVENT_TYPE(_h: u64) -> u64 {
+#[rtse::abi(module = "dom", value = "pollEventType")]
+pub fn __rtsm_dom_pollEventType(_h: u64) -> u64 {
     let t = LAST_EVENT_TYPE.with(|c| c.borrow().clone());
     intern(&t)
 }
@@ -1103,8 +1117,8 @@ pub fn __RTS_FN_NS_DOM_POLL_EVENT_TYPE(_h: u64) -> u64 {
 /// `setHovered(domHandle, node)` → informa o nó sob o cursor (`-1` = nenhum) — o
 /// estado do `:hover` vivo. O backend real chama por frame via hit-test; este
 /// membro cobre testes headless e backends alternativos.
-#[rtse::abi("__RTS_FN_NS_DOM_SET_HOVERED")]
-pub fn __RTS_FN_NS_DOM_SET_HOVERED(h: u64, id: i64) {
+#[rtse::abi(module = "dom", value = "setHovered")]
+pub fn __rtsm_dom_setHovered(h: u64, id: i64) {
     with_mut(h, |dom| {
         let idx = NodeId::from_abi(id).and_then(|n| dom.resolve(n));
         dom.set_hovered(idx);
@@ -1114,8 +1128,8 @@ pub fn __RTS_FN_NS_DOM_SET_HOVERED(h: u64, id: i64) {
 /// `pushRawEvent(domHandle, node, type)` → empurra um evento CRU na fila do
 /// backend (o mesmo caminho do hit-test do mouse) — para eventos sintéticos e
 /// testes headless do ciclo completo.
-#[rtse::abi("__RTS_FN_NS_DOM_PUSH_RAW_EVENT")]
-pub fn __RTS_FN_NS_DOM_PUSH_RAW_EVENT(h: u64, id: i64, t_ptr: u64, t_len: i64) {
+#[rtse::abi(module = "dom", value = "pushRawEvent")]
+pub fn __rtsm_dom_pushRawEvent(h: u64, id: i64, t_ptr: u64, t_len: i64) {
     let t_ptr = t_ptr as *const u8;
 
     let Some(node) = NodeId::from_abi(id) else { return };
@@ -1130,8 +1144,8 @@ pub fn __RTS_FN_NS_DOM_PUSH_RAW_EVENT(h: u64, id: i64, t_ptr: u64, t_len: i64) {
 /// `pollRawEvent(domHandle)` → NodeId do próximo evento CRU do backend (hit-test do
 /// mouse), ou -1. GUARDA o tipo p/ `pollRawEventType` ler em seguida. A fachada TS
 /// (`pumpEventCallbacks`) drena e faz o dispatch completo (bubbling + callbacks).
-#[rtse::abi("__RTS_FN_NS_DOM_POLL_RAW_EVENT")]
-pub fn __RTS_FN_NS_DOM_POLL_RAW_EVENT(h: u64) -> i64 {
+#[rtse::abi(module = "dom", value = "pollRawEvent")]
+pub fn __rtsm_dom_pollRawEvent(h: u64) -> i64 {
     match with_mut(h, |dom| dom.poll_raw_event()) {
         Some(Some((node, t))) => {
             LAST_RAW_EVENT_TYPE.with(|c| *c.borrow_mut() = t);
@@ -1146,8 +1160,8 @@ pub fn __RTS_FN_NS_DOM_POLL_RAW_EVENT(h: u64) -> i64 {
 
 /// `pollRawEventType(domHandle)` → o tipo do evento entregue no último
 /// `pollRawEvent` ("" se nenhum). Ler imediatamente após.
-#[rtse::abi("__RTS_FN_NS_DOM_POLL_RAW_EVENT_TYPE")]
-pub fn __RTS_FN_NS_DOM_POLL_RAW_EVENT_TYPE(_h: u64) -> u64 {
+#[rtse::abi(module = "dom", value = "pollRawEventType")]
+pub fn __rtsm_dom_pollRawEventType(_h: u64) -> u64 {
     let t = LAST_RAW_EVENT_TYPE.with(|c| c.borrow().clone());
     intern(&t)
 }
@@ -1155,16 +1169,16 @@ pub fn __RTS_FN_NS_DOM_POLL_RAW_EVENT_TYPE(_h: u64) -> u64 {
 /// `advance(domHandle, nowMs)` → avança as animações para o instante `nowMs` (o LOOP
 /// INTERNO ao DOM; #1776). Devolve 1 se há animação ATIVA (o backend deve repintar o
 /// próximo frame), 0 se tudo estático. O egui só chama isto passando o tempo do frame.
-#[rtse::abi("__RTS_FN_NS_DOM_ADVANCE")]
-pub fn __RTS_FN_NS_DOM_ADVANCE(h: u64, now_ms: f64) -> i64 {
+#[rtse::abi(module = "dom", value = "advance")]
+pub fn __rtsm_dom_advance(h: u64, now_ms: f64) -> i64 {
     with_mut(h, |dom| dom.advance(now_ms as f32) as i64).unwrap_or(0)
 }
 
 /// `getAttribute(domHandle, node, name)` → valor do atributo como STRING (handle
 /// do pool GC). Atributo ausente / nó inválido ⇒ `""` (a fachada TS converte ""
 /// para `null` se quiser semântica de browser).
-#[rtse::abi("__RTS_FN_NS_DOM_GET_ATTRIBUTE")]
-pub fn __RTS_FN_NS_DOM_GET_ATTRIBUTE(
+#[rtse::abi(module = "dom", value = "getAttribute")]
+pub fn __rtsm_dom_getAttribute(
     h: u64,
     id: i64,
     name_ptr: u64,
@@ -1182,8 +1196,8 @@ pub fn __RTS_FN_NS_DOM_GET_ATTRIBUTE(
 /// `tagName(domHandle, node)` → nome da tag em minúsculas como STRING (handle do
 /// pool GC). Nó inválido / não-elemento (Document/Text) ⇒ `""`. (A fachada TS faz
 /// o upper-case que o browser devolve.)
-#[rtse::abi("__RTS_FN_NS_DOM_TAG_NAME")]
-pub fn __RTS_FN_NS_DOM_TAG_NAME(h: u64, id: i64) -> u64 {
+#[rtse::abi(module = "dom", value = "tagName")]
+pub fn __rtsm_dom_tagName(h: u64, id: i64) -> u64 {
     let Some(node) = NodeId::from_abi(id) else { return intern("") };
     let tag = with(h, |dom| dom.tag_name(node).unwrap_or("").to_string()).unwrap_or_default();
     intern(&tag)
@@ -1201,8 +1215,8 @@ pub fn __RTS_FN_NS_DOM_TAG_NAME(h: u64, id: i64) -> u64 {
 /// `querySelectorAllCount(domHandle, selector)` → quantos nós casam o seletor
 /// simples (`tag`/`#id`/`.class`), em ordem de documento. `0` se nada casa ou o
 /// handle é inválido.
-#[rtse::abi("__RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_COUNT")]
-pub fn __RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_COUNT(
+#[rtse::abi(module = "dom", value = "querySelectorAllCount")]
+pub fn __rtsm_dom_querySelectorAllCount(
     h: u64,
     sel_ptr: u64,
     sel_len: i64,
@@ -1216,8 +1230,8 @@ pub fn __RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_COUNT(
 /// `querySelectorAllAt(domHandle, selector, index)` → o `NodeId` do `index`-ésimo
 /// nó que casa o seletor (ordem de documento), ou `-1` se fora do intervalo /
 /// handle inválido. Pareie com `querySelectorAllCount` para iterar.
-#[rtse::abi("__RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_AT")]
-pub fn __RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_AT(
+#[rtse::abi(module = "dom", value = "querySelectorAllAt")]
+pub fn __rtsm_dom_querySelectorAllAt(
     h: u64,
     sel_ptr: u64,
     sel_len: i64,
@@ -1237,16 +1251,16 @@ pub fn __RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_AT(
 
 /// `childCount(domHandle, node)` → quantos filhos ELEMENTO o nó tem (exclui nós de
 /// texto, como `element.children`). `0` se o nó é inválido.
-#[rtse::abi("__RTS_FN_NS_DOM_CHILD_COUNT")]
-pub fn __RTS_FN_NS_DOM_CHILD_COUNT(h: u64, id: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "childCount")]
+pub fn __rtsm_dom_childCount(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return 0 };
     with(h, |dom| dom.child_elements(node).len() as i64).unwrap_or(0)
 }
 
 /// `childAt(domHandle, node, index)` → o `NodeId` do `index`-ésimo filho ELEMENTO,
 /// ou `-1` se fora do intervalo / nó inválido. Pareie com `childCount`.
-#[rtse::abi("__RTS_FN_NS_DOM_CHILD_AT")]
-pub fn __RTS_FN_NS_DOM_CHILD_AT(h: u64, id: i64, index: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "childAt")]
+pub fn __rtsm_dom_childAt(h: u64, id: i64, index: i64) -> i64 {
     if index < 0 {
         return NODE_NONE;
     }
@@ -1262,8 +1276,8 @@ pub fn __RTS_FN_NS_DOM_CHILD_AT(h: u64, id: i64, index: i64) -> i64 {
 /// inline < override por-nó), ou `-1` se não-setado/inválido.
 /// É como o LAYOUT (em TS) lê o estilo computado de cada nó. Slots: 0=color 1=bg
 /// 2=font_size 3=padding 4=margin 5=border_width 6=border_color 7=corner_radius.
-#[rtse::abi("__RTS_FN_NS_DOM_NODE_STYLE_SLOT")]
-pub fn __RTS_FN_NS_DOM_NODE_STYLE_SLOT(h: u64, id: i64, slot: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "nodeStyleSlot")]
+pub fn __rtsm_dom_nodeStyleSlot(h: u64, id: i64, slot: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return -1 };
     with(h, |dom| dom.computed_style(node).map(|s| s.slot_value(slot)).unwrap_or(-1)).unwrap_or(-1)
 }
@@ -1271,8 +1285,8 @@ pub fn __RTS_FN_NS_DOM_NODE_STYLE_SLOT(h: u64, id: i64, slot: i64) -> i64 {
 /// `displayOf(domHandle, node)` → o código de `display` do nó (0=vertical 1=wrap
 /// 2=horizontal 3=grid), ou `-1` se a tag não é bloco (inline/desconhecida). O
 /// LAYOUT (em TS) usa isso para decidir o eixo de empilhamento.
-#[rtse::abi("__RTS_FN_NS_DOM_DISPLAY_OF")]
-pub fn __RTS_FN_NS_DOM_DISPLAY_OF(h: u64, id: i64) -> i64 {
+#[rtse::abi(module = "dom", value = "displayOf")]
+pub fn __rtsm_dom_displayOf(h: u64, id: i64) -> i64 {
     let Some(node) = NodeId::from_abi(id) else { return -1 };
     with(h, |dom| dom.display_of(node)).unwrap_or(-1)
 }
@@ -1286,8 +1300,8 @@ pub fn __RTS_FN_NS_DOM_DISPLAY_OF(h: u64, id: i64) -> i64 {
 /// de uma TAG: 0=color 1=bg 2=font_size 3=padding 4=margin 5=border_width
 /// 6=border_color 7=corner_radius (cores como `u32` `0xRRGGBBAA`). O TS mapeia
 /// nome-CSS→slot; o Rust nunca casa string CSS. Acumula por tag.
-#[rtse::abi("__RTS_FN_NS_DOM_DEFINE_STYLE")]
-pub fn __RTS_FN_NS_DOM_DEFINE_STYLE(
+#[rtse::abi(module = "dom", value = "defineStyle")]
+pub fn __rtsm_dom_defineStyle(
     tag_ptr: u64,
     tag_len: i64,
     slot: i64,
@@ -1305,8 +1319,8 @@ pub fn __RTS_FN_NS_DOM_DEFINE_STYLE(
 /// `setStyle(domHandle, node, slot, val)` — aplica UM slot de estilo OPACO a UM
 /// NÓ (override por-nó, vence tag e `style=""` inline). Mesmos slots do
 /// `defineStyle`. Para muitos nós/props use `setStyleBatch` (invariante 6).
-#[rtse::abi("__RTS_FN_NS_DOM_SET_STYLE")]
-pub fn __RTS_FN_NS_DOM_SET_STYLE(h: u64, id: i64, slot: i64, val: i64) {
+#[rtse::abi(module = "dom", value = "setStyle")]
+pub fn __rtsm_dom_setStyle(h: u64, id: i64, slot: i64, val: i64) {
     let Some(node) = NodeId::from_abi(id) else { return };
     with_mut(h, |dom| dom.set_node_style_slot(node, slot, val));
 }
@@ -1317,8 +1331,8 @@ pub fn __RTS_FN_NS_DOM_SET_STYLE(h: u64, id: i64, slot: i64, val: i64) {
 /// `count*3` inteiros i64 LITTLE-ENDIAN consecutivos (`[id0,slot0,val0, id1,…]`).
 /// Lê via a HandleTable do engine (sem dep de `rts-shared` — camada). Triplas com
 /// id inválido são ignoradas.
-#[rtse::abi("__RTS_FN_NS_DOM_SET_STYLE_BATCH")]
-pub fn __RTS_FN_NS_DOM_SET_STYLE_BATCH(h: u64, buffer: u64, count: i64) {
+#[rtse::abi(module = "dom", value = "setStyleBatch")]
+pub fn __rtsm_dom_setStyleBatch(h: u64, buffer: u64, count: i64) {
     if count <= 0 {
         return;
     }
@@ -1349,8 +1363,8 @@ pub fn __RTS_FN_NS_DOM_SET_STYLE_BATCH(h: u64, buffer: u64, count: i64) {
 /// pontos (ou tamanho de fonte quando `flags` tem HEADING); `prefix` 0=none
 /// 1=bullet 2=number; `flags` bitmask MONO=1|PRESERVE_WS=2|HEADING=4|BOLD=8|
 /// ITALIC=16. Nenhum nome de tag é hardcodado no Rust.
-#[rtse::abi("__RTS_FN_NS_DOM_DEFINE_BLOCK")]
-pub fn __RTS_FN_NS_DOM_DEFINE_BLOCK(
+#[rtse::abi(module = "dom", value = "defineBlock")]
+pub fn __rtsm_dom_defineBlock(
     tag_ptr: u64,
     tag_len: i64,
     display: i64,
@@ -1373,8 +1387,8 @@ pub fn __RTS_FN_NS_DOM_DEFINE_BLOCK(
 /// `defineInline(tag, flags)` — registra o estilo INLINE de uma tag (`<b>`/`<i>`/
 /// `<code>`…): `flags` bitmask BOLD=8|ITALIC=16|MONO=1. Uma tag inline só liga os
 /// bits de estilo e desce nos filhos (transparente). Nenhum nome de tag no Rust.
-#[rtse::abi("__RTS_FN_NS_DOM_DEFINE_INLINE")]
-pub fn __RTS_FN_NS_DOM_DEFINE_INLINE(tag_ptr: u64, tag_len: i64, flags: i64) {
+#[rtse::abi(module = "dom", value = "defineInline")]
+pub fn __rtsm_dom_defineInline(tag_ptr: u64, tag_len: i64, flags: i64) {
     let tag_ptr = tag_ptr as *const u8;
 
     let tag = unsafe { str_abi::from_abi(tag_ptr, tag_len) }.unwrap_or("");
@@ -1412,824 +1426,824 @@ pub fn register(e: &mut Engine) {
         .doc("Headless retained DOM: parse HTML, query (tag/#id/.class), mutate. No window/render.")
         .member(func(
             "parseHtml",
-            "__RTS_FN_NS_DOM_PARSE_HTML",
+            "__rtsm_dom_parseHtml",
             Sig::new(vec![StrPtr], Handle),
             "parseHtml(html: string): number",
             "Parses HTML into a fresh retained DOM; returns its handle (>= 1).",
-            __RTS_FN_NS_DOM_PARSE_HTML as *const u8,
+            __rtsm_dom_parseHtml as *const u8,
         ))
         .member(func(
             "createDocument",
-            "__RTS_FN_NS_DOM_CREATE_DOCUMENT",
+            "__rtsm_dom_createDocument",
             Sig::new(vec![], Handle),
             "createDocument(): number",
             "Empty DOM (just #document) to build via createElement/appendChild; returns its handle.",
-            __RTS_FN_NS_DOM_CREATE_DOCUMENT as *const u8,
+            __rtsm_dom_createDocument as *const u8,
         ))
         .member(func(
             "free",
-            "__RTS_FN_NS_DOM_FREE",
+            "__rtsm_dom_free",
             Sig::new(vec![Handle], AbiType::Void),
             "free(dom: number): void",
             "Frees a standalone DOM (its handle becomes invalid).",
-            __RTS_FN_NS_DOM_FREE as *const u8,
+            __rtsm_dom_free as *const u8,
         ))
         .member(func(
             "querySelector",
-            "__RTS_FN_NS_DOM_QUERY_SELECTOR",
+            "__rtsm_dom_querySelector",
             Sig::new(vec![Handle, StrPtr], I64),
             "querySelector(dom: number, selector: string): number",
             "First node matching a simple selector (tag / #id / .class); NodeId (>= 0) or -1. Extract to a const before comparing.",
-            __RTS_FN_NS_DOM_QUERY_SELECTOR as *const u8,
+            __rtsm_dom_querySelector as *const u8,
         ))
         .member(func(
             "setText",
-            "__RTS_FN_NS_DOM_SET_TEXT",
+            "__rtsm_dom_setText",
             Sig::new(vec![Handle, I64, StrPtr], AbiType::Void),
             "setText(dom: number, node: number, text: string): void",
             "Replaces a node's content with a single text node (element.textContent = text).",
-            __RTS_FN_NS_DOM_SET_TEXT as *const u8,
+            __rtsm_dom_setText as *const u8,
         ))
         .member(func(
             "setAttr",
-            "__RTS_FN_NS_DOM_SET_ATTR",
+            "__rtsm_dom_setAttr",
             Sig::new(vec![Handle, I64, StrPtr, StrPtr], AbiType::Void),
             "setAttr(dom: number, node: number, name: string, value: string): void",
             "Sets/updates an attribute on a node (element.setAttribute).",
-            __RTS_FN_NS_DOM_SET_ATTR as *const u8,
+            __rtsm_dom_setAttr as *const u8,
         ))
         .member(func(
             "createElement",
-            "__RTS_FN_NS_DOM_CREATE_ELEMENT",
+            "__rtsm_dom_createElement",
             Sig::new(vec![Handle, StrPtr], I64),
             "createElement(dom: number, tag: string): number",
             "Creates a detached element; returns its NodeId >= 0, or -1 if the DOM handle is invalid.",
-            __RTS_FN_NS_DOM_CREATE_ELEMENT as *const u8,
+            __rtsm_dom_createElement as *const u8,
         ))
         .member(func(
             "appendChild",
-            "__RTS_FN_NS_DOM_APPEND_CHILD",
+            "__rtsm_dom_appendChild",
             Sig::new(vec![Handle, I64, I64], AbiType::Void),
             "appendChild(dom: number, parent: number, child: number): void",
             "Moves child to the end of parent's children (parent.appendChild).",
-            __RTS_FN_NS_DOM_APPEND_CHILD as *const u8,
+            __rtsm_dom_appendChild as *const u8,
         ))
         .member(func(
             "removeNode",
-            "__RTS_FN_NS_DOM_REMOVE_NODE",
+            "__rtsm_dom_removeNode",
             Sig::new(vec![Handle, I64], AbiType::Void),
             "removeNode(dom: number, node: number): void",
             "Detaches a node from its parent (element.remove).",
-            __RTS_FN_NS_DOM_REMOVE_NODE as *const u8,
+            __rtsm_dom_removeNode as *const u8,
         ))
         .member(func(
             "createTextNode",
-            "__RTS_FN_NS_DOM_CREATE_TEXT_NODE",
+            "__rtsm_dom_createTextNode",
             Sig::new(vec![Handle, StrPtr], I64),
             "createTextNode(dom: number, text: string): number",
             "Creates a detached Text node, returns its NodeId (document.createTextNode).",
-            __RTS_FN_NS_DOM_CREATE_TEXT_NODE as *const u8,
+            __rtsm_dom_createTextNode as *const u8,
         ))
         .member(func(
             "insertBefore",
-            "__RTS_FN_NS_DOM_INSERT_BEFORE",
+            "__rtsm_dom_insertBefore",
             Sig::new(vec![Handle, I64, I64, I64], AbiType::Void),
             "insertBefore(dom: number, parent: number, child: number, reference: number): void",
             "Inserts child before reference in parent's children; reference -1 = append (parent.insertBefore).",
-            __RTS_FN_NS_DOM_INSERT_BEFORE as *const u8,
+            __rtsm_dom_insertBefore as *const u8,
         ))
         // ── Navegação (parentNode / first|lastChild / next|previousSibling) ──────
         .member(func(
             "parentNode",
-            "__RTS_FN_NS_DOM_PARENT_NODE",
+            "__rtsm_dom_parentNode",
             Sig::new(vec![Handle, I64], I64),
             "parentNode(dom: number, node: number): number",
             "NodeId of the parent, or -1 for the root / invalid. Extract to a const before comparing.",
-            __RTS_FN_NS_DOM_PARENT_NODE as *const u8,
+            __rtsm_dom_parentNode as *const u8,
         ))
         .member(func(
             "firstChild",
-            "__RTS_FN_NS_DOM_FIRST_CHILD",
+            "__rtsm_dom_firstChild",
             Sig::new(vec![Handle, I64], I64),
             "firstChild(dom: number, node: number): number",
             "NodeId of the first child (any type, incl. Text), or -1.",
-            __RTS_FN_NS_DOM_FIRST_CHILD as *const u8,
+            __rtsm_dom_firstChild as *const u8,
         ))
         .member(func(
             "lastChild",
-            "__RTS_FN_NS_DOM_LAST_CHILD",
+            "__rtsm_dom_lastChild",
             Sig::new(vec![Handle, I64], I64),
             "lastChild(dom: number, node: number): number",
             "NodeId of the last child, or -1.",
-            __RTS_FN_NS_DOM_LAST_CHILD as *const u8,
+            __rtsm_dom_lastChild as *const u8,
         ))
         .member(func(
             "nextSibling",
-            "__RTS_FN_NS_DOM_NEXT_SIBLING",
+            "__rtsm_dom_nextSibling",
             Sig::new(vec![Handle, I64], I64),
             "nextSibling(dom: number, node: number): number",
             "NodeId of the next sibling, or -1 if last.",
-            __RTS_FN_NS_DOM_NEXT_SIBLING as *const u8,
+            __rtsm_dom_nextSibling as *const u8,
         ))
         .member(func(
             "previousSibling",
-            "__RTS_FN_NS_DOM_PREVIOUS_SIBLING",
+            "__rtsm_dom_previousSibling",
             Sig::new(vec![Handle, I64], I64),
             "previousSibling(dom: number, node: number): number",
             "NodeId of the previous sibling, or -1 if first.",
-            __RTS_FN_NS_DOM_PREVIOUS_SIBLING as *const u8,
+            __rtsm_dom_previousSibling as *const u8,
         ))
         .member(func(
             "childNodesCount",
-            "__RTS_FN_NS_DOM_CHILD_NODES_COUNT",
+            "__rtsm_dom_childNodesCount",
             Sig::new(vec![Handle, I64], I64),
             "childNodesCount(dom: number, node: number): number",
             "Total child count (incl. Text nodes) — pair with childNodeAt (node.childNodes.length).",
-            __RTS_FN_NS_DOM_CHILD_NODES_COUNT as *const u8,
+            __rtsm_dom_childNodesCount as *const u8,
         ))
         .member(func(
             "childNodeAt",
-            "__RTS_FN_NS_DOM_CHILD_NODE_AT",
+            "__rtsm_dom_childNodeAt",
             Sig::new(vec![Handle, I64, I64], I64),
             "childNodeAt(dom: number, node: number, index: number): number",
             "The index-th child (incl. Text), or -1 (node.childNodes[index]).",
-            __RTS_FN_NS_DOM_CHILD_NODE_AT as *const u8,
+            __rtsm_dom_childNodeAt as *const u8,
         ))
         .member(func(
             "nodeType",
-            "__RTS_FN_NS_DOM_NODE_TYPE",
+            "__rtsm_dom_nodeType",
             Sig::new(vec![Handle, I64], I64),
             "nodeType(dom: number, node: number): number",
             "DOM nodeType code: Element=1, Text=3, Comment=8, Document=9; -1 if invalid.",
-            __RTS_FN_NS_DOM_NODE_TYPE as *const u8,
+            __rtsm_dom_nodeType as *const u8,
         ))
         .member(func(
             "nodeName",
-            "__RTS_FN_NS_DOM_NODE_NAME",
+            "__rtsm_dom_nodeName",
             // `AbiType::Handle` LITERAL (não o alias U64) + ts `: string` → o motor
             // reboxa como TAG_STR (string usável no TS); o alias U64 reboxaria como
             // inteiro cru (bug "dados de ponteiro").
             Sig::new(vec![Handle, I64], AbiType::Handle),
             "nodeName(dom: number, node: number): string",
             "DOM nodeName: tag for Element; #text/#comment/#document otherwise.",
-            __RTS_FN_NS_DOM_NODE_NAME as *const u8,
+            __rtsm_dom_nodeName as *const u8,
         ))
         .member(func(
             "rootId",
-            "__RTS_FN_NS_DOM_ROOT_ID",
+            "__rtsm_dom_rootId",
             Sig::new(vec![Handle], I64),
             "rootId(dom: number): number",
             "The versioned NodeId of the #document root (>= 0), or -1 if invalid.",
-            __RTS_FN_NS_DOM_ROOT_ID as *const u8,
+            __rtsm_dom_rootId as *const u8,
         ))
         .member(func(
             "dump",
-            "__RTS_FN_NS_DOM_DUMP",
+            "__rtsm_dom_dump",
             Sig::new(vec![Handle], AbiType::Void),
             "dump(dom: number): void",
             "Prints the retained DOM tree to stderr, devtools-style (debug).",
-            __RTS_FN_NS_DOM_DUMP as *const u8,
+            __rtsm_dom_dump as *const u8,
         ))
         .member(func(
             "dumpLayout",
-            "__RTS_FN_NS_DOM_DUMP_LAYOUT",
+            "__rtsm_dom_dumpLayout",
             Sig::new(vec![Handle, I64], AbiType::Void),
             "dumpLayout(dom: number, viewportW: number): void",
             "Computes the layout DisplayList at the given viewport width and prints it as JSON (x/y/w/h + colors), to compare with the browser render.",
-            __RTS_FN_NS_DOM_DUMP_LAYOUT as *const u8,
+            __rtsm_dom_dumpLayout as *const u8,
         ))
         .member(func(
             "dumpTree",
-            "__RTS_FN_NS_DOM_DUMP_TREE",
+            "__rtsm_dom_dumpTree",
             Sig::new(vec![Handle, I64], AbiType::Void),
             "dumpTree(dom: number, viewportW: number): void",
             "Prints the element tree with each node's rect (tag/id/class + x/y/w/h), indented, to compare geometry node-by-node with the browser's getBoundingClientRect.",
-            __RTS_FN_NS_DOM_DUMP_TREE as *const u8,
+            __rtsm_dom_dumpTree as *const u8,
         ))
         .member(func(
             "boundingComponent",
-            "__RTS_FN_NS_DOM_BOUNDING_COMPONENT",
+            "__rtsm_dom_boundingComponent",
             Sig::new(vec![Handle, I64, I64, I64], I64),
             "boundingComponent(dom: number, node: number, viewportW: number, which: number): number",
             "One component of a node's border-box (which: 0=x 1=y 2=width 3=height) in points×1000, or -1 if the node has no box. Basis of element.getBoundingClientRect(); the facade divides by 1000.",
-            __RTS_FN_NS_DOM_BOUNDING_COMPONENT as *const u8,
+            __rtsm_dom_boundingComponent as *const u8,
         ))
         // ── Leitura de conteúdo (retorna STRING: handle do pool GC) ──────────────
         // Retorno `Handle` + ts_signature `: string` = string dinâmica (mesmo
         // contrato de string.trim/to_upper; o motor reconhece pelo `: string`).
         .member(func(
             "getText",
-            "__RTS_FN_NS_DOM_GET_TEXT",
+            "__rtsm_dom_getText",
             // Retorno `AbiType::Handle` (NÃO o alias `U64` de `dom`): só `Handle` +
             // `: string` faz o motor reboxar como `TAG_STR` (string usável no TS).
             // `U64` reboxaria como inteiro cru (era o bug: `Number.toUpperCase`).
             Sig::new(vec![Handle, I64], AbiType::Handle),
             "getText(dom: number, node: number): string",
             "node.textContent: concatenated text of all descendants. Empty string if the node is invalid.",
-            __RTS_FN_NS_DOM_GET_TEXT as *const u8,
+            __rtsm_dom_getText as *const u8,
         ))
         .member(func(
             "innerHtml",
-            "__RTS_FN_NS_DOM_INNER_HTML",
+            "__rtsm_dom_innerHtml",
             Sig::new(vec![Handle, I64], AbiType::Handle),
             "innerHtml(dom: number, node: number): string",
             "element.innerHTML (get): serialized HTML of the node's children. Empty string if invalid.",
-            __RTS_FN_NS_DOM_INNER_HTML as *const u8,
+            __rtsm_dom_innerHtml as *const u8,
         ))
         .member(func(
             "outerHtml",
-            "__RTS_FN_NS_DOM_OUTER_HTML",
+            "__rtsm_dom_outerHtml",
             Sig::new(vec![Handle, I64], AbiType::Handle),
             "outerHtml(dom: number, node: number): string",
             "element.outerHTML (get): serialized HTML including the element itself.",
-            __RTS_FN_NS_DOM_OUTER_HTML as *const u8,
+            __rtsm_dom_outerHtml as *const u8,
         ))
         .member(func(
             "setInnerHtml",
-            "__RTS_FN_NS_DOM_SET_INNER_HTML",
+            "__rtsm_dom_setInnerHtml",
             Sig::new(vec![Handle, I64, StrPtr], AbiType::Void),
             "setInnerHtml(dom: number, node: number, html: string): void",
             "element.innerHTML = html (set): parses the HTML and replaces the node's children.",
-            __RTS_FN_NS_DOM_SET_INNER_HTML as *const u8,
+            __rtsm_dom_setInnerHtml as *const u8,
         ))
         // ── Traversal por elemento — #1757 ──────────────────────────────────────
         .member(func(
-            "firstElementChild", "__RTS_FN_NS_DOM_FIRST_ELEMENT_CHILD",
+            "firstElementChild", "__rtsm_dom_firstElementChild",
             Sig::new(vec![Handle, I64], I64),
             "firstElementChild(dom: number, node: number): number",
             "element.firstElementChild: first child that is an Element (-1 if none).",
-            __RTS_FN_NS_DOM_FIRST_ELEMENT_CHILD as *const u8,
+            __rtsm_dom_firstElementChild as *const u8,
         ))
         .member(func(
-            "lastElementChild", "__RTS_FN_NS_DOM_LAST_ELEMENT_CHILD",
+            "lastElementChild", "__rtsm_dom_lastElementChild",
             Sig::new(vec![Handle, I64], I64),
             "lastElementChild(dom: number, node: number): number",
             "element.lastElementChild: last child Element (-1 if none).",
-            __RTS_FN_NS_DOM_LAST_ELEMENT_CHILD as *const u8,
+            __rtsm_dom_lastElementChild as *const u8,
         ))
         .member(func(
-            "nextElementSibling", "__RTS_FN_NS_DOM_NEXT_ELEMENT_SIBLING",
+            "nextElementSibling", "__rtsm_dom_nextElementSibling",
             Sig::new(vec![Handle, I64], I64),
             "nextElementSibling(dom: number, node: number): number",
             "element.nextElementSibling: next sibling Element, skipping text (-1 if none).",
-            __RTS_FN_NS_DOM_NEXT_ELEMENT_SIBLING as *const u8,
+            __rtsm_dom_nextElementSibling as *const u8,
         ))
         .member(func(
-            "previousElementSibling", "__RTS_FN_NS_DOM_PREVIOUS_ELEMENT_SIBLING",
+            "previousElementSibling", "__rtsm_dom_previousElementSibling",
             Sig::new(vec![Handle, I64], I64),
             "previousElementSibling(dom: number, node: number): number",
             "element.previousElementSibling: previous sibling Element (-1 if none).",
-            __RTS_FN_NS_DOM_PREVIOUS_ELEMENT_SIBLING as *const u8,
+            __rtsm_dom_previousElementSibling as *const u8,
         ))
         .member(func(
-            "parentElement", "__RTS_FN_NS_DOM_PARENT_ELEMENT",
+            "parentElement", "__rtsm_dom_parentElement",
             Sig::new(vec![Handle, I64], I64),
             "parentElement(dom: number, node: number): number",
             "node.parentElement: the parent if it is an Element (not the Document) (-1 otherwise).",
-            __RTS_FN_NS_DOM_PARENT_ELEMENT as *const u8,
+            __rtsm_dom_parentElement as *const u8,
         ))
         .member(func(
-            "closest", "__RTS_FN_NS_DOM_CLOSEST",
+            "closest", "__rtsm_dom_closest",
             Sig::new(vec![Handle, I64, StrPtr], I64),
             "closest(dom: number, node: number, selector: string): number",
             "element.closest(sel): nearest ancestor (incl. self) matching the simple selector (-1 if none).",
-            __RTS_FN_NS_DOM_CLOSEST as *const u8,
+            __rtsm_dom_closest as *const u8,
         ))
         .member(func(
-            "matches", "__RTS_FN_NS_DOM_MATCHES",
+            "matches", "__rtsm_dom_matches",
             Sig::new(vec![Handle, I64, StrPtr], I64),
             "matches(dom: number, node: number, selector: string): number",
             "element.matches(sel): 1 if the node matches the simple selector, 0 otherwise.",
-            __RTS_FN_NS_DOM_MATCHES as *const u8,
+            __rtsm_dom_matches as *const u8,
         ))
         // ── Node utils — #1762 ──────────────────────────────────────────────────
         .member(func(
-            "contains", "__RTS_FN_NS_DOM_CONTAINS",
+            "contains", "__rtsm_dom_contains",
             Sig::new(vec![Handle, I64, I64], I64),
             "contains(dom: number, node: number, other: number): number",
             "node.contains(other): 1 if other is node or a descendant, 0 otherwise.",
-            __RTS_FN_NS_DOM_CONTAINS as *const u8,
+            __rtsm_dom_contains as *const u8,
         ))
         .member(func(
-            "hasChildNodes", "__RTS_FN_NS_DOM_HAS_CHILD_NODES",
+            "hasChildNodes", "__rtsm_dom_hasChildNodes",
             Sig::new(vec![Handle, I64], I64),
             "hasChildNodes(dom: number, node: number): number",
             "node.hasChildNodes(): 1 if it has any child, 0 otherwise.",
-            __RTS_FN_NS_DOM_HAS_CHILD_NODES as *const u8,
+            __rtsm_dom_hasChildNodes as *const u8,
         ))
         .member(func(
-            "nodeValue", "__RTS_FN_NS_DOM_NODE_VALUE",
+            "nodeValue", "__rtsm_dom_nodeValue",
             Sig::new(vec![Handle, I64], AbiType::Handle),
             "nodeValue(dom: number, node: number): string",
             "node.nodeValue: raw text of a Text/Comment node ('' for Element/Document).",
-            __RTS_FN_NS_DOM_NODE_VALUE as *const u8,
+            __rtsm_dom_nodeValue as *const u8,
         ))
         .member(func(
-            "setNodeValue", "__RTS_FN_NS_DOM_SET_NODE_VALUE",
+            "setNodeValue", "__rtsm_dom_setNodeValue",
             Sig::new(vec![Handle, I64, StrPtr], AbiType::Void),
             "setNodeValue(dom: number, node: number, value: string): void",
             "node.nodeValue = value: replaces the text of a Text/Comment node.",
-            __RTS_FN_NS_DOM_SET_NODE_VALUE as *const u8,
+            __rtsm_dom_setNodeValue as *const u8,
         ))
         .member(func(
-            "createComment", "__RTS_FN_NS_DOM_CREATE_COMMENT",
+            "createComment", "__rtsm_dom_createComment",
             Sig::new(vec![Handle, StrPtr], I64),
             "createComment(dom: number, text: string): number",
             "document.createComment(text): a detached comment node.",
-            __RTS_FN_NS_DOM_CREATE_COMMENT as *const u8,
+            __rtsm_dom_createComment as *const u8,
         ))
         .member(func(
-            "normalize", "__RTS_FN_NS_DOM_NORMALIZE",
+            "normalize", "__rtsm_dom_normalize",
             Sig::new(vec![Handle, I64], AbiType::Void),
             "normalize(dom: number, node: number): void",
             "node.normalize(): merge adjacent text nodes and drop empty ones, recursively.",
-            __RTS_FN_NS_DOM_NORMALIZE as *const u8,
+            __rtsm_dom_normalize as *const u8,
         ))
         // ── Atributos extra — #1761 ─────────────────────────────────────────────
         .member(func(
-            "removeAttr", "__RTS_FN_NS_DOM_REMOVE_ATTR",
+            "removeAttr", "__rtsm_dom_removeAttr",
             Sig::new(vec![Handle, I64, StrPtr], AbiType::Void),
             "removeAttr(dom: number, node: number, name: string): void",
             "element.removeAttribute(name).",
-            __RTS_FN_NS_DOM_REMOVE_ATTR as *const u8,
+            __rtsm_dom_removeAttr as *const u8,
         ))
         .member(func(
-            "hasAttr", "__RTS_FN_NS_DOM_HAS_ATTR",
+            "hasAttr", "__rtsm_dom_hasAttr",
             Sig::new(vec![Handle, I64, StrPtr], I64),
             "hasAttr(dom: number, node: number, name: string): number",
             "element.hasAttribute(name): 1 if present (even empty value), 0 otherwise.",
-            __RTS_FN_NS_DOM_HAS_ATTR as *const u8,
+            __rtsm_dom_hasAttr as *const u8,
         ))
         .member(func(
-            "attrCount", "__RTS_FN_NS_DOM_ATTR_COUNT",
+            "attrCount", "__rtsm_dom_attrCount",
             Sig::new(vec![Handle, I64], I64),
             "attrCount(dom: number, node: number): number",
             "number of attributes (for getAttributeNames/attributes).",
-            __RTS_FN_NS_DOM_ATTR_COUNT as *const u8,
+            __rtsm_dom_attrCount as *const u8,
         ))
         .member(func(
-            "attrNameAt", "__RTS_FN_NS_DOM_ATTR_NAME_AT",
+            "attrNameAt", "__rtsm_dom_attrNameAt",
             Sig::new(vec![Handle, I64, I64], AbiType::Handle),
             "attrNameAt(dom: number, node: number, i: number): string",
             "name of the i-th attribute.",
-            __RTS_FN_NS_DOM_ATTR_NAME_AT as *const u8,
+            __rtsm_dom_attrNameAt as *const u8,
         ))
         .member(func(
-            "attrValueAt", "__RTS_FN_NS_DOM_ATTR_VALUE_AT",
+            "attrValueAt", "__rtsm_dom_attrValueAt",
             Sig::new(vec![Handle, I64, I64], AbiType::Handle),
             "attrValueAt(dom: number, node: number, i: number): string",
             "value of the i-th attribute.",
-            __RTS_FN_NS_DOM_ATTR_VALUE_AT as *const u8,
+            __rtsm_dom_attrValueAt as *const u8,
         ))
         // ── Query extra — #1758 ─────────────────────────────────────────────────
         .member(func(
-            "getByClassCount", "__RTS_FN_NS_DOM_GET_BY_CLASS_COUNT",
+            "getByClassCount", "__rtsm_dom_getByClassCount",
             Sig::new(vec![Handle, StrPtr], I64),
             "getByClassCount(dom: number, name: string): number",
             "count of getElementsByClassName.",
-            __RTS_FN_NS_DOM_GET_BY_CLASS_COUNT as *const u8,
+            __rtsm_dom_getByClassCount as *const u8,
         ))
         .member(func(
-            "getByClassAt", "__RTS_FN_NS_DOM_GET_BY_CLASS_AT",
+            "getByClassAt", "__rtsm_dom_getByClassAt",
             Sig::new(vec![Handle, StrPtr, I64], I64),
             "getByClassAt(dom: number, name: string, i: number): number",
             "i-th element of getElementsByClassName.",
-            __RTS_FN_NS_DOM_GET_BY_CLASS_AT as *const u8,
+            __rtsm_dom_getByClassAt as *const u8,
         ))
         .member(func(
-            "getByTagCount", "__RTS_FN_NS_DOM_GET_BY_TAG_COUNT",
+            "getByTagCount", "__rtsm_dom_getByTagCount",
             Sig::new(vec![Handle, StrPtr], I64),
             "getByTagCount(dom: number, tag: string): number",
             "count of getElementsByTagName ('*' = all).",
-            __RTS_FN_NS_DOM_GET_BY_TAG_COUNT as *const u8,
+            __rtsm_dom_getByTagCount as *const u8,
         ))
         .member(func(
-            "getByTagAt", "__RTS_FN_NS_DOM_GET_BY_TAG_AT",
+            "getByTagAt", "__rtsm_dom_getByTagAt",
             Sig::new(vec![Handle, StrPtr, I64], I64),
             "getByTagAt(dom: number, tag: string, i: number): number",
             "i-th element of getElementsByTagName.",
-            __RTS_FN_NS_DOM_GET_BY_TAG_AT as *const u8,
+            __rtsm_dom_getByTagAt as *const u8,
         ))
         .member(func(
-            "getByNameCount", "__RTS_FN_NS_DOM_GET_BY_NAME_COUNT",
+            "getByNameCount", "__rtsm_dom_getByNameCount",
             Sig::new(vec![Handle, StrPtr], I64),
             "getByNameCount(dom: number, name: string): number",
             "count of getElementsByName.",
-            __RTS_FN_NS_DOM_GET_BY_NAME_COUNT as *const u8,
+            __rtsm_dom_getByNameCount as *const u8,
         ))
         .member(func(
-            "getByNameAt", "__RTS_FN_NS_DOM_GET_BY_NAME_AT",
+            "getByNameAt", "__rtsm_dom_getByNameAt",
             Sig::new(vec![Handle, StrPtr, I64], I64),
             "getByNameAt(dom: number, name: string, i: number): number",
             "i-th element of getElementsByName.",
-            __RTS_FN_NS_DOM_GET_BY_NAME_AT as *const u8,
+            __rtsm_dom_getByNameAt as *const u8,
         ))
         .member(func(
-            "queryWithin", "__RTS_FN_NS_DOM_QUERY_WITHIN",
+            "queryWithin", "__rtsm_dom_queryWithin",
             Sig::new(vec![Handle, I64, StrPtr], I64),
             "queryWithin(dom: number, root: number, selector: string): number",
             "element.querySelector restricted to the subtree (-1 if none).",
-            __RTS_FN_NS_DOM_QUERY_WITHIN as *const u8,
+            __rtsm_dom_queryWithin as *const u8,
         ))
         .member(func(
-            "queryAllWithinCount", "__RTS_FN_NS_DOM_QUERY_ALL_WITHIN_COUNT",
+            "queryAllWithinCount", "__rtsm_dom_queryAllWithinCount",
             Sig::new(vec![Handle, I64, StrPtr], I64),
             "queryAllWithinCount(dom: number, root: number, selector: string): number",
             "count of element.querySelectorAll in the subtree.",
-            __RTS_FN_NS_DOM_QUERY_ALL_WITHIN_COUNT as *const u8,
+            __rtsm_dom_queryAllWithinCount as *const u8,
         ))
         .member(func(
-            "queryAllWithinAt", "__RTS_FN_NS_DOM_QUERY_ALL_WITHIN_AT",
+            "queryAllWithinAt", "__rtsm_dom_queryAllWithinAt",
             Sig::new(vec![Handle, I64, StrPtr, I64], I64),
             "queryAllWithinAt(dom: number, root: number, selector: string, i: number): number",
             "i-th element of element.querySelectorAll in the subtree.",
-            __RTS_FN_NS_DOM_QUERY_ALL_WITHIN_AT as *const u8,
+            __rtsm_dom_queryAllWithinAt as *const u8,
         ))
         // ── Mutação rica — #1756 ────────────────────────────────────────────────
         .member(func(
-            "cloneNode", "__RTS_FN_NS_DOM_CLONE_NODE",
+            "cloneNode", "__rtsm_dom_cloneNode",
             Sig::new(vec![Handle, I64, I64], I64),
             "cloneNode(dom: number, node: number, deep: number): number",
             "node.cloneNode(deep): detached clone (deep!=0 = with children).",
-            __RTS_FN_NS_DOM_CLONE_NODE as *const u8,
+            __rtsm_dom_cloneNode as *const u8,
         ))
         .member(func(
-            "prepend", "__RTS_FN_NS_DOM_PREPEND",
+            "prepend", "__rtsm_dom_prepend",
             Sig::new(vec![Handle, I64, I64], AbiType::Void),
             "prepend(dom: number, parent: number, child: number): void",
             "parent.prepend(child): insert at the start.",
-            __RTS_FN_NS_DOM_PREPEND as *const u8,
+            __rtsm_dom_prepend as *const u8,
         ))
         .member(func(
-            "insertAdjacent", "__RTS_FN_NS_DOM_INSERT_ADJACENT",
+            "insertAdjacent", "__rtsm_dom_insertAdjacent",
             Sig::new(vec![Handle, I64, I64, I64], AbiType::Void),
             "insertAdjacent(dom: number, node: number, other: number, after: number): void",
             "node.before(other)/after(other): insert as sibling (after!=0 = after).",
-            __RTS_FN_NS_DOM_INSERT_ADJACENT as *const u8,
+            __rtsm_dom_insertAdjacent as *const u8,
         ))
         .member(func(
-            "replaceWith", "__RTS_FN_NS_DOM_REPLACE_WITH",
+            "replaceWith", "__rtsm_dom_replaceWith",
             Sig::new(vec![Handle, I64, I64], AbiType::Void),
             "replaceWith(dom: number, node: number, other: number): void",
             "node.replaceWith(other).",
-            __RTS_FN_NS_DOM_REPLACE_WITH as *const u8,
+            __rtsm_dom_replaceWith as *const u8,
         ))
         .member(func(
-            "replaceChild", "__RTS_FN_NS_DOM_REPLACE_CHILD",
+            "replaceChild", "__rtsm_dom_replaceChild",
             Sig::new(vec![Handle, I64, I64, I64], AbiType::Void),
             "replaceChild(dom: number, parent: number, newChild: number, oldChild: number): void",
             "parent.replaceChild(new, old).",
-            __RTS_FN_NS_DOM_REPLACE_CHILD as *const u8,
+            __rtsm_dom_replaceChild as *const u8,
         ))
         .member(func(
-            "removeChild", "__RTS_FN_NS_DOM_REMOVE_CHILD",
+            "removeChild", "__rtsm_dom_removeChild",
             Sig::new(vec![Handle, I64, I64], AbiType::Void),
             "removeChild(dom: number, parent: number, child: number): void",
             "parent.removeChild(child).",
-            __RTS_FN_NS_DOM_REMOVE_CHILD as *const u8,
+            __rtsm_dom_removeChild as *const u8,
         ))
         .member(func(
-            "clearChildren", "__RTS_FN_NS_DOM_CLEAR_CHILDREN",
+            "clearChildren", "__rtsm_dom_clearChildren",
             Sig::new(vec![Handle, I64], AbiType::Void),
             "clearChildren(dom: number, parent: number): void",
             "parent.replaceChildren() with no args: remove all children.",
-            __RTS_FN_NS_DOM_CLEAR_CHILDREN as *const u8,
+            __rtsm_dom_clearChildren as *const u8,
         ))
         // ── element.style + getComputedStyle — #1759 ────────────────────────────
         .member(func(
-            "computedProperty", "__RTS_FN_NS_DOM_COMPUTED_PROPERTY",
+            "computedProperty", "__rtsm_dom_computedProperty",
             Sig::new(vec![Handle, I64, StrPtr], AbiType::Handle),
             "computedProperty(dom: number, node: number, name: string): string",
             "getComputedStyle(el).<name>: computed value after the cascade.",
-            __RTS_FN_NS_DOM_COMPUTED_PROPERTY as *const u8,
+            __rtsm_dom_computedProperty as *const u8,
         ))
         .member(func(
-            "inlineProperty", "__RTS_FN_NS_DOM_INLINE_PROPERTY",
+            "inlineProperty", "__rtsm_dom_inlineProperty",
             Sig::new(vec![Handle, I64, StrPtr], AbiType::Handle),
             "inlineProperty(dom: number, node: number, name: string): string",
             "el.style.getPropertyValue(name): inline value from style='' only.",
-            __RTS_FN_NS_DOM_INLINE_PROPERTY as *const u8,
+            __rtsm_dom_inlineProperty as *const u8,
         ))
         .member(func(
-            "cssText", "__RTS_FN_NS_DOM_CSS_TEXT",
+            "cssText", "__rtsm_dom_cssText",
             Sig::new(vec![Handle, I64], AbiType::Handle),
             "cssText(dom: number, node: number): string",
             "el.style.cssText (get): the raw style='' string.",
-            __RTS_FN_NS_DOM_CSS_TEXT as *const u8,
+            __rtsm_dom_cssText as *const u8,
         ))
         .member(func(
-            "setCssText", "__RTS_FN_NS_DOM_SET_CSS_TEXT",
+            "setCssText", "__rtsm_dom_setCssText",
             Sig::new(vec![Handle, I64, StrPtr], AbiType::Void),
             "setCssText(dom: number, node: number, text: string): void",
             "el.style.cssText = text (set): replace the whole style='' string.",
-            __RTS_FN_NS_DOM_SET_CSS_TEXT as *const u8,
+            __rtsm_dom_setCssText as *const u8,
         ))
         .member(func(
-            "addStylesheet", "__RTS_FN_NS_DOM_ADD_STYLESHEET",
+            "addStylesheet", "__rtsm_dom_addStylesheet",
             Sig::new(vec![Handle, StrPtr], AbiType::Void),
             "addStylesheet(dom: number, css: string): void",
             "inject an author stylesheet (same path as inline <style>): external CSS \
              from <link rel=stylesheet>/@import is loaded in TS and fed to the cascade.",
-            __RTS_FN_NS_DOM_ADD_STYLESHEET as *const u8,
+            __rtsm_dom_addStylesheet as *const u8,
         ))
         .member(func(
-            "runScript", "__RTS_FN_NS_DOM_RUN_SCRIPT",
+            "runScript", "__rtsm_dom_runScript",
             Sig::new(vec![Handle, I64, StrPtr], AbiType::Void),
             "runScript(dom: number, node: number, code: string): void",
             "materialize a loaded <script src> source as the node's text (load, not \
              execute — the new engine has no in-process eval with DOM access yet).",
-            __RTS_FN_NS_DOM_RUN_SCRIPT as *const u8,
+            __rtsm_dom_runScript as *const u8,
         ))
         .member(func(
-            "setStyleProperty", "__RTS_FN_NS_DOM_SET_STYLE_PROPERTY",
+            "setStyleProperty", "__rtsm_dom_setStyleProperty",
             Sig::new(vec![Handle, I64, StrPtr, StrPtr], AbiType::Void),
             "setStyleProperty(dom: number, node: number, name: string, value: string): void",
             "el.style.setProperty(name, value): set one inline property.",
-            __RTS_FN_NS_DOM_SET_STYLE_PROPERTY as *const u8,
+            __rtsm_dom_setStyleProperty as *const u8,
         ))
         .member(func(
-            "removeStyleProperty", "__RTS_FN_NS_DOM_REMOVE_STYLE_PROPERTY",
+            "removeStyleProperty", "__rtsm_dom_removeStyleProperty",
             Sig::new(vec![Handle, I64, StrPtr], AbiType::Void),
             "removeStyleProperty(dom: number, node: number, name: string): void",
             "el.style.removeProperty(name).",
-            __RTS_FN_NS_DOM_REMOVE_STYLE_PROPERTY as *const u8,
+            __rtsm_dom_removeStyleProperty as *const u8,
         ))
         // ── Eventos (#1760) ─────────────────────────────────────────────────────
         .member(func(
-            "addListener", "__RTS_FN_NS_DOM_ADD_LISTENER",
+            "addListener", "__rtsm_dom_addListener",
             Sig::new(vec![Handle, I64, StrPtr], AbiType::Void),
             "addListener(dom: number, node: number, type: string): void",
             "element.addEventListener(type): register the node as listening for type.",
-            __RTS_FN_NS_DOM_ADD_LISTENER as *const u8,
+            __rtsm_dom_addListener as *const u8,
         ))
         .member(func(
-            "addListenerCb", "__RTS_FN_NS_DOM_ADD_LISTENER_CB",
+            "addListenerCb", "__rtsm_dom_addListenerCb",
             Sig::new(vec![Handle, I64, StrPtr, I64], AbiType::Void),
             "addListenerCb(dom: number, node: number, type: string, cb: number): void",
             "element.addEventListener(type, fn): register type AND the callback \
              (Function word/handle, stored opaque — the TS facade invokes it).",
-            __RTS_FN_NS_DOM_ADD_LISTENER_CB as *const u8,
+            __rtsm_dom_addListenerCb as *const u8,
         ))
         .member(func(
-            "dispatchCollect", "__RTS_FN_NS_DOM_DISPATCH_COLLECT",
+            "dispatchCollect", "__rtsm_dom_dispatchCollect",
             Sig::new(vec![Handle, I64, StrPtr, I64], I64),
             "dispatchCollect(dom: number, target: number, type: string, bubbles: number): number",
             "dispatch collecting callbacks (target then bubbling) into the Dom \
              scratch; returns how many. Read with dispatchCbAt/dispatchCbNode and \
              COPY before invoking (a callback may re-dispatch).",
-            __RTS_FN_NS_DOM_DISPATCH_COLLECT as *const u8,
+            __rtsm_dom_dispatchCollect as *const u8,
         ))
         .member(func(
-            "dispatchCbAt", "__RTS_FN_NS_DOM_DISPATCH_CB_AT",
+            "dispatchCbAt", "__rtsm_dom_dispatchCbAt",
             Sig::new(vec![Handle, I64], I64),
             "dispatchCbAt(dom: number, i: number): number",
             "i-th collected callback word (0 if out of range).",
-            __RTS_FN_NS_DOM_DISPATCH_CB_AT as *const u8,
+            __rtsm_dom_dispatchCbAt as *const u8,
         ))
         .member(func(
-            "dispatchCbNode", "__RTS_FN_NS_DOM_DISPATCH_CB_NODE",
+            "dispatchCbNode", "__rtsm_dom_dispatchCbNode",
             Sig::new(vec![Handle, I64], I64),
             "dispatchCbNode(dom: number, i: number): number",
             "NodeId of the listening node in the i-th collected pair (-1 if out of \
              range) — the handler's currentTarget.",
-            __RTS_FN_NS_DOM_DISPATCH_CB_NODE as *const u8,
+            __rtsm_dom_dispatchCbNode as *const u8,
         ))
         .member(func(
-            "removeListener", "__RTS_FN_NS_DOM_REMOVE_LISTENER",
+            "removeListener", "__rtsm_dom_removeListener",
             Sig::new(vec![Handle, I64, StrPtr], AbiType::Void),
             "removeListener(dom: number, node: number, type: string): void",
             "element.removeEventListener(type).",
-            __RTS_FN_NS_DOM_REMOVE_LISTENER as *const u8,
+            __rtsm_dom_removeListener as *const u8,
         ))
         .member(func(
-            "hasListener", "__RTS_FN_NS_DOM_HAS_LISTENER",
+            "hasListener", "__rtsm_dom_hasListener",
             Sig::new(vec![Handle, I64, StrPtr], I64),
             "hasListener(dom: number, node: number, type: string): number",
             "1 if the node listens for the type, 0 otherwise.",
-            __RTS_FN_NS_DOM_HAS_LISTENER as *const u8,
+            __rtsm_dom_hasListener as *const u8,
         ))
         .member(func(
-            "dispatchEvent", "__RTS_FN_NS_DOM_DISPATCH_EVENT",
+            "dispatchEvent", "__rtsm_dom_dispatchEvent",
             Sig::new(vec![Handle, I64, StrPtr, I64], I64),
             "dispatchEvent(dom: number, target: number, type: string, bubbles: number): number",
             "element.dispatchEvent(type, bubbles): fire; bubbles!=0 propagates to ancestors.",
-            __RTS_FN_NS_DOM_DISPATCH_EVENT as *const u8,
+            __rtsm_dom_dispatchEvent as *const u8,
         ))
         .member(func(
-            "pollEvent", "__RTS_FN_NS_DOM_POLL_EVENT",
+            "pollEvent", "__rtsm_dom_pollEvent",
             Sig::new(vec![Handle], I64),
             "pollEvent(dom: number): number",
             "next pending event's NodeId (-1 if none); stores type for pollEventType.",
-            __RTS_FN_NS_DOM_POLL_EVENT as *const u8,
+            __rtsm_dom_pollEvent as *const u8,
         ))
         .member(func(
-            "setHovered", "__RTS_FN_NS_DOM_SET_HOVERED",
+            "setHovered", "__rtsm_dom_setHovered",
             Sig::new(vec![Handle, I64], AbiType::Void),
             "setHovered(dom: number, node: number): void",
             "set the node under the cursor (-1 = none) — live :hover state; the \
              real backend feeds this per frame via hit-test.",
-            __RTS_FN_NS_DOM_SET_HOVERED as *const u8,
+            __rtsm_dom_setHovered as *const u8,
         ))
         .member(func(
-            "pushRawEvent", "__RTS_FN_NS_DOM_PUSH_RAW_EVENT",
+            "pushRawEvent", "__rtsm_dom_pushRawEvent",
             Sig::new(vec![Handle, I64, StrPtr], AbiType::Void),
             "pushRawEvent(dom: number, node: number, type: string): void",
             "push a raw backend-style event (same path as the mouse hit-test) — \
              synthetic events / headless tests of the full cycle.",
-            __RTS_FN_NS_DOM_PUSH_RAW_EVENT as *const u8,
+            __rtsm_dom_pushRawEvent as *const u8,
         ))
         .member(func(
-            "pollRawEvent", "__RTS_FN_NS_DOM_POLL_RAW_EVENT",
+            "pollRawEvent", "__rtsm_dom_pollRawEvent",
             Sig::new(vec![Handle], I64),
             "pollRawEvent(dom: number): number",
             "next backend-origin raw event's NodeId (mouse hit-test; -1 if none); \
              stores type for pollRawEventType. pumpEventCallbacks drains this.",
-            __RTS_FN_NS_DOM_POLL_RAW_EVENT as *const u8,
+            __rtsm_dom_pollRawEvent as *const u8,
         ))
         .member(func(
-            "pollRawEventType", "__RTS_FN_NS_DOM_POLL_RAW_EVENT_TYPE",
+            "pollRawEventType", "__rtsm_dom_pollRawEventType",
             Sig::new(vec![Handle], AbiType::Handle),
             "pollRawEventType(dom: number): string",
             "type of the raw event delivered by the last pollRawEvent ('' if none).",
-            __RTS_FN_NS_DOM_POLL_RAW_EVENT_TYPE as *const u8,
+            __rtsm_dom_pollRawEventType as *const u8,
         ))
         .member(func(
-            "pollEventType", "__RTS_FN_NS_DOM_POLL_EVENT_TYPE",
+            "pollEventType", "__rtsm_dom_pollEventType",
             Sig::new(vec![Handle], AbiType::Handle),
             "pollEventType(dom: number): string",
             "type of the event delivered by the last pollEvent ('' if none).",
-            __RTS_FN_NS_DOM_POLL_EVENT_TYPE as *const u8,
+            __rtsm_dom_pollEventType as *const u8,
         ))
         .member(func(
-            "advance", "__RTS_FN_NS_DOM_ADVANCE",
+            "advance", "__rtsm_dom_advance",
             Sig::new(vec![Handle, AbiType::F64], I64),
             "advance(dom: number, nowMs: number): number",
             "advance animations to nowMs (DOM-internal loop, #1776); 1 if active (repaint), 0 if static.",
-            __RTS_FN_NS_DOM_ADVANCE as *const u8,
+            __rtsm_dom_advance as *const u8,
         ))
         // ── Formulário: input editável (mini-browser) ───────────────────────────
         .member(func(
-            "inputAt", "__RTS_FN_NS_DOM_INPUT_AT",
+            "inputAt", "__rtsm_dom_inputAt",
             Sig::new(vec![Handle, I64, I64, I64], I64),
             "inputAt(dom: number, viewportW: number, x: number, y: number): number",
             "NodeId of the <input>/<textarea> whose box contains (x,y); -1 if none.",
-            __RTS_FN_NS_DOM_INPUT_AT as *const u8,
+            __rtsm_dom_inputAt as *const u8,
         ))
         .member(func(
-            "focusInput", "__RTS_FN_NS_DOM_FOCUS_INPUT",
+            "focusInput", "__rtsm_dom_focusInput",
             Sig::new(vec![Handle, I64], AbiType::Void),
             "focusInput(dom: number, node: number): void",
             "give keyboard focus to node (receives typed text); node=-1 clears focus.",
-            __RTS_FN_NS_DOM_FOCUS_INPUT as *const u8,
+            __rtsm_dom_focusInput as *const u8,
         ))
         .member(func(
-            "setImage", "__RTS_FN_NS_DOM_SET_IMAGE",
+            "setImage", "__rtsm_dom_setImage",
             Sig::new(vec![Handle, I64, AbiType::U64, I64, I64, I64], AbiType::Void),
             "setImage(dom: number, node: number, bufferHandle: number, off: number, w: number, h: number): void",
             "attach decoded RGBA pixels to an <img> node so the layout paints it.",
-            __RTS_FN_NS_DOM_SET_IMAGE as *const u8,
+            __rtsm_dom_setImage as *const u8,
         ))
         .member(func(
-            "hasImage", "__RTS_FN_NS_DOM_HAS_IMAGE",
+            "hasImage", "__rtsm_dom_hasImage",
             Sig::new(vec![Handle, I64], I64),
             "hasImage(dom: number, node: number): number",
             "1 if the node has an image set (diagnostic), 0 otherwise.",
-            __RTS_FN_NS_DOM_HAS_IMAGE as *const u8,
+            __rtsm_dom_hasImage as *const u8,
         ))
         .member(func(
-            "focusedInput", "__RTS_FN_NS_DOM_FOCUSED_INPUT",
+            "focusedInput", "__rtsm_dom_focusedInput",
             Sig::new(vec![Handle], I64),
             "focusedInput(dom: number): number",
             "NodeId of the currently focused input (-1 if none).",
-            __RTS_FN_NS_DOM_FOCUSED_INPUT as *const u8,
+            __rtsm_dom_focusedInput as *const u8,
         ))
         .member(func(
-            "inputFeedText", "__RTS_FN_NS_DOM_INPUT_FEED_TEXT",
+            "inputFeedText", "__rtsm_dom_inputFeedText",
             Sig::new(vec![Handle, StrPtr], I64),
             "inputFeedText(dom: number, text: string): number",
             "append text to the focused input; 1 if changed (repaint), 0 otherwise.",
-            __RTS_FN_NS_DOM_INPUT_FEED_TEXT as *const u8,
+            __rtsm_dom_inputFeedText as *const u8,
         ))
         .member(func(
-            "inputBackspace", "__RTS_FN_NS_DOM_INPUT_BACKSPACE",
+            "inputBackspace", "__rtsm_dom_inputBackspace",
             Sig::new(vec![Handle], I64),
             "inputBackspace(dom: number): number",
             "delete the last char of the focused input; 1 if changed, 0 otherwise.",
-            __RTS_FN_NS_DOM_INPUT_BACKSPACE as *const u8,
+            __rtsm_dom_inputBackspace as *const u8,
         ))
         .member(func(
-            "inputValue", "__RTS_FN_NS_DOM_INPUT_VALUE",
+            "inputValue", "__rtsm_dom_inputValue",
             Sig::new(vec![Handle, I64], AbiType::Handle),
             "inputValue(dom: number, node: number): string",
             "current text of the input (typed value or value= attribute); '' if not an input.",
-            __RTS_FN_NS_DOM_INPUT_VALUE as *const u8,
+            __rtsm_dom_inputValue as *const u8,
         ))
         .member(func(
             "getAttribute",
-            "__RTS_FN_NS_DOM_GET_ATTRIBUTE",
+            "__rtsm_dom_getAttribute",
             Sig::new(vec![Handle, I64, StrPtr], AbiType::Handle),
             "getAttribute(dom: number, node: number, name: string): string",
             "element.getAttribute(name). Empty string if the attribute is missing or the node is invalid (the TS facade may map '' to null).",
-            __RTS_FN_NS_DOM_GET_ATTRIBUTE as *const u8,
+            __rtsm_dom_getAttribute as *const u8,
         ))
         .member(func(
             "tagName",
-            "__RTS_FN_NS_DOM_TAG_NAME",
+            "__rtsm_dom_tagName",
             Sig::new(vec![Handle, I64], AbiType::Handle),
             "tagName(dom: number, node: number): string",
             "Lowercase tag name of an element. Empty string if the node is invalid or not an element (the TS facade upper-cases it like the browser).",
-            __RTS_FN_NS_DOM_TAG_NAME as *const u8,
+            __rtsm_dom_tagName as *const u8,
         ))
         // ── Coleções de nós: par count + at (sem array-return do Rust) ───────────
         .member(func(
             "querySelectorAllCount",
-            "__RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_COUNT",
+            "__rtsm_dom_querySelectorAllCount",
             Sig::new(vec![Handle, StrPtr], I64),
             "querySelectorAllCount(dom: number, selector: string): number",
             "How many nodes match a simple selector (tag / #id / .class). Pair with querySelectorAllAt to iterate (the TS facade builds the array).",
-            __RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_COUNT as *const u8,
+            __rtsm_dom_querySelectorAllCount as *const u8,
         ))
         .member(func(
             "querySelectorAllAt",
-            "__RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_AT",
+            "__rtsm_dom_querySelectorAllAt",
             Sig::new(vec![Handle, StrPtr, I64], I64),
             "querySelectorAllAt(dom: number, selector: string, index: number): number",
             "The NodeId of the index-th node matching the selector (document order), or -1 if out of range. Extract to a const before comparing.",
-            __RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_AT as *const u8,
+            __rtsm_dom_querySelectorAllAt as *const u8,
         ))
         .member(func(
             "childCount",
-            "__RTS_FN_NS_DOM_CHILD_COUNT",
+            "__rtsm_dom_childCount",
             Sig::new(vec![Handle, I64], I64),
             "childCount(dom: number, node: number): number",
             "Number of element children of a node (excludes text nodes, like element.children). Pair with childAt.",
-            __RTS_FN_NS_DOM_CHILD_COUNT as *const u8,
+            __rtsm_dom_childCount as *const u8,
         ))
         .member(func(
             "childAt",
-            "__RTS_FN_NS_DOM_CHILD_AT",
+            "__rtsm_dom_childAt",
             Sig::new(vec![Handle, I64, I64], I64),
             "childAt(dom: number, node: number, index: number): number",
             "The NodeId of the index-th element child, or -1 if out of range. Extract to a const before comparing.",
-            __RTS_FN_NS_DOM_CHILD_AT as *const u8,
+            __rtsm_dom_childAt as *const u8,
         ))
         // ── Estilo computado por nó (o LAYOUT em TS lê isto) ─────────────────────
         .member(func(
             "nodeStyleSlot",
-            "__RTS_FN_NS_DOM_NODE_STYLE_SLOT",
+            "__rtsm_dom_nodeStyleSlot",
             Sig::new(vec![Handle, I64, I64], I64),
             "nodeStyleSlot(dom: number, node: number, slot: number): number",
             "Computed style slot value of a node (tag-style + inline), or -1 if unset. Slots 0=color 1=bg 2=font_size 3=padding 4=margin 5=border_width 6=border_color 7=corner_radius. The TS layout engine reads this.",
-            __RTS_FN_NS_DOM_NODE_STYLE_SLOT as *const u8,
+            __rtsm_dom_nodeStyleSlot as *const u8,
         ))
         .member(func(
             "displayOf",
-            "__RTS_FN_NS_DOM_DISPLAY_OF",
+            "__rtsm_dom_displayOf",
             Sig::new(vec![Handle, I64], I64),
             "displayOf(dom: number, node: number): number",
             "Display code of a node (0=vertical 1=wrap 2=horizontal 3=grid), or -1 if not a block tag. The TS layout engine reads this to choose the stacking axis.",
-            __RTS_FN_NS_DOM_DISPLAY_OF as *const u8,
+            __rtsm_dom_displayOf as *const u8,
         ))
         // ── defineStyle / defineBlock / defineInline (estilo/layout por-tag) ─────
         .member(func(
             "defineStyle",
-            "__RTS_FN_NS_DOM_DEFINE_STYLE",
+            "__rtsm_dom_defineStyle",
             Sig::new(vec![StrPtr, I64, I64], AbiType::Void),
             "defineStyle(tag: string, slot: number, val: number): void",
             "Registers one opaque style slot for a tag (0=color 1=bg 2=font_size 3=padding 4=margin 5=border_width 6=border_color 7=corner_radius 8=width; colors as 0xRRGGBBAA u32; width as encoded Dimension). The TS maps CSS-name->slot; Rust never matches a CSS string. Accumulates per tag.",
-            __RTS_FN_NS_DOM_DEFINE_STYLE as *const u8,
+            __rtsm_dom_defineStyle as *const u8,
         ))
         .member(func(
             "setStyle",
-            "__RTS_FN_NS_DOM_SET_STYLE",
+            "__rtsm_dom_setStyle",
             Sig::new(vec![Handle, I64, I64, I64], AbiType::Void),
             "setStyle(dom: number, node: number, slot: number, val: number): void",
             "Applies one opaque style slot to a single NODE (per-node override; beats tag and inline). Same slots as defineStyle. For many nodes/props use setStyleBatch.",
-            __RTS_FN_NS_DOM_SET_STYLE as *const u8,
+            __rtsm_dom_setStyle as *const u8,
         ))
         .member(func(
             "setStyleBatch",
-            "__RTS_FN_NS_DOM_SET_STYLE_BATCH",
+            "__rtsm_dom_setStyleBatch",
             Sig::new(vec![Handle, Handle, I64], AbiType::Void),
             "setStyleBatch(dom: number, buffer: number, count: number): void",
             "Applies count (nodeId,slot,val) triples at once from a buffer handle (count*3 little-endian i64s). The batch form is mandatory for styling many nodes per frame (invariant 6): N nodes would otherwise be N*5 FFI calls.",
-            __RTS_FN_NS_DOM_SET_STYLE_BATCH as *const u8,
+            __rtsm_dom_setStyleBatch as *const u8,
         ))
         .member(func(
             "defineBlock",
-            "__RTS_FN_NS_DOM_DEFINE_BLOCK",
+            "__rtsm_dom_defineBlock",
             Sig::new(vec![StrPtr, I64, AbiType::F64, I64, I64], AbiType::Void),
             "defineBlock(tag: string, display: number, indent: number, prefix: number, flags: number): void",
             "Registers how a tag lays out (display/indent/prefix/flags). No tag is hardcoded in Rust.",
-            __RTS_FN_NS_DOM_DEFINE_BLOCK as *const u8,
+            __rtsm_dom_defineBlock as *const u8,
         ))
         .member(func(
             "defineInline",
-            "__RTS_FN_NS_DOM_DEFINE_INLINE",
+            "__rtsm_dom_defineInline",
             Sig::new(vec![StrPtr, I64], AbiType::Void),
             "defineInline(tag: string, flags: number): void",
             "Registers an inline tag's style (flags: BOLD=8|ITALIC=16|MONO=1). No tag is hardcoded in Rust.",
-            __RTS_FN_NS_DOM_DEFINE_INLINE as *const u8,
+            __rtsm_dom_defineInline as *const u8,
         ))
         .done();
 }
@@ -2257,98 +2271,98 @@ mod tests {
     #[test]
     fn get_text_devolve_conteudo_como_string() {
         let html = "<div id='x'>Olá <b>mundo</b></div>";
-        let h = __RTS_FN_NS_DOM_PARSE_HTML(html.as_ptr(), html.len() as i64);
+        let h = __rtsm_dom_parseHtml(html.as_ptr(), html.len() as i64);
         let sel = "#x";
-        let node = __RTS_FN_NS_DOM_QUERY_SELECTOR(h, sel.as_ptr(), sel.len() as i64);
+        let node = __rtsm_dom_querySelector(h, sel.as_ptr(), sel.len() as i64);
         assert!(node >= 0);
-        let text_handle = __RTS_FN_NS_DOM_GET_TEXT(h, node);
+        let text_handle = __rtsm_dom_getText(h, node);
         assert_eq!(gc_str(text_handle), "Olá mundo", "textContent concatena descendentes");
         // Nó inválido (sentinela -1) → string vazia, sem panic.
-        let empty = __RTS_FN_NS_DOM_GET_TEXT(h, -1);
+        let empty = __rtsm_dom_getText(h, -1);
         assert_eq!(gc_str(empty), "");
-        __RTS_FN_NS_DOM_FREE(h);
+        __rtsm_dom_free(h);
     }
 
     #[test]
     fn get_attribute_e_tag_name_como_string() {
         let html = "<a href='https://x' class='lnk'>l</a>";
-        let h = __RTS_FN_NS_DOM_PARSE_HTML(html.as_ptr(), html.len() as i64);
+        let h = __rtsm_dom_parseHtml(html.as_ptr(), html.len() as i64);
         let sel = "a";
-        let node = __RTS_FN_NS_DOM_QUERY_SELECTOR(h, sel.as_ptr(), sel.len() as i64);
+        let node = __rtsm_dom_querySelector(h, sel.as_ptr(), sel.len() as i64);
         assert!(node >= 0);
         // getAttribute presente.
         let name = "href";
-        let href = __RTS_FN_NS_DOM_GET_ATTRIBUTE(h, node, name.as_ptr(), name.len() as i64);
+        let href = __rtsm_dom_getAttribute(h, node, name.as_ptr(), name.len() as i64);
         assert_eq!(gc_str(href), "https://x");
         // getAttribute AUSENTE → "".
         let missing = "data-nope";
-        let none = __RTS_FN_NS_DOM_GET_ATTRIBUTE(h, node, missing.as_ptr(), missing.len() as i64);
+        let none = __rtsm_dom_getAttribute(h, node, missing.as_ptr(), missing.len() as i64);
         assert_eq!(gc_str(none), "");
         // tagName → minúsculas.
-        let tag = __RTS_FN_NS_DOM_TAG_NAME(h, node);
+        let tag = __rtsm_dom_tagName(h, node);
         assert_eq!(gc_str(tag), "a");
-        __RTS_FN_NS_DOM_FREE(h);
+        __rtsm_dom_free(h);
     }
 
     #[test]
     fn query_selector_all_count_e_at() {
         let html = "<ul><li class='it'>a</li><li class='it'>b</li><li class='it'>c</li></ul>";
-        let h = __RTS_FN_NS_DOM_PARSE_HTML(html.as_ptr(), html.len() as i64);
+        let h = __rtsm_dom_parseHtml(html.as_ptr(), html.len() as i64);
         let sel = ".it";
         let count =
-            __RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_COUNT(h, sel.as_ptr(), sel.len() as i64);
+            __rtsm_dom_querySelectorAllCount(h, sel.as_ptr(), sel.len() as i64);
         assert_eq!(count, 3, "três <li class='it'>");
         // itera via at e confere o texto de cada um.
         let mut texts = Vec::new();
         for i in 0..count {
             let node =
-                __RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_AT(h, sel.as_ptr(), sel.len() as i64, i);
+                __rtsm_dom_querySelectorAllAt(h, sel.as_ptr(), sel.len() as i64, i);
             assert!(node >= 0);
-            texts.push(gc_str(__RTS_FN_NS_DOM_GET_TEXT(h, node)));
+            texts.push(gc_str(__rtsm_dom_getText(h, node)));
         }
         assert_eq!(texts, vec!["a", "b", "c"]);
         // índice fora do intervalo → -1.
-        let oob = __RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_AT(h, sel.as_ptr(), sel.len() as i64, 3);
+        let oob = __rtsm_dom_querySelectorAllAt(h, sel.as_ptr(), sel.len() as i64, 3);
         assert_eq!(oob, NODE_NONE);
-        let neg = __RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_AT(h, sel.as_ptr(), sel.len() as i64, -1);
+        let neg = __rtsm_dom_querySelectorAllAt(h, sel.as_ptr(), sel.len() as i64, -1);
         assert_eq!(neg, NODE_NONE);
         // seletor sem match → count 0.
         let nada = ".inexistente";
         assert_eq!(
-            __RTS_FN_NS_DOM_QUERY_SELECTOR_ALL_COUNT(h, nada.as_ptr(), nada.len() as i64),
+            __rtsm_dom_querySelectorAllCount(h, nada.as_ptr(), nada.len() as i64),
             0
         );
-        __RTS_FN_NS_DOM_FREE(h);
+        __rtsm_dom_free(h);
     }
 
     #[test]
     fn child_count_e_at_so_elementos() {
         // O <div> tem texto + 2 elementos filhos; childCount exclui o texto.
         let html = "<div>txt<span>a</span><b>c</b></div>";
-        let h = __RTS_FN_NS_DOM_PARSE_HTML(html.as_ptr(), html.len() as i64);
+        let h = __rtsm_dom_parseHtml(html.as_ptr(), html.len() as i64);
         let sel = "div";
-        let div = __RTS_FN_NS_DOM_QUERY_SELECTOR(h, sel.as_ptr(), sel.len() as i64);
+        let div = __rtsm_dom_querySelector(h, sel.as_ptr(), sel.len() as i64);
         assert!(div >= 0);
-        assert_eq!(__RTS_FN_NS_DOM_CHILD_COUNT(h, div), 2, "exclui o nó de texto");
-        let c0 = __RTS_FN_NS_DOM_CHILD_AT(h, div, 0);
-        let c1 = __RTS_FN_NS_DOM_CHILD_AT(h, div, 1);
-        assert_eq!(gc_str(__RTS_FN_NS_DOM_TAG_NAME(h, c0)), "span");
-        assert_eq!(gc_str(__RTS_FN_NS_DOM_TAG_NAME(h, c1)), "b");
-        assert_eq!(__RTS_FN_NS_DOM_CHILD_AT(h, div, 2), NODE_NONE, "fora do intervalo → -1");
-        __RTS_FN_NS_DOM_FREE(h);
+        assert_eq!(__rtsm_dom_childCount(h, div), 2, "exclui o nó de texto");
+        let c0 = __rtsm_dom_childAt(h, div, 0);
+        let c1 = __rtsm_dom_childAt(h, div, 1);
+        assert_eq!(gc_str(__rtsm_dom_tagName(h, c0)), "span");
+        assert_eq!(gc_str(__rtsm_dom_tagName(h, c1)), "b");
+        assert_eq!(__rtsm_dom_childAt(h, div, 2), NODE_NONE, "fora do intervalo → -1");
+        __rtsm_dom_free(h);
     }
 
     #[test]
     fn define_style_block_inline_alimentam_os_stores() {
         // defineStyle acumula no store de style; defineBlock/defineInline no de block.
         let tag = "claudetag";
-        __RTS_FN_NS_DOM_DEFINE_STYLE(
+        __rtsm_dom_defineStyle(
             tag.as_ptr(),
             tag.len() as i64,
             crate::style::SLOT_COLOR,
             0x0088FFFF,
         );
-        __RTS_FN_NS_DOM_DEFINE_STYLE(
+        __rtsm_dom_defineStyle(
             tag.as_ptr(),
             tag.len() as i64,
             crate::style::SLOT_FONT_SIZE,
@@ -2359,7 +2373,7 @@ mod tests {
         assert_eq!(s.font_size, Some(crate::style::Dimension::Px(28.0)));
 
         let btag = "claudeblk";
-        __RTS_FN_NS_DOM_DEFINE_BLOCK(
+        __rtsm_dom_defineBlock(
             btag.as_ptr(),
             btag.len() as i64,
             crate::block::DISPLAY_VERTICAL,
@@ -2374,7 +2388,7 @@ mod tests {
         assert!(b.has(crate::block::FLAG_HEADING));
 
         let itag = "claudeinl";
-        __RTS_FN_NS_DOM_DEFINE_INLINE(
+        __rtsm_dom_defineInline(
             itag.as_ptr(),
             itag.len() as i64,
             crate::block::FLAG_BOLD | crate::block::FLAG_ITALIC,
@@ -2384,49 +2398,49 @@ mod tests {
             crate::block::FLAG_BOLD | crate::block::FLAG_ITALIC
         );
         // tag vazia é no-op (não panica, não registra).
-        __RTS_FN_NS_DOM_DEFINE_INLINE("".as_ptr(), 0, 1);
+        __rtsm_dom_defineInline("".as_ptr(), 0, 1);
     }
 
     #[test]
     fn headless_parse_query_mutate() {
         // Fluxo headless completo SEM janela: parse → query → setText → re-dump.
-        let h = __RTS_FN_NS_DOM_PARSE_HTML("<div id='x'>antes</div>".as_ptr(), 23);
+        let h = __rtsm_dom_parseHtml("<div id='x'>antes</div>".as_ptr(), 23);
         assert!(h >= 1);
         // query por #id
         let sel = "#x";
-        let node = __RTS_FN_NS_DOM_QUERY_SELECTOR(h, sel.as_ptr(), sel.len() as i64);
+        let node = __rtsm_dom_querySelector(h, sel.as_ptr(), sel.len() as i64);
         assert!(node >= 0, "deveria achar #x");
         // setText
         let txt = "depois";
-        __RTS_FN_NS_DOM_SET_TEXT(h, node, txt.as_ptr(), txt.len() as i64);
+        __rtsm_dom_setText(h, node, txt.as_ptr(), txt.len() as i64);
         // o dump reflete a mutação
         let dumped = with(h, |dom| dom.dump()).unwrap();
         assert!(dumped.contains("\"depois\""), "dump: {dumped}");
         assert!(!dumped.contains("\"antes\""));
         // free
-        __RTS_FN_NS_DOM_FREE(h);
+        __rtsm_dom_free(h);
         assert!(with(h, |_| ()).is_none(), "handle deveria estar livre");
     }
 
     #[test]
     fn query_selector_inexistente_e_minus_one() {
-        let h = __RTS_FN_NS_DOM_PARSE_HTML("<p>oi</p>".as_ptr(), 9);
+        let h = __rtsm_dom_parseHtml("<p>oi</p>".as_ptr(), 9);
         let sel = "#naoexiste";
-        let node = __RTS_FN_NS_DOM_QUERY_SELECTOR(h, sel.as_ptr(), sel.len() as i64);
+        let node = __rtsm_dom_querySelector(h, sel.as_ptr(), sel.len() as i64);
         assert_eq!(node, NODE_NONE);
-        __RTS_FN_NS_DOM_FREE(h);
+        __rtsm_dom_free(h);
     }
 
     #[test]
     fn create_e_append_headless() {
-        let h = __RTS_FN_NS_DOM_CREATE_DOCUMENT();
-        let li = __RTS_FN_NS_DOM_CREATE_ELEMENT(h, "li".as_ptr(), 2);
+        let h = __rtsm_dom_createDocument();
+        let li = __rtsm_dom_createElement(h, "li".as_ptr(), 2);
         assert!(li >= 0);
-        let root = __RTS_FN_NS_DOM_ROOT_ID(h);
+        let root = __rtsm_dom_rootId(h);
         assert!(root >= 0);
-        __RTS_FN_NS_DOM_APPEND_CHILD(h, root, li);
+        __rtsm_dom_appendChild(h, root, li);
         let dumped = with(h, |dom| dom.dump()).unwrap();
         assert!(dumped.contains("<li>"), "dump: {dumped}");
-        __RTS_FN_NS_DOM_FREE(h);
+        __rtsm_dom_free(h);
     }
 }
