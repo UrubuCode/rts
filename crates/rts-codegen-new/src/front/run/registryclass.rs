@@ -98,20 +98,40 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // matching (an `any`/Tagged arg) BAILS — no runtime-type guessing.
         let call = if candidates.len() == 1 {
             candidates.into_iter().next().expect("len==1")
-        } else {
-            let Some(call) = candidates.into_iter().find(|c| {
+        } else if let Some(call) = candidates
+            .iter()
+            .find(|c| {
                 vals.iter()
                     .enumerate()
                     .all(|(i, v)| abi_accepts_kind(c.arg_abis[i], v.kind))
-            }) else {
-                return unsupported!(
-                    "`new {class}(x)` with a non-number / non-string argument \
-                     (the overload dispatch depends on the runtime type — a later \
-                     increment)"
-                );
-            };
+            })
+            .cloned()
+        {
             call
+        } else {
+            // No candidate matches every arg's PROVEN kind, so the overload
+            // depends on the value's RUNTIME tag. That is not a reason to bail:
+            // the tag is a single mask+compare on the PolyValue word, so the
+            // choice the front cannot make statically is made at run time (see
+            // [`Self::emit_registry_ctor_dynamic`]). Still zero class knowledge
+            // in the engine — the tests come from the candidates' `AbiType`s.
+            return self.emit_registry_ctor_dynamic(module, class, &candidates, &vals);
         };
+        self.finish_registry_ctor(module, class, &call, vals)
+    }
+
+    /// Emit the chosen constructor: coerce, pad the omitted tail with the spec
+    /// defaults, call, and record the instance's Registry class. Split out of
+    /// [`Self::emit_registry_ctor`] so the runtime-dispatch path can emit it once
+    /// per candidate arm over the SAME already-lowered args.
+    pub(super) fn finish_registry_ctor(
+        &mut self,
+        module: &mut dyn Module,
+        class: &str,
+        call: &super::registry::ResolvedCall,
+        mut vals: Vec<Val>,
+    ) -> FrontResult<Value> {
+        let argc = vals.len();
         // Um param `StrPtr` alimentado com não-string é COAGIDO explicitamente
         // (`__rtsadp_to_string`), que é o que a spec desses construtores manda:
         // `new URL(x)` faz `ToString(x)`. Antes isto bailava por medo de que o
@@ -140,7 +160,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         } else {
             JsKind::Object
         };
-        let res = self.emit_registry_call(module, &call, None, &vals, kind)?;
+        let res = self.emit_registry_call(module, call, None, &vals, kind)?;
         // Record the instance's Registry class NAME (a plain side-table insert, NOT
         // a proto link), so `getPrototypeOf(new Date())` resolves to
         // `Date.prototype`. Proxy is intentionally NOT special-cased here: the

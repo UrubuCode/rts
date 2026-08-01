@@ -272,10 +272,29 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // A USER class's static field lives in a WRITABLE module-global cell
             // (`__rtsn_sfield_C_f`, promoted in `build_from_program`) — read it.
             // A prelude/ambient class without a cell keeps the zero-arg getter.
-            if let Some(id) = self.gcell_id(&fn_name) {
-                return self.emit_gcell_get(module, id);
+            let base = if let Some(id) = self.gcell_id(&fn_name) {
+                self.emit_gcell_get(module, id)?
+            } else {
+                self.call_synth_fn(module, &fn_name, None, &[])?
+            };
+            // An INHERITED entry (flattened from the parent) is only the DEFAULT:
+            // `D.f = v` on a subclass creates an OWN property that shadows the
+            // parent's declaration instead of mutating its cell, so the shadow —
+            // if any was written — has to win here.
+            if self.inherits_static_field(class, field) {
+                let base_w = self.box_value(base);
+                let name_w = self.emit_str_const_word(module, class)?;
+                let key_w = self.emit_str_const_word(module, field)?;
+                let w = self
+                    .call_runtime(
+                        module,
+                        "__rtsadp_class_static_get",
+                        &[name_w, key_w, base_w],
+                    )?
+                    .expect("__rtsadp_class_static_get returns a word");
+                return Ok(Val::new(w, crate::repr::Repr::Tagged));
             }
-            return self.call_synth_fn(module, &fn_name, None, &[]);
+            return Ok(base);
         }
         // A static METHOD read as a VALUE (`if (Error.captureStackTrace)`,
         // `const f = C.staticMethod`): reify the synthesized static fn into a
@@ -302,7 +321,78 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
             _ => {}
         }
-        unsupported!("`{class}.{field}` — no such static field on class `{class}`")
+        // Neither a declared static field nor a static method: an UNDECLARED
+        // static property (`class C {}; C.$1 = new Map()` — what a minifier emits
+        // to hang shared state off the constructor). It has no compile-time cell,
+        // so it lives in the per-class runtime statics object, which also walks
+        // the compile-time parent chain. Absent everywhere ⇒ `undefined`, the JS
+        // answer for a missing property — not a bail.
+        let name_w = self.emit_str_const_word(module, class)?;
+        let key_w = self.emit_str_const_word(module, field)?;
+        let undef = self
+            .builder
+            .ins()
+            .iconst(types::I64, crate::value::PolyValue::undefined().raw() as i64);
+        let w = self
+            .call_runtime(module, "__rtsadp_class_static_get", &[name_w, key_w, undef])?
+            .expect("__rtsadp_class_static_get returns a word");
+        Ok(Val::new(w, crate::repr::Repr::Tagged))
+    }
+
+    /// Store `word` into `C.<field>` for a bare class-name receiver, the mirror of
+    /// [`Self::try_static_field_read`].
+    ///
+    /// Three destinations, in order: `C.prototype` replaces the class's shared
+    /// prototype object; a static field DECLARED in this class's own body goes to
+    /// its module-global cell (`__rtsn_sfield_C_f`); anything else — undeclared,
+    /// or declared only by an ANCESTOR — goes to the per-class runtime statics
+    /// object. The last case is what makes `D.f = v` create an OWN property that
+    /// shadows the parent instead of mutating `C`'s cell, which is the JS rule.
+    pub(in crate::front::run) fn emit_static_field_write(
+        &mut self,
+        module: &mut dyn Module,
+        class: &str,
+        field: &str,
+        word: cranelift_codegen::ir::Value,
+    ) -> FrontResult<()> {
+        if field == "prototype" {
+            let k_word = self.emit_str_const_word(module, class)?;
+            self.call_runtime(module, "__rtsadp_class_proto_set", &[k_word, word])?;
+            return Ok(());
+        }
+        let own_cell = if self.inherits_static_field(class, field) {
+            None
+        } else {
+            self.classes
+                .get(class)
+                .and_then(|d| d.static_fields.get(field).cloned())
+                .and_then(|fn_name| self.gcell_id(&fn_name))
+        };
+        if let Some(id) = own_cell {
+            self.emit_gcell_set(module, id, word)?;
+            return Ok(());
+        }
+        let name_w = self.emit_str_const_word(module, class)?;
+        let key_w = self.emit_str_const_word(module, field)?;
+        self.call_runtime(module, "__rtsadp_class_static_set", &[name_w, key_w, word])?;
+        Ok(())
+    }
+
+    /// Is `field` a static field this class only INHERITED (the flattened entry is
+    /// literally the parent's), rather than declared in its own body? The write
+    /// path uses the same test to keep a subclass assignment from mutating the
+    /// parent's cell.
+    pub(in crate::front::run) fn inherits_static_field(&self, class: &str, field: &str) -> bool {
+        let Some(desc) = self.classes.get(class) else {
+            return false;
+        };
+        let own = desc.static_fields.get(field);
+        let inherited = desc
+            .parent
+            .as_deref()
+            .and_then(|p| self.classes.get(p))
+            .and_then(|p| p.static_fields.get(field));
+        inherited.is_some() && inherited == own
     }
 
     /// [`Self::call_synth_fn`] over PRE-LOWERED, PRE-BOXED arg WORDS — the

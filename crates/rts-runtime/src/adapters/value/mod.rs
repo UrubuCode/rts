@@ -158,6 +158,10 @@ mod mapslot;
 // `__rtsadp_obj_create`/`_proto_of`/`is_prototype_of` over a side-table keyed by
 // object word. The `objops` property read walks it on an own-slot miss.
 pub mod protos;
+// UNDECLARED static properties of a class (`class C {}; C.$1 = …`) — one keyed
+// object per class NAME plus the compile-time parent chain, so a property the
+// class body never declared still reads/writes like JS.
+pub mod classstatics;
 // The `globalThis` singleton object (foundation: VALUE get/set), backed by the
 // same keyed-object repr so `globalThis.prop` reuses the `objops` trampolines.
 pub mod globalthis;

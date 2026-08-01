@@ -290,13 +290,20 @@ pub(super) fn build_class(
         }
     }
 
-    // --- statics ---
-    let mut statics: HashMap<String, String> = HashMap::new();
+    // --- statics, FLATTENED over the parent's (own shadows inherited) ---
+    // JS makes `D`'s `[[Prototype]]` the constructor `C` for `class D extends C`,
+    // so `D.m()` / `D.f` resolve to `C`'s statics. Seeding from the parent is the
+    // compile-time form of that walk (the same thing `methods`/`accessors` do).
+    // A WRITE through the subclass must NOT reach the parent's cell, though (JS
+    // assignment creates an OWN property) — the write path tells inherited from
+    // own by comparing against the parent's entry.
+    let mut statics: HashMap<String, String> = parent.map(|p| p.statics.clone()).unwrap_or_default();
     for sm in &m.static_methods {
         out.push(synth_static_method(decl, sm, class_names)?);
         statics.insert(sm.name.clone(), static_method_name(&decl.name, &sm.name));
     }
-    let mut static_fields: HashMap<String, String> = HashMap::new();
+    let mut static_fields: HashMap<String, String> =
+        parent.map(|p| p.static_fields.clone()).unwrap_or_default();
     for sp in &m.static_props {
         out.push(synth_static_field_getter(decl, sp, class_names)?);
         static_fields.insert(

@@ -76,6 +76,7 @@ pub(crate) mod registry;
 mod registry_build;
 mod registry_call;
 mod registryclass;
+mod registryctor_dyn;
 mod sig;
 mod stmt;
 mod stmt_assign;

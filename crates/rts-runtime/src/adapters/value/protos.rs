@@ -309,6 +309,9 @@ pub fn reset_state() {
     if let Ok(mut t) = registry_class_table().lock() {
         t.clear();
     }
+    // Same reason, same boundary: the undeclared-static tables hold handle words
+    // from the pool this reset drains.
+    super::classstatics::reset_state();
 }
 
 /// `C.prototype = obj` / `F.prototype = obj` — REPLACE the shared prototype.

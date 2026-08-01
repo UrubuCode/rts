@@ -1252,6 +1252,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // so a later dynamic `new` through this class-value constructs (and a
         // non-constructor value throws). Idempotent: the address is stable.
         self.call_runtime(module, "__rtsadp_register_ctor_thunk", &[addr])?;
+        // …and record WHICH class this value is, so the dynamic property paths
+        // treat `const K = C; K.p` exactly like `C.p` (a class's static
+        // properties live in the per-class statics object, not in the function
+        // value). Keyed by the same stable thunk address.
+        let name_w = self.emit_str_const_word(module, name)?;
+        self.call_runtime(module, "__rtsadp_class_value_name", &[addr, name_w])?;
         let nparams_v = self.builder.ins().iconst(types::I64, nparams);
         let has_rest_v = self.builder.ins().iconst(types::I64, 0);
         let env_word = self.builder.ins().iconst(types::I64, 0);

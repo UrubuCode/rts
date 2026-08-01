@@ -902,35 +902,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 .expect("__rtsadp_arr_set_length returns the new length value");
             return Ok(Val::new(res, crate::repr::Repr::Tagged));
         }
-        // ---- a bare class NAME target (`C.n = 5`) is a STATIC FIELD WRITE. A
-        // DECLARED static field lives in its writable module-global cell
-        // (`__rtsn_sfield_C_f`) — store there. An UNDECLARED static prop keeps the
-        // bail, BEFORE the function-value-property path: `C` reifies to a
-        // `TAG_FUNCTION` class-value, so without this guard the write would be
-        // silently recorded as a data property on the class-value instead. ----
+        // ---- a bare class NAME target (`C.n = 5`) is a STATIC FIELD WRITE,
+        // resolved BEFORE the function-value-property path: `C` reifies to a
+        // `TAG_FUNCTION` class-value, so without this branch the write would be
+        // recorded as a data property on that value instead of on the class.
+        // (See `class::dispatch::emit_static_field_write`.) ----
         if let Some(class) = self.class_name_receiver(object) {
-            // `C.prototype = obj` — replace the class's shared prototype object.
-            if prop == "prototype" {
-                let k_word = self.emit_str_const_word(module, &class)?;
-                let v = self.lower_expr(module, value)?;
-                let word = self.box_value(v);
-                self.call_runtime(module, "__rtsadp_class_proto_set", &[k_word, word])?;
-                return Ok(Val::new(word, Repr::Tagged));
-            }
-            let cell = self
-                .classes
-                .get(&class)
-                .and_then(|d| d.static_fields.get(prop).cloned())
-                .and_then(|fn_name| self.gcell_id(&fn_name).map(|id| (id, fn_name)));
-            if let Some((id, _)) = cell {
-                let v = self.lower_expr(module, value)?;
-                let word = self.box_value(v);
-                self.emit_gcell_set(module, id, word)?;
-                return Ok(Val::new(word, Repr::Tagged));
-            }
-            return unsupported!(
-                "static field write `.{prop}` (not a declared static field of `{class}`)"
-            );
+            let v = self.lower_expr(module, value)?;
+            let word = self.box_value(v);
+            self.emit_static_field_write(module, &class, prop, word)?;
+            return Ok(Val::new(word, Repr::Tagged));
         }
         // ---- TS/JS ACCESS SURFACE (re-check): a `private`/`protected`/`#name`
         // member WRITE outside its visibility domain, and a TS `readonly` field

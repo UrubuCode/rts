@@ -28,6 +28,21 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         &mut self,
         module: &mut dyn Module,
     ) -> FrontResult<()> {
+        // `class D extends C` — record the link for the UNDECLARED-static walk
+        // (`D.$1` finding `C.$1`). Emitted for EVERY class with a parent, not
+        // only those with methods, and independent of whether the class is ever
+        // instantiated: a static property can be read off a constructor that
+        // never runs.
+        let links: Vec<(String, String)> = self
+            .classes
+            .descs()
+            .filter_map(|d| d.parent.clone().map(|p| (d.name.clone(), p)))
+            .collect();
+        for (child, parent) in links {
+            let c_word = self.emit_str_const_word(module, &child)?;
+            let p_word = self.emit_str_const_word(module, &parent)?;
+            self.call_runtime(module, "__rtsadp_class_static_parent", &[c_word, p_word])?;
+        }
         // Collect first — the emission below re-borrows `self` mutably.
         let mut rows: Vec<(String, Option<String>, Vec<(String, String, i64)>)> = Vec::new();
         for desc in self.classes.descs() {
