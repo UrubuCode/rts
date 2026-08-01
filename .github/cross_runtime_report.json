@@ -4523,9 +4523,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout",
   "bun_exit": 0,
   "node_exit": 0,
@@ -5814,13 +5814,13 @@
   "status": "rts_error",
   "bun": "obj=[object Object]\narr=[object Array]\nnum=[object Number]\nstr=[object String]\nbool=[object Boolean]\nnull=[object Null]\nundef=[object Undefined]\nfunc=[object Function]\ndate=[object Date]\nregex=[object RegExp]\nmap=[object Map]\nset=[object Set]",
   "node": "obj=[object Object]\narr=[object Array]\nnum=[object Number]\nstr=[object String]\nbool=[object Boolean]\nnull=[object Null]\nundef=[object Undefined]\nfunc=[object Function]\ndate=[object Date]\nregex=[object RegExp]\nmap=[object Map]\nset=[object Set]",
-  "rts": "",
+  "rts": "obj=[object Object]\narr=[object Array]\nnum=5\nstr=hello\nbool=true",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `RegExp.toString(0 args)` — no such method on runtime class `RegExp`\n      at run of tests/cross-runtime/object-meta/210_object_tostring.ts failed"
+  "rts_error": "error: Uncaught TypeError: toString is not a function\n      at run of tests/cross-runtime/object-meta/210_object_tostring.ts failed"
 }
 ,
 {
@@ -6207,6 +6207,20 @@
   "bun": "a,p1,p2\na,c\ntrue",
   "node": "a,p1,p2\na,c\ntrue",
   "rts": "a,p1,p2\na,c\ntrue",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "425_object_prototype_tostring_tag",
+  "status": "pass",
+  "bun": "objeto=[object Object]\nobjeto_com_campos=[object Object]\narray_vazio=[object Array]\narray=[object Array]\narray_aninhado=[object Array]\nehArray_arr=true\nehArray_obj=false\nehArray_str=false\ninstancia=[object Object]\nsem_proto=[object Object]\ndireto_obj=[object Object]\ndireto_arr=1,2\nconcat=[object Object]\nString_de_obj=[object Object]",
+  "node": "objeto=[object Object]\nobjeto_com_campos=[object Object]\narray_vazio=[object Array]\narray=[object Array]\narray_aninhado=[object Array]\nehArray_arr=true\nehArray_obj=false\nehArray_str=false\ninstancia=[object Object]\nsem_proto=[object Object]\ndireto_obj=[object Object]\ndireto_arr=1,2\nconcat=[object Object]\nString_de_obj=[object Object]",
+  "rts": "objeto=[object Object]\nobjeto_com_campos=[object Object]\narray_vazio=[object Array]\narray=[object Array]\narray_aninhado=[object Array]\nehArray_arr=true\nehArray_obj=false\nehArray_str=false\ninstancia=[object Object]\nsem_proto=[object Object]\ndireto_obj=[object Object]\ndireto_arr=1,2\nconcat=[object Object]\nString_de_obj=[object Object]",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9538,7 +9552,7 @@
   "status": "rts_diverge",
   "bun": "[object Uint8Array]\n[object Int16Array]\n[object Float32Array]",
   "node": "[object Uint8Array]\n[object Int16Array]\n[object Float32Array]",
-  "rts": "0\n0\n0",
+  "rts": "[object Array]\n[object Array]\n[object Array]",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9757,4 +9771,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":697,"pass":497,"rts_diverge":117,"bun_node_diverge":18,"errors":65,"rejected":0}}
+],"summary":{"total":698,"pass":497,"rts_diverge":117,"bun_node_diverge":19,"errors":65,"rejected":0}}
