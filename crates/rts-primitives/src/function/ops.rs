@@ -1263,14 +1263,38 @@ fn invoke_auto_impl(
     // `f(1,2,3,4,5)` devolvia a soma de 1..4, resultado errado e plausível, sem
     // erro. Montar o overflow é o que fecha esse buraco.
     if read_uniform_thunk(callee as u64) {
-        if let Some((fn_ptr, _bound, _hbt, bound_this, ..)) = read_function_data(callee as u64) {
+        if let Some((fn_ptr, bound, _hbt, bound_this, is_arrow, has_this_param, ..)) =
+            read_function_data(callee as u64)
+        {
             if fn_ptr != 0 {
-                let args = read_args_vec(args_handle);
                 // Absent slots ride as the UNDEFINED word (not 0): the uniform
                 // thunk's `...rest` pack trims trailing undefineds — a raw 0
                 // would be packed as a bogus element.
                 let undef = rts_engine::heap::poly::POLY_UNDEFINED;
-                let a = |i: usize| args.get(i).map(|&v| v as u64).unwrap_or(undef);
+                // A THIS-FIRST callee spends its slot 0 on the RECEIVER, exactly
+                // like the legacy branch below (which inserts `this_arg` at 0 for
+                // a non-arrow with a `this` param). This branch used to skip that
+                // entirely, so `this` was filled from the first ARGUMENT and every
+                // argument landed one slot left — `o.m(1,2,3,4)` through
+                // `INVOKE_AUTO` read `this = 1`. An ARROW keeps its lexical `this`
+                // (never receives a receiver), which is why the arrow case is
+                // excluded here and not merely tolerated.
+                //
+                // A `.bind` clone already carries its receiver in `bound_args[0]`
+                // (see `__rtsadp_fn_bind`), so a bound callee must NOT get a second
+                // one — same rule the word invoker applies.
+                //
+                // `bound_this` is NOT the receiver on this path: for a uniform
+                // thunk it is the closure ENV word (it is passed as slot 0 of the
+                // ABI below). The receiver is `this_arg`, and `0` is the "no
+                // receiver" sentinel every non-word caller passes.
+                let mut full: Vec<u64> = bound.iter().map(|&w| w as u64).collect();
+                if has_this_param && !is_arrow && full.is_empty() {
+                    full.push(if this_arg == 0 { undef } else { this_arg as u64 });
+                }
+                full.extend(read_args_vec(args_handle).iter().map(|&v| v as u64));
+                let args = full;
+                let a = |i: usize| args.get(i).copied().unwrap_or(undef);
                 // NOTE: `pack_variadic_tail` (o ramo legado abaixo) NÃO serve
                 // aqui. Ele substitui `all_args[rest_idx..]` por UM handle de
                 // array na posição do rest — mas o thunk uniforme empacota o
@@ -1280,7 +1304,10 @@ fn invoke_auto_impl(
                 // são ABIs diferentes por construção: aqui o slot é o overflow
                 // CRU, lá é o rest já empacotado.
                 let rest = if args.len() > UNIFORM_POSITIONAL {
-                    let overflow: Vec<i64> = args[UNIFORM_POSITIONAL..].to_vec();
+                    // `args` is the callee's OWN slot list (receiver included when
+                    // this-first), so the cut at 4 is the callee's cut.
+                    let overflow: Vec<i64> =
+                        args[UNIFORM_POSITIONAL..].iter().map(|&w| w as i64).collect();
                     let h = alloc_entry(Entry::Vec(Box::new(overflow)));
                     let slot = rts_engine::heap::handles::__rtsn_poly_from_handle(h);
                     use rts_engine::heap::poly as p;

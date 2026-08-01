@@ -277,6 +277,23 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 if let Some(val) = self.try_generic_dyn_method_call(module, recv, method, args)? {
                     return Ok(Some(val));
                 }
+                // The 3-slot trampoline above declines >3 args / a `...spread`;
+                // the COUNTED args-vec form covers them (`INVOKE_AUTO` sees the
+                // real arg count and binds `this` by the callee's own shape).
+                //
+                // Declining here instead was not merely "unsupported": the
+                // receiver is ALREADY lowered at this point, so every caller that
+                // falls through re-lowers it — and a side-effecting receiver
+                // (`f().m(1,2,3,4)`) then runs `f()` TWICE. `Val` is `Copy` and
+                // the receiver has not been consumed, so handing the SAME lowered
+                // receiver to the general form is what keeps the evaluation
+                // single. Same reasoning, same shape, as the user-class dynamic
+                // site in `class/dispatch.rs`.
+                if !args.iter().any(is_callback_arg) {
+                    return self
+                        .emit_dyn_method_via_invoke_auto(module, recv, method, args)
+                        .map(Some);
+                }
                 return Ok(None);
             }
             return Ok(None);

@@ -751,23 +751,36 @@ pub fn rtsadp_fn_invoke(
         return invoke_legacy_fn(real, arity, bound.len(), 0, [a0, a1, a2, a3]);
     }
     // BOUND partial-application args on a UNIFORM callee (`f.bind(null, x)`):
-    // prepend the stored WORDS — the call-site args shift right, and an
-    // INT32-argc `rest` word grows by the bound count (args past slot 4 drop —
-    // the ≤4-slot subset).
+    // prepend the stored WORDS, so the call-site args shift right. Args pushed
+    // past the four registers by that shift go to the OVERFLOW array — they used
+    // to be dropped ("the ≤4-slot subset"), which is the same silent
+    // argument-discard as issue #2039, just reached through `.bind`.
     let (a0, a1, a2, a3, rest) = if bound.is_empty() {
         (a0, a1, a2, a3, rest)
     } else {
+        let ov = super::argslots::overflow(rest);
         let mut all: Vec<u64> = bound.iter().map(|&w| w as u64).collect();
         all.extend([a0, a1, a2, a3]);
-        let undef = PolyValue::undefined().raw();
-        let get = |i: usize| all.get(i).copied().unwrap_or(undef);
-        let rest_pv = PolyValue::from_raw(rest);
-        let new_rest = if rest_pv.is_int32() {
-            PolyValue::from_i32(rest_pv.as_i32().saturating_add(bound.len() as i32)).raw()
+        // Trailing `undefined` padding must not push real overflow args right:
+        // only the slots the call actually filled count.
+        if !super::argslots::slot3_is_arg(a3, rest) {
+            all.pop();
+        }
+        all.extend(&ov);
+        let empty_rest = if ov.is_empty() {
+            // No overflow to describe: keep the INT32-argc convention intact by
+            // growing the count by the bound args that now precede it.
+            let rest_pv = PolyValue::from_raw(rest);
+            if rest_pv.is_int32() {
+                PolyValue::from_i32(rest_pv.as_i32().saturating_add(bound.len() as i32)).raw()
+            } else {
+                rest
+            }
         } else {
-            rest
+            PolyValue::undefined().raw()
         };
-        (get(0), get(1), get(2), get(3), new_rest)
+        let (a, rest2) = super::argslots::pack(&all, empty_rest);
+        (a[0], a[1], a[2], a[3], rest2)
     };
     // A non-capturing function stored env = 0; normalize that to the `undefined`
     // singleton word the thunk's env-read path expects (it never reads it anyway).
@@ -787,11 +800,22 @@ pub fn rtsadp_fn_invoke(
     // Packing HERE TOO double-wrapped the tail (`(...args)` read `[[2,3]]`).
     if has_this && bound.is_empty() {
         // A this-first function called WITHOUT a receiver (plain `f(x)`): JS
-        // binds `this = undefined`; positional args shift past it (a3 drops -
-        // a 4-arg this-method through the plain invoker is out of this subset).
+        // binds `this = undefined`; positional args shift one slot right past it.
         // A BOUND this-first fn (`f.bind(obj)` prepended the this word into
         // `bound_args[0]`) already carries `this` in a0 — no shift.
-        return f(env_word, PolyValue::undefined().raw(), a0, a1, a2, rest);
+        //
+        // The shift pushes arg 3 OUT of the registers and into overflow position
+        // 0, ahead of whatever `rest` already carried (which starts at arg 4).
+        // Dropping it — what this used to do — silently lost the 4th argument of
+        // every 4-arg call to a this-first callee (issue #2039).
+        let lead = [PolyValue::undefined().raw()];
+        let regs: &[u64] = if super::argslots::slot3_is_arg(a3, rest) {
+            &[a0, a1, a2, a3]
+        } else {
+            &[a0, a1, a2]
+        };
+        let (a, rest2) = super::argslots::relayout(&lead, regs, rest);
+        return f(env_word, a[0], a[1], a[2], a[3], rest2);
     }
     f(env_word, a0, a1, a2, a3, rest)
 }
@@ -1205,16 +1229,19 @@ pub fn rtsadp_fn_invoke_method(
     // its receiver in bound[0] — the call-site `this_word` is ignored (JS:
     // `.call` on a bound fn cannot re-bind this).
     if !bound.is_empty() {
-        let undef = PolyValue::undefined().raw();
-        let mut all: Vec<u64> = bound.iter().map(|&w| w as u64).collect();
-        for w in [a0, a1, a2] {
-            all.push(w);
-        }
-        let g = |i: usize| all.get(i).copied().unwrap_or(undef);
-        return f(env_word, g(0), g(1), g(2), g(3), rest);
+        let lead: Vec<u64> = bound.iter().map(|&w| w as u64).collect();
+        let (a, rest2) = super::argslots::relayout(&lead, &[a0, a1, a2], rest);
+        return f(env_word, a[0], a[1], a[2], a[3], rest2);
     }
-    if has_this {
-        return f(env_word, this_word, a0, a1, a2, rest);
-    }
-    f(env_word, a0, a1, a2, PolyValue::undefined().raw(), rest)
+    // Cut the argument list where THIS callee expects it (issue #2039). The
+    // incoming convention is fixed — `a0..a2` are args 0..2 and `rest` is the
+    // overflow from arg 3 — but the callee's own slot 0 is the RECEIVER only when
+    // it is this-first. For a PLAIN callee every argument shifts one slot left,
+    // so arg 3 belongs in `a3` and the overflow restarts at arg 4; forcing
+    // `a3 = undefined` and forwarding the overflow verbatim (what this did) read
+    // the 4th param from an empty slot and the 5th from the 4th's place —
+    // `o.m.apply(o,[1,2,3,4])` came back `[1,2,3,undefined,4]`, silently.
+    let lead: &[u64] = if has_this { &[this_word] } else { &[] };
+    let (a, rest2) = super::argslots::relayout(lead, &[a0, a1, a2], rest);
+    f(env_word, a[0], a[1], a[2], a[3], rest2)
 }

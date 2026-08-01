@@ -104,6 +104,10 @@ pub mod arrayops;
 // (its thunk address) into a TAG_FUNCTION PolyValue + invoke it indirectly via
 // the fixed uniform 5-slot ABI.
 pub mod funcops;
+// The uniform-thunk ARGUMENT LAYOUT (issue #2039): re-split a call's logical
+// argument list into the `a0..a3` + overflow the CALLEE reads, which differs
+// between a plain and a this-first callee. Split out of `funcops`.
+pub mod argslots;
 // `Math` methods reached as first-class FUNCTION VALUES (`arr.map(Math.abs)`),
 // split out of `funcops` so new surface lands in a focused module.
 pub mod mathfn;
