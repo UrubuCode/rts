@@ -264,6 +264,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if self.classes.get(name).is_some() {
             return self.reify_class(module, name);
         }
+        // `RegExp` in VALUE position (`const f = RegExp`, `xs.map(RegExp)`): a real
+        // callable over the SAME `__rtsadp_re_call` the bare-call form uses, so
+        // `f("ab+c")` and `RegExp("ab+c")` cannot diverge. `RegExp` is PRIMORDIAL
+        // (native `/re/` syntax), so naming it here is allowed; a local/class of
+        // that name shadowed it above.
+        if name == super::regex::REGEX_CLASS {
+            let w = self
+                .call_runtime(module, "__rtsadp_regexp_fn_value", &[])?
+                .expect("__rtsadp_regexp_fn_value returns a fn word");
+            return Ok(Val::tagged_kind(w, JsKind::Function));
+        }
         // A bare name imported from a scheme module (`import { EOL } from "node:os"`)
         // in VALUE position that names a `MemberKind::Constant` getter: resolve it
         // through the same generic marshal a `ns.CONST` member read uses (a

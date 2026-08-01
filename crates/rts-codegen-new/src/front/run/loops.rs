@@ -360,6 +360,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // of gen)`): the local rides a raw Int64 GenState handle — DRAIN
             // it exactly like a direct-call source.
             HirExprKind::Ident(n) => self.generator_locals.get(n).copied() == Some(true),
+            // `for (const v of c.items())` — generator METHOD of a class whose
+            // receiver resolves statically. Same source shape as a direct call.
+            HirExprKind::MethodCall { .. } => self.gen_call_kind(iterable) == Some(true),
             _ => false,
         };
         if !is_lazy {

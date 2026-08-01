@@ -413,7 +413,13 @@ pub fn register_regexp_class_spec(e: &mut Engine) {
             MemberKind::InstanceMethod,
             Sig::new(vec![AbiType::Handle, AbiType::StrPtr], AbiType::Handle),
             "__RTS_FN_GL_REGEXP_EXEC",
-            "exec(str: string): string | null",
+            // O retorno é o OBJETO array-like da spec (matched + captures +
+            // `index`/`input`), NÃO uma string. Declarar `): string` fazia o
+            // marshal genérico reboxar o handle do Map como TAG_STR, e um
+            // receptor DINÂMICO (regex sem classe estática — vinda de retorno de
+            // função, ou do valor `RegExp`) recebia `""` em vez do match. O
+            // caminho estático nunca viu isso porque usa `__rtsadp_re_exec`.
+            "exec(str: string): object | null",
             "`re.exec(str)` — JS Array-like (Map) com matched + captures + groups.",
             __RTS_FN_GL_REGEXP_EXEC as *const u8,
             true,

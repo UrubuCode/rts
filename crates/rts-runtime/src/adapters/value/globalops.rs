@@ -547,7 +547,7 @@ pub fn rtsadp_math_reduce(arr_word: u64, op: i64) -> f64 {
 /// NaN, JS spec), then NaN; otherwise scale every element by the max magnitude,
 /// Neumaier-sum the squared ratios, and return `sqrt(sum) * max` — exact in the
 /// normal range and immune to overflow/underflow of the naive sum of squares.
-fn hypot_n(xs: &[f64]) -> f64 {
+pub(super) fn hypot_n(xs: &[f64]) -> f64 {
     if xs.iter().any(|x| x.is_infinite()) {
         return f64::INFINITY;
     }

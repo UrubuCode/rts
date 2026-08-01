@@ -23,6 +23,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if super::regex::is_regex_literal(object) {
             return Some(super::regex::REGEX_CLASS.to_string());
         }
+        // `RegExp("pat").test(s)` — the CALL form (no `new`) yields the SAME
+        // RegExp instance the ctor does, so it dispatches the same way.
+        if self.is_bare_regexp_call(object) {
+            return Some(super::regex::REGEX_CLASS.to_string());
+        }
         match &object.kind {
             HirExprKind::New { class, .. } if self.is_global_class_ctor(class) => {
                 Some(class.clone())

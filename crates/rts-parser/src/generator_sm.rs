@@ -79,18 +79,12 @@ pub fn try_build(name: &str, function: &Function) -> Option<(FnDecl, FnDecl)> {
     if !body_needs_lazy(&body.stmts) {
         return None;
     }
-    // `break`/`continue` NAO sao modelados pela state-machine: o corpo do loop
-    // vira ESTADOS, e um `break` emitido verbatim dentro do estado nao tem loop
-    // para sair — a maquina ignorava o corte e o generator rodava PARA SEMPRE
-    // (`while(true){ if(i>=2) break; yield i; i=i+1 }` travava, sem erro).
-    //
-    // Inelegivel => cai no eager-buffer, que mantem o corpo verbatim e portanto
-    // respeita o `break` corretamente. Perde-se a lazy nesses corpos; ganha-se
-    // terminar. Voltar a aceita-los exige modelar break/continue como alvo de
-    // estado (com pilha de alvos p/ rotulos), nao apenas relaxar esta guarda.
-    if body.stmts.iter().any(stmt_has_break_or_continue) {
-        return None;
-    }
+    // `break`/`continue` SAO modelados agora: cada laço fatiado em estados
+    // empilha um `LoopTarget` e o salto vira `Trans::Goto` (ver
+    // `generator_sm_loops`). O gate que barrava o corpo INTEIRO saiu daqui —
+    // uma forma nao modelada (sem laço, rotulo desconhecido, saida de regiao
+    // `try`) faz `lower_stmt` devolver `None` e o build cai no eager-buffer,
+    // que e' a mesma recusa de antes, so' que precisa.
 
     let mut builder = SmBuilder::new();
     // Pre-registra params como locais (slots 0..n).
@@ -322,11 +316,28 @@ struct SmBuilder {
     is_async_gen: bool,
     /// Contador de temporarios sinteticos unicos (yield* delegation).
     tmp_counter: usize,
+    /// Laços que a maquina fatiou em estados, do mais externo ao mais interno.
+    /// `break`/`continue` resolvem contra esta pilha — ver `generator_sm_loops`.
+    loop_stack: Vec<crate::generator_sm_loops::LoopTarget>,
+    /// Rotulo pendente de `L: while (…)`, consumido pelo arm do laço seguinte.
+    pending_label: Option<String>,
+    /// Profundidade de regiões `try` abertas. Um `break` que sairia de uma
+    /// região pularia o `finally`, então é recusado (bail honesto).
+    try_depth: usize,
 }
 
 impl SmBuilder {
     fn new() -> Self {
-        SmBuilder { states: Vec::new(), locals: Vec::new(), is_async: false, is_async_gen: false, tmp_counter: 0 }
+        SmBuilder {
+            states: Vec::new(),
+            locals: Vec::new(),
+            is_async: false,
+            is_async_gen: false,
+            tmp_counter: 0,
+            loop_stack: Vec::new(),
+            pending_label: None,
+            try_depth: 0,
+        }
     }
 
     fn intern_local(&mut self, name: &str) -> usize {
@@ -515,6 +526,7 @@ impl SmBuilder {
             }
             // `while (test) { body }`  (inclui while(true))
             Stmt::While(w) => {
+                let label = self.pending_label.take();
                 if expr_has_yield(&w.test) {
                     return None;
                 }
@@ -529,15 +541,24 @@ impl SmBuilder {
                 } else {
                     self.set_cond(header, w.test.as_ref().clone(), body_entry, after);
                 }
-                // body
+                // body — `break` sai para `after`, `continue` volta ao header.
                 let body_stmts = block_stmts(&w.body)?;
-                let body_exit = self.lower_seq(body_stmts, body_entry)?;
+                self.loop_stack.push(crate::generator_sm_loops::LoopTarget {
+                    label,
+                    brk: after,
+                    cont: header,
+                    try_depth: self.try_depth,
+                });
+                let body_exit = self.lower_seq(body_stmts, body_entry);
+                self.loop_stack.pop();
+                let body_exit = body_exit?;
                 // ao fim do corpo, volta ao header
                 self.set_goto(body_exit, header);
                 Some(after)
             }
             // `for (init; test; update) { body }`
             Stmt::For(f) => {
+                let label = self.pending_label.take();
                 // init
                 let mut c = cur;
                 if let Some(init) = &f.init {
@@ -567,15 +588,27 @@ impl SmBuilder {
                     None => self.set_goto(header, body_entry),
                 }
                 let body_stmts = block_stmts(&f.body)?;
-                let body_exit = self.lower_seq(body_stmts, body_entry)?;
-                // update no fim do corpo
-                let upd_state = body_exit;
+                // O `continue` de um `for` PRECISA rodar o update antes de
+                // re-testar, então o update ganha um estado PRÓPRIO criado ANTES
+                // do corpo (o `body_exit` só é conhecido depois, e um `continue`
+                // no meio do corpo não poderia apontar para ele).
+                let upd_state = self.new_state();
+                self.loop_stack.push(crate::generator_sm_loops::LoopTarget {
+                    label,
+                    brk: after,
+                    cont: upd_state,
+                    try_depth: self.try_depth,
+                });
+                let body_exit = self.lower_seq(body_stmts, body_entry);
+                self.loop_stack.pop();
+                let body_exit = body_exit?;
                 if let Some(u) = &f.update {
                     if expr_has_yield(u) {
                         return None;
                     }
                     self.push_stmt(upd_state, call_stmt((**u).clone()));
                 }
+                self.set_goto(body_exit, upd_state);
                 self.set_goto(upd_state, header);
                 Some(after)
             }
@@ -631,7 +664,10 @@ impl SmBuilder {
                         );
                         let body_entry = self.new_state();
                         self.set_goto(cur, body_entry);
-                        let body_exit = self.lower_seq(&t.block.stmts, body_entry)?;
+                        self.try_depth += 1;
+                        let body_exit = self.lower_seq(&t.block.stmts, body_entry);
+                        self.try_depth -= 1;
+                        let body_exit = body_exit?;
                         // saida normal do body (sem excecao): limpa o catch e segue.
                         self.push_stmt(
                             body_exit,
@@ -651,7 +687,10 @@ impl SmBuilder {
                                 ),
                             );
                         }
-                        let catch_exit = self.lower_seq(&h.body.stmts, catch_entry)?;
+                        self.try_depth += 1;
+                        let catch_exit = self.lower_seq(&h.body.stmts, catch_entry);
+                        self.try_depth -= 1;
+                        let catch_exit = catch_exit?;
                         self.set_goto(catch_exit, after);
                         return Some(after);
                     }
@@ -684,15 +723,56 @@ impl SmBuilder {
                 // try body: comeca num estado novo logo apos `cur`.
                 let body_entry = self.new_state();
                 self.set_goto(cur, body_entry);
-                let body_exit = self.lower_seq(&t.block.stmts, body_entry)?;
-                // saida normal do body -> finally_entry
-                self.set_goto(body_exit, finally_entry);
-                // finally body
-                let fin_exit = self.lower_seq(&finalizer.stmts, finally_entry)?;
+                self.try_depth += 1;
+                let body_exit = self.lower_seq(&t.block.stmts, body_entry);
+                let fin_exit = body_exit
+                    .and_then(|be| {
+                        // saida normal do body -> finally_entry
+                        self.set_goto(be, finally_entry);
+                        self.lower_seq(&finalizer.stmts, finally_entry)
+                    });
+                self.try_depth -= 1;
+                let fin_exit = fin_exit?;
                 // ao fim do finally: END_FINALLY; se nada pendente, segue p/ after.
                 let after = self.new_state();
                 self.set_end_finally(fin_exit, after);
                 Some(after)
+            }
+            // `break` / `break L` — transição para o estado de saída do laço
+            // alvo. Um alvo não modelado (sem laço, rótulo desconhecido, ou
+            // saída de região `try`) RECUSA o build; ver `generator_sm_loops`.
+            Stmt::Break(b) => {
+                let label = b.label.as_ref().map(|l| l.sym.to_string());
+                let target = crate::generator_sm_loops::resolve(
+                    &self.loop_stack,
+                    label.as_deref(),
+                    true,
+                    self.try_depth,
+                )?;
+                self.set_goto(cur, target);
+                // código após o break é inalcançável; estado morto p/ a sequência.
+                Some(self.new_state())
+            }
+            // `continue` / `continue L`
+            Stmt::Continue(c) => {
+                let label = c.label.as_ref().map(|l| l.sym.to_string());
+                let target = crate::generator_sm_loops::resolve(
+                    &self.loop_stack,
+                    label.as_deref(),
+                    false,
+                    self.try_depth,
+                )?;
+                self.set_goto(cur, target);
+                Some(self.new_state())
+            }
+            // `L: while (…) …` — o rótulo viaja até o arm do laço, que o grava
+            // no `LoopTarget`. Um rótulo sobre algo que não é laço fica sem
+            // consumidor, e um `break L` correspondente não resolve (bail).
+            Stmt::Labeled(l) => {
+                self.pending_label = Some(l.label.sym.to_string());
+                let out = self.lower_stmt(&l.body, cur);
+                self.pending_label = None;
+                out
             }
             // bloco aninhado simples: achata
             Stmt::Block(b) => self.lower_seq(&b.stmts, cur),
@@ -717,7 +797,15 @@ impl SmBuilder {
                 // Cond(test, then, else) e o `return` no then vira DONE.
                 let has_return = stmt_has_return(&i.cons)
                     || i.alt.as_deref().map(stmt_has_return).unwrap_or(false);
-                if has_return || has_yield {
+                // Um `break`/`continue` dentro do `if` TAMBEM nao pode ir
+                // verbatim: o laço que o contem virou ESTADOS, entao o `break`
+                // cru nao teria laço de onde sair e a maquina rodaria PARA
+                // SEMPRE (era exatamente o risco que o gate antigo evitava
+                // barrando o corpo inteiro). Forçando o caminho ramificado, o
+                // arm `Stmt::Break` o resolve como transição de estado.
+                let has_jump = stmt_has_break_or_continue(&i.cons)
+                    || i.alt.as_deref().map(stmt_has_break_or_continue).unwrap_or(false);
+                if has_return || has_yield || has_jump {
                     let then_entry = self.new_state();
                     let after = self.new_state();
                     let else_entry = if i.alt.is_some() {

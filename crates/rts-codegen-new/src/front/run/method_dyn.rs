@@ -448,6 +448,121 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(self.tag_dyn_result(word, JsKind::Unknown))
     }
 
+    /// `recv.method(args…)` through the FULL `INVOKE_AUTO` machinery: read the
+    /// `method` slot off the receiver (own slot, then the PROTOTYPE chain, via
+    /// `__rtsadp_obj_get`) and invoke that function VALUE with `this` = receiver
+    /// and a COUNTED args vec.
+    ///
+    /// This is the general form of [`Self::try_generic_dyn_method_call`], which
+    /// rides a fixed 3-slot ABI and therefore declines a call with more than 3
+    /// args, a callback arg, or a `...spread`. Here the args ride a real
+    /// `Entry::Vec`, so `__RTS_FN_RT_INVOKE_AUTO` sees the true arg COUNT and can
+    /// apply bound args, param kinds, the uniform-thunk env, and variadic tail
+    /// packing (a `(...xs)` callee gets its overflow packed into ONE array).
+    ///
+    /// `this` is bound correctly by the callee's own shape: `INVOKE_AUTO` inserts
+    /// `this_arg` only for a non-arrow callee with a `this` param (else it pushes
+    /// the this-slot), so an arrow FIELD (`f = () => …`) keeps its lexical `this`
+    /// as JS requires.
+    ///
+    /// A slot that does NOT hold a function is routed to
+    /// `__rtsadp_dyn_method_call`, whose miss branch throws the spec TypeError
+    /// (`"<name> is not a function"`). That check is NOT optional: with a
+    /// non-function callee `INVOKE_AUTO` falls through its Function-handle
+    /// branches to the raw-fn_ptr path and `invoke_n`s the word AS AN ADDRESS —
+    /// so an absent slot would jump to a garbage address instead of throwing.
+    pub(in crate::front::run) fn emit_dyn_method_via_invoke_auto(
+        &mut self,
+        module: &mut dyn Module,
+        recv: Val,
+        method: &str,
+        args: &[HirExpr],
+    ) -> FrontResult<Val> {
+        let recv_word = self.box_value(recv);
+        let key_word = self.emit_str_const_word(module, method)?;
+        let callee = self
+            .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key_word])?
+            .expect("__rtsadp_obj_get returns a value");
+        // The args vec is a REAL `Entry::Vec` handle — the ABI `INVOKE_AUTO`
+        // reads (`read_args_vec`), not a boxed object word.
+        let vec_h = self
+            .call_runtime(module, "__RTS_FN_NS_COLLECTIONS_VEC_NEW", &[])?
+            .expect("VEC_NEW returns a handle");
+        for a in args {
+            if let rts_hir::ir::HirExprKind::Spread(inner) = &a.kind {
+                // `arr_spread_append` takes the destination as an OBJECT word;
+                // it resolves back to this same Vec entry, so the append lands
+                // in `vec_h`.
+                let src = self.spread_source_array_word(module, inner)?;
+                let dst =
+                    crate::value::emit_marshal::emit_box_object_handle(module, self.builder, vec_h);
+                self.call_runtime(module, "__rtsadp_arr_spread_append", &[dst, src])?;
+            } else {
+                let v = self.lower_expr(module, a)?;
+                let w = self.box_value(v);
+                self.call_runtime(module, "__RTS_FN_NS_COLLECTIONS_VEC_PUSH", &[vec_h, w])?;
+            }
+        }
+        // GUARD: only a FUNCTION word may reach `INVOKE_AUTO` (see the doc
+        // comment — a non-function word would be invoked as a raw ADDRESS). The
+        // else arm reuses the existing miss path so the TypeError it throws is
+        // identical to the 3-slot route's.
+        let is_fn = {
+            let boxed = crate::value::emit_is_boxed(self.builder, callee);
+            let shifted = self
+                .builder
+                .ins()
+                .ushr_imm(callee, crate::value::TAG_SHIFT as i64);
+            let tag = self
+                .builder
+                .ins()
+                .band_imm(shifted, crate::value::TAG_MASK as i64);
+            let is_fn_tag = self.builder.ins().icmp_imm(
+                cranelift_codegen::ir::condcodes::IntCC::Equal,
+                tag,
+                crate::value::TAG_FUNCTION as i64,
+            );
+            self.builder.ins().band(boxed, is_fn_tag)
+        };
+        let b_call = self.builder.create_block();
+        let b_throw = self.builder.create_block();
+        let merge = self.builder.create_block();
+        self.builder.append_block_param(merge, types::I64);
+        self.builder.ins().brif(is_fn, b_call, &[], b_throw, &[]);
+        self.builder.seal_block(b_call);
+        self.builder.seal_block(b_throw);
+
+        self.builder.switch_to_block(b_call);
+        let out = self
+            .call_runtime(
+                module,
+                "__rtsadp_invoke_auto_word",
+                &[callee, recv_word, vec_h],
+            )?
+            .expect("__rtsadp_invoke_auto_word returns a word");
+        self.builder.ins().jump(merge, &[out.into()]);
+
+        self.builder.switch_to_block(b_throw);
+        let undef = self
+            .builder
+            .ins()
+            .iconst(types::I64, crate::value::PolyValue::undefined().raw() as i64);
+        let thrown = self
+            .call_runtime(
+                module,
+                "__rtsadp_dyn_method_call",
+                &[recv_word, key_word, undef, undef, undef],
+            )?
+            .expect("__rtsadp_dyn_method_call returns a value");
+        self.builder.ins().jump(merge, &[thrown.into()]);
+
+        self.builder.seal_block(merge);
+        self.builder.switch_to_block(merge);
+        let word = self.builder.block_params(merge)[0];
+        self.emit_post_call_error_check(module)?;
+        Ok(Val::new(word, Repr::Tagged))
+    }
+
     /// Wrap a dynamic-dispatch result word as a `Val`. A `Number`/`Bool` result is
     /// still a Tagged word here (the trampoline boxes it), so it rides `Tagged`
     /// with the proven kind — the `console.log`/`+` paths re-read the tag. Only the

@@ -559,21 +559,42 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             if let Some(val) = self.try_object_protocol_method(module, object, method, args)? {
                 return Ok(val);
             }
-            // FIELD-AS-FUNCTION (`class C { m = () => …; static m2 = fn }`): the
-            // name is a DATA slot holding a callable, not a class method, so
-            // there is no `__rtsn_method_C_m` to call. Dispatch it generically —
-            // read the slot off the receiver (own slot, then the proto chain) and
-            // invoke it with `this` = receiver. Gated on the class actually
-            // DECLARING the field so an honest typo still bails.
-            if desc.fields.iter().any(|f| f == method) || desc.static_fields.contains_key(method) {
+            // FIELD-AS-FUNCTION / DYNAMIC METHOD: the name is not a synthesized
+            // class method, so there is no `__rtsn_method_C_m` to call. It may be
+            // a DATA slot holding a callable (`m = () => …`, `this.m = fn` in the
+            // ctor OR in any other method, `Object.assign(this, {m})`, an
+            // instance-level `a.m = fn`, or a method published on the class
+            // PROTOTYPE). All of those are the same question at runtime — "what
+            // does the `m` slot of this receiver hold?" — so they resolve through
+            // ONE generic path that reads the slot (own, then the proto chain) and
+            // invokes it with `this` = receiver.
+            //
+            // This is NOT a guess and NOT a widening of the numeric subset: a slot
+            // that holds no function makes the invoke path throw a TypeError,
+            // which is exactly what JS does for `obj.nope()`. Refusing at COMPILE
+            // time was the divergence — an honest typo is a runtime TypeError in
+            // every other engine.
+            //
+            // Conservative gate: an ACCESSOR (`get m()`/`set m()`) or a STATIC of
+            // the same name keeps the static path, so this can never silently
+            // route around a declared getter/setter or a class-side member.
+            if desc.accessors.get(method).is_none() && !desc.statics.contains_key(method) {
                 let recv = self.lower_expr(module, object)?;
+                // The fixed 3-slot trampoline first (one `call`, no vec alloc);
+                // it declines >3 args / callback / spread, which the counted
+                // args-vec path below then covers.
+                // (`Val` is `Copy` and the decline happens BEFORE the receiver is
+                // used, so the same lowered receiver feeds both paths — lowering
+                // `object` twice would double-evaluate a side-effecting receiver
+                // like `f().m()`.)
                 if let Some(val) = self.try_generic_dyn_method_call(module, recv, method, args)? {
                     return Ok(val);
                 }
+                return self.emit_dyn_method_via_invoke_auto(module, recv, method, args);
             }
             return unsupported!(
                 "`{class}.{method}()` — no such method on class `{class}` \
-                 (a field-as-function / dynamic method is a later increment)"
+                 (it is declared as an accessor/static, not a callable slot)"
             );
         };
         // VIRTUAL dispatch: when `method` is OVERRIDDEN somewhere in `class`'s

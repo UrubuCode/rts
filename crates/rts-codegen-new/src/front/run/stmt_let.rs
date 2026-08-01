@@ -132,6 +132,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
         }
 
+        // `const re = RegExp("ab+c")`: the CALL form (no `new`) yields a RegExp
+        // INSTANCE just like the ctor, so record its class here exactly as the
+        // `new` arm below does — otherwise `re.test(s)` / `re.source` would find
+        // no static class and fall to the dynamic path. Registration ONLY; the
+        // binding itself follows the normal flow.
+        if self.is_bare_regexp_call(init) {
+            self.global_instance_classes
+                .insert(name.to_string(), super::regex::REGEX_CLASS.to_string());
+        }
+
         // `const u = pathToFileURL(p)`: a BUILTIN-IMPORT namespace FUNCTION whose
         // spec return is a NAMED registered class (`): URL`) — record the result's
         // CLASS so `u.href` dispatches (the namespace-call analogue of the class-

@@ -78,11 +78,28 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(Val::tagged_kind(word, JsKind::Object))
     }
 
+    /// Whether `expr` is the CALL form `RegExp(pat[, flags])` — no `new`, which
+    /// the spec makes equivalent to the constructor (see
+    /// [`super::globals`]'s `RegExp` arm). Shadowed by a same-named local or user
+    /// function, exactly like the call lowering itself.
+    pub(super) fn is_bare_regexp_call(&self, expr: &HirExpr) -> bool {
+        let HirExprKind::Call { callee, args } = &expr.kind else {
+            return false;
+        };
+        let HirExprKind::Ident(name) = &callee.kind else {
+            return false;
+        };
+        name == REGEX_CLASS
+            && args.len() <= 2
+            && self.local(name).is_none()
+            && !self.sigs.contains_key(name.as_str())
+    }
+
     /// Whether `expr` resolves to a RegExp instance the engine can dispatch on:
-    /// a regex LITERAL, a `new RegExp(..)` directly, or a bare identifier recorded
-    /// as a RegExp local (`global_instance_classes`).
+    /// a regex LITERAL, a `new RegExp(..)` / `RegExp(..)` directly, or a bare
+    /// identifier recorded as a RegExp local (`global_instance_classes`).
     pub(super) fn is_regex_value(&self, expr: &HirExpr) -> bool {
-        if is_regex_literal(expr) {
+        if is_regex_literal(expr) || self.is_bare_regexp_call(expr) {
             return true;
         }
         match &expr.kind {

@@ -409,17 +409,27 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// If `init` is a CALL to a generator constructor, its kind: `Some(true)` lazy
     /// (GenState handle), `Some(false)` eager (`__gen_buf` array). `None` otherwise.
     pub(super) fn gen_call_kind(&self, init: &HirExpr) -> Option<bool> {
-        let HirExprKind::Call { callee, .. } = &init.kind else {
-            return None;
+        let s = match &init.kind {
+            HirExprKind::Call { callee, .. } => {
+                let HirExprKind::Ident(f) = &callee.kind else {
+                    return None;
+                };
+                // Segue o alias (`const g = gg; g()`) até a função real: `sigs` só
+                // conhece o nome DECLARADO, e sem este salto o iterador devolvido por
+                // um alias perdia o protocolo (`it.next` virava `undefined`).
+                let f = self.generator_aliases.get(f).unwrap_or(f);
+                self.sigs.get(f)?
+            }
+            // `c.items()` / `C.m()` — um MÉTODO generator de classe. O parser
+            // levanta o corpo para uma decl top-level e deixa um wrapper que a
+            // repassa, e o fixpoint de `module_jit` propaga a marca até o
+            // `__rtsn_method_*`. Sem este braço o call site nunca lia a marca e o
+            // valor chegava ao despacho como número — `it.next is not a function`.
+            // Mesma raiz da #2042 (protocolo perdido ao atravessar uma borda),
+            // aqui na borda de método em vez da de retorno.
+            HirExprKind::MethodCall { .. } => self.sigs.get(&self.static_method_fn(init)?)?,
+            _ => return None,
         };
-        let HirExprKind::Ident(f) = &callee.kind else {
-            return None;
-        };
-        // Segue o alias (`const g = gg; g()`) até a função real: `sigs` só
-        // conhece o nome DECLARADO, e sem este salto o iterador devolvido por
-        // um alias perdia o protocolo (`it.next` virava `undefined`).
-        let f = self.generator_aliases.get(f).unwrap_or(f);
-        let s = self.sigs.get(f)?;
         if s.ret_lazy_gen {
             Some(true)
         } else if s.ret_eager_gen {
@@ -427,6 +437,27 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         } else {
             None
         }
+    }
+
+    /// The synthesized function a METHOD call resolves to at COMPILE time —
+    /// `c.items()` → `__rtsn_method_C_items`, `C.m()` → the class's static fn —
+    /// when the receiver's class is statically known. `None` for a dynamic
+    /// receiver, so a guess is never made.
+    pub(super) fn static_method_fn(&self, e: &HirExpr) -> Option<String> {
+        let HirExprKind::MethodCall { object, method, .. } = &e.kind else {
+            return None;
+        };
+        if let Some(class) = self.static_instance_class(object) {
+            if let Some(f) = self.classes.get(&class).and_then(|d| d.method_fn(method)) {
+                return Some(f.to_string());
+            }
+        }
+        if let Some(class) = self.class_name_receiver(object) {
+            if let Some(f) = self.classes.get(&class).and_then(|d| d.statics.get(method)) {
+                return Some(f.clone());
+            }
+        }
+        None
     }
 
     /// The bare `Entry::GenState` handle behind a LAZY-generator value. Since #2042
@@ -488,10 +519,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 Some(&lazy) => lazy,
                 None => return Ok(None),
             },
-            HirExprKind::Call { .. } => match self.gen_call_kind(recv) {
-                Some(lazy) => lazy,
-                None => return Ok(None),
-            },
+            // `g().next()` e `c.items().next()` — receiver que é a própria
+            // chamada (direta ou de método generator de classe).
+            HirExprKind::Call { .. } | HirExprKind::MethodCall { .. } => {
+                match self.gen_call_kind(recv) {
+                    Some(lazy) => lazy,
+                    None => return Ok(None),
+                }
+            }
             _ => return Ok(None),
         };
         let v = self.lower_expr(module, recv)?;
