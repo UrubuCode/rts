@@ -1110,7 +1110,32 @@ fn lower_decl(cm: &Lrc<SourceMap>, decl: &Decl, out: &mut Vec<Item>) {
     }
     match decl {
         Decl::Class(class_decl) => {
-            out.push(Item::Class(lower_class_decl(cm, class_decl)));
+            // (#2038) Um membro `*m()` ia direto para o eager-buffer, que so'
+            // expressa `yield` em posicao de STATEMENT — `const r = yield x`
+            // sobrevivia e morria no lowering. `hoist_generator_methods` levanta
+            // o membro elegivel para uma decl top-level (com `this` virando
+            // parametro) e deixa um wrapper no lugar; a recursao abaixo faz a
+            // decl levantada passar pelo MESMO `try_build` do `Decl::Fn`, sem
+            // duplicar dispatch nem regras de elegibilidade. Membro inelegivel
+            // nao e' tocado e mantem exatamente o caminho de hoje.
+            let mut class_decl = class_decl.clone();
+            let hoisted = crate::genmethod::hoist_generator_methods(&mut class_decl);
+            for fd in hoisted.decls {
+                lower_decl(cm, &Decl::Fn(fd), out);
+            }
+            let mut lowered = lower_class_decl(cm, &class_decl);
+            // O wrapper deixou de ser `is_generator`, entao `lowering_decls` nao
+            // forca mais o retorno i64 (handle do iterador) — re-carimba aqui.
+            if !hoisted.wrapper_methods.is_empty() {
+                for member in lowered.members.iter_mut() {
+                    if let ClassMember::Method(m) = member {
+                        if hoisted.wrapper_methods.iter().any(|n| n == &m.name) {
+                            m.return_type = Some("i64".to_string());
+                        }
+                    }
+                }
+            }
+            out.push(Item::Class(lowered));
             // Decorators TC39: emite chamada a cada decorator com target=0
             // (handle nominal). Resultado eh descartado (registration-style
             // decorators tem efeito por side-effect). Decoradores de

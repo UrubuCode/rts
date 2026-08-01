@@ -6,6 +6,8 @@
 
 pub mod generator_desugar;
 pub mod generator_sm;
+pub mod generator_sm_loops;
+pub mod genmethod;
 pub mod lexer;
 
 use anyhow::{Result, anyhow};
