@@ -8,6 +8,7 @@ pub mod generator_desugar;
 pub mod generator_sm;
 pub mod generator_sm_iter;
 pub mod generator_sm_loops;
+pub mod generator_sm_normalize;
 pub mod generator_sm_scan;
 pub mod generator_sm_switch;
 pub mod genmethod;

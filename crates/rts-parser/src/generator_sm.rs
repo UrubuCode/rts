@@ -76,7 +76,15 @@ pub fn try_build(name: &str, function: &Function) -> Option<(FnDecl, FnDecl)> {
     // precisam de lazy: corpo contem um loop (`while`/`for`) com `yield` dentro.
     // Generators lineares finitos (`yield 1; yield 2;`) continuam no eager-buffer
     // — caminho provado que ja' serve for-of/spread/.next sem regressao.
-    if !body_needs_lazy(&body.stmts) {
+    // NORMALIZA ANTES DE JULGAR. Um `yield` em posicao de subexpressao
+    // (`return t && (yield n)` — saida padrao do Babel) vira aqui as duas
+    // formas que a maquina modela; ver `generator_sm_normalize`. Rodar o gate
+    // sobre o corpo ORIGINAL julgaria a forma errada: `return yield t` nao
+    // conta como value-yield para `stmt_has_value_yield`, o build caia no
+    // eager-buffer e o `yield` chegava cru ao lowering. Nao e' afrouxar o
+    // gate — e' dar a ele a forma sobre a qual ele sabe decidir.
+    let stmts = crate::generator_sm_normalize::normalize_body(&body.stmts)?;
+    if !body_needs_lazy(&stmts) {
         return None;
     }
     // `break`/`continue` SAO modelados agora: cada laço fatiado em estados
@@ -94,7 +102,7 @@ pub fn try_build(name: &str, function: &Function) -> Option<(FnDecl, FnDecl)> {
 
     // Flatten do corpo num grafo de estados. O estado inicial eh 0.
     let entry = builder.new_state();
-    let exit = builder.lower_seq(&body.stmts, entry)?;
+    let exit = builder.lower_seq(&stmts, entry)?;
     // Estado de saida normal: done(undefined).
     builder.set_done(exit, None);
 
@@ -229,7 +237,7 @@ pub(crate) fn ident_expr(s: &str) -> Expr {
 fn num_expr(n: f64) -> Expr {
     Expr::Lit(Lit::Num(Number { span: sp(), value: n, raw: None }))
 }
-fn undef_expr() -> Expr {
+pub(crate) fn undef_expr() -> Expr {
     ident_expr("undefined")
 }
 
@@ -250,7 +258,7 @@ pub(crate) fn call_stmt(e: Expr) -> Stmt {
 }
 
 /// `let <name> = <init>;`
-fn let_decl(name: &str, init: Expr) -> Stmt {
+pub(crate) fn let_decl(name: &str, init: Expr) -> Stmt {
     Stmt::Decl(Decl::Var(Box::new(VarDecl {
         span: sp(),
         ctxt: Default::default(),
