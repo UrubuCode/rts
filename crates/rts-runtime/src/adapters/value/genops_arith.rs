@@ -202,7 +202,7 @@ pub fn rtsadp_bnot(a: u64) -> u64 {
 /// JS `ToInt32`: ToNumber, then take the value mod 2^32 as a signed 32-bit int
 /// (NaN/±Infinity → 0). The `as i64 as i32` wrap reproduces the modular step for
 /// finite in-range magnitudes; out-of-range/non-finite go through 0.
-fn to_int32(v: PolyValue) -> i32 {
+pub(super) fn to_int32(v: PolyValue) -> i32 {
     let f = to_number(v);
     if !f.is_finite() {
         return 0;

@@ -74,20 +74,24 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         match name.as_str() {
             "Math" => match math_const(prop) {
                 Some(c) => Ok(Some(self.f64_const_val(c))),
-                // `Math.max`/`Math.min` read as a FUNCTION VALUE
-                // (`Reflect.apply(Math.max, …)`): a real callable whose env
-                // carries the op — the same reduce the static call uses.
-                None if matches!(prop, "max" | "min") => {
-                    let op = self.builder.ins().iconst(
-                        cranelift_codegen::ir::types::I64,
-                        if prop == "max" { 1 } else { 0 },
-                    );
-                    let w = self
-                        .call_runtime(module, "__rtsadp_math_fn_value", &[op])?
-                        .expect("__rtsadp_math_fn_value returns a fn word");
-                    Ok(Some(Val::tagged_kind(w, JsKind::Function)))
-                }
-                None => unsupported!("Math.{prop} (unknown Math constant)"),
+                // Any `Math` METHOD read as a FUNCTION VALUE (`const f =
+                // Math.clz32`, `arr.map(Math.abs)`, `Reflect.apply(Math.max, …)`):
+                // a real callable whose env carries the method's index in
+                // `MATH_FN_OPS` — the ONE table the runtime thunk dispatches on,
+                // so the value form can never diverge from the static call form.
+                None => match math_fn_value_op(prop) {
+                    Some(op) => {
+                        let op = self
+                            .builder
+                            .ins()
+                            .iconst(cranelift_codegen::ir::types::I64, op);
+                        let w = self
+                            .call_runtime(module, "__rtsadp_math_fn_value", &[op])?
+                            .expect("__rtsadp_math_fn_value returns a fn word");
+                        Ok(Some(Val::tagged_kind(w, JsKind::Function)))
+                    }
+                    None => unsupported!("Math.{prop} (unknown Math constant)"),
+                },
             },
             "Number" => match number_const(prop) {
                 Some(c) => Ok(Some(self.f64_const_val(c))),
@@ -494,6 +498,9 @@ fn math_op(method: &str) -> Option<MathOp> {
         "sinh" => Sym("__RTS_FN_NS_MATH_SINH", 1),
         "cosh" => Sym("__RTS_FN_NS_MATH_COSH", 1),
         "tanh" => Sym("__RTS_FN_NS_MATH_TANH", 1),
+        "asinh" => Sym("__RTS_FN_NS_MATH_ASINH", 1),
+        "acosh" => Sym("__RTS_FN_NS_MATH_ACOSH", 1),
+        "atanh" => Sym("__RTS_FN_NS_MATH_ATANH", 1),
         "fround" => Sym("__RTS_FN_NS_MATH_FROUND", 1),
         "f16round" => Sym("__RTS_FN_NS_MATH_F16ROUND", 1),
         // ---- 2-arg f64→f64 ----
@@ -534,6 +541,15 @@ pub(super) fn math_member_typeof(prop: &str) -> &'static str {
     } else {
         "undefined"
     }
+}
+
+/// The op code of a `Math` METHOD read as a first-class function value — its
+/// index in `rts_runtime`'s `MATH_FN_OPS`, the SINGLE ordered table the runtime
+/// thunk (`__rtsadp_math_fn_value`'s `math_method_thunk`) dispatches on. Reading
+/// the table instead of restating the names here is what keeps the two sides from
+/// desynchronizing (the min/max-only predecessor hardcoded `1`/`0` on both ends).
+fn math_fn_value_op(prop: &str) -> Option<i64> {
+    rts_runtime::adapters::value::mathfn::math_fn_op_code(prop)
 }
 
 /// A `Math.CONST` constant's f64 value.

@@ -104,6 +104,9 @@ pub mod arrayops;
 // (its thunk address) into a TAG_FUNCTION PolyValue + invoke it indirectly via
 // the fixed uniform 5-slot ABI.
 pub mod funcops;
+// `Math` methods reached as first-class FUNCTION VALUES (`arr.map(Math.abs)`),
+// split out of `funcops` so new surface lands in a focused module.
+pub mod mathfn;
 // Codegen-owned Array CALLBACK trampolines (P4.7): map/filter/forEach/find/
 // findIndex/some/every/reduce, invoking the callback function VALUE per element
 // via funcops::__rtsadp_fn_invoke.
@@ -117,6 +120,10 @@ pub mod globalops;
 // and `s.match`/`.replace`/`.replaceAll`/`.split`/`.search`, over the REAL
 // `__RTS_FN_NS_REGEX_*` symbols (array results built codegen-side).
 pub mod regexops;
+// `RegExp` WITHOUT `new`: the bare call `RegExp(p[, f])` (spec identity when the
+// arg already is a RegExp and no flags are given) and `RegExp` read as a
+// first-class function VALUE. Both delegate to `regexops`'s compile trampoline.
+pub mod regexpfn;
 // Codegen-owned Date trampolines (P5.16): `new Date(ms|iso|fields|now)`, the
 // `Date.now`/`Date.UTC`/`Date.parse` statics, and the instance getters/string
 // methods, over the REAL `__RTS_FN_GL_DATE_*` / `__RTS_FN_NS_DATE_*` symbols
