@@ -23,6 +23,25 @@ use rts_ast::ast::{
 };
 use swc_ecma_visit::{Visit, VisitWith};
 
+/// The generator/async state machine's own synthesized functions
+/// (`crate::…` — the parser's `generator_sm` emits `__gen_state_*`,
+/// `__agen_state_*`, `__async_state_*`).
+///
+/// These are never ES5 constructors, and lifting one is not merely useless — it
+/// is DESTRUCTIVE: the state fn is referenced by NAME from its paired
+/// constructor (`GEN_SM_NEW(__gen_state_g, n)`), so turning it into a class
+/// deletes the function that reference resolves to and the whole generator dies
+/// with "generator state-fn `__gen_state_g` not declared". A generator body that
+/// happens to write `this.x` was enough to trigger it.
+///
+/// Matching on the prefix is matching OUR OWN synthesized spelling (documented
+/// in `rts_parser::generator_sm`), not on a user-visible name.
+fn is_state_machine_fn(name: &str) -> bool {
+    name.starts_with("__gen_state_")
+        || name.starts_with("__agen_state_")
+        || name.starts_with("__async_state_")
+}
+
 /// Rewrite every qualifying top-level constructor-function in `program` into a
 /// synthetic `class`. Non-qualifying items pass through unchanged.
 pub(super) fn lift_constructor_functions(mut program: Program) -> Program {
@@ -38,7 +57,7 @@ pub(super) fn lift_constructor_functions(mut program: Program) -> Program {
     let mut own_fields: HashMap<String, Vec<String>> = HashMap::new();
     for item in &program.items {
         if let Item::Function(f) = item {
-            if !f.is_async {
+            if !f.is_async && !is_state_machine_fn(&f.name) {
                 let fields = discover_this_fields(&f.body, &HashMap::new());
                 if !fields.is_empty() {
                     own_fields.insert(f.name.clone(), fields);
@@ -86,7 +105,10 @@ pub(super) fn lift_constructor_functions(mut program: Program) -> Program {
     let mut this_readers: HashSet<String> = HashSet::new();
     for item in &program.items {
         if let Item::Function(f) = item {
-            if !f.is_async && !own_fields.contains_key(&f.name) && body_has_this_instanceof(&f.body)
+            if !f.is_async
+                && !is_state_machine_fn(&f.name)
+                && !own_fields.contains_key(&f.name)
+                && body_has_this_instanceof(&f.body)
             {
                 this_readers.insert(f.name.clone());
             }
@@ -173,8 +195,10 @@ pub(super) fn lift_constructor_functions(mut program: Program) -> Program {
             {
                 None
             }
-            // `async function` is its own rewrite (returns a Promise) — never a ctor.
-            Item::Function(f) if !f.is_async => {
+            // `async function` is its own rewrite (returns a Promise) — never a ctor;
+            // a state-machine fn must survive under its own name (see
+            // `is_state_machine_fn`).
+            Item::Function(f) if !f.is_async && !is_state_machine_fn(&f.name) => {
                 let protos = proto_methods.get(&f.name);
                 let super_class = extends_map.get(&f.name).cloned();
                 Some(

@@ -40,8 +40,20 @@
 //! finally with the pending-completion machinery (`pending_kind`/`pending_val`
 //! already exist in `GenStateData`), and is a later increment.
 
+/// What kind of construct a [`LoopTarget`] describes. A `switch` is a `break`
+/// target but NOT a `continue` target — `continue` inside a switch belongs to
+/// the enclosing LOOP, and treating the switch as the innermost target would
+/// send it to the switch's exit and silently turn a re-iteration into a fall-out.
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub enum TargetKind {
+    Loop,
+    Switch,
+}
+
 /// One enclosing loop the machine has split into states.
 pub struct LoopTarget {
+    /// Loop or switch — see [`TargetKind`].
+    pub kind: TargetKind,
     /// Label on the loop statement (`L: while …`), if any.
     pub label: Option<String>,
     /// State a `break` jumps to (the loop's `after`).
@@ -67,9 +79,14 @@ pub fn resolve(
     is_break: bool,
     try_depth: usize,
 ) -> Option<usize> {
+    // A `continue` never resolves to a `switch`: only a LOOP can be re-entered.
+    let eligible = |t: &&LoopTarget| is_break || t.kind == TargetKind::Loop;
     let target = match label {
-        Some(l) => stack.iter().rev().find(|t| t.label.as_deref() == Some(l))?,
-        None => stack.last()?,
+        Some(l) => stack
+            .iter()
+            .rev()
+            .find(|t| t.label.as_deref() == Some(l) && eligible(t))?,
+        None => stack.iter().rev().find(eligible)?,
     };
     if target.try_depth < try_depth {
         return None;
@@ -83,6 +100,7 @@ mod tests {
 
     fn t(label: Option<&str>, brk: usize, cont: usize, try_depth: usize) -> LoopTarget {
         LoopTarget {
+            kind: TargetKind::Loop,
             label: label.map(str::to_string),
             brk,
             cont,
@@ -119,5 +137,45 @@ mod tests {
         assert_eq!(resolve(&s, None, true, 1), None);
         // Same depth as the loop: no region is crossed, so the jump is fine.
         assert_eq!(resolve(&s, None, true, 0), Some(1));
+    }
+}
+
+#[cfg(test)]
+mod switch_tests {
+    use super::*;
+
+    fn sw(brk: usize) -> LoopTarget {
+        LoopTarget {
+            kind: TargetKind::Switch,
+            label: None,
+            brk,
+            cont: usize::MAX,
+            try_depth: 0,
+        }
+    }
+
+    fn lp(brk: usize, cont: usize) -> LoopTarget {
+        LoopTarget {
+            kind: TargetKind::Loop,
+            label: None,
+            brk,
+            cont,
+            try_depth: 0,
+        }
+    }
+
+    /// `while (…) { switch (…) { case 1: continue; } }` — the `continue` belongs
+    /// to the WHILE. Taking the innermost target would jump to the switch's exit.
+    #[test]
+    fn continue_skips_an_enclosing_switch() {
+        let s = vec![lp(1, 2), sw(9)];
+        assert_eq!(resolve(&s, None, false, 0), Some(2));
+        assert_eq!(resolve(&s, None, true, 0), Some(9));
+    }
+
+    /// A `continue` with no loop at all (only a switch) is not modelled.
+    #[test]
+    fn continue_with_only_a_switch_refuses() {
+        assert_eq!(resolve(&[sw(9)], None, false, 0), None);
     }
 }

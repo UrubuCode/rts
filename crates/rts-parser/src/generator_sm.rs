@@ -35,7 +35,7 @@ thread_local! {
     static SM_SPAN: std::cell::Cell<Span> = const { std::cell::Cell::new(swc_common::DUMMY_SP) };
 }
 
-fn sp() -> Span {
+pub(crate) fn sp() -> Span {
     SM_SPAN.with(|c| c.get())
 }
 
@@ -223,7 +223,7 @@ const G: &str = "__g";
 fn ident(s: &str) -> Ident {
     Ident::new(s.into(), sp(), Default::default())
 }
-fn ident_expr(s: &str) -> Expr {
+pub(crate) fn ident_expr(s: &str) -> Expr {
     Expr::Ident(ident(s))
 }
 fn num_expr(n: f64) -> Expr {
@@ -233,7 +233,7 @@ fn undef_expr() -> Expr {
     ident_expr("undefined")
 }
 
-fn call(callee: &str, args: Vec<Expr>) -> Expr {
+pub(crate) fn call(callee: &str, args: Vec<Expr>) -> Expr {
     Expr::Call(CallExpr {
         span: sp(),
         ctxt: Default::default(),
@@ -245,7 +245,7 @@ fn call(callee: &str, args: Vec<Expr>) -> Expr {
         type_args: None,
     })
 }
-fn call_stmt(e: Expr) -> Stmt {
+pub(crate) fn call_stmt(e: Expr) -> Stmt {
     Stmt::Expr(ExprStmt { span: sp(), expr: Box::new(e) })
 }
 
@@ -266,7 +266,7 @@ fn let_decl(name: &str, init: Expr) -> Stmt {
 }
 
 /// `<name> = <value>;` (assign a ident existente).
-fn assign_stmt(name: &str, value: Expr) -> Stmt {
+pub(crate) fn assign_stmt(name: &str, value: Expr) -> Stmt {
     call_stmt(Expr::Assign(AssignExpr {
         span: sp(),
         op: AssignOp::Assign,
@@ -303,7 +303,7 @@ struct StateBlock {
     trans: Trans,
 }
 
-struct SmBuilder {
+pub(crate) struct SmBuilder {
     states: Vec<StateBlock>,
     /// Locais (params + lets) -> slot index, em ordem de criacao.
     locals: Vec<String>,
@@ -315,15 +315,15 @@ struct SmBuilder {
     /// loops com await internos sao permitidos (gate em try_lower_await_stmt).
     is_async_gen: bool,
     /// Contador de temporarios sinteticos unicos (yield* delegation).
-    tmp_counter: usize,
+    pub(crate) tmp_counter: usize,
     /// Laços que a maquina fatiou em estados, do mais externo ao mais interno.
     /// `break`/`continue` resolvem contra esta pilha — ver `generator_sm_loops`.
-    loop_stack: Vec<crate::generator_sm_loops::LoopTarget>,
+    pub(crate) loop_stack: Vec<crate::generator_sm_loops::LoopTarget>,
     /// Rotulo pendente de `L: while (…)`, consumido pelo arm do laço seguinte.
-    pending_label: Option<String>,
+    pub(crate) pending_label: Option<String>,
     /// Profundidade de regiões `try` abertas. Um `break` que sairia de uma
     /// região pularia o `finally`, então é recusado (bail honesto).
-    try_depth: usize,
+    pub(crate) try_depth: usize,
 }
 
 impl SmBuilder {
@@ -340,7 +340,7 @@ impl SmBuilder {
         }
     }
 
-    fn intern_local(&mut self, name: &str) -> usize {
+    pub(crate) fn intern_local(&mut self, name: &str) -> usize {
         if let Some(i) = self.locals.iter().position(|n| n == name) {
             return i;
         }
@@ -348,24 +348,24 @@ impl SmBuilder {
         self.locals.len() - 1
     }
 
-    fn new_state(&mut self) -> usize {
+    pub(crate) fn new_state(&mut self) -> usize {
         self.states.push(StateBlock { stmts: Vec::new(), trans: Trans::Unset });
         self.states.len() - 1
     }
 
-    fn push_stmt(&mut self, state: usize, s: Stmt) {
+    pub(crate) fn push_stmt(&mut self, state: usize, s: Stmt) {
         self.states[state].stmts.push(s);
     }
     fn set_yield(&mut self, state: usize, value: Expr, next: usize) {
         self.states[state].trans = Trans::Yield { value, next };
     }
-    fn set_goto(&mut self, state: usize, target: usize) {
+    pub(crate) fn set_goto(&mut self, state: usize, target: usize) {
         self.states[state].trans = Trans::Goto(target);
     }
     fn set_done(&mut self, state: usize, ret: Option<Expr>) {
         self.states[state].trans = Trans::Done(ret);
     }
-    fn set_cond(&mut self, state: usize, test: Expr, then_s: usize, els: usize) {
+    pub(crate) fn set_cond(&mut self, state: usize, test: Expr, then_s: usize, els: usize) {
         self.states[state].trans = Trans::Cond { test, then_s, els };
     }
     fn set_end_finally(&mut self, state: usize, normal_next: usize) {
@@ -377,7 +377,7 @@ impl SmBuilder {
 
     /// Lower uma sequencia de statements comecando em `cur`. Devolve o estado
     /// "depois" (que ainda nao tem transicao). `None` => construct inelegivel.
-    fn lower_seq(&mut self, stmts: &[Stmt], mut cur: usize) -> Option<usize> {
+    pub(crate) fn lower_seq(&mut self, stmts: &[Stmt], mut cur: usize) -> Option<usize> {
         for s in stmts {
             cur = self.lower_stmt(s, cur)?;
         }
@@ -544,6 +544,7 @@ impl SmBuilder {
                 // body — `break` sai para `after`, `continue` volta ao header.
                 let body_stmts = block_stmts(&w.body)?;
                 self.loop_stack.push(crate::generator_sm_loops::LoopTarget {
+                    kind: crate::generator_sm_loops::TargetKind::Loop,
                     label,
                     brk: after,
                     cont: header,
@@ -594,6 +595,7 @@ impl SmBuilder {
                 // no meio do corpo não poderia apontar para ele).
                 let upd_state = self.new_state();
                 self.loop_stack.push(crate::generator_sm_loops::LoopTarget {
+                    kind: crate::generator_sm_loops::TargetKind::Loop,
                     label,
                     brk: after,
                     cont: upd_state,
@@ -774,6 +776,14 @@ impl SmBuilder {
                 self.pending_label = None;
                 out
             }
+            // `for (x of src)` / `for (k in obj)` / `do … while` — estados
+            // pelo protocolo lazy de iteracao; ver `generator_sm_iter`.
+            Stmt::ForOf(f) => self.lower_for_of(f, cur),
+            Stmt::ForIn(f) => self.lower_for_in(f, cur),
+            Stmt::DoWhile(d) => self.lower_do_while(d, cur),
+            // `switch` — cadeia de testes + cadeia de corpos (fallthrough);
+            // ver `generator_sm_switch`.
+            Stmt::Switch(sw) => self.lower_switch(sw, cur),
             // bloco aninhado simples: achata
             Stmt::Block(b) => self.lower_seq(&b.stmts, cur),
             // `if` sem yield no corpo: mantemos verbatim (efeito colateral puro).
@@ -968,7 +978,7 @@ fn is_true_lit(e: &Expr) -> bool {
     matches!(e, Expr::Lit(Lit::Bool(b)) if b.value)
 }
 
-fn block_stmts(s: &Stmt) -> Option<&[Stmt]> {
+pub(crate) fn block_stmts(s: &Stmt) -> Option<&[Stmt]> {
     match s {
         Stmt::Block(b) => Some(&b.stmts),
         // corpo de loop como statement unico (ex: `while(x) yield a;`)
@@ -983,7 +993,7 @@ fn other_as_slice_hack(s: &Stmt) -> &Stmt {
 
 // ── Deteccao de yield em sub-arvores (para rejeitar casos nao modelados) ─────
 
-fn expr_has_yield(e: &Expr) -> bool {
+pub(crate) fn expr_has_yield(e: &Expr) -> bool {
     match e {
         Expr::Yield(_) => true,
         Expr::Assign(a) => expr_has_yield(&a.right),
@@ -1425,6 +1435,12 @@ fn stmt_has_value_yield(s: &Stmt) -> bool {
         Stmt::DoWhile(d) => stmt_has_value_yield(&d.body),
         Stmt::For(f) => stmt_has_value_yield(&f.body),
         Stmt::ForOf(fo) => stmt_has_value_yield(&fo.body),
+        Stmt::ForIn(fi) => stmt_has_value_yield(&fi.body),
+        Stmt::Labeled(l) => stmt_has_value_yield(&l.body),
+        Stmt::Switch(sw) => sw
+            .cases
+            .iter()
+            .any(|c| c.cons.iter().any(stmt_has_value_yield)),
         Stmt::Try(t) => {
             t.block.stmts.iter().any(stmt_has_value_yield)
                 || t.handler.as_ref().map(|h| h.body.stmts.iter().any(stmt_has_value_yield)).unwrap_or(false)
@@ -1456,6 +1472,13 @@ fn stmt_needs_lazy(s: &Stmt) -> bool {
                 || t.finalizer.as_ref().map(|f| f.stmts.iter().any(stmt_has_yield)).unwrap_or(false)
         }
         Stmt::Block(b) => body_needs_lazy(&b.stmts),
+        // `L: for (…) { yield }` — sem este arm o rotulo escondia o laço do
+        // gate e o corpo inteiro caia no eager-buffer.
+        Stmt::Labeled(l) => stmt_needs_lazy(&l.body),
+        // QUALQUER `yield` num `switch` exige a SM: o eager-buffer nao modela
+        // switch de forma alguma (o yield sobrevive ao desugar e chega cru ao
+        // lowering), entao nao ha' caminho alternativo a preservar aqui.
+        Stmt::Switch(sw) => sw.cases.iter().any(|c| c.cons.iter().any(stmt_has_yield)),
         Stmt::If(i) => {
             stmt_needs_lazy(&i.cons)
                 || i.alt.as_deref().map(stmt_needs_lazy).unwrap_or(false)
@@ -1525,6 +1548,19 @@ fn stmt_has_yield(s: &Stmt) -> bool {
             f.test.as_deref().map(expr_has_yield).unwrap_or(false)
                 || f.update.as_deref().map(expr_has_yield).unwrap_or(false)
                 || stmt_has_yield(&f.body)
+        }
+        // Formas que a SM passou a modelar (`generator_sm_iter`): sem estes
+        // arms um `yield` DENTRO delas ficava invisivel para os gates que
+        // decidem se o corpo precisa de lazy e se um `if` vai por estados.
+        Stmt::ForOf(fo) => expr_has_yield(&fo.right) || stmt_has_yield(&fo.body),
+        Stmt::ForIn(fi) => expr_has_yield(&fi.right) || stmt_has_yield(&fi.body),
+        Stmt::Labeled(l) => stmt_has_yield(&l.body),
+        Stmt::Switch(sw) => {
+            expr_has_yield(&sw.discriminant)
+                || sw.cases.iter().any(|c| {
+                    c.test.as_deref().is_some_and(expr_has_yield)
+                        || c.cons.iter().any(stmt_has_yield)
+                })
         }
         Stmt::Decl(Decl::Var(vd)) => vd
             .decls

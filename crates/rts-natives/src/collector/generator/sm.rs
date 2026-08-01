@@ -15,6 +15,13 @@ use crate::heap::handles::{Entry, GenStateData, alloc_entry, with_entry, with_en
 use super::eager::__rtsn_generator_next;
 use super::{UNDEFINED, agen_driver, is_async_gen, make_result, read_result_parts};
 
+/// `undefined` como PolyValue WORD. O `sent` do generator cruza para a
+/// state-machine por `SM_SENT`, que o codegen tipa como WORD — o sentinela
+/// legado `UNDEFINED` (`i64::MIN+2`) NAO e' um word boxado: lido como
+/// PolyValue ele e' um double inline (`-1e-323`), e era isso que um
+/// `const a = yield x` via na primeira retomada em vez de `undefined`.
+const SENT_UNDEFINED: i64 = crate::heap::poly::POLY_UNDEFINED as i64;
+
 // ── Lazy state-machine (#477) ────────────────────────────────────────────────
 // Generators infinitos / com control-flow exigem suspensao real. Aqui o desugar
 // (generator_sm.rs) emite uma fn de estado `extern "C" fn(u64) -> i64` que, a
@@ -46,7 +53,7 @@ pub fn gen_sm_new(fn_ptr: u64, nslots: i64) -> u64 {
         pending_await: None,
         awaited_val: UNDEFINED,
         awaited_rejected: false,
-        sent: UNDEFINED,
+        sent: SENT_UNDEFINED,
         catch_state: -1,
         is_async_gen: false,
         next_promise: None,
@@ -177,6 +184,17 @@ pub fn gen_sm_next(h: u64) -> u64 {
     // antes de retornar. Default otimista: assume suspensao (yield).
     let state_fn: extern "C" fn(u64) -> i64 = unsafe { std::mem::transmute(fn_ptr as usize) };
     let value = state_fn(h);
+    // O `sent` pertence a ESTA retomada e so' a ela: `next(v)` o injeta logo
+    // antes (`generator_next_sent`), o estado pos-yield o le' via SM_SENT, e
+    // aqui ele expira. Sem esta limpeza um `next()` SEM argumento herdava o
+    // valor do `next(v)` anterior e um `const a = yield x` posterior lia o
+    // valor VELHO em vez de `undefined` — resposta errada em silencio
+    // (`[…, {"value":"s:v"}]` onde o Node da `{"value":2}`).
+    with_entry_mut(h, |e| {
+        if let Some(Entry::GenState(g)) = e {
+            g.sent = SENT_UNDEFINED;
+        }
+    });
     let done = with_entry(h, |e| match e {
         Some(Entry::GenState(g)) => g.done,
         _ => true,

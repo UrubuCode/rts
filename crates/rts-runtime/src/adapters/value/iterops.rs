@@ -477,6 +477,19 @@ fn custom_iterator_method(word: u64) -> Option<u64> {
 pub fn rtsadp_iter_open(word: u64) -> u64 {
     let undef = PolyValue::undefined().raw();
     let d = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
+    // The source IS a lazy generator (`for (const x of g())` with an opaque
+    // callee — the case the static `ret_lazy_gen` path cannot see). Step it
+    // LAZILY: draining would hang on the infinite generator that is normal
+    // here. See `super::iterloop`.
+    if let Some(gh) = super::iterloop::genstate_handle(word) {
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(
+            d,
+            PolyValue::from_i32(super::iterloop::CURSOR_GENSTATE).raw() as i64,
+        );
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(d, gh as i64);
+        rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(d, PolyValue::from_i32(0).raw() as i64);
+        return box_vec_as_array(d);
+    }
     if let Some(m) = custom_iterator_method(word) {
         let it = super::funcops::__rtsadp_fn_invoke_method(m, word, undef, undef, undef, 0);
         let iv = PolyValue::from_raw(it);
@@ -566,6 +579,9 @@ pub fn rtsadp_iter_next(cursor: u64) -> u64 {
         }
         return w;
     }
+    if kind.is_int32() && kind.as_i32() == super::iterloop::CURSOR_GENSTATE {
+        return super::iterloop::genstate_next(payload);
+    }
     let it = payload;
     let nm = super::objops::__rtsadp_obj_get(it, abi_adapter::intern_poly("next").raw());
     if !PolyValue::from_raw(nm).is_function() {
@@ -590,6 +606,12 @@ pub fn rtsadp_iter_close(cursor: u64) {
     let undef = PolyValue::undefined().raw();
     let ch = rt_handles::__rtsn_poly_to_handle(PolyValue::from_raw(cursor).as_handle());
     let kind = PolyValue::from_raw(rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(ch, 0) as u64);
+    if kind.is_int32() && kind.as_i32() == super::iterloop::CURSOR_GENSTATE {
+        super::iterloop::genstate_close(
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(ch, 1) as u64,
+        );
+        return;
+    }
     if !(kind.is_int32() && kind.as_i32() == 1) {
         return;
     }
