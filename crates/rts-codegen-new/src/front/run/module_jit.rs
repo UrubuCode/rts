@@ -191,13 +191,23 @@ fn register_pickle_fns(module: &JITModule, prog: &super::LoweredProgram) {
         if f.name.starts_with("__rts") {
             continue;
         }
-        let ptr_of = |name: &str| match module.get_name(name) {
-            Some(FuncOrDataId::Func(id)) => module.get_finalized_function(id) as u64,
+        // THUNK-ON-DEMAND: a thunk that the lowering never took the address of
+        // was DECLARED but not defined, and `get_finalized_function` panics on
+        // one ("function must be compiled before it can be finalized"). Ask the
+        // same predicate the define loop used. A body (non-thunk) is always
+        // defined, so `is_used` is consulted only for names it knows about —
+        // hence the `is_thunk` guard rather than a blanket check.
+        let ptr_of = |name: &str, is_thunk: bool| match module.get_name(name) {
+            Some(FuncOrDataId::Func(id))
+                if !is_thunk || thunk::is_used(id) || thunk::is_forced(&f.name) =>
+            {
+                module.get_finalized_function(id) as u64
+            }
             _ => 0,
         };
-        let thunk_ptr = ptr_of(&thunk::thunk_name(&f.name));
+        let thunk_ptr = ptr_of(&thunk::thunk_name(&f.name), true);
         if thunk_ptr != 0 {
-            let raw = ptr_of(&f.name);
+            let raw = ptr_of(&f.name, false);
             rts_engine::heap::pickle::register_program_fn(
                 &f.name,
                 thunk_ptr,
@@ -396,6 +406,9 @@ pub(crate) fn populate_module(
     //     one per function keeps reify a pure address lookup (no second pass to
     //     decide which are values). `main` is never a value, so it gets none. A
     //     REPLAYED fn's thunk comes from baked machine code, not from IR built here.
+    // THUNK-ON-DEMAND: the marks are per-module (`FuncId`s restart), so clear
+    // them before this program's IR build populates them.
+    thunk::reset_used();
     let mut thunks: HashMap<String, FuncId> = HashMap::new();
     for f in funcs {
         let id = thunk::declare_thunk_linkage(&mut *module, &f.name, Linkage::Local)?;
@@ -485,8 +498,17 @@ pub(crate) fn populate_module(
     //     A CLOSURE thunk reads its leading `capture_count` real params from the
     //     env array; a non-capturing thunk has `capture_count = 0`. A RESIDENT
     //     prelude fn's thunk body is the linked-in baked object — skip it.
+    let mut thunks_skipped = 0usize;
     for f in funcs {
         if resident_imports.contains(&f.name) {
+            continue;
+        }
+        // THUNK-ON-DEMAND: only functions whose ADDRESS the lowering took need
+        // the bridge. The IR build above is what marks them, and it has already
+        // finished for every function — so an unmarked thunk has no relocation
+        // pointing at it and defining it would be dead machine code.
+        if !thunk::is_used(thunks[&f.name]) && !thunk::is_forced(&f.name) {
+            thunks_skipped += 1;
             continue;
         }
         let capture_count = captures.get(&f.name).map(Vec::len).unwrap_or(0);
@@ -506,6 +528,11 @@ pub(crate) fn populate_module(
         if resident_imports.contains(&desc.ctor) {
             continue;
         }
+        let nt = thunks.get(&thunk::new_thunk_name(&desc.name)).copied();
+        if nt.is_some_and(|id| !thunk::is_used(id)) {
+            thunks_skipped += 1;
+            continue;
+        }
         if let Some(&ctor_id) = ids.get(&desc.ctor) {
             pending.push(thunk::build_new_thunk(
                 &mut *module,
@@ -517,6 +544,7 @@ pub(crate) fn populate_module(
             )?);
         }
     }
+    crate::timing::note("thunks skipped (unused)", thunks_skipped);
     crate::timing::report("  build thunk IR", _t_phase);
 
     // 5. MACHINE-COMPILE everything built above (in parallel) and define it into

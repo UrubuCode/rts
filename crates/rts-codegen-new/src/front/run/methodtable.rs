@@ -100,6 +100,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 .expect("__rtsadp_class_proto_init returns a word");
             for (mname, fname, nparams) in methods {
                 let thunk_id = *self.thunks.get(&fname).expect("thunk presence checked");
+                super::thunk::mark_used(thunk_id);
                 let func_ref = self.func_ref(module, thunk_id);
                 let addr = self.builder.ins().func_addr(types::I64, func_ref);
                 let np_v = self.builder.ins().iconst(types::I64, nparams);

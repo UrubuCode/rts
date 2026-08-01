@@ -92,6 +92,10 @@ fn compile_dynamic_fn_inner(params: &[&str], body: &str) -> anyhow::Result<Compi
         dump_failing_body(&src, &e);
         anyhow::anyhow!("new Function body: {e}")
     })?;
+    // THUNK-ON-DEMAND: nothing in this one-function module takes the body's
+    // address, but the caller below asks for its thunk pointer BY NAME after
+    // finalize — so the thunk must be emitted anyway.
+    super::thunk::force_used(DYN_FN_NAME);
     let mut module = super::module_jit::make_module();
     super::module_jit::populate_module(&mut module, &prog).map_err(|e| {
         dump_failing_body(&src, &e);

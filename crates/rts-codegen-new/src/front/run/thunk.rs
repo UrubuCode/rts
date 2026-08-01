@@ -78,6 +78,85 @@ pub fn declare_thunk_linkage(
         .map_err(|e| Unsupported::new(format!("declare thunk `{name}`: {e}")))
 }
 
+thread_local! {
+    /// THUNK-ON-DEMAND (`CRANELIFT_IMPLEMENTATION.md` §7 item 3): the set of
+    /// thunks the lowering actually took the ADDRESS of.
+    ///
+    /// A thunk is the uniform-ABI bridge; it is needed only where something
+    /// reifies the function as a VALUE — passed as an argument, stored, reached
+    /// through the runtime method table, used as a constructor identity. A
+    /// function that is only ever CALLED directly needs none, and the module used
+    /// to emit one for every function unconditionally (half of everything
+    /// machine-compiled was a thunk).
+    ///
+    /// Every site that resolves a `FuncId` out of the `thunks` map marks it here
+    /// during the (serial) IR-building phase, which runs strictly BEFORE the
+    /// thunk bodies are built — so the define loop can skip the unmarked ones.
+    /// Missing a mark would leave a `func_addr` relocation pointing at an
+    /// undefined function, so marking belongs at the map lookup and nowhere else.
+    static USED: std::cell::RefCell<std::collections::HashSet<FuncId>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+thread_local! {
+    /// Function NAMES whose thunk must be emitted even though no lowered code
+    /// takes its address — because a consumer OUTSIDE the lowering looks the
+    /// thunk up by name after `finalize_definitions`. Today that is
+    /// `super::dynfn` (`new Function(body)` hands the caller its module's thunk
+    /// pointer). Keyed by name, not `FuncId`, because the caller marks it before
+    /// the module that will assign the id exists.
+    static FORCED: std::cell::RefCell<std::collections::HashSet<String>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+/// Require `name`'s thunk regardless of whether the lowering references it.
+pub fn force_used(name: &str) {
+    FORCED.with(|f| {
+        f.borrow_mut().insert(name.to_string());
+    });
+}
+
+/// Is `name` on the force list ([`force_used`])?
+pub fn is_forced(name: &str) -> bool {
+    FORCED.with(|f| f.borrow().contains(name))
+}
+
+/// Record that `id`'s address is taken by the program being lowered.
+pub fn mark_used(id: FuncId) {
+    USED.with(|u| {
+        u.borrow_mut().insert(id);
+    });
+}
+
+/// Was `id` marked by [`mark_used`] during this program's IR build?
+///
+/// `RTS_ALL_THUNKS=1` answers yes unconditionally, restoring the old
+/// emit-a-thunk-for-every-function behaviour — the A/B for what the on-demand
+/// rule is worth, and the first thing to try if a program misbehaves in a way
+/// that smells like a missing function address.
+pub fn is_used(id: FuncId) -> bool {
+    if all_thunks() {
+        return true;
+    }
+    USED.with(|u| u.borrow().contains(&id))
+}
+
+fn all_thunks() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var("RTS_ALL_THUNKS")
+            .map(|v| v.trim() == "1")
+            .unwrap_or(false)
+    })
+}
+
+/// Clear the marks. Called at the start of each program's lowering — `FuncId`s
+/// are per-module, so a mark from a previous compile means nothing here and
+/// would be actively wrong (it names a different function).
+pub fn reset_used() {
+    USED.with(|u| u.borrow_mut().clear());
+}
+
 /// The synthesized thunk symbol name for a real function `base`.
 pub fn thunk_name(base: &str) -> String {
     format!("{base}__rtsn_thunk")

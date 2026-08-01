@@ -1228,6 +1228,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .thunks
             .get(name)
             .ok_or_else(|| Unsupported::new(format!("no thunk for function `{name}`")))?;
+        super::thunk::mark_used(thunk_id);
 
         // Build the env: a fresh array snapshotting each captured local's CURRENT
         // value (capture-by-value). A non-capturing fn passes env = 0 (undefined).
@@ -1296,6 +1297,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                  / `extends`-only class as a value is a later increment)"
             );
         };
+        super::thunk::mark_used(thunk_id);
         let func_ref = self.func_ref(module, thunk_id);
         let addr = self.builder.ins().func_addr(types::I64, func_ref);
         // Register this class NEW-THUNK address as a valid `new <value>()` target,
