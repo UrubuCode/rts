@@ -118,7 +118,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // the result stays a proven Bool). A rhs with side effects (a CALL) must NOT
         // take this path — `&&`/`||` short-circuit, so `false && f()` must NOT run
         // `f()`; it falls through to the general short-circuit form below.
-        if matches!(l.repr, Repr::Bool) && is_effect_free(rhs) {
+        if matches!(l.repr, Repr::Bool) && is_effect_free(self, rhs) {
             let r = self.lower_expr(module, rhs)?;
             if matches!(r.repr, Repr::Bool) {
                 let v = match op {

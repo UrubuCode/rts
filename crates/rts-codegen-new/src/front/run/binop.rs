@@ -812,18 +812,28 @@ pub(super) fn is_proven_string_expr(e: &HirExpr) -> bool {
     }
 }
 
-/// Whether `e` is CONSERVATIVELY side-effect-free — safe to evaluate eagerly in
-/// the `&&`/`||` bool fast path (a call/assignment/update MUST short-circuit, so it
-/// returns `false` for those). Literals, identifiers, member reads, and pure
-/// unary/binary combinations of effect-free operands qualify; anything that could
-/// run user code or mutate state does not.
-pub(super) fn is_effect_free(e: &HirExpr) -> bool {
+/// Whether `e` is CONSERVATIVELY side-effect-free — safe to evaluate EAGERLY in
+/// the `&&`/`||` bool fast path and the branchless ternary (a call / assignment /
+/// update MUST short-circuit, so those are never free). Literals, LOCAL reads,
+/// member reads off a free object, and pure unary/binary combinations qualify.
+///
+/// An identifier counts ONLY when it is a local binding. Reading a name that
+/// resolves nowhere lexically is not inert: it falls to the global-object
+/// lookup, which THROWS `ReferenceError` on a miss. Treating every ident as free
+/// made `false && nope` evaluate `nope` eagerly and throw where JS
+/// short-circuits — measured against Node, and a UMD sniff
+/// (`typeof module !== "undefined" && module.exports`) died on it. A local is
+/// the one ident that provably cannot throw, and it is what the bool fast path
+/// exists to serve; every other spelling simply takes the general
+/// short-circuit form, which is correct for all of them.
+pub(super) fn is_effect_free(lo: &Lowerer<'_, '_, '_>, e: &HirExpr) -> bool {
     use rts_hir::ir::HirExprKind;
     match &e.kind {
-        HirExprKind::Lit(_) | HirExprKind::Ident(_) => true,
-        HirExprKind::Unary { operand, .. } => is_effect_free(operand),
-        HirExprKind::Bin { lhs, rhs, .. } => is_effect_free(lhs) && is_effect_free(rhs),
-        HirExprKind::Member { object, .. } => is_effect_free(object),
+        HirExprKind::Lit(_) => true,
+        HirExprKind::Ident(name) => lo.local(name).is_some(),
+        HirExprKind::Unary { operand, .. } => is_effect_free(lo, operand),
+        HirExprKind::Bin { lhs, rhs, .. } => is_effect_free(lo, lhs) && is_effect_free(lo, rhs),
+        HirExprKind::Member { object, .. } => is_effect_free(lo, object),
         _ => false,
     }
 }

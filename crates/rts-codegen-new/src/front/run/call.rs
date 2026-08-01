@@ -662,7 +662,26 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if self.is_bare_error_call(&name) {
             return self.lower_error_call(module, &name, args);
         }
-        unsupported!("call to unknown function `{name}`")
+        // LAST LINK OF THE SCOPE CHAIN. A bare name matching no lexical binding
+        // is not a compile error in JS — it resolves against the GLOBAL OBJECT,
+        // and only a genuine miss there is a `ReferenceError`, thrown when
+        // control actually reaches the call. That is exactly how a page's module
+        // loader works: one script does `globalThis.__d = fn`, every other calls
+        // a bare `__d(…)`, and no lexical analysis of the calling script can see
+        // the binding. Bailing rejected the whole file for it.
+        //
+        // This mirrors what the READ path (`lower_ident`) already does for an
+        // unresolved identifier, so the two spellings cannot disagree.
+        // The symbol comes from the `#[rtse::abi]`-derived `SymbolDesc`, not a
+        // typed string: renaming the Rust fn then breaks THIS line at compile
+        // time instead of linking fine and trapping at run time.
+        let name_w = self.emit_str_const_word(module, &name)?;
+        let sym = rts_runtime::adapters::value::globalthis::GLOBAL_REF_ABI.name;
+        let f = self
+            .call_runtime(module, sym, &[name_w])?
+            .expect("__rtsadp_global_ref returns a word");
+        self.emit_post_call_error_check(module)?;
+        self.lower_value_call_word(module, f, args)
     }
 
     /// `__RTS_GEN_FINISH(__gen_buf, ret)` — the end of a desugared eager generator:

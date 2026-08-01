@@ -298,19 +298,27 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 return self.emit_registry_call(module, &call, None, &[], kind);
             }
         }
-        // An identifier that resolves to NOTHING is not a compile error in JS: it
-        // is a `ReferenceError` THROWN when (and only when) control actually
-        // reaches the read. Emitting the throw instead of bailing is what keeps a
-        // UMD / minified bundle compilable — those open with a feature sniff whose
-        // untaken branch names `exports` / `module` / `define` / `self`, none of
-        // which exist here, and a compile-time bail rejects the whole file for a
-        // branch that never runs. (`typeof <unbound>` never reaches here — it is
+        // An identifier that resolves to NOTHING LEXICALLY is not a compile error
+        // in JS: the scope chain ends at the GLOBAL OBJECT, and only a miss there
+        // is a `ReferenceError` — thrown when (and only when) control actually
+        // reaches the read. Consulting the global object is what lets one script's
+        // `globalThis.x = v` be read as a bare `x` by another, which is how a
+        // page's module loader publishes itself; the throw is emitted by the
+        // trampoline on a genuine miss. Resolving this at RUNTIME rather than
+        // bailing is also what keeps a UMD / minified bundle compilable — those
+        // open with a feature sniff whose untaken branch names `exports` /
+        // `module` / `define`, and a compile-time bail rejects the whole file for
+        // a branch that never runs. (`typeof <unbound>` never reaches here — it is
         // folded to `"undefined"` in `lower_unary`, per spec.)
-        self.emit_throw_error_expr(
-            module,
-            "ReferenceError",
-            &format!("{name} is not defined"),
-        )
+        // Symbol from the `#[rtse::abi]`-derived `SymbolDesc` (see the twin call
+        // site in `super::call`), never a hand-typed string.
+        let name_w = self.emit_str_const_word(module, name)?;
+        let sym = rts_runtime::adapters::value::globalthis::GLOBAL_REF_ABI.name;
+        let w = self
+            .call_runtime(module, sym, &[name_w])?
+            .expect("__rtsadp_global_ref returns a word");
+        self.emit_post_call_error_check(module)?;
+        Ok(Val::new(w, Repr::Tagged))
     }
 
     fn lower_unary(
@@ -562,7 +570,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // recursive call unconditionally — infinite recursion / stack overflow
         // (the `function_expression` bug). Same rule `lower_logical` applies to
         // its select fast path.
-        if super::binop::is_effect_free(then) && super::binop::is_effect_free(else_) {
+        if super::binop::is_effect_free(self, then) && super::binop::is_effect_free(self, else_) {
             let t = self.lower_expr(module, then)?;
             let e = self.lower_expr(module, else_)?;
             let target = ternary_target(t.repr, e.repr)?;
