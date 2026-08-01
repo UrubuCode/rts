@@ -161,11 +161,14 @@ pub enum HirBinOp {
     LogAnd, LogOr,
     NullCoalesce,
     /// `key in obj` — own-property membership. Kept distinct from `Unsupported`
-    /// (where `instanceof` still lands) so the engine can lower it to a real
-    /// has-key check instead of bailing.
+    /// so the engine can lower it to a real has-key check instead of bailing.
     In,
-    /// Sentinel for an op we couldn't map (e.g. `InstanceOf`). The MIR
-    /// lower bail when it sees this so the AST path keeps full ownership.
+    /// `v instanceof C`. Its own variant rather than riding `Unsupported`: the
+    /// engine lowers a non-static right side to a RUNTIME instanceof, and that
+    /// must never be what an operator we simply failed to map decays into.
+    InstanceOf,
+    /// Sentinel for an op we couldn't map. Consumers BAIL when they see it, so
+    /// an unmodelled operator refuses honestly instead of being guessed at.
     Unsupported,
 }
 

@@ -192,13 +192,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(Val::new(res, Repr::Bool));
         }
 
-        // `x instanceof C` (P5.3). swc collapses `instanceof`/`in`/etc onto
-        // `HirBinOp::Unsupported`; we only treat it as instanceof when the RHS NAMES
-        // a class the engine can check (a user class, or a runtime/Registry class
-        // Map/Set/Error-family/Array) — either as a bare identifier or through an
-        // unshadowed global object (`window.C`). That keeps `"k" in o` (rhs not a
-        // class name) safely bailed — never a wrong instanceof.
-        if matches!(op, HirBinOp::Unsupported) {
+        // `x instanceof C` (P5.3). Two paths, static first:
+        //
+        // 1. the RHS NAMES a class the engine can check (a user class, or a
+        //    runtime/Registry class Map/Set/Error-family/Array) — as a bare
+        //    identifier or through an unshadowed global object (`window.C`).
+        //    Specialized at lowering time, the cheap and already-correct path.
+        // 2. anything else — a local holding the class, a property read, any
+        //    expression — is a RUNTIME instanceof against the class VALUE.
+        //    `v instanceof C` with `C` a parameter is the dominant shape in
+        //    minified code, and it used to resolve as if `C` were a class NAME:
+        //    a silent, plausible `false`.
+        if matches!(op, HirBinOp::InstanceOf) {
             // The RHS names a class either DIRECTLY (`x instanceof Map`) or through
             // the global object (`x instanceof window.DOMStringMap` — the form page
             // scripts use when they feature-detect a DOM class). `window`/`self`/
@@ -207,7 +212,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // the very same class as a bare `C`. Anything else stays bailed — the
             // check below never guesses at an arbitrary expression.
             let class_name: Option<&str> = match &rhs.kind {
-                rts_hir::ir::HirExprKind::Ident(class) => Some(class.as_str()),
+                // Only when the ident is NOT a local binding. A local NAMES a
+                // value, not a class: `function check(v, C) { v instanceof C }`
+                // must compare against whatever `C` HOLDS, and treating the
+                // binding's own spelling as a class name resolved it to a class
+                // called "C" — which does not exist, so the walk answered a
+                // silent, plausible `false`. A local falls to the dynamic path
+                // below.
+                rts_hir::ir::HirExprKind::Ident(class) if self.local(class).is_none() => {
+                    Some(class.as_str())
+                }
                 rts_hir::ir::HirExprKind::Member { object, prop } => {
                     match &object.kind {
                         // Only when the base is NOT a local in scope: a user
@@ -233,10 +247,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     return Ok(val);
                 }
             }
-            return unsupported!(
-                "binary operator (other) — `instanceof`/`in`/unmapped op (rhs is not an \
-                 engine-checkable class)"
-            );
+            // The RHS is a VALUE. Lower both sides and let the runtime recover
+            // the class identity from the value it actually holds.
+            let obj = self.lower_expr(module, lhs)?;
+            let obj_word = self.box_value(obj);
+            let cls = self.lower_expr(module, rhs)?;
+            let cls_word = self.box_value(cls);
+            let res = self
+                .call_runtime(module, "__rtsadp_instanceof_dyn", &[obj_word, cls_word])?
+                .expect("__rtsadp_instanceof_dyn returns a value");
+            return Ok(Val::tagged_kind(res, JsKind::Bool));
+        }
+
+        if matches!(op, HirBinOp::Unsupported) {
+            return unsupported!("binary operator (other) — unmapped op");
         }
 
         // A WHOLE object/array operand needs JS ToPrimitive (`[1]+[2]` → `"12"`,

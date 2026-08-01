@@ -1184,8 +1184,8 @@ fn swc_bin_op_to_hir(op: swc::BinaryOp) -> HirBinOp {
         // `key in obj` — own-property membership; the engine lowers it to a real
         // has-key check (distinct from the `Unsupported` sentinel).
         swc::BinaryOp::In => HirBinOp::In,
-        // `instanceof`, etc. — handled by the engine's rhs-class-ident path off
-        // `Unsupported`; an unmapped op lands here and the consumer BAILs.
+        swc::BinaryOp::InstanceOf => HirBinOp::InstanceOf,
+        // An unmapped op lands here and the consumer BAILs.
         _ => HirBinOp::Unsupported,
     }
 }
