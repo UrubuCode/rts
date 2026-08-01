@@ -127,6 +127,18 @@ pub fn runtime_init() {
     // which is machinery and lives in `rts-natives` — needs the scheduler, which
     // is backend and lives in `rts-std`. Same seam as `root_sources`.
     rts_std::collector::generator::install_agen_driver();
+    // `yield* SRC` normaliza SRC em `rts-natives`, que so' reconhece
+    // GenState/Vec/String. Um Set, um Map ou um objeto com `[Symbol.iterator]`
+    // e' valor do modelo daqui, entao a delegacao os dava como esgotados de
+    // imediato e `yield* new Set([1,2])` rendia `[]`. Mesma costura do driver
+    // acima: as tres operacoes descem como fn pointers.
+    rts_engine::collector::generator::set_iter_bridge(
+        rts_engine::collector::generator::IterBridge {
+            open: |w| adapters::value::iterops::__rtsadp_iter_open(w),
+            next: |c| adapters::value::iterops::__rtsadp_iter_next(c),
+            is_empty: |w| adapters::value::iterloop::__rtsadp_iter_done(w),
+        },
+    );
     if timing {
         eprintln!("[aot-init] gc+thread   {:.2} ms", t0.elapsed().as_secs_f64() * 1e3);
     }

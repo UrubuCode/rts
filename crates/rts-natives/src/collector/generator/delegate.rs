@@ -41,6 +41,11 @@ thread_local! {
     /// generator eager perdia o `return` e devolvia undefined em silencio.
     static DELEGATE_RETS: RefCell<HashMap<u64, i64>> = RefCell::new(HashMap::new());
 
+    /// Fontes que so' o protocolo do runtime sabe percorrer (Set/Map/objeto com
+    /// `[Symbol.iterator]`): handle-chave -> CURSOR do runtime. Ver
+    /// [`super::IterBridge`] para por que a ponte existe.
+    static ITER_CURSORS: RefCell<HashMap<u64, u64>> = RefCell::new(HashMap::new());
+
     /// Done-flag do ultimo DELEGATE_NEXT por handle de iterador delegado.
     static DELEGATE_DONE: RefCell<HashMap<u64, bool>> = RefCell::new(HashMap::new());
 }
@@ -83,23 +88,38 @@ pub fn gen_delegate_start(src: i64) -> i64 {
     if std::env::var("RTS_DEBUG_GEN").is_ok() {
         eprintln!("[gen] DELEGATE_START src={src:#x} h={h:#x} kind={kind}");
     }
-    match kind {
-        // Generator: ja' eh iterador — devolve o HANDLE NORMALIZADO (o `src`
-        // cru pode ser o word boxed; NEXT/DONE fazem with_entry direto).
-        1 => h as i64,
-        2 => {
-            let it = __rtsm_global_Iterator_from(h);
-            // O eager ja' materializou (e ja' gravou o `return`) no momento da
-            // CHAMADA, entao o valor ja' esta' em GEN_RETS quando chegamos aqui.
-            if let Some(r) = super::GEN_RETS.with(|c| c.borrow().get(&h).copied()) {
-                DELEGATE_RETS.with(|c| {
-                    c.borrow_mut().insert(it, r);
-                });
-            }
-            it as i64
+    // GenState continua NATIVO: a delegacao lazy dele precisa do `sent` e do
+    // `ret`, que sao campos deste crate.
+    if kind == 1 {
+        return h as i64;
+    }
+    // TODO o resto vai para o protocolo do runtime. O discriminador NAO pode ser
+    // "nao e' Vec": um `Set`/`Map`/instancia de classe E' um `Entry::Vec` (o
+    // objeto com shape guarda os slots num Vec), entao a checagem por tipo dava
+    // kind=2 e a delegacao iterava os SLOTS do objeto em vez dos elementos —
+    // `yield* new Set([1,2,3])` rendia `[]`. Quem sabe distinguir array de
+    // objeto-com-shape e' o value model, e e' ele que responde por `iter_open`.
+    if let Some(br) = super::iter_bridge() {
+        let cursor = (br.open)(src as u64);
+        let key = alloc_entry(Entry::Vec(Box::new(Vec::new())));
+        ITER_CURSORS.with(|c| {
+            c.borrow_mut().insert(key, cursor);
+        });
+        // Um generator EAGER ja' materializou (e ja' gravou o `return`) na
+        // CHAMADA, e `GEN_RETS` e' keyed pelo Vec ORIGINAL — o cursor e' outro
+        // handle. Sem esta ponte, `const r = yield* eagerGen()` perdia o
+        // retorno e devolvia undefined.
+        if let Some(r) = super::GEN_RETS.with(|c| c.borrow().get(&h).copied()) {
+            DELEGATE_RETS.with(|c| {
+                c.borrow_mut().insert(key, r);
+            });
         }
+        return key as i64;
+    }
+    // Sem ponte instalada (runtime nao inicializado): comportamento anterior.
+    match kind {
+        2 => __rtsm_global_Iterator_from(h) as i64,
         3 => {
-            // String iteravel: cada char vira um handle de String de 1 char.
             let s: String = with_entry(h, |e| match e {
                 Some(Entry::String(bytes)) => String::from_utf8_lossy(bytes).into_owned(),
                 _ => String::new(),
@@ -124,6 +144,22 @@ pub fn gen_delegate_start(src: i64) -> i64 {
 #[rtse::abi(native, value = "gen_delegate_next")]
 pub fn gen_delegate_next(it: i64) -> i64 {
     let h = normalize_delegate_word(it);
+    // Cursor do runtime (Set/Map/iterador custom) — checado ANTES do tipo do
+    // handle, porque o handle-chave e' um Vec vazio e o caminho de Vec o daria
+    // como esgotado na hora.
+    if let Some(cursor) = ITER_CURSORS.with(|c| c.borrow().get(&h).copied()) {
+        let Some(b) = super::iter_bridge() else {
+            set_delegate_done(h, true);
+            return UNDEFINED;
+        };
+        let v = (b.next)(cursor);
+        if (b.is_empty)(v) != 0 {
+            set_delegate_done(h, true);
+            return UNDEFINED;
+        }
+        set_delegate_done(h, false);
+        return v as i64;
+    }
     let kind = with_entry(h, |e| match e {
         Some(Entry::GenState(_)) => 1u8,
         Some(Entry::Vec(_)) => 2,

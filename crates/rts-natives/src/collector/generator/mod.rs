@@ -78,6 +78,44 @@ pub struct AgenDriver {
 
 static AGEN_DRIVER: OnceLock<AgenDriver> = OnceLock::new();
 
+/// How to iterate a source this crate cannot decode on its own — supplied by
+/// `rts-runtime`, which owns the value model.
+///
+/// `yield*` normalizes its source in [`super::delegate`], and that code can only
+/// recognize what lives HERE: `GenState`, `Vec`, `String`. A `Set`, a `Map` or a
+/// custom `[Symbol.iterator]` object is a shaped value whose layout belongs to
+/// the runtime layer above — so `yield* new Set([1,2])` reported "esgotado" on
+/// the first step and produced `[]` instead of the elements. Silently empty, not
+/// an error.
+///
+/// The dependency direction forbids calling `__rtsadp_iter_*` from here (this
+/// crate sits BELOW the value model), so the runtime hands the three operations
+/// down as plain `fn` pointers, the same shape as [`AgenDriver`]. The cursor is
+/// opened LAZILY and stepped one value at a time — materializing the source
+/// would hang on an infinite custom iterator, which is a worse trade than the
+/// empty walk it replaces.
+#[derive(Clone, Copy)]
+pub struct IterBridge {
+    /// `open(source_word) -> cursor_word`.
+    pub open: fn(u64) -> u64,
+    /// `next(cursor_word) -> value_word`, or the EMPTY sentinel when exhausted.
+    pub next: fn(u64) -> u64,
+    /// `is_empty(word) -> 1` for the EMPTY sentinel.
+    pub is_empty: fn(u64) -> u64,
+}
+
+static ITER_BRIDGE: OnceLock<IterBridge> = OnceLock::new();
+
+/// Hand the delegation path the runtime's iterator protocol. Called once from
+/// `runtime_init`, beside [`set_agen_driver`].
+pub fn set_iter_bridge(b: IterBridge) {
+    let _ = ITER_BRIDGE.set(b);
+}
+
+pub(crate) fn iter_bridge() -> Option<IterBridge> {
+    ITER_BRIDGE.get().copied()
+}
+
 /// Install the async-generator driver. Called once at startup; first writer wins.
 pub fn set_agen_driver(d: AgenDriver) {
     let _ = AGEN_DRIVER.set(d);
