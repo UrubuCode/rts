@@ -46,6 +46,16 @@ pub(super) fn to_string(v: PolyValue) -> String {
     if v.is_function() {
         return "function".to_string();
     }
+    // A value-class WRAPPER (`new Number(5)` / `new String(s)` / `new Boolean(b)`)
+    // is an opaque `Entry::Rtse`, so it would fall straight through to the
+    // `[object Object]` default below. Spec-wise it is an ordinary object whose
+    // PROTOTYPE carries `toString`/`valueOf` — run OrdinaryToPrimitive over the
+    // class's registered members FIRST (see `super::rtseprim`).
+    if v.is_object() {
+        if let Some(p) = super::rtseprim::to_primitive(v, "string") {
+            return to_string(p);
+        }
+    }
     // An ARRAY (TAG_OBJECT that is NOT a keyed object) ToStrings as its elements
     // joined by "," (JS `String([1,2,3])` = "1,2,3", `String([])` = ""), with
     // `null`/`undefined` elements rendering as the empty string. A keyed OBJECT
@@ -93,7 +103,15 @@ pub(super) fn to_string(v: PolyValue) -> String {
 /// non-primitive (spec: TypeError; here the caller keeps its default coercion —
 /// never a wrong recursion).
 pub(super) fn to_primitive_via_method(v: PolyValue, hint: &str) -> Option<PolyValue> {
-    if !v.is_object() || !crate::adapters::value::inspect::looks_like_object(v) {
+    if !v.is_object() {
+        return None;
+    }
+    // A value-class WRAPPER object first: its `valueOf`/`toString` are REGISTERED
+    // members, not object slots, so the keyed-object walk below would miss them.
+    if let Some(p) = super::rtseprim::to_primitive(v, hint) {
+        return Some(p);
+    }
+    if !crate::adapters::value::inspect::looks_like_object(v) {
         return None;
     }
     // 1. `[Symbol.toPrimitive]` (canonicalized to the `@@toPrimitive` own slot).

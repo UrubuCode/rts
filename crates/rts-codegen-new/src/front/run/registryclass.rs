@@ -448,6 +448,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     }
 }
 
+/// What the dynamic Registry-arm chain does when NO candidate's predicate matched
+/// the receiver at runtime.
+#[derive(Clone, Copy)]
+enum DynFallback<'m> {
+    /// A member READ: the plain `__rtsadp_obj_get` data-slot read, so a plain
+    /// object's real `prop` key is not stolen by a same-named Registry getter.
+    Getter(&'m str),
+    /// A method CALL: the generic proto-chain dispatch under this method name —
+    /// what would run if no Registry class declared the name at all.
+    Method(&'m str),
+}
+
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// DYNAMIC Registry-class instance dispatch on a TAGGED receiver of unproven
     /// class (the Registry counterpart of `try_user_virtual_dynamic`): for every
@@ -484,8 +496,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         for a in args {
             argvals.push(self.lower_expr(module, a)?);
         }
-        self.emit_registry_dyn_arms(module, recv, &cands, &argvals, args.len(), None)
-            .map(Some)
+        self.emit_registry_dyn_arms(
+            module,
+            recv,
+            &cands,
+            &argvals,
+            args.len(),
+            DynFallback::Method(method),
+        )
+        .map(Some)
     }
 
     /// DYNAMIC Registry instance GETTER dispatch on a TAGGED receiver — the
@@ -507,16 +526,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // The fall-through reads the DATA SLOT (`__rtsadp_obj_get`) — a plain
         // object with a real `prop` key (a JSON `flags` field) must not be
         // stolen by a same-named Registry getter's `undefined` sentinel.
-        self.emit_registry_dyn_arms(module, recv, &cands, &[], 0, Some(prop))
+        self.emit_registry_dyn_arms(module, recv, &cands, &[], 0, DynFallback::Getter(prop))
             .map(Some)
     }
 
     /// Shared arm emitter for the two dynamic Registry dispatchers: gate on
     /// `is_object(recv)`, then one `if predicate(handle) { marshal + call }`
     /// arm per candidate (defaults padded from the spec), merging every arm's
-    /// boxed result. The fall-through yields the `undefined` sentinel — or,
-    /// when `data_read_key` is set (the GETTER variant), the plain
-    /// `__rtsadp_obj_get` data-slot read (a plain object's real `prop` value).
+    /// boxed result. The fall-through is [`DynFallback`] — the plain data-slot
+    /// read for a GETTER, the generic proto-chain dispatch for a METHOD.
     fn emit_registry_dyn_arms(
         &mut self,
         module: &mut dyn Module,
@@ -524,7 +542,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         cands: &[(String, &'static str, super::registry::ResolvedCall)],
         argvals: &[Val],
         argc: usize,
-        data_read_key: Option<&str>,
+        fallback: DynFallback<'_>,
     ) -> FrontResult<Val> {
         let recv_word = self.box_value(recv);
         // is_object gate + the real handle (same emission as
@@ -545,6 +563,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 .icmp(cranelift_codegen::ir::condcodes::IntCC::Equal, tag, want);
         let is_object = self.builder.ins().band(boxed, is_obj_tag);
         let handle = value::emit_marshal::emit_table_load(module, self.builder, recv_word);
+        // The already-lowered args, BOXED here (in the entry block, which
+        // dominates every arm) so the generic fall-through below can hand them to
+        // the 3-slot trampoline without re-lowering — single-eval preserved.
+        let slots: [cranelift_codegen::ir::Value; 3] = {
+            let undef = value::PolyValue::undefined().raw() as i64;
+            let mut s = [self.builder.ins().iconst(types::I64, undef); 3];
+            for (i, v) in argvals.iter().take(3).enumerate() {
+                s[i] = self.box_value(*v);
+            }
+            s
+        };
 
         let merge = self.builder.create_block();
         self.builder.append_block_param(merge, types::I64);
@@ -593,17 +622,41 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             self.builder.seal_block(next_blk);
         }
         // DEFAULT: no predicate matched. The GETTER variant falls back to the
-        // plain DATA-SLOT read (a same-named real key on a plain object);
-        // the METHOD variant yields the `undefined` sentinel.
-        match data_read_key {
-            Some(prop) => {
+        // plain DATA-SLOT read (a same-named real key on a plain object); the
+        // METHOD variant falls back to the GENERIC proto-chain dispatch — the
+        // very path `method.rs` would have taken had no Registry candidate
+        // existed at all.
+        //
+        // It used to yield a bare `undefined` sentinel, and that was not a
+        // conservative choice but a SHADOWING one: a single predicate-carrying
+        // Registry class declaring a method name was enough to make EVERY other
+        // receiver's same-named method read as absent. `new Number(5).valueOf()`
+        // through an `any` measured `undefined` purely because `Date` declares
+        // `valueOf` and a Number wrapper is not a Date.
+        match fallback {
+            DynFallback::Getter(prop) => {
                 let key_word = self.emit_str_const_word(module, prop)?;
                 let data = self
                     .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key_word])?
                     .expect("__rtsadp_obj_get returns a value");
                 self.builder.ins().jump(merge, &[data.into()]);
             }
-            None => {
+            // The 3-slot trampoline covers argc ≤ 3 (the same window
+            // `try_generic_dyn_method_call` accepts); beyond it the old
+            // `undefined` sentinel stands.
+            DynFallback::Method(name) if argc <= 3 => {
+                let key_word = self.emit_str_const_word(module, name)?;
+                let generic = self
+                    .call_runtime(
+                        module,
+                        "__rtsadp_dyn_method_call",
+                        &[recv_word, key_word, slots[0], slots[1], slots[2]],
+                    )?
+                    .expect("__rtsadp_dyn_method_call returns a value");
+                self.emit_post_call_error_check(module)?;
+                self.builder.ins().jump(merge, &[generic.into()]);
+            }
+            DynFallback::Method(_) => {
                 let undef = self
                     .builder
                     .ins()

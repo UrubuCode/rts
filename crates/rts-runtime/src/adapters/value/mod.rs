@@ -183,6 +183,9 @@ pub mod iterops;
 // loop condition is a JS expression, which cannot name EMPTY).
 pub mod iterloop;
 pub mod taops;
+// ToPrimitive for a VALUE-CLASS WRAPPER (`new Number(5)` / `new String(s)` /
+// `new Boolean(b)`): its `valueOf`/`toString` are Registry members, not slots.
+mod rtseprim;
 
 // ===========================================================================
 // PolyValue

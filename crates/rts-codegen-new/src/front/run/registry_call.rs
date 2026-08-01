@@ -148,9 +148,22 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 }
             }
             AbiType::Bool => {
-                // A proven bool rides its i64 0/1; anything else BAILS (ToBoolean
-                // of an arbitrary value at a typed boundary is a later increment).
-                out.push(self.coerce(val, Repr::Bool)?);
+                // A `Bool` slot is an UNTRUSTED boundary like `StrPtr` above: the
+                // value reaching it may be Tagged (an `any`, a field, a param whose
+                // TS annotation is not proof). Route EVERY value through the single
+                // ToBoolean authority (`as_bool_value`, Pilar 3) instead of the
+                // representation coercion — `coerce(_, Repr::Bool)` has no
+                // Tagged/number arm at all and bailed the whole enclosing function
+                // with `cannot coerce Tagged to Bool` (measured in a `__rtsn_ctor_*`
+                // on a real WhatsApp Web bundle).
+                //
+                // `as_bool_value` IS the JS rule, not a shortcut: for a proven
+                // number it folds `x != 0 && x == x` (so `NaN` is falsy, unlike a
+                // plain non-zero test); for Tagged it calls `__rtsadp_to_boolean`,
+                // which resolves `""`/`0`/`-0`/`null`/`undefined`/`false` as falsy
+                // and every object/array — including `[]` and `{}` — as truthy.
+                let b = self.as_bool_value(module, val)?;
+                out.push(b);
             }
             AbiType::PolyValue => {
                 // Raw NaN-boxed word, verbatim — a function-VALUE listener / any
