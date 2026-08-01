@@ -20,7 +20,7 @@
 //! Hoje cobre mouse/teclado/scroll/modificadores/texto. A intenção é crescer aqui
 //! — GAMEPAD/controle (eixos, botões, gatilhos, vibração), TOUCH (toques/gestos),
 //! caneta, etc. Cada novo dispositivo entra como mais métodos no trait
-//! `InputSource` + mais fns `__RTS_FN_NS_INPUT_*` no `abi.rs`, e o capturador
+//! `InputSource` + mais fns `__rtsm_input_*` no `abi.rs`, e o capturador
 //! ativo (egui hoje, ou um futuro backend com `gilrs`/SDL para gamepad) os
 //! implementa. O namespace TS `input.*` é o ponto único onde o app consulta
 //! QUALQUER entrada — por isso vale o crate próprio, separado do render.
@@ -64,7 +64,7 @@ pub trait InputSource {
     /// `KEY_PHASE_DOWN` (0) = SEGURADA agora (contínuo); `KEY_PHASE_PRESSED` (1)
     /// = disparou neste frame (borda, com auto-repeat); `KEY_PHASE_RELEASED` (2)
     /// = SOLTA neste frame. Unifica os antigos key_down/pressed/released num só
-    /// (um único símbolo ABI `__RTS_FN_NS_INPUT_KEY`). Fase desconhecida → false.
+    /// (um único símbolo ABI `__rtsm_input_key`). Fase desconhecida → false.
     fn key_state(&self, target: u64, key: i64, phase: i64) -> bool;
     /// Modificadores segurados AGORA (Ctrl/Shift/Alt/Cmd) — `mod_*`.
     fn modifiers(&self, target: u64) -> Modifiers;

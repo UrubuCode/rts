@@ -5,9 +5,10 @@ and step 6 of [`../no-mangle-drain.md`](../no-mangle-drain.md).
 
 ## What this is
 
-**450** legacy symbols still to rename. Started at 626; **74 rows dropped** on
+**423** legacy symbols still to rename. Started at 626; **74 rows dropped** on
 2026-07-31 when N7 deleted the symbols they named (see the N7 section), and
-**`dom.tsv` (102 rows) EXECUTED and retired** the same day. Each remaining row is
+**129 rows EXECUTED and retired** the same day (`dom` 102, `input`+`render` 27).
+Each remaining row is
 TSV:
 
 ```
@@ -128,3 +129,25 @@ every removed name is `__RTS_FN_NS_DOM_*`, every added name is `__rtsm_dom_*`,
 and each mapped target was checked present, giving zero orphans. Repo-wide grep
 for the old prefix across `*.rs` AND `*.ts`: zero. Full TS suite unchanged
 (772/775 files, 2841/2853 tests).
+
+### `input` + `render` — DONE (2026-07-31, 27 symbols)
+
+Same mechanism and the same isolation test as `dom`: **zero consumers outside
+the owning crate** for both `NS_INPUT` and `NS_RENDER`, and each lives in one
+`abi.rs`. Verified 27 removed / 27 added, every removed name `__RTS_FN_NS_INPUT_*`
+or `__RTS_FN_NS_RENDER_*`, every added name `__rtsm_input_*` or
+`__rtsm_render_*`, zero orphans, zero old spellings left in `*.rs` or `*.ts`,
+suite unchanged.
+
+**The file this came from was SPLIT, not emptied.** `input_render_engine.tsv`
+bundled three unrelated things; its remaining 14 rows are now `engine_core.tsv`,
+and they are deliberately NOT in the same class as the rest of the map:
+
+| rows | why they are harder |
+|---|---|
+| `__RTS_FN_NS_GC_*` (8), `__RTS_FN_RT_THIS_*` (2), `TRUTHY`, `TO_STRING_HANDLE`, `SEED`, `INIT` | Spread across **~20 files in 8 crates**, and — unlike every namespace area — several are named by STRING LITERALS in `rts-codegen-new` (`module_aot.rs` emits `__RTS_FN_RT_INIT` into the AOT `main` shim; `module_jit.rs`, `emit_marshal.rs`, `globalclass.rs` carry others). A wrong literal there compiles fine and **fails at RUNTIME or at LINK**, which is the one failure mode the bijection check cannot see. |
+
+Order the remaining areas by that property, not by row count: a namespace whose
+symbols are only ever named by the Rust item and one registration line is safe to
+sweep mechanically; anything the codegen spells as a string needs the literal
+swept in the same commit and the AOT path exercised, not just `rts run`.

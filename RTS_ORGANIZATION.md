@@ -1,10 +1,15 @@
 # RTS crate reorganization — `rts-natives` and the end of `__rtsa_`
 
-**Status:** N0–N4 EXECUTED (2026-07-31). N2b (new), N5, N6, N7 open — and each is
-bigger than this document originally claimed; **see §8**, which records what
-execution measured and this plan got wrong. §2 is left as WRITTEN, not corrected
-in place: it is the diagnosis that motivated the work, and §8 says where it was
-mistaken. **Owner directive, 2026-07-31:**
+**Status (2026-07-31):** **N0, N1, N2, N2b, N3, N4, N6-A, N6-B and N7 are DONE.**
+N5 is partly done — 129 of 626 mapped symbols renamed, 74 more deleted by N7
+instead, 423 rows left. N6-C/D (produce and consume the stack maps) is open and
+is the one phase deliberately NOT attempted: it is the direction where a bug is a
+premature free, i.e. heap corruption rather than a leak.
+
+Each phase was bigger than this document claimed; **see §8**, which records what
+execution measured and where this plan was wrong. §2 is left as WRITTEN, not
+corrected in place: it is the diagnosis that motivated the work, and §8 says
+where it was mistaken. **Owner directive, 2026-07-31:**
 *"the engine MANAGES rts, not how it works internally"* — that sentence is the
 whole partition rule, and everything below is its consequence.
 
