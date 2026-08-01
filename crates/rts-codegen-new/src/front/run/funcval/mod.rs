@@ -261,7 +261,31 @@ fn rename_ident_stmt(s: &mut HirStmt, from: &str, to: &str) {
                 rename_ident_stmts(f, from, to);
             }
         }
-        _ => {}
+        // A `switch` — the discriminant plus every case test AND body. Omitting
+        // this left a `z(...)` inside `switch(x){ case a: return z(..) }`
+        // UNRENAMED when a recursive `function z` was lifted, so the self-call
+        // bailed "call to unknown function `z`" (React's `mapIntoArray`). The
+        // `_ => {}` below silently swallowed it — the same match-not-visitor trap
+        // that hid a `yield` detector gap.
+        HirStmt::Switch {
+            discriminant,
+            cases,
+        } => {
+            rename_ident_expr(discriminant, from, to);
+            for case in cases {
+                if let Some(t) = &mut case.test {
+                    rename_ident_expr(t, from, to);
+                }
+                rename_ident_stmts(&mut case.body, from, to);
+            }
+        }
+        // A labeled statement (`L: for(..) { .. z(..) .. }`) — descend into its body.
+        HirStmt::Labeled { body, .. } => rename_ident_stmt(body, from, to),
+        HirStmt::Break { .. }
+        | HirStmt::Continue { .. }
+        | HirStmt::Raw(_)
+        | HirStmt::Return(None)
+        | HirStmt::Let { init: None, .. } => {}
     }
 }
 

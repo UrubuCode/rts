@@ -150,7 +150,7 @@ pub fn collect_free_stmt(s: &HirStmt, bound: &mut HashSet<String>, free: &mut Ha
                 }
             }
         }
-        HirStmt::While { cond, body } => {
+        HirStmt::While { cond, body } | HirStmt::DoWhile { cond, body } => {
             collect_free_expr(cond, bound, free);
             for st in body {
                 collect_free_stmt(st, bound, free);
@@ -233,10 +233,31 @@ pub fn collect_free_stmt(s: &HirStmt, bound: &mut HashSet<String>, free: &mut Ha
                 collect_free_stmt(st, bound, free);
             }
         }
-        // Remaining kinds (Switch/Labeled/Break/Continue/Raw) carry no singleton
-        // reference the promotion cares about; not descending is safe (the lowering
-        // bails on an unsupported construct itself).
-        _ => {}
+        // A `switch` — the discriminant, each case's test, and each case body.
+        // NOT descending here dropped a real CAPTURE: a free `cap` used only
+        // inside `switch(x){ case 0: return cap }` of a lifted closure was never
+        // detected as free, so it wasn't passed to the synthesized fn and threw
+        // `ReferenceError: cap is not defined` at runtime. (The old comment
+        // claimed this was singleton-only and safe — it is not, this function
+        // drives capture detection too.)
+        HirStmt::Switch {
+            discriminant,
+            cases,
+        } => {
+            collect_free_expr(discriminant, bound, free);
+            for case in cases {
+                if let Some(t) = &case.test {
+                    collect_free_expr(t, bound, free);
+                }
+                for st in &case.body {
+                    collect_free_stmt(st, bound, free);
+                }
+            }
+        }
+        // A labeled statement (`L: for(..) { .. cap .. }`) — descend into its body.
+        HirStmt::Labeled { body, .. } => collect_free_stmt(body, bound, free),
+        // No captures to contribute.
+        HirStmt::Break { .. } | HirStmt::Continue { .. } | HirStmt::Raw(_) => {}
     }
 }
 
