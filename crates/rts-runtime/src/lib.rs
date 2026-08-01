@@ -118,6 +118,12 @@ pub fn runtime_init() {
     rts_engine::collector::root_sources::register(
         rts_std::globals::text_encoding::instance::mark_microtask_roots,
     );
+    // Page-script globals (issue #2069): the `__G.x` bag — including the module
+    // registry a page's `__d` builds — lives in `rts-dom`'s scriptscope HashMap,
+    // a Rust container the conservative scanner does not walk. Without this a GC
+    // tick mid-execution sweeps live page globals → use-after-free (segfault on
+    // large bundles). Same registered-root-source pattern as the microtask queue.
+    rts_engine::collector::root_sources::register(rts_dom::scriptscope::mark_scriptscope_roots);
     // `Error.prototype.stack` text. The error SLOT is machinery (`throw`/`catch`
     // is what the Cranelift IR cannot express), but the frames it renders are
     // pushed by the `trace` namespace a layer above, so the renderer is

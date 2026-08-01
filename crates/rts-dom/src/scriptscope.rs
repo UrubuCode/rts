@@ -34,6 +34,30 @@ fn scopes() -> &'static Mutex<HashMap<u64, Scope>> {
     SCOPES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// GC ROOT SOURCE (issue #2069). Os globais da página vivem AQUI, num container
+/// Rust — o scanner conservativo varre pilha + gcells + microtasks, mas NÃO este
+/// `HashMap`. Sem esta marcação, um `__d`/módulo referenciado só pelo saco de
+/// globais é invisível ao mark, o sweep o libera, e o próximo `__G.x` que a
+/// página lê dereferencia um slot já liberado → USE-AFTER-FREE (segfault sob
+/// bundles grandes: um ciclo de GC no meio da execução liberava ~10 mil handles,
+/// incluindo vivos).
+///
+/// Registrado em `rts-runtime` ao lado da fila de microtasks. Coleta as words sob
+/// o lock e SOLTA antes de marcar: `mark_handle` aloca (caminha filhos) e pode
+/// re-disparar o GC, que re-entraria neste marcador — segurar o lock aqui
+/// deadlockaria (mesma razão do `mark_all` copiar os fns antes de chamar).
+pub fn mark_scriptscope_roots() {
+    let words: Vec<u64> = {
+        let g = scopes().lock().unwrap_or_else(|e| e.into_inner());
+        g.values()
+            .flat_map(|scope| scope.globals.values().copied())
+            .collect()
+    };
+    for w in words {
+        rts_engine::heap::handles::mark_handle(w);
+    }
+}
+
 fn s_count(h: u64) -> i64 {
     scopes()
         .lock()
