@@ -121,6 +121,21 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 }
             }
         }
+        // `RTS_DIAG_UNBOUND=<name>`: what the failing scope actually holds. Pairs
+        // with the lifter-side report in `funcval` — together they say whether a
+        // name is missing because the closure never captured it, and why.
+        if self.local(&name).is_none() && std::env::var("RTS_DIAG_UNBOUND").as_deref() == Ok(&*name)
+        {
+            let mut locals: Vec<&String> = self.locals.keys().collect();
+            locals.sort();
+            eprintln!(
+                "[diag] escrita a `{name}` sem binding em `{}` | capturas={:?} | cells={:?} \
+                 | locais={locals:?}",
+                self.current_fn,
+                self.captures.get(&self.current_fn),
+                self.cell_locals,
+            );
+        }
         let local = self
             .local(&name)
             .ok_or_else(|| Unsupported::new(format!("assignment to unbound `{name}`")))?;

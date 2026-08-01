@@ -63,6 +63,50 @@ use scan::{
 /// function print(v) { __rtsCapturedOutput += v + "\n"; }`) is the canonical case.
 /// `const` is excluded (immutable → never written). A name shadowed by a param or
 /// a local `let` inside the writing function is NOT counted (that write is local).
+/// Diagnostic for `RTS_DIAG_BAIL=1`: report WHY the lifter REFUSED to extract an
+/// arrow. A refusal leaves the arrow inline, and the lowering then bails
+/// "expression arrow" — a message that names neither the offending construct nor
+/// the reason. In a minified bundle there is no other way to tell a mutated-param
+/// capture from a free `this`.
+fn diag_bail(fn_name: &str, why: &str) {
+    if std::env::var("RTS_DIAG_BAIL").is_ok() {
+        eprintln!("[diag] lifter recusou `{fn_name}`: {why}");
+    }
+}
+
+/// Diagnostic for `RTS_DIAG_UNBOUND=<name>`: report WHY the lifter decided the
+/// free identifier `id` is not a capture of the closure it is synthesizing.
+///
+/// A wrong decision here does not necessarily bail — it can silently resolve the
+/// name to something else and produce a plausible WRONG VALUE (that is how the
+/// top-level-shadowing bug was found: a captured-and-written local read the
+/// same-named top-level function instead, yielding `undefined` where Node gave a
+/// real value). There is no other way to see this decision from outside, and the
+/// per-ident volume makes an unfiltered dump useless, so it is keyed by name.
+#[allow(clippy::too_many_arguments)]
+fn diag_skipped_capture(
+    id: &str,
+    fn_name: &str,
+    is_param: bool,
+    is_global: bool,
+    is_top_level: bool,
+    has_captures: bool,
+    is_module_global: bool,
+    in_scope: bool,
+) {
+    let Ok(want) = std::env::var("RTS_DIAG_UNBOUND") else {
+        return;
+    };
+    if want != id {
+        return;
+    }
+    eprintln!(
+        "[diag] `{id}` NÃO capturado em `{fn_name}`: param={is_param} global={is_global} \
+         top_level={is_top_level} tem_capturas={has_captures} \
+         module_global={is_module_global} no_escopo={in_scope}"
+    );
+}
+
 pub fn module_globals(
     funcs: &[HirFunc],
     main: &HirFunc,
@@ -86,7 +130,19 @@ pub fn module_globals(
             top.push(name.clone());
         }
     }
-    if top.is_empty() {
+    // A top-level FUNCTION whose NAME is REASSIGNED is a mutable binding too, so
+    // it belongs on this list next to the `let`s. In JS a function declaration
+    // creates an ordinary writable binding, and reassigning it is the
+    // memoization every Babel-transpiled async function is built on:
+    //
+    //     function v(a) { v = _asyncToGenerator(…); return v.apply(this, args) }
+    //
+    // Without this the write had no home — the name resolved to the immutable
+    // top-level fn table — and the whole file bailed "assignment to unbound".
+    // Gated on being WRITTEN (never on merely being read): an ordinary function
+    // keeps resolving through the fn table and its direct-call fast path.
+    let fn_names: Vec<String> = funcs.iter().map(|f| f.name.clone()).collect();
+    if top.is_empty() && fn_names.is_empty() {
         return HashMap::new();
     }
     // Names written OR read (free) inside SOME function: minus that fn's own params
@@ -134,6 +190,22 @@ pub fn module_globals(
             || force.contains(&name)
             || read_free.contains(&name);
         if promote {
+            map.insert(name, id);
+            id += 1;
+        }
+    }
+    // Reassigned top-level functions (see `fn_names` above). WRITTEN-only — a
+    // read-only function must NOT become a cell, or every ordinary call would
+    // lose its direct fast path. A name already promoted as a `let` keeps its id.
+    // A write from the TOP LEVEL counts for a function name too (`function v(){}
+    // … v = other;`), unlike for a `let` — a top-level `let` written at top level
+    // is just main's own local, but a FUNCTION is visible to every other
+    // function, so the new value has to reach them through the cell.
+    let top_writes = mutated_names(&main.body);
+    for name in fn_names {
+        if (written_free.contains(&name) || top_writes.contains(&name))
+            && !map.contains_key(&name)
+        {
             map.insert(name, id);
             id += 1;
         }
@@ -395,6 +467,7 @@ pub fn extract_arrows(
         cells: HashMap::new(),
         current_fn: String::new(),
         current_fn_lets: HashSet::new(),
+        current_fn_params: HashSet::new(),
         current_fn_arrow_decls: HashSet::new(),
         self_binding: None,
         counter: 0,
@@ -410,6 +483,7 @@ pub fn extract_arrows(
         let mutated = mutated_names(&f.body);
         ctx.current_fn = f.name.clone();
         ctx.current_fn_lets = declared_locals(&f.body);
+        ctx.current_fn_params = params.clone();
         ctx.current_fn_arrow_decls = arrow_decl_names(&f.body);
         ctx.rewrite_block(&mut f.body, &params, &mutated);
     }
@@ -417,6 +491,7 @@ pub fn extract_arrows(
     let main_mutated = mutated_names(&main.body);
     ctx.current_fn = main.name.clone();
     ctx.current_fn_lets = declared_locals(&main.body);
+    ctx.current_fn_params = main_params.clone();
     ctx.current_fn_arrow_decls = arrow_decl_names(&main.body);
     ctx.rewrite_block(&mut main.body, &main_params, &main_mutated);
 
@@ -440,6 +515,7 @@ pub fn extract_arrows(
         let mutated = mutated_names(&f.body);
         ctx.current_fn = f.name.clone();
         ctx.current_fn_lets = declared_locals(&f.body);
+        ctx.current_fn_params = params.clone();
         ctx.current_fn_arrow_decls = arrow_decl_names(&f.body);
         ctx.rewrite_block(&mut f.body, &params, &mutated);
         ctx.synthesized[i] = f;
@@ -838,6 +914,11 @@ struct Ctx {
     /// body — the only locals a captured-mutated name may be a cell of this
     /// increment (a deeper-block or param capture bails, kept sound).
     current_fn_lets: HashSet<String>,
+    /// The PARAMS of [`Self::current_fn`]. A param that a closure captures AND
+    /// something reassigns is cellable exactly like a `let`: the callee prologue
+    /// allocates the cell from the incoming argument. Kept apart from
+    /// `current_fn_lets` because only a param needs that prologue treatment.
+    current_fn_params: HashSet<String>,
     /// Names in the CURRENT function declared with a fn-valued initializer
     /// (`const factor = (..) => …`) — a capture of one is a CELL (mutual
     /// forward refs read the live value; see `arrow_decl_names`).
@@ -1155,6 +1236,7 @@ impl Ctx {
             .enumerate()
             .any(|(i, p)| p.variadic && i + 1 != params.len())
         {
+            diag_bail(&name, "param variádico fora da última posição");
             return None;
         }
         let mut param_names: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
@@ -1244,7 +1326,17 @@ impl Ctx {
                 // skippable: its direct name cannot be called from a scope that
                 // lacks its captured locals — fall through to the capture path,
                 // which snapshots its REIFIED fn VALUE (env embedded).
-                || (self.top_level.contains(id) && !self.captures.contains_key(id))
+                //
+                // `!scope.contains(id)` for the same reason the Registry test
+                // below has it: an in-scope OUTER LOCAL SHADOWS a same-named
+                // top-level function (JS scoping). A minified bundle reuses
+                // one-letter names across modules, so `var e, s = null` in one
+                // module factory collided with a `var e = function(){…}` hoisted
+                // to top level by another — `s` was captured and `e` silently
+                // was not, and the write to it bailed "assignment to unbound".
+                || (!scope.contains(id)
+                    && self.top_level.contains(id)
+                    && !self.captures.contains_key(id))
                 || self.module_globals.contains(id)
                 // An in-scope OUTER LOCAL/PARAM SHADOWS a same-named Registry
                 // namespace/class (JS scoping): `parse(input: string)` captures
@@ -1253,12 +1345,24 @@ impl Ctx {
                 || (!scope.contains(id)
                     && (super::registry::has_namespace(id) || super::registry::has_class(id)))
             {
+                diag_skipped_capture(
+                    id,
+                    &name,
+                    param_names.contains(id),
+                    GLOBALS.contains(&id.as_str()),
+                    self.top_level.contains(id),
+                    self.captures.contains_key(id),
+                    self.module_globals.contains(id),
+                    scope.contains(id),
+                );
                 continue;
             }
             // A top-level closure name: capture its fn VALUE (the enclosing
             // body reifies it — ITS captures are that body's leading params, so
             // the env embeds transitively). Never a mutable-capture cell.
-            if self.top_level.contains(id) {
+            // Same shadowing guard as above: an in-scope local of that name is
+            // an ordinary capture (and may need a cell), not the top-level fn.
+            if !scope.contains(id) && self.top_level.contains(id) {
                 captures.push(id.clone());
                 continue;
             }
@@ -1270,6 +1374,7 @@ impl Ctx {
             if !scope.contains(id) && !self.current_fn_arrow_decls.contains(id.as_str()) {
                 // `this` is not a value this pass can carry — leave it to bail.
                 if id == "this" {
+                    diag_bail(&name, "`this` livre não carregável");
                     return None;
                 }
                 // Any OTHER name that is no local in scope is a FREE GLOBAL
@@ -1319,7 +1424,33 @@ impl Ctx {
                     captures.push(id.clone());
                     continue;
                 }
-                return None; // mutable param / non-let-local capture — bail.
+                // A PARAM of the declaring function is cellable too: the callee
+                // prologue allocates the cell from the incoming argument (see
+                // the param-cell prologue in `run::lower`), which is the same
+                // "the declaration site allocates it" rule a `let` follows.
+                //
+                // This is what a TRANSPILED DEFAULT PARAMETER looks like —
+                // `function s(t, n, l) { l === void 0 && (l = false); … }` is how
+                // Babel/tsc emit `l = false`, so the param is reassigned, and a
+                // closure capturing it hit the bail. Refusing here rejected the
+                // whole file for a construct that is merely a default argument.
+                if self.current_fn_params.contains(id) {
+                    cell_caps.push(id.clone());
+                    captures.push(id.clone());
+                    continue;
+                }
+                // MUTATED capture that is not a `let` of the declaring function
+                // (a mutated PARAM, or a local the scan did not classify as a
+                // let) — no sound home for the cell, so the arrow stays inline
+                // and the lowering bails "expression arrow".
+                diag_bail(&name, &format!(
+                    "captura mutada `{id}` sem `let` declarante \
+                     (body_assigns={} mutated={} ja_cell={})",
+                    body_assigns.contains(id),
+                    mutated.contains(id),
+                    already_cell,
+                ));
+                return None;
             }
             captures.push(id.clone());
         }
