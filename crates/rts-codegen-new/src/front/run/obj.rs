@@ -437,6 +437,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let Some(val) = self.try_math_number_const(module, object, prop)? {
             return Ok(val);
         }
+        // ---- `Object.<static>` read as a VALUE (`const dp = Object.defineProperty`):
+        // a real callable over the same runtime authority the CALLED form uses.
+        // Placed before the class-static/`prototype` probes, which `Object` has no
+        // entry in — without it the bare `Object` ident fell through to the
+        // unbound-identifier throw. ----
+        if let Some(val) = self.try_object_static_value(module, object, prop)? {
+            return Ok(val);
+        }
         // ---- Registry-class STATIC CONSTANT read (`Symbol.iterator` — the
         // well-known symbols, `MemberKind::Constant` on the class spec): resolve
         // the zero-arg getter + rebox its Handle as an OBJECT word (a symbol is a

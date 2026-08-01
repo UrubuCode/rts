@@ -156,6 +156,67 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
     }
 
+    /// Try to lower an `Object.<static>` MEMBER read in VALUE position (`const dp
+    /// = Object.defineProperty`, `arr.map(Object.freeze)`) — the form minified
+    /// bundles use constantly. Returns `Ok(None)` when `object` is not the bare
+    /// `Object` global or `prop` is not one of its statics, so the caller falls
+    /// through to its next handler.
+    ///
+    /// Without this the bare `Object` identifier resolved to NOTHING (there is no
+    /// ambient `class Object`) and the read threw `ReferenceError: Object is not
+    /// defined`, even though the CALLED form above always worked. The op is the
+    /// property's index in `OBJECT_FN_OPS` — the SAME ordered table the runtime
+    /// thunk dispatches on, so the two ends cannot desynchronize.
+    pub(super) fn try_object_static_value(
+        &mut self,
+        module: &mut dyn Module,
+        object: &HirExpr,
+        prop: &str,
+    ) -> FrontResult<Option<Val>> {
+        let HirExprKind::Ident(name) = &object.kind else {
+            return Ok(None);
+        };
+        // A local or a user class named `Object` shadows the primordial.
+        if name != "Object" || self.local(name).is_some() || self.classes.get(name).is_some() {
+            return Ok(None);
+        }
+        // `Object.prototype` has its own branch further down (the shared class-proto
+        // word); leave it alone.
+        if prop == "prototype" {
+            return Ok(None);
+        }
+        let Some(op) = rts_runtime::adapters::value::objfn::object_fn_op_code(prop) else {
+            // The constructor's OWN `name`/`length` (spec: `"Object"` / 1).
+            if prop == "name" {
+                let v = self.emit_str_const_word(module, "Object")?;
+                return Ok(Some(Val::tagged_kind(v, JsKind::Str)));
+            }
+            if prop == "length" {
+                let v = self.builder.ins().iconst(
+                    types::I64,
+                    crate::value::PolyValue::from_i32(1).raw() as i64,
+                );
+                return Ok(Some(Val::new(v, Repr::Tagged)));
+            }
+            // Any OTHER property of the `Object` constructor is `undefined` — a
+            // plain missing property, not an unbound name. Reaching the generic
+            // fallthrough instead made the bare `Object` ident resolve to nothing
+            // and throw `ReferenceError: Object is not defined`, which is the
+            // wrong error for `Object.somethingWeDoNotHave` and aborts a whole
+            // bundle over a feature sniff.
+            let v = self.builder.ins().iconst(
+                types::I64,
+                crate::value::PolyValue::undefined().raw() as i64,
+            );
+            return Ok(Some(Val::new(v, Repr::Tagged)));
+        };
+        let op = self.builder.ins().iconst(types::I64, op);
+        let w = self
+            .call_runtime(module, "__rtsadp_object_fn_value", &[op])?
+            .expect("__rtsadp_object_fn_value returns a fn word");
+        Ok(Some(Val::tagged_kind(w, JsKind::Function)))
+    }
+
     /// Whether the single receiver arg has a STATICALLY-PROVEN object shape (an
     /// inline object literal, or an ident recorded `HeapShape::Object`). Only then
     /// can the compile-time-keys fast path run; otherwise the dynamic runtime

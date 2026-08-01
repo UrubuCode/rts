@@ -111,6 +111,10 @@ pub mod argslots;
 // `Math` methods reached as first-class FUNCTION VALUES (`arr.map(Math.abs)`),
 // split out of `funcops` so new surface lands in a focused module.
 pub mod mathfn;
+// `Object` statics reached as first-class FUNCTION VALUES (`var d =
+// Object.defineProperty`) — the value form of what `objstatic.rs` lowers at the
+// call site, dispatching on the same ordered table the engine resolves against.
+pub mod objfn;
 // Codegen-owned Array CALLBACK trampolines (P4.7): map/filter/forEach/find/
 // findIndex/some/every/reduce, invoking the callback function VALUE per element
 // via funcops::__rtsadp_fn_invoke.

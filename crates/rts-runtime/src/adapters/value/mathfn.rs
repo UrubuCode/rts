@@ -53,7 +53,10 @@ fn math_fn_op_name(op: u64) -> Option<&'static str> {
 /// Collect the actual argument words of a uniform-ABI call: `a0..a3` truncated to
 /// the argc the `rest` slot carries (≤4-arg convention), or `a0..a3` plus the
 /// overflow array's elements when `rest` is an ARRAY (>4 args).
-fn uniform_args(a0: u64, a1: u64, a2: u64, a3: u64, rest: u64) -> Vec<u64> {
+///
+/// Shared with [`super::objfn`] — the decode belongs to the uniform ABI, not to
+/// `Math`; a second copy is how the two thunks would drift apart.
+pub(super) fn uniform_args(a0: u64, a1: u64, a2: u64, a3: u64, rest: u64) -> Vec<u64> {
     let rv = PolyValue::from_raw(rest);
     if rv.is_object() {
         let mut out = vec![a0, a1, a2, a3];

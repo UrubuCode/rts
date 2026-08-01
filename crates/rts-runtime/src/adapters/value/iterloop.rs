@@ -91,9 +91,9 @@ mod tests {
 
     #[test]
     fn empty_is_done_and_ordinary_values_are_not() {
-        assert_eq!(rtsadp_iter_done(PolyValue::empty().raw()), 1);
-        assert_eq!(rtsadp_iter_done(PolyValue::undefined().raw()), 0);
-        assert_eq!(rtsadp_iter_done(PolyValue::from_i32(0).raw()), 0);
-        assert_eq!(rtsadp_iter_done(PolyValue::from_f64(0.0).raw()), 0);
+        assert_eq!(__rtsadp_iter_done(PolyValue::empty().raw()), 1);
+        assert_eq!(__rtsadp_iter_done(PolyValue::undefined().raw()), 0);
+        assert_eq!(__rtsadp_iter_done(PolyValue::from_i32(0).raw()), 0);
+        assert_eq!(__rtsadp_iter_done(PolyValue::from_f64(0.0).raw()), 0);
     }
 }
