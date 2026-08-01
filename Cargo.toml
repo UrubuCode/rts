@@ -23,6 +23,7 @@ members = [
     "crates/rts-codegen-new",
     "crates/rts-symbol-baker",
     "crates/rts-cli",
+    "crates/rts-value-probe",
 ]
 resolver = "2"
 
@@ -175,6 +176,12 @@ opt-level = 3
 [profile.release.package.rts-std]
 opt-level = 3
 [profile.release.package.rts-runtime]
+opt-level = 3
+
+# The probe replicates the runtime's trampolines, so it must be built the way the
+# runtime is (opt-3) — at the default `z` its copies would be slower than the
+# originals and every "the lock costs X" number would be inflated.
+[profile.release.package.rts-value-probe]
 opt-level = 3
 
 # Em DEBUG, não gerar debug symbols das DEPENDÊNCIAS (só do nosso código).
