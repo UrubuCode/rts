@@ -181,10 +181,25 @@ pub fn poly_from_real_handle(handle: u64) -> PolyValue {
     PolyValue::from_str_handle(rt_handles::__rtsn_poly_from_handle(handle))
 }
 
-/// The real runtime string handle behind a string `PolyValue`, reconstructing
-/// the generation from the live slot.
+/// The real runtime handle behind a HEAP-BACKED `PolyValue` (string, object or
+/// function), reconstructing the generation from the live slot.
+///
+/// The assert used to demand `is_string()`, which was stale: the helper is the
+/// single way to get the handle of ANY heap-backed word, and several call sites
+/// pass a non-string ON PURPOSE — `genops::to_number` hands it a Date/RegExp to
+/// reach `OPAQUE_TO_NUMBER`, `dyndispatch` passes method receivers, `arrayops`
+/// passes the array itself. Only the string-specific readers below (which do the
+/// pool lookup) may assume a string, and they assert it themselves.
+///
+/// This mattered in practice, not in theory: `debug_assert!` compiles out in
+/// release, so a release binary was correct while a DEBUG binary aborted on
+/// `typeof arr[sym]` — the divergence was the PROFILE, not the code, which is a
+/// trap for whoever is debugging that path.
 pub fn real_handle_of(v: PolyValue) -> u64 {
-    debug_assert!(v.is_string(), "real_handle_of on a non-string PolyValue");
+    debug_assert!(
+        v.is_string() || v.is_object() || v.is_function(),
+        "real_handle_of on a PolyValue with no heap handle (inline int/float/singleton)"
+    );
     rt_handles::__rtsn_poly_to_handle(v.as_handle())
 }
 
