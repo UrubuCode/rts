@@ -1222,7 +1222,7 @@
   "status": "rts_diverge",
   "bun": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\nextra:false",
   "node": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\nextra:false",
-  "rts": "truthy:object:undefined:undefined\ntruthy:object:undefined:undefined\ntruthy:object:undefined:undefined\n:undefined",
+  "rts": "truthy:object:boolean:false\ntruthy:object:number:0\ntruthy:object:string:\n:false",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -2706,7 +2706,7 @@
   "status": "rts_diverge",
   "bun": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "node": "caught:handled\nA1,B1,A2,B2,A3,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
-  "rts": "caught:handled\nA1,B1,A2,B2,B3,A3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
+  "rts": "caught:handled\nA1,A2,A3,B1,B2,B3\nmicro1,micro2,queueMicrotask,micro3,timeout\n1,A,2,B,3,C",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -4089,10 +4089,10 @@
 ,
 {
   "name": "claude-stringify-number-edges",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "neg_zero=0\nneg_zero_obj={\"a\":0}\nneg_zero_arr=[0,0]\npos_zero=0\ninf=null\nneg_inf=null\nnan=null\nnonfinite_obj={\"a\":null,\"b\":null,\"c\":null}\nnonfinite_arr=[null,null,null]\ndiv_zero=null\nmax_safe=9007199254740991\nmax_safe_plus=9007199254740992\nmax_value=1.7976931348623157e+308\nmin_value=5e-324\ne21=1e+21\ne20=100000000000000000000\nneg_e21=-1e+21\ne_minus_7=1e-7\ne_minus_6=0.000001\nthird=0.3333333333333333\npoint_sum=0.30000000000000004\nbig_frac=123456789.12345679\nneg_frac=-0.5\noverflow=null\nwrapper=5\nwrapper_nan=null\nneg_big=-9007199254740991\nint_round=100\nfloat_int=100",
   "node": "neg_zero=0\nneg_zero_obj={\"a\":0}\nneg_zero_arr=[0,0]\npos_zero=0\ninf=null\nneg_inf=null\nnan=null\nnonfinite_obj={\"a\":null,\"b\":null,\"c\":null}\nnonfinite_arr=[null,null,null]\ndiv_zero=null\nmax_safe=9007199254740991\nmax_safe_plus=9007199254740992\nmax_value=1.7976931348623157e+308\nmin_value=5e-324\ne21=1e+21\ne20=100000000000000000000\nneg_e21=-1e+21\ne_minus_7=1e-7\ne_minus_6=0.000001\nthird=0.3333333333333333\npoint_sum=0.30000000000000004\nbig_frac=123456789.12345679\nneg_frac=-0.5\noverflow=null\nwrapper=5\nwrapper_nan=null\nneg_big=-9007199254740991\nint_round=100\nfloat_int=100",
-  "rts": "neg_zero=0\nneg_zero_obj={\"a\":0}\nneg_zero_arr=[0,0]\npos_zero=0\ninf=null\nneg_inf=null\nnan=null\nnonfinite_obj={\"a\":null,\"b\":null,\"c\":null}\nnonfinite_arr=[null,null,null]\ndiv_zero=null\nmax_safe=9007199254740991\nmax_safe_plus=9007199254740992\nmax_value=1.7976931348623157e+308\nmin_value=5e-324\ne21=1e+21\ne20=100000000000000000000\nneg_e21=-1e+21\ne_minus_7=1e-7\ne_minus_6=0.000001\nthird=0.3333333333333333\npoint_sum=0.30000000000000004\nbig_frac=123456789.12345679\nneg_frac=-0.5\noverflow=null\nwrapper=undefined\nwrapper_nan=undefined\nneg_big=-9007199254740991\nint_round=100\nfloat_int=100",
+  "rts": "neg_zero=0\nneg_zero_obj={\"a\":0}\nneg_zero_arr=[0,0]\npos_zero=0\ninf=null\nneg_inf=null\nnan=null\nnonfinite_obj={\"a\":null,\"b\":null,\"c\":null}\nnonfinite_arr=[null,null,null]\ndiv_zero=null\nmax_safe=9007199254740991\nmax_safe_plus=9007199254740992\nmax_value=1.7976931348623157e+308\nmin_value=5e-324\ne21=1e+21\ne20=100000000000000000000\nneg_e21=-1e+21\ne_minus_7=1e-7\ne_minus_6=0.000001\nthird=0.3333333333333333\npoint_sum=0.30000000000000004\nbig_frac=123456789.12345679\nneg_frac=-0.5\noverflow=null\nwrapper=5\nwrapper_nan=null\nneg_big=-9007199254740991\nint_round=100\nfloat_int=100",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -4145,10 +4145,10 @@
 ,
 {
   "name": "claude-stringify-wrapper-objects",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "number=5\nnumberNaN=null\nnumberInfinity=null\nnumberNegZero=0\nstring=\"hi\"\nstringQuoted=\"a\\\"b\"\nstringEmpty=\"\"\nboolTrue=true\nboolFalse=false\nnested={\"a\":7}\ninArray=[1,\"x\",false]\ndeep={\"a\":{\"b\":[3]}}\nexpandoIgnored=5\nobjectWrapperNum=5\nobjectWrapperStr=\"h\"\nplainObject={\"a\":1}\nobjectWithValueOf={\"a\":1}\nplainArray=[1,2]\nprimNumber=5\nprimString=\"hi\"\nprimBool=true\nprimNull=null",
   "node": "number=5\nnumberNaN=null\nnumberInfinity=null\nnumberNegZero=0\nstring=\"hi\"\nstringQuoted=\"a\\\"b\"\nstringEmpty=\"\"\nboolTrue=true\nboolFalse=false\nnested={\"a\":7}\ninArray=[1,\"x\",false]\ndeep={\"a\":{\"b\":[3]}}\nexpandoIgnored=5\nobjectWrapperNum=5\nobjectWrapperStr=\"h\"\nplainObject={\"a\":1}\nobjectWithValueOf={\"a\":1}\nplainArray=[1,2]\nprimNumber=5\nprimString=\"hi\"\nprimBool=true\nprimNull=null",
-  "rts": "number=undefined\nnumberNaN=undefined\nnumberInfinity=undefined\nnumberNegZero=undefined\nstring=undefined\nstringQuoted=undefined\nstringEmpty=undefined\nboolTrue=undefined\nboolFalse=undefined\nnested={}\ninArray=[null,null,null]\ndeep={\"a\":{\"b\":[null]}}\nexpandoIgnored=undefined\nobjectWrapperNum=5\nobjectWrapperStr=\"h\"\nplainObject={\"a\":1}\nobjectWithValueOf={\"a\":1}\nplainArray=[1,2]\nprimNumber=5\nprimString=\"hi\"\nprimBool=true\nprimNull=null",
+  "rts": "number=5\nnumberNaN=null\nnumberInfinity=null\nnumberNegZero=0\nstring=\"hi\"\nstringQuoted=\"a\\\"b\"\nstringEmpty=\"\"\nboolTrue=true\nboolFalse=false\nnested={\"a\":7}\ninArray=[1,\"x\",false]\ndeep={\"a\":{\"b\":[3]}}\nexpandoIgnored=5\nobjectWrapperNum=5\nobjectWrapperStr=\"h\"\nplainObject={\"a\":1}\nobjectWithValueOf={\"a\":1}\nplainArray=[1,2]\nprimNumber=5\nprimString=\"hi\"\nprimBool=true\nprimNull=null",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9563,10 +9563,10 @@
 ,
 {
   "name": "codex_url_relative_resolution",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "https://example.com/a/d/e?space=a%20b&plus=a+b#frag\n/a/d/e\na b\na b\n?space=a+b&plus=a+b&emoji=%F0%9F%99%82",
   "node": "https://example.com/a/d/e?space=a%20b&plus=a+b#frag\n/a/d/e\na b\na b\n?space=a+b&plus=a+b&emoji=%F0%9F%99%82",
-  "rts": "\n\nnull\nnull",
+  "rts": "https://example.com/a/d/e?space=a%20b&plus=a+b#frag\n/a/d/e\na b\na b\n?space=a+b&plus=a+b&emoji=%F0%9F%99%82",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9687,4 +9687,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":692,"pass":484,"rts_diverge":118,"bun_node_diverge":18,"errors":72,"rejected":0}}
+],"summary":{"total":692,"pass":487,"rts_diverge":115,"bun_node_diverge":18,"errors":72,"rejected":0}}
