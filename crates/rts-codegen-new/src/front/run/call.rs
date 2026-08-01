@@ -278,8 +278,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // `__rtsadp_fn_reify_this`, so `m.call(obj, …)`/`m.bind(obj)` bind the
         // receiver correctly.
         let ident_fn_word = match &object.kind {
+            // `gcell_id` is `None` for an ordinary function; it is `Some` only
+            // when the program REASSIGNS the name, and then the cell holds the
+            // CURRENT value while the fn table holds only the original. Reifying
+            // from the table there made `function v(){ v = memoized; return
+            // v.apply(this, args) }` — the Babel async wrapper — call ITSELF
+            // forever (measured: stack overflow). Fall through to the value path,
+            // which reads the cell.
             HirExprKind::Ident(n)
                 if self.local(n).is_none()
+                    && self.gcell_id(n).is_none()
                     && self.sigs.get(n.as_str()).is_some_and(|s| !s.is_async) =>
             {
                 let name = n.clone();
@@ -629,7 +637,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return self.lower_value_call_word(module, f.v, args);
         }
         // A statically-known user function → the native fast path (NOT regressed).
-        if let Some(sig) = self.sigs.get(&name).cloned() {
+        // UNLESS the name was promoted to a cell because the program REASSIGNS it
+        // (`function v(){ v = memoized; … }` — the Babel async pattern): the cell
+        // then holds the CURRENT value and the fn table holds only the original,
+        // so taking the fast path here would call the pre-assignment body forever.
+        // The gcell branch below handles it; `gcell_id` is `None` for every
+        // ordinary function, so nothing else changes.
+        if let Some(sig) = self.sigs.get(&name).cloned().filter(|_| self.gcell_id(&name).is_none())
+        {
             // An ASYNC function call SPAWNS its body on the shared runtime and
             // returns the pending Promise handle immediately (the
             // promise-centric model, #437) — `Promise.all([f(..), g(..)])`
