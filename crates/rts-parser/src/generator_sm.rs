@@ -342,6 +342,14 @@ pub(crate) struct SmBuilder {
     /// um `catch` NÃO conta — um throw ali propaga para o chamador, que é
     /// exatamente o que o verbatim faz.
     pub(crate) throw_protected_depth: usize,
+    /// `function n(){…}` DECLARADAS no corpo do generator, içadas para o
+    /// prólogo da state-fn (depois dos FGET). JS iça fn-decls ao topo da função,
+    /// então uma helper chamada num estado ANTERIOR à sua posição léxica — a
+    /// forma padrão das fábricas do Babel (`var t=n(); … function n(){…}`) —
+    /// resolve. A cada retomada a fn é recriada capturando os locais recém-
+    /// restaurados do frame; como toda suspensão persiste todos os slots, os
+    /// valores batem entre retomadas.
+    hoisted_fn_decls: Vec<Stmt>,
     /// Nomes que o generator DECLARA (params + todo `var`/`let`/`const`, binding
     /// de `for…of`/`in`, param de `catch`). Só estes podem virar slot de frame.
     ///
@@ -366,6 +374,7 @@ impl SmBuilder {
             pending_label: None,
             try_depth: 0,
             throw_protected_depth: 0,
+            hoisted_fn_decls: Vec::new(),
             declared: std::collections::HashSet::new(),
         }
     }
@@ -858,10 +867,39 @@ impl SmBuilder {
             // no `LoopTarget`. Um rótulo sobre algo que não é laço fica sem
             // consumidor, e um `break L` correspondente não resolve (bail).
             Stmt::Labeled(l) => {
+                // BLOCO rotulado (`e: { … break e; … }`) — early-exit padrão do
+                // Babel (todo `if/else` achatado do asyncToGenerator vira isso).
+                // Não é laço: modela como região só-de-break (mesmo TargetKind
+                // do switch — `continue` até ele nunca resolve), com o `after`
+                // como alvo do `break e`.
+                if let Stmt::Block(b) = &*l.body {
+                    let after = self.new_state();
+                    self.loop_stack
+                        .push(crate::generator_sm_loops::LoopTarget {
+                            kind: crate::generator_sm_loops::TargetKind::Switch,
+                            label: Some(l.label.sym.to_string()),
+                            brk: after,
+                            cont: usize::MAX,
+                            try_depth: self.try_depth,
+                        });
+                    let exit = self.lower_seq(&b.stmts, cur);
+                    self.loop_stack.pop();
+                    let exit = exit?;
+                    self.set_goto(exit, after);
+                    return Some(after);
+                }
                 self.pending_label = Some(l.label.sym.to_string());
                 let out = self.lower_stmt(&l.body, cur);
                 self.pending_label = None;
                 out
+            }
+            // `function n(){…}` no corpo do generator: iça para o prólogo da
+            // state-fn (ver o campo `hoisted_fn_decls`). O corpo da fn aninhada
+            // não contém o yield DESTE generator (fronteira de função), então é
+            // inerte para a máquina; o estado atual segue inalterado.
+            Stmt::Decl(Decl::Fn(_)) => {
+                self.hoisted_fn_decls.push(stmt.clone());
+                Some(cur)
             }
             // `for (x of src)` / `for (k in obj)` / `do … while` — estados
             // pelo protocolo lazy de iteracao; ver `generator_sm_iter`.
@@ -1372,8 +1410,13 @@ fn stmt_needs_lazy(s: &Stmt) -> bool {
         }
         Stmt::Block(b) => body_needs_lazy(&b.stmts),
         // `L: for (…) { yield }` — sem este arm o rotulo escondia o laço do
-        // gate e o corpo inteiro caia no eager-buffer.
-        Stmt::Labeled(l) => stmt_needs_lazy(&l.body),
+        // gate e o corpo inteiro caia no eager-buffer. BLOCO rotulado com
+        // yield idem: o eager não desce em Labeled (o yield sobreviveria cru),
+        // e a SM modela `break L` de bloco — então qualquer yield ali exige SM.
+        Stmt::Labeled(l) => match &*l.body {
+            b @ Stmt::Block(_) => stmt_has_yield(b) || stmt_needs_lazy(b),
+            other => stmt_needs_lazy(other),
+        },
         // QUALQUER `yield` num `switch` exige a SM: o eager-buffer nao modela
         // switch de forma alguma (o yield sobrevive ao desugar e chega cru ao
         // lowering), entao nao ha' caminho alternativo a preservar aqui.
@@ -1578,6 +1621,9 @@ fn build_state_fn(state_fn_name: &str, builder: &SmBuilder) -> Option<FnDecl> {
             call("__RTS_GEN_SM_FGET", vec![ident_expr(G), num_expr(i as f64)]),
         ));
     }
+    // fn-decls do corpo do generator, içadas (JS hoisting) — DEPOIS dos FGET,
+    // para capturarem os locais já restaurados do frame.
+    body.extend(builder.hoisted_fn_decls.iter().cloned());
 
     // while (true) { const __st = STATE(__g); if(__st==0){...} else if ... }
     let mut chain: Option<Stmt> = None;

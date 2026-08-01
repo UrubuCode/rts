@@ -63,6 +63,26 @@ pub(super) fn register_hook() {
 /// `JITModule`, and hand back the finalized code pointer + the module as the
 /// keep-alive anchor.
 fn compile_dynamic_fn(params: &[&str], body: &str) -> anyhow::Result<CompiledFn> {
+    // A multi-megabyte minified page bundle recurses DEEP through the swc
+    // parse + normalize + lowering pipeline — deeper than the caller thread's
+    // default stack (the browser host's main thread overflowed the moment the
+    // WhatsApp bundles started compiling past their first error). Compile on a
+    // dedicated big-stack thread, synchronously. Safe off-thread: the codegen
+    // state that must be shared (shapes / ctor tables / gcells) is process-
+    // global by design (see `crate::state`), and the per-thread items are pure
+    // caches; `parcompile` already compiles on worker threads the same way.
+    std::thread::scope(|s| {
+        std::thread::Builder::new()
+            .name("rts-dynfn-compile".into())
+            .stack_size(256 * 1024 * 1024)
+            .spawn_scoped(s, || compile_dynamic_fn_inner(params, body))
+            .map_err(|e| anyhow::anyhow!("new Function: compile thread spawn failed: {e}"))?
+            .join()
+            .unwrap_or_else(|_| anyhow::bail!("new Function: compile thread panicked"))
+    })
+}
+
+fn compile_dynamic_fn_inner(params: &[&str], body: &str) -> anyhow::Result<CompiledFn> {
     // Params UNTYPED (Tagged/`any`): real-JS semantics — a page script's
     // `function f(el) { el.textContent = x }` dispatches dynamically. A caller
     // MAY still pass an explicit annotation in the param string ("h: i64").
