@@ -75,6 +75,31 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 }
             }
         }
+        // `<GlobalClass>.toString()` — a constructor IS a function object, so
+        // this is `Function.prototype.toString` on it: the `[native code]`
+        // rendering. Resolved HERE, ahead of the per-class static dispatchers,
+        // because each of those would otherwise have to answer it separately —
+        // and the class NAME is a value read from the receiver, never a literal,
+        // so one arm serves every global class.
+        //
+        // Bundles call this to detect a tampered builtin
+        // (`x.toString() === "function String() { [native code] }"`); a bail
+        // rejected the whole file over an anti-tamper probe.
+        if (method == "toString" || method == "toLocaleString") && args.is_empty() {
+            if let HirExprKind::Ident(cls) = &object.kind {
+                // Gated on the Registry knowing the class — DATA, so the set
+                // grows with the Registry instead of a list here. A local of
+                // that name shadows the global (JS scoping).
+                if self.local(cls).is_none()
+                    && (super::registry::has_class(cls)
+                        || super::globals::is_global_static_class(cls))
+                {
+                    let s = format!("function {cls}() {{ [native code] }}");
+                    let v = self.emit_str_const_word(module, &s)?;
+                    return Ok(Val::tagged_kind(v, JsKind::Str));
+                }
+            }
+        }
         // PRIVATE `engine.*` (arch/time/trace) — prelude-only (privacy gate). A
         // user caller bails here; a prelude caller lowers the runtime call.
         if let Some(val) = self.try_engine_call(module, object, method, args)? {
