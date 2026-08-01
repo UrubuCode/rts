@@ -4,6 +4,7 @@
 //! `parse_source_with_file` as the public API. Also re-exports
 //! `FrontendMode` and the lexer module.
 
+pub mod free_scope;
 pub mod generator_desugar;
 pub mod generator_sm;
 pub mod generator_sm_iter;

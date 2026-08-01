@@ -345,7 +345,25 @@ fn rewrite_this_expr(e: &mut HirExpr) {
         // sees `this` as an ordinary capturable outer local (capture-by-value is
         // exact: `this` never reassigns). Without this arm a `() => this.x`
         // kept `Raw("This(..)")` and bailed the whole arrow.
-        HirExprKind::Arrow { body, .. } => match body {
+        //
+        // A FUNCTION EXPRESSION is the opposite case and must STOP the walk: a
+        // non-arrow function has its OWN dynamic `this`, bound by its caller, so
+        // an enclosing `this` does not reach inside it. Descending was wrong
+        // twice over — it bound the inner `this` to the OUTER receiver, and,
+        // because it left `Ident("this")` where `Raw("This(..)")` had been, the
+        // inner function's own `body_uses_raw_this` then answered NO, so it never
+        // got its synthesized `this` param and `this` surfaced as an
+        // un-capturable free ident: the whole enclosing function bailed as
+        // `expression arrow`. Measured on a real WhatsApp Web bundle (`ext0.js`,
+        // the `Array.prototype.values` polyfill), minimal form:
+        //
+        //   (function(){ var t = {}; t.next = function(){ this.a++; }; })(this)
+        //
+        // The `(this)` argument is what pulled the top level into a `this`
+        // rewrite in the first place; the same file with `(0)` compiled.
+        HirExprKind::Arrow {
+            body, is_fn_expr, ..
+        } if !*is_fn_expr => match body {
             rts_hir::ir::HirArrowBody::Expr(e) => rewrite_this_expr(e),
             rts_hir::ir::HirArrowBody::Block(stmts) => rewrite_this_block(stmts),
         },

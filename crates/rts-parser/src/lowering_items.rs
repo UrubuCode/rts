@@ -118,7 +118,22 @@ impl swc_ecma_visit::VisitMut for GenExprHoister {
                     // vira
                     //   function* __genexpr_N(o){ const a = yield o.v; }
                     //   const g = function(){ return __genexpr_N(o); };
+                    //
+                    // A captura vai como ARGUMENTO, isto é, POR VALOR: uma
+                    // ESCRITA na capturada dentro do generator fica só no
+                    // parâmetro e nunca chega ao escopo de origem. Enquanto o
+                    // levantamento perdia captura por outro motivo isso passava
+                    // despercebido; com a lista de captura correta, levantar
+                    // nesse caso trocaria uma recusa por um valor errado e mudo
+                    // (medido: `var e; …(function*(){ yield 1, yield (e=5) })`
+                    // deixava `e` em `undefined` em vez de `5`). Então não se
+                    // levanta — o generator fica no lugar e a falha continua
+                    // explícita.
                     let caps = Self::capturas(&fe.function, &self.irmas_do_bloco);
+                    let escritas = crate::free_scope::free_assigned_names(&fe.function);
+                    if caps.iter().any(|c| escritas.contains(c)) {
+                        return;
+                    }
                     if !caps.is_empty() {
                         let name = format!("__genexpr_{}", self.counter);
                         self.counter += 1;
@@ -451,102 +466,21 @@ impl GenExprHoister {
     /// Mesma análise de `sem_captura_ext` (que só responde se a lista é vazia),
     /// aqui devolvendo a lista em ordem de primeiro uso, sem repetição.
     fn capturas(f: &SwcFunction, irmas: &std::collections::HashSet<String>) -> Vec<String> {
-        use swc_ecma_visit::{Visit, VisitWith};
-
-        #[derive(Default)]
-        struct Livres {
-            ligados: std::collections::HashSet<String>,
-            usados: Vec<String>,
-        }
-        impl Visit for Livres {
-            fn visit_ident(&mut self, i: &swc_ecma_ast::Ident) {
-                self.usados.push(i.sym.to_string());
-            }
-            fn visit_var_declarator(&mut self, d: &swc_ecma_ast::VarDeclarator) {
-                if let swc_ecma_ast::Pat::Ident(bi) = &d.name {
-                    self.ligados.insert(bi.id.sym.to_string());
-                }
-                d.visit_children_with(self);
-            }
-            fn visit_fn_decl(&mut self, fd: &swc_ecma_ast::FnDecl) {
-                self.ligados.insert(fd.ident.sym.to_string());
-                fd.visit_children_with(self);
-            }
-            fn visit_param(&mut self, p: &swc_ecma_ast::Param) {
-                if let swc_ecma_ast::Pat::Ident(bi) = &p.pat {
-                    self.ligados.insert(bi.id.sym.to_string());
-                }
-                p.visit_children_with(self);
-            }
-        }
-
-        let mut v = Livres::default();
-        for p in &f.params {
-            if let swc_ecma_ast::Pat::Ident(bi) = &p.pat {
-                v.ligados.insert(bi.id.sym.to_string());
-            }
-        }
-        if let Some(b) = &f.body {
-            b.visit_with(&mut v);
-        }
-        let mut out: Vec<String> = Vec::new();
-        for u in &v.usados {
-            if v.ligados.contains(u) || GLOBAIS_VISIVEIS.contains(&u.as_str()) || irmas.contains(u) {
-                continue;
-            }
-            if !out.contains(u) {
-                out.push(u.clone());
-            }
-        }
-        out
+        crate::free_scope::free_names(f)
+            .into_iter()
+            .filter(|u| !GLOBAIS_VISIVEIS.contains(&u.as_str()) && !irmas.contains(u))
+            .collect()
     }
 
     fn sem_captura(f: &SwcFunction) -> bool {
         Self::sem_captura_ext(f, &std::collections::HashSet::new())
     }
 
+    /// ONE source of truth with [`Self::capturas`]: "captures nothing" is exactly
+    /// "the capture list is empty", so the two can never disagree about which
+    /// names survive a hoist.
     fn sem_captura_ext(f: &SwcFunction, irmas: &std::collections::HashSet<String>) -> bool {
-        use swc_ecma_visit::{Visit, VisitWith};
-
-        #[derive(Default)]
-        struct Livres {
-            ligados: std::collections::HashSet<String>,
-            usados: Vec<String>,
-        }
-        impl Visit for Livres {
-            fn visit_ident(&mut self, i: &swc_ecma_ast::Ident) {
-                self.usados.push(i.sym.to_string());
-            }
-            fn visit_var_declarator(&mut self, d: &swc_ecma_ast::VarDeclarator) {
-                if let swc_ecma_ast::Pat::Ident(bi) = &d.name {
-                    self.ligados.insert(bi.id.sym.to_string());
-                }
-                d.visit_children_with(self);
-            }
-            fn visit_fn_decl(&mut self, fd: &swc_ecma_ast::FnDecl) {
-                self.ligados.insert(fd.ident.sym.to_string());
-                fd.visit_children_with(self);
-            }
-            fn visit_param(&mut self, p: &swc_ecma_ast::Param) {
-                if let swc_ecma_ast::Pat::Ident(bi) = &p.pat {
-                    self.ligados.insert(bi.id.sym.to_string());
-                }
-                p.visit_children_with(self);
-            }
-        }
-
-        let mut v = Livres::default();
-        for p in &f.params {
-            if let swc_ecma_ast::Pat::Ident(bi) = &p.pat {
-                v.ligados.insert(bi.id.sym.to_string());
-            }
-        }
-        if let Some(b) = &f.body {
-            b.visit_with(&mut v);
-        }
-        v.usados.iter().all(|u| {
-            v.ligados.contains(u) || GLOBAIS_VISIVEIS.contains(&u.as_str()) || irmas.contains(u)
-        })
+        Self::capturas(f, irmas).is_empty()
     }
 }
 
