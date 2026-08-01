@@ -1443,30 +1443,30 @@
 ,
 {
   "name": "267_private_fields",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "inner=7:20\nouter=SyntaxError",
   "node": "inner=7:20\nouter=SyntaxError",
-  "rts": "",
+  "rts": "inner=7:20\nouter=ReferenceError",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: call to unknown function `eval`\n      at run of tests/cross-runtime/classes/267_private_fields.ts failed"
+  "rts_error": ""
 }
 ,
 {
   "name": "268_private_methods",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "both=6:15\nerr=SyntaxError",
   "node": "both=6:15\nerr=SyntaxError",
-  "rts": "",
+  "rts": "both=15:15\nerr=ReferenceError",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: call to unknown function `eval`\n      at run of tests/cross-runtime/classes/268_private_methods.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -3272,7 +3272,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: call to unknown function `Function`\n      at run of tests/cross-runtime/fn-meta/codex_arguments_callee_shape.ts failed"
+  "rts_error": "error: Uncaught ReferenceError: Function is not defined\n      at run of tests/cross-runtime/fn-meta/codex_arguments_callee_shape.ts failed"
 }
 ,
 {
@@ -3300,7 +3300,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsl_method___rtsl_lit_0_inc`: unsupported in the numeric subset: call to unknown function `eval`\n      at run of tests/cross-runtime/fn-meta/codex_closure_eval_mutates_outer.ts failed"
+  "rts_error": "error: Uncaught ReferenceError: eval is not defined\n      at run of tests/cross-runtime/fn-meta/codex_closure_eval_mutates_outer.ts failed"
 }
 ,
 {
@@ -3314,7 +3314,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `make`: unsupported in the numeric subset: call to unknown function `Function`\n      at run of tests/cross-runtime/fn-meta/codex_function_constructor_scope.ts failed"
+  "rts_error": "error: Uncaught ReferenceError: Function is not defined\n      at run of tests/cross-runtime/fn-meta/codex_function_constructor_scope.ts failed"
 }
 ,
 {
@@ -3756,7 +3756,7 @@
   "status": "rts_diverge",
   "bun": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
   "node": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
-  "rts": "undefined",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -4495,9 +4495,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "order=micro|immediate|timeout",
   "bun_exit": 0,
   "node_exit": 0,
@@ -6934,7 +6934,7 @@
   "status": "rts_diverge",
   "bun": "one=3\ntwo=5\nall=a,b\nasync=9",
   "node": "one=3\ntwo=5\nall=a,b\nasync=9",
-  "rts": "one=3\ntwo=5\nall=1.39067116156993e-309,1.390671161569936e-309\nasync=9",
+  "rts": "one=3\ntwo=5\nall=1.39067116156992e-309,1.390671161569926e-309\nasync=9",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -6990,7 +6990,7 @@
   "status": "rts_diverge",
   "bun": "AggregateError\na,b,c",
   "node": "AggregateError\na,b,c",
-  "rts": "",
+  "rts": "undefined",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -8424,7 +8424,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: call to unknown function `Function`\n      at run of tests/cross-runtime/symbol/codex_symbol_unscopables_with.ts failed"
+  "rts_error": "error: Uncaught ReferenceError: Symbol is not defined\n      at run of tests/cross-runtime/symbol/codex_symbol_unscopables_with.ts failed"
 }
 ,
 {
@@ -8684,13 +8684,13 @@
   "status": "rts_error",
   "bun": "strict=true\nsloppy=true",
   "node": "strict=true\nsloppy=true",
-  "rts": "",
+  "rts": "strict=true",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: call to unknown function `Function`\n      at run of tests/cross-runtime/syntax/300_this_strict_top_level.ts failed"
+  "rts_error": "error: Uncaught ReferenceError: Function is not defined\n      at run of tests/cross-runtime/syntax/300_this_strict_top_level.ts failed"
 }
 ,
 {
@@ -8970,7 +8970,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `probe`: unsupported in the numeric subset: call to unknown function `eval`\n      at run of tests/cross-runtime/syntax/400_eval_scope_edges.ts failed"
+  "rts_error": "error: Uncaught ReferenceError: eval is not defined\n      at run of tests/cross-runtime/syntax/400_eval_scope_edges.ts failed"
 }
 ,
 {
@@ -9701,4 +9701,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":693,"pass":489,"rts_diverge":115,"bun_node_diverge":19,"errors":70,"rejected":0}}
+],"summary":{"total":693,"pass":490,"rts_diverge":117,"bun_node_diverge":18,"errors":68,"rejected":0}}
