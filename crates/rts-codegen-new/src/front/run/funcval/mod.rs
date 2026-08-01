@@ -63,6 +63,39 @@ use scan::{
 /// function print(v) { __rtsCapturedOutput += v + "\n"; }`) is the canonical case.
 /// `const` is excluded (immutable → never written). A name shadowed by a param or
 /// a local `let` inside the writing function is NOT counted (that write is local).
+/// Diagnostic for `RTS_DIAG_UNBOUND=<name>`: report WHY the lifter decided the
+/// free identifier `id` is not a capture of the closure it is synthesizing.
+///
+/// A wrong decision here does not necessarily bail — it can silently resolve the
+/// name to something else and produce a plausible WRONG VALUE (that is how the
+/// top-level-shadowing bug was found: a captured-and-written local read the
+/// same-named top-level function instead, yielding `undefined` where Node gave a
+/// real value). There is no other way to see this decision from outside, and the
+/// per-ident volume makes an unfiltered dump useless, so it is keyed by name.
+#[allow(clippy::too_many_arguments)]
+fn diag_skipped_capture(
+    id: &str,
+    fn_name: &str,
+    is_param: bool,
+    is_global: bool,
+    is_top_level: bool,
+    has_captures: bool,
+    is_module_global: bool,
+    in_scope: bool,
+) {
+    let Ok(want) = std::env::var("RTS_DIAG_UNBOUND") else {
+        return;
+    };
+    if want != id {
+        return;
+    }
+    eprintln!(
+        "[diag] `{id}` NÃO capturado em `{fn_name}`: param={is_param} global={is_global} \
+         top_level={is_top_level} tem_capturas={has_captures} \
+         module_global={is_module_global} no_escopo={in_scope}"
+    );
+}
+
 pub fn module_globals(
     funcs: &[HirFunc],
     main: &HirFunc,
@@ -1272,7 +1305,17 @@ impl Ctx {
                 // skippable: its direct name cannot be called from a scope that
                 // lacks its captured locals — fall through to the capture path,
                 // which snapshots its REIFIED fn VALUE (env embedded).
-                || (self.top_level.contains(id) && !self.captures.contains_key(id))
+                //
+                // `!scope.contains(id)` for the same reason the Registry test
+                // below has it: an in-scope OUTER LOCAL SHADOWS a same-named
+                // top-level function (JS scoping). A minified bundle reuses
+                // one-letter names across modules, so `var e, s = null` in one
+                // module factory collided with a `var e = function(){…}` hoisted
+                // to top level by another — `s` was captured and `e` silently
+                // was not, and the write to it bailed "assignment to unbound".
+                || (!scope.contains(id)
+                    && self.top_level.contains(id)
+                    && !self.captures.contains_key(id))
                 || self.module_globals.contains(id)
                 // An in-scope OUTER LOCAL/PARAM SHADOWS a same-named Registry
                 // namespace/class (JS scoping): `parse(input: string)` captures
@@ -1281,12 +1324,24 @@ impl Ctx {
                 || (!scope.contains(id)
                     && (super::registry::has_namespace(id) || super::registry::has_class(id)))
             {
+                diag_skipped_capture(
+                    id,
+                    &name,
+                    param_names.contains(id),
+                    GLOBALS.contains(&id.as_str()),
+                    self.top_level.contains(id),
+                    self.captures.contains_key(id),
+                    self.module_globals.contains(id),
+                    scope.contains(id),
+                );
                 continue;
             }
             // A top-level closure name: capture its fn VALUE (the enclosing
             // body reifies it — ITS captures are that body's leading params, so
             // the env embeds transitively). Never a mutable-capture cell.
-            if self.top_level.contains(id) {
+            // Same shadowing guard as above: an in-scope local of that name is
+            // an ordinary capture (and may need a cell), not the top-level fn.
+            if !scope.contains(id) && self.top_level.contains(id) {
                 captures.push(id.clone());
                 continue;
             }
