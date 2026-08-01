@@ -6,7 +6,7 @@
 //! skipped.
 //!
 //! **The one consumer is the WHOLE-PROGRAM CACHE** (`bake_program` +
-//! `progcache`, `RTS_JIT_CACHE=1`). The original consumer — a RESIDENT PRELUDE
+//! `progcache`, on by default). The original consumer — a RESIDENT PRELUDE
 //! baked ahead of time by a `rts-prelude-baker` bin — was REMOVED 2026-07-28
 //! (owner decision) together with that crate and `bake_prelude`; the prelude is
 //! lowered and compiled on every run again.
@@ -70,6 +70,15 @@ pub(crate) struct BakedFn {
 pub(crate) struct BakedData {
     pub name: String,
     pub bytes: Vec<u8>,
+    /// Whether the running program WRITES to this object — true for an inline-cache
+    /// cell (`__rtsadp_ic_miss` fills it in place), false for a string blob.
+    ///
+    /// The replay must re-declare it with the same writability. Declaring every
+    /// blob read-only put the IC cells on a read-only page and faulted on the first
+    /// miss: 140 of the 805 TS test files died with an ACCESS_VIOLATION inside
+    /// `__rtsadp_ic_miss`.
+    #[serde(default)]
+    pub writable: bool,
 }
 
 /// The everything-serializable baked prelude: the metadata a user build needs (the
@@ -145,7 +154,11 @@ fn capture_compiled(
     }
     let data = blobs
         .into_iter()
-        .map(|(name, bytes)| BakedData { name, bytes })
+        .map(|d| BakedData {
+            name: d.name,
+            bytes: d.bytes,
+            writable: d.writable,
+        })
         .collect();
     Ok((funcs, data))
 }
@@ -249,26 +262,46 @@ mod tests {
         assert_eq!(out, expected, "whole-program replay output must equal a normal run");
     }
 
-    /// DISK CACHE end-to-end: with `RTS_JIT_CACHE=1`, render a program TWICE — the
-    /// first run is a MISS (compiles + stores), the second is a HIT (replays from
-    /// disk). Both must equal a normal (uncached) render.
+    /// DISK CACHE end-to-end: compile a FILE-backed program twice — the first
+    /// call is a MISS (compiles, bakes, stores `.bin` + `.meta`), the second is a
+    /// HIT (replays from disk). Both must print what an uncached run prints.
+    ///
+    /// It goes through a real file because that is the only thing the cache
+    /// accepts: a string program passes `None` and always misses by construction
+    /// (`progcache`'s header explains why).
     #[test]
     #[ignore = "drains process-global engine state + sets RTS_JIT_CACHE + touches temp; run serially"]
     fn jit_cache_miss_then_hit() {
-        // Unique source so the temp-cache key is fresh (no cross-run pollution).
+        // SAFETY: single-threaded ignored test; removed below.
+        unsafe { std::env::set_var("RTS_JIT_CACHE", "1") };
+        // Unique source so the slot is fresh (no cross-run pollution).
         let src = "console.log(\"cache \" + (7*6));\nconsole.log([9,2,5].sort().join(\"|\"));\n\
                    // marker jit_cache_miss_then_hit v1\n";
+        let dir = std::env::temp_dir().join("rts-progcache-test");
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let entry = dir.join("jit_cache_miss_then_hit.ts");
+        std::fs::write(&entry, src).expect("write entry");
 
         crate::state::reset_codegen_state();
         let expected = super::super::render_source(src).expect("baseline");
 
-        // SAFETY: single-threaded ignored test; restored below.
-        unsafe { std::env::set_var("RTS_JIT_CACHE", "1") };
-        crate::state::reset_codegen_state();
-        let miss = super::super::render_source(src).expect("miss render");
-        crate::state::reset_codegen_state();
-        let hit = super::super::render_source(src).expect("hit render");
+        let render_cached = || {
+            crate::state::reset_codegen_state();
+            let prog = super::super::progcache::compile_cached(
+                Some(&entry),
+                src,
+                || super::super::build_with_includes(src),
+                super::super::module_jit::compile_program,
+            )
+            .expect("cached compile");
+            let ((), out) = crate::value::abi_adapter::with_capture(|| prog.run_main());
+            out
+        };
+
+        let miss = render_cached();
+        let hit = render_cached();
         unsafe { std::env::remove_var("RTS_JIT_CACHE") };
+        let _ = std::fs::remove_file(&entry);
 
         assert_eq!(miss, expected, "cache MISS output must equal a normal run");
         assert_eq!(hit, expected, "cache HIT (replayed) output must equal a normal run");

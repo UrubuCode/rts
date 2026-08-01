@@ -66,8 +66,10 @@ fn declare_cell(module: &mut dyn Module, builder: &mut FunctionBuilder) -> Front
         .map_err(|e| Unsupported::new(format!("define ic cell `{name}`: {e}")))?;
     // Baker capture: a replayed program re-declares the cell COLD (all zeros) and
     // re-warms on first use. A warm cell must never be baked — its shape ids are
-    // only meaningful against the registry the code was compiled with.
-    super::aot_str::capture_data_blob(&name, vec![0u8; IC_CELL_BYTES]);
+    // only meaningful against the registry the code was compiled with. It must be
+    // re-declared WRITABLE too: `__rtsadp_ic_miss` fills the cell in place, so a
+    // read-only replay of it faults on the first miss.
+    super::aot_str::capture_data_blob(&name, vec![0u8; IC_CELL_BYTES], true);
     let gv = module.declare_data_in_func(data_id, builder.func);
     Ok(builder.ins().global_value(types::I64, gv))
 }

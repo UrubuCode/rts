@@ -58,13 +58,13 @@ use super::{build_from_program, merge_programs, module_jit, registry, render_sou
 /// namespace object, unknown member, builtin used as a value) — all explicit
 /// `Unsupported`.
 pub fn run_path(entry: &Path) -> FrontResult<()> {
-    // Whole-program JIT cache (opt-in `RTS_JIT_CACHE=1`): key on the ENTRY file text
-    // (single-file `rts run file.ts` is the common case; a multi-file program that
-    // changes only an IMPORT is not yet invalidated — a documented v1 limit). A hit
-    // replays the cached machine code; a miss builds + bakes + stores. No-op when
-    // the cache is disabled.
+    // Whole-program compile cache: the slot is keyed on the entry PATH and its
+    // validity on the entry text plus every file the resolver read, so editing an
+    // imported module invalidates it too. A hit replays the cached machine code; a
+    // miss builds + bakes + stores. No-op when the cache is disabled.
     let cache_src = std::fs::read_to_string(entry).unwrap_or_default();
     let program = super::progcache::compile_cached(
+        Some(entry),
         &cache_src,
         || build_path(entry),
         |p| module_jit::compile_program(p),
@@ -112,32 +112,21 @@ pub fn dump_ir_path(entry: &Path) -> FrontResult<()> {
 /// backend (`ObjectModule`) and the synthesized `main` entry shim differ. Returns
 /// the object bytes; the caller writes them and drives the linker.
 pub fn compile_path_to_object(entry: &Path) -> FrontResult<Vec<u8>> {
-    // AOT can REUSE the whole-program JIT cache manifest (opt-in `RTS_JIT_CACHE=1`):
-    // replay the baked machine code into the object, skipping the per-fn compile.
-    // Not on macOS (its AOT `is_pic` codegen differs from the non-pic JIT bytes).
-    #[cfg(not(target_os = "macos"))]
-    if super::progcache::enabled() {
-        let cache_src = std::fs::read_to_string(entry).unwrap_or_default();
-        if let Some(m) = super::progcache::load(super::progcache::key(&cache_src)) {
-            crate::timing::note("aot: jit-cache hit (replay into object)", 1);
-            return super::module_aot::compile_replay_aot(&m);
-        }
-    }
-
-    // Mark the AOT build BEFORE `build_path` so its prelude prune is SKIPPED for
-    // AOT. Pruning exists to cut JIT startup (`rts run`); an AOT compile is
-    // one-shot and its binary is reused, so the prune buys AOT nothing — and it
-    // 8× a pre-existing, compile-non-deterministic AOT startup crash (measured
-    // ~5% of unpruned compiles → ~40% pruned; changing the emitted function set
-    // makes the latent bug far more likely to trigger). Skipping it for AOT is
-    // zero-cost and drops the crash rate back to the pre-existing baseline while
-    // that root cause is investigated separately. Reset on every exit so a later
-    // JIT build on this thread is unaffected.
-    super::aot_str::set_aot_mode(true);
-    let built = build_path(entry);
-    super::aot_str::set_aot_mode(false);
-    let prog = built?;
-    super::module_aot::compile_program_aot(&prog)
+    super::progcache::compile_object_cached(
+        entry,
+        || {
+            // Mark the AOT build BEFORE `build_path`: string literals must lower
+            // as data objects rather than the JIT's compile-time-baked handles.
+            // Reset on every exit so a later JIT build on this thread is
+            // unaffected.
+            super::aot_str::set_aot_mode(true);
+            let built = build_path(entry);
+            super::aot_str::set_aot_mode(false);
+            built
+        },
+        super::module_aot::compile_program_aot,
+        super::module_aot::compile_replay_aot,
+    )
 }
 
 /// Like [`run_path`] but CAPTURES `console.log` output into a `String` (used by

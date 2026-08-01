@@ -14,8 +14,12 @@ use anyhow::{Context, Result};
 /// Diretorios considerados cache de objects gerados pelo RTS.
 fn cache_dirs() -> Vec<PathBuf> {
     vec![
-        // Padrao atual — Etapa 5
+        // Padrao atual — Etapa 5. Tambem onde o cache de compilacao
+        // (`.bin`/`.obj`/`.meta`) vive quando o projeto tem `node_modules`.
         PathBuf::from("node_modules").join(".rts"),
+        // O mesmo cache, para um script solto que nao tem projeto em volta
+        // (ver `rts-codegen-new/src/front/run/cachedir.rs`).
+        std::env::temp_dir().join(".rts"),
         // Legado — pode coexistir em projetos que ainda nao migraram
         PathBuf::from("target").join(".deps"),
         PathBuf::from("target").join(".launcher"),

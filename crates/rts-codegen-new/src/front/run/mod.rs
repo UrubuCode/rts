@@ -30,6 +30,7 @@ mod asyncspawn;
 mod binop;
 mod binop_eq;
 mod breakcont;
+mod cachedir;
 mod call;
 mod call_shape;
 mod call_spread;
@@ -111,9 +112,10 @@ use super::error::{FrontResult, Unsupported};
 /// - a parse error (returned as an `Unsupported` wrapping the message), or
 /// - any construct outside the implemented subset (an explicit `Unsupported`).
 pub fn run_source(src: &str) -> FrontResult<()> {
-    // Whole-program JIT cache (opt-in `RTS_JIT_CACHE=1`): replay the cached machine
-    // code on a hit, else build+compile normally. No-op when disabled.
+    // NOT cached — a string program has no path to key a slot on, and replay
+    // resets the process-global shape registry (see `progcache`'s header).
     let program = progcache::compile_cached(
+        None,
         src,
         || build_with_includes(src),
         |p| module_jit::compile_program(p),
@@ -208,7 +210,9 @@ pub(super) fn prelude_fn_names(prelude: &LoweredProgram) -> std::collections::Ha
 /// final write target differs. Used by the in-process unit tests; for true
 /// end-to-end stdout use [`run_source`] + the bun fixture harness.
 pub fn render_source(src: &str) -> FrontResult<String> {
+    // NOT cached — see [`run_source`].
     let program = progcache::compile_cached(
+        None,
         src,
         || build_with_includes(src),
         |p| module_jit::compile_program(p),

@@ -68,11 +68,14 @@ pub(crate) fn replay(
 ) -> Result<(), String> {
     let manifest = replay_manifest().ok_or("resident manifest missing at replay")?;
 
-    // 1. Define every baked string-data object; record name→DataId.
+    // 1. Define every baked data object; record name→DataId. Writability comes
+    //    from the blob, not from a constant: an inline-cache cell is written in
+    //    place by `__rtsadp_ic_miss`, so replaying it read-only faults on the
+    //    first miss (see `BakedData::writable`).
     let mut data_ids: HashMap<String, DataId> = HashMap::new();
     for d in &manifest.data {
         let id = module
-            .declare_data(&d.name, Linkage::Local, false, false)
+            .declare_data(&d.name, Linkage::Local, d.writable, false)
             .map_err(|e| format!("declare data `{}`: {e}", d.name))?;
         let mut desc = DataDescription::new();
         desc.define(d.bytes.clone().into_boxed_slice());

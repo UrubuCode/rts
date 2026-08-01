@@ -17,6 +17,66 @@ use rts_ast::ast::{Item, Program};
 use super::error::{ModuleError, ModuleResult};
 use super::resolve::{self, Target};
 
+// ---------------------------------------------------------------------------
+// SOURCE-INPUT LEDGER — every file the resolver actually read, with a hash of
+// its contents.
+//
+// The whole-program JIT cache is keyed on the ENTRY file's text only, which is
+// silently wrong for any program with imports: editing a dependency leaves the
+// key unchanged, so a stale program replays. Reproduced before this existed —
+// `main.ts` importing `dep.ts` kept printing the old value after `dep.ts`
+// changed, while the uncached run printed the new one.
+//
+// Recording the reads here (rather than re-walking the graph in the cache) is
+// what makes validation possible WITHOUT re-parsing: a cache hit never builds,
+// so it has no other way to learn which files the program depends on.
+// ---------------------------------------------------------------------------
+
+thread_local! {
+    static SOURCE_INPUTS: std::cell::RefCell<Vec<(PathBuf, u64)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Hash of one module's source text. `DefaultHasher` is not stable across Rust
+/// releases, which is fine here: the value is only ever compared against another
+/// hash produced by the SAME binary (see `progcache::key`, which folds the
+/// executable's identity in, so a rebuilt engine cannot read an old blob).
+fn hash_source(src: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    src.hash(&mut h);
+    h.finish()
+}
+
+/// Drop whatever the previous load recorded. Called at the start of every graph
+/// load so the ledger describes exactly one program.
+pub fn reset_inputs() {
+    SOURCE_INPUTS.with(|c| c.borrow_mut().clear());
+}
+
+/// The `(path, source hash)` of every module read since the last
+/// [`reset_inputs`], sorted by path so the list is order-independent.
+pub fn take_inputs() -> Vec<(PathBuf, u64)> {
+    SOURCE_INPUTS.with(|c| {
+        let mut v = std::mem::take(&mut *c.borrow_mut());
+        v.sort();
+        v.dedup();
+        v
+    })
+}
+
+/// Re-read each recorded input and report whether every one still hashes to the
+/// value it had when the entry was stored. A missing or unreadable file counts
+/// as changed — the safe direction, since it forces a recompile rather than
+/// replaying code built against a file that is no longer there.
+pub fn inputs_unchanged(inputs: &[(PathBuf, u64)]) -> bool {
+    inputs.iter().all(|(path, want)| {
+        std::fs::read_to_string(path)
+            .map(|src| hash_source(&src) == *want)
+            .unwrap_or(false)
+    })
+}
+
 /// One import edge of a module, after specifier resolution.
 #[derive(Debug, Clone)]
 pub struct ImportEdge {
@@ -63,6 +123,7 @@ pub struct ModuleGraph {
 impl ModuleGraph {
     /// BFS-load the whole graph reachable from `entry` (already a file path).
     pub fn load(entry: &Path) -> ModuleResult<Self> {
+        reset_inputs();
         let entry_key = resolve::resolve_entry(entry)?;
         let mut modules: HashMap<PathBuf, ModuleNode> = HashMap::new();
         let mut pending: VecDeque<PathBuf> = VecDeque::new();
@@ -198,6 +259,9 @@ impl ModuleGraph {
 fn load_one(key: &Path) -> ModuleResult<ModuleNode> {
     let source = std::fs::read_to_string(key)
         .map_err(|e| ModuleError::Io(format!("failed to read {}: {e}", key.display())))?;
+    // Ledger the read so the JIT cache can validate this dependency later.
+    let h = hash_source(&source);
+    SOURCE_INPUTS.with(|c| c.borrow_mut().push((key.to_path_buf(), h)));
     let program = rts_parser::parse_source(&source)
         .map_err(|e| ModuleError::Parse(format!("{}: {e}", key.display())))?;
 

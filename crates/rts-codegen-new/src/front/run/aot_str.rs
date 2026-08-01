@@ -28,17 +28,30 @@ thread_local! {
     /// When `Some`, the program baker (`bake::bake_program`) records every emitted string DATA
     /// object `(name, bytes)` here so it can be replayed via `define_data` into the
     /// run's JIT module (the prelude machine code relocs reference these by name).
-    static CAPTURE_DATA: std::cell::RefCell<Option<Vec<(String, Vec<u8>)>>> =
+    static CAPTURE_DATA: std::cell::RefCell<Option<Vec<CapturedData>>> =
         const { std::cell::RefCell::new(None) };
 }
 
-/// Begin capturing string-data objects (the baker). Paired with [`take_data_capture`].
+/// One captured data object: its symbol name, its initial bytes, and whether the
+/// running program WRITES to it.
+///
+/// `writable` is not cosmetic. A replay that re-declares every blob read-only puts
+/// the inline-cache cells on a read-only page, and the first `__rtsadp_ic_miss`
+/// filling a cell faults — measured as an ACCESS_VIOLATION in 140 of the 805 TS
+/// test files, all of them programs that reach an IC site.
+pub(crate) struct CapturedData {
+    pub name: String,
+    pub bytes: Vec<u8>,
+    pub writable: bool,
+}
+
+/// Begin capturing data objects (the baker). Paired with [`take_data_capture`].
 pub(crate) fn begin_data_capture() {
     CAPTURE_DATA.with(|c| *c.borrow_mut() = Some(Vec::new()));
 }
 
-/// Take the captured string-data objects, ending capture.
-pub(crate) fn take_data_capture() -> Option<Vec<(String, Vec<u8>)>> {
+/// Take the captured data objects, ending capture.
+pub(crate) fn take_data_capture() -> Option<Vec<CapturedData>> {
     CAPTURE_DATA.with(|c| c.borrow_mut().take())
 }
 
@@ -83,11 +96,16 @@ pub(crate) fn with_aot_mode<T>(f: impl FnOnce() -> T) -> T {
 /// Shared with [`super::ic`], whose per-call-site cache cells are declared the
 /// same way (module data + a `declare_data_in_func` reference) and must be
 /// re-declared COLD on replay — capturing their zeroed initial bytes is exactly
-/// what produces that.
-pub(super) fn capture_data_blob(name: &str, bytes: Vec<u8>) {
+/// what produces that. Those cells pass `writable = true`; a string blob is
+/// read-only.
+pub(super) fn capture_data_blob(name: &str, bytes: Vec<u8>, writable: bool) {
     CAPTURE_DATA.with(|c| {
         if let Some(buf) = c.borrow_mut().as_mut() {
-            buf.push((name.to_string(), bytes));
+            buf.push(CapturedData {
+                name: name.to_string(),
+                bytes,
+                writable,
+            });
         }
     });
 }
@@ -112,11 +130,7 @@ pub(crate) fn emit_str_data(
         .map_err(|e| Unsupported::new(format!("define str data `{name}`: {e}")))?;
     // BAKER capture: record this string blob so the replay can
     // `define_data` it under the same name the prelude relocs reference.
-    CAPTURE_DATA.with(|c| {
-        if let Some(buf) = c.borrow_mut().as_mut() {
-            buf.push((name.clone(), s.as_bytes().to_vec()));
-        }
-    });
+    capture_data_blob(&name, s.as_bytes().to_vec(), false);
     let gv = module.declare_data_in_func(data_id, builder.func);
     let ptr = builder.ins().global_value(types::I64, gv);
     let len = builder.ins().iconst(types::I64, s.len() as i64);
