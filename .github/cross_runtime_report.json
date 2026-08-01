@@ -1816,7 +1816,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `C.a` — no such static field on class `C`\n      at run of tests/cross-runtime/classes/codex_class_computed_private_static_order.ts failed"
+  "rts_error": "error: Uncaught TypeError: m is not a function\n      at run of tests/cross-runtime/classes/codex_class_computed_private_static_order.ts failed"
 }
 ,
 {
@@ -2479,16 +2479,16 @@
 ,
 {
   "name": "claude-date-numeric-coercion",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "getTime=1718003289010\nvalueOf=1718003289010\nNumber=1718003289010\nunary_plus=1718003289010\nagree1=true\nagree2=true\nagree3=true\ntimes_one=1718003289010\nminus_zero=1718003289010\ndiv=1718003289.01\nmath_floor=1718003289\nmath_trunc=19884\nepoch_num=0\nepoch_plus=0\nbefore_num=-1\nold_num=-2208988800000\nold_negative=true\nbad_getTime_nan=true\nbad_valueOf_nan=true\nbad_Number_nan=true\nbad_plus_nan=true\nbad_arith_nan=true\nfrac_ms=1\nfrac_neg_ms=-1\nis_integer=true\nroundtrip=true\ncopy_eq=true",
   "node": "getTime=1718003289010\nvalueOf=1718003289010\nNumber=1718003289010\nunary_plus=1718003289010\nagree1=true\nagree2=true\nagree3=true\ntimes_one=1718003289010\nminus_zero=1718003289010\ndiv=1718003289.01\nmath_floor=1718003289\nmath_trunc=19884\nepoch_num=0\nepoch_plus=0\nbefore_num=-1\nold_num=-2208988800000\nold_negative=true\nbad_getTime_nan=true\nbad_valueOf_nan=true\nbad_Number_nan=true\nbad_plus_nan=true\nbad_arith_nan=true\nfrac_ms=1\nfrac_neg_ms=-1\nis_integer=true\nroundtrip=true\ncopy_eq=true",
-  "rts": "",
+  "rts": "getTime=1718003289010\nvalueOf=1718003289010\nNumber=1718003289010\nunary_plus=1718003289010\nagree1=true\nagree2=true\nagree3=true\ntimes_one=1718003289010\nminus_zero=1718003289010\ndiv=1718003289.01\nmath_floor=1718003289\nmath_trunc=19884\nepoch_num=0\nepoch_plus=0\nbefore_num=-1\nold_num=-2208988800000\nold_negative=true\nbad_getTime_nan=true\nbad_valueOf_nan=true\nbad_Number_nan=true\nbad_plus_nan=true\nbad_arith_nan=true\nfrac_ms=1\nfrac_neg_ms=-1\nis_integer=true\nroundtrip=true\ncopy_eq=true",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new Date(x)` with a non-number / non-string argument (the overload dispatch depends on the runtime type — a later increment)\n      at run of tests/cross-runtime/date/claude-date-numeric-coercion.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -3734,7 +3734,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: no Registry entry for `Array.take(1 args)` (callback methods like .map/.filter/.reduce bail by design)\n      at run of tests/cross-runtime/iteration/305_iterator_helpers.ts failed"
+  "rts_error": "error: Uncaught TypeError: take is not a function\n      at run of tests/cross-runtime/iteration/305_iterator_helpers.ts failed"
 }
 ,
 {
@@ -3756,7 +3756,7 @@
   "status": "rts_diverge",
   "bun": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
   "node": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
-  "rts": "",
+  "rts": "undefined",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -6976,7 +6976,7 @@
   "status": "rts_diverge",
   "bun": "AggregateError\na,b,c",
   "node": "AggregateError\na,b,c",
-  "rts": "",
+  "rts": "undefined",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9687,4 +9687,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":692,"pass":488,"rts_diverge":115,"bun_node_diverge":18,"errors":71,"rejected":0}}
+],"summary":{"total":692,"pass":489,"rts_diverge":115,"bun_node_diverge":18,"errors":70,"rejected":0}}
