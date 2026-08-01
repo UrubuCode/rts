@@ -658,6 +658,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let Some(val) = self.try_global_fn_call(module, &name, args)? {
             return Ok(val);
         }
+        // `Error("x")` / `TypeError("x")` — a PRIMORDIAL Error constructor called
+        // WITHOUT `new`, which the spec makes equivalent to the `new` form. Routed
+        // to the same `lower_new` (see `super::newdyn`) so the two spellings cannot
+        // diverge. Resolved last, so a same-named local/user fn wins.
+        if self.is_bare_error_call(&name) {
+            return self.lower_error_call(module, &name, args);
+        }
         unsupported!("call to unknown function `{name}`")
     }
 
@@ -1306,53 +1313,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(arr)
     }
 
-    /// Lower `new <local>(args)` where `<local>` holds a runtime VALUE (a class
-    /// reified into a local / `globalThis` field — `const G = globalThis.Box; new
-    /// G(5)`). The value is invoked through [`__rtsadp_new_invoke`]: if its stored
-    /// thunk is a registered class NEW-THUNK it constructs (allocates + runs the
-    /// ctor + returns the instance); otherwise a TypeError is thrown (the value is
-    /// not a constructor — never mis-constructed). The result is an opaque
-    /// PolyValue word (kind Unknown), so a `let c = new G()` records no static class.
-    pub(super) fn lower_new_value(
-        &mut self,
-        module: &mut dyn Module,
-        name: &str,
-        args: &[HirExpr],
-    ) -> FrontResult<Val> {
-        let local = self
-            .local(name)
-            .expect("caller proved `name` is an in-scope local value");
-        let fn_word = self.builder.use_var(local.var);
-        // Box the first four positional args; overflow (5th+) into a rest array.
-        let undef = || value::PolyValue::undefined().raw() as i64;
-        let mut slots: [Value; 4] = [self.builder.ins().iconst(types::I64, undef()); 4];
-        for (i, a) in args.iter().take(4).enumerate() {
-            let v = self.lower_expr(module, a)?;
-            slots[i] = self.box_value(v);
-        }
-        let rest = if args.len() > 4 {
-            let arr = emit_marshal::emit_new_vec_object(module, self.builder);
-            for a in &args[4..] {
-                let v = self.lower_expr(module, a)?;
-                let word = self.box_value(v);
-                emit_marshal::emit_vec_push(module, self.builder, arr, word);
-            }
-            arr
-        } else {
-            self.builder.ins().iconst(types::I64, undef())
-        };
-        let res = self
-            .call_runtime(
-                module,
-                "__rtsadp_new_invoke",
-                &[fn_word, slots[0], slots[1], slots[2], slots[3], rest],
-            )?
-            .expect("__rtsadp_new_invoke returns a value");
-        // A non-constructor value left a pending TypeError — unwind it here.
-        self.emit_post_call_error_check(module)?;
-        Ok(Val::new(res, Repr::Tagged))
-    }
-
     /// Lower a call through a function VALUE held in a local (`g(args)` where `g`
     /// is a Tagged param/let bound to a `TAG_FUNCTION` PolyValue): box up to 4
     /// args into `a0..a3` (undefined for missing), pack `args[4..]` into a rest
@@ -1851,6 +1811,16 @@ fn gen_sm_sentinel(name: &str, argc: usize) -> Option<(&'static str, GenRet, &'s
         ("__RTS_GEN_DELEGATE_START", 1) => ("__rtsn_gen_delegate_start", Int, &[0]),
         ("__RTS_GEN_DELEGATE_NEXT", 1) => ("__rtsn_gen_delegate_next", Word, &[]),
         ("__RTS_GEN_DELEGATE_DONE", 1) => ("__rtsn_gen_delegate_done", Int, &[]),
+        // LAZY for-of/for-in inside a generator (`generator_sm_iter`): the SAME
+        // `__rtsadp_iter_*` protocol the ordinary loop lowering drives, so an
+        // array / string / Set / Map / custom `[Symbol.iterator]` iterates
+        // identically inside and outside a generator. Every arg is a VALUE-
+        // position word (the cursor is itself a PolyValue array word).
+        ("__RTS_ITER_OPEN", 1) => ("__rtsadp_iter_open", Word, &[0]),
+        ("__RTS_ITER_NEXT", 1) => ("__rtsadp_iter_next", Word, &[0]),
+        ("__RTS_ITER_DONE", 1) => ("__rtsadp_iter_done", Int, &[0]),
+        ("__RTS_ITER_CLOSE", 1) => ("__rtsadp_iter_close", Void, &[0]),
+        ("__RTS_FOR_IN_KEYS", 1) => ("__rtsadp_for_in_keys", Word, &[0]),
         // ASYNC state machine (async fn com loop/try) + async generator (#392):
         // o parser emite estes sentinels; os externs já existiam no runtime
         // (collector/generator.rs) — só o mapa faltava ("call to unknown

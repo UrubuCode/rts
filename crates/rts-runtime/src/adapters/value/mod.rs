@@ -175,6 +175,9 @@ pub mod inspect;
 // Codegen-owned ITERATION-source trampolines (P5.10): materialize a string's code
 // points / an object's keys into a fresh array, so for-of/for-in share ONE walk.
 pub mod iterops;
+// The EMPTY-sentinel predicate the GENERATOR state machine's for-of needs (its
+// loop condition is a JS expression, which cannot name EMPTY).
+pub mod iterloop;
 pub mod taops;
 
 // ===========================================================================

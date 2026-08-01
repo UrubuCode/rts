@@ -104,6 +104,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 if class == "Function" && self.classes.get(class).is_none() {
                     return self.lower_new_function(module, args);
                 }
+                // `new e(args)` where `e` is NOT a class name in this program: a
+                // class VALUE behind a capture / module-global cell — the dominant
+                // shape in minified code. Constructed through the registered
+                // new-thunk path (see `super::newdyn`). Last resort, so every
+                // static route above still wins.
+                if self.new_would_bail(class, args.len()) {
+                    return self.lower_new_dynamic(module, class, args);
+                }
                 // A `new C(args)` used as a bare expression (not bound to a local
                 // whose class/shape we record) still builds the instance (a valid
                 // TAG_OBJECT PolyValue, so `console.log(new C())` / method chaining
@@ -206,7 +214,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         }
     }
 
-    fn lower_ident(&mut self, module: &mut dyn Module, name: &str) -> FrontResult<Val> {
+    pub(super) fn lower_ident(
+        &mut self,
+        module: &mut dyn Module,
+        name: &str,
+    ) -> FrontResult<Val> {
         if let Some(local) = self.local(name) {
             // FUNCTION-LOCAL CELL (#195): the local Variable holds the cell HANDLE,
             // not the value. Read the LIVE value through the cell (a closure may have

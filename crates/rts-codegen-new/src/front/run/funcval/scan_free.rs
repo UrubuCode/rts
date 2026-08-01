@@ -96,7 +96,12 @@ fn collect_arrow_frees_expr(e: &HirExpr, out: &mut HashSet<String>) {
             collect_arrow_frees_expr(object, out);
             args.iter().for_each(|a| collect_arrow_frees_expr(a, out));
         }
-        HirExprKind::New { args, .. } => args.iter().for_each(|a| collect_arrow_frees_expr(a, out)),
+        // The constructor NAME counts as a reference — see the note on the same
+        // arm in `collect_free_expr`.
+        HirExprKind::New { class, args } => {
+            out.insert(class.clone());
+            args.iter().for_each(|a| collect_arrow_frees_expr(a, out));
+        }
         HirExprKind::Ternary { cond, then, else_ } => {
             collect_arrow_frees_expr(cond, out);
             collect_arrow_frees_expr(then, out);
@@ -317,7 +322,17 @@ fn collect_free_expr(e: &HirExpr, bound: &HashSet<String>, free: &mut HashSet<St
                 collect_free_expr(it, bound, free);
             }
         }
-        HirExprKind::New { args, .. } => {
+        // `new e(..)` — the CONSTRUCTOR NAME is an identifier reference too, not
+        // just the args. Minified/transpiled code reaches every class through a
+        // binding (`const e = A; … () => new e(1)`), and without counting `class`
+        // here the arrow captured nothing and `e` was unbound at run time. A real
+        // CLASS name is filtered out downstream by `extract_arrows`'s `top_level`
+        // set (which is seeded with `class_names`), so this cannot turn an ordinary
+        // `new C()` into a spurious capture.
+        HirExprKind::New { class, args } => {
+            if !bound.contains(class) {
+                free.insert(class.clone());
+            }
             for a in args {
                 collect_free_expr(a, bound, free);
             }

@@ -60,6 +60,7 @@ mod methodtable;
 mod module_aot;
 mod module_entry;
 pub mod module_jit;
+mod newdyn;
 mod newexpr;
 mod obj;
 mod objstatic;
