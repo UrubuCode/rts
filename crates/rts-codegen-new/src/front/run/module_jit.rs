@@ -81,7 +81,9 @@ pub(super) fn make_module() -> JITModule {
     // split wasmtime uses. Measured: Cranelift phase 221 -> 171 ms, whole
     // startup 390 -> 346 ms, suite failing-file list unchanged.
     #[cfg(not(debug_assertions))]
-    flags.set("enable_verifier", "false").unwrap();
+    if !super::clifflags::verifier_forced() {
+        flags.set("enable_verifier", "false").unwrap();
+    }
     let isa = cranelift_native::builder()
         .expect("host isa builder")
         .finish(settings::Flags::new(flags))

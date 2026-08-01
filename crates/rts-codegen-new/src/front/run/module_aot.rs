@@ -110,6 +110,17 @@ pub(crate) fn make_object_module() -> FrontResult<ObjectModule> {
     // it Cranelift panics ("frame pointers aren't fundamentally required for
     // tail calls, but the current implementation relies on them").
     flags.set("preserve_frame_pointers", "true").unwrap();
+    // Same verifier split as the JIT (`super::module_jit::make_module`): ON in
+    // debug so a malformed lowering is caught loudly, OFF in release where it
+    // only taxes compile time. This path used to leave it at Cranelift's default
+    // (ON) despite the comment above claiming JIT-identical flags — see
+    // CRANELIFT_IMPLEMENTATION.md §4. `RTS_CLIF_VERIFIER=1` forces it back on in
+    // a release binary — the A/B that turns "the 2x gap is consistent with the
+    // verifier" into a measurement instead of an attribution.
+    #[cfg(not(debug_assertions))]
+    if !super::clifflags::verifier_forced() {
+        flags.set("enable_verifier", "false").unwrap();
+    }
     let isa = cranelift_native::builder()
         .map_err(|e| Unsupported::new(format!("host isa builder: {e}")))?
         .finish(settings::Flags::new(flags))

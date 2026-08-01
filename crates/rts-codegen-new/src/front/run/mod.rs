@@ -67,6 +67,8 @@ mod newexpr;
 mod obj;
 mod objstatic;
 mod optchain_lower;
+mod clifcache;
+mod clifflags;
 mod parcompile;
 mod prelude_cache;
 mod progcache;
