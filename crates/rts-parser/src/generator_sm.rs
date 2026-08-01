@@ -226,7 +226,7 @@ pub fn try_build_async(name: &str, function: &Function) -> Option<(FnDecl, FnDec
     Some((ctor, state_fn))
 }
 
-const G: &str = "__g";
+pub(crate) const G: &str = "__g";
 
 fn ident(s: &str) -> Ident {
     Ident::new(s.into(), sp(), Default::default())
@@ -364,7 +364,7 @@ impl SmBuilder {
     pub(crate) fn push_stmt(&mut self, state: usize, s: Stmt) {
         self.states[state].stmts.push(s);
     }
-    fn set_yield(&mut self, state: usize, value: Expr, next: usize) {
+    pub(crate) fn set_yield(&mut self, state: usize, value: Expr, next: usize) {
         self.states[state].trans = Trans::Yield { value, next };
     }
     pub(crate) fn set_goto(&mut self, state: usize, target: usize) {
@@ -405,45 +405,11 @@ impl SmBuilder {
             Stmt::Expr(es) => {
                 if let Expr::Yield(y) = es.expr.as_ref() {
                     if y.delegate {
-                        // `yield* SRC;` (posicao de statement). Delegacao lazy:
-                        // normaliza SRC num iterador e re-yielda cada valor,
-                        // suspendendo entre eles. O estado do iterador delegado
-                        // vive runtime-side (keyed pelo handle), entao so' o
-                        // handle precisa entrar no frame.
+                        // `yield* SRC;` em posicao de STATEMENT — o valor de
+                        // retorno do delegado e' descartado, entao `bind` e'
+                        // None. Ver `generator_sm_iter::lower_delegate`.
                         let src = y.arg.as_deref().cloned().unwrap_or_else(undef_expr);
-                        let uid = self.tmp_counter;
-                        self.tmp_counter += 1;
-                        let dlg = format!("__dlg_{}", uid);
-                        let dval = format!("__dlv_{}", uid);
-                        self.intern_local(&dlg);
-                        self.intern_local(&dval);
-                        // cur: __dlg = DELEGATE_START(src)
-                        self.push_stmt(
-                            cur,
-                            assign_stmt(&dlg, call("__RTS_GEN_DELEGATE_START", vec![src])),
-                        );
-                        let header = self.new_state();
-                        self.set_goto(cur, header);
-                        let body = self.new_state();
-                        let after = self.new_state();
-                        // header: __dlv = DELEGATE_NEXT(__dlg);
-                        //         if (DELEGATE_DONE(__dlg)) goto after else goto body
-                        self.push_stmt(
-                            header,
-                            assign_stmt(
-                                &dval,
-                                call("__RTS_GEN_DELEGATE_NEXT", vec![ident_expr(&dlg)]),
-                            ),
-                        );
-                        self.set_cond(
-                            header,
-                            call("__RTS_GEN_DELEGATE_DONE", vec![ident_expr(&dlg)]),
-                            after,
-                            body,
-                        );
-                        // body: yield __dlv; volta ao header
-                        self.set_yield(body, ident_expr(&dval), header);
-                        return Some(after);
+                        return self.lower_delegate(src, cur, None);
                     }
                     let value = y.arg.as_deref().cloned().unwrap_or_else(undef_expr);
                     let next = self.new_state();
@@ -487,9 +453,28 @@ impl SmBuilder {
                 self.push_stmt(cur, stmt.clone());
                 Some(cur)
             }
+            // `const/let r = yield* SRC;` — delegacao em posicao de VALOR. O
+            // valor da expressao e' o `return` do delegado (spec: o `value` do
+            // resultado `done:true` da fonte), NAO o ultimo valor yieldado.
+            // Mesmo laço da posicao de statement, com binding; ver
+            // `generator_sm_iter::lower_delegate`.
+            Stmt::Decl(Decl::Var(vd))
+                if vd.decls.len() == 1
+                    && matches!(&vd.decls[0].name, Pat::Ident(_))
+                    && matches!(
+                        vd.decls[0].init.as_deref(),
+                        Some(Expr::Yield(y)) if y.delegate
+                    ) =>
+            {
+                let Pat::Ident(id) = &vd.decls[0].name else { unreachable!() };
+                let name = id.id.sym.to_string();
+                let Some(Expr::Yield(y)) = vd.decls[0].init.as_deref() else { unreachable!() };
+                let src = y.arg.as_deref().cloned().unwrap_or_else(undef_expr);
+                self.lower_delegate(src, cur, Some(&name))
+            }
             // (#211 value-passing) `const/let v = yield E;` (1 declarator, yield
             // simples): suspende com E e, na retomada, le o valor passado em
-            // `gen.next(v)` via SENT. `yield*` em init segue inelegivel (eager).
+            // `gen.next(v)` via SENT.
             Stmt::Decl(Decl::Var(vd))
                 if vd.decls.len() == 1
                     && matches!(&vd.decls[0].name, Pat::Ident(_))

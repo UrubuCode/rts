@@ -65,7 +65,7 @@
 use swc_ecma_ast::{DoWhileStmt, Expr, ForHead, ForInStmt, ForOfStmt, Pat, Stmt};
 
 use crate::generator_sm::{
-    SmBuilder, assign_stmt, block_stmts, call, call_stmt, expr_has_yield, ident_expr,
+    G, SmBuilder, assign_stmt, block_stmts, call, call_stmt, expr_has_yield, ident_expr,
 };
 use crate::generator_sm_loops::{LoopTarget, TargetKind};
 
@@ -79,6 +79,14 @@ const ITER_DONE: &str = "__RTS_ITER_DONE";
 const ITER_CLOSE: &str = "__RTS_ITER_CLOSE";
 /// `__RTS_FOR_IN_KEYS(obj)` — the own-enumerable key array for `for…in`.
 const FOR_IN_KEYS: &str = "__RTS_FOR_IN_KEYS";
+/// `__RTS_GEN_DELEGATE_START(src)` — normalize a `yield*` source to an iterator.
+const DELEGATE_START: &str = "__RTS_GEN_DELEGATE_START";
+/// `__RTS_GEN_DELEGATE_NEXT(it)` — one step of the delegated iterator.
+const DELEGATE_NEXT: &str = "__RTS_GEN_DELEGATE_NEXT";
+/// `__RTS_GEN_DELEGATE_DONE(it)` — 1 when the delegate is exhausted.
+const DELEGATE_DONE: &str = "__RTS_GEN_DELEGATE_DONE";
+/// `__RTS_GEN_DELEGATE_RET(it)` — the delegate's `return` value.
+const DELEGATE_RET: &str = "__RTS_GEN_DELEGATE_RET";
 
 impl SmBuilder {
     /// `for (<binding> of <src>) { … }`.
@@ -160,6 +168,73 @@ impl SmBuilder {
         // a completed iterator is never asked to `return()`.
         self.push_stmt(brk, call_stmt(call(ITER_CLOSE, vec![ident_expr(&cursor)])));
         self.set_goto(brk, after);
+        Some(after)
+    }
+
+    /// `yield* SRC` — LAZY delegation, in BOTH positions.
+    ///
+    /// Instead of materializing SRC (eager, and unbounded for an infinite
+    /// delegate), the loop normalizes SRC into an iterator and re-yields one
+    /// value at a time, suspending in between. The delegate's iteration state
+    /// lives runtime-side keyed by handle, so only the HANDLE enters the frame
+    /// and the delegation survives the outer generator's suspension.
+    ///
+    /// ```text
+    ///   cur:    __dlg = DELEGATE_START(SRC);           goto header
+    ///   header: __dlv = DELEGATE_NEXT(__dlg)
+    ///           if (DELEGATE_DONE(__dlg)) goto after else goto body
+    ///   body:   yield __dlv;                           goto header
+    ///   after:  [bind = DELEGATE_RET(__dlg)]
+    /// ```
+    ///
+    /// `bind` is what separates the two positions. In STATEMENT position
+    /// (`yield* g();`) the delegate's return value is discarded and `bind` is
+    /// `None`. In VALUE position (`const r = yield* g()`, which the normalizer
+    /// reduces to this form) `bind` names the local that receives the
+    /// delegate's `return` — which the spec defines as the `value` of the
+    /// source's `done:true` result, and which is NOT the last yielded value.
+    pub(crate) fn lower_delegate(
+        &mut self,
+        src: Expr,
+        cur: usize,
+        bind: Option<&str>,
+    ) -> Option<usize> {
+        let uid = self.tmp_counter;
+        self.tmp_counter += 1;
+        let dlg = format!("__dlg_{uid}");
+        let dval = format!("__dlv_{uid}");
+        self.intern_local(&dlg);
+        self.intern_local(&dval);
+
+        self.push_stmt(cur, assign_stmt(&dlg, call(DELEGATE_START, vec![src])));
+        let header = self.new_state();
+        self.set_goto(cur, header);
+        let body = self.new_state();
+        let after = self.new_state();
+
+        self.push_stmt(
+            header,
+            assign_stmt(
+                &dval,
+                call(DELEGATE_NEXT, vec![ident_expr(G), ident_expr(&dlg)]),
+            ),
+        );
+        self.set_cond(
+            header,
+            call(DELEGATE_DONE, vec![ident_expr(&dlg)]),
+            after,
+            body,
+        );
+        // body: re-yield the delegate's value, then back to the header.
+        self.set_yield(body, ident_expr(&dval), header);
+
+        if let Some(name) = bind {
+            self.intern_local(name);
+            self.push_stmt(
+                after,
+                assign_stmt(name, call(DELEGATE_RET, vec![ident_expr(&dlg)])),
+            );
+        }
         Some(after)
     }
 

@@ -26,7 +26,21 @@ use super::{GEN_CURSORS, UNDEFINED};
 // um Vec eh o cursor em GEN_CURSORS. So' o HANDLE entra no frame do generator
 // externo, entao a delegacao sobrevive a suspensao/retomada do externo.
 
+/// `undefined` como PolyValue WORD. O sentinela legado `UNDEFINED`
+/// (`i64::MIN+2`) NAO e' um word boxado: lido como PolyValue ele e' o double
+/// inline `-1e-323`, que foi exatamente o que `const r = yield* g()` devolveu
+/// enquanto este default estava errado.
+const POLY_UNDEF: i64 = crate::heap::poly::POLY_UNDEFINED as i64;
+
 thread_local! {
+    /// Valor de `return X` do delegado EAGER, keyed pelo handle do ITERADOR.
+    ///
+    /// Necessario porque `GEN_RETS` e' keyed pelo handle do Vec ORIGINAL, e
+    /// `DELEGATE_START` devolve para um Vec uma COPIA com cursor
+    /// (`Iterator_from`) — outro handle. Sem esta ponte, `yield*` sobre um
+    /// generator eager perdia o `return` e devolvia undefined em silencio.
+    static DELEGATE_RETS: RefCell<HashMap<u64, i64>> = RefCell::new(HashMap::new());
+
     /// Done-flag do ultimo DELEGATE_NEXT por handle de iterador delegado.
     static DELEGATE_DONE: RefCell<HashMap<u64, bool>> = RefCell::new(HashMap::new());
 }
@@ -73,7 +87,17 @@ pub fn gen_delegate_start(src: i64) -> i64 {
         // Generator: ja' eh iterador — devolve o HANDLE NORMALIZADO (o `src`
         // cru pode ser o word boxed; NEXT/DONE fazem with_entry direto).
         1 => h as i64,
-        2 => __rtsm_global_Iterator_from(h) as i64,
+        2 => {
+            let it = __rtsm_global_Iterator_from(h);
+            // O eager ja' materializou (e ja' gravou o `return`) no momento da
+            // CHAMADA, entao o valor ja' esta' em GEN_RETS quando chegamos aqui.
+            if let Some(r) = super::GEN_RETS.with(|c| c.borrow().get(&h).copied()) {
+                DELEGATE_RETS.with(|c| {
+                    c.borrow_mut().insert(it, r);
+                });
+            }
+            it as i64
+        }
         3 => {
             // String iteravel: cada char vira um handle de String de 1 char.
             let s: String = with_entry(h, |e| match e {
@@ -187,4 +211,68 @@ pub fn gen_delegate_done(it: i64) -> i64 {
     let h = normalize_delegate_word(it);
     let done = DELEGATE_DONE.with(|c| c.borrow().get(&h).copied().unwrap_or(false));
     if done { 1 } else { 0 }
+}
+
+/// `__RTS_GEN_DELEGATE_RET(it)` — o valor de `return X` do delegado, que é o
+/// VALOR da expressão `const r = yield* SRC` (spec: a delegação produz o
+/// `value` do resultado `done:true` da fonte).
+///
+/// Existe porque `__rtsn_generator_get_ret` NÃO serve aqui: ele lê só o mapa do
+/// caminho EAGER ([`super::GEN_RETS`], keyed pelo handle do Vec). Num delegado
+/// LAZY o `return X` foi gravado pelo `GEN_SM_DONE` em `GenState.ret`, que
+/// aquele acessor não olha — reusá-lo compilaria e devolveria `undefined` em
+/// silêncio, que é a classe de erro que este projeto persegue.
+///
+/// Normaliza o argumento pelas mesmas três convenções que
+/// [`gen_delegate_next`] (word NaN-boxed, bits de double, handle cru), porque o
+/// handle chega pelo frame do generator externo e o call site o boxa.
+/// Uma fonte sem valor de retorno (array, string, generator que termina sem
+/// `return`) devolve `undefined`, como no JS.
+#[rtse::abi(native, value = "gen_delegate_ret")]
+pub fn gen_delegate_ret(it: i64) -> i64 {
+    let h = normalize_delegate_word(it);
+    let from_state = with_entry(h, |e| match e {
+        Some(Entry::GenState(g)) => Some(g.ret),
+        _ => None,
+    });
+    match from_state {
+        Some(r) if r != UNDEFINED => r,
+        // Delegado eager (Vec com cursor): o `return` foi registrado sob o
+        // handle do ITERADOR em DELEGATE_START (ver DELEGATE_RETS).
+        _ => DELEGATE_RETS
+            .with(|c| c.borrow().get(&h).copied())
+            .unwrap_or(POLY_UNDEF),
+    }
+}
+
+/// `__RTS_GEN_DELEGATE_NEXT(g, it)` — avanca o delegado ENCAMINHANDO o valor de
+/// `outer.next(v)`.
+///
+/// A spec manda `yield*` repassar ao delegado o valor que a retomada recebeu; um
+/// `const q = yield "ask"` DENTRO do delegado tem de ler o `v` que o chamador
+/// passou ao generator EXTERNO. A forma de 1 argumento nao tinha como fazer
+/// isso — nao via o generator externo — e o delegado lia `undefined`.
+#[rtse::abi(native, value = "gen_delegate_next_sent")]
+pub fn gen_delegate_next_sent(g: i64, it: i64) -> i64 {
+    let sent = with_entry(g as u64, |e| match e {
+        Some(Entry::GenState(gs)) => Some(gs.sent),
+        _ => None,
+    });
+    let h = normalize_delegate_word(it);
+    if let Some(v) = sent {
+        crate::heap::handles::with_entry_mut(h, |e| {
+            if let Some(Entry::GenState(d)) = e {
+                d.sent = v;
+            }
+        });
+    }
+    let out = __rtsn_gen_delegate_next(it);
+    // O `sent` pertence a ESTA retomada: expira no delegado tambem, senao um
+    // `next()` sem argumento herdaria o valor do `next(v)` anterior.
+    crate::heap::handles::with_entry_mut(h, |e| {
+        if let Some(Entry::GenState(d)) = e {
+            d.sent = POLY_UNDEF;
+        }
+    });
+    out
 }

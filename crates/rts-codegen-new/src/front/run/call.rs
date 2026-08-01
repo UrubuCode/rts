@@ -156,13 +156,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 // an object-literal method or a descriptor fn). The object is
                 // re-lowered; for the admitted receiver shapes that is a re-READ
                 // (no call), so double evaluation is harmless.
-                if args.len() <= 3 {
-                    let recv = self.lower_expr(module, object)?;
-                    let recv_word = self.box_value(recv);
-                    return self
-                        .lower_value_call_word_with_this(module, prop_word, recv_word, args);
-                }
-                return self.lower_value_call_word(module, prop_word, args);
+                //
+                // At ANY arity: this used to fall back to the receiver-less invoke
+                // past 3 args, so `o.m(1,2,3,4)` on a this-first method lost its
+                // receiver AND mis-placed the arguments (`this` came back
+                // `undefined`). The receiver-aware path handles any length itself
+                // (it routes the apply trampoline past the register slots).
+                let recv = self.lower_expr(module, object)?;
+                let recv_word = self.box_value(recv);
+                return self.lower_value_call_word_with_this(module, prop_word, recv_word, args);
             }
         }
         // Receiver que é uma EXPRESSÃO qualquer (`g().m(a,b,c)`, o encadeamento
@@ -174,26 +176,21 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // receiver com efeito colateral, chamaria a função duas vezes. Aqui a
         // avaliação é única, então o gate não se aplica.
         //
-        // O teto de 3 argumentos, porém, CONTINUA: acima disso o invoker
-        // this-first entrega `undefined` do 4º em diante e o resultado sai
-        // errado em SILÊNCIO (issue #2039 — `o.m.apply(o,[1,2,3,4])` devolve NaN
-        // sem bail nem crash). Enquanto aquilo não for corrigido, um bail aqui é
-        // a falha honesta; deixar passar seria trocar "não compila" por "compila
-        // e dá o número errado".
-        if !args.iter().any(|a| matches!(a.kind, HirExprKind::Spread(_))) && args.len() <= 3 {
-            let recv = self.lower_expr(module, object)?;
-            let recv_word = self.box_value(recv);
-            let key_word = self.emit_str_const_word(module, method)?;
-            let prop_word = self
-                .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key_word])?
-                .expect("obj_get returns a value");
-            return self.lower_value_call_word_with_this(module, prop_word, recv_word, args);
-        }
-        unsupported!(
-            "method call `.{method}()` com {} argumentos sobre receiver-expressão \
-             (o invoker this-first perde o 4º argumento — issue #2039)",
-            args.len()
-        )
+        // O teto de 3 argumentos que existia aqui CAIU (issue #2039): ele estava
+        // certo enquanto o invoker this-first entregava `undefined` do 4º
+        // argumento em diante — bail honesto era melhor que número errado em
+        // silêncio. Agora `__rtsadp_fn_invoke_method` recorta a lista de
+        // argumentos no ponto que o CALLEE espera (`adapters::value::argslots`),
+        // então qualquer aridade passa; acima dos slots de registrador o próprio
+        // `lower_value_call_word_with_this` roteia o trampolim de apply, que
+        // também é o caminho de um `...spread`.
+        let recv = self.lower_expr(module, object)?;
+        let recv_word = self.box_value(recv);
+        let key_word = self.emit_str_const_word(module, method)?;
+        let prop_word = self
+            .call_runtime(module, "__rtsadp_obj_get", &[recv_word, key_word])?
+            .expect("obj_get returns a value");
+        self.lower_value_call_word_with_this(module, prop_word, recv_word, args)
     }
 
     /// Lower `fn.call(thisArg, a, b, …)` / `fn.apply(thisArg, [a, b])` on a
@@ -1810,7 +1807,14 @@ fn gen_sm_sentinel(name: &str, argc: usize) -> Option<(&'static str, GenRet, &'s
         ("__RTS_GEN_SM_END_FINALLY", 1) => ("__rtsn_gen_sm_end_finally", Word, &[]),
         ("__RTS_GEN_DELEGATE_START", 1) => ("__rtsn_gen_delegate_start", Int, &[0]),
         ("__RTS_GEN_DELEGATE_NEXT", 1) => ("__rtsn_gen_delegate_next", Word, &[]),
+        // Forma de 2 args: encaminha ao delegado o valor de `outer.next(v)`
+        // (spec). A de 1 arg nao via o generator externo e o delegado lia
+        // `undefined` num `const q = yield ...` interno.
+        ("__RTS_GEN_DELEGATE_NEXT", 2) => ("__rtsn_gen_delegate_next_sent", Word, &[]),
         ("__RTS_GEN_DELEGATE_DONE", 1) => ("__rtsn_gen_delegate_done", Int, &[]),
+        // O VALOR de `const r = yield* SRC` (o `return` do delegado). Distinto de
+        // `__RTS_GEN_GET_RET`, que só lê o mapa do caminho eager.
+        ("__RTS_GEN_DELEGATE_RET", 1) => ("__rtsn_gen_delegate_ret", Word, &[]),
         // LAZY for-of/for-in inside a generator (`generator_sm_iter`): the SAME
         // `__rtsadp_iter_*` protocol the ordinary loop lowering drives, so an
         // array / string / Set / Map / custom `[Symbol.iterator]` iterates

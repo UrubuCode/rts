@@ -13,7 +13,7 @@
 // slice already in memory — no allocation, no hashing, nothing proportional
 // to the table's size on every compile.
 //
-// 2028 symbols.
+// 2030 symbols.
 
 // Addresses are taken through the LINKER name, not a Rust module path: that
 // reaches every `#[no_mangle]` symbol regardless of Rust visibility, and makes
@@ -3995,96 +3995,100 @@ unsafe extern "C" {
     fn __rts_sym_1981();
     #[link_name = "__rtsn_gen_delegate_next"]
     fn __rts_sym_1982();
-    #[link_name = "__rtsn_gen_delegate_start"]
+    #[link_name = "__rtsn_gen_delegate_next_sent"]
     fn __rts_sym_1983();
-    #[link_name = "__rtsn_gen_sm_caught"]
+    #[link_name = "__rtsn_gen_delegate_ret"]
     fn __rts_sym_1984();
-    #[link_name = "__rtsn_gen_sm_done"]
+    #[link_name = "__rtsn_gen_delegate_start"]
     fn __rts_sym_1985();
-    #[link_name = "__rtsn_gen_sm_drain"]
+    #[link_name = "__rtsn_gen_sm_caught"]
     fn __rts_sym_1986();
-    #[link_name = "__rtsn_gen_sm_end_finally"]
+    #[link_name = "__rtsn_gen_sm_done"]
     fn __rts_sym_1987();
-    #[link_name = "__rtsn_gen_sm_enter_try"]
+    #[link_name = "__rtsn_gen_sm_drain"]
     fn __rts_sym_1988();
-    #[link_name = "__rtsn_gen_sm_enter_try_catch"]
+    #[link_name = "__rtsn_gen_sm_end_finally"]
     fn __rts_sym_1989();
-    #[link_name = "__rtsn_gen_sm_exit_try_catch"]
+    #[link_name = "__rtsn_gen_sm_enter_try"]
     fn __rts_sym_1990();
-    #[link_name = "__rtsn_gen_sm_fget"]
+    #[link_name = "__rtsn_gen_sm_enter_try_catch"]
     fn __rts_sym_1991();
-    #[link_name = "__rtsn_gen_sm_fset"]
+    #[link_name = "__rtsn_gen_sm_exit_try_catch"]
     fn __rts_sym_1992();
-    #[link_name = "__rtsn_gen_sm_is"]
+    #[link_name = "__rtsn_gen_sm_fget"]
     fn __rts_sym_1993();
-    #[link_name = "__rtsn_gen_sm_new"]
+    #[link_name = "__rtsn_gen_sm_fset"]
     fn __rts_sym_1994();
-    #[link_name = "__rtsn_gen_sm_next"]
+    #[link_name = "__rtsn_gen_sm_is"]
     fn __rts_sym_1995();
-    #[link_name = "__rtsn_gen_sm_return"]
+    #[link_name = "__rtsn_gen_sm_new"]
     fn __rts_sym_1996();
-    #[link_name = "__rtsn_gen_sm_sent"]
+    #[link_name = "__rtsn_gen_sm_next"]
     fn __rts_sym_1997();
-    #[link_name = "__rtsn_gen_sm_setstate"]
+    #[link_name = "__rtsn_gen_sm_return"]
     fn __rts_sym_1998();
-    #[link_name = "__rtsn_gen_sm_state"]
+    #[link_name = "__rtsn_gen_sm_sent"]
     fn __rts_sym_1999();
-    #[link_name = "__rtsn_gen_sm_throw"]
+    #[link_name = "__rtsn_gen_sm_setstate"]
     fn __rts_sym_2000();
-    #[link_name = "__rtsn_gen_sm_yield"]
+    #[link_name = "__rtsn_gen_sm_state"]
     fn __rts_sym_2001();
-    #[link_name = "__rtsn_generator_get_ret"]
+    #[link_name = "__rtsn_gen_sm_throw"]
     fn __rts_sym_2002();
-    #[link_name = "__rtsn_generator_next"]
+    #[link_name = "__rtsn_gen_sm_yield"]
     fn __rts_sym_2003();
-    #[link_name = "__rtsn_generator_next_sent"]
+    #[link_name = "__rtsn_generator_get_ret"]
     fn __rts_sym_2004();
-    #[link_name = "__rtsn_generator_return"]
+    #[link_name = "__rtsn_generator_next"]
     fn __rts_sym_2005();
-    #[link_name = "__rtsn_generator_set_ret"]
+    #[link_name = "__rtsn_generator_next_sent"]
     fn __rts_sym_2006();
-    #[link_name = "__rtsn_generator_throw"]
+    #[link_name = "__rtsn_generator_return"]
     fn __rts_sym_2007();
-    #[link_name = "__rtsn_inspect"]
+    #[link_name = "__rtsn_generator_set_ret"]
     fn __rts_sym_2008();
-    #[link_name = "__rtsn_iter_done"]
+    #[link_name = "__rtsn_generator_throw"]
     fn __rts_sym_2009();
-    #[link_name = "__rtsn_iter_value"]
+    #[link_name = "__rtsn_inspect"]
     fn __rts_sym_2010();
-    #[link_name = "__rtsn_live_count"]
+    #[link_name = "__rtsn_iter_done"]
     fn __rts_sym_2011();
-    #[link_name = "__rtsn_object_to_string"]
+    #[link_name = "__rtsn_iter_value"]
     fn __rts_sym_2012();
-    #[link_name = "__rtsn_poly_from_handle"]
+    #[link_name = "__rtsn_live_count"]
     fn __rts_sym_2013();
-    #[link_name = "__rtsn_poly_to_handle"]
+    #[link_name = "__rtsn_object_to_string"]
     fn __rts_sym_2014();
-    #[link_name = "__rtsn_report_uncaught"]
+    #[link_name = "__rtsn_poly_from_handle"]
     fn __rts_sym_2015();
-    #[link_name = "__rtsn_run_event_loop"]
+    #[link_name = "__rtsn_poly_to_handle"]
     fn __rts_sym_2016();
-    #[link_name = "__rtsn_spread_into_vec"]
+    #[link_name = "__rtsn_report_uncaught"]
     fn __rts_sym_2017();
-    #[link_name = "__rtsn_stack_depth"]
+    #[link_name = "__rtsn_run_event_loop"]
     fn __rts_sym_2018();
-    #[link_name = "__rtsn_stack_pop"]
+    #[link_name = "__rtsn_spread_into_vec"]
     fn __rts_sym_2019();
-    #[link_name = "__rtsn_stack_push"]
+    #[link_name = "__rtsn_stack_depth"]
     fn __rts_sym_2020();
-    #[link_name = "__rtsn_string_from_f64"]
+    #[link_name = "__rtsn_stack_pop"]
     fn __rts_sym_2021();
-    #[link_name = "__rtsn_symbol_iterator_of"]
+    #[link_name = "__rtsn_stack_push"]
     fn __rts_sym_2022();
-    #[link_name = "__rtsn_vec_get_by_payload"]
+    #[link_name = "__rtsn_string_from_f64"]
     fn __rts_sym_2023();
-    #[link_name = "__rtsn_vec_len_by_payload"]
+    #[link_name = "__rtsn_symbol_iterator_of"]
     fn __rts_sym_2024();
-    #[link_name = "__rtsn_vec_new_object"]
+    #[link_name = "__rtsn_vec_get_by_payload"]
     fn __rts_sym_2025();
-    #[link_name = "__rtsn_vec_push_by_payload"]
+    #[link_name = "__rtsn_vec_len_by_payload"]
     fn __rts_sym_2026();
-    #[link_name = "__rtsn_vec_set_by_payload"]
+    #[link_name = "__rtsn_vec_new_object"]
     fn __rts_sym_2027();
+    #[link_name = "__rtsn_vec_push_by_payload"]
+    fn __rts_sym_2028();
+    #[link_name = "__rtsn_vec_set_by_payload"]
+    fn __rts_sym_2029();
 }
 
 /// Every RTS symbol with its address, for `JITBuilder::symbol`.
@@ -4093,7 +4097,7 @@ unsafe extern "C" {
 /// unique symbol name. A `#[cfg]`-gated platform-alternative pair shares ONE
 /// row via a same-named `const` defined once per branch — exactly one
 /// definition compiles per platform, so the row count never varies.
-pub static SYMBOLS: [::rts_abi::table::SymbolEntry; 2028] = [
+pub static SYMBOLS: [::rts_abi::table::SymbolEntry; 2030] = [
     ::rts_abi::table::SymbolEntry { name: "__RTS_FN_GL_ABORTSIGNAL_STATIC_ABORT", ptr: __rts_sym_0 as *const u8 },
     ::rts_abi::table::SymbolEntry { name: "__RTS_FN_GL_ABORTSIGNAL_STATIC_ANY", ptr: __rts_sym_1 as *const u8 },
     ::rts_abi::table::SymbolEntry { name: "__RTS_FN_GL_ABORTSIGNAL_STATIC_TIMEOUT", ptr: __rts_sym_2 as *const u8 },
@@ -6077,51 +6081,53 @@ pub static SYMBOLS: [::rts_abi::table::SymbolEntry; 2028] = [
     ::rts_abi::table::SymbolEntry { name: "__rtsn_gcell_set", ptr: __rts_sym_1980 as *const u8 },
     ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_delegate_done", ptr: __rts_sym_1981 as *const u8 },
     ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_delegate_next", ptr: __rts_sym_1982 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_delegate_start", ptr: __rts_sym_1983 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_caught", ptr: __rts_sym_1984 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_done", ptr: __rts_sym_1985 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_drain", ptr: __rts_sym_1986 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_end_finally", ptr: __rts_sym_1987 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_enter_try", ptr: __rts_sym_1988 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_enter_try_catch", ptr: __rts_sym_1989 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_exit_try_catch", ptr: __rts_sym_1990 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_fget", ptr: __rts_sym_1991 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_fset", ptr: __rts_sym_1992 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_is", ptr: __rts_sym_1993 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_new", ptr: __rts_sym_1994 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_next", ptr: __rts_sym_1995 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_return", ptr: __rts_sym_1996 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_sent", ptr: __rts_sym_1997 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_setstate", ptr: __rts_sym_1998 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_state", ptr: __rts_sym_1999 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_throw", ptr: __rts_sym_2000 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_yield", ptr: __rts_sym_2001 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_generator_get_ret", ptr: __rts_sym_2002 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_generator_next", ptr: __rts_sym_2003 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_generator_next_sent", ptr: __rts_sym_2004 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_generator_return", ptr: __rts_sym_2005 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_generator_set_ret", ptr: __rts_sym_2006 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_generator_throw", ptr: __rts_sym_2007 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_inspect", ptr: __rts_sym_2008 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_iter_done", ptr: __rts_sym_2009 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_iter_value", ptr: __rts_sym_2010 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_live_count", ptr: __rts_sym_2011 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_object_to_string", ptr: __rts_sym_2012 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_poly_from_handle", ptr: __rts_sym_2013 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_poly_to_handle", ptr: __rts_sym_2014 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_report_uncaught", ptr: __rts_sym_2015 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_run_event_loop", ptr: __rts_sym_2016 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_spread_into_vec", ptr: __rts_sym_2017 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_stack_depth", ptr: __rts_sym_2018 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_stack_pop", ptr: __rts_sym_2019 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_stack_push", ptr: __rts_sym_2020 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_string_from_f64", ptr: __rts_sym_2021 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_symbol_iterator_of", ptr: __rts_sym_2022 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_vec_get_by_payload", ptr: __rts_sym_2023 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_vec_len_by_payload", ptr: __rts_sym_2024 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_vec_new_object", ptr: __rts_sym_2025 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_vec_push_by_payload", ptr: __rts_sym_2026 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_vec_set_by_payload", ptr: __rts_sym_2027 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_delegate_next_sent", ptr: __rts_sym_1983 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_delegate_ret", ptr: __rts_sym_1984 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_delegate_start", ptr: __rts_sym_1985 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_caught", ptr: __rts_sym_1986 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_done", ptr: __rts_sym_1987 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_drain", ptr: __rts_sym_1988 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_end_finally", ptr: __rts_sym_1989 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_enter_try", ptr: __rts_sym_1990 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_enter_try_catch", ptr: __rts_sym_1991 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_exit_try_catch", ptr: __rts_sym_1992 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_fget", ptr: __rts_sym_1993 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_fset", ptr: __rts_sym_1994 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_is", ptr: __rts_sym_1995 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_new", ptr: __rts_sym_1996 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_next", ptr: __rts_sym_1997 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_return", ptr: __rts_sym_1998 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_sent", ptr: __rts_sym_1999 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_setstate", ptr: __rts_sym_2000 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_state", ptr: __rts_sym_2001 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_throw", ptr: __rts_sym_2002 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_gen_sm_yield", ptr: __rts_sym_2003 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_generator_get_ret", ptr: __rts_sym_2004 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_generator_next", ptr: __rts_sym_2005 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_generator_next_sent", ptr: __rts_sym_2006 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_generator_return", ptr: __rts_sym_2007 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_generator_set_ret", ptr: __rts_sym_2008 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_generator_throw", ptr: __rts_sym_2009 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_inspect", ptr: __rts_sym_2010 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_iter_done", ptr: __rts_sym_2011 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_iter_value", ptr: __rts_sym_2012 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_live_count", ptr: __rts_sym_2013 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_object_to_string", ptr: __rts_sym_2014 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_poly_from_handle", ptr: __rts_sym_2015 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_poly_to_handle", ptr: __rts_sym_2016 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_report_uncaught", ptr: __rts_sym_2017 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_run_event_loop", ptr: __rts_sym_2018 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_spread_into_vec", ptr: __rts_sym_2019 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_stack_depth", ptr: __rts_sym_2020 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_stack_pop", ptr: __rts_sym_2021 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_stack_push", ptr: __rts_sym_2022 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_string_from_f64", ptr: __rts_sym_2023 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_symbol_iterator_of", ptr: __rts_sym_2024 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_vec_get_by_payload", ptr: __rts_sym_2025 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_vec_len_by_payload", ptr: __rts_sym_2026 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_vec_new_object", ptr: __rts_sym_2027 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_vec_push_by_payload", ptr: __rts_sym_2028 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_vec_set_by_payload", ptr: __rts_sym_2029 as *const u8 },
 ];
 
 /// Slice accessor, kept for source compatibility with callers written
@@ -6132,7 +6138,7 @@ pub fn symbols() -> &'static [::rts_abi::table::SymbolEntry] { &SYMBOLS }
 /// The same symbols as names only, for the AOT object module's declaration
 /// list. Same order as `SYMBOLS`; the two cannot diverge — both are grouped
 /// from the same declarations. A `static` array in `.rodata`, like `SYMBOLS`.
-pub static AOT_SYMBOLS: [&'static str; 2028] = [
+pub static AOT_SYMBOLS: [&'static str; 2030] = [
     "__RTS_FN_GL_ABORTSIGNAL_STATIC_ABORT",
     "__RTS_FN_GL_ABORTSIGNAL_STATIC_ANY",
     "__RTS_FN_GL_ABORTSIGNAL_STATIC_TIMEOUT",
@@ -8116,6 +8122,8 @@ pub static AOT_SYMBOLS: [&'static str; 2028] = [
     "__rtsn_gcell_set",
     "__rtsn_gen_delegate_done",
     "__rtsn_gen_delegate_next",
+    "__rtsn_gen_delegate_next_sent",
+    "__rtsn_gen_delegate_ret",
     "__rtsn_gen_delegate_start",
     "__rtsn_gen_sm_caught",
     "__rtsn_gen_sm_done",
@@ -8171,9 +8179,9 @@ pub fn aot_symbols() -> ::rts_abi::table::AotSymbols { &AOT_SYMBOLS }
 /// ABI signatures derived from the Rust signatures of `#[rtse::abi]` fns.
 ///
 /// A `static` array in `.rodata`, sorted ascending by name like `SYMBOLS` — a
-/// lookup is a binary search, no `HashMap` build at startup. 1524 of 2028 symbols
+/// lookup is a binary search, no `HashMap` build at startup. 1526 of 2030 symbols
 /// carry one; the rest are not yet declared with `#[rtse::abi]`.
-pub static SIGNATURES: [(&'static str, &'static [::rts_abi::AbiType], ::rts_abi::AbiType); 1524] = [
+pub static SIGNATURES: [(&'static str, &'static [::rts_abi::AbiType], ::rts_abi::AbiType); 1526] = [
     ("__RTS_FN_GL_ABORTSIGNAL_STATIC_ABORT", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::U64),
     ("__RTS_FN_GL_ABORTSIGNAL_STATIC_ANY", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::U64),
     ("__RTS_FN_GL_ABORTSIGNAL_STATIC_TIMEOUT", &[::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
@@ -9653,6 +9661,8 @@ pub static SIGNATURES: [(&'static str, &'static [::rts_abi::AbiType], ::rts_abi:
     ("__rtsn_gcell_set", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::U64], ::rts_abi::AbiType::Void),
     ("__rtsn_gen_delegate_done", &[::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
     ("__rtsn_gen_delegate_next", &[::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsn_gen_delegate_next_sent", &[::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
+    ("__rtsn_gen_delegate_ret", &[::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
     ("__rtsn_gen_delegate_start", &[::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
     ("__rtsn_gen_sm_caught", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::I64),
     ("__rtsn_gen_sm_done", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),

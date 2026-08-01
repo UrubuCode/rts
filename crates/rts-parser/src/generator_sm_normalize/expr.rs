@@ -11,7 +11,9 @@ use swc_ecma_ast::{
     PropOrSpread, SimpleAssignTarget, Stmt, UnaryOp,
 };
 
-use crate::generator_sm::{assign_stmt, expr_has_yield, ident_expr, let_decl, sp, undef_expr};
+use crate::generator_sm::{
+    assign_stmt, call_stmt, expr_has_yield, ident_expr, let_decl, sp, undef_expr,
+};
 
 use super::temp;
 
@@ -29,11 +31,11 @@ pub(super) fn norm_expr(e: &Expr, out: &mut Vec<Stmt>, ctr: &mut usize) -> Optio
         Expr::TsTypeAssertion(a) => norm_expr(&a.expr, out, ctr),
         Expr::TsConstAssertion(a) => norm_expr(&a.expr, out, ctr),
 
-        // O próprio `yield`: vira uma ligação, que é a forma da máquina.
+        // O próprio `yield`: vira uma LIGAÇÃO, que é a forma da máquina. Vale
+        // igual para `yield*` — a máquina tem um arm para cada. O que difere é o
+        // valor produzido (`yield` lê o `sent` da retomada; `yield*` lê o
+        // `return` do delegado), e isso é decidido lá, não aqui.
         Expr::Yield(y) => {
-            if y.delegate {
-                return None; // `yield*` em posição de valor: fora desta fatia.
-            }
             let arg = match y.arg.as_deref() {
                 Some(a) if expr_has_yield(a) => Some(Box::new(norm_expr(a, out, ctr)?)),
                 other => other.map(|a| Box::new(a.clone())),
@@ -80,11 +82,20 @@ pub(super) fn norm_expr(e: &Expr, out: &mut Vec<Stmt>, ctr: &mut usize) -> Optio
             }))
         }
 
+        // `(a, b, c)` — o valor é o ÚLTIMO, mas os anteriores TÊM de rodar.
+        // Devolver só o último descartava os demais: `if (u = yield* g(), u)`
+        // — a forma que o Babel emite, e que aparece no bundle real — perdia a
+        // atribuição `u = …` e o teste lia `u` velho. Cada residual não-final
+        // vira um statement de expressão, na ordem.
         Expr::Seq(s) => {
             let mut last = None;
-            for x in &s.exprs {
+            for (i, x) in s.exprs.iter().enumerate() {
                 let v = norm_expr(x, out, ctr)?;
-                last = Some(v);
+                if i + 1 < s.exprs.len() {
+                    out.push(call_stmt(v));
+                } else {
+                    last = Some(v);
+                }
             }
             last
         }
