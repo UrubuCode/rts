@@ -86,7 +86,19 @@ pub fn module_globals(
             top.push(name.clone());
         }
     }
-    if top.is_empty() {
+    // A top-level FUNCTION whose NAME is REASSIGNED is a mutable binding too, so
+    // it belongs on this list next to the `let`s. In JS a function declaration
+    // creates an ordinary writable binding, and reassigning it is the
+    // memoization every Babel-transpiled async function is built on:
+    //
+    //     function v(a) { v = _asyncToGenerator(…); return v.apply(this, args) }
+    //
+    // Without this the write had no home — the name resolved to the immutable
+    // top-level fn table — and the whole file bailed "assignment to unbound".
+    // Gated on being WRITTEN (never on merely being read): an ordinary function
+    // keeps resolving through the fn table and its direct-call fast path.
+    let fn_names: Vec<String> = funcs.iter().map(|f| f.name.clone()).collect();
+    if top.is_empty() && fn_names.is_empty() {
         return HashMap::new();
     }
     // Names written OR read (free) inside SOME function: minus that fn's own params
@@ -134,6 +146,22 @@ pub fn module_globals(
             || force.contains(&name)
             || read_free.contains(&name);
         if promote {
+            map.insert(name, id);
+            id += 1;
+        }
+    }
+    // Reassigned top-level functions (see `fn_names` above). WRITTEN-only — a
+    // read-only function must NOT become a cell, or every ordinary call would
+    // lose its direct fast path. A name already promoted as a `let` keeps its id.
+    // A write from the TOP LEVEL counts for a function name too (`function v(){}
+    // … v = other;`), unlike for a `let` — a top-level `let` written at top level
+    // is just main's own local, but a FUNCTION is visible to every other
+    // function, so the new value has to reach them through the cell.
+    let top_writes = mutated_names(&main.body);
+    for name in fn_names {
+        if (written_free.contains(&name) || top_writes.contains(&name))
+            && !map.contains_key(&name)
+        {
             map.insert(name, id);
             id += 1;
         }

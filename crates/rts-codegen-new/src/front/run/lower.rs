@@ -685,6 +685,34 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
         }
 
+        // FUNCTION-HOISTING prologue (main only): seed the cell of every top-level
+        // function whose NAME IS REASSIGNED with the function itself.
+        //
+        // Such a name is a mutable binding (`funcval::module_globals` promotes it
+        // to a gcell, the same as a written `let`), so reads no longer go through
+        // the immutable fn table — they read the cell, and the cell has to already
+        // hold the function. Seeding it HERE, before the first statement, is
+        // exactly JS function hoisting: the binding is callable above its own
+        // declaration line.
+        //
+        // Which gcells are fn-backed is DERIVED (`gcells` ∩ `sigs`), not a new
+        // field threaded through the pipeline.
+        if ctx.is_main {
+            let mut seed: Vec<(String, u32)> = gcells
+                .iter()
+                .filter(|(name, _)| sigs.contains_key(*name))
+                .map(|(n, i)| (n.clone(), *i))
+                .collect();
+            // Deterministic order — emitted IR must not depend on HashMap
+            // iteration order (that non-determinism produced broken AOT objects).
+            seed.sort();
+            for (name, id) in seed {
+                let f = ctx.reify_function(module, &name)?;
+                let word = ctx.box_value(f);
+                ctx.emit_gcell_set(module, id, word)?;
+            }
+        }
+
         // METHOD-TABLE prologue (main only): register every class method's
         // (instance shape-id, name) → thunk addr in the runtime table, so the
         // dynamic property read reifies a class method as a VALUE (obj_get miss

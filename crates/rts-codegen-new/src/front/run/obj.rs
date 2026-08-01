@@ -1310,7 +1310,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(None);
         };
         // A local of this name shadows the function — not a function-value receiver.
-        if self.local(name).is_some() || !self.sigs.contains_key(name) {
+        // A gcell means the program REASSIGNS the name, so the fn table holds a
+        // stale value: fall through to the ordinary ident read, which loads the
+        // cell. (`gcell_id` is `None` for every function that is never written.)
+        if self.local(name).is_some()
+            || self.gcell_id(name).is_some()
+            || !self.sigs.contains_key(name)
+        {
             return Ok(None);
         }
         let name = name.clone();
