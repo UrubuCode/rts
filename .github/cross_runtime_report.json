@@ -1158,7 +1158,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new BigInt64Array(..)` — class `BigInt64Array` is not a user class in this program (a global/Registry class or `extends` class is a later increment)\n      at run of tests/cross-runtime/bigint/65_bigint_typed_arrays.ts failed"
+  "rts_error": "error: Uncaught ReferenceError: BigInt64Array is not defined\n      at run of tests/cross-runtime/bigint/65_bigint_typed_arrays.ts failed"
 }
 ,
 {
@@ -1186,7 +1186,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new BigInt64Array(..)` — class `BigInt64Array` is not a user class in this program (a global/Registry class or `extends` class is a later increment)\n      at run of tests/cross-runtime/bigint/codex_bigint_typedarray_clamp_wrap.ts failed"
+  "rts_error": "error: Uncaught ReferenceError: BigInt64Array is not defined\n      at run of tests/cross-runtime/bigint/codex_bigint_typedarray_clamp_wrap.ts failed"
 }
 ,
 {
@@ -6080,13 +6080,13 @@
   "status": "rts_error",
   "bun": "Rex breathes\nRex\nLab\nname,breed\ntrue\nfalse\na,b\nhello from base1\nhello from base2\nC->B->A->Object\nred shape\n79\ntrue\ntrue",
   "node": "Rex breathes\nRex\nLab\nname,breed\ntrue\nfalse\na,b\nhello from base1\nhello from base2\nC->B->A->Object\nred shape\n79\ntrue\ntrue",
-  "rts": "",
+  "rts": "Rex breathes\nRex\nLab\nname,breed\ntrue\nfalse\na,b\nhello from base1\nhello from base2\nC->B->A->Object",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new Circle(..)` — class `Circle` is not a user class in this program (a global/Registry class or `extends` class is a later increment)\n      at run of tests/cross-runtime/object-meta/387_object_create_descriptors.ts failed"
+  "rts_error": "error: Uncaught ReferenceError: Circle is not defined\n      at run of tests/cross-runtime/object-meta/387_object_create_descriptors.ts failed"
 }
 ,
 {
@@ -6542,13 +6542,13 @@
   "status": "rts_error",
   "bun": "13\n5:proxy:true:true",
   "node": "13\n5:proxy:true:true",
-  "rts": "",
+  "rts": "[object Object]10",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new P(..)` — class `P` is not a user class in this program (a global/Registry class or `extends` class is a later increment)\n      at run of tests/cross-runtime/object-meta/codex_proxy_construct_apply_newtarget.ts failed"
+  "rts_error": "error: Uncaught TypeError: value is not a constructor\n      at run of tests/cross-runtime/object-meta/codex_proxy_construct_apply_newtarget.ts failed"
 }
 ,
 {
@@ -7332,7 +7332,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new CompressionStream(..)` — class `CompressionStream` is not a user class in this program (a global/Registry class or `extends` class is a later increment)\n      at run of tests/cross-runtime/streams/88_compression_stream.ts failed"
+  "rts_error": "error: Uncaught ReferenceError: CompressionStream is not defined\n      at run of tests/cross-runtime/streams/88_compression_stream.ts failed"
 }
 ,
 {
