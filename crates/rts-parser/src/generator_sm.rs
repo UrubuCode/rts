@@ -826,6 +826,12 @@ impl SmBuilder {
             // `switch` — cadeia de testes + cadeia de corpos (fallthrough);
             // ver `generator_sm_switch`.
             Stmt::Switch(sw) => self.lower_switch(sw, cur),
+            // `;` solto e `debugger` nao produzem nada — mas cair no `_ => None`
+            // abortava a construcao do generator INTEIRO. E' o corpo VAZIO de um
+            // `for(...;...;...);`, forma comum em codigo minificado (ext4_22 do
+            // bundle real), e tambem um `;` extra depois de um statement.
+            // Repro: `function* g(t){ const a = yield t; ; return a; }`.
+            Stmt::Empty(_) | Stmt::Debugger(_) => Some(cur),
             // bloco aninhado simples: achata
             Stmt::Block(b) => self.lower_seq(&b.stmts, cur),
             // `if` sem yield no corpo: mantemos verbatim (efeito colateral puro).
