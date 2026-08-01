@@ -774,6 +774,6 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 /// instance methods only). Mirrors `mathobj::is_wrapper_primordial_static` and
 /// `globalclass::is_wrapper_primordial`. Only `String` (and `Array`, which has no
 /// prelude class today) reaches `try_global_static_call`'s class-shadow gate.
-fn is_global_static_class(name: &str) -> bool {
+pub(super) fn is_global_static_class(name: &str) -> bool {
     matches!(name, "String" | "Array")
 }

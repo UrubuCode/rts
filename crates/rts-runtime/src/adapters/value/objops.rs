@@ -724,6 +724,14 @@ fn added_key_shape(obj_word: u64, key_str_handle: u64) -> Option<u32> {
 /// overwrites). The key is ToString'd to a property key (numbers/bools coerce like
 /// JS). Returns the new object word. A non-array entry (or non-array source) is
 /// skipped defensively — the lowering only routes a proven-array source here.
+/// Whether `w` is an ARRAY word (not a keyed object): the same test the dynamic
+/// dispatch uses, so `fromEntries` and method resolution cannot disagree about
+/// what an array is.
+fn is_pair_array(w: u64) -> bool {
+    let v = PolyValue::from_raw(w);
+    v.is_object() && !super::inspect::looks_like_object(v)
+}
+
 #[rtse::abi]
 pub fn rtsadp_obj_from_entries(entries_word: u64) -> u64 {
     // Empty keyed object (slot 0 = empty-shape id, like a `{}` literal).
@@ -733,6 +741,35 @@ pub fn rtsadp_obj_from_entries(entries_word: u64) -> u64 {
     rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(obj_handle, slot0);
     let obj_word =
         PolyValue::from_object_handle(rt_handles::__rtsn_poly_from_handle(obj_handle)).raw();
+
+    // A NON-ARRAY source (a Map, or anything else that publishes `entries()`):
+    // the spec iterates it, and every such value in this runtime exposes the
+    // pair sequence through `entries()`. Resolve that by NAME through the
+    // ordinary dynamic dispatch — no class is named here, so a user class with
+    // an `entries()` works exactly like the built-in one. A source WITHOUT
+    // `entries()` falls through to the array walk below, which reads a
+    // non-array as zero pairs (an empty object — the spec answer for an empty
+    // iterable, and never a crash).
+    let entries_word = if is_pair_array(entries_word) {
+        entries_word
+    } else if PolyValue::from_raw(entries_word).is_object() {
+        let key = super::abi_adapter::intern_poly("entries").raw();
+        let undef = PolyValue::undefined().raw();
+        let pairs = super::dyndispatch::__rtsadp_dyn_method_call(
+            entries_word,
+            key,
+            undef,
+            undef,
+            undef,
+        );
+        if is_pair_array(pairs) {
+            pairs
+        } else {
+            entries_word
+        }
+    } else {
+        entries_word
+    };
 
     let entries = PolyValue::from_raw(entries_word);
     if entries.is_object() {
