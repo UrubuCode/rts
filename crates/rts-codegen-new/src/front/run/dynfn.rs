@@ -35,6 +35,23 @@ use rts_runtime::namespaces::globals::function::ops::{CompiledFn, register_compi
 /// collides with user code: each snippet compiles into a FRESH `JITModule`.
 const DYN_FN_NAME: &str = "__rtsdyn_anonymous";
 
+/// Diagnostics: with `RTS_DYNFN_DUMP=<dir>` set, a `new Function` body that
+/// FAILS to compile is written to `<dir>/dynfn_fail_<N>.js` alongside its error.
+/// A dynamic body only exists in memory (its span does not index any on-disk
+/// source), so without this there is no way to extract a failing function from
+/// a multi-megabyte page bundle for a minimal repro.
+fn dump_failing_body(src: &str, err: &impl std::fmt::Display) {
+    let Ok(dir) = std::env::var("RTS_DYNFN_DUMP") else {
+        return;
+    };
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static N: AtomicU32 = AtomicU32::new(0);
+    let n = N.fetch_add(1, Ordering::Relaxed);
+    let path = std::path::Path::new(&dir).join(format!("dynfn_fail_{n}.js"));
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(&path, format!("// error: {err}\n{src}"));
+}
+
 /// Install [`compile_dynamic_fn`] as the rts-primitives `COMPILE_FN_HOOK`.
 /// Idempotent (OnceLock behind `register_compile_fn`).
 pub(super) fn register_hook() {
@@ -51,11 +68,15 @@ fn compile_dynamic_fn(params: &[&str], body: &str) -> anyhow::Result<CompiledFn>
     // MAY still pass an explicit annotation in the param string ("h: i64").
     let plist = params.to_vec().join(", ");
     let src = format!("function {DYN_FN_NAME}({plist}) {{\n{body}\n}}\n");
-    let prog =
-        super::build_with_includes(&src).map_err(|e| anyhow::anyhow!("new Function body: {e}"))?;
+    let prog = super::build_with_includes(&src).map_err(|e| {
+        dump_failing_body(&src, &e);
+        anyhow::anyhow!("new Function body: {e}")
+    })?;
     let mut module = super::module_jit::make_module();
-    super::module_jit::populate_module(&mut module, &prog)
-        .map_err(|e| anyhow::anyhow!("new Function body: {e}"))?;
+    super::module_jit::populate_module(&mut module, &prog).map_err(|e| {
+        dump_failing_body(&src, &e);
+        anyhow::anyhow!("new Function body: {e}")
+    })?;
     module
         .finalize_definitions()
         .map_err(|e| anyhow::anyhow!("new Function finalize: {e}"))?;

@@ -50,34 +50,35 @@ pub(crate) fn arrow_decl_names(stmts: &[HirStmt]) -> HashSet<String> {
 
 fn collect_arrow_decls(stmts: &[HirStmt], out: &mut HashSet<String>) {
     for s in stmts {
-        match s {
-            HirStmt::Let {
-                name,
-                init: Some(e),
-                ..
-            }
-            | HirStmt::Const { name, init: e, .. } => {
-                // Pre-rewrite the init is an inline `Arrow`; post-rewrite (the
-                // prologue's cell-hoisting scan runs on the REWRITTEN body) it
-                // is an `Ident` of the synthesized fn — accept both.
-                let is_fn_init = matches!(e.kind, HirExprKind::Arrow { .. })
-                    || matches!(&e.kind, HirExprKind::Ident(n)
-                        if n.starts_with("__rtsn_arrow_") || n.starts_with("__rtsl_"));
-                if is_fn_init {
-                    out.insert(name.clone());
-                }
-            }
-            HirStmt::If { then, else_, .. } => {
-                collect_arrow_decls(then, out);
-                if let Some(e) = else_ {
-                    collect_arrow_decls(e, out);
-                }
-            }
-            HirStmt::While { body, .. } => collect_arrow_decls(body, out),
-            HirStmt::Block(b) => collect_arrow_decls(b, out),
-            _ => {}
+        if let HirStmt::Let {
+            name,
+            init: Some(e),
+            ..
         }
+        | HirStmt::Const { name, init: e, .. } = s
+        {
+            // Pre-rewrite the init is an inline `Arrow`; post-rewrite (the
+            // prologue's cell-hoisting scan runs on the REWRITTEN body) it
+            // is an `Ident` of the synthesized fn — accept both.
+            let is_fn_init = matches!(e.kind, HirExprKind::Arrow { .. })
+                || matches!(&e.kind, HirExprKind::Ident(n)
+                    if n.starts_with("__rtsn_arrow_") || n.starts_with("__rtsl_"));
+            if is_fn_init {
+                out.insert(name.clone());
+            }
+        }
+        // Descend through EVERY statement kind via the one exhaustive walker. The
+        // hand-rolled descent covered only if/while/block, so a nested fn
+        // declared inside a `try`/`switch`/`for` — routine in a minified module
+        // factory — was invisible to the forward-reference set, and a sibling
+        // referencing it ahead lost the name entirely ("call to unknown
+        // function `__w`" from inside the lifted fn).
+        for_each_child_stmt(s, &mut |st| collect_arrow_decls_one(st, out));
     }
+}
+
+fn collect_arrow_decls_one(s: &HirStmt, out: &mut HashSet<String>) {
+    collect_arrow_decls(std::slice::from_ref(s), out);
 }
 
 /// The names DECLARED (`let`/`const`) anywhere in `stmts` (top-level + nested

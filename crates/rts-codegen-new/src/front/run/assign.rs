@@ -92,6 +92,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             let rhs = self.lower_expr(module, value)?;
             let result = if op.is_arithmetic() || matches!(op, HirBinOp::Exp) {
                 self.lower_arith(module, op, cur, rhs)?
+            } else if op.is_bitwise() {
+                // Same ToInt32/ToUint32 generic path a plain local uses — the cell
+                // read is already Tagged, exactly what `lower_bitwise` boxes.
+                self.lower_bitwise(module, op, cur, rhs)?
             } else {
                 return unsupported!("compound-assign operator {op:?} on a global cell");
             };
@@ -110,6 +114,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             let rhs = self.lower_expr(module, value)?;
             let result = if op.is_arithmetic() || matches!(op, HirBinOp::Exp) {
                 self.lower_arith(module, op, cur, rhs)?
+            } else if op.is_bitwise() {
+                self.lower_bitwise(module, op, cur, rhs)?
             } else {
                 return unsupported!("compound-assign operator {op:?} on a local cell");
             };

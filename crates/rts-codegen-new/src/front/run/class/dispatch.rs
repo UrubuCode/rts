@@ -192,8 +192,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             _ => object,
         };
         match &object.kind {
+            // A CAPTURE or a gcell with this name means the ident denotes a
+            // VALUE in this function, not the class — minified bundles reuse
+            // one-letter names (`t` is a class in one module and a `Set` in the
+            // next), and stealing the name here routed `t.add(v)` to the static
+            // path of the wrong class. Same double-check `lower_call` does.
             HirExprKind::Ident(name)
                 if self.local(name).is_none()
+                    && !self.captures.contains_key(name)
+                    && self.gcell_id(name).is_none()
                     && self.local_classes.get(name).is_none()
                     && self.classes.get(name).is_some() =>
             {
@@ -229,7 +236,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return self.call_synth_fn(module, &desc.ctor, Some(this_word), &args[1..]);
         }
         let Some(fn_name) = desc.statics.get(method).cloned() else {
-            return unsupported!("`{class}.{method}()` — no such static method on class `{class}`");
+            // Not a static written in the class body. JS still allows `C.m = fn`
+            // AFTER the fact (undeclared static — what a minifier emits), and the
+            // WRITE path already supports it; mirror it here: read the property
+            // as a VALUE through the same runtime statics walk the field read
+            // uses, and invoke whatever it holds. Absent everywhere ⇒ invoking
+            // `undefined` — the runtime call error, which is the JS behaviour.
+            let val = self.try_static_field_read(module, class, method)?;
+            let fn_word = self.box_value(val);
+            return self.lower_value_call_word(module, fn_word, args);
         };
         // `defineProperty(obj, …)` (Object/Reflect) GROWS `obj`'s shape at runtime
         // (engine.define_prop). A subsequent STATIC `obj.key` read would miss the new
