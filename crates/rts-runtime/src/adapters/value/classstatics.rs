@@ -119,6 +119,50 @@ pub(crate) fn class_of_fn_word(word: u64) -> Option<String> {
     value_name_table().lock().ok()?.get(&addr).cloned()
 }
 
+/// `obj instanceof <class VALUE>` — the DYNAMIC right-hand side: `v instanceof C`
+/// where `C` is a PARAMETER or variable holding the class, not a name the front
+/// can read at lowering time. Minified/transpiled code dispatches this way
+/// constantly.
+///
+/// The static path specializes on the class NAME while lowering, so it cannot
+/// serve a value. This recovers the name from the value ([`class_of_fn_word`],
+/// populated by `__rtsadp_class_value_name` at reify time) and delegates to the
+/// ONE name-keyed prototype walk — the same mechanism, reached from runtime data
+/// instead of a compile-time literal. A plain function used as a constructor has
+/// no class name, so it falls to the ctor side-table and then to a walk against
+/// its own `.prototype`.
+///
+/// A right side that is not callable answers `false`. JS specifies a `TypeError`
+/// there; `__rtsadp_instanceof_fn` already answers `false` and this follows that
+/// convention rather than changing two things at once.
+#[rtse::abi]
+pub fn rtsadp_instanceof_dyn(obj_word: u64, class_word: u64) -> u64 {
+    if let Some(name) = class_of_fn_word(class_word) {
+        let name_w = super::abi_adapter::intern_poly(&name).raw();
+        return super::protos::__rtsadp_instanceof_walk(obj_word, name_w);
+    }
+    if !PolyValue::from_raw(class_word).is_function() {
+        return PolyValue::bool(false).raw();
+    }
+    let addr = super::funcops::__rtsadp_fn_ptr(class_word);
+    if addr != 0 {
+        let r = super::funcops::__rtsadp_instanceof_fn(obj_word, addr);
+        if PolyValue::from_raw(r).is_truthy() {
+            return r;
+        }
+    }
+    // `function F(){}; F.prototype = …` — the spec definition: is `F.prototype`
+    // in the operand's chain? Only reached when the ctor table did not already
+    // say yes, so it can turn a wrong `false` into a right `true`, never the
+    // reverse.
+    let proto_key = super::abi_adapter::intern_poly("prototype").raw();
+    let proto = super::objops::__rtsadp_obj_get(class_word, proto_key);
+    if !PolyValue::from_raw(proto).is_object() {
+        return PolyValue::bool(false).raw();
+    }
+    super::protos::__rtsadp_is_prototype_of(proto, obj_word)
+}
+
 /// The static property `key` carried by `class` or an ancestor, if any. Used by
 /// the dynamic property read on a class-VALUE receiver, which must fall through
 /// to its ordinary behaviour when the class carries no such property.
