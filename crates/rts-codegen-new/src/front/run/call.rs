@@ -60,7 +60,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             } = &object.kind
             {
                 if let HirExprKind::Member { prop: proto, .. } = &inner.kind {
-                    if proto == "prototype" {
+                    // `toString`/`toLocaleString` are the ONE exclusion, and for
+                    // the exact reason the idiom exists: they are the methods
+                    // every builtin OVERRIDES, so rewriting the borrow to
+                    // `recv.toString()` discards the borrowing and calls the
+                    // receiver's own version. `Object.prototype.toString.call(x)`
+                    // — the ecosystem's type-tag test — answered `[1].toString()`
+                    // i.e. `"1"` instead of `"[object Array]"`, silently. Those
+                    // two fall through to the ordinary value path: lower the
+                    // borrowed function and invoke it with `recv` as `this`.
+                    if proto == "prototype" && m != "toString" && m != "toLocaleString" {
                         return self.lower_method_call(module, &args[0], m, &args[1..]);
                     }
                 }

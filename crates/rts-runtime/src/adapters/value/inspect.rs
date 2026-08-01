@@ -62,6 +62,94 @@ use rts_engine::heap::shapes::global_shape_keys;
 use super::abi_adapter;
 use super::{PolyValue, genops};
 
+/// `Object.prototype.toString.call(v)` — the spec's `[object <Tag>]`.
+///
+/// This is THE type-check idiom of the JS ecosystem: every library writes
+/// `Object.prototype.toString.call(x) === "[object Array]"` because it is the
+/// one test that works across realms and cannot be fooled by a forged property.
+/// It used to answer the constant `"[object Object]"` for every receiver, which
+/// meant an ARRAY reported `Object`; worse, a primitive receiver fell through to
+/// its own `toString`, so a number answered `1` and a string answered `s`, and
+/// `null`/`undefined` threw `TypeError: toString is not a function` where the
+/// spec has well-defined tags for both.
+///
+/// Follows `Object.prototype.toString` (ES2024 20.1.3.6) as far as the value
+/// model can observe: `undefined`/`null` first (before any ToObject), then the
+/// array test, then the builtin tag by internal slot. A class INSTANCE stays
+/// `Object` — which is the spec answer for any object without a
+/// `Symbol.toStringTag`, and RTS does not yet consult that symbol (a builtin
+/// with a spec'd tag, e.g. `Map`, therefore still reports `Object`; recorded
+/// rather than faked, since inventing the tag would make an unrelated class with
+/// the same shape lie too).
+#[rtse::abi]
+pub fn rtsadp_object_tag(value_word: u64) -> u64 {
+    abi_adapter::intern_poly(&format!("[object {}]", builtin_tag(value_word))).raw()
+}
+
+/// The `<Tag>` half of [`__rtsadp_object_tag`].
+fn builtin_tag(word: u64) -> &'static str {
+    use rts_runtime::namespaces::gc::handles::Entry;
+    let v = PolyValue::from_raw(word);
+    if v.is_undefined() {
+        return "Undefined";
+    }
+    if v.is_null() {
+        return "Null";
+    }
+    // Primitives report their WRAPPER's tag (the spec's ToObject step); the
+    // wrapper object form reports the same, so both spellings agree.
+    if v.is_bool() {
+        return "Boolean";
+    }
+    if v.is_int32() || v.is_double() {
+        return "Number";
+    }
+    if v.is_string() {
+        return "String";
+    }
+    if v.is_function() {
+        return "Function";
+    }
+    if !v.is_object() {
+        return "Object";
+    }
+    let real = rt_handles::__rtsn_poly_to_handle(v.as_handle());
+    let by_entry = rts_engine::heap::handles::with_entry(real, |e| match e {
+        Some(Entry::Regex(_)) => Some("RegExp"),
+        // A `Vec` is the array representation — but it also backs a keyed
+        // object, whose slot 0 is a shape-id header. `is_plain_array` tells the
+        // two apart the same way the rest of the value model does.
+        Some(Entry::Vec(_)) => None,
+        _ => None,
+    });
+    if let Some(tag) = by_entry {
+        return tag;
+    }
+    if PolyValue::from_raw(super::globalops::__rtsadp_arr_is_array(word)).is_truthy() {
+        return "Array";
+    }
+    // A shaped object declared by a `class`: the Error FAMILY has a spec tag,
+    // every other class is a plain `Object` (no `Symbol.toStringTag`).
+    if let Some(class) = class_of_object(word) {
+        if class == "Error" || rts_engine::heap::class_registry::is_descendant_of(&class, "Error") {
+            return "Error";
+        }
+    }
+    "Object"
+}
+
+/// The declaring class NAME of a shaped object, via its slot-0 shape header.
+fn class_of_object(word: u64) -> Option<String> {
+    let v = PolyValue::from_raw(word);
+    let real = rt_handles::__rtsn_poly_to_handle(v.as_handle());
+    let w0 = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(real, 0);
+    let slot0 = PolyValue::from_raw(w0 as u64);
+    if !slot0.is_int32() {
+        return None;
+    }
+    rts_engine::heap::shapes::class_name_of_shape(slot0.as_i32() as u32)
+}
+
 /// Recursion-depth guard: a pathological deeply-nested / cyclic structure renders
 /// `[Array]` past this depth rather than recurse forever (Node uses a default
 /// inspect depth of 2; we go deeper but still bound it for safety).

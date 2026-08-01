@@ -30,6 +30,9 @@ use rts_engine::abi::ty::Poly;
 // is an rlib and the symbol resolves at the final link, the same pattern
 // `string/value_class.rs` uses for `__rtsadp_to_string`.
 unsafe extern "C" {
+    /// The `[object <Tag>]` authority — see `to_string` below.
+    fn __rtsadp_object_tag(v: u64) -> u64;
+
     fn __rtsadp_has_own(obj: u64, key: u64) -> u64;
     fn __rtsadp_prop_is_enumerable(obj: u64, key: u64) -> u64;
     fn __rtsadp_is_prototype_of(proto: u64, obj: u64) -> u64;
@@ -71,17 +74,21 @@ pub struct ObjectValue;
 
 #[rtse::class("Object", value)]
 impl ObjectValue {
-    /// `Object.prototype.toString()` — the default tag for a plain object.
+    /// `Object.prototype.toString()` — the spec's `[object <Tag>]`, computed
+    /// from the RECEIVER. Delegates to the one runtime authority
+    /// (`__rtsadp_object_tag`) rather than re-deriving the tag here: it needs to
+    /// inspect the heap `Entry` and the shape header, which live above this
+    /// crate. Returning the constant `"[object Object]"` made an ARRAY report
+    /// `Object` and a primitive receiver fall through to its own `toString`.
     #[rtse::method]
-    fn to_string(_recv: Poly) -> String {
-        "[object Object]".to_string()
+    fn to_string(recv: Poly) -> Poly {
+        unsafe { __rtsadp_object_tag(recv) }
     }
 
-    /// `Object.prototype.toLocaleString()` — the spec delegates to `toString`,
-    /// and for a plain object that is the same tag.
+    /// `Object.prototype.toLocaleString()` — the spec delegates to `toString`.
     #[rtse::method]
-    fn to_locale_string(_recv: Poly) -> String {
-        "[object Object]".to_string()
+    fn to_locale_string(recv: Poly) -> Poly {
+        unsafe { __rtsadp_object_tag(recv) }
     }
 
     /// `Object.prototype.valueOf()` — the object itself, unchanged.
