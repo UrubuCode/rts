@@ -63,6 +63,17 @@ use scan::{
 /// function print(v) { __rtsCapturedOutput += v + "\n"; }`) is the canonical case.
 /// `const` is excluded (immutable → never written). A name shadowed by a param or
 /// a local `let` inside the writing function is NOT counted (that write is local).
+/// Diagnostic for `RTS_DIAG_BAIL=1`: report WHY the lifter REFUSED to extract an
+/// arrow. A refusal leaves the arrow inline, and the lowering then bails
+/// "expression arrow" — a message that names neither the offending construct nor
+/// the reason. In a minified bundle there is no other way to tell a mutated-param
+/// capture from a free `this`.
+fn diag_bail(fn_name: &str, why: &str) {
+    if std::env::var("RTS_DIAG_BAIL").is_ok() {
+        eprintln!("[diag] lifter recusou `{fn_name}`: {why}");
+    }
+}
+
 /// Diagnostic for `RTS_DIAG_UNBOUND=<name>`: report WHY the lifter decided the
 /// free identifier `id` is not a capture of the closure it is synthesizing.
 ///
@@ -456,6 +467,7 @@ pub fn extract_arrows(
         cells: HashMap::new(),
         current_fn: String::new(),
         current_fn_lets: HashSet::new(),
+        current_fn_params: HashSet::new(),
         current_fn_arrow_decls: HashSet::new(),
         self_binding: None,
         counter: 0,
@@ -471,6 +483,7 @@ pub fn extract_arrows(
         let mutated = mutated_names(&f.body);
         ctx.current_fn = f.name.clone();
         ctx.current_fn_lets = declared_locals(&f.body);
+        ctx.current_fn_params = params.clone();
         ctx.current_fn_arrow_decls = arrow_decl_names(&f.body);
         ctx.rewrite_block(&mut f.body, &params, &mutated);
     }
@@ -478,6 +491,7 @@ pub fn extract_arrows(
     let main_mutated = mutated_names(&main.body);
     ctx.current_fn = main.name.clone();
     ctx.current_fn_lets = declared_locals(&main.body);
+    ctx.current_fn_params = main_params.clone();
     ctx.current_fn_arrow_decls = arrow_decl_names(&main.body);
     ctx.rewrite_block(&mut main.body, &main_params, &main_mutated);
 
@@ -501,6 +515,7 @@ pub fn extract_arrows(
         let mutated = mutated_names(&f.body);
         ctx.current_fn = f.name.clone();
         ctx.current_fn_lets = declared_locals(&f.body);
+        ctx.current_fn_params = params.clone();
         ctx.current_fn_arrow_decls = arrow_decl_names(&f.body);
         ctx.rewrite_block(&mut f.body, &params, &mutated);
         ctx.synthesized[i] = f;
@@ -899,6 +914,11 @@ struct Ctx {
     /// body — the only locals a captured-mutated name may be a cell of this
     /// increment (a deeper-block or param capture bails, kept sound).
     current_fn_lets: HashSet<String>,
+    /// The PARAMS of [`Self::current_fn`]. A param that a closure captures AND
+    /// something reassigns is cellable exactly like a `let`: the callee prologue
+    /// allocates the cell from the incoming argument. Kept apart from
+    /// `current_fn_lets` because only a param needs that prologue treatment.
+    current_fn_params: HashSet<String>,
     /// Names in the CURRENT function declared with a fn-valued initializer
     /// (`const factor = (..) => …`) — a capture of one is a CELL (mutual
     /// forward refs read the live value; see `arrow_decl_names`).
@@ -1216,6 +1236,7 @@ impl Ctx {
             .enumerate()
             .any(|(i, p)| p.variadic && i + 1 != params.len())
         {
+            diag_bail(&name, "param variádico fora da última posição");
             return None;
         }
         let mut param_names: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
@@ -1353,6 +1374,7 @@ impl Ctx {
             if !scope.contains(id) && !self.current_fn_arrow_decls.contains(id.as_str()) {
                 // `this` is not a value this pass can carry — leave it to bail.
                 if id == "this" {
+                    diag_bail(&name, "`this` livre não carregável");
                     return None;
                 }
                 // Any OTHER name that is no local in scope is a FREE GLOBAL
@@ -1402,7 +1424,33 @@ impl Ctx {
                     captures.push(id.clone());
                     continue;
                 }
-                return None; // mutable param / non-let-local capture — bail.
+                // A PARAM of the declaring function is cellable too: the callee
+                // prologue allocates the cell from the incoming argument (see
+                // the param-cell prologue in `run::lower`), which is the same
+                // "the declaration site allocates it" rule a `let` follows.
+                //
+                // This is what a TRANSPILED DEFAULT PARAMETER looks like —
+                // `function s(t, n, l) { l === void 0 && (l = false); … }` is how
+                // Babel/tsc emit `l = false`, so the param is reassigned, and a
+                // closure capturing it hit the bail. Refusing here rejected the
+                // whole file for a construct that is merely a default argument.
+                if self.current_fn_params.contains(id) {
+                    cell_caps.push(id.clone());
+                    captures.push(id.clone());
+                    continue;
+                }
+                // MUTATED capture that is not a `let` of the declaring function
+                // (a mutated PARAM, or a local the scan did not classify as a
+                // let) — no sound home for the cell, so the arrow stays inline
+                // and the lowering bails "expression arrow".
+                diag_bail(&name, &format!(
+                    "captura mutada `{id}` sem `let` declarante \
+                     (body_assigns={} mutated={} ja_cell={})",
+                    body_assigns.contains(id),
+                    mutated.contains(id),
+                    already_cell,
+                ));
+                return None;
             }
             captures.push(id.clone());
         }

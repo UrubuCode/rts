@@ -685,6 +685,47 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
         }
 
+        // PARAM-CELL prologue: a PARAM that a closure captures AND something
+        // reassigns lives in a cell, exactly like such a `let`. A `let`
+        // allocates its cell at the declaration statement; a param's
+        // "declaration" is the binding above, so the cell is allocated HERE,
+        // seeded with the incoming argument, and the name rebound to the handle.
+        //
+        // The construct this serves is the TRANSPILED DEFAULT PARAMETER —
+        // `function s(t, n, l) { l === void 0 && (l = false); … }` is how
+        // Babel/tsc emit `l = false`. The reassignment makes every closure
+        // capturing `l` unsound by value, and refusing it rejected the whole
+        // file (the lifter's "expression arrow" bail).
+        //
+        // A CAPTURE param is excluded: a synthesized closure receives its
+        // captured cells as leading params ALREADY HOLDING THE HANDLE, so
+        // allocating again would box the handle inside a second cell — the
+        // closure then returned the box instead of the value (measured: `[15]`
+        // where Node gives `15`) and writes landed in the wrong box.
+        {
+            let capture_params = captures.get(&func.name);
+            let param_cells: Vec<String> = func
+                .params
+                .iter()
+                .map(|p| p.name.clone())
+                .filter(|n| {
+                    ctx.cell_locals.contains(n)
+                        && !ctx.hoisted_cells.contains(n)
+                        && !capture_params.is_some_and(|c| c.contains(n))
+                })
+                .collect();
+            for name in param_cells {
+                let Some(local) = ctx.local(&name) else {
+                    continue;
+                };
+                let cur = ctx.builder.use_var(local.var);
+                let word = ctx.box_value(Val::new(cur, local.repr));
+                let handle = ctx.emit_cell_alloc(module, word);
+                ctx.bind_tagged_local(&name, Val::new(handle, Repr::Tagged));
+                ctx.hoisted_cells.insert(name);
+            }
+        }
+
         // FUNCTION-HOISTING prologue (main only): seed the cell of every top-level
         // function whose NAME IS REASSIGNED with the function itself.
         //
