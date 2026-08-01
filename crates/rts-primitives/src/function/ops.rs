@@ -1236,6 +1236,11 @@ fn word_to_raw(w: u64) -> i64 {
     }
 }
 
+/// Positional slots the uniform thunk ABI carries in registers (`a0..a3`).
+/// Args beyond these ride the 6th slot as the OVERFLOW array — see the
+/// uniform-thunk branch of [`invoke_auto_impl`] and `__rtsadp_pack_rest`.
+const UNIFORM_POSITIONAL: usize = 4;
+
 fn invoke_auto_impl(
     callee: i64,
     this_arg: i64,
@@ -1249,9 +1254,14 @@ fn invoke_auto_impl(
     }
     // Motor NOVO: `fn_ptr` é um THUNK de ABI UNIFORME (env, a0..a3, rest) — 6
     // slots PolyValue, env em bound_this. A convenção legada por aridade abaixo
-    // invocaria com os slots errados (env perdido → capturas quebradas). Args
-    // além de 4 ficam de fora (rest=0) — os pumps de timer/microtask chamam com
-    // 0 args, o caso observado.
+    // invocaria com os slots errados (env perdido → capturas quebradas).
+    //
+    // O 6º slot é o array de OVERFLOW: os args a partir do índice 4. O corpo do
+    // thunk o lê como `rest[pos - 4]` para um param posicional além do 4º, e o
+    // repassa a `__rtsadp_pack_rest` quando o callee tem `...rest`. Passar
+    // `undefined` fixo aqui DESCARTAVA todo arg além do 4º em silêncio —
+    // `f(1,2,3,4,5)` devolvia a soma de 1..4, resultado errado e plausível, sem
+    // erro. Montar o overflow é o que fecha esse buraco.
     if read_uniform_thunk(callee as u64) {
         if let Some((fn_ptr, _bound, _hbt, bound_this, ..)) = read_function_data(callee as u64) {
             if fn_ptr != 0 {
@@ -1261,9 +1271,26 @@ fn invoke_auto_impl(
                 // would be packed as a bogus element.
                 let undef = rts_engine::heap::poly::POLY_UNDEFINED;
                 let a = |i: usize| args.get(i).map(|&v| v as u64).unwrap_or(undef);
+                // NOTE: `pack_variadic_tail` (o ramo legado abaixo) NÃO serve
+                // aqui. Ele substitui `all_args[rest_idx..]` por UM handle de
+                // array na posição do rest — mas o thunk uniforme empacota o
+                // próprio tail via `__rtsadp_pack_rest`, então pré-empacotar
+                // embrulharia duas vezes (o mesmo double-wrap que
+                // `rtsadp_invoke_auto_word` documenta e evita). Os dois ramos
+                // são ABIs diferentes por construção: aqui o slot é o overflow
+                // CRU, lá é o rest já empacotado.
+                let rest = if args.len() > UNIFORM_POSITIONAL {
+                    let overflow: Vec<i64> = args[UNIFORM_POSITIONAL..].to_vec();
+                    let h = alloc_entry(Entry::Vec(Box::new(overflow)));
+                    let slot = rts_engine::heap::handles::__rtsn_poly_from_handle(h);
+                    use rts_engine::heap::poly as p;
+                    p::POLY_BOX_BASE | (p::POLY_TAG_OBJECT << p::POLY_TAG_SHIFT) | slot
+                } else {
+                    undef
+                };
                 type Uniform = unsafe extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64;
                 let f: Uniform = unsafe { std::mem::transmute(fn_ptr as usize) };
-                return unsafe { f(bound_this as u64, a(0), a(1), a(2), a(3), undef) } as i64;
+                return unsafe { f(bound_this as u64, a(0), a(1), a(2), a(3), rest) } as i64;
             }
         }
         return 0;
