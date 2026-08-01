@@ -1184,9 +1184,10 @@ fn swc_bin_op_to_hir(op: swc::BinaryOp) -> HirBinOp {
         // `key in obj` — own-property membership; the engine lowers it to a real
         // has-key check (distinct from the `Unsupported` sentinel).
         swc::BinaryOp::In => HirBinOp::In,
+        // Every swc BinaryOp is now mapped — no `_` arm, so a NEW operator
+        // variant fails to compile here instead of silently decaying to
+        // `Unsupported` (which consumers bail on, but explicitly is better).
         swc::BinaryOp::InstanceOf => HirBinOp::InstanceOf,
-        // An unmapped op lands here and the consumer BAILs.
-        _ => HirBinOp::Unsupported,
     }
 }
 

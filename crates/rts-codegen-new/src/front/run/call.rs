@@ -736,6 +736,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
         };
         let result_map = result_map.expect("GENERATOR_* returns a result-Map handle");
+        // The state fn runs USER CODE — a `throw` in the generator body (or any
+        // runtime error mid-state) lands in the error slot during this call.
+        // Route the pending-error unwind HERE, like every other user-code call
+        // edge: without it the error surfaced only at the next checking call,
+        // which could be OUTSIDE the caller's `try` — `try { it.next() } catch`
+        // missed the throw and the program died uncaught.
+        self.emit_post_call_error_check(module)?;
         Ok(Some(self.build_iter_result(module, result_map)))
     }
 
