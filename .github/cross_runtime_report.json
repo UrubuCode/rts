@@ -2940,6 +2940,34 @@
 }
 ,
 {
+  "name": "421_function_reassigned_memoization",
+  "status": "pass",
+  "bun": "self1=real:1\nself2=real:2\nvia_outra=real:3\nantes=orig\ndepois=trocada\nhoisted=ok\npura=42\npura_name=pura\nlazy1=101\nlazy2=102\ninit_rodou=1",
+  "node": "self1=real:1\nself2=real:2\nvia_outra=real:3\nantes=orig\ndepois=trocada\nhoisted=ok\npura=42\npura_name=pura\nlazy1=101\nlazy2=102\ninit_rodou=1",
+  "rts": "self1=real:1\nself2=real:2\nvia_outra=real:3\nantes=orig\ndepois=trocada\nhoisted=ok\npura=42\npura_name=pura\nlazy1=101\nlazy2=102\ninit_rodou=1",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "424_param_captured_and_reassigned",
+  "status": "pass",
+  "bun": "default_omitido=flag=false\ndefault_dado=flag=true\nmuda_depois=15\nclosure_escreve=novo\nduas_closures=2\nc1=1,2\nc2=101\nno_laco=10,11,12",
+  "node": "default_omitido=flag=false\ndefault_dado=flag=true\nmuda_depois=15\nclosure_escreve=novo\nduas_closures=2\nc1=1,2\nc2=101\nno_laco=10,11,12",
+  "rts": "default_omitido=flag=false\ndefault_dado=flag=true\nmuda_depois=15\nclosure_escreve=novo\nduas_closures=2\nc1=1,2\nc2=101\nno_laco=10,11,12",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
   "name": "49_function_meta",
   "status": "pass",
   "bun": "name=add\nlength=2\ncall=5\napply=10\nbind=12",
@@ -2983,16 +3011,16 @@
 ,
 {
   "name": "claude-closure-captures-mutable-param",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "mutate_param=11,12,13\nbody_mutates=ab:AB\npair_init=1\npair_after_set=20\npair_bump=25 get=25\ndefault=14,28 explicit=6,12\nrest_add=3 sum=6\nrest_rebind=0 sum=0\ndestructured=101/2\ndestructured_bumpB=3 read=101/3\nshared_param=24\narg_by_value caller=5 inner=999",
   "node": "mutate_param=11,12,13\nbody_mutates=ab:AB\npair_init=1\npair_after_set=20\npair_bump=25 get=25\ndefault=14,28 explicit=6,12\nrest_add=3 sum=6\nrest_rebind=0 sum=0\ndestructured=101/2\ndestructured_bumpB=3 read=101/3\nshared_param=24\narg_by_value caller=5 inner=999",
-  "rts": "",
+  "rts": "mutate_param=11,12,13\nbody_mutates=ab:AB\npair_init=1\npair_after_set=20\npair_bump=25 get=25\ndefault=14,28 explicit=6,12\nrest_add=3 sum=6\nrest_rebind=0 sum=0\ndestructured=101/2\ndestructured_bumpB=3 read=101/3\nshared_param=24\narg_by_value caller=5 inner=999",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `makeParamCounter`: unsupported in the numeric subset: expression arrow\n      at run of tests/cross-runtime/fn-meta/claude-closure-captures-mutable-param.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -3039,16 +3067,16 @@
 ,
 {
   "name": "claude-closure-reads-live-not-snapshot",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "before=1\nafter=2\nafter2=42\nsnap=1 live=99\nparam_mutated_after=15\nearly=8 late=8\nvar_hoisted=3:4\nvia_binding=second via_capture=first\ninterleaved=012\nmutate_content=2\nrebind=3",
   "node": "before=1\nafter=2\nafter2=42\nsnap=1 live=99\nparam_mutated_after=15\nearly=8 late=8\nvar_hoisted=3:4\nvia_binding=second via_capture=first\ninterleaved=012\nmutate_content=2\nrebind=3",
-  "rts": "",
+  "rts": "before=1\nafter=2\nafter2=42\nsnap=1 live=99\nparam_mutated_after=15\nearly=8 late=8\nvar_hoisted=3:4\nvia_binding=0 via_capture=first\ninterleaved=012\nmutate_content=2\nrebind=3",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `paramLive`: unsupported in the numeric subset: expression arrow\n      at run of tests/cross-runtime/fn-meta/claude-closure-reads-live-not-snapshot.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -3067,16 +3095,16 @@
 ,
 {
   "name": "claude-compose-reassigned-binding",
-  "status": "rts_error",
+  "status": "pass",
   "bun": "12\n11\n3\n5",
   "node": "12\n11\n3\n5",
-  "rts": "",
+  "rts": "12\n11\n3\n5",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: assignment to unbound `pipe`\n      at run of tests/cross-runtime/fn-meta/claude-compose-reassigned-binding.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -3756,7 +3784,7 @@
   "status": "rts_diverge",
   "bun": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
   "node": "content-1,content-2,err:page 3 failed\n4,16,36,64\n1\n2\nfinal\ntrue\na,b,c",
-  "rts": "",
+  "rts": "undefined",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -6637,10 +6665,10 @@
 ,
 {
   "name": "361_functional_compose",
-  "status": "rts_diverge",
+  "status": "pass",
   "bun": "val:49\nval:49\n21\n30\n7\n-7\n4,16,36",
   "node": "val:49\nval:49\n21\n30\n7\n-7\n4,16,36",
-  "rts": "3\nval:49\n21\n30\n7\n-7\n4,16,36",
+  "rts": "val:49\nval:49\n21\n30\n7\n-7\n4,16,36",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -6990,7 +7018,7 @@
   "status": "rts_diverge",
   "bun": "AggregateError\na,b,c",
   "node": "AggregateError\na,b,c",
-  "rts": "undefined",
+  "rts": "",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -9002,6 +9030,34 @@
 }
 ,
 {
+  "name": "422_global_scope_chain",
+  "status": "pass",
+  "bun": "call=w:12\nread=live\nmiss_call=ReferenceError\nmiss_read=ReferenceError\nsc_and=n\nsc_membro=n\nsc_or=y\nsc_tern=sim\nsniff=nenhum\nsombra=param!\ntypeof=undefined",
+  "node": "call=w:12\nread=live\nmiss_call=ReferenceError\nmiss_read=ReferenceError\nsc_and=n\nsc_membro=n\nsc_or=y\nsc_tern=sim\nsniff=nenhum\nsombra=param!\ntypeof=undefined",
+  "rts": "call=w:12\nread=live\nmiss_call=ReferenceError\nmiss_read=ReferenceError\nsc_and=n\nsc_membro=n\nsc_or=y\nsc_tern=sim\nsniff=nenhum\nsombra=param!\ntypeof=undefined",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "423_local_shadows_toplevel_fn",
+  "status": "pass",
+  "bun": "primeira=sess-ID:Env\nmemoizada=sess-ID:Env\ntopo_intacto=TOPO\nparam=param:X\nirmas=cont=2\nso_leitura=local",
+  "node": "primeira=sess-ID:Env\nmemoizada=sess-ID:Env\ntopo_intacto=TOPO\nparam=param:X\nirmas=cont=2\nso_leitura=local",
+  "rts": "primeira=sess-ID:Env\nmemoizada=sess-ID:Env\ntopo_intacto=TOPO\nparam=param:X\nirmas=cont=2\nso_leitura=local",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
   "name": "claude-assign-target-order",
   "status": "pass",
   "bun": "3\nobj1,key2,val3\n1,0,0\n1\n11",
@@ -9701,4 +9757,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":693,"pass":490,"rts_diverge":117,"bun_node_diverge":18,"errors":68,"rejected":0}}
+],"summary":{"total":697,"pass":497,"rts_diverge":117,"bun_node_diverge":18,"errors":65,"rejected":0}}
