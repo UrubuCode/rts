@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Single Binary](https://img.shields.io/badge/output-single%20binary-blue?style=flat-square)](#)
 <!-- CROSS_RUNTIME_BADGE_START -->
-[![Bun/Node parity](https://img.shields.io/badge/Bun%2FNode%20parity-73.2%25-yellowgreen?style=flat-square)](docs/specs/cross-runtime-testing.md)
+[![Bun/Node parity](https://img.shields.io/badge/Bun%2FNode%20parity-73.4%25-yellowgreen?style=flat-square)](docs/specs/cross-runtime-testing.md)
 <!-- CROSS_RUNTIME_BADGE_END -->
 
 </div>
@@ -21,22 +21,22 @@
 <!-- CROSS_RUNTIME_STATS_START -->
 ## 🌐 Cross-runtime parity
 
-JS spec compatibility validated against **Bun** and **Node** over 698 standalone TS fixtures.
+JS spec compatibility validated against **Bun** and **Node** over 701 standalone TS fixtures.
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱] 73.2%   497/679 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱] 73.4%   501/683 fixtures passing
 ```
 
 | Metric | Value |
 |---|---|
-| **Parity** | **73.2%** (497/679) |
-| ✅ RTS = Bun = Node | 497 |
+| **Parity** | **73.4%** (501/683) |
+| ✅ RTS = Bun = Node | 501 |
 | ❌ RTS diverges | 117 |
 | 💥 RTS runtime error | 65 |
 | 🛠️  **Left to fix** | **182** |
-| ⚠️ Bun ≠ Node (skip) | 19 |
+| ⚠️ Bun ≠ Node (skip) | 18 |
 | 🚫 Rejected (RTS-only) | 0 |
-| 📦 Total fixtures | 698 |
+| 📦 Total fixtures | 701 |
 
 _Updated: 2026-08-01 — [how to add a fixture](docs/specs/cross-runtime-testing.md)_
 
