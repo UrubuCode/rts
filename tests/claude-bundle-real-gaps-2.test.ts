@@ -122,6 +122,33 @@ function lab(): any {
   return acc;
 }
 
+// ── fn DECL aninhada no corpo do generator (hoisted, usada antes) ───────────
+const gA = function* (e: any) {
+  var t = n();
+  return yield ("save:" + t), e.length;
+  function n(): any { return e.join("-"); }
+};
+const rA = drive(gA, [["a", "b"]], ["ok"]);
+
+// ── bloco ROTULADO com yield + break rótulo (early-exit do Babel) ───────────
+const gB = function* (t: any) {
+  e: {
+    if (t === "u") { yield "upd"; break e; }
+    if (t === "r") { yield "rw1"; yield "rw2"; break e; }
+    yield "other";
+  }
+  return "end";
+};
+const rB = drive(gB, ["r"], [0, 0, 0]);
+
+// ── yield no TESTE de if (dentro de &&) ─────────────────────────────────────
+function hy(): any { return true; }
+const gC = function* () {
+  if (hy() && (yield "ask") === true) return "yes";
+  return "no";
+};
+const rC = drive(gC, [], [true]);
+
 // ── static não declarado, atribuído depois, e CHAMADO ───────────────────────
 class WaSet {}
 (WaSet as any).add = function (v: any) { return "got:" + v; };
@@ -154,5 +181,14 @@ describe("gaps de bundle real — rodada 2 (throw em generator + lifter + cell)"
   });
   test("static dinâmico chamado", () => {
     expect(dynstatic).toBe("got:5");
+  });
+  test("fn decl aninhada no generator (hoisted, usada antes)", () => {
+    expect(rA).toBe("[y save:a-b][ret 2]");
+  });
+  test("bloco rotulado com yield + break rótulo", () => {
+    expect(rB).toBe("[y rw1][y rw2][ret end]");
+  });
+  test("yield no teste de if via &&", () => {
+    expect(rC).toBe("[y ask][ret yes]");
   });
 });
