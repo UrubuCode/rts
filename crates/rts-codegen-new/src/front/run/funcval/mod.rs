@@ -798,6 +798,15 @@ fn collect_declared(stmts: &[HirStmt], out: &mut HashSet<String>) {
             HirStmt::ForOf { body, .. } | HirStmt::ForIn { body, .. } => {
                 collect_declared(body, out);
             }
+            // A `case` body declares like any block — a nested `function z()`
+            // in one (minified module factories switch on a module id) lowers
+            // to a `let` here, and missing it made the cell branch refuse the
+            // whole enclosing arrow.
+            HirStmt::Switch { cases, .. } => {
+                for c in cases {
+                    collect_declared(&c.body, out);
+                }
+            }
             HirStmt::Block(body) => collect_declared(body, out),
             _ => {}
         }
@@ -999,6 +1008,11 @@ impl Ctx {
                     self.rewrite_block(&mut c.body, scope, mutated);
                 }
             }
+            // `L: <stmt>` — a label is a minifier staple (`continue L` out of a
+            // collapsed loop); an arrow under one must lift like anywhere else.
+            // The sibling walkers (rename/scan_free/scan) already descend here;
+            // this rewrite had been left behind → `expression arrow`.
+            HirStmt::Labeled { body, .. } => self.rewrite_stmt(body, scope, mutated),
             // Other statement kinds are outside the lowering subset; any arrow in
             // them will reach the lowering and bail. Leave untouched.
             _ => {}
@@ -1075,6 +1089,9 @@ impl Ctx {
                     self.rewrite_expr(it, scope, mutated);
                 }
             }
+            // `(<expr> as T)` — an arrow under a cast must lift; the sibling
+            // walkers (scan_free/scan/class::walk) already descend through Cast.
+            HirExprKind::Cast { expr, .. } => self.rewrite_expr(expr, scope, mutated),
             HirExprKind::Arrow { .. } => {
                 // Try to extract this arrow into a top-level function or closure. On
                 // success, replace the node with an Ident of the synthesized name.

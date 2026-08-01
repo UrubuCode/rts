@@ -335,6 +335,21 @@ pub(crate) struct SmBuilder {
     /// Profundidade de regiões `try` abertas. Um `break` que sairia de uma
     /// região pularia o `finally`, então é recusado (bail honesto).
     pub(crate) try_depth: usize,
+    /// Profundidade de regiões onde um `throw` verbatim seria INFIEL: o corpo
+    /// de um `try` modelado (o erro teria de redirecionar para o catch/finally
+    /// da máquina, e o runtime não faz isso para erro interno de estado) e o
+    /// corpo de um `finally` (substituiria a completion pendente). O corpo de
+    /// um `catch` NÃO conta — um throw ali propaga para o chamador, que é
+    /// exatamente o que o verbatim faz.
+    pub(crate) throw_protected_depth: usize,
+    /// `function n(){…}` DECLARADAS no corpo do generator, içadas para o
+    /// prólogo da state-fn (depois dos FGET). JS iça fn-decls ao topo da função,
+    /// então uma helper chamada num estado ANTERIOR à sua posição léxica — a
+    /// forma padrão das fábricas do Babel (`var t=n(); … function n(){…}`) —
+    /// resolve. A cada retomada a fn é recriada capturando os locais recém-
+    /// restaurados do frame; como toda suspensão persiste todos os slots, os
+    /// valores batem entre retomadas.
+    hoisted_fn_decls: Vec<Stmt>,
     /// Nomes que o generator DECLARA (params + todo `var`/`let`/`const`, binding
     /// de `for…of`/`in`, param de `catch`). Só estes podem virar slot de frame.
     ///
@@ -358,6 +373,8 @@ impl SmBuilder {
             loop_stack: Vec::new(),
             pending_label: None,
             try_depth: 0,
+            throw_protected_depth: 0,
+            hoisted_fn_decls: Vec::new(),
             declared: std::collections::HashSet::new(),
         }
     }
@@ -649,6 +666,39 @@ impl SmBuilder {
                 // codigo apos return eh inalcancavel; novo estado morto p/ seq.
                 Some(self.new_state())
             }
+            // `throw E;` — o asyncToGenerator do Babel emite um em praticamente
+            // todo catch (`catch(e){ throw log(), e }`), e sem este arm o `_ =>
+            // None` derrubava o generator INTEIRO para o eager-buffer, que não
+            // expressa yield de valor (era o cluster dominante do bundle real:
+            // 5 de 9 falhas). Fora de região protegida o throw vai VERBATIM: o
+            // erro sobe da state-fn para o chamador de `.next()` como qualquer
+            // erro de runtime — que é a semântica JS —, marcando o generator
+            // done ANTES (JS: um throw não capturado o encerra; sem o DONE o
+            // `.next()` seguinte re-executava o estado e re-lançava). Dentro do
+            // corpo de um `try` modelado ou de um `finally` o verbatim seria
+            // INFIEL (pularia o catch/finally da máquina) — recusa honesta,
+            // como antes.
+            Stmt::Throw(t) => {
+                if expr_has_yield(&t.arg) {
+                    return None; // residual pós-normalização nunca tem yield
+                }
+                if self.throw_protected_depth > 0 {
+                    return None;
+                }
+                self.push_stmt(
+                    cur,
+                    call_stmt(call(
+                        "__RTS_GEN_SM_DONE",
+                        vec![ident_expr(G), undef_expr()],
+                    )),
+                );
+                self.push_stmt(cur, Stmt::Throw(t.clone()));
+                // O `return DONE(...)` do terminal é inalcançável após o throw;
+                // ele existe só para o estado ficar bem-formado (Trans::Unset
+                // derrubaria o build inteiro).
+                self.set_done(cur, None);
+                Some(self.new_state())
+            }
             // `try { ... } finally { ... }` (#477 fatia 2)
             Stmt::Try(t) => {
                 // (#211 try/catch com yield) `try { ...yields... } catch (e) {
@@ -709,7 +759,9 @@ impl SmBuilder {
                         let body_entry = self.new_state();
                         self.set_goto(cur, body_entry);
                         self.try_depth += 1;
+                        self.throw_protected_depth += 1;
                         let body_exit = self.lower_seq(&t.block.stmts, body_entry);
+                        self.throw_protected_depth -= 1;
                         self.try_depth -= 1;
                         let body_exit = body_exit?;
                         // saida normal do body (sem excecao): limpa o catch e segue.
@@ -768,6 +820,7 @@ impl SmBuilder {
                 let body_entry = self.new_state();
                 self.set_goto(cur, body_entry);
                 self.try_depth += 1;
+                self.throw_protected_depth += 1;
                 let body_exit = self.lower_seq(&t.block.stmts, body_entry);
                 let fin_exit = body_exit
                     .and_then(|be| {
@@ -775,6 +828,7 @@ impl SmBuilder {
                         self.set_goto(be, finally_entry);
                         self.lower_seq(&finalizer.stmts, finally_entry)
                     });
+                self.throw_protected_depth -= 1;
                 self.try_depth -= 1;
                 let fin_exit = fin_exit?;
                 // ao fim do finally: END_FINALLY; se nada pendente, segue p/ after.
@@ -813,10 +867,39 @@ impl SmBuilder {
             // no `LoopTarget`. Um rótulo sobre algo que não é laço fica sem
             // consumidor, e um `break L` correspondente não resolve (bail).
             Stmt::Labeled(l) => {
+                // BLOCO rotulado (`e: { … break e; … }`) — early-exit padrão do
+                // Babel (todo `if/else` achatado do asyncToGenerator vira isso).
+                // Não é laço: modela como região só-de-break (mesmo TargetKind
+                // do switch — `continue` até ele nunca resolve), com o `after`
+                // como alvo do `break e`.
+                if let Stmt::Block(b) = &*l.body {
+                    let after = self.new_state();
+                    self.loop_stack
+                        .push(crate::generator_sm_loops::LoopTarget {
+                            kind: crate::generator_sm_loops::TargetKind::Switch,
+                            label: Some(l.label.sym.to_string()),
+                            brk: after,
+                            cont: usize::MAX,
+                            try_depth: self.try_depth,
+                        });
+                    let exit = self.lower_seq(&b.stmts, cur);
+                    self.loop_stack.pop();
+                    let exit = exit?;
+                    self.set_goto(exit, after);
+                    return Some(after);
+                }
                 self.pending_label = Some(l.label.sym.to_string());
                 let out = self.lower_stmt(&l.body, cur);
                 self.pending_label = None;
                 out
+            }
+            // `function n(){…}` no corpo do generator: iça para o prólogo da
+            // state-fn (ver o campo `hoisted_fn_decls`). O corpo da fn aninhada
+            // não contém o yield DESTE generator (fronteira de função), então é
+            // inerte para a máquina; o estado atual segue inalterado.
+            Stmt::Decl(Decl::Fn(_)) => {
+                self.hoisted_fn_decls.push(stmt.clone());
+                Some(cur)
             }
             // `for (x of src)` / `for (k in obj)` / `do … while` — estados
             // pelo protocolo lazy de iteracao; ver `generator_sm_iter`.
@@ -1317,16 +1400,23 @@ fn stmt_needs_lazy(s: &Stmt) -> bool {
         Stmt::For(f) => stmt_has_yield(&f.body),
         Stmt::ForOf(fo) => stmt_has_yield(&fo.body),
         Stmt::ForIn(fi) => stmt_has_yield(&fi.body),
-        // try/finally com yield em qualquer parte exige state-machine.
+        // try com yield OU throw em qualquer parte exige state-machine (o
+        // throw pelo mesmo motivo do arm `Stmt::Throw` abaixo).
         Stmt::Try(t) => {
             t.block.stmts.iter().any(stmt_has_yield)
                 || t.handler.as_ref().map(|h| h.body.stmts.iter().any(stmt_has_yield)).unwrap_or(false)
                 || t.finalizer.as_ref().map(|f| f.stmts.iter().any(stmt_has_yield)).unwrap_or(false)
+                || has_throw_anywhere(t)
         }
         Stmt::Block(b) => body_needs_lazy(&b.stmts),
         // `L: for (…) { yield }` — sem este arm o rotulo escondia o laço do
-        // gate e o corpo inteiro caia no eager-buffer.
-        Stmt::Labeled(l) => stmt_needs_lazy(&l.body),
+        // gate e o corpo inteiro caia no eager-buffer. BLOCO rotulado com
+        // yield idem: o eager não desce em Labeled (o yield sobreviveria cru),
+        // e a SM modela `break L` de bloco — então qualquer yield ali exige SM.
+        Stmt::Labeled(l) => match &*l.body {
+            b @ Stmt::Block(_) => stmt_has_yield(b) || stmt_needs_lazy(b),
+            other => stmt_needs_lazy(other),
+        },
         // QUALQUER `yield` num `switch` exige a SM: o eager-buffer nao modela
         // switch de forma alguma (o yield sobrevive ao desugar e chega cru ao
         // lowering), entao nao ha' caminho alternativo a preservar aqui.
@@ -1335,8 +1425,48 @@ fn stmt_needs_lazy(s: &Stmt) -> bool {
             stmt_needs_lazy(&i.cons)
                 || i.alt.as_deref().map(stmt_needs_lazy).unwrap_or(false)
         }
+        // Um `throw` no corpo exige a SM: o eager-buffer executa o corpo
+        // INTEIRO na construção, então `function* g(){ yield 1; throw e }`
+        // lançava em `g()` — antes de qualquer `.next()` — e fora do try do
+        // chamador real. A SM lança na retomada certa (verbatim no estado).
+        Stmt::Throw(_) => true,
         _ => false,
     }
+}
+
+/// True se o try carrega um `throw` em qualquer bloco (body/catch/finally) em
+/// profundidade — usado só pelo gate de lazy acima (sem descer em fns
+/// aninhadas, que lançam no próprio frame).
+fn has_throw_anywhere(t: &swc_ecma_ast::TryStmt) -> bool {
+    fn walk(s: &Stmt) -> bool {
+        match s {
+            Stmt::Throw(_) => true,
+            Stmt::Block(b) => b.stmts.iter().any(walk),
+            Stmt::If(i) => walk(&i.cons) || i.alt.as_deref().map(walk).unwrap_or(false),
+            Stmt::Try(t) => {
+                t.block.stmts.iter().any(walk)
+                    || t.handler
+                        .as_ref()
+                        .map(|h| h.body.stmts.iter().any(walk))
+                        .unwrap_or(false)
+                    || t.finalizer.as_ref().map(|f| f.stmts.iter().any(walk)).unwrap_or(false)
+            }
+            Stmt::While(w) => walk(&w.body),
+            Stmt::DoWhile(d) => walk(&d.body),
+            Stmt::For(f) => walk(&f.body),
+            Stmt::ForOf(fo) => walk(&fo.body),
+            Stmt::ForIn(fi) => walk(&fi.body),
+            Stmt::Labeled(l) => walk(&l.body),
+            Stmt::Switch(sw) => sw.cases.iter().any(|c| c.cons.iter().any(walk)),
+            _ => false,
+        }
+    }
+    t.block.stmts.iter().any(walk)
+        || t.handler
+            .as_ref()
+            .map(|h| h.body.stmts.iter().any(walk))
+            .unwrap_or(false)
+        || t.finalizer.as_ref().map(|f| f.stmts.iter().any(walk)).unwrap_or(false)
 }
 
 /// True se o stmt contem um `return` em qualquer profundidade (sem descer em
@@ -1491,6 +1621,9 @@ fn build_state_fn(state_fn_name: &str, builder: &SmBuilder) -> Option<FnDecl> {
             call("__RTS_GEN_SM_FGET", vec![ident_expr(G), num_expr(i as f64)]),
         ));
     }
+    // fn-decls do corpo do generator, içadas (JS hoisting) — DEPOIS dos FGET,
+    // para capturarem os locais já restaurados do frame.
+    body.extend(builder.hoisted_fn_decls.iter().cloned());
 
     // while (true) { const __st = STATE(__g); if(__st==0){...} else if ... }
     let mut chain: Option<Stmt> = None;
