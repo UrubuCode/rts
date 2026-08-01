@@ -39,15 +39,16 @@ pub const MATH_FN_OPS: &[&str] = &[
 ];
 
 /// The env-slot op code for a `Math` method name, or `None` when the name is not
-/// a `Math` method. 1-based — see [`MATH_FN_OPS`] for why 0 is reserved.
+/// a `Math` method. The encoding (and the reserved `0`) belongs to
+/// [`super::opcode`] — do not restate the off-by-one here.
 pub fn math_fn_op_code(name: &str) -> Option<i64> {
-    MATH_FN_OPS.iter().position(|m| *m == name).map(|i| i as i64 + 1)
+    super::opcode::encode(MATH_FN_OPS, name)
 }
 
 /// The `Math` method name an env-slot op code denotes, or `None` when the code is
-/// out of range (including the reserved 0).
+/// out of range (the reserved `0` included).
 fn math_fn_op_name(op: u64) -> Option<&'static str> {
-    MATH_FN_OPS.get((op as usize).checked_sub(1)?).copied()
+    super::opcode::decode(MATH_FN_OPS, op)
 }
 
 /// Collect the actual argument words of a uniform-ABI call: `a0..a3` truncated to

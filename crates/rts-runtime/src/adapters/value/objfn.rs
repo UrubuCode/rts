@@ -26,13 +26,8 @@ use super::mathfn::uniform_args;
 /// path resolves a property name to its position here, and [`object_static_thunk`]
 /// dispatches on the same entry — so a reordering cannot desynchronize them.
 ///
-/// The op code carried in the env slot is the position **plus one**. The uniform
-/// invoker (`__rtsadp_fn_invoke`) reserves `env == 0` as the "this function
-/// captures nothing" sentinel and rewrites it to the `undefined` word before the
-/// thunk ever sees it, so a 0-based code makes the FIRST entry (`assign`) arrive
-/// as a huge index, miss the table and return `undefined` while `typeof` still
-/// says `"function"`. That exact bug shipped once in `MATH_FN_OPS`; the test
-/// suite here asserts the first entry specifically.
+/// The op-code encoding lives in [`super::opcode`], including why `0` is
+/// reserved and why the FIRST entry (`assign`) is the one that needs a test.
 pub const OBJECT_FN_OPS: &[&str] = &[
     "assign",
     "create",
@@ -60,18 +55,16 @@ pub const OBJECT_FN_OPS: &[&str] = &[
 ];
 
 /// The env-slot op code for an `Object` static's name, or `None` when the name is
-/// not one. 1-based — see [`OBJECT_FN_OPS`] for why 0 is reserved.
+/// not one. The encoding (and the reserved `0`) belongs to [`super::opcode`] —
+/// do not restate the off-by-one here.
 pub fn object_fn_op_code(name: &str) -> Option<i64> {
-    OBJECT_FN_OPS
-        .iter()
-        .position(|m| *m == name)
-        .map(|i| i as i64 + 1)
+    super::opcode::encode(OBJECT_FN_OPS, name)
 }
 
 /// The `Object` static an env-slot op code denotes, or `None` when the code is
-/// out of range (including the reserved 0).
+/// out of range (the reserved `0` included).
 fn object_fn_op_name(op: u64) -> Option<&'static str> {
-    OBJECT_FN_OPS.get((op as usize).checked_sub(1)?).copied()
+    super::opcode::decode(OBJECT_FN_OPS, op)
 }
 
 /// The spec `length` of an `Object` static — what `Object.keys.length` must read.

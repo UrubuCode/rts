@@ -115,6 +115,11 @@ pub mod mathfn;
 // Object.defineProperty`) — the value form of what `objstatic.rs` lowers at the
 // call site, dispatching on the same ordered table the engine resolves against.
 pub mod objfn;
+// The ONE encoding shared by every namespace that supports the value form above
+// (`mathfn`, `objfn`, …): name -> env-slot op code and back. Owns the reserved-0
+// rule, which had been independently re-derived in each table — and got wrong
+// once, silently, on the first entry of `Math`.
+pub mod opcode;
 // Codegen-owned Array CALLBACK trampolines (P4.7): map/filter/forEach/find/
 // findIndex/some/every/reduce, invoking the callback function VALUE per element
 // via funcops::__rtsadp_fn_invoke.
