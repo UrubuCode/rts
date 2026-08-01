@@ -643,11 +643,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // A proven array source: an array-valued expr OR an `Object.entries(...)`
         // call (whose result is always a freshly-built array of pairs — the common
         // round-trip `fromEntries(entries(o))`).
-        if !self.is_array_valued(&args[0]) && !self.is_object_static_array_expr(&args[0]) {
-            return unsupported!(
-                "Object.fromEntries with a non-array source (Map/iterator is a later increment)"
-            );
-        }
+        // Any OTHER source (an opaque `any`, a param — what minified code
+        // passes) goes to the SAME trampoline: it resolves a non-array source's
+        // `entries()` by name at runtime, so a Map — or any user class with an
+        // `entries()` — works without the front proving the type. Bailing here
+        // rejected the whole file for a call whose source it merely could not
+        // see through.
         let v = self.lower_expr(module, &args[0])?;
         let entries = self.box_value(v);
         let res = self
