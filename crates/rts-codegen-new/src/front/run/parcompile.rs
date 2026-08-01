@@ -121,12 +121,30 @@ pub(super) fn compile_and_define(
     // fully owned results, so the mutable borrow below is free to start.
     let emitted: Vec<Emitted> = {
         let isa = module.isa();
-        let compile_one = |mut p: Pending| -> FrontResult<Emitted> {
-            let res = p
-                .ctx
-                .compile(isa, &mut ControlPlane::default())
-                .map_err(|e| Unsupported::new(format!("compile `{}`: {e:?}", p.name)))?;
-            let alignment = res.buffer.alignment as u64;
+        // `store` is per WORKER (created by `map_init`), not per function — the
+        // snapshot handle is behind a mutex and taking it 425 times would put
+        // the contention right where the parallelism is.
+        let compile_one = |store: &mut Option<super::clifcache::WorkerStore>,
+                           mut p: Pending|
+         -> FrontResult<Emitted> {
+            // With the incremental cache ON (`RTS_CLIF_CACHE=1`), a function
+            // whose STENCIL is unchanged since a previous run is deserialized
+            // instead of recompiled. Callee `FuncId`s are cache PARAMETERS, not
+            // stencil, so a hit survives this run assigning different ids — the
+            // relocs below still come out of the (re-applied) compiled code.
+            let alignment = if let Some(store) = store.as_mut() {
+                let res = p
+                    .ctx
+                    .compile_with_cache(isa, store, &mut ControlPlane::default())
+                    .map_err(|e| Unsupported::new(format!("compile `{}`: {e:?}", p.name)))?;
+                res.0.buffer.alignment as u64
+            } else {
+                let res = p
+                    .ctx
+                    .compile(isa, &mut ControlPlane::default())
+                    .map_err(|e| Unsupported::new(format!("compile `{}`: {e:?}", p.name)))?;
+                res.buffer.alignment as u64
+            };
             let code = p
                 .ctx
                 .compiled_code()
@@ -166,9 +184,10 @@ pub(super) fn compile_and_define(
         };
         if jobs() == 1 {
             crate::timing::phase("  machine-compile (serial)", || {
+                let mut store = super::clifcache::WorkerStore::init();
                 pending
                     .into_iter()
-                    .map(compile_one)
+                    .map(|p| compile_one(&mut store, p))
                     .collect::<FrontResult<_>>()
             })?
         } else {
@@ -176,7 +195,7 @@ pub(super) fn compile_and_define(
                 pool().install(|| {
                     pending
                         .into_par_iter()
-                        .map(compile_one)
+                        .map_init(super::clifcache::WorkerStore::init, compile_one)
                         .collect::<FrontResult<_>>()
                 })
             })?
@@ -197,6 +216,10 @@ pub(super) fn compile_and_define(
     // use of `emitted` (the CAPTURE stash above only cloned from it), so the
     // loop takes it by value — letting each `Emitted::stack_maps` move into
     // `push_pending` instead of a per-function clone.
+    // Write back what this run compiled (one file, once). No-op when the cache
+    // is off or nothing new was produced.
+    super::clifcache::persist();
+
     crate::timing::phase("  define_function_bytes", || {
         for e in emitted {
             module
