@@ -21,22 +21,22 @@
 <!-- CROSS_RUNTIME_STATS_START -->
 ## 🌐 Cross-runtime parity
 
-JS spec compatibility validated against **Bun** and **Node** over 692 standalone TS fixtures.
+JS spec compatibility validated against **Bun** and **Node** over 693 standalone TS fixtures.
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱] 72.6%   489/674 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱] 72.6%   490/675 fixtures passing
 ```
 
 | Metric | Value |
 |---|---|
-| **Parity** | **72.6%** (489/674) |
-| ✅ RTS = Bun = Node | 489 |
+| **Parity** | **72.6%** (490/675) |
+| ✅ RTS = Bun = Node | 490 |
 | ❌ RTS diverges | 115 |
 | 💥 RTS runtime error | 70 |
 | 🛠️  **Left to fix** | **185** |
 | ⚠️ Bun ≠ Node (skip) | 18 |
 | 🚫 Rejected (RTS-only) | 0 |
-| 📦 Total fixtures | 692 |
+| 📦 Total fixtures | 693 |
 
 _Updated: 2026-08-01 — [how to add a fixture](docs/specs/cross-runtime-testing.md)_
 

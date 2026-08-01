@@ -6748,6 +6748,20 @@
 }
 ,
 {
+  "name": "claude_lifter_recursive_switch_capture",
+  "status": "pass",
+  "bun": "switch=20\naninhado=7\nlabeled=30\ndowhile=20\nfib5=5",
+  "node": "switch=20\naninhado=7\nlabeled=30\ndowhile=20\nfib5=5",
+  "rts": "switch=20\naninhado=7\nlabeled=30\ndowhile=20\nfib5=5",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
   "name": "codex_event_emitter_once_mutation",
   "status": "pass",
   "bun": "a1,once1,a2,late2",
@@ -9687,4 +9701,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":692,"pass":489,"rts_diverge":115,"bun_node_diverge":18,"errors":70,"rejected":0}}
+],"summary":{"total":693,"pass":490,"rts_diverge":115,"bun_node_diverge":18,"errors":70,"rejected":0}}
