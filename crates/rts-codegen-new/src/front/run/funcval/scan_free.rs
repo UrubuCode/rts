@@ -361,3 +361,114 @@ fn collect_free_expr(e: &HirExpr, bound: &HashSet<String>, free: &mut HashSet<St
         HirExprKind::Raw(_) => {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Cobre o gap de CAPTURA (issue #2071): um ident livre usado só dentro de
+    //! `switch`/`labeled`/`do-while` precisa ser detectado como livre, senão a
+    //! closure levantada não o captura e ele dá `ReferenceError` em runtime.
+    use super::*;
+    use rts_hir::ir::{HirLit, HirSwitchCase, HirType};
+    use rts_hir::{HirExpr, HirStmt};
+
+    fn ident(name: &str) -> HirExpr {
+        HirExpr::new(HirExprKind::Ident(name.into()), HirType::Any)
+    }
+    fn num(n: f64) -> HirExpr {
+        HirExpr::new(HirExprKind::Lit(HirLit::Number(n)), HirType::Number)
+    }
+    /// Os idents livres de um único statement (nada pré-ligado).
+    fn free_of(s: &HirStmt) -> HashSet<String> {
+        let mut bound = HashSet::new();
+        let mut free = HashSet::new();
+        collect_free_stmt(s, &mut bound, &mut free);
+        free
+    }
+
+    #[test]
+    fn free_ident_no_corpo_de_switch_case_e_detectado() {
+        // switch (t) { case 0: return cap; }  — `cap` e `t` são livres.
+        let s = HirStmt::Switch {
+            discriminant: ident("t"),
+            cases: vec![HirSwitchCase {
+                test: Some(num(0.0)),
+                body: vec![HirStmt::Return(Some(ident("cap")))],
+            }],
+        };
+        let free = free_of(&s);
+        assert!(free.contains("cap"), "cap dentro do case deve ser livre");
+        assert!(free.contains("t"), "o discriminante deve ser livre");
+    }
+
+    #[test]
+    fn free_ident_no_test_de_case_e_detectado() {
+        // switch (0) { case k: ; }  — `k` (o teste do case) é livre.
+        let s = HirStmt::Switch {
+            discriminant: num(0.0),
+            cases: vec![HirSwitchCase {
+                test: Some(ident("k")),
+                body: vec![],
+            }],
+        };
+        assert!(free_of(&s).contains("k"));
+    }
+
+    #[test]
+    fn free_ident_em_switch_ANINHADO_e_detectado() {
+        // switch(t){ case 0: switch(k){ case 9: return cap; } }
+        let interno = HirStmt::Switch {
+            discriminant: ident("k"),
+            cases: vec![HirSwitchCase {
+                test: Some(num(9.0)),
+                body: vec![HirStmt::Return(Some(ident("cap")))],
+            }],
+        };
+        let externo = HirStmt::Switch {
+            discriminant: ident("t"),
+            cases: vec![HirSwitchCase {
+                test: Some(num(0.0)),
+                body: vec![interno],
+            }],
+        };
+        assert!(free_of(&externo).contains("cap"), "cap no switch aninhado deve ser livre");
+    }
+
+    #[test]
+    fn free_ident_em_labeled_e_detectado() {
+        // L: while (0) { cap; }
+        let s = HirStmt::Labeled {
+            label: "L".into(),
+            body: Box::new(HirStmt::While {
+                cond: num(0.0),
+                body: vec![HirStmt::Expr(ident("cap"))],
+            }),
+        };
+        assert!(free_of(&s).contains("cap"));
+    }
+
+    #[test]
+    fn free_ident_em_do_while_e_detectado() {
+        // do { cap; } while (0)  — descoberto ao tornar o match exaustivo.
+        let s = HirStmt::DoWhile {
+            cond: num(0.0),
+            body: vec![HirStmt::Expr(ident("cap"))],
+        };
+        assert!(free_of(&s).contains("cap"));
+    }
+
+    #[test]
+    fn nome_ligado_localmente_nao_e_livre() {
+        // switch (0) { case 0: { let x = 1; return x; } } — x é local, não livre.
+        let s = HirStmt::Switch {
+            discriminant: num(0.0),
+            cases: vec![HirSwitchCase {
+                test: Some(num(0.0)),
+                body: vec![
+                    HirStmt::Let { name: "x".into(), ty: HirType::Number, init: Some(num(1.0)) },
+                    HirStmt::Return(Some(ident("x"))),
+                ],
+            }],
+        };
+        assert!(!free_of(&s).contains("x"), "x é declarado no case, não é captura");
+    }
+}

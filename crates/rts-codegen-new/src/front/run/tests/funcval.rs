@@ -123,9 +123,12 @@ fn closure_capturing_local_now_works() {
 }
 
 #[test]
-fn async_function_value_bails() {
-    // An async function as a VALUE (it returns a Promise / suspends) bails.
-    assert_bails("const f = async () => 1; console.log(typeof f);");
+fn async_function_value_now_works() {
+    // An async function as a VALUE now LIFTS (the async-SM support carries
+    // `is_async` through `try_extract`): it reifies to a `TAG_FUNCTION`, so
+    // `typeof f === "function"`. This used to bail ("async ... value bails") —
+    // the capability landed and this test tracked the old behavior.
+    assert_stdout("const f = async () => 1; console.log(typeof f);", "function\n");
 }
 
 #[test]
