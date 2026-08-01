@@ -49,7 +49,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if matches!(
             &target.kind,
             HirExprKind::Member { object, .. } | HirExprKind::Index { object, .. }
-                if matches!(object.kind, HirExprKind::Ident(_))
+                if Self::is_replayable_base(object)
         ) {
             // Logical assign on a MEMBER short-circuits the whole STORE (spec
             // AssignmentExpression : LeftHandSideExpression &&= ...): the target
@@ -141,6 +141,35 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let coerced = self.coerce(result, local.repr)?;
         self.builder.def_var(local.var, coerced);
         Ok(Val::new(coerced, local.repr))
+    }
+
+    /// Whether the OBJECT of a compound-assign target can be evaluated TWICE
+    /// (once for the load, once for the store) with the same result and no extra
+    /// effect — which is what lets `o.p += v` desugar to `o.p = o.p + v`.
+    ///
+    /// A bare identifier qualifies (`this` reaches here as one), and so does a CHAIN of
+    /// plain property reads over one: `this.$1.count += 1` and `a.b[k] |= m` are
+    /// routine in minified code, and requiring the base to be a single ident
+    /// rejected the whole file for them. An INDEX is only replayable when the key
+    /// itself is — a literal or an identifier; anything computed (`a[f()].n += 1`)
+    /// would run twice, so it keeps bailing.
+    ///
+    /// The assumption is the same one the single-ident case already made: a plain
+    /// property read has no observable effect. A getter with side effects breaks
+    /// it, exactly as it did before — this widens the shape, not the risk.
+    fn is_replayable_base(e: &HirExpr) -> bool {
+        match &e.kind {
+            HirExprKind::Ident(_) => true,
+            HirExprKind::Member { object, .. } => Self::is_replayable_base(object),
+            HirExprKind::Index { object, index } => {
+                Self::is_replayable_base(object)
+                    && matches!(
+                        index.kind,
+                        HirExprKind::Ident(_) | HirExprKind::Lit(_)
+                    )
+            }
+            _ => false,
+        }
     }
 
     /// Logical-assign `a &&= b` / `a ||= b` / `a ??= b` on a simple ident LHS.
