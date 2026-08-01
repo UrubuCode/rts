@@ -32,6 +32,34 @@
 //!
 //! `RTS_CODEGEN_JOBS=1` forces the serial path (a bisect escape hatch, and the
 //! way to A/B this phase with one binary).
+//!
+//! ## Scaling, measured — and a refuted hypothesis
+//!
+//! `tiny.ts` (425 functions, release, `RTS_TIMING=1`, median of 3):
+//!
+//! ```text
+//! jobs=1   75.4 ms      jobs=2   43.2 ms      jobs=4   27.2 ms
+//! jobs=8   22.2 ms      jobs=16  22.4 ms
+//! ```
+//!
+//! 3.4x at 16 workers, and **8 workers already reach it** — the machine has 16
+//! logical but 8 physical cores, so the ceiling here is physical cores, not
+//! per-task overhead.
+//!
+//! That distinction kills `CRANELIFT_IMPLEMENTATION.md` §7 item 4 ("chunk small
+//! functions per rayon worker"). Its premise was that 425 mostly-tiny functions
+//! make per-task overhead dominate. `RTS_CODEGEN_CHUNK=N` ([`min_len`]) forces a
+//! coarser grain; sweeping it:
+//!
+//! ```text
+//! chunk=1  19.4 ms      chunk=4  18.5 ms      chunk=8  18.6 ms
+//! chunk=16 24.2 ms      chunk=32 39.3 ms
+//! ```
+//!
+//! No gain up to 8, and a large loss beyond — a coarse chunk starves workers
+//! because the functions are not equal-cost, and rayon's adaptive splitting
+//! already work-steals around exactly that. The knob stays (default 1, i.e.
+//! rayon's own behaviour) so the result is re-checkable on another core count.
 
 use cranelift_codegen::Context;
 use cranelift_codegen::control::ControlPlane;
@@ -195,6 +223,12 @@ pub(super) fn compile_and_define(
                 pool().install(|| {
                     pending
                         .into_par_iter()
+                        // CHUNKING (`RTS_CODEGEN_CHUNK`, default 1 = rayon's own
+                        // adaptive splitting). Most of these functions are tiny,
+                        // so the hypothesis was that per-task overhead dominates
+                        // and a coarser grain would help. MEASURED: it does not —
+                        // see the sweep in the module doc.
+                        .with_min_len(min_len())
                         .map_init(super::clifcache::WorkerStore::init, compile_one)
                         .collect::<FrontResult<_>>()
                 })
@@ -264,6 +298,20 @@ fn pool() -> &'static rayon::ThreadPool {
             .thread_name(|i| format!("rts-codegen-{i}"))
             .build()
             .expect("build codegen thread pool")
+    })
+}
+
+/// Minimum functions per rayon task. `1` (the default) leaves rayon's adaptive
+/// splitting alone; `RTS_CODEGEN_CHUNK=N` forces a coarser grain, which is how
+/// the "chunk small functions per worker" hypothesis was A/B'd in one binary.
+fn min_len() -> usize {
+    static N: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("RTS_CODEGEN_CHUNK")
+            .ok()
+            .and_then(|v| v.trim().parse::<usize>().ok())
+            .filter(|n| *n > 0)
+            .unwrap_or(1)
     })
 }
 
