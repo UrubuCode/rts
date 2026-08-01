@@ -415,6 +415,17 @@ fn base64_encode(ptr: I64, len: I64) -> Handle {
     intern(&b64_encode(bytes))
 }
 
+/// Base64-encode a STRING's UTF-8 bytes. String handle.
+///
+/// The ptr+len form above is the right shape for bytes already in a Buffer, but
+/// unusable from `.ts` for a value that IS a string: there is no way to take the
+/// address of a string handle from the language side. Text in, text out — the
+/// case of embedding a downloaded script as a `data:` URI.
+#[rtse::function(module = "crypto", value = "base64_encode_str", ret_ts = "string")]
+fn base64_encode_str(s: &str) -> Handle {
+    intern(&b64_encode(s.as_bytes()))
+}
+
 /// Base64-decode a string into a Buffer handle. 0 on error.
 #[rtse::function(module = "crypto", value = "base64_decode", ret_ts = "number")]
 fn base64_decode(s: &str) -> Handle {
@@ -564,6 +575,7 @@ pub fn register(e: &mut Engine) {
         m.registry(hex_encode_entry());
         m.registry(hex_decode_entry());
         m.registry(base64_encode_entry());
+        m.registry(base64_encode_str_entry());
         m.registry(base64_decode_entry());
     });
 }

@@ -11,6 +11,7 @@ import dom from "rts:dom";
 import input from "rts:input";
 import fetchNs from "rts:fetch";
 import imgdec from "rts:imgdec";
+import cryptoNs from "rts:crypto";
 import { fs, io, buffer, env, time } from "rts";
 
 const KEY_ENTER = 1;
@@ -110,15 +111,56 @@ function extractSite(rawHtml: string, pageUrl: string): string {
   let inlineCount = 0;
   let dataCount = 0;
   let extCount = 0;
+  let extBytes = 0;
+  // `RTS_BUNDLES=1` baixa os `<script src=http>` — os bundles de aplicação, que
+  // no WhatsApp somam ~14,8 MB e são onde mora a UI inteira (o HTML entrega só
+  // um splash: medido, o DOM é IDÊNTICO antes e depois de rodar os 33 scripts
+  // do bootstrap).
+  //
+  // DESLIGADO POR PADRÃO porque EXECUTAR os bundles derruba o processo com
+  // SEGFAULT (o download em si leva 1,3 s e funciona). Isolado: cada bundle
+  // compila sozinho, e os 9 compilam em sequência no mesmo processo sem crash —
+  // o crash só aparece quando eles RODAM sobre o DOM da página. Enquanto isso
+  // não for resolvido, ligar por padrão trocaria uma janela que abre por um
+  // processo que morre.
+  const baixarBundles = env.get_var("RTS_BUNDLES").length > 0;
+  const t0ext = time.now_ms();
   while (k < scc) {
     const s = dom.querySelectorAllAt(site, "script", k);
     const src = dom.getAttribute(site, s, "src");
     if (src.length > 5 && src.substring(0, 5) === "data:") dataCount = dataCount + 1;
-    else if (src.length > 0) extCount = extCount + 1;
+    else if (src.length > 0) {
+      extCount = extCount + 1;
+      if (baixarBundles) {
+        // Baixa o bundle e o reapresenta como `data:` URI base64 — a MESMA forma
+        // que os 33 scripts do bootstrap já usam e que o motor decodifica ao
+        // executar. Reescrever o fonte como `<script>` INLINE estilhaçaria a
+        // página: esta função devolve HTML (`styles + headInner + inner`), que é
+        // re-parseado, e JS minificado carrega `<`, `&` e `</script>` dentro de
+        // strings. Convertendo para data-URI o conteúdo atravessa a
+        // serialização intacto, sem caminho novo no motor.
+        const js = fetchNs.fetchText(src);
+        if (js.length > 0) {
+          extBytes = extBytes + js.length;
+          dom.setAttr(site, s, "src", "data:text/javascript;base64," + cryptoNs.base64_encode_str(js));
+          io.print("[bundle] " + src.substring(src.lastIndexOf("/") + 1, src.length) + " " + js.length + "B");
+        } else {
+          io.print("[bundle] FALHOU (0 bytes): " + src);
+        }
+      }
+    }
     else if (dom.getText(site, s).length > 0) inlineCount = inlineCount + 1;
     k = k + 1;
   }
-  if (extCount > 0) io.print("[js] " + extCount + " <script src=http> nao baixados (bundles de aplicacao)");
+  if (extCount > 0) {
+    if (baixarBundles) {
+      io.print("[js] " + extCount + " bundles baixados, " + extBytes + "B em "
+        + (time.now_ms() - t0ext) + "ms — compilacao leva minutos");
+    } else {
+      io.print("[js] " + extCount + " <script src=http> nao baixados — a UI mora neles"
+        + " (RTS_BUNDLES=1 baixa; hoje SEGFAULTA ao executar)");
+    }
+  }
   // 4) head + body na ORDEM ORIGINAL, com os <script> onde o autor os pôs. Duas
   //    lições de uma carga real do WhatsApp aqui:
   //      • re-embutir código decodificado como <script> inline estilhaça a
