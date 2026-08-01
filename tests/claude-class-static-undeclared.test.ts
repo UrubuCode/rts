@@ -48,6 +48,20 @@ class Holder {}
 Holder.list = [1, 2, 3];
 const holderLen = Holder.list.length;
 
+// The same property through a class VALUE (an alias, or a class passed as an
+// argument) must agree with the bare-name spelling: a class's statics live with
+// the class, not in the reified function value.
+class Aliased {}
+Aliased.n = 5;
+const K = Aliased;
+const viaAlias = K.n;
+function readN(c: any): any {
+  return c.n;
+}
+const viaParam = readN(Aliased);
+K.n = 6;
+const viaAliasWrite = Aliased.n;
+
 describe("undeclared static class properties", () => {
   test("a property assigned outside the class body reads back", () => {
     expect(bareRead).toBe(42);
@@ -82,5 +96,11 @@ describe("undeclared static class properties", () => {
 
   test("the value can be any type, not just a number", () => {
     expect(holderLen).toBe(3);
+  });
+
+  test("a class VALUE reaches the same statics as the class name", () => {
+    expect(viaAlias).toBe(5);
+    expect(viaParam).toBe(5);
+    expect(viaAliasWrite).toBe(6);
   });
 });

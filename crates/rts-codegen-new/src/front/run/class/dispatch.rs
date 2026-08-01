@@ -339,6 +339,21 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(Val::new(w, crate::repr::Repr::Tagged))
     }
 
+    /// Record which class a reified class-VALUE is, keyed by its (stable) NEW-THUNK
+    /// address. Without this the dynamic property paths cannot tell `const K = C`
+    /// from any other function value, and `K.p` would read `undefined` where `C.p`
+    /// reads the class's static property.
+    pub(in crate::front::run) fn register_class_value_name(
+        &mut self,
+        module: &mut dyn Module,
+        class: &str,
+        thunk_addr: cranelift_codegen::ir::Value,
+    ) -> FrontResult<()> {
+        let name_w = self.emit_str_const_word(module, class)?;
+        self.call_runtime(module, "__rtsadp_class_value_name", &[thunk_addr, name_w])?;
+        Ok(())
+    }
+
     /// Store `word` into `C.<field>` for a bare class-name receiver, the mirror of
     /// [`Self::try_static_field_read`].
     ///
