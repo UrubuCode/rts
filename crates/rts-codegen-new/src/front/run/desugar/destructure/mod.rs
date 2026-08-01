@@ -24,6 +24,7 @@
 //! has no proven shape. The soundness floor holds — never a silently wrong binding.
 
 mod builders;
+mod innerfn;
 mod pat;
 
 use rts_hir::ir::HirExprKind;
@@ -64,7 +65,7 @@ pub(crate) fn desugar_destructure(
             _ => None,
         })
         .collect();
-    rewrite_stmts(&top_stmts, main_body, &mut g);
+    rewrite_body(&top_stmts, main_body, &mut g);
 
     for it in &program.items {
         if let Item::Function(fdecl) = it {
@@ -79,7 +80,7 @@ pub(crate) fn desugar_destructure(
                 .iter_mut()
                 .find(|f| f.name == fdecl.name && !f.is_arrow)
             {
-                rewrite_stmts(&swc_stmts, &mut f.body, &mut g);
+                rewrite_body(&swc_stmts, &mut f.body, &mut g);
             }
         }
     }
@@ -89,6 +90,36 @@ pub(crate) fn desugar_destructure(
 }
 
 mod params;
+
+/// Rewrite a whole BODY (module `main` / a top-level function), tolerating the
+/// SYNTHETIC PROLOGUE earlier passes prepend to it.
+///
+/// `rewrite_stmts` pairs swc and HIR by INDEX. rts-hir lowers statements strictly
+/// one-for-one, so the two lists are aligned — until a pass prepends statements:
+/// the `var` hoist (`varhoist`), the `arguments` object (`argsobj`), the static
+/// prelude. Then every pair was off by the prologue length, and a destructuring
+/// binding in a body that also declares a plain `var` silently failed to expand
+/// (`var a = 1; var { R } = o;` → "R is not defined"). Worse, a mis-paired
+/// declarator could expand against the WRONG pattern.
+///
+/// Because prologue statements are only ever PREPENDED and the rest stays 1:1,
+/// the offset is recoverable as the length difference — split it off, rewrite the
+/// aligned tail, put it back.
+fn rewrite_body(swc_stmts: &[&swc_ecma_ast::Stmt], hir_stmts: &mut Vec<HirStmt>, g: &mut Gen) {
+    let Some(offset) = hir_stmts.len().checked_sub(swc_stmts.len()) else {
+        // Fewer HIR statements than swc ones — the 1:1 assumption does not hold
+        // (nothing produces this today); pair from the head, as before.
+        rewrite_stmts(swc_stmts, hir_stmts, g);
+        return;
+    };
+    if offset == 0 {
+        rewrite_stmts(swc_stmts, hir_stmts, g);
+        return;
+    }
+    let mut tail = hir_stmts.split_off(offset);
+    rewrite_stmts(swc_stmts, &mut tail, g);
+    hir_stmts.append(&mut tail);
+}
 
 /// Rewrite a paired (swc, HIR) statement list IN PLACE: expand each destructuring
 /// `let`/`const` / `for-of`, recursing into nested blocks/control flow. The swc and
@@ -116,6 +147,19 @@ fn rewrite_one(
     g: &mut Gen,
     out: &mut Vec<HirStmt>,
 ) {
+    // INLINE function bodies FIRST, while this statement is still in its untouched
+    // 1:1 shape: expand destructuring inside them, then hoist their `var`s (the
+    // hoist prepends a prologue, so it must come after the pairing that reads the
+    // body positionally). See `innerfn`.
+    innerfn::for_each_inner_fn_body(stmt, swc, &mut |body, swc_body| {
+        rewrite_stmts(swc_body, body, g);
+        let hoists = super::super::varhoist::hoisted_var_lets_swc(swc_body);
+        if !hoists.is_empty() {
+            let names = super::super::varhoist::hoisted_var_names_swc(swc_body);
+            super::super::varhoist::rewrite_var_decls_to_assigns(body, &names);
+            body.splice(0..0, hoists);
+        }
+    });
     match stmt {
         // A flattened destructuring binding has name "_" — try to expand it from the
         // paired swc declarator pattern. If the swc is not a destructuring var decl,

@@ -34,6 +34,33 @@ pub(crate) fn hoisted_var_lets(body: &[Statement]) -> Vec<HirStmt> {
             collect_stmt(stmt, &mut names, &mut seen);
         }
     }
+    prologue(names)
+}
+
+/// [`hoisted_var_lets`] over a RAW swc statement list — the form an INLINE
+/// function body (a `function (…) {…}` expression / arrow / nested `function`
+/// declaration) is available in. `rts-ast` only wraps the MODULE's statements,
+/// so an inline body never reaches the `Statement`-based entry point above.
+pub(crate) fn hoisted_var_lets_swc(body: &[&swc_ecma_ast::Stmt]) -> Vec<HirStmt> {
+    let (names, _) = collect_swc(body);
+    prologue(names)
+}
+
+/// The NAMES [`hoisted_var_lets_swc`] predeclares for `body`.
+pub(crate) fn hoisted_var_names_swc(body: &[&swc_ecma_ast::Stmt]) -> HashSet<String> {
+    collect_swc(body).1
+}
+
+fn collect_swc(body: &[&swc_ecma_ast::Stmt]) -> (Vec<(String, Option<String>)>, HashSet<String>) {
+    let mut names: Vec<(String, Option<String>)> = Vec::new();
+    let mut seen = HashSet::new();
+    for stmt in body {
+        collect_stmt(stmt, &mut names, &mut seen);
+    }
+    (names, seen)
+}
+
+fn prologue(names: Vec<(String, Option<String>)>) -> Vec<HirStmt> {
     names
         .into_iter()
         .map(|(name, ann)| {

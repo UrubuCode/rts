@@ -126,6 +126,35 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 let word = self.emit_registry_ctor(module, "Symbol", args)?;
                 Ok(Some(Val::tagged_kind(word, JsKind::Object)))
             }
+            // `RegExp(pattern[, flags])` — the CALL form (no `new`). RegExp is
+            // PRIMORDIAL (native `/re/` syntax), so the engine may name it. Per
+            // the spec the call behaves like the constructor, except that a
+            // RegExp argument with no flags is returned AS IS (identity, not a
+            // copy) — the runtime trampoline owns that rule and delegates the
+            // rest to the SAME `__rtsadp_re_compile` the ctor/literal use.
+            "RegExp" if args.len() <= 2 => {
+                let undef = || value::PolyValue::undefined().raw() as i64;
+                let pat_word = match args.first() {
+                    Some(a) => {
+                        let pat = self.lower_expr(module, a)?;
+                        self.box_value(pat)
+                    }
+                    // `RegExp()` — the spec's empty pattern `/(?:)/`; the
+                    // trampoline normalizes the `undefined` word to `""`.
+                    None => self.builder.ins().iconst(types::I64, undef()),
+                };
+                let flags_word = match args.get(1) {
+                    Some(a) => {
+                        let f = self.lower_expr(module, a)?;
+                        self.box_value(f)
+                    }
+                    None => self.builder.ins().iconst(types::I64, undef()),
+                };
+                let word = self
+                    .call_runtime(module, "__rtsadp_re_call", &[pat_word, flags_word])?
+                    .expect("__rtsadp_re_call returns a value");
+                Ok(Some(Val::tagged_kind(word, JsKind::Object)))
+            }
             "parseInt" => self.parse_int_call(module, args).map(Some),
             "Array" => self.array_ctor_call(module, args).map(Some),
             "Object" => {
