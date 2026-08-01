@@ -95,6 +95,7 @@ pub fn try_build(name: &str, function: &Function) -> Option<(FnDecl, FnDecl)> {
     // que e' a mesma recusa de antes, so' que precisa.
 
     let mut builder = SmBuilder::new();
+    builder.set_declared(&params, &stmts);
     // Pre-registra params como locais (slots 0..n).
     for p in &params {
         builder.intern_local(p);
@@ -146,6 +147,7 @@ pub fn try_build_async_gen(name: &str, function: &Function) -> Option<(FnDecl, F
     }
 
     let mut builder = SmBuilder::new();
+    builder.set_declared(&params, &body.stmts);
     builder.is_async = true;
     builder.is_async_gen = true;
     for p in &params {
@@ -208,6 +210,7 @@ pub fn try_build_async(name: &str, function: &Function) -> Option<(FnDecl, FnDec
     }
 
     let mut builder = SmBuilder::new();
+    builder.set_declared(&params, &body.stmts);
     builder.is_async = true;
     for p in &params {
         builder.intern_local(p);
@@ -332,6 +335,16 @@ pub(crate) struct SmBuilder {
     /// Profundidade de regiões `try` abertas. Um `break` que sairia de uma
     /// região pularia o `finally`, então é recusado (bail honesto).
     pub(crate) try_depth: usize,
+    /// Nomes que o generator DECLARA (params + todo `var`/`let`/`const`, binding
+    /// de `for…of`/`in`, param de `catch`). Só estes podem virar slot de frame.
+    ///
+    /// Sem esta distinção, uma atribuição a um nome LIVRE (global ou capturado)
+    /// era internada como local: o prólogo emitia `let d = FGET(…)`, que
+    /// SOMBREIA o `d` de fora, e a escrita ia para o frame do generator em vez
+    /// da variável real. `function* g(){ while(true){ c = c + 1; yield c; … } }`
+    /// yieldava `[1,2]` certinho e deixava o `c` de fora em 0 — o generator
+    /// parecia funcionar e o efeito colateral sumia em silêncio.
+    pub(crate) declared: std::collections::HashSet<String>,
 }
 
 impl SmBuilder {
@@ -345,6 +358,23 @@ impl SmBuilder {
             loop_stack: Vec::new(),
             pending_label: None,
             try_depth: 0,
+            declared: std::collections::HashSet::new(),
+        }
+    }
+
+    /// Registra os nomes que o generator declara (ver o campo `declared`).
+    pub(crate) fn set_declared(&mut self, params: &[String], body: &[Stmt]) {
+        self.declared = params.iter().cloned().collect();
+        for s in body {
+            collect_let_names(s, &mut self.declared);
+        }
+    }
+
+    /// Interna `name` como slot de frame SOMENTE se o generator o declara. Um
+    /// nome livre continua sendo escrito onde vive (global / captura).
+    pub(crate) fn intern_if_declared(&mut self, name: &str) {
+        if self.declared.contains(name) {
+            self.intern_local(name);
         }
     }
 
@@ -423,7 +453,8 @@ impl SmBuilder {
                         if !y.delegate {
                             if let AssignTarget::Simple(SimpleAssignTarget::Ident(id)) = &a.left {
                                 let name = id.id.sym.to_string();
-                                self.intern_local(&name);
+                                // Livre => escreve onde vive; ver `declared`.
+                                self.intern_if_declared(&name);
                                 let value =
                                     y.arg.as_deref().cloned().unwrap_or_else(undef_expr);
                                 let next = self.new_state();
@@ -980,7 +1011,7 @@ impl SmBuilder {
 
     fn register_assign_target(&mut self, t: &AssignTarget) {
         if let AssignTarget::Simple(SimpleAssignTarget::Ident(id)) = t {
-            self.intern_local(&id.id.sym.to_string());
+            self.intern_if_declared(&id.id.sym.to_string());
         }
     }
 }
@@ -1078,6 +1109,25 @@ fn body_has_captured_mutated_local(stmts: &[Stmt]) -> bool {
 
 /// Nomes de `let`/`const` declarados neste escopo (desce em control-flow, NAO em
 /// corpos de closure — esses sao escopos proprios).
+/// Nome ligado pelo cabecalho de um `for…of` / `for…in`.
+fn head_names(h: &swc_ecma_ast::ForHead, out: &mut std::collections::HashSet<String>) {
+    match h {
+        swc_ecma_ast::ForHead::VarDecl(vd) => {
+            for d in &vd.decls {
+                if let Pat::Ident(id) = &d.name {
+                    out.insert(id.id.sym.to_string());
+                }
+            }
+        }
+        swc_ecma_ast::ForHead::Pat(p) => {
+            if let Pat::Ident(id) = p.as_ref() {
+                out.insert(id.id.sym.to_string());
+            }
+        }
+        swc_ecma_ast::ForHead::UsingDecl(_) => {}
+    }
+}
+
 fn collect_let_names(s: &Stmt, out: &mut std::collections::HashSet<String>) {
     match s {
         Stmt::Decl(Decl::Var(v)) => {
@@ -1106,11 +1156,25 @@ fn collect_let_names(s: &Stmt, out: &mut std::collections::HashSet<String>) {
             }
             collect_let_names(&f.body, out);
         }
-        Stmt::ForOf(f) => collect_let_names(&f.body, out),
-        Stmt::ForIn(f) => collect_let_names(&f.body, out),
+        Stmt::ForOf(f) => {
+            head_names(&f.left, out);
+            collect_let_names(&f.body, out);
+        }
+        Stmt::ForIn(f) => {
+            head_names(&f.left, out);
+            collect_let_names(&f.body, out);
+        }
+        Stmt::Labeled(l) => collect_let_names(&l.body, out),
+        Stmt::Switch(sw) => sw
+            .cases
+            .iter()
+            .for_each(|c| c.cons.iter().for_each(|s| collect_let_names(s, out))),
         Stmt::Try(t) => {
             t.block.stmts.iter().for_each(|s| collect_let_names(s, out));
             if let Some(h) = &t.handler {
+                if let Some(Pat::Ident(id)) = h.param.as_ref() {
+                    out.insert(id.id.sym.to_string());
+                }
                 h.body.stmts.iter().for_each(|s| collect_let_names(s, out));
             }
             if let Some(fin) = &t.finalizer {
