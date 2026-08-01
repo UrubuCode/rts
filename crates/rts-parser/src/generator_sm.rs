@@ -633,7 +633,25 @@ impl SmBuilder {
                     // `push(...)`. O catch sem yield é lowerado como statements
                     // ordinários dentro do estado do catch — nada mais é preciso.
                     let body_has_yield = t.block.stmts.iter().any(stmt_has_yield);
-                    if (catch_has_yield || body_has_yield) && t.finalizer.is_none() {
+                    // O gate NAO exige mais que haja yield no try/catch. Exigir
+                    // isso fazia um `try { return 1; } catch (e) {}` SEM yield —
+                    // ordinario, e em qualquer lugar do corpo — cair no
+                    // `return None` la' embaixo e abortar a construcao do
+                    // generator INTEIRO, mandando os outros yields para o
+                    // eager-buffer e produzindo `raw/unrecognized: Yield`. Era
+                    // essa a forma que travava o bundle real (g78/ext1), e o
+                    // repro e' de tres linhas:
+                    //
+                    //   function* g(e) { const a = yield e();
+                    //                    try { return 1; } catch (x) {}
+                    //                    return a; }
+                    //
+                    // O caminho abaixo ja' serve os dois casos: um catch sem
+                    // yield vira statements ordinarios dentro do estado do
+                    // catch, e um `return` dentro do try vira DONE — que e'
+                    // justamente o que NAO pode ir verbatim para um estado.
+                    let _ = (catch_has_yield, body_has_yield);
+                    if t.finalizer.is_none() {
                         // param do catch: ident simples (ou ausente).
                         let catch_param = match h.param.as_ref() {
                             Some(swc_ecma_ast::Pat::Ident(id)) => {
@@ -986,24 +1004,30 @@ fn other_as_slice_hack(s: &Stmt) -> &Stmt {
 
 // ── Deteccao de yield em sub-arvores (para rejeitar casos nao modelados) ─────
 
+/// Um `yield` em QUALQUER lugar desta expressao, sem descer em fn/arrow
+/// aninhada (o `yield` de dentro delas pertence a outro generator, ou e' um
+/// erro de sintaxe — em nenhum dos casos e' nosso).
+///
+/// E' um VISITOR, e nao um `match` por forma, de proposito: a versao anterior
+/// enumerava formas a mao (`Bin`, `Cond`, `Seq`, `Call`, `Array`, …) e toda
+/// forma esquecida virava a MESMA falha silenciosa — o detector dizia "sem
+/// yield", o statement era empurrado VERBATIM para dentro de um estado, e o
+/// `yield` cru so' aparecia no lowering. Um visitor nao tem como esquecer uma
+/// forma.
 pub(crate) fn expr_has_yield(e: &Expr) -> bool {
-    match e {
-        Expr::Yield(_) => true,
-        Expr::Assign(a) => expr_has_yield(&a.right),
-        Expr::Bin(b) => expr_has_yield(&b.left) || expr_has_yield(&b.right),
-        Expr::Unary(u) => expr_has_yield(&u.arg),
-        Expr::Paren(p) => expr_has_yield(&p.expr),
-        Expr::Cond(c) => {
-            expr_has_yield(&c.test) || expr_has_yield(&c.cons) || expr_has_yield(&c.alt)
+    use swc_ecma_visit::{Visit, VisitWith};
+    #[derive(Default)]
+    struct V(bool);
+    impl Visit for V {
+        fn visit_yield_expr(&mut self, _: &swc_ecma_ast::YieldExpr) {
+            self.0 = true;
         }
-        Expr::Seq(s) => s.exprs.iter().any(|x| expr_has_yield(x)),
-        Expr::Call(c) => c.args.iter().any(|a| expr_has_yield(&a.expr)),
-        Expr::Array(a) => a
-            .elems
-            .iter()
-            .any(|el| el.as_ref().map(|x| expr_has_yield(&x.expr)).unwrap_or(false)),
-        _ => false,
+        fn visit_function(&mut self, _: &Function) {}
+        fn visit_arrow_expr(&mut self, _: &swc_ecma_ast::ArrowExpr) {}
     }
+    let mut v = V::default();
+    e.visit_with(&mut v);
+    v.0
 }
 
 // ── Deteccao de await (#207 async-SM) ────────────────────────────────────────
@@ -1291,42 +1315,26 @@ fn stmt_has_break_or_continue(s: &Stmt) -> bool {
     v.0
 }
 
+/// Um `yield` em QUALQUER lugar deste statement, sem descer em fn/arrow
+/// aninhada. Mesmo motivo de [`expr_has_yield`] para ser um visitor — e aqui a
+/// forma esquecida era `Stmt::Try`: um
+/// `if (c) { try { … yield … } catch {} finally {} }` respondia "sem yield", o
+/// `if` INTEIRO ia verbatim para o estado e o `yield` chegava cru ao lowering.
+/// Era essa a forma que travava o bundle real.
 fn stmt_has_yield(s: &Stmt) -> bool {
-    match s {
-        Stmt::Expr(e) => expr_has_yield(&e.expr),
-        Stmt::Block(b) => b.stmts.iter().any(stmt_has_yield),
-        Stmt::If(i) => {
-            expr_has_yield(&i.test)
-                || stmt_has_yield(&i.cons)
-                || i.alt.as_deref().map(stmt_has_yield).unwrap_or(false)
+    use swc_ecma_visit::{Visit, VisitWith};
+    #[derive(Default)]
+    struct V(bool);
+    impl Visit for V {
+        fn visit_yield_expr(&mut self, _: &swc_ecma_ast::YieldExpr) {
+            self.0 = true;
         }
-        Stmt::While(w) => expr_has_yield(&w.test) || stmt_has_yield(&w.body),
-        Stmt::DoWhile(d) => expr_has_yield(&d.test) || stmt_has_yield(&d.body),
-        Stmt::For(f) => {
-            f.test.as_deref().map(expr_has_yield).unwrap_or(false)
-                || f.update.as_deref().map(expr_has_yield).unwrap_or(false)
-                || stmt_has_yield(&f.body)
-        }
-        // Formas que a SM passou a modelar (`generator_sm_iter`): sem estes
-        // arms um `yield` DENTRO delas ficava invisivel para os gates que
-        // decidem se o corpo precisa de lazy e se um `if` vai por estados.
-        Stmt::ForOf(fo) => expr_has_yield(&fo.right) || stmt_has_yield(&fo.body),
-        Stmt::ForIn(fi) => expr_has_yield(&fi.right) || stmt_has_yield(&fi.body),
-        Stmt::Labeled(l) => stmt_has_yield(&l.body),
-        Stmt::Switch(sw) => {
-            expr_has_yield(&sw.discriminant)
-                || sw.cases.iter().any(|c| {
-                    c.test.as_deref().is_some_and(expr_has_yield)
-                        || c.cons.iter().any(stmt_has_yield)
-                })
-        }
-        Stmt::Decl(Decl::Var(vd)) => vd
-            .decls
-            .iter()
-            .any(|d| d.init.as_deref().map(expr_has_yield).unwrap_or(false)),
-        Stmt::Return(r) => r.arg.as_deref().map(expr_has_yield).unwrap_or(false),
-        _ => false,
+        fn visit_function(&mut self, _: &Function) {}
+        fn visit_arrow_expr(&mut self, _: &swc_ecma_ast::ArrowExpr) {}
     }
+    let mut v = V::default();
+    s.visit_with(&mut v);
+    v.0
 }
 
 // ── Construcao das duas fns swc ──────────────────────────────────────────────

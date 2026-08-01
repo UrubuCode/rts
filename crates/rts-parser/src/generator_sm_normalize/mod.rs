@@ -250,19 +250,45 @@ fn norm_stmt(s: &Stmt, out: &mut Vec<Stmt>, ctr: &mut usize) -> Option<()> {
             Some(())
         }
         Stmt::For(f) => {
-            let head_yield = match &f.init {
+            // TESTE e UPDATE sao REAVALIADOS a cada volta: icar um yield de la'
+            // o rodaria uma vez so'. Recusa.
+            if f.test.as_deref().is_some_and(expr_has_yield)
+                || f.update.as_deref().is_some_and(expr_has_yield)
+            {
+                return None;
+            }
+            // O INIT, ao contrario, roda EXATAMENTE UMA VEZ antes do laco —
+            // entao move-lo para antes do `for` e' identico em semantica, e e'
+            // o que destrava a forma do bundle real (g48/ext1):
+            //
+            //   for (var n = yield a(), m = yield b(n); c < s.length;) { … }
+            //
+            // A ligacao por iteracao de um `let` no cabecalho nao se perde aqui
+            // porque a state-machine ja' a colapsa: o init vira um slot de
+            // frame unico de qualquer jeito (ver o arm `Stmt::For` de
+            // `generator_sm`). Mover nao piora o que ja' acontecia.
+            let mut f2 = f.clone();
+            let init_yield = match &f.init {
                 Some(swc_ecma_ast::VarDeclOrExpr::VarDecl(vd)) => vd
                     .decls
                     .iter()
                     .any(|d| d.init.as_deref().is_some_and(expr_has_yield)),
                 Some(swc_ecma_ast::VarDeclOrExpr::Expr(e)) => expr_has_yield(e),
                 None => false,
-            } || f.test.as_deref().is_some_and(expr_has_yield)
-                || f.update.as_deref().is_some_and(expr_has_yield);
-            if head_yield {
-                return None;
+            };
+            if init_yield {
+                match f.init.as_ref() {
+                    Some(swc_ecma_ast::VarDeclOrExpr::VarDecl(vd)) => {
+                        norm_stmt(&Stmt::Decl(Decl::Var(vd.clone())), out, ctr)?;
+                    }
+                    Some(swc_ecma_ast::VarDeclOrExpr::Expr(e)) => {
+                        let v = norm_expr(e, out, ctr)?;
+                        out.push(call_stmt(v));
+                    }
+                    None => unreachable!("init_yield implica init presente"),
+                }
+                f2.init = None;
             }
-            let mut f2 = f.clone();
             f2.body = Box::new(norm_block(&f.body, ctr)?);
             out.push(Stmt::For(f2));
             Some(())
