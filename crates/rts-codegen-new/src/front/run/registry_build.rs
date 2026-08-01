@@ -287,7 +287,7 @@ pub(super) static REGISTER: &[fn(&mut Engine)] = &[
 /// build, not baked into the runtime crate itself.
 fn register_typed_array_class_specs(e: &mut Engine) {
     use rts_runtime::adapters::value::taops as ta;
-    use rts_engine::{AbiType, FnPtr, Member, MemberFlags, MemberKind, Sig};
+    use rts_engine::{AbiType, DefaultArg, FnPtr, Member, MemberFlags, MemberKind, Sig};
     let ctors: &[(&str, &str, *const u8)] = &[
         (
             "Uint8Array",
@@ -348,19 +348,53 @@ fn register_typed_array_class_specs(e: &mut Engine) {
             emit: None,
         }
         };
+        // The read-only ACCESSORS (`buffer`/`byteOffset`/`byteLength`): same
+        // one-arg-receiver shape as `m`, registered as a getter instead of a call.
+        let g = |name: &str, sym: &str, fp: *const u8, ts: &str| Member {
+            name: name.to_string(),
+            kind: MemberKind::InstanceGetter,
+            sig: Sig::new(vec![AbiType::PolyValue], AbiType::PolyValue),
+            symbol: sym.to_string(),
+            fn_ptr: FnPtr(fp),
+            flags: MemberFlags::NONE,
+            aliases: Vec::new(),
+            variadic: false,
+            ts_signature: ts.to_string(),
+            doc: "TypedArray view accessor (the buffer window; `undefined`/element count on the Vec-backed representation).".to_string(),
+            ret_class: None,
+            pure: true,
+            emit: None,
+        };
         e.class(class)
             .doc("TypedArray — Vec-backed for length/array ctors, a live buffer VIEW for an ArrayBuffer ctor.")
             .member(Member {
                 name: "new".to_string(),
                 kind: MemberKind::Constructor,
-                sig: Sig::new(vec![AbiType::PolyValue], AbiType::Handle),
+                // THREE params, the trailing two OPTIONAL — `new T(buf, byteOffset,
+                // length)` is the ArrayBuffer-VIEW overload, and `DefaultArg::Undefined`
+                // makes the omitted tail arrive as `undefined`, which the ONE ctor body
+                // reads as "offset 0" / "the rest of the buffer". So all six JS overloads
+                // (`n` / `array` / `typedArray` / `buf` / `buf,off` / `buf,off,len`) are
+                // ONE symbol per element kind, distinguished by the ARGUMENT's runtime
+                // type — not six registered rows, and not a per-class path.
+                sig: Sig::with_defaults(
+                    vec![AbiType::PolyValue; 3],
+                    AbiType::Handle,
+                    vec![
+                        DefaultArg::Required,
+                        DefaultArg::Undefined,
+                        DefaultArg::Undefined,
+                    ],
+                ),
                 symbol: symbol.to_string(),
                 fn_ptr: FnPtr(*ptr),
                 flags: MemberFlags::NONE,
                 aliases: Vec::new(),
                 variadic: false,
-                ts_signature: format!("new {class}(src: number | number[] | ArrayBuffer): number[]"),
-                doc: "Typed-array constructor (length → zeros; array → wrapped copy; ArrayBuffer → live view).".to_string(),
+                ts_signature: format!(
+                    "new {class}(src: number | number[] | ArrayBuffer, byteOffset?: number, length?: number): number[]"
+                ),
+                doc: "Typed-array constructor (length → zeros; array/typed array → wrapped copy; ArrayBuffer → live view, optionally windowed by byteOffset/length).".to_string(),
                 ret_class: None,
                 pure: false,
                 emit: None,
@@ -369,29 +403,68 @@ fn register_typed_array_class_specs(e: &mut Engine) {
                 "set",
                 2,
                 "__rtsadp_arr_ta_set",
-                ta::__rtsadp_arr_ta_set as *const u8,
+                ta::elems::__rtsadp_arr_ta_set as *const u8,
                 "set(src: number[], offset?: number): void",
             ))
             .member(m(
                 "set",
                 1,
                 "__rtsadp_arr_ta_set1",
-                ta::__rtsadp_arr_ta_set1 as *const u8,
+                ta::elems::__rtsadp_arr_ta_set1 as *const u8,
                 "set(src: number[]): void",
             ))
             .member(m(
                 "subarray",
                 2,
                 "__rtsadp_arr_subarray",
-                ta::__rtsadp_arr_subarray as *const u8,
+                ta::elems::__rtsadp_arr_subarray as *const u8,
                 "subarray(begin?: number, end?: number): number[]",
             ))
             .member(m(
                 "subarray",
                 1,
                 "__rtsadp_arr_subarray1",
-                ta::__rtsadp_arr_subarray1 as *const u8,
+                ta::elems::__rtsadp_arr_subarray1 as *const u8,
                 "subarray(begin: number): number[]",
+            ))
+            .member(m(
+                "values",
+                0,
+                "__rtsadp_ta_values",
+                ta::elems::__rtsadp_ta_values as *const u8,
+                "values(): IterableIterator<number>",
+            ))
+            .member(m(
+                "keys",
+                0,
+                "__rtsadp_ta_keys",
+                ta::elems::__rtsadp_ta_keys as *const u8,
+                "keys(): IterableIterator<number>",
+            ))
+            .member(m(
+                "entries",
+                0,
+                "__rtsadp_ta_entries",
+                ta::elems::__rtsadp_ta_entries as *const u8,
+                "entries(): IterableIterator<[number, number]>",
+            ))
+            .member(g(
+                "buffer",
+                "__rtsadp_ta_buffer",
+                ta::elems::__rtsadp_ta_buffer as *const u8,
+                "buffer: ArrayBuffer",
+            ))
+            .member(g(
+                "byteOffset",
+                "__rtsadp_ta_byte_offset",
+                ta::elems::__rtsadp_ta_byte_offset as *const u8,
+                "byteOffset: number",
+            ))
+            .member(g(
+                "byteLength",
+                "__rtsadp_ta_byte_length",
+                ta::elems::__rtsadp_ta_byte_length as *const u8,
+                "byteLength: number",
             ))
             .member(Member {
                 name: "length".to_string(),
@@ -417,12 +490,12 @@ fn register_typed_array_class_specs(e: &mut Engine) {
         (
             "asIntN",
             "__RTS_FN_GL_BIGINT_AS_INTN",
-            ta::__rtsadp_bigint_as_intn as *const u8,
+            ta::misc::__rtsadp_bigint_as_intn as *const u8,
         ),
         (
             "asUintN",
             "__RTS_FN_GL_BIGINT_AS_UINTN",
-            ta::__rtsadp_bigint_as_uintn as *const u8,
+            ta::misc::__rtsadp_bigint_as_uintn as *const u8,
         ),
     ] {
         bi = bi.member(Member {
@@ -446,18 +519,18 @@ fn register_typed_array_class_specs(e: &mut Engine) {
     // Vec-backed typed array; RMW ops return the PREVIOUS value, `store` the
     // stored value — exact JS observables).
     let statics: &[(&str, usize, *const u8)] = &[
-        ("load", 2, ta::__rtsadp_atomics_load as *const u8),
-        ("store", 3, ta::__rtsadp_atomics_store as *const u8),
-        ("add", 3, ta::__rtsadp_atomics_add as *const u8),
-        ("sub", 3, ta::__rtsadp_atomics_sub as *const u8),
-        ("and", 3, ta::__rtsadp_atomics_and as *const u8),
-        ("or", 3, ta::__rtsadp_atomics_or as *const u8),
-        ("xor", 3, ta::__rtsadp_atomics_xor as *const u8),
-        ("exchange", 3, ta::__rtsadp_atomics_exchange as *const u8),
+        ("load", 2, ta::atomics::__rtsadp_atomics_load as *const u8),
+        ("store", 3, ta::atomics::__rtsadp_atomics_store as *const u8),
+        ("add", 3, ta::atomics::__rtsadp_atomics_add as *const u8),
+        ("sub", 3, ta::atomics::__rtsadp_atomics_sub as *const u8),
+        ("and", 3, ta::atomics::__rtsadp_atomics_and as *const u8),
+        ("or", 3, ta::atomics::__rtsadp_atomics_or as *const u8),
+        ("xor", 3, ta::atomics::__rtsadp_atomics_xor as *const u8),
+        ("exchange", 3, ta::atomics::__rtsadp_atomics_exchange as *const u8),
         (
             "compareExchange",
             4,
-            ta::__rtsadp_atomics_cmpxchg as *const u8,
+            ta::atomics::__rtsadp_atomics_cmpxchg as *const u8,
         ),
     ];
     let mut cls = e.class("Atomics");

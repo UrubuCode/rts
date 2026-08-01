@@ -75,12 +75,10 @@ pub fn rtsadp_to_iter_array(word: u64) -> u64 {
     }
     // A level-B typed-array VIEW: materialize the elements (read through the
     // shared buffer) into a fresh array.
-    if let Some((bh, bytes, signed, float)) = super::taops::view_parts(word) {
+    if let Some(view) = super::taops::view_parts(word) {
         let out = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
-        let n = super::taops::view_len(bh, bytes);
-        for i in 0..n {
-            let w = super::taops::view_get(bh, bytes, signed, float, i);
-            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, w as i64);
+        for i in 0..view.count {
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(out, view.get(i) as i64);
         }
         return box_vec_as_array(out);
     }

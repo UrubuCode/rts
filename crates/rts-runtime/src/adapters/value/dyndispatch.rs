@@ -169,8 +169,8 @@ pub fn rtsadp_dyn_length(recv: u64) -> u64 {
         return PolyValue::from_i32(len as i32).raw();
     }
     // A level-B typed-array VIEW: element COUNT (buffer bytes / elem width).
-    if let Some((bh, bytes, ..)) = super::taops::view_parts(recv) {
-        return PolyValue::from_i32(super::taops::view_len(bh, bytes) as i32).raw();
+    if let Some(view) = super::taops::view_parts(recv) {
+        return PolyValue::from_i32(view.count as i32).raw();
     }
     // A legacy DICTIONARY row (`Entry::Map` — match/exec/matchAll results):
     // its own `length` entry, read straight off the IndexMap (BEFORE the
@@ -386,8 +386,8 @@ pub fn rtsadp_idx_get(recv: u64, idx: u64) -> u64 {
     }
     // A level-B typed-array VIEW (`__ta_buf`-shaped): element read through the
     // SHARED buffer.
-    if let Some((bh, bytes, signed, float)) = super::taops::view_parts(recv) {
-        return super::taops::view_get(bh, bytes, signed, float, genops_to_i64(idx));
+    if let Some(view) = super::taops::view_parts(recv) {
+        return view.get(genops_to_i64(idx));
     }
     let v = PolyValue::from_raw(recv);
     if v.is_string() {

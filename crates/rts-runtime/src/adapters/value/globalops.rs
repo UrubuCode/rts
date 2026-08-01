@@ -333,12 +333,10 @@ pub fn rtsadp_arr_from(a: u64) -> u64 {
     let v = PolyValue::from_raw(a);
     // A level-B typed-array VIEW: materialize the elements through the shared
     // buffer (same as the iteration hook).
-    if let Some((bh, bytes, signed, float)) = super::taops::view_parts(a) {
+    if let Some(view) = super::taops::view_parts(a) {
         let vec = rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_NEW();
-        let n = super::taops::view_len(bh, bytes);
-        for i in 0..n {
-            let w = super::taops::view_get(bh, bytes, signed, float, i);
-            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, w as i64);
+        for i in 0..view.count {
+            rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_PUSH(vec, view.get(i) as i64);
         }
         return box_vec_as_array(vec);
     }

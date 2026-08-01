@@ -282,6 +282,18 @@ pub fn rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
                 rts_runtime::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_NAME(h);
             return abi_adapter::poly_from_real_handle(name_h).raw();
         }
+        // A CLASS-VALUE receiver (`const K = C; K.p`): a class's static properties
+        // live in the per-class statics object, not in the function value, so the
+        // alias has to reach them or `K.p` would read `undefined` where `C.p`
+        // reads the value. Only when the class actually carries the property —
+        // otherwise this falls through to the ordinary function behaviour.
+        if v.is_function() {
+            if let Some(class) = super::classstatics::class_of_fn_word(obj_word) {
+                if let Some(w) = super::classstatics::lookup(&class, key_str_handle) {
+                    return w;
+                }
+            }
+        }
     }
     // A DICTIONARY object (`Entry::Map`): an object-backed Registry class instance
     // (tagged `__rts_class` — a `Stats`, a `Hash`, a `net.Server`) or a row built
@@ -540,6 +552,16 @@ pub fn rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word: u64) -> u64 
     if let Some((target, handler)) = proxy_parts(obj_word) {
         return proxy_set(target, handler, key_str_handle, val_word);
     }
+    // A CLASS-VALUE receiver (`const K = C; K.p = v`): the write is a static
+    // property of the class, so it must land where `C.p = v` lands — the
+    // per-class statics object the read above consults. Storing it on the
+    // function value instead would make the two spellings disagree.
+    if PolyValue::from_raw(obj_word).is_function() {
+        if let Some(class) = super::classstatics::class_of_fn_word(obj_word) {
+            super::classstatics::store(&class, key_str_handle, val_word);
+            return val_word;
+        }
+    }
     // Level-B typed-array VIEW + NUMERIC key: element write through the SHARED
     // buffer (a shape transition would orphan the write).
     //
@@ -548,9 +570,9 @@ pub fn rtsadp_obj_set(obj_word: u64, key_str_handle: u64, val_word: u64) -> u64 
     // key (`__rtsadp_to_string(i)` allocates a heap string like "5") and then
     // reparses it — on EVERY write. That stringify/reparse was the write path's
     // dominant cost once `view_parts` stopped allocating.
-    if let Some((bh, bytes, _s, float)) = super::taops::view_parts(obj_word) {
+    if let Some(view) = super::taops::view_parts(obj_word) {
         if let Some(i) = super::dyndispatch::array_index_key(key_str_handle) {
-            super::taops::view_set(bh, bytes, float, i, val_word);
+            view.set(i, val_word);
             return val_word;
         }
     }

@@ -203,6 +203,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             let res = self
                 .call_runtime(module, symbol, &call_args)?
                 .expect("typed-array trampoline returns a value");
+            // `subarray` reports `JsKind::Array` for BOTH representations, which
+            // is what the receiver's own static kind already claims (the
+            // TypedArray ctor declares an array return for every overload). It is
+            // only sound because the trampoline returns a real ARRAY in both
+            // cases — see `taops::elems::__rtsadp_arr_subarray`, which copies a
+            // view's window rather than returning a sub-view, precisely so this
+            // static claim cannot be a lie.
             let kind = if method == "subarray" {
                 JsKind::Array
             } else {
@@ -240,6 +247,30 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if matches!(method, "next" | "return" | "throw")
             && resolve_method(RecvClass::Array, method, argc).is_none()
         {
+            let recv = self.lower_expr(module, object)?;
+            if let Some(v) = self.try_generic_dyn_method_call(module, recv, method, args)? {
+                return Ok(v);
+            }
+        }
+
+        // A method that is NOT an Array.prototype member AT ANY ARITY: the
+        // receiver was only INFERRED to be an array, and the inference is
+        // name-based — `x.filter(..).reverse().until(..)` reaches here because
+        // `reverse` is an array-returning Array method NAME, not because `x` was
+        // proven to be an array. Real code collides with those names constantly:
+        // the WhatsApp bundle's Dexie `Collection` defines its own
+        // `filter`/`reverse`/`until`, so the chain above is a Collection, and
+        // `until` is its own prototype method.
+        //
+        // Bailing here kills the WHOLE program at compile time for a receiver
+        // that is very likely not an array. The dynamic dispatch is both more
+        // correct and strictly safer: it resolves the method on the RUNTIME
+        // receiver, so a real Collection finds `until`, and a receiver that
+        // genuinely IS an array gets the JS answer (a TypeError on calling
+        // `undefined`) instead of a compile-time refusal. Restricted to names with
+        // no Array row at all, so every implemented Array method keeps its typed
+        // path and `.map`/`.filter`/`.reduce` still bail by design where they do.
+        if !crate::dispatch::array_has_method(method) {
             let recv = self.lower_expr(module, object)?;
             if let Some(v) = self.try_generic_dyn_method_call(module, recv, method, args)? {
                 return Ok(v);
