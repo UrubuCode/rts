@@ -86,3 +86,25 @@ pub fn rtsadp_globalthis() -> u64 {
     global_roots::add(&GLOBALTHIS as *const AtomicU64 as usize);
     word
 }
+
+/// The LAST LINK of the JS scope chain, for a free identifier the front could
+/// not resolve lexically: an unqualified name that matches no binding resolves
+/// against the GLOBAL OBJECT. That is what makes one script's
+/// `globalThis.__w = fn` callable as a bare `__w()` from another — the shape a
+/// page's module loader is built on, and something no amount of lexical
+/// analysis inside a single script can see.
+///
+/// Returns the property value when the global object carries the key; otherwise
+/// throws the spec `ReferenceError` (the same outcome the front emits inline
+/// for an unresolved READ) and returns `undefined`, so the caller's ordinary
+/// post-call error check routes the unwind.
+#[rtse::abi]
+pub fn rtsadp_global_ref(name_word: u64) -> u64 {
+    let g = __rtsadp_globalthis();
+    if super::objops::__rtsadp_obj_has(g, name_word) != 0 {
+        return super::objops::__rtsadp_obj_get(g, name_word);
+    }
+    let name = super::abi_adapter::resolve_poly(PolyValue::from_raw(name_word));
+    super::errslot::throw_js_error("ReferenceError", &format!("{name} is not defined"));
+    PolyValue::undefined().raw()
+}
