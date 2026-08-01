@@ -3672,7 +3672,7 @@
   "status": "rts_diverge",
   "bun": "{\"value\":0,\"done\":false}\n{\"value\":\"closed\",\"done\":true}\ninner-next0|inner-return:bye",
   "node": "{\"value\":0,\"done\":false}\n{\"value\":\"closed\",\"done\":true}\ninner-next0|inner-return:bye",
-  "rts": "{\"value\":0,\"done\":false}\n{\"value\":\"bye\",\"done\":true}\ninner-next0|inner-next1|inner-next2|inner-next3|outer-after:-1e-323",
+  "rts": "{\"value\":1073741885,\"done\":false}\n{\"value\":\"bye\",\"done\":true}",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -4495,9 +4495,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout",
   "bun_exit": 0,
   "node_exit": 0,
@@ -9687,4 +9687,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":692,"pass":484,"rts_diverge":118,"bun_node_diverge":18,"errors":72,"rejected":0}}
+],"summary":{"total":692,"pass":483,"rts_diverge":118,"bun_node_diverge":19,"errors":72,"rejected":0}}
