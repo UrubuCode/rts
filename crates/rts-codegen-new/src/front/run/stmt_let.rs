@@ -582,10 +582,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // `const x = …instanceof…` became a number `1`). Keep the proven `Bool`.
         let widens_bool_to_num = matches!(val.repr, Repr::Bool)
             && matches!(annotated, Repr::Int32 | Repr::Int64 | Repr::Float64);
+        // …and the MIRROR of that rule: a NON-bool value must never be forced into
+        // a `boolean` ANNOTATION. TS types are erased, so `let b: boolean = x` with
+        // `x === 1` leaves `b === 1` in Node — the annotation is an untrusted
+        // boundary (Pilar 3), not a proof. There is no coercion INTO `Bool` at all,
+        // so this bailed the whole function (`cannot coerce Int64 to Bool`); keeping
+        // the value's own repr is both compilable and the JS answer.
+        let narrows_num_to_bool = matches!(annotated, Repr::Bool) && !matches!(val.repr, Repr::Bool);
         let repr = if annotated.is_unboxed()
             && val.repr.is_unboxed()
             && !demotes_float
             && !widens_bool_to_num
+            && !narrows_num_to_bool
         {
             annotated
         } else {
@@ -601,6 +609,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             } else {
                 repr
             };
+        // BOOL DEMOTION (pre-scan, `boolscan`): `let b = false` later assigned a
+        // value the front cannot prove boolean (`b = o.x`) binds `Tagged` — the
+        // `Bool` slot has no coercion FROM anything else, so the assign bailed the
+        // whole function (`cannot coerce Tagged to Bool`). Running `ToBoolean` at
+        // the assign instead would be WRONG: JS assignment does not convert, so
+        // Node keeps `b === 1` where the conversion would print `true`.
+        let repr = if matches!(repr, Repr::Bool) && self.bool_demoted.contains(name) {
+            Repr::Tagged
+        } else {
+            repr
+        };
 
         let coerced = self.coerce(val, repr)?;
         let var = self.builder.declare_var(cl_type(repr));

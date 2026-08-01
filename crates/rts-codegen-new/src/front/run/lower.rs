@@ -424,6 +424,10 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// per function (`floatscan`); an `Int*`-proven `let` of such a name binds
     /// `Float64` instead so the accumulation never truncates the fraction.
     pub float_promoted: std::collections::HashSet<String>,
+    /// Locals whose `Bool`-inferred binding must DEMOTE to `Tagged` — a later
+    /// assignment carries a non-boolean (`let b = false; b = o.x`). See
+    /// [`super::boolscan`] for why converting instead would be WRONG.
+    pub bool_demoted: std::collections::HashSet<String>,
     /// Singleton-instance METHOD OVERRIDES seen so far in THIS function
     /// (`console.table = fn`): `(gcell name, prop)`. A later `name.prop(..)`
     /// call in the same function dispatches DYNAMICALLY (own-prop fn word if
@@ -528,6 +532,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             current_fn: func.name.clone(),
             builtins,
             float_promoted: super::floatscan::float_promoted_locals(&func.body),
+            bool_demoted: super::boolscan::bool_demoted_locals(&func.body),
             singleton_overrides: std::collections::HashSet::new(),
         };
 

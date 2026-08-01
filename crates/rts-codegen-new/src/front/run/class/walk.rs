@@ -66,9 +66,34 @@ fn walk_stmt_fields(s: &HirStmt, fields: &mut Vec<String>) {
             body.iter().for_each(|s| walk_stmt_fields(s, fields));
         }
         HirStmt::Block(b) => b.iter().for_each(|s| walk_stmt_fields(s, fields)),
-        HirStmt::For { body, .. } | HirStmt::ForOf { body, .. } | HirStmt::ForIn { body, .. } => {
+        HirStmt::For { init, body, .. } => {
+            if let Some(i) = init {
+                walk_stmt_fields(i, fields);
+            }
             body.iter().for_each(|s| walk_stmt_fields(s, fields));
         }
+        HirStmt::ForOf { body, .. } | HirStmt::ForIn { body, .. } => {
+            body.iter().for_each(|s| walk_stmt_fields(s, fields));
+        }
+        HirStmt::Try {
+            body,
+            catch,
+            finally,
+        } => {
+            body.iter().for_each(|s| walk_stmt_fields(s, fields));
+            if let Some(c) = catch {
+                c.body.iter().for_each(|s| walk_stmt_fields(s, fields));
+            }
+            if let Some(f) = finally {
+                f.iter().for_each(|s| walk_stmt_fields(s, fields));
+            }
+        }
+        HirStmt::Switch { cases, .. } => {
+            for c in cases {
+                c.body.iter().for_each(|s| walk_stmt_fields(s, fields));
+            }
+        }
+        HirStmt::Labeled { body, .. } => walk_stmt_fields(body, fields),
         _ => {}
     }
 }
@@ -119,6 +144,44 @@ fn stmt_uses_this(s: &HirStmt) -> bool {
         HirStmt::While { cond, body } | HirStmt::DoWhile { cond, body } => {
             expr_uses_this(cond) || body.iter().any(stmt_uses_this)
         }
+        HirStmt::For {
+            init,
+            cond,
+            update,
+            body,
+        } => {
+            init.as_ref().is_some_and(|i| stmt_uses_this(i))
+                || cond.as_ref().is_some_and(expr_uses_this)
+                || update.as_ref().is_some_and(expr_uses_this)
+                || body.iter().any(stmt_uses_this)
+        }
+        HirStmt::ForOf { iterable, body, .. } => {
+            expr_uses_this(iterable) || body.iter().any(stmt_uses_this)
+        }
+        HirStmt::ForIn { object, body, .. } => {
+            expr_uses_this(object) || body.iter().any(stmt_uses_this)
+        }
+        HirStmt::Try {
+            body,
+            catch,
+            finally,
+        } => {
+            body.iter().any(stmt_uses_this)
+                || catch
+                    .as_ref()
+                    .is_some_and(|c| c.body.iter().any(stmt_uses_this))
+                || finally.as_ref().is_some_and(|f| f.iter().any(stmt_uses_this))
+        }
+        HirStmt::Switch {
+            discriminant,
+            cases,
+        } => {
+            expr_uses_this(discriminant)
+                || cases.iter().any(|c| {
+                    c.test.as_ref().is_some_and(expr_uses_this) || c.body.iter().any(stmt_uses_this)
+                })
+        }
+        HirStmt::Labeled { body, .. } => stmt_uses_this(body),
         HirStmt::Block(b) => b.iter().any(stmt_uses_this),
         _ => false,
     }
@@ -183,9 +246,13 @@ fn raw_this_stmt(s: &HirStmt) -> bool {
             raw_this_expr(cond) || body.iter().any(raw_this_stmt)
         }
         HirStmt::For {
-            cond, update, body, ..
+            init,
+            cond,
+            update,
+            body,
         } => {
-            cond.as_ref().is_some_and(raw_this_expr)
+            init.as_ref().is_some_and(|i| raw_this_stmt(i))
+                || cond.as_ref().is_some_and(raw_this_expr)
                 || update.as_ref().is_some_and(raw_this_expr)
                 || body.iter().any(raw_this_stmt)
         }
@@ -195,6 +262,27 @@ fn raw_this_stmt(s: &HirStmt) -> bool {
         HirStmt::ForIn { object, body, .. } => {
             raw_this_expr(object) || body.iter().any(raw_this_stmt)
         }
+        HirStmt::Try {
+            body,
+            catch,
+            finally,
+        } => {
+            body.iter().any(raw_this_stmt)
+                || catch.as_ref().is_some_and(|c| c.body.iter().any(raw_this_stmt))
+                || finally
+                    .as_ref()
+                    .is_some_and(|f| f.iter().any(raw_this_stmt))
+        }
+        HirStmt::Switch {
+            discriminant,
+            cases,
+        } => {
+            raw_this_expr(discriminant)
+                || cases.iter().any(|c| {
+                    c.test.as_ref().is_some_and(raw_this_expr) || c.body.iter().any(raw_this_stmt)
+                })
+        }
+        HirStmt::Labeled { body, .. } => raw_this_stmt(body),
         HirStmt::Block(b) => b.iter().any(raw_this_stmt),
         _ => false,
     }
@@ -272,8 +360,14 @@ fn rewrite_this_stmt(s: &mut HirStmt) {
             rewrite_this_block(body);
         }
         HirStmt::For {
-            cond, update, body, ..
+            init,
+            cond,
+            update,
+            body,
         } => {
+            if let Some(i) = init {
+                rewrite_this_stmt(i);
+            }
             if let Some(c) = cond {
                 rewrite_this_expr(c);
             }
@@ -290,6 +384,32 @@ fn rewrite_this_stmt(s: &mut HirStmt) {
             rewrite_this_expr(object);
             rewrite_this_block(body);
         }
+        HirStmt::Try {
+            body,
+            catch,
+            finally,
+        } => {
+            rewrite_this_block(body);
+            if let Some(c) = catch {
+                rewrite_this_block(&mut c.body);
+            }
+            if let Some(f) = finally {
+                rewrite_this_block(f);
+            }
+        }
+        HirStmt::Switch {
+            discriminant,
+            cases,
+        } => {
+            rewrite_this_expr(discriminant);
+            for c in cases {
+                if let Some(t) = &mut c.test {
+                    rewrite_this_expr(t);
+                }
+                rewrite_this_block(&mut c.body);
+            }
+        }
+        HirStmt::Labeled { body, .. } => rewrite_this_stmt(body),
         HirStmt::Block(b) => rewrite_this_block(b),
         _ => {}
     }

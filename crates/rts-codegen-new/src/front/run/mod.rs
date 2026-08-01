@@ -40,6 +40,7 @@ mod desugar;
 mod dynfn;
 mod engineobj;
 mod expr;
+mod boolscan;
 mod floatscan;
 mod fnhoist;
 mod funcval;
