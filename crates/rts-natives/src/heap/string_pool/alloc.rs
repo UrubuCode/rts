@@ -133,9 +133,67 @@ pub fn __RTS_FN_NS_GC_STRING_CMP(a: u64, b: u64) -> i64 {
 /// - Others -> "[object <Kind>]"
 ///
 /// Invalid handles become the empty string (JS template-literal semantics).
+///
+/// # Why there are two paths
+///
+/// The snapshot path below is NOT redundant copying that could simply be
+/// deleted: it exists for **deadlock avoidance** (see `snapshot.rs:1-6`). The
+/// shard `Mutex` is non-reentrant, and rendering a non-String operand calls
+/// `element_to_string`, which re-enters the HandleTable for every nested
+/// element — a real hang whenever the nested handle lands on the same shard.
+/// So it copies the operand out from under the lock first, then formats.
+///
+/// But the overwhelmingly common case — both operands are plain
+/// `Entry::String` — never formats anything, so it never needs that
+/// protection. It was still paying for it twice per operand (`snapshot_entry`
+/// clones the bytes, `snapshot_to_bytes` clones the clone) before the copy that
+/// actually builds the result. The fast path below does **one** copy of each
+/// operand, straight into the result buffer.
+///
+/// RTS_OPTIMIZATION.md §5 item 1.1 documents the expectation as **3.2× on the
+/// accumulator loop**, with byte-identical output and the same
+/// result-allocation count. This is also the cheaper half of the fix
+/// `docs/specs/no-mangle-drain.md:318` recorded (20k concats → 288 MB, 80k →
+/// 3.6 GB): it removes the constant factor, NOT the O(n²) — the rope that
+/// fixes the asymptote is a separate, later change.
 #[rtse::abi("__RTS_FN_NS_GC_STRING_CONCAT")]
 pub fn __RTS_FN_NS_GC_STRING_CONCAT(a: u64, b: u64) -> u64 {
     use super::snapshot::{EntrySnap, snapshot_entry, snapshot_to_bytes};
+
+    // FAST PATH — both operands are plain strings.
+    //
+    // Lock ordering (the reason this cannot repeat the re-entrancy hang):
+    //   1. `with_two_entries` takes the shard locks in ascending shard index
+    //      (one lock when both handles share a shard), so two concurrent
+    //      concats can never take them in opposite order.
+    //   2. The closure does nothing but `extend_from_slice` on a local `Vec`
+    //      — a memcpy. It performs NO HandleTable access, so it cannot
+    //      re-enter a shard lock the way `element_to_string` does.
+    //   3. The guards are locals of `with_two_entries` and are dropped when it
+    //      returns; `alloc_entry` (which locks its own target shard, and may
+    //      trigger a GC cycle that locks EVERY shard) runs only after that
+    //      return, on the `Vec` we already own. No lock is held across it.
+    // `a == 0` / `b == 0` (JS null) are excluded so the "null" rendering below
+    // stays the single owner of that case.
+    if a != 0 && b != 0 {
+        let fast = with_two_entries(a, b, |ea, eb| match (ea, eb) {
+            (Some(Entry::String(sa)), Some(Entry::String(sb))) => {
+                // Exact capacity: one allocation, no growth reallocs, and the
+                // result-allocation count stays identical to the slow path.
+                let mut out = Vec::with_capacity(sa.len() + sb.len());
+                out.extend_from_slice(sa);
+                out.extend_from_slice(sb);
+                Some(out)
+            }
+            // Anything else (Vec, Map, Json, FloatPrim, dead handle, mixed)
+            // falls through to the snapshot path, byte-for-byte unchanged.
+            _ => None,
+        });
+        if let Some(out) = fast {
+            return alloc_entry(Entry::String(out));
+        }
+    }
+
     // Handle 0 = JS null — displayed as "null" in string context (JS spec: null + "" = "null").
     let snap_a = if a == 0 { EntrySnap::Str(b"null".to_vec()) } else { snapshot_entry(a) };
     let snap_b = if b == 0 { EntrySnap::Str(b"null".to_vec()) } else { snapshot_entry(b) };
