@@ -128,10 +128,12 @@ pub fn alloc_shaped_object_owned(keys: Vec<String>, values: &[i64]) -> u64 {
 /// (cached in a `OnceLock` at the call site) instead of re-hashing the key list
 /// on every call.
 pub fn alloc_shaped_object_with_id(id: GlobalShapeId, values: &[i64]) -> u64 {
-    let mut slots: Vec<i64> = Vec::with_capacity(values.len() + 1);
+    // Payload buffer from the per-thread recycler (Tier 4.2, `heap::bump`); with
+    // `RTS_BUMP` unset this is the `Vec::with_capacity` it replaced.
+    let mut slots = crate::heap::bump::acquire(values.len() + 1);
     slots.push(shape_id_word(id) as i64);
     slots.extend_from_slice(values);
-    alloc_entry(Entry::Vec(Box::new(slots)))
+    alloc_entry(Entry::Vec(slots))
 }
 
 /// The PolyValue word of a plain `f64` field/value: an inline double is already

@@ -3,6 +3,7 @@
 //! puros (value-types) do `Entry` vivem aqui; o `Entry`/`HandleTable` + a
 //! orquestração migram em fatias gateadas (ver `.claude/plans/`).
 
+pub mod bump;
 pub mod class_registry;
 pub mod descriptors;
 pub mod fixed;

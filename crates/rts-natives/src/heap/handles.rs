@@ -1129,7 +1129,9 @@ impl HandleTable {
         }
         let bytes = entry_heap_bytes(&slot.entry);
         cleanup_entry(&mut slot.entry);
-        slot.entry = Entry::Free;
+        // By VALUE into the payload recycler (`heap::bump`); `RTS_BUMP` unset
+        // makes this `drop(entry)`, i.e. exactly the assignment it replaced.
+        crate::heap::bump::recycle(std::mem::replace(&mut slot.entry, Entry::Free));
         self.free_list.push(table_slot);
         // Batched through the SAME path as the increment — see `ShardLive::on_free`
         // for why the two halves must not use different accounting.
@@ -1323,7 +1325,9 @@ impl HandleTable {
                 }
                 freed_bytes += entry_heap_bytes(&slot.entry);
                 cleanup_entry(&mut slot.entry);
-                slot.entry = Entry::Free;
+                // As in `free` above; here the buffer lands in the SWEEPING
+                // thread's pool, which `heap::bump` documents as deliberate.
+                crate::heap::bump::recycle(std::mem::replace(&mut slot.entry, Entry::Free));
                 self.free_list.push(idx as u32);
                 freed += 1;
             } else {

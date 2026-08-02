@@ -259,7 +259,10 @@ mod tests {
 /// then immediately discarded by the very next call.
 #[rtse::abi(native, value = "vec_new_object")]
 pub fn vec_new_object() -> u64 {
-    let handle = alloc_entry(Entry::Vec(Box::new(Vec::new())));
+    // Smallest pooled class (Tier 4.2): an object built key-by-key still ends up
+    // in the same size range as a shaped one, and asking for capacity here costs
+    // nothing the first `push` would not have paid anyway.
+    let handle = alloc_entry(Entry::Vec(crate::heap::bump::acquire(4)));
     let payload = handle & SLOT_MASK;
     crate::heap::poly::POLY_BOX_BASE
         | (crate::heap::poly::POLY_TAG_OBJECT << crate::heap::poly::POLY_TAG_SHIFT)
@@ -297,13 +300,16 @@ pub fn vec_new_object() -> u64 {
 #[rtse::abi(native, value = "vec_new_object_shaped")]
 pub fn vec_new_object_shaped(shape_word: i64, field_count: i64) -> u64 {
     let n = field_count.max(0) as usize;
-    let mut slots = Vec::with_capacity(1 + n);
+    // The payload buffer comes from this thread's recycler (Tier 4.2,
+    // `heap::bump`) rather than from a fresh `malloc`. With `RTS_BUMP` unset
+    // `acquire` IS `Box::new(Vec::with_capacity(1 + n))`.
+    let mut slots = crate::heap::bump::acquire(1 + n);
     slots.push(shape_word);
     // The `undefined` word comes from the shared PolyValue constants, not a
     // literal bit pattern — the codegen bakes the same word via
     // `PolyValue::undefined().raw()`, and the two must never be able to drift.
     slots.resize(1 + n, crate::heap::poly::POLY_UNDEFINED as i64);
-    let handle = alloc_entry(Entry::Vec(Box::new(slots)));
+    let handle = alloc_entry(Entry::Vec(slots));
     let payload = handle & SLOT_MASK;
     crate::heap::poly::POLY_BOX_BASE
         | (crate::heap::poly::POLY_TAG_OBJECT << crate::heap::poly::POLY_TAG_SHIFT)
