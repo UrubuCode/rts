@@ -30,6 +30,7 @@ use crate::abi::handles::{
 /// `crate::abi::handles`. Byte-identical to the canonical constant — pure alias.
 pub use crate::abi::handles::HANDLE_SLOT_MASK;
 use crate::heap::live::{ShardLive, gc_disabled};
+use crate::heap::slab::{Slot, SlotStore};
 /// The live-heap counters moved to [`crate::heap::live`] (the per-shard batching
 /// of RTS_OPTIMIZATION.md §5 item 1.4). Re-exported here because every caller in
 /// the tree — and the runtime facade path — names them under `handles::`.
@@ -986,7 +987,7 @@ impl crate::Traceable for Entry {
 
 impl Drop for HandleTable {
     fn drop(&mut self) {
-        for slot in &mut self.slots {
+        for slot in self.slots.iter_mut() {
             cleanup_entry(&mut slot.entry);
         }
     }
@@ -1050,17 +1051,10 @@ pub struct UdpEntry {
     pub last_peer: Option<std::net::SocketAddr>,
 }
 
-#[derive(Debug)]
-struct Slot {
-    generation: u16,
-    /// Set during GC mark phase. Cleared at sweep start and after each cycle.
-    marked: bool,
-    entry: Entry,
-}
-
 #[derive(Debug, Default)]
 pub struct HandleTable {
-    slots: Vec<Slot>,
+    /// `Vec<Slot>`, or chunked stable-address storage under `RTS_SLAB=1`.
+    slots: SlotStore,
     /// Indices of `Free` slots available for reuse.
     free_list: Vec<u32>,
     /// This shard's PENDING contribution to the global live counters
@@ -1076,6 +1070,17 @@ pub struct HandleTable {
 }
 
 impl HandleTable {
+    /// The table for shard `shard_idx`; unlike `default()` it may own a chunk
+    /// range ([`crate::heap::slab`]).
+    pub fn for_shard(shard_idx: usize) -> Self {
+        // `..default()` cannot be used here: `HandleTable` implements `Drop`, so
+        // Rust refuses to move the remaining fields out of the temporary. Build
+        // the default and replace the one field that differs instead.
+        let mut t = HandleTable::default();
+        t.slots = SlotStore::for_shard(shard_idx);
+        t
+    }
+
     /// Drain this shard's pending live delta into the globals. Policy lives in
     /// [`crate::heap::live::flush_all_shards`]; this is only the accessor that
     /// reaches the private field.
@@ -1095,19 +1100,18 @@ impl HandleTable {
         // 1.4 removes from this line.
         self.live.on_alloc(entry_heap_bytes(&entry));
         if let Some(table_slot) = self.free_list.pop() {
-            let slot = &mut self.slots[table_slot as usize];
+            // `expect`: a miss means free_list and the store disagree about which
+            // indices exist (`heap::slab` invariants #1/#2).
+            let slot = self.slots.get_mut(table_slot as usize).expect("free_list");
             // Skip the sentinel 0 and the reserved 0xFFF8..=0xFFFF range so a real
             // handle is never misread as a NaN-boxed PolyValue (see GEN_RESERVED_LO).
-            slot.generation = next_generation(slot.generation);
+            // This bump is also the ABA answer for `heap::slab`'s stable addresses.
+            slot.set_generation(next_generation(slot.generation()));
             slot.entry = entry;
-            return encode(slot.generation, shard_idx, table_slot);
+            return encode(slot.generation(), shard_idx, table_slot);
         }
         let table_slot = self.slots.len() as u32;
-        self.slots.push(Slot {
-            generation: 1,
-            marked: false,
-            entry,
-        });
+        self.slots.push(Slot::live(1, entry));
         encode(1, shard_idx, table_slot)
     }
 
@@ -1118,7 +1122,7 @@ impl HandleTable {
         let Some(slot) = self.slots.get_mut(table_slot as usize) else {
             return false;
         };
-        if slot.generation != expected_gen {
+        if slot.generation() != expected_gen {
             return false;
         }
         // Slot ja' liberado (gen bate, mas entry e' Free) — handle stale
@@ -1155,7 +1159,7 @@ impl HandleTable {
     pub fn get(&self, handle: u64) -> Option<&Entry> {
         let (expected_gen, _, table_slot) = decode(handle)?;
         let slot = self.slots.get(table_slot as usize)?;
-        if slot.generation != expected_gen || matches!(slot.entry, Entry::Free) {
+        if slot.generation() != expected_gen || matches!(slot.entry, Entry::Free) {
             return None;
         }
         Some(&slot.entry)
@@ -1164,7 +1168,7 @@ impl HandleTable {
     pub fn get_mut(&mut self, handle: u64) -> Option<&mut Entry> {
         let (expected_gen, _, table_slot) = decode(handle)?;
         let slot = self.slots.get_mut(table_slot as usize)?;
-        if slot.generation != expected_gen || matches!(slot.entry, Entry::Free) {
+        if slot.generation() != expected_gen || matches!(slot.entry, Entry::Free) {
             return None;
         }
         Some(&mut slot.entry)
@@ -1188,7 +1192,7 @@ impl HandleTable {
         if matches!(slot.entry, Entry::Free) {
             return None;
         }
-        slot.generation = new_gen;
+        slot.set_generation(new_gen);
         Some(encode(new_gen, shard_idx, table_slot as u32))
     }
 
@@ -1200,7 +1204,7 @@ impl HandleTable {
     pub(crate) fn is_marked_pub(&self, handle: u64) -> Option<bool> {
         let (expected_gen, _, table_slot) = decode(handle)?;
         let slot = self.slots.get(table_slot as usize)?;
-        if slot.generation != expected_gen || matches!(slot.entry, Entry::Free) {
+        if slot.generation() != expected_gen || matches!(slot.entry, Entry::Free) {
             return None;
         }
         Some(slot.marked)
@@ -1241,7 +1245,7 @@ impl HandleTable {
         if matches!(slot.entry, Entry::Free) {
             return None;
         }
-        Some(slot.generation)
+        Some(slot.generation())
     }
 
     /// Retorna handles de todos os slots vivos deste shard. Caller
@@ -1253,7 +1257,7 @@ impl HandleTable {
             if matches!(slot.entry, Entry::Free) {
                 continue;
             }
-            out.push(encode(slot.generation, shard_idx, idx as u32));
+            out.push(encode(slot.generation(), shard_idx, idx as u32));
         }
         out
     }
@@ -1283,7 +1287,25 @@ impl HandleTable {
         let Some(slot) = self.slots.get_mut(table_slot as usize) else {
             return children;
         };
-        if slot.generation == expected_gen && !matches!(slot.entry, Entry::Free) {
+        if slot.generation() == expected_gen && !matches!(slot.entry, Entry::Free) {
+            // ALREADY VISITED THIS CYCLE — return no children.
+            //
+            // This is what terminates a reference cycle, and it has to be here
+            // rather than at the worklist: without it `mark` re-enumerated an
+            // already-marked node's children every time it was reached, so a cycle
+            // looped forever and `mark_handle` needed a step cap to escape. That
+            // cap then TRUNCATED marking for any large LIVE set — measured, a
+            // 500k-element array of objects exceeded it, the unmarked tail was
+            // swept, and reading it back gave `NaN` instead of the sum. A wrong
+            // answer, silently, on ordinary code.
+            //
+            // The mark bit is the standard termination argument: each slot is
+            // expanded at most once per cycle, so the walk is linear in live
+            // objects and needs no cap at all. `sweep_unmarked` clears the bits
+            // between cycles.
+            if slot.marked {
+                return children;
+            }
             if crate::collector::debug::is_enabled()
                 && matches!(slot.entry, Entry::TcpListener(_) | Entry::TcpStream(_))
             {
@@ -1365,7 +1387,7 @@ pub fn decode(handle: u64) -> Option<(u16, usize, u32)> {
 
 pub(crate) fn shards() -> &'static [Mutex<HandleTable>; N_SHARDS] {
     static SHARDS: OnceLock<[Mutex<HandleTable>; N_SHARDS]> = OnceLock::new();
-    SHARDS.get_or_init(|| std::array::from_fn(|_| Mutex::new(HandleTable::default())))
+    SHARDS.get_or_init(|| std::array::from_fn(|i| Mutex::new(HandleTable::for_shard(i))))
 }
 
 /// Returns the shard that owns `handle`. O(1) via the shard_idx encoded
@@ -1522,16 +1544,19 @@ pub fn alloc_entry(entry: Entry) -> u64 {
 /// - Proxy.target / Proxy.handler (#218)
 pub fn mark_handle(handle: u64) {
     let mut worklist = vec![handle];
-    let mut steps = 0u32;
     while let Some(h) = worklist.pop() {
         if h == 0 {
             continue;
         }
-        // Guard contra ciclos pathologicos (limite generoso).
-        steps += 1;
-        if steps > 1_000_000 {
-            break;
-        }
+        // NO STEP CAP. There used to be one ("guard contra ciclos pathologicos"),
+        // and it was load-bearing only because `mark` re-enumerated the children of
+        // an already-marked node, so a cycle never terminated. `mark` now returns
+        // no children for a slot it has already visited this cycle, which bounds
+        // the walk at one expansion per live slot — so a cap can only do one thing,
+        // and it did it: at 1_000_000 steps marking STOPPED, the still-live tail
+        // was swept, and a 500k-element array of objects read back as `NaN`.
+        // Truncating a mark phase is never safe; it is not a guard, it is a leak of
+        // liveness in the wrong direction.
         // (#poly) The conservative scanner and `Entry::Vec`/`Map` children feed
         // RAW words here; a word may be a NaN-boxed PolyValue handle from the new
         // engine (`rts-codegen-new`). Normalize it to the underlying real handle
