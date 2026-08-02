@@ -1376,11 +1376,49 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 emit_marshal::emit_vec_push(module, self.builder, arr, word);
                 continue;
             }
-            let local = self.local(cap).ok_or_else(|| {
-                Unsupported::new(format!(
-                    "closure captures `{cap}` which is not a simple local in scope"
-                ))
-            })?;
+            // Um MODULE-GLOBAL promovido a CÉLULA (#195) não é um local desta
+            // função — o valor vive na cell. Ler a cell aqui dá o valor CORRENTE,
+            // que é o mesmo que qualquer outra leitura do nome produz.
+            //
+            // Sem isto, uma closure que capturasse um global mutável derrubava o
+            // arquivo inteiro ("not a simple local in scope"), embora o lifter
+            // tivesse aceitado a captura — o nome existe, só não mora aqui.
+            if self.local(cap).is_none() {
+                if let Some(id) = self.gcell_id(cap) {
+                    let v = self.emit_gcell_get(module, id)?;
+                    let word = self.box_value(v);
+                    emit_marshal::emit_vec_push(module, self.builder, arr, word);
+                    continue;
+                }
+                // Uma CLASSE capturada por nome (`const f = () => new C()` onde a
+                // arrow foi levantada): reifica o valor-de-classe, como a leitura
+                // do nome em posição de valor já faz.
+                if self.classes.get(cap).is_some() {
+                    let v = self.reify_class(module, cap)?;
+                    let word = self.box_value(v);
+                    emit_marshal::emit_vec_push(module, self.builder, arr, word);
+                    continue;
+                }
+            }
+            // Última morada: o nome é um GLOBAL (inclusive um global implícito,
+            // criado por atribuição a nome livre). Lê pelo mesmo trampolim da
+            // cadeia de escopo — o valor corrente, e ReferenceError em runtime
+            // se não existir mesmo, que é a resposta do JS. Recusar aqui
+            // derrubava o arquivo inteiro por um nome que EXISTE, só não é
+            // local desta função.
+            let local = match self.local(cap) {
+                Some(l) => l,
+                None => {
+                    let name_w = self.emit_str_const_word(module, cap)?;
+                    let sym = rts_runtime::adapters::value::globalthis::GLOBAL_REF_ABI.name;
+                    let w = self
+                        .call_runtime(module, sym, &[name_w])?
+                        .expect("__rtsadp_global_ref returns a word");
+                    self.emit_post_call_error_check(module)?;
+                    emit_marshal::emit_vec_push(module, self.builder, arr, w);
+                    continue;
+                }
+            };
             let v = self.builder.use_var(local.var);
             let word = self.box_value(Val::new(v, local.repr));
             emit_marshal::emit_vec_push(module, self.builder, arr, word);

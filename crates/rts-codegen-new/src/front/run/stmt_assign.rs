@@ -136,6 +136,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.cell_locals,
             );
         }
+        // Nome que não casa com binding léxico nenhum: atribuir a ele CRIA um
+        // global (o "global implícito" do modo sloppy, que é o modo de todo
+        // `<script>` de página). Simétrico ao `__rtsadp_global_ref` da LEITURA,
+        // e pelo mesmo motivo — recusar derrubava o arquivo inteiro.
+        if self.local(&name).is_none() {
+            let name_w = self.emit_str_const_word(module, &name)?;
+            let v = self.lower_expr(module, value)?;
+            let word = self.box_value(v);
+            let sym = rts_runtime::adapters::value::globalthis::GLOBAL_SET_ABI.name;
+            let res = self
+                .call_runtime(module, sym, &[name_w, word])?
+                .expect("__rtsadp_global_set returns the assigned value");
+            return Ok(Val::new(res, Repr::Tagged));
+        }
         let local = self
             .local(&name)
             .ok_or_else(|| Unsupported::new(format!("assignment to unbound `{name}`")))?;
@@ -283,6 +297,32 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 .call_runtime(module, sym, &[old_num, one_word])?
                 .expect("generic arithmetic returns a value");
             self.emit_cell_set(module, handle, new_num);
+            let produced = if prefix { new_num } else { old_num };
+            return Ok(Val::new(produced, Repr::Tagged));
+        }
+        // Nome livre: `x++` lê e escreve o OBJETO GLOBAL, compondo os dois
+        // trampolins que a cadeia de escopo já usa (`global_ref` na leitura,
+        // `global_set` na escrita) — a mesma forma do caminho de célula logo
+        // acima. Recusar derrubava o arquivo inteiro; um nome ausente de
+        // verdade lança ReferenceError na LEITURA, que é a resposta do JS.
+        if self.local(&name).is_none() {
+            let name_w = self.emit_str_const_word(module, &name)?;
+            let get = rts_runtime::adapters::value::globalthis::GLOBAL_REF_ABI.name;
+            let set = rts_runtime::adapters::value::globalthis::GLOBAL_SET_ABI.name;
+            let cur = self
+                .call_runtime(module, get, &[name_w])?
+                .expect("__rtsadp_global_ref returns a word");
+            self.emit_post_call_error_check(module)?;
+            let old_num = self
+                .call_runtime(module, "__rtsadp_pos", &[cur])?
+                .expect("__rtsadp_pos returns a value");
+            let one_f64 = self.builder.ins().f64const(1.0);
+            let one_word = self.box_value(Val::new(one_f64, Repr::Float64));
+            let op = if inc { "__rtsadp_add" } else { "__rtsadp_sub" };
+            let new_num = self
+                .call_runtime(module, op, &[old_num, one_word])?
+                .expect("generic arithmetic returns a value");
+            self.call_runtime(module, set, &[name_w, new_num])?;
             let produced = if prefix { new_num } else { old_num };
             return Ok(Val::new(produced, Repr::Tagged));
         }
