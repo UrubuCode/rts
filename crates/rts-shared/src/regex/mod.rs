@@ -31,6 +31,77 @@ where
     })
 }
 
+/// One compiled automaton, ready to be cloned into a fresh `Entry::Regex`.
+///
+/// `regex::Regex` and `fancy_regex::Regex` are both `Clone`, and both hold their
+/// compiled program behind an `Arc` — so a clone shares the automaton and costs
+/// a refcount bump, not a rebuild.
+#[derive(Clone)]
+struct CompiledRe {
+    regex: regex::Regex,
+    engine: RegexEngine,
+    global: bool,
+    flags: String,
+}
+
+/// `(pattern, flags)` → compiled automaton.
+///
+/// ## Why this exists
+///
+/// A regex LITERAL evaluates to a fresh `RegExp` object every time it is
+/// reached (ES2015+), and `lastIndex` lives on that object — so the object
+/// cannot be shared. But the AUTOMATON is immutable and identical for the same
+/// source, and building it is the expensive half. The engine was rebuilding it
+/// per evaluation, which made a literal inside a loop pathologically slower than
+/// the same regex hoisted to a `const`, on the same engine:
+///
+/// ```text
+/// 20 000 iterations of /[0-9]+/.test(s)
+///   literal in the loop   1662 ms      node 4 ms
+///   hoisted to a const       3 ms      node 9 ms
+/// ```
+///
+/// 554x apart, self-inflicted — and the hoisted path already BEAT node. Caching
+/// the automaton (and cloning it into a fresh entry per evaluation) keeps the
+/// per-object `lastIndex` semantics exactly as they were.
+///
+/// Bounded at [`CACHE_MAX`]: a program that builds patterns dynamically
+/// (`new RegExp(userInput)`) must not turn this into a leak. On overflow the
+/// cache is cleared rather than evicted one-by-one — no LRU bookkeeping for a
+/// case that should not happen, and correctness does not depend on a hit.
+fn cache() -> &'static std::sync::Mutex<std::collections::HashMap<(String, String), CompiledRe>> {
+    static C: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<(String, String), CompiledRe>>,
+    > = std::sync::OnceLock::new();
+    C.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Distinct `(pattern, flags)` pairs kept before the cache is dropped wholesale.
+const CACHE_MAX: usize = 1024;
+
+/// Store a freshly built automaton under `key`, dropping the whole cache first
+/// if it has grown past [`CACHE_MAX`].
+fn remember(key: (String, String), c: &CompiledRe) {
+    if let Ok(mut map) = cache().lock() {
+        if map.len() >= CACHE_MAX {
+            map.clear();
+        }
+        map.insert(key, c.clone());
+    }
+}
+
+/// Allocate a fresh `Entry::Regex` from a cached automaton — a new object with
+/// its own `last_index`, sharing the compiled program.
+fn alloc_from(c: &CompiledRe) -> u64 {
+    alloc_entry(Entry::Regex(Box::new(RtsRegex {
+        regex: c.regex.clone(),
+        engine: c.engine.clone(),
+        global: c.global,
+        flags: c.flags.clone(),
+        last_index: 0,
+    })))
+}
+
 /// Compila `pattern` com `flags` JS (igmsuyx). Handle, ou 0 em erro.
 #[rtse::abi("__RTS_FN_NS_REGEX_COMPILE")]
 pub fn __RTS_FN_NS_REGEX_COMPILE(
@@ -50,6 +121,13 @@ pub fn __RTS_FN_NS_REGEX_COMPILE(
         Some(s) => s,
         None => return 0,
     };
+    // Automaton cache hit: allocate a fresh object around the shared program.
+    let key = (pattern.to_string(), flags.to_string());
+    if let Ok(map) = cache().lock() {
+        if let Some(c) = map.get(&key) {
+            return alloc_from(c);
+        }
+    }
     let mut builder = RegexBuilder::new(pattern);
     for c in flags.chars() {
         match c {
@@ -79,13 +157,14 @@ pub fn __RTS_FN_NS_REGEX_COMPILE(
     match builder.build() {
         Ok(rx) => {
             let engine = RegexEngine::Fast(rx.clone());
-            alloc_entry(Entry::Regex(Box::new(RtsRegex {
+            let c = CompiledRe {
                 regex: rx,
                 engine,
                 global,
                 flags: canon,
-                last_index: 0,
-            })))
+            };
+            remember(key, &c);
+            alloc_from(&c)
         }
         Err(_) => {
             // (#1107) fancy_regex fallback para lookaround/backref.
@@ -113,13 +192,14 @@ pub fn __RTS_FN_NS_REGEX_COMPILE(
                 Ok(fancy) => {
                     let placeholder = regex::Regex::new("").unwrap();
                     let engine = RegexEngine::Fancy(fancy);
-                    alloc_entry(Entry::Regex(Box::new(RtsRegex {
+                    let c = CompiledRe {
                         regex: placeholder,
                         engine,
                         global,
                         flags: canon,
-                        last_index: 0,
-                    })))
+                    };
+                    remember(key, &c);
+                    alloc_from(&c)
                 }
                 Err(_) => 0,
             }
