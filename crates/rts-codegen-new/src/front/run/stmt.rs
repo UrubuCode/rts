@@ -28,8 +28,18 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         crate::stats::note_site(&self.current_fn, self.loop_stack.len(), self.is_prelude);
         match s {
             HirStmt::Return(arg) => self.lower_return(module, arg.as_ref()),
-            HirStmt::Let { name, ty, init } => self.lower_let(module, name, ty, init.as_ref()),
-            HirStmt::Const { name, ty, init } => self.lower_let(module, name, ty, Some(init)),
+            HirStmt::Let {
+                name,
+                ty,
+                init,
+                native_int,
+            } => self.lower_let(module, name, ty, init.as_ref(), *native_int),
+            HirStmt::Const {
+                name,
+                ty,
+                init,
+                native_int,
+            } => self.lower_let(module, name, ty, Some(init), *native_int),
             HirStmt::Expr(e) => {
                 self.lower_expr(module, e)?;
                 Ok(())

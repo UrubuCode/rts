@@ -236,7 +236,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             if self.string_locals.contains(name) {
                 return Ok(Val::tagged_kind(v, JsKind::Str));
             }
-            return Ok(Val::new(v, local.repr));
+            // Tier 2.2: carry the DECLARED-native-int provenance onto the value.
+            // `local.repr` alone cannot express it — `Repr::Int64` is worn both by
+            // a JS number that happens to be integral (where a wrap is a wrong
+            // answer) and by a `let n: i64` (where the wrap is the contract), and
+            // only this set knows which one this name is.
+            return Ok(Val::new(v, local.repr).as_native_int(self.native_int_locals.contains(name)));
         }
         // MODULE-LEVEL MUTABLE GLOBAL (epic #195): a top-level `let` written from a
         // function. Read through the runtime cell by id (Tagged word). Checked here
@@ -589,6 +594,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 v,
                 repr: target,
                 kind,
+                // Conservative: a ternary's two arms can disagree on provenance,
+                // and `false` is the side that CHECKS.
+                native_int: false,
             });
         }
         // GENERAL PATH — true branching: each arm evaluates ONLY when chosen,

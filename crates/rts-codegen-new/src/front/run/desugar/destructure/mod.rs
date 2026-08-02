@@ -310,6 +310,8 @@ fn const_bind_init(name: &str, init: HirExpr) -> HirStmt {
         name: name.to_string(),
         ty: HirType::Any,
         init,
+        // A destructuring temp is untyped (`HirType::Any`) — JS semantics.
+        native_int: false,
     }
 }
 

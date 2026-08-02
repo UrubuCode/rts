@@ -178,5 +178,7 @@ pub(super) fn const_bind(name: &str, init: HirExpr) -> HirStmt {
         name: name.to_string(),
         ty: HirType::Any,
         init,
+        // A destructuring leaf is untyped (`HirType::Any`) — JS semantics.
+        native_int: false,
     }
 }

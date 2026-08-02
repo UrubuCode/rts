@@ -240,6 +240,12 @@ pub enum HirLit {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct HirParam {
     pub name: String,
+    /// A parameter carries NO `native_int` companion bit (unlike `HirStmt::Let` /
+    /// `HirStmt::Const`) because it has no ambiguity to resolve: `lower_param` and
+    /// the arrow/fn-expr param lowering derive `ty` EXCLUSIVELY from the source
+    /// annotation (`unwrap_or(HirType::Unknown)`) — no literal-driven inference
+    /// ever writes an integer type here. So `ty.is_integer()` already means "the
+    /// user wrote `: i64`/`: u32`/…", and the codegen reads it directly.
     pub ty: HirType,
     pub variadic: bool,
     pub has_default: bool,
@@ -393,11 +399,35 @@ pub enum HirStmt {
         name: String,
         ty: HirType,
         init: Option<HirExpr>,
+        /// The SOURCE wrote an explicit native fixed-width integer annotation on
+        /// this binding (`let x: i64`, `: u32`, …).
+        ///
+        /// Why the flag exists rather than reading `ty`: `ty` cannot answer the
+        /// question. `lower_lit` types EVERY integral literal as `HirType::I64`,
+        /// so a plain `let a = 5` is indistinguishable from `let a: i64 = 5` by
+        /// type alone — and the two have OPPOSITE arithmetic semantics. A JS
+        /// `number` is a double, so a 64-bit wrap is a wrong answer
+        /// (`4611686018427387904 * 4` is `18446744073709552000`, not `0`); a
+        /// declared `i64` is a native fixed-width integer, where the wrap IS the
+        /// contract the annotation asked for. The engine's overflow check
+        /// (`RTS_INT_OVERFLOW`, `front/run/binop.rs`) fires only where this bit is
+        /// clear on both operands.
+        ///
+        /// `#[serde(default)]` — the HIR is cached (prelude/program cache), and
+        /// `false` is the SAFE direction: an artifact written before this field
+        /// existed, or a construction site that does not think about it, gets JS
+        /// number semantics (checked arithmetic, correct answer) rather than
+        /// silent native wrapping.
+        #[serde(default)]
+        native_int: bool,
     },
     Const {
         name: String,
         ty: HirType,
         init: HirExpr,
+        /// Same bit as `HirStmt::Let::native_int` — same default, same reason.
+        #[serde(default)]
+        native_int: bool,
     },
 
     // Control flow

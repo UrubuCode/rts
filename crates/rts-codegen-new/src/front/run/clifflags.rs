@@ -46,26 +46,57 @@ pub(super) fn cold_blocks() -> bool {
     })
 }
 
-/// `RTS_INT_OVERFLOW=1` — overflow-check the proven-int `+`/`-`/`*` path
-/// (`sadd_overflow`/`ssub_overflow`/`smul_overflow`) and promote to `f64` on
-/// overflow, which is what JS-number semantics require. OFF by default, and the
-/// reason is measured rather than assumed:
+/// `RTS_INT_OVERFLOW=0` — stop overflow-checking the proven-int `+`/`-`/`*` path
+/// (`sadd_overflow`/`ssub_overflow`/`smul_overflow` + promote to `f64` on
+/// overflow, which is what JS-number semantics require). OFF by default — the Tier 2.2
+/// gate landed and the gated form was then MEASURED, see below; `=1` turns it on.
 ///
-/// * Correctness with it ON is real. `4611686018427387904 + 4611686018427387904`
-///   prints `9223372036854776000` (Node's answer) instead of the wrapped
-///   `-9223372036854776000`, and `* 4` prints `18446744073709552000` instead of `0`.
-/// * Cost with it ON is also real: an int-heavy 50M-iteration loop goes from
-///   ~34 ms to ~224 ms (6.6x) when the two edges merge as `Float64`, and to
-///   ~735 ms (21x) when they merge as `Tagged`.
+/// Unlike [`op_guards`] / [`rem_guard`] / [`escape_analysis`] this IS a semantic
+/// switch: the two arms print DIFFERENT things for a program that overflows, and
+/// the ON arm is the correct one. `4611686018427387904 + 4611686018427387904`
+/// prints `9223372036854776000` (Node's answer) instead of the wrapped
+/// `-9223372036854776000`, and `* 4` prints `18446744073709552000` instead of `0`.
 ///
-/// What blocks turning it on: it cannot be applied selectively today. RTS has
-/// BOTH semantics — a JS `number` is a double (wrapping is wrong), while a value
-/// declared `i64`/`u32` is a native fixed-width integer (wrapping is the declared
-/// contract). `rts-hir` types EVERY integral literal as `HirType::I64` regardless
-/// of the annotation (`lower.rs:915`/`:927`), so the lowering cannot tell the two
-/// apart, and a blanket check taxes the native-int path for a JS rule that does
-/// not govern it. Distinguishing them needs an "annotated" bit on the HIR binding
-/// (~95 construction sites), which is the follow-up this flag is waiting on.
+/// Why it was OFF until now, and what changed. The check is not free — a blanket
+/// application cost an int-heavy 50M-iteration loop ~34 ms → ~224 ms (6.6x) when
+/// the two edges merge as `Float64`, and ~735 ms (21x) when they merge as
+/// `Tagged`. That cost was being paid for a rule that does not govern half the
+/// values: RTS has BOTH semantics. A JS `number` is a double, so a 64-bit wrap is
+/// a wrong answer; a value declared `i64`/`u32` is a native fixed-width integer,
+/// where the wrap is exactly the contract the annotation asked for. The two were
+/// indistinguishable because `rts-hir` types EVERY integral literal as
+/// `HirType::I64` regardless of annotation, so `let a = 5` and `let a: i64 = 5`
+/// arrived identical.
+///
+/// They are distinguishable now: `HirStmt::Let`/`Const` carry a `native_int` bit
+/// (set only by an explicit fixed-width integer annotation; a param's `ty` is
+/// annotation-derived already), the lowering records those names in
+/// `Lowerer::native_int_locals`, and an ident read stamps `Val::native_int`.
+/// [`super::binop::Lowerer::lower_int_arith_checked`] fires only when NEITHER
+/// operand carries it — so the check now governs only the values whose semantics
+/// it is right for, and the native-int loop keeps its unchecked fast path.
+///
+/// **And it is still OFF, because the gated form was then measured and two things
+/// came back.** The gate works — `let a = 4611686018427387904; a * 4` now prints
+/// node's `18446744073709552000` while `let b: i64 = …; b * 4` keeps the native
+/// `0`, and an `i64`-declared loop keeps its unchecked speed. But:
+///
+/// 1. **Cost on ORDINARY code.** Unannotated JS integer arithmetic is the common
+///    case (`let i = 0`), and it now pays the full tax: a 50M-iteration
+///    `acc = acc + i*3 - 1` loop goes 34 ms -> 221 ms (6.5x). The gate moved the
+///    cost off native-int code; it did not reduce it for JS numbers, which is most
+///    TypeScript.
+/// 2. **It changes the RESULT REPRESENTATION even where nothing overflows.** The
+///    two edges merge as `Float64`, so a non-overflowing `a + b` on ints yields a
+///    float word. That is observable: `tests/claude-pickle-golden.test.ts` — a
+///    serialization format freeze — fails two assertions with the check on. The TS
+///    suite goes 3281/3282 to 3279/3282, and 42.4 s to 50.2 s.
+///
+/// So the remaining blocker is no longer "which values does the rule govern" (that
+/// is solved) but **a representation-preserving merge**: the overflow edge must
+/// re-tighten back to an int word when the result fits, the way
+/// [`super::opguard`]'s `emit_number_result` already does for the Tagged path. The
+/// raw-`Float64` merge skips exactly that step. Until it does not, this stays off.
 pub(super) fn int_overflow_checks() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {

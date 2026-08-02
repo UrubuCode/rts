@@ -92,6 +92,21 @@ pub(crate) struct Val {
     pub v: Value,
     pub repr: Repr,
     pub kind: JsKind,
+    /// This value came from (or was computed out of) a binding the SOURCE declared
+    /// as a native fixed-width integer (`let n: i64`, `function f(n: u32)`).
+    ///
+    /// It selects between RTS's two arithmetic semantics, which `repr` alone
+    /// cannot: `Repr::Int64` is worn both by a JS `number` that merely happens to
+    /// hold an integer (where a 64-bit wrap is a WRONG ANSWER — a JS number is a
+    /// double) and by a declared native integer (where the wrap is the contract
+    /// the annotation asked for). The Tier 2.2 overflow check
+    /// ([`super::binop::Lowerer::lower_int_arith_checked`]) fires only when this
+    /// is clear on BOTH operands.
+    ///
+    /// `false` is the default on every constructor, and it is the safe direction:
+    /// a value nobody thought about gets the checked (JS-correct) arithmetic, and
+    /// the worst outcome is the check's cost, never a wrong number.
+    pub native_int: bool,
 }
 
 impl Val {
@@ -103,7 +118,23 @@ impl Val {
             Repr::Bool => JsKind::Bool,
             _ => JsKind::Unknown,
         };
-        Val { v, repr, kind }
+        Val {
+            v,
+            repr,
+            kind,
+            native_int: false,
+        }
+    }
+
+    /// The same value re-tagged as coming from a DECLARED native integer (see
+    /// [`Val::native_int`]). Used at the ident read of a local/param the source
+    /// annotated `: i64`/`: u32`/…, and to propagate that provenance through the
+    /// unchecked native int arithmetic that operates on it.
+    pub(crate) fn as_native_int(self, native: bool) -> Val {
+        Val {
+            native_int: native,
+            ..self
+        }
     }
 
     /// A Tagged value with an explicit proven kind (string/null/undefined literal).
@@ -112,6 +143,7 @@ impl Val {
             v,
             repr: Repr::Tagged,
             kind,
+            native_int: false,
         }
     }
 
@@ -119,7 +151,12 @@ impl Val {
     /// runtime trampoline returns a Tagged word whose JS kind the lowering knows —
     /// e.g. a Map `.size` is a number, an Error `.message` is a string).
     pub(crate) fn new_with_kind(v: Value, repr: Repr, kind: JsKind) -> Val {
-        Val { v, repr, kind }
+        Val {
+            v,
+            repr,
+            kind,
+            native_int: false,
+        }
     }
 }
 
@@ -428,6 +465,17 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// assignment carries a non-boolean (`let b = false; b = o.x`). See
     /// [`super::boolscan`] for why converting instead would be WRONG.
     pub bool_demoted: std::collections::HashSet<String>,
+    /// Locals/params the SOURCE declared as a native fixed-width integer
+    /// (`let n: i64`, `function f(n: u32)`) — the `native_int` bit `rts-hir`
+    /// stamps on the binding, plus every param whose annotation is an integer
+    /// type. Read at the ident lowering to stamp [`Val::native_int`], which is
+    /// what keeps the Tier 2.2 overflow check off the native-int path (a wrap is
+    /// that annotation's declared contract, not a bug).
+    ///
+    /// A re-`let` of the same name clears the entry
+    /// (`clear_local_classifications`), so a shadowing untyped binding cannot
+    /// inherit a native-int provenance it never declared.
+    pub native_int_locals: std::collections::HashSet<String>,
     /// Singleton-instance METHOD OVERRIDES seen so far in THIS function
     /// (`console.table = fn`): `(gcell name, prop)`. A later `name.prop(..)`
     /// call in the same function dispatches DYNAMICALLY (own-prop fn word if
@@ -551,6 +599,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             builtins,
             float_promoted: super::floatscan::float_promoted_locals(&func.body),
             bool_demoted: super::boolscan::bool_demoted_locals(&func.body),
+            // Filled as bindings are lowered (params just below, `let`/`const` in
+            // `stmt_let`). Empty = every value is a JS number until something
+            // declares otherwise — the safe direction.
+            native_int_locals: std::collections::HashSet::new(),
             singleton_overrides: std::collections::HashSet::new(),
             scalar_candidates: super::escape::scalar_locals(&func.body, classes, captures),
             scalar_objs: std::collections::HashMap::new(),
@@ -573,6 +625,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 crate::stats::tagged_binding(&p.name);
             }
             ctx.locals.insert(p.name.clone(), Local { var, repr });
+            // A PARAM's `ty` is annotation-derived only (rts-hir never infers an
+            // integer type for a param from a literal — see the note on
+            // `HirParam::ty`), so an integer type here IS "the user wrote `: i64`".
+            // Such a param keeps the wrapping native-int arithmetic its annotation
+            // declared; an unannotated / `number` param does not.
+            if p.ty.is_integer() {
+                ctx.native_int_locals.insert(p.name.clone());
+            }
             // An object-typed param (`o: {x: number}`) is a PROVEN keyed OBJECT
             // whose exact compile-time shape is not known to the callee — route
             // `o.key` / `o[k]` through the DYNAMIC property access (P5.5) instead of

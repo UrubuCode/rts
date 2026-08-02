@@ -285,6 +285,9 @@ fn lower_decl(decl: &swc::Decl, scope: &mut Scope, raw_text: &str) -> HirStmt {
                 name: fd.ident.sym.to_string(),
                 ty: HirType::Unknown,
                 init: Some(init),
+                // A nested function declaration binds a FUNCTION, never a native
+                // integer.
+                native_int: false,
             }
         }
         // Class declarations inside a block fall back to raw text
@@ -315,14 +318,23 @@ fn lower_var_decl(vd: &swc::VarDecl, scope: &mut Scope, _raw_text: &str) -> HirS
 
         scope.define(&name, ty.clone());
 
+        // THE ONE TRUTHFUL SITE for the `native_int` bit. It reads `annotated_ty`,
+        // NOT `ty`: `ty` falls back to `refine_type_from_init`, which types the
+        // literal `0` in a plain `let a = 0` as `HirType::I64` — the exact
+        // conflation the bit exists to undo. `let x: number = 0` is likewise
+        // false (annotated, but annotated as a DOUBLE). Only an explicit
+        // fixed-width integer annotation (`i8`..`i128`/`u8`..`u128`) sets it, and
+        // only then does the codegen let arithmetic on this binding wrap.
+        let native_int = annotated_ty.is_integer();
+
         match vd.kind {
             swc::VarDeclKind::Const => {
                 let init = init_expr.unwrap_or_else(|| {
                     HirExpr::new(HirExprKind::Lit(HirLit::Undefined), HirType::Any)
                 });
-                HirStmt::Const { name, ty, init }
+                HirStmt::Const { name, ty, init, native_int }
             }
-            _ => HirStmt::Let { name, ty, init: init_expr },
+            _ => HirStmt::Let { name, ty, init: init_expr, native_int },
         }
     } else {
         // Multi-declarator: emit as a block of individual lets
@@ -340,9 +352,12 @@ fn lower_var_decl(vd: &swc::VarDecl, scope: &mut Scope, _raw_text: &str) -> HirS
                     let init = init_expr.unwrap_or_else(|| {
                         HirExpr::new(HirExprKind::Lit(HirLit::Undefined), HirType::Any)
                     });
-                    HirStmt::Const { name, ty, init }
+                    // Multi-declarator (`let a = 1, b = 2`): this path extracts no
+                    // type annotation at all, so nothing here can be a DECLARED
+                    // native int — JS number semantics, the safe default.
+                    HirStmt::Const { name, ty, init, native_int: false }
                 }
-                _ => HirStmt::Let { name, ty, init: init_expr },
+                _ => HirStmt::Let { name, ty, init: init_expr, native_int: false },
             }
         }).collect();
         HirStmt::Block(stmts)
@@ -985,6 +1000,8 @@ fn destructure_param_prologue(
                     name: id.id.sym.to_string(),
                     ty: HirType::Unknown,
                     init: read,
+                    // A destructured element is an untyped read — JS semantics.
+                    native_int: false,
                 });
             }
             prologue.extend(stmts);
@@ -1015,6 +1032,8 @@ fn destructure_param_prologue(
                     name: bind,
                     ty: HirType::Unknown,
                     init: read,
+                    // A destructured property is an untyped read — JS semantics.
+                    native_int: false,
                 });
             }
             prologue.extend(stmts);

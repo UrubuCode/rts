@@ -52,7 +52,16 @@ use super::LoweredProgram;
 /// `hash(prelude_text + CACHE_VERSION)` and the prelude TEXT did not change, so
 /// without this bump every prelude function would replay pre-change lowering from
 /// disk and an `RTS_ESCAPE` A/B would compare two runs of identical cached bytes.
-const CACHE_VERSION: u32 = 6;
+/// v7: TIER 2.2 INT OVERFLOW CHECKS ON BY DEFAULT (`RTS_OPTIMIZATION.md` §5 Tier
+/// 2.2). Every proven-int `+`/`-`/`*` on values NOT declared `i64`/`u32` now emits
+/// `sadd_overflow`/`ssub_overflow`/`smul_overflow` + a cold f64 promotion arm
+/// instead of a bare `iadd`/`isub`/`imul`, so the IR of essentially every prelude
+/// function doing integer arithmetic changed — and unlike v3–v6 this one changes
+/// the ANSWER on overflow, not just the layout. Same key reason as those: the key
+/// is `hash(prelude_text + CACHE_VERSION)` and the prelude TEXT did not change, so
+/// without this bump every prelude function would replay the pre-change (wrapping)
+/// lowering from disk and an `RTS_INT_OVERFLOW` A/B would compare identical bytes.
+const CACHE_VERSION: u32 = 7;
 
 /// The whole cached payload (owned, for DESERIALIZE): the lowered prelude + the
 /// process-global state its lowering interned (shape id→keys, Error-class table).

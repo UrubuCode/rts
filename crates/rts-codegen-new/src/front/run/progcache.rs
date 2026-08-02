@@ -55,7 +55,11 @@ use super::module_jit::Program;
 /// silently, for both `run` and `compile`.
 ///
 /// v4: path-keyed slots + the `.meta` sidecar (the key moved out of the filename).
-const CACHE_VERSION: u32 = 4;
+/// v5: Tier 2.2 int overflow checks ON by default. Same hazard as v2 and one step
+/// worse: this cache replays BAKED MACHINE CODE keyed on the program text, so a
+/// machine that ran the pre-change binary once would keep replaying WRAPPING
+/// arithmetic — a wrong answer, not a stale layout — for both `run` and `compile`.
+const CACHE_VERSION: u32 = 5;
 
 /// Whether the compile cache is enabled. **OPT-IN** via `RTS_JIT_CACHE=1`.
 ///

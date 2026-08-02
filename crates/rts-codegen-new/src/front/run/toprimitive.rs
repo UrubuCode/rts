@@ -371,6 +371,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 v: res,
                 repr: crate::repr::Repr::Tagged,
                 kind: super::lower::JsKind::Number,
+                native_int: false,
             });
         }
         // Relational → `__rtsadp_{lt,le,gt,ge}` (a bool word → i64 0/1).

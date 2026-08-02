@@ -464,7 +464,12 @@ mod tests {
             cases: vec![HirSwitchCase {
                 test: Some(num(0.0)),
                 body: vec![
-                    HirStmt::Let { name: "x".into(), ty: HirType::Number, init: Some(num(1.0)) },
+                    HirStmt::Let {
+                        name: "x".into(),
+                        ty: HirType::Number,
+                        init: Some(num(1.0)),
+                        native_int: false,
+                    },
                     HirStmt::Return(Some(ident("x"))),
                 ],
             }],

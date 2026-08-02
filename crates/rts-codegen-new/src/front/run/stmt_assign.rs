@@ -347,6 +347,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             return Ok(Val::new(produced, Repr::Tagged));
         }
         let new = match local.repr {
+            // KNOWN GAP (Tier 2.2): this raw `iadd`/`isub` bypasses `lower_arith`,
+            // so `i++` on a plain JS-number local still WRAPS at 2^63 where
+            // `i = i + 1` now promotes to `f64`. Reaching a counter's 2^63rd
+            // increment is not a workload, so the check was not duplicated here;
+            // the divergence is recorded rather than left to be discovered.
             Repr::Int32 | Repr::Int64 => {
                 let one = self.builder.ins().iconst(types::I64, 1);
                 if inc {

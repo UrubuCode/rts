@@ -17,12 +17,21 @@ use super::lower::{HeapShape, Local, Lowerer, Val, cl_type};
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// `let`/`const` with an initializer. The local's repr is the annotation when
     /// numeric; otherwise the initializer's value repr.
+    ///
+    /// `native_int` is the bit `rts-hir` stamps when the SOURCE wrote an explicit
+    /// fixed-width integer annotation (`let n: i64`). It cannot be recovered from
+    /// `ty`: rts-hir types every integral literal `I64`, so `let a = 5` and
+    /// `let a: i64 = 5` arrive with the same `ty` and OPPOSITE overflow semantics
+    /// (see `HirStmt::Let::native_int`). Recorded in `native_int_locals` for the
+    /// unboxed-numeric binding only — every other branch binds `Tagged`, whose
+    /// arithmetic never reaches the native int path this bit governs.
     pub(super) fn lower_let(
         &mut self,
         module: &mut dyn Module,
         name: &str,
         ty: &HirType,
         init: Option<&HirExpr>,
+        native_int: bool,
     ) -> FrontResult<()> {
         // `let u;` — no initializer: the binding starts as `undefined` (JS). Bind a
         // Tagged local (or store into the gcell/cell for captured/module-level
@@ -639,6 +648,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             crate::stats::tagged_binding(name);
         }
         self.locals.insert(name.to_string(), Local { var, repr });
+        // Record the DECLARED-native-int provenance for the ident reads of this
+        // local (Tier 2.2). Only when the binding actually landed in an unboxed
+        // INTEGER slot: an `i64` annotation that got demoted to `Float64` (the
+        // float-accumulator promotion above, or a genuinely fractional initializer)
+        // is no longer doing native-int arithmetic, so claiming the wrap contract
+        // for it would be a lie.
+        if native_int && matches!(repr, Repr::Int32 | Repr::Int64) {
+            self.native_int_locals.insert(name.to_string());
+        }
         // No per-branch shape/class removal needed: `clear_local_classifications`
         // already dropped every prior classification of `name` at the top of the
         // (re)binding, and this numeric tail records none.
@@ -658,6 +676,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.local_class_refs.remove(name);
         self.global_instance_classes.remove(name);
         self.generator_locals.remove(name);
+        // A re-`let` of the same name must not inherit the previous binding's
+        // native-int contract — `let n: i64 = 1; { let n = 2; }` shadows with a
+        // plain JS number, which is the CHECKED (safe) side.
+        self.native_int_locals.remove(name);
     }
 
     /// Bind `name` to a fresh `Tagged` local holding `val.v` (used for

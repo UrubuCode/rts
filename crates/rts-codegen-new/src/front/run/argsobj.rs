@@ -117,6 +117,8 @@ pub(crate) fn expand_arguments_object(funcs: &mut [HirFunc]) {
                         HirExprKind::Array(elems),
                         HirType::Array(Box::new(HirType::Unknown)),
                     )),
+                    // Synthesized `arguments` array — not a declared native int.
+                    native_int: false,
                 },
             );
         }

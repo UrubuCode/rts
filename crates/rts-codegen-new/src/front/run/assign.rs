@@ -166,7 +166,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .local(&name)
             .ok_or_else(|| Unsupported::new(format!("compound-assign to unbound `{name}`")))?;
         let cur = self.builder.use_var(local.var);
-        let cur_val = Val::new(cur, local.repr);
+        // Tier 2.2: `n += 1` must read the same DECLARED-native-int provenance the
+        // equivalent `n = n + 1` gets from `lower_ident` — otherwise the two
+        // spellings of one operation would disagree on overflow semantics.
+        let cur_val = Val::new(cur, local.repr).as_native_int(self.native_int_locals.contains(&name));
         let rhs = self.lower_expr(module, value)?;
         let result = if op.is_arithmetic() || matches!(op, HirBinOp::Exp) {
             self.lower_arith(module, op, cur_val, rhs)?

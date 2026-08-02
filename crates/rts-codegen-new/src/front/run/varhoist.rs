@@ -89,6 +89,9 @@ fn prologue(names: Vec<(String, Option<String>)>) -> Vec<HirStmt> {
                 name,
                 ty,
                 init: Some(init),
+                // A hoisted `var` predeclaration carries no annotation — JS
+                // number semantics for whatever it later holds.
+                native_int: false,
             }
         })
         .collect()

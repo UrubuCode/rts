@@ -686,6 +686,8 @@ fn build_from_program(
                         name: cell.clone(),
                         ty: HirType::Unknown,
                         init: Some(init),
+                        // Synthesized static-field cell — no annotation.
+                        native_int: false,
                     });
                     static_field_cells.insert(cell);
                 }

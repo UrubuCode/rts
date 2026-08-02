@@ -232,6 +232,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             v: result,
             repr: Repr::Tagged,
             kind: JsKind::Unknown,
+            native_int: false,
         })
     }
 }

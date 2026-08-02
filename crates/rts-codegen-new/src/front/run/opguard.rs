@@ -346,6 +346,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             v,
             repr: Repr::Tagged,
             kind,
+            // The merged word may have come from the generic MISS arm, which ran
+            // the JS algorithm — so the native-int contract cannot be claimed.
+            native_int: false,
         }
     }
 

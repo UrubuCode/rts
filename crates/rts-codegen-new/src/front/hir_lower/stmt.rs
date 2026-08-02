@@ -29,8 +29,10 @@ impl<'a, 'b> Lowerer<'a, 'b> {
     pub(super) fn lower_stmt(&mut self, s: &HirStmt) -> FrontResult<()> {
         match s {
             HirStmt::Return(arg) => self.lower_return(arg.as_ref()),
-            HirStmt::Let { name, ty, init } => self.lower_let(name, ty, init.as_ref()),
-            HirStmt::Const { name, ty, init } => self.lower_let(name, ty, Some(init)),
+            // This front does not emit the Tier 2.2 overflow check, so it ignores
+            // `native_int` (the `..`) — the bit is consumed in `front/run`.
+            HirStmt::Let { name, ty, init, .. } => self.lower_let(name, ty, init.as_ref()),
+            HirStmt::Const { name, ty, init, .. } => self.lower_let(name, ty, Some(init)),
             HirStmt::Expr(e) => {
                 // Evaluate for side effects (assignment / ++). Drop the value.
                 self.lower_expr(e)?;

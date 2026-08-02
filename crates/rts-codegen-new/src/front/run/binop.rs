@@ -597,6 +597,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             v: res,
             repr: Repr::Tagged,
             kind: JsKind::Number,
+            // A Tagged result of the generic trampoline: JS semantics by
+            // construction, so it never claims the native-int wrap contract.
+            native_int: false,
         })
     }
 
@@ -732,7 +735,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirBinOp::Rem if both_int => match self.const_int_value(r.v) {
                 Some(d) if d != 0 => {
                     let v = self.builder.ins().srem(l.v, r.v);
-                    Ok(Val::new(v, wider_int(l.repr, r.repr)))
+                    // `%` cannot overflow, but the provenance must survive it so a
+                    // following `+` on `(n % k)` still sees native-int operands.
+                    Ok(Val::new(v, wider_int(l.repr, r.repr))
+                        .as_native_int(l.native_int || r.native_int))
                 }
                 // Tier 2.3: a NON-constant divisor is what the check above cannot
                 // reach. One runtime `icmp` against 0 (the only precondition an
@@ -757,7 +763,25 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                         }
                     }
                 }
-                if super::clifflags::int_overflow_checks() {
+                // Tier 2.2. RTS has BOTH arithmetic semantics on this same
+                // `Repr::Int*` path, and the operands' PROVENANCE is what tells
+                // them apart (`Val::native_int`):
+                //
+                // * NEITHER operand declared native ⇒ these are JS `number`s,
+                //   which are doubles: a 64-bit wrap is a WRONG ANSWER
+                //   (`4611686018427387904 * 4` is `18446744073709552000`, not
+                //   `0`). Check and promote to `f64` on overflow.
+                // * EITHER operand declared `i64`/`u32`/… ⇒ the wrap is the
+                //   contract that annotation asked for, and checking it would tax
+                //   the native-int path with a rule that does not govern it
+                //   (measured: 6.6x on an int-heavy loop when the merge is
+                //   `Float64`, 21x when it is `Tagged`). Emit the raw op.
+                //
+                // "EITHER", not "both", because a native-int expression is
+                // routinely mixed with a bare literal (`n * 4`), and the literal
+                // carries no annotation of its own.
+                let declared_native = l.native_int || r.native_int;
+                if super::clifflags::int_overflow_checks() && !declared_native {
                     return self.lower_int_arith_checked(op, l, r);
                 }
                 let v = match op {
@@ -766,7 +790,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     HirBinOp::Mul => self.builder.ins().imul(l.v, r.v),
                     _ => return unsupported!("arithmetic op {op:?}"),
                 };
-                Ok(Val::new(v, wider_int(l.repr, r.repr)))
+                // Propagate the provenance: `n * 2 + 1` on a declared `i64` is
+                // native-int arithmetic all the way out, so the outer `+` must not
+                // suddenly start checking the inner product.
+                Ok(Val::new(v, wider_int(l.repr, r.repr)).as_native_int(declared_native))
             }
             _ => {
                 let lv = self.coerce(l, Repr::Float64)?;
@@ -798,6 +825,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// through a `Tagged` (PolyValue) block param — the ok edge boxes an int, the
     /// overflow edge boxes a double. Both boxes are pure IR, so the egraph folds
     /// the box back out wherever the consumer immediately unboxes.
+    ///
+    /// ONLY reached when NEITHER operand carries [`Val::native_int`] — a value
+    /// declared `i64`/`u32` keeps the raw `iadd`/`isub`/`imul`, because there the
+    /// wrap is the contract the annotation asked for, not a wrong answer. That
+    /// gate is what let this become the default (`clifflags::int_overflow_checks`);
+    /// applied blanket it cost 6.6x on an int-heavy loop.
     ///
     /// `RTS_INT_OVERFLOW=0` restores the unchecked form for A/B.
     fn lower_int_arith_checked(
@@ -904,6 +937,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             v: res,
             repr: Repr::Tagged,
             kind,
+            // The generic trampoline already ran the JS algorithm.
+            native_int: false,
         })
     }
 }
