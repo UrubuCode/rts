@@ -211,6 +211,37 @@ pub(super) fn escape_analysis() -> bool {
     })
 }
 
+/// `RTS_FIELD_LOAD=0` — stop emitting the inline object field/element read
+/// (`RTS_OPTIMIZATION.md` §5 Tier 3.2, implemented in [`super::fieldload`]) and
+/// go back to the plain `__rtsn_vec_get_by_payload` call. ON by default, but
+/// only ONE of three conditions: the emission also requires `RTS_SLAB=1`'s
+/// stable-address slot store (`rts_engine::heap::slab::layout::available`) and
+/// the JIT path, since the chunk-table base is baked as an immediate. See
+/// [`super::fieldload::available_here`] for why each of the three is needed.
+///
+/// Like [`op_guards`] / [`rem_guard`] / [`escape_analysis`], and unlike
+/// [`int_overflow_checks`], this is NOT a semantic switch: the fast path is
+/// taken only when a run-time sequence has proved the slot is a live `Vec`
+/// entry with inline words and the index is in bounds, and it then loads the
+/// exact word the call would have returned. Every rejection lands on that call.
+/// Both arms must print the same thing for every program.
+///
+/// Its own knob, separate from the others, precisely so the Tier item is
+/// A/B-measurable on ONE binary without attributing a delta to a neighbour.
+///
+/// TODO(measure): no A/B has been run. Measure `RTS_FIELD_LOAD=1` vs `=0` with
+/// `RTS_SLAB=1` on both arms and `RTS_NO_PRELUDE_CACHE=1` on both arms —
+/// [`super::prelude_cache`] keys on the prelude text plus its cache version, so
+/// otherwise both arms replay one cached lowering and the A/B measures nothing.
+pub(super) fn field_load() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var("RTS_FIELD_LOAD")
+            .map(|v| v.trim() != "0")
+            .unwrap_or(true)
+    })
+}
+
 pub(super) fn verifier_forced() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {

@@ -1573,6 +1573,9 @@ in a global gives `load [base + payload*8]` as pure IR, bounds/generation check
 preserved.
 
 **NOT LANDED (2026-08-02) — and the blocker is not the one this item names.**
+*(Superseded later the same day: the prerequisite split landed as `Slots::Inline`
+and the emission followed — see "3.2 — what LANDED" below. The analysis is kept
+because it is what identified the prerequisite.)*
 An implementation pass got as far as pricing every precondition against the tree
 and stopped deliberately, because the emission that fits in this item's framing
 corrupts memory and the one that does not is a representation change no knob
@@ -1627,6 +1630,61 @@ does 3.2 become an emission change. Layout constants stay a single definition in
 `#[rtse::abi]` symbols for the chunk-table base and the slot stride are 3.2's to
 declare and were deliberately not declared here, because an unused row in the
 baked table is a row the gate then has to carry.
+
+#### 3.2 — what LANDED (2026-08-02)
+
+The blocker above named the object/array representation split as a prerequisite
+ITEM. `Slots::Inline` is that split: an object's field words now live BY VALUE
+inside the slot, so there is no `Box<Vec<i64>>` for a sweep to drop or a `push`
+to reallocate, and the `Heap` form (post-`promote`) is a distinct discriminant a
+reader can reject rather than misread. With that in place the emission is what
+this item always described.
+
+Landed:
+
+- `crates/rts-natives/src/heap/slab/layout.rs` — `FieldLoadLayout`, every number
+  the emitted sequence needs, DERIVED from a real
+  `Slot::live(g, Entry::Vec(Slots::Inline { .. }))` and verified against the safe
+  accessors, never hardcoded in codegen. `available()` couples the layout to
+  `RTS_SLAB=1`.
+- `crates/rts-codegen-new/src/front/run/fieldload.rs` — the emission: shard/index
+  decode, chunk-bound test, chunk-table load, null-chunk test, slot address,
+  `Entry::Vec` tag test, `Slots::Inline` tag test, unsigned bounds test (which is
+  also what rejects a negative index), then `load.i64` of the word. All five bail
+  edges jump to ONE cold block holding the unchanged
+  `__rtsn_vec_get_by_payload` call, so every rejection lands on the existing
+  implementation and the fast path can only ever be an optimization.
+- `crates/rts-codegen-new/src/value/emit_marshal.rs::emit_vec_get` — the single
+  call site, now fast-path-then-call. Every property read, method-table read,
+  element read and closure-env read in the engine funnels through it.
+- Cache versions bumped: `prelude_cache::CACHE_VERSION` 7→8,
+  `progcache::CACHE_VERSION` 5→6.
+
+Knobs, and why there are three:
+
+| Knob | Default | Why it gates |
+|---|---|---|
+| `RTS_SLAB=1` | off | without the chunked store the slots live in a `Vec` that reallocates, so no address into one is stable |
+| JIT only (`aot_str::aot_mode()`) | — | the chunk-table base is baked as an `iconst` immediate, which an AOT object cannot carry across processes. TODO(3.2-aot): declare it as an `#[rtse::abi]` data symbol and load it instead |
+| `RTS_FIELD_LOAD=0` | on | its own kill switch, so the item is A/B-measurable on one binary |
+
+Also refused while `RTS_JIT_CACHE=1` is on: that cache replays baked machine
+code into a later process and the chunk table is a BSS static whose address
+moves under ASLR, which no cache version can distinguish.
+
+There is deliberately **no generation check**, because
+`payload_ops::vec_get_by_payload` — the function this fast-paths — performs
+none: it receives a 48-bit payload, which carries no generation. What it rejects
+is an out-of-range or unallocated slot and a non-`Vec` entry, and the emitted
+tests reject exactly those. The `Slots::Inline` test is in the emitted sequence
+on EVERY read (not hoisted) because `promote` is one-way but can have happened
+before any given read, and the compiler cannot prove an object never gains a
+property.
+
+TODO(measure): no number taken. A/B `RTS_FIELD_LOAD=1` vs `=0` with `RTS_SLAB=1`
+and `RTS_NO_PRELUDE_CACHE=1` on BOTH arms — otherwise both arms replay one
+cached prelude lowering and the A/B measures nothing. The item's ~5.3 ns is the
+probe's model, not a measurement of this emission.
 
 **3.3 Stop defaulting untracked receivers to dictionary mode.** ~~No production
 engine treats "shape not statically proven" as "this object is pathological";

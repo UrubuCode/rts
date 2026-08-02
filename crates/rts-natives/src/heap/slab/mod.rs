@@ -236,6 +236,7 @@
 //! anything else.
 
 pub mod chunks;
+pub mod layout;
 pub mod store;
 
 use std::sync::OnceLock;

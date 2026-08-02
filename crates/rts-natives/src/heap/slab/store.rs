@@ -19,7 +19,11 @@ use super::chunks;
 /// is the stride Tier 3.2's address computation multiplies by, and
 /// `RTS_CLASS_IMPLEMENTATION.md` §6.3 requires exactly one definition of a
 /// layout constant, in `rts-natives`, imported by the codegen.
+/// `#[repr(C)]` so `entry`'s offset is a fixed, derivable number rather than a
+/// layout the compiler may reorder — Tier 3.2's emitted field load reads through
+/// it. The offset is still DERIVED at runtime (`slab::layout`), never assumed.
 #[derive(Debug)]
+#[repr(C)]
 pub struct Slot {
     /// Bumped on every reuse of this slot; the ABA answer (see [`super`]).
     ///
@@ -62,6 +66,20 @@ impl Slot {
     #[inline]
     pub(crate) fn generation(&self) -> u16 {
         self.generation.load(Ordering::Relaxed)
+    }
+
+    /// The entry, by reference. Layout derivation reads it through the safe
+    /// path so it can compare against what the raw offsets produce.
+    #[doc(hidden)]
+    pub fn entry_ref(&self) -> &Entry {
+        &self.entry
+    }
+
+    /// Address of the `entry` field, for layout derivation only. See
+    /// [`super::layout`].
+    #[doc(hidden)]
+    pub fn probe_entry_addr(&self) -> usize {
+        &self.entry as *const Entry as usize
     }
 
     #[inline]

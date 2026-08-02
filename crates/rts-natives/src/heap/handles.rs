@@ -395,7 +395,23 @@ impl std::fmt::Debug for BackendPayload {
 }
 
 /// Value kinds stored behind a handle. Extensible as namespaces grow.
+///
+/// **`#[repr(C, u8)]` is load-bearing, not tidiness.** Tier 3.2 emits a field
+/// read as plain Cranelift IR, which means generated code has to decide "is this
+/// slot an `Entry::Vec`?" without calling Rust. The default Rust enum layout is
+/// deliberately unspecified — discriminant position, encoding and niche packing
+/// are all free to change between compilations — so there is nothing an emitter
+/// could legally read. `repr(C, u8)` fixes the discriminant at **byte 0** with
+/// the value being the variant's declaration index, which is exactly the one
+/// guarantee the emission needs. See `crate::heap::slab::layout`, which derives
+/// every offset from a real value rather than assuming one, and verifies the
+/// derivation against the safe accessors at startup.
+///
+/// Adding a variant is still free; REORDERING variants renumbers discriminants,
+/// which is fine because `layout` reads the number off a real `Entry::vec` at
+/// runtime rather than hardcoding it.
 #[derive(Debug)]
+#[repr(C, u8)]
 pub enum Entry {
     /// UTF-8 string owned on the heap.
     String(Vec<u8>),

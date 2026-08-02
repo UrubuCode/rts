@@ -388,6 +388,12 @@ fn emit_payload(builder: &mut FunctionBuilder, poly_word: Value) -> Value {
 /// against itself — see `rts_engine::heap::payload_ops` for the full argument
 /// and for what the pair genuinely caught (a freed or out-of-range slot, which
 /// the fused entry point still rejects).
+///
+/// The call is now the SLOW PATH. `RTS_OPTIMIZATION.md` §5 Tier 3.2's inline
+/// sequence ([`crate::front::run::fieldload`]) reads the slot with real
+/// `load`s where the store's addresses are stable and the slot really holds a
+/// live `Vec` with inline words; every rejection — and every configuration the
+/// inline sequence is not valid in — lands right back on this call.
 pub fn emit_vec_get(
     module: &mut dyn Module,
     builder: &mut FunctionBuilder,
@@ -395,6 +401,21 @@ pub fn emit_vec_get(
     index: Value,
 ) -> Value {
     let payload = emit_payload(builder, obj_word);
+    use crate::front::run::fieldload;
+    if fieldload::available_here() {
+        let slow = |module: &mut dyn Module, builder: &mut FunctionBuilder| {
+            emit_call(
+                module,
+                builder,
+                "__rtsn_vec_get_by_payload",
+                &[payload, index],
+            )
+            .expect("VEC_GET returns a value")
+        };
+        if let Some(v) = fieldload::try_emit(module, builder, payload, index, slow) {
+            return v;
+        }
+    }
     emit_call(
         module,
         builder,

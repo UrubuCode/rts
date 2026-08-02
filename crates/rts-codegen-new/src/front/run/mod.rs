@@ -42,6 +42,7 @@ mod dynfn;
 mod engineobj;
 mod escape;
 mod expr;
+pub(crate) mod fieldload;
 mod boolscan;
 mod floatscan;
 mod fnhoist;

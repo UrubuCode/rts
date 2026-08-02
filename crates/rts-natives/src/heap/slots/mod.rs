@@ -127,7 +127,14 @@
 pub const INLINE_CAP: usize = 8;
 
 /// The payload of `Entry::Vec`. See the module docs.
+///
+/// `#[repr(C, u8)]` for the same reason `Entry` carries it: the Tier 3.2 field
+/// load has to distinguish [`Slots::Inline`] from [`Slots::Heap`] in emitted
+/// code, and only an explicit repr gives a discriminant at a defined place.
+/// Byte 0 of the payload is the discriminant, `Inline` = 0. Offsets are still
+/// DERIVED, never assumed — see `crate::heap::slab::layout`.
 #[derive(Debug, Clone)]
+#[repr(C, u8)]
 pub enum Slots {
     /// Fixed-stride block carried by value — the loadable form. Only
     /// `words[..len]` is meaningful; the tail is zeroed padding.
@@ -250,6 +257,30 @@ impl Slots {
             v.extend_from_slice(&words[..*len as usize]);
             *self = Slots::Heap(Box::new(v));
         }
+    }
+
+    /// Addresses of `len` and `words[0]`, for layout derivation only.
+    ///
+    /// `crate::heap::slab::layout` turns these into offsets by subtracting the
+    /// address of the enclosing `Slot`. Exposed because deriving an offset from
+    /// a real value is the only sound alternative to hardcoding one, and a
+    /// hardcoded offset into a Rust enum is exactly the failure this whole path
+    /// has to avoid.
+    #[doc(hidden)]
+    pub fn probe_field_addrs(&self) -> Option<(usize, usize)> {
+        match self {
+            Slots::Inline { len, words } => {
+                Some((len as *const u32 as usize, words.as_ptr() as usize))
+            }
+            Slots::Heap(_) => None,
+        }
+    }
+
+    /// Address of `self`, i.e. of the `Entry::Vec` payload. Layout derivation
+    /// only — see [`Slots::probe_field_addrs`].
+    #[doc(hidden)]
+    pub fn probe_self_addr(&self) -> usize {
+        self as *const Slots as usize
     }
 
     /// Promote unless `extra` more words still fit inline.

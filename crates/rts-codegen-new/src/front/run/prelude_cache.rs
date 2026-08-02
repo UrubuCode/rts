@@ -61,7 +61,13 @@ use super::LoweredProgram;
 /// is `hash(prelude_text + CACHE_VERSION)` and the prelude TEXT did not change, so
 /// without this bump every prelude function would replay the pre-change (wrapping)
 /// lowering from disk and an `RTS_INT_OVERFLOW` A/B would compare identical bytes.
-const CACHE_VERSION: u32 = 7;
+/// v8: Tier 3.2 emits the object field/element read as inline `load`s
+/// ([`super::fieldload`]). Every prelude function that touches a property or an
+/// array element lowers differently now, and the emission is GATED on knobs
+/// (`RTS_SLAB`, JIT-vs-AOT, `RTS_FIELD_LOAD`) the cache key does not include —
+/// so a replayed pre-change lowering would silently disagree with the gating
+/// the process is actually running under.
+const CACHE_VERSION: u32 = 8;
 
 /// The whole cached payload (owned, for DESERIALIZE): the lowered prelude + the
 /// process-global state its lowering interned (shape id→keys, Error-class table).

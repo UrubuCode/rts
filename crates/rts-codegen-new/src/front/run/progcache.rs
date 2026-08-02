@@ -59,7 +59,14 @@ use super::module_jit::Program;
 /// worse: this cache replays BAKED MACHINE CODE keyed on the program text, so a
 /// machine that ran the pre-change binary once would keep replaying WRAPPING
 /// arithmetic — a wrong answer, not a stale layout — for both `run` and `compile`.
-const CACHE_VERSION: u32 = 5;
+/// v6: Tier 3.2's inline field load ([`super::fieldload`]). Note the bump is
+/// NOT what makes this cache safe against it — the fast path bakes the
+/// chunk-table base as an IMMEDIATE, and that address moves under ASLR between
+/// two runs of the SAME binary, which no version can distinguish. So
+/// `fieldload::available_here` refuses to emit while this cache is enabled, and
+/// the bump exists only to retire blobs written by a binary that predates that
+/// refusal.
+const CACHE_VERSION: u32 = 6;
 
 /// Whether the compile cache is enabled. **OPT-IN** via `RTS_JIT_CACHE=1`.
 ///
