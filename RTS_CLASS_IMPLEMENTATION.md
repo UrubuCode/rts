@@ -353,13 +353,47 @@ unproven receivers. Expected 11.28 → ~1.50 ns per two-field read [M, probe].
 a total slow path at every unproven boundary. **This is the phase that makes C2
 sound; C2 must not ship to users without it.**
 
-### C5 — regions
+### C5 — regions — PARTLY DONE (2026-08-02)
+
+Thread-affine shard ranges landed as `crates/rts-natives/src/heap/regions.rs`
+(`RTS_REGIONS=1`, default OFF): 26% on an allocation-heavy loop (3822 -> 2930 ms
+for 1M escaping instances) and 34% on `new P()` before escape analysis removed
+that benchmark`s allocation entirely. It passes the whole TS suite now — it did
+not at first, and the reason is the useful part: thread affinity raised a LATENT
+re-entrant shard-lock deadlock from ~1-in-32 to ~1-in-2 and made 8 test files hang
+deterministically. 15 runtime sites were allocating or re-normalizing a handle
+inside a `with_entry`/`with_rtse` closure. Regions did not introduce that; they
+made it reproducible.
+
+What is NOT done: the slot-table base is not yet an `iconst` (that needs C2`s
+addressing mode), so the 1.50 -> 0.99 ns this phase is priced at has not been
+collected. Local/regional collection is T4 of the threading model and untouched.
+
 
 One region per thread makes the slot-table base an `iconst`: 1.50 → 0.99 ns [M].
 Depends on `rts-threading-model.md` phases, not on this document. Also the only
 way to retire the shard `Mutex` honestly — see §8.1.
 
-### C6 — escape analysis + SROA on HIR
+### C6 — escape analysis + SROA on HIR — DONE (2026-08-02)
+
+`crates/rts-codegen-new/src/front/run/escape/` (`RTS_ESCAPE=0` to disable). A
+`new C(..)` bound to a local that provably does not escape becomes one Cranelift
+`Variable` per field: no allocation, no shape-tag store, no prototype link, no IC
+site. Measured 1050 -> 1 ms on a 2M-iteration loop; node is 13 ms on the same
+program.
+
+The doc`s ordering advice (inline first, then EA, then SROA) held: Cranelift`s
+inlining pass was enabled earlier the same day, and the egraph then keeps the
+scalarised fields in registers across the whole loop.
+
+One finding worth carrying: the first capture bail used `arrow_free_idents`, which
+looks INSIDE `Arrow` nodes — but arrows are LIFTED into their own `HirFunc`s
+before this scan runs, so it answered "nothing is captured" and a captured local
+was scalar-replaced into a `ReferenceError`. The signal that survives lifting is
+the captures map the lowering already carries. A boundary fixture caught it
+(`tests/escape_analysis_semantics.test.ts`), which is the argument for writing
+those fixtures as boundaries rather than happy paths.
+
 
 0.99 → 0.76 ns [M], and it is the phase that deletes allocations entirely.
 Cranelift has neither EA nor SROA and its egraph cannot see through an
