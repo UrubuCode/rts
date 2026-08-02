@@ -87,6 +87,24 @@ pub fn rtsadp_globalthis() -> u64 {
     word
 }
 
+/// A contraparte de ESCRITA de [`__rtsadp_global_ref`]: atribuir a um nome que
+/// não casa com binding léxico nenhum CRIA uma propriedade no objeto global —
+/// o "global implícito" do modo sloppy, que é o modo de todo `<script>` de
+/// página. Devolve o valor atribuído, porque `x = v` é uma expressão cujo valor
+/// é `v`.
+///
+/// DIVERGE do modo STRICT (e de um módulo ES), onde isso é `ReferenceError`. O
+/// motor não distingue os dois modos hoje; sloppy é o que a superfície que
+/// motivou isto — script de página e bundle — realmente usa, e o Node concorda
+/// nos dois contextos que dá para testar. Recusar em compilação não é opção:
+/// derrubava o arquivo inteiro.
+#[rtse::abi]
+pub fn rtsadp_global_set(name_word: u64, value: u64) -> u64 {
+    let g = __rtsadp_globalthis();
+    super::objops::__rtsadp_obj_set(g, name_word, value);
+    value
+}
+
 /// The LAST LINK of the JS scope chain, for a free identifier the front could
 /// not resolve lexically: an unqualified name that matches no binding resolves
 /// against the GLOBAL OBJECT. That is what makes one script's
