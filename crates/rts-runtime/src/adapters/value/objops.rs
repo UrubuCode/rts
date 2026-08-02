@@ -218,6 +218,27 @@ fn with_key_str<R>(key_str_handle: u64, f: impl FnOnce(&str) -> R) -> Option<R> 
     abi_adapter::with_handle_bytes(h, |bytes| std::str::from_utf8(bytes).ok().map(f))
 }
 
+/// Is the key exactly `want`? Answers WITHOUT allocating in the common case.
+///
+/// `RTS_OPTIMIZATION.md` §5 Tier 1.2 is "stop allocating a `String` per dynamic
+/// property read". The doc's own review found the main shaped path already
+/// borrows through [`with_key_str`] — but four sites on the GENERIC read path
+/// were still spelled `key_text(k) == "name"`, i.e. a `malloc` + copy of the
+/// key's bytes purely to compare against a compile-time constant, on every
+/// property read that reaches them.
+///
+/// A STRING key borrows its bytes and compares in place. Anything else (a symbol,
+/// a numeric key) falls back to [`key_text`]'s full normalization, because that is
+/// the only path that knows how to spell those — and a symbol key is never equal
+/// to a plain-ASCII literal anyway, so the fallback is rare and correct rather
+/// than merely convenient.
+fn key_is(key_str_handle: u64, want: &str) -> bool {
+    match with_key_str(key_str_handle, |k| k == want) {
+        Some(hit) => hit,
+        None => key_text(key_str_handle) == want,
+    }
+}
+
 fn key_text(key_str_handle: u64) -> String {
     let k = PolyValue::from_raw(key_str_handle);
     if k.is_string() {
@@ -276,7 +297,7 @@ pub fn rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
     // `new Function`); `.length` falls into the tag-dispatched length below.
     {
         let v = PolyValue::from_raw(obj_word);
-        if v.is_function() && key_text(key_str_handle) == "name" {
+        if v.is_function() && key_is(key_str_handle, "name") {
             let h = rt_handles::__rtsn_poly_to_handle(v.as_handle());
             let name_h =
                 rts_runtime::namespaces::globals::function::ops::__RTS_FN_GL_FUNCTION_NAME(h);
@@ -384,12 +405,12 @@ pub fn rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
     {
         let obj = PolyValue::from_raw(obj_word);
         let is_keyed = obj.is_object() && looks_like_object(obj);
-        if !is_keyed && key_text(key_str_handle) == "length" {
+        if !is_keyed && key_is(key_str_handle, "length") {
             return super::dyndispatch::__rtsadp_dyn_length(obj_word);
         }
         // Tagged-template `strings.raw` on the cooked ARRAY (paired at the
         // desugar via `engine.tsa_raw`).
-        if !is_keyed && obj.is_object() && key_text(key_str_handle) == "raw" {
+        if !is_keyed && obj.is_object() && key_is(key_str_handle, "raw") {
             if let Some(raw) = super::iterops::tsa_raw_of(obj_word) {
                 return raw;
             }
@@ -427,7 +448,7 @@ pub fn rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
     // `Entry::Symbol`, not a keyed Vec, so `resolve_slot` cannot see it.
     {
         let obj = PolyValue::from_raw(obj_word);
-        if obj.is_object() && key_text(key_str_handle) == "description" {
+        if obj.is_object() && key_is(key_str_handle, "description") {
             let handle = rt_handles::__rtsn_poly_to_handle(obj.as_handle());
             let desc = rt_handles::with_entry(handle, |e| match e {
                 Some(rt_handles::Entry::Symbol { description }) => Some(description.clone()),
