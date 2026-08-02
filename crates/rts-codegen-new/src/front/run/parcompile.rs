@@ -84,6 +84,10 @@ pub(super) struct Pending {
     pub ctx: Context,
     /// Only for the error message — a Cranelift failure must name the function.
     pub name: String,
+    /// Is this a PRELUDE-origin function? Only these are offered to the
+    /// incremental cache — see `clifcache` for the measurement that forced the
+    /// restriction (a per-program cache grows without bound across a suite).
+    pub prelude: bool,
 }
 
 /// The machine code of one compiled function, owned so no borrow of its
@@ -160,7 +164,14 @@ pub(super) fn compile_and_define(
             // instead of recompiled. Callee `FuncId`s are cache PARAMETERS, not
             // stencil, so a hit survives this run assigning different ids — the
             // relocs below still come out of the (re-applied) compiled code.
-            let alignment = if let Some(store) = store.as_mut() {
+            //
+            // PRELUDE ONLY. A program's own functions differ from every other
+            // program's, so caching them makes the store grow without bound
+            // across a suite (measured: 811 test processes drove the file to
+            // 231 MB and the suite from 37 s to 85 s). The prelude is the same
+            // source in every process, so its stencils repeat and the store
+            // converges to a fixed size — that is the part worth caching.
+            let alignment = if let Some(store) = store.as_mut().filter(|_| p.prelude) {
                 let res = p
                     .ctx
                     .compile_with_cache(isa, store, &mut ControlPlane::default())
@@ -415,5 +426,6 @@ pub(super) fn build_one(
         id,
         ctx,
         name: func.name.clone(),
+        prelude: is_prelude,
     })
 }

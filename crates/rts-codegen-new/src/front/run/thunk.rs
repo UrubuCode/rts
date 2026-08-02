@@ -201,6 +201,7 @@ pub fn build_thunk(
         id: thunk_id,
         ctx,
         name: "thunk".to_string(),
+        prelude: false,
     })
 }
 
@@ -437,6 +438,7 @@ pub fn build_new_thunk(
         id: new_thunk_id,
         ctx,
         name: "new-thunk".to_string(),
+        prelude: false,
     })
 }
 

@@ -336,7 +336,7 @@ being re-derived from a rebuild.
 | # | item | expected (§7) | measured | state |
 |---|---|---|---|---|
 | 1 | `enable_verifier=false` on AOT | ~16 ms of a 1019 ms AOT compile | **4.8 ms** of the AOT machine-compile phase (41.2 → 36.4) | landed, default ON |
-| 2 | `incremental-cache` spike | "unknown, possibly negative" | **21.8 → 14.5 ms** warm, 420/425 hits | landed, OPT-IN |
+| 2 | `incremental-cache` spike | "unknown, possibly negative" | one program **15.6 → 10.5 ms**; SUITE **38.8 → 65.8 s** | landed, OPT-IN, narrow |
 | 3 | thunk on demand | ≤51% of the compiled count | **59 of 218 thunks** dropped; 19.2 → 15.4 ms | landed, default ON |
 | 4 | chunk per rayon worker | "efficiency is 25% of linear" | **no gain**; premise was hyperthreads | knob kept, default = rayon |
 | 5a | `set_cold_block` | Tier 1.5 | **no measurable delta** (47 ms both ways) | landed, default ON |
@@ -363,17 +363,46 @@ coarser grain does nothing up to `chunk=8` and costs 2× at `chunk=32`, because
 the functions are not equal-cost and rayon's adaptive splitting already
 work-steals around that.
 
-### Item 2 came back positive, against its own prediction
+### Item 2 is positive on one program and NEGATIVE on a suite — corrected
 
-§2's caveat 2 guessed that SHA-256 over 425 mostly-tiny functions might cost more
-than compiling them. It does not: warm runs hit 420 of 425 and cut the phase 33%,
-for a ~0.8 ms cold penalty and a 670 KB cache file. The 5 persistent misses are
-the program-specific functions — the prelude produces an identical stencil every
-run, exactly as §2 predicted from the stencil/parameters split.
+The first result here read "positive, against its own prediction", from a
+`tiny.ts` measurement alone. Measuring the real workload reversed it, and the
+correction is recorded rather than replaced because the reason is the useful part.
 
-It stays OPT-IN anyway, on the same discipline as the whole-program bake: a cache
-goes on after it is measured on real multi-file workloads, not after one
-`tiny.ts` win.
+**On a repeated compile of one program it wins**, and that still holds: 15.6 →
+10.5 ms of machine-compile, 203 hits, a store that stabilises at 408 KB.
+
+**Across the TS suite it loses, badly** — 811 processes, each compiling a
+different program:
+
+| | off | on |
+|---|---|---|
+| suite run 1 | 38.8 s | **65.8 s** (store 138 MB) |
+| suite run 2 | 37.7 s | **78.2 s** (store 171 MB) |
+
+Two store designs were measured before concluding, because the first failure had
+an obvious-looking cause that was only half of it:
+
+1. **read-all + rewrite-all** — every process paid a full read and a full rewrite
+   of a growing file, quadratic in the number of programs (39.6 → 44.1 → 57.9 →
+   76.2 s).
+2. **append-only, then prelude-only entries** — the rewrite is gone and writes are
+   restricted to the functions that ought to repeat. Still loses, still grows.
+
+**The cause is not the store: the prelude's stencils are PROGRAM-DEPENDENT.** A
+prelude function's IR carries shape-id immediates interned per program and
+IC-cell data symbols named from a per-run counter (`ic.rs::CELL_CTR`,
+`aot_str.rs::DATA_CTR`), so identical source lowers to a different stencil in each
+process and hashes to a different key. There is nothing to hit, and every process
+pays hashing plus a bigger file to read.
+
+§2's optimism — "the 763-function prelude produces an identical stencil on every
+run, so it would hit at 100%" — is therefore **false as the engine stands**. It
+would become true only if shape interning and data-symbol naming were made stable
+across processes, which is a change to those two mechanisms, not to the cache.
+
+The feature stays in, OPT-IN, capped at 32 MB, scoped to what it measurably does:
+a repeated compile of one program.
 
 ### Item 5b is the one that is correct and still off
 
