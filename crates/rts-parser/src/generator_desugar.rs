@@ -255,8 +255,51 @@ fn transform_stmt(stmt: Stmt) -> Vec<Stmt> {
             // visivel aos statements seguintes do mesmo bloco.
             out
         }
+        // `try`/`switch`/`L:` — o eager-buffer precisa DESCER neles como desce
+        // em `if`/`while`/`for`. Sem estes arms o statement passava INTACTO e um
+        // `yield` lá dentro sobrevivia ao desugar, chegando ao lowering como
+        // `Yield` cru ("expression raw/unrecognized"). É a forma mais comum do
+        // `asyncToGenerator` do Babel — `try { yield f() } catch (e) { … }` —
+        // então o buraco custava o arquivo inteiro num bundle real.
+        Stmt::Try(t) => {
+            let mut tt = t;
+            tt.block = transform_block(tt.block);
+            if let Some(h) = tt.handler.as_mut() {
+                h.body = transform_block(h.body.clone());
+            }
+            if let Some(f) = tt.finalizer.as_mut() {
+                *f = transform_block(f.clone());
+            }
+            vec![Stmt::Try(tt)]
+        }
+        Stmt::Switch(sw) => {
+            let mut s2 = sw;
+            for c in s2.cases.iter_mut() {
+                let mut out: Vec<Stmt> = Vec::with_capacity(c.cons.len());
+                for st in c.cons.drain(..) {
+                    out.extend(transform_stmt(st));
+                }
+                c.cons = out;
+            }
+            vec![Stmt::Switch(s2)]
+        }
+        Stmt::Labeled(l) => {
+            let mut l2 = l;
+            l2.body = Box::new(transform_stmt_single(*l2.body));
+            vec![Stmt::Labeled(l2)]
+        }
         other => vec![other],
     }
+}
+
+/// Aplica [`transform_stmt`] a cada statement de um bloco, preservando o bloco.
+fn transform_block(mut b: BlockStmt) -> BlockStmt {
+    let mut out: Vec<Stmt> = Vec::with_capacity(b.stmts.len());
+    for st in b.stmts.drain(..) {
+        out.extend(transform_stmt(st));
+    }
+    b.stmts = out;
+    b
 }
 
 /// Helper: `<kind> <name> = <init>;` com nome ident.

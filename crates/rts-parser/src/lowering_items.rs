@@ -141,11 +141,15 @@ impl swc_ecma_visit::VisitMut for GenExprHoister {
                     // `asyncToGenerator` do Babel memoiza requires preguiçosos).
                     let por_ref: std::collections::HashSet<String> =
                         caps.iter().filter(|c| escritas.contains(*c)).cloned().collect();
+                    if caps.is_empty() {
+                        diag_gen("yield de VALOR sem capturas — nem eager nem hoist", &por_ref);
+                    }
                     if !caps.is_empty() {
                         // A reescrita pode RECUSAR (`s++`, desestruturante): aí
                         // não se iça, e a falha continua explícita como antes.
                         let mut corpo_ref = fe.function.clone();
                         if !crate::gencapref::rewrite_by_ref(&mut corpo_ref, &por_ref) {
+                            diag_gen("reescrita por referência recusou", &por_ref);
                             return;
                         }
                         let name = format!("__genexpr_{}", self.counter);
@@ -2121,4 +2125,16 @@ fn top_level_names(p: &SwcProgram) -> std::collections::HashSet<String> {
         }
     }
     out
+}
+
+/// `RTS_DIAG_GEN=1`: por que um generator-EXPRESSÃO não foi içado. O erro que
+/// chega ao usuário é `expression raw/unrecognized: Yield`, que não nomeia nem a
+/// razão nem os nomes envolvidos — e num bundle minificado não há como
+/// distinguir uma reescrita recusada de um caso sem captura nenhuma.
+fn diag_gen(motivo: &str, nomes: &std::collections::HashSet<String>) {
+    if std::env::var("RTS_DIAG_GEN").is_ok() {
+        let mut v: Vec<&String> = nomes.iter().collect();
+        v.sort();
+        eprintln!("[diag] generator não içado: {motivo} (por_ref={v:?})");
+    }
 }
