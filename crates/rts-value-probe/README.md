@@ -86,6 +86,153 @@ call each pay off on their own.
 **~100×.** Allocation through the sharded-`Mutex` slab is ~300 ns of the ~305,
 i.e. it is not one cost among several — it is the whole kernel.
 
+### Kernel W — construction + field writes: `new P(f0..f3)` then read back, 50k objects
+
+`cargo run --release -p rts-value-probe -- w`. The write half of kernel H, on the
+same movable block layout — `RTS_CLASS_IMPLEMENTATION.md` §7 C0, which blocks C2
+until it exists. Each row removes exactly one thing; the read-back is the
+checksum, so no row can quietly store less.
+
+| variant | ns/iter | what changes |
+|---|---|---|
+| W0 today — `vec_new_object` + one LOCKED push per field | TODO(measure) | — |
+| W1 block alloc, direct store | TODO(measure) | −the lock and the `Box<Vec<i64>>` |
+| W2 store via handle | TODO(measure) | −the handed-back address; recompute it in IR |
+| W3 +card-mark barrier | TODO(measure) | +one card mark per field store |
+| W4 region, const base | TODO(measure) | −shard routing; base is an `iconst` |
+| W5 filled at alloc | TODO(measure) | −the separate store pass |
+
+Fill these in from a release run; do not quote a remembered figure. The question
+C0 asks is whether W1/W2 move construction off the ~300 ns W0 is expected to
+reproduce — if they do not, cheap reads (kernel H) do not move class-heavy code.
+
+### Kernel M — method call + `this`: `s = s + p.sum()`, 3M iterations (2026-08-02)
+
+Measured in the REAL engine first (release, 3M iters, `class P {x, y}`):
+`p.x` = 13.0 ns, `p.getx()` = 14.3 ns, `p.sum()` (two fields) = 26.3 ns, and a
+free function call = 2.0 ns. So a method costs ~1.3 ns more than the field read
+it wraps, and two fields cost exactly twice one field. The emitted body is
+`band this, 0xffff_ffff_ffff` + one `call __rtsn_vec_get_by_payload` per field.
+
+| variant | ns/iter | what it removes |
+|---|---|---|
+| M0 today — real call, tagged `this`, 2 locked field calls, generic `+` | 16.29 | — |
+| M1 +proven Repr — `+` inline | 10.93 | the generic-arith call |
+| M2 +untagged `this` — receiver is the raw payload | 10.97 | the `band` |
+| M3 +no lock — unlocked field calls | 6.27 | the shard `Mutex` |
+| M4 +`this` in register — receiver is an ADDRESS, fields are loads | 2.08 | the per-field call |
+| M5 +method inlined — IC shape guard + 2 loads, no call | 1.13 | the method call |
+| M6 +escape analysis — object gone | 0.69 | the object |
+
+**14.4×, and none of it is dispatch.** The two levers people reach for first are
+the two that measure zero and one: untagging `this` is **+0.04 ns (free — noise)**,
+and the method call itself is **~0.95 ns**. Method dispatch is already a direct
+monomorphic call. What a class costs is `this.field`: the shard `Mutex` is 4.66 ns
+and the opaque call-instead-of-load is 4.19 ns, i.e. **8.85 of M1's 10.93 ns (81%)
+is field representation**. This is kernel A's conclusion arriving through the
+method path — the receiver being `this` changes nothing.
+
+### Kernel H — object management: today vs Static-Hermes-shaped, 3M iterations (2026-08-02)
+
+`s = s + p.x + p.y`, same workload as kernel M. Static Hermes is the closest
+existing system to RTS — nominal typed classes, slot indices assigned at
+declaration, `PrLoad` by constant index with no guard, ICs quarantined to the
+untyped path. RTS already resolves `this.x` to a compile-time constant slot
+(`obj.rs:608-636`); what it does with that constant is a `call` that takes a
+shard `Mutex` and dereferences a `Box<Vec<i64>>`.
+
+Hermes emits a load from a RAW POINTER. **RTS cannot**: the conservative GC
+scanner decodes `gen|slot|shard` handle words and validates them against the
+live `HandleTable`, and the threading model is defined on "payload = slot index,
+never a pointer". So the row that matters is H3 — handle→address computed in
+PURE IR (`base = shard_bases[payload & 31]; addr = base + (payload >> 5)*STRIDE`),
+one extra hoistable load against a call plus a mutex.
+
+| variant | ns/iter | delta | what it removes |
+|---|---|---|---|
+| H0 today — `call __rtsn_vec_get_by_payload` | 11.20 | — | — |
+| H1 −shard `Mutex` | 6.87 | **−4.33** | the lock |
+| H2 −`Box<Vec<i64>>` — inline slots, still a call | 5.29 | −1.58 | one indirection |
+| H3 −the call — handle→addr in pure IR, guarded unbox | 1.72 | **−3.57** | the opaque call |
+| H4 +`Repr` on the field — tag guard gone | 1.49 | −0.23 | the guarded unbox |
+| H5 overflow bag — the `(p as any).z` fallback | 1.74 | +0.25 vs H4 | (prices the fallback) |
+| H6 escape analysis — object gone | 0.69 | −0.80 | the object |
+| H7 chunked storage — H4 through a chunk table | 1.54 | **−0.00** | (prices the precondition) |
+| H8 packed stride 32 B — H4 with 4 words not 8 | 1.51 | −0.00 | (prices the stride) |
+| H9 region, base as `iconst` — no shard routing | 0.99 | **−0.52** | the shard-base load |
+| H10 **MOVABLE** — one slot indirection, blocks relocated | 1.50 | **−0.01 vs H4** | (prices regional GC) |
+| H11 movable + region | 0.99 | **−0.00 vs H9** | (both at once) |
+
+**7.9× (11.39 → 1.45), 16.5× to the floor. Handle identity is not what costs.**
+The pure-IR address computation survives its extra load and still beats the call
+by 3.57 ns — so the GC and threading constraints, which forbid a raw pointer,
+do **not** forbid the Hermes result. The two costs are the shard `Mutex` (4.83)
+and the opaque call (3.57); the `Box` is a third of either.
+
+Three more rows exist because each prices a thing that could have killed the
+design:
+
+- **H5 — the property-bag fallback is affordable.** The census's HARD #4
+  (`(p as any).z = 1` is legal today, and a fixed-offset struct has nowhere to
+  put `z`) needs an overflow arm. It costs **0.25 ns** over a direct slot,
+  against **63.82 ns** for the dictionary read in kernel OBJ. Fixed slots + an
+  overflow bag is a real option; dictionary-mode demotion is not the only way to
+  stay correct.
+- **H7 — the stable-storage precondition is free.** H3/H4 quietly assume the
+  shard base never moves, which a growing `Vec` cannot promise. Real storage has
+  to be a chunk list. Routing through a chunk table costs **nothing measurable**
+  (1.66 vs 1.49, inside run-to-run variance) because the two-level index
+  collapses into ONE flat table load — `table[shard * CHUNKS + chunk]` — so the
+  extra cost is a shift and a mask, not a second dependent load.
+- **H9 — killing the shard-base load is the biggest lever left.** With one
+  thread-local region the base is an `iconst` (what Dart's reserved `GDT`
+  register and V8's pointer compression each buy), and the row lands at
+  **0.90 ns — 1.65× faster than H4 and only 1.3× off the escape-analysis floor.**
+  The payload is still a slot index, not a pointer, so GC and region migration
+  are unaffected. This is the threading model's "shards are proto-regions"
+  cashed out.
+
+**H10/H11 — the regional-GC question, and the one that nearly sank the design.**
+H3/H4/H9 derive an object's address from the HANDLE BITS. That is incompatible
+with what the GC docs actually plan: `rts-threading-model.md` promotes by
+"re-homing the entries into shared shards and updating the slots", and
+`gc-generational-design.md` says the whole architectural advantage is that
+"moving = update slot→address in the HandleTable (**the indirection makes this
+≈ free**, no pointer-patching)". A handle-derived address deletes exactly that
+indirection, so promotion or a nursery copy would change the handle and strand
+every live copy of the word.
+
+H10 keeps ONE indirection — but as a plain word load, not a `Box<Vec<i64>>`
+deref behind an opaque call holding a `Mutex`:
+
+```text
+stab  = load [SLOT_TABLES + shard*8]   ; loop-invariant
+block = load [stab + idx*8]            ; THE indirection — one word
+x     = load [block + 8*(1 + slot)]
+```
+
+Every object's block is **actually relocated** into a to-space before the row
+runs, and read back through the same handle — so the checksum is evidence that
+the handle survived a move, not just a load count. Result: **H10 = 1.50 vs H4's
+1.51, and H11 = 0.99 vs H9's 0.99. The movable form is free.** Moving an object
+is one word written, no live word rewritten, and reads cost the same as the
+non-movable layout. The regional/generational plan and the Hermes-shaped field
+access are not in tension.
+
+**But that "free" has a precondition worth stating loudly.** An earlier version
+evacuated each block into its own `vec![0i64; 8]` — 1024 scattered mallocs — and
+H10 swung between **4.4 and 8.2 ns** run to run. The indirection is free only
+when the collector produces a CONTIGUOUS to-space. A non-compacting collector
+that leaves survivors scattered turns the extra load into a cache miss and gives
+back the entire win. That is an argument *for* the copying nursery, not merely
+compatibility with it.
+
+**H8 says the fixed stride is not free but does not bite here.** A 2-field class
+in an 8-word (64 B) stride wastes 5 words; halving the stride to 32 B changed
+nothing measurable at this working set (1024 objects — 64 KB vs 32 KB, both
+resident). At a working set that exceeds L2 the packed row should win, and this
+kernel does not test that. Do not read H8 as "stride is free".
+
 ### Kernel ARR — array element `s += a[j]; a[j] = a[j] + 1`, 3M iterations
 
 | variant | ns/iter |
@@ -321,6 +468,64 @@ Read this before quoting any number from it.
   needs, so that row is a lower bound.
 - **D2's append-in-place is not drop-in.** JS strings are immutable; doing this
   legally requires proving the previous value is dead.
+- **Kernel H's shard bases are stable only because the probe pre-reserves them.**
+  The block slabs `resize` each shard up front, so the base the IR loads never
+  moves. A real implementation cannot just grow a `Vec` — a realloc would
+  invalidate every live object address mid-run. **H7 prices the chunk-table form
+  of the fix and finds it free**, but H7 still never actually grows: the cost of
+  committing a new chunk, and of the branch that checks whether one is needed on
+  the ALLOCATION path, is not measured anywhere here.
+- **Kernel H hoists nothing across a safepoint, because it has no safepoints.**
+  The shard-base load is loop-invariant and the egraph will hoist it. In the real
+  engine a GC tick (every 256 allocations) or a region migration can run inside
+  that loop; if storage were ever re-homed while a hoisted base sat in a
+  register, the address would be stale. Nothing in this kernel exercises that,
+  and no row should be read as evidence that hoisting the base is safe.
+- **Kernel H uses `MemFlags::trusted` on every load.** Real lowering cannot: a
+  field load must not be reordered across a call that could mutate the object.
+  The rows are therefore an upper bound on what correct aliasing metadata allows.
+- **Kernel H's guarded rows always take the fast arm.** The fields hold inline
+  doubles, so `is_double` never falls to `probe_to_number`. The slow arm is
+  emitted and reachable (it is a guard, not a bet), but H0–H3 measure the
+  monomorphic case; a field that actually holds tagged int32s would pay the call.
+- **Kernel H does not model the write side.** Field WRITES through the inline
+  slab would need whatever write barrier the eventual GC requires; kernel B's
+  `B1b` row prices a card-mark barrier separately, and H has no equivalent.
+  **Kernel W is the fix** (`RTS_CLASS_IMPLEMENTATION.md` §7 C0) — it is the
+  construction+store ladder over the same movable block layout. Its own caveats
+  follow.
+- **Kernel W allocates 50 000 objects, not 3 000 000.** One allocation per
+  iteration means the count is bounded by slab capacity: the W4 single-region row
+  puts every object in `moving_slab`'s region 0, capped at 65 536 blocks. So W's
+  rows are directly comparable to each other, and to H only per-iteration — the
+  loops are not the same length, and W's shorter loop keeps a smaller working set
+  resident than a 3M-object run would.
+- **Kernel W's rows never reuse or free a block.** Each iteration bumps a fresh
+  one and the slab is rewound between timed runs, so nothing measures allocating
+  into a fragmented heap, the branch that commits a new chunk, or the cost of a
+  block that outlives a nursery. §4.4 already showed the movable form's win
+  depends on a COMPACTING collector; W assumes one and does not model it.
+- **Kernel W's card mark is unconditional and per field store.** No generational
+  filtering, no SATB / dirty-card enqueue, no remembered set — the cheapest
+  honest barrier, so W3−W2 is a LOWER bound on a real barrier. It is also the
+  worst case in the other direction: the fields are doubles, and with the precise
+  field map §8.3 makes mandatory they would need no barrier at all. Read W3−W2 as
+  "the cost of not having `fieldmap.rs`", not as a fixed tax on construction.
+- **Kernel W's card table is masked, not heap-base-relative.** A production
+  barrier computes `(addr − heap_base) >> 9`; the probe computes
+  `(addr >> 9) & CARD_MASK` so it stays in bounds without knowing the heap's
+  extent. Same instruction count, so the cost is not distorted — but the probe's
+  table is 64 KB and aliases, which a real one does not.
+- **Kernel W's read-back is part of the row.** Every row stores F fields and then
+  reads them all back, because that read-back IS the checksum that stops a
+  variant from silently doing less work. Kernel H already prices reads (11.20 ns
+  locked, 1.49 ns direct), so the read component is known — but no W number is a
+  pure store cost, and W0 in particular pays four LOCKED reads on top of its four
+  locked pushes.
+- **Kernel W's `probe_block_alloc*` trampolines do no GC tick.** Kernel B found
+  the every-256-allocations `finish_cycle` mattered enough to need a replica
+  (`probe_gc_tick`); W's block rows have none, so their allocation cost is
+  optimistic against an engine that would still have to collect.
 
 ## Two of the probe's own numbers were wrong before they were right
 

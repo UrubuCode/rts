@@ -297,6 +297,9 @@ pub mod unlocked {
 // 3. flat arena with a stable base — the pointer-compression shape
 // ---------------------------------------------------------------------------
 
+pub mod blocks;
+pub mod cards;
+
 pub mod arena {
     use super::*;
 

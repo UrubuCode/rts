@@ -8,6 +8,7 @@
 //! |---|---|---|
 //! | A | Object (field read) | what does a property read cost, and why |
 //! | B | Object (construction) | what does `new` cost |
+//! | W | Object (construction + writes) | what does a field STORE cost, with and without a barrier |
 //! | C | Number / any value | is the NaN-box itself worth redesigning |
 //! | ARR | Array | element read/write, boxed vs packed elements |
 //! | OBJ | Object (dictionary) | `IndexMap` vs shape+slot on the same read |
@@ -36,8 +37,28 @@ fn main() {
     }
     println!();
 
+    // Optional substring filter: `cargo run --release -p rts-value-probe -- m`
+    // runs only the kernels whose key contains "m". No arg runs everything.
+    let filter = std::env::args().nth(1);
+    let want = |key: &str| filter.as_deref().is_none_or(|f| key.contains(f));
+
+    macro_rules! kernels {
+        ($($key:literal => $call:expr),* $(,)?) => {
+            $(if want($key) { $call; })*
+        };
+    }
+    kernels! {
+        "m" => bench::methods::kernel_m(),
+        "h" => bench::hermes::kernel_h(),
+        "w" => bench::writes::kernel_w(),
+    }
+    if filter.is_some() {
+        return;
+    }
+
     bench::objects::kernel_a();
     bench::objects::kernel_b();
+    bench::writes::kernel_w();
     bench::types::kernel_arr();
     bench::types::kernel_obj();
     bench::types::kernel_prim();

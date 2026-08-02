@@ -8,6 +8,8 @@ pub mod kernel_backend;
 pub mod kernel_b;
 pub mod kernel_c;
 pub mod kernel_ir;
+pub mod kernel_h;
+pub mod kernel_m;
 pub mod kernel_num;
 pub mod kernel_obj;
 pub mod kernel_ops;
@@ -17,6 +19,7 @@ pub mod kernel_sym;
 pub mod kernel_arch;
 pub mod kernel_visible;
 pub mod kernel_un;
+pub mod kernel_w;
 
 use std::collections::HashMap;
 

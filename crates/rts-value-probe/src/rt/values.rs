@@ -32,6 +32,17 @@ pub extern "C" fn probe_to_boolean(v: i64) -> i64 {
     i64::from((w & poly::PAYLOAD_MASK) == 3)
 }
 
+/// `__rtsadp_to_number` — the SLOW arm of a guarded unbox. A field slot holding
+/// a `Tagged` PolyValue cannot be `bitcast` blindly: only a word already proven
+/// to be an inline double is its own `f64`. The fast arm is pure IR; this is
+/// where the guard falls when the word is a tagged int32 / singleton / handle.
+/// It must be present and REACHABLE, or the guarded rows measure a bet, not a
+/// guard.
+#[inline(never)]
+pub extern "C" fn probe_to_number(v: i64) -> i64 {
+    poly::to_number(v as u64).to_bits() as i64
+}
+
 /// `__rtsadp_add` on two tagged int32s — through `f64`, then re-tightened.
 #[inline(never)]
 pub extern "C" fn probe_adp_iadd(a: i64, b: i64) -> i64 {

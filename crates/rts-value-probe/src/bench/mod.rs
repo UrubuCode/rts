@@ -1,5 +1,7 @@
 //! The benchmark drivers, one module per primordial under test.
 
+pub mod hermes;
+pub mod methods;
 pub mod numwidth;
 pub mod objects;
 pub mod ops;
@@ -18,6 +20,7 @@ pub mod irladder;
 pub mod symarch;
 pub mod visible;
 pub mod types;
+pub mod writes;
 
 /// Objects/elements live in a power-of-two ring so `i & MASK` indexes them;
 /// nothing is loop-invariant, so no variant can win by having a load hoisted.
@@ -37,5 +40,11 @@ pub const ITERS_OBJ: i64 = 3_000_000;
 pub const ITERS_PRIM: i64 = 20_000_000;
 pub const ITERS_PRIM_INT: i64 = 2_000_000;
 pub const ITERS_OPS: i64 = 10_000_000;
+/// Kernel W allocates ONE object per iteration, so its count is bounded by slab
+/// capacity, not by how long a loop we want: W4's single-region row puts every
+/// object in `moving_slab`'s region 0, whose `CAP_PER_SHARD` is 65 536. That is a
+/// probe capacity limit, not a statement about the design — but a row that
+/// asserted its way out mid-run would measure nothing at all.
+pub const ITERS_W: i64 = 50_000;
 
 pub const SHAPE_ID: i64 = 7;

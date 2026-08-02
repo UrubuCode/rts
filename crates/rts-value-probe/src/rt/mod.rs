@@ -18,6 +18,7 @@ pub mod stdshape;
 pub mod strings;
 pub mod sym;
 pub mod values;
+pub mod writes;
 
 use crate::poly;
 use crate::slab;
@@ -84,6 +85,7 @@ pub extern "C" fn probe_alloc_bump(x: i64, y: i64, shape: i64) -> i64 {
 pub fn symbols() -> Vec<(&'static str, *const u8)> {
     let mut v = base_symbols();
     v.extend(ops::symbols());
+    v.extend(writes::symbols());
     v
 }
 
@@ -102,6 +104,8 @@ fn base_symbols() -> Vec<(&'static str, *const u8)> {
             "probe_vec_set_locked",
             probe_vec_set_locked as *const u8,
         ),
+        ("probe_inline_get", probe_inline_get as *const u8),
+        ("probe_to_number", values::probe_to_number as *const u8),
         ("probe_dict_get", dict::probe_dict_get as *const u8),
         (
             "probe_dict_get_borrowed",
@@ -122,6 +126,15 @@ fn base_symbols() -> Vec<(&'static str, *const u8)> {
         ("probe_chunk_add", sym::probe_chunk_add as *const u8),
         ("probe_chunk_add_raw", sym::probe_chunk_add_raw as *const u8),
     ]
+}
+
+/// The inline-slot slab read, behind the SAME opaque `extern "C"` boundary the
+/// locked/unlocked ones use. The delta against [`probe_vec_get_unlocked`] is the
+/// `Box<Vec<i64>>` indirection alone; the delta against the pure-IR variant is
+/// the CALL alone.
+#[inline(never)]
+pub extern "C" fn probe_inline_get(payload: i64, index: i64) -> i64 {
+    slab::blocks::inline_slab::get(payload as u64, index)
 }
 
 /// `__RTS_FN_NS_COLLECTIONS_VEC_SET` — the write half of array element access.
