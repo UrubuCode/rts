@@ -25,7 +25,7 @@
 //! pointers are never confused with handles: the 48-bit payload is a HandleTable
 //! slot index, not an address.
 
-use crate::heap::handles::{live_handle_count, mark_handle, sweep_all_shards};
+use crate::heap::handles::{flush_all_shards, live_handle_count, mark_handle, sweep_all_shards};
 
 // ─── Module-level mutable global cells ────────────────────────────────────────
 //
@@ -42,10 +42,21 @@ use crate::heap::handles::{live_handle_count, mark_handle, sweep_all_shards};
 // The store lives in `super::gcells` — per PROGRAM (ids restart at 0 and several
 // programs can run concurrently in one process), lock-free on read.
 
+/// `RTS_DEBUG_GCELL` — trace every global-cell store.
+///
+/// Cached, for the same reason as `heap::live::gc_disabled` (item 1.4): this is
+/// consulted on EVERY module-level assignment, and `std::env::var` locks the
+/// process environment and allocates a `String` per call. Pattern copied from
+/// `rts-codegen-new/src/front/run/clifflags.rs`.
+fn gcell_debug() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("RTS_DEBUG_GCELL").is_ok())
+}
+
 /// Store `word` (a PolyValue) into global cell `id`.
 #[rtse::abi(native, value = "gcell_set")]
 pub fn gcell_set(id: u64, word: u64) {
-    if std::env::var("RTS_DEBUG_GCELL").is_ok() {
+    if gcell_debug() {
         eprintln!("[gcell] SET {id} = {word:#x}");
     }
     super::gcells::set(id, word);
@@ -192,6 +203,12 @@ pub fn runtime_init() {
 /// Triggers a full mark+sweep cycle.
 /// Returns the number of handles freed.
 pub fn collect(_roots: &[u64]) -> u64 {
+    // The live counters are batched per shard since RTS_OPTIMIZATION.md §5 item
+    // 1.4, so the "before" read must drain the pending deltas or the reported
+    // freed-count would include this thread's un-flushed allocations. The
+    // "after" read needs no flush: `sweep_unmarked` flushes every shard it
+    // touches, and it touches all of them.
+    flush_all_shards();
     let before = live_handle_count() as u64;
     finish_cycle();
     let after = live_handle_count() as u64;
@@ -217,5 +234,7 @@ pub fn collect_debt() {
 /// Live handle count. Useful for benchmarks and leak detection.
 #[rtse::abi(native, value = "live_count")]
 pub fn live_count() -> i64 {
+    // User-observable, so it must be exact rather than batch-stale.
+    flush_all_shards();
     live_handle_count() as i64
 }

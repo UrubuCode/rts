@@ -7,6 +7,7 @@ pub mod class_registry;
 pub mod descriptors;
 pub mod fixed;
 pub mod handles;
+pub mod live;
 pub mod mapkey;
 pub mod payload_ops;
 pub mod pickle;

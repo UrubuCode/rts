@@ -16,7 +16,7 @@ use std::cell::Cell;
 use std::collections::HashSet;
 use std::sync::Mutex;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 // Layout do handle (gen/slot/shard) e' compartilhado com `ui::store` via
 // `crate::abi::handles` (#283). Mudancas aqui invalidam handles existentes.
@@ -29,6 +29,11 @@ use crate::abi::handles::{
 /// bridge ([`crate::heap::poly`]) and its tests can name it without reaching into
 /// `crate::abi::handles`. Byte-identical to the canonical constant — pure alias.
 pub use crate::abi::handles::HANDLE_SLOT_MASK;
+use crate::heap::live::{ShardLive, gc_disabled};
+/// The live-heap counters moved to [`crate::heap::live`] (the per-shard batching
+/// of RTS_OPTIMIZATION.md §5 item 1.4). Re-exported here because every caller in
+/// the tree — and the runtime facade path — names them under `handles::`.
+pub use crate::heap::live::{flush_all_shards, live_byte_count, live_handle_count};
 /// Re-export the PolyValue ↔ handle bridge symbols + helper through the `handles`
 /// module so the runtime facade path (`rts_runtime::namespaces::gc::handles::*`)
 /// reaches them. Purely additive; touches no encoding.
@@ -1058,46 +1063,37 @@ pub struct HandleTable {
     slots: Vec<Slot>,
     /// Indices of `Free` slots available for reuse.
     free_list: Vec<u32>,
+    /// This shard's PENDING contribution to the global live counters
+    /// ([`crate::heap::live`]).
+    ///
+    /// It lives HERE rather than in a side table so it shares the cache line the
+    /// allocator has already pulled in, and so it is covered by the shard
+    /// `Mutex` this table is always accessed under — hence plain integers and no
+    /// atomics on the allocation path. The global counters (and the
+    /// live-handle safety cap) are updated by the batched flush; see that module
+    /// for the staleness bound this buys.
+    live: ShardLive,
 }
 
-/// Contador global de slots vivos cross-shard. Incrementado em cada
-/// alloc novo (slot inedito) e decrementado em cada free. Reuso de
-/// slot via free_list nao mexe no contador.
-///
-/// Usado para cap de seguranca: programas patologicos que alocam
-/// strings/handles em loop sem GC (ex: codegen ainda nao emite
-/// string_free) acabam vazando memoria sem limite. Cap converte
-/// vazamento silencioso em diagnostico claro.
-pub(crate) static LIVE_HANDLES: AtomicUsize = AtomicUsize::new(0);
-
-/// Limite duro de handles vivos simultaneos. Cada handle (string/vec/map/
-/// buffer/etc) custa entre dezenas de bytes (string curta) e MBs (buffer
-/// grande). 5M handles = ~5GB no pior caso de strings curtas; o cap evita
-/// passar disso e dar OOM no SO. Caso real de teste-suite passa muito
-/// abaixo (dezenas a poucos milhares de handles vivos).
-const HANDLES_MAX: usize = 5_000_000;
-
 impl HandleTable {
+    /// Drain this shard's pending live delta into the globals. Policy lives in
+    /// [`crate::heap::live::flush_all_shards`]; this is only the accessor that
+    /// reaches the private field.
+    pub(crate) fn flush_live(&mut self) {
+        self.live.flush();
+    }
+
     /// Allocate `entry` in this shard. `shard_idx` is encoded in the low
     /// SHARD_BITS of the slot field so `shard_for_handle` can route back
     /// without extra metadata.
     pub fn alloc_in_shard(&mut self, entry: Entry, shard_idx: usize) -> u64 {
-        // Cap em slots vivos (alloc - free). Reuso via free_list ja
-        // recuperou o slot anterior — incrementa de novo aqui pra
-        // manter "live = total alloc - total free" simetrico.
-        // Payload size measured BEFORE the entry moves into its slot — the byte
-        // half of the same live accounting (see `LIVE_BYTES`).
-        let bytes = entry_heap_bytes(&entry);
-        LIVE_BYTES.fetch_add(bytes, Ordering::Relaxed);
-        let prev = LIVE_HANDLES.fetch_add(1, Ordering::Relaxed);
-        if prev >= HANDLES_MAX {
-            LIVE_HANDLES.fetch_sub(1, Ordering::Relaxed);
-            live_bytes_sub(bytes);
-            eprintln!(
-                "RTS runtime: handle table exceeded limit of {HANDLES_MAX} live handles; aborting (likely string/array allocations in unbounded loop without GC — codegen does not emit auto-free yet)"
-            );
-            std::process::abort();
-        }
+        // Live accounting, kept symmetric across free_list reuse ("live = total
+        // alloc − total free"). Payload size measured BEFORE the entry moves into
+        // its slot. This is two NON-atomic adds on this shard's own field; the
+        // global counters and the `HANDLES_MAX` safety cap are updated by the
+        // batched flush inside `on_alloc` (see `heap::live`), which is what item
+        // 1.4 removes from this line.
+        self.live.on_alloc(entry_heap_bytes(&entry));
         if let Some(table_slot) = self.free_list.pop() {
             let slot = &mut self.slots[table_slot as usize];
             // Skip the sentinel 0 and the reserved 0xFFF8..=0xFFFF range so a real
@@ -1131,11 +1127,13 @@ impl HandleTable {
         if matches!(slot.entry, Entry::Free) {
             return false;
         }
-        live_bytes_sub(entry_heap_bytes(&slot.entry));
+        let bytes = entry_heap_bytes(&slot.entry);
         cleanup_entry(&mut slot.entry);
         slot.entry = Entry::Free;
         self.free_list.push(table_slot);
-        LIVE_HANDLES.fetch_sub(1, Ordering::Relaxed);
+        // Batched through the SAME path as the increment — see `ShardLive::on_free`
+        // for why the two halves must not use different accounting.
+        self.live.on_free(bytes);
         true
     }
 
@@ -1302,6 +1300,10 @@ impl HandleTable {
     /// Returns number of handles freed.
     pub fn sweep_unmarked(&mut self) -> usize {
         let mut freed = 0;
+        // Accumulated locally and applied once after the loop: `self.slots` is
+        // borrowed mutably here, and a sweep frees in bulk anyway — one
+        // accounting update for the whole shard instead of one per freed slot.
+        let mut freed_bytes: usize = 0;
         for (idx, slot) in self.slots.iter_mut().enumerate() {
             if matches!(slot.entry, Entry::Free) {
                 continue;
@@ -1319,16 +1321,20 @@ impl HandleTable {
                     };
                     eprintln!("[gc] SWEEP slot={idx} kind={kind}");
                 }
-                live_bytes_sub(entry_heap_bytes(&slot.entry));
+                freed_bytes += entry_heap_bytes(&slot.entry);
                 cleanup_entry(&mut slot.entry);
                 slot.entry = Entry::Free;
                 self.free_list.push(idx as u32);
-                LIVE_HANDLES.fetch_sub(1, Ordering::Relaxed);
                 freed += 1;
             } else {
                 slot.marked = false;
             }
         }
+        self.live.on_sweep(freed, freed_bytes);
+        // Unconditional flush: after a cycle the globals must be exact, because
+        // `collect()` reports (before − after) to userland and the next tick's
+        // threshold check must not re-fire on a stale number.
+        self.live.flush();
         freed
     }
 }
@@ -1374,13 +1380,6 @@ thread_local! {
 /// um ciclo completo de mark+sweep. Calibrado para cobrir loops de
 /// concat sem overhead significativo em workloads leves.
 const GC_TICK_INTERVAL: u32 = 256;
-
-/// Permite desligar o GC automatico setando RTS_GC_DISABLE=1.
-/// Util para diagnosticar quando o sweep esta liberando handles
-/// alcancaveis (bug de stack scan / safepoint cobertura).
-fn gc_disabled() -> bool {
-    std::env::var("RTS_GC_DISABLE").ok().as_deref() == Some("1")
-}
 
 /// Is the periodic collector armed?
 ///
@@ -1456,11 +1455,8 @@ const GC_LIVE_FLOOR: usize = 500_000;
 /// before a rewriting loop reaches hundreds of MB.
 const GC_LIVE_BYTES_FLOOR: usize = 64 * 1024 * 1024;
 
-/// Live payload bytes across every shard — the size half of [`LIVE_HANDLES`].
-/// Maintained at exactly the same four sites that maintain the handle count.
-pub(crate) static LIVE_BYTES: AtomicUsize = AtomicUsize::new(0);
-
-/// Approximate heap payload of an entry, for [`LIVE_BYTES`].
+/// Approximate heap payload of an entry, for the byte half of the live
+/// accounting ([`crate::heap::live`]).
 ///
 /// Only the variants that can hold a LARGE payload are measured; the rest report
 /// 0 because their size is a fixed handful of bytes and the floor is in
@@ -1476,25 +1472,6 @@ fn entry_heap_bytes(e: &Entry) -> usize {
         Entry::ArrayBuffer(_) | Entry::Json(_) | Entry::Headers(_) => 0,
         _ => 0,
     }
-}
-
-/// Current live payload bytes (probe for tests and the GC trigger).
-pub fn live_byte_count() -> usize {
-    LIVE_BYTES.load(Ordering::Relaxed)
-}
-
-/// Subtract from [`LIVE_BYTES`] WITHOUT wrapping.
-///
-/// An entry can grow after it was allocated — `Entry::Vec` resizes in place — so
-/// what is subtracted at free time can exceed what was added at alloc time. A
-/// plain `fetch_sub` on a `usize` would wrap to ~2^64, the byte floor would then
-/// read as permanently exceeded, and the GC would run every 256 allocations for
-/// the rest of the process. Saturating keeps the counter an underestimate, which
-/// only ever makes the trigger LATER — never wrong.
-fn live_bytes_sub(n: usize) {
-    let _ = LIVE_BYTES.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
-        Some(v.saturating_sub(n))
-    });
 }
 
 /// Every `GC_TICK_INTERVAL` allocations triggers an automatic mark+sweep
@@ -2013,10 +1990,6 @@ pub fn with_two_entries<R>(
     }
 }
 
-/// Count of currently live handles (allocated minus freed).
-pub fn live_handle_count() -> usize {
-    LIVE_HANDLES.load(Ordering::Relaxed)
-}
 
 #[cfg(test)]
 mod tests {
@@ -2283,21 +2256,24 @@ mod tests {
 
     #[test]
     fn double_free_does_not_underflow_live_count() {
-        // LIVE_HANDLES is a global counter shared across all parallel tests.
-        // We cannot assert exact absolute values; instead we verify that our
-        // own alloc/free pair produces a net delta of zero and that double-free
-        // does not decrement below the post-free baseline.
+        // The live counter is global and shared across all parallel tests, so we
+        // assert a delta, not an absolute. `flush_all_shards()` before each read
+        // is required since item 1.4: the per-shard delta is only pushed into the
+        // global every 64 allocations (see `heap::live`).
         let h = alloc_entry(Entry::String(b"x".to_vec()));
-        let after_alloc = LIVE_HANDLES.load(Ordering::SeqCst);
+        flush_all_shards();
+        let after_alloc = live_handle_count();
         assert!(free_handle(h));
-        let after_free = LIVE_HANDLES.load(Ordering::SeqCst);
+        flush_all_shards();
+        let after_free = live_handle_count();
         // The counter must have decreased by at least 1 (our entry) after free.
         assert!(
             after_free < after_alloc,
             "free did not decrement LIVE_HANDLES: after_alloc={after_alloc} after_free={after_free}"
         );
         assert!(!free_handle(h), "double-free deve retornar false");
-        let after_double_free = LIVE_HANDLES.load(Ordering::SeqCst);
+        flush_all_shards();
+        let after_double_free = live_handle_count();
         // Double-free must not decrement below the post-free level.
         assert!(
             after_double_free >= after_free.saturating_sub(16),
@@ -2307,10 +2283,12 @@ mod tests {
 
     #[test]
     fn free_invalid_handle_does_not_change_live_count() {
-        let before = LIVE_HANDLES.load(Ordering::SeqCst);
+        flush_all_shards();
+        let before = live_handle_count();
         free_handle(0);
         free_handle(0xDEAD_BEEF_DEAD_BEEF);
-        assert_eq!(LIVE_HANDLES.load(Ordering::SeqCst), before);
+        flush_all_shards();
+        assert_eq!(live_handle_count(), before);
     }
 
     #[test]
@@ -2329,11 +2307,14 @@ mod tests {
     fn live_counter_tracks_alloc_free_delta() {
         // Captura delta local: isola o contador antes/depois das nossas operacoes.
         // Outros testes paralelos podem mudar o total, mas nosso delta deve ser exato.
-        let before = LIVE_HANDLES.load(Ordering::SeqCst);
+        flush_all_shards();
+        let before = live_handle_count();
         let h = alloc_entry(Entry::FloatPrim(0.0));
-        assert_eq!(LIVE_HANDLES.load(Ordering::SeqCst), before + 1);
+        flush_all_shards();
+        assert_eq!(live_handle_count(), before + 1);
         free_handle(h);
-        assert_eq!(LIVE_HANDLES.load(Ordering::SeqCst), before);
+        flush_all_shards();
+        assert_eq!(live_handle_count(), before);
     }
 
     /// (#poly STEP 2) `mark_handle` marks THROUGH a NaN-boxed PolyValue word

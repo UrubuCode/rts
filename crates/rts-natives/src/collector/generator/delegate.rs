@@ -18,6 +18,17 @@ use super::iterhelp::{__rtsm_global_Array_iterator_fn, __rtsm_global_Iterator_fr
 
 use super::{GEN_CURSORS, UNDEFINED};
 
+/// `RTS_DEBUG_GEN` — trace each `yield*` delegation step.
+///
+/// Cached in a `OnceLock` (item 1.4's rule, same pattern as
+/// `rts-codegen-new/src/front/run/clifflags.rs`): this sits on the per-yielded-
+/// value path, and `std::env::var` locks the process env and allocates a
+/// `String` on every call.
+fn gen_debug() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("RTS_DEBUG_GEN").is_ok())
+}
+
 // ── yield* lazy delegation (#477/#211) ───────────────────────────────────────
 // `yield* SRC` na state-machine: em vez de materializar SRC inteiro (eager,
 // estoura em delegado infinito), iteramos SRC um valor por vez e RE-YIELDAMOS
@@ -85,7 +96,7 @@ pub fn gen_delegate_start(src: i64) -> i64 {
         Some(Entry::String(_)) => 3,
         _ => 0,
     });
-    if std::env::var("RTS_DEBUG_GEN").is_ok() {
+    if gen_debug() {
         eprintln!("[gen] DELEGATE_START src={src:#x} h={h:#x} kind={kind}");
     }
     // GenState continua NATIVO: a delegacao lazy dele precisa do `sent` e do
@@ -165,7 +176,7 @@ pub fn gen_delegate_next(it: i64) -> i64 {
         Some(Entry::Vec(_)) => 2,
         _ => 0,
     });
-    if std::env::var("RTS_DEBUG_GEN").is_ok() {
+    if gen_debug() {
         eprintln!("[gen] DELEGATE_NEXT it={it:#x} h={h:#x} kind={kind}");
     }
     match kind {
