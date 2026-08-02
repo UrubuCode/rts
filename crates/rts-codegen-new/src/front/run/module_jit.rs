@@ -409,6 +409,8 @@ pub(crate) fn populate_module(
     // THUNK-ON-DEMAND: the marks are per-module (`FuncId`s restart), so clear
     // them before this program's IR build populates them.
     thunk::reset_used();
+    // IC-cell symbol names are numbered per function and must restart per module.
+    super::ic::reset_sites();
     let mut thunks: HashMap<String, FuncId> = HashMap::new();
     for f in funcs {
         let id = thunk::declare_thunk_linkage(&mut *module, &f.name, Linkage::Local)?;

@@ -16,55 +16,78 @@
 //! upstream and per function: editing one source file invalidates only the
 //! functions whose IR actually changed.
 //!
-//! ## WHERE IT PAYS, AND WHERE IT DOES NOT — measured, and the answer is narrow
+//! ## WHERE IT PAYS — measured, in four rounds
 //!
-//! **It pays for repeated compiles of the SAME program.** `tiny.ts`, release:
+//! **It pays for repeated compiles of the SAME program**, which is the edit-run
+//! loop. `tiny.ts`, release:
 //!
 //! ```text
 //! machine-compile, cold   15.6 ms    0 hits
-//! machine-compile, warm   10.5 ms  203 hits     store 408 KB, stable
+//! machine-compile, warm   10.4 ms  203 hits     store 408 KB, stable
 //! ```
 //!
-//! **It loses badly across a SUITE**, and no write policy fixes it. `rts test`
+//! **Across a SUITE it is roughly break-even and no longer diverges.** `rts test`
 //! is 811 processes each compiling a different program:
 //!
 //! ```text
-//! off  38.8 s     on  65.8 s   store 138 MB
-//! off  37.7 s     on  78.2 s   store 171 MB
+//! off  37.8 s     on  42.5 s then 40.1 s     store 34.6 MB, CONVERGED
 //! ```
 //!
-//! Two versions of the store were measured before that conclusion, because the
-//! first failure had an obvious-looking cause that turned out to be only half of
-//! it:
+//! Getting there took four rounds, and each one was a different mistake:
 //!
 //! 1. **Read-all + rewrite-all** (one file, `bincode` map): every process paid a
 //!    full read AND a full rewrite of a growing file — quadratic in the number of
-//!    programs. Suite 39.6 → 44.1 → 57.9 → 76.2 s.
-//! 2. **Append-only** (this format), then **prelude-only** entries: the rewrite
-//!    is gone and the writes are restricted to the functions that ought to
-//!    repeat. It still loses, and the store still grows without converging.
+//!    programs. Suite 39.6 → 44.1 → 57.9 → 76.2 s, store 69 MB.
+//! 2. **Append-only + prelude-only entries**: the rewrite is gone and writes are
+//!    restricted to the functions that ought to repeat. Still 65.8 → 78.2 s, and
+//!    the store STILL grew without converging — which is what proved the store
+//!    was not the problem.
+//! 3. **Deterministic IC-cell names** (`ic.rs`): the actual fix, below.
+//! 4. **Index + blob split, with a size-chosen access mode**: the format, below.
 //!
-//! **The real reason is not the store at all: the prelude's stencils are
-//! PROGRAM-DEPENDENT.** A prelude function's IR carries shape-id immediates
-//! interned per program and IC-cell data symbols named from a per-run counter
-//! (`ic.rs::CELL_CTR`, `aot_str.rs::DATA_CTR`), so the same source lowers to a
-//! different stencil in each process and hashes to a different key. There is
-//! nothing to hit. Making it converge means making those two things stable
-//! across processes — which is a change to shape interning and data naming, not
-//! to this file.
+//! Which located the actual cause, and it was NOT the store: **the prelude's
+//! stencils were PROGRAM-DEPENDENT.** A prelude function's IR carried IC-cell
+//! data symbols named from a process-wide counter, and prelude PRUNING keeps a
+//! different subset per program — so every downstream cell number shifted and the
+//! same source hashed to a different key in every process. Nothing could hit.
 //!
-//! So the honest scope is: **a repeated compile of one program**, where the
-//! stencils genuinely repeat. That is a real case (an edit-run loop on a single
-//! file), and it is why the code stays. It is not a default.
+//! `ic.rs` now names cells `__rtsic_<fn>_<site>`, per owning function, which
+//! removes the coupling. Measured immediately after that change, using one
+//! program's cache to compile a DIFFERENT program:
 //!
-//! ## The format
+//! ```text
+//! tiny.ts      cold     0 hits / 207 misses
+//! numbench.ts           203 hits /   4 misses      <- different program
+//! callbench.ts          116 hits /  93 misses      <- different program, more code
+//! ```
 //!
-//! Repeated `[32-byte key][u32 LE length][length bytes]`, append-only, capped at
-//! [`MAX_BYTES`]. Append-only so a run never rewrites what other runs wrote;
-//! length-prefixed so a torn tail (a killed process) is detectable — the reader
-//! stops at the first truncated record instead of discarding the whole file.
-//! Capped because an unbounded compile cache is how a `.rts/` directory silently
-//! becomes gigabytes, which is exactly what the suite measurement above did.
+//! Cross-program hits went from impossible to 98%, and the store converges
+//! instead of growing forever. The remaining suite gap is I/O volume, which is
+//! what the format below is for.
+//!
+//! ## The format: a small INDEX plus a blob file, with the access mode chosen by size
+//!
+//! Two append-only files. `clifcache.idx` is `[32-byte key][u64 offset][u32 len]`
+//! records; `clifcache.bin` is the concatenated blobs. A process always reads the
+//! INDEX whole (44 bytes per entry) and then gets the blobs one of two ways —
+//! because the two workloads want opposite things, and trying to serve both with
+//! one policy is what rounds 1 and 2 above were:
+//!
+//! * store ≤ [`INLINE_MAX`] — slurp the blob file once, serve hits from memory.
+//!   The single-program case lives here (~400 KB, ~200 hits per run), and serving
+//!   those same hits by individual `seek_read` measured SLOWER: 14.6-16.7 ms of
+//!   machine-compile against 10.4 ms slurped, i.e. 200 syscalls cost more than
+//!   one sequential 400 KB read.
+//! * store > [`INLINE_MAX`] — read only the blobs that hit, by offset, via
+//!   `seek_read`/`read_at`. Those take `&self`, so a worker serves `get(&self)`
+//!   with no lock and no shared file position. The suite case lives here, where
+//!   slurping tens of MB in each of 811 processes is precisely the I/O that made
+//!   earlier rounds lose to no cache at all.
+//!
+//! Append-only so a run never rewrites what other runs wrote; data written before
+//! its index record so an offset never points past the end of the blob file;
+//! capped at [`MAX_BYTES`] because an unbounded compile cache is how a `.rts/`
+//! directory silently becomes gigabytes, which is what round 1 did.
 //!
 //! ## OPT-IN
 //!
@@ -73,7 +96,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::io::Write;
+use std::io::{Seek, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -90,6 +113,11 @@ type Key = [u8; 32];
 /// eating the disk.
 const MAX_BYTES: u64 = 32 * 1024 * 1024;
 
+/// Below this size the whole data file is slurped once per process and served
+/// from memory; above it, blobs are read individually by offset. See `cache()`
+/// for the measurement that sets the two modes against each other.
+const INLINE_MAX: u64 = 4 * 1024 * 1024;
+
 /// Hits and misses of the current process, reported under `RTS_TIMING=1`.
 static HITS: AtomicUsize = AtomicUsize::new(0);
 static MISSES: AtomicUsize = AtomicUsize::new(0);
@@ -104,74 +132,128 @@ pub(super) fn enabled() -> bool {
     })
 }
 
-fn cache_path() -> PathBuf {
+fn cache_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("RTS_CLIF_CACHE_DIR") {
-        return PathBuf::from(dir).join("clifcache.bin");
+        return PathBuf::from(dir);
     }
-    PathBuf::from(".rts").join("clifcache.bin")
+    PathBuf::from(".rts")
 }
 
-/// Parse the append-only log. Stops at the first truncated record rather than
+fn data_path() -> PathBuf {
+    cache_dir().join("clifcache.bin")
+}
+
+fn index_path() -> PathBuf {
+    cache_dir().join("clifcache.idx")
+}
+
+/// One index record: 32-byte key + u64 LE data offset + u32 LE length.
+const IDX_REC: usize = 44;
+
+/// Parse the append-only INDEX. Stops at the first truncated record rather than
 /// discarding the file: a process killed mid-append leaves a partial tail, and
 /// everything before it is still valid.
-fn parse(bytes: &[u8]) -> HashMap<Key, Vec<u8>> {
+fn parse_index(bytes: &[u8]) -> HashMap<Key, (u64, u32)> {
     let mut out = HashMap::new();
     let mut p = 0usize;
-    while p + 36 <= bytes.len() {
-        let key: Key = match bytes[p..p + 32].try_into() {
-            Ok(k) => k,
-            Err(_) => break,
+    while p + IDX_REC <= bytes.len() {
+        let Ok(key) = <Key>::try_from(&bytes[p..p + 32]) else {
+            break;
         };
-        let len = u32::from_le_bytes([
-            bytes[p + 32],
-            bytes[p + 33],
-            bytes[p + 34],
-            bytes[p + 35],
-        ]) as usize;
-        let start = p + 36;
-        let end = match start.checked_add(len) {
-            Some(e) if e <= bytes.len() => e,
-            _ => break, // truncated tail
-        };
-        out.insert(key, bytes[start..end].to_vec());
-        p = end;
+        let off = u64::from_le_bytes(bytes[p + 32..p + 40].try_into().expect("8 bytes"));
+        let len = u32::from_le_bytes(bytes[p + 40..p + 44].try_into().expect("4 bytes"));
+        out.insert(key, (off, len));
+        p += IDX_REC;
     }
     out
 }
 
-/// The process-wide loaded cache: the snapshot every worker reads, plus the
-/// entries this run produced (appended on [`persist`]).
+/// Read `len` bytes at `off` without moving a shared cursor. `seek_read`/`read_at`
+/// take `&self`, which is what lets a worker serve `get(&self)` straight from
+/// disk with no lock and no shared file position.
+fn read_at(f: &std::fs::File, off: u64, len: u32) -> Option<Vec<u8>> {
+    let mut buf = vec![0u8; len as usize];
+    let mut done = 0usize;
+    while done < buf.len() {
+        #[cfg(windows)]
+        let n = {
+            use std::os::windows::fs::FileExt;
+            f.seek_read(&mut buf[done..], off + done as u64).ok()?
+        };
+        #[cfg(unix)]
+        let n = {
+            use std::os::unix::fs::FileExt;
+            f.read_at(&mut buf[done..], off + done as u64).ok()?
+        };
+        if n == 0 {
+            return None;
+        }
+        done += n;
+    }
+    Some(buf)
+}
+
+/// The process-wide loaded cache: the INDEX (small, read once) plus the entries
+/// this run produced (appended by [`persist`]).
 struct Cache {
-    snapshot: Arc<HashMap<Key, Vec<u8>>>,
+    index: Arc<HashMap<Key, (u64, u32)>>,
+    /// The whole data file, when it is small enough to be worth slurping — see
+    /// [`INLINE_MAX`]. `None` means workers read blobs by offset instead.
+    inline: Option<Arc<Vec<u8>>>,
     added: HashMap<Key, Vec<u8>>,
-    /// Size of the file as loaded — the budget check for new appends.
-    on_disk: u64,
+    /// Size of the data file as loaded — the budget check for new appends.
+    data_len: u64,
 }
 
 fn cache() -> &'static Mutex<Cache> {
     static C: OnceLock<Mutex<Cache>> = OnceLock::new();
     C.get_or_init(|| {
-        let bytes = std::fs::read(cache_path()).unwrap_or_default();
-        let on_disk = bytes.len() as u64;
+        let idx = std::fs::read(index_path()).unwrap_or_default();
+        let data_len = std::fs::metadata(data_path()).map(|m| m.len()).unwrap_or(0);
+        // Two access modes, chosen by SIZE, because the two workloads want
+        // opposite things and the measurement says so:
+        //
+        // * ONE program compiled repeatedly — the store is ~400 KB and a run hits
+        //   ~200 entries. Slurping it costs one sequential read; serving those
+        //   hits by `seek_read` instead cost 200 syscalls and measured SLOWER
+        //   (14.6-16.7 ms of machine-compile against 10.5 ms slurped).
+        // * A suite of hundreds of distinct programs — the store reaches tens of
+        //   MB, and slurping it in every one of 811 processes is the I/O that made
+        //   the cache lose to no cache at all.
+        let inline = (data_len <= INLINE_MAX)
+            .then(|| std::fs::read(data_path()).ok().map(Arc::new))
+            .flatten();
         Mutex::new(Cache {
-            snapshot: Arc::new(parse(&bytes)),
+            index: Arc::new(parse_index(&idx)),
+            inline,
             added: HashMap::new(),
-            on_disk,
+            data_len,
         })
     })
 }
 
-/// A per-worker view of the cache: shared immutable reads, buffered writes.
+/// A per-worker view: the shared index, its own read handle on the data file,
+/// and a buffer of the entries this worker compiled.
 pub(super) struct WorkerStore {
-    snapshot: Arc<HashMap<Key, Vec<u8>>>,
+    index: Arc<HashMap<Key, (u64, u32)>>,
+    /// The slurped data file, when the store is small enough for it.
+    inline: Option<Arc<Vec<u8>>>,
+    /// Read handle used only when `inline` is `None`.
+    data: Option<std::fs::File>,
     new: Vec<(Key, Vec<u8>)>,
 }
 
 impl WorkerStore {
     fn new() -> Self {
-        let snapshot = cache().lock().expect("clif cache poisoned").snapshot.clone();
+        let (index, inline) = {
+            let c = cache().lock().expect("clif cache poisoned");
+            (c.index.clone(), c.inline.clone())
+        };
+        let data = inline.is_none().then(|| std::fs::File::open(data_path()).ok()).flatten();
         Self {
-            snapshot,
+            index,
+            inline,
+            data,
             new: Vec::new(),
         }
     }
@@ -201,10 +283,27 @@ impl Drop for WorkerStore {
 impl CacheKvStore for WorkerStore {
     fn get(&self, key: &[u8]) -> Option<Cow<'_, [u8]>> {
         let k: Key = key.try_into().ok()?;
-        match self.snapshot.get(&k) {
+        let Some(&(off, len)) = self.index.get(&k) else {
+            MISSES.fetch_add(1, Ordering::Relaxed);
+            return None;
+        };
+        // Slurped mode: the blob is already in memory, so this is a slice.
+        if let Some(all) = self.inline.as_ref() {
+            let (start, end) = (off as usize, off as usize + len as usize);
+            if end <= all.len() {
+                HITS.fetch_add(1, Ordering::Relaxed);
+                return Some(Cow::Owned(all[start..end].to_vec()));
+            }
+            MISSES.fetch_add(1, Ordering::Relaxed);
+            return None;
+        }
+        // The index says the entry exists; a failed read means a truncated or
+        // concurrently-rotated data file, which is a MISS, never an error — the
+        // caller then simply compiles the function.
+        match self.data.as_ref().and_then(|f| read_at(f, off, len)) {
             Some(v) => {
                 HITS.fetch_add(1, Ordering::Relaxed);
-                Some(Cow::Borrowed(v.as_slice()))
+                Some(Cow::Owned(v))
             }
             None => {
                 MISSES.fetch_add(1, Ordering::Relaxed);
@@ -220,8 +319,9 @@ impl CacheKvStore for WorkerStore {
     }
 }
 
-/// APPEND this run's new entries to the log. Never rewrites what is already
-/// there, and stops appending once the file passes [`MAX_BYTES`].
+/// APPEND this run's new entries: blobs to the data file, `(key, offset, len)`
+/// records to the index. Never rewrites what is already there, and stops once
+/// the data file passes [`MAX_BYTES`].
 pub(super) fn persist() {
     if !enabled() {
         return;
@@ -230,42 +330,59 @@ pub(super) fn persist() {
     crate::timing::note("clif-cache misses", MISSES.load(Ordering::Relaxed));
 
     let mut c = cache().lock().expect("clif cache poisoned");
-    if c.added.is_empty() || c.on_disk >= MAX_BYTES {
+    if c.added.is_empty() || c.data_len >= MAX_BYTES {
         return;
     }
-    // Only entries the loaded snapshot does not already have — a re-insert of a
-    // key that hit would grow the log for nothing.
-    let snapshot = c.snapshot.clone();
+    // Only entries the loaded index does not already have — re-appending a key
+    // that hit would grow both files for nothing.
+    let index = c.index.clone();
     let fresh: Vec<(Key, Vec<u8>)> = c
         .added
         .drain()
-        .filter(|(k, _)| !snapshot.contains_key(k))
+        .filter(|(k, _)| !index.contains_key(k))
         .collect();
     if fresh.is_empty() {
         return;
     }
 
-    let mut buf = Vec::new();
+    let _ = std::fs::create_dir_all(cache_dir());
+    let Ok(mut data) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(data_path())
+    else {
+        return;
+    };
+    // The base offset is read from the FILE, not from the loaded `data_len`:
+    // `rts test` runs one process per test file and they all append here, so
+    // another process may have grown it since we loaded. Each run then writes
+    // index records describing where its own bytes actually landed.
+    let Ok(base) = data.seek(std::io::SeekFrom::End(0)) else {
+        return;
+    };
+
+    let mut blob = Vec::new();
+    let mut idx = Vec::with_capacity(fresh.len() * IDX_REC);
     for (k, v) in &fresh {
-        buf.extend_from_slice(k);
-        buf.extend_from_slice(&(v.len() as u32).to_le_bytes());
-        buf.extend_from_slice(v);
+        idx.extend_from_slice(k);
+        idx.extend_from_slice(&(base + blob.len() as u64).to_le_bytes());
+        idx.extend_from_slice(&(v.len() as u32).to_le_bytes());
+        blob.extend_from_slice(v);
     }
 
-    let path = cache_path();
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
+    // DATA FIRST, then the index. An index record is a promise that the bytes are
+    // already on disk; writing it first would let another process read an offset
+    // into a region that does not exist yet. Crashing between the two leaks blob
+    // bytes, which is harmless — no index record points at them.
+    if data.write_all(&blob).is_err() {
+        return;
     }
-    // A single `write_all` of one buffer in append mode is the closest this gets
-    // to atomic across processes: `rts test` runs one process per test file and
-    // they all append here. A torn tail is survivable by construction — `parse`
-    // stops at the first truncated record.
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(&path)
+        .open(index_path())
     {
-        let _ = f.write_all(&buf);
+        let _ = f.write_all(&idx);
     }
-    c.on_disk += buf.len() as u64;
+    c.data_len = base + blob.len() as u64;
 }

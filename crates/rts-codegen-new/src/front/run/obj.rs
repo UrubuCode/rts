@@ -1405,7 +1405,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // Inline-cached: same result as `__rtsadp_obj_get` (which IS the miss
         // path), but a repeat hit on the same shape skips the global registry
         // mutex and the key scan. See `super::ic`.
-        let word = super::ic::emit_cached_get(module, self.builder, obj_word, key_word)?;
+        let word = super::ic::emit_cached_get(module, self.builder, obj_word, key_word, &self.current_fn.clone())?;
         Ok(Val::new(word, Repr::Tagged))
     }
 
@@ -1459,7 +1459,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let key_word = self.emit_str_const_word(module, prop)?;
         // Inline-cached — this is the site the 33× measurement lands on (`o.x`
         // with `o: any`, and every `.map(q => q.x)` callback param).
-        let word = super::ic::emit_cached_get(module, self.builder, recv_word, key_word)?;
+        let word = super::ic::emit_cached_get(module, self.builder, recv_word, key_word, &self.current_fn.clone())?;
         Ok(Val::new_with_kind(word, Repr::Tagged, JsKind::Unknown))
     }
 

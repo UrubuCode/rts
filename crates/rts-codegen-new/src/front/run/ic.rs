@@ -31,7 +31,6 @@ use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::{InstBuilder, MemFlags, Value, types};
 use cranelift_frontend::FunctionBuilder;
 use cranelift_module::{DataDescription, Linkage, Module};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::front::error::{FrontResult, Unsupported};
 use crate::value::{self, emit_marshal};
@@ -42,10 +41,46 @@ const OFF_SHAPE: i32 = 0;
 const OFF_LEN: i32 = 8;
 const OFF_SLOT: i32 = 16;
 
-/// Per-process counter for unique cell symbol names. Mirrors `aot_str`'s
-/// `DATA_CTR`: the name must be stable within one compile and unique across the
-/// module, and both the JIT and the AOT object resolve it the same way.
-static CELL_CTR: AtomicU64 = AtomicU64::new(0);
+thread_local! {
+    /// IC-site index PER OWNING FUNCTION, so a cell's symbol name is
+    /// `__rtsic_<fn>_<site>` — derived from where the site IS, not from how many
+    /// sites happened to be lowered before it.
+    ///
+    /// This replaced a single process-wide counter, and the reason is measured.
+    /// A cell name is baked into the owning function's IR, so a global counter
+    /// made a function's IR depend on the whole rest of the compile: prelude
+    /// PRUNING keeps a different subset per program, which shifted every
+    /// downstream cell number, which gave the SAME prelude source a different
+    /// Cranelift stencil in every process. That is what made the incremental
+    /// cache (`super::clifcache`) unable to hit across processes — see its module
+    /// doc for the suite numbers. Per-function numbering removes the coupling:
+    /// the third IC site in `Array.prototype.map` is `__rtsic_..._2` no matter
+    /// what else the program contains.
+    ///
+    /// Uniqueness still holds — function names are unique within a module and the
+    /// index is unique within a function — which is all `declare_data` requires.
+    static SITE_CTR: std::cell::RefCell<std::collections::HashMap<String, u32>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// Next IC-site index for `owner`, counting from 0 per function.
+fn next_site(owner: &str) -> u32 {
+    SITE_CTR.with(|m| {
+        let mut m = m.borrow_mut();
+        let slot = m.entry(owner.to_string()).or_insert(0);
+        let id = *slot;
+        *slot += 1;
+        id
+    })
+}
+
+/// Clear the per-function site counters. Called once per program compile: the
+/// names must restart at 0 for each module, or a second compile in the same
+/// process would number its sites from where the first one stopped — reintroducing
+/// exactly the cross-compile coupling this design removes.
+pub(super) fn reset_sites() {
+    SITE_CTR.with(|m| m.borrow_mut().clear());
+}
 
 /// Declare one zero-initialised, WRITABLE cell and return a pointer to it.
 ///
@@ -53,9 +88,13 @@ static CELL_CTR: AtomicU64 = AtomicU64::new(0);
 /// read-only blob; the declaration, the `declare_data_in_func` reference and the
 /// baker capture are the same mechanism, so nothing new is required of the AOT
 /// or replay paths.
-fn declare_cell(module: &mut dyn Module, builder: &mut FunctionBuilder) -> FrontResult<Value> {
-    let id = CELL_CTR.fetch_add(1, Ordering::Relaxed);
-    let name = format!("__rtsic_{id}");
+fn declare_cell(
+    module: &mut dyn Module,
+    builder: &mut FunctionBuilder,
+    owner: &str,
+) -> FrontResult<Value> {
+    let id = next_site(owner);
+    let name = format!("__rtsic_{owner}_{id}");
     let data_id = module
         .declare_data(&name, Linkage::Local, true, false)
         .map_err(|e| Unsupported::new(format!("declare ic cell `{name}`: {e}")))?;
@@ -96,8 +135,9 @@ pub(super) fn emit_cached_get(
     builder: &mut FunctionBuilder,
     recv_word: Value,
     key_word: Value,
+    owner: &str,
 ) -> FrontResult<Value> {
-    let cell = declare_cell(module, builder)?;
+    let cell = declare_cell(module, builder, owner)?;
 
     let hit_blk = builder.create_block();
     let miss_blk = builder.create_block();
