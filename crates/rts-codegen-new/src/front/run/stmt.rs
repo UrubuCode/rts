@@ -544,7 +544,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 pub(super) fn ident_target(target: &HirExpr) -> FrontResult<String> {
     match &target.kind {
         HirExprKind::Ident(name) => Ok(name.clone()),
-        _ => unsupported!("assignment target must be a simple identifier"),
+        // Nomear a FORMA do alvo: "must be a simple identifier" não distingue
+        // um destructuring de um índice computado, e num bundle minificado não
+        // há como saber qual dos dois recusou sem essa palavra.
+        other => unsupported!(
+            "assignment target must be a simple identifier (got {})",
+            expr_variant_name(other)
+        ),
     }
 }
 
