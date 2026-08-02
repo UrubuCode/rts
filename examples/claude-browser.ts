@@ -410,9 +410,21 @@ while (egui.isOpen(win) !== 0) {
     const st = fetchNs.fetchPoll(pendingTicket);
     if (frame % 30 === 0) io.print("[poll] ticket=" + pendingTicket + " st=" + st);
     if (st === 1) {
-      const raw = fetchNs.fetchTake(pendingTicket);
+      const baixado = fetchNs.fetchTake(pendingTicket);
       pendingTicket = 0;
-      io.print("[nav] baixou " + raw.length + "B de " + pendingUrl);
+      // A PÁGINA também entra no cache, e o ACERTO TEM PRECEDÊNCIA — igual aos
+      // demais recursos. Sem isto a medição não fecha: a Meta serve HTML
+      // diferente a cada requisição, e duas execuções seguidas davam contagens
+      // de erro diferentes (7 e 5) sem nada ter mudado no motor.
+      // `RTS_NO_CACHE=1` busca sempre da rede.
+      const emCache = cacheGet(normalize(pendingUrl));
+      let raw = emCache;
+      if (raw.length < 1) {
+        raw = baixado;
+        cachePut(normalize(pendingUrl), raw);
+      }
+      io.print("[nav] " + raw.length + "B de " + pendingUrl
+        + (emCache.length > 0 ? " (cache)" : ""));
       const html = raw.length === 0
         ? page(pendingUrl, "<h1 style='color:#f97316'>Falhou</h1><p style='color:#a4afc4'>Nao consegui baixar.</p>")
         : page(pendingUrl, extractSite(raw, normalize(pendingUrl)));
