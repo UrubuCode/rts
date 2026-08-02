@@ -336,12 +336,12 @@ being re-derived from a rebuild.
 | # | item | expected (§7) | measured | state |
 |---|---|---|---|---|
 | 1 | `enable_verifier=false` on AOT | ~16 ms of a 1019 ms AOT compile | **4.8 ms** of the AOT machine-compile phase (41.2 → 36.4) | landed, default ON |
-| 2 | `incremental-cache` spike | "unknown, possibly negative" | one program **15.6 → 10.5 ms**; SUITE **38.8 → 65.8 s** | landed, OPT-IN, narrow |
+| 2 | `incremental-cache` spike | "unknown, possibly negative" | one program **15.6 → 10.4 ms**; cross-program hits **0% → 98%** after the determinism fix; suite break-even | landed, OPT-IN |
 | 3 | thunk on demand | ≤51% of the compiled count | **59 of 218 thunks** dropped; 19.2 → 15.4 ms | landed, default ON |
 | 4 | chunk per rayon worker | "efficiency is 25% of linear" | **no gain**; premise was hyperthreads | knob kept, default = rayon |
 | 5a | `set_cold_block` | Tier 1.5 | **no measurable delta** (47 ms both ways) | landed, default ON |
 | 5b | `*_overflow` family | Tier 2.2 | **correct**, and 6.6x slower | landed, OPT-IN |
-| 6 | declare-then-lower | 10.76 ms serial | not landed — design + ceiling below | open |
+| 6 | declare-then-lower | 10.76 ms serial | not landed; one of its two blockers removed | open |
 
 Switches: `RTS_CLIF_VERIFIER=1`, `RTS_CLIF_CACHE=1` (+ `RTS_CLIF_CACHE_DIR`),
 `RTS_ALL_THUNKS=1`, `RTS_CODEGEN_CHUNK=N`, `RTS_COLD_BLOCKS=0`,
@@ -401,8 +401,34 @@ run, so it would hit at 100%" — is therefore **false as the engine stands**. I
 would become true only if shape interning and data-symbol naming were made stable
 across processes, which is a change to those two mechanisms, not to the cache.
 
-The feature stays in, OPT-IN, capped at 32 MB, scoped to what it measurably does:
-a repeated compile of one program.
+**And then it was fixed.** The cause named above turned out to be one line of
+policy, not a design limit. `ic.rs` numbered its cells from a process-wide
+counter; it now names them `__rtsic_<fn>_<site>`, per owning function. A
+function's IR no longer depends on how many IC sites were lowered before it, so
+prelude pruning keeping a different subset per program stops changing the
+stencil. Measured immediately after, compiling a DIFFERENT program against one
+program's cache:
+
+| program | hits | misses |
+|---|---|---|
+| `tiny.ts` (cold) | 0 | 207 |
+| `numbench.ts` | **203** | 4 |
+| `callbench.ts` | **116** | 93 |
+
+Cross-program hits: **0% → 98%**. The suite stopped diverging — 37.8 s off
+against 42.5/40.1 s on, with the store CONVERGED at 34.6 MB instead of climbing
+past 171 MB. Suite results with the cache on are identical to off (810/811 files,
+3245/3246 tests), so the replayed machine code is correct.
+
+The store was reshaped to match: an index file (`[key][offset][len]`) plus a blob
+file, with the access mode chosen by size — slurp under 4 MB, read individual
+blobs by offset above it. Both directions are measured: serving ~200 hits by
+individual `seek_read` costs 14.6–16.7 ms against 10.4 ms slurped, while slurping
+tens of MB in each of 811 processes is the I/O that made the earlier rounds lose.
+
+The feature stays OPT-IN and capped at 32 MB — break-even on a suite is not a
+reason to turn something on by default. The determinism fix is NOT opt-in, and it
+is the durable part: it also removes one of the two things blocking item 6.
 
 ### Item 5b is the one that is correct and still off
 
@@ -439,6 +465,25 @@ data objects, and hands the lowering an immutable name→id map — at which poi
 lowering needs only `&Module` and parallelises like the machine-compile phase
 already does. Buffering the declarations per worker does NOT work, because the
 ids must exist while the IR that references them is built.
+
+**Half of that is now done.** Pre-declaring IC cells required knowing a cell's
+name without having lowered the sites before it, which the process-wide counter
+made impossible; per-function naming (`__rtsic_<fn>_<site>`) gives every site a
+name derivable from a scan of its own function. What remains is the scan pass
+itself plus the string-literal side, and the fact that `declare_func_in_func`
+takes `&mut Module` even for an already-declared callee (replicable by hand from
+a pre-resolved `(FuncId, Signature)` snapshot, since it only calls
+`func.import_function`).
+
+**A measured near-miss worth recording, so it is not retried blindly.**
+`emit_marshal::import_func` scans a function's already-imported `ext_funcs`
+linearly per call site — quadratic in distinct callees, on a phase that is 10.8 ms
+and serial. Replacing it with a per-function `FuncId → FuncRef` memo changed
+nothing measurable (build-fn-IR 11.9 ms median, inside the noise of the 10.8–12.2
+ms it already varied over), because `Lowerer::func_ref` already caches the hot
+path and only `main` has enough distinct callees for the scan to matter. Reverted
+rather than kept: an unmeasurable win is not worth cross-function cache state that
+can only fail as a miscompile.
 
 Ceiling: 10.78 ms of a 102 ms `tiny.ts`, of which 48 ms is process start. A
 perfect result is ~9 ms, roughly 9% — for a refactor that touches every module
