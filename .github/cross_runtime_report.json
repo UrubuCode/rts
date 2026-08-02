@@ -3500,6 +3500,48 @@
 }
 ,
 {
+  "name": "431_generator_expr_writes_capture",
+  "status": "pass",
+  "bun": "primeira=[y M/1][ret A]\nsegunda=[y M/2][ret B]\ninits=1\nescapou=true\npassos=[y 1][y 11][ret s/s]\nvisto_de_fora=11",
+  "node": "primeira=[y M/1][ret A]\nsegunda=[y M/2][ret B]\ninits=1\nescapou=true\npassos=[y 1][y 11][ret s/s]\nvisto_de_fora=11",
+  "rts": "primeira=[y M/1][ret A]\nsegunda=[y M/2][ret B]\ninits=1\nescapou=true\npassos=[y 1][y 11][ret s/s]\nvisto_de_fora=11",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "433_generator_yield_in_try_switch",
+  "status": "pass",
+  "bun": "try_com=[t:a][fim]\ntry_sem=[fim]\ncaptura_intacta=true\nswitch_1=[um][rot]\nswitch_d=[outro][rot]\nrotulo_efeito=visitou\nfinally=[corpo][depois]\nfinally_rodou=F",
+  "node": "try_com=[t:a][fim]\ntry_sem=[fim]\ncaptura_intacta=true\nswitch_1=[um][rot]\nswitch_d=[outro][rot]\nrotulo_efeito=visitou\nfinally=[corpo][depois]\nfinally_rodou=F",
+  "rts": "try_com=[t:a][fim]\ntry_sem=[fim]\ncaptura_intacta=true\nswitch_1=[um][rot]\nswitch_d=[outro][rot]\nrotulo_efeito=visitou\nfinally=[corpo][depois]\nfinally_rodou=F",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "434_generator_incdec_capture",
+  "status": "pass",
+  "bun": "passos=[y pos:0][y pre:2][y dec_pos:10][y dec_pre:8][ret S/S/S/S]\nn_escapou=2\nm_escapou=8\nacumulou=4\ntentativas=2",
+  "node": "passos=[y pos:0][y pre:2][y dec_pos:10][y dec_pre:8][ret S/S/S/S]\nn_escapou=2\nm_escapou=8\nacumulou=4\ntentativas=2",
+  "rts": "passos=[y pos:0][y pre:2][y dec_pos:10][y dec_pre:8][ret S/S/S/S]\nn_escapou=2\nm_escapou=8\nacumulou=4\ntentativas=2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
   "name": "claude-generator-alias-iteration",
   "status": "pass",
   "bun": "spreadViaAlias=1,2\nforOfViaAlias=3\nnextViaAlias=1\nspreadExprEager=3,4\nspreadExprLazy=1,2,3\nnextExprLazy=1\nforOfExprLazy=6\naliasChain=1,2\nspreadDirect=1,2\nforOfDirect=3",
@@ -3826,13 +3868,13 @@
   "status": "rts_error",
   "bun": "counter=10,20,30\nreiterate=10,20,30\nemptyCount=0\ntrailing=a|len=1\ntruthyDone=1,2\nmissingDone=1,2\nvalues=4|nextCalls=5\nselfIter=s1,s2",
   "node": "counter=10,20,30\nreiterate=10,20,30\nemptyCount=0\ntrailing=a|len=1\ntruthyDone=1,2\nmissingDone=1,2\nvalues=4|nextCalls=5\nselfIter=s1,s2",
-  "rts": "",
+  "rts": "counter=10,20,30\nreiterate=10,20,30",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: closure captures `i` which is not a simple local in scope\n      at run of tests/cross-runtime/iteration/claude-custom-symbol-iterator-manual-next.ts failed"
+  "rts_error": "error: Uncaught ReferenceError: i is not defined\n      at run of tests/cross-runtime/iteration/claude-custom-symbol-iterator-manual-next.ts failed"
 }
 ,
 {
@@ -3840,13 +3882,13 @@
   "status": "rts_error",
   "bun": "two=1,2\ntwoLog=next1,next2,return\none=1|log=next1,return\nzeroLog=return|len=1\nhole=2|log=next1,next2,return\nrest=1|2,3|log=next1,next2,next3,next4\nover=1,2,undefined\noverLog=next1,next2,next3\ndefaults=DEF,null,5\nswap=2,1\nnested=1,100|log=outer1,outerReturn",
   "node": "two=1,2\ntwoLog=next1,next2,return\none=1|log=next1,return\nzeroLog=return|len=1\nhole=2|log=next1,next2,return\nrest=1|2,3|log=next1,next2,next3,next4\nover=1,2,undefined\noverLog=next1,next2,next3\ndefaults=DEF,null,5\nswap=2,1\nnested=1,100|log=outer1,outerReturn",
-  "rts": "",
+  "rts": "two=undefined,undefined\ntwoLog=\none=undefined|log=\nzeroLog=|len=0\nhole=undefined|log=",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsl_method___rtsl_lit_3_next`: unsupported in the numeric subset: `++`/`--` on unbound `i`\n      at run of tests/cross-runtime/iteration/claude-destructuring-lazy-iterator-pull.ts failed"
+  "rts_error": "error: Uncaught TypeError: at is not a function\n      at run of tests/cross-runtime/iteration/claude-destructuring-lazy-iterator-pull.ts failed"
 }
 ,
 {
@@ -3888,7 +3930,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsl_method___rtsl_lit_1_next`: unsupported in the numeric subset: `++`/`--` on unbound `i`\n      at run of tests/cross-runtime/iteration/claude-spread-custom-iterable.ts failed"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: call to `sum3` with `...spread` of a non-array value (later increment)\n      at run of tests/cross-runtime/iteration/claude-spread-custom-iterable.ts failed"
 }
 ,
 {
@@ -3916,7 +3958,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rtsl_method___rtsl_lit_2_next`: unsupported in the numeric subset: `++`/`--` on unbound `i`\n      at run of tests/cross-runtime/iteration/claude-symbol-iterator-inherited-lookup.ts failed"
+  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: spread of a non-iterable value in an array literal (number/bool, or a class with no iterator)\n      at run of tests/cross-runtime/iteration/claude-symbol-iterator-inherited-lookup.ts failed"
 }
 ,
 {
@@ -5003,6 +5045,20 @@
   "bun": "1e+21\n100000000000000000000\n1e-7\n0.000001\n1000000000000000100\n0.0000012345\n1.00\n12345.7",
   "node": "1e+21\n100000000000000000000\n1e-7\n0.000001\n1000000000000000100\n0.0000012345\n1.00\n12345.7",
   "rts": "1e+21\n100000000000000000000\n1e-7\n0.000001\n1000000000000000100\n0.0000012345\n1.00\n12345.7",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "435_number_missing_method",
+  "status": "pass",
+  "bun": "ausente=TypeError\nausente_com_args=TypeError\ntoFixed=3.14\ntoString_16=ff\ntoString_2=101\nvalueOf=42\ntoPrecision=123.5\ntoExponential=1.23e+3\ntoLocaleString_existe=true",
+  "node": "ausente=TypeError\nausente_com_args=TypeError\ntoFixed=3.14\ntoString_16=ff\ntoString_2=101\nvalueOf=42\ntoPrecision=123.5\ntoExponential=1.23e+3\ntoLocaleString_existe=true",
+  "rts": "ausente=TypeError\nausente_com_args=TypeError\ntoFixed=3.14\ntoString_16=ff\ntoString_2=101\nvalueOf=42\ntoPrecision=123.5\ntoExponential=1.23e+3\ntoLocaleString_existe=true",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -6258,6 +6314,20 @@
 }
 ,
 {
+  "name": "432_ctor_extra_args_ignored",
+  "status": "pass",
+  "bun": "usuario=1\nextras_avaliados=2\nmap=1\nset=2\nurl=/caminho\nefeitos_total=5",
+  "node": "usuario=1\nextras_avaliados=2\nmap=1\nset=2\nurl=/caminho\nefeitos_total=5",
+  "rts": "usuario=1\nextras_avaliados=2\nmap=1\nset=2\nurl=/caminho\nefeitos_total=5",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
   "name": "48_object_freeze_mutation",
   "status": "pass",
   "bun": "frozen=true\nkeys=a,b\njson={\"a\":1,\"b\":\"x\"}",
@@ -6786,7 +6856,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "/home/runner/work/rts/rts/tests/cross-runtime/patterns/385_monad_patterns.ts:41\nclass Result<T, E> {\n  private constructor(private _ok: T | null, private _err: E | null) {}\n                              ^^^^^^^^^^^^^\n  static ok<T, E>(v: T): Result<T, E> { return new Result<T, E>(v, null); }\n\nSyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript parameter property is not supported in strip-only mode\n    at parseTypeScript (node:internal/modules/typescript:63:40)\n    at processTypeScriptCode (node:internal/modules/typescript:133:42)\n    at stripTypeScriptModuleTypes (node:internal/modules/typescript:163:10)\n    at Module._compile (node:internal/modules/cjs/loader:1733:15)\n    at Object..js (node:internal/modules/cjs/loader:1913:10)\n    at Module.load (node:internal/modules/cjs/loader:1505:32)\n    at Function._load (node:internal/modules/cjs/loader:1309:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\n    at node:internal/main/run_main_module:36:49 {\n  code: 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'\n}\n\nNode.js v22.23.1",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: no Registry entry for `Number.map(1 args)`\n      at run of tests/cross-runtime/patterns/385_monad_patterns.ts failed"
+  "rts_error": "error: Uncaught TypeError: map is not a function\n      at run of tests/cross-runtime/patterns/385_monad_patterns.ts failed"
 }
 ,
 {
@@ -7388,7 +7458,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: closure captures `bytes` which is not a simple local in scope\n      at run of tests/cross-runtime/streams/64_readable_stream.ts failed"
+  "rts_error": "error: Uncaught ReferenceError: bytes is not defined\n      at run of tests/cross-runtime/streams/64_readable_stream.ts failed"
 }
 ,
 {
@@ -9114,6 +9184,34 @@
 }
 ,
 {
+  "name": "429_incdec_member_chain",
+  "status": "pass",
+  "bun": "pos_inc=2\npre_inc=3\ndec_indice=4\nvalor_posfixo=3\ndepois=4\nvalor_prefixo=5\nthis_cadeia=2",
+  "node": "pos_inc=2\npre_inc=3\ndec_indice=4\nvalor_posfixo=3\ndepois=4\nvalor_prefixo=5\nthis_cadeia=2",
+  "rts": "pos_inc=2\npre_inc=3\ndec_indice=4\nvalor_posfixo=3\ndepois=4\nvalor_prefixo=5\nthis_cadeia=2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "430_compound_assign_effectful_target",
+  "status": "pass",
+  "bun": "base_chamada=6 chamadas=1\nchave_chamada=60 chamadas=2\nincdec_base=7 chamadas=3\nincdec_chave=59 chamadas=4\nambas=159 chamadas=6\nvalor=8",
+  "node": "base_chamada=6 chamadas=1\nchave_chamada=60 chamadas=2\nincdec_base=7 chamadas=3\nincdec_chave=59 chamadas=4\nambas=159 chamadas=6\nvalor=8",
+  "rts": "base_chamada=6 chamadas=1\nchave_chamada=60 chamadas=2\nincdec_base=7 chamadas=3\nincdec_chave=59 chamadas=4\nambas=159 chamadas=6\nvalor=8",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
   "name": "claude-assign-target-order",
   "status": "pass",
   "bun": "3\nobj1,key2,val3\n1,0,0\n1\n11",
@@ -9535,16 +9633,16 @@
 ,
 {
   "name": "codex_dataview_offsets_endian_mix",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "00 00 12 34 78 56 fe ff ff ff 00 00\n1234\n5678\n-2",
   "node": "00 00 12 34 78 56 fe ff ff ff 00 00\n1234\n5678\n-2",
-  "rts": "",
+  "rts": "12 34 78 56 fe ff ff ff 00 00 00 00\n1234\n5678\n-2",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 1,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "error: unsupported in the numeric subset: in fn `__rts_startup`: unsupported in the numeric subset: `new DataView(3 args)` — no matching constructor\n      at run of tests/cross-runtime/typed-buffers/codex_dataview_offsets_endian_mix.ts failed"
+  "rts_error": ""
 }
 ,
 {
@@ -9813,4 +9911,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":701,"pass":501,"rts_diverge":117,"bun_node_diverge":18,"errors":65,"rejected":0}}
+],"summary":{"total":708,"pass":508,"rts_diverge":118,"bun_node_diverge":18,"errors":64,"rejected":0}}
