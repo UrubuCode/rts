@@ -67,7 +67,11 @@ use super::LoweredProgram;
 /// (`RTS_SLAB`, JIT-vs-AOT, `RTS_FIELD_LOAD`) the cache key does not include —
 /// so a replayed pre-change lowering would silently disagree with the gating
 /// the process is actually running under.
-const CACHE_VERSION: u32 = 8;
+/// v9: the receiver word passed to the payload-addressed heap entry points is
+/// the WHOLE NaN-boxed PolyValue again, not `word & PAYLOAD_MASK` — the masked
+/// form is invisible to the conservative GC scanner (RTS_OPTIMIZATION.md §11.2),
+/// so a replayed pre-change lowering reintroduces a live wrong-answer bug.
+const CACHE_VERSION: u32 = 9;
 
 /// The whole cached payload (owned, for DESERIALIZE): the lowered prelude + the
 /// process-global state its lowering interned (shape id→keys, Error-class table).

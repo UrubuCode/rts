@@ -2127,7 +2127,7 @@ merge, not more type information.
 
 ---
 
-## §11 Two live correctness bugs this work walked into
+## §11 Two live correctness bugs this work walked into — both FIXED
 
 Neither was predicted by the plan; both were found while benchmarking allocation
 for Tier 3.1, and both reproduce on a pre-session build.
@@ -2151,7 +2151,7 @@ correct termination can only ever truncate. Guarded by
 below the floor no collection happens at all and a smaller fixture would pass on
 the broken code.
 
-### 11.2 A top-level `const` object is not a GC root — OPEN
+### 11.2 A receiver used only through a field read is not a GC root — FIXED
 
 ```ts
 class N { v: number; constructor(v: number) { this.v = v; } }
@@ -2187,3 +2187,45 @@ the failing program, and grepping the tree shows the registry has exactly one
 producer — `rts-napi`'s references. **The codegen never registers a global root.**
 Whether that is the whole cause is unproven; what is proven is that the mechanism
 the comment claims covers this case is empty.
+
+#### RESOLVED (2026-08-02) — and it was none of the above
+
+The heading was wrong in every word except "not a GC root". The bug had nothing
+to do with top level, with `const`, or with `mark_global_roots` being empty — the
+`globals=0` lead was true and irrelevant.
+
+`emit_marshal::emit_payload` emitted `poly_word & PAYLOAD_MASK` before every
+fused payload-addressed heap access. `PAYLOAD_MASK` clears bits 63..48, and bits
+63..48 are exactly where the conservative scanner looks: `scan_range` treats a
+word as a root candidate iff its handle GENERATION is non-zero. A masked payload
+has generation 0 by construction, so it is not merely missed — it is
+**structurally unrecognizable**, and it must stay that way, because a bare 48-bit
+slot index is indistinguishable from a small integer and accepting those would
+make every loop counter a root.
+
+The mask is pure, cheap and loop-invariant, so the egraph hoists it. Once hoisted,
+a receiver whose only downstream use is a field read has NO live boxed form across
+the loop: the boxed word is dead, the masked word is invisible, the slot is swept,
+and a later read resolves the stale slot to the object that reused it.
+
+Which explains every row of the table above without any of its explanations: the
+survivors survive because something else forces the BOXED word to stay live — a
+call boundary passes it whole, `typeof` needs the tag. The falsifying experiment
+was one line: adding `typeof plain` to the failing program makes it print `7`.
+
+The fix is a deletion. Every one of these entry points already masks internally
+(`payload_ops::with_payload_slot` does `poly48 & SLOT_MASK`), so the call-site
+`band` was redundant work that also destroyed the root. `emit_payload` now passes
+the boxed word through untouched, and Tier 3.2's inline sequence recovers the
+payload INSIDE its fast path — the cold-block call still consumes the boxed word,
+which is what keeps it live where an inline mask alone would be hoisted again.
+
+Guarded by `tests/gc_receiver_root.test.ts`, whose 600 000 size cannot shrink:
+below `GC_LIVE_FLOOR` nothing collects and a smaller fixture passes on the broken
+engine.
+
+**The general lesson, worth more than the bug:** with a conservative scanner,
+narrowing a pointer-like word to a "cheaper" form is not a local optimization. It
+changes whether the GC can see the value at all, and the egraph will happily
+delete the only recognizable copy. Any future emission that strips tag bits from
+a handle must keep a boxed use alive, or the value must be rooted explicitly.

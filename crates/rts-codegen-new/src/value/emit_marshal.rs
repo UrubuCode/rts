@@ -371,11 +371,30 @@ pub fn emit_vec_push(
     );
 }
 
-/// One 48-bit PolyValue payload, ready for the fused payload-addressed heap
-/// entry points. Just the tag/header masked off — no call, no lock.
-fn emit_payload(builder: &mut FunctionBuilder, poly_word: Value) -> Value {
-    let mask = builder.ins().iconst(types::I64, PAYLOAD_MASK as i64);
-    builder.ins().band(poly_word, mask)
+/// The receiver word for the fused payload-addressed heap entry points —
+/// **the whole NaN-boxed PolyValue, deliberately NOT masked.**
+///
+/// This used to emit `poly_word & PAYLOAD_MASK`, and that one `band` was a live
+/// GC bug (`RTS_OPTIMIZATION.md` §11.2). The conservative stack scanner
+/// recognizes a root by its non-zero handle GENERATION — the top 16 bits — and
+/// a masked payload has none: bits 63..48 are exactly what the mask clears. So
+/// once the mask was hoisted (it is pure, loop-invariant and cheap, so the
+/// egraph hoists it out of any loop), the only word left live across the loop
+/// was one the scanner is structurally unable to see, and the receiver's slot
+/// was swept while the program was still using it. It did not read `undefined`;
+/// a `PolyValue` carries only a slot index, so the stale word resolved to
+/// whatever object landed in the reused slot — a silently wrong value.
+///
+/// Passing the boxed word costs nothing, because every one of these entry
+/// points ALREADY masks internally (`payload_ops::with_payload_slot`:
+/// `poly48 & SLOT_MASK`). The `band` here was redundant work that happened to
+/// also destroy the root. Keeping the boxed word as the call argument is what
+/// keeps it live and therefore scannable, and the call is the only thing that
+/// can guarantee that: an inline sequence's own mask is hoistable again, which
+/// is why [`crate::front::run::fieldload`] masks INSIDE its fast path and
+/// leaves the boxed word as the argument of its cold-block call.
+fn emit_payload(_builder: &mut FunctionBuilder, poly_word: Value) -> Value {
+    poly_word
 }
 
 /// `__rtsn_vec_get_by_payload(payload, index)` → the i64 slot word (a PolyValue

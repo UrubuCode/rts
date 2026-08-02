@@ -66,7 +66,10 @@ use super::module_jit::Program;
 /// `fieldload::available_here` refuses to emit while this cache is enabled, and
 /// the bump exists only to retire blobs written by a binary that predates that
 /// refusal.
-const CACHE_VERSION: u32 = 6;
+/// v7: same as prelude v9 — the unmasked receiver word (RTS_OPTIMIZATION.md
+/// §11.2). Here the stale blob is machine code, so the wrong lowering would be
+/// replayed verbatim into a process whose GC cannot see the root.
+const CACHE_VERSION: u32 = 7;
 
 /// Whether the compile cache is enabled. **OPT-IN** via `RTS_JIT_CACHE=1`.
 ///

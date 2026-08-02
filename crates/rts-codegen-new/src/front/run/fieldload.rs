@@ -15,6 +15,8 @@
 //! ## The emitted sequence
 //!
 //! ```text
+//!   payload = boxed & SLOT_MASK          ; the mask happens HERE, not at the
+//!                                        ; call site — see emit_payload
 //!   shard   = payload & SHARD_MASK
 //!   idx     = payload >> SHARD_BITS
 //!   chunk   = idx >> chunk_bits
@@ -90,7 +92,7 @@ use cranelift_codegen::ir::{Block, InstBuilder, MemFlags, Value, condcodes::IntC
 use cranelift_frontend::FunctionBuilder;
 use cranelift_module::Module;
 
-use rts_engine::abi::handles::{HANDLE_SHARD_BITS, HANDLE_SHARD_MASK};
+use rts_engine::abi::handles::{HANDLE_SHARD_BITS, HANDLE_SHARD_MASK, HANDLE_SLOT_MASK};
 use rts_engine::heap::slab::layout::{self, FieldLoadLayout};
 
 /// Whether the inline field-load fast path may be emitted at all.
@@ -132,8 +134,9 @@ pub(crate) fn available_here() -> bool {
 /// Emit the inline-slot fast path in front of the ordinary
 /// `__rtsn_vec_get_by_payload` call, returning the merged `i64` result.
 ///
-/// `payload` is the already-masked 48-bit payload and `index` the `i64` element
-/// index, both exactly as the call would have received them. `slow` emits the
+/// `boxed` is the WHOLE NaN-boxed receiver word — not a masked payload; see
+/// `emit_marshal::emit_payload` for why the mask must not happen at the call
+/// site — and `index` the `i64` element index. `slow` emits the ordinary
 /// call itself; it is invoked at most once, inside the cold block, and must
 /// return the `i64` word that block jumps to the merge with.
 ///
@@ -142,7 +145,7 @@ pub(crate) fn available_here() -> bool {
 pub(crate) fn try_emit(
     module: &mut dyn Module,
     builder: &mut FunctionBuilder,
-    payload: Value,
+    boxed: Value,
     index: Value,
     slow: impl FnOnce(&mut dyn Module, &mut FunctionBuilder) -> Value,
 ) -> Option<Value> {
@@ -158,7 +161,7 @@ pub(crate) fn try_emit(
         builder.set_cold_block(bail);
     }
 
-    let word = emit_fast(builder, &l, payload, index, bail);
+    let word = emit_fast(builder, &l, boxed, index, bail);
     builder.ins().jump(merge, &[word.into()]);
 
     // The one slow-path call every rejection above jumped to.
@@ -182,7 +185,7 @@ pub(crate) fn try_emit(
 fn emit_fast(
     builder: &mut FunctionBuilder,
     l: &FieldLoadLayout,
-    payload: Value,
+    boxed: Value,
     index: Value,
     bail: Block,
 ) -> Value {
@@ -192,6 +195,12 @@ fn emit_fast(
     // stride keep each slot at its natural alignment.
     let flags = MemFlags::trusted();
 
+    // The caller hands over the whole NaN-boxed word, not a masked payload —
+    // see `emit_marshal::emit_payload` for why that is a GC requirement and not
+    // a convenience. The 48-bit slot payload is recovered HERE, inside the fast
+    // path, so the boxed word stays the value the cold-block call consumes and
+    // therefore the value the conservative scanner can still see on the stack.
+    let payload = builder.ins().band_imm(boxed, HANDLE_SLOT_MASK as i64);
     let shard = builder
         .ins()
         .band_imm(payload, HANDLE_SHARD_MASK as i64);
