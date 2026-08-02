@@ -131,10 +131,23 @@ impl swc_ecma_visit::VisitMut for GenExprHoister {
                     // explícita.
                     let caps = Self::capturas(&fe.function, &self.irmas_do_bloco);
                     let escritas = crate::free_scope::free_assigned_names(&fe.function);
-                    if caps.iter().any(|c| escritas.contains(c)) {
-                        return;
-                    }
+                    // Capturadas que o generator ESCREVE viajam por REFERÊNCIA
+                    // (par getter/setter — ver `crate::gencapref`), não por
+                    // valor: o wrapper é uma fn-expressão comum, então o lifter
+                    // de closures faz da variável uma CÉLULA e as duas arrows
+                    // enxergam a mesma caixa. Sem isto a escrita ficava no
+                    // parâmetro e sumia — por isso o hoist era recusado, e a
+                    // recusa custava TODO `async` transpilado (o
+                    // `asyncToGenerator` do Babel memoiza requires preguiçosos).
+                    let por_ref: std::collections::HashSet<String> =
+                        caps.iter().filter(|c| escritas.contains(*c)).cloned().collect();
                     if !caps.is_empty() {
+                        // A reescrita pode RECUSAR (`s++`, desestruturante): aí
+                        // não se iça, e a falha continua explícita como antes.
+                        let mut corpo_ref = fe.function.clone();
+                        if !crate::gencapref::rewrite_by_ref(&mut corpo_ref, &por_ref) {
+                            return;
+                        }
                         let name = format!("__genexpr_{}", self.counter);
                         self.counter += 1;
                         let ident_de = |n: &str| swc_ecma_ast::Ident {
@@ -144,15 +157,19 @@ impl swc_ecma_visit::VisitMut for GenExprHoister {
                             optional: false,
                         };
                         let id_gen = ident_de(&name);
-                        let mut levantada = fe.function.clone();
-                        let mut ps: Vec<swc_ecma_ast::Param> = caps
-                            .iter()
-                            .map(|c| swc_ecma_ast::Param {
-                                span: Default::default(),
-                                decorators: Vec::new(),
-                                pat: swc_ecma_ast::Pat::Ident(ident_de(c).into()),
-                            })
-                            .collect();
+                        let mut levantada = corpo_ref;
+                        let mut ps: Vec<swc_ecma_ast::Param> = Vec::new();
+                        for c in &caps {
+                            if por_ref.contains(c) {
+                                ps.extend(crate::gencapref::hoisted_params(c));
+                            } else {
+                                ps.push(swc_ecma_ast::Param {
+                                    span: Default::default(),
+                                    decorators: Vec::new(),
+                                    pat: swc_ecma_ast::Pat::Ident(ident_de(c).into()),
+                                });
+                            }
+                        }
                         ps.extend(fe.function.params.clone());
                         levantada.params = ps;
                         self.hoisted.push(swc_ecma_ast::FnDecl {
@@ -160,13 +177,22 @@ impl swc_ecma_visit::VisitMut for GenExprHoister {
                             declare: false,
                             function: levantada,
                         });
-                        let mut args: Vec<swc_ecma_ast::ExprOrSpread> = caps
-                            .iter()
-                            .map(|c| swc_ecma_ast::ExprOrSpread {
-                                spread: None,
-                                expr: Box::new(Expr::Ident(ident_de(c))),
-                            })
-                            .collect();
+                        let mut args: Vec<swc_ecma_ast::ExprOrSpread> = Vec::new();
+                        for c in &caps {
+                            if por_ref.contains(c) {
+                                for a in crate::gencapref::wrapper_args(c) {
+                                    args.push(swc_ecma_ast::ExprOrSpread {
+                                        spread: None,
+                                        expr: Box::new(a),
+                                    });
+                                }
+                            } else {
+                                args.push(swc_ecma_ast::ExprOrSpread {
+                                    spread: None,
+                                    expr: Box::new(Expr::Ident(ident_de(c))),
+                                });
+                            }
+                        }
                         for pp in &fe.function.params {
                             if let swc_ecma_ast::Pat::Ident(bi) = &pp.pat {
                                 args.push(swc_ecma_ast::ExprOrSpread {

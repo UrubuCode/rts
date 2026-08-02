@@ -5,6 +5,7 @@
 //! `FrontendMode` and the lexer module.
 
 pub mod free_scope;
+pub mod gencapref;
 pub mod generator_desugar;
 pub mod generator_sm;
 pub mod generator_sm_iter;
