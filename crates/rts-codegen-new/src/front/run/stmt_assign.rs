@@ -190,7 +190,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // property is skipped (a getter could have side effects → the double read
         // would diverge). A complex object expr bails (double-evaluation).
         if let HirExprKind::Member { object, prop } = &target.kind {
-            if matches!(object.kind, HirExprKind::Ident(_)) {
+            // Mesma regra de replay do compound-assign: uma CADEIA de leituras
+            // de propriedade (`this.a.b++`) é tão replayável quanto um
+            // identificador único, e exigir o identificador recusava o arquivo.
+            if Self::is_replayable_base(object) {
                 if let Some(class) = self.static_instance_class(object) {
                     if self
                         .classes
@@ -206,10 +209,42 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 return self.lower_member_index_incdec(module, target, inc, prefix);
             }
         }
-        if let HirExprKind::Index { object, .. } = &target.kind {
-            if matches!(object.kind, HirExprKind::Ident(_)) {
+        if let HirExprKind::Index { object, index } = &target.kind {
+            if Self::is_replayable_base(object)
+                && matches!(index.kind, HirExprKind::Ident(_) | HirExprKind::Lit(_))
+            {
                 return self.lower_member_index_incdec(module, target, inc, prefix);
             }
+        }
+        // Alvo com parte EFETIVA (`f().n++`, `a[g()]--`): avalia cada parte uma
+        // vez num local oculto e refaz sobre elas — o mesmo que o compound-assign
+        // faz, pelo mesmo motivo (o desugar lê e escreve o alvo, então uma
+        // chamada na base rodaria duas vezes).
+        match &target.kind {
+            HirExprKind::Member { object, prop } if !Self::is_replayable_base(object) => {
+                let base = self.hidden_local_for(module, object, "obj")?;
+                let t = HirExpr::new(
+                    HirExprKind::Member { object: Box::new(base), prop: prop.clone() },
+                    rts_hir::HirType::Unknown,
+                );
+                return self.lower_incdec(module, &t, inc, prefix);
+            }
+            HirExprKind::Index { object, index } => {
+                let base_ok = Self::is_replayable_base(object);
+                let idx_ok = matches!(index.kind, HirExprKind::Ident(_) | HirExprKind::Lit(_));
+                if !base_ok || !idx_ok {
+                    let base = if base_ok { (**object).clone() }
+                               else { self.hidden_local_for(module, object, "obj")? };
+                    let idx = if idx_ok { (**index).clone() }
+                              else { self.hidden_local_for(module, index, "idx")? };
+                    let t = HirExpr::new(
+                        HirExprKind::Index { object: Box::new(base), index: Box::new(idx) },
+                        rts_hir::HirType::Unknown,
+                    );
+                    return self.lower_incdec(module, &t, inc, prefix);
+                }
+            }
+            _ => {}
         }
         let name = ident_target(target)?;
         // MODULE-LEVEL MUTABLE GLOBAL (epic #195): `++`/`--` on a cell var. Read the

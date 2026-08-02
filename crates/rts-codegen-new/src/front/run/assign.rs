@@ -46,11 +46,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // does NOT short-circuit the RHS (the binary form always evaluates it before
         // the store) — exact for a side-effect-free RHS on a plain data property,
         // which is the covered surface.
-        if matches!(
-            &target.kind,
-            HirExprKind::Member { object, .. } | HirExprKind::Index { object, .. }
-                if Self::is_replayable_base(object)
-        ) {
+        if Self::target_is_replayable(target) {
             // Logical assign on a MEMBER short-circuits the whole STORE (spec
             // AssignmentExpression : LeftHandSideExpression &&= ...): the target
             // is read once, and the RHS + the setter run ONLY on the taken
@@ -73,6 +69,49 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 );
                 return self.lower_assign(module, target, &new_value);
             }
+        }
+        // A member/index target whose base is NOT replayable (`f().p += x`,
+        // `a[g()].n |= m`): evaluate each effectful part ONCE into a hidden
+        // local and retry against those. The desugar then replays only bare
+        // identifiers, so nothing runs twice — which is the whole reason the
+        // replay restriction existed. Same technique the destructuring path uses.
+        match &target.kind {
+            HirExprKind::Member { object, prop } if !Self::is_replayable_base(object) => {
+                let base = self.hidden_local_for(module, object, "obj")?;
+                let t = HirExpr::new(
+                    HirExprKind::Member {
+                        object: Box::new(base),
+                        prop: prop.clone(),
+                    },
+                    HirType::Unknown,
+                );
+                return self.lower_assign_op(module, op, &t, value);
+            }
+            HirExprKind::Index { object, index } => {
+                let base_ok = Self::is_replayable_base(object);
+                let idx_ok = matches!(index.kind, HirExprKind::Ident(_) | HirExprKind::Lit(_));
+                if !base_ok || !idx_ok {
+                    let base = if base_ok {
+                        (**object).clone()
+                    } else {
+                        self.hidden_local_for(module, object, "obj")?
+                    };
+                    let idx = if idx_ok {
+                        (**index).clone()
+                    } else {
+                        self.hidden_local_for(module, index, "idx")?
+                    };
+                    let t = HirExpr::new(
+                        HirExprKind::Index {
+                            object: Box::new(base),
+                            index: Box::new(idx),
+                        },
+                        HirType::Unknown,
+                    );
+                    return self.lower_assign_op(module, op, &t, value);
+                }
+            }
+            _ => {}
         }
         let name = ident_target(target)?;
         // Logical-assign ops short-circuit: `a &&= b` only evaluates/assigns `b`
@@ -143,6 +182,45 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         Ok(Val::new(coerced, local.repr))
     }
 
+    /// Whether the WHOLE member/index target can be replayed: the base, and —
+    /// for an index — the KEY too. Checking only the base was a real hole:
+    /// `arr[f()] *= 3` passed the base test, took the desugar path, and ran
+    /// `f()` TWICE (medido: 2 chamadas onde o Node faz 1).
+    pub(super) fn target_is_replayable(target: &HirExpr) -> bool {
+        match &target.kind {
+            HirExprKind::Member { object, .. } => Self::is_replayable_base(object),
+            HirExprKind::Index { object, index } => {
+                Self::is_replayable_base(object)
+                    && matches!(index.kind, HirExprKind::Ident(_) | HirExprKind::Lit(_))
+            }
+            _ => false,
+        }
+    }
+
+    /// Evaluate `e` ONCE, bind the word to a fresh hidden local, and return an
+    /// `Ident` expression naming it. Lets a target with an effectful part be
+    /// rewritten into one whose parts are all bare identifiers — replayable by
+    /// construction, so the load/store desugar cannot re-run the effect.
+    pub(super) fn hidden_local_for(
+        &mut self,
+        module: &mut dyn Module,
+        e: &HirExpr,
+        what: &str,
+    ) -> FrontResult<HirExpr> {
+        let v = self.lower_expr(module, e)?;
+        let word = self.box_value(v);
+        // Nome único por SÍTIO: o contador de blocos do builder já é único e
+        // monotônico dentro da função, e o `what` separa base de índice no
+        // mesmo alvo. Um nome reusado sobrescreveria o temporário de um
+        // compound-assign aninhado.
+        let name = format!(
+            "__rtsn_ca_{what}_{}",
+            self.builder.create_block().as_u32()
+        );
+        self.bind_tagged_local(&name, Val::new(word, Repr::Tagged));
+        Ok(HirExpr::new(HirExprKind::Ident(name), HirType::Unknown))
+    }
+
     /// Whether the OBJECT of a compound-assign target can be evaluated TWICE
     /// (once for the load, once for the store) with the same result and no extra
     /// effect — which is what lets `o.p += v` desugar to `o.p = o.p + v`.
@@ -157,7 +235,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// The assumption is the same one the single-ident case already made: a plain
     /// property read has no observable effect. A getter with side effects breaks
     /// it, exactly as it did before — this widens the shape, not the risk.
-    fn is_replayable_base(e: &HirExpr) -> bool {
+    pub(super) fn is_replayable_base(e: &HirExpr) -> bool {
         match &e.kind {
             HirExprKind::Ident(_) => true,
             HirExprKind::Member { object, .. } => Self::is_replayable_base(object),

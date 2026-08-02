@@ -12,7 +12,7 @@ import input from "rts:input";
 import fetchNs from "rts:fetch";
 import imgdec from "rts:imgdec";
 import cryptoNs from "rts:crypto";
-import { fs, io, buffer, env, time } from "rts";
+import { fs, io, buffer, env, time, hash } from "rts";
 
 const KEY_ENTER = 1;
 const KEY_BACKSPACE = 4;
@@ -20,6 +20,67 @@ const KEY_A = 100; // KEY_A..Z = 100..125
 const KEY_C = 102;
 const PHASE_PRESSED = 1;
 const VW = 1000;
+
+// ── CACHE DE RECURSOS EM DISCO ──────────────────────────────────────────────
+//
+// Um recurso externo (CSS, bundle JS, imagem) é imutável na prática: as URLs da
+// Meta/Facebook já carregam o hash do conteúdo no caminho, que é o padrão de
+// qualquer CDN. Baixar 14,8 MB de bundle a cada execução custa ~1,4 s de rede e,
+// pior, torna a repro NÃO-DETERMINÍSTICA — a Meta serve conteúdo diferente a
+// cada carga, então o mesmo bug muda de forma entre execuções.
+//
+// O cache é do BROWSER, não do DOM: `rts-dom` não tem uma linha de rede (ele
+// parseia HTML/CSS e faz layout), então rede e cache pertencem ao host.
+//
+// Chave = hash da URL, para caber em nome de arquivo qualquer que seja a URL
+// (uma URL de CDN passa de 200 caracteres). É SipHash, não critografia: aqui só
+// precisa ser determinístico e bem distribuído, não resistente a colisão
+// adversarial. `RTS_NO_CACHE=1` desliga; `RTS_CACHE_DIR` escolhe o diretório.
+const cacheOn = env.get_var("RTS_NO_CACHE").length < 1;
+const cacheDir = cacheDirPath();
+
+function cacheDirPath(): string {
+  const custom = env.get_var("RTS_CACHE_DIR");
+  if (custom.length > 0) return custom;
+  return ".rts-webcache";
+}
+
+function cachePath(url: string): string {
+  return cacheDir + "/" + hash.hash_str(url) + ".bin";
+}
+
+// Lê do cache; devolve "" quando não há entrada (ou o cache está desligado).
+// `fs.read_all` escreve num buffer do chamador (não devolve string), então o
+// tamanho vem do `fs.size` — o que também evita realocar para um bundle de 6 MB.
+function cacheGet(url: string): string {
+  if (!cacheOn) return "";
+  const p = cachePath(url);
+  if (!fs.exists(p)) return "";
+  const sz = fs.size(p);
+  if (sz < 1) return "";
+  const buf = buffer.alloc(sz);
+  const n = fs.read_all(p, buffer.ptr(buf), sz);
+  if (n < 1) { buffer.free(buf); return ""; }
+  const out = buffer.to_string(buf);
+  buffer.free(buf);
+  return out;
+}
+
+function cachePut(url: string, body: string): void {
+  if (!cacheOn) return;
+  if (body.length < 1) return;
+  if (!fs.exists(cacheDir)) fs.create_dir_all(cacheDir);
+  fs.write(cachePath(url), body);
+}
+
+// `fetchText` com cache: um acerto evita a rede inteira.
+function fetchTextCached(url: string): string {
+  const hit = cacheGet(url);
+  if (hit.length > 0) return hit;
+  const body = fetchNs.fetchText(url);
+  cachePut(url, body);
+  return body;
+}
 
 // Monta o documento: barra fixa no topo (com o <input>) + o conteúdo da página.
 // ENVOLVE tudo num <html><body> — sem esse wrapper, o `:root {}` do CSS do site
@@ -86,7 +147,7 @@ function extractSite(rawHtml: string, pageUrl: string): string {
       const href = dom.getAttribute(site, l, "href");
       if (href.length > 0) {
         const cssUrl = resolveUrl(pageUrl, href);
-        const css = fetchNs.fetchText(cssUrl);
+        const css = fetchTextCached(cssUrl);
         io.print("[css] " + cssUrl + " -> " + css.length + "B");
         if (css.length > 0) {
           styles = styles + "<style>" + css + "</style>";
@@ -139,7 +200,7 @@ function extractSite(rawHtml: string, pageUrl: string): string {
         // re-parseado, e JS minificado carrega `<`, `&` e `</script>` dentro de
         // strings. Convertendo para data-URI o conteúdo atravessa a
         // serialização intacto, sem caminho novo no motor.
-        const js = fetchNs.fetchText(src);
+        const js = fetchTextCached(src);
         if (js.length > 0) {
           extBytes = extBytes + js.length;
           dom.setAttr(site, s, "src", "data:text/javascript;base64," + cryptoNs.base64_encode_str(js));
