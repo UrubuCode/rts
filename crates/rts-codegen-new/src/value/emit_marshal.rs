@@ -281,6 +281,43 @@ pub fn emit_new_vec_object(module: &mut dyn Module, builder: &mut FunctionBuilde
         .expect("__rtsn_vec_new_object returns a value")
 }
 
+/// `__rtsn_vec_new_object_shaped(shape_word, field_count)` — allocate an instance
+/// object ALREADY LAID OUT: slot 0 = the tagged-int global shape id, slots
+/// `1..=field_count` = `undefined`. Returns the raw `TAG_OBJECT` PolyValue word.
+///
+/// FUSED, one call where the object-construction path emitted `2 + N`:
+/// [`emit_new_vec_object`], then an [`emit_vec_push`] for the shape id, then one
+/// `emit_vec_push` per field pushing the same `undefined` constant. Each of those
+/// takes the HandleTable shard lock and is an optimization barrier for the
+/// egraph, and on the `new C(...)` path the N placeholder pushes are DEAD — the
+/// constructor's `this.f = …` overwrites every one of them a few instructions
+/// later. Measured cost of the unfused shape on a 2-field class: TODO(measure).
+///
+/// The two baked words stay defined HERE, on the codegen side
+/// (`PolyValue::from_i32` / `PolyValue::undefined`), and the runtime writes what
+/// it is handed (the `undefined` filler comes from the shared `POLY_UNDEFINED`
+/// constant those same definitions are built on) — so neither side can drift into
+/// its own bit pattern. See `rts_natives::heap::payload_ops::vec_new_object_shaped`.
+pub fn emit_new_shaped_object(
+    module: &mut dyn Module,
+    builder: &mut FunctionBuilder,
+    global_shape: u32,
+    field_count: usize,
+) -> Value {
+    let shape_word = builder.ins().iconst(
+        types::I64,
+        super::PolyValue::from_i32(global_shape as i32).raw() as i64,
+    );
+    let n = builder.ins().iconst(types::I64, field_count as i64);
+    emit_call(
+        module,
+        builder,
+        "__rtsn_vec_new_object_shaped",
+        &[shape_word, n],
+    )
+    .expect("__rtsn_vec_new_object_shaped returns a value")
+}
+
 /// Box a real runtime HANDLE as a `TAG_OBJECT` PolyValue word. Used by the
 /// uniform thunk for a lazy-generator return: the outer fn hands back a raw
 /// GenState handle (`Int64`), but a DYNAMIC consumer (spread / for-of / `new

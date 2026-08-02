@@ -202,6 +202,42 @@ mod tests {
     }
 
     #[test]
+    /// The fused instance allocation must be slot-for-slot what the
+    /// `vec_new_object` + N x `vec_push_by_payload` sequence produced.
+    fn shaped_alloc_matches_the_unfused_sequence() {
+        let shape_word = 0x1234_i64;
+
+        let unfused = __rtsn_vec_new_object();
+        let up = payload_of(unfused);
+        __rtsn_vec_push_by_payload(up, shape_word);
+        __rtsn_vec_push_by_payload(up, crate::heap::poly::POLY_UNDEFINED as i64);
+        __rtsn_vec_push_by_payload(up, crate::heap::poly::POLY_UNDEFINED as i64);
+
+        let fused = __rtsn_vec_new_object_shaped(shape_word, 2);
+        let fp = payload_of(fused);
+
+        // Same tag/header bits (only the payload differs — two distinct slots).
+        assert_eq!(unfused & !SLOT_MASK, fused & !SLOT_MASK);
+        assert_eq!(__rtsn_vec_len_by_payload(fp), 3);
+        for i in 0..3 {
+            assert_eq!(
+                __rtsn_vec_get_by_payload(fp, i),
+                __rtsn_vec_get_by_payload(up, i),
+                "slot {i} differs from the unfused sequence"
+            );
+        }
+    }
+
+    #[test]
+    /// A zero-field class is still `[shape_id]` — one slot, never empty.
+    fn shaped_alloc_with_no_fields_keeps_slot_zero() {
+        let w = __rtsn_vec_new_object_shaped(7, 0);
+        let p = payload_of(w);
+        assert_eq!(__rtsn_vec_len_by_payload(p), 1);
+        assert_eq!(__rtsn_vec_get_by_payload(p, 0), 7);
+    }
+
+    #[test]
     fn non_vec_entry_is_rejected_not_misread() {
         let h = alloc_entry(Entry::String(b"not a vec".to_vec()));
         let payload = payload_of(h);
@@ -224,6 +260,50 @@ mod tests {
 #[rtse::abi(native, value = "vec_new_object")]
 pub fn vec_new_object() -> u64 {
     let handle = alloc_entry(Entry::Vec(Box::new(Vec::new())));
+    let payload = handle & SLOT_MASK;
+    crate::heap::poly::POLY_BOX_BASE
+        | (crate::heap::poly::POLY_TAG_OBJECT << crate::heap::poly::POLY_TAG_SHIFT)
+        | payload
+}
+
+/// Allocate an instance `Entry::Vec` ALREADY LAID OUT — slot 0 = `shape_word`,
+/// slots `1..=field_count` = `undefined` — and return it boxed as a `TAG_OBJECT`
+/// PolyValue word. The single-call spelling of what `new C(...)` used to emit as
+/// `1 + 1 + N` calls.
+///
+/// ## Why this exists
+///
+/// `new P(x, y)` on a 2-field class emitted: `vec_new_object` (alloc, one shard
+/// lock), `vec_push_by_payload` for the shape id (a second lock), then one
+/// `vec_push_by_payload` per field writing the `undefined` placeholder (N more
+/// locks) — and the constructor body then OVERWRITES every one of those
+/// placeholders with `vec_set_by_payload` microseconds later. So an N-field class
+/// paid `2 + N` locked extern calls before the ctor ran, N of them provably dead
+/// stores. Here the whole layout is built in the `Vec` BEFORE `alloc_entry`
+/// publishes it, so the cost is the one lock `alloc_entry` takes anyway.
+///
+/// The placeholders are still written (not skipped): the slots must EXIST with a
+/// defined value, because a ctor that leaves a field unassigned, an early
+/// `throw`, or a read of `this.f` before its assignment must all observe
+/// `undefined` rather than a short vec whose `vec_get` returns 0. Same slot
+/// count, same slot values, same handle semantics as the unfused sequence — this
+/// is a call-count reduction, not a layout change.
+///
+/// `shape_word` is passed in rather than rebuilt here so the tagged-int encoding
+/// of a shape id has exactly ONE definition, the codegen's
+/// `PolyValue::from_i32(id).raw()`. `field_count` is a plain count; a negative
+/// value is clamped to 0 (the ABI carries it as `i64`, and a bogus count must not
+/// become a giant allocation).
+#[rtse::abi(native, value = "vec_new_object_shaped")]
+pub fn vec_new_object_shaped(shape_word: i64, field_count: i64) -> u64 {
+    let n = field_count.max(0) as usize;
+    let mut slots = Vec::with_capacity(1 + n);
+    slots.push(shape_word);
+    // The `undefined` word comes from the shared PolyValue constants, not a
+    // literal bit pattern — the codegen bakes the same word via
+    // `PolyValue::undefined().raw()`, and the two must never be able to drift.
+    slots.resize(1 + n, crate::heap::poly::POLY_UNDEFINED as i64);
+    let handle = alloc_entry(Entry::Vec(Box::new(slots)));
     let payload = handle & SLOT_MASK;
     crate::heap::poly::POLY_BOX_BASE
         | (crate::heap::poly::POLY_TAG_OBJECT << crate::heap::poly::POLY_TAG_SHIFT)

@@ -478,19 +478,10 @@ fn build_new_thunk_body(
     let positional = &block_params[1..1 + POSITIONAL];
     let rest_word = block_params[1 + POSITIONAL];
 
-    // ---- allocate the instance: VEC + slot0 shape-id + one `undefined` per field
-    let obj_word = emit_marshal::emit_new_vec_object(module, fb);
-    let id_word = fb.ins().iconst(
-        types::I64,
-        value::PolyValue::from_i32(global_shape as i32).raw() as i64,
-    );
-    emit_marshal::emit_vec_push(module, fb, obj_word, id_word);
-    let undef = fb
-        .ins()
-        .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
-    for _ in 0..n_fields {
-        emit_marshal::emit_vec_push(module, fb, obj_word, undef);
-    }
+    // ---- allocate the instance: VEC + slot0 shape-id + one `undefined` per field,
+    //      in ONE call (same fused emitter the static `new C(..)` path uses, so the
+    //      dynamic class-value construction lands on a byte-identical layout).
+    let obj_word = emit_marshal::emit_new_shaped_object(module, fb, global_shape, n_fields);
 
     // ---- ctor call args: params[0] = `this` (the instance), params[1..] from
     //      a0.. (the explicit ctor args), unboxed to each param's repr.

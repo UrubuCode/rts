@@ -101,13 +101,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // slot 1 + slot_index (see `lower_member`/`lower_member_assign`).
         let global_id = crate::shape::intern_global_shape(&keys);
 
-        let obj_word = emit_marshal::emit_new_vec_object(module, self.builder);
-        // ---- slot 0: the global shape-id, boxed as a tagged int PolyValue ----
-        let id_word = self.builder.ins().iconst(
-            types::I64,
-            value::PolyValue::from_i32(global_id as i32).raw() as i64,
-        );
-        emit_marshal::emit_vec_push(module, self.builder, obj_word, id_word);
+        // ---- alloc + slot 0 (the global shape-id, boxed as a tagged int
+        // PolyValue) in ONE call. `field_count` is 0, NOT `fields.len()`: a literal's
+        // property values are all computed and pushed below, so pre-filling them with
+        // `undefined` placeholders would only be overwritten — the opposite of the
+        // `new C(..)` case, where the ctor needs the slots to already exist. ----
+        let obj_word = emit_marshal::emit_new_shaped_object(module, self.builder, global_id, 0);
         // ---- slots 1.. : property values in key order, each a boxed PolyValue ----
         for (_, value_expr) in &fields {
             let v = self.lower_expr(module, value_expr)?;
@@ -169,13 +168,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         module: &mut dyn Module,
         fields: &[(String, HirExpr)],
     ) -> FrontResult<Val> {
-        let obj_word = emit_marshal::emit_new_vec_object(module, self.builder);
         let empty_id = crate::shape::intern_global_shape(&[]);
-        let id_word = self.builder.ins().iconst(
-            types::I64,
-            value::PolyValue::from_i32(empty_id as i32).raw() as i64,
-        );
-        emit_marshal::emit_vec_push(module, self.builder, obj_word, id_word);
+        // Empty shape, no field slots — every key arrives at runtime through
+        // `obj_set` (which drives the shape transition), so this is alloc + slot 0.
+        let obj_word = emit_marshal::emit_new_shaped_object(module, self.builder, empty_id, 0);
 
         for (key, expr) in fields {
             // Spread: copy the source's own enumerable keys onto the object.

@@ -13,7 +13,7 @@
 // slice already in memory — no allocation, no hashing, nothing proportional
 // to the table's size on every compile.
 //
-// 2046 symbols.
+// 2047 symbols.
 
 // Addresses are taken through the LINKER name, not a Rust module path: that
 // reaches every `#[no_mangle]` symbol regardless of Rust visibility, and makes
@@ -4117,10 +4117,12 @@ unsafe extern "C" {
     fn __rts_sym_2042();
     #[link_name = "__rtsn_vec_new_object"]
     fn __rts_sym_2043();
-    #[link_name = "__rtsn_vec_push_by_payload"]
+    #[link_name = "__rtsn_vec_new_object_shaped"]
     fn __rts_sym_2044();
-    #[link_name = "__rtsn_vec_set_by_payload"]
+    #[link_name = "__rtsn_vec_push_by_payload"]
     fn __rts_sym_2045();
+    #[link_name = "__rtsn_vec_set_by_payload"]
+    fn __rts_sym_2046();
 }
 
 /// Every RTS symbol with its address, for `JITBuilder::symbol`.
@@ -4129,7 +4131,7 @@ unsafe extern "C" {
 /// unique symbol name. A `#[cfg]`-gated platform-alternative pair shares ONE
 /// row via a same-named `const` defined once per branch — exactly one
 /// definition compiles per platform, so the row count never varies.
-pub static SYMBOLS: [::rts_abi::table::SymbolEntry; 2046] = [
+pub static SYMBOLS: [::rts_abi::table::SymbolEntry; 2047] = [
     ::rts_abi::table::SymbolEntry { name: "__RTS_FN_GL_ABORTSIGNAL_STATIC_ABORT", ptr: __rts_sym_0 as *const u8 },
     ::rts_abi::table::SymbolEntry { name: "__RTS_FN_GL_ABORTSIGNAL_STATIC_ANY", ptr: __rts_sym_1 as *const u8 },
     ::rts_abi::table::SymbolEntry { name: "__RTS_FN_GL_ABORTSIGNAL_STATIC_TIMEOUT", ptr: __rts_sym_2 as *const u8 },
@@ -6174,8 +6176,9 @@ pub static SYMBOLS: [::rts_abi::table::SymbolEntry; 2046] = [
     ::rts_abi::table::SymbolEntry { name: "__rtsn_vec_get_by_payload", ptr: __rts_sym_2041 as *const u8 },
     ::rts_abi::table::SymbolEntry { name: "__rtsn_vec_len_by_payload", ptr: __rts_sym_2042 as *const u8 },
     ::rts_abi::table::SymbolEntry { name: "__rtsn_vec_new_object", ptr: __rts_sym_2043 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_vec_push_by_payload", ptr: __rts_sym_2044 as *const u8 },
-    ::rts_abi::table::SymbolEntry { name: "__rtsn_vec_set_by_payload", ptr: __rts_sym_2045 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_vec_new_object_shaped", ptr: __rts_sym_2044 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_vec_push_by_payload", ptr: __rts_sym_2045 as *const u8 },
+    ::rts_abi::table::SymbolEntry { name: "__rtsn_vec_set_by_payload", ptr: __rts_sym_2046 as *const u8 },
 ];
 
 /// Slice accessor, kept for source compatibility with callers written
@@ -6186,7 +6189,7 @@ pub fn symbols() -> &'static [::rts_abi::table::SymbolEntry] { &SYMBOLS }
 /// The same symbols as names only, for the AOT object module's declaration
 /// list. Same order as `SYMBOLS`; the two cannot diverge — both are grouped
 /// from the same declarations. A `static` array in `.rodata`, like `SYMBOLS`.
-pub static AOT_SYMBOLS: [&'static str; 2046] = [
+pub static AOT_SYMBOLS: [&'static str; 2047] = [
     "__RTS_FN_GL_ABORTSIGNAL_STATIC_ABORT",
     "__RTS_FN_GL_ABORTSIGNAL_STATIC_ANY",
     "__RTS_FN_GL_ABORTSIGNAL_STATIC_TIMEOUT",
@@ -8231,6 +8234,7 @@ pub static AOT_SYMBOLS: [&'static str; 2046] = [
     "__rtsn_vec_get_by_payload",
     "__rtsn_vec_len_by_payload",
     "__rtsn_vec_new_object",
+    "__rtsn_vec_new_object_shaped",
     "__rtsn_vec_push_by_payload",
     "__rtsn_vec_set_by_payload",
 ];
@@ -8243,9 +8247,9 @@ pub fn aot_symbols() -> ::rts_abi::table::AotSymbols { &AOT_SYMBOLS }
 /// ABI signatures derived from the Rust signatures of `#[rtse::abi]` fns.
 ///
 /// A `static` array in `.rodata`, sorted ascending by name like `SYMBOLS` — a
-/// lookup is a binary search, no `HashMap` build at startup. 1542 of 2046 symbols
+/// lookup is a binary search, no `HashMap` build at startup. 1543 of 2047 symbols
 /// carry one; the rest are not yet declared with `#[rtse::abi]`.
-pub static SIGNATURES: [(&'static str, &'static [::rts_abi::AbiType], ::rts_abi::AbiType); 1542] = [
+pub static SIGNATURES: [(&'static str, &'static [::rts_abi::AbiType], ::rts_abi::AbiType); 1543] = [
     ("__RTS_FN_GL_ABORTSIGNAL_STATIC_ABORT", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::U64),
     ("__RTS_FN_GL_ABORTSIGNAL_STATIC_ANY", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::U64),
     ("__RTS_FN_GL_ABORTSIGNAL_STATIC_TIMEOUT", &[::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
@@ -9786,6 +9790,7 @@ pub static SIGNATURES: [(&'static str, &'static [::rts_abi::AbiType], ::rts_abi:
     ("__rtsn_vec_get_by_payload", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
     ("__rtsn_vec_len_by_payload", &[::rts_abi::AbiType::U64], ::rts_abi::AbiType::I64),
     ("__rtsn_vec_new_object", &[], ::rts_abi::AbiType::U64),
+    ("__rtsn_vec_new_object_shaped", &[::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::U64),
     ("__rtsn_vec_push_by_payload", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
     ("__rtsn_vec_set_by_payload", &[::rts_abi::AbiType::U64, ::rts_abi::AbiType::I64, ::rts_abi::AbiType::I64], ::rts_abi::AbiType::I64),
 ];

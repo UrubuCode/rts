@@ -2,9 +2,10 @@
 //!
 //! A class instance IS an object in the P3.6 representation. `new C(args)`:
 //!
-//! 1. allocates a fresh `Entry::Vec` (the instance), pushes slot 0 = the class's
+//! 1. allocates a fresh `Entry::Vec` (the instance) with slot 0 = the class's
 //!    GLOBAL shape-id (a tagged int) so the inspect trampoline recovers the field
-//!    keys, then one `undefined` slot per field (zero-init);
+//!    keys, and one `undefined` slot per field (zero-init) — all in ONE runtime
+//!    call (`emit_new_shaped_object`), not an alloc plus `1 + N` pushes;
 //! 2. calls the synthesized constructor `__rtsn_ctor_C(this, args…)` with the
 //!    instance word as `this` — the constructor's `this.field = …` writes land in
 //!    the instance's slots (same VEC_SET path as an object literal);
@@ -156,21 +157,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // variadic ctor accepts a variable count, so the exact `ctor_arity` gate is
         // wrong here.
 
-        // ---- 1. allocate the instance Vec + slot 0 = global shape-id ----
-        let obj_word = emit_marshal::emit_new_vec_object(module, self.builder);
-        let id_word = self.builder.ins().iconst(
-            types::I64,
-            value::PolyValue::from_i32(desc.global_shape as i32).raw() as i64,
+        // ---- 1. allocate the instance Vec, slot 0 = global shape-id, one
+        //         `undefined` field slot per field (zero-init) — ONE call. ----
+        let obj_word = emit_marshal::emit_new_shaped_object(
+            module,
+            self.builder,
+            desc.global_shape,
+            desc.fields.len(),
         );
-        emit_marshal::emit_vec_push(module, self.builder, obj_word, id_word);
-        // ---- one `undefined` field slot per field (zero-init) ----
-        let undef = self
-            .builder
-            .ins()
-            .iconst(types::I64, value::PolyValue::undefined().raw() as i64);
-        for _ in &desc.fields {
-            emit_marshal::emit_vec_push(module, self.builder, obj_word, undef);
-        }
 
         // ---- 2. run the constructor with `this` = the instance ----
         // Lower each ctor arg, box to its param repr, prepend the instance as `this`.

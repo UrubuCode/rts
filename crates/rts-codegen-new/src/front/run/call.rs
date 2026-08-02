@@ -856,12 +856,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let keys = ["value".to_string(), "done".to_string()];
         self.shapes.intern(&keys);
         let global_id = crate::shape::intern_global_shape(&keys);
-        let obj = emit_marshal::emit_new_vec_object(module, self.builder);
-        let id_word = self.builder.ins().iconst(
-            types::I64,
-            value::PolyValue::from_i32(global_id as i32).raw() as i64,
-        );
-        emit_marshal::emit_vec_push(module, self.builder, obj, id_word);
+        // Alloc + slot 0 fused into one call; the two property words still push
+        // (they are computed, not placeholders) and land at slots 1 and 2 exactly
+        // as before.
+        let obj = emit_marshal::emit_new_shaped_object(module, self.builder, global_id, 0);
         emit_marshal::emit_vec_push(module, self.builder, obj, value_word);
         emit_marshal::emit_vec_push(module, self.builder, obj, done_word);
         Val::tagged_kind(obj, JsKind::Object)
