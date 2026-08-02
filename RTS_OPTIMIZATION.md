@@ -1904,3 +1904,74 @@ External, one line each — full URLs are in the research transcripts:
 - Go — `inl.go` (inlining budget); PGO docs and 1.20→1.22 measurements
 - BOLT (Meta Research) and Propeller — post-link layout
 - min-sized-rust; MaskRay on linker garbage collection
+
+---
+
+## §10 §5 RESULTS — what each Tier item was actually worth
+
+Implemented 2026-08-02. Conditions as in the header: release build, this machine,
+each item behind its own env switch so it is A/B-able on ONE binary, and
+`RTS_NO_PRELUDE_CACHE=1` on both arms of every A/B (the prelude cache keys on the
+prelude text plus a version, so without it both arms replay one cached lowering
+and the comparison measures nothing).
+
+| item | expected | measured | state |
+|---|---|---|---|
+| 1.1 both-strings concat fast path | 3.2x | **161 → 105 ms** (1.53x) | landed |
+| 1.2 no `String` per property key compare | ~2x | **348 → 283 ms** on `fn.name` (1.23x) | landed |
+| 1.3 `x ** 2` → multiply | 11.5x | **89 → 30 ms** (3.0x) | landed, `RTS_POW_FOLD` |
+| 1.4 env + per-shard live counters | ~2.7% | within noise on this bench | landed |
+| 1.5 cold miss/bail/error blocks | "conservative" [E] | **zero** (62 vs 61 ms) | landed, `RTS_COLD_BLOCKS` |
+| 2.1 inline operator tag guard | 2–4x | compare **2.0x**, arith 1.2x | landed, `RTS_OP_GUARD` |
+| 2.2 overflow-safe int arithmetic | — | correct, but 6.5x and changes repr | gated, **still OFF** |
+| 2.3 runtime int guard for `%` | 1.45x | **35 → 8 ms** (4.4x) | landed, `RTS_REM_GUARD` |
+| 3.1 / 3.2 stable slab + read as `load` | ~2.2 ns + ~5.3 ns | — | open, = class doc C2 |
+| 3.3 lazy shape for untracked receivers | 63.82 → 31.45 ns | **premise REFUTED** | census + inverse fix landed |
+| 3.4 un-globalize the shape registry | — | reads no longer serialize | landed |
+| 4.1 tier-0 escape analysis | 138x [best case] | **1050 → 1 ms** | landed, `RTS_ESCAPE` |
+| 4.2 bump/nursery allocation | 4 instructions [S] | blocked on object layout | recycler landed, `RTS_BUMP` |
+
+### The three premises this work refuted
+
+**3.3 — "untracked receivers default to dictionary mode".** A census of all 31
+`Entry::Map` construction sites found **none** created because a shape could not be
+proven; the codegen never mints one at all, and `added_key_shape` already grows a
+shape lazily through the transition tree. The claim traced to one over-broad
+sentence in the probe's own `rt/dict.rs` doc comment. The 63.82 ns priced the
+dictionary REPRESENTATION, never the cost of being unproven. The real defect was
+the inverse — the dictionary probes ran BEFORE the shaped own-slot read, so every
+shaped read paid a `String` malloc and a shard lock it did not need.
+
+**4.2 — "bump allocation is the next allocator step".** It is blocked by neither
+the lock (2.4x against allocation's 40.4x) nor the moving collector (§4.1 already
+refuted that coupling), but by the object REPRESENTATION: `Entry::Vec(Box<Vec<i64>>)`
+owns its buffer through the global allocator, and no arena backs a `Vec` without
+the unstable `Allocator` API or a change at 386 sites. The bump pointer arrives
+with the C2 object layout, not with an allocator patch.
+
+**1.5 — "cold blocks make the guard numbers conservative".** Measured at zero on a
+2M-iteration call+IC loop, twice, at two different sets of sites.
+
+### What 2.2 taught, which is not what it set out to teach
+
+The item was blocked on distinguishing a JS `number` from a declared `i64`. That
+is now built (a `native_int` bit on the HIR binding) and it works. The check is
+still off, for two reasons neither of which is the original blocker: the gate moved
+the cost off native-int code without reducing it for JS numbers (6.5x on an
+unannotated int loop, which is most TypeScript), and the `Float64` merge changes the
+RESULT REPRESENTATION even where nothing overflows — observable as two failures in
+a serialization format-freeze test. The remaining work is a representation-preserving
+merge, not more type information.
+
+### Two bugs found by this work rather than by the plan
+
+* **A fraction reaching an int accumulator through a BINDING or a CAST truncated.**
+  `let b = 0; { const x = vals[i]; b += x as number; }` gave a different answer than
+  the same line written inline. `floatscan` looked only at the assignment's own
+  value tree, so a heap read that happened at the binding was invisible, and it had
+  no arm for the `Cast` node that `as number` produces.
+* **A re-entrant shard lock.** 15 runtime sites allocated or re-normalized a handle
+  inside a `with_entry`/`with_rtse` closure, which self-deadlocks when the new
+  allocation lands in the same shard. Latent at ~1-in-32 under round-robin
+  allocation; thread-affine regions raised it to ~1-in-2 and made it reproducible.
+  Fixing it is what let `RTS_REGIONS=1` pass the whole suite.
