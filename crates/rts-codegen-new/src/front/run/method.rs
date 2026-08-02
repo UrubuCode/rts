@@ -427,9 +427,27 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // .finally` num number genuíno, então rotear pro dispatch DINÂMICO
             // de Promise é sound (o trampolim `promise_handle(recv)` valida o
             // handle; um number genuíno vira `undefined`, nunca valor errado).
-            if matches!(class, RecvClass::Number) && matches!(method, "then" | "catch" | "finally")
-            {
+            // GENERALIZADO: qualquer método ausente na superfície Number vai ao
+            // despacho DINÂMICO, não só `then`/`catch`/`finally`.
+            //
+            // O motivo é o mesmo, e vale para todo handle: um HANDLE de runtime
+            // (Promise pendente, nó de DOM, socket…) viaja pela superfície
+            // NUMBER, então `el.getAttribute("x")` chegava aqui como
+            // `Number.getAttribute` e derrubava o ARQUIVO INTEIRO.
+            //
+            // É sound porque `resolve_method` já respondeu que Number NÃO tem
+            // esse método: não há membro sendo sombreado. Um number GENUÍNO com
+            // um método inexistente é TypeError em JS, e é isso que o despacho
+            // dinâmico produz — nunca um valor errado.
+            if matches!(class, RecvClass::Number) {
                 if let Some(val) = self.try_method_dispatch_dynamic(module, recv, method, args)? {
+                    return Ok(Some(val));
+                }
+                // O recurso final: lê o método do receiver (slot próprio ou
+                // cadeia de protótipo) e o invoca. É o mesmo caminho que um
+                // receiver `any` já usa; um miss em runtime é TypeError, que é
+                // a resposta do JS.
+                if let Some(val) = self.try_generic_dyn_method_call(module, recv, method, args)? {
                     return Ok(Some(val));
                 }
             }
