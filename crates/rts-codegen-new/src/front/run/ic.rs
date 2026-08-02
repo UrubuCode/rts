@@ -95,14 +95,18 @@ fn declare_cell(
 ) -> FrontResult<Value> {
     let id = next_site(owner);
     let name = format!("__rtsic_{owner}_{id}");
-    let data_id = module
-        .declare_data(&name, Linkage::Local, true, false)
-        .map_err(|e| Unsupported::new(format!("declare ic cell `{name}`: {e}")))?;
+    let data_id = crate::timing::declare(|| {
+        module
+            .declare_data(&name, Linkage::Local, true, false)
+            .map_err(|e| Unsupported::new(format!("declare ic cell `{name}`: {e}")))
+    })?;
     let mut desc = DataDescription::new();
     desc.define_zeroinit(IC_CELL_BYTES);
-    module
-        .define_data(data_id, &desc)
-        .map_err(|e| Unsupported::new(format!("define ic cell `{name}`: {e}")))?;
+    crate::timing::declare(|| {
+        module
+            .define_data(data_id, &desc)
+            .map_err(|e| Unsupported::new(format!("define ic cell `{name}`: {e}")))
+    })?;
     // Baker capture: a replayed program re-declares the cell COLD (all zeros) and
     // re-warms on first use. A warm cell must never be baked — its shape ids are
     // only meaningful against the registry the code was compiled with. It must be

@@ -453,7 +453,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         if let Some(&fref) = self.func_ref_cache.get(&fid) {
             return fref;
         }
-        let fref = value::emit_marshal::declare_func_dedup(module, self.builder.func, fid);
+        let fref = crate::timing::declare(|| {
+            value::emit_marshal::declare_func_dedup(module, self.builder.func, fid)
+        });
         self.func_ref_cache.insert(fid, fref);
         fref
     }

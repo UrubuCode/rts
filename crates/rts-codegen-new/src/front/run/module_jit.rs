@@ -411,6 +411,8 @@ pub(crate) fn populate_module(
     thunk::reset_used();
     // IC-cell symbol names are numbered per function and must restart per module.
     super::ic::reset_sites();
+    // Symbol memo is keyed by FuncId, which restarts per module.
+    crate::value::emit_marshal::reset_symbol_ids();
     let mut thunks: HashMap<String, FuncId> = HashMap::new();
     for f in funcs {
         let id = thunk::declare_thunk_linkage(&mut *module, &f.name, Linkage::Local)?;
@@ -494,6 +496,7 @@ pub(crate) fn populate_module(
     )?);
     }
 
+    crate::timing::report_declares("    of which: module decls");
     crate::timing::report("  build fn IR + main", _t_phase);
     let _t_phase = std::time::Instant::now();
     // 4b. Define every thunk body (bridges the uniform ABI to the real signature).

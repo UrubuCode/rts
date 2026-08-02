@@ -66,6 +66,13 @@ pub(crate) fn declare_func_dedup(
 /// another function — correct without any cross-function cache state. A first-time
 /// import goes through [`declare_func_dedup`] so its `SigRef` is deduped too.
 fn import_func(module: &mut dyn Module, builder: &mut FunctionBuilder, callee: FuncId) -> FuncRef {
+    // NOTE: this scan is O(already-imported) per call site, and replacing it with
+    // a per-function `FuncId -> FuncRef` memo was tried TWICE and measured no
+    // faster both times (module-mutation time 0.74 -> 0.80 ms, i.e. slightly
+    // worse). Functions other than `__rts_startup` import few distinct callees,
+    // and `Lowerer::func_ref` already memoizes the lowering's own path — so the
+    // scan is short wherever it runs often. Do not re-attempt without a
+    // measurement that shows otherwise.
     let want = callee.as_u32();
     for (fref, data) in builder.func.dfg.ext_funcs.iter() {
         if let ExternalName::User(nr) = data.name {
@@ -76,6 +83,49 @@ fn import_func(module: &mut dyn Module, builder: &mut FunctionBuilder, callee: F
         }
     }
     declare_func_dedup(module, builder.func, callee)
+}
+
+thread_local! {
+    /// `symbol name -> FuncId` for THIS module's compile.
+    ///
+    /// A runtime symbol is import-declared at every call site that mentions it,
+    /// and the prelude mentions a few hundred symbols across hundreds of
+    /// functions: measured 10538 module mutations costing 1.76 ms of the 12.5 ms
+    /// serial IR phase on `tiny.ts`. `Module::declare_function` is idempotent by
+    /// name, so all but the first are a redeclare — but each one still BUILDS the
+    /// Cranelift `Signature` first (two `Vec` allocations), which is the part
+    /// worth not repeating.
+    ///
+    /// `FuncId`s are per module, so [`reset_symbol_ids`] must run at the start of
+    /// each compile — `dynfn` builds a second module in the same process.
+    static SYMBOL_IDS: std::cell::RefCell<std::collections::HashMap<String, FuncId>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// Drop the per-module symbol memo. Called once per program compile.
+pub(crate) fn reset_symbol_ids() {
+    SYMBOL_IDS.with(|m| m.borrow_mut().clear());
+}
+
+/// Import-declare `name`, reusing this module's earlier declaration. `sig` is
+/// only called on a MISS, so a repeat call site pays neither the signature build
+/// nor the module lookup.
+fn declare_symbol(
+    module: &mut dyn Module,
+    name: &str,
+    sig: impl FnOnce(&dyn Module) -> ir::Signature,
+) -> FuncId {
+    if let Some(id) = SYMBOL_IDS.with(|m| m.borrow().get(name).copied()) {
+        return id;
+    }
+    let id = crate::timing::declare(|| {
+        let cl_sig = sig(module);
+        module
+            .declare_function(name, Linkage::Import, &cl_sig)
+            .unwrap_or_else(|e| panic!("declare runtime symbol `{name}`: {e}"))
+    });
+    SYMBOL_IDS.with(|m| m.borrow_mut().insert(name.to_string(), id));
+    id
 }
 
 /// Declare-import `name` (resolving its real [`super::abi_sig::SymSig`]) and emit
@@ -105,11 +155,8 @@ pub fn emit_call(
         sig.param_slot_count(),
         args.len()
     );
-    let cl_sig = sig.to_cranelift(module);
-    let callee = module
-        .declare_function(name, Linkage::Import, &cl_sig)
-        .unwrap_or_else(|e| panic!("declare runtime symbol `{name}`: {e}"));
-    let func_ref = import_func(module, builder, callee);
+    let callee = declare_symbol(module, name, |module| sig.to_cranelift(module));
+    let func_ref = crate::timing::declare(|| import_func(module, builder, callee));
     let call = builder.ins().call(func_ref, args);
     if sig.returns() {
         Some(builder.inst_results(call)[0])
@@ -134,11 +181,10 @@ pub fn emit_call_sig(
     ret: rts_runtime::abi::AbiType,
 ) -> Option<Value> {
     crate::stats::runtime_call(name);
-    let cl_sig = super::abi_sig::cranelift_sig_from_abis(module, params, ret);
-    let callee = module
-        .declare_function(name, Linkage::Import, &cl_sig)
-        .unwrap_or_else(|e| panic!("declare runtime symbol `{name}`: {e}"));
-    let func_ref = import_func(module, builder, callee);
+    let callee = declare_symbol(module, name, |module| {
+        super::abi_sig::cranelift_sig_from_abis(module, params, ret)
+    });
+    let func_ref = crate::timing::declare(|| import_func(module, builder, callee));
     let call = builder.ins().call(func_ref, args);
     if matches!(ret, rts_runtime::abi::AbiType::Void) {
         None
