@@ -443,6 +443,7 @@ pub(super) fn build_one(
         eprintln!("{}", ctx.func.display());
     }
 
+    crate::timing::end_fn();
     Ok(Pending {
         id,
         ctx,

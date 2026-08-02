@@ -1,9 +1,11 @@
 # CRANELIFT_IMPLEMENTATION.md — the Cranelift API surface RTS uses, and the one it does not
 
-**Status:** §7's plan is IMPLEMENTED as of 2026-08-01 — see **§10 Results**, which
-records what each item was actually worth, including the two that came back
-negative and the one that is correct but cannot be turned on yet. Every number is
-**[M]** measured on this machine, **[S]** sourced with a link, or **[E]** an
+**Status:** COMPLETE as of 2026-08-02. Every §7 item is resolved — built, refuted,
+or closed with its arithmetic — plus one §3 item that was not in the original
+list. See **§10 Results** for what each was actually worth, including the three
+that came back negative and the one that is correct but cannot be turned on yet.
+
+Every number is **[M]** measured on this machine, **[S]** sourced with a link, or **[E]** an
 estimate — treat **[E]** as a hypothesis to test.
 
 > **This file replaces a deleted document of the same name.** The old one argued
@@ -365,7 +367,7 @@ being re-derived from a rebuild.
 | 4 | chunk per rayon worker | "efficiency is 25% of linear" | **no gain**; premise was hyperthreads | knob kept, default = rayon |
 | 5a | `set_cold_block` | Tier 1.5 | **no measurable delta** (47 ms both ways) | landed, default ON |
 | 5b | `*_overflow` family | Tier 2.2 | **correct**, and 6.6x slower | landed, OPT-IN |
-| 6 | declare-then-lower | 10.76 ms serial | serial-forced share measured at **7%**; phase 12.5 → **11.1 ms** from the symbol memo | open, now specified |
+| 6 | declare-then-lower | 10.76 ms serial | phase 12.5 → **11.1 ms** from the symbol memo; parallelising it is worth **~6.5 ms** and the speculative design is **refuted** (91% of fns mutate) | CLOSED, not built |
 | 7 | **inlining** (§3, not in the original list) | untested hypothesis | **15%** on a call-heavy benchmark, compile time unchanged | landed, default ON |
 
 Switches: `RTS_CLIF_VERIFIER=1`, `RTS_CLIF_CACHE=1` (+ `RTS_CLIF_CACHE_DIR`),
@@ -521,6 +523,62 @@ ids, collides with the positional snapshot `seed_global_shapes` rebuilds from.
 not a property of the lowering alone: an AOT object carries relocations emitted
 OUTSIDE it (class new-thunks, prelude statics). Any pre-declaration pass must
 cover those sites too — a missed one is a link failure, not a slow start.
+
+### Item 6 is CLOSED — one design measured dead, the other costs more than it returns
+
+Two designs exist. Both were priced before writing either.
+
+**Design A — speculative read-only lowering. REFUTED by measurement.** The idea:
+give workers a read-only module view, and any function that requests a mutation
+aborts and is redone serially. Correct by construction, no id remapping, no
+shape-order problem. It dies on the ratio — `timing::report_dirty` (new) counts
+how many lowered functions touch the module at all:
+
+| program | functions mutating the module |
+|---|---|
+| `tiny.ts` | **189 of 208** |
+| prelude-heavy | **191 of 210** |
+| call-heavy | **192 of 212** |
+
+**91%.** Nine functions in ten would bail straight back to the serial path, so
+the speculative split buys nothing. The cause is structural rather than
+incidental: an IC cell is a `declare_data` + `define_data` per dynamic property
+site, and the prelude reads properties everywhere.
+
+**Design B — virtual ids plus a serial remap.** Still sound, and still needs all
+three prerequisites above (id rewrite, deterministic shape ids, AOT relocation
+coverage), plus a per-worker rebuild of `ModuleDeclarations` — which is not
+`Clone`, so each worker replays the real module's declarations to reconstruct an
+equivalent table.
+
+The arithmetic against it, all measured on this machine:
+
+```text
+build fn IR + main                        10.5 ms
+  of which module mutations (serial)       0.7 ms
+  parallelisable remainder                 9.8 ms
+  at the 3.4x this box actually scales     2.9 ms
+  + merge, remap, per-worker rebuild      ~1.0 ms  [E]
+  net saving                              ~6.5 ms
+```
+
+Against what: `tiny.ts` is ~100 ms wall, but **~41 ms of that is not RTS at all**
+— a 640 KB binary (`rts-symbol-baker`) costs 41 ms to start on this box, so
+process creation dominates the "48 ms floor" §1 reported and no engine change can
+touch it. RTS's controllable share is ~59 ms, which puts the win at **~11%** of
+what is actually ours.
+
+11% is not nothing. It is also not worth a change that touches the module
+abstraction, the shape-id assignment order, and AOT relocation coverage at once,
+whose failure modes are a compile-time panic and a silent miscompile — on an
+engine where this session already produced two "obvious" wins in this exact phase
+that measured **zero** (the `import_func` memo, twice). The item stays specified
+and unbuilt, and this section is the reason.
+
+**If it is ever built, build prerequisite 2 first and alone:** a serial
+pre-intern pass makes shape ids independent of lowering order, is verifiable on
+its own (compile a program twice, compare the baked immediates), and is the only
+one of the three whose failure is silent.
 
 ### The original ceiling note
 

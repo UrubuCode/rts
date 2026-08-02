@@ -497,6 +497,7 @@ pub(crate) fn populate_module(
     }
 
     crate::timing::report_declares("    of which: module decls");
+    crate::timing::report_dirty("    mutating fns");
     crate::timing::report("  build fn IR + main", _t_phase);
     let _t_phase = std::time::Instant::now();
     // 4b. Define every thunk body (bridges the uniform ABI to the real signature).

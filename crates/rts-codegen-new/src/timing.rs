@@ -77,6 +77,7 @@ pub fn declare<T>(f: impl FnOnce() -> T) -> T {
     }
     let t0 = Instant::now();
     let out = f();
+    mark_dirty();
     let ns = t0.elapsed().as_nanos() as u64;
     DECL_NS.with(|c| c.set(c.get() + ns));
     DECL_N.with(|c| c.set(c.get() + 1));
@@ -94,4 +95,42 @@ pub fn report_declares(label: &str) {
         "[rts-timing] {label:<28} {:>8.2} ms  ({n} calls)",
         ns as f64 / 1e6
     );
+}
+
+thread_local! {
+    /// Did the function currently being lowered request a module MUTATION?
+    /// Feeds [`note_fn_mutated`] — the count that decides whether a speculative
+    /// read-only parallel lowering could work at all (a function that mutates
+    /// would have to be redone serially).
+    static FN_DIRTY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static FNS_DIRTY: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static FNS_TOTAL: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Mark the function being lowered as having mutated the module.
+pub fn mark_dirty() {
+    if enabled() {
+        FN_DIRTY.with(|c| c.set(true));
+    }
+}
+
+/// Close the books on one function's lowering.
+pub fn end_fn() {
+    if !enabled() {
+        return;
+    }
+    FNS_TOTAL.with(|c| c.set(c.get() + 1));
+    if FN_DIRTY.with(|c| c.replace(false)) {
+        FNS_DIRTY.with(|c| c.set(c.get() + 1));
+    }
+}
+
+/// Report how many lowered functions touched the module, and reset.
+pub fn report_dirty(label: &str) {
+    if !enabled() {
+        return;
+    }
+    let d = FNS_DIRTY.with(|c| c.replace(0));
+    let t = FNS_TOTAL.with(|c| c.replace(0));
+    eprintln!("[rts-timing] {label:<28} {d} of {t} fns mutate the module");
 }
