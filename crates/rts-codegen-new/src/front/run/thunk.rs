@@ -141,7 +141,23 @@ pub fn is_used(id: FuncId) -> bool {
     USED.with(|u| u.borrow().contains(&id))
 }
 
+/// Whether EVERY function gets a thunk, skipping the address-taken analysis.
+///
+/// Forced ON for AOT. The analysis marks a thunk used when the LOWERING reifies
+/// the function, but an AOT object also carries relocations emitted OUTSIDE that
+/// path — the prelude's class new-thunks and statics among them — and a missed
+/// mark there is not a slower start, it is `undefined symbol` at link time
+/// (measured: `rts compile` of any program touching the Error/Map/Reflect
+/// prelude failed on the Windows CI runner).
+///
+/// The perf this analysis buys is JIT STARTUP: half of what gets
+/// machine-compiled was a bridge. That does not apply to AOT, which compiles
+/// once and lets the linker drop what it does not need. So the trade is only
+/// worth making where it pays.
 fn all_thunks() -> bool {
+    if super::aot_str::aot_mode() {
+        return true;
+    }
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
         std::env::var("RTS_ALL_THUNKS")
