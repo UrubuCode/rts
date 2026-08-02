@@ -351,6 +351,17 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // `let c = new C(args)`: build the instance, record the local's CLASS
             // (for static `c.method()` dispatch) and OBJECT shape (for `c.field`).
             HirExprKind::New { class, args, .. } => {
+                // TIER-0 ESCAPE ANALYSIS (`RTS_OPTIMIZATION.md` §5 Tier 4.1) FIRST:
+                // when the pre-scan proved every use of this local is a read of a
+                // declared field, there is no object — each field slot becomes its
+                // own Cranelift `Variable` and the allocation, the shape-tag store,
+                // the prototype link and the IC site all disappear. The call
+                // answers `false` for every site it does not own (analysis off, not
+                // a candidate, gcell/closure-cell context, no ctor recipe), so the
+                // ordinary heap construction below stays the default path.
+                if self.try_lower_scalar_new(module, name, class, args)? {
+                    return Ok(());
+                }
                 let (val, class_name, shape_id) = self.lower_new(module, class, args)?;
                 self.bind_tagged_local(name, val);
                 self.local_classes.insert(name.to_string(), class_name);

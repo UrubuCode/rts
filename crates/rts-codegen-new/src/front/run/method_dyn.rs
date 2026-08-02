@@ -528,6 +528,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let b_throw = self.builder.create_block();
         let merge = self.builder.create_block();
         self.builder.append_block_param(merge, types::I64);
+        // COLD: `b_throw` is the "the slot did not hold a function" arm, whose
+        // documented job is to reach `__rtsadp_dyn_method_call`'s miss branch and
+        // throw `"<name> is not a function"`. On a program that calls a method
+        // that exists, it never runs; `b_call` is filled first and is the
+        // fallthrough. (`merge` is the join of both arms and stays hot.)
+        if super::clifflags::cold_blocks() {
+            self.builder.set_cold_block(b_throw);
+        }
         self.builder.ins().brif(is_fn, b_call, &[], b_throw, &[]);
         self.builder.seal_block(b_call);
         self.builder.seal_block(b_throw);

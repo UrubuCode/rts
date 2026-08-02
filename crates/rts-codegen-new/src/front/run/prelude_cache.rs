@@ -39,7 +39,20 @@ use super::LoweredProgram;
 /// integer guard for `%` in `super::remguard`). Same reason as v3: without the
 /// bump every prelude function replays pre-change lowering from disk, and an
 /// `RTS_POW_FOLD` / `RTS_REM_GUARD` A/B would compare two runs of identical bytes.
-const CACHE_VERSION: u32 = 4;
+/// v5: block LAYOUT changed (`RTS_OPTIMIZATION.md` §5 Tier 1.5 — the IC miss, the
+/// `catch`/unwind blocks, the typed-array out-of-bounds arm and the
+/// not-a-function throw arm are now `set_cold_block`). The emitted blocks are the
+/// same and the semantics are identical, but the machine code Cranelift lays out
+/// is not, so without this bump every prelude function would replay pre-change
+/// layout from disk and an `RTS_COLD_BLOCKS` A/B would compare identical bytes.
+/// v6: TIER-0 ESCAPE ANALYSIS (`RTS_OPTIMIZATION.md` §5 Tier 4.1, implemented in
+/// `super::escape`) — a non-escaping `new C(..)` is scalar-replaced into Cranelift
+/// `Variable`s, so the emitted IR of any prelude function constructing one is
+/// different. Same reason as v3/v4/v5: the cache key is
+/// `hash(prelude_text + CACHE_VERSION)` and the prelude TEXT did not change, so
+/// without this bump every prelude function would replay pre-change lowering from
+/// disk and an `RTS_ESCAPE` A/B would compare two runs of identical cached bytes.
+const CACHE_VERSION: u32 = 6;
 
 /// The whole cached payload (owned, for DESERIALIZE): the lowered prelude + the
 /// process-global state its lowering interned (shape id→keys, Error-class table).

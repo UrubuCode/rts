@@ -319,6 +319,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // declaring class's body — receiver-type-free (JS spec), so it fires
         // before any receiver resolution. ----
         self.check_private_name_lexical(prop)?;
+        // ---- SCALAR-REPLACED receiver (`super::escape`, Tier 4.1): `p.<field>` is
+        // a `use_var` — there is no object, so this must run before every
+        // receiver-resolution path below. ----
+        if let Some(val) = self.try_scalar_field_read(object, prop) {
+            return Ok(val);
+        }
         // ---- `<Global>.prototype.<m>` READ in VALUE position → an UNBOUND method
         // value. The borrowed-method idiom every transpiled / obfuscated bundle
         // opens with (`const slice = Array.prototype.slice`,
@@ -818,6 +824,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // ---- JS PRIVATE NAME lexical scope: `x.#p = v` is legal only inside the
         // declaring class's body — receiver-type-free (JS spec). ----
         self.check_private_name_lexical(prop)?;
+        // ---- SCALAR-REPLACED receiver (`super::escape`): unreachable by
+        // construction (the scan bails a candidate on ANY write), so arriving here
+        // means scan and lowering disagree — refuse rather than write to an
+        // instance word that was never allocated. Full argument in `escape::scan`. ----
+        if let Some(class) = self.scalar_obj_class(object) {
+            return unsupported!(
+                "write to a field of the scalar-replaced local of class `{class}` \
+                 (escape analysis refuses field writes this increment — set RTS_ESCAPE=0)"
+            );
+        }
         // ---- `globalThis.prop = v` write: the singleton global object's dynamic
         // property. `__rtsadp_obj_set` writes an existing slot or appends a new key
         // (shape transition), so a brand-new global property works. ----

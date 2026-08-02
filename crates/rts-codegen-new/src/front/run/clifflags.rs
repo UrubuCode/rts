@@ -14,9 +14,29 @@
 /// ms) and 5.5 ms of the JIT phase; the remaining AOT/JIT gap is the AOT path's
 /// extra IR (string literals as data objects + a `string_from_static` call
 /// instead of the JIT's compile-time-baked handle), not the verifier.
-/// `RTS_COLD_BLOCKS=0` — stop marking the post-call error edge as a cold block
-/// (`FunctionBuilder::set_cold_block`). Layout-only, so this is an A/B switch for
-/// what the hint is worth, not a correctness fallback.
+/// `RTS_COLD_BLOCKS=0` — stop marking MISS / BAIL / ERROR / THROW blocks as cold
+/// (`FunctionBuilder::set_cold_block`, `RTS_OPTIMIZATION.md` §5 Tier 1.5).
+/// Layout-only, so this is an A/B switch for what the hint is worth, not a
+/// correctness fallback — the same blocks are emitted either way, Cranelift just
+/// sinks the marked ones to the end of the function so the hot path's
+/// instructions stay contiguous in the I-cache.
+///
+/// ONE knob covers the whole set, deliberately, so the set stays measurable as a
+/// unit. Current members: the post-call error edge ([`super::trycatch`]), the
+/// `catch` handler and the finally-restore/unwind blocks (same), the operator and
+/// `%` guard misses ([`super::opguard`] / [`super::remguard`]), the
+/// `RTS_INT_OVERFLOW` overflow arm ([`super::binop`]), the property inline-cache
+/// miss ([`super::ic`]), the typed-array out-of-bounds read arm
+/// ([`super::ta_native`]), and the "callee slot is not a function" throw arm
+/// ([`super::method_dyn`]).
+///
+/// TODO(measure): no A/B has been run for this hint. `RTS_OPTIMIZATION.md` §5
+/// Tier 1.5's remark that the §3.3 guard numbers are "likely conservative"
+/// because the probe's guard variants did not use cold blocks is an EXPECTATION,
+/// not a result. Measure with `RTS_COLD_BLOCKS=1` vs `=0` and
+/// `RTS_NO_PRELUDE_CACHE=1` on BOTH arms — [`super::prelude_cache`] keys on the
+/// prelude text plus its cache version, so otherwise both arms replay one cached
+/// lowering and the A/B measures nothing.
 pub(super) fn cold_blocks() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
@@ -124,6 +144,37 @@ pub(super) fn rem_guard() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
         std::env::var("RTS_REM_GUARD")
+            .map(|v| v.trim() != "0")
+            .unwrap_or(true)
+    })
+}
+
+/// `RTS_ESCAPE=0` — stop scalar-replacing a provably non-escaping `new C(..)`
+/// (`RTS_OPTIMIZATION.md` §5 Tier 4.1, implemented in [`super::escape`]). ON by
+/// default.
+///
+/// Like [`op_guards`] and [`rem_guard`], and unlike [`int_overflow_checks`], this
+/// is NOT a semantic switch: with it OFF the construction lowers to the same heap
+/// allocation plus constructor call it always did, and with it ON the object is
+/// only removed where a whitelist-based use-scan proved every use of the local is
+/// a read of a declared field. Both arms must print the same thing for every
+/// program; the switch exists so the pass's cost/benefit is a MEASUREMENT on one
+/// binary rather than an attribution.
+///
+/// Documented calibration, none of it a measurement of THIS emission: `new P(x,y)`
+/// costs 632 ns/iter in the engine against node's 4.7; the value probe's EA rows
+/// (kernels M6 / H6) put a non-escaping field access at 0.69–0.76 ns against 1.50
+/// for a heap one; Roslyn's self-build found 16.1% of allocated objects
+/// non-escaping at run time and Graal's PEA measured −8.0% to −22.7% allocated
+/// bytes. The probe's 138x is the provably-local BEST CASE, not an expectation.
+///
+/// TODO(measure): A/B with `RTS_NO_PRELUDE_CACHE=1` on BOTH arms — `prelude_cache`
+/// keys on the prelude text plus its cache version, so otherwise both arms replay
+/// one cached lowering and the A/B measures nothing.
+pub(super) fn escape_analysis() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var("RTS_ESCAPE")
             .map(|v| v.trim() != "0")
             .unwrap_or(true)
     })

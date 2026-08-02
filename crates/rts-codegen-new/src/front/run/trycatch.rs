@@ -143,6 +143,21 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let after_block = self.builder.create_block();
         let finally_block = finally.map(|_| self.builder.create_block());
         let catch_block = catch.map(|_| self.builder.create_block());
+        // COLD: the catch block's ONLY predecessors are error edges — the
+        // post-call check's `err_block` (already cold) and a lexical `throw`. No
+        // normal-completion edge reaches it: a body that falls through jumps to
+        // `ok_after_body` (finally/after) instead. So the whole handler is dead
+        // weight in the hot layout of any run that does not throw.
+        //
+        // `finally_block` is deliberately NOT marked: it is `ok_after_body`, i.e.
+        // the NORMAL body-completion target, so it runs on every execution.
+        // `after_block` is not marked either — it is the merge both the normal and
+        // the handled-error edges join into.
+        if super::clifflags::cold_blocks()
+            && let Some(cb) = catch_block
+        {
+            self.builder.set_cold_block(cb);
+        }
         // The block a pending error routes to: the catch if present, else finally.
         let on_error = catch_block
             .or(finally_block)
@@ -310,6 +325,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .expect("__rtsadp_err_pending returns a value");
         let unwind_block = self.builder.create_block();
         let check_restore = self.builder.create_block();
+        // COLD: `unwind_block` runs only when an error is live ACROSS the finalizer
+        // — either the finalizer threw its own, or the body/catch error was still
+        // pending on entry. `check_restore` (the fallthrough, and the common "the
+        // finalizer completed normally" case) is left hot. `unwind_block` does
+        // merge two edges, but BOTH are error edges, so it carries no hot
+        // predecessor to be sunk away from.
+        if super::clifflags::cold_blocks() {
+            self.builder.set_cold_block(unwind_block);
+        }
         self.builder
             .ins()
             .brif(fin_pending, unwind_block, &[], check_restore, &[]);
@@ -319,6 +343,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         self.builder.seal_block(check_restore);
         self.block_terminated = false;
         let restore_block = self.builder.create_block();
+        // COLD: reached only when an error was pending when the finalizer STARTED,
+        // i.e. the `try` was entered on an unwind. `after` is the fallthrough (the
+        // ordinary `try { } finally { }` with nothing thrown) and stays hot.
+        if super::clifflags::cold_blocks() {
+            self.builder.set_cold_block(restore_block);
+        }
         self.builder
             .ins()
             .brif(was_pending, restore_block, &[], after, &[]);

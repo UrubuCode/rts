@@ -133,6 +133,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         let oob_blk = self.builder.create_block();
         let join_blk = self.builder.create_block();
         self.builder.append_block_param(join_blk, types::I64);
+        // COLD: an out-of-bounds typed-array READ is the `a[-1] === undefined`
+        // corner, not the loop body — indexing a view is overwhelmingly in range.
+        // `load_blk` is filled first and is the fallthrough; `join_blk` is the
+        // merge of both edges and is deliberately left hot.
+        if super::clifflags::cold_blocks() {
+            self.builder.set_cold_block(oob_blk);
+        }
         self.builder
             .ins()
             .brif(in_bounds, load_blk, &[], oob_blk, &[]);

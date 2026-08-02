@@ -169,6 +169,16 @@ pub(super) fn emit_cached_get(
     let c1 = builder.ins().band(is_obj, warm);
     let c2 = builder.ins().band(c1, same_shape);
     let ok = builder.ins().band(c2, same_len);
+    // COLD: the miss is taken on the FIRST execution of the site and then only
+    // when the receiver changes shape — the whole premise of an inline cache is
+    // that a site is monomorphic, and the measured 436 ms -> 13 ms gap is the hit
+    // path. The miss is also the non-fallthrough edge of the `brif` (`hit_blk` is
+    // filled first, so Cranelift lays it out immediately after the branch), which
+    // is the layout the hint is worth anything in. `merge` is NOT marked: both
+    // edges join there.
+    if super::clifflags::cold_blocks() {
+        builder.set_cold_block(miss_blk);
+    }
     builder.ins().brif(ok, hit_blk, &[], miss_blk, &[]);
     builder.seal_block(hit_blk);
     builder.seal_block(miss_blk);

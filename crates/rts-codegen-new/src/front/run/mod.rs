@@ -40,6 +40,7 @@ mod ctorfn;
 mod desugar;
 mod dynfn;
 mod engineobj;
+mod escape;
 mod expr;
 mod boolscan;
 mod floatscan;

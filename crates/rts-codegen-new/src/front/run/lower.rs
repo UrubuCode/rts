@@ -434,6 +434,22 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// set, else the class method). Per-function by design — the test corpus
     /// overrides and calls at the top level (one `__rts_startup` pass).
     pub singleton_overrides: std::collections::HashSet<(String, String)>,
+    /// TIER-0 ESCAPE ANALYSIS (`RTS_OPTIMIZATION.md` §5 Tier 4.1): locals whose
+    /// `new C(..)` the pre-scan ([`super::escape::scalar_locals`]) proved does NOT
+    /// escape — local name → class. Consulted at the `let`/`const` site only; being
+    /// listed here is a *candidate*, not a decision (the lowering re-checks the
+    /// context-dependent gates: gcell promotion, closure cells).
+    pub scalar_candidates: std::collections::HashMap<String, String>,
+    /// The locals actually scalar-replaced in THIS function: name → the fields'
+    /// Cranelift `Variable`s. A `p.<field>` read on one of these is a `use_var` —
+    /// no allocation, no shape tag, no IC site. Empty whenever the analysis is off
+    /// (`RTS_ESCAPE=0`) or nothing qualified, which is the fast exit every hook
+    /// takes first.
+    pub scalar_objs: std::collections::HashMap<String, super::escape::ScalarObj>,
+    /// Per-construction counter feeding the generated argument-temp names
+    /// (`__rts_ea<seq>_<param>`), so two constructions of the same class in one
+    /// function cannot collide.
+    pub escape_seq: u32,
 }
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
@@ -536,6 +552,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             float_promoted: super::floatscan::float_promoted_locals(&func.body),
             bool_demoted: super::boolscan::bool_demoted_locals(&func.body),
             singleton_overrides: std::collections::HashSet::new(),
+            scalar_candidates: super::escape::scalar_locals(&func.body, classes),
+            scalar_objs: std::collections::HashMap::new(),
+            escape_seq: 0,
         };
 
         // Phase-0 instrumentation: publish this function as the lowering position
