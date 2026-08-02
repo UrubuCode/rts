@@ -176,6 +176,30 @@ One caveat bounds it: the pass inlines CLIF into CLIF, so a Rust-compiled
 `__rtsadp_*` is **not** a candidate. The reachable version is emitting the fast
 path as CLIF in the first place.
 
+**IMPLEMENTED 2026-08-02, and the argument held [M].** `front/run/inliner.rs`
+drives the pass with a size heuristic, ON by default (`RTS_INLINE=0` disables):
+
+| benchmark | off | on |
+|---|---|---|
+| 5M direct calls | 47 ms | **40 ms** (15%) |
+| prelude-heavy array/string | 157 ms | 154 ms |
+| call-free integer loop | 23 ms | 23 ms |
+
+Machine-compile time is unchanged, because the pass runs INSIDE the existing
+parallel region — `populate_module` has already built every body into
+`Vec<Pending>` before anything is compiled, so the callee map is in hand exactly
+where `ctx.compile` runs. Only building that map is serial.
+
+**And a safety constraint that only measurement found.** Cranelift's inliner
+**panics** — it does not bail — when the callee body contains a `global_value`
+instruction (`inline.rs:402`, "callee must already be legalized"). RTS emits
+those everywhere: IC cells, AOT string data, module globals. The first version
+passed the whole TS suite and the AOT smoke with a 24-instruction ceiling purely
+because that ceiling happened to exclude every such body; raising it to 48 crashed
+the compile on the first program tried. **A size ceiling is not a safety property
+here** — the `global_value` filter is, and with it in place 24/48/96/256 all
+measure the same, which is itself the evidence that size was never doing the work.
+
 ---
 
 ## §4 A free item — the AOT path runs the verifier
@@ -342,6 +366,7 @@ being re-derived from a rebuild.
 | 5a | `set_cold_block` | Tier 1.5 | **no measurable delta** (47 ms both ways) | landed, default ON |
 | 5b | `*_overflow` family | Tier 2.2 | **correct**, and 6.6x slower | landed, OPT-IN |
 | 6 | declare-then-lower | 10.76 ms serial | serial-forced share measured at **7%**; phase 12.5 → **11.1 ms** from the symbol memo | open, now specified |
+| 7 | **inlining** (§3, not in the original list) | untested hypothesis | **15%** on a call-heavy benchmark, compile time unchanged | landed, default ON |
 
 Switches: `RTS_CLIF_VERIFIER=1`, `RTS_CLIF_CACHE=1` (+ `RTS_CLIF_CACHE_DIR`),
 `RTS_ALL_THUNKS=1`, `RTS_CODEGEN_CHUNK=N`, `RTS_COLD_BLOCKS=0`,
