@@ -1498,6 +1498,21 @@ an **inline widen to `f64`**, which is a correctness fallback, not a
 recompilation. This closes the hole my probe left explicit (my 1.28 ns row
 omitted the overflow check, so it was a lower bound).
 
+**LANDED, and ON by default** (`clifflags::int_overflow_checks`, kill switch
+`RTS_INT_OVERFLOW=0`). What unblocked it was not the emission — that existed and
+was correct — but a way to apply it SELECTIVELY. RTS carries both semantics on the
+same `Repr::Int*`: a JS `number` is a double (a 64-bit wrap is a wrong answer),
+while a value declared `i64`/`u32` is a native fixed-width integer (the wrap is the
+declared contract). Applied blanket the check cost **6.6×** on an int-heavy loop
+(and 21× when the merge went `Tagged`), taxing the native path for a rule that does
+not govern it. `rts-hir` now stamps a `native_int` bit on `HirStmt::Let`/`Const`
+(set only by an explicit fixed-width integer annotation; a param's `ty` was already
+annotation-derived), the lowering records those names, an ident read stamps
+`Val::native_int`, and the check fires only when NEITHER operand carries it.
+Residual cost of the GATED form on ordinary JS integer code: **TODO(measure)**.
+Known gap: `i++`/`i--` emit a raw `iadd`/`isub` in `stmt_assign.rs` and are not
+covered, so they still wrap where `i = i + 1` promotes.
+
 **2.3 Runtime int guard for `%` → `srem`.** 1.45× over the compile-time-proven
 float path **[M]**. Guard needs: both operands round-trip through `i64` exactly,
 divisor ≠ 0 (`srem` traps where JS yields `NaN`), dividend ≠ 0 (`-0 % 3` is `-0`
@@ -1522,11 +1537,33 @@ exist at the IR level") is removable exactly by 3.1 — a chunked slab with a ba
 in a global gives `load [base + payload*8]` as pure IR, bounds/generation check
 preserved.
 
-**3.3 Stop defaulting untracked receivers to dictionary mode.** No production
+**3.3 Stop defaulting untracked receivers to dictionary mode.** ~~No production
 engine treats "shape not statically proven" as "this object is pathological";
 dictionary mode is entered by delete-heavy/sparse-key triggers **[S]**. Give
 untracked receivers a lazily-assigned tracked shape, reusing the transition tree
-that already exists in `shapes/mod.rs`.
+that already exists in `shapes/mod.rs`.~~
+
+**PREMISE REFUTED (2026-08-02) — the item was real but pointed the wrong way.**
+A census of every `Entry::Map` construction site in the tree found **zero**
+created because a shape could not be proven. No codegen path mints one; an
+untracked receiver already takes the shaped route (the lowering's dynamic
+fallback calls `__rtsadp_obj_get`/`__rtsadp_obj_set`, and `added_key_shape`
+lazily grows the shape through `shape_with_added_key`'s transition tree on a
+write to an absent key). Every dictionary receiver is a genuine runtime-producer
+dictionary: a `__rts_class`-tagged object-backed Registry class instance
+(`net.Server`, `Stats`, `FileHandle`, `ProtoWriter`), a `Map` collection, an
+N-API object, a Proxy internal, or a small runtime-built row. The 63.82 ns is
+`rts-value-probe`'s kernel OBJ, whose own doc asserted the false premise
+("anything untracked"); it never measured an engine object.
+
+What was real is the INVERSE: in `rtsadp_obj_get` the dictionary probe ran
+*ahead* of `resolve_slot`, so every SHAPED read paid a `key_text` `String`
+malloc plus a receiver shard lock, and the `Entry::Rtse` probe under it a second
+`key_text` plus a `runtime_ci` lookup, before its own slot was consulted.
+Landed: the shaped own-slot read is hoisted above both probes, guarded by
+`RTS_LAZY_SHAPE=0`. Semantically a no-op — `resolve_slot` requires an
+`Entry::Vec` with a matching shape header, so no receiver reaching the skipped
+blocks can satisfy it. TODO(measure): no RTS number taken.
 
 **3.4 Un-globalize the shape registry.** One process-wide `Mutex` serializes
 every thread's every shape lookup. Shapes are append-only and immutable once

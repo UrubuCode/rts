@@ -1,8 +1,17 @@
 //! The DICTIONARY object path — `Entry::Map(Box<IndexMap<String, i64>>)`.
 //!
-//! This is the representation `__rtsadp_obj_get` reaches for on any receiver
-//! that is not a shaped `Entry::Vec` (`objops.rs:290-338`): object-backed
-//! Registry-class instances, runtime-built rows, anything untracked. The step
+//! This is the representation `__rtsadp_obj_get` reaches for on a receiver whose
+//! live entry genuinely IS an `Entry::Map`: object-backed Registry-class
+//! instances (`net.Server`, `Stats`, `FileHandle`), `Map` collections, N-API
+//! objects, Proxy internals, small runtime-built rows.
+//!
+//! **NOT "anything untracked"** — this line previously said so, and it was the
+//! sole source of `RTS_OPTIMIZATION.md` §5 Tier 3.3's premise that RTS demotes
+//! statically-unproven receivers to dictionary mode. It does not: an untracked
+//! receiver takes the shaped `resolve_slot` route like any other, and
+//! `added_key_shape` grows its shape lazily through the transition tree. So this
+//! kernel prices the DICTIONARY representation, not the cost of being unproven,
+//! and its number must not be quoted as the latter. The step
 //! that is easy to miss is `key_text(key_str_handle)` — it resolves the KEY's own
 //! handle into an owned `String` before the receiver's lock is taken, so a
 //! dictionary read allocates a `String` PER READ.

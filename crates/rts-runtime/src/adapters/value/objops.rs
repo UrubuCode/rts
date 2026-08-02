@@ -152,6 +152,29 @@ fn resolve_slot(obj_word: u64, key_str_handle: u64) -> Option<(u64, i64)> {
     Some((handle, idx))
 }
 
+/// `RTS_LAZY_SHAPE=0` — put the shaped own-slot read back BEHIND the dictionary
+/// and `Entry::Rtse` probes in [`rtsadp_obj_get`], i.e. restore the pre-Tier-3.3
+/// ordering.
+///
+/// The switch lives in the RUNTIME, not in `front/run/clifflags.rs`, because the
+/// change it guards is purely a reordering inside one trampoline: the lowering
+/// emits the identical call either way, so a codegen-side flag would have nothing
+/// to gate. Read once into a `OnceLock` — this is on the hottest property path
+/// and must not be an env lookup per read.
+///
+/// Default ON. It is an A/B switch for what the reordering is WORTH, not a
+/// correctness fallback: both arms answer every read identically (see the
+/// reachability argument at the call site), so a behaviour difference between
+/// them is a bug in that argument, not a tuning result.
+fn lazy_shape_fast_path() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var("RTS_LAZY_SHAPE")
+            .map(|v| v.trim() != "0")
+            .unwrap_or(true)
+    })
+}
+
 /// The triple a property inline cache needs to warm up: `(slot0_word, len,
 /// slot)` for a receiver that is genuinely a SHAPED KEYED OBJECT carrying `key`.
 ///
@@ -314,6 +337,46 @@ pub fn rtsadp_obj_get(obj_word: u64, key_str_handle: u64) -> u64 {
                     return w;
                 }
             }
+        }
+    }
+    // ---- SHAPED OWN-SLOT FAST PATH (`RTS_OPTIMIZATION.md` §5 Tier 3.3) ----
+    //
+    // An own slot on a SHAPED receiver is resolved HERE, ahead of the dictionary
+    // and `Entry::Rtse` probes below, instead of at the `resolve_slot` match at
+    // the bottom of this function.
+    //
+    // Why this is the whole of item 3.3. The item's premise — "RTS demotes an
+    // untracked receiver to dictionary mode" — does NOT hold in this tree: no
+    // codegen path mints an `Entry::Map`, and an untracked receiver already
+    // takes this same shaped route (the lowering's dynamic fallback calls
+    // `__rtsadp_obj_get`/`__rtsadp_obj_set`, and `added_key_shape` lazily grows
+    // the shape through the transition tree on a write to an absent key). What
+    // was real is the INVERSE: a shaped receiver PAID the dictionary path's cost
+    // on every read, because the `Entry::Map` probe ran first and unconditionally
+    // spent one `key_text` `String` malloc plus one shard lock on the receiver,
+    // and the `Entry::Rtse` probe under it spent a second `key_text` plus a
+    // `runtime_ci` lookup — all before the shaped slot was ever consulted.
+    //
+    // Semantically a no-op, and that is checkable rather than hopeful: every
+    // block this jumps over is reachable only by a receiver `resolve_slot` must
+    // decline. `resolve_slot` requires `looks_like_object`, i.e. an `Entry::Vec`
+    // whose slot 0 is a boxed shape id whose key count matches the slot count —
+    // so an `Entry::Map` / `Entry::Rtse` / `Entry::Buffer` / `Entry::Symbol`
+    // receiver can never satisfy it (different `Entry` variant), and the
+    // `length` / `raw` / numeric-byte arms are all gated on `!is_keyed`, the
+    // exact negation of what a hit here requires. The PROXY and FUNCTION checks
+    // above are deliberately left AHEAD of this — a proxy must trap before any
+    // own-slot read, and a function receiver is not `is_object()` anyway.
+    //
+    // Own data slot beats a `__get_` accessor, which is what the `Some` arm of
+    // the match at the bottom already did; a MISS falls through unchanged.
+    //
+    // TODO(measure): no RTS number has been taken for this. The doc's 63.82 ns
+    // is `rts-value-probe`'s kernel OBJ dictionary read, not a measurement of an
+    // engine object.
+    if lazy_shape_fast_path() {
+        if let Some((handle, idx)) = resolve_slot(obj_word, key_str_handle) {
+            return rt_vec::__RTS_FN_NS_COLLECTIONS_VEC_GET(handle, 1 + idx) as u64;
         }
     }
     // A DICTIONARY object (`Entry::Map`): an object-backed Registry class instance
