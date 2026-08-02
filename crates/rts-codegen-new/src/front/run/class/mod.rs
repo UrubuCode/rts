@@ -132,6 +132,20 @@ pub(crate) struct ClassDesc {
     /// constructor refuses at compile time (the TS surface; the ctor prologue and
     /// user ctor body run as `__rtsn_ctor_*`, which is allowed).
     pub readonly_fields: std::collections::HashSet<String>,
+    /// TIER-0 ESCAPE ANALYSIS (`RTS_OPTIMIZATION.md` §5 Tier 4.1): the
+    /// constructor as a REPLAYABLE expression list, when it is nothing but a
+    /// sequence of `this.<field> = <pure numeric expr over the ctor params>`.
+    /// `None` — the common case — means this class can never be scalar-replaced;
+    /// see `super::escape::recipe` for the full eligibility list (no `extends`, no
+    /// accessors, no call/branch/`this`-read in the ctor, every declared field
+    /// assigned exactly once, plain positional params).
+    ///
+    /// A per-CLASS fact, so it is decided once here rather than at every `new`.
+    /// `#[serde(default)]` so a cache artifact written before this field existed
+    /// still deserializes — as `None`, i.e. as "not eligible", which is the safe
+    /// direction.
+    #[serde(default)]
+    pub scalar_ctor: Option<super::escape::ScalarCtor>,
 }
 
 impl ClassDesc {

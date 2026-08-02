@@ -115,6 +115,9 @@ pub(crate) fn build_literal_class(
         // name is a placeholder that is NEVER declared/defined as a function.
         ctor: format!("__rtsl_noctor_{class_name}"),
         ctor_arity: 0,
+        // No constructor at all, so nothing to replay: an object LITERAL is never
+        // reached through `new`, and the escape pass only ever fires on a `new`.
+        scalar_ctor: None,
         methods: method_map,
         accessors,
         statics: HashMap::new(),

@@ -407,6 +407,19 @@ pub(super) fn build_class(
         }
     }
 
+    // TIER-0 ESCAPE ANALYSIS (`RTS_OPTIMIZATION.md` §5 Tier 4.1): decide ONCE,
+    // here, whether this class's constructor is replayable without an object.
+    // Read off the SYNTHESIZED ctor in `out` (same way `collect_ctor_array_fields`
+    // finds it) rather than off the AST, so what the recipe describes is exactly
+    // what would have run — property initializers, prologue and user body already
+    // merged into one statement list.
+    let scalar_ctor = super::super::escape::extract_scalar_ctor(
+        &out,
+        &fields,
+        decl.super_class.is_some(),
+        !accessors.is_empty(),
+    );
+
     let desc = ClassDesc {
         name: decl.name.clone(),
         parent: decl.super_class.clone(),
@@ -424,6 +437,7 @@ pub(super) fn build_class(
         field_strings,
         member_access,
         readonly_fields,
+        scalar_ctor,
     };
     Ok((desc, out))
 }

@@ -21,7 +21,7 @@ use rts_hir::{HirExpr, HirStmt};
 /// CELL instead (live reference — see `module_globals` force-promotion). Reuses
 /// [`collect_free_expr`]: calling it on an `Arrow` node with an empty bound set
 /// yields exactly that arrow's (and any nested arrow's) free identifiers.
-pub(super) fn arrow_free_idents(stmts: &[HirStmt]) -> HashSet<String> {
+pub(in crate::front::run) fn arrow_free_idents(stmts: &[HirStmt]) -> HashSet<String> {
     let mut out = HashSet::new();
     for s in stmts {
         collect_arrow_frees_stmt(s, &mut out);

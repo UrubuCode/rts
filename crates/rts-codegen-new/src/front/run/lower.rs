@@ -552,7 +552,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             float_promoted: super::floatscan::float_promoted_locals(&func.body),
             bool_demoted: super::boolscan::bool_demoted_locals(&func.body),
             singleton_overrides: std::collections::HashSet::new(),
-            scalar_candidates: super::escape::scalar_locals(&func.body, classes),
+            scalar_candidates: super::escape::scalar_locals(&func.body, classes, captures),
             scalar_objs: std::collections::HashMap::new(),
             escape_seq: 0,
         };

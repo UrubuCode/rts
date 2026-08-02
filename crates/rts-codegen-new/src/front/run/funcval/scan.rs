@@ -355,5 +355,5 @@ fn collect_child_exprs<'a>(e: &'a HirExpr, out: &mut Vec<&'a HirExpr>) {
 
 // Arrow-capture + free-variable analysis lives in the sibling `scan_free` module
 // (the <500-line rule). Re-exported here so callers keep the `scan::` path.
-pub(super) use super::scan_free::arrow_free_idents;
+pub(in crate::front::run) use super::scan_free::arrow_free_idents;
 pub use super::scan_free::collect_free_stmt;
