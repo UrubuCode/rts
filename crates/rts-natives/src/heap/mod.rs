@@ -15,5 +15,6 @@ pub mod pickle;
 pub mod poly;
 pub mod regions;
 pub mod shapes;
+pub mod slab;
 pub mod string_pool;
 pub mod this_slot;

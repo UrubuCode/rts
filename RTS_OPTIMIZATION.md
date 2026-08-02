@@ -1531,6 +1531,41 @@ Hazard to design for explicitly: if a slot's *memory* is reused without waiting
 for readers, a suspended thread holding a stale handle can land on a repurposed
 slot. Standard ABA; the generation check answers it, but it must be deliberate.
 
+**LANDED, default OFF** (`crates/rts-natives/src/heap/slab/`, knob `RTS_SLAB=1`,
+same discipline as `RTS_REGIONS` / `RTS_BUMP`). `HandleTable::slots` is now a
+`SlotStore`: the historical `Vec<Slot>` by default, or per-shard chunks of 512
+slots published into a **flat** `static [AtomicPtr; 32 * 4096]` table by a single
+`Release` store. Chunks are never moved, never reallocated and never freed, so a
+slot's address is fixed for the life of the PROCESS — stronger than the item
+asked for, and free, because it falls out of never freeing a chunk. Address
+resolution is `base = load [CHUNK_TABLE + (shard*MAX_CHUNKS + chunk)*8]` — H7's
+one flat load, not a second dependent one.
+
+Three things this deliberately does NOT do, each written down in the module so
+3.2 does not inherit a false belief:
+
+- **It does not make a field read lock-free.** An `Entry` is a `Box`/`Vec` enum
+  that `sweep_unmarked` mutates with every mutator live (§4.3 — no
+  stop-the-world), so a stable address permits computing where a slot is, not
+  reading its `Entry` without the shard `Mutex`. The lock-free read needs 3.1
+  **plus** `RTS_CLASS_IMPLEMENTATION.md` §4.2's inline-slot block layout (plain
+  `i64` words in the slot), which itself needs the object/array split (§8.4). No
+  measurement covers that, and 3.1 does not half-build it.
+- **It does not close the ABA hole, it answers it.** Slot MEMORY is reused in
+  place (that is what makes the address stable), so a stale handle now lands on a
+  live, correctly-typed, wrong slot. The generation bump on reuse plus the
+  existing per-accessor comparison rejects it; what 3.1 adds is that the
+  generation is an `AtomicU16` read `Relaxed`, so a read taken outside the lock
+  is a defined atomic read rather than UB. The 16-bit wrap remains, identical to
+  today's `Vec` path — closing it needs a wider generation or epoch-based
+  reclamation deferral, which §4.3 names and this item is not.
+- **It declares no ABI symbol.** The chunk-table base and the slot stride are
+  plain `pub fn`s; 3.2 is the item that needs them from AOT and is the item that
+  should declare them with `#[rtse::abi]` and re-run `rts-symbol-baker`.
+
+TODO(measure): no RTS number taken. The ~2.2 ns and H7/H10 describe the probe's
+model of this storage, and 3.1's win is not collectable until 3.2 emits the load.
+
 **3.2 Emit the field read as a real `load`, not a call.** ~5.3 ns **[M]**. The
 stated blocker (`payload_ops.rs:28-35`: "the HandleTable and the allocator do not
 exist at the IR level") is removable exactly by 3.1 — a chunked slab with a base
