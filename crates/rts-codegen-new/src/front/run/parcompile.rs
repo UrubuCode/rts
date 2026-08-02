@@ -149,6 +149,19 @@ pub(super) fn compile_and_define(
     }
     crate::timing::note("fns to machine-compile", pending.len());
 
+    // INLINING (`RTS_INLINE=1`, `CRANELIFT_IMPLEMENTATION.md` §3): every body in
+    // the program is in hand right here, which is what Cranelift's
+    // embedder-driven pass needs. The map is read-only, so the pass itself runs
+    // inside the parallel region below and costs no serial time — only this
+    // collection does.
+    let bodies = if super::inliner::enabled() {
+        crate::timing::phase("  collect inline bodies", || {
+            super::inliner::collect(pending.iter().map(|p| (p.id.as_u32(), &p.ctx.func)))
+        })
+    } else {
+        super::inliner::Bodies::default()
+    };
+
     // PARALLEL PHASE. Borrows `module` only immutably (for the ISA) and returns
     // fully owned results, so the mutable borrow below is free to start.
     let emitted: Vec<Emitted> = {
@@ -171,6 +184,14 @@ pub(super) fn compile_and_define(
             // 231 MB and the suite from 37 s to 85 s). The prelude is the same
             // source in every process, so its stencils repeat and the store
             // converges to a fixed size — that is the part worth caching.
+            // Inline BEFORE compiling (and before the cache key is computed, so a
+            // cached entry always matches the IR that produced it).
+            if super::inliner::enabled() {
+                let inliner = super::inliner::SizeInliner::new(bodies.clone(), p.id.as_u32());
+                p.ctx
+                    .inline(inliner)
+                    .map_err(|e| Unsupported::new(format!("inline `{}`: {e:?}", p.name)))?;
+            }
             let alignment = if let Some(store) = store.as_mut().filter(|_| p.prelude) {
                 let res = p
                     .ctx

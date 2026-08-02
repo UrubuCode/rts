@@ -69,6 +69,7 @@ mod objstatic;
 mod optchain_lower;
 mod clifcache;
 mod clifflags;
+mod inliner;
 mod parcompile;
 mod prelude_cache;
 mod progcache;
