@@ -1366,7 +1366,6 @@ pub fn shard_for_handle(handle: u64) -> &'static Mutex<HandleTable> {
 }
 
 thread_local! {
-    static ALLOC_SHARD: Cell<usize> = const { Cell::new(0) };
     /// Conta alocações por thread para GC automático periódico.
     static ALLOC_TICK: Cell<u32> = const { Cell::new(0) };
 }
@@ -1405,7 +1404,9 @@ pub fn arm_gc() {
     GC_ARMED.store(true, Ordering::Relaxed);
 }
 
-/// Allocates `entry` in the next shard (round-robin per thread).
+/// Allocates `entry` in the next shard chosen by [`crate::heap::regions`]
+/// (global round-robin per thread by default; per-thread region affinity under
+/// `RTS_REGIONS=1`).
 /// The shard index is encoded in the returned handle so `shard_for_handle`
 /// routes correctly without any extra lookup.
 ///
@@ -1523,11 +1524,10 @@ pub fn alloc_entry(entry: Entry) -> u64 {
         crate::collector::cycle::finish_cycle();
     }
 
-    let shard_idx = ALLOC_SHARD.with(|s| {
-        let v = s.get();
-        s.set((v + 1) % N_SHARDS);
-        v
-    });
+    // Shard choice moved to `heap::regions` (T3, `rts-threading-model.md`): with
+    // `RTS_REGIONS=1` the thread allocates only inside its own region; unset it
+    // returns the same global round-robin this line used to compute inline.
+    let shard_idx = crate::heap::regions::next_shard();
     shards()[shard_idx]
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -2203,6 +2203,14 @@ mod tests {
     fn alloc_distributes_across_shards() {
         // alloc_entry round-robins shards; N_SHARDS consecutive allocs
         // from the same thread should hit all shards.
+        //
+        // This holds for the DEFAULT allocation policy only. With `RTS_REGIONS=1`
+        // (T3 affinity, `heap::regions`) a thread is bounded to its own region,
+        // so it visits `region_len()` shards, not all of them — that case is
+        // covered by `heap::regions`'s own tests, not weakened here.
+        if crate::heap::regions::regions_enabled_for_test() {
+            return;
+        }
         let mut shard_indices = std::collections::HashSet::new();
         for _ in 0..N_SHARDS {
             let h = alloc_entry(Entry::Free);

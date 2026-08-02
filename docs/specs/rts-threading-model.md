@@ -134,6 +134,20 @@ the non-exotic path.
   discarded along with the write.
 - **T2**: atomic ICs (#2) + audit of global runtime state.
 - **T3**: deterministic thread→shard affinity + parallel sweep.
+  **Affinity LANDED behind a knob (2026-08-02)** — `rts-natives/src/heap/regions.rs`.
+  A *region* is a contiguous, disjoint slice of the 32-shard space owned by one
+  thread; `alloc_entry` asks that module for its next shard instead of
+  round-robining over all shards. The handle encoding is UNCHANGED, so
+  `shard_for_handle` and every decode path are untouched — this is purely a
+  choice-of-shard change, which is what makes it A/B-able. Enabled with
+  `RTS_REGIONS=1`; unset/`0` reproduces the historical global round-robin
+  exactly, and that is the default until a measurement justifies flipping it.
+  Region count is derived (largest power of two `<= N_SHARDS` and `>=`
+  `available_parallelism`); with more live threads than regions, assignment
+  WRAPS and two threads share a region — so T4's "one region, one thread"
+  invariant is not unconditional and local collection must handle a shared
+  region. The **parallel sweep half of T3 is NOT done**, and the collector was
+  deliberately left untouched.
 - **T4**: promotion on publication (region write barrier) + local GC.
 - **T5**: workers/channels/threadLocal/shared on the surface.
 
