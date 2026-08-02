@@ -141,8 +141,12 @@ pub fn rewrite_by_ref(f: &mut Function, names: &HashSet<String>) -> bool {
         names,
         shadowed: Vec::new(),
         ok: true,
+        motivo: String::new(),
     };
     f.visit_mut_with(&mut v);
+    if !v.ok && std::env::var("RTS_DIAG_GEN").is_ok() {
+        eprintln!("[diag] reescrita por referência recusou: {}", v.motivo);
+    }
     v.ok
 }
 
@@ -152,6 +156,8 @@ struct Rewriter<'a> {
     /// outra variável e não pode ser reescrito.
     shadowed: Vec<HashSet<String>>,
     ok: bool,
+    /// Por que recusou — só para `RTS_DIAG_GEN`.
+    pub motivo: String,
 }
 
 impl Rewriter<'_> {
@@ -217,6 +223,7 @@ impl VisitMut for Rewriter<'_> {
                         // sempre. Recusa.
                         None => {
                             self.ok = false;
+                            self.motivo = format!("atribuição lógica `{name} {op:?}=`");
                             return;
                         }
                     },
@@ -225,11 +232,59 @@ impl VisitMut for Rewriter<'_> {
                 return;
             }
         }
-        // `s++` / `s--`: precisaria de um temporário para o valor antigo.
+        // `s++` / `--s` sobre uma capturada. O valor da EXPRESSÃO difere entre
+        // as duas formas, e é isso que decide a tradução:
+        //
+        //   ++s   →  __ss_s(__gs_s() + 1)          (vale o NOVO)
+        //   s++   →  (__ss_s(__gs_s() + 1), __gs_s() - 1)
+        //
+        // A forma pós-fixa devolve o valor ANTIGO. Em vez de sintetizar um
+        // temporário (o que exigiria um statement, e aqui só há expressão), ela
+        // é reconstruída a partir do novo: `novo - 1` para `++`, `novo + 1` para
+        // `--`. É exato para número, que é o que `++` exige — o operando passa
+        // por ToNumber, então qualquer outro tipo já virou número aqui.
         if let Expr::Update(u) = e {
             if let Expr::Ident(i) = &*u.arg {
-                if self.targets(&i.sym.to_string()) {
-                    self.ok = false;
+                let name = i.sym.to_string();
+                if self.targets(&name) {
+                    let mais = u.op == swc_ecma_ast::UpdateOp::PlusPlus;
+                    let delta = |v: f64| {
+                        Expr::Lit(swc_ecma_ast::Lit::Num(swc_ecma_ast::Number {
+                            span: Default::default(),
+                            value: v,
+                            raw: None,
+                        }))
+                    };
+                    let bin = |op, l: Expr, r: Expr| {
+                        Expr::Bin(swc_ecma_ast::BinExpr {
+                            span: Default::default(),
+                            op,
+                            left: Box::new(l),
+                            right: Box::new(r),
+                        })
+                    };
+                    use swc_ecma_ast::BinaryOp;
+                    let op_novo = if mais { BinaryOp::Add } else { BinaryOp::Sub };
+                    let novo = call(
+                        &setter_name(&name),
+                        vec![bin(op_novo, call(&getter_name(&name), vec![]), delta(1.0))],
+                    );
+                    *e = if u.prefix {
+                        novo
+                    } else {
+                        // `(set(...), get() ∓ 1)` — a vírgula garante a ORDEM:
+                        // escreve primeiro, depois lê o valor já atualizado e o
+                        // desfaz para reconstruir o antigo.
+                        let antigo = bin(
+                            if mais { BinaryOp::Sub } else { BinaryOp::Add },
+                            call(&getter_name(&name), vec![]),
+                            delta(1.0),
+                        );
+                        Expr::Seq(swc_ecma_ast::SeqExpr {
+                            span: Default::default(),
+                            exprs: vec![Box::new(novo), Box::new(antigo)],
+                        })
+                    };
                     return;
                 }
             }
@@ -252,8 +307,9 @@ impl VisitMut for Rewriter<'_> {
         if let AssignTarget::Pat(p) = t {
             let mut names = HashSet::new();
             collect_pat_names(p, &mut names);
-            if names.iter().any(|n| self.targets(n)) {
+            if let Some(n) = names.iter().find(|n| self.targets(n)) {
                 self.ok = false;
+                self.motivo = format!("alvo desestruturante com `{n}`");
                 return;
             }
         }
