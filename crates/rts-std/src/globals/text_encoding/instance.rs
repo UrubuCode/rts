@@ -218,34 +218,65 @@ fn clone_handle_deep(handle: u64, visited: &mut std::collections::HashMap<u64, u
         rts_shared::collections::map::mark_set_kind(new_h);
     }
     // Deep clone de slots que sao handles a estruturas clonaveis.
+    //
+    // Tres fases, UM lock por vez: (1) fotografa os slots do clone, (2) recursa
+    // nos filhos com nenhum guard na mao, (3) reabre `new_h` so' para gravar. A
+    // versao anterior fazia (2) DENTRO de `with_entry_mut(new_h)`, e a recursao
+    // faz `with_entry` no filho, `alloc_entry` (que ainda pode disparar
+    // `finish_cycle`, varrendo todos os shards) e ate' `REGEX_COMPILE` — tudo
+    // com o shard `Mutex` de `new_h` travado. O `Mutex` do `std` nao e'
+    // reentrante, entao um filho que caisse no mesmo shard do pai travava
+    // `structuredClone` de qualquer objeto/array aninhado contra a propria
+    // thread. Mesma disciplina de `url::search_params::intern_all`.
     use rts_engine::heap::handles::with_entry_mut;
-    let _ = with_entry_mut(new_h, |entry| match entry {
-        Some(Entry::Map(m)) => {
-            let pairs: Vec<(String, i64)> = m.iter().map(|(k, v)| (k.clone(), *v)).collect();
+    enum Slots {
+        Map(Vec<(String, i64)>),
+        Vec(Vec<i64>),
+        None,
+    }
+    let slots = with_entry(new_h, |entry| match entry {
+        Some(Entry::Map(m)) => Slots::Map(m.iter().map(|(k, v)| (k.clone(), *v)).collect()),
+        Some(Entry::Vec(v)) => Slots::Vec(v.as_ref().clone()),
+        _ => Slots::None,
+    });
+    match slots {
+        Slots::Map(pairs) => {
+            let mut updates: Vec<(String, i64)> = Vec::new();
             for (k, v) in pairs {
                 let v_u = v as u64;
-                if v_u > 0xFFFF_FFFF {
-                    let v_kind = with_entry(v_u, is_deep_clonable);
-                    if v_kind {
-                        let cloned = clone_handle_deep(v_u, visited);
-                        m.insert(k, cloned as i64);
-                    }
+                if v_u > 0xFFFF_FFFF && with_entry(v_u, is_deep_clonable) {
+                    updates.push((k, clone_handle_deep(v_u, visited) as i64));
                 }
             }
+            if !updates.is_empty() {
+                let _ = with_entry_mut(new_h, |entry| {
+                    if let Some(Entry::Map(m)) = entry {
+                        for (k, cloned) in updates {
+                            m.insert(k, cloned);
+                        }
+                    }
+                });
+            }
         }
-        Some(Entry::Vec(v)) => {
-            for slot in v.iter_mut() {
+        Slots::Vec(mut items) => {
+            let mut changed = false;
+            for slot in items.iter_mut() {
                 let s_u = *slot as u64;
-                if s_u > 0xFFFF_FFFF {
-                    let v_kind = with_entry(s_u, is_deep_clonable);
-                    if v_kind {
-                        *slot = clone_handle_deep(s_u, visited) as i64;
-                    }
+                if s_u > 0xFFFF_FFFF && with_entry(s_u, is_deep_clonable) {
+                    *slot = clone_handle_deep(s_u, visited) as i64;
+                    changed = true;
                 }
             }
+            if changed {
+                let _ = with_entry_mut(new_h, |entry| {
+                    if let Some(Entry::Vec(v)) = entry {
+                        **v = items;
+                    }
+                });
+            }
         }
-        _ => {}
-    });
+        Slots::None => {}
+    }
     new_h
 }
 

@@ -101,9 +101,22 @@ pub(crate) fn do_abort(h: u64, reason: u64, default_name: &str, default_message:
         }
     });
     let ev = alloc_rtse("Event", Event::new_internal("abort"));
+    // The signal is cloned OUT, dispatched with no guard held, and written back
+    // — the same shape `__RTS_FN_GL_EVENTTARGET_DISPATCH_EVENT` uses.
+    //
+    // `dispatch_on` runs USER JS listeners (`__rtsadp_fn_invoke`) and, before
+    // that, re-enters the handle table itself (`with_rtse`/`with_rtse_mut` on
+    // the Event, `handle_word_auto` on the event and each callback). Running it
+    // inside `with_rtse_mut` held this signal's shard `Mutex` across all of it:
+    // a listener that allocates, calls `addEventListener` again, or triggers a
+    // GC cycle re-enters that same non-reentrant `std::sync::Mutex` and hangs
+    // the thread against itself — and the Event/callback handles alone already
+    // collide whenever they land in this signal's shard.
+    let mut cloned: AbortSignal = with_rtse::<AbortSignal, _>(h, |s| s.cloned()).unwrap_or_default();
+    target::dispatch_on(&mut cloned.base, h, ev);
     with_rtse_mut::<AbortSignal, _>(h, |s| {
         if let Some(s) = s {
-            target::dispatch_on(&mut s.base, h, ev);
+            *s = cloned;
         }
     });
     let onabort = with_rtse::<AbortSignal, _>(h, |s| s.map(|x| x.onabort)).unwrap_or(0);

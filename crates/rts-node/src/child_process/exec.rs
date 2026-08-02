@@ -36,23 +36,32 @@ fn num(v: f64) -> i64 {
 }
 
 /// Read a JS `string[]` argument into a `Vec<String>`.
+///
+/// The element WORDS are copied out under the array's shard lock and resolved
+/// to text only after it drops. Both the nested `with_entry` and
+/// `poly_handle_normalize` (which reads the slot generation under the ELEMENT's
+/// shard `Mutex`, `handles::poly_to_handle`) take a second shard lock; with the
+/// array's still held and `std`'s `Mutex` not being reentrant, an argument
+/// string landing in the array's shard deadlocks the thread against itself.
+/// Same discipline as `url::search_params::intern_all`.
 fn read_str_array(handle: u64) -> Vec<String> {
-    with_entry(handle, |e| match e {
-        Some(Entry::Vec(v)) => v
-            .iter()
-            .map(|&w| {
-                poly_handle_normalize(w as u64)
-                    .map(|h| {
-                        with_entry(h, |e2| match e2 {
-                            Some(Entry::String(s)) => String::from_utf8_lossy(s).into_owned(),
-                            _ => String::new(),
-                        })
-                    })
-                    .unwrap_or_default()
-            })
-            .collect(),
+    let words: Vec<i64> = with_entry(handle, |e| match e {
+        Some(Entry::Vec(v)) => v.as_ref().clone(),
         _ => Vec::new(),
-    })
+    });
+    words
+        .into_iter()
+        .map(|w| {
+            poly_handle_normalize(w as u64)
+                .map(|h| {
+                    with_entry(h, |e2| match e2 {
+                        Some(Entry::String(s)) => String::from_utf8_lossy(s).into_owned(),
+                        _ => String::new(),
+                    })
+                })
+                .unwrap_or_default()
+        })
+        .collect()
 }
 
 /// A shell `Command` for the platform (`cmd /C` / `/bin/sh -c`).

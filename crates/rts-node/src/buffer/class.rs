@@ -148,17 +148,25 @@ impl Buffer {
 }
 
 /// The concatenated bytes of an array-of-buffers word.
+///
+/// The element words are COPIED out under the list's shard lock, and only then
+/// read. `word_bytes` itself calls `with_entry` on the element handle, so doing
+/// it inside this closure would take a second shard `Mutex` while still holding
+/// the list's — and `std`'s `Mutex` is not reentrant, so a list element landing
+/// in the same shard as the list deadlocks the thread against itself. That is
+/// the same discipline `url::search_params::intern_all` documents (there the
+/// inner operation allocates; here it re-locks — identical failure).
 fn concat_bytes(list: u64) -> Vec<u8> {
     use rts_engine::heap::handles::{with_entry, Entry};
     use rts_engine::heap::poly::poly_handle_normalize;
-    let mut out = Vec::new();
     let h = poly_handle_normalize(list).unwrap_or(list);
-    with_entry(h, |e| {
-        if let Some(Entry::Vec(v)) = e {
-            for &w in v.iter() {
-                out.extend_from_slice(&word_bytes(w as u64));
-            }
-        }
+    let words: Vec<i64> = with_entry(h, |e| match e {
+        Some(Entry::Vec(v)) => v.as_ref().clone(),
+        _ => Vec::new(),
     });
+    let mut out = Vec::new();
+    for w in words {
+        out.extend_from_slice(&word_bytes(w as u64));
+    }
     out
 }

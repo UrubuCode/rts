@@ -236,16 +236,28 @@ fn json_rule_texts(value: u64) -> Option<Vec<String>> {
                 })
                 .collect()
         }
-        Val::Obj(h) => with_entry(h, |e| match e {
-            Some(Entry::Vec(words)) => words
-                .iter()
-                .map(|&w| match val(w as u64) {
+        // The element WORDS come out under the array's shard lock; `val` runs
+        // only after it drops. `val` on a string word calls
+        // `poly_handle_normalize` (which reads the slot generation under the
+        // ELEMENT's shard `Mutex`, `handles::poly_to_handle`) and then
+        // `handle_string`, another `with_entry`. Either inside this closure
+        // takes a second shard lock while the array's is held, and `std`'s
+        // `Mutex` is not reentrant — a rule string landing in the array's shard
+        // deadlocks `fromJSON` against itself. Same discipline as
+        // `url::search_params::intern_all`.
+        Val::Obj(h) => {
+            let words: Option<Vec<i64>> = with_entry(h, |e| match e {
+                Some(Entry::Vec(words)) => Some(words.as_ref().clone()),
+                _ => None,
+            });
+            words?
+                .into_iter()
+                .map(|w| match val(w as u64) {
                     Val::Str(s) => Some(s),
                     _ => None,
                 })
-                .collect(),
-            _ => None,
-        }),
+                .collect()
+        }
         _ => None,
     }
 }

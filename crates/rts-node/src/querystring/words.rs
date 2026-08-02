@@ -86,11 +86,21 @@ pub fn object_entries(handle: u64) -> Option<Vec<(String, i64)>> {
 
 /// The string elements of a plain (non-shaped) array handle. Each element is
 /// coerced to its scalar string form.
+///
+/// The element WORDS are copied out under the array's shard lock and coerced
+/// only after it drops. `scalar_string` calls `poly_handle_normalize` — which
+/// reads the slot generation under the ELEMENT's shard `Mutex`
+/// (`handles::poly_to_handle`) — and then `read_string_handle`, another
+/// `with_entry`. Either one inside this closure takes a second shard lock while
+/// the array's is still held, and `std`'s `Mutex` is not reentrant, so an
+/// element landing in the array's shard deadlocks the thread against itself.
+/// Same discipline as `url::search_params::intern_all`.
 pub fn array_strings(handle: u64) -> Vec<String> {
-    with_entry(handle, |e| match e {
-        Some(Entry::Vec(v)) => v.iter().map(|&w| scalar_string(w as u64)).collect(),
+    let words: Vec<i64> = with_entry(handle, |e| match e {
+        Some(Entry::Vec(v)) => v.as_ref().clone(),
         _ => Vec::new(),
-    })
+    });
+    words.into_iter().map(|w| scalar_string(w as u64)).collect()
 }
 
 /// `Some(shape_id)` if `w` is a boxed-INT32 word carrying a REGISTERED global

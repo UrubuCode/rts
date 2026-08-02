@@ -313,18 +313,26 @@ fn stringify_with_visited(
             return None;
         }
         let keys_vec = rts_primitives::proxy::ops::dispatch_own_keys_enumerable(target, handler);
-        let key_strs: Vec<String> = with_entry(keys_vec, |e| match e {
-            Some(Entry::Vec(v)) => v
-                .iter()
-                .filter_map(|kh| {
-                    with_entry(*kh as u64, |ke| match ke {
-                        Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
-                        _ => None,
-                    })
-                })
-                .collect(),
+        // Os HANDLES das keys saem sob o lock do array; cada string so' e' lida
+        // depois. O `with_entry` aninhado que estava aqui tomava um segundo
+        // shard `Mutex` com o do `keys_vec` ainda travado — e o `Mutex` do
+        // `std` nao e' reentrante, entao uma key que caisse no mesmo shard do
+        // array travava `JSON.stringify(new Proxy(...))` contra a propria
+        // thread. Nao mova o loop de `dispatch_get` abaixo para dentro deste
+        // closure: ele chama um TRAP de usuario, que aloca e re-entra.
+        let key_handles: Vec<i64> = with_entry(keys_vec, |e| match e {
+            Some(Entry::Vec(v)) => v.as_ref().clone(),
             _ => Vec::new(),
         });
+        let key_strs: Vec<String> = key_handles
+            .into_iter()
+            .filter_map(|kh| {
+                with_entry(kh as u64, |ke| match ke {
+                    Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
+                    _ => None,
+                })
+            })
+            .collect();
         let mut out = String::new();
         out.push('{');
         let mut first = true;
@@ -579,103 +587,126 @@ fn date_iso_quoted(ms: i64) -> String {
 }
 
 /// Pretty-printer recursivo para Map/Vec/String/Json com indent.
+///
+/// O entry e' fotografado em estruturas OWNED sob o lock do shard; a formatacao
+/// (e, para Map/Vec, a RECURSAO nos filhos) roda com o guard ja' solto. A versao
+/// anterior mantinha o `with_entry` do PAI aberto em volta de todo o corpo e
+/// recursava nos filhos la' dentro — cada nivel de aninhamento tomava mais um
+/// shard `Mutex` sem soltar os de cima, e o `Mutex` do `std` nao e' reentrante,
+/// entao um filho que caisse em qualquer shard ja' travado travava a thread
+/// contra ela mesma (a probabilidade compunha por nivel de profundidade). E'
+/// exatamente a mesma correcao que o caminho compacto (`stringify_with_visited`)
+/// ja' aplica com o seu proprio `Snap`, e que o comentario da folha `String`
+/// abaixo ja' descrevia para o caso raso.
 fn stringify_pretty_inner_str(handle: u64, indent: &str, depth: usize) -> Option<String> {
     use std::fmt::Write;
     let pad_outer = indent.repeat(depth);
     let pad_inner = indent.repeat(depth + 1);
-    with_entry(handle, |e| {
-        let v = e?;
-        let mut out = String::new();
-        match v {
-            // (deadlock fix) String é folha: escapa inline a partir dos bytes
-            // já em mãos. NUNCA chamar stringify_any_inner(handle) aqui — ele
-            // re-entra with_entry(handle) e trava o MESMO shard mutex (Mutex
-            // não-reentrante). Bug aparecia só com valores string em objeto/array
-            // pretty (a suite só cobria valores numéricos).
-            Entry::String(b) => {
+
+    enum Snap {
+        Str(Vec<u8>),
+        Map(Vec<(String, i64)>),
+        Vec(Vec<i64>),
+        Json(Box<serde_json::Value>),
+    }
+    let snap = with_entry(handle, |e| match e? {
+        Entry::String(b) => Some(Snap::Str(b.clone())),
+        Entry::Map(m) => Some(Snap::Map(
+            m.iter()
+                .filter(|(k, _)| {
+                    let s = k.as_str();
+                    s != "__proto__"
+                        && !s.starts_with("@@sym:")
+                        && !s.starts_with("__get_")
+                        && !s.starts_with("__set_")
+                })
+                .map(|(k, v)| (k.clone(), *v))
+                .collect(),
+        )),
+        Entry::Vec(arr) => Some(Snap::Vec(arr.as_ref().clone())),
+        Entry::Json(j) => Some(Snap::Json(j.clone())),
+        _ => None,
+    })?;
+
+    let mut out = String::new();
+    match snap {
+        // (deadlock fix) String é folha: escapa inline a partir dos bytes
+        // já em mãos. NUNCA chamar stringify_any_inner(handle) aqui — ele
+        // re-entra with_entry(handle) e trava o MESMO shard mutex (Mutex
+        // não-reentrante). Bug aparecia só com valores string em objeto/array
+        // pretty (a suite só cobria valores numéricos).
+        Snap::Str(b) => {
+            out.push('"');
+            for &c in b.iter() {
+                match c {
+                    b'"' => out.push_str("\\\""),
+                    b'\\' => out.push_str("\\\\"),
+                    b'\n' => out.push_str("\\n"),
+                    b'\r' => out.push_str("\\r"),
+                    b'\t' => out.push_str("\\t"),
+                    0x00..=0x1f => {
+                        let _ = write!(out, "\\u{:04x}", c);
+                    }
+                    _ => out.push(c as char),
+                }
+            }
+            out.push('"');
+            Some(out)
+        }
+        Snap::Map(entries) => {
+            if entries.is_empty() {
+                out.push_str("{}");
+                return Some(out);
+            }
+            out.push_str("{\n");
+            for (i, (k, val)) in entries.iter().enumerate() {
+                out.push_str(&pad_inner);
                 out.push('"');
-                for &c in b.iter() {
+                for c in k.bytes() {
                     match c {
                         b'"' => out.push_str("\\\""),
                         b'\\' => out.push_str("\\\\"),
-                        b'\n' => out.push_str("\\n"),
-                        b'\r' => out.push_str("\\r"),
-                        b'\t' => out.push_str("\\t"),
-                        0x00..=0x1f => {
-                            let _ = write!(out, "\\u{:04x}", c);
-                        }
                         _ => out.push(c as char),
                     }
                 }
-                out.push('"');
-                Some(out)
-            }
-            Entry::Map(m) => {
-                let entries: Vec<(&String, &i64)> = m
-                    .iter()
-                    .filter(|(k, _)| {
-                        let s = k.as_str();
-                        s != "__proto__"
-                            && !s.starts_with("@@sym:")
-                            && !s.starts_with("__get_")
-                            && !s.starts_with("__set_")
-                    })
-                    .collect();
-                if entries.is_empty() {
-                    out.push_str("{}");
-                    return Some(out);
+                out.push_str("\": ");
+                out.push_str(&stringify_pretty_value_i64_str(*val, indent, depth + 1));
+                if i + 1 < entries.len() {
+                    out.push(',');
                 }
-                out.push_str("{\n");
-                for (i, (k, val)) in entries.iter().enumerate() {
-                    out.push_str(&pad_inner);
-                    out.push('"');
-                    for c in k.bytes() {
-                        match c {
-                            b'"' => out.push_str("\\\""),
-                            b'\\' => out.push_str("\\\\"),
-                            _ => out.push(c as char),
-                        }
-                    }
-                    out.push_str("\": ");
-                    out.push_str(&stringify_pretty_value_i64_str(**val, indent, depth + 1));
-                    if i + 1 < entries.len() {
-                        out.push(',');
-                    }
-                    out.push('\n');
-                }
-                out.push_str(&pad_outer);
-                out.push('}');
-                Some(out)
+                out.push('\n');
             }
-            Entry::Vec(arr) => {
-                if arr.is_empty() {
-                    out.push_str("[]");
-                    return Some(out);
-                }
-                out.push_str("[\n");
-                for (i, val) in arr.iter().enumerate() {
-                    out.push_str(&pad_inner);
-                    out.push_str(&stringify_pretty_value_i64_str(*val, indent, depth + 1));
-                    if i + 1 < arr.len() {
-                        out.push(',');
-                    }
-                    out.push('\n');
-                }
-                out.push_str(&pad_outer);
-                out.push(']');
-                Some(out)
-            }
-            Entry::Json(j) => {
-                let mut buf = Vec::with_capacity(64);
-                let formatter = serde_json::ser::PrettyFormatter::with_indent(indent.as_bytes());
-                let mut ser = serde_json::Serializer::with_formatter(&mut buf, formatter);
-                serde::Serialize::serialize(j.as_ref(), &mut ser).ok()?;
-                let _ = write!(out, "{}", String::from_utf8(buf).ok()?);
-                Some(out)
-            }
-            _ => None,
+            out.push_str(&pad_outer);
+            out.push('}');
+            Some(out)
         }
-    })
+        Snap::Vec(arr) => {
+            if arr.is_empty() {
+                out.push_str("[]");
+                return Some(out);
+            }
+            out.push_str("[\n");
+            for (i, val) in arr.iter().enumerate() {
+                out.push_str(&pad_inner);
+                out.push_str(&stringify_pretty_value_i64_str(*val, indent, depth + 1));
+                if i + 1 < arr.len() {
+                    out.push(',');
+                }
+                out.push('\n');
+            }
+            out.push_str(&pad_outer);
+            out.push(']');
+            Some(out)
+        }
+        Snap::Json(j) => {
+            let mut buf = Vec::with_capacity(64);
+            let formatter = serde_json::ser::PrettyFormatter::with_indent(indent.as_bytes());
+            let mut ser = serde_json::Serializer::with_formatter(&mut buf, formatter);
+            serde::Serialize::serialize(j.as_ref(), &mut ser).ok()?;
+            let _ = write!(out, "{}", String::from_utf8(buf).ok()?);
+            Some(out)
+        }
+    }
 }
 
 fn stringify_pretty_value_i64_str(v: i64, indent: &str, depth: usize) -> String {

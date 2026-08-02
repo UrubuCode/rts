@@ -55,12 +55,22 @@ fn word_str(w: u64) -> String {
 }
 
 /// Read a JS `string[]` (a boxed array word) into a `Vec<String>`.
+///
+/// The element WORDS are copied out under the array's shard lock and decoded
+/// only after it drops. `word_str` both calls `poly_handle_normalize` — which
+/// reads the slot generation under the ELEMENT's shard `Mutex`
+/// (`handles::poly_to_handle`) — and opens its own `with_entry`. Doing either
+/// inside this closure takes a second shard lock while the array's is still
+/// held, and `std`'s `Mutex` is not reentrant, so an element string landing in
+/// the array's shard deadlocks the thread against itself. Same discipline as
+/// `url::search_params::intern_all`.
 fn word_str_array(word: u64) -> Vec<String> {
     let Some(handle) = poly_handle_normalize(word) else { return Vec::new() };
-    with_entry(handle, |e| match e {
-        Some(Entry::Vec(v)) => v.iter().map(|&w| word_str(w as u64)).collect(),
+    let words: Vec<i64> = with_entry(handle, |e| match e {
+        Some(Entry::Vec(v)) => v.as_ref().clone(),
         _ => Vec::new(),
-    })
+    });
+    words.into_iter().map(|w| word_str(w as u64)).collect()
 }
 
 fn truthy(w: i64) -> bool {

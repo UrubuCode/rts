@@ -136,11 +136,23 @@ fn write_sync(fd: i64, buffer: Handle, offset: i64, length: i64, position: i64) 
 
 /// The inner buffer handles of an array-of-buffers argument (each element word
 /// normalized to a raw handle).
+///
+/// The element WORDS are copied out under the array's shard lock and normalized
+/// after it drops: `poly_handle_normalize` reads the slot generation under the
+/// ELEMENT's shard `Mutex` (`handles::poly_to_handle`), so doing it inside this
+/// closure takes a second shard lock while the array's is still held — and
+/// `std`'s `Mutex` is not reentrant, so a buffer landing in the array's shard
+/// deadlocks `writevSync`/`readvSync` against itself. Same discipline as
+/// `url::search_params::intern_all`.
 fn buffer_handles(buffers: u64) -> Vec<u64> {
-    with_entry(buffers, |e| match e {
-        Some(Entry::Vec(v)) => v.iter().map(|&w| poly_handle_normalize(w as u64).unwrap_or(w as u64)).collect(),
+    let words: Vec<i64> = with_entry(buffers, |e| match e {
+        Some(Entry::Vec(v)) => v.as_ref().clone(),
         _ => Vec::new(),
-    })
+    });
+    words
+        .into_iter()
+        .map(|w| poly_handle_normalize(w as u64).unwrap_or(w as u64))
+        .collect()
 }
 
 /// The element count of a `Uint8Array`-shaped `Entry::Vec`.

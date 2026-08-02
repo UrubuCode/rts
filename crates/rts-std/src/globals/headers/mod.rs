@@ -35,37 +35,40 @@ impl Headers {
     /// Parseia um array de pares `[name, value]` (Entry::Vec de Entry::Vec de
     /// string handles) — a mesma forma que `new Headers(arr)` aceitava no
     /// builder hand-written original.
+    ///
+    /// Cada nivel e' lido com UM lock por vez: os handles dos pares saem sob o
+    /// lock do array externo, e so' depois cada par (e depois cada string) e'
+    /// aberto. A versao anterior aninhava tres `with_entry` — par dentro do
+    /// array, key e value dentro do par —, segurando ate' tres shard `Mutex`
+    /// simultaneos. O `Mutex` do `std` nao e' reentrante, entao qualquer par ou
+    /// string que caisse num shard ja' travado travava `new Headers([[k,v]])`
+    /// contra a propria thread. Mesma disciplina de
+    /// `url::search_params::intern_all`.
     fn pairs_from_array(arr_h: u64) -> Vec<(String, String)> {
-        with_entry(arr_h, |e| match e {
-            Some(Entry::Vec(v)) => v
-                .iter()
-                .filter_map(|&pair_raw| {
-                    let pair_h = pair_raw as u64;
-                    let pair_data: Option<(u64, u64)> = with_entry(pair_h, |pe| match pe {
-                        Some(Entry::Vec(pv)) if pv.len() >= 2 => {
-                            Some((pv[0] as u64, pv[1] as u64))
-                        }
-                        _ => None,
-                    });
-                    pair_data.and_then(|(kh, vh)| {
-                        let k = with_entry(kh, |ke| match ke {
-                            Some(Entry::String(b)) => {
-                                Some(String::from_utf8_lossy(b).into_owned())
-                            }
-                            _ => None,
-                        })?;
-                        let v = with_entry(vh, |ve| match ve {
-                            Some(Entry::String(b)) => {
-                                Some(String::from_utf8_lossy(b).into_owned())
-                            }
-                            _ => None,
-                        })?;
-                        Some((k, v))
-                    })
-                })
-                .collect(),
+        let pair_handles: Vec<i64> = with_entry(arr_h, |e| match e {
+            Some(Entry::Vec(v)) => v.as_ref().clone(),
             _ => Vec::new(),
-        })
+        });
+        pair_handles
+            .into_iter()
+            .filter_map(|pair_raw| {
+                let pair_h = pair_raw as u64;
+                let pair_data: Option<(u64, u64)> = with_entry(pair_h, |pe| match pe {
+                    Some(Entry::Vec(pv)) if pv.len() >= 2 => Some((pv[0] as u64, pv[1] as u64)),
+                    _ => None,
+                });
+                let (kh, vh) = pair_data?;
+                let k = with_entry(kh, |ke| match ke {
+                    Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
+                    _ => None,
+                })?;
+                let v = with_entry(vh, |ve| match ve {
+                    Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
+                    _ => None,
+                })?;
+                Some((k, v))
+            })
+            .collect()
     }
 }
 

@@ -313,14 +313,20 @@ pub fn __RTS_FN_NS_COLLECTIONS_OBJ_HAS(obj_h: U64, key_h: U64) -> Bool {
         cur = with_map(cur, 0i64, |m| m.get("__proto__").copied().unwrap_or(0)) as u64;
     }
     // Class method: consulta global class registry pelo __rts_class.
-    let class_name: Option<String> = with_entry(obj_h, |e| match e {
-        Some(Entry::Map(m)) => m.get("__rts_class").and_then(|v| {
-            with_entry(*v as u64, |ce| match ce {
-                Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
-                _ => None,
-            })
-        }),
+    // O SLOT `__rts_class` sai como word crua sob o lock de `obj_h`; a string
+    // da tag so' e' lida DEPOIS. O `with_entry` aninhado que estava aqui tomava
+    // um segundo shard `Mutex` com o primeiro ainda travado, e o `Mutex` do
+    // `std` nao e' reentrante — uma tag que caisse no mesmo shard do objeto
+    // travava `"x" in obj` contra a propria thread.
+    let class_tag: Option<i64> = with_entry(obj_h, |e| match e {
+        Some(Entry::Map(m)) => m.get("__rts_class").copied(),
         _ => None,
+    });
+    let class_name: Option<String> = class_tag.and_then(|v| {
+        with_entry(v as u64, |ce| match ce {
+            Some(Entry::String(b)) => Some(String::from_utf8_lossy(b).into_owned()),
+            _ => None,
+        })
     });
     if let Some(cls) = class_name.as_ref() {
         if class_method_registry()
@@ -525,12 +531,23 @@ pub fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(h: U64) -> Handle {
 #[rtse::abi("__RTS_FN_NS_COLLECTIONS_MAP_VALUES")]
 pub fn __RTS_FN_NS_COLLECTIONS_MAP_VALUES(h: U64) -> Handle {
     if handle_is_set_kind(h) {
-        let elems: Vec<i64> = with_map(h, Vec::new(), |m| {
+        // Os PARES saem owned sob o lock; `set_element_from_pair` so' roda
+        // depois. Ele pode `alloc_entry(Entry::String(...))` (o fallback que
+        // reconstroi o elemento a partir da key), e alocar toma o `Mutex` do
+        // shard destino — com o shard de `h` ainda travado por `with_map`, e o
+        // `Mutex` do `std` nao sendo reentrante, um elemento que caia no mesmo
+        // shard do Set travaria a thread contra ela mesma. Mesma disciplina de
+        // `url::search_params::intern_all`.
+        let pairs: Vec<(String, i64)> = with_map(h, Vec::new(), |m| {
             m.iter()
                 .filter(|(k, _)| k.as_str() != "__proto__")
-                .map(|(k, &v)| set_element_from_pair(k, v))
+                .map(|(k, &v)| (k.clone(), v))
                 .collect()
         });
+        let elems: Vec<i64> = pairs
+            .iter()
+            .map(|(k, v)| set_element_from_pair(k, *v))
+            .collect();
         return rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(
             Box::new(elems),
         ));
@@ -863,16 +880,30 @@ pub fn __RTS_FN_NS_COLLECTIONS_MAP_GET_CHAIN(
     // `cn.length` em handles reificados (ex: ctor stub do prototype map
     // criado em FUNCTION_PROTOTYPE_GET). Sem isso, leitura caia no
     // generic map loop que retorna 0 (Function nao tem slots Map).
-    let fn_field: Option<i64> = rts_engine::heap::handles::with_entry(handle, |e| match e {
+    // O NOME sai como bytes OWNED sob o lock e so' depois vira handle: o
+    // `alloc_entry` que estava aqui dentro rodava com o shard `Mutex` de
+    // `handle` travado, e alocar toma o `Mutex` do shard destino (e pode ainda
+    // disparar `finish_cycle`, que percorre TODOS os shards). O `Mutex` do
+    // `std` nao e' reentrante — quando a string nova cai no mesmo shard da
+    // Function, a thread trava contra ela mesma. Mesma disciplina dos tres
+    // blocos acima (`err_field`/`ctor_name`/`regex_field`), que ja' alocam
+    // depois do closure fechar.
+    enum FnField {
+        Name(Vec<u8>),
+        Length(i64),
+    }
+    let fn_field: Option<FnField> = rts_engine::heap::handles::with_entry(handle, |e| match e {
         Some(Entry::Function(d)) => match key {
-            "name" => Some(alloc_entry(Entry::String(d.name.as_bytes().to_vec())) as i64),
-            "length" => Some(d.arity as i64),
+            "name" => Some(FnField::Name(d.name.as_bytes().to_vec())),
+            "length" => Some(FnField::Length(d.arity as i64)),
             _ => None,
         },
         _ => None,
     });
-    if let Some(v) = fn_field {
-        return v;
+    match fn_field {
+        Some(FnField::Name(bytes)) => return alloc_entry(Entry::String(bytes)) as i64,
+        Some(FnField::Length(n)) => return n,
+        None => {}
     }
     let key_owned = key.to_string();
     let mut current = handle;

@@ -140,11 +140,21 @@ fn resolve_callback_ptr(fp: u64) -> (u64, Vec<i64>, bool, i64) {
 }
 
 /// Le o Vec<i64> de handles de Promise.
+///
+/// Os WORDS sao copiados sob o lock do shard do array e so' DEPOIS convertidos.
+/// `element_to_handle` chama `poly_handle_normalize`, que por sua vez chama
+/// `poly_to_handle` — e esse LE A GERACAO DO SLOT TOMANDO O MUTEX DO SHARD do
+/// elemento. Fazer isso dentro deste closure tomaria um segundo shard `Mutex`
+/// com o do array ainda travado; o `Mutex` do `std` nao e' reentrante, entao um
+/// elemento que caia no mesmo shard do array trava a thread contra ela mesma.
+/// Mesma disciplina de `url::search_params::intern_all` (la' a operacao interna
+/// aloca; aqui ela re-trava — a falha e' identica).
 fn collect_promise_handles(vec_handle: u64) -> Vec<u64> {
-    with_entry(vec_handle, |entry| match entry {
-        Some(Entry::Vec(v)) => v.iter().map(|x| element_to_handle(*x as u64)).collect(),
+    let words: Vec<i64> = with_entry(vec_handle, |entry| match entry {
+        Some(Entry::Vec(v)) => v.as_ref().clone(),
         _ => Vec::new(),
-    })
+    });
+    words.into_iter().map(|x| element_to_handle(x as u64)).collect()
 }
 
 /// Normalize ONE collection element to a real promise handle, accepting every
