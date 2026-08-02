@@ -8,12 +8,13 @@
 //!   it only when the operand KINDS prove `==`/`===` agree (same proven kind);
 //!   cross/unknown kind BAILS. Same-kind Tagged → the runtime `strict_eq`;
 //!   same-kind native → the native compare.
-//! - **Relational `< <= > >=`** — native when both proven numeric; the generic
-//!   `__rtsadp_{lt,le,gt,ge}` PolyValue path when any operand is Tagged.
-//! - **Arithmetic `+ - * / % **`** — native fast path UNCHANGED for proven
-//!   numeric operands; any Tagged/string/mixed operand routes to the matching
-//!   `__rtsadp_*` (`+` is the one generic concat/add path). `%` on proven floats
-//!   and `**` (no native op) route generic for correctness.
+//! - **Relational `< <= > >=`** and **arithmetic `+ - * / % **`** — native when
+//!   both operands are proven numeric; a Tagged/string/mixed operand routes to
+//!   the matching `__rtsadp_*` (`+` is the one generic concat/add path).
+//!   [`super::opguard`] (Tier 2.1/1.3) and [`super::remguard`] (Tier 2.3) sit in
+//!   FRONT of those calls — an inline tag guard, the `x ** 2` fold, and the `%`
+//!   integer guard. Each returns `None` to mean "not applicable", and every such
+//!   fallback lands on the unchanged lowering below.
 //! - **Bitwise/shifts `& | ^ << >> >>>`** — ALWAYS generic: JS bitwise semantics
 //!   (ToInt32/ToUint32, 5-bit mask, unsigned `>>>`) are not a native i64 op.
 //!
@@ -453,6 +454,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // Arithmetic `+ - * / %` (and `**`): native fast path when both proven
         // numeric; the generic `__rtsadp_*` path when any operand is Tagged.
         if op.is_arithmetic() || matches!(op, HirBinOp::Exp) {
+            // Tier 1.3: `x ** <literal 2>` → `fmul`. Decided HERE, not in
+            // `lower_arith`, because it needs the EXPONENT'S HIR — "a literal 2"
+            // is a distinction the lowered `Val`s have already lost.
+            if matches!(op, HirBinOp::Exp) {
+                if let Some(v) = self.try_pow_literal_square(module, rhs, l, r)? {
+                    return Ok(v);
+                }
+            }
             return self.lower_arith(module, op, l, r);
         }
         // Bitwise/shifts `& | ^ << >> >>>`: always the generic PolyValue path.
@@ -655,6 +664,14 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             if let Some(v) = self.try_guarded_arith(module, op, l, r)? {
                 return Ok(v);
             }
+            // Tier 2.3: `%` is excluded from the Tier 2.1 guard (a plain tag test
+            // leaves the call standing — §3.4) and gets a stronger one instead:
+            // tag test AND the three integer preconditions, reaching `srem`.
+            if matches!(op, HirBinOp::Rem) {
+                if let Some(v) = self.try_guarded_rem_tagged(module, l, r)? {
+                    return Ok(v);
+                }
+            }
             return self.lower_generic_arith(module, op, l, r);
         }
 
@@ -687,6 +704,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             // its internal ToNumber×2. Result stays native `Float64` (no re-box
             // downstream). Step 9.
             HirBinOp::Rem if !both_int => {
+                // Tier 2.3: even PROVEN-float operands are usually integral at run
+                // time (`i % n` where `i` came back through a double), so guard
+                // for `srem` first. `None` ⇒ the unchanged fmod call below.
+                if let Some(v) = self.try_guarded_rem_native(module, l, r)? {
+                    return Ok(v);
+                }
                 let lv = self.coerce(l, Repr::Float64)?;
                 let rv = self.coerce(r, Repr::Float64)?;
                 let v = self
@@ -711,7 +734,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                     let v = self.builder.ins().srem(l.v, r.v);
                     Ok(Val::new(v, wider_int(l.repr, r.repr)))
                 }
-                _ => self.lower_generic_arith(module, op, l, r),
+                // Tier 2.3: a NON-constant divisor is what the check above cannot
+                // reach. One runtime `icmp` against 0 (the only precondition an
+                // int register can violate) buys the same `srem`.
+                _ => match self.try_guarded_rem_int(l, r)? {
+                    Some(v) => Ok(v),
+                    None => self.lower_generic_arith(module, op, l, r),
+                },
             },
             _ if both_int => {
                 // JS `0 * negative` is NEGATIVE zero — the int `imul` loses the
@@ -914,32 +943,6 @@ pub(super) fn is_proven_string_expr(e: &HirExpr) -> bool {
             lhs,
             rhs,
         } => is_proven_string_expr(lhs) || is_proven_string_expr(rhs),
-        _ => false,
-    }
-}
-
-/// Whether `e` is CONSERVATIVELY side-effect-free — safe to evaluate EAGERLY in
-/// the `&&`/`||` bool fast path and the branchless ternary (a call / assignment /
-/// update MUST short-circuit, so those are never free). Literals, LOCAL reads,
-/// member reads off a free object, and pure unary/binary combinations qualify.
-///
-/// An identifier counts ONLY when it is a local binding. Reading a name that
-/// resolves nowhere lexically is not inert: it falls to the global-object
-/// lookup, which THROWS `ReferenceError` on a miss. Treating every ident as free
-/// made `false && nope` evaluate `nope` eagerly and throw where JS
-/// short-circuits — measured against Node, and a UMD sniff
-/// (`typeof module !== "undefined" && module.exports`) died on it. A local is
-/// the one ident that provably cannot throw, and it is what the bool fast path
-/// exists to serve; every other spelling simply takes the general
-/// short-circuit form, which is correct for all of them.
-pub(super) fn is_effect_free(lo: &Lowerer<'_, '_, '_>, e: &HirExpr) -> bool {
-    use rts_hir::ir::HirExprKind;
-    match &e.kind {
-        HirExprKind::Lit(_) => true,
-        HirExprKind::Ident(name) => lo.local(name).is_some(),
-        HirExprKind::Unary { operand, .. } => is_effect_free(lo, operand),
-        HirExprKind::Bin { lhs, rhs, .. } => is_effect_free(lo, lhs) && is_effect_free(lo, rhs),
-        HirExprKind::Member { object, .. } => is_effect_free(lo, object),
         _ => false,
     }
 }

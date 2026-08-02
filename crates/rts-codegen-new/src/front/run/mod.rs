@@ -68,6 +68,7 @@ mod obj;
 mod objstatic;
 mod opguard;
 mod optchain_lower;
+mod remguard;
 mod clifcache;
 mod clifflags;
 mod inliner;

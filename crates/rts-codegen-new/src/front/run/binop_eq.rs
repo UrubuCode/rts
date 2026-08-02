@@ -16,7 +16,7 @@ use crate::value;
 
 use crate::front::error::{FrontResult, unsupported};
 
-use super::binop::{float_cc, int_cc, is_effect_free};
+use super::binop::{float_cc, int_cc};
 use super::lower::{JsKind, Lowerer, Val};
 
 impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
@@ -233,5 +233,34 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             repr: Repr::Tagged,
             kind: JsKind::Unknown,
         })
+    }
+}
+
+/// Whether `e` is CONSERVATIVELY side-effect-free — safe to evaluate EAGERLY in
+/// the `&&`/`||` bool fast path and the branchless ternary (a call / assignment /
+/// update MUST short-circuit, so those are never free). Literals, LOCAL reads,
+/// member reads off a free object, and pure unary/binary combinations qualify.
+///
+/// Lives HERE rather than in [`super::binop`] because the short-circuit operators
+/// this serves are lowered here, and `binop.rs` is at its 1000-line ceiling.
+///
+/// An identifier counts ONLY when it is a local binding. Reading a name that
+/// resolves nowhere lexically is not inert: it falls to the global-object
+/// lookup, which THROWS `ReferenceError` on a miss. Treating every ident as free
+/// made `false && nope` evaluate `nope` eagerly and throw where JS
+/// short-circuits — measured against Node, and a UMD sniff
+/// (`typeof module !== "undefined" && module.exports`) died on it. A local is
+/// the one ident that provably cannot throw, and it is what the bool fast path
+/// exists to serve; every other spelling simply takes the general
+/// short-circuit form, which is correct for all of them.
+pub(super) fn is_effect_free(lo: &Lowerer<'_, '_, '_>, e: &HirExpr) -> bool {
+    use rts_hir::ir::HirExprKind;
+    match &e.kind {
+        HirExprKind::Lit(_) => true,
+        HirExprKind::Ident(name) => lo.local(name).is_some(),
+        HirExprKind::Unary { operand, .. } => is_effect_free(lo, operand),
+        HirExprKind::Bin { lhs, rhs, .. } => is_effect_free(lo, lhs) && is_effect_free(lo, rhs),
+        HirExprKind::Member { object, .. } => is_effect_free(lo, object),
+        _ => false,
     }
 }

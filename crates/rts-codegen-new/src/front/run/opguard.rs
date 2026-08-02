@@ -99,7 +99,12 @@ use super::lower::{JsKind, Lowerer, Val};
 /// are meaningless, but the left disjunct is already true then, so the `band`
 /// with `is_boxed` cannot change the answer. Two instructions saved per operand,
 /// same truth table.
-fn emit_is_number(builder: &mut FunctionBuilder, v: Value) -> Value {
+///
+/// `pub(super)` because [`super::remguard`] (Tier 2.3) needs the SAME test — a
+/// second spelling of "is this word a number" would be a second thing to keep
+/// correct, and the egraph can only CSE the two guards against each other if
+/// they are literally the same instructions.
+pub(super) fn emit_is_number(builder: &mut FunctionBuilder, v: Value) -> Value {
     let is_double = value::emit_is_double(builder, v);
     let shifted = builder.ins().ushr_imm(v, value::TAG_SHIFT as i64);
     let tag = builder.ins().band_imm(shifted, value::TAG_MASK as i64);
@@ -128,7 +133,7 @@ fn emit_is_number(builder: &mut FunctionBuilder, v: Value) -> Value {
 /// A `select` is correct here (unlike the operand guard): both arms are a handful
 /// of pure ALU instructions with no call and no memory, so there is nothing to
 /// branch around and the egraph folds the whole thing when it can prove the input.
-fn emit_number_result(builder: &mut FunctionBuilder, f: Value) -> Value {
+pub(super) fn emit_number_result(builder: &mut FunctionBuilder, f: Value) -> Value {
     let as_i32 = builder.ins().fcvt_to_sint_sat(types::I32, f);
     let back = builder.ins().fcvt_from_sint(types::F64, as_i32);
     let round_trips = builder.ins().fcmp(FloatCC::Equal, back, f);
@@ -147,7 +152,7 @@ fn emit_number_result(builder: &mut FunctionBuilder, f: Value) -> Value {
 /// bool/null would make the guard a permanently-false test in front of a
 /// permanently-taken call, so those skip the whole emission rather than pay a dead
 /// compare and a dead fast-path block.
-fn kind_may_be_number(k: JsKind) -> bool {
+pub(super) fn kind_may_be_number(k: JsKind) -> bool {
     matches!(k, JsKind::Unknown | JsKind::Number)
 }
 
@@ -163,7 +168,7 @@ fn kind_may_be_number(k: JsKind) -> bool {
 /// boxing inside the cold block, where it belongs.
 ///
 /// Returns `None` when neither operand is Tagged (the caller never gets there).
-fn emit_guard(lo: &mut Lowerer<'_, '_, '_>, l: Val, r: Val) -> Option<Value> {
+pub(super) fn emit_guard(lo: &mut Lowerer<'_, '_, '_>, l: Val, r: Val) -> Option<Value> {
     let lg = is_tagged(l).then(|| emit_is_number(lo.builder, l.v));
     let rg = is_tagged(r).then(|| emit_is_number(lo.builder, r.v));
     match (lg, rg) {
@@ -300,11 +305,26 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// The fast block is created and filled FIRST so Cranelift lays it out
     /// immediately after the branch — the fallthrough — and the cold hint sinks
     /// the miss block away from it (constraint 2 in the module doc).
-    fn open_guard(&mut self, cond: Value) -> (Block, Block, Block) {
+    pub(super) fn open_guard(&mut self, cond: Value) -> (Block, Block, Block) {
+        self.open_guard_typed(cond, types::I64)
+    }
+
+    /// [`Self::open_guard`] with an explicit merge-parameter TYPE.
+    ///
+    /// Exists for [`super::remguard`]: a `%` whose operands were already proven
+    /// non-Tagged merges two RAW `f64` edges (the native remainder and the
+    /// existing `__rtsadp_fmod_f64` call), and re-boxing them into a PolyValue
+    /// word just to unbox again downstream would hand the egraph work it only
+    /// sometimes gets to undo.
+    pub(super) fn open_guard_typed(
+        &mut self,
+        cond: Value,
+        merge_ty: cranelift_codegen::ir::Type,
+    ) -> (Block, Block, Block) {
         let fast = self.builder.create_block();
         let miss = self.builder.create_block();
         let merge = self.builder.create_block();
-        self.builder.append_block_param(merge, types::I64);
+        self.builder.append_block_param(merge, merge_ty);
         if super::clifflags::cold_blocks() {
             self.builder.set_cold_block(miss);
         }
@@ -320,14 +340,149 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// `Tagged` because the miss edge carries a PolyValue word; a consumer that
     /// immediately unboxes gets the box folded back out by the egraph, which is the
     /// whole reason box/unbox are pure IR rather than calls.
-    fn close_guard(&mut self, merge: Block, kind: JsKind) -> Val {
-        self.builder.switch_to_block(merge);
-        self.builder.seal_block(merge);
-        let v = self.builder.block_params(merge)[0];
+    pub(super) fn close_guard(&mut self, merge: Block, kind: JsKind) -> Val {
+        let v = self.close_guard_raw(merge);
         Val {
             v,
             repr: Repr::Tagged,
             kind,
         }
+    }
+
+    /// The block-plumbing half of [`Self::close_guard`], without the `Tagged`
+    /// interpretation — the caller decides what the merged word IS. Used by
+    /// [`super::remguard`], whose proven-numeric merge carries a raw `f64`.
+    pub(super) fn close_guard_raw(&mut self, merge: Block) -> Value {
+        self.builder.switch_to_block(merge);
+        self.builder.seal_block(merge);
+        self.builder.block_params(merge)[0]
+    }
+}
+
+// ===========================================================================
+// `x ** <literal 2>` → `x * x` (RTS_OPTIMIZATION.md §5 Tier 1.3)
+// ===========================================================================
+
+/// Whether `e` is the LITERAL exponent `2` — the only exponent this fold accepts.
+///
+/// It has to be a literal in the SOURCE, not a value that happens to be 2: with a
+/// literal the decision is made at lowering time and costs nothing, whereas a
+/// variable exponent would need a run-time `b == 2` test whose miss arm is the
+/// `pow` call it was trying to avoid. §3.4's `x ** 2` row is the literal case.
+///
+/// `2` and `2.0` are the same exponent, so both literal spellings qualify;
+/// `HirLit::Int`/`Float`/`Number` are the three the parser can produce for them.
+fn is_literal_two(e: &rts_hir::ir::HirExpr) -> bool {
+    use rts_hir::ir::{HirExprKind, HirLit};
+    match &e.kind {
+        HirExprKind::Lit(HirLit::Int(2)) => true,
+        HirExprKind::Lit(HirLit::Float(f) | HirLit::Number(f)) => *f == 2.0,
+        _ => false,
+    }
+}
+
+impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
+    /// `x ** 2` with a LITERAL `2` → a native `fmul`, replacing the `pow` call.
+    ///
+    /// `Ok(None)` = not applicable, and the caller lowers `**` exactly as before.
+    ///
+    /// ## Why ONLY the literal `2`
+    ///
+    /// `RTS_OPTIMIZATION.md`'s own review of Tier 1.3 (the block quote above the
+    /// item) overrules the item's first draft, which proposed copying JSC's
+    /// `operationMathPow` — square-and-multiply for any small non-negative integer
+    /// exponent, plus `0.5` → `sqrt` and `-0.5` → `1/sqrt`. Measured there, that
+    /// generalization is WRONG:
+    ///
+    /// - `(-Infinity) ** 0.5` is `Infinity` by the `Math.pow` spec table, but
+    ///   `sqrt(-Infinity)` is `NaN`. Same for `(-0) ** -0.5` and friends — the
+    ///   `pow` table has special cases `sqrt` does not.
+    /// - `x ** 3` and `(x * x) * x` differ on **25.6% of inputs** (doc's
+    ///   measurement): each `fmul` rounds, so a two-multiply chain rounds twice
+    ///   where a correctly-rounded `pow` rounds once.
+    ///
+    /// `2` is the ONE exponent that escapes both objections: `x ** 2` is a single
+    /// rounding of the exact product `x·x`, which is precisely what one `fmul`
+    /// computes, so the fold is exact for EVERY double including the specials —
+    /// `NaN ** 2 = NaN`, `(±Infinity) ** 2 = +Infinity`, `(-0) ** 2 = +0`
+    /// (`fmul(-0,-0)` is `+0`), and every finite value. No exponent other than 2
+    /// is folded here, and none should be added without an argument of that form.
+    ///
+    /// (`x ** 1` and `x ** 0` would be exact too — `pow(x,1) = x`, `pow(x,0) = 1`
+    /// for every `x` INCLUDING `NaN` — but they are dead code in real source and
+    /// each is another special-case table row to get right, so they are left
+    /// deliberately UNIMPLEMENTED rather than added on a hunch.)
+    ///
+    /// ## The base
+    ///
+    /// No run-time guard is needed for the EXPONENT (it is a literal), but the
+    /// BASE still has to be a number: `"3" ** 2` is `9` via `ToNumber`, and
+    /// `({}) ** 2` is `NaN`. Two shapes, and the choice is the same one
+    /// [`Self::try_guarded_arith`] makes:
+    ///
+    /// - **Base proven non-`Tagged`** — its `Repr` IS the proof. Straight `fmul`,
+    ///   no guard, no branch, result stays a native `Float64`. This is the §3.4
+    ///   `12.72 → 1.62` row.
+    /// - **Base `Tagged`** — reuse [`emit_guard`]'s tag test (NOT a second
+    ///   spelling of it) so the `fmul` fires only on a run-time proof that the
+    ///   base is a number; everything else takes the untouched `__rtsadp_pow`,
+    ///   which keeps `ToPrimitive`/`ToNumber` in the one place that owns them.
+    ///   Skipping the specialization instead would leave every `Tagged` base —
+    ///   i.e. every value off the heap — on the call, which is most of the real
+    ///   `x ** 2` sites.
+    ///
+    /// Documented expectation: **11.5×** on `x ** 2` (§5 Tier 1.3 / §3.4). Not a
+    /// measurement of this emission.
+    /// TODO(measure): A/B `RTS_POW_FOLD=1` vs `=0` on one release binary with
+    /// `RTS_NO_PRELUDE_CACHE=1` on both arms, and record the delta here.
+    pub(super) fn try_pow_literal_square(
+        &mut self,
+        module: &mut dyn Module,
+        rhs: &rts_hir::ir::HirExpr,
+        l: Val,
+        r: Val,
+    ) -> FrontResult<Option<Val>> {
+        if !super::clifflags::pow_fold() || !is_literal_two(rhs) {
+            return Ok(None);
+        }
+
+        // PROVEN base: no guard at all — the decision was already made statically.
+        // `r` (the lowered literal `2`) goes unused; it is an `iconst`/`f64const`
+        // with no side effect, so the egraph drops it.
+        if !is_tagged(l) {
+            let x = self.coerce(l, Repr::Float64)?;
+            let v = self.builder.ins().fmul(x, x);
+            return Ok(Some(Val::new(v, Repr::Float64)));
+        }
+
+        // TAGGED base: a kind already proven non-numeric would make the test a
+        // permanently-false compare in front of a permanently-taken call.
+        if !kind_may_be_number(l.kind) {
+            return Ok(None);
+        }
+        // `emit_guard(l, r)` tests only the Tagged operands, and the literal `2`
+        // is never Tagged — so this is exactly "is the BASE a number".
+        let Some(cond) = emit_guard(self, l, r) else {
+            return Ok(None);
+        };
+
+        let (fast, miss, merge) = self.open_guard(cond);
+
+        // FAST: decode the base and square it. `emit_number_result` re-encodes
+        // exactly as `__rtsadp_pow`'s `number_result` does (`4 ** 2` must come
+        // back as a TAG_INT32 word, not an inline double), so the two edges are
+        // bit-identical and not merely numerically equal.
+        self.builder.switch_to_block(fast);
+        let x = self.coerce(l, Repr::Float64)?;
+        let sq = self.builder.ins().fmul(x, x);
+        let fast_word = emit_number_result(self.builder, sq);
+        self.builder.ins().jump(merge, &[fast_word.into()]);
+
+        // MISS: the untouched generic `__rtsadp_pow`.
+        self.builder.switch_to_block(miss);
+        let generic = self.lower_generic_arith(module, HirBinOp::Exp, l, r)?;
+        self.builder.ins().jump(merge, &[generic.v.into()]);
+
+        Ok(Some(self.close_guard(merge, generic.kind)))
     }
 }

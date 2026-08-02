@@ -34,7 +34,12 @@ use super::LoweredProgram;
 /// this version and nothing else, so a v2 blob would keep serving pre-guard code
 /// for every prelude function — the change would appear to do nothing there, and
 /// an `RTS_OP_GUARD` A/B would compare two runs of the same cached bytes.
-const CACHE_VERSION: u32 = 3;
+/// v4: two more operator-lowering changes (`RTS_OPTIMIZATION.md` §5 Tier 1.3 —
+/// `x ** <literal 2>` folded to `fmul` in `super::opguard`; Tier 2.3 — the runtime
+/// integer guard for `%` in `super::remguard`). Same reason as v3: without the
+/// bump every prelude function replays pre-change lowering from disk, and an
+/// `RTS_POW_FOLD` / `RTS_REM_GUARD` A/B would compare two runs of identical bytes.
+const CACHE_VERSION: u32 = 4;
 
 /// The whole cached payload (owned, for DESERIALIZE): the lowered prelude + the
 /// process-global state its lowering interned (shape id→keys, Error-class table).

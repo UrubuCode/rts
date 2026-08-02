@@ -81,6 +81,54 @@ pub(super) fn op_guards() -> bool {
     })
 }
 
+/// `RTS_POW_FOLD=0` — stop folding `x ** <literal 2>` into a native `fmul`
+/// (`RTS_OPTIMIZATION.md` §5 Tier 1.3, implemented in
+/// [`super::opguard::Lowerer::try_pow_literal_square`]). ON by default.
+///
+/// Its own switch, separate from [`op_guards`], precisely so the two Tier items
+/// landing together stay independently A/B-measurable on ONE binary: `**` folds
+/// at lowering time on a literal exponent, `%` guards at run time, and attributing
+/// a delta to the wrong one is the failure mode a shared switch guarantees.
+///
+/// Documented expectation: **11.5×** on `x ** 2` (§5 Tier 1.3; §3.4's ladder puts
+/// the proven-`Repr` `pow` call at 12.72 and the folded multiply at 1.62). That is
+/// the doc's probe, not a measurement of this emission.
+///
+/// TODO(measure): A/B with `RTS_NO_PRELUDE_CACHE=1` on BOTH arms — `prelude_cache`
+/// keys on the prelude text plus its cache version, so otherwise both arms replay
+/// one cached lowering and the A/B measures nothing.
+pub(super) fn pow_fold() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var("RTS_POW_FOLD")
+            .map(|v| v.trim() != "0")
+            .unwrap_or(true)
+    })
+}
+
+/// `RTS_REM_GUARD=0` — stop emitting the run-time integer guard in front of `%`
+/// (`RTS_OPTIMIZATION.md` §5 Tier 2.3, implemented in [`super::remguard`]). ON by
+/// default.
+///
+/// Like [`op_guards`] and unlike [`int_overflow_checks`] this is NOT a semantic
+/// switch: with it OFF `%` lowers to the `__rtsadp_mod` / `__rtsadp_fmod_f64` call
+/// it always did, and with it ON the native `srem` fires only when a run-time test
+/// has proved the three preconditions that make the integer remainder equal the JS
+/// one (see the `remguard` module doc).
+///
+/// Documented expectation: **1.45×** over the compile-time-proven float path (§3.4:
+/// `%` at 4.86 proven vs 3.35 runtime-guarded). The doc's probe, not this emission.
+///
+/// TODO(measure): A/B with `RTS_NO_PRELUDE_CACHE=1` on both arms, as above.
+pub(super) fn rem_guard() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var("RTS_REM_GUARD")
+            .map(|v| v.trim() != "0")
+            .unwrap_or(true)
+    })
+}
+
 pub(super) fn verifier_forced() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {

@@ -570,7 +570,8 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // recursive call unconditionally — infinite recursion / stack overflow
         // (the `function_expression` bug). Same rule `lower_logical` applies to
         // its select fast path.
-        if super::binop::is_effect_free(self, then) && super::binop::is_effect_free(self, else_) {
+        use super::binop_eq::is_effect_free;
+        if is_effect_free(self, then) && is_effect_free(self, else_) {
             let t = self.lower_expr(module, then)?;
             let e = self.lower_expr(module, else_)?;
             let target = ternary_target(t.repr, e.repr)?;
