@@ -157,7 +157,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     /// The assumption is the same one the single-ident case already made: a plain
     /// property read has no observable effect. A getter with side effects breaks
     /// it, exactly as it did before — this widens the shape, not the risk.
-    fn is_replayable_base(e: &HirExpr) -> bool {
+    pub(super) fn is_replayable_base(e: &HirExpr) -> bool {
         match &e.kind {
             HirExprKind::Ident(_) => true,
             HirExprKind::Member { object, .. } => Self::is_replayable_base(object),

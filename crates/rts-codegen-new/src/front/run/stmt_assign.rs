@@ -190,7 +190,10 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         // property is skipped (a getter could have side effects → the double read
         // would diverge). A complex object expr bails (double-evaluation).
         if let HirExprKind::Member { object, prop } = &target.kind {
-            if matches!(object.kind, HirExprKind::Ident(_)) {
+            // Mesma regra de replay do compound-assign: uma CADEIA de leituras
+            // de propriedade (`this.a.b++`) é tão replayável quanto um
+            // identificador único, e exigir o identificador recusava o arquivo.
+            if Self::is_replayable_base(object) {
                 if let Some(class) = self.static_instance_class(object) {
                     if self
                         .classes
@@ -207,7 +210,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             }
         }
         if let HirExprKind::Index { object, .. } = &target.kind {
-            if matches!(object.kind, HirExprKind::Ident(_)) {
+            if Self::is_replayable_base(object) {
                 return self.lower_member_index_incdec(module, target, inc, prefix);
             }
         }
