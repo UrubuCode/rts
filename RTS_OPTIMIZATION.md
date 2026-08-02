@@ -2074,11 +2074,34 @@ and the comparison measures nothing).
 | 2.1 inline operator tag guard | 2–4x | compare **2.0x**, arith 1.2x | landed, `RTS_OP_GUARD` |
 | 2.2 overflow-safe int arithmetic | — | correct, but 6.5x and changes repr | gated, **still OFF** |
 | 2.3 runtime int guard for `%` | 1.45x | **35 → 8 ms** (4.4x) | landed, `RTS_REM_GUARD` |
-| 3.1 / 3.2 stable slab + read as `load` | ~2.2 ns + ~5.3 ns | — | open, = class doc C2 |
+| 3.1 / 3.2 stable slab + read as `load` | ~2.2 ns + ~5.3 ns | **600 → 362 ms** (1.66x); 1.24x vs default | landed, `RTS_SLAB` + `RTS_FIELD_LOAD` |
 | 3.3 lazy shape for untracked receivers | 63.82 → 31.45 ns | **premise REFUTED** | census + inverse fix landed |
 | 3.4 un-globalize the shape registry | — | reads no longer serialize | landed |
 | 4.1 tier-0 escape analysis | 138x [best case] | **1050 → 1 ms** | landed, `RTS_ESCAPE` |
 | 4.2 bump/nursery allocation | 4 instructions [S] | blocked on object layout | recycler landed, `RTS_BUMP` |
+
+**§5 is complete except 2.2**, which is gated OFF with its remaining work named
+below (a representation-preserving merge, not more type information). Both §11
+correctness bugs are fixed.
+
+### 3.1 and 3.2 are ONE item measured in halves
+
+3.1's own note said its win "is not collectable until 3.2 emits the load". The
+measurement is worse than that, and it is the more useful result of the pair:
+
+    default (no slab)                450 ms
+    RTS_SLAB=1, RTS_FIELD_LOAD=0     600 ms      <- 3.1 ALONE is a 33% REGRESSION
+    RTS_SLAB=1, RTS_FIELD_LOAD=1     362 ms
+
+The chunked store's extra indirection makes the Rust accessor path *slower*, and
+the only thing that pays for it is removing that path from the hot read. Shipping
+3.1 on its own would have been a measurable loss presented as infrastructure.
+
+Note also that both `bench/objbench.ts` and `bench/objbench_noalloc.ts` are
+useless for this item — the receiver is loop-invariant, so the egraph hoists the
+whole read out and both run in 2–3 ms on either arm. The first bench written for
+3.2 had the same defect (10M iterations in 7 ms). A field-read benchmark must
+vary the receiver.
 
 ### The three premises this work refuted
 
