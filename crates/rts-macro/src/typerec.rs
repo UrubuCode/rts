@@ -163,7 +163,7 @@ fn field_word(ty: &Type, access: proc_macro2::TokenStream) -> syn::Result<proc_m
         return Ok(quote!({
             let __vals: ::std::vec::Vec<i64> = (#access).into_iter().map(|__e| #elem_word).collect();
             let __h = ::rts_engine::heap::handles::alloc_entry(
-                ::rts_engine::heap::handles::Entry::Vec(::std::boxed::Box::new(__vals)),
+                ::rts_engine::heap::handles::Entry::vec(__vals),
             );
             ::rts_engine::heap::shapes::handle_word_auto(__h) as i64
         }));

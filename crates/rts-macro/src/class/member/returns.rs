@@ -276,7 +276,7 @@ pub(crate) fn build_return(sig: &syn::Signature, class: &str, is_ctor: bool) -> 
                             ) as i64 ),*
                         ];
                         ::rts_engine::heap::handles::alloc_entry(
-                            ::rts_engine::heap::handles::Entry::Vec(::std::boxed::Box::new(__inner))
+                            ::rts_engine::heap::handles::Entry::vec(__inner)
                         ) as i64
                     }),
                 )
@@ -295,7 +295,7 @@ pub(crate) fn build_return(sig: &syn::Signature, class: &str, is_ctor: bool) -> 
                         let __v: ::std::vec::Vec<i64> =
                             (#b).into_iter().map(|__e| #push).collect();
                         ::rts_engine::heap::handles::alloc_entry(
-                            ::rts_engine::heap::handles::Entry::Vec(::std::boxed::Box::new(__v))
+                            ::rts_engine::heap::handles::Entry::vec(__v)
                         )
                     })
                 }),

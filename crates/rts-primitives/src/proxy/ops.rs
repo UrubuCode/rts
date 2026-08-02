@@ -106,7 +106,7 @@ fn lookup_trap(handler: u64, trap_name: &str) -> i64 {
 
 /// Empacota args como Entry::Vec(slots).
 fn build_args_vec(args: &[i64]) -> u64 {
-    alloc_entry(Entry::Vec(Box::new(args.to_vec())))
+    alloc_entry(Entry::vec(args.to_vec()))
 }
 
 /// Aloca um string handle (key) para passar como arg da trap.
@@ -189,7 +189,7 @@ pub fn dispatch_own_keys(target: u64, handler: u64) -> u64 {
     if is_vec {
         h
     } else {
-        alloc_entry(Entry::Vec(Box::new(Vec::new())))
+        alloc_entry(Entry::vec(Vec::new()))
     }
 }
 
@@ -240,7 +240,7 @@ pub fn dispatch_own_keys_enumerable(target: u64, handler: u64) -> u64 {
             kept.push(kh as i64);
         }
     }
-    alloc_entry(Entry::Vec(Box::new(kept)))
+    alloc_entry(Entry::vec(kept))
 }
 
 /// Trap `getPrototypeOf(target)`. Retorna o handle do proto.

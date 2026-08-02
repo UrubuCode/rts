@@ -75,11 +75,20 @@
 //!
 //! The lock-free field read Tier 3.2 wants therefore needs *both* this module
 //! *and* the inline-slot block layout of `RTS_CLASS_IMPLEMENTATION.md` §4.2 —
-//! plain `i64` field words living in the slot itself rather than behind
-//! `Entry::Vec(Box<Vec<i64>>)`. Those words are immune to the sweep's `Box`
-//! churn in a way an `Entry` is not. That layout also needs the object/array
-//! representation split (§8.4), which no measurement in either document covers.
-//! **3.1 does not attempt it and this module does not pretend to.**
+//! plain `i64` field words living in the slot itself rather than behind a
+//! separately-allocated buffer. Those words are immune to the sweep's `Box`
+//! churn in a way an `Entry` is not.
+//!
+//! **UPDATE (2026-08-02): the layout half has landed.** The object/array split
+//! (§8.4) is `crate::heap::slots::Slots`, and a shaped object at or below
+//! `slots::INLINE_CAP` words now carries its field words inside the `Entry`,
+//! inside the `Slot`, inside a chunk this module never moves or frees. So the
+//! two preconditions 3.2 named are both present. What is still MISSING is 3.2's
+//! own emission plus `RTS_CLASS_IMPLEMENTATION.md` C4's ingress guards, and one
+//! consequence the emission must handle: growth past the inline capacity
+//! *promotes* the words out of the slot (see the `slots` module docs), so an
+//! emitted sequence must test the form rather than assume it.
+//! **3.1 still does not attempt any of that, and this module does not pretend to.**
 //!
 //! ## The ABA hazard, answered deliberately
 //!
@@ -190,7 +199,8 @@
 //!   here — the chunk table is indexed by shard, not by thread, and two threads
 //!   in one shard simply share its `Mutex` as they do today.
 //! * **[`crate::heap::bump`] (`RTS_BUMP=1`) — orthogonal, different object.**
-//!   The recycler pools the *payload buffers* (`Entry::Vec`'s `Box<Vec<i64>>`);
+//!   The recycler pools the *payload buffers* (`Entry::Vec`'s heap-form
+//!   `Box<Vec<i64>>` — the inline form has none to pool);
 //!   this stabilizes the *slots* that point at them. A recycled buffer changes
 //!   which heap block an `Entry` owns; it never changes which slot the `Entry`
 //!   lives in, and no address this module produces reaches the pool. They meet at

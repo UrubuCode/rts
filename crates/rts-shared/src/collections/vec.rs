@@ -11,23 +11,24 @@ use rts_engine::abi::ty::{Handle, I64, U64};
 use rts_engine::{AbiType, FnPtr, Member, MemberFlags, MemberKind, Sig};
 
 use rts_engine::heap::handles::{Entry, alloc_entry, free_handle, with_entry, with_entry_mut};
+use rts_engine::heap::slots::Slots;
 
 fn with_vec<F, R>(handle: u64, default: R, f: F) -> R
 where
-    F: FnOnce(&Vec<i64>) -> R,
+    F: FnOnce(&[i64]) -> R,
 {
     with_entry(handle, |entry| match entry {
-        Some(Entry::Vec(v)) => f(v.as_ref()),
+        Some(Entry::Vec(v)) => f(v.as_slice()),
         _ => default,
     })
 }
 
 fn with_vec_mut<F, R>(handle: u64, default: R, f: F) -> R
 where
-    F: FnOnce(&mut Vec<i64>) -> R,
+    F: FnOnce(&mut Slots) -> R,
 {
     with_entry_mut(handle, |entry| match entry {
-        Some(Entry::Vec(v)) => f(v.as_mut()),
+        Some(Entry::Vec(v)) => f(v),
         _ => default,
     })
 }
@@ -38,7 +39,7 @@ where
 /// Creates an empty Vec<number>.
 #[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_NEW")]
 pub fn __RTS_FN_NS_COLLECTIONS_VEC_NEW() -> Handle {
-    alloc_entry(Entry::Vec(Box::new(Vec::new())))
+    alloc_entry(Entry::vec(Vec::new()))
 }
 
 /// Releases the vec handle.
@@ -315,7 +316,7 @@ fn join_into(out: &mut Vec<u8>, elems: &[i64], sep_bytes: &[u8], depth: u32) {
 /// os removidos. Move o desempacotamento start/count/items pro runtime.
 #[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_SPLICE_AUTO")]
 pub fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_AUTO(recv: u64, args_vec: u64) -> u64 {
-    let args: Vec<i64> = with_vec(args_vec, Vec::new(), |v| v.clone());
+    let args: Vec<i64> = with_vec(args_vec, Vec::new(), |v| v.to_vec());
     let start = args.first().copied().unwrap_or(0);
     let delete_count = if args.len() >= 2 { args[1] } else { i64::MAX };
     let items: Vec<i64> = if args.len() > 2 {
@@ -331,13 +332,13 @@ pub fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_AUTO(recv: u64, args_vec: u64) -> u64 
             start.min(len)
         } as usize;
         let count = delete_count.max(0).min(len - s as i64) as usize;
-        let drained: Vec<i64> = v.drain(s..s + count).collect();
+        let drained: Vec<i64> = v.drain_range(s..s + count);
         for (i, item) in items.into_iter().enumerate() {
             v.insert(s + i, item);
         }
         drained
     });
-    alloc_entry(Entry::Vec(Box::new(removed)))
+    alloc_entry(Entry::vec(removed))
 }
 
 /// `arr.toSpliced(start, deleteCount?, ...items)` variádico (imutável) — como
@@ -345,7 +346,7 @@ pub fn __RTS_FN_NS_COLLECTIONS_VEC_SPLICE_AUTO(recv: u64, args_vec: u64) -> u64 
 /// aplicado.
 #[rtse::abi("__RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_AUTO")]
 pub fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_AUTO(recv: u64, args_vec: u64) -> u64 {
-    let args: Vec<i64> = with_vec(args_vec, Vec::new(), |v| v.clone());
+    let args: Vec<i64> = with_vec(args_vec, Vec::new(), |v| v.to_vec());
     let start = args.first().copied().unwrap_or(0);
     let delete_count = if args.len() >= 2 { args[1] } else { i64::MAX };
     let items: Vec<i64> = if args.len() > 2 {
@@ -353,7 +354,7 @@ pub fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_AUTO(recv: u64, args_vec: u64) -> 
     } else {
         Vec::new()
     };
-    let mut out: Vec<i64> = with_vec(recv, Vec::new(), |v| v.clone());
+    let mut out: Vec<i64> = with_vec(recv, Vec::new(), |v| v.to_vec());
     let len = out.len() as i64;
     let s = if start < 0 {
         (len + start).max(0)
@@ -362,7 +363,7 @@ pub fn __RTS_FN_NS_COLLECTIONS_VEC_TO_SPLICED_AUTO(recv: u64, args_vec: u64) -> 
     } as usize;
     let count = delete_count.max(0).min(len - s as i64) as usize;
     out.splice(s..s + count, items);
-    alloc_entry(Entry::Vec(Box::new(out)))
+    alloc_entry(Entry::vec(out))
 }
 
 // (LAYERING FIX 2026-07-24) __RTS_FN_GL_ARRAY_NEW_WITH_LENGTH/FROM_LENGTH
@@ -377,7 +378,7 @@ mod tests {
     use super::*;
 
     fn handle_to_vec(h: u64) -> Vec<i64> {
-        with_vec(h, Vec::new(), |v| v.clone())
+        with_vec(h, Vec::new(), |v| v.to_vec())
     }
 
     #[test]

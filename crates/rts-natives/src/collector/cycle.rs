@@ -153,6 +153,11 @@ pub fn finish_cycle() {
     crate::heap::handles::mark_pinned_roots();
 
     sweep_all_shards();
+
+    // Pace the NEXT cycle off the live set this one leaves behind — see
+    // `heap::live::growth_target_reached` for why a fixed allocation interval
+    // makes total marking quadratic.
+    crate::heap::live::note_gc_finished();
 }
 
 /// Incremental GC step. Currently a no-op — incremental pacing is a follow-up.

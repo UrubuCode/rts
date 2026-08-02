@@ -41,7 +41,7 @@ pub enum EntrySnap {
 pub fn snapshot_entry(h: u64) -> EntrySnap {
     with_entry(h, |e| match e {
         Some(Entry::String(s)) => EntrySnap::Str(s.clone()),
-        Some(Entry::Vec(v)) => EntrySnap::Vec((**v).clone()),
+        Some(Entry::Vec(v)) => EntrySnap::Vec(v.to_owned_vec()),
         Some(Entry::Map(_)) => EntrySnap::Map,
         Some(Entry::Buffer(_)) => EntrySnap::Buffer,
         Some(Entry::Json(j)) => EntrySnap::Json(j.to_string()),
@@ -107,7 +107,7 @@ pub fn element_to_string(raw: i64) -> String {
     }
     let resolved = with_entry(h, |e| match e {
         Some(Entry::String(s)) => Resolved::StringBytes(s.clone()),
-        Some(Entry::Vec(v)) => Resolved::VecSlots((**v).clone()),
+        Some(Entry::Vec(v)) => Resolved::VecSlots(v.to_owned_vec()),
         Some(Entry::Map(_)) => Resolved::Object,
         Some(Entry::Json(j)) => Resolved::Json(j.to_string()),
         Some(other) => Resolved::Other(entry_kind_name(other)),

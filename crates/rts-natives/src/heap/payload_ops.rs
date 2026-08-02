@@ -161,7 +161,7 @@ mod tests {
 
     #[test]
     fn fused_get_matches_the_unfused_pair() {
-        let h = alloc_entry(Entry::Vec(Box::new(vec![10, 20, 30])));
+        let h = alloc_entry(Entry::vec(vec![10, 20, 30]));
         let payload = payload_of(h);
         assert_eq!(__rtsn_vec_get_by_payload(payload, 0), 10);
         assert_eq!(__rtsn_vec_get_by_payload(payload, 2), 30);
@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn fused_set_then_get_round_trips() {
-        let h = alloc_entry(Entry::Vec(Box::new(vec![0, 0])));
+        let h = alloc_entry(Entry::vec(vec![0, 0]));
         let payload = payload_of(h);
         assert_eq!(__rtsn_vec_set_by_payload(payload, 1, 77), 1);
         assert_eq!(__rtsn_vec_get_by_payload(payload, 1), 77);
@@ -189,7 +189,7 @@ mod tests {
     /// prints `null`. The expectation was wrong, not the observation — updated
     /// deliberately along with the fix.
     fn set_beyond_len_grows_with_holes() {
-        let h = alloc_entry(Entry::Vec(Box::new(vec![1])));
+        let h = alloc_entry(Entry::vec(vec![1]));
         let payload = payload_of(h);
         assert_eq!(__rtsn_vec_set_by_payload(payload, 3, 9), 1);
         assert_eq!(

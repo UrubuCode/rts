@@ -21,7 +21,7 @@ pub(super) fn checked_size(size: i64) -> usize {
 /// A byte slice → `Uint8Array`-shaped `Entry::Vec` (each byte an inline-f64 word).
 pub(super) fn byte_array(bytes: &[u8]) -> u64 {
     let words: Vec<i64> = bytes.iter().map(|&b| f64::from(b).to_bits() as i64).collect();
-    alloc_entry(Entry::Vec(Box::new(words)))
+    alloc_entry(Entry::vec(words))
 }
 
 /// Read the bytes of a Buffer/Uint8Array/string value. `word` may be a boxed

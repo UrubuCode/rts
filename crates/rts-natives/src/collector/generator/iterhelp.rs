@@ -59,10 +59,10 @@ pub fn iterator_fn() -> u64 {
 #[rtse::abi(global = "Iterator", value = "from")]
 pub fn from(vec_handle: u64) -> u64 {
     let items: Vec<i64> = with_entry(vec_handle, |e| match e {
-        Some(Entry::Vec(v)) => v.as_ref().clone(),
+        Some(Entry::Vec(v)) => v.to_owned_vec(),
         _ => Vec::new(),
     });
-    let h = alloc_entry(Entry::Vec(Box::new(items)));
+    let h = alloc_entry(Entry::vec(items));
     GEN_CURSORS.with(|c| {
         c.borrow_mut().insert(h, 0);
     });
@@ -74,7 +74,7 @@ pub fn from(vec_handle: u64) -> u64 {
 #[rtse::abi(global = "Iterator", value = "to_array")]
 pub fn to_array(it_handle: u64) -> u64 {
     let all: Vec<i64> = with_entry(it_handle, |e| match e {
-        Some(Entry::Vec(v)) => v.as_ref().clone(),
+        Some(Entry::Vec(v)) => v.to_owned_vec(),
         _ => Vec::new(),
     });
     let cursor = GEN_CURSORS.with(|c| {
@@ -89,6 +89,6 @@ pub fn to_array(it_handle: u64) -> u64 {
     } else {
         Vec::new()
     };
-    alloc_entry(Entry::Vec(Box::new(rest)))
+    alloc_entry(Entry::vec(rest))
 }
 

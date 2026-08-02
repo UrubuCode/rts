@@ -413,8 +413,8 @@ pub enum Entry {
     /// enumeração JS: integer keys ascendentes + string keys em ordem de
     /// inserção). Ver `MAP_KEY_AT` para a lógica de ordenação.
     Map(Box<indexmap::IndexMap<String, i64>>),
-    /// Vec<i64> — namespace `collections` (vec_*).
-    Vec(Box<Vec<i64>>),
+    /// Words of an ARRAY or a shaped OBJECT — see [`crate::heap::slots`]; build with [`Entry::vec`].
+    Vec(crate::heap::slots::Slots),
     /// Regex compilada — namespace `regex`. Armazena tambem a flag `global`
     /// (JS `/pat/g`) porque o crate `regex` nao expoe esse conceito separado.
     Regex(Box<RtsRegex>),
@@ -842,7 +842,7 @@ impl crate::Traceable for Entry {
                     }
                 }
             }
-            // (#398) Vec elements idem.
+            // (#398) Vec elements idem — `Slots::iter` derefs alike in either form.
             Entry::Vec(v) => {
                 for h in v.iter() {
                     if *h != 0 {
@@ -1520,6 +1520,7 @@ pub fn alloc_entry(entry: Entry) -> u64 {
         && GC_ARMED.load(Ordering::Relaxed)
         && !gc_disabled()
         && (live_handle_count() >= GC_LIVE_FLOOR || live_byte_count() >= GC_LIVE_BYTES_FLOOR)
+        && crate::heap::live::growth_target_reached()
     {
         // Direct call — same crate. This used to cross the crate boundary
         // through a function pointer, and the cycle then crossed BACK
@@ -2266,7 +2267,7 @@ mod tests {
         let handles = vec![
             alloc_entry(Entry::String(b"s".to_vec())),
             alloc_entry(Entry::Buffer(vec![0u8; 8])),
-            alloc_entry(Entry::Vec(Box::new(vec![1i64, 2, 3]))),
+            alloc_entry(Entry::vec(vec![1i64, 2, 3])),
             alloc_entry(Entry::Map(Box::new(indexmap::IndexMap::new()))),
             alloc_entry(Entry::Env(vec![0i64; 4])),
             alloc_entry(Entry::Json(Box::new(serde_json::Value::Null))),
@@ -2359,7 +2360,7 @@ mod tests {
         let boxed = POLY_BOX_BASE | (POLY_TAG_STR << POLY_TAG_SHIFT) | (poly48 & POLY_PAYLOAD_MASK);
 
         // Vec stores raw i64 words; the boxed PolyValue word is one such word.
-        let vec_h = alloc_entry(Entry::Vec(Box::new(vec![boxed as i64])));
+        let vec_h = alloc_entry(Entry::vec(vec![boxed as i64]));
 
         // Mark from the Vec root: its child (the boxed word) is normalized in
         // mark_handle to str_h and marked.

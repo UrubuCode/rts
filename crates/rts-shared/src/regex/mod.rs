@@ -406,12 +406,12 @@ pub fn __RTS_FN_NS_REGEX_SPLIT(handle: Handle, s_ptr: u64, s_len: i64) -> Handle
         out.push(s[last..].to_string());
         out
     });
-    let vec = alloc_entry(Entry::Vec(Box::new(
+    let vec = alloc_entry(Entry::vec(
         parts
             .into_iter()
             .map(|p| alloc_string(p.into_bytes()) as i64)
             .collect::<Vec<i64>>(),
-    )));
+    ));
     vec
 }
 
@@ -438,12 +438,12 @@ pub fn __RTS_FN_NS_REGEX_MATCH_ALL(
     if texts.is_empty() {
         return 0;
     }
-    alloc_entry(Entry::Vec(Box::new(
+    alloc_entry(Entry::vec(
         texts
             .into_iter()
             .map(|t| alloc_string(t.into_bytes()) as i64)
             .collect::<Vec<i64>>(),
-    )))
+    ))
 }
 
 /// `String.prototype.match` result as a `Vec` of REAL string handles. A NON-global
@@ -482,7 +482,7 @@ pub fn __RTS_FN_NS_REGEX_MATCH_GROUPS(
     });
     match result {
         None => 0,
-        Some(groups) => alloc_entry(Entry::Vec(Box::new(
+        Some(groups) => alloc_entry(Entry::vec(
             groups
                 .into_iter()
                 .map(|g| match g {
@@ -490,7 +490,7 @@ pub fn __RTS_FN_NS_REGEX_MATCH_GROUPS(
                     None => 0,
                 })
                 .collect::<Vec<i64>>(),
-        ))),
+        )),
     }
 }
 

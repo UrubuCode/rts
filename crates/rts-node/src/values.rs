@@ -41,14 +41,14 @@ pub fn intern(s: &str) -> u64 {
 /// number word), so JS `.length`/indexing work.
 pub fn byte_array(bytes: &[u8]) -> u64 {
     let words: Vec<i64> = bytes.iter().map(|&b| f64::from(b).to_bits() as i64).collect();
-    alloc_entry(Entry::Vec(Box::new(words)))
+    alloc_entry(Entry::vec(words))
 }
 
 /// A string list → an `Entry::Vec` of string words.
 pub fn string_array(items: &[String]) -> u64 {
     use rts_engine::heap::shapes::string_word;
     let words: Vec<i64> = items.iter().map(|s| string_word(s.as_bytes()) as i64).collect();
-    alloc_entry(Entry::Vec(Box::new(words)))
+    alloc_entry(Entry::vec(words))
 }
 
 /// Read the bytes behind a HANDLE: `Entry::String` (UTF-8), `Entry::Buffer`, an

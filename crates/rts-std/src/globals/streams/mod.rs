@@ -152,7 +152,7 @@ pub(crate) fn chunk_bytes(word: u64) -> Vec<u8> {
 /// source, not yet a real `ArrayBuffer`/typed array).
 pub(crate) fn bytes_to_array(bytes: &[u8]) -> u64 {
     let v: Vec<i64> = bytes.iter().map(|&b| b as i64).collect();
-    alloc_entry(Entry::Vec(Box::new(v)))
+    alloc_entry(Entry::vec(v))
 }
 
 /// Box a fresh `{value, done}` result object for `reader.read()` — a real

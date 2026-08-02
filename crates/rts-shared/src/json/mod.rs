@@ -88,7 +88,7 @@ fn apply_reviver(reviver_h: u64, holder: u64, key: &str) -> u64 {
     }
     // Invoca reviver.call(holder, key, value).
     let key_h = alloc_entry(Entry::String(key.as_bytes().to_vec()));
-    let args = alloc_entry(Entry::Vec(Box::new(vec![key_h as i64, value as i64])));
+    let args = alloc_entry(Entry::vec(vec![key_h as i64, value as i64]));
     let result = __RTS_FN_GL_FUNCTION_APPLY_TYPED(reviver_h, holder as i64, args);
     let _ = v_ns::__RTS_FN_NS_COLLECTIONS_VEC_GET;
     result as u64
@@ -156,7 +156,7 @@ fn json_value_to_handle(v: &Value) -> u64 {
         Value::String(s) => alloc_entry(Entry::String(s.clone().into_bytes())),
         Value::Array(arr) => {
             let slots: Vec<i64> = arr.iter().map(|v| json_value_to_handle(v) as i64).collect();
-            alloc_entry(Entry::Vec(Box::new(slots)))
+            alloc_entry(Entry::vec(slots))
         }
         Value::Object(map) => {
             let mut store: indexmap::IndexMap<String, i64> = indexmap::IndexMap::new();
@@ -321,7 +321,7 @@ fn stringify_with_visited(
         // thread. Nao mova o loop de `dispatch_get` abaixo para dentro deste
         // closure: ele chama um TRAP de usuario, que aloca e re-entra.
         let key_handles: Vec<i64> = with_entry(keys_vec, |e| match e {
-            Some(Entry::Vec(v)) => v.as_ref().clone(),
+            Some(Entry::Vec(v)) => v.to_owned_vec(),
             _ => Vec::new(),
         });
         let key_strs: Vec<String> = key_handles
@@ -380,7 +380,7 @@ fn stringify_with_visited(
         None => Snap::None,
         Some(Entry::String(b)) => Snap::Str(b.clone()),
         Some(Entry::Map(m)) => Snap::Map(m.iter().map(|(k, v)| (k.clone(), *v)).collect()),
-        Some(Entry::Vec(v)) => Snap::Vec(v.as_ref().clone()),
+        Some(Entry::Vec(v)) => Snap::Vec(v.to_owned_vec()),
         Some(Entry::Json(j)) => Snap::Json(serde_json::to_string(j.as_ref()).unwrap_or_default()),
         // `Date` is a `#[rtse::class]` struct stored via `Entry::Rtse`; read its
         // ms directly here (downcast inside the same `with_entry` lock — cannot
@@ -623,7 +623,7 @@ fn stringify_pretty_inner_str(handle: u64, indent: &str, depth: usize) -> Option
                 .map(|(k, v)| (k.clone(), *v))
                 .collect(),
         )),
-        Entry::Vec(arr) => Some(Snap::Vec(arr.as_ref().clone())),
+        Entry::Vec(arr) => Some(Snap::Vec(arr.to_owned_vec())),
         Entry::Json(j) => Some(Snap::Json(j.clone())),
         _ => None,
     })?;

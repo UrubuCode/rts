@@ -134,7 +134,7 @@ fn arm_a_real_heap() -> f64 {
     let t = Instant::now();
     let mut s: i64 = 0;
     for i in 0..N as i64 {
-        let h = alloc_entry(Entry::Vec(Box::new(vec![i, i + 1])));
+        let h = alloc_entry(Entry::vec(vec![i, i + 1]));
         let x = with_entry(h, |e| match e {
             Some(Entry::Vec(v)) => v[0],
             _ => 0,

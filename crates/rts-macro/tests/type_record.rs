@@ -75,7 +75,7 @@ fn shape_key_order_pins_field_order() {
     }
     .__rtse_into_handle();
     let raw = rts_engine::heap::handles::with_entry(h, |e| match e {
-        Some(rts_engine::heap::handles::Entry::Vec(v)) => v.clone(),
+        Some(rts_engine::heap::handles::Entry::Vec(v)) => v.to_owned_vec(),
         _ => panic!("expected a shaped Entry::Vec"),
     });
     // slot 0 = boxed shape id; decode it back to a GlobalShapeId.
@@ -102,7 +102,7 @@ fn static_returns_record_with_correct_fields() {
     let h = f(path.as_ptr(), path.len() as i64);
 
     let raw = rts_engine::heap::handles::with_entry(h, |e| match e {
-        Some(rts_engine::heap::handles::Entry::Vec(v)) => v.clone(),
+        Some(rts_engine::heap::handles::Entry::Vec(v)) => v.to_owned_vec(),
         _ => panic!("expected a shaped Entry::Vec"),
     });
     let shape_id = (raw[0] as u64 & 0x0000_FFFF_FFFF_FFFF) as u32;
@@ -130,7 +130,7 @@ fn nested_record_field_is_a_nested_object() {
     let outer_h = f(path.as_ptr(), path.len() as i64);
 
     let outer = rts_engine::heap::handles::with_entry(outer_h, |e| match e {
-        Some(rts_engine::heap::handles::Entry::Vec(v)) => v.clone(),
+        Some(rts_engine::heap::handles::Entry::Vec(v)) => v.to_owned_vec(),
         _ => panic!("expected outer shaped Entry::Vec"),
     });
     let outer_shape = (outer[0] as u64 & 0x0000_FFFF_FFFF_FFFF) as u32;
@@ -143,7 +143,7 @@ fn nested_record_field_is_a_nested_object() {
         inner_word & 0x0000_FFFF_FFFF_FFFF,
     );
     let inner = rts_engine::heap::handles::with_entry(inner_handle, |e| match e {
-        Some(rts_engine::heap::handles::Entry::Vec(v)) => v.clone(),
+        Some(rts_engine::heap::handles::Entry::Vec(v)) => v.to_owned_vec(),
         _ => panic!("expected inner shaped Entry::Vec"),
     });
     let inner_shape = (inner[0] as u64 & 0x0000_FFFF_FFFF_FFFF) as u32;

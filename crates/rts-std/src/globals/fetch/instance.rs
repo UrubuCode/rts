@@ -658,10 +658,10 @@ pub fn __RTS_FN_GL_PROMISE_NEW(executor_h: u64) -> u64 {
     let resolve_h = make_resolver_fn(promise_h, true);
     let reject_h = make_resolver_fn(promise_h, false);
     // Empacota args: [resolve_handle, reject_handle].
-    let args_vec = alloc_entry(Entry::Vec(Box::new(vec![
+    let args_vec = alloc_entry(Entry::vec(vec![
         resolve_h as i64,
         reject_h as i64,
-    ])));
+    ]));
     // Limpa error slot da thread atual antes de invocar (sem isso, erro
     // antigo de outra fn confundiria a propagacao).
     error::__rtsn_error_clear();

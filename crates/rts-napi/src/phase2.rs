@@ -218,7 +218,7 @@ pub unsafe extern "C" fn napi_get_property_names(
         .into_iter()
         .map(|k| alloc_entry(Entry::String(k.into_bytes())) as i64)
         .collect();
-    let arr = alloc_entry(Entry::Vec(Box::new(items)));
+    let arr = alloc_entry(Entry::vec(items));
     unsafe { *result = value_from_handle(arr) };
     napi_ok
 }

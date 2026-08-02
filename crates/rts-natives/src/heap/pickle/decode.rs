@@ -139,7 +139,7 @@ impl<'a> Dec<'a> {
             }
             OP_ARRAY => {
                 let n = self.c.len()?;
-                let h = self.alloc(Entry::Vec(Box::new(Vec::new())));
+                let h = self.alloc(Entry::vec(Vec::new()));
                 let word = handle_word_auto(h);
                 self.memo.push(word);
                 let mut slots = Vec::with_capacity(n);
@@ -148,7 +148,7 @@ impl<'a> Dec<'a> {
                 }
                 with_entry_mut(h, |e| {
                     if let Some(Entry::Vec(v)) = e {
-                        **v = slots;
+                        v.replace_all(slots);
                     }
                 });
                 Ok(word)
@@ -194,7 +194,7 @@ impl<'a> Dec<'a> {
                     .ok_or_else(|| format!("pickle: class '{class}' has no shape layout"))?;
                 let mut slots = vec![POLY_UNDEFINED as i64; dest_keys.len() + 1];
                 slots[0] = shape_id_word(dest_shape) as i64;
-                let h = self.alloc(Entry::Vec(Box::new(slots)));
+                let h = self.alloc(Entry::vec(slots));
                 let word = handle_word_auto(h);
                 self.memo.push(word);
                 // Fields matched BY KEY against the destination layout: extra

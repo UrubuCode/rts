@@ -150,13 +150,13 @@ pub fn __RTS_FN_GL_FORM_DATA_ENTRIES(h: Handle) -> Handle {
     use rts_engine::heap::shapes::{handle_word_auto, string_word};
     let mut out: Vec<i64> = Vec::new();
     for (k, v) in pairs_snapshot(h) {
-        let pair = alloc_entry(Entry::Vec(Box::new(vec![
+        let pair = alloc_entry(Entry::vec(vec![
             string_word(k.as_bytes()) as i64,
             string_word(v.as_bytes()) as i64,
-        ])));
+        ]));
         out.push(handle_word_auto(pair) as i64);
     }
-    alloc_entry(Entry::Vec(Box::new(out)))
+    alloc_entry(Entry::vec(out))
 }
 
 /// `fd.forEach(callback)` — invokes `callback(value, name, fd)` per pair, in

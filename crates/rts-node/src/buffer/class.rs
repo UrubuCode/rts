@@ -161,7 +161,7 @@ fn concat_bytes(list: u64) -> Vec<u8> {
     use rts_engine::heap::poly::poly_handle_normalize;
     let h = poly_handle_normalize(list).unwrap_or(list);
     let words: Vec<i64> = with_entry(h, |e| match e {
-        Some(Entry::Vec(v)) => v.as_ref().clone(),
+        Some(Entry::Vec(v)) => v.to_owned_vec(),
         _ => Vec::new(),
     });
     let mut out = Vec::new();

@@ -46,7 +46,7 @@ fn num(v: f64) -> i64 {
 /// Same discipline as `url::search_params::intern_all`.
 fn read_str_array(handle: u64) -> Vec<String> {
     let words: Vec<i64> = with_entry(handle, |e| match e {
-        Some(Entry::Vec(v)) => v.as_ref().clone(),
+        Some(Entry::Vec(v)) => v.to_owned_vec(),
         _ => Vec::new(),
     });
     words

@@ -65,7 +65,7 @@ fn resolve_family(host: String, callback: Poly, v4: bool) {
                 .filter(|ip| ip.is_ipv4() == v4)
                 .map(|ip| string_word(ip.to_string().as_bytes()) as i64)
                 .collect();
-            let arr = handle_word_auto(alloc_entry(Entry::Vec(Box::new(words))));
+            let arr = handle_word_auto(alloc_entry(Entry::vec(words)));
             invoke(callback, null_word(), arr, POLY_UNDEFINED);
         }
         Err(_) => invoke(

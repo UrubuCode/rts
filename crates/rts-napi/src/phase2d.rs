@@ -93,7 +93,7 @@ pub unsafe extern "C" fn napi_make_callback(
             items.push(handle_from_value(unsafe { *argv.add(i) }) as i64);
         }
     }
-    let args_vec = alloc_entry(Entry::Vec(Box::new(items)));
+    let args_vec = alloc_entry(Entry::vec(items));
     let ret = unsafe {
         __RTS_FN_GL_FUNCTION_CALL(func_h, handle_from_value(recv) as i64, args_vec)
     };

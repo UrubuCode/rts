@@ -236,7 +236,7 @@ fn clone_handle_deep(handle: u64, visited: &mut std::collections::HashMap<u64, u
     }
     let slots = with_entry(new_h, |entry| match entry {
         Some(Entry::Map(m)) => Slots::Map(m.iter().map(|(k, v)| (k.clone(), *v)).collect()),
-        Some(Entry::Vec(v)) => Slots::Vec(v.as_ref().clone()),
+        Some(Entry::Vec(v)) => Slots::Vec(v.to_owned_vec()),
         _ => Slots::None,
     });
     match slots {
@@ -270,7 +270,7 @@ fn clone_handle_deep(handle: u64, visited: &mut std::collections::HashMap<u64, u
             if changed {
                 let _ = with_entry_mut(new_h, |entry| {
                     if let Some(Entry::Vec(v)) = entry {
-                        **v = items;
+                        v.replace_all(items);
                     }
                 });
             }
@@ -724,7 +724,7 @@ pub fn drain_microtasks() {
                         if is_fn_handle {
                             use rts_engine::externs::__RTS_FN_RT_INVOKE_AUTO;
                             let empty_args = rts_engine::heap::handles::alloc_entry(
-                                rts_engine::heap::handles::Entry::Vec(Box::new(Vec::new())),
+                                rts_engine::heap::handles::Entry::vec(Vec::new()),
                             );
                             unsafe {
                                 __RTS_FN_RT_INVOKE_AUTO(fp as i64, 0, empty_args);

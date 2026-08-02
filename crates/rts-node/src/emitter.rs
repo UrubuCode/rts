@@ -274,7 +274,7 @@ pub fn __RTS_FN_NODE_EE_LISTENERS(this: u64, ep: u64, el: i64) -> u64 {
                 .collect()
         })
         .unwrap_or_default();
-    alloc_entry(Entry::Vec(Box::new(words)))
+    alloc_entry(Entry::vec(words))
 }
 
 /// `emitter.eventNames()` — the events that currently have listeners.

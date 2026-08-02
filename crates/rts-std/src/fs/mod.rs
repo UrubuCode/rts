@@ -221,7 +221,7 @@ fn readdir(path: &str) -> Handle {
             entries.push(rts_engine::heap::shapes::string_word(s.as_bytes()) as i64);
         }
     }
-    alloc_entry(Entry::Vec(Box::new(entries)))
+    alloc_entry(Entry::vec(entries))
 }
 
 /// Copies file contents from `from` to `to`. Bytes copied, -1 on error.

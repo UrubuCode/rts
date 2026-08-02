@@ -76,7 +76,7 @@ pub unsafe extern "C" fn napi_create_array(
     if result.is_null() {
         return napi_invalid_arg;
     }
-    let h = alloc_entry(Entry::Vec(Box::new(Vec::new())));
+    let h = alloc_entry(Entry::vec(Vec::new()));
     unsafe { crate::scopes::track_in_env(env, h) };
     unsafe { *result = value_from_handle(h) };
     napi_ok
@@ -93,7 +93,7 @@ pub unsafe extern "C" fn napi_create_array_with_length(
     }
     // Preenche com a sentinela `undefined` (i64::MIN+2) — holes JS.
     let hole = (i64::MIN + 2) as i64;
-    let h = alloc_entry(Entry::Vec(Box::new(vec![hole; length])));
+    let h = alloc_entry(Entry::vec(vec![hole; length]));
     unsafe { crate::scopes::track_in_env(env, h) };
     unsafe { *result = value_from_handle(h) };
     napi_ok

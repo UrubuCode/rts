@@ -29,7 +29,7 @@ const VEC_MAX_LEN: i64 = 1_000_000;
 pub fn __RTS_FN_GL_ARRAY_NEW_WITH_LENGTH(len: i64) -> u64 {
     let len = len.max(0).min(VEC_MAX_LEN) as usize;
     let v = vec![i64::MIN + 4; len];
-    alloc_entry(Entry::Vec(Box::new(v)))
+    alloc_entry(Entry::vec(v))
 }
 
 /// (#208) `Array.from({length: n}, fn?)` — gera Vec [fn(0), fn(1), ...].
@@ -38,7 +38,7 @@ pub fn __RTS_FN_GL_ARRAY_NEW_WITH_LENGTH(len: i64) -> u64 {
 #[rtse::abi("__RTS_FN_GL_ARRAY_FROM_LENGTH")]
 pub fn __RTS_FN_GL_ARRAY_FROM_LENGTH(n: i64, fn_ptr: u64) -> u64 {
     if n < 0 || n > VEC_MAX_LEN {
-        return alloc_entry(Entry::Vec(Box::new(Vec::new())));
+        return alloc_entry(Entry::vec(Vec::new()));
     }
     let n = n as usize;
     let mut out: Vec<i64> = Vec::with_capacity(n);
@@ -56,5 +56,5 @@ pub fn __RTS_FN_GL_ARRAY_FROM_LENGTH(n: i64, fn_ptr: u64) -> u64 {
             out.push(f(i as i64, i as i64));
         }
     }
-    alloc_entry(Entry::Vec(Box::new(out)))
+    alloc_entry(Entry::vec(out))
 }

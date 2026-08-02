@@ -160,7 +160,7 @@ pub fn __RTS_FN_NODE_FS_WATCHFILE_FIRE(listener: u64, path_ptr: u64, path_len: i
     };
     // listener(curr, prev) — via the handle-based invoke (the listener is a
     // Function handle; `INVOKE_AUTO` takes a two-element args array).
-    let args = alloc_entry(Entry::Vec(Box::new(vec![curr as i64, prev as i64])));
+    let args = alloc_entry(Entry::vec(vec![curr as i64, prev as i64]));
     unsafe {
         __RTS_FN_RT_INVOKE_AUTO(listener as i64, 0, args);
         if prev != curr {

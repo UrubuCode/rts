@@ -86,7 +86,7 @@ fn stringify_heap(word: u64) -> String {
                     }
                 }
             }
-            Some(Kind::Array(slots.as_ref().clone()))
+            Some(Kind::Array(slots.to_vec()))
         }
         Some(Entry::Map(m)) => Some(Kind::Object(m.iter().map(|(k, v)| (k.clone(), *v)).collect())),
         _ => None,

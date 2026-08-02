@@ -82,7 +82,7 @@ pub(crate) fn concat_parts(parts_h: Handle) -> String {
         return String::new();
     }
     let elems: Vec<i64> = with_entry(parts_h, |e| match e {
-        Some(Entry::Vec(v)) => (**v).clone(),
+        Some(Entry::Vec(v)) => v.to_owned_vec(),
         _ => Vec::new(),
     });
     let mut out = String::new();
@@ -131,7 +131,7 @@ pub(crate) fn opt_num(opts_h: Handle, key: &str) -> Option<f64> {
 /// (a "Uint8Array-like" byte source, not yet a real `ArrayBuffer` object).
 pub(crate) fn text_to_byte_array(text: &str) -> u64 {
     let bytes: Vec<i64> = text.bytes().map(|b| b as i64).collect();
-    alloc_entry(Entry::Vec(Box::new(bytes)))
+    alloc_entry(Entry::vec(bytes))
 }
 
 /// `Blob.slice`/`File`-via-`Blob.slice` byte-range extraction. `end < 0` means

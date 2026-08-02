@@ -88,10 +88,10 @@ fn drain_native_events() {
             }
             // fs.watch: kind 0 = rename, 1 = change → listener(eventType, filename).
             let etype = if ev.kind == 0 { "rename" } else { "change" };
-            let args = alloc_entry(Entry::Vec(Box::new(vec![
+            let args = alloc_entry(Entry::vec(vec![
                 string_word(etype.as_bytes()) as i64,
                 string_word(ev.path.as_bytes()) as i64,
-            ])));
+            ]));
             unsafe {
                 __RTS_FN_RT_INVOKE_AUTO(ev.listener as i64, 0, args);
             }

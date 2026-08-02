@@ -250,7 +250,7 @@ pub unsafe extern "C" fn napi_call_function(
             items.push(handle_from_value(v) as i64);
         }
     }
-    let args_vec = alloc_entry(Entry::Vec(Box::new(items)));
+    let args_vec = alloc_entry(Entry::vec(items));
 
     let recv_i64 = handle_from_value(recv) as i64;
     let ret = unsafe { __RTS_FN_GL_FUNCTION_CALL(func_handle, recv_i64, args_vec) };

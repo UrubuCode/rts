@@ -793,7 +793,7 @@ pub fn rtsadp_string_raw(callsite_word: u64, subs_word: u64) -> u64 {
         if v.is_object() {
             let h = rt_handles::__rtsn_poly_to_handle(v.as_handle());
             rt_handles::with_entry(h, |e| match e {
-                Some(rt_handles::Entry::Vec(items)) => items.as_ref().clone(),
+                Some(rt_handles::Entry::Vec(items)) => items.to_owned_vec(),
                 _ => Vec::new(),
             })
         } else {

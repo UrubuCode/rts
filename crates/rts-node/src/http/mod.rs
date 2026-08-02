@@ -35,7 +35,7 @@ fn throw_type(message: &str) {
 #[rtse::function(module = "node:http", value = "METHODS")]
 fn methods() -> Handle {
     let words: Vec<i64> = data::METHODS.iter().map(|s| string_word(s.as_bytes()) as i64).collect();
-    alloc_entry(Entry::Vec(Box::new(words)))
+    alloc_entry(Entry::vec(words))
 }
 
 /// `http.STATUS_CODES` — `{ "200": "OK", … }`.

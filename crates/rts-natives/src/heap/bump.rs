@@ -39,13 +39,23 @@
 //!
 //! Bump allocation is **not** blocked on a moving collector — §4.1 refutes that
 //! coupling explicitly, and the slot index never moves in any case. It is blocked
-//! on the *object representation*: an object is `Entry::Vec(Box<Vec<i64>>)`
-//! (`heap/shapes/words.rs`, `heap/payload_ops.rs::vec_new_object_shaped`), and a
-//! `Vec` owns its buffer through the global allocator. **No bump arena can back a
-//! `Vec`** — not without the stable-`Allocator` API, and not without changing a
-//! representation named at 386 sites. The genuine bump pointer of kernel W's
-//! `moving_slab`/`region_slab` rows arrives with the inline-slot object layout of
-//! `RTS_CLASS_IMPLEMENTATION.md`, and it arrives there, not here.
+//! on the *object representation*. **UPDATED 2026-08-02 — half of this is now
+//! false and the correction matters.** When this module was written an object
+//! was `Entry::Vec(Box<Vec<i64>>)`, a `Vec` owning its buffer through the global
+//! allocator, and no bump arena could back it.
+//!
+//! The object/array representation split (`RTS_CLASS_IMPLEMENTATION.md` §8.4) has
+//! since landed: `Entry::Vec` now carries [`crate::heap::slots::Slots`], and a
+//! shaped object at or below `slots::INLINE_CAP` words carries its words INLINE
+//! in the `Entry`. For those objects there is no buffer and no `malloc` at all —
+//! which is the 40.4× term this module was built to capture, removed rather than
+//! recycled. What is still true is that a WIDE object (or any array) keeps a real
+//! `Vec`, and for those the recycler below is still the reachable form of 4.2.
+//! The genuine bump pointer of kernel W's `moving_slab`/`region_slab` rows still
+//! belongs to `RTS_CLASS_IMPLEMENTATION.md` C2, not here.
+//!
+//! TODO(measure): nothing in this correction is a new measurement. The 40.4× and
+//! the 347 ns above are the probes' numbers for the pre-split path.
 //!
 //! So this module implements the part of 4.2 that IS reachable behind the current
 //! representation and captures the dominant (40.4×) term: a **thread-local,
@@ -109,6 +119,7 @@ use std::cell::RefCell;
 use std::sync::OnceLock;
 
 use crate::heap::handles::Entry;
+use crate::heap::slots::{self, Slots};
 
 /// `RTS_BUMP=1` — recycle object payload buffers per thread instead of returning
 /// them to the global allocator.
@@ -197,16 +208,43 @@ fn class_for_buffer(cap: usize) -> Option<usize> {
     CLASS_WORDS.iter().rposition(|&c| c <= cap)
 }
 
-/// An EMPTY payload buffer with capacity for at least `words` `i64`s.
+/// An EMPTY payload with room for at least `words` `i64`s.
 ///
-/// The replacement for `Box::new(Vec::with_capacity(words))` on the object
-/// construction path. With the knob off it IS that expression.
+/// **This function is the ONE producer of the inline form** ([`Slots::Inline`],
+/// `RTS_CLASS_IMPLEMENTATION.md` §4.2). Its callers are exactly the shaped
+/// object-allocation seam — `payload_ops::vec_new_object_shaped`,
+/// `payload_ops::vec_new_object` and `shapes::words::alloc_shaped_object_with_id`
+/// — so "is this value inline?" has a single, greppable answer, and arrays
+/// (which reach `Entry::vec` with an owned `Vec`) are never inline. See the
+/// `slots` module docs.
 ///
-/// The returned buffer has `len() == 0` and unspecified contents beyond it, which
-/// is exactly the contract `Vec::with_capacity` gives — every caller fills it by
-/// `push`/`resize` before publishing it into an `Entry`.
+/// The returned value has `len() == 0`; every caller fills it by `push`/`resize`
+/// before publishing it into an `Entry`, exactly as before.
+///
+/// ## What this did to the recycler
+///
+/// A request that fits inline never touches the pool, because there is no
+/// separate buffer to pool — the words will live inside the `Entry`. That
+/// deliberately empties the two smallest size classes (4 and 8 words) of the
+/// `RTS_BUMP=1` path: for those sizes the inline block is strictly better than a
+/// recycled buffer, since it is not merely a `malloc` avoided but an indirection
+/// and a cache line avoided. The pool now serves the 16- and 32-word classes,
+/// i.e. wide instances and object literals past [`slots::INLINE_CAP`].
+///
+/// TODO(measure): the 4/8 classes going quiet is a prediction from the code
+/// path, not an observation. Nothing here re-measures Tier 4.2.
 #[inline]
-pub fn acquire(words: usize) -> Box<Vec<i64>> {
+pub fn acquire(words: usize) -> Slots {
+    if words <= slots::INLINE_CAP {
+        return Slots::with_capacity_inline(words);
+    }
+    Slots::heap(acquire_buffer(words))
+}
+
+/// The pooled `Box<Vec<i64>>` half of [`acquire`] — unchanged behaviour, for
+/// requests too wide to live inline.
+#[inline]
+fn acquire_buffer(words: usize) -> Box<Vec<i64>> {
     if enabled() {
         if let Some(class) = class_for_request(words) {
             if let Some(Some(buf)) = with_pools(|pools| pools[class].pop()) {
@@ -243,7 +281,14 @@ pub fn recycle(entry: Entry) {
     if !enabled() {
         return; // `entry` drops here — today's behaviour exactly.
     }
-    let Entry::Vec(mut buf) = entry else {
+    // Only the HEAP form owns a buffer. An inline `Slots` carries its words
+    // inside the `Entry` that is being dropped here, so there is nothing to
+    // return to the pool and nothing to free separately — it simply dies with
+    // the slot. That is the property the object/array split exists to create
+    // (`RTS_CLASS_IMPLEMENTATION.md` §8.4): the sweep can no longer drop an
+    // object's field words out from under a reader, because it never held them
+    // in a separate allocation.
+    let Entry::Vec(crate::heap::slots::Slots::Heap(mut buf)) = entry else {
         return;
     };
     let Some(class) = class_for_buffer(buf.capacity()) else {
@@ -320,33 +365,59 @@ mod tests {
     }
 
     #[test]
+    /// The seam: `acquire` is what decides the form, and it decides it purely on
+    /// width. Everything at or below the inline capacity is a block; everything
+    /// above it is a (possibly pooled) buffer.
+    fn acquire_returns_the_inline_form_exactly_up_to_the_cap() {
+        for n in 0..=slots::INLINE_CAP {
+            assert!(acquire(n).is_inline(), "acquire({n}) must be inline");
+        }
+        assert!(!acquire(slots::INLINE_CAP + 1).is_inline());
+    }
+
+    #[test]
     fn recycling_is_a_no_op_with_the_knob_off() {
         if enabled() {
             return; // The ON-path behaviour is asserted by the test below.
         }
         drain_thread_pool();
-        recycle(Entry::Vec(Box::new(Vec::with_capacity(8))));
+        recycle(Entry::vec(Vec::with_capacity(16)));
         assert_eq!(pooled_counts(), [0; CLASS_WORDS.len()]);
     }
 
     #[test]
+    /// The pool now serves only the classes WIDER than the inline capacity —
+    /// narrower objects never allocate a buffer at all. 16 words rather than the
+    /// 8 this test used before the object/array split.
     fn a_recycled_buffer_comes_back_cleared_and_wide_enough() {
         if !enabled() {
             return; // Requires RTS_BUMP=1; the OFF path is covered above.
         }
         drain_thread_pool();
-        let mut v = Box::new(Vec::with_capacity(8));
+        let mut v = Box::new(Vec::with_capacity(16));
         v.extend_from_slice(&[1, 2, 3]);
         let addr = v.as_ptr();
-        recycle(Entry::Vec(v));
-        assert_eq!(pooled_counts()[1], 1);
+        recycle(Entry::Vec(Slots::heap(v)));
+        assert_eq!(pooled_counts()[2], 1);
 
-        let back = acquire(5);
+        let back = acquire_buffer(9);
         assert!(back.is_empty(), "a pooled buffer must come back cleared");
-        assert!(back.capacity() >= 8);
+        assert!(back.capacity() >= 16);
         assert_eq!(back.as_ptr(), addr, "the SAME allocation must be reused");
         drop(back);
         drain_thread_pool();
+    }
+
+    #[test]
+    /// An inline payload has no buffer, so recycling it must be a plain drop —
+    /// never a pool entry, in either knob position.
+    fn an_inline_payload_is_not_pooled() {
+        drain_thread_pool();
+        let mut s = Slots::with_capacity_inline(4);
+        s.push(1);
+        assert!(s.is_inline());
+        recycle(Entry::Vec(s));
+        assert_eq!(pooled_counts(), [0; CLASS_WORDS.len()]);
     }
 
     #[test]
@@ -356,9 +427,9 @@ mod tests {
         }
         drain_thread_pool();
         for _ in 0..(MAX_PER_CLASS * 3) {
-            recycle(Entry::Vec(Box::new(Vec::with_capacity(4))));
+            recycle(Entry::vec(Vec::with_capacity(16)));
         }
-        assert_eq!(pooled_counts()[0], MAX_PER_CLASS);
+        assert_eq!(pooled_counts()[2], MAX_PER_CLASS);
         drain_thread_pool();
     }
 

@@ -264,7 +264,7 @@ pub fn prim_method_value(recv: u64, name_word: u64) -> u64 {
     if !rts_engine::runtime_ci::has_instance_method(&class, &name) {
         return 0;
     }
-    let env_vec = alloc_entry(Entry::Vec(Box::new(vec![recv as i64, name_word as i64])));
+    let env_vec = alloc_entry(Entry::vec(vec![recv as i64, name_word as i64]));
     let env = PolyValue::from_object_handle(env_vec & super::PAYLOAD_MASK).raw();
     let data = FunctionData {
         fn_ptr: prim_method_thunk as *const () as usize as u64,
@@ -848,7 +848,7 @@ fn invoke_legacy_fn(
     // REMAINING positional count so the total matches the callee's arity.
     let n = (arity as usize).saturating_sub(bound_len).min(4);
     let raw: Vec<i64> = slots[..n].iter().map(|&w| word_to_raw_i64(w)).collect();
-    let args_h = alloc_entry(E::Vec(Box::new(raw)));
+    let args_h = alloc_entry(E::vec(raw));
     let ret_kind = with_entry(real_handle, |e| match e {
         Some(Entry::Function(d)) => d.return_kind,
         _ => 0,
@@ -903,7 +903,7 @@ pub fn rtsadp_fn_bind(fn_word: u64, this_word: u64, args_vec: u64) -> u64 {
     }
     let real = rts_runtime::namespaces::gc::handles::__rtsn_poly_to_handle(pv.as_handle());
     let items: Vec<i64> = with_entry(args_vec, |e| match e {
-        Some(E::Vec(v)) => v.as_ref().clone(),
+        Some(E::Vec(v)) => v.to_vec(),
         _ => Vec::new(),
     });
     let cloned: Option<Box<FunctionData>> = with_entry(real, |e| match e {
@@ -965,7 +965,7 @@ pub fn rtsadp_fn_bind(fn_word: u64, this_word: u64, args_vec: u64) -> u64 {
 pub fn rtsadp_fn_new(args_vec: u64) -> u64 {
     use rts_engine::heap::handles::Entry as E;
     let items: Vec<i64> = with_entry(args_vec, |e| match e {
-        Some(E::Vec(v)) => v.as_ref().clone(),
+        Some(E::Vec(v)) => v.to_vec(),
         _ => Vec::new(),
     });
     let text = |w: i64| super::genops::to_string(PolyValue::from_raw(w as u64));

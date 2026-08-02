@@ -112,7 +112,7 @@ pub fn gen_delegate_start(src: i64) -> i64 {
     // objeto-com-shape e' o value model, e e' ele que responde por `iter_open`.
     if let Some(br) = super::iter_bridge() {
         let cursor = (br.open)(src as u64);
-        let key = alloc_entry(Entry::Vec(Box::new(Vec::new())));
+        let key = alloc_entry(Entry::vec(Vec::new()));
         ITER_CURSORS.with(|c| {
             c.borrow_mut().insert(key, cursor);
         });
@@ -139,7 +139,7 @@ pub fn gen_delegate_start(src: i64) -> i64 {
                 .chars()
                 .map(|c| alloc_entry(Entry::String(c.to_string().into_bytes())) as i64)
                 .collect();
-            let vh = alloc_entry(Entry::Vec(Box::new(chars)));
+            let vh = alloc_entry(Entry::vec(chars));
             GEN_CURSORS.with(|c| {
                 c.borrow_mut().insert(vh, 0);
             });

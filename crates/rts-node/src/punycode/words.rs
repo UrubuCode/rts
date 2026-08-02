@@ -40,7 +40,7 @@ pub fn num_word(v: f64) -> i64 {
 
 /// An array value word from element words.
 pub fn array_word(words: Vec<i64>) -> i64 {
-    handle_word_auto(alloc_entry(Entry::Vec(Box::new(words)))) as i64
+    handle_word_auto(alloc_entry(Entry::vec(words))) as i64
 }
 
 /// Build a callable `Entry::Function` value word wrapping the word-ABI native

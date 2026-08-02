@@ -172,10 +172,10 @@ pub fn __RTS_FN_GL_REGEXP_EXEC(handle: Handle, s_ptr: u64, s_len: i64) -> Handle
         alloc_shaped_object_owned, handle_word_auto, legacy_i64_to_word, string_word,
     };
     let word_pair = |s: usize, e: usize| -> i64 {
-        let pair = alloc_entry(Entry::Vec(Box::new(vec![
+        let pair = alloc_entry(Entry::vec(vec![
             legacy_i64_to_word(s as i64) as i64,
             legacy_i64_to_word(e as i64) as i64,
-        ])));
+        ]));
         handle_word_auto(pair) as i64
     };
     let mut keys: Vec<String> = Vec::with_capacity(groups_vec.len() + 5);
@@ -218,7 +218,7 @@ pub fn __RTS_FN_GL_REGEXP_EXEC(handle: Handle, s_ptr: u64, s_len: i64) -> Handle
                     None => POLY_UNDEFINED as i64,
                 });
             }
-            let vec_h = alloc_entry(Entry::Vec(Box::new(ivec)));
+            let vec_h = alloc_entry(Entry::vec(ivec));
             let g_vec_opt: Option<Vec<(String, Option<(usize, usize)>)>> =
                 with_entry(handle, |entry| match entry {
                     Some(Entry::Regex(rx)) => {

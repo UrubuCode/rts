@@ -16,5 +16,6 @@ pub mod poly;
 pub mod regions;
 pub mod shapes;
 pub mod slab;
+pub mod slots;
 pub mod string_pool;
 pub mod this_slot;

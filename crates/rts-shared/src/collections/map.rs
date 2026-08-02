@@ -524,7 +524,7 @@ pub fn __RTS_FN_NS_COLLECTIONS_MAP_KEYS(h: U64) -> Handle {
         let h2 = rts_engine::heap::string_pool::__RTS_FN_NS_GC_STRING_NEW(k.as_ptr(), k.len() as i64);
         vec.push(h2 as i64);
     }
-    rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(Box::new(vec)))
+    rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::vec(vec))
 }
 
 /// Returns Vec<i64> with values (in key-sorted order). Used by Object.values.
@@ -548,8 +548,8 @@ pub fn __RTS_FN_NS_COLLECTIONS_MAP_VALUES(h: U64) -> Handle {
             .iter()
             .map(|(k, v)| set_element_from_pair(k, *v))
             .collect();
-        return rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(
-            Box::new(elems),
+        return rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::vec(
+            elems,
         ));
     }
     let vals: Vec<i64> = with_map(h, Vec::new(), |m| {
@@ -575,7 +575,7 @@ pub fn __RTS_FN_NS_COLLECTIONS_MAP_VALUES(h: U64) -> Handle {
         out.extend(str_entries);
         out
     });
-    rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::Vec(Box::new(vals)))
+    rts_engine::heap::handles::alloc_entry(rts_engine::heap::handles::Entry::vec(vals))
 }
 
 /// Constrói um `Member` (formato builder do `rts-engine`) para uma função do

@@ -294,3 +294,58 @@ mod tests {
         assert_eq!(c.load(Ordering::Relaxed), 0);
     }
 }
+
+// ── Allocation-proportional GC pacing ────────────────────────────────────────
+
+/// Live handle count as of the END of the last completed collection. `0` means
+/// "no collection has run yet".
+static LIVE_AFTER_LAST_GC: AtomicUsize = AtomicUsize::new(0);
+
+/// Collect only once the live set has GROWN by this fraction since the last
+/// cycle finished — 1/2, i.e. a 50% growth headroom.
+const GROWTH_NUMER: usize = 3;
+const GROWTH_DENOM: usize = 2;
+
+/// Has the live set grown enough since the last collection to be worth another?
+///
+/// ## Why this exists
+///
+/// The trigger used to be "every 256 allocations, once past the floor", which
+/// makes total marking work QUADRATIC in a growing live set: a program that
+/// builds N live objects runs ~N/256 cycles and each one marks up to N objects.
+///
+/// That was invisible until the mark phase was fixed. Marking used to stop after
+/// 1 000 000 steps — a cap that silently truncated the mark and swept live
+/// objects (the bug fixed in `mark_handle`), and which, as a side effect, also
+/// bounded the per-cycle cost. Removing it restored correctness and exposed the
+/// quadratic: building 1M live objects went from 3.8 s to **276 s**, against
+/// 430 ms with the collector disabled entirely. The allocation was never the
+/// problem — the repeated full marks were.
+///
+/// So the cycle is paced by GROWTH rather than by allocation count, which is the
+/// standard rule: each collection sets the next target at 1.5x the live set it
+/// leaves behind, so the marking work between two collections is proportional to
+/// the growth that happened, and total marking over a program is amortized
+/// LINEAR in allocations instead of quadratic.
+///
+/// This changes WHEN a collection happens, never WHAT it collects. A program that
+/// allocates without retaining still collects on the ordinary tick, because its
+/// live set never passes the previous target.
+///
+/// TODO(measure): 1.5x is the textbook starting point and is unmeasured here.
+/// The trade is peak RSS against collection frequency; the honest sweep is over a
+/// retention-heavy program and a churn-heavy one.
+pub fn growth_target_reached() -> bool {
+    let last = LIVE_AFTER_LAST_GC.load(Ordering::Relaxed);
+    if last == 0 {
+        return true;
+    }
+    live_handle_count() >= last.saturating_mul(GROWTH_NUMER) / GROWTH_DENOM
+}
+
+/// Record the live set a just-finished collection left behind, setting the next
+/// cycle's growth target. Called by the collector at the end of `finish_cycle`.
+pub fn note_gc_finished() {
+    flush_all_shards();
+    LIVE_AFTER_LAST_GC.store(live_handle_count(), Ordering::Relaxed);
+}

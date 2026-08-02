@@ -54,7 +54,7 @@ pub fn str_word(s: &str) -> i64 {
 /// A JS array of strings, as an OBJECT element word (for an object slot value).
 pub fn str_array_word(items: &[String]) -> i64 {
     let words: Vec<i64> = items.iter().map(|s| str_word(s)).collect();
-    handle_word_auto(alloc_entry(Entry::Vec(Box::new(words)))) as i64
+    handle_word_auto(alloc_entry(Entry::vec(words))) as i64
 }
 
 /// Build a shaped object `{ keys[i]: values[i] }` (owned keys) → raw handle.
@@ -97,7 +97,7 @@ pub fn object_entries(handle: u64) -> Option<Vec<(String, i64)>> {
 /// Same discipline as `url::search_params::intern_all`.
 pub fn array_strings(handle: u64) -> Vec<String> {
     let words: Vec<i64> = with_entry(handle, |e| match e {
-        Some(Entry::Vec(v)) => v.as_ref().clone(),
+        Some(Entry::Vec(v)) => v.to_owned_vec(),
         _ => Vec::new(),
     });
     words.into_iter().map(|w| scalar_string(w as u64)).collect()

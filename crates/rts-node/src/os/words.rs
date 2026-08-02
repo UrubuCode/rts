@@ -90,7 +90,7 @@ pub fn object_word(keys: &[&str], values: &[i64]) -> i64 {
 /// Allocate an array from element `words` and return its raw handle (the ABI
 /// `Handle` return of an array-valued top-level `os.*` function).
 pub fn array(words: Vec<i64>) -> u64 {
-    alloc_entry(Entry::Vec(Box::new(words)))
+    alloc_entry(Entry::vec(words))
 }
 
 /// Allocate an array and return it as an ARRAY element **word** (for nesting).

@@ -145,7 +145,7 @@ pub(super) fn entries_of(path: &str) -> Vec<i64> {
 /// `fs.readdirSync(path, { withFileTypes: true })` → `Dirent[]`.
 fn readdir_types(path: &str) -> u64 {
     use rts_engine::heap::handles::{alloc_entry, Entry};
-    alloc_entry(Entry::Vec(Box::new(entries_of(path))))
+    alloc_entry(Entry::vec(entries_of(path)))
 }
 
 /// `fs.readdirSync(path, options)` — `Dirent[]` when `options.withFileTypes` is

@@ -247,7 +247,7 @@ fn json_rule_texts(value: u64) -> Option<Vec<String>> {
         // `url::search_params::intern_all`.
         Val::Obj(h) => {
             let words: Option<Vec<i64>> = with_entry(h, |e| match e {
-                Some(Entry::Vec(words)) => Some(words.as_ref().clone()),
+                Some(Entry::Vec(words)) => Some(words.to_owned_vec()),
                 _ => None,
             });
             words?

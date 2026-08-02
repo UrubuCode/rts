@@ -17,7 +17,7 @@ fn is_builtin_fn(name: &str) -> bool {
 #[rtse::function(module = "node:module", value = "builtinModules")]
 fn builtin_modules() -> Handle {
     let words: Vec<i64> = builtin_module_names().iter().map(|s| string_word(s.as_bytes()) as i64).collect();
-    alloc_entry(Entry::Vec(Box::new(words)))
+    alloc_entry(Entry::vec(words))
 }
 
 /// `Module.wrap(script)`.

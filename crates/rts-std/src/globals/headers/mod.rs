@@ -46,7 +46,7 @@ impl Headers {
     /// `url::search_params::intern_all`.
     fn pairs_from_array(arr_h: u64) -> Vec<(String, String)> {
         let pair_handles: Vec<i64> = with_entry(arr_h, |e| match e {
-            Some(Entry::Vec(v)) => v.as_ref().clone(),
+            Some(Entry::Vec(v)) => v.to_owned_vec(),
             _ => Vec::new(),
         });
         pair_handles
@@ -176,10 +176,10 @@ pub fn __RTS_FN_GL_HEADERS_ENTRIES(h: u64) -> u64 {
         .map(|(k, v)| {
             let kw = string_word(k.as_bytes()) as i64;
             let vw = string_word(v.as_bytes()) as i64;
-            handle_word_auto(alloc_entry(Entry::Vec(Box::new(vec![kw, vw])))) as i64
+            handle_word_auto(alloc_entry(Entry::vec(vec![kw, vw]))) as i64
         })
         .collect();
-    alloc_entry(Entry::Vec(Box::new(out)))
+    alloc_entry(Entry::vec(out))
 }
 
 /// `h.forEach(callback)` — invoca `callback(value, key, headers)` por par, em

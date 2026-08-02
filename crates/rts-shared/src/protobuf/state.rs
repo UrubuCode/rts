@@ -33,7 +33,7 @@ pub fn read_bytes(handle: u64) -> Vec<u8> {
 /// number word), so JS `.length`/indexing work on the result.
 pub fn byte_array(bytes: &[u8]) -> u64 {
     let words: Vec<i64> = bytes.iter().map(|&b| f64::from(b).to_bits() as i64).collect();
-    alloc_entry(Entry::Vec(Box::new(words)))
+    alloc_entry(Entry::vec(words))
 }
 
 /// Build a `ProtoWriter` instance: `__rts_class` tag + an empty accumulating

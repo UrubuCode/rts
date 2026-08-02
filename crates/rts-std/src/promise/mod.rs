@@ -151,7 +151,7 @@ fn resolve_callback_ptr(fp: u64) -> (u64, Vec<i64>, bool, i64) {
 /// aloca; aqui ela re-trava — a falha e' identica).
 fn collect_promise_handles(vec_handle: u64) -> Vec<u64> {
     let words: Vec<i64> = with_entry(vec_handle, |entry| match entry {
-        Some(Entry::Vec(v)) => v.as_ref().clone(),
+        Some(Entry::Vec(v)) => v.to_owned_vec(),
         _ => Vec::new(),
     });
     words.into_iter().map(|x| element_to_handle(x as u64)).collect()
@@ -563,7 +563,7 @@ fn all(promises: U64) -> Handle {
             // de produtor novo-motor decodifica; cru legado passa verbatim).
             values.push(normalize_settled_i64(value));
         }
-        let result_vec = alloc_entry(Entry::Vec(Box::new(values)));
+        let result_vec = alloc_entry(Entry::vec(values));
         promise_slot::resolve(&result, result_vec as i64);
         return result_handle;
     }
@@ -591,7 +591,7 @@ fn all(promises: U64) -> Handle {
             values.push(normalize_settled_i64(value));
         }
         // Todos resolveram — empacota num Vec novo.
-        let result_vec = alloc_entry(Entry::Vec(Box::new(values)));
+        let result_vec = alloc_entry(Entry::vec(values));
         promise_slot::resolve(&result_clone, result_vec as i64);
     });
 
@@ -844,7 +844,7 @@ fn all_settled(promises: U64) -> Handle {
             };
             result_vec.push(row);
         }
-        let result_vec_h = alloc_entry(Entry::Vec(Box::new(result_vec)));
+        let result_vec_h = alloc_entry(Entry::vec(result_vec));
         promise_slot::resolve(&result, result_vec_h as i64);
         return result_handle;
     }
@@ -867,7 +867,7 @@ fn all_settled(promises: U64) -> Handle {
             };
             result_vec.push(row);
         }
-        let result_vec_h = alloc_entry(Entry::Vec(Box::new(result_vec)));
+        let result_vec_h = alloc_entry(Entry::vec(result_vec));
         promise_slot::resolve(&result_clone, result_vec_h as i64);
     });
 

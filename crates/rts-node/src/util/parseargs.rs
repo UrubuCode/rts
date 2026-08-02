@@ -67,7 +67,7 @@ fn word_str(w: u64) -> String {
 fn word_str_array(word: u64) -> Vec<String> {
     let Some(handle) = poly_handle_normalize(word) else { return Vec::new() };
     let words: Vec<i64> = with_entry(handle, |e| match e {
-        Some(Entry::Vec(v)) => v.as_ref().clone(),
+        Some(Entry::Vec(v)) => v.to_owned_vec(),
         _ => Vec::new(),
     });
     words.into_iter().map(|w| word_str(w as u64)).collect()
@@ -182,14 +182,14 @@ fn parse_args(config: Poly) -> Handle {
         .map(|(name, ws)| {
             let is_multiple = specs.iter().find(|s| &s.long == name).map(|s| s.multiple).unwrap_or(false);
             if is_multiple {
-                handle_word_auto(alloc_entry(Entry::Vec(Box::new(ws.clone())))) as i64
+                handle_word_auto(alloc_entry(Entry::vec(ws.clone()))) as i64
             } else {
                 ws[0]
             }
         })
         .collect();
     let values_obj = alloc_shaped_object(&key_refs, &value_words);
-    let positionals_arr = alloc_entry(Entry::Vec(Box::new(positionals)));
+    let positionals_arr = alloc_entry(Entry::vec(positionals));
 
     alloc_shaped_object(
         &["values", "positionals"],

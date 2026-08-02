@@ -29,7 +29,7 @@ fn entry_obj(e: &PerfEntry) -> u64 {
 /// A list of entries → array handle (elements boxed as OBJECT words).
 fn entry_array(list: Vec<PerfEntry>) -> u64 {
     let words: Vec<i64> = list.iter().map(|e| handle_word_auto(entry_obj(e)) as i64).collect();
-    alloc_entry(Entry::Vec(Box::new(words)))
+    alloc_entry(Entry::vec(words))
 }
 
 /// `performance.now()`.

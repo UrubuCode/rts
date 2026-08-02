@@ -146,7 +146,7 @@ fn write_sync(fd: i64, buffer: Handle, offset: i64, length: i64, position: i64) 
 /// `url::search_params::intern_all`.
 fn buffer_handles(buffers: u64) -> Vec<u64> {
     let words: Vec<i64> = with_entry(buffers, |e| match e {
-        Some(Entry::Vec(v)) => v.as_ref().clone(),
+        Some(Entry::Vec(v)) => v.to_owned_vec(),
         _ => Vec::new(),
     });
     words

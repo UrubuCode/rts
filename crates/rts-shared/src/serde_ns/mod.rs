@@ -43,7 +43,7 @@ fn throw_type_error(msg: &str) {
 /// A byte slice → `number[]`-shaped `Entry::Vec` (each byte an inline-f64 word).
 fn byte_array(bytes: &[u8]) -> u64 {
     let words: Vec<i64> = bytes.iter().map(|&b| f64::from(b).to_bits() as i64).collect();
-    alloc_entry(Entry::Vec(Box::new(words)))
+    alloc_entry(Entry::vec(words))
 }
 
 /// Read the bytes of a Buffer / byte-array / string argument.

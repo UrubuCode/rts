@@ -416,7 +416,7 @@ pub fn gen_sm_drain(h: u64) -> u64 {
             }
             out.push(val);
         }
-        return alloc_entry(Entry::Vec(Box::new(out)));
+        return alloc_entry(Entry::vec(out));
     }
     let fn_ptr = with_entry(h, |e| match e {
         Some(Entry::GenState(g)) => g.fn_ptr,
@@ -445,7 +445,7 @@ pub fn gen_sm_drain(h: u64) -> u64 {
             out.push(value);
         }
     }
-    alloc_entry(Entry::Vec(Box::new(out)))
+    alloc_entry(Entry::vec(out))
 }
 
 #[rtse::abi(native, value = "gen_sm_is")]

@@ -251,7 +251,7 @@ pub fn __RTS_FN_GL_USP_GET_ALL(self_h: u64, key_ptr: u64, key_len: i64) -> u64 {
     let key_ptr = key_ptr as *const u8;
 
     if key_ptr.is_null() || key_len < 0 {
-        return alloc_entry(Entry::Vec(Box::new(Vec::new())));
+        return alloc_entry(Entry::vec(Vec::new()));
     }
     let key = unsafe {
         let s = std::slice::from_raw_parts(key_ptr, key_len as usize);
@@ -268,7 +268,7 @@ pub fn __RTS_FN_GL_USP_GET_ALL(self_h: u64, key_ptr: u64, key_len: i64) -> u64 {
         })
         .unwrap_or_default()
     });
-    alloc_entry(Entry::Vec(Box::new(intern_all(owned))))
+    alloc_entry(Entry::vec(intern_all(owned)))
 }
 
 /// `usp.keys()` — a `Vec` of string handles (order + duplicates preserved).
@@ -278,7 +278,7 @@ pub fn __RTS_FN_GL_USP_KEYS(self_h: u64) -> u64 {
         s.map(|s| s.pairs.iter().map(|(k, _)| k.clone()).collect())
             .unwrap_or_default()
     });
-    alloc_entry(Entry::Vec(Box::new(intern_all(owned))))
+    alloc_entry(Entry::vec(intern_all(owned)))
 }
 
 /// `usp.values()` — a `Vec` of string handles (order + duplicates preserved).
@@ -288,7 +288,7 @@ pub fn __RTS_FN_GL_USP_VALUES(self_h: u64) -> u64 {
         s.map(|s| s.pairs.iter().map(|(_, v)| v.clone()).collect())
             .unwrap_or_default()
     });
-    alloc_entry(Entry::Vec(Box::new(intern_all(owned))))
+    alloc_entry(Entry::vec(intern_all(owned)))
 }
 
 /// `usp.entries()` — an array of `[key, value]` string pairs (insertion order,
@@ -298,13 +298,13 @@ pub fn __RTS_FN_GL_USP_ENTRIES(self_h: u64) -> u64 {
     use rts_engine::heap::shapes::{handle_word_auto, string_word};
     let mut outer: Vec<i64> = Vec::new();
     for (k, v) in pairs_snapshot(self_h) {
-        let inner = alloc_entry(Entry::Vec(Box::new(vec![
+        let inner = alloc_entry(Entry::vec(vec![
             string_word(k.as_bytes()) as i64,
             string_word(v.as_bytes()) as i64,
-        ])));
+        ]));
         outer.push(handle_word_auto(inner) as i64);
     }
-    alloc_entry(Entry::Vec(Box::new(outer)))
+    alloc_entry(Entry::vec(outer))
 }
 
 /// `usp.forEach(callback)` — invoke `callback(value, key, usp)` for each pair,

@@ -197,7 +197,7 @@ fn hkdf_sync(digest: &str, ikm: Handle, salt: Handle, info: Handle, keylen: i64)
 #[rtse::function(module = "node:crypto", value = "getHashes", throws)]
 fn get_hashes() -> Handle {
     let words: Vec<i64> = algo::hashes().iter().map(|s| string_word(s.as_bytes()) as i64).collect();
-    alloc_entry(Entry::Vec(Box::new(words)))
+    alloc_entry(Entry::vec(words))
 }
 
 /// `crypto.createCipheriv(algorithm, key, iv)`.

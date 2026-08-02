@@ -255,7 +255,7 @@ fn invoke(cb: u64, this: u64, args: Vec<u64>) {
         return;
     }
     let words: Vec<i64> = args.into_iter().map(|w| w as i64).collect();
-    let argv = alloc_entry(Entry::Vec(Box::new(words)));
+    let argv = alloc_entry(Entry::vec(words));
     unsafe {
         __RTS_FN_RT_INVOKE_AUTO(cb as i64, handle_word_auto(this) as i64, argv);
     }

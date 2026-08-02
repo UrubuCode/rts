@@ -155,7 +155,7 @@ pub fn match_regex(s_ptr: *const u8, s_len: i64, regex_handle: u64) -> u64 {
                 .into_iter()
                 .map(|bytes| rts_engine::heap::shapes::string_word(&bytes) as i64)
                 .collect();
-            alloc_entry(Entry::Vec(Box::new(slots)))
+            alloc_entry(Entry::vec(slots))
         }
         MatchResultExt::None => 0,
     }
@@ -196,7 +196,7 @@ pub fn search_str(s_ptr: *const u8, s_len: i64, p_ptr: *const u8, p_len: i64) ->
 /// RTS v0 retorna Vec eager (cada elemento e' o conteudo do match).
 pub fn match_all_str(s_ptr: *const u8, s_len: i64, p_ptr: *const u8, p_len: i64) -> u64 {
     use rts_engine::heap::handles::{alloc_entry, Entry};
-    let empty_vec = || alloc_entry(Entry::Vec(Box::new(Vec::new())));
+    let empty_vec = || alloc_entry(Entry::vec(Vec::new()));
     let (Some(s), Some(p)) = (str_from_abi(s_ptr, s_len), str_from_abi(p_ptr, p_len)) else {
         return empty_vec();
     };
@@ -208,7 +208,7 @@ pub fn match_all_str(s_ptr: *const u8, s_len: i64, p_ptr: *const u8, p_len: i64)
         // String WORD (motor novo), não handle cru.
         handles.push(rts_engine::heap::shapes::string_word(m.as_str().as_bytes()) as i64);
     }
-    alloc_entry(Entry::Vec(Box::new(handles)))
+    alloc_entry(Entry::vec(handles))
 }
 
 /// `str.matchAll(regex_handle)` — variante que aceita handle Entry::Regex.
@@ -218,7 +218,7 @@ pub fn match_all_str(s_ptr: *const u8, s_len: i64, p_ptr: *const u8, p_len: i64)
 /// Também consumido pelo adapter `re.exec`.
 pub fn match_all_regex(s_ptr: *const u8, s_len: i64, regex_handle: u64) -> u64 {
     use rts_engine::heap::handles::{alloc_entry, with_entry, Entry};
-    let empty_vec = || alloc_entry(Entry::Vec(Box::new(Vec::new())));
+    let empty_vec = || alloc_entry(Entry::vec(Vec::new()));
     let Some(s) = str_from_abi(s_ptr, s_len) else {
         return empty_vec();
     };
@@ -293,10 +293,10 @@ pub fn match_all_regex(s_ptr: *const u8, s_len: i64, regex_handle: u64) -> u64 {
             };
             let word_pair = |s: usize, e: usize| -> i64 {
                 use rts_engine::heap::shapes::legacy_i64_to_word as w;
-                let pair = alloc_entry(Entry::Vec(Box::new(vec![
+                let pair = alloc_entry(Entry::vec(vec![
                     w(s as i64) as i64,
                     w(e as i64) as i64,
-                ])));
+                ]));
                 handle_word_auto(pair) as i64
             };
             let mut keys: Vec<String> = Vec::with_capacity(groups.len() + 5);
@@ -372,7 +372,7 @@ pub fn match_all_regex(s_ptr: *const u8, s_len: i64, regex_handle: u64) -> u64 {
             handle_word_auto(alloc_shaped_object_owned(keys, &vals)) as i64
         })
         .collect();
-    alloc_entry(Entry::Vec(Box::new(outer)))
+    alloc_entry(Entry::vec(outer))
 }
 
 // ── _AUTO trampolines (dispatch string-vs-regex no RUNTIME, não no codegen) ─────

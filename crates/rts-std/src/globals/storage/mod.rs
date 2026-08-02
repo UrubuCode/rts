@@ -159,10 +159,10 @@ impl Storage {
 
     /// Serializa `[keys, vals]` como um grafo de valores do RTS.
     fn to_pickle(&self) -> Option<Vec<u8>> {
-        let pair = alloc_entry(Entry::Vec(Box::new(vec![
+        let pair = alloc_entry(Entry::vec(vec![
             string_array(&self.keys) as i64,
             string_array(&self.vals) as i64,
-        ])));
+        ]));
         pickle::serialize_value(pair).ok()
     }
 }
@@ -173,7 +173,7 @@ fn string_array(items: &[String]) -> u64 {
         .iter()
         .map(|s| alloc_entry(Entry::String(s.as_bytes().to_vec())) as i64)
         .collect();
-    alloc_entry(Entry::Vec(Box::new(words)))
+    alloc_entry(Entry::vec(words))
 }
 
 /// Lê de volta o `[keys, vals]` produzido por [`Storage::to_pickle`].
@@ -192,7 +192,7 @@ fn read_string_array(handle: u64) -> Option<Vec<String>> {
     // shard enquanto roda o corpo, e ler outro handle lá dentro pode cair no
     // MESMO shard — auto-deadlock. Soltar o lock primeiro é o padrão correto.
     let words: Vec<i64> = with_entry(handle, |e| match e {
-        Some(Entry::Vec(v)) => Some(v.as_ref().clone()),
+        Some(Entry::Vec(v)) => Some(v.to_owned_vec()),
         _ => None,
     })?;
     let mut out = Vec::with_capacity(words.len());

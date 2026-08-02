@@ -235,7 +235,7 @@ fn invoke_timer_cb(fp: u64) {
     if is_function_handle {
         use rts_engine::externs::__RTS_FN_RT_INVOKE_AUTO;
         let empty_args = rts_engine::heap::handles::alloc_entry(
-            rts_engine::heap::handles::Entry::Vec(Box::new(Vec::new())),
+            rts_engine::heap::handles::Entry::vec(Vec::new()),
         );
         unsafe {
             __RTS_FN_RT_INVOKE_AUTO(fp as i64, 0, empty_args);

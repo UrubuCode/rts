@@ -52,7 +52,7 @@ pub fn spread_into_vec(dst: u64, src: u64) {
     if rts_shared::collections::map::handle_is_set_kind(src) {
         let elems = rts_shared::collections::map::__RTS_FN_NS_COLLECTIONS_MAP_VALUES(src);
         let items = with_entry(elems, |entry| match entry {
-            Some(Entry::Vec(slots)) => slots.as_ref().clone(),
+            Some(Entry::Vec(slots)) => slots.to_owned_vec(),
             _ => Vec::new(),
         });
         for v in items {
@@ -65,7 +65,7 @@ pub fn spread_into_vec(dst: u64, src: u64) {
     if with_entry(src, |e| matches!(e, Some(Entry::GenState(_)))) {
         let drained = rts_engine::collector::generator::__rtsn_gen_sm_drain(src);
         let items = with_entry(drained, |entry| match entry {
-            Some(Entry::Vec(slots)) => slots.as_ref().clone(),
+            Some(Entry::Vec(slots)) => slots.to_owned_vec(),
             _ => Vec::new(),
         });
         for v in items {
@@ -74,7 +74,7 @@ pub fn spread_into_vec(dst: u64, src: u64) {
         return;
     }
     let snap = with_entry(src, |entry| match entry {
-        Some(Entry::Vec(slots)) => Snap::Vec(slots.as_ref().clone()),
+        Some(Entry::Vec(slots)) => Snap::Vec(slots.to_owned_vec()),
         Some(Entry::String(b)) => Snap::Str(b.clone()),
         Some(Entry::Map(m)) => Snap::Map(m.values().copied().collect()),
         _ => Snap::Empty,
@@ -236,7 +236,7 @@ fn inspect_handle(h: u64, depth: usize) -> String {
     }
     let r = with_entry(h, |e| match e {
         Some(Entry::String(s)) => R::Str(s.clone()),
-        Some(Entry::Vec(v)) => R::Vec((**v).clone()),
+        Some(Entry::Vec(v)) => R::Vec(v.to_owned_vec()),
         Some(Entry::Map(m)) => R::Map(
             m.iter().map(|(k, v)| (k.as_bytes().to_vec(), *v)).collect(),
         ),

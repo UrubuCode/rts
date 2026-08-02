@@ -34,7 +34,7 @@ const CURVES: &[&str] = &["x25519", "secp256r1", "secp384r1"];
 
 fn str_array(items: &[&str]) -> Handle {
     let words: Vec<i64> = items.iter().map(|s| string_word(s.as_bytes()) as i64).collect();
-    alloc_entry(Entry::Vec(Box::new(words)))
+    alloc_entry(Entry::vec(words))
 }
 
 /// `tls.getCiphers()`.

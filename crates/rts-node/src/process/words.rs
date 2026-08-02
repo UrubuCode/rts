@@ -27,7 +27,7 @@ pub fn object(keys: &[&str], values: &[i64]) -> u64 {
 
 /// An array → raw handle.
 pub fn array(words: Vec<i64>) -> u64 {
-    alloc_entry(Entry::Vec(Box::new(words)))
+    alloc_entry(Entry::vec(words))
 }
 
 pub fn throw(kind: &str, message: &str) {

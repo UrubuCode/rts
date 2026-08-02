@@ -528,7 +528,7 @@ fn pack_variadic_tail(all_args: &mut Vec<i64>, rest_idx: i32) {
         all_args.push(0);
     }
     let extra: Vec<i64> = all_args.split_off(ri);
-    let vec_h = alloc_entry(Entry::Vec(Box::new(extra)));
+    let vec_h = alloc_entry(Entry::vec(extra));
     all_args.push(vec_h as i64);
 }
 
@@ -738,7 +738,7 @@ pub fn __RTS_FN_GL_FUNCTION_CALL(handle: u64, this_arg: i64, args_handle: u64) -
         let raw = read_args_vec(args_handle);
         let words: Vec<i64> = raw.iter().map(|&a| raw_to_word(a)).collect();
         let wh = rts_engine::heap::handles::alloc_entry(
-            rts_engine::heap::handles::Entry::Vec(Box::new(words)),
+            rts_engine::heap::handles::Entry::vec(words),
         );
         let r = __RTS_FN_RT_INVOKE_AUTO(handle as i64, this_arg, wh) as u64;
         return word_to_raw(r);
@@ -930,12 +930,12 @@ pub fn __RTS_FN_GL_FUNCTION_APPLY_TYPED(
     if param_kinds.len() == 2 && param_kinds == vec![1u8, 1u8] && converted.len() > 2 {
         let mut acc = converted[0];
         for &x in &converted[1..] {
-            let single = alloc_entry(Entry::Vec(Box::new(vec![acc, x])));
+            let single = alloc_entry(Entry::vec(vec![acc, x]));
             acc = __RTS_FN_GL_FUNCTION_CALL(handle, this_arg, single);
         }
         return acc;
     }
-    let new_handle = alloc_entry(Entry::Vec(Box::new(converted)));
+    let new_handle = alloc_entry(Entry::vec(converted));
     __RTS_FN_GL_FUNCTION_CALL(handle, this_arg, new_handle)
 }
 
@@ -1141,7 +1141,7 @@ pub fn invoke_callable_auto(callable: u64, args: &[i64]) -> i64 {
     let h = rts_engine::heap::poly::poly_handle_normalize(callable).unwrap_or(callable);
     let is_fn_handle = with_entry(h, |e| matches!(e, Some(Entry::Function(_))));
     if is_fn_handle {
-        let args_h = alloc_entry(Entry::Vec(Box::new(args.to_vec())));
+        let args_h = alloc_entry(Entry::vec(args.to_vec()));
         return __RTS_FN_RT_INVOKE_AUTO(h as i64, 0, args_h);
     }
     invoke_fn_ptr_with_registry(callable, args)
@@ -1168,7 +1168,7 @@ pub fn invoke_callable_bridged(callable: u64, args: &[i64], args_are_words: bool
         } else {
             args.iter().map(|&a| raw_to_word(a)).collect()
         };
-        let args_h = alloc_entry(Entry::Vec(Box::new(words)));
+        let args_h = alloc_entry(Entry::vec(words));
         let r = __RTS_FN_RT_INVOKE_AUTO(h as i64, 0, args_h) as u64;
         return word_to_raw(r);
     }
@@ -1308,7 +1308,7 @@ fn invoke_auto_impl(
                     // this-first), so the cut at 4 is the callee's cut.
                     let overflow: Vec<i64> =
                         args[UNIFORM_POSITIONAL..].iter().map(|&w| w as i64).collect();
-                    let h = alloc_entry(Entry::Vec(Box::new(overflow)));
+                    let h = alloc_entry(Entry::vec(overflow));
                     let slot = rts_engine::heap::handles::__rtsn_poly_from_handle(h);
                     use rts_engine::heap::poly as p;
                     p::POLY_BOX_BASE | (p::POLY_TAG_OBJECT << p::POLY_TAG_SHIFT) | slot
