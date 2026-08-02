@@ -81,6 +81,29 @@ fn intern_str(s: &str) -> u64 {
     alloc_entry(Entry::String(s.as_bytes().to_vec()))
 }
 
+/// Intern a batch of strings AFTER the receiver's shard lock is released.
+///
+/// `with_rtse` holds the shard `Mutex` of `self_h` for the whole closure, and
+/// `intern_str` ALLOCATES — which takes the shard lock of whatever shard the new
+/// string lands in. When that is the same shard, the thread deadlocks against
+/// itself: `std`'s `Mutex` is not reentrant.
+///
+/// Under the historical global round-robin allocation the collision needed the
+/// allocator to pick 1 shard out of 32, so this hung roughly 1 run in 32 per
+/// interned element and read as flaky. With `RTS_REGIONS=1` (thread-affine
+/// shards, `heap/regions.rs`) a thread owns 2 shards, so it became ~1 in 2 and
+/// `JSON.stringify(new URLSearchParams("a=1").getAll("a"))` hung every time —
+/// which is how it was found. The bug was always here; regions only changed the
+/// odds.
+///
+/// So: copy the bytes out under the lock, drop it, then allocate. This is the
+/// same discipline `heap/string_pool/snapshot.rs` documents for formatting
+/// ("copies just enough to format outside the HandleTable lock, avoiding
+/// recursive deadlock").
+fn intern_all(owned: Vec<String>) -> Vec<i64> {
+    owned.iter().map(|s| intern_str(s) as i64).collect()
+}
+
 /// `URLSearchParams` instance state: the ordered `(key, value)` multimap. Not
 /// `#[rtse::variable]` — no field is a JS-visible scalar property (the JS
 /// surface is entirely methods + the computed `size`).
@@ -234,37 +257,38 @@ pub fn __RTS_FN_GL_USP_GET_ALL(self_h: u64, key_ptr: u64, key_len: i64) -> u64 {
         let s = std::slice::from_raw_parts(key_ptr, key_len as usize);
         std::str::from_utf8(s).unwrap_or("")
     };
-    let vals: Vec<i64> = with_rtse::<UrlSearchParams, _>(self_h, |s| {
+    // Copy under the lock, intern AFTER it (see `intern_all`).
+    let owned: Vec<String> = with_rtse::<UrlSearchParams, _>(self_h, |s| {
         s.map(|s| {
             s.pairs
                 .iter()
                 .filter(|(k, _)| k == key)
-                .map(|(_, v)| intern_str(v) as i64)
+                .map(|(_, v)| v.clone())
                 .collect()
         })
         .unwrap_or_default()
     });
-    alloc_entry(Entry::Vec(Box::new(vals)))
+    alloc_entry(Entry::Vec(Box::new(intern_all(owned))))
 }
 
 /// `usp.keys()` — a `Vec` of string handles (order + duplicates preserved).
 #[rtse::abi("__RTS_FN_GL_USP_KEYS")]
 pub fn __RTS_FN_GL_USP_KEYS(self_h: u64) -> u64 {
-    let out: Vec<i64> = with_rtse::<UrlSearchParams, _>(self_h, |s| {
-        s.map(|s| s.pairs.iter().map(|(k, _)| intern_str(k) as i64).collect())
+    let owned: Vec<String> = with_rtse::<UrlSearchParams, _>(self_h, |s| {
+        s.map(|s| s.pairs.iter().map(|(k, _)| k.clone()).collect())
             .unwrap_or_default()
     });
-    alloc_entry(Entry::Vec(Box::new(out)))
+    alloc_entry(Entry::Vec(Box::new(intern_all(owned))))
 }
 
 /// `usp.values()` — a `Vec` of string handles (order + duplicates preserved).
 #[rtse::abi("__RTS_FN_GL_USP_VALUES")]
 pub fn __RTS_FN_GL_USP_VALUES(self_h: u64) -> u64 {
-    let out: Vec<i64> = with_rtse::<UrlSearchParams, _>(self_h, |s| {
-        s.map(|s| s.pairs.iter().map(|(_, v)| intern_str(v) as i64).collect())
+    let owned: Vec<String> = with_rtse::<UrlSearchParams, _>(self_h, |s| {
+        s.map(|s| s.pairs.iter().map(|(_, v)| v.clone()).collect())
             .unwrap_or_default()
     });
-    alloc_entry(Entry::Vec(Box::new(out)))
+    alloc_entry(Entry::Vec(Box::new(intern_all(owned))))
 }
 
 /// `usp.entries()` — an array of `[key, value]` string pairs (insertion order,
