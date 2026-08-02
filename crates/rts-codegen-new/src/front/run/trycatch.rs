@@ -100,6 +100,15 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             .expect("__rtsadp_err_pending returns a value");
         let err_block = self.builder.create_block();
         let ok_block = self.builder.create_block();
+        // COLD: this check is emitted after EVERY call in the program, and the
+        // error edge is taken only when something actually threw. Marking it cold
+        // makes Cranelift lay the unwind out at the END of the function instead of
+        // inline after the branch, so the hot path's instructions stay contiguous
+        // (`CRANELIFT_IMPLEMENTATION.md` §3 / §7 item 5). It is a LAYOUT hint only
+        // — the same blocks, the same semantics.
+        if super::clifflags::cold_blocks() {
+            self.builder.set_cold_block(err_block);
+        }
         self.builder
             .ins()
             .brif(pending, err_block, &[], ok_block, &[]);

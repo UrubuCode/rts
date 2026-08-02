@@ -625,6 +625,16 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         l: Val,
         r: Val,
     ) -> FrontResult<Val> {
+        self.lower_arith_inner(module, op, l, r)
+    }
+
+    fn lower_arith_inner(
+        &mut self,
+        module: &mut dyn Module,
+        op: HirBinOp,
+        l: Val,
+        r: Val,
+    ) -> FrontResult<Val> {
         if is_tagged(l) || is_tagged(r) {
             return self.lower_generic_arith(module, op, l, r);
         }
@@ -699,6 +709,9 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                         }
                     }
                 }
+                if super::clifflags::int_overflow_checks() {
+                    return self.lower_int_arith_checked(op, l, r);
+                }
                 let v = match op {
                     HirBinOp::Add => self.builder.ins().iadd(l.v, r.v),
                     HirBinOp::Sub => self.builder.ins().isub(l.v, r.v),
@@ -719,6 +732,76 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 Ok(Val::new(v, Repr::Float64))
             }
         }
+    }
+
+    /// `+`/`-`/`*` on two PROVEN INTS, with the overflow escape JS semantics
+    /// require.
+    ///
+    /// A JS number is a double: `4611686018427387904 + 4611686018427387904` is
+    /// `9223372036854776000`, not a wrap. The unchecked int path returned the
+    /// wrapped `-9223372036854776000` (and `0` for the `*4` case) — silently wrong
+    /// against every other runtime, which is the gap `CRANELIFT_IMPLEMENTATION.md`
+    /// §3 named ("RTS currently emits no overflow check at all; the fallback would
+    /// be an inline widen to `f64`").
+    ///
+    /// So: `sadd_overflow` / `ssub_overflow` / `smul_overflow` give the result AND
+    /// the flag in one instruction; the flag branches to a COLD block that redoes
+    /// the operation in `f64`. The two edges carry different reprs, so they merge
+    /// through a `Tagged` (PolyValue) block param — the ok edge boxes an int, the
+    /// overflow edge boxes a double. Both boxes are pure IR, so the egraph folds
+    /// the box back out wherever the consumer immediately unboxes.
+    ///
+    /// `RTS_INT_OVERFLOW=0` restores the unchecked form for A/B.
+    fn lower_int_arith_checked(
+        &mut self,
+        op: HirBinOp,
+        l: Val,
+        r: Val,
+    ) -> FrontResult<Val> {
+        let int_repr = wider_int(l.repr, r.repr);
+        let (res, ovf) = match op {
+            HirBinOp::Add => {
+                let x = self.builder.ins().sadd_overflow(l.v, r.v);
+                (x.0, x.1)
+            }
+            HirBinOp::Sub => {
+                let x = self.builder.ins().ssub_overflow(l.v, r.v);
+                (x.0, x.1)
+            }
+            HirBinOp::Mul => {
+                let x = self.builder.ins().smul_overflow(l.v, r.v);
+                (x.0, x.1)
+            }
+            _ => return unsupported!("arithmetic op {op:?}"),
+        };
+
+        let ovf_block = self.builder.create_block();
+        let merge = self.builder.create_block();
+        self.builder.append_block_param(merge, types::F64);
+        if super::clifflags::cold_blocks() {
+            // Overflowing a 64-bit int is the rare edge, not the workload.
+            self.builder.set_cold_block(ovf_block);
+        }
+        let ok_word = self.coerce(Val::new(res, int_repr), Repr::Float64)?;
+        self.builder.ins().brif(ovf, ovf_block, &[], merge, &[ok_word.into()]);
+
+        self.builder.switch_to_block(ovf_block);
+        self.builder.seal_block(ovf_block);
+        let lf = self.coerce(l, Repr::Float64)?;
+        let rf = self.coerce(r, Repr::Float64)?;
+        let fv = match op {
+            HirBinOp::Add => self.builder.ins().fadd(lf, rf),
+            HirBinOp::Sub => self.builder.ins().fsub(lf, rf),
+            HirBinOp::Mul => self.builder.ins().fmul(lf, rf),
+            _ => unreachable!("op filtered above"),
+        };
+        let ovf_word = fv;
+        self.builder.ins().jump(merge, &[ovf_word.into()]);
+
+        self.builder.switch_to_block(merge);
+        self.builder.seal_block(merge);
+        let out = self.builder.block_params(merge)[0];
+        Ok(Val::new(out, Repr::Float64))
     }
 
     /// The generic arithmetic path: box both operands to PolyValue and call the
