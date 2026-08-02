@@ -342,6 +342,47 @@ fields **[E]**, but its real value is that C3 and §7.3 both need it.
 `call __rtsn_vec_get_by_payload` to three loads. Keep the old path live for
 unproven receivers. Expected 11.28 → ~1.50 ns per two-field read [M, probe].
 
+**NOT STARTED — and §8.4 is its prerequisite, not its footnote (2026-08-02).**
+An implementation pass established that neither of the two objections this
+document spends most of its risk budget on is what stops C2:
+
+- The **GC race** does not stop it. A receiver held in the frame is a
+  conservative root, so its slot cannot be swept or reused during the read, and
+  a GC tick fires only from `alloc_entry` — only at a call. That is the same
+  property `collector/scan.rs` already relies on when it scans six callee-saved
+  registers and no caller-saved ones, and removing the field-read call does not
+  weaken it.
+- **§8.2 hoisting** does not stop it either, and the reason is specific to this
+  storage: the chunk-table base is a `static` address, a table entry is
+  published once (`Release`) and never rewritten, and a chunk never moves and is
+  never freed. The base and the slot address are loop-invariant *in fact*. What
+  would break it is the moving collector of §4.4 — and the one-word block
+  indirection is exactly what keeps it safe there, since relocation rewrites the
+  block word, not the slot address.
+
+What stops it is **§8.4**. A raw load is sound only if the words cannot be freed
+or reallocated under it, so the field words must live in the fixed-stride block
+of §4.2 rather than in `Entry::Vec`'s `Box<Vec<i64>>` — a buffer the sweep drops
+and any `push` reallocates. That is a new `Entry` variant, and `Entry::Vec` is
+matched at **316 sites across seven runtime crates**, with object-vs-array
+decided *dynamically* by `objops::looks_like_object` reading `(slot0, len)` —
+there is no static split to inherit. A site missed in that fork returns a
+silently wrong value for a class instance instead of failing loudly, and
+`RTS_SLAB=1` does not contain it: a knob exists to be turned on and measured.
+
+The narrowing that looks available is not: **C6 (landed) already removes the
+allocation for every instance that provably stays local**, so what C2 is left to
+speed up is precisely the escaping set — the set the 316 sites must keep reading
+correctly. Restricting C2 to "safe" receivers therefore restricts it to the
+empty set.
+
+So the split is a phase of its own, ordered **before** C2: one representation
+for shaped instances, `Entry::Vec` left to arrays, landed and measured on its
+own. Only then is C2 an emission change. Nothing was landed for C2 here — the
+layout constants and the `#[rtse::abi]` chunk-table/stride symbols belong to it
+and are still unwritten, because an unused constant is dead code and an unused
+symbol is a row the gate has to carry.
+
 ### C3 — the overflow bag
 
 `field/overflow.rs`. Closes constraint #4 without dictionary-mode demotion.

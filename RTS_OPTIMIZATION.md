@@ -1572,6 +1572,62 @@ exist at the IR level") is removable exactly by 3.1 — a chunked slab with a ba
 in a global gives `load [base + payload*8]` as pure IR, bounds/generation check
 preserved.
 
+**NOT LANDED (2026-08-02) — and the blocker is not the one this item names.**
+An implementation pass got as far as pricing every precondition against the tree
+and stopped deliberately, because the emission that fits in this item's framing
+corrupts memory and the one that does not is a representation change no knob
+makes safe. What the pass established, so the next one does not re-derive it:
+
+- **Addressing is genuinely solved.** 3.1's chunk table gives a
+  process-stable slot address, and `chunks::slot_addr` is the Rust twin of the
+  IR sequence. Nothing about `load [base + payload*8]` is blocked.
+- **The GC-race objection is answerable, and it is not what blocks this.** A
+  receiver whose handle word is live in the frame is a conservative root, so its
+  slot cannot be swept or reused *while it is being read* — and a GC tick fires
+  only from `alloc_entry`, i.e. only at a call, which is the same property
+  `collector/scan.rs` already relies on to justify scanning six callee-saved
+  registers and no caller-saved ones. Removing the field-read call does not
+  weaken that argument: a value live across a call is still spilled or
+  callee-saved.
+- **Hoisting is safe on this storage, for a reason that is worth stating.** The
+  chunk-table base is a `static` address; a chunk-table entry is published once
+  with `Release` and never rewritten; a chunk never moves and is never freed. So
+  the base and the slot address are loop-invariant *in fact*, not by assumption,
+  and the egraph hoisting them across a GC tick is correct. What would break it
+  is precisely the moving collector `RTS_CLASS_IMPLEMENTATION.md` §4.4 prices —
+  and the block indirection it specifies is what keeps it safe there too, since
+  relocation rewrites the block word and not the slot address.
+- **What actually blocks it is the object/array representation split (§8.4).**
+  A raw `load` is sound only if the words it reads cannot be freed or moved
+  under it, and today an object's field words live in `Entry::Vec`'s
+  `Box<Vec<i64>>` — a buffer the sweep drops and any `push` reallocates. The
+  fix is §4.2's inline fixed-stride block, which means a new `Entry` variant.
+  `Entry::Vec` is matched at **316 sites across seven runtime crates**
+  (66 rts-natives, 46 rts-runtime, 28 rts-primitives, 47 rts-shared, 48 rts-std,
+  75 rts-node, 6 rts-engine), and object-vs-array is decided *dynamically* by
+  `objops::looks_like_object` reading `(slot0, len)` — there is no static split
+  to inherit. Every site missed in a fork returns a silently wrong value for a
+  class instance rather than failing loudly, and `RTS_SLAB=1` does not contain
+  that: the knob exists to be turned on and measured, so a knob-on path that is
+  wrong at an unknown subset of sites is not a landable subset.
+- **The remaining win is on ESCAPING objects only, and that is the expensive
+  half by construction.** Tier 4.1 / C6 escape analysis has landed
+  (`front/run/escape/`, `RTS_ESCAPE`), and it already deletes the allocation for
+  every instance that provably stays local — those objects have no `Entry` at
+  all. What 3.2 is left to speed up is exactly the set that escapes into the
+  generic paths, i.e. the set the 316 sites must keep reading correctly. The two
+  items do not overlap, and that is why 3.2 cannot be narrowed into safety by
+  restricting which receivers take it.
+
+The order this implies: the object/array split is a prerequisite ITEM, not a
+detail of 3.2 — it should be scoped, landed and measured on its own (one
+representation for shaped instances, `Entry::Vec` left to arrays), and only then
+does 3.2 become an emission change. Layout constants stay a single definition in
+`rts-natives` when that happens (`RTS_CLASS_IMPLEMENTATION.md` §6.3); the
+`#[rtse::abi]` symbols for the chunk-table base and the slot stride are 3.2's to
+declare and were deliberately not declared here, because an unused row in the
+baked table is a row the gate then has to carry.
+
 **3.3 Stop defaulting untracked receivers to dictionary mode.** ~~No production
 engine treats "shape not statically proven" as "this object is pathological";
 dictionary mode is entered by delete-heavy/sparse-key triggers **[S]**. Give
@@ -2010,3 +2066,66 @@ merge, not more type information.
   allocation lands in the same shard. Latent at ~1-in-32 under round-robin
   allocation; thread-affine regions raised it to ~1-in-2 and made it reproducible.
   Fixing it is what let `RTS_REGIONS=1` pass the whole suite.
+
+---
+
+## §11 Two live correctness bugs this work walked into
+
+Neither was predicted by the plan; both were found while benchmarking allocation
+for Tier 3.1, and both reproduce on a pre-session build.
+
+### 11.1 The mark phase truncated at 1M steps — FIXED
+
+`mark_handle` carried a `steps > 1_000_000` cap. It was load-bearing only because
+`HandleTable::mark` re-enumerated an already-marked node's children, so a cycle
+never terminated. Truncating a MARK phase does the one thing a mark phase must
+never do: past a million steps the still-live tail kept `marked = false` and the
+sweep freed it.
+
+  500 000-element array of class instances, summed:  NaN   (450 000: correct)
+  same program with RTS_GC_DISABLE=1:                correct at every size
+
+The periodic GC fires when the live set passes `GC_LIVE_FLOOR` (500 000 handles),
+which is exactly why the failure begins there. Fixed by terminating on the mark
+BIT — each slot expands at most once per cycle — and removing the cap, which with
+correct termination can only ever truncate. Guarded by
+`tests/gc_large_live_set.test.ts`; the fixture's 520k size cannot shrink, because
+below the floor no collection happens at all and a smaller fixture would pass on
+the broken code.
+
+### 11.2 A top-level `const` object is not a GC root — OPEN
+
+```ts
+class N { v: number; constructor(v: number) { this.v = v; } }
+const plain = new N(7);                        // used only at top level
+const viaFn = new N(9);
+function readIt(): number { return viaFn.v; }  // referenced from a function
+const junk: N[] = [];
+for (let i = 0; i < 600000; i++) junk.push(new N(i));
+console.log(plain.v, readIt());                // RTS: 499325  9      node: 7 9
+```
+
+`plain.v` does not merely read `undefined` — it reads **another object's field**.
+Its slot was freed and reused, and a `PolyValue` carries only the 48-bit slot, so
+the stale word silently resolves to the new occupant. A wrong value, not a crash.
+
+What distinguishes the surviving cases, measured:
+
+| binding | survives? | why |
+|---|---|---|
+| local of a called function | yes | its frame is spilled to the stack the scanner walks |
+| top-level, referenced from a function | yes | promoted to a gcell, `mark_gcell_roots` covers it |
+| top-level, used only at top level | **NO** | — |
+| the whole program with the loop inside a function | yes | `__rts_startup`'s frame is below the allocating frame |
+
+Not caused by any of this session's work: it reproduces with `RTS_ESCAPE=0`,
+`RTS_OP_GUARD=0`, and on a pre-session build, and disappears with
+`RTS_GC_DISABLE=1`.
+
+One concrete lead, verified: `scan_all_roots`'s third root source is
+"globals top-level com handles", implemented as `mark_global_roots` over
+`collector::global_roots`. With `RTS_GC_DEBUG=1` that reports **`globals=0`** on
+the failing program, and grepping the tree shows the registry has exactly one
+producer — `rts-napi`'s references. **The codegen never registers a global root.**
+Whether that is the whole cause is unproven; what is proven is that the mechanism
+the comment claims covers this case is empty.
