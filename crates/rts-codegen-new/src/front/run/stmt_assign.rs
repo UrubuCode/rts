@@ -136,6 +136,20 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 self.cell_locals,
             );
         }
+        // Nome que não casa com binding léxico nenhum: atribuir a ele CRIA um
+        // global (o "global implícito" do modo sloppy, que é o modo de todo
+        // `<script>` de página). Simétrico ao `__rtsadp_global_ref` da LEITURA,
+        // e pelo mesmo motivo — recusar derrubava o arquivo inteiro.
+        if self.local(&name).is_none() {
+            let name_w = self.emit_str_const_word(module, &name)?;
+            let v = self.lower_expr(module, value)?;
+            let word = self.box_value(v);
+            let sym = rts_runtime::adapters::value::globalthis::GLOBAL_SET_ABI.name;
+            let res = self
+                .call_runtime(module, sym, &[name_w, word])?
+                .expect("__rtsadp_global_set returns the assigned value");
+            return Ok(Val::new(res, Repr::Tagged));
+        }
         let local = self
             .local(&name)
             .ok_or_else(|| Unsupported::new(format!("assignment to unbound `{name}`")))?;
