@@ -8,6 +8,7 @@ pub mod kernel_backend;
 pub mod kernel_b;
 pub mod kernel_c;
 pub mod kernel_ir;
+pub mod kernel_num;
 pub mod kernel_obj;
 pub mod kernel_ops;
 pub mod kernel_prim;

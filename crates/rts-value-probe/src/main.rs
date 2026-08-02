@@ -57,4 +57,5 @@ fn main() {
     bench::symarch::kernel_sym_arch();
     bench::stdlibshape::kernel_stdlib_shape();
     bench::compiletime::kernel_compile_time();
+    bench::numwidth::kernel_num_width();
 }

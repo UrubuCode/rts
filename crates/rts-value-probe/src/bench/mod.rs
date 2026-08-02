@@ -1,5 +1,6 @@
 //! The benchmark drivers, one module per primordial under test.
 
+pub mod numwidth;
 pub mod objects;
 pub mod ops;
 pub mod repr;
