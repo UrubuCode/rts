@@ -84,15 +84,47 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
                 (required_args(&c.default_args, total)..=total).contains(&argc)
             })
             .collect();
-        if candidates.is_empty() {
-            return unsupported!("`new {class}({argc} args)` — no matching constructor");
-        }
+        // ARGUMENTOS EXTRAS são ignorados em JS — chamar um construtor com mais
+        // argumentos do que ele declara é legal, e os que sobram simplesmente
+        // não são lidos. Sem isto o motor exigia aridade exata e recusava o
+        // ARQUIVO INTEIRO por um `new FormData(a, b)` / `new AbortSignal(x)`.
+        //
+        // Os extras ainda são AVALIADOS (abaixo, com os demais) — a avaliação é
+        // observável, só o valor é descartado.
+        //
+        // RESSALVA: para um builtin cujo argumento extra TEM significado na spec
+        // (`new FormData(form)` deveria popular a partir do elemento), isto
+        // ignora esse significado. O motor não implementa esse comportamento de
+        // nenhum jeito, então a escolha é entre ignorar o argumento e rejeitar o
+        // arquivo — nunca entre ignorar e acertar.
+        let (candidates, argc) = if candidates.is_empty() {
+            let widest = registry::class_ctors(class)
+                .into_iter()
+                .filter(|c| c.arg_abis.len() < argc)
+                .max_by_key(|c| c.arg_abis.len());
+            match widest {
+                Some(c) => {
+                    let n = c.arg_abis.len();
+                    (vec![c], n)
+                }
+                None => {
+                    return unsupported!("`new {class}({argc} args)` — no matching constructor");
+                }
+            }
+        } else {
+            (candidates, argc)
+        };
         // Lower the provided args ONCE (needed to disambiguate same-arity
         // overloads by proven kind, and reused for the marshal).
-        let mut vals: Vec<Val> = Vec::with_capacity(argc);
+        // TODOS os argumentos escritos são lowerados (a avaliação é observável),
+        // mas só os `argc` primeiros seguem para o marshal — os extras foram
+        // descartados pelo ajuste de aridade acima.
+        let mut vals: Vec<Val> = Vec::with_capacity(args.len());
         for a in args {
             vals.push(self.lower_expr(module, a)?);
         }
+        vals.truncate(argc);
+        let args = &args[..argc.min(args.len())];
         // Pick the overload: a single candidate wins outright; a tie is broken by
         // every provided arg's proven `JsKind` matching its param `AbiType`. None
         // matching (an `any`/Tagged arg) BAILS — no runtime-type guessing.
