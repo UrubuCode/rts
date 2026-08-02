@@ -341,7 +341,7 @@ being re-derived from a rebuild.
 | 4 | chunk per rayon worker | "efficiency is 25% of linear" | **no gain**; premise was hyperthreads | knob kept, default = rayon |
 | 5a | `set_cold_block` | Tier 1.5 | **no measurable delta** (47 ms both ways) | landed, default ON |
 | 5b | `*_overflow` family | Tier 2.2 | **correct**, and 6.6x slower | landed, OPT-IN |
-| 6 | declare-then-lower | 10.76 ms serial | not landed; one of its two blockers removed | open |
+| 6 | declare-then-lower | 10.76 ms serial | serial-forced share measured at **7%**; phase 12.5 → **11.1 ms** from the symbol memo | open, now specified |
 
 Switches: `RTS_CLIF_VERIFIER=1`, `RTS_CLIF_CACHE=1` (+ `RTS_CLIF_CACHE_DIR`),
 `RTS_ALL_THUNKS=1`, `RTS_CODEGEN_CHUNK=N`, `RTS_COLD_BLOCKS=0`,
@@ -452,7 +452,52 @@ them merging as `Tagged` (the first version — the Tagged repr propagates into 
 loop variable and takes the whole loop off the int path, which is a useful
 demonstration of Pilar 2's join rule doing what it says).
 
-### Item 6, the one left open — with its design and its ceiling
+### Item 6, the one left open — now measured, with both prerequisites named
+
+**How much of the phase is even at stake, measured.** `build fn IR + main` is
+serial only because it holds `&mut dyn Module`. `timing::declare` (new; reported
+under `RTS_TIMING=1` as `of which: module decls`) prices exactly that part:
+
+| | build fn IR | of which module mutations |
+|---|---|---|
+| before | 12.5 ms | **1.76 ms** (10538 calls) — 14% |
+| after the per-module symbol memo | **11.1 ms** | **0.74 ms** (5788 calls) — 7% |
+
+So **93% of the phase is per-function work holding the module for no reason**,
+and that is item 6's real ceiling: ~10 ms of a ~100 ms `tiny.ts`, or ~9 ms once
+divided across 8 physical cores.
+
+The memo itself was free money the accounting exposed: a runtime symbol was
+import-declared at EVERY call site mentioning it, and each redeclare rebuilt the
+Cranelift `Signature` (two `Vec` allocations) before `declare_function` deduped
+it by name. One `name -> FuncId` map per module removed 4750 of them.
+
+**Prerequisite 1 — `FuncId`s are baked into the IR being built.** A callee
+reference is `UserExternalName { namespace: 0, index: FuncId }` in
+`func.params`. Cranelift classes those as cache PARAMETERS, not stencil, which is
+the hint: they can be REWRITTEN after the fact. So workers could build IR against
+a per-worker virtual index space and a serial pass could remap
+`func.params.user_named_funcs()` to real ids — the same move `bake.rs::symbolize`
+already makes for relocations. Buffering the declares themselves does not work;
+remapping the references does.
+
+**Prerequisite 2 — shape ids are assigned by INTERNING ORDER.**
+`rts-natives/src/heap/shapes/mod.rs:130` computes
+`id = GLOBAL_SHAPE_BASE + reg.keys.len()`, and the lowering interns as it goes.
+Under parallel lowering the id a shape receives would depend on worker
+scheduling, so the immediates baked into the IR would differ run to run —
+breaking the whole-program bake, the incremental cache, and the AOT shape seed,
+which all assume a program compiles to the same bytes twice. The fix is a serial
+PRE-INTERN pass over the HIR (deterministic by scan order), which is also what
+pre-declaration of IC cells and string data wants; the alternative, content-hashed
+ids, collides with the positional snapshot `seed_global_shapes` rebuilds from.
+
+**And a third constraint the AOT regression added (#2100).** "Address taken" is
+not a property of the lowering alone: an AOT object carries relocations emitted
+OUTSIDE it (class new-thunks, prelude statics). Any pre-declaration pass must
+cover those sites too — a missed one is a link failure, not a slow start.
+
+### The original ceiling note
 
 `build fn IR + main` is 10.78 ms and serial because lowering holds
 `&mut dyn Module`: it declares callees, data and signatures as it goes (25 call
