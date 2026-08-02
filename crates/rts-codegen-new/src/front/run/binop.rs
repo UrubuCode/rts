@@ -439,6 +439,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             HirBinOp::Lt | HirBinOp::Le | HirBinOp::Gt | HirBinOp::Ge
         ) {
             if is_tagged(l) || is_tagged(r) {
+                // Tier 2.1: try the inline tag guard first — a monomorphic
+                // number pair takes a native `fcmp` and only a genuinely mixed
+                // pair reaches the trampoline. `None` ⇒ not applicable, and the
+                // unguarded call below is unchanged.
+                if let Some(v) = self.try_guarded_relational(module, op, l, r)? {
+                    return Ok(v);
+                }
                 return self.lower_generic_relational(module, op, l, r);
             }
             return self.lower_compare(op, l, r);
@@ -465,7 +472,12 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
     /// Generic relational `< <= > >=` over a tag-dispatched runtime compare →
     /// a `Bool` (i64 0/1). Used when either operand is Tagged.
-    fn lower_generic_relational(
+    ///
+    /// `pub(super)` because [`super::opguard`] emits it as the MISS arm of the
+    /// inline tag guard — the guard never re-implements a coercion, it only
+    /// branches around this call when both operands are proven numbers at run
+    /// time.
+    pub(super) fn lower_generic_relational(
         &mut self,
         module: &mut dyn Module,
         op: HirBinOp,
@@ -636,6 +648,13 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         r: Val,
     ) -> FrontResult<Val> {
         if is_tagged(l) || is_tagged(r) {
+            // Tier 2.1: the inline tag guard. `+` is included but only ever fires
+            // on a RUN-TIME proof that both operands are numbers — the string /
+            // ToPrimitive half of the JS `+` algorithm stays exclusively in
+            // `__rtsadp_add`, and is never inferred from the AST.
+            if let Some(v) = self.try_guarded_arith(module, op, l, r)? {
+                return Ok(v);
+            }
             return self.lower_generic_arith(module, op, l, r);
         }
 
@@ -806,7 +825,11 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
 
     /// The generic arithmetic path: box both operands to PolyValue and call the
     /// matching `__rtsadp_*` trampoline (the one tag-dispatched arithmetic path).
-    fn lower_generic_arith(
+    ///
+    /// `pub(super)` because [`super::opguard`] emits it as the MISS arm of the
+    /// inline tag guard (Tier 2.1) — the fast path stands in ONLY for the
+    /// both-operands-are-numbers case, and every other case still lands here.
+    pub(super) fn lower_generic_arith(
         &mut self,
         module: &mut dyn Module,
         op: HirBinOp,

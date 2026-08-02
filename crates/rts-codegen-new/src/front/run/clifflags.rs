@@ -55,6 +55,32 @@ pub(super) fn int_overflow_checks() -> bool {
     })
 }
 
+/// `RTS_OP_GUARD=0` — stop emitting the inline tag guard in front of the generic
+/// operator trampolines (`RTS_OPTIMIZATION.md` §5 Tier 2.1, implemented in
+/// [`super::opguard`]). ON by default.
+///
+/// Unlike [`int_overflow_checks`] this is not a semantic switch: with it OFF the
+/// operator lowers to the same `__rtsadp_*` call it always did, and with it ON the
+/// fast path is only taken when a RUN-TIME tag test proves both operands are
+/// numbers, in which case it reproduces the trampoline's result word bit-for-bit.
+/// So it is purely an A/B lever for what the guard is worth on one binary — the
+/// doc's expectation is 2–4× across the guarded operators, measured on a probe
+/// rather than on this emission.
+///
+/// TODO(measure): record the A/B here once the operator bench has been run with
+/// `RTS_OP_GUARD=1` and `RTS_OP_GUARD=0`. Set `RTS_NO_PRELUDE_CACHE=1` for both
+/// arms — [`super::prelude_cache`] keys only on the prelude TEXT plus its cache
+/// version, so without it both arms would replay one cached lowering and the A/B
+/// would measure nothing.
+pub(super) fn op_guards() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var("RTS_OP_GUARD")
+            .map(|v| v.trim() != "0")
+            .unwrap_or(true)
+    })
+}
+
 pub(super) fn verifier_forced() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {

@@ -28,7 +28,13 @@ use super::LoweredProgram;
 /// v2: class shape ids stopped being published into the layout `by_keys` map
 /// (`rts_engine::heap::shapes`), so a blob baked by a v1 engine seeds a registry
 /// in which a plain object can still inherit a class's identity.
-const CACHE_VERSION: u32 = 2;
+///
+/// v3: the operator lowering gained the inline tag guard (`super::opguard`,
+/// `RTS_OPTIMIZATION.md` §5 Tier 2.1). The key is a hash of the prelude TEXT plus
+/// this version and nothing else, so a v2 blob would keep serving pre-guard code
+/// for every prelude function — the change would appear to do nothing there, and
+/// an `RTS_OP_GUARD` A/B would compare two runs of the same cached bytes.
+const CACHE_VERSION: u32 = 3;
 
 /// The whole cached payload (owned, for DESERIALIZE): the lowered prelude + the
 /// process-global state its lowering interned (shape id→keys, Error-class table).

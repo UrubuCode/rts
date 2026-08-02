@@ -66,6 +66,7 @@ mod newdyn;
 mod newexpr;
 mod obj;
 mod objstatic;
+mod opguard;
 mod optchain_lower;
 mod clifcache;
 mod clifflags;
