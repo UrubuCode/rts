@@ -1,8 +1,10 @@
 # CRANELIFT_IMPLEMENTATION.md — the Cranelift API surface RTS uses, and the one it does not
 
-**Status:** MEASUREMENT + RESEARCH, 2026-08-01. Nothing here is implemented by
-this document. Every number is **[M]** measured on this machine, **[S]** sourced
-with a link, or **[E]** an estimate — treat **[E]** as a hypothesis to test.
+**Status:** §7's plan is IMPLEMENTED as of 2026-08-01 — see **§10 Results**, which
+records what each item was actually worth, including the two that came back
+negative and the one that is correct but cannot be turned on yet. Every number is
+**[M]** measured on this machine, **[S]** sourced with a link, or **[E]** an
+estimate — treat **[E]** as a hypothesis to test.
 
 > **This file replaces a deleted document of the same name.** The old one argued
 > "everything the engine can express as Cranelift instructions should be emitted
@@ -321,3 +323,98 @@ the work; that one deletes it.
 - [wasmer-cache](https://docs.rs/wasmer-cache/) — module-level artifact caching
 - [Improving WebAssembly load times with Zero-Copy deserialization — Wasmer](https://wasmer.io/posts/improving-with-zero-copy-deserialization) — the 40–50% figure
 - In-tree: `RTS_OPTIMIZATION.md` §1e (the backend question, settled), `crates/rts-codegen-new/src/front/run/parcompile.rs` (the parallel split and why it is behaviour-preserving)
+
+---
+
+## §10 RESULTS — what §7 was actually worth
+
+Implemented 2026-08-01. Same conditions as every other **[M]** here: `cargo build
+--release`, 16 logical / 8 physical cores, `RTS_TIMING=1`, `tiny.ts`. Each item
+carries an env switch so the claim stays checkable with one binary instead of
+being re-derived from a rebuild.
+
+| # | item | expected (§7) | measured | state |
+|---|---|---|---|---|
+| 1 | `enable_verifier=false` on AOT | ~16 ms of a 1019 ms AOT compile | **4.8 ms** of the AOT machine-compile phase (41.2 → 36.4) | landed, default ON |
+| 2 | `incremental-cache` spike | "unknown, possibly negative" | **21.8 → 14.5 ms** warm, 420/425 hits | landed, OPT-IN |
+| 3 | thunk on demand | ≤51% of the compiled count | **59 of 218 thunks** dropped; 19.2 → 15.4 ms | landed, default ON |
+| 4 | chunk per rayon worker | "efficiency is 25% of linear" | **no gain**; premise was hyperthreads | knob kept, default = rayon |
+| 5a | `set_cold_block` | Tier 1.5 | **no measurable delta** (47 ms both ways) | landed, default ON |
+| 5b | `*_overflow` family | Tier 2.2 | **correct**, and 6.6x slower | landed, OPT-IN |
+| 6 | declare-then-lower | 10.76 ms serial | not landed — design + ceiling below | open |
+
+Switches: `RTS_CLIF_VERIFIER=1`, `RTS_CLIF_CACHE=1` (+ `RTS_CLIF_CACHE_DIR`),
+`RTS_ALL_THUNKS=1`, `RTS_CODEGEN_CHUNK=N`, `RTS_COLD_BLOCKS=0`,
+`RTS_INT_OVERFLOW=1`.
+
+### The two corrections §7 forced
+
+**§4's attribution was wrong.** The 2× JIT/AOT machine-compile gap is not the
+verifier. With the verifier off on both paths AOT is still 36.4 ms against the
+JIT's 21.0 ms; the verifier accounts for 4.8 of that (13%), and the rest is the
+second variable §4 named and did not isolate — the AOT path lowers string
+literals as data objects plus a runtime `string_from_static` call instead of the
+JIT's compile-time-baked handle.
+
+**§7 item 4's premise was wrong.** "Efficiency is 25% of linear on 16 cores" was
+measuring hyperthreads: 8 workers already reach the 16-worker number (22.2 vs
+22.4 ms), so the ceiling is physical cores, not per-task overhead. Forcing a
+coarser grain does nothing up to `chunk=8` and costs 2× at `chunk=32`, because
+the functions are not equal-cost and rayon's adaptive splitting already
+work-steals around that.
+
+### Item 2 came back positive, against its own prediction
+
+§2's caveat 2 guessed that SHA-256 over 425 mostly-tiny functions might cost more
+than compiling them. It does not: warm runs hit 420 of 425 and cut the phase 33%,
+for a ~0.8 ms cold penalty and a 670 KB cache file. The 5 persistent misses are
+the program-specific functions — the prelude produces an identical stencil every
+run, exactly as §2 predicted from the stencil/parameters split.
+
+It stays OPT-IN anyway, on the same discipline as the whole-program bake: a cache
+goes on after it is measured on real multi-file workloads, not after one
+`tiny.ts` win.
+
+### Item 5b is the one that is correct and still off
+
+It is the only item here that is a CORRECTNESS fix rather than a speed one, and
+the only one that cannot simply be switched on. §3 recorded "RTS currently emits
+no overflow check at all"; the consequence is that a proven-int `+`/`*` answers
+wrongly once it wraps (`4611686018427387904 * 4` gives `0`, node gives
+`18446744073709552000`). The checked form matches node on every case tried.
+
+What blocks it: **RTS has both semantics and cannot currently tell them apart.**
+A JS `number` is a double, so wrapping is a wrong answer; a value declared
+`i64`/`u32` is a native fixed-width integer, so wrapping is the contract the
+annotation asks for. `rts-hir` types EVERY integral literal as `HirType::I64`
+regardless of annotation (`lower.rs:915`/`:927`), so gating on the operand's HIR
+type was implemented, measured to never fire, and removed. The prerequisite is an
+"annotated" bit on the HIR binding (~95 construction sites).
+
+The cost is why a blanket check is not an option: an int-heavy 50M-iteration loop
+goes 25 → 226 ms with the two edges merging as `Float64`, and 25 → 735 ms with
+them merging as `Tagged` (the first version — the Tagged repr propagates into the
+loop variable and takes the whole loop off the int path, which is a useful
+demonstration of Pilar 2's join rule doing what it says).
+
+### Item 6, the one left open — with its design and its ceiling
+
+`build fn IR + main` is 10.78 ms and serial because lowering holds
+`&mut dyn Module`: it declares callees, data and signatures as it goes (25 call
+sites across `front/run/` and `value/`), and the returned `FuncId`/`DataId` is
+used immediately in the IR being built.
+
+The shape that would work is **pre-declaration, not buffering**: a scan pass over
+the HIR collects every string literal and every IC site up front, declares their
+data objects, and hands the lowering an immutable name→id map — at which point
+lowering needs only `&Module` and parallelises like the machine-compile phase
+already does. Buffering the declarations per worker does NOT work, because the
+ids must exist while the IR that references them is built.
+
+Ceiling: 10.78 ms of a 102 ms `tiny.ts`, of which 48 ms is process start. A
+perfect result is ~9 ms, roughly 9% — for a refactor that touches every module
+mutation in the lowering. That is why it is listed and not done: it is the item
+in this table with the worst ratio of risk to return, and §7's closing paragraph
+already names what changes category instead (stdlib bodies as native symbols,
+`RTS_OPTIMIZATION.md` §1e.5 — a native symbol has no CLIF, no thunk, no prune
+decision and no parse).
