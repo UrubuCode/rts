@@ -191,7 +191,7 @@ src/
   verify/   the rules, and what it reports
   lower/    IR -> the code generator. The ONLY module that touches Cranelift
   mem/      object layout, and how a reference becomes an address
-  shape/    layouts arrived at one property at a time
+  shape/    layouts arrived at one property at a time, and sites that remember
   symbols/  the closed set of runtime entry points
   fault/    what can stop, and where in the client's program it came from
   observe/  which part of the program an address is, and which function
