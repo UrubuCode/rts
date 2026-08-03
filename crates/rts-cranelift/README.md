@@ -190,6 +190,7 @@ src/
   abi/      types, conventions, aggregate classification, multiple returns
   verify/   the rules, and what it reports
   lower/    IR -> the code generator. The ONLY module that touches Cranelift
+  mem/      object layout, and how a reference becomes an address
   target/   where compiled code goes: executable memory, or an object file
 ```
 
@@ -203,9 +204,8 @@ Planned and deliberately absent: `guard/` (bailout), `fault/`, `observe/`,
 
 `lower/` is not finished, and it is explicit about which half. Scalar work,
 control flow, widening, guards, constants and calls are emitted, checked by the
-code generator's own verifier, and — through `target/` — compiled and run. What
-reaches outside a function in ways that need a runtime to exist — memory,
-suspension, scheduling, unwinding — is refused by name.
+code generator's own verifier, and — through `target/` — compiled and run. Field access reads and writes a real heap. What needs a runtime to exist —
+allocation, suspension, scheduling, unwinding — is refused by name.
 
 Calls exist now, and they arrived last on purpose. A call is inseparable from the
 convention it uses, from the safepoint it implies, and from where the frame is

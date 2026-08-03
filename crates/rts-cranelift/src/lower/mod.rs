@@ -17,11 +17,14 @@
 //!
 //! # What it refuses
 //!
-//! Memory, calls, suspension, scheduling and unwinding all reach outside the
-//! function being lowered, and reaching outside needs a module to declare things
-//! in — which is the next piece, not this one. Those are refused by name rather
-//! than skipped, so a program that needs them fails visibly instead of producing
-//! code that is quietly incomplete.
+//! Suspension, scheduling, unwinding and allocation are refused by name, with
+//! the capability each needs, so a program that needs them fails visibly instead
+//! of producing code that is quietly incomplete.
+//!
+//! Allocation is worth separating from the rest of memory. Reading and writing a
+//! field is arithmetic and lands here; asking a heap for space is a runtime entry
+//! point, and a runtime entry point is something to declare rather than something
+//! to emit.
 //!
 //! Two further refusals are findings rather than gaps, and are documented where
 //! they are raised: a 64-bit integer cannot be widened without a heap box, and a
@@ -30,11 +33,13 @@
 
 mod body;
 mod error;
+mod memory;
 mod types;
 mod value;
 
 pub use body::Outside;
 pub use error::{Capability, LowerError};
+pub use memory::Heap;
 pub use types::{is_word, machine_type};
 
 use cranelift_codegen::ir::{AbiParam, UserFuncName};
@@ -63,19 +68,29 @@ pub fn machine_signature(
     lowered
 }
 
-/// Lowers one function.
+/// What a function is allowed to reach beyond itself.
+///
+/// Both halves are optional and independent: a function can read memory without
+/// calling anything, and can call without touching memory. One flag covering
+/// both would make each unavailable whenever the other is.
+#[derive(Default)]
+pub struct Environment<'a> {
+    /// The module this function may name things in.
+    pub outside: Option<Outside<'a>>,
+    /// The heap this function may read and write.
+    pub heap: Option<Heap<'a>>,
+}
+
+/// Lowers one function in the environment it is allowed to reach.
 ///
 /// Takes a verified function. Lowering re-checks only what it cannot proceed
-/// without — a block that does not end — and trusts the rest, because checking
-/// twice in two vocabularies is how the two come to disagree about which is
-/// authoritative.
-/// Lowers one function into a module, so that it may call what the module has
-/// declared.
-pub fn lower_into(
-    func: &Function,
-    declarations: &crate::target::Declarations,
-    module: &mut dyn cranelift_module::Module,
+/// without — a block that does not end, a field that does not exist — and trusts
+/// the rest, because checking twice in two vocabularies is how the two come to
+/// disagree about which is authoritative.
+pub fn lower_in<'a>(
+    func: &'a Function,
     call_conv: cranelift_codegen::isa::CallConv,
+    environment: Environment<'a>,
 ) -> Result<cranelift_codegen::ir::Function, LowerError> {
     let signature = machine_signature(&func.signature, call_conv);
     let mut lowered =
@@ -83,16 +98,30 @@ pub fn lower_into(
 
     let mut context = FunctionBuilderContext::new();
     let mut builder = FunctionBuilder::new(&mut lowered, &mut context);
-    body::Body::lower_with(
-        func,
-        &mut builder,
-        Some(body::Outside {
-            module,
-            declarations,
-        }),
-    )?;
+    body::Body::lower_with(func, &mut builder, environment)?;
     builder.finalize();
     Ok(lowered)
+}
+
+/// Lowers one function into a module, so that it may call what the module has
+/// declared.
+pub fn lower_into<'a>(
+    func: &Function,
+    declarations: &'a crate::target::Declarations,
+    module: &'a mut dyn cranelift_module::Module,
+    call_conv: cranelift_codegen::isa::CallConv,
+) -> Result<cranelift_codegen::ir::Function, LowerError> {
+    lower_in(
+        func,
+        call_conv,
+        Environment {
+            outside: Some(Outside {
+                module,
+                declarations,
+            }),
+            heap: None,
+        },
+    )
 }
 
 /// Lowers one function on its own, naming nothing outside itself.
@@ -104,14 +133,5 @@ pub fn lower_function(
     func: &Function,
     call_conv: cranelift_codegen::isa::CallConv,
 ) -> Result<cranelift_codegen::ir::Function, LowerError> {
-    let signature = machine_signature(&func.signature, call_conv);
-    let mut lowered =
-        cranelift_codegen::ir::Function::with_name_signature(UserFuncName::default(), signature);
-
-    let mut context = FunctionBuilderContext::new();
-    let mut builder = FunctionBuilder::new(&mut lowered, &mut context);
-
-    body::Body::lower(func, &mut builder)?;
-    builder.finalize();
-    Ok(lowered)
+    lower_in(func, call_conv, Environment::default())
 }

@@ -74,6 +74,15 @@ pub enum LowerError {
         block: BlockId,
     },
 
+    /// A field access names a field the aggregate does not have.
+    ///
+    /// The verifier rejects this too. Lowering reports it again because it has
+    /// no offset to emit, and inventing one would write somewhere real.
+    NoSuchField {
+        /// The access.
+        inst: InstId,
+    },
+
     /// A block was reached with no terminator.
     ///
     /// The verifier rejects this too. Lowering checks it again because it cannot

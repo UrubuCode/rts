@@ -11,6 +11,7 @@ use cranelift_codegen::ir::{Block, InstBuilder, Value};
 use cranelift_frontend::FunctionBuilder;
 
 use super::error::{Capability, LowerError};
+use super::memory;
 use super::types::machine_type;
 use super::value;
 use crate::ir::{
@@ -41,26 +42,24 @@ pub struct Body<'a> {
     /// declared is pointless without the module that declared it, and the module
     /// alone cannot say which of our identifiers means what.
     outside: Option<Outside<'a>>,
+    /// The heap this function may read and write.
+    heap: Option<super::Heap<'a>>,
     refs: FunctionRefs,
 }
 
 impl<'a> Body<'a> {
-    /// Lowers a function that names nothing outside itself.
-    pub fn lower(func: &'a Function, builder: &mut FunctionBuilder) -> Result<(), LowerError> {
-        Self::lower_with(func, builder, None)
-    }
-
-    /// Lowers a function that may call what a module has declared.
+    /// Lowers a function in the environment it is allowed to reach.
     pub fn lower_with(
         func: &'a Function,
         builder: &mut FunctionBuilder,
-        outside: Option<Outside<'a>>,
+        environment: super::Environment<'a>,
     ) -> Result<(), LowerError> {
         let mut body = Body {
             func,
             blocks: HashMap::new(),
             values: HashMap::new(),
-            outside,
+            outside: environment.outside,
+            heap: environment.heap,
             refs: FunctionRefs::new(),
         };
         body.create_blocks(builder);
@@ -189,7 +188,53 @@ impl<'a> Body<'a> {
                     needs: Capability::Calls,
                 });
             }
-            Inst::Alloc { .. } | Inst::FieldLoad { .. } | Inst::FieldStore { .. } => {
+            Inst::FieldLoad { object, ty, field } => {
+                let heap = self.heap.as_ref().ok_or(LowerError::NotYetLowered {
+                    inst: id,
+                    needs: Capability::Memory,
+                })?;
+                let layout = crate::mem::ObjectLayout::of(*ty, heap.types);
+                let offset = layout
+                    .field_offset(*field)
+                    .ok_or(LowerError::NoSuchField { inst: id })?;
+                let repr = heap
+                    .types
+                    .layout(*ty)
+                    .field(*field as usize)
+                    .map(|f| f.repr);
+                let repr = repr.ok_or(LowerError::NoSuchField { inst: id })?;
+
+                let reference = self.value(*object);
+                let address = memory::address_of(builder, reference, heap.bases);
+                memory::field_load(builder, address, offset, repr)
+            }
+
+            Inst::FieldStore {
+                object,
+                ty,
+                field,
+                value,
+            } => {
+                let heap = self.heap.as_ref().ok_or(LowerError::NotYetLowered {
+                    inst: id,
+                    needs: Capability::Memory,
+                })?;
+                let layout = crate::mem::ObjectLayout::of(*ty, heap.types);
+                let offset = layout
+                    .field_offset(*field)
+                    .ok_or(LowerError::NoSuchField { inst: id })?;
+
+                let reference = self.value(*object);
+                let written = self.value(*value);
+                let address = memory::address_of(builder, reference, heap.bases);
+                memory::field_store(builder, address, offset, written);
+                return Ok(());
+            }
+
+            // Allocation is the one memory operation that is not arithmetic: it
+            // has to ask a heap for space, which is a runtime entry point and
+            // therefore something to declare rather than something to emit.
+            Inst::Alloc { .. } => {
                 return Err(LowerError::NotYetLowered {
                     inst: id,
                     needs: Capability::Memory,

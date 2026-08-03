@@ -58,6 +58,7 @@ pub mod frame;
 pub mod gc;
 pub mod ir;
 pub mod lower;
+pub mod mem;
 pub mod repr;
 pub mod sched;
 pub mod tags;
@@ -70,6 +71,7 @@ pub use abi::{AbiType, Convention, Signature as AbiSignature, TargetAbi, lower_s
 pub use frame::{ResumeLabel, SpillLayout, SuspendPlan, plan_suspension};
 pub use gc::{FrameDescriptor, FrameTable, describe_frames};
 pub use lower::{LowerError, lower_function};
+pub use mem::{ObjectLayout, RegionBases};
 pub use repr::{RefKind, Repr};
 pub use sched::{PromiseTable, Scheduler, SchedulerId};
 pub use target::{MachineModule, TargetError};
