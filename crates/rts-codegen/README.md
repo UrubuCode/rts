@@ -115,6 +115,16 @@ Tests name the behaviour of the language they pin, not the function they call.
 
 ---
 
+## State
+
+The tree is complete against ECMA-262 Annex A: every production a tree can hold,
+it holds. `PLAN.md` §2 is the inventory, extracted from the specification source
+rather than remembered, and §2b lists the rules the grammar enforces through
+production shapes and early errors instead of through nodes.
+
+What does not exist yet is anything that **fills** the tree. `PLAN.md` L8.5 is
+that gap, named where it was found rather than folded into the phase after it.
+
 ## Layout
 
 ```

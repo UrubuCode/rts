@@ -323,10 +323,46 @@ scheduler; this is the language deciding where a suspension point is.
 than fail to parse), `using`/`await using`, `new.target`, ASI in the parser,
 the sloppy-mode Annex B forms.
 
+**L8.5 — the parser bridge. NOT IN THE ORIGINAL PLAN, and L9 cannot start
+without it.**
+
+Writing L1–L8 surfaced a dependency this document did not list: **nothing fills
+this tree.** Every phase above built what a program can be represented *as*, and
+none of them built the thing that turns source text into one. That was an
+omission here, not a discovery about the language, and it is recorded rather than
+quietly folded into L9 because a plan that hides its own missing step is worse
+than one with a gap in it.
+
+The work is not a new parser. `rts-parser` already exists — ~8000 lines lowering
+SWC's AST into `rts-ast`, the *old* tree. The bridge is a second lowering of the
+same SWC output into this one, and it is comparable in size to the first.
+
+Two things make it more than mechanical, and both are the reason it is a phase
+rather than an afternoon:
+
+- **ASI.** Listed under L8 as if it were a corner. It is not: it decides what
+  parses, so it belongs to whatever produces the tree. SWC implements it, which
+  is an argument for the bridge over a hand-written parser.
+- **The cover grammars.** `{a = 1}` is an error as an object literal and an
+  `Element` with a default as a pattern; `(a, b)` is either a parenthesised comma
+  or an arrow's parameters. The tree has one shape for each *outcome*, so the
+  bridge must reinterpret rather than translate — and reinterpreting into the
+  wrong role is exactly what `Pattern::is_valid_binding` was written to catch.
+
 **L9 — measured coverage.** test262's `test/language/` tree, filtered by the
 `features` frontmatter to what is claimed implemented. A number produced by
 running the standard's own tests, which is the only kind this crate's rule 7
 permits.
+
+**Blocked on L8.5, and deliberately not approximated.** There is a tempting
+substitute — read the `features` metadata, map each feature name to constructs
+the tree holds, and report a percentage. It would be a number, and it would be
+measuring this document against itself: the mapping is something we would author,
+so the result says only that we believe what we already wrote down. Rule 7 says
+coverage is measured, never claimed, and that is the difference between the two.
+
+No number here until source text goes in one end and a verdict comes out the
+other.
 
 ---
 
