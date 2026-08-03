@@ -100,21 +100,21 @@ Production names verbatim from Annex A. `✓` present, `·` absent, `~` partial
 | `ImportCall` | · | `import(spec, options)` |
 | `Arguments` / `ArgumentList` | ~ | no spread |
 | `OptionalExpression` / `OptionalChain` | ~ | per-node `optional` flag exists; the **chain** does not — `a?.b.c` short-circuits the whole chain, not one link |
-| `UpdateExpression` | · | `++`/`--`, prefix and postfix; reads, coerces, writes |
-| `UnaryExpression` | ~ | have `- ! typeof void`; missing `+ ~ delete` |
+| `UpdateExpression` | ✓ | own node, both positions — not an assignment of a constant |
+| `UnaryExpression` | ✓ | all seven; `typeof` and `delete` take a reference, not a value |
 | `AwaitExpression` | · | |
-| `ExponentiationExpression` | · | `**`, right-associative |
+| `ExponentiationExpression` | ✓ | right-associative; unparenthesised unary left operand does not parse |
 | `MultiplicativeExpression` | ✓ | `* / %` |
 | `AdditiveExpression` | ✓ | `+ -` |
-| `ShiftExpression` | · | `<< >> >>>` |
-| `RelationalExpression` | ~ | have `< <= > >=`; missing `in`, `instanceof`, and `#x in o` |
+| `ShiftExpression` | ✓ | `>>>` is the one whose result outgrows a signed 32-bit value |
+| `RelationalExpression` | ~ | ordering + `in` + `instanceof`; `#x in o` waits on private names |
 | `EqualityExpression` | ✓ | all four |
-| `BitwiseAND/XOR/ORExpression` | · | `& ^ \|` |
+| `BitwiseAND/XOR/ORExpression` | ✓ | all three |
 | `LogicalAND/ORExpression` / `CoalesceExpression` / `ShortCircuitExpression` | ✓ | `LogicalOp`, kept off `BinaryOp` |
 | `ConditionalExpression` | ✓ | |
-| `AssignmentExpression` / `AssignmentOperator` | ~ | have `=` and the arithmetic compounds; missing `**= <<= >>= >>>= &= ^= \|=` and the three **short-circuiting** forms `&&= \|\|= ??=` |
+| `AssignmentExpression` / `AssignmentOperator` | ~ | every operator, incl. the three short-circuiting `&&= \|\|= ??=`, as `AssignOp`; pattern targets wait on L2 |
 | `AssignmentPattern` and its whole subtree | · | destructuring **assignment** (distinct from destructuring binding) |
-| `Expression` (comma) | · | |
+| `Expression` (comma) | ✓ | flat operand list |
 | `YieldExpression` | · | `yield`, `yield*` |
 | `PrivateIdentifier` | · | |
 
@@ -187,8 +187,16 @@ parses, so ASI is a correctness feature and not a convenience.
 
 ### Count
 
-Present or partial: **31**. Absent: **63**. The tree covers the arithmetic core
-of a language whose surface is roughly three times that.
+Present or partial: **36**. Absent: **58**.
+
+Was 31 / 63 when this document was written. L1 moved five rows — update,
+exponentiation, shift, the three bitwise, and the comma operator — and completed
+two that were partial, unary and the assignment operators. The tree now holds
+every operator the language has except `#x in o`, which waits on private names.
+
+What remains absent is not more operators. It is classes, modules, every loop but
+`while`, `switch`, patterns, templates, generators, and `this` — structure rather
+than vocabulary.
 
 ---
 
@@ -258,7 +266,7 @@ fires inside a `for(;;)` header.
 Ordered by what unblocks the most, not by what is easiest. Each lands as its own
 commit with tests naming the language fact it pins.
 
-**L1 — complete the operators.** `**`, the three shifts, the three bitwise, `in`,
+**L1 — complete the operators. — DONE.** `**`, the three shifts, the three bitwise, `in`,
 `instanceof`; unary `+`, `~`, `delete`; `++`/`--` as their own node in both
 positions; the comma operator; every compound assignment. `&&=`/`||=`/`??=` go
 with `LogicalOp`, not `BinaryOp` — they short-circuit, and a compound assignment

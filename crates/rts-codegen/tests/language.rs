@@ -10,8 +10,8 @@
 use rts_codegen::names::Names;
 use rts_codegen::syntax::Claim;
 use rts_codegen::syntax::{
-    BinaryOp, Binding, BindingKind, Catch, Expr, ExprKind, Function, Literal, LogicalOp, Parameter,
-    Program, PropertyKey, Stmt, StmtKind,
+    AssignOp, BinaryOp, Binding, BindingKind, Catch, Expr, ExprKind, Function, Literal, LogicalOp,
+    Parameter, Program, PropertyKey, Stmt, StmtKind, UpdateOp, UpdatePosition,
 };
 use rts_codegen::values::Singleton;
 use rts_cranelift::fault::Position;
@@ -57,7 +57,7 @@ fn compound_assignment_is_not_rewritten_to_an_assignment_of_a_sum() {
     let compound = ExprKind::Assign {
         target: Box::new(target.clone()),
         value: Box::new(number(1.0)),
-        op: Some(BinaryOp::Add),
+        op: AssignOp::Compound(BinaryOp::Add),
     };
     let expanded = ExprKind::Assign {
         target: Box::new(target.clone()),
@@ -69,13 +69,108 @@ fn compound_assignment_is_not_rewritten_to_an_assignment_of_a_sum() {
             },
             at(),
         )),
-        op: None,
+        op: AssignOp::Plain,
     };
 
     assert_ne!(
         compound, expanded,
         "a += b evaluates the target once; the rewrite evaluates it twice"
     );
+}
+
+#[test]
+fn an_update_is_not_an_assignment_of_a_sum() {
+    let mut names = Names::new();
+    let target = ident(&mut names, "x");
+
+    let postfix = ExprKind::Update {
+        op: UpdateOp::Increment,
+        position: UpdatePosition::Postfix,
+        target: Box::new(target.clone()),
+    };
+    let prefix = ExprKind::Update {
+        op: UpdateOp::Increment,
+        position: UpdatePosition::Prefix,
+        target: Box::new(target.clone()),
+    };
+    let compound = ExprKind::Assign {
+        target: Box::new(target),
+        value: Box::new(number(1.0)),
+        op: AssignOp::Compound(BinaryOp::Add),
+    };
+
+    assert_ne!(
+        postfix, prefix,
+        "one yields the old value and the other the new; the side is not cosmetic"
+    );
+    assert_ne!(
+        postfix, compound,
+        "x++ yields the coerced old value, x += 1 yields the new one"
+    );
+}
+
+#[test]
+fn a_logical_assignment_is_a_different_operator_from_a_compound_one() {
+    let or_assign = AssignOp::Logical(LogicalOp::Or);
+    let plus_assign = AssignOp::Compound(BinaryOp::Add);
+
+    assert_ne!(or_assign, plus_assign);
+    assert!(
+        !or_assign.always_assigns(),
+        "obj.x ||= f() performs no [[Set]] when obj.x is truthy, so a setter does not run"
+    );
+    assert!(plus_assign.always_assigns());
+}
+
+#[test]
+fn only_plain_assignment_accepts_a_destructuring_target() {
+    assert!(AssignOp::Plain.allows_pattern_target());
+    assert!(!AssignOp::Compound(BinaryOp::Add).allows_pattern_target());
+    assert!(!AssignOp::Logical(LogicalOp::Or).allows_pattern_target());
+}
+
+#[test]
+fn comparing_operators_have_no_compound_spelling() {
+    for op in [
+        BinaryOp::Add,
+        BinaryOp::Exponent,
+        BinaryOp::UShr,
+        BinaryOp::BitXor,
+    ] {
+        assert!(
+            AssignOp::compound(op).is_some(),
+            "{op:?} has a compound form"
+        );
+    }
+    for op in [
+        BinaryOp::StrictEqual,
+        BinaryOp::LooseEqual,
+        BinaryOp::Less,
+        BinaryOp::In,
+        BinaryOp::InstanceOf,
+    ] {
+        assert!(AssignOp::compound(op).is_none(), "{op:?} has none");
+    }
+}
+
+#[test]
+fn unsigned_right_shift_widens_where_every_other_bitwise_operator_narrows() {
+    assert!(!BinaryOp::UShr.bitwise_result_fits_i32());
+    assert!(BinaryOp::Shr.bitwise_result_fits_i32());
+    assert!(BinaryOp::BitOr.bitwise_result_fits_i32());
+}
+
+#[test]
+fn a_sequence_holds_its_operands_flat() {
+    let mut names = Names::new();
+    let seq = ExprKind::Sequence {
+        operands: vec![ident(&mut names, "a"), ident(&mut names, "b"), number(3.0)],
+    };
+
+    match seq {
+        ExprKind::Sequence { operands } => assert_eq!(operands.len(), 3),
+        _ => panic!("built a Sequence and got something else"),
+    }
 }
 
 #[test]
@@ -248,7 +343,7 @@ fn a_whole_small_program_is_expressible() {
                             ExprKind::Assign {
                                 target: Box::new(Expr::new(ExprKind::Ident(counter), at())),
                                 value: Box::new(number(1.0)),
-                                op: Some(BinaryOp::Add),
+                                op: AssignOp::Compound(BinaryOp::Add),
                             },
                             at(),
                         )),

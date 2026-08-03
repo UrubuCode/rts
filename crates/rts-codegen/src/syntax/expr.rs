@@ -3,99 +3,9 @@
 use rts_cranelift::fault::Position;
 
 use super::Claim;
+use super::ops::{AssignOp, BinaryOp, LogicalOp, UnaryOp, UpdateOp, UpdatePosition};
 use crate::names::Name;
 use crate::values::Singleton;
-
-/// An operator with two operands.
-///
-/// One list, not one per category, because the interesting fact about most of
-/// them is the same: what they mean depends on what they are given, and the
-/// language decides that at run time unless something proved otherwise.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum BinaryOp {
-    /// `+`, which is addition or concatenation and does not decide until it runs.
-    Add,
-    /// `-`, `*`, `/`, `%`: arithmetic, whatever it is given.
-    Sub,
-    /// Multiplication.
-    Mul,
-    /// Division.
-    Div,
-    /// Remainder.
-    Rem,
-    /// `===`, which compares without converting.
-    StrictEqual,
-    /// `!==`.
-    StrictNotEqual,
-    /// `==`, which converts first, by rules with no shorter description than
-    /// themselves.
-    LooseEqual,
-    /// `!=`.
-    LooseNotEqual,
-    /// `<`.
-    Less,
-    /// `<=`.
-    LessEqual,
-    /// `>`.
-    Greater,
-    /// `>=`.
-    GreaterEqual,
-}
-
-impl BinaryOp {
-    /// Whether this operator converts its operands before comparing.
-    ///
-    /// The distinction `===` exists for. Kept as a question about the operator
-    /// rather than a branch at each use, so that a lowering asking "does this
-    /// convert" gets one answer everywhere.
-    pub fn converts(self) -> bool {
-        matches!(self, BinaryOp::LooseEqual | BinaryOp::LooseNotEqual)
-    }
-
-    /// Whether both operands being numbers makes this arithmetic.
-    ///
-    /// True of everything except the equalities, which compare rather than
-    /// compute. `+` is included: on two numbers it adds, and the only reason it
-    /// is interesting is that it does something else otherwise.
-    pub fn is_arithmetic(self) -> bool {
-        matches!(
-            self,
-            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem
-        )
-    }
-}
-
-/// An operator with one operand.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum UnaryOp {
-    /// `-`.
-    Negate,
-    /// `!`, which asks whether something is falsy and answers the opposite.
-    Not,
-    /// `typeof`, which answers for anything, including a name that does not
-    /// exist — the one place reading an undeclared binding is not an error.
-    TypeOf,
-    /// `void`, which evaluates and discards.
-    Void,
-}
-
-/// How the operands of a logical operator relate.
-///
-/// Separate from [`BinaryOp`] because they do not evaluate both sides. Modelling
-/// them as ordinary binary operators would put a special case in every lowering
-/// that walks one, to undo a shape that was wrong to begin with.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum LogicalOp {
-    /// `&&`: the left, if it is falsy; otherwise the right.
-    And,
-    /// `||`: the left, if it is truthy; otherwise the right.
-    Or,
-    /// `??`: the left, unless it is null or undefined.
-    ///
-    /// Not `||` with a different threshold: it distinguishes absent from falsy,
-    /// which is the entire reason it was added to the language.
-    Coalesce,
-}
 
 /// A value written in the program.
 #[derive(Clone, PartialEq, Debug)]
@@ -229,17 +139,44 @@ pub enum ExprKind {
         elements: Vec<Option<Expr>>,
     },
 
-    /// Assignment.
-    Assign {
-        /// What is assigned to.
+    /// `++x` or `x--`.
+    ///
+    /// Its own node rather than an assignment with a constant, because it is
+    /// not one: it reads the target, coerces through ToNumeric, adds, and
+    /// stores — and what the *expression* yields depends on which side the
+    /// operator was written. Rewriting `x++` to `x = x + 1` gets the value
+    /// wrong; rewriting it to `x += 1` gets it wrong in a subtler way.
+    Update {
+        /// Increment or decrement.
+        op: UpdateOp,
+        /// Prefix yields the new value, postfix the old one.
+        position: UpdatePosition,
+        /// What is read and written. Must be a simple target.
         target: Box<Expr>,
-        /// What is assigned.
+    },
+
+    /// Assignment, in all three of its forms.
+    Assign {
+        /// What is assigned to. A pattern is only legal under [`AssignOp::Plain`].
+        target: Box<Expr>,
+        /// What is assigned. Not evaluated at all by the logical forms when the
+        /// target already decided.
         value: Box<Expr>,
-        /// The operator, for the compound forms.
+        /// Plain, compound, or logical.
         ///
         /// `a += b` is not `a = a + b`: the target is evaluated once. Carrying
         /// the operator here rather than rewriting keeps that true.
-        op: Option<BinaryOp>,
+        op: AssignOp,
+    },
+
+    /// `a, b` — evaluates each, yields the last.
+    ///
+    /// A list rather than nested pairs. The operator is left-associative and
+    /// wholly uninteresting apart from its order, so nesting would record a
+    /// shape nobody reads and force every walker to flatten it back.
+    Sequence {
+        /// Every operand, in order. Two or more.
+        operands: Vec<Expr>,
     },
 
     /// A condition and two answers.

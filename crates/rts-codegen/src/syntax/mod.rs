@@ -13,9 +13,11 @@
 //! has already made semantic decisions somewhere no test is looking.
 
 mod expr;
+pub mod ops;
 mod stmt;
 
-pub use expr::{BinaryOp, Expr, ExprKind, Literal, LogicalOp, Property, PropertyKey, UnaryOp};
+pub use expr::{Expr, ExprKind, Literal, Property, PropertyKey};
+pub use ops::{AssignOp, BinaryOp, LogicalOp, UnaryOp, UpdateOp, UpdatePosition};
 pub use stmt::{Binding, BindingKind, Catch, Function, Parameter, Program, Stmt, StmtKind};
 
 /// What a program said about a value.
