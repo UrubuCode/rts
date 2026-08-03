@@ -18,13 +18,7 @@
 
 use crate::ir::{InstId, ValueId};
 use crate::repr::RefKind;
-
-/// Identifies a protected region within a function.
-///
-/// Populated when unwinding lands. Absent means unwinding from this point runs
-/// no cleanup and finds no handler here: it propagates to the caller.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
-pub struct RegionId(pub u32);
+use crate::unwind::RegionId;
 
 /// Identifies a point a suspended frame can resume at.
 ///

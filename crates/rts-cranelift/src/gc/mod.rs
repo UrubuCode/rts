@@ -40,7 +40,7 @@ mod frame;
 mod liveness;
 
 pub use barrier::{BarrierKind, barrier_for, can_carry_reference};
-pub use frame::{FrameDescriptor, FrameTable, RegionId, ResumeLabel, RootSlot};
+pub use frame::{FrameDescriptor, FrameTable, ResumeLabel, RootSlot};
 pub use liveness::{Liveness, live_after_each_inst};
 
 use crate::ir::Function;
@@ -83,7 +83,16 @@ pub fn describe_frames(func: &Function) -> FrameTable {
             // table: a root set that depends on hash iteration order is one that
             // cannot be compared between builds or reviewed in a diff.
             roots.sort_by_key(|slot| slot.value);
-            table.push(FrameDescriptor::roots_only(inst_id, roots));
+
+            // The region is recorded on the same record as the roots. A value
+            // spilled so the collector can find it and a value that must survive
+            // cleanup are then never two answers to one question.
+            table.push(FrameDescriptor {
+                at: inst_id,
+                roots,
+                region: func.region_of(block_id),
+                resume_label: None,
+            });
         }
     }
     table

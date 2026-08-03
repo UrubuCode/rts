@@ -10,6 +10,7 @@ use super::error::VerifyError;
 use crate::ir::{BlockCall, BlockId, Function, Inst, InstId, Terminator, ValueId};
 use crate::repr::Repr;
 use crate::types::TypeRegistry;
+use crate::unwind::RegionId;
 
 /// Every block ends somewhere.
 ///
@@ -44,7 +45,54 @@ pub(super) fn check_terminators(func: &Function, errors: &mut Vec<VerifyError>) 
                 check_block_call(func, from, fail, 0, errors);
             }
 
+            Terminator::Throw { payload, .. } => {
+                let repr = func.repr_of(*payload);
+                if repr != Repr::Tagged {
+                    errors.push(VerifyError::ThrownValueNotGeneric { from, found: repr });
+                }
+            }
+
             Terminator::Return(_) | Terminator::Trap(_) => {}
+        }
+    }
+}
+
+/// Regions name blocks that exist, and handlers receive what they catch.
+pub(super) fn check_unwind(func: &Function, errors: &mut Vec<VerifyError>) {
+    for index in 0..func.regions.len() {
+        let id = RegionId(index as u32);
+        let region = func.regions.get(id).expect("index is within the tree");
+
+        if let Some(cleanup) = region.cleanup
+            && func.block(cleanup).is_none()
+        {
+            errors.push(VerifyError::UnknownRegionBlock { region: id, target: cleanup });
+        }
+
+        for handler in &region.handlers {
+            let Some(target) = func.block(handler.block) else {
+                errors.push(VerifyError::UnknownRegionBlock {
+                    region: id,
+                    target: handler.block,
+                });
+                continue;
+            };
+
+            let receives = target.params.first().map(|&p| func.repr_of(p));
+            if receives != Some(Repr::Tagged) {
+                errors.push(VerifyError::HandlerMissingPayload {
+                    region: id,
+                    target: handler.block,
+                });
+            }
+        }
+    }
+
+    for (block, _) in func.blocks() {
+        if let Some(region) = func.region_of(block)
+            && func.regions.get(region).is_none()
+        {
+            errors.push(VerifyError::UnknownRegion { block, region });
         }
     }
 }

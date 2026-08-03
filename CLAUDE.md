@@ -47,6 +47,9 @@ This is the first and most important rule. It governs all others.
   touching the engine; file-size ceilings codegen ≤1000 / engine ≤700 / rest ≤500 (split into a
   folder/subfolder); the engine names ONLY primordials in its control flow (a
   crate dependency edge is fine, a hardcoded non-primordial NAME is not)
+- **MANDATORY RULE: READ `crates/rts-cranelift/README.md` BEFORE TOUCHING THAT
+  CRATE** — the machine layer is built to a written agreement; reading it in full
+  is a precondition to any edit there. See the dedicated section below.
 - **MANDATORY RULE: READ THE EGUI/WEB ENGINE PLAN BEFORE TOUCHING IT** —
   before changing ANYTHING in the egui / HTML / web UI engine (`crates/rts-egui/`,
   the `.ts` UI lib over it, or any web/HTML-engine code) you MUST first read the
@@ -59,6 +62,62 @@ This is the first and most important rule. It governs all others.
 Keep this list in sync with the sections below. The honesty + build floor
 (parity number stays real, no crash/hang committed as "pass", build must
 compile) never lifts under any mode.
+
+## MANDATORY RULE: READ `crates/rts-cranelift/README.md` BEFORE TOUCHING THAT CRATE
+
+**STRICTLY MANDATORY — no exceptions.** `crates/rts-cranelift/` is the machine
+layer: a language-agnostic IR, verifier, collector contract, unwinder and ABI
+over Cranelift. It is built to a written agreement, and every rule in that
+agreement exists because the alternative was tried, or measured, or produced a
+bug this repository already paid for.
+
+Before changing **anything** in `crates/rts-cranelift/` you **MUST first read in
+full**:
+
+- `crates/rts-cranelift/README.md` — the binding working agreement (13 rules)
+- `RTS_CRANELIFT.md` (repo root) — the design, including §22, which separates
+  what is measured from what is load-bearing but still unverified
+
+### The rules, in brief (the README is the authority)
+
+1. **Only this crate touches Cranelift**, and inside it only `lower/` constructs
+   Cranelift instructions.
+2. **No source-language knowledge, and no record of who is asking.** No language
+   name, no per-client namespace — registries take counts and return encodings.
+3. **Every module is testable with no client present.** That is what makes
+   performance attributable.
+4. **Documentation is explicit and says WHY** (`#![deny(missing_docs)]`): name the
+   rejected alternative and the reason; say what was verified against the
+   Cranelift source and what was not.
+5. **File ceiling 1000 lines** — split into a folder of cohesive modules.
+6. **No dead code** (`#![deny(dead_code)]`). A constant that is part of a contract
+   is made public and documented as the contract, not deleted.
+7. **Invariants are enforced, not documented** — the builder refuses at
+   construction, the verifier rejects afterwards, preferably both.
+8. **Derive what a client would otherwise have to remember** — root sets from
+   liveness, barriers from field + region. No API to declare them.
+9. **Effects are declared, never inferred.** No hidden flag changing emitted
+   behaviour (notably: `enable_multi_ret_implicit_sret` is NOT set; the rewrite is
+   done here, visibly).
+10. **No operation accepts both a proven and a generic operand.**
+11. **Widening is automatic, narrowing never is** — narrowing only through a
+    guard, and the guard is a terminator so its failure path cannot be omitted.
+12. **Unproven behaviour fails safely** — e.g. multi-value returns default to 1
+    per target until a fixture proves more; raising is explicit.
+13. **Determinism where a human reads the output** — ordered root sets and tables,
+    never hash iteration order.
+
+### How to apply
+
+1. Reading both documents end-to-end is a **precondition** to any edit in that
+   crate — do not skip, do not assume content, do not code from memory.
+2. If a change requires breaking a rule, **change the rule in the README first**,
+   with the reason, and get it agreed. Never leave a rule the code contradicts.
+3. Iterate with `cargo check -p rts-cranelift` / `cargo test -p rts-cranelift`
+   (seconds). Do NOT release-build the workspace or run the TS suite to check this
+   crate — it is reachable from neither yet.
+4. The crate is additive: the current engine (`rts-codegen-new`) keeps running
+   untouched. Do not wire the two together outside an agreed migration step.
 
 ## MANDATORY RULE: READ THE EGUI/WEB ENGINE PLAN BEFORE TOUCHING IT
 

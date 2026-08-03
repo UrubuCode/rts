@@ -18,6 +18,7 @@
 use super::entity::{BlockId, ConstId, InstId, ValueId};
 use crate::repr::Repr;
 use crate::types::TypeId;
+use crate::unwind::Tag;
 
 /// Integer and floating-point comparison predicates.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -255,6 +256,17 @@ pub enum Terminator {
     },
     /// Returns from the function.
     Return(Vec<ValueId>),
+    /// Throws a value.
+    ///
+    /// The value is in the generic form because this layer does not know what
+    /// may be thrown — that is a question about a language. The tag is compared
+    /// for equality against handlers and is otherwise not interpreted.
+    Throw {
+        /// What the value is tagged with.
+        tag: Tag,
+        /// The value itself, opaque here.
+        payload: ValueId,
+    },
     /// Stops the program.
     Trap(TrapCode),
 }
@@ -268,7 +280,10 @@ impl Terminator {
                 vec![then_block.block, else_block.block]
             }
             Terminator::Guard { ok, fail, .. } => vec![ok.block, fail.block],
-            Terminator::Return(_) | Terminator::Trap(_) => Vec::new(),
+            // A throw has no successor in this function's graph. Where it lands
+            // is decided by the region tree, and may be in a caller; calling it
+            // an edge here would claim a transfer this block does not perform.
+            Terminator::Return(_) | Terminator::Throw { .. } | Terminator::Trap(_) => Vec::new(),
         }
     }
 
@@ -288,6 +303,7 @@ impl Terminator {
                 operands.extend_from_slice(&fail.args);
             }
             Terminator::Return(values) => operands.extend_from_slice(values),
+            Terminator::Throw { payload, .. } => operands.push(*payload),
             Terminator::Trap(_) => {}
         }
         operands

@@ -30,6 +30,7 @@ pub fn verify(func: &Function, types: &TypeRegistry) -> Vec<VerifyError> {
     rules::check_terminators(func, &mut errors);
     rules::check_instructions(func, types, &mut errors);
     rules::check_returns(func, &mut errors);
+    rules::check_unwind(func, &mut errors);
     errors
 }
 

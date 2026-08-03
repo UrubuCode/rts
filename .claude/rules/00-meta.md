@@ -53,6 +53,17 @@ Read these files in order (path relative to repo root):
   is done; work is picked by measure → attack biggest failure cluster → re-measure,
   with `docs/specs/rts-codegen-new-design.md` as the canonical architecture
   reference
+- **MANDATORY RULE: READ `crates/rts-cranelift/README.md` BEFORE TOUCHING THAT
+  CRATE** (in `CLAUDE.md`) — the machine layer (language-agnostic IR, verifier,
+  collector contract, unwinder, ABI over Cranelift) is built to a written
+  agreement of 13 binding rules. Read that README **and** `RTS_CRANELIFT.md` in
+  full before any edit there. Highlights: only that crate touches Cranelift and
+  only its `lower/` builds Cranelift instructions; no source-language knowledge
+  and no record of which client asked; file ceiling **1000 lines**; explicit docs
+  that say WHY (`deny(missing_docs)` + `deny(dead_code)`); invariants enforced by
+  builder *and* verifier, never merely documented; derive what a client could
+  forget (roots from liveness, barriers from field+region); unproven behaviour
+  fails safely. Breaking a rule means changing the README first, with the reason.
 - **MANDATORY RULE: READ THE EGUI/WEB ENGINE PLAN BEFORE TOUCHING IT** (in
   `CLAUDE.md`) — before changing anything in `crates/rts-egui/` or any
   egui/HTML/web-UI code, read the frozen plan in full

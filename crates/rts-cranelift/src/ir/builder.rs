@@ -21,6 +21,7 @@ use super::func::Function;
 use super::inst::{BitOp, BlockCall, CmpOp, GenericOp, Inst, NumOp, Region, Terminator, TrapCode};
 use crate::repr::Repr;
 use crate::types::{TypeId, TypeRegistry};
+use crate::unwind::{Handler, RegionId, Tag};
 
 /// Why a program could not be built.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -274,6 +275,32 @@ impl<'a> FuncBuilder<'a> {
             Terminator::Guard { input, expect, ok: ok_call, fail: fail_call },
         );
         Ok(())
+    }
+
+    /// Declares a protected region.
+    pub fn declare_region(
+        &mut self,
+        parent: Option<RegionId>,
+        handlers: Vec<Handler>,
+        cleanup: Option<BlockId>,
+    ) -> RegionId {
+        self.func.regions.declare(parent, handlers, cleanup)
+    }
+
+    /// Places a block inside a protected region.
+    pub fn place_in_region(&mut self, block: BlockId, region: RegionId) {
+        self.func.set_block_region(block, region);
+    }
+
+    /// Throws a value.
+    ///
+    /// The value is widened if it is not already generic: this layer does not
+    /// know what may be thrown, so what travels is the uniform form. Where it
+    /// lands is not decided here — it follows from the region the throwing block
+    /// is in, which is why there is no destination to pass.
+    pub fn throw(&mut self, tag: Tag, payload: ValueId) {
+        let payload = self.widen_if_needed(payload);
+        self.func.set_terminator(self.block, Terminator::Throw { tag, payload });
     }
 
     /// Returns from the function.

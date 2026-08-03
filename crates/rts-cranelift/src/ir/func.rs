@@ -9,6 +9,7 @@ use super::consts::ConstDecl;
 use super::entity::{BlockId, ConstId, InstId, ValueId};
 use super::inst::{BlockData, Inst, InstData, Terminator};
 use crate::repr::Repr;
+use crate::unwind::{RegionId, RegionTree};
 
 /// What a function accepts and returns.
 ///
@@ -53,10 +54,17 @@ pub struct Function {
     pub signature: Signature,
     /// The block control enters at.
     pub entry: BlockId,
+    /// The protected regions this function declares.
+    ///
+    /// Held by the function rather than beside it because a region identifier is
+    /// only meaningful against the tree that issued it, and the frame descriptor
+    /// records one per program point.
+    pub regions: RegionTree,
     values: Vec<ValueData>,
     blocks: Vec<BlockData>,
     insts: Vec<InstData>,
     consts: Vec<ConstDecl>,
+    block_regions: Vec<Option<RegionId>>,
 }
 
 impl Function {
@@ -69,10 +77,12 @@ impl Function {
         let mut func = Function {
             entry: BlockId(0),
             signature,
+            regions: RegionTree::new(),
             values: Vec::new(),
             blocks: Vec::new(),
             insts: Vec::new(),
             consts: Vec::new(),
+            block_regions: Vec::new(),
         };
 
         let entry = func.push_block();
@@ -85,11 +95,27 @@ impl Function {
         func
     }
 
-    /// Appends an empty block.
+    /// Appends an empty block, outside any protected region.
     pub fn push_block(&mut self) -> BlockId {
         let id = BlockId(self.blocks.len() as u32);
         self.blocks.push(BlockData::default());
+        self.block_regions.push(None);
         id
+    }
+
+    /// Places a block inside a protected region.
+    ///
+    /// Membership is a property of the block rather than of each instruction:
+    /// every point in a block is protected by the same region, which is what
+    /// makes the region a lexical fact the frame descriptor can record once per
+    /// program point without recomputing a nesting depth.
+    pub fn set_block_region(&mut self, block: BlockId, region: RegionId) {
+        self.block_regions[block.index()] = Some(region);
+    }
+
+    /// Which region protects a block, if any.
+    pub fn region_of(&self, block: BlockId) -> Option<RegionId> {
+        self.block_regions.get(block.index()).copied().flatten()
     }
 
     /// Appends a parameter to a block and returns the value it binds.

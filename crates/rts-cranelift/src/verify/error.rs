@@ -6,6 +6,7 @@
 use crate::ir::{BlockId, InstId, ValueId};
 use crate::repr::Repr;
 use crate::types::TypeId;
+use crate::unwind::RegionId;
 
 /// A structural violation.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -150,5 +151,43 @@ pub enum VerifyError {
     ForeignValue {
         /// The value.
         value: ValueId,
+    },
+
+    /// A thrown value is not in the generic form.
+    ///
+    /// This layer does not know what may be thrown, so what travels must be the
+    /// uniform form. A proven representation here is a claim about a language.
+    ThrownValueNotGeneric {
+        /// Where the throw is.
+        from: BlockId,
+        /// What was thrown.
+        found: Repr,
+    },
+
+    /// A handler does not receive the thrown value.
+    ///
+    /// A handler that did not receive it would have to find it somewhere else,
+    /// and somewhere else outlives the frame it belongs to.
+    HandlerMissingPayload {
+        /// The region the handler is attached to.
+        region: RegionId,
+        /// The handler's block.
+        target: BlockId,
+    },
+
+    /// A region names a block that does not exist in this function.
+    UnknownRegionBlock {
+        /// The region.
+        region: RegionId,
+        /// What it named.
+        target: BlockId,
+    },
+
+    /// A block is placed in a region this function did not declare.
+    UnknownRegion {
+        /// The block.
+        block: BlockId,
+        /// The region it names.
+        region: RegionId,
     },
 }

@@ -34,10 +34,12 @@ pub mod ir;
 pub mod repr;
 pub mod tags;
 pub mod types;
+pub mod unwind;
 pub mod verify;
 
 pub use abi::{AbiType, Convention, Signature as AbiSignature, TargetAbi, lower_signature};
 pub use gc::{FrameDescriptor, FrameTable, describe_frames};
 pub use repr::{RefKind, Repr};
 pub use types::{FieldLayout, TypeId, TypeRegistry};
+pub use unwind::{RegionId, RegionTree, Tag, UnwindPlan, plan_unwind};
 pub use verify::{VerifyError, verify};
