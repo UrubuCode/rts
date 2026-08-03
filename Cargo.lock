@@ -4122,6 +4122,9 @@ name = "rts-codegen"
 version = "0.1.0"
 dependencies = [
  "rts-cranelift",
+ "swc_common",
+ "swc_ecma_ast",
+ "swc_ecma_parser",
 ]
 
 [[package]]

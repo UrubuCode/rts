@@ -14,6 +14,14 @@ crate-type = ["rlib"]
 # that failure would start.
 rts-cranelift = { path = "../rts-cranelift" }
 
+# The parser bridge. SWC is the front end for both trees: rts-parser already
+# lowers its output into the old AST, and `parse/` lowers the same output into
+# this one. Reusing it is also what gives us ASI — which decides what parses,
+# and so is not something a language layer may skip.
+swc_common = "21.0.1"
+swc_ecma_ast = "23.0.0"
+swc_ecma_parser = "39.0.0"
+
 [dev-dependencies]
 # The integration tests build trees that carry machine positions, so they name
 # the machine directly rather than through a re-export. A re-export would make

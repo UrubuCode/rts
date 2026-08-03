@@ -30,6 +30,7 @@
 #![deny(dead_code)]
 
 pub mod names;
+pub mod parse;
 pub mod syntax;
 pub mod values;
 

@@ -1,0 +1,236 @@
+//! Source text in, tree out.
+//!
+//! SWC does the lexing and the parsing; this module decides what its output
+//! *means* in terms of the tree next door. That split is deliberate and is the
+//! reason there is no hand-written parser here.
+//!
+//! # Why not write the parser
+//!
+//! Because of automatic semicolon insertion. ASI is not formatting — a newline
+//! after `return` ends the statement, and the restricted productions (`return`,
+//! `throw`, `break`, `continue`, postfix `++`, `=>`, `yield`) change *what
+//! parses*. Getting it wrong produces a program that compiles and means
+//! something else. SWC implements it, has been run against test262, and is
+//! already this repository's front end.
+//!
+//! # Translating is not the job; reinterpreting is
+//!
+//! Two grammars in JavaScript are *covers*: one sequence of tokens that becomes
+//! one of two unrelated things depending on what follows.
+//!
+//! - `{a = 1}` is a SyntaxError as an object literal and a pattern slot with a
+//!   default as a destructuring target.
+//! - `(a, b)` is a parenthesised comma expression or an arrow's parameter list.
+//! - `[a, b]` on the left of `=` is not an array literal at all.
+//!
+//! SWC resolves the first two and hands us the decided form. The third it hands
+//! us as an expression, so [`expr::assign_target`] reinterprets it — and the
+//! tree's own [`crate::syntax::Pattern::is_valid_binding`] is what catches a
+//! reinterpretation into the wrong role.
+//!
+//! # What is refused, and why that is a feature
+//!
+//! Every construct this bridge does not yet handle returns
+//! [`ParseError::Unsupported`] naming it. Nothing is silently dropped and
+//! nothing is approximated, because a tree that is quietly missing a subtree is
+//! the failure mode that produces a wrong program instead of an error.
+
+mod expr;
+mod item;
+mod pat;
+
+use std::fmt;
+
+use rts_cranelift::fault::Position;
+use swc_common::{FileName, SourceMap, sync::Lrc};
+use swc_ecma_parser::{EsSyntax, Lexer, Parser, StringInput, Syntax, TsSyntax};
+
+use crate::names::Names;
+use crate::syntax::{Goal, Program};
+
+/// Why a source text did not become a tree.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum ParseError {
+    /// The text is not a legal program. Carries what SWC said.
+    Syntax(String),
+
+    /// The text is legal and this bridge does not handle it yet.
+    ///
+    /// Separate from [`ParseError::Syntax`] because they mean opposite things
+    /// about whose fault it is, and collapsing them would report our gaps as the
+    /// user's mistakes.
+    Unsupported {
+        /// What was written.
+        construct: &'static str,
+        /// Where.
+        at: Position,
+    },
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ParseError::Syntax(message) => write!(f, "syntax error: {message}"),
+            ParseError::Unsupported { construct, .. } => {
+                write!(f, "not yet lowered by the bridge: {construct}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ParseError {}
+
+/// What every conversion in this module returns.
+pub type Result<T> = std::result::Result<T, ParseError>;
+
+/// Refuse a construct by name.
+pub(crate) fn unsupported<T>(construct: &'static str, at: Position) -> Result<T> {
+    Err(ParseError::Unsupported { construct, at })
+}
+
+/// The interning table and the goal, carried through the conversion.
+///
+/// Held together because almost every step needs to intern something, and
+/// threading two parameters through a recursive descent is how one of them ends
+/// up forgotten.
+pub struct Cx<'a> {
+    /// Where identifiers are interned.
+    pub names: &'a mut Names,
+    /// Which language this is.
+    pub goal: Goal,
+}
+
+impl Cx<'_> {
+    /// Intern a piece of source text.
+    pub(crate) fn name(&mut self, text: &str) -> crate::names::Name {
+        self.names.intern(text)
+    }
+}
+
+/// A source position from a SWC span.
+///
+/// SWC's `BytePos` is 1-based and 0 means "no position", which is also what
+/// [`Position::UNKNOWN`] means — so the mapping is the identity and this
+/// function exists to say that once, where it can be checked, rather than at
+/// every call site.
+pub(crate) fn position(span: swc_common::Span) -> Position {
+    Position(span.lo.0)
+}
+
+/// Parse a program.
+///
+/// TypeScript syntax is tried first and ECMAScript second, matching the rest of
+/// this repository: a `.ts` file is the common case, and every `.js` file is
+/// also valid TypeScript except where the two genuinely disagree.
+pub fn parse(source: &str, goal: Goal, names: &mut Names) -> Result<Program> {
+    let source = strip_shebang(source);
+
+    let mut first_error = None;
+    for syntax in [ts_syntax(), es_syntax()] {
+        match parse_with(source, syntax) {
+            Ok(program) => {
+                let mut cx = Cx { names, goal };
+                return item::program(&mut cx, &program, goal);
+            }
+            Err(message) => first_error.get_or_insert(message),
+        };
+    }
+
+    Err(ParseError::Syntax(
+        first_error.unwrap_or_else(|| "could not parse".to_owned()),
+    ))
+}
+
+/// Parse a program as a module.
+pub fn parse_module(source: &str, names: &mut Names) -> Result<Program> {
+    parse(source, Goal::Module, names)
+}
+
+/// Parse a program as a script.
+pub fn parse_script(source: &str, names: &mut Names) -> Result<Program> {
+    parse(source, Goal::Script, names)
+}
+
+/// Remove a `#!` line, keeping the newline so positions do not shift.
+fn strip_shebang(source: &str) -> &str {
+    match source.strip_prefix("#!") {
+        Some(rest) => match rest.find('\n') {
+            Some(newline) => &source[newline + 2..],
+            None => "",
+        },
+        None => source,
+    }
+}
+
+fn ts_syntax() -> Syntax {
+    Syntax::Typescript(TsSyntax {
+        tsx: false,
+        decorators: false,
+        dts: false,
+        no_early_errors: false,
+        disallow_ambiguous_jsx_like: false,
+    })
+}
+
+fn es_syntax() -> Syntax {
+    Syntax::Es(EsSyntax {
+        jsx: false,
+        fn_bind: false,
+        decorators: false,
+        decorators_before_export: false,
+        export_default_from: false,
+        import_attributes: true,
+        allow_super_outside_method: false,
+        allow_return_outside_function: false,
+        auto_accessors: false,
+        explicit_resource_management: true,
+    })
+}
+
+fn parse_with(source: &str, syntax: Syntax) -> std::result::Result<swc_ecma_ast::Program, String> {
+    let map: Lrc<SourceMap> = Default::default();
+    let file = map.new_source_file(
+        Lrc::new(FileName::Custom("rts-input.ts".into())),
+        source.to_string(),
+    );
+    let lexer = Lexer::new(syntax, Default::default(), StringInput::from(&*file), None);
+    let mut parser = Parser::new_from(lexer);
+
+    let parsed = parser
+        .parse_program()
+        .map_err(|error| error.kind().msg().to_string())?;
+
+    if let Some(error) = parser.take_errors().into_iter().next() {
+        return Err(error.kind().msg().to_string());
+    }
+
+    Ok(parsed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_shebang_is_removed_but_its_line_break_is_kept() {
+        // The newline stays deliberately: the code after a shebang is on line 2,
+        // and a diagnostic that moved it to line 1 would point at the wrong
+        // line for every program that has one.
+        assert_eq!(
+            strip_shebang("#!/usr/bin/env rts\nlet x = 1;"),
+            "\nlet x = 1;"
+        );
+        assert_eq!(strip_shebang("let x = 1;"), "let x = 1;");
+        assert_eq!(strip_shebang("#!only"), "");
+    }
+
+    #[test]
+    fn a_syntax_error_and_an_unsupported_construct_are_different_answers() {
+        let mut names = Names::new();
+        let broken = parse_script("let = = ;", &mut names);
+        assert!(
+            matches!(broken, Err(ParseError::Syntax(_))),
+            "the program is wrong, and saying so is not the same as saying we cannot read it"
+        );
+    }
+}
