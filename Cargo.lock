@@ -4153,6 +4153,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-core-rwk"
+version = "0.1.0"
+dependencies = [
+ "rts-cranelift",
+]
+
+[[package]]
 name = "rts-cranelift"
 version = "0.1.0"
 dependencies = [

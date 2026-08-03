@@ -1,0 +1,37 @@
+//! The runtime every target has.
+//!
+//! Values, objects, text, memory and scheduling: the operations a compiled
+//! program performs that are not instructions. Present on every target,
+//! including wasm, which is what decides membership — anything that needs an
+//! operating system lives in `rts-host`, anything a browser provides lives in
+//! `rts-browser`, and neither is a dependency of this.
+//!
+//! # Why the crate boundary is where it is
+//!
+//! A crate boundary answers **"does this exist here?"**, not "may I mention
+//! this?". The layering being replaced used the second question — the engine
+//! could not name a class it could not depend on — and a codegen that reaches
+//! its runtime by index cannot name a class at all, so that boundary has no job
+//! left. What remains is availability, which is a build fact and belongs in the
+//! graph: a browser has no `node:fs`, and a cross-compile has to know that
+//! before it links.
+//!
+//! Inside, modules are organised by what the code does rather than by class.
+//! `String.prototype.indexOf` and `Array.prototype.indexOf` do related work on
+//! different representations, and filing them apart because one is "a string
+//! class" is filing by taxonomy rather than by where a reader will look.
+//!
+//! Full reasoning: `docs/engine/architecture.md`.
+//!
+//! # The `-rwk` suffix
+//!
+//! Temporary. This replaces `rts-primitives` and the portable half of
+//! `rts-shared`, which cannot be removed while references to them remain, and
+//! cargo will not have two crates with one name. It goes away with them.
+
+#![deny(missing_docs)]
+#![deny(dead_code)]
+
+pub mod value;
+
+pub use value::{Kind, Value};

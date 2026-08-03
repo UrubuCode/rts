@@ -1,0 +1,16 @@
+[package]
+name = "rts-core-rwk"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+description = "The runtime every target has: values, objects, text, memory, scheduling."
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+# The machine layer, for the value encoding only. This crate must agree with it
+# bit for bit, and it agrees by READING the same constants rather than copying
+# them — so a change to the layout is a compile error here instead of a value
+# silently read as the wrong kind.
+rts-cranelift = { path = "../rts-cranelift" }
