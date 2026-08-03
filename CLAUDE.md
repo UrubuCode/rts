@@ -160,11 +160,11 @@ crates/
   rts-symbol-baker/  renders the declarations: by name, and by index
 
   rts-engine/        heap, GC, registry
-  rts-primitives/    primordial classes        ┐
-  rts-shared/        universal non-primordial  │ the current runtime's layering
-  rts-std/           backend: io, net, tokio   │ see architecture.md for why the
-  rts-runtime/       facade + AOT staticlib    ┘ new engine does not repeat it
-  rts-natives/       machine-level natives
+  rts-primitives/    primordial classes        ┐ today's layering splits on
+  rts-shared/        universal non-primordial  │ PERMISSION, which index linkage
+  rts-std/           backend: io, net, tokio   │ makes unnecessary. The split
+  rts-runtime/       facade + AOT staticlib    │ that stays is by AVAILABILITY —
+  rts-natives/       machine-level natives     ┘ what a target has. architecture.md
 
   rts-parser/        SWC → the old AST      rts-ast/  rts-hir/  rts-diagnostics/
   rts-node/          Node builtins          rts-napi/ N-API

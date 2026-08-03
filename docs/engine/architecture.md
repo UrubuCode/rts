@@ -100,70 +100,93 @@ than as the mechanism is the entire distinction.
 
 ---
 
-## Where the standard library lives, and why it is not a crate per layer
+## Where the standard library lives
+
+There are two reasons to draw a crate boundary, and only one of them is a good
+one. The old layering used the bad one, and the correction is not to stop
+splitting — it is to split on the other question.
+
+> **A crate boundary answers "does this exist here?", not "may I mention this?"**
+
+| reason to split | verdict |
+|---|---|
+| enforce a **permission** — "the engine may not name `Map`" | **no.** See below: the linkage makes it unnecessary |
+| encode **availability** — "`node:fs` does not exist in a browser" | **yes.** It is a build fact, and the crate graph is exactly the mechanism for one |
+
+### Why the permission split is over
 
 The old engine split the runtime into `rts-engine` ← `rts-primitives` +
-`rts-shared` ← `rts-std` ← `rts-runtime`, with a doctrine about which classes the
-engine was allowed to *name*. The split existed to enforce that doctrine through
-the crate graph: a layer could not name what it could not depend on.
+`rts-shared` ← `rts-std` ← `rts-runtime` to enforce a doctrine through the graph:
+the engine may name only the primordial classes, so make the rest unreachable by
+dependency. A hardcoded class name in codegen control flow was the recurring
+regression, and the graph was the guard against it.
 
-**That is not the right shape for this engine, and the reason is that the
-doctrine it enforced is no longer needed.**
+A codegen that reaches its runtime **by index cannot name a class at all** —
+there is no string to hardcode. The property the split was defending is now a
+property of the linkage, so that particular boundary has no job left.
 
-The old rule said the engine may name only the primordial classes and everything
-else must resolve through a registry, because a hardcoded class name in codegen
-control flow was the recurring regression. But a codegen that reaches its runtime
-by **index** cannot name a class at all — there is no string to hardcode. The
-property the crate split was defending is now a property of the linkage.
+`rts-primitives` is the crate this actually removes: it exists to hold the
+classes the engine is permitted to name, and nothing needs permission any more.
 
-What replaces it:
+### Why the availability split stays, and matters more
 
-### One surface, described as data, organised by what it *is*
-
-A standard library is a set of **entry points with signatures**, plus `.ts` for
-what is genuinely written in TypeScript. Not a hierarchy of crates whose edges
-encode a permission system.
+A build for the browser has no `node:fs`. A CLI build has no DOM. A
+cross-compile has to know what exists on the target *before* it links. Those are
+compile-time facts about a target, and a crate graph with cargo features is the
+right and checkable way to state them — unlike a permission, which the linkage
+now enforces for free.
 
 ```
-runtime/
+rts-core      value, object, text, memory, scheduling
+              present on every target, including wasm
+rts-host      the operating system: files, sockets, process, time  — not in a browser
+rts-node      the Node compatibility surface                       — optional
+rts-browser   DOM and web APIs                                     — optional
+rts-napi      a foreign ABI                                        — optional, and permanent
+```
+
+Inside each of those, modules are organised by **what the code does**, which is
+stable, rather than by class taxonomy:
+
+```
+rts-core/
   value/      what a value is: encoding, conversion, equality, hashing
   object/     shapes, properties, prototypes, the operations on them
   text/       strings, and the operations that genuinely copy
   memory/     allocation, barriers, the collector's contract
   schedule/   promises, the queue, parking and resuming
-  host/       the operating system: files, sockets, time, process
 ```
 
-Organised by **what the code does**, which is stable, rather than by **who is
-allowed to call it**, which was the old split and which changed every time the
-doctrine did.
-
-### Answering the question directly: no, do not rebuild `rts-primitives`
-
-It exists to hold the classes the engine is permitted to name. The new engine
-names nothing, so the crate has no job.
-
-What its *contents* are — `String`, `Object`, `Array`, `Number` and the rest —
-still has to exist, and it moves to `runtime/value/` and `runtime/object/` above,
-grouped by the operation rather than by the class. `String.prototype.indexOf` and
-`Array.prototype.indexOf` are two entry points that do related work on different
-representations; filing them under two crates because one is "a string class" and
+`String.prototype.indexOf` and `Array.prototype.indexOf` do related work on
+different representations. Filing them apart because one is "a string class" and
 the other "an array class" is filing by taxonomy rather than by what a reader is
-looking for.
+looking for — so they live beside each other, in one crate that exists on every
+target.
 
-### The one thing that must survive the reorganisation
+### The language layer does not grow with any of this
 
-The old doctrine had a real insight underneath the crate-graph machinery, and it
-should be kept while the machinery is dropped:
+The stdlib is never linked into `rts-codegen`. `import { readFile } from
+"node:fs"` resolves **name → index while compiling**, and the call site holds the
+index. How many modules exist changes the *table*, not the compiler.
 
-> **Native syntax means the engine handles it directly. No native syntax means it
+Which gives the availability split a second job it did not have before: **the set
+of entries built for a target IS that target's capability set.** A browser build
+and a CLI build produce different tables, therefore different `TABLE_HASH`
+values — so linking code compiled for one against the runtime of the other is
+caught at startup instead of becoming a silent call into the wrong slot.
+
+### What survives from the old doctrine
+
+The machinery goes; the insight underneath it does not:
+
+> **Native syntax means the engine lowers it directly. No native syntax means it
 > is a library the engine reaches through data.**
 
 `""`, `123`, `[]`, `{}`, `/re/`, `` ` ` ``, `function`, `class` have syntax, so
 the language layer lowers them. `Map`, `Date`, `URL`, `fetch` do not, so they are
-entry points resolved from an import — and a resolver that turns a name into an
-index at compile time is a smaller and more checkable thing than a registry
-consulted at run time.
+entry points resolved from an import — and a resolver turning a name into an
+index while compiling is smaller and more checkable than a registry consulted
+while running.
 
 ---
 
