@@ -1,0 +1,51 @@
+﻿RTS — third-party licence inventory
+===================================
+
+GENERATED FILE. Do not edit by hand.
+
+Regenerate with:
+
+    cargo install cargo-license          # once
+    cargo license --avoid-dev-deps --avoid-build-deps > THIRD-PARTY-LICENSES.txt
+
+Refresh it whenever Cargo.lock changes. The reasoning, the obligations, and the
+compiler-vs-runtime split are in THIRD-PARTY-NOTICES.md; this file is the data
+that document is about.
+
+Read `A OR B` as a choice RTS makes (Apache-2.0 or MIT is always taken where
+offered) and `A AND B` as terms that all apply at once.
+
+--- grouped by licence, crate counts in parentheses ---
+
+(Apache-2.0 OR MIT) AND BSD-3-Clause (1): encoding_rs
+(Apache-2.0 OR MIT) AND OFL-1.1 AND Ubuntu-font-1.0 (1): epaint_default_fonts
+(Apache-2.0 OR MIT) AND Unicode-3.0 (2): unicode-id-start, unicode-ident
+0BSD OR Apache-2.0 OR MIT (1): adler2
+Apache-2.0 (24): ast_node, better_scoped_tls, bytes-str, codespan-reporting, cpal, from_variant, gethostname, glutin, glutin_egl_sys, glutin_glx_sys, glutin_wgl_sys, hstr, is-macro, spirv, string_enum, swc_atoms, swc_common, swc_ecma_ast, swc_ecma_parser, swc_ecma_visit, swc_eq_ignore_macros, swc_macros_common, swc_visit, winit
+Apache-2.0 AND ISC (1): ring
+Apache-2.0 AND MIT (1): dpi
+Apache-2.0 OR Apache-2.0 WITH LLVM-exception OR MIT (17): linux-raw-sys, linux-raw-sys, rustix, rustix, wasi, wasip2, wasip3, wasm-encoder, wasm-metadata, wasmparser, wit-bindgen, wit-bindgen, wit-bindgen-core, wit-bindgen-rust, wit-bindgen-rust-macro, wit-component, wit-parser
+Apache-2.0 OR BSD-1-Clause OR MIT (1): fiat-crypto
+Apache-2.0 OR BSD-2-Clause OR MIT (4): mach2, mach2, zerocopy, zerocopy-derive
+Apache-2.0 OR BSD-3-Clause (2): moxcms, pxfm
+Apache-2.0 OR BSD-3-Clause OR MIT (2): num_enum, num_enum_derive
+Apache-2.0 OR BSL-1.0 (1): ryu
+Apache-2.0 OR GPL-2.0 (1): self_cell
+Apache-2.0 OR ISC OR MIT (2): rustls, rustls-native-certs
+Apache-2.0 OR LGPL-2.1-or-later OR MIT (2): r-efi, r-efi
+Apache-2.0 OR MIT (375): accesskit, actix-codec, actix-http, actix-macros, actix-router, actix-rt, actix-server, actix-service, actix-utils, actix-web, actix-web-codegen, addr2line, aead, aes, aes-gcm, ahash, allocator-api2, alsa, android-activity, android_system_properties, anstream, anstyle, anstyle-parse, anstyle-query, anstyle-wincon, anyhow, arbitrary, arrayvec, as-raw-xcb-connection, ash, atomic-waker, backtrace, base64, bit-set, bit-set, bit-vec, bit-vec, bitflags, bitflags, blake2, block-buffer, block-buffer, block-padding, bumpalo, bytestring, camino, cbc, cesu8, cfg-if, cgl, cipher, clap, clap_builder, clap_derive, clap_lex, cli-table, cobs, color, colorchoice, concurrent-queue, const-oid, core-foundation, core-foundation, core-foundation-sys, core-graphics, core-graphics-types, coreaudio-rs, cpufeatures, cpufeatures, crc32fast, crossbeam-channel, crossbeam-deque, crossbeam-epoch, crossbeam-utils, crypto-common, crypto-common, ctr, curve25519-dalek-derive, dasp_sample, deranged, digest, digest, displaydoc, document-features, downcast-rs, ecolor, egui, egui-wgpu, egui-winit, egui_glow, either, emath, embedded-io, embedded-io, encode_unicode, epaint, equivalent, errno, euclid, fastrand, fdeflate, fearless_simd, filetime, flate2, fnv, font-types, foreign-types, foreign-types-macros, foreign-types-shared, form_urlencoded, futures-core, futures-sink, futures-task, futures-util, getrandom, getrandom, getrandom, ghash, gif, gimli, gimli, glob, gpu-allocator, gpu-descriptor, gpu-descriptor-types, half, hashbrown, hashbrown, hashbrown, hashbrown, heck, hermit-abi, hmac, http, http, httparse, httpdate, hybrid-array, id-arena, idna, idna_adapter, image, image-webp, impl-more, indexmap, inout, is_terminal_polyfill, itertools, itoa, jni, jni, jni-macros, jni-sys, jni-sys, jni-sys-macros, js-sys, keccak, kurbo, language-tags, lazy_static, leb128fmt, libc, linebender_resource_handle, litrs, local-waker, lock_api, log, lzxd, md-5, memmap2, mime, naga, ndk, ndk-context, ndk-sys, nohash-hasher, num-bigint, num-conv, num-derive, num-integer, num-traits, num_threads, object, object, once_cell, once_cell_polyfill, opaque-debug, openssl-probe, parking_lot, parking_lot_core, pbkdf2, peniko, percent-encoding, pest, pest_derive, pest_generator, pest_meta, pin-project, pin-project-internal, pin-project-lite, plain, png, polling, pollster, pollster, polycool, polyval, portable-atomic, portable-atomic-util, postcard, powerfmt, presser, prettyplease, proc-macro-crate, proc-macro2, profiling, psm, quick-error, quote, rand, rand_core, range-alloc, raw-window-metal, rayon, rayon-core, read-fonts, regex, regex-automata, regex-lite, regex-syntax, renderdoc-sys, ripemd, rustc-demangle, rustc-hash, rustc-hash, rustls-pki-types, rustls-platform-verifier, rustls-platform-verifier-android, rustversion, salsa20, scoped-tls, scopeguard, scrypt, security-framework, security-framework-sys, semver, seq-macro, serde, serde_core, serde_derive, serde_json, serde_spanned, serde_urlencoded, sha1, sha2, sha2, sha3, signal-hook-registry, simd_cesu8, simdutf8, siphasher, siphasher, skrifa, smallvec, smol_str, socket2, socket2, socks, stable_deref_trait, stacker, static_assertions, syn, tar, tempfile, terminal_size, thiserror, thiserror, thiserror-impl, thiserror-impl, thread_local, time, time-core, time-macros, toml, toml_datetime, toml_edit, toml_parser, toml_writer, triomphe, type-map, typed-path, typenum, ucd-trie, unicode-normalization, unicode-segmentation, unicode-width, unicode-xid, universal-hash, ureq, ureq, ureq-proto, url, utf8-zero, utf8_iter, utf8parse, uuid, vello_common, vello_cpu, wasm-bindgen, wasm-bindgen-futures, wasm-bindgen-macro, wasm-bindgen-macro-support, wasm-bindgen-shared, web-sys, web-time, weezl, wgpu, wgpu-core, wgpu-core-deps-apple, wgpu-core-deps-windows-linux-android, wgpu-hal, wgpu-naga-bridge, wgpu-types, winapi, winapi-i686-pc-windows-gnu, winapi-x86_64-pc-windows-gnu, windows, windows-collections, windows-core, windows-future, windows-implement, windows-interface, windows-link, windows-numerics, windows-result, windows-strings, windows-sys, windows-sys, windows-sys, windows-sys, windows-sys, windows-targets, windows-targets, windows-targets, windows-threading, windows_aarch64_gnullvm, windows_aarch64_gnullvm, windows_aarch64_gnullvm, windows_aarch64_msvc, windows_aarch64_msvc, windows_aarch64_msvc, windows_i686_gnu, windows_i686_gnu, windows_i686_gnu, windows_i686_gnullvm, windows_i686_msvc, windows_i686_msvc, windows_i686_msvc, windows_x86_64_gnu, windows_x86_64_gnu, windows_x86_64_gnu, windows_x86_64_gnullvm, windows_x86_64_gnullvm, windows_x86_64_gnullvm, windows_x86_64_msvc, windows_x86_64_msvc, windows_x86_64_msvc, x11rb, x11rb-protocol, xattr, xwin, zeroize, zeroize_derive, zstd-safe, zstd-sys
+Apache-2.0 OR MIT OR Zlib (22): bytemuck, bytemuck_derive, cursor-icon, dispatch2, glow, glow, miniz_oxide, objc2-app-kit, objc2-audio-toolbox, objc2-avf-audio, objc2-core-audio, objc2-core-audio-types, objc2-core-foundation, objc2-metal, objc2-quartz-core, objc2-ui-kit, raw-window-handle, tinyvec, tinyvec_macros, xkeysym, zune-core, zune-jpeg
+Apache-2.0 WITH LLVM-exception (16): cranelift-assembler-x64, cranelift-bforest, cranelift-bitset, cranelift-codegen, cranelift-codegen-shared, cranelift-control, cranelift-entity, cranelift-frontend, cranelift-jit, cranelift-module, cranelift-native, cranelift-object, regalloc2, target-lexicon, wasmtime-internal-core, wasmtime-internal-jit-icache-coherence
+BSD-3-Clause (5): alloc-no-stdlib, alloc-stdlib, curve25519-dalek, subtle, x25519-dalek
+BSD-3-Clause AND MIT (1): brotli
+BSD-3-Clause OR MIT (1): brotli-decompressor
+CC0-1.0 (2): hexf-parse, notify
+CDLA-Permissive-2.0 (3): webpki-root-certs, webpki-roots, webpki-roots
+ISC (6): inotify, inotify-sys, json5, libloading, rustls-webpki, untrusted
+MIT (125): alsa-sys, android-properties, bincode, block2, block2, bytes, cab, calloop, calloop-wayland-source, cfb, color_quant, combine, console, console, convert_case, crunchy, derive_more, derive_more-impl, dispatch, dlib, fancy-regex, fsevent-sys, generic-array, glutin-winit, indicatif, kqueue, kqueue-sys, libm, libmimalloc-sys, libredox, matchers, memoffset, mimalloc, mio, mio, msi, new_debug_unreachable, nom, objc-sys, objc2, objc2, objc2-app-kit, objc2-cloud-kit, objc2-contacts, objc2-core-data, objc2-core-image, objc2-core-location, objc2-encode, objc2-foundation, objc2-foundation, objc2-link-presentation, objc2-metal, objc2-quartz-core, objc2-symbols, objc2-ui-kit, objc2-uniform-type-identifiers, objc2-user-notifications, orbclient, ordered-float, phf, phf_generator, phf_macros, phf_shared, quick-xml, redox_syscall, redox_syscall, redox_syscall, region, rts, rts-abi, rts-ast, rts-cli, rts-codegen-new, rts-diagnostics, rts-dom, rts-egui, rts-engine, rts-hir, rts-input, rts-linker, rts-macro, rts-napi, rts-natives, rts-node, rts-parser, rts-primitives, rts-render, rts-runtime, rts-shared, rts-std, schannel, sharded-slab, simd-adler32, slab, smithay-client-toolkit, strsim, synstructure, tokio, tokio-macros, tokio-util, tracing, tracing-attributes, tracing-core, tracing-serde, tracing-subscriber, twox-hash, unit-prefix, valuable, versions, wayland-backend, wayland-client, wayland-csd-frame, wayland-cursor, wayland-protocols, wayland-protocols-plasma, wayland-protocols-wlr, wayland-scanner, wayland-sys, winnow, x11-dl, xcursor, xkbcommon-dl, zip, zmij, zstd
+MIT OR Unlicense (8): aho-corasick, byteorder, byteorder-lite, memchr, same-file, termcolor, walkdir, winapi-util
+MPL-2.0 (1): colored
+MPL-2.0+ (1): smartstring
+Unicode-3.0 (18): icu_collections, icu_locale_core, icu_normalizer, icu_normalizer_data, icu_properties, icu_properties_data, icu_provider, litemap, potential_utf, tinystr, writeable, yoke, yoke-derive, zerofrom, zerofrom-derive, zerotrie, zerovec, zerovec-derive
+Zlib (3): foldhash, foldhash, slotmap
+
