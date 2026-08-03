@@ -185,7 +185,7 @@ src/
             constants, functions, the builder
   gc/       the collector's contract: liveness, safepoints, roots, barriers
   unwind/   protected regions, cleanup chains, handler search
-  frame/    suspension: what a parked frame preserves, and where it resumes
+  frame/    suspension: the frame record, and the rewrite that produces it
   sched/    promises, continuations, queues, and the order they run in
   abi/      types, conventions, aggregate classification, multiple returns
   verify/   the rules, and what it reports
@@ -207,8 +207,9 @@ Planned and deliberately absent: `guard/` (bailout), `fault/`, `observe/`,
 control flow, widening, guards, constants and calls are emitted, checked by the
 code generator's own verifier, and — through `target/` — compiled and run. Field access reads and writes a real heap; allocation, promises, awaiting and an
 escaping throw reach a runtime; a throw a handler catches goes straight there,
-because the destination was known while compiling. What is still refused by name:
-a bare suspension, and a throw that owes cleanup on its way out.
+because the destination was known while compiling. What is still refused by name: a
+throw that owes cleanup on its way out. A suspension is rewritten away before
+lowering ever sees one.
 
 Calls exist now, and they arrived last on purpose. A call is inseparable from the
 convention it uses, from the safepoint it implies, and from where the frame is

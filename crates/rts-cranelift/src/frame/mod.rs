@@ -43,9 +43,13 @@
 //! reason [`crate::gc::FrameDescriptor`] carries a region and a resume label
 //! rather than three tables carrying one each.
 
+mod layout;
 mod spill;
+mod transform;
 
+pub use layout::FrameLayout;
 pub use spill::{SpillLayout, SpillSlot};
+pub use transform::{Resumable, TransformError, resumable_form};
 
 use crate::gc::{Liveness, live_after_each_inst};
 use crate::ir::{Function, InstId};
