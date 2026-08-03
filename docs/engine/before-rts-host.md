@@ -47,22 +47,39 @@ crate — `SCANNED_CRATES` lists twelve crates and this is not one.
 
 So even with a lowering, compiled code could not call any of it.
 
-The path already exists and is the designed one: `#[rtse::abi]` declares, and
-`rts-symbol-baker` renders the declarations twice — by name into
-`symbol_table.rs`, by index into `entries.rs`. Annotating core's entry points and
-adding it to the scan list puts them in both.
+**This section first recommended `#[rtse::abi]` and the baker, and that was
+wrong.** Corrected here rather than quietly, because the reason matters more
+than the conclusion.
 
-Two notes on doing that:
+`#[rtse::abi]` emits an `rts_abi::SymbolDesc`, and `rts-abi` is the interface
+`rts-cranelift::abi` **replaced**. The machine's own module says why it was
+rebuilt rather than extended: *"entirely scalar: no aggregate, no structure, a
+return position holding zero or one machine slot, and a string that cannot be
+returned at all… It is not a foundation."* Declaring a new crate through it would
+tie the new engine to the one being removed — a regression, and one that only
+shows up later as work to undo.
 
-- `rts-macro` is a proc macro, so it is a build-time dependency and adds nothing
-  at run time. It does not violate the crate's rule about dependencies being paid
-  on every target.
-- **Not every function in core is an entry point.** `Value::kind` is a method
-  compiled code has no reason to call; `add` is. Declaring the whole surface
-  would put hundreds of rows in a table whose whole argument is that a small
-  closed set beats a large open one. The rule the machine already uses applies:
-  *an entry point exists if and only if the operation touches the heap, the
-  operating system, or global mutable state.*
+It is also the wrong mechanism twice over: the baker scans and matches **names**,
+which is exactly the linkage the index table exists to replace.
+
+The right path was already in the repository. `rts_cranelift::symbols::RtEntry`
+is an explicitly numbered enum, and its documentation states when that is the
+right mechanism and when it is not:
+
+> At that size, an explicitly numbered list in source is the right mechanism, and
+> the same list at several hundred entries would not be… A closed set a reviewer
+> can read in one screen is not the failure mode that motivated generation; an
+> open-ended one is.
+
+Core is the small side of that line, and stays there because of the membership
+rule: **not every function is an entry point.** `Value::kind` is a method
+compiled code has no reason to call; `add` is one because joining two strings
+allocates. `to_int32` is not one at all — it is arithmetic, and belongs in what
+the lowering emits.
+
+Done as `CoreEntry`: four entries, numbered in source, each carrying a
+`rts_cranelift::abi::Signature` so the compiler emitting a call and the runtime
+defining it read the same value.
 
 ## Why gap 2 comes first even though gap 1 is bigger
 
@@ -92,9 +109,9 @@ thing wrong was a paragraph that a reader would have believed.
 
 ## Recommended order
 
-1. **Entry points for `rts-core-rwk`** — annotate the operations that qualify,
-   add the crate to the baker's scan, re-bake. Small, and it settles how a
-   new-world crate becomes reachable.
+1. **Entry points for `rts-core-rwk`** — **done**, as `CoreEntry`. An explicitly
+   numbered enum, not the baker: see above for why the first recommendation here
+   was a regression.
 2. **The lowering** — `rts-codegen/src/lower/`, tree to IR. The large one, and
    the one that makes everything else observable.
 3. **`rts-host`** — mechanical once a program can run and call out.

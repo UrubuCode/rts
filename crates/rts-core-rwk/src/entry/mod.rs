@@ -33,8 +33,10 @@
 //! argument is that a small closed set beats a large open one.
 
 mod cell;
+mod table;
 
 pub use cell::Cell;
+pub use table::{CORE_ENTRY_COUNT, CoreEntry};
 
 use std::cell::RefCell;
 
