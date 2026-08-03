@@ -30,10 +30,13 @@
 //! transformation before lowering should ever see one, so reaching here means
 //! that rewrite did not run.
 //!
-//! Two further refusals are findings rather than gaps, and are documented where
-//! they are raised: a 64-bit integer cannot be widened without a heap box, and a
-//! guard cannot establish *which* kind of reference a value holds, because the
-//! encoding does not carry one.
+//! One further refusal is a finding rather than a gap, documented where it is
+//! raised: a 64-bit integer cannot be widened without a heap box.
+//!
+//! A second used to sit beside it — that a guard cannot establish which kind of
+//! reference a value holds, because the encoding does not carry one. That is
+//! still true of the encoding, and is no longer a limit: the kind is in the
+//! object, so a type guard reads it there. The two guards compose.
 
 mod body;
 mod error;

@@ -294,6 +294,13 @@ impl<'a> Rewrite<'a> {
                 self.rewrite_block_call(block, ok);
                 self.rewrite_block_call(block, fail);
             }
+            Terminator::GuardType {
+                object, ok, fail, ..
+            } => {
+                *object = self.use_value(block, *object);
+                self.rewrite_block_call(block, ok);
+                self.rewrite_block_call(block, fail);
+            }
             Terminator::Throw { payload, .. } => {
                 *payload = self.use_value(block, *payload);
             }

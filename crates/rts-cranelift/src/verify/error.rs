@@ -273,6 +273,17 @@ pub enum VerifyError {
         from: BlockId,
     },
 
+    /// A type guard reads a type out of something that is not an object.
+    ///
+    /// The type is in the object, so reading it from a value that is not one
+    /// reads whatever is at that address.
+    GuardTypeOnNonReference {
+        /// Where the guard is.
+        from: BlockId,
+        /// What it was given.
+        found: Repr,
+    },
+
     /// A cleanup does not end by saying it is done.
     ///
     /// A cleanup is copied into each path that needs it, which is only sound if

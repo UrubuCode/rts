@@ -56,6 +56,16 @@ pub(super) fn check_terminators(func: &Function, errors: &mut Vec<VerifyError>) 
                 check_block_call(func, from, fail, 0, errors);
             }
 
+            Terminator::GuardType {
+                object,
+                expect,
+                ok,
+                fail,
+            } => {
+                check_type_guard(func, from, *object, *expect, ok, errors);
+                check_block_call(func, from, fail, 0, errors);
+            }
+
             Terminator::Throw { payload, .. } => {
                 let repr = func.repr_of(*payload);
                 if repr != Repr::Tagged {
@@ -176,6 +186,47 @@ fn check_cleanups(func: &Function, errors: &mut Vec<VerifyError>) {
             errors.push(VerifyError::CleanupEndOutsideCleanup { block });
         }
     }
+}
+
+/// A type guard reads an object and hands it back narrowed.
+///
+/// The object has to be a reference already: reading a type out of something that
+/// is not an object reads whatever happens to be at that address. Establishing
+/// that much is what the other guard is for, so the two compose rather than one
+/// doing both badly.
+fn check_type_guard(
+    func: &Function,
+    from: BlockId,
+    object: ValueId,
+    expect: crate::types::TypeId,
+    ok: &BlockCall,
+    errors: &mut Vec<VerifyError>,
+) {
+    let found = func.repr_of(object);
+    if !matches!(found, Repr::Ref(_)) {
+        errors.push(VerifyError::GuardTypeOnNonReference { from, found });
+    }
+
+    let Some(target) = func.block(ok.block) else {
+        errors.push(VerifyError::UnknownBlock {
+            from,
+            target: ok.block,
+        });
+        return;
+    };
+
+    let narrowed = target.params.first().map(|&p| func.repr_of(p));
+    let wanted = Repr::Ref(crate::repr::RefKind::Aggregate(expect));
+    if narrowed != Some(wanted) {
+        errors.push(VerifyError::GuardTargetMissingValue {
+            from,
+            target: ok.block,
+            expect: wanted,
+        });
+        return;
+    }
+
+    check_block_call(func, from, ok, 1, errors);
 }
 
 /// A guard tests something generic and hands the narrowed value to its success

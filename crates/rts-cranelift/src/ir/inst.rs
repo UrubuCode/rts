@@ -386,6 +386,28 @@ pub enum Terminator {
         args: Vec<ValueId>,
     },
 
+    /// Tests which type an object is, and narrows it on the success path.
+    ///
+    /// The companion to [`Terminator::Guard`], and the answer to something that
+    /// guard cannot do. The value encoding says a word is a reference and stops
+    /// there — proving *which kind* means reading the object, which is what this
+    /// does. So the two compose: one guard establishes that a generic value is a
+    /// reference, and this one establishes what it refers to.
+    ///
+    /// Like every guard, the failure path is a required argument rather than an
+    /// afterthought: an assumption with nowhere to go when it fails is not an
+    /// assumption, it is a hope.
+    GuardType {
+        /// The object being tested.
+        object: ValueId,
+        /// The type the success path assumes.
+        expect: TypeId,
+        /// Entered when it is that type; receives the object, narrowed.
+        ok: BlockCall,
+        /// Entered otherwise.
+        fail: BlockCall,
+    },
+
     /// Ends a cleanup, handing control back to whatever is unwinding.
     ///
     /// A cleanup is not jumped to. It is copied into each path that needs it,
@@ -425,7 +447,9 @@ impl Terminator {
             } => {
                 vec![then_block.block, else_block.block]
             }
-            Terminator::Guard { ok, fail, .. } => vec![ok.block, fail.block],
+            Terminator::Guard { ok, fail, .. } | Terminator::GuardType { ok, fail, .. } => {
+                vec![ok.block, fail.block]
+            }
             // A throw has no successor in this function's graph. Where it lands
             // is decided by the region tree, and may be in a caller; calling it
             // an edge here would claim a transfer this block does not perform.
@@ -456,6 +480,13 @@ impl Terminator {
                 input, ok, fail, ..
             } => {
                 operands.push(*input);
+                operands.extend_from_slice(&ok.args);
+                operands.extend_from_slice(&fail.args);
+            }
+            Terminator::GuardType {
+                object, ok, fail, ..
+            } => {
+                operands.push(*object);
                 operands.extend_from_slice(&ok.args);
                 operands.extend_from_slice(&fail.args);
             }

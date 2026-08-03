@@ -418,6 +418,44 @@ impl<'a> Body<'a> {
                 builder.ins().brif(held, t, &ok_args, e, &fail_args);
             }
 
+            Terminator::GuardType {
+                object,
+                expect,
+                ok,
+                fail,
+            } => {
+                let heap = self
+                    .heap
+                    .as_ref()
+                    .ok_or(LowerError::TerminatorNotYetLowered {
+                        block,
+                        needs: Capability::Memory,
+                    })?;
+                let reference = self.value(*object);
+
+                // The type is in the object's header, which is where it was put
+                // so that a collector could read it without knowing what the
+                // object is. The same fact answers this question.
+                let address = memory::address_of(builder, reference, heap.bases);
+                let header = memory::field_load(
+                    builder,
+                    address,
+                    crate::mem::HeaderLayout::TYPE_OFFSET,
+                    Repr::I64,
+                );
+                let held = builder
+                    .ins()
+                    .icmp_imm(IntCC::Equal, header, expect.index() as i64);
+
+                // The narrowed value is the same bits: what changed is what is
+                // known about them, and nothing known is stored in the value.
+                let mut ok_args = vec![cranelift_codegen::ir::BlockArg::Value(reference)];
+                ok_args.extend(self.block_args(&ok.args));
+                let fail_args = self.block_args(&fail.args);
+                let (t, e) = (self.blocks[&ok.block], self.blocks[&fail.block]);
+                builder.ins().brif(held, t, &ok_args, e, &fail_args);
+            }
+
             Terminator::Return(values) => {
                 // Leaving a region normally owes the same cleanup as leaving it
                 // by throwing. A scope that only unwinds correctly when

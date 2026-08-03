@@ -299,6 +299,46 @@ impl<'a> FuncBuilder<'a> {
         Ok(())
     }
 
+    /// Tests which type an object is, narrowing it on the success path.
+    ///
+    /// Reads what the object says it is, which the encoding cannot. The two
+    /// guards compose: one establishes that a generic value is a reference, this
+    /// one establishes what it refers to.
+    pub fn guard_type(
+        &mut self,
+        object: ValueId,
+        expect: TypeId,
+        ok: (BlockId, &[ValueId]),
+        fail: (BlockId, &[ValueId]),
+    ) -> BuildResult<()> {
+        let found = self.func.repr_of(object);
+        if !matches!(found, Repr::Ref(_)) {
+            return Err(BuildError::WrongDomain {
+                operation: "guard_type",
+                found,
+            });
+        }
+
+        let wanted = Repr::Ref(crate::repr::RefKind::Aggregate(expect));
+        let ok_params = self.block_param_reprs(ok.0);
+        if ok_params.first() != Some(&wanted) {
+            return Err(BuildError::GuardTargetMissingValue { target: ok.0 });
+        }
+
+        let ok_call = self.block_call_from(ok.0, ok.1, 1)?;
+        let fail_call = self.block_call(fail.0, fail.1)?;
+        self.func.set_terminator(
+            self.block,
+            Terminator::GuardType {
+                object,
+                expect,
+                ok: ok_call,
+                fail: fail_call,
+            },
+        );
+        Ok(())
+    }
+
     /// Tests a generic value's representation, narrowing it on the success path.
     ///
     /// The success block must declare the expected representation as its first
