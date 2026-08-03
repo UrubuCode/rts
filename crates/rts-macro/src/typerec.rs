@@ -40,7 +40,9 @@ use quote::quote;
 use syn::{Fields, ItemStruct, Type};
 
 use crate::naming::to_camel;
-use crate::types::{is_handle_ty, is_other_class_ret, is_poly_ty, is_string_ret, option_inner, vec_inner};
+use crate::types::{
+    is_handle_ty, is_other_class_ret, is_poly_ty, is_string_ret, option_inner, vec_inner,
+};
 
 pub(crate) fn expand(_args: TokenStream, item: TokenStream) -> TokenStream {
     let mut s = match syn::parse::<ItemStruct>(item) {
@@ -123,7 +125,10 @@ fn ident_is(ty: &Type, name: &str) -> bool {
 /// Build the i64 PolyValue-word expression for one field, given `access` (the
 /// Rust expression reading the field/element by value: `self.foo`, `__v`, `__e`).
 /// Recurses into `Option<T>`/`Vec<T>` to marshal their inner `T` the same way.
-fn field_word(ty: &Type, access: proc_macro2::TokenStream) -> syn::Result<proc_macro2::TokenStream> {
+fn field_word(
+    ty: &Type,
+    access: proc_macro2::TokenStream,
+) -> syn::Result<proc_macro2::TokenStream> {
     if ident_is(ty, "f64") {
         return Ok(quote!(::rts_engine::heap::shapes::f64_word(#access) as i64));
     }

@@ -37,16 +37,9 @@
 //! an older list would otherwise call a different function with the same number
 //! and never find out.
 
-use rts_cranelift::abi::{AbiType, Convention, Signature};
-use rts_cranelift::repr::Repr;
+use rts_cranelift::abi::{Convention, EntryDesc, Signature};
 
-/// One JavaScript value, as it crosses the boundary.
-///
-/// `Repr::Tagged` is the machine's own word for "a value nothing has proved
-/// anything about", which is exactly what a `Value` is. Spelling it `Int64`
-/// would be describing the register rather than the meaning, and the register is
-/// the one thing both sides already agree on.
-const VALUE: AbiType = AbiType::Scalar(Repr::Tagged);
+use super::{ADD_ENTRY, NUMBER_TO_STRING_ENTRY, STRICT_EQUALS_ENTRY, TO_BOOLEAN_ENTRY};
 
 /// An operation compiled code performs by calling rather than by emitting.
 ///
@@ -100,6 +93,21 @@ impl CoreEntry {
         self as usize
     }
 
+    /// What the definition declared, derived from its Rust signature.
+    ///
+    /// Read rather than restated. Writing the shape here would put it in two
+    /// places — this file saying "two tagged parameters" and the function saying
+    /// `(u64, u64)` — with nothing connecting them, which is the drift the
+    /// authoring attribute exists to make unrepresentable.
+    pub fn describe(self) -> EntryDesc {
+        match self {
+            CoreEntry::Add => ADD_ENTRY,
+            CoreEntry::StrictEquals => STRICT_EQUALS_ENTRY,
+            CoreEntry::ToBoolean => TO_BOOLEAN_ENTRY,
+            CoreEntry::NumberToString => NUMBER_TO_STRING_ENTRY,
+        }
+    }
+
     /// The linker name, for the object file and for a backtrace.
     ///
     /// A name is still needed in two places and neither is the call site: an
@@ -108,33 +116,17 @@ impl CoreEntry {
     /// not. Keeping the name as *description* rather than as the mechanism is
     /// the whole distinction.
     pub fn symbol(self) -> &'static str {
-        match self {
-            CoreEntry::Add => "__rts_add",
-            CoreEntry::StrictEquals => "__rts_strict_equals",
-            CoreEntry::ToBoolean => "__rts_to_boolean",
-            CoreEntry::NumberToString => "__rts_number_to_string",
-        }
+        self.describe().symbol
     }
 
     /// What it accepts and returns.
     ///
-    /// Built with the machine's own [`Signature`], not a second description of
-    /// one. The compiler emitting a call and the runtime defining it read the
-    /// same value, so a mismatch is a compile error rather than a wrong number
-    /// of arguments discovered at run time.
+    /// The machine's own [`Signature`], built from what the definition
+    /// declared. The compiler emitting a call and the runtime defining it read
+    /// one value, so a mismatch is a compile error rather than a wrong number of
+    /// registers discovered at run time.
     pub fn signature(self) -> Signature {
-        match self {
-            CoreEntry::Add => Signature::foreign(vec![VALUE, VALUE], vec![VALUE]),
-            CoreEntry::StrictEquals => {
-                Signature::foreign(vec![VALUE, VALUE], vec![AbiType::Scalar(Repr::Bool)])
-            }
-            CoreEntry::ToBoolean => {
-                Signature::foreign(vec![VALUE], vec![AbiType::Scalar(Repr::Bool)])
-            }
-            CoreEntry::NumberToString => {
-                Signature::foreign(vec![AbiType::Scalar(Repr::F64)], vec![VALUE])
-            }
-        }
+        self.describe().signature()
     }
 
     /// Which convention it uses.
@@ -142,7 +134,7 @@ impl CoreEntry {
     /// Foreign, every one: these are `extern "C"` definitions the linker
     /// resolves, so their convention is the target's and not ours to choose.
     pub fn convention(self) -> Convention {
-        Convention::Foreign
+        self.describe().convention
     }
 }
 
@@ -176,12 +168,20 @@ mod tests {
     fn a_signature_says_what_the_definition_says() {
         // Not a restatement — the definitions below take exactly these, and a
         // change to one without the other stops compiling.
+        use rts_cranelift::abi::AbiType;
+        use rts_cranelift::repr::Repr;
+
         assert_eq!(CoreEntry::Add.signature().params.len(), 2);
         assert_eq!(CoreEntry::ToBoolean.signature().params.len(), 1);
         assert_eq!(
             CoreEntry::NumberToString.signature().params,
             vec![AbiType::Scalar(Repr::F64)],
-            "a number goes in as a number, not as a tagged value — the caller already proved it"
+            "a number goes in as a number, not as a tagged value — derived from \n             `value: f64`, not written here"
+        );
+        assert_eq!(
+            CoreEntry::Add.signature().params,
+            vec![AbiType::Scalar(Repr::Tagged); 2],
+            "and a `u64` parameter is a tagged value, which is what a Value is"
         );
     }
 

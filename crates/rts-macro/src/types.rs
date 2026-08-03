@@ -16,14 +16,36 @@
 use syn::{ReturnType, Type};
 
 /// AbiType token + extern Rust type + ts type-name for a supported scalar.
-pub(crate) fn scalar(ty: &Type) -> Option<(proc_macro2::TokenStream, proc_macro2::TokenStream, &'static str)> {
+pub(crate) fn scalar(
+    ty: &Type,
+) -> Option<(
+    proc_macro2::TokenStream,
+    proc_macro2::TokenStream,
+    &'static str,
+)> {
     let Type::Path(p) = ty else { return None };
     let id = p.path.segments.last()?.ident.to_string();
     Some(match id.as_str() {
-        "f64" => (quote::quote!(::rts_engine::AbiType::F64), quote::quote!(f64), "number"),
-        "i64" => (quote::quote!(::rts_engine::AbiType::I64), quote::quote!(i64), "number"),
-        "i32" => (quote::quote!(::rts_engine::AbiType::I32), quote::quote!(i32), "number"),
-        "bool" => (quote::quote!(::rts_engine::AbiType::Bool), quote::quote!(i64), "boolean"),
+        "f64" => (
+            quote::quote!(::rts_engine::AbiType::F64),
+            quote::quote!(f64),
+            "number",
+        ),
+        "i64" => (
+            quote::quote!(::rts_engine::AbiType::I64),
+            quote::quote!(i64),
+            "number",
+        ),
+        "i32" => (
+            quote::quote!(::rts_engine::AbiType::I32),
+            quote::quote!(i32),
+            "number",
+        ),
+        "bool" => (
+            quote::quote!(::rts_engine::AbiType::Bool),
+            quote::quote!(i64),
+            "boolean",
+        ),
         _ => return None,
     })
 }
@@ -271,7 +293,10 @@ mod class_ret_tests {
         let ty: syn::Type = parse_quote!(Option<StreamReader>);
         let inner = is_option_other_class_ret(&ty).expect("Option<Class> should match");
         let want: syn::Type = parse_quote!(StreamReader);
-        assert_eq!(quote::quote!(#inner).to_string(), quote::quote!(#want).to_string());
+        assert_eq!(
+            quote::quote!(#inner).to_string(),
+            quote::quote!(#want).to_string()
+        );
     }
 
     #[test]

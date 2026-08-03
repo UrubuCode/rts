@@ -42,10 +42,12 @@ use std::cell::RefCell;
 
 use rts_cranelift::shape::{KeyRegistry, ShapeTree};
 
-use crate::coerce::{Sum, add as add_primitives, number_to_string};
+use crate::coerce::{Sum, add as add_primitives, number_to_string as print_number};
 use crate::heap::{Slab, Slot};
 use crate::text::{Interner, Str};
-use crate::value::{Singletons, Value, strict_equals, to_boolean};
+use crate::value::{
+    Singletons, Value, strict_equals as values_strict_equals, to_boolean as values_to_boolean,
+};
 
 /// Everything a running program's operations need and cannot be handed.
 pub struct Context {
@@ -147,8 +149,8 @@ fn with_current<T>(body: impl FnOnce(&mut Context) -> T) -> T {
 /// An entry point because joining two strings allocates. The caller has already
 /// resolved `ToPrimitive` in the order [`crate::coerce::add_operand_order`]
 /// states — this cannot do it, because running a `valueOf` is calling.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_add(left: u64, right: u64) -> u64 {
+#[rtse::entry]
+pub fn add(left: u64, right: u64) -> u64 {
     with_current(|context| {
         let text_of = |value: Value| {
             value
@@ -172,9 +174,11 @@ pub extern "C" fn __rts_add(left: u64, right: u64) -> u64 {
 ///
 /// An entry point because two strings are equal when their *text* is, which
 /// needs the heap. Everything else about it is arithmetic.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_strict_equals(left: u64, right: u64) -> bool {
-    with_current(|context| strict_equals(Value(left), Value(right), |a, b| context.same_text(a, b)))
+#[rtse::entry]
+pub fn strict_equals(left: u64, right: u64) -> bool {
+    with_current(|context| {
+        values_strict_equals(Value(left), Value(right), |a, b| context.same_text(a, b))
+    })
 }
 
 /// `ToBoolean`.
@@ -182,11 +186,11 @@ pub extern "C" fn __rts_strict_equals(left: u64, right: u64) -> bool {
 /// An entry point for one case out of seven: the empty string. Every other
 /// falsy value is decided by arithmetic, and a lowering that proved its operand
 /// is a number should emit the comparison rather than call this.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_to_boolean(value: u64) -> bool {
+#[rtse::entry]
+pub fn to_boolean(value: u64) -> bool {
     with_current(|context| {
         let singletons = context.singletons;
-        to_boolean(Value(value), singletons, |slot| {
+        values_to_boolean(Value(value), singletons, |slot| {
             context.text_at(slot as u32).is_some_and(Str::is_empty)
         })
     })
@@ -195,10 +199,10 @@ pub extern "C" fn __rts_to_boolean(value: u64) -> bool {
 /// `String(n)`.
 ///
 /// An entry point because the result is allocated.
-#[unsafe(no_mangle)]
-pub extern "C" fn __rts_number_to_string(value: f64) -> u64 {
+#[rtse::entry]
+pub fn number_to_string(value: f64) -> u64 {
     with_current(|context| {
-        let text = number_to_string(value);
+        let text = print_number(value);
         context.intern_value(text).bits()
     })
 }
@@ -225,7 +229,7 @@ mod tests {
         let second = context.intern_value(Str::from_str("a"));
         assert_ne!(first.bits(), second.bits(), "different slots");
 
-        let (_, equal) = with_context(context, || __rts_strict_equals(first.bits(), second.bits()));
+        let (_, equal) = with_context(context, || strict_equals(first.bits(), second.bits()));
 
         assert!(
             equal,
@@ -250,7 +254,7 @@ mod tests {
         let left = Value::from_slot(first.slot().0);
         let right = Value::from_slot(second.slot().0);
 
-        let (_, equal) = with_context(context, || __rts_strict_equals(left.bits(), right.bits()));
+        let (_, equal) = with_context(context, || strict_equals(left.bits(), right.bits()));
         assert!(
             !equal,
             "objects compare by identity, which is exactly what strings do not"
@@ -263,13 +267,13 @@ mod tests {
         let text = context.intern_value(Str::from_str("n="));
 
         let (context, sum) = with_context(context, || {
-            __rts_add(Value::from_i32(2).bits(), Value::from_i32(3).bits())
+            add(Value::from_i32(2).bits(), Value::from_i32(3).bits())
         });
         assert_eq!(Value(sum).as_f64(), Some(5.0));
 
         let number_text = {
-            let (mut context, printed) = with_context(context, || __rts_number_to_string(1.0));
-            let joined = with_context(context, || __rts_add(text.bits(), printed));
+            let (mut context, printed) = with_context(context, || number_to_string(1.0));
+            let joined = with_context(context, || add(text.bits(), printed));
             context = joined.0;
             let value = Value(joined.1);
             context
@@ -287,10 +291,10 @@ mod tests {
 
         let (_, answers) = with_context(context, || {
             [
-                __rts_to_boolean(empty.bits()),
-                __rts_to_boolean(filled.bits()),
-                __rts_to_boolean(Value::from_i32(0).bits()),
-                __rts_to_boolean(Value::from_i32(1).bits()),
+                to_boolean(empty.bits()),
+                to_boolean(filled.bits()),
+                to_boolean(Value::from_i32(0).bits()),
+                to_boolean(Value::from_i32(1).bits()),
             ]
         });
 
@@ -299,7 +303,7 @@ mod tests {
 
     #[test]
     fn a_number_prints_through_the_entry_point_as_it_prints_anywhere() {
-        let (context, printed) = with_context(fresh(), || __rts_number_to_string(0.1 + 0.2));
+        let (context, printed) = with_context(fresh(), || number_to_string(0.1 + 0.2));
         let text = context
             .text_at(Value(printed).as_slot().unwrap())
             .and_then(Str::to_rust);

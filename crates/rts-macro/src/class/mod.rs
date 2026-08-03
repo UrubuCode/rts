@@ -111,7 +111,11 @@ impl syn::parse::Parse for ClassArgs {
 /// not a linker symbol — it never reaches a consumer by name and is not part of the
 /// `__rtsm_`/`__rtsn_` convention. Upper-case is kept because these are
 /// Rust `static`/`fn` idents whose casing follows Rust, not JS.
-fn keep_static(class_upper: &str, suffix: &str, keep: &[proc_macro2::Ident]) -> proc_macro2::TokenStream {
+fn keep_static(
+    class_upper: &str,
+    suffix: &str,
+    keep: &[proc_macro2::Ident],
+) -> proc_macro2::TokenStream {
     if keep.is_empty() {
         return quote!();
     }

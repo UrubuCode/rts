@@ -54,9 +54,7 @@ pub(crate) fn expand(a: TokenStream, item: TokenStream) -> TokenStream {
 
     let rust_ident = item.ident.clone();
     let js_name = match &args.naming {
-        rts_abi::scope::Naming::Scoped {
-            value: Some(v), ..
-        } => v.clone(),
+        rts_abi::scope::Naming::Scoped { value: Some(v), .. } => v.clone(),
         _ => js_name_of(&rust_ident.to_string()),
     };
     let sym = symbol_for(&args.naming, &js_name);

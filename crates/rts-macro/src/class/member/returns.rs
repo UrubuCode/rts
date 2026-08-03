@@ -40,7 +40,11 @@ fn no_class() -> proc_macro2::TokenStream {
 /// Build the non-async return marshalling for one member. `class` is the JS
 /// class name (needed by the `Self`/`Option<Self>`/ctor arms, which allocate a
 /// classed `Entry::Rtse` carrying it for `instanceof`/return-class tracking).
-pub(crate) fn build_return(sig: &syn::Signature, class: &str, is_ctor: bool) -> syn::Result<RetInfo> {
+pub(crate) fn build_return(
+    sig: &syn::Signature,
+    class: &str,
+    is_ctor: bool,
+) -> syn::Result<RetInfo> {
     // Escape hatch: `#[rtse::ctor] fn new(...) -> Handle` opts OUT of the
     // `alloc_rtse` box and falls through to the ordinary return-type match
     // below, whose `is_handle_ty` arm already passes a raw handle through
@@ -188,9 +192,9 @@ pub(crate) fn build_return(sig: &syn::Signature, class: &str, is_ctor: bool) -> 
                 quote!(::rts_engine::AbiType::Handle),
                 quote!(u64),
                 "object".into(),
-                Box::new(move |b| {
-                    quote!(::rts_engine::heap::handles::RtseReturn::__rtse_into_handle(#b))
-                }),
+                Box::new(
+                    move |b| quote!(::rts_engine::heap::handles::RtseReturn::__rtse_into_handle(#b)),
+                ),
                 ret_class,
             )
         }
@@ -352,27 +356,28 @@ pub(crate) fn wrap_async(sig: &syn::Signature, ret: RetInfo) -> syn::Result<RetI
     }
     let base = wrap;
     let inner_ts = ret_ts;
-    let awrap: Box<dyn Fn(proc_macro2::TokenStream) -> proc_macro2::TokenStream> = Box::new(move |call| {
-        let inner = base(call);
-        quote!({
-            unsafe extern "C" {
-                fn __rtsadp_box_handle_auto(h: u64) -> u64;
-                fn __rtsadp_promise_resolve_w(w: u64) -> u64;
-                fn __rtsadp_err_pending() -> i64;
-                fn __rtsadp_err_take() -> u64;
-                fn __rtsm_promise_new_rejected(e: i64) -> u64;
-            }
-            let __h: u64 = #inner;
-            unsafe {
-                if __rtsadp_err_pending() != 0 {
-                    let __e = __rtsadp_err_take();
-                    __rtsm_promise_new_rejected(__e as i64)
-                } else {
-                    __rtsadp_promise_resolve_w(__rtsadp_box_handle_auto(__h))
+    let awrap: Box<dyn Fn(proc_macro2::TokenStream) -> proc_macro2::TokenStream> =
+        Box::new(move |call| {
+            let inner = base(call);
+            quote!({
+                unsafe extern "C" {
+                    fn __rtsadp_box_handle_auto(h: u64) -> u64;
+                    fn __rtsadp_promise_resolve_w(w: u64) -> u64;
+                    fn __rtsadp_err_pending() -> i64;
+                    fn __rtsadp_err_take() -> u64;
+                    fn __rtsm_promise_new_rejected(e: i64) -> u64;
                 }
-            }
-        })
-    });
+                let __h: u64 = #inner;
+                unsafe {
+                    if __rtsadp_err_pending() != 0 {
+                        let __e = __rtsadp_err_take();
+                        __rtsm_promise_new_rejected(__e as i64)
+                    } else {
+                        __rtsadp_promise_resolve_w(__rtsadp_box_handle_auto(__h))
+                    }
+                }
+            })
+        });
     Ok((
         quote!(::rts_engine::AbiType::Handle),
         quote!(u64),

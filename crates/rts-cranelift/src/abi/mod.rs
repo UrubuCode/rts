@@ -98,6 +98,44 @@ impl Convention {
     }
 }
 
+/// A function a linker resolves by name, described where it is defined.
+///
+/// `Signature` holds `Vec`s, so it cannot be built in a `const`. A declaration
+/// has to be one: it is emitted beside the definition it describes, and the
+/// point of emitting it there is that the two cannot drift. So this is the same
+/// information over slices, and [`EntryDesc::signature`] builds the owned form
+/// when a caller wants one.
+///
+/// Deliberately says nothing about *which* entry point this is. Numbering is a
+/// property of the whole set, and a declaration cannot see its neighbours —
+/// which is why the set is assembled somewhere that can.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct EntryDesc {
+    /// The linker name.
+    ///
+    /// Needed in two places, and neither is a call site: an object file resolves
+    /// an undefined symbol against an archive by name, and a backtrace naming
+    /// one is readable where a backtrace naming an index is not.
+    pub symbol: &'static str,
+    /// Parameters, in order.
+    pub params: &'static [AbiType],
+    /// Returns, in order.
+    pub returns: &'static [AbiType],
+    /// The register and stack discipline.
+    pub convention: Convention,
+}
+
+impl EntryDesc {
+    /// The owned signature this describes.
+    pub fn signature(&self) -> Signature {
+        Signature {
+            params: self.params.to_vec(),
+            returns: self.returns.to_vec(),
+            convention: self.convention,
+        }
+    }
+}
+
 /// What a function accepts and returns.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Signature {

@@ -14,3 +14,8 @@ crate-type = ["rlib"]
 # them — so a change to the layout is a compile error here instead of a value
 # silently read as the wrong kind.
 rts-cranelift = { path = "../rts-cranelift" }
+
+# The authoring surface. A proc macro, so it is a build-time dependency and
+# costs nothing at run time — and it emits tokens naming `rts_cranelift::abi`
+# rather than depending on it, so using it drags no compiler into anyone build.
+rtse = { package = "rts-macro", path = "../rts-macro" }

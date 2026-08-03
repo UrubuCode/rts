@@ -86,13 +86,25 @@ pub(crate) fn build_params(
                 // the UNIFORM primitive receiver (`String`/`Number`/`Boolean`:
                 // `xval(word)` handles both the inline primitive and the
                 // `Entry::Rtse` wrapper).
-                (quote!(::rts_engine::AbiType::PolyValue), quote!(u64), quote!(__recv))
+                (
+                    quote!(::rts_engine::AbiType::PolyValue),
+                    quote!(u64),
+                    quote!(__recv),
+                )
             } else if let Some((abi, ext_ty, _)) = scalar(recv_ty) {
                 let is_bool = matches!(recv_ty, Type::Path(p) if p.path.is_ident("bool"));
-                let call = if is_bool { quote!((__recv != 0)) } else { quote!(__recv) };
+                let call = if is_bool {
+                    quote!((__recv != 0))
+                } else {
+                    quote!(__recv)
+                };
                 (abi, ext_ty, call)
             } else if is_handle_ty(recv_ty).is_some() {
-                (quote!(::rts_engine::AbiType::Handle), quote!(u64), quote!(__recv))
+                (
+                    quote!(::rts_engine::AbiType::Handle),
+                    quote!(u64),
+                    quote!(__recv),
+                )
             } else {
                 return Err(syn::Error::new_spanned(
                     recv_ty,
@@ -230,7 +242,11 @@ pub(crate) fn build_params(
                         }
                     };
                 ));
-                call_args.push(if is_mut { quote!(#cvar.as_mut()) } else { quote!(#cvar.as_ref()) });
+                call_args.push(if is_mut {
+                    quote!(#cvar.as_mut())
+                } else {
+                    quote!(#cvar.as_ref())
+                });
                 if is_mut {
                     teardown.push(quote!(
                         if let ::core::option::Option::Some(__v) = #cvar {
@@ -248,7 +264,11 @@ pub(crate) fn build_params(
                             ::core::option::Option::None => return ::core::default::Default::default(),
                         };
                 ));
-                call_args.push(if is_mut { quote!(&mut #cvar) } else { quote!(&#cvar) });
+                call_args.push(if is_mut {
+                    quote!(&mut #cvar)
+                } else {
+                    quote!(&#cvar)
+                });
                 if is_mut {
                     teardown.push(quote!(
                         ::rts_engine::heap::handles::with_rtse_mut::<#cls_ty, _>(#pid, |__slot| {
@@ -306,7 +326,11 @@ pub(crate) fn build_params(
         let pid = format_ident!("__a{}", idx);
         ext_params.push(quote!(#pid: #ext_ty));
         let is_bool = matches!(ty, Type::Path(p) if p.path.is_ident("bool"));
-        let raw = if is_bool { quote!((#pid != 0)) } else { quote!(#pid) };
+        let raw = if is_bool {
+            quote!((#pid != 0))
+        } else {
+            quote!(#pid)
+        };
         call_args.push(if is_optional {
             // Absent = NaN (the sentinel `DefaultArg::Undefined` injects for an
             // F64 slot via `ToNumber(undefined)`).

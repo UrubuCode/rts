@@ -3,8 +3,8 @@
 //! where `T` is another `#[rtse::class]` struct. Exercises the real macro
 //! expansion + Registry (not a hand-rolled `Member`).
 
-use rts_engine::heap::handles::{alloc_rtse, with_rtse};
 use rts_engine::Engine;
+use rts_engine::heap::handles::{alloc_rtse, with_rtse};
 
 // Each `#[rtse::class]` impl generates a module-scoped `pub fn register` (the
 // same one-class-per-module shape `rts-shared/src/globals/<class>/mod.rs`
@@ -116,7 +116,11 @@ fn mut_class_ref_param_writes_back() {
     let hb = alloc_rtse::<PtA>("PtA", PtA { x: 5.0 });
 
     let class = e.registry().class("PtA").unwrap();
-    let m = class.members.iter().find(|m| m.name == "bumpOther").unwrap();
+    let m = class
+        .members
+        .iter()
+        .find(|m| m.name == "bumpOther")
+        .unwrap();
     let f: extern "C" fn(u64, u64) -> f64 = unsafe { std::mem::transmute(m.fn_ptr) };
     assert_eq!(f(ha, hb), 7.0); // 1.0 + (5.0 + 1.0)
 

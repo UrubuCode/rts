@@ -95,7 +95,11 @@ fn static_returns_record_with_correct_fields() {
     let mut e = Engine::new();
     register(&mut e);
     let class = e.registry().class("Fs").expect("Fs registered");
-    let m = class.members.iter().find(|m| m.name == "stat").expect("stat present");
+    let m = class
+        .members
+        .iter()
+        .find(|m| m.name == "stat")
+        .expect("stat present");
 
     let path = "x";
     let f: extern "C" fn(*const u8, i64) -> u64 = unsafe { std::mem::transmute(m.fn_ptr) };
@@ -134,14 +138,16 @@ fn nested_record_field_is_a_nested_object() {
         _ => panic!("expected outer shaped Entry::Vec"),
     });
     let outer_shape = (outer[0] as u64 & 0x0000_FFFF_FFFF_FFFF) as u32;
-    assert_eq!(global_shape_keys(outer_shape).unwrap(), vec!["label", "inner"]);
+    assert_eq!(
+        global_shape_keys(outer_shape).unwrap(),
+        vec!["label", "inner"]
+    );
 
     // slot 2 ("inner") is a boxed OBJECT word — decode its handle and confirm
     // it is itself a valid shaped object with Stats's own field order.
     let inner_word = outer[2] as u64;
-    let inner_handle = rts_engine::heap::handles::__rtsn_poly_to_handle(
-        inner_word & 0x0000_FFFF_FFFF_FFFF,
-    );
+    let inner_handle =
+        rts_engine::heap::handles::__rtsn_poly_to_handle(inner_word & 0x0000_FFFF_FFFF_FFFF);
     let inner = rts_engine::heap::handles::with_entry(inner_handle, |e| match e {
         Some(rts_engine::heap::handles::Entry::Vec(v)) => v.to_owned_vec(),
         _ => panic!("expected inner shaped Entry::Vec"),

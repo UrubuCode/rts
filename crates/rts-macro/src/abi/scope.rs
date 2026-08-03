@@ -55,7 +55,14 @@ impl Parse for AbiArgs {
         use rts_abi::scope::Naming;
 
         if input.is_empty() {
-            return Ok(AbiArgs { naming: Naming::Verbatim, throws: false, pure: false, js_value: None, ret_ts: None, constant: false });
+            return Ok(AbiArgs {
+                naming: Naming::Verbatim,
+                throws: false,
+                pure: false,
+                js_value: None,
+                ret_ts: None,
+                constant: false,
+            });
         }
         if input.peek(syn::LitStr) {
             let s: syn::LitStr = input.parse()?;
@@ -65,7 +72,14 @@ impl Parse for AbiArgs {
                     "#[rtse::abi]: an explicit symbol takes no other arguments",
                 ));
             }
-            return Ok(AbiArgs { naming: Naming::Explicit(s.value()), throws: false, pure: false, js_value: None, ret_ts: None, constant: false });
+            return Ok(AbiArgs {
+                naming: Naming::Explicit(s.value()),
+                throws: false,
+                pure: false,
+                js_value: None,
+                ret_ts: None,
+                constant: false,
+            });
         }
 
         let mut scope: Option<Scope> = None;

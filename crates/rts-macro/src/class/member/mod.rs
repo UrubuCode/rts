@@ -98,12 +98,14 @@ pub(crate) fn gen_member(
             private,
             ..
         } => (
-            name.clone().unwrap_or_else(|| to_camel(&rust_name.to_string())),
+            name.clone()
+                .unwrap_or_else(|| to_camel(&rust_name.to_string())),
             *readonly,
             *private,
         ),
         Kind::Static { name, .. } | Kind::Getter { name, .. } => (
-            name.clone().unwrap_or_else(|| to_camel(&rust_name.to_string())),
+            name.clone()
+                .unwrap_or_else(|| to_camel(&rust_name.to_string())),
             false,
             false,
         ),
@@ -260,7 +262,10 @@ pub(crate) fn gen_member(
     let sig_args = if is_ctor || is_no_recv {
         quote!(::std::vec![#(#arg_abis),*])
     } else if is_value_method {
-        let recv_abi = p.value_recv_abi.as_ref().expect("value method has a receiver abi");
+        let recv_abi = p
+            .value_recv_abi
+            .as_ref()
+            .expect("value method has a receiver abi");
         quote!(::std::vec![#recv_abi #(, #arg_abis)*])
     } else {
         quote!(::std::vec![::rts_engine::AbiType::Handle #(, #arg_abis)*])
@@ -301,7 +306,10 @@ pub(crate) fn gen_member(
     let sym_desc_params = if is_ctor || is_no_recv {
         quote!(&[#(#arg_abis),*])
     } else if is_value_method {
-        let recv_abi = p.value_recv_abi.as_ref().expect("value method has a receiver abi");
+        let recv_abi = p
+            .value_recv_abi
+            .as_ref()
+            .expect("value method has a receiver abi");
         quote!(&[#recv_abi #(, #arg_abis)*])
     } else {
         quote!(&[::rts_engine::AbiType::Handle #(, #arg_abis)*])

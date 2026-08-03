@@ -57,7 +57,11 @@ pub(crate) fn gen_field(
         ::core::option::Option::Some(__s) => __s.#fname,
         ::core::option::Option::None => ::core::default::Default::default(),
     }));
-    let get_ret = if is_bool { quote!((#read) as i64) } else { read };
+    let get_ret = if is_bool {
+        quote!((#read) as i64)
+    } else {
+        read
+    };
     externs.push(quote! {
         #[unsafe(no_mangle)]
         pub extern "C" fn #get_id(__recv: u64) -> #ext_ty { #get_ret }
@@ -86,7 +90,11 @@ pub(crate) fn gen_field(
     if !readonly {
         let set_sym = crate::class::class_symbol(class, &format!("{field_name}__set"));
         let set_id = format_ident!("{}", set_sym);
-        let val = if is_bool { quote!((__v != 0)) } else { quote!(__v) };
+        let val = if is_bool {
+            quote!((__v != 0))
+        } else {
+            quote!(__v)
+        };
         externs.push(quote! {
             #[unsafe(no_mangle)]
             pub extern "C" fn #set_id(__recv: u64, __v: #ext_ty) {
