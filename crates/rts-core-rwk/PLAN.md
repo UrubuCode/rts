@@ -148,7 +148,18 @@ notion of kind. Adding one is a change to the machine, which is where the fix
 belongs; inventing a second layout notion here to avoid asking is the failure
 the READMEs name. Cost until then: a map per object, empty for nearly all.
 
-### C4 — coercion
+### C4 — coercion. **DONE.**
+
+Nothing here calls anything. `ToPrimitive` on an object runs user code, so an
+operation handed one returns `Needs` — which operand, which hint — and the
+caller resolves it and asks again. Same shape as `Found` in C3, same reason:
+what is easy to get wrong is not performing the conversion but performing it on
+the right operand in the right order.
+
+Still absent: `ToPropertyKey` beyond what `object::key_of` already does, and
+loose equality, which needs `ToPrimitive` resolved and therefore a caller that
+can call. Both land with the first client rather than being written blind.
+
 
 Now that a heap and strings exist, the conversions that need them.
 

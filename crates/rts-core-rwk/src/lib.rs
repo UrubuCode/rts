@@ -32,11 +32,13 @@
 #![deny(missing_docs)]
 #![deny(dead_code)]
 
+pub mod coerce;
 pub mod heap;
 pub mod object;
 pub mod text;
 pub mod value;
 
+pub use coerce::{Hint, Side};
 pub use heap::{Handle, Slab, Slot};
 pub use object::{Key, Object};
 pub use text::{Interner, Str};
