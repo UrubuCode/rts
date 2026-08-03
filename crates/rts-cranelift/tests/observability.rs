@@ -5,7 +5,7 @@
 //! check the answers name what was actually asked for.
 
 use cranelift_jit::JITModule;
-use cranelift_module::{Linkage, Module};
+use cranelift_module::Linkage;
 use rts_cranelift::fault::Position;
 use rts_cranelift::ir::{FuncBuilder, FuncRegistry, Function, NumOp, Signature};
 use rts_cranelift::observe::CodeMap;
