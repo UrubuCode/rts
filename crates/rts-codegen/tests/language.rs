@@ -9,9 +9,11 @@
 
 use rts_codegen::names::Names;
 use rts_codegen::syntax::Claim;
+use rts_codegen::syntax::{ArrayPattern, Element, ObjectPattern, PatternProperty};
 use rts_codegen::syntax::{
-    AssignOp, BinaryOp, Binding, BindingKind, Catch, Expr, ExprKind, Function, Literal, LogicalOp,
-    Parameter, Program, PropertyKey, Stmt, StmtKind, UpdateOp, UpdatePosition,
+    AssignOp, AssignTarget, BinaryOp, Binding, BindingKind, Catch, Expr, ExprKind, Function,
+    Literal, LogicalOp, Parameter, Pattern, Program, PropertyKey, Stmt, StmtKind, UpdateOp,
+    UpdatePosition,
 };
 use rts_codegen::values::Singleton;
 use rts_cranelift::fault::Position;
@@ -55,12 +57,12 @@ fn compound_assignment_is_not_rewritten_to_an_assignment_of_a_sum() {
     let target = ident(&mut names, "a");
 
     let compound = ExprKind::Assign {
-        target: Box::new(target.clone()),
+        target: AssignTarget::Place(Box::new(target.clone())),
         value: Box::new(number(1.0)),
         op: AssignOp::Compound(BinaryOp::Add),
     };
     let expanded = ExprKind::Assign {
-        target: Box::new(target.clone()),
+        target: AssignTarget::Place(Box::new(target.clone())),
         value: Box::new(Expr::new(
             ExprKind::Binary {
                 op: BinaryOp::Add,
@@ -94,7 +96,7 @@ fn an_update_is_not_an_assignment_of_a_sum() {
         target: Box::new(target.clone()),
     };
     let compound = ExprKind::Assign {
-        target: Box::new(target),
+        target: AssignTarget::Place(Box::new(target)),
         value: Box::new(number(1.0)),
         op: AssignOp::Compound(BinaryOp::Add),
     };
@@ -171,6 +173,129 @@ fn a_sequence_holds_its_operands_flat() {
         ExprKind::Sequence { operands } => assert_eq!(operands.len(), 3),
         _ => panic!("built a Sequence and got something else"),
     }
+}
+
+#[test]
+fn a_destructuring_assignment_can_write_where_a_declaration_cannot() {
+    let mut names = Names::new();
+    let obj = Expr::new(ExprKind::Ident(names.intern("obj")), at());
+    let member = Expr::new(
+        ExprKind::Member {
+            object: Box::new(obj),
+            property: names.intern("x"),
+            optional: false,
+        },
+        at(),
+    );
+
+    let writes_to_a_member = Pattern::Object(ObjectPattern {
+        properties: vec![PatternProperty {
+            key: PropertyKey::Named(names.intern("a")),
+            value: Element::new(Pattern::Target(Box::new(member))),
+        }],
+        rest: None,
+    });
+
+    assert!(
+        !writes_to_a_member.is_valid_binding(),
+        "({{ a: obj.x }} = src) is legal; `let {{ a: obj.x }}` is not"
+    );
+    assert!(AssignTarget::Pattern(writes_to_a_member.clone()).is_legal_under(AssignOp::Plain));
+    assert!(
+        !AssignTarget::Pattern(writes_to_a_member)
+            .is_legal_under(AssignOp::Compound(BinaryOp::Add)),
+        "[a, b] += c is a syntax error"
+    );
+}
+
+#[test]
+fn a_rest_element_cannot_carry_a_default_because_the_type_has_nowhere_to_put_one() {
+    let mut names = Names::new();
+    let pattern = ArrayPattern {
+        elements: vec![Some(Element::with_default(
+            Pattern::Name(names.intern("a")),
+            number(1.0),
+        ))],
+        rest: Some(Box::new(Pattern::Name(names.intern("rest")))),
+    };
+
+    // `rest` is a bare Pattern, not an Element: `[...rest = []]` is an early
+    // error and is unrepresentable here rather than rejected later.
+    assert!(pattern.elements[0].as_ref().unwrap().default.is_some());
+    assert!(pattern.rest.is_some());
+}
+
+#[test]
+fn an_array_pattern_iterates_and_an_object_pattern_does_not() {
+    let mut names = Names::new();
+
+    let array = Pattern::Array(ArrayPattern {
+        elements: vec![Some(Element::new(Pattern::Name(names.intern("a"))))],
+        rest: None,
+    });
+    let object = Pattern::Object(ObjectPattern {
+        properties: vec![PatternProperty {
+            key: PropertyKey::Named(names.intern("a")),
+            value: Element::new(Pattern::Name(names.intern("a"))),
+        }],
+        rest: None,
+    });
+
+    assert!(
+        array.iterates(),
+        "const [a] = new Set([1]) works, and owes an IteratorClose"
+    );
+    assert!(!object.iterates(), "properties are read, not stepped");
+}
+
+#[test]
+fn a_parameter_list_stops_being_simple_the_moment_anything_is_added() {
+    let mut names = Names::new();
+    let plain = Function {
+        name: None,
+        parameters: vec![Parameter {
+            target: Pattern::Name(names.intern("a")),
+            default: None,
+            claim: None,
+        }],
+        rest_parameter: None,
+        body: vec![],
+        returns: None,
+        captures_this: false,
+        is_async: false,
+        is_generator: false,
+        at: at(),
+    };
+    assert!(plain.has_simple_parameter_list());
+
+    let with_default = Function {
+        parameters: vec![Parameter {
+            target: Pattern::Name(names.intern("a")),
+            default: Some(number(1.0)),
+            claim: None,
+        }],
+        ..plain.clone()
+    };
+    assert!(
+        !with_default.has_simple_parameter_list(),
+        "a default forbids a \"use strict\" directive in the body"
+    );
+
+    let with_rest = Function {
+        rest_parameter: Some(Pattern::Name(names.intern("rest"))),
+        ..plain.clone()
+    };
+    assert!(!with_rest.has_simple_parameter_list());
+
+    let with_pattern = Function {
+        parameters: vec![Parameter {
+            target: Pattern::Object(ObjectPattern::default()),
+            default: None,
+            claim: None,
+        }],
+        ..plain
+    };
+    assert!(!with_pattern.has_simple_parameter_list());
 }
 
 #[test]
@@ -294,6 +419,7 @@ fn an_arrow_and_a_function_differ_in_one_recorded_fact() {
     let ordinary = Function {
         name: Some(name),
         parameters: vec![],
+        rest_parameter: None,
         body: vec![],
         returns: None,
         captures_this: false,
@@ -321,7 +447,7 @@ fn a_whole_small_program_is_expressible() {
                 StmtKind::Declare {
                     kind: BindingKind::Let,
                     bindings: vec![Binding {
-                        name: counter,
+                        target: Pattern::Name(counter),
                         value: Some(number(0.0)),
                         claim: Some(Claim::Number),
                     }],
@@ -341,7 +467,10 @@ fn a_whole_small_program_is_expressible() {
                     body: Box::new(Stmt::new(
                         StmtKind::Expr(Expr::new(
                             ExprKind::Assign {
-                                target: Box::new(Expr::new(ExprKind::Ident(counter), at())),
+                                target: AssignTarget::Place(Box::new(Expr::new(
+                                    ExprKind::Ident(counter),
+                                    at(),
+                                ))),
                                 value: Box::new(number(1.0)),
                                 op: AssignOp::Compound(BinaryOp::Add),
                             },
@@ -356,11 +485,11 @@ fn a_whole_small_program_is_expressible() {
                 StmtKind::Function(Box::new(Function {
                     name: Some(names.intern("total")),
                     parameters: vec![Parameter {
-                        name: names.intern("extra"),
+                        target: Pattern::Name(names.intern("extra")),
                         default: Some(number(0.0)),
-                        rest: false,
                         claim: Some(Claim::Number),
                     }],
+                    rest_parameter: None,
                     body: vec![Stmt::new(
                         StmtKind::Return(Some(Expr::new(ExprKind::Ident(counter), at()))),
                         at(),

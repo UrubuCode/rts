@@ -112,8 +112,8 @@ Production names verbatim from Annex A. `✓` present, `·` absent, `~` partial
 | `BitwiseAND/XOR/ORExpression` | ✓ | all three |
 | `LogicalAND/ORExpression` / `CoalesceExpression` / `ShortCircuitExpression` | ✓ | `LogicalOp`, kept off `BinaryOp` |
 | `ConditionalExpression` | ✓ | |
-| `AssignmentExpression` / `AssignmentOperator` | ~ | every operator, incl. the three short-circuiting `&&= \|\|= ??=`, as `AssignOp`; pattern targets wait on L2 |
-| `AssignmentPattern` and its whole subtree | · | destructuring **assignment** (distinct from destructuring binding) |
+| `AssignmentExpression` / `AssignmentOperator` | ✓ | every operator incl. the three short-circuiting `&&= ||= ??=`, as `AssignOp`; targets as `AssignTarget` |
+| `AssignmentPattern` and its whole subtree | ✓ | `AssignTarget::Pattern`; leaf is `Pattern::Target`, an arbitrary place |
 | `Expression` (comma) | ✓ | flat operand list |
 | `YieldExpression` | · | `yield`, `yield*` |
 | `PrivateIdentifier` | · | |
@@ -123,10 +123,10 @@ Production names verbatim from Annex A. `✓` present, `·` absent, `~` partial
 | Production | State | Note |
 |---|---|---|
 | `Block` / `StatementList` / `StatementListItem` | ✓ | |
-| `LexicalDeclaration` / `LetOrConst` / `BindingList` / `LexicalBinding` | ~ | `BindingKind` correct; binding target is a bare `Name` — no pattern |
+| `LexicalDeclaration` / `LetOrConst` / `BindingList` / `LexicalBinding` | ✓ | `BindingKind` + a `Pattern` target |
 | `UsingDeclaration` / `AwaitUsingDeclaration` | · | in the current draft; disposal runs on scope exit |
-| `VariableStatement` / `VariableDeclarationList` / `VariableDeclaration` | ~ | same shape as above |
-| `BindingPattern` / `ObjectBindingPattern` / `ArrayBindingPattern` | · | with `BindingRestProperty`, `BindingRestElement`, `BindingElisionElement`, `SingleNameBinding`, nesting |
+| `VariableStatement` / `VariableDeclarationList` / `VariableDeclaration` | ✓ | same shape as above |
+| `BindingPattern` / `ObjectBindingPattern` / `ArrayBindingPattern` | ✓ | rest, holes, defaults, nesting; rest-last and rest-has-no-default are unrepresentable |
 | `EmptyStatement` | ✓ | |
 | `ExpressionStatement` | ✓ | the lookahead restrictions are the parser's, not the tree's |
 | `IfStatement` | ✓ | |
@@ -140,7 +140,7 @@ Production names verbatim from Annex A. `✓` present, `·` absent, `~` partial
 | `SwitchStatement` / `CaseBlock` / `CaseClauses` / `CaseClause` / `DefaultClause` | · | one scope for the whole block; `default` may sit between cases |
 | `LabelledStatement` / `LabelledItem` | · | |
 | `ThrowStatement` | ✓ | |
-| `TryStatement` / `Catch` / `Finally` / `CatchParameter` | ✓ | optional binding modelled |
+| `TryStatement` / `Catch` / `Finally` / `CatchParameter` | ✓ | optional binding, and it is a pattern |
 | `DebuggerStatement` | · | |
 
 ### A.4 Functions and classes
@@ -148,8 +148,8 @@ Production names verbatim from Annex A. `✓` present, `·` absent, `~` partial
 | Production | State | Note |
 |---|---|---|
 | `FunctionDeclaration` / `FunctionExpression` | ✓ | |
-| `FormalParameters` and subtree | ~ | name + default + rest present; **pattern** parameters absent |
-| "simple parameter list" | · | a non-simple list forbids a `"use strict"` body directive |
+| `FormalParameters` and subtree | ✓ | patterns, defaults, rest as its own field |
+| "simple parameter list" | ✓ | `Function::has_simple_parameter_list` |
 | `ArrowFunction` / `ConciseBody` / `ExpressionBody` | ~ | `captures_this` records the one real difference; concise body absent |
 | `AsyncArrowFunction` and subtree | ~ | `is_async` + `captures_this` |
 | `MethodDefinition` | · | |
@@ -187,16 +187,21 @@ parses, so ASI is a correctness feature and not a convenience.
 
 ### Count
 
-Present or partial: **36**. Absent: **58**.
+Present or partial: **43**. Absent: **51**.
 
-Was 31 / 63 when this document was written. L1 moved five rows — update,
-exponentiation, shift, the three bitwise, and the comma operator — and completed
-two that were partial, unary and the assignment operators. The tree now holds
-every operator the language has except `#x in o`, which waits on private names.
+Was 31 / 63 when this document was written.
 
-What remains absent is not more operators. It is classes, modules, every loop but
-`while`, `switch`, patterns, templates, generators, and `this` — structure rather
-than vocabulary.
+L1 moved five rows — update, exponentiation, shift, the three bitwise, the comma
+operator — and finished two that were partial. Every operator the language has,
+except `#x in o`, which waits on private names.
+
+L2 moved seven: both declaration forms, the binding patterns, the assignment
+patterns, the parameter list, the simple-parameter-list rule, and the `catch`
+parameter.
+
+What remains absent is classes, modules, every loop but `while`, `switch`,
+templates, generators, `this`, spread, and the object-literal forms —
+structure rather than vocabulary.
 
 ---
 
@@ -273,7 +278,7 @@ with `LogicalOp`, not `BinaryOp` — they short-circuit, and a compound assignme
 that does not evaluate its right side is not the same node as one that does.
 *Cheap, and it stops the tree lying about how much of the language it holds.*
 
-**L2 — patterns.** One `Pattern` type for both destructuring roles, with the
+**L2 — patterns. — DONE.** One `Pattern` type for both destructuring roles, with the
 distinction the spec makes: a **binding** pattern introduces names, an
 **assignment** pattern writes to arbitrary targets (`[a.b] = xs` is legal). Used
 by declarations, parameters, `catch`, and `for`-heads. Unblocks the rest of L3.

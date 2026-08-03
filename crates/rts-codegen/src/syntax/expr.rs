@@ -4,6 +4,7 @@ use rts_cranelift::fault::Position;
 
 use super::Claim;
 use super::ops::{AssignOp, BinaryOp, LogicalOp, UnaryOp, UpdateOp, UpdatePosition};
+use super::pattern::Pattern;
 use crate::names::Name;
 use crate::values::Singleton;
 
@@ -157,8 +158,8 @@ pub enum ExprKind {
 
     /// Assignment, in all three of its forms.
     Assign {
-        /// What is assigned to. A pattern is only legal under [`AssignOp::Plain`].
-        target: Box<Expr>,
+        /// What is assigned to.
+        target: AssignTarget,
         /// What is assigned. Not evaluated at all by the logical forms when the
         /// target already decided.
         value: Box<Expr>,
@@ -203,6 +204,34 @@ pub enum ExprKind {
         /// What was claimed about it.
         claim: Claim,
     },
+}
+
+/// What an assignment writes to.
+///
+/// Two cases rather than one expression, because a destructuring target is not
+/// an expression that happens to be assignable — `[a, b]` on the left of `=` is
+/// reinterpreted from an array literal into a pattern, and the two mean
+/// unrelated things. Keeping them apart also makes the language's own rule
+/// checkable in one place: only [`AssignOp::Plain`] accepts the second.
+#[derive(Clone, PartialEq, Debug)]
+pub enum AssignTarget {
+    /// A single place: `x`, `obj.k`, `arr[i]`.
+    Place(Box<Expr>),
+    /// A destructuring pattern: `[a, b]`, `{ x, ...rest }`.
+    Pattern(Pattern),
+}
+
+impl AssignTarget {
+    /// Whether this target is legal under `op`.
+    ///
+    /// The single place the rule lives. `[a, b] += c` and `[a] ||= b` are both
+    /// syntax errors, arriving there for different reasons.
+    pub fn is_legal_under(&self, op: AssignOp) -> bool {
+        match self {
+            AssignTarget::Place(_) => true,
+            AssignTarget::Pattern(_) => op.allows_pattern_target(),
+        }
+    }
 }
 
 /// One property of an object written out.

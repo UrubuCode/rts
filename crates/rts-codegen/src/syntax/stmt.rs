@@ -2,6 +2,7 @@
 
 use rts_cranelift::fault::Position;
 
+use super::pattern::Pattern;
 use super::{Claim, Expr};
 use crate::names::Name;
 
@@ -134,13 +135,17 @@ pub enum StmtKind {
 /// One binding introduced by a declaration.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Binding {
-    /// What it is called.
-    pub name: Name,
+    /// What it introduces — a name, or a pattern that introduces several.
+    ///
+    /// Must satisfy [`Pattern::is_valid_binding`]: a declaration cannot write
+    /// into `obj.x`, though a destructuring assignment can.
+    pub target: Pattern,
     /// What it starts as, if anything.
     ///
     /// Absent means `undefined` for `var` and `let`, and is not legal for
-    /// `const` — which is a rule about the language rather than about the tree,
-    /// so the tree can express it and something else rejects it.
+    /// `const` — nor for any pattern, which has nothing to destructure. Both are
+    /// rules about the language rather than about the tree, so the tree can
+    /// express them and something else rejects them.
     pub value: Option<Expr>,
     /// What the program claimed it holds.
     pub claim: Option<Claim>,
@@ -150,7 +155,10 @@ pub struct Binding {
 #[derive(Clone, PartialEq, Debug)]
 pub struct Catch {
     /// What it calls the value, if it names it.
-    pub binding: Option<Name>,
+    ///
+    /// A pattern, because `catch ({ message })` is legal. Absent because
+    /// `catch {}` is too.
+    pub binding: Option<Pattern>,
     /// What it does.
     pub body: Vec<Stmt>,
 }
@@ -167,6 +175,12 @@ pub struct Function {
     pub name: Option<Name>,
     /// Its parameters, in order.
     pub parameters: Vec<Parameter>,
+    /// `...rest`, which gathers every argument past the declared ones.
+    ///
+    /// Its own field rather than a flag on the last parameter, so that "rest is
+    /// last" and "rest has no default" are facts about the type instead of rules
+    /// somebody has to enforce.
+    pub rest_parameter: Option<Pattern>,
     /// Its body.
     pub body: Vec<Stmt>,
     /// What the program claimed it returns.
@@ -188,18 +202,48 @@ pub struct Function {
 /// One parameter.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Parameter {
-    /// What it is called.
-    pub name: Name,
+    /// What it introduces.
+    pub target: Pattern,
     /// What it is when the caller passed nothing.
     ///
     /// A default is evaluated at the call rather than at the declaration, and
-    /// only when the argument was absent — which is why it is an expression kept
-    /// here rather than a value computed once.
+    /// only when the argument was `undefined` — which is why it is an expression
+    /// kept here rather than a value computed once. Passing `undefined`
+    /// explicitly triggers it; passing `null` does not.
     pub default: Option<Expr>,
-    /// Whether it gathers everything the caller passed after this point.
-    pub rest: bool,
     /// What the program claimed it holds.
     pub claim: Option<Claim>,
+}
+
+impl Function {
+    /// Whether every parameter is a plain name with no default and there is no
+    /// rest parameter.
+    ///
+    /// The spec calls this a "simple parameter list", and it is not a style
+    /// question. A non-simple list forbids a `"use strict"` directive in the
+    /// body — because the directive would change how the parameters themselves
+    /// are parsed, after they have already been parsed — and it decouples the
+    /// `arguments` object from the parameters, so writing `arguments[0]` stops
+    /// being visible through the parameter name.
+    pub fn has_simple_parameter_list(&self) -> bool {
+        self.rest_parameter.is_none()
+            && self
+                .parameters
+                .iter()
+                .all(|p| p.default.is_none() && matches!(p.target, Pattern::Name(_)))
+    }
+
+    /// Every name the parameter list introduces, in order.
+    pub fn parameter_names(&self) -> Vec<Name> {
+        let mut names = Vec::new();
+        for parameter in &self.parameters {
+            parameter.target.bound_names(&mut names);
+        }
+        if let Some(rest) = &self.rest_parameter {
+            rest.bound_names(&mut names);
+        }
+        names
+    }
 }
 
 /// A whole program.
