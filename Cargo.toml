@@ -29,10 +29,20 @@ members = [
 ]
 resolver = "2"
 
+# Declared once, inherited by every member with `license.workspace = true`.
+# The LICENSE file at the root has always said MIT; until now no package
+# metadata did, so every tool that reads a licence from Cargo — cargo-license,
+# cargo-deny, crates.io, an SBOM generator, a downstream audit — saw nothing.
+# The whole workspace is MIT, including the runtime that links into the binaries
+# users compile. See THIRD-PARTY-NOTICES.md for what ships alongside it.
+[workspace.package]
+license = "MIT"
+
 [package]
 name = "rts"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 
 [lib]
 crate-type = ["rlib"]

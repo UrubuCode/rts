@@ -2,6 +2,7 @@
 name = "rts-cranelift"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 description = "The machine layer: a language-agnostic IR, verifier and code generator over Cranelift."
 
 [lib]

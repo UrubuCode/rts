@@ -2,6 +2,7 @@
 name = "rts-dom"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 
 # DOM retido (árvore de elementos HTML) — estrutura de dados PURA, independente de
 # render/janela. Parser HTML mínimo (tokenizer + árvore em arena), NodeId

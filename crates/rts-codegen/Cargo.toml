@@ -2,6 +2,7 @@
 name = "rts-codegen"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 description = "The language layer: JavaScript and TypeScript semantics, lowered onto the machine."
 
 [lib]

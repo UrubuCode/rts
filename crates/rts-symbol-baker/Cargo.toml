@@ -2,6 +2,7 @@
 name = "rts-symbol-baker"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 
 # Bakes the RTS symbol table: scans the runtime crates' SOURCES for exported
 # `extern "C"` declarations and emits ONE ordered, generated `.rs` carrying every

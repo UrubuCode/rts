@@ -2,6 +2,7 @@
 name = "rts-value-probe"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 publish = false
 
 # Measurement-only crate. Depends on NOTHING from RTS on purpose: it replicates

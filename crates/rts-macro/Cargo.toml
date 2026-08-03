@@ -2,6 +2,7 @@
 name = "rts-macro"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 
 # The `#[rtse::*]` authoring macros: annotate a normal Rust struct + impl to
 # generate the extern-C ABI glue + Registry metadata for the engine, WITHOUT

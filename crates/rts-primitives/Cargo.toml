@@ -2,6 +2,7 @@
 name = "rts-primitives"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 
 # rts-primitives — as classes PRIMORDIAIS que o motor (codegen) pode citar
 # diretamente: String, Object, Array, Function, Promise, Boolean, Number, Error

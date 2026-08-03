@@ -2,6 +2,7 @@
 name = "rts-ast"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 
 [dependencies]
 swc_ecma_ast = "23.0.0"

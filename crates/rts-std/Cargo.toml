@@ -2,6 +2,7 @@
 name = "rts-std"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 
 # rts-std — camada BACKEND (rts app): namespaces de plataforma (I/O, net, process,
 # áudio, ...). Depende do motor (rts-engine, que detém o heap GC). Ver

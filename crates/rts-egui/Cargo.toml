@@ -2,6 +2,7 @@
 name = "rts-egui"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 
 # GUI imediata cross-platform via egui (immediate-mode, Rust puro — sem FLTK/C++).
 # O Rust expõe PRIMITIVOS via ABI de handles u64 (extern "C"); a lib de alto

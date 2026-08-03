@@ -2,6 +2,7 @@
 name = "rts-runtime"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 
 # rlib: linked into the `rts` bin for the JIT path.
 # staticlib: cargo bundles all deps + the __RTS_* extern "C" symbols, plus the

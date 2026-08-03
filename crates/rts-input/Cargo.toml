@@ -2,6 +2,7 @@
 name = "rts-input"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 
 # Interface de INPUT abstrata — o contrato que isola o DOM/layout/app de QUALQUER
 # fonte de eventos (mouse/teclado/scroll/modificadores/texto). Define o trait

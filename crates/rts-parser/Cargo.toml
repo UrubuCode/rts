@@ -2,6 +2,7 @@
 name = "rts-parser"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 
 [dependencies]
 rts-ast = { path = "../rts-ast" }

@@ -2,6 +2,7 @@
 name = "rts-codegen-new"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 
 # rts-codegen-new — the lean redesign. See docs/specs/rts-codegen-new-design.md.
 # Thesis: prove-monomorphic-and-unbox where the type system can; fall to ONE

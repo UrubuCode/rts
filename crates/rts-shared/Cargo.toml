@@ -2,6 +2,7 @@
 name = "rts-shared"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 
 # rts-shared — camada UNIVERSAL (roda em qualquer alvo, incl. browser/wasm).
 # Namespaces pure-compute + globais universais que NÃO tocam backend (I/O, OS,

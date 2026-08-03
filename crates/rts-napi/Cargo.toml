@@ -2,6 +2,7 @@
 name = "rts-napi"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 
 # Suporte a Node.js native addons (.node) pela porta N-API. Ver
 # docs/specs/napi-implementation.md. Só N-API puro (sem V8-direto/NAN).

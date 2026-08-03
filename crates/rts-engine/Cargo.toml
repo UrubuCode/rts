@@ -2,6 +2,7 @@
 name = "rts-engine"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 
 # rts-engine — o núcleo cru do RTS: o vocabulário ABI (`abi`, antes o crate
 # `rts-abi`) + o registry + o builder que o codegen consome. As camadas

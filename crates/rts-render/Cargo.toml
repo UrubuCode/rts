@@ -2,6 +2,7 @@
 name = "rts-render"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 
 # Interface de RENDER abstrata — o contrato que isola o DOM/layout de QUALQUER
 # backend de janela. Define o trait `Renderer` (tipos NEUTROS: u32 RGBA, f32
