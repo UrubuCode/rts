@@ -218,6 +218,26 @@ look like a handle stops being a false positive.
 Written down now because it constrains C1: the slot table has to be walkable
 without knowing what put anything in it.
 
+### C7 — the entry surface. **DONE.**
+
+How compiled code reaches this crate, and the two decisions it forced.
+
+**The boundary is scalars**, so state cannot be a parameter: `u64`, `i64`,
+`i32`, `f64`, `bool` and strings cross `extern "C"`, and a `&mut ShapeTree`
+never will. An operation needing the heap therefore reaches ambient state. The
+rejected alternative is threading a context pointer through every call site: it
+works, costs a register everywhere, and lets a caller pass the wrong one.
+
+**One context per thread**, not one behind a lock. A global lock would serialise
+every property read, which is the opposite of what a per-region heap is for.
+
+Membership is the machine's rule unchanged, and it does real work: `to_int32` is
+not an entry point because it is arithmetic; `add` is, because joining two
+strings allocates; `to_boolean` is, for one falsy case out of seven.
+
+This phase also resolved what C1 deferred — `Cell` is the union of what a slot
+holds, which arrives now because there are finally two kinds to unify.
+
 ### C6 — scheduling. **DONE — and almost all of it was the machine's.**
 
 `rts_cranelift::sched` owns the promise state machine, waiter lists, cycle

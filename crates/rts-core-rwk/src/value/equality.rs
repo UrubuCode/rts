@@ -15,16 +15,37 @@ use super::Value;
 /// - `NaN === NaN` is **false**, even for two NaNs with identical bits — and
 ///   *especially* then, because that is the case a bit compare gets wrong while
 ///   looking right.
-pub fn strict_equals(left: Value, right: Value) -> bool {
+/// - **Two strings are equal when their TEXT is**, however they were allocated.
+///   Objects compare by identity and strings do not, and a comparison that
+///   treated a reference as a reference would make `"a" === "a"` false whenever
+///   the two were built separately.
+///
+/// The last one is why `same_text` is a parameter: deciding it needs the heap,
+/// which this module does not have. A caller with no strings passes something
+/// that always answers false.
+pub fn strict_equals(left: Value, right: Value, same_text: impl Fn(u32, u32) -> bool) -> bool {
     match (left.numeric(), right.numeric()) {
         // Numbers compare as numbers, whichever representation holds them, so
         // `1 === 1.0` is true across an int and a double.
         (Some(a), Some(b)) => a == b,
         // A number is never strictly equal to a non-number.
         (Some(_), None) | (None, Some(_)) => false,
-        // Everything else is identity, and identity IS the bits: a singleton is
-        // its number, a reference is its slot, a boolean is its bit.
-        (None, None) => left.bits() == right.bits(),
+        (None, None) => identical(left, right, &same_text),
+    }
+}
+
+/// Whether two non-numbers are the same value.
+///
+/// The same bits settle it for a singleton, a boolean, and two references to one
+/// slot. What the bits cannot settle is two DIFFERENT slots holding equal text,
+/// which `===` calls equal and identity does not.
+fn identical(left: Value, right: Value, same_text: &impl Fn(u32, u32) -> bool) -> bool {
+    if left.bits() == right.bits() {
+        return true;
+    }
+    match (left.as_slot(), right.as_slot()) {
+        (Some(a), Some(b)) => same_text(a, b),
+        _ => false,
     }
 }
 
@@ -36,7 +57,7 @@ pub fn strict_equals(left: Value, right: Value) -> bool {
 /// Used wherever the language needs an equality that can *distinguish* zeros —
 /// `Object.defineProperty` deciding whether a write changes anything, and the
 /// proxy invariant checks.
-pub fn same_value(left: Value, right: Value) -> bool {
+pub fn same_value(left: Value, right: Value, same_text: impl Fn(u32, u32) -> bool) -> bool {
     match (left.numeric(), right.numeric()) {
         (Some(a), Some(b)) => {
             if a.is_nan() && b.is_nan() {
@@ -48,7 +69,7 @@ pub fn same_value(left: Value, right: Value) -> bool {
             a.to_bits() == b.to_bits()
         }
         (Some(_), None) | (None, Some(_)) => false,
-        (None, None) => left.bits() == right.bits(),
+        (None, None) => identical(left, right, &same_text),
     }
 }
 
@@ -61,7 +82,7 @@ pub fn same_value(left: Value, right: Value) -> bool {
 /// The difference from `===` is one cell and it is the one that matters:
 /// hashing a map on `===` silently produces a second entry every time `NaN` is
 /// used as a key, and nothing anywhere reports it.
-pub fn same_value_zero(left: Value, right: Value) -> bool {
+pub fn same_value_zero(left: Value, right: Value, same_text: impl Fn(u32, u32) -> bool) -> bool {
     match (left.numeric(), right.numeric()) {
         (Some(a), Some(b)) => {
             if a.is_nan() && b.is_nan() {
@@ -70,7 +91,7 @@ pub fn same_value_zero(left: Value, right: Value) -> bool {
             a == b
         }
         (Some(_), None) | (None, Some(_)) => false,
-        (None, None) => left.bits() == right.bits(),
+        (None, None) => identical(left, right, &same_text),
     }
 }
 
@@ -79,6 +100,12 @@ mod tests {
     use rts_cranelift::tags::{TAG_REFERENCE, encode};
 
     use super::*;
+
+    /// A heap with no strings in it. Most of these tests are about numbers and
+    /// singletons, where the answer does not depend on text.
+    fn no_text(_: u32, _: u32) -> bool {
+        false
+    }
 
     fn nan() -> Value {
         Value::from_f64(f64::NAN)
@@ -90,14 +117,20 @@ mod tests {
         let negative = Value::from_f64(-0.0);
 
         // NaN vs NaN
-        assert!(!strict_equals(nan(), nan()), "=== says no");
-        assert!(same_value(nan(), nan()), "Object.is says yes");
-        assert!(same_value_zero(nan(), nan()), "a Map key says yes");
+        assert!(!strict_equals(nan(), nan(), no_text), "=== says no");
+        assert!(same_value(nan(), nan(), no_text), "Object.is says yes");
+        assert!(same_value_zero(nan(), nan(), no_text), "a Map key says yes");
 
         // +0 vs -0
-        assert!(strict_equals(positive, negative), "=== says yes");
-        assert!(!same_value(positive, negative), "Object.is says no");
-        assert!(same_value_zero(positive, negative), "a Map key says yes");
+        assert!(strict_equals(positive, negative, no_text), "=== says yes");
+        assert!(
+            !same_value(positive, negative, no_text),
+            "Object.is says no"
+        );
+        assert!(
+            same_value_zero(positive, negative, no_text),
+            "a Map key says yes"
+        );
     }
 
     #[test]
@@ -114,19 +147,35 @@ mod tests {
             nan().bits(),
             "the bits match, and === still calls them unequal"
         );
-        assert!(!strict_equals(nan(), nan()));
+        assert!(!strict_equals(nan(), nan(), no_text));
     }
 
     #[test]
     fn a_number_is_a_number_whichever_representation_holds_it() {
-        assert!(strict_equals(Value::from_i32(1), Value::from_f64(1.0)));
-        assert!(same_value(Value::from_i32(1), Value::from_f64(1.0)));
+        assert!(strict_equals(
+            Value::from_i32(1),
+            Value::from_f64(1.0),
+            no_text
+        ));
+        assert!(same_value(
+            Value::from_i32(1),
+            Value::from_f64(1.0),
+            no_text
+        ));
     }
 
     #[test]
     fn a_boolean_is_not_the_number_it_would_coerce_to() {
-        assert!(!strict_equals(Value::from_bool(true), Value::from_i32(1)));
-        assert!(!same_value(Value::from_bool(true), Value::from_i32(1)));
+        assert!(!strict_equals(
+            Value::from_bool(true),
+            Value::from_i32(1),
+            no_text
+        ));
+        assert!(!same_value(
+            Value::from_bool(true),
+            Value::from_i32(1),
+            no_text
+        ));
     }
 
     #[test]
@@ -135,7 +184,10 @@ mod tests {
         let same = Value(encode(TAG_REFERENCE, 7));
         let other = Value(encode(TAG_REFERENCE, 8));
 
-        assert!(strict_equals(one, same), "the same slot is the same object");
-        assert!(!strict_equals(one, other));
+        assert!(
+            strict_equals(one, same, no_text),
+            "the same slot is the same object"
+        );
+        assert!(!strict_equals(one, other, no_text));
     }
 }

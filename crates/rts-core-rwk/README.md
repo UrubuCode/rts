@@ -111,9 +111,10 @@ src/
   coerce/   ToPrimitive's protocol, `+`, relational order, number ↔ string
   collect/  mark and sweep over the slot table
   schedule/ what a promise settled with, and whether a rejection was noticed
+  entry/    how compiled code reaches all of the above
 ```
 
-All six phases are in. What is deliberately absent, each with its reason in the
+All seven phases are in. What is deliberately absent, each with its reason in the
 plan: the write barrier's runtime side (waits for regions), loose equality and
 `ToPrimitive` resolution (wait for something that can call), and indexed storage
 (waits for arrays).
