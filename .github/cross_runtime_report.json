@@ -2731,16 +2731,16 @@
 ,
 {
   "name": "62_abort_controller",
-  "status": "rts_error",
+  "status": "rts_diverge",
   "bun": "before=false\nafter=true\nreason=stop\nseen=event:true",
   "node": "before=false\nafter=true\nreason=stop\nseen=event:true",
-  "rts": "before=false",
+  "rts": "before=false\nafter=true\nreason=[object Object]\nseen=event:true",
   "bun_exit": 0,
   "node_exit": 0,
-  "rts_exit": 124,
+  "rts_exit": 0,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "timeout apos 10s"
+  "rts_error": ""
 }
 ,
 {
@@ -4579,9 +4579,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "pass",
+  "status": "bun_node_diverge",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|immediate|timeout",
+  "node": "order=micro|timeout|immediate",
   "rts": "order=micro|immediate|timeout",
   "bun_exit": 0,
   "node_exit": 0,
@@ -9911,4 +9911,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":708,"pass":508,"rts_diverge":118,"bun_node_diverge":18,"errors":64,"rejected":0}}
+],"summary":{"total":708,"pass":507,"rts_diverge":119,"bun_node_diverge":19,"errors":63,"rejected":0}}
