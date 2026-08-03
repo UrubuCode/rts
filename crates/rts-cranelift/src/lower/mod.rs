@@ -33,6 +33,7 @@ mod error;
 mod types;
 mod value;
 
+pub use body::Outside;
 pub use error::{Capability, LowerError};
 pub use types::{is_word, machine_type};
 
@@ -68,6 +69,37 @@ pub fn machine_signature(
 /// without — a block that does not end — and trusts the rest, because checking
 /// twice in two vocabularies is how the two come to disagree about which is
 /// authoritative.
+/// Lowers one function into a module, so that it may call what the module has
+/// declared.
+pub fn lower_into(
+    func: &Function,
+    declarations: &crate::target::Declarations,
+    module: &mut dyn cranelift_module::Module,
+    call_conv: cranelift_codegen::isa::CallConv,
+) -> Result<cranelift_codegen::ir::Function, LowerError> {
+    let signature = machine_signature(&func.signature, call_conv);
+    let mut lowered =
+        cranelift_codegen::ir::Function::with_name_signature(UserFuncName::default(), signature);
+
+    let mut context = FunctionBuilderContext::new();
+    let mut builder = FunctionBuilder::new(&mut lowered, &mut context);
+    body::Body::lower_with(
+        func,
+        &mut builder,
+        Some(body::Outside {
+            module,
+            declarations,
+        }),
+    )?;
+    builder.finalize();
+    Ok(lowered)
+}
+
+/// Lowers one function on its own, naming nothing outside itself.
+///
+/// Useful for reasoning about a body in isolation, and for testing that what we
+/// emit is accepted without a module in the way. A program that calls anything
+/// is refused here rather than half-lowered.
 pub fn lower_function(
     func: &Function,
     call_conv: cranelift_codegen::isa::CallConv,

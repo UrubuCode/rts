@@ -4146,8 +4146,13 @@ dependencies = [
 name = "rts-cranelift"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "cranelift-codegen",
  "cranelift-frontend",
+ "cranelift-jit",
+ "cranelift-module",
+ "cranelift-native",
+ "cranelift-object",
 ]
 
 [[package]]

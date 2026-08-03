@@ -14,3 +14,10 @@ crate-type = ["rlib"]
 # is why these dependencies appear only now, with the module that needs them.
 cranelift-codegen = "0.131"
 cranelift-frontend = "0.131"
+
+# The module layer and the two destinations, reachable only from `target/`.
+cranelift-module = "0.131"
+cranelift-native = "0.131"
+cranelift-jit = "0.131"
+cranelift-object = "0.131"
+anyhow = "1.0"

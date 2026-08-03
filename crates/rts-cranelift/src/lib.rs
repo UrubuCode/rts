@@ -42,12 +42,13 @@
 //! inseparable from the convention it uses, from the safepoint it implies, and
 //! from where the frame is when control leaves.
 //!
-//! Lowering into the code generator is under way in `lower`, the one module that
-//! touches it. What it emits is checked by the code generator's own verifier;
-//! what it cannot emit yet is refused by name rather than approximated.
+//! Lowering into the code generator lives in `lower`, the one module that touches
+//! it, and `target` is where the result goes — executable memory or an object
+//! file, one pipeline and two endings. What is emitted is checked by the code
+//! generator's own verifier and, for the parts that are complete, compiled and
+//! run. What cannot be emitted yet is refused by name rather than approximated.
 //!
-//! Still to come: the two output paths, guard failure paths, faults and
-//! observability.
+//! Still to come: guard failure paths, faults and observability.
 
 #![deny(missing_docs)]
 #![deny(dead_code)]
@@ -60,6 +61,7 @@ pub mod lower;
 pub mod repr;
 pub mod sched;
 pub mod tags;
+pub mod target;
 pub mod types;
 pub mod unwind;
 pub mod verify;
@@ -70,6 +72,7 @@ pub use gc::{FrameDescriptor, FrameTable, describe_frames};
 pub use lower::{LowerError, lower_function};
 pub use repr::{RefKind, Repr};
 pub use sched::{PromiseTable, Scheduler, SchedulerId};
+pub use target::{MachineModule, TargetError};
 pub use types::{FieldLayout, TypeId, TypeRegistry};
 pub use unwind::{RegionId, RegionTree, Tag, UnwindPlan, plan_unwind};
 pub use verify::{VerifyError, verify};

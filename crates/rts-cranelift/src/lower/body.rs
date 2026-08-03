@@ -18,21 +18,50 @@ use crate::ir::{
     ValueId,
 };
 use crate::repr::Repr;
+use crate::target::{Declarations, FunctionRefs};
+use cranelift_module::Module;
+
+/// The module a function may name things in, and what it has named.
+pub struct Outside<'a> {
+    /// Where to ask for a reference to something declared.
+    pub module: &'a mut dyn Module,
+    /// Which of our identifiers the module has seen.
+    pub declarations: &'a Declarations,
+}
 
 /// Translates one function's body into the code generator's blocks.
 pub struct Body<'a> {
     func: &'a Function,
     blocks: HashMap<BlockId, Block>,
     values: HashMap<ValueId, Value>,
+    /// What this function may name outside itself, and where to ask for it.
+    ///
+    /// Absent when lowering a function on its own. The two travel together
+    /// because neither is any use without the other: knowing what has been
+    /// declared is pointless without the module that declared it, and the module
+    /// alone cannot say which of our identifiers means what.
+    outside: Option<Outside<'a>>,
+    refs: FunctionRefs,
 }
 
 impl<'a> Body<'a> {
-    /// Lowers a whole function body into a prepared builder.
+    /// Lowers a function that names nothing outside itself.
     pub fn lower(func: &'a Function, builder: &mut FunctionBuilder) -> Result<(), LowerError> {
+        Self::lower_with(func, builder, None)
+    }
+
+    /// Lowers a function that may call what a module has declared.
+    pub fn lower_with(
+        func: &'a Function,
+        builder: &mut FunctionBuilder,
+        outside: Option<Outside<'a>>,
+    ) -> Result<(), LowerError> {
         let mut body = Body {
             func,
             blocks: HashMap::new(),
             values: HashMap::new(),
+            outside,
+            refs: FunctionRefs::new(),
         };
         body.create_blocks(builder);
         body.bind_entry_params(builder);
@@ -166,11 +195,33 @@ impl<'a> Body<'a> {
                     needs: Capability::Memory,
                 });
             }
-            Inst::Call { .. } | Inst::CallIndirect { .. } => {
-                return Err(LowerError::NotYetLowered {
+            Inst::Call { callee, args } => {
+                let outside = self.outside.as_mut().ok_or(LowerError::NotYetLowered {
                     inst: id,
                     needs: Capability::Calls,
-                });
+                })?;
+                let reference = self
+                    .refs
+                    .callee(outside.module, builder.func, outside.declarations, *callee)
+                    .ok_or(LowerError::UndeclaredCallee { inst: id })?;
+                let args = self.args(args);
+                let call = builder.ins().call(reference, &args);
+                return self.bind_results(builder, call, results);
+            }
+
+            Inst::CallIndirect { callee, sig, args } => {
+                let outside = self.outside.as_mut().ok_or(LowerError::NotYetLowered {
+                    inst: id,
+                    needs: Capability::Calls,
+                })?;
+                let shape = self
+                    .refs
+                    .shape(builder.func, outside.declarations, *sig)
+                    .ok_or(LowerError::UndeclaredCallee { inst: id })?;
+                let target = self.value(*callee);
+                let args = self.args(args);
+                let call = builder.ins().call_indirect(shape, target, &args);
+                return self.bind_results(builder, call, results);
             }
             Inst::Suspend | Inst::Await { .. } => {
                 return Err(LowerError::NotYetLowered {
@@ -274,11 +325,37 @@ impl<'a> Body<'a> {
                 builder.ins().trap(trap_code(*code));
             }
 
-            Terminator::TailCall { .. } | Terminator::TailCallIndirect { .. } => {
-                return Err(LowerError::TerminatorNotYetLowered {
-                    block,
-                    needs: Capability::Calls,
-                });
+            Terminator::TailCall { callee, args } => {
+                let outside = self
+                    .outside
+                    .as_mut()
+                    .ok_or(LowerError::TerminatorNotYetLowered {
+                        block,
+                        needs: Capability::Calls,
+                    })?;
+                let reference = self
+                    .refs
+                    .callee(outside.module, builder.func, outside.declarations, *callee)
+                    .ok_or(LowerError::UndeclaredTailCallee { block })?;
+                let args = self.args(args);
+                builder.ins().return_call(reference, &args);
+            }
+
+            Terminator::TailCallIndirect { callee, sig, args } => {
+                let outside = self
+                    .outside
+                    .as_mut()
+                    .ok_or(LowerError::TerminatorNotYetLowered {
+                        block,
+                        needs: Capability::Calls,
+                    })?;
+                let shape = self
+                    .refs
+                    .shape(builder.func, outside.declarations, *sig)
+                    .ok_or(LowerError::UndeclaredTailCallee { block })?;
+                let target = self.value(*callee);
+                let args = self.args(args);
+                builder.ins().return_call_indirect(shape, target, &args);
             }
 
             Terminator::Throw { .. } => {
@@ -287,6 +364,20 @@ impl<'a> Body<'a> {
                     needs: Capability::Unwinding,
                 });
             }
+        }
+        Ok(())
+    }
+
+    /// Binds a call's results to the values the instruction defines.
+    fn bind_results(
+        &mut self,
+        builder: &FunctionBuilder,
+        call: cranelift_codegen::ir::Inst,
+        results: &[ValueId],
+    ) -> Result<(), LowerError> {
+        let produced = builder.inst_results(call);
+        for (&ours, &theirs) in results.iter().zip(produced) {
+            self.values.insert(ours, theirs);
         }
         Ok(())
     }

@@ -65,23 +65,33 @@ pub const TAG_SINGLETON: u8 = 1;
 /// A reference: the payload is a table index, never an address.
 pub const TAG_REFERENCE: u8 = 2;
 
-/// How many tags this layer reserves before a client's first one.
-pub const TAG_RESERVED_COUNT: u8 = 3;
-
-/// The singleton a machine `false` widens to.
+/// A machine boolean: the payload is zero or one.
 ///
-/// This layer defines the boolean representation, so it defines what that
-/// representation becomes when widened. A client is free to give these numbers
-/// its own meaning, and free to ignore them, but it does not get to renumber
-/// them: widening a boolean has to produce *something*, and asking a client
-/// which number to use would make a machine operation depend on a client.
-pub const SINGLETON_FALSE: u32 = 0;
+/// This layer defines the boolean representation, so widening one has to produce
+/// something — and asking a client which number to use would make a machine
+/// operation depend on a client. An earlier design answered that by reserving
+/// two numbers in the singleton space, which was wrong in a way worth recording:
+/// it borrowed the client's space to solve the machine's problem. A client with
+/// its own false would then have had two.
+///
+/// A machine value kind gets a machine tag. The cost is one of eight tags; what
+/// it buys is that the singleton space is entirely the client's, and that asking
+/// "is this a boolean" is exact rather than approximately right.
+///
+/// Folding booleans into the inline-integer space instead was considered and is
+/// worse for the same reason stated differently: the number one would answer yes
+/// to that question, and a guard that returns yes for the wrong thing is not a
+/// proof.
+pub const TAG_BOOL: u8 = 3;
 
-/// The singleton a machine `true` widens to.
-pub const SINGLETON_TRUE: u32 = 1;
+/// The payload a machine `false` carries.
+pub const BOOL_FALSE: u64 = 0;
 
-/// How many singleton numbers this layer reserves before a client's first one.
-pub const SINGLETON_RESERVED_COUNT: u32 = 2;
+/// The payload a machine `true` carries.
+pub const BOOL_TRUE: u64 = 1;
+
+/// How many tags this layer reserves before a client's first one.
+pub const TAG_RESERVED_COUNT: u8 = 4;
 
 /// Whether a word is encoded rather than a double.
 pub fn is_encoded(word: u64) -> bool {
@@ -150,6 +160,30 @@ mod tests {
         let hostile = f64::from_bits(BOX_BASE | 0xDEAD);
         assert!(hostile.is_nan(), "test premise: this bit pattern is a NaN");
         assert!(!is_encoded(encode_double(hostile)));
+    }
+
+    #[test]
+    fn a_boolean_and_the_number_it_resembles_are_distinguishable() {
+        let truth = encode(TAG_BOOL, BOOL_TRUE);
+        let one = encode(TAG_INT32, 1);
+
+        assert_ne!(
+            truth, one,
+            "folding booleans into the integer space would make the number one \
+             answer yes to \"is this a boolean\", and a guard that says yes to the \
+             wrong thing is not a proof"
+        );
+        assert_ne!(tag_of(truth), tag_of(one));
+    }
+
+    #[test]
+    fn the_singleton_space_is_untouched_by_the_boolean_encoding() {
+        assert_ne!(TAG_BOOL, TAG_SINGLETON);
+        assert_eq!(
+            encode(TAG_SINGLETON, 0),
+            encode(TAG_SINGLETON, 0),
+            "a client's first singleton is its own, not this layer's false"
+        );
     }
 
     #[test]

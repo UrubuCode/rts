@@ -3,10 +3,7 @@
 //! Clients declare how many value kinds and singletons they need and receive
 //! encodings. Nothing here records who asked.
 
-use super::{
-    PAYLOAD_MASK, SINGLETON_RESERVED_COUNT, TAG_COUNT, TAG_MASK, TAG_RESERVED_COUNT, TAG_SINGLETON,
-    encode,
-};
+use super::{PAYLOAD_MASK, TAG_COUNT, TAG_MASK, TAG_RESERVED_COUNT, TAG_SINGLETON, encode};
 
 /// A singleton's number.
 ///
@@ -76,9 +73,9 @@ impl TagRegistry {
     pub fn new() -> Self {
         Self {
             next_tag: TAG_RESERVED_COUNT,
-            // Numbering starts past the machine booleans: this layer defines the
-            // boolean representation, so it owns what that becomes when widened.
-            singleton_count: SINGLETON_RESERVED_COUNT,
+            // Zero: the singleton space is entirely the client's. What this layer
+            // needed from it, it took out again and gave a tag of its own.
+            singleton_count: 0,
         }
     }
 
@@ -137,13 +134,18 @@ mod tests {
         let first = reg.declare_singletons(2).unwrap();
         let second = reg.declare_singletons(2).unwrap();
 
-        assert_eq!(first[0].number(), SINGLETON_RESERVED_COUNT);
-        assert_eq!(first[1].number(), SINGLETON_RESERVED_COUNT + 1);
+        assert_eq!(
+            first[0].number(),
+            0,
+            "the singleton space is the client's alone"
+        );
+        assert_eq!(first[1].number(), 1);
         assert_eq!(
             second[0].number(),
-            SINGLETON_RESERVED_COUNT + 2,
+            2,
             "numbering continues, it does not restart"
         );
+        assert_eq!(reg.singleton_count(), 4);
     }
 
     #[test]
@@ -154,7 +156,7 @@ mod tests {
 
         assert!(is_encoded(word));
         assert_eq!(tag_of(word), crate::tags::TAG_SINGLETON);
-        assert_eq!(payload_of(word), u64::from(SINGLETON_RESERVED_COUNT) + 2);
+        assert_eq!(payload_of(word), 2);
     }
 
     #[test]

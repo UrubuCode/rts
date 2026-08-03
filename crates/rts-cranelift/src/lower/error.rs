@@ -58,6 +58,22 @@ pub enum LowerError {
         needs: Capability,
     },
 
+    /// A call names a function the module has not declared.
+    ///
+    /// Declaring is what produces the identifier a call refers to, so this means
+    /// a site is naming something that does not exist yet — usually an ordering
+    /// mistake rather than a wrong name.
+    UndeclaredCallee {
+        /// The call.
+        inst: InstId,
+    },
+
+    /// A tail call names a function the module has not declared.
+    UndeclaredTailCallee {
+        /// The block it ends.
+        block: BlockId,
+    },
+
     /// A block was reached with no terminator.
     ///
     /// The verifier rejects this too. Lowering checks it again because it cannot

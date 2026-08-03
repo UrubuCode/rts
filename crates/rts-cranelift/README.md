@@ -190,6 +190,7 @@ src/
   abi/      types, conventions, aggregate classification, multiple returns
   verify/   the rules, and what it reports
   lower/    IR -> the code generator. The ONLY module that touches Cranelift
+  target/   where compiled code goes: executable memory, or an object file
 ```
 
 `gc/`, `unwind/` and `frame/` are three modules over **one** record. A point that
@@ -197,15 +198,14 @@ can collect, inside a protected region, inside a function that may park its
 frame, is one program point in all three concerns; three tables keyed by it would
 be kept in agreement by hand, which is the bug that record exists to prevent.
 
-Planned and deliberately absent: `target/` (the two output paths and the module
-to declare things in), `guard/` (bailout), `fault/`, `observe/`, `symbols/`,
-`probe/`.
+Planned and deliberately absent: `guard/` (bailout), `fault/`, `observe/`,
+`symbols/`, `probe/`.
 
-`lower/` exists but is not finished, and it is explicit about which half. Scalar
-work, control flow, widening, guards and constants are emitted and checked by the
-code generator's own verifier. Anything that reaches outside the function being
-lowered — memory, calls, suspension, scheduling, unwinding — is refused by name,
-because reaching outside needs a module to declare things in and that is `target/`.
+`lower/` is not finished, and it is explicit about which half. Scalar work,
+control flow, widening, guards, constants and calls are emitted, checked by the
+code generator's own verifier, and — through `target/` — compiled and run. What
+reaches outside a function in ways that need a runtime to exist — memory,
+suspension, scheduling, unwinding — is refused by name.
 
 Calls exist now, and they arrived last on purpose. A call is inseparable from the
 convention it uses, from the safepoint it implies, and from where the frame is

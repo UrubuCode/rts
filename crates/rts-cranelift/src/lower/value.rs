@@ -26,8 +26,8 @@ use cranelift_frontend::FunctionBuilder;
 use super::error::LowerError;
 use crate::repr::{RefKind, Repr};
 use crate::tags::{
-    BOX_BASE, CANONICAL_NAN, PAYLOAD_MASK, SINGLETON_FALSE, SINGLETON_TRUE, TAG_INT32,
-    TAG_REFERENCE, TAG_SHIFT, TAG_SINGLETON,
+    BOOL_FALSE, BOOL_TRUE, BOX_BASE, CANONICAL_NAN, PAYLOAD_MASK, TAG_BOOL, TAG_INT32,
+    TAG_REFERENCE, TAG_SHIFT,
 };
 
 /// The encoded word for a tag with a constant payload.
@@ -70,14 +70,12 @@ pub fn widen(builder: &mut FunctionBuilder, value: Value, from: Repr) -> Result<
         }
 
         Repr::Bool => {
-            let f = builder.ins().iconst(
-                types::I64,
-                encoded(TAG_SINGLETON, u64::from(SINGLETON_FALSE)),
-            );
-            let t = builder.ins().iconst(
-                types::I64,
-                encoded(TAG_SINGLETON, u64::from(SINGLETON_TRUE)),
-            );
+            let f = builder
+                .ins()
+                .iconst(types::I64, encoded(TAG_BOOL, BOOL_FALSE));
+            let t = builder
+                .ins()
+                .iconst(types::I64, encoded(TAG_BOOL, BOOL_TRUE));
             Ok(builder.ins().select(value, t, f))
         }
 
@@ -109,7 +107,7 @@ pub fn test(
         Repr::F64 => builder.ins().icmp_imm(IntCC::Equal, is_encoded, 0),
 
         Repr::I8 | Repr::I16 | Repr::I32 => has_tag(builder, value, is_encoded, TAG_INT32),
-        Repr::Bool => has_tag(builder, value, is_encoded, TAG_SINGLETON),
+        Repr::Bool => has_tag(builder, value, is_encoded, TAG_BOOL),
         Repr::Ref(RefKind::Opaque) => has_tag(builder, value, is_encoded, TAG_REFERENCE),
 
         Repr::Ref(_) => return Err(LowerError::CannotProveReferenceKind { expect }),
@@ -152,14 +150,13 @@ pub fn narrow(builder: &mut FunctionBuilder, value: Value, to: Repr) -> Result<V
             })
         }
 
-        // A singleton's number is its payload, and the machine's booleans are
-        // numbered so that the number *is* the truth value.
+        // The payload is the truth value itself, so narrowing is reading it.
         Repr::Bool => {
             let payload = builder.ins().band_imm(value, PAYLOAD_MASK as i64);
             let raw = builder.ins().icmp_imm(
                 cranelift_codegen::ir::condcodes::IntCC::Equal,
                 payload,
-                i64::from(SINGLETON_TRUE),
+                BOOL_TRUE as i64,
             );
             Ok(to_machine_bool(builder, raw))
         }
