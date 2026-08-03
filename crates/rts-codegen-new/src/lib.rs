@@ -3,7 +3,7 @@
 //! This crate is the ground-up redesign of the RTS codegen. It exists alongside
 //! the frozen `rts-codegen-old` during the strangler-fig migration; the bin/cli
 //! keep using `rts-codegen-old` until this crate reaches parity and the cutover
-//! happens. See `docs/specs/rts-codegen-new-design.md` for the full rationale.
+//! happens. See `docs/engine/architecture.md` for the full rationale.
 //!
 //! ## Why the old engine is being replaced
 //!

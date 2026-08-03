@@ -4,7 +4,7 @@ import render from "rts:render";
 // PoC do RENDER ABSTRATO: a PINTURA usa o namespace `render` genérico (não
 // egui.draw*). O egui é apenas o BACKEND ATIVO que implementa render.* — trocar
 // de backend não muda este código. A janela/loop ainda vêm do egui (gerência de
-// janela); a PINTURA é abstrata. Ver docs/specs/dom-render-input-interfaces.md.
+// janela); a PINTURA é abstrata. Ver docs/ui/render-input-interfaces.md.
 //   target/release/rts.exe run examples/claude-render-abstract.ts
 
 const win = egui.openWindow("Render abstrato (backend plugavel)", 480, 300, 0);

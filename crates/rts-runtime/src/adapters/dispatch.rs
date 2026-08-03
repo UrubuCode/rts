@@ -21,7 +21,7 @@
 //! ordered table). This table must be replaced by a real
 //! `Class::resolve_instance_method` harvest; `resolve_method`'s signature and
 //! the lowering do not change when it is. Do NOT add a row here — add the
-//! member to the class spec. See docs/specs/rts-macro-single-source.md.
+//! member to the class spec. See docs/engine/architecture.md.
 //!
 //! It is NOT a switchboard and NOT invented symbols: every [`MethodSpec`]
 //! references the ACTUAL `__RTS_FN_GL_*` extern the runtime defines, with the
@@ -482,7 +482,7 @@ mod baked_agreement {
     //! This is the guard that was missing while the crate-layering ban kept the
     //! Registry out of reach. The rows are still hand-written (the drain to a real
     //! `Class::resolve_instance_method` harvest is F11 in
-    //! `docs/specs/rts-macro-single-source.md`), but they can no longer name a
+    //! `docs/engine/architecture.md`), but they can no longer name a
     //! symbol that is not in the linked image: `rts-symbol-baker` derives the table
     //! from the declarations, so membership in it is proof the symbol exists.
     //!

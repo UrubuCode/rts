@@ -97,7 +97,7 @@ pub struct Class {
 
 impl Class {
     /// Resolve um método de instância por nome (ou alias) e aridade da chamada,
-    /// honrando overloads + variádicos (docs/specs/rts-engine-dispatch.md §4.3):
+    /// honrando overloads + variádicos (docs/engine/architecture.md §4.3):
     /// aridade exata → aceita-via-variádico → first-by-name.
     pub fn resolve_instance_method(&self, name: &str, n_args: usize) -> Option<&Member> {
         let named =

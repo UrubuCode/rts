@@ -17,7 +17,7 @@
 //! depends on no old-engine crate, reads the runtime only through the
 //! `rts-runtime` facade (and in M1a not even that — builtin member resolution is
 //! deferred to M1b's Registry dispatch), and reads each module's export set from
-//! the parser's `exported: bool` flag. See `docs/specs/rts-codegen-new-design.md`
+//! the parser's `exported: bool` flag. See `docs/engine/architecture.md`
 //! §15.
 //!
 //! Honesty floor: EVERY failure (cycle, missing export, name collision, bare

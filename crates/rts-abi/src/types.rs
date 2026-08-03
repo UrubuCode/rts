@@ -40,7 +40,7 @@ pub enum AbiType {
 /// A runtime symbol's NAME and ABI shape as ONE compile-time constant.
 ///
 /// This is the single-source-of-truth carrier described in
-/// `docs/specs/rts-macro-single-source.md`. A symbol used to be spelled out in
+/// `docs/engine/architecture.md`. A symbol used to be spelled out in
 /// four independent places — the `extern "C"` definition, the JIT fn-ptr table
 /// (`adapter_symbols`), the Cranelift signature table (`value::abi_sig`), and a
 /// string literal at every lowering call site — with nothing checking that the

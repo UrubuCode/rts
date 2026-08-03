@@ -10,7 +10,7 @@
 //!  - `class` — the fluent [`ClassBuilder`].
 //!  - `globalb` — the fluent [`GlobalBuilder`].
 //!  - `closure` — the closure-scoped [`ModuleScope`]/[`GlobalScope`] (F1/F3 of
-//!    `docs/specs/rts-macro-single-source.md`), the PRIMARY path for new call
+//!    `docs/engine/architecture.md`), the PRIMARY path for new call
 //!    sites; see its module doc for the commit-once guarantee and the
 //!    `RegistryItem`/`GlobalRegistryItem` traits `.registry(...)` runs on.
 
@@ -53,7 +53,7 @@ impl Engine {
     }
 
     /// Begin a CLOSURE-SCOPED module declaration — the primary path for new
-    /// call sites (F1 of `docs/specs/rts-macro-single-source.md`):
+    /// call sites (F1 of `docs/engine/architecture.md`):
     ///
     /// ```ignore
     /// e.module("node:fs", |m| {

@@ -1,6 +1,6 @@
 //! `napi_external` — embrulha um ponteiro nativo opaco visível ao JS só como
 //! handle. Usa `Entry::NapiExternal` (Etapa 2). Ver
-//! docs/specs/napi-implementation.md (Etapa 12).
+//! docs/guides/napi.md (Etapa 12).
 
 use std::ffi::c_void;
 

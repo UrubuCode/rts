@@ -26,7 +26,7 @@ pub mod abi {
 /// missing one into a LINK error instead of a runtime crash.
 ///
 /// Regenerate with `cargo run -p rts-symbol-baker`; `-- --check` is the drift
-/// guard the commit gate HARD-fails on. See docs/specs/rts-macro-single-source.md.
+/// guard the commit gate HARD-fails on. See docs/engine/architecture.md.
 pub mod symbol_table {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -54,7 +54,7 @@ pub use rts_std::globals::fetch::default_user_agent as fetch_user_agent;
 /// N-API (`.node` native addons). Re-exports the `rts-napi` crate: the `napi_*`
 /// symbols + the loader `__RTS_FN_NS_NAPI_LOAD_ADDON`. The `require('x.node')`
 /// lowering that calls the loader is the remaining integration on the new engine.
-/// See docs/specs/napi-implementation.md.
+/// See docs/guides/napi.md.
 pub use rts_napi as napi;
 /// Embedded TS stdlib sources (engine includes), re-exported from `rts-shared`
 /// so the new engine reaches them through the facade (`rts_runtime::stdlib`).
@@ -69,7 +69,7 @@ pub use rts_primitives::ERROR_TS;
 // `__rtsadp_obj_factory` trampoline (`src/adapters/value/objops.rs`).
 /// The pure-Rust `Number` value-class type, re-exported from `rts-primitives`
 /// so the new engine can name it in `rtse::sym!(NumberWrapper::is_nan)` calls
-/// (P5.4 pilot, `docs/specs/rts-macro-single-source.md`) without a second
+/// (P5.4 pilot, `docs/engine/architecture.md`) without a second
 /// direct dependency on `rts-primitives` — the SAME facade rule as
 /// `ERROR_TS`/`OBJECT_TS` above, just for a type instead of an embedded `.ts`
 /// source.

@@ -1,7 +1,7 @@
 //! Fase 2c: mais fns N-API implementáveis com o engine atual — Promise
 //! (deferred), coerce_to_string, type tags, add_finalizer, run_script,
 //! fatal/syntax errors, cleanup hooks, prototype, type checks restantes.
-//! Ver docs/specs/napi-implementation.md.
+//! Ver docs/guides/napi.md.
 
 use std::collections::HashMap;
 use std::ffi::{c_char, c_void};

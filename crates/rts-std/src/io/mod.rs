@@ -5,7 +5,7 @@
 //! `*_write`/`*_flush` use `on_null = -1` to match the error convention.
 //!
 //! Authored with `#[rtse::function]` — the SINGLE SOURCE OF TRUTH for symbols
-//! (docs/specs/rts-macro-single-source.md).
+//! (docs/engine/architecture.md).
 
 use std::io::{self, BufRead, Read, Write};
 

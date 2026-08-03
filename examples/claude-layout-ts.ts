@@ -6,7 +6,7 @@ import dom from "rts:dom";
 // tamanhos (box model + texto via measureText), e emite primitivos de canvas
 // (drawRect/drawText) — o egui só pinta. É o núcleo da arquitetura "DOM/layout em
 // TS, egui burro". Layout de N nós é código TS → alvo do paralelizador do RTS.
-// Ver docs/specs/dom-in-ts-architecture.md.
+// Ver docs/ui/dom-in-ts.md.
 //   target/release/rts.exe run examples/claude-layout-ts.ts
 
 const NONE = -1;

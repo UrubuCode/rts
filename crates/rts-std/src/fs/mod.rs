@@ -5,7 +5,7 @@
 //! functions return `-1` on error (`on_null = -1`); `exists`/`is_*` return 0/1.
 //!
 //! Authored with `#[rtse::function]` — the SINGLE SOURCE OF TRUTH for symbols
-//! (docs/specs/rts-macro-single-source.md). Two exceptions stay hand-written,
+//! (docs/engine/architecture.md). Two exceptions stay hand-written,
 //! both explained at their definition below: the node-compat `Bool` overloads
 //! (`existsSync`/`isFileSync`/`isDirectorySync`) that deliberately reuse the
 //! SAME extern symbol as the `number`-returning member, and `read_text`,

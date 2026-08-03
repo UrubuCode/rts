@@ -2,7 +2,7 @@
 //! `Entry::ArrayBuffer` do engine (ptr estável). Views (typedarray/dataview)
 //! são modeladas como `Entry::Map` com chaves reservadas apontando o buffer +
 //! offset + length + tipo (o RTS não tem TypedArray nativo). Ver
-//! docs/specs/napi-implementation.md.
+//! docs/guides/napi.md.
 
 use std::ffi::{c_char, c_void};
 

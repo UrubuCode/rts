@@ -1,7 +1,7 @@
 //! `#[rtse::abi]` expansion — a `SymbolDesc` const NEXT TO an `extern "C"`
 //! symbol, with BOTH the linker name and the ABI shape DERIVED, never typed.
 //!
-//! This is phase F0/F0b of `docs/specs/rts-macro-single-source.md`. A runtime
+//! This is phase F0/F0b of `docs/engine/architecture.md`. A runtime
 //! symbol used to be spelled out four times — the `extern "C"` definition, the
 //! JIT fn-ptr table, the Cranelift signature table (`value::abi_sig`), and a
 //! string literal at every lowering call site — and nothing checked that the

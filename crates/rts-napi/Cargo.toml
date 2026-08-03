@@ -5,7 +5,7 @@ edition = "2024"
 license.workspace = true
 
 # Suporte a Node.js native addons (.node) pela porta N-API. Ver
-# docs/specs/napi-implementation.md. Só N-API puro (sem V8-direto/NAN).
+# docs/guides/napi.md. Só N-API puro (sem V8-direto/NAN).
 # Carregamento dinâmico via libloading; valores mapeados à HandleTable do engine.
 
 [dependencies]

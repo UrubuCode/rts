@@ -4,7 +4,7 @@
 //! válido. Ignorado se `rustc` não estiver no PATH (ambiente sem toolchain).
 //!
 //! Cobre o ciclo real de carga que os testes unitários (path inválido) não
-//! exercitam. Ver docs/specs/napi-implementation.md (Etapa 4).
+//! exercitam. Ver docs/guides/napi.md (Etapa 4).
 
 use std::path::PathBuf;
 use std::process::Command;

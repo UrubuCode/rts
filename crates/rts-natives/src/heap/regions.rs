@@ -1,5 +1,5 @@
 //! Thread → shard affinity ("regions") — phase **T3** of
-//! `docs/specs/rts-threading-model.md`.
+//! `the spec removed 2026-08-03 (see git history)`.
 //!
 //! A **region** is a contiguous, disjoint subset of the 32-shard space owned by
 //! exactly one thread. A thread allocates only inside its own region.

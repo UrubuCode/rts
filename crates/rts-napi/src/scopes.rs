@@ -13,7 +13,7 @@
 //! em `Box` (endereço estável); ao encher, encadeamos um novo chunk. Cada slot
 //! usado é registrado individualmente (`&slots[i]`), e desregistrado ao fechar.
 //!
-//! Ver docs/specs/napi-implementation.md.
+//! Ver docs/guides/napi.md.
 
 use rts_engine::collector::global_roots;
 

@@ -2,7 +2,7 @@
 # read_before_commit.sh — MANDATORY gate. Run it (and READ the whole output)
 # before every commit that touches the engine `crates/rts-codegen-new/`.
 #
-# It encodes the binding rules from CLAUDE.md / .claude/rules/ so a commit cannot
+# It encodes the binding rules from CLAUDE.md / CLAUDE.md so a commit cannot
 # silently violate them:
 #
 #   [FLOOR]  build must compile (honesty+build floor — never lifts).

@@ -1,4 +1,4 @@
-//! F4 (`docs/specs/rts-macro-single-source.md`) — `#[rtse::functioncall]` is
+//! F4 (`docs/engine/architecture.md`) — `#[rtse::functioncall]` is
 //! the missing half of the callable-class protocol: a class declares its
 //! call-WITHOUT-`new` behaviour (`Widget(x)`) separately from its constructor
 //! (`new Widget(x)`). This integration test exercises the real macro

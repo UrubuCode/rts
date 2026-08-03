@@ -32,7 +32,7 @@
 //! it), so the order is about intent, not correctness: the declaration is the
 //! authority, the runtime registration confirms it.
 //!
-//! See docs/specs/rts-macro-single-source.md.
+//! See docs/engine/architecture.md.
 
 /// One installable JIT symbol: an extern "C" name and its function pointer. The
 /// pointer is to a `#[no_mangle] extern "C"` function with static lifetime.

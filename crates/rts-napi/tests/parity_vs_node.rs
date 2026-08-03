@@ -7,7 +7,7 @@
 //! falha) — ambientes de CI sem MSVC/Node não quebram. No Windows do dev (com
 //! tudo presente) ele roda de verdade.
 //!
-//! Ver docs/specs/napi-implementation.md (Etapa 11, paridade).
+//! Ver docs/guides/napi.md (Etapa 11, paridade).
 
 #![cfg(windows)]
 

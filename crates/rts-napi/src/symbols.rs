@@ -5,7 +5,7 @@
 //! que a export-table do binário e a verificação de coerência leiam exatamente
 //! a mesma lista. **NÃO** entra no registry SPECS / codegen / `rts.d.ts` / JIT —
 //! o `.node` resolve esses nomes por `dlsym` contra o processo, não pelo codegen
-//! TS (ver docs/specs/napi-implementation.md, decisão canônica de símbolos).
+//! TS (ver docs/guides/napi.md, decisão canônica de símbolos).
 //!
 //! Toda entrada DEVE ter uma `#[unsafe(no_mangle)] pub extern "C" fn` de mesmo
 //! nome em `lib.rs`.

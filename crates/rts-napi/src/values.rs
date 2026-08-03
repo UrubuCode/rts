@@ -1,6 +1,6 @@
 //! Marshalling escalar `napi_value` ↔ handle/sentinela + `napi_typeof`.
 //!
-//! Invariantes (ver docs/specs/napi-implementation.md):
+//! Invariantes (ver docs/guides/napi.md):
 //! - `napi_value` é SEMPRE um handle vivo da `HandleTable` OU uma das 5
 //!   sentinelas JS (`i64::MIN..=MIN+4`). Nunca um i64 escalar cru de valor.
 //! - Todo número é **sempre boxed** em `Entry::FloatPrim(f64)` — nunca inline —

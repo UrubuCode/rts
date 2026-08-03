@@ -10,7 +10,7 @@
 //! `global_roots` (o scanner lê `*(addr)`). Ao virar weak (unref → 0) o root é
 //! removido; ao virar strong de novo (ref) é re-registrado.
 //!
-//! Ver docs/specs/napi-implementation.md.
+//! Ver docs/guides/napi.md.
 
 use rts_engine::collector::global_roots;
 use rts_engine::heap::handles::with_entry;

@@ -5,7 +5,7 @@ import input from "rts:input";
 // PoC do INPUT ABSTRATO: o programa lê mouse/clique via `input.*` (não egui) e
 // reage. O egui é o backend ativo que CAPTA o input cru; o programa (papel do
 // DOM/layout) INTERPRETA — hit-test (o quadrado contem o mouse?) e dispara a ação
-// (conta clique). Pinta via `render.*`. Ver docs/specs/dom-render-input-interfaces.md.
+// (conta clique). Pinta via `render.*`. Ver docs/ui/render-input-interfaces.md.
 //   target/release/rts.exe run examples/claude-input-abstract.ts
 
 const win = egui.openWindow("Input abstrato (mouse/clique via input.*)", 480, 320, 0);

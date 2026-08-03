@@ -153,7 +153,7 @@ pub fn __RTS_FN_NS_GC_STRING_CMP(a: u64, b: u64) -> i64 {
 /// RTS_OPTIMIZATION.md §5 item 1.1 documents the expectation as **3.2× on the
 /// accumulator loop**, with byte-identical output and the same
 /// result-allocation count. This is also the cheaper half of the fix
-/// `docs/specs/no-mangle-drain.md:318` recorded (20k concats → 288 MB, 80k →
+/// `docs/engine/architecture.md:318` recorded (20k concats → 288 MB, 80k →
 /// 3.6 GB): it removes the constant factor, NOT the O(n²) — the rope that
 /// fixes the asymptote is a separate, later change.
 #[rtse::abi("__RTS_FN_NS_GC_STRING_CONCAT")]

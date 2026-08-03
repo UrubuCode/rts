@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license.workspace = true
 
-# rts-codegen-new — the lean redesign. See docs/specs/rts-codegen-new-design.md.
+# rts-codegen-new — the lean redesign. See docs/engine/architecture.md.
 # Thesis: prove-monomorphic-and-unbox where the type system can; fall to ONE
 # honest in-value tagged representation (PolyValue, NaN-box) + hidden-class
 # shapes + AOT-safe data inline-caches where it can't. No second optimizer tier
@@ -68,7 +68,7 @@ rts-runtime = { path = "../rts-runtime" }
 # truth is `rts-macro` (declares + types every symbol) and `rts-symbol-baker`
 # (bakes the ordered table the JIT vtable and the AOT symbol set both read); a
 # dependency edge that reaches them is CORRECT, and a hand-typed mirror is the
-# regression. See docs/specs/rts-macro-single-source.md.
+# regression. See docs/engine/architecture.md.
 #
 # Still binding, and a SEPARATE rule: the engine names ONLY the PRIMORDIAL
 # classes in its control flow. A dependency edge is allowed; hardcoding
@@ -81,7 +81,7 @@ rts-engine = { path = "../rts-engine" }
 # keeps only the Cranelift *emit* side (value::emit/…).
 # `rtse::sym!(Type::member)` — resolves a call site's symbol to the
 # macro-derived `SymbolDesc` const `#[rtse::class]` emitted on `Type`, instead
-# of a hand-typed string literal (docs/specs/rts-macro-single-source.md). This
+# of a hand-typed string literal (docs/engine/architecture.md). This
 # is the proc-macro crate itself (no runtime surface, purely compile-time), not
 # a second route to rts-engine/rts-primitives — the const it resolves is still
 # reached through a type reachable via the `rts-runtime` facade.

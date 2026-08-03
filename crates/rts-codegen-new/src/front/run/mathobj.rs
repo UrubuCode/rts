@@ -598,7 +598,7 @@ fn number_const(name: &str) -> Option<f64> {
 /// The `__rtsm_global_number_is_*` `SymbolDesc` for a Number static predicate
 /// (`#[rtse::statical]`-generated, `rts-primitives/src/number/mod.rs`).
 ///
-/// Pilot of `docs/specs/rts-macro-single-source.md`: `rtse::sym!(NumberWrapper::
+/// Pilot of `docs/engine/architecture.md`: `rtse::sym!(NumberWrapper::
 /// is_nan)` resolves to `NumberWrapper::IS_NAN_SYM`, the `SymbolDesc` const
 /// `#[rtse::class]` derived FROM `is_nan`'s own Rust signature — a typo'd or
 /// renamed member is a `rustc` "no associated item" error here, not a linked-OK/

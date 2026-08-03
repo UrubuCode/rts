@@ -11,12 +11,12 @@ This does **not** replace them. Read them first:
 
 | Document | What it owns | Status |
 |---|---|---|
-| `docs/specs/FUTURE_OPTIMIZATION.md` | The **phase plan** (Phase 0–6) and the `RTS_REPR_STATS` methodology | Phase 0 LANDED; 1–6 plan |
+| `the spec removed 2026-08-03 (see git history)` | The **phase plan** (Phase 0–6) and the `RTS_REPR_STATS` methodology | Phase 0 LANDED; 1–6 plan |
 | `OPTIMIZATIONS.md` | The **startup/compile-time campaign** (12 items, 890 → 128 ms) | Items 1,2,3,10,11,12 DONE |
 | `crates/rts-value-probe/README.md` | The **per-operation measurement ladder** (107 rows) | Measured 2026-08-01 |
-| `docs/specs/gc-generational-design.md` | Weak phase + generational nursery | Weak = next; generational DEFERRED |
-| `docs/specs/rts-threading-model.md` | Regions/promotion, blockers #1–#7 | T0/T1 DONE, T2–T5 open |
-| `docs/specs/rts-codegen-new-design.md` | The four pillars | §8.3/§8.4 spec'd, never built |
+| `the spec removed 2026-08-03 (see git history)` | Weak phase + generational nursery | Weak = next; generational DEFERRED |
+| `the spec removed 2026-08-03 (see git history)` | Regions/promotion, blockers #1–#7 | T0/T1 DONE, T2–T5 open |
+| `docs/engine/architecture.md` | The four pillars | §8.3/§8.4 spec'd, never built |
 
 **This document adds four things those do not have:**
 
@@ -1449,7 +1449,7 @@ what that removal costs per startup, and is **not** a proposal to revert it.
 `snapshot_to_bytes` clones again, then the result is built. Removing the snapshot
 round-trip is **3.2×** on the accumulator loop with byte-identical observable
 behaviour and the same result-allocation count **[M]**. Note
-`docs/specs/no-mangle-drain.md:318` already recorded the O(n²) with production
+`docs/engine/architecture.md:318` already recorded the O(n²) with production
 numbers (20k concats → 288 MB, 80k → 3.6 GB) and already recommended a rope —
 this is the cheaper half of that fix and should land first.
 
@@ -1913,15 +1913,15 @@ no-op), with `cargo bloat --crates` diffed across all four.
 
 | Claim | Where | Reality |
 |---|---|---|
-| `use_egraphs = true` is a flag we set | `CLAUDE.md`, `.claude/rules/05-codegen-notes.md` | Deleted upstream in 2023; the egraph runs unconditionally when `opt_level != none`. We never set it literally, so no live bug — but an edit that tries will hit an unknown-setting error |
-| `abi::Intrinsic` is the inlining mechanism | `CLAUDE.md`, `.claude/rules/01-architecture.md` | Deleted; replaced by per-member `NativeEmit` |
+| `use_egraphs = true` is a flag we set | `CLAUDE.md`, `CLAUDE.md` | Deleted upstream in 2023; the egraph runs unconditionally when `opt_level != none`. We never set it literally, so no live bug — but an edit that tries will hit an unknown-setting error |
+| `abi::Intrinsic` is the inlining mechanism | `CLAUDE.md`, `CLAUDE.md` | Deleted; replaced by per-member `NativeEmit` |
 | Bitwise/shifts are "ALWAYS generic" | `binop.rs:17-18` | Stale — `binop.rs:503` emits them inline for non-Tagged operands |
 | The property IC is dead | `RTS_PERF_AND_STATELESS.md` §0 (untracked) | Live at `obj.rs:1413`, `obj.rs:1467` |
-| `PropIcCell {shape,slot,state}` / mono→poly→mega exists | `rts-codegen-new-design.md` §8.3, **`CLAUDE.md`**, **`.claude/rules/03-features.md`**, **`rts-threading-model.md` blocker #2** | Never built. Shipped is a different 3-word cell `{shape, len, slot}` — no state field — and it covers **reads only** (`lower_dynamic_set` is uncached) |
-| **"Current state (precise mark+sweep)" and "Precise roots: the Cranelift stack maps already exist"** | **`docs/specs/gc-generational-design.md:23`, `:26`, `:75`** | **False, and `:75` is listed as a REASON the generational design is feasible — a false prerequisite under an entire design.** `RTS_ORGANIZATION.md` N6-B claims "the lying docs ✅ DONE"; it fixed `CLAUDE.md` and `02-runtime.md` and missed this file. Same doc puts the collector in two paths that no longer exist (`:25`, `:108`) |
+| `PropIcCell {shape,slot,state}` / mono→poly→mega exists | `rts-codegen-new-design.md` §8.3, **`CLAUDE.md`**, **`CLAUDE.md`**, **`rts-threading-model.md` blocker #2** | Never built. Shipped is a different 3-word cell `{shape, len, slot}` — no state field — and it covers **reads only** (`lower_dynamic_set` is uncached) |
+| **"Current state (precise mark+sweep)" and "Precise roots: the Cranelift stack maps already exist"** | **`the spec removed 2026-08-03 (see git history):23`, `:26`, `:75`** | **False, and `:75` is listed as a REASON the generational design is feasible — a false prerequisite under an entire design.** `RTS_ORGANIZATION.md` N6-B claims "the lying docs ✅ DONE"; it fixed `CLAUDE.md` and `02-runtime.md` and missed this file. Same doc puts the collector in two paths that no longer exist (`:25`, `:108`) |
 | "the verifier is dropped in release" | `OPTIMIZATIONS.md:388-395` | True for `rts run`; **`module_aot.rs` has no `enable_verifier` override**, despite its own comment claiming "EXACT same flags as the JIT" |
 | `Repr` has five variants | `CLAUDE.md`, `01-architecture.md`, `03-features.md`, design doc | **Six** — `Int64` is documented nowhere |
-| **"the Cranelift egraph performs intraprocedural inlining"** | **`CLAUDE.md`, `.claude/rules/05-codegen-notes.md`** | **The egraph has no inlining capability and never did.** Inlining landed 2025-07-10 as a *separate* pass (`cranelift/codegen/src/inline.rs`, `Context::inline`), and it is embedder-driven **by design** — the module's own docs say it *"does not attempt to define heuristics"*; the embedder implements `trait Inline`. Wasmtime keeps it **off by default** (compile-time cost; PR #13214 to enable it was closed unmerged). RTS calls none of it. See the note below |
+| **"the Cranelift egraph performs intraprocedural inlining"** | **`CLAUDE.md`, `CLAUDE.md`** | **The egraph has no inlining capability and never did.** Inlining landed 2025-07-10 as a *separate* pass (`cranelift/codegen/src/inline.rs`, `Context::inline`), and it is embedder-driven **by design** — the module's own docs say it *"does not attempt to define heuristics"*; the embedder implements `trait Inline`. Wasmtime keeps it **off by default** (compile-time cost; PR #13214 to enable it was closed unmerged). RTS calls none of it. See the note below |
 | "Cranelift is ~14% behind LLVM" | `cranelift/README.md`, quoted onward | A **2020** measurement (Xu & Kjolstad, PolyBenchC), predating regalloc2 and the egraph. Not current in either direction — measured here it is 2–9% on non-vectorizable shapes and 2.61× on vectorizable integer loops (§1e.1) |
 | `Entry::Rtse`'s `data: Box<dyn Any>` is opaque to the GC, blocking Rust-side `Map`/`Set` | prior session notes | **Resolved.** `handles.rs:880-895` traces `props`, and a class opts its own handles in via `#[rtse::trace]`, which the macro compiles into a `trace` fn pointer the collector calls. The blocker that would have stopped §1e.5 is gone |
 
@@ -1976,7 +1976,7 @@ their own work.
 6. **The probe measures the profile RTS's benchmarks already over-index on.**
    The three canonical benches are numeric hot loops — same shape. V8 measured
    that real programs stress the **parser and compiler**, not steady-state
-   execution **[S]**. RTS's parity sits at 69.9% (measured now from `.github/cross_runtime_report.json`; the badge and `.claude/rules` both quote stale numbers) while the numeric benches look
+   execution **[S]**. RTS's parity sits at 69.9% (measured now from `.github/cross_runtime_report.json`; the badge and `CLAUDE.md` both quote stale numbers) while the numeric benches look
    excellent; that gap is itself evidence the probe's target may not be where the
    real problem lives.
 
@@ -2027,7 +2027,7 @@ their own work.
 ## §10 Sources
 
 Measurement artifacts in-tree: `crates/rts-value-probe/README.md` (the 107-row
-ladder and its own limitations), `docs/specs/FUTURE_OPTIMIZATION.md` (Phase 0
+ladder and its own limitations), `the spec removed 2026-08-03 (see git history)` (Phase 0
 histogram, the 1024×-vs-Rust baseline), `OPTIMIZATIONS.md` (the startup
 campaign).
 

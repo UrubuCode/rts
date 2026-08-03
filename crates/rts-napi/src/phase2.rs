@@ -2,7 +2,7 @@
 //! APIs do motor). Type checks, property checks, coerce, Date, Symbol, Buffer,
 //! BigInt read. Substituem os stubs correspondentes de `surface.rs` (os stubs
 //! são removidos da lista de symbols ao mover pra cá — o linker resolve a impl
-//! real). Ver docs/specs/napi-implementation.md.
+//! real). Ver docs/guides/napi.md.
 
 use std::ffi::{c_char, c_void};
 

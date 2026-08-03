@@ -3,7 +3,7 @@ import egui from "rts:egui";
 // PoC do CANVAS BURRO: o TS calcula posições e cores e emite primitivos de
 // pintura (drawRect/drawText/drawLine); o egui SÓ pinta. measureText devolve a
 // largura pra o TS decidir layout. É a base da arquitetura "DOM/layout em TS,
-// egui só pinta". Ver docs/specs/dom-in-ts-architecture.md.
+// egui só pinta". Ver docs/ui/dom-in-ts.md.
 //   target/release/rts.exe run examples/claude-canvas-poc.ts
 
 const win = egui.openWindow("Canvas burro — TS dirige, egui pinta", 520, 360, 0);

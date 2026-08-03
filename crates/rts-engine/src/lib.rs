@@ -11,10 +11,10 @@
 //! O modelo antigo (arrays `SPECS`/`GLOBAL_CLASS_SPECS` estáticos + a lista
 //! `add_fn!` do JIT, todos deletados no cutover) tinha **três fontes de verdade
 //! à mão** se desincronizando
-//! (ver `docs/specs/rts-engine-dispatch.md` §4). O builder unifica isso: cada item é registrado
+//! (ver `docs/engine/architecture.md` §4). O builder unifica isso: cada item é registrado
 //! **uma vez**, carregando o **ponteiro de função nativo** (que dobra como
 //! símbolo do JIT) + a assinatura ABI. Builtins e módulos externos (`.dll`/
-//! `.so`, ver `docs/specs/rts-engine-dispatch.md` §10) usam o **mesmo** caminho de registro.
+//! `.so`, ver `docs/engine/architecture.md` §10) usam o **mesmo** caminho de registro.
 //!
 //! Trade honesto: perde-se a auto-derivação da macro (extern + metadata de uma
 //! assinatura); ganha-se um caminho uniforme + a morte dos arrays-à-mão. O
@@ -38,7 +38,7 @@
 //!
 //! Bootstrap: o registry + o builder + a resolução chaveada-por-aridade. A
 //! migração de GC, globals, e das namespaces (`rts-std`) para cima deste núcleo
-//! é o roadmap de `docs/specs/rts-engine-dispatch.md` (F3/F4 + a virada de autoria).
+//! é o roadmap de `docs/engine/architecture.md` (F3/F4 + a virada de autoria).
 
 // `#[rtse::*]` emits `::rts_engine::*` paths, so this crate must be able to name
 // ITSELF by that path — the same reason `rts-runtime` does it for `adapters/`.

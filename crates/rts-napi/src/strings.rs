@@ -1,5 +1,5 @@
 //! Strings N-API: `napi_create_string_utf8` + `napi_get_value_string_utf8`
-//! (protocolo de duas passagens). Ver docs/specs/napi-implementation.md (Etapa 6).
+//! (protocolo de duas passagens). Ver docs/guides/napi.md (Etapa 6).
 
 use std::ffi::c_char;
 

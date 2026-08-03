@@ -158,7 +158,7 @@ jobs:
             else if (pct >= 50) color = 'yellow';
             else if (pct >= 30) color = 'orange';
 
-            const badge = `[![Bun/Node parity](https://img.shields.io/badge/Bun%2FNode%20parity-${pct}%25-${color}?style=flat-square)](docs/specs/cross-runtime-testing.md)`;
+            const badge = `[![Bun/Node parity](https://img.shields.io/badge/Bun%2FNode%20parity-${pct}%25-${color}?style=flat-square)](the spec removed 2026-08-03 (see git history))`;
 
             // ASCII progress bar (20 segments).
             const segs = 20;
@@ -181,7 +181,7 @@ jobs:
               `| ⚠️ Bun ≠ Node (skip) | ${s.bun_node_diverge} |\n` +
               `| 🚫 Rejected (RTS-only) | ${s.rejected || 0} |\n` +
               `| 📦 Total fixtures | ${s.total} |\n\n` +
-              `_Updated: ${today} — [how to add a fixture](docs/specs/cross-runtime-testing.md)_\n`;
+              `_Updated: ${today} — [how to add a fixture](the spec removed 2026-08-03 (see git history))_\n`;
 
             // Edit README between markers
             let readme = fs.readFileSync('README.md', 'utf8');

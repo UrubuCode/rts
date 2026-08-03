@@ -42,7 +42,7 @@
 //! object everywhere else in the engine. The cache reproduces that discriminator
 //! rather than inventing a weaker one, so it introduces no ambiguity that
 //! `__rtsadp_obj_get` does not already have. (Removing the ambiguity itself needs
-//! a real array/object discriminant — see `docs/specs/shape-identity-remediation.md`.)
+//! a real array/object discriminant — see `the spec removed 2026-08-03 (see git history)`.)
 //!
 //! ## AOT
 //!

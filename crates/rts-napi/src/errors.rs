@@ -1,6 +1,6 @@
 //! Erros e exceções N-API. Mapeiam a um slot de exceção pendente no
 //! `RtsNapiEnv` (per-instância, síncrono — Fase 1). Ver
-//! docs/specs/napi-implementation.md (Etapa 10).
+//! docs/guides/napi.md (Etapa 10).
 //!
 //! Distinção de assinatura importante:
 //! - `napi_throw_*` recebem `msg: *const c_char` (C string crua) e SETAM o slot.

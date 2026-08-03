@@ -23,7 +23,7 @@
 //! `AbiType`s, the TS signature, and the doc (from the doc-comment). The old
 //! form spelled all of that a second time, in a `.member(f(name, symbol, args,
 //! ret, ts, fn_ptr))` row that nothing checked against the function it claimed
-//! to describe. See docs/specs/rts-macro-single-source.md.
+//! to describe. See docs/engine/architecture.md.
 
 mod detect;
 

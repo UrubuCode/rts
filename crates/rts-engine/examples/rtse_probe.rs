@@ -25,7 +25,7 @@
 //! - `A -> C` isolates the LAYOUT (same lock, indirection removed).
 //! - `D` is the ceiling both changes together could reach.
 //! - `NATIVE` is a plain Rust struct — the 2.01 ms reference from
-//!   `docs/specs/FUTURE_OPTIMIZATION.md`, i.e. what "1x" means.
+//!   `the spec removed 2026-08-03 (see git history)`, i.e. what "1x" means.
 //!
 //! The falsification condition is stated up front, before the numbers exist:
 //! if `A -> B` is flat, the lock is NOT the problem and no amount of lock-free

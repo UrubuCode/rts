@@ -6,7 +6,7 @@
 //! thread chamadora (inline) em vez de postar na thread JS. Funciona para addons
 //! que usam TSFN no caminho síncrono ou de forma fire-and-forget; addons que
 //! dependem de cross-thread real + ordenação pelo loop são limitados (até o Bun
-//! tem gaps aqui). Ver docs/specs/napi-implementation.md / issue #1548.
+//! tem gaps aqui). Ver docs/guides/napi.md / issue #1548.
 
 use std::collections::HashMap;
 use std::ffi::c_void;

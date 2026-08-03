@@ -1,6 +1,6 @@
 //! Objetos, arrays e propriedades N-API. Opera direto sobre `Entry::Map`
 //! (objeto: chave string → `napi_value` como i64) e `Entry::Vec` (array de
-//! `napi_value` como i64). Ver docs/specs/napi-implementation.md (Etapa 7).
+//! `napi_value` como i64). Ver docs/guides/napi.md (Etapa 7).
 //!
 //! `napi_value` é um `u64` handle; cabe num `i64` slot do Map/Vec por
 //! reinterpretação de bits (não conversão numérica).

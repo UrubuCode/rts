@@ -11,7 +11,7 @@
 //! connected socket. Neither touches the JS heap — they queue plain data, and
 //! `pump.rs` turns it into JS values ON THE JS THREAD. (Dispatch stays there
 //! until the threading model's blockers #2/#5 land — T1 shared gcells is in,
-//! the pending-error slot is still thread-local. See docs/specs/
+//! the pending-error slot is still thread-local. See the specs removed 2026-08-03 (see git history)
 //! rts-threading-model.md.)
 
 use std::collections::VecDeque;

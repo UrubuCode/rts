@@ -15,7 +15,7 @@
 //! are all comments — and [`lookup`] has no callers. So the producers push empty
 //! sets, `module_jit` drains empty sets, and the scanner
 //! ([`super::scan::scan_all_roots`]) is fully CONSERVATIVE. `CLAUDE.md` and
-//! `.claude/rules/02-runtime.md` claimed otherwise until 2026-07-31; they now
+//! `CLAUDE.md` claimed otherwise until 2026-07-31; they now
 //! say this. Wiring it for real is `RTS_ORGANIZATION.md` N6.
 //!
 //! # Why collection is SESSION-SCOPED (N6 phase A)

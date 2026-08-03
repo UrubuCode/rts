@@ -10,7 +10,7 @@
 //! resultado, não a concorrência.
 //!
 //! Quando o event loop real existir, trocar `queue` por `rt().spawn_blocking`
-//! (execute) + post do complete na thread JS. Ver docs/specs/napi-implementation.md.
+//! (execute) + post do complete na thread JS. Ver docs/guides/napi.md.
 
 use std::collections::HashMap;
 use std::ffi::c_void;

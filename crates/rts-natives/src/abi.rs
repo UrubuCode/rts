@@ -11,6 +11,6 @@
 //! Contract-only, by design: `rts-abi` holds `AbiType`, `SymbolDesc` and the
 //! symbol-naming rule, and not a single `extern "C"` function — which is what
 //! lets `rts-macro` (declare) and `rts-symbol-baker` (link) derive the same
-//! symbol from one place. See `docs/specs/rts-macro-single-source.md`.
+//! symbol from one place. See `docs/engine/architecture.md`.
 
 pub use rts_abi::*;

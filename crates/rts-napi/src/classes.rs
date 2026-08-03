@@ -1,6 +1,6 @@
 //! Classes nativas N-API: `napi_define_class` + `napi_new_instance`. Destrava
 //! addons que expõem classes (`new addon.Foo()` + `foo.method()`), como
-//! hashers stateful, DB handles, parsers. Ver docs/specs/napi-implementation.md.
+//! hashers stateful, DB handles, parsers. Ver docs/guides/napi.md.
 //!
 //! Modelo: `define_class` cria um `Entry::Function` (o construtor) e registra,
 //! num mapa global indexado pelo handle do construtor, a tabela de métodos

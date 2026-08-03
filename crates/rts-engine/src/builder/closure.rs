@@ -1,5 +1,5 @@
 //! Closure-scoped registration (F1/F2/F3 of
-//! `docs/specs/rts-macro-single-source.md`): [`ModuleScope`] and
+//! `docs/engine/architecture.md`): [`ModuleScope`] and
 //! [`GlobalScope`], the nesting-capable alternative to the fluent
 //! `.done()`-terminated chain.
 //!

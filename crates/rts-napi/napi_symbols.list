@@ -6,7 +6,7 @@
 #
 # Uma entrada por linha. Linhas em branco e `#` comentário são ignoradas.
 # Toda entrada DEVE ter uma `#[unsafe(no_mangle)] pub extern "C" fn` de mesmo
-# nome em crates/rts-napi/src/lib.rs. Ver docs/specs/napi-implementation.md.
+# nome em crates/rts-napi/src/lib.rs. Ver docs/guides/napi.md.
 
 # registro / ambiente
 napi_get_version

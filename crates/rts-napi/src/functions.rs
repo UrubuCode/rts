@@ -1,5 +1,5 @@
 //! Funções e callbacks N-API: `napi_create_function`, `napi_get_cb_info`,
-//! `napi_call_function`. Ver docs/specs/napi-implementation.md (Etapa 11).
+//! `napi_call_function`. Ver docs/guides/napi.md (Etapa 11).
 //!
 //! ## Dois sentidos
 //!
@@ -341,4 +341,4 @@ pub fn forget_callback(handle: u64) {
 // `cargo test -p rts-napi` isolado. São validados por **e2e no bin**
 // (`tests/napi_add_addon.test.ts`): um addon `.node` que expõe `add(a,b)`,
 // chamado do TS, com o resultado comparado ao esperado. Ver
-// docs/specs/napi-implementation.md (Etapa 11).
+// docs/guides/napi.md (Etapa 11).

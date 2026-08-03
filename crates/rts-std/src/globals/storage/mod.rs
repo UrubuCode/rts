@@ -19,8 +19,8 @@
 //! entre programas. Aqui o estado mora na struct e no HandleTable: não há
 //! global de prelude, e a classe inteira de problema desaparece.
 //!
-//! Segue o padrão vigente (`docs/specs/rts-macro-single-source.md` +
-//! `docs/specs/namespace-creation-guide.md`): declarado com `#[rtse::class]`,
+//! Segue o padrão vigente (`docs/engine/architecture.md` +
+//! `docs/engine/architecture.md`): declarado com `#[rtse::class]`,
 //! símbolo e assinatura DERIVADOS da declaração Rust, tabela bakeada pelo
 //! `rts-symbol-baker`. Nada escrito à mão.
 //!

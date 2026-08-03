@@ -111,7 +111,7 @@ __rtsadp_ 1035 symbols   (value model, bare/Verbatim form — uses no scope)
 `Scope::Abi` exists in `rts_abi::scope` and names **zero rows of the baked
 table**. Its only users in source were the 8 `ta_ctor!` TypedArray constructors,
 which the baker cannot see at all (they are emitted from a `macro_rules!` body —
-see `docs/specs/no-mangle-drain.md` §1); they are now `native`. It also
+see `docs/engine/architecture.md` §1); they are now `native`. It also
 collides conceptually with the crate named `rts-abi`, which holds the *contract*
 (`AbiType`, `SymbolDesc`, the naming rule) and not a single `extern "C"`
 function. Two names, opposite meanings, same repo.
@@ -125,7 +125,7 @@ thing.
 
 ### 2.5 The precise GC scan is documented as working and is NOT
 
-`CLAUDE.md` and `.claude/rules/02-runtime.md` both describe the GC as *"precise
+`CLAUDE.md` and `CLAUDE.md` both describe the GC as *"precise
 mark+sweep using Cranelift `UserStackMap`"*. Measured:
 
 ```
@@ -307,7 +307,7 @@ So N3 is: sync half down, async driver stays, and `gen_sm_drain`'s
 **N4 — delete `Scope::Abi`. ✅ DONE (2026-07-31).** The variant, the `abi`
 attribute argument and the `__rtsa_` branch of `symbol_for` are gone; the 8 real
 users (`ta_ctor!` in `adapters/value/taops.rs`) now declare `native` and emit
-`__rtsn_ta_new_*`; the 50 mapped rows in `docs/specs/symbol-rename-map/` were
+`__rtsn_ta_new_*`; the 50 mapped rows in `the spec removed 2026-08-03 (see git history)` were
 re-pointed at `native`/`__rtsn_` (primitives_std 22, input_render_engine 15,
 math_buffer 9, shared_b 3, node_rest 1 — re-verified: no duplicates in the map,
 no collision against the baked table). Every doc, doc-comment and unit test that
@@ -315,8 +315,8 @@ described `__rtsa_` as a valid prefix was updated in the same pass;
 `validate_symbol("__rtsa_…")` is now `SymbolError::MissingPrefix`. Re-bake so the
 generated header stops naming `__rtsa_` as an example scope.
 
-**N5 — the rename** (mapped in `docs/specs/symbol-rename-map/` and
-`docs/specs/no-mangle-drain.md`): `__RTS_FN_*` → `__rtsm_`/`__rtsn_`. **Run it
+**N5 — the rename** (mapped in `the spec removed 2026-08-03 (see git history)` and
+`docs/engine/architecture.md`): `__RTS_FN_*` → `__rtsm_`/`__rtsn_`. **Run it
 AFTER N7**, not before or after at will — see N7 for why the two collide.
 
 Scope, re-measured 2026-07-31 (the map is 626 rows against **943** baked
@@ -363,7 +363,7 @@ no-op today — nothing produces a map — which is exactly why it was worth lan
 alone.
 
 **N6-B — the lying docs. ✅ DONE (2026-07-31).** `CLAUDE.md` and
-`.claude/rules/02-runtime.md` said "precise mark+sweep using Cranelift
+`CLAUDE.md` said "precise mark+sweep using Cranelift
 `UserStackMap`" and "codegen calls `declare_value_needs_stack_map`". Neither was
 true; one named `jit.rs`, deleted at the P5 cutover, as the extractor. Both now
 describe the conservative scan and say what the transport actually carries
@@ -398,7 +398,7 @@ records a function-local array collected mid-loop (`spans.length` → -1), which
 precisely what precise scanning fixes.
 
 **N7 — audit the dead. AUDITED, not yet deleted; full list in
-`docs/specs/dead-symbols-n7.md`.** Measured **173**, not ~150. The families named
+`the spec removed 2026-08-03 (see git history)`.** Measured **173**, not ~150. The families named
 above check out — `ATOMICS_*` 4/4, `JSON_STRINGIFY_*` 4 of 6, `THIS_GET`,
 `STRING_FREE`, `SET_UNION` — **except the collections number, which is wrong in a
 way that breaks the build**: 119 `NS_COLLECTIONS_*` exist, **75 are dead and 44
@@ -428,7 +428,7 @@ function. Dead means **the codegen stopped emitting them**, and `stack.rs`'s
 
 ## 6. Verification protocol
 
-Same discipline as `docs/specs/no-mangle-drain.md` §5, which caught three
+Same discipline as `docs/engine/architecture.md` §5, which caught three
 rename traps in this campaign already:
 
 1. **Bake the symbol table before and after; diff the NAME SETS.** A pure move

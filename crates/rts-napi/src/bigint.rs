@@ -1,6 +1,6 @@
 //! BigInt N-API (#219) — usa `Entry::BigInt` do engine (negative + words
 //! little-endian). Fiel a `napi_create/get_value_bigint_int64/uint64/words`.
-//! Ver docs/specs/napi-implementation.md.
+//! Ver docs/guides/napi.md.
 
 use std::ffi::c_void;
 

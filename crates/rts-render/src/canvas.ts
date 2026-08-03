@@ -2,7 +2,7 @@
 // `render.*` + `input.*`. Roda FORA do DOM: um modo de desenhar UI direto no
 // canvas (retângulos, texto, botões) sem árvore retida. O backend (egui hoje, ou
 // qualquer outro Renderer registrado) só pinta — trocar o backend não muda este
-// código. Ver docs/specs/dom-render-input-interfaces.md.
+// código. Ver docs/ui/render-input-interfaces.md.
 //
 // Regras de design do motor (provadas empiricamente): propriedades são
 // getters/setters; APIs que podem falhar são métodos de classe; campos internos

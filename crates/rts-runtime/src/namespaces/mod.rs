@@ -14,19 +14,19 @@ pub use rts_std::asio_audio;
 /// `dom` — DOM retido HEADLESS (parser HTML + árvore + query/mutação) na crate
 /// separada `rts-dom`, sem UI. Resolve via Registry: `ns::dom::register`.
 /// `import { parseHtml } from "rts:dom"`. O `rts-egui` consome o tipo `Dom`
-/// direto (não pela ABI). Ver docs/specs/rts-dom-crate-design.md.
+/// direto (não pela ABI). Ver docs/ui/dom-crate.md.
 pub use rts_dom as dom;
 /// `render` — interface de render ABSTRATA na crate `rts-render`. O DOM/layout
 /// chama `render.*` (rect/text/measureText/...); o backend ativo (egui) pinta. O
-/// engine nunca nomeia o backend concreto. Ver docs/specs/dom-render-input-interfaces.md.
+/// engine nunca nomeia o backend concreto. Ver docs/ui/render-input-interfaces.md.
 pub use rts_render as render;
 /// `input` — interface de input ABSTRATA na crate `rts-input` (irmã de render).
 /// O app/DOM chama `input.*` (mouse/key/wheel/...); o backend ativo (egui) captura.
-/// Crate próprio p/ crescer (gamepad/touch). Ver docs/specs/dom-render-input-interfaces.md.
+/// Crate próprio p/ crescer (gamepad/touch). Ver docs/ui/render-input-interfaces.md.
 pub use rts_input as input;
 /// `egui` — GUI imediata (egui) na crate separada `rts-egui` (como `napi`).
 /// Resolve via Registry: `ns::egui::register`. `import { Window } from "rts:egui"`.
-/// Ver docs/specs/egui-ui-crate-design.md.
+/// Ver docs/ui/egui-crate.md.
 pub use rts_egui as egui;
 /// `gpu` — compute WGSL sobre o device wgpu compartilhado do `rts-egui`
 /// (headless ou junto do render). Resolve via Registry: `ns::gpu::register`.

@@ -10,7 +10,7 @@
 //! ```
 //!
 //! Members are authored with `#[rtse::function]` (F7 of
-//! `docs/specs/rts-macro-single-source.md`): symbol, signature, `ts_signature`
+//! `docs/engine/architecture.md`): symbol, signature, `ts_signature`
 //! and fn-ptr all derive from the Rust declaration. The macro fixes
 //! `MemberFlags::NONE`, so `register` patches `THROWS` on (both members throw a
 //! JS `TypeError` on an unserializable value / corrupt stream).

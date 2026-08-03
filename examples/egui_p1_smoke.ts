@@ -7,7 +7,7 @@
 //
 // Valida: openWindow não dá panic com tokio inicializado; o while-loop TS chama
 // os primitivos sem travar; a fila de comandos desenha label/button/slider; o
-// present() do wgpu funciona. Ver docs/specs/egui-ui-crate-design.md (P1).
+// present() do wgpu funciona. Ver docs/ui/egui-crate.md (P1).
 
 import egui from "rts:egui";
 

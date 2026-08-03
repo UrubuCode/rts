@@ -3,7 +3,7 @@
 // The engine wires a class's shared prototype ONCE in the function's entry block
 // instead of on every `new`, which turns `1 + method_count` extern calls per
 // CONSTRUCTION into the same number per FUNCTION (~11x on a 4-method class built
-// in a loop — see docs/specs/FUTURE_OPTIMIZATION.md).
+// in a loop — see the spec removed 2026-08-03 (see git history)).
 //
 // That hoist is only sound while nothing replaces a prototype: the runtime's
 // `__rtsadp_class_proto_init` defers its [[Prototype]] chain link to the first

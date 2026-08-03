@@ -1,7 +1,7 @@
 //! node:perf_hooks — the `#[rtse::function]` entry points over the timeline
 //! store. Each function DECLARES its module and JS name; the linker symbol,
 //! `AbiType`s, TS signature and doc are DERIVED from the Rust signature (see
-//! docs/specs/rts-macro-single-source.md).
+//! docs/engine/architecture.md).
 
 use rts_engine::abi::ty::Handle;
 use rts_engine::heap::handles::{alloc_entry, Entry};

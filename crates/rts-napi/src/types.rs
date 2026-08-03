@@ -4,7 +4,7 @@
 //! `napi_value` e `napi_env` são ponteiros opacos do ponto de vista do addon;
 //! internamente o RTS os mapeia para um handle `u64` da `HandleTable`
 //! (`napi_value`) e para `*mut RtsNapiEnv` (`napi_env`). Ver
-//! docs/specs/napi-implementation.md (invariante "napi_value sempre handle
+//! docs/guides/napi.md (invariante "napi_value sempre handle
 //! estável ou sentinela, nunca i64 cru").
 
 use std::ffi::c_void;

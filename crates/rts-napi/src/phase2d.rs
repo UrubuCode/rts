@@ -1,6 +1,6 @@
 //! Fase 2d: últimas fns implementáveis sem engine novo — external strings
 //! (como strings normais), is_sharedarraybuffer (false), make_callback
-//! (síncrono via FUNCTION_CALL). Ver docs/specs/napi-implementation.md.
+//! (síncrono via FUNCTION_CALL). Ver docs/guides/napi.md.
 
 use std::ffi::{c_char, c_void};
 

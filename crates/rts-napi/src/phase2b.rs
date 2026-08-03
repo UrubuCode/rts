@@ -1,7 +1,7 @@
 //! Fase 2b: mais fns N-API implementáveis com o engine atual — strings
 //! latin1/utf16, error/version helpers, instance-data, wrap/unwrap (via chave
 //! reservada no Map), property keys, symbol_for. Ver
-//! docs/specs/napi-implementation.md.
+//! docs/guides/napi.md.
 
 use std::ffi::{c_char, c_void};
 use std::sync::Mutex;

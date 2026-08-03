@@ -44,7 +44,7 @@
 //! - **A few `__rtsn_*` / `GL_ENCODE_*` / `GL_TEXTENC_*`** — not yet declared
 //!   either way.
 //!
-//! Do NOT add a row. See docs/specs/rts-macro-single-source.md.
+//! Do NOT add a row. See docs/engine/architecture.md.
 
 use cranelift_codegen::ir::{AbiParam, Signature, types};
 use cranelift_module::Module;
@@ -452,7 +452,7 @@ fn sig_of_hand(name: &str) -> Option<SymSig> {
 mod desc_agreement {
     //! Every symbol carrying `#[rtse::abi]` must agree with this file's
     //! hand-written table — until the table is deleted and the descriptors ARE
-    //! the source (F0 of `docs/specs/rts-macro-single-source.md`).
+    //! the source (F0 of `docs/engine/architecture.md`).
     //!
     //! This is the guard that did not exist. `abi_sig`'s own doc says it exists
     //! because "mis-marshaling a single-slot string where the ABI expects two →
@@ -507,7 +507,7 @@ pub(super) mod baked_existence {
     //!
     //! Membership in the baked table is proof of existence because
     //! `rts-symbol-baker` derives that table from the DECLARATIONS in the source
-    //! (see docs/specs/rts-macro-single-source.md). This is the cheap half of
+    //! (see docs/engine/architecture.md). This is the cheap half of
     //! F12; the expensive half is deleting these rows in favour of the
     //! macro-derived `SymbolDesc`, which also gives the SIGNATURE, not just the
     //! name.

@@ -4,7 +4,7 @@
 //! (U64 cast to *mut u8) + length; `close` frees the handle. Handle 0 = error.
 //!
 //! Convertido pro modelo de autoria `#[rtse::function]` (fonte única de
-//! símbolos — ver `docs/specs/rts-macro-single-source.md`).
+//! símbolos — ver `docs/engine/architecture.md`).
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs, UdpSocket};

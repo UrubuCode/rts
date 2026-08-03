@@ -18,7 +18,7 @@
 //! módulo) e então — se algo foi enfileirado — usa esse `nm_register_func` em
 //! vez de procurar `napi_register_module_v1`. Addons modernos não tocam esta
 //! fila (exportam o símbolo direto); o caminho legado só ativa quando a fila
-//! tem entrada após o load. Ver docs/specs/napi-implementation.md.
+//! tem entrada após o load. Ver docs/guides/napi.md.
 
 use std::ffi::{c_char, c_void};
 use std::sync::Mutex;

@@ -19,9 +19,9 @@ numbers reproduce with `target/release/rts.exe run <file>`.
 
 | Document | What it owns |
 |---|---|
-| `docs/specs/rts-codegen-new-design.md` | The canonical engine architecture (PolyValue, Repr lattice, shapes, single lowering) |
-| `docs/specs/rts-threading-model.md` | Regions, promotion on publication, the "payload = slot index, never a pointer" invariant |
-| `docs/specs/gc-generational-design.md` | Weak phase now, copying nursery later; why moving is cheap |
+| `docs/engine/architecture.md` | The canonical engine architecture (PolyValue, Repr lattice, shapes, single lowering) |
+| `the spec removed 2026-08-03 (see git history)` | Regions, promotion on publication, the "payload = slot index, never a pointer" invariant |
+| `the spec removed 2026-08-03 (see git history)` | Weak phase now, copying nursery later; why moving is cheap |
 | `RTS_OPTIMIZATION.md` | The measured cost ladder and the refuted premises |
 | `crates/rts-value-probe/README.md` | Every kernel's raw table **and its caveats** — read the caveats before quoting |
 | **this file** | What a `class` costs today, why, what to build, and **how to modularize it** |

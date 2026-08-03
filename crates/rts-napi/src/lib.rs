@@ -1,8 +1,8 @@
 //! Suporte a Node.js native addons (`.node`) pela porta **N-API**.
 //!
 //! Só N-API puro — addons V8-diretos/NAN são fora de escopo (exigiriam emular
-//! o layout binário do V8). Ver `docs/specs/napi-implementation.md` — o estudo
-//! de viabilidade `docs/specs/node-format/` foi DELETADO em 2026-07-28: seu
+//! o layout binário do V8). Ver `docs/guides/napi.md` — o estudo
+//! de viabilidade `the spec removed 2026-08-03 (see git history)` foi DELETADO em 2026-07-28: seu
 //! veredito virou este crate, e suas conclusões estão resumidas naquele spec.
 //!
 //! ## Etapa 1 (este arquivo): esqueleto
@@ -107,7 +107,7 @@ pub unsafe extern "C" fn node_api_module_get_api_version_v1() -> i32 {
 /// `rts-napi` — sem isto, os símbolos crus `napi_*` (não chamados pelo código
 /// Rust do bin, só por `dlsym` do `.node`) somem antes do `/EXPORT` poder
 /// retê-los, causando `LNK2001: unresolved external`. Ver
-/// docs/specs/napi-implementation.md (Etapa 1, retenção de símbolo).
+/// docs/guides/napi.md (Etapa 1, retenção de símbolo).
 ///
 /// Mantém UMA entrada por símbolo de [`symbols`] — manter em sincronia ao
 /// adicionar/remover fns. O teste `force_link_covers_all_symbols` guarda a

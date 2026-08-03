@@ -7,7 +7,7 @@ license.workspace = true
 # GUI imediata cross-platform via egui (immediate-mode, Rust puro — sem FLTK/C++).
 # O Rust expõe PRIMITIVOS via ABI de handles u64 (extern "C"); a lib de alto
 # nível (Window/Button/Slider) vive em TS. Loop dirigido pelo TS sobre esses
-# primitivos. Ver docs/specs/egui-ui-crate-design.md.
+# primitivos. Ver docs/ui/egui-crate.md.
 #
 # UiCtx (EventLoop+Window+wgpu+egui) é !Send → vive num thread_local na thread
 # do TS; o handle u64 é só uma chave opaca.

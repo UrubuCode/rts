@@ -17,7 +17,7 @@
 //! so a loop allocating N instances paid N × (1 + method-count) extern calls that
 //! compute the same thing every pass.
 //!
-//! `RTS_REPR_STATS=1` on `bench/objbench.ts` (see `docs/specs/FUTURE_OPTIMIZATION.md`)
+//! `RTS_REPR_STATS=1` on `bench/objbench.ts` (see `the spec removed 2026-08-03 (see git history)`)
 //! measured this as 2 of the 17 in-loop calls for a class with NO methods; a class
 //! with methods pays one more per method per construction.
 //!

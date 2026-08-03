@@ -12,7 +12,7 @@ license.workspace = true
 # depend on the whole heap/GC/Registry crate. Splitting it out means the codegen
 # can depend on the contract without depending on an implementation of it, which
 # is the precondition for `rts-macro` becoming the single source of truth for
-# symbols (docs/specs/rts-macro-single-source.md).
+# symbols (docs/engine/architecture.md).
 #
 # DEPENDENCY-FREE ON PURPOSE. This crate must sit at the bottom of the graph: the
 # macro output references it, the engine references it, the codegen references

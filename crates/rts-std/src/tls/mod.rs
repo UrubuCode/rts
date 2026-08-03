@@ -4,7 +4,7 @@
 //! (embedded Mozilla bundle); no dependency on the OS trust store.
 //!
 //! Convertido pro modelo de autoria `#[rtse::function]` (fonte única de
-//! símbolos — ver `docs/specs/rts-macro-single-source.md`).
+//! símbolos — ver `docs/engine/architecture.md`).
 
 use std::io::{Read, Write};
 use std::sync::Arc;

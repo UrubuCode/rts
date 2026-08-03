@@ -587,7 +587,7 @@ pub enum Entry {
     GenState(Box<GenStateData>),
     /// (N-API) Opaque external value: `data`/`finalize`/`hint` pointers the engine
     /// never dereferences — on cleanup the finalize is ENQUEUED (never called under
-    /// the shard lock). See docs/specs/napi-implementation.md.
+    /// the shard lock). See docs/guides/napi.md.
     NapiExternal(Box<NapiExternalData>),
     /// (N-API #219) Arbitrary-precision BigInt: `negative` + little-endian `words`.
     BigInt(Box<BigIntData>),

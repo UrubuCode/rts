@@ -3,7 +3,7 @@
 //! O Rust expõe PRIMITIVOS via ABI de handles `u64` (`extern "C"`); a lib de alto
 //! nível (Window/Button/Slider) vive em TS. O loop de render é dirigido pelo TS
 //! sobre esses primitivos (`while(ui.isOpen()){ pump → beginFrame → widgets →
-//! endFrame }`). Ver `docs/specs/egui-ui-crate-design.md`.
+//! endFrame }`). Ver `docs/ui/egui-crate.md`.
 //!
 //! `UiCtx` (EventLoop + Window + wgpu + egui::Context) é `!Send` → vive num
 //! `thread_local! HashMap<u64, UiCtx>` na thread do TS; o handle `u64` é só uma
@@ -234,7 +234,7 @@ pub fn register(e: &mut Engine) {
         // (via `egui.html` / `egui.render`), nunca detém estado de página. Isso
         // INVERTE a dependência — o DOM não conhece o render; qualquer backend
         // (egui hoje; web/headless-png amanhã) consome o mesmo DOM. Ver
-        // docs/specs/html-engine + project_dom_headless_vision.
+        // docs/ui/html-engine + project_dom_headless_vision.
         // ── CANVAS BURRO: o TS calcula o layout e emite primitivos; o egui pinta ──
         // Coords/tamanhos em pontos (number); cores 0xRRGGBBAA (number).
         .member(func(

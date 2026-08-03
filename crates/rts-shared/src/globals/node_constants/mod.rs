@@ -7,7 +7,7 @@
 //! ## Por que em Rust
 //!
 //! Isto era um `class Node { static get … }` no prelude `.ts` do `rts-dom`.
-//! Migrou para cá pelo padrão vigente (`docs/specs/rts-macro-single-source.md`):
+//! Migrou para cá pelo padrão vigente (`docs/engine/architecture.md`):
 //! `#[rtse::class]` declara, o símbolo é DERIVADO da assinatura Rust e o
 //! `rts-symbol-baker` bakeia a tabela — nada escrito à mão.
 //!

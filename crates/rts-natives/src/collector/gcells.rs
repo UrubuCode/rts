@@ -12,7 +12,7 @@
 //! `thread.spawn`/`parallel`/the async spawn SNAPSHOTTING the values into the
 //! worker. That copy made a worker's write silently local — `let n = 0;` +
 //! `thread.spawn(() => n++)` incremented a copy and dropped it — which is
-//! blocker #1 of docs/specs/rts-threading-model.md ("promote gcells to shared
+//! blocker #1 of the spec removed 2026-08-03 (see git history) ("promote gcells to shared
 //! cells with synchronized writes"), and the reason `setInterval`'s callback had
 //! to be routed back to the main thread by hand.
 //!

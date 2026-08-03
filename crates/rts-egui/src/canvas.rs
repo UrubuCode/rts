@@ -8,7 +8,7 @@
 //! não tem (Risco 1 do roadmap — nunca reimplementar `glyph_width` em TS). Ela
 //! mede SÍNCRONO (não enfileira) e devolve a largura em pontos.
 //!
-//! Ver `docs/specs/dom-in-ts-architecture.md`.
+//! Ver `docs/ui/dom-in-ts.md`.
 
 use rts_engine::abi::str_abi;
 

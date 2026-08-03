@@ -21,7 +21,7 @@ estimate — treat **[E]** as a hypothesis to test.
 | Document | What it owns |
 |---|---|
 | `RTS_OPTIMIZATION.md` | The measured cost ladder, the refuted premises, the Tier 0–5 plan |
-| `docs/specs/FUTURE_OPTIMIZATION.md` | The phase plan (Phase 0–6) and `RTS_REPR_STATS` |
+| `the spec removed 2026-08-03 (see git history)` | The phase plan (Phase 0–6) and `RTS_REPR_STATS` |
 | `OPTIMIZATIONS.md` | The startup/compile-time campaign |
 | **this file** | The Cranelift **API surface**: used vs unused, and the compile-time numbers |
 

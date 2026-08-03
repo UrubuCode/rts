@@ -13,7 +13,7 @@
 //! the pre-step that `cargo build -p rts-adapters` used to be — verified by
 //! measurement, since a plain `cargo build` left a stale archive with no
 //! `__rtsadp_*` symbols and AOT failed to link. See
-//! `docs/specs/rts-codegen-new-design.md` for why this module exists at all:
+//! `docs/engine/architecture.md` for why this module exists at all:
 //! the compile-time-only slices of the old value model (the `repr` lattice,
 //! hidden-class `shape`s, `state::reset_codegen_state`) live in
 //! `rts-codegen-new` instead — they are lowering-time concerns, not AOT-linked

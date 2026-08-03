@@ -37,7 +37,7 @@ rts-abi = { path = "../rts-abi" }
 # `#[rtse::abi]` — emits the `SymbolDesc` const beside each codegen-owned
 # `__rtsadp_*` trampoline (folded in from the former `rts-adapters` crate under
 # `src/adapters/`), with the ABI shape derived from the Rust signature. See
-# docs/specs/rts-macro-single-source.md (F0).
+# docs/engine/architecture.md (F0).
 rtse = { package = "rts-macro", path = "../rts-macro" }
 # rts-node: native Node.js API surface (node:* modules). Independent crate —
 # owns its own impls, never mirrors rts-std. Re-exported as `namespaces::<mod>`;

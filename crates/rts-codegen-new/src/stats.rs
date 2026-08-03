@@ -8,7 +8,7 @@
 //! ONE function; this answers it for a whole program, aggregated, with the ENGINE
 //! source line that made each decision.
 //!
-//! Four event kinds, matching the four costs in `docs/specs/FUTURE_OPTIMIZATION.md`:
+//! Four event kinds, matching the four costs in `the spec removed 2026-08-03 (see git history)`:
 //!
 //! | Event | What it costs | Phase that removes it |
 //! |---|---|---|

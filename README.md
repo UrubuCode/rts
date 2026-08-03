@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Single Binary](https://img.shields.io/badge/output-single%20binary-blue?style=flat-square)](#)
 <!-- CROSS_RUNTIME_BADGE_START -->
-[![Bun/Node parity](https://img.shields.io/badge/Bun%2FNode%20parity-73.6%25-yellowgreen?style=flat-square)](docs/specs/cross-runtime-testing.md)
+[![Bun/Node parity](https://img.shields.io/badge/Bun%2FNode%20parity-73.6%25-yellowgreen?style=flat-square)](the spec removed 2026-08-03 (see git history))
 <!-- CROSS_RUNTIME_BADGE_END -->
 
 </div>
@@ -38,7 +38,7 @@ JS spec compatibility validated against **Bun** and **Node** over 708 standalone
 | 🚫 Rejected (RTS-only) | 0 |
 | 📦 Total fixtures | 708 |
 
-_Updated: 2026-08-03 — [how to add a fixture](docs/specs/cross-runtime-testing.md)_
+_Updated: 2026-08-03 — [how to add a fixture](the spec removed 2026-08-03 (see git history))_
 
 <!-- CROSS_RUNTIME_STATS_END -->
 
@@ -103,7 +103,7 @@ the parity campaign.
 
 40+ namespaces today — being reshaped into per-module `rts:*` imports
 (camelCase, JS globals for everything the language already covers): see
-[`docs/specs/rts-std-surface.md`](docs/specs/rts-std-surface.md). No
+[`docs/engine/architecture.md`](docs/engine/architecture.md). No
 dependency on OpenSSL, schannel, libuv, or any external runtime.
 
 | Family | Namespaces |
@@ -221,9 +221,9 @@ Full state and technical backlog: [issue #1793](https://github.com/UrubuCode/rts
 > engine (single HIR→Cranelift path; `PolyValue` NaN-boxed value model in
 > `crates/rts-runtime/src/adapters/`; hidden-class shapes + AOT-safe data inline caches;
 > data-driven dispatch). Canonical design:
-> [`docs/specs/rts-codegen-new-design.md`](docs/specs/rts-codegen-new-design.md).
+> [`docs/engine/architecture.md`](docs/engine/architecture.md).
 > Public-surface direction:
-> [`docs/specs/rts-std-surface.md`](docs/specs/rts-std-surface.md).
+> [`docs/engine/architecture.md`](docs/engine/architecture.md).
 
 Cargo workspace in `crates/`. `src/` is the facade of the `rts` bin (re-exports
 the crates); real paths live under `crates/<crate>/src/`.
@@ -360,8 +360,8 @@ parity tracker: [#226](https://github.com/UrubuCode/rts/issues/226).
 ## 📚 Documentation
 
 - 🛠️ [`CLAUDE.md`](CLAUDE.md) — internal architecture + codebase rules (includes § anti-hardcode)
-- 📖 [`docs/specs/`](docs/specs/) — technical feature specs
-- 🗺️ [`docs/specs/rts-codegen-new-design.md`](docs/specs/rts-codegen-new-design.md) — canonical plan of the engine redesign
+- 📖 [`the specs removed 2026-08-03 (see git history)`](the specs removed 2026-08-03 (see git history)) — technical feature specs
+- 🗺️ [`docs/engine/architecture.md`](docs/engine/architecture.md) — canonical plan of the engine redesign
 - 🐛 Issues: master JS/TS parity tracker at [#226](https://github.com/UrubuCode/rts/issues/226)
 
 ---

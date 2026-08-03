@@ -297,7 +297,7 @@ pub(crate) fn gen_member(
     // `Member.sig` this member registers CANNOT disagree; they are two
     // renderings of one set of tokens, not two derivations. Consumed via
     // `rtse::sym!(Type::member)` at a codegen call site instead of a hand-typed
-    // `SymSig` row (`docs/specs/rts-macro-single-source.md`).
+    // `SymSig` row (`docs/engine/architecture.md`).
     let sym_desc_params = if is_ctor || is_no_recv {
         quote!(&[#(#arg_abis),*])
     } else if is_value_method {
