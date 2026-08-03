@@ -61,6 +61,26 @@ pub enum RtEntry {
     /// ownership, which this layer does not yet have an answer to — see the note
     /// where the barrier is emitted.
     WriteBarrier = 1,
+
+    /// Creates a pending promise, owned by the current region's scheduler.
+    PromiseNew = 2,
+
+    /// Settles a promise, making everything waiting on it runnable.
+    ///
+    /// Which waiters run where is the scheduler's business, and deliberately not
+    /// visible here: a compiled program says a promise settled, and does not say
+    /// what should happen next.
+    PromiseSettle = 3,
+
+    /// Parks the current frame until a promise settles.
+    PromiseAwait = 4,
+
+    /// Throws a value that no handler in this function catches.
+    ///
+    /// Only for the escaping case. Where a handler *is* in this function, the
+    /// destination is known while compiling and control simply goes there — the
+    /// runtime is not asked a question whose answer was already computed.
+    Throw = 5,
 }
 
 impl RtEntry {
@@ -69,7 +89,14 @@ impl RtEntry {
     /// Listed rather than derived so that adding one is a visible edit here, and
     /// so that the tests can assert the numbering has not shifted underneath a
     /// compiled artefact.
-    pub const ALL: &'static [RtEntry] = &[RtEntry::Alloc, RtEntry::WriteBarrier];
+    pub const ALL: &'static [RtEntry] = &[
+        RtEntry::Alloc,
+        RtEntry::WriteBarrier,
+        RtEntry::PromiseNew,
+        RtEntry::PromiseSettle,
+        RtEntry::PromiseAwait,
+        RtEntry::Throw,
+    ];
 
     /// How many entry points exist.
     pub const COUNT: usize = Self::ALL.len();
@@ -88,6 +115,10 @@ impl RtEntry {
         match self {
             RtEntry::Alloc => "rts_alloc",
             RtEntry::WriteBarrier => "rts_write_barrier",
+            RtEntry::PromiseNew => "rts_promise_new",
+            RtEntry::PromiseSettle => "rts_promise_settle",
+            RtEntry::PromiseAwait => "rts_promise_await",
+            RtEntry::Throw => "rts_throw",
         }
     }
 
@@ -115,6 +146,40 @@ impl RtEntry {
             // argument wider for the benefit of collectors that do not.
             RtEntry::WriteBarrier => Signature {
                 params: vec![Repr::Ref(RefKind::Opaque), Repr::Tagged],
+                returns: vec![],
+                ..Signature::default()
+            },
+
+            // Nothing in, a promise out. Which scheduler owns it is decided by
+            // where it was created, which the runtime knows and a compiled
+            // program has no way to say.
+            RtEntry::PromiseNew => Signature {
+                returns: vec![Repr::Ref(RefKind::Opaque)],
+                ..Signature::default()
+            },
+
+            // The promise, what it carries, and whether this is a failure. The
+            // last is a value rather than two entry points because a client that
+            // settles conditionally would otherwise have to branch to choose one.
+            RtEntry::PromiseSettle => Signature {
+                params: vec![Repr::Ref(RefKind::Opaque), Repr::Tagged, Repr::Bool],
+                returns: vec![],
+                ..Signature::default()
+            },
+
+            // The promise waited on; what it carried, out. A frame that parks
+            // resumes here, so from the caller's side this looks like a call that
+            // took a long time — which is exactly what it should look like.
+            RtEntry::PromiseAwait => Signature {
+                params: vec![Repr::Ref(RefKind::Opaque)],
+                returns: vec![Repr::Tagged],
+                ..Signature::default()
+            },
+
+            // The tag and the value. Nothing comes back: this is the escaping
+            // case, so control leaves the function and does not return to it.
+            RtEntry::Throw => Signature {
+                params: vec![Repr::I64, Repr::Tagged],
                 returns: vec![],
                 ..Signature::default()
             },

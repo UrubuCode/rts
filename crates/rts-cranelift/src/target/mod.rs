@@ -102,6 +102,15 @@ impl<'a> MachineModule<'a> {
         &self.declarations
     }
 
+    /// Which runtime entry points this compilation has needed.
+    ///
+    /// Worth being able to ask: entry points are declared on first use, so this
+    /// says what the compiled code actually reaches for — which is a structural
+    /// fact, and cheaper to check than arranging to observe a side effect.
+    pub fn entries(&self) -> &crate::symbols::EntryTable {
+        &self.entries
+    }
+
     /// Declares a function so that call sites can name it.
     ///
     /// Declaring is separate from defining because a program can call something

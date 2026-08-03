@@ -300,16 +300,41 @@ impl<'a> Body<'a> {
                 let call = builder.ins().call_indirect(shape, target, &args);
                 return self.bind_results(builder, call, results);
             }
-            Inst::Suspend | Inst::Await { .. } => {
+            Inst::PromiseNew => {
+                let call = self.call_entry(builder, id, RtEntry::PromiseNew, &[])?;
+                return self.bind_results(builder, call, results);
+            }
+
+            Inst::PromiseSettle {
+                promise,
+                value,
+                rejected,
+            } => {
+                let promise = self.value(*promise);
+                let value = self.value(*value);
+                let rejected = builder.ins().iconst(types::I64, i64::from(*rejected));
+                self.call_entry(
+                    builder,
+                    id,
+                    RtEntry::PromiseSettle,
+                    &[promise, value, rejected],
+                )?;
+                return Ok(());
+            }
+
+            Inst::Await { promise } => {
+                let promise = self.value(*promise);
+                let call = self.call_entry(builder, id, RtEntry::PromiseAwait, &[promise])?;
+                return self.bind_results(builder, call, results);
+            }
+
+            // A bare suspension has no promise, so nothing decides when it
+            // resumes. Expressing that needs the frame transformation, which is
+            // the one piece of the three that is not a call — see the module doc.
+            Inst::Suspend => {
                 return Err(LowerError::NotYetLowered {
                     inst: id,
                     needs: Capability::Suspension,
-                });
-            }
-            Inst::PromiseNew | Inst::PromiseSettle { .. } => {
-                return Err(LowerError::NotYetLowered {
-                    inst: id,
-                    needs: Capability::Scheduling,
                 });
             }
         };
@@ -435,14 +460,95 @@ impl<'a> Body<'a> {
                 builder.ins().return_call_indirect(shape, target, &args);
             }
 
-            Terminator::Throw { .. } => {
-                return Err(LowerError::TerminatorNotYetLowered {
-                    block,
-                    needs: Capability::Unwinding,
-                });
+            Terminator::Throw { tag, payload } => {
+                let plan = match self.func.region_of(block) {
+                    Some(region) => crate::unwind::plan_unwind(&self.func.regions, region, *tag),
+                    None => crate::unwind::UnwindPlan {
+                        cleanups: Vec::new(),
+                        handler: None,
+                    },
+                };
+
+                // A cleanup block ends with its own terminator, so it can be
+                // entered from one place and cannot return to several throw
+                // sites. Emitting a chain of them therefore needs either a copy
+                // per site or a parameter saying where to continue — and which
+                // of those is right is a decision about the representation, not
+                // about lowering. Refused here rather than guessed at.
+                if !plan.cleanups.is_empty() {
+                    return Err(LowerError::CleanupNeedsAContinuation { block });
+                }
+
+                let payload = self.value(*payload);
+                match plan.handler {
+                    // The destination was computed while compiling, so control
+                    // simply goes there. Asking the runtime to search for an
+                    // answer already known would be paying for it twice.
+                    Some(handler) => {
+                        let target = self.blocks[&handler];
+                        let args = vec![cranelift_codegen::ir::BlockArg::Value(payload)];
+                        builder.ins().jump(target, &args);
+                    }
+
+                    // Nothing here catches it, so it becomes the caller's
+                    // problem — and finding out whose is what the runtime is for.
+                    None => {
+                        let tag = builder.ins().iconst(types::I64, i64::from(tag.0));
+                        self.terminator_entry(builder, block, RtEntry::Throw, &[tag, payload])?;
+                        builder
+                            .ins()
+                            .trap(cranelift_codegen::ir::TrapCode::unwrap_user(1));
+                    }
+                }
             }
         }
         Ok(())
+    }
+
+    /// The same, for a terminator, which is named by its block.
+    fn terminator_entry(
+        &mut self,
+        builder: &mut FunctionBuilder,
+        block: BlockId,
+        entry: RtEntry,
+        args: &[Value],
+    ) -> Result<(), LowerError> {
+        let outside = self
+            .outside
+            .as_mut()
+            .ok_or(LowerError::TerminatorNotYetLowered {
+                block,
+                needs: Capability::Unwinding,
+            })?;
+        let reference = outside
+            .entries
+            .reference(outside.module, builder.func, entry)
+            .map_err(|_| LowerError::UndeclaredTailCallee { block })?;
+        builder.ins().call(reference, args);
+        Ok(())
+    }
+
+    /// Calls a runtime entry point.
+    ///
+    /// One place, so that declaring an entry point on first use and referring to
+    /// it afterwards is a fact about the layer rather than a discipline each
+    /// emission site follows.
+    fn call_entry(
+        &mut self,
+        builder: &mut FunctionBuilder,
+        id: crate::ir::InstId,
+        entry: RtEntry,
+        args: &[Value],
+    ) -> Result<cranelift_codegen::ir::Inst, LowerError> {
+        let outside = self.outside.as_mut().ok_or(LowerError::NotYetLowered {
+            inst: id,
+            needs: Capability::Calls,
+        })?;
+        let reference = outside
+            .entries
+            .reference(outside.module, builder.func, entry)
+            .map_err(|_| LowerError::UndeclaredCallee { inst: id })?;
+        Ok(builder.ins().call(reference, args))
     }
 
     /// Emits the barrier a reference store owes the collector.

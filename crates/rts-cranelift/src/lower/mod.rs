@@ -17,14 +17,22 @@
 //!
 //! # What it refuses
 //!
-//! Suspension, scheduling, unwinding and allocation are refused by name, with
-//! the capability each needs, so a program that needs them fails visibly instead
-//! of producing code that is quietly incomplete.
+//! What cannot be emitted is refused by name, with the capability it needs, so a
+//! program that needs it fails visibly instead of producing code that is quietly
+//! incomplete.
 //!
 //! Allocation is worth separating from the rest of memory. Reading and writing a
 //! field is arithmetic and lands here; asking a heap for space is a runtime entry
 //! point, and a runtime entry point is something to declare rather than something
 //! to emit.
+//!
+//! Two refusals here are findings about the representation rather than missing
+//! work. A throw that owes cleanup cannot be emitted because a cleanup block ends
+//! with its own terminator and so cannot return to several throw sites — which
+//! needs either a copy per site or a parameter saying where to continue, and that
+//! is a decision about the representation. And a bare suspension has no promise,
+//! so nothing decides when it resumes; expressing it needs the frame
+//! transformation, which is the one piece of concurrency that is not a call.
 //!
 //! Two further refusals are findings rather than gaps, and are documented where
 //! they are raised: a 64-bit integer cannot be widened without a heap box, and a

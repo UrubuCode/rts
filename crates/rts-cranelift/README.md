@@ -205,8 +205,10 @@ Planned and deliberately absent: `guard/` (bailout), `fault/`, `observe/`,
 
 `lower/` is not finished, and it is explicit about which half. Scalar work,
 control flow, widening, guards, constants and calls are emitted, checked by the
-code generator's own verifier, and — through `target/` — compiled and run. Field access reads and writes a real heap, and allocation reaches a runtime.
-What is still refused by name: suspension, scheduling, unwinding.
+code generator's own verifier, and — through `target/` — compiled and run. Field access reads and writes a real heap; allocation, promises, awaiting and an
+escaping throw reach a runtime; a throw a handler catches goes straight there,
+because the destination was known while compiling. What is still refused by name:
+a bare suspension, and a throw that owes cleanup on its way out.
 
 Calls exist now, and they arrived last on purpose. A call is inseparable from the
 convention it uses, from the safepoint it implies, and from where the frame is

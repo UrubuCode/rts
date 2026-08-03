@@ -314,7 +314,7 @@ fn what_needs_the_heap_is_refused_by_name() {
 }
 
 #[test]
-fn what_needs_the_scheduler_is_refused_by_name() {
+fn a_scheduler_operation_is_a_call_and_needs_a_module_to_name_it() {
     let types = TypeRegistry::new();
     let mut func = function(&[], &[]);
 
@@ -323,14 +323,17 @@ fn what_needs_the_scheduler_is_refused_by_name() {
     b.promise_new();
     b.ret(&[]);
 
-    let error = lower_function(&func, CallConv::SystemV).expect_err("no scheduler yet");
-    assert!(matches!(
-        error,
-        LowerError::NotYetLowered {
-            needs: Capability::Scheduling,
-            ..
-        }
-    ));
+    let error = lower_function(&func, CallConv::SystemV).expect_err("no module here");
+    assert!(
+        matches!(
+            error,
+            LowerError::NotYetLowered {
+                needs: Capability::Calls,
+                ..
+            }
+        ),
+        "creating a promise is asking the runtime to, and asking needs somewhere to \n         name what is being asked"
+    );
 }
 
 #[test]

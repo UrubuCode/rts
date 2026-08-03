@@ -83,6 +83,18 @@ pub enum LowerError {
         inst: InstId,
     },
 
+    /// A throw would have to run cleanup on its way out.
+    ///
+    /// A cleanup block ends with its own terminator, so it can be entered from
+    /// one place and cannot return to several throw sites. Emitting a chain of
+    /// them needs either a copy per site or a parameter saying where to continue,
+    /// and which of those is right is a decision about the representation rather
+    /// than about lowering. Refused rather than guessed at.
+    CleanupNeedsAContinuation {
+        /// The block that throws.
+        block: BlockId,
+    },
+
     /// A block was reached with no terminator.
     ///
     /// The verifier rejects this too. Lowering checks it again because it cannot
