@@ -13,7 +13,11 @@ use rts_cranelift::unwind::{Handler, Tag, plan_all_throws};
 use rts_cranelift::verify::{VerifyError, verify};
 
 fn function(params: &[Repr], returns: &[Repr]) -> Function {
-    Function::new(Signature { params: params.to_vec(), returns: returns.to_vec() })
+    Function::new(Signature {
+        params: params.to_vec(),
+        returns: returns.to_vec(),
+        ..Signature::default()
+    })
 }
 
 fn param(func: &Function, index: usize) -> ValueId {

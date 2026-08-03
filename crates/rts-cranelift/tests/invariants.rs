@@ -14,7 +14,11 @@ use rts_cranelift::verify::{VerifyError, is_valid, verify};
 
 /// A function taking the given parameters and returning the given values.
 fn function(params: &[Repr], returns: &[Repr]) -> Function {
-    Function::new(Signature { params: params.to_vec(), returns: returns.to_vec() })
+    Function::new(Signature {
+        params: params.to_vec(),
+        returns: returns.to_vec(),
+        ..Signature::default()
+    })
 }
 
 /// The value bound to the entry block's parameter at `index`.

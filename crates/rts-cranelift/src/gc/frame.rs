@@ -16,16 +16,10 @@
 //! are declared now precisely so those phases extend this record instead of
 //! introducing a second one.
 
+use crate::frame::ResumeLabel;
 use crate::ir::{InstId, ValueId};
 use crate::repr::RefKind;
 use crate::unwind::RegionId;
-
-/// Identifies a point a suspended frame can resume at.
-///
-/// Populated when suspension lands. Absent means the point is an ordinary
-/// safepoint that is not a resumption target.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
-pub struct ResumeLabel(pub u32);
 
 /// One value the collector must be able to find.
 ///

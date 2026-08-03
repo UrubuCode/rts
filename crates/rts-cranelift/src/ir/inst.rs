@@ -159,6 +159,17 @@ pub enum Inst {
         /// Where it is placed.
         region: Region,
     },
+
+    /// Parks the frame until something resumes it.
+    ///
+    /// Produces the value resumption delivers, in the generic form: what a
+    /// resumption carries is decided by whoever resumes, and this layer does not
+    /// know what that is.
+    ///
+    /// Only legal in a function whose signature says it may suspend. That is a
+    /// property of the function, declared where it is defined, not re-declared at
+    /// every point that reaches it.
+    Suspend,
 }
 
 impl Inst {
@@ -169,7 +180,7 @@ impl Inst {
     /// in three places and forgotten in a fourth.
     pub fn operands(&self) -> Vec<ValueId> {
         match self {
-            Inst::Const(_) | Inst::Alloc { .. } => Vec::new(),
+            Inst::Const(_) | Inst::Alloc { .. } | Inst::Suspend => Vec::new(),
 
             Inst::Widen(v) | Inst::Narrow(v, _) => vec![*v],
 
@@ -193,7 +204,17 @@ impl Inst {
     /// stating it here makes it a constraint the layer is designed around rather
     /// than a coincidence it happens to survive.
     pub fn is_safepoint(&self) -> bool {
-        matches!(self, Inst::Alloc { .. })
+        matches!(self, Inst::Alloc { .. } | Inst::Suspend)
+    }
+
+    /// Whether this instruction parks the frame.
+    ///
+    /// A suspension is also a safepoint, and for a sharper reason than an
+    /// allocation is: a parked frame can sit there across any number of
+    /// collections, so what it holds must be findable for as long as it is
+    /// parked — not merely at the moment it stops.
+    pub fn is_suspend(&self) -> bool {
+        matches!(self, Inst::Suspend)
     }
 }
 

@@ -40,9 +40,10 @@ mod frame;
 mod liveness;
 
 pub use barrier::{BarrierKind, barrier_for, can_carry_reference};
-pub use frame::{FrameDescriptor, FrameTable, ResumeLabel, RootSlot};
+pub use frame::{FrameDescriptor, FrameTable, RootSlot};
 pub use liveness::{Liveness, live_after_each_inst};
 
+use crate::frame::plan_suspension_with;
 use crate::ir::Function;
 use crate::repr::Repr;
 
@@ -54,6 +55,9 @@ use crate::repr::Repr;
 /// afterwards need not survive it.
 pub fn describe_frames(func: &Function) -> FrameTable {
     let liveness = Liveness::compute(func);
+    // Suspension is derived from the same analysis. Recomputing it would be work
+    // whose only cause is a module boundary.
+    let suspension = plan_suspension_with(func, &liveness);
     let mut table = FrameTable::new();
 
     for (block_id, block) in func.blocks() {
@@ -91,7 +95,7 @@ pub fn describe_frames(func: &Function) -> FrameTable {
                 at: inst_id,
                 roots,
                 region: func.region_of(block_id),
-                resume_label: None,
+                resume_label: suspension.label_of(inst_id),
             });
         }
     }

@@ -277,6 +277,17 @@ impl<'a> FuncBuilder<'a> {
         Ok(())
     }
 
+    /// Parks the frame, yielding the value resumption delivers.
+    ///
+    /// What the frame preserves while parked is not passed here: it is derived
+    /// from what is live across this point, for the same reason a root set is
+    /// derived rather than declared. A client listing its own live values would
+    /// eventually list them wrong, and the failure would be a value quietly
+    /// missing after a resumption.
+    pub fn suspend(&mut self) -> ValueId {
+        self.emit(Inst::Suspend, Some(Repr::Tagged))
+    }
+
     /// Declares a protected region.
     pub fn declare_region(
         &mut self,

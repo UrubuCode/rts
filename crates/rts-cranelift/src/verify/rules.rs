@@ -247,6 +247,12 @@ pub(super) fn check_instructions(
                     }
                 }
 
+                Inst::Suspend => {
+                    if !func.signature.may_suspend {
+                        errors.push(VerifyError::UndeclaredSuspension { inst: inst_id });
+                    }
+                }
+
                 Inst::Const(_) => {}
             }
         }

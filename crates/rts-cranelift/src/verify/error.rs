@@ -190,4 +190,14 @@ pub enum VerifyError {
         /// The region it names.
         region: RegionId,
     },
+
+    /// A function parks its frame without declaring that it may.
+    ///
+    /// Whether a function suspends is part of what it is, and a caller decides
+    /// what to do about a call by reading it. A function that suspends while
+    /// claiming not to makes every caller's decision wrong.
+    UndeclaredSuspension {
+        /// The instruction that parks the frame.
+        inst: InstId,
+    },
 }

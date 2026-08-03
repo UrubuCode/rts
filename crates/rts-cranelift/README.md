@@ -185,19 +185,26 @@ src/
             constants, functions, the builder
   gc/       the collector's contract: liveness, safepoints, roots, barriers
   unwind/   protected regions, cleanup chains, handler search
+  frame/    suspension: what a parked frame preserves, and where it resumes
   abi/      types, conventions, aggregate classification, multiple returns
   verify/   the rules, and what it reports
 ```
 
+`gc/`, `unwind/` and `frame/` are three modules over **one** record. A point that
+can collect, inside a protected region, inside a function that may park its
+frame, is one program point in all three concerns; three tables keyed by it would
+be kept in agreement by hand, which is the bug that record exists to prevent.
+
 Planned and deliberately absent: `lower/` and `target/` (the code generator and
-the two output paths), `frame/` (suspension), `sched/` (promises and
-continuations), `guard/` (bailout), `fault/`, `observe/`, `symbols/`, `probe/`.
+the two output paths), `sched/` (promises and continuations), `guard/` (bailout),
+`fault/`, `observe/`, `symbols/`, `probe/`.
 
 There are no call instructions yet, and that is not an oversight. A call is
 inseparable from the convention it uses, from the safepoint it implies, and from
-whether its callee may suspend. Two of those now exist; the third does not.
-Adding a call node before then means choosing that answer silently and
-rediscovering it later.
+whether its callee may suspend. All three now exist as separate facts; what is
+missing is the scheduler, which decides what a call to a suspending function does
+to its caller. Adding a call node before that means choosing the answer silently
+and rediscovering it later.
 
 ---
 

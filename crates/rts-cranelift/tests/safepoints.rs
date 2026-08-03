@@ -10,7 +10,11 @@ use rts_cranelift::repr::{RefKind, Repr};
 use rts_cranelift::types::TypeRegistry;
 
 fn function(params: &[Repr], returns: &[Repr]) -> Function {
-    Function::new(Signature { params: params.to_vec(), returns: returns.to_vec() })
+    Function::new(Signature {
+        params: params.to_vec(),
+        returns: returns.to_vec(),
+        ..Signature::default()
+    })
 }
 
 fn param(func: &Function, index: usize) -> ValueId {

@@ -21,14 +21,27 @@
 //!
 //! # Current scope
 //!
-//! The IR, the type and tag registries, and the verifier. Lowering to machine
-//! code, the garbage-collection contract, the scheduler and the ABI arrive in
-//! later modules; each is designed against the frame model this IR establishes.
+//! The IR and its verifier, the type and tag registries, the ABI, and the three
+//! capabilities that share one frame model: root reporting, unwinding and
+//! suspension.
+//!
+//! Sharing that model is the point rather than a convenience. A program point
+//! that can collect, inside a protected region, inside a function that may park
+//! its frame, is *one* point in all three concerns, so it is one record. That is
+//! what lets a parked frame — occupying no position on any call stack — still be
+//! read as a frame, with its roots findable and the cleanup chain it suspended
+//! inside intact.
+//!
+//! Still to come: lowering to machine code and the two output paths, the
+//! scheduler, guard failure paths, faults and observability. Calls arrive with
+//! the scheduler, because a call is inseparable from the convention it uses, the
+//! safepoint it implies, and whether its callee may suspend.
 
 #![deny(missing_docs)]
 #![deny(dead_code)]
 
 pub mod abi;
+pub mod frame;
 pub mod gc;
 pub mod ir;
 pub mod repr;
@@ -38,6 +51,7 @@ pub mod unwind;
 pub mod verify;
 
 pub use abi::{AbiType, Convention, Signature as AbiSignature, TargetAbi, lower_signature};
+pub use frame::{ResumeLabel, SpillLayout, SuspendPlan, plan_suspension};
 pub use gc::{FrameDescriptor, FrameTable, describe_frames};
 pub use repr::{RefKind, Repr};
 pub use types::{FieldLayout, TypeId, TypeRegistry};

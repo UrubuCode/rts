@@ -22,6 +22,12 @@ pub struct Signature {
     pub params: Vec<Repr>,
     /// Return representations, in order.
     pub returns: Vec<Repr>,
+    /// Whether the function may park its frame.
+    ///
+    /// A property of the function, declared where it is defined. A caller does
+    /// not re-declare it at each site, and a site does not choose it: whether a
+    /// call parks the caller follows from what the callee is.
+    pub may_suspend: bool,
 }
 
 /// Where a value came from.
