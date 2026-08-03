@@ -33,9 +33,11 @@
 #![deny(dead_code)]
 
 pub mod heap;
+pub mod object;
 pub mod text;
 pub mod value;
 
 pub use heap::{Handle, Slab, Slot};
+pub use object::{Key, Object};
 pub use text::{Interner, Str};
 pub use value::{Kind, Value};

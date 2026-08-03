@@ -112,7 +112,7 @@ Deliberately **not** here: `Number::toString`. It needs the shortest
 round-tripping decimal, which is its own problem (§5.5 of the language plan) and
 belongs with conversion.
 
-### C3 — objects. *In progress.*
+### C3 — objects. **DONE.**
 
 The shape tree is `rts_cranelift::shape::ShapeTree`, **not one of ours**. A
 second was half-written here and deleted: the compiler emits fixed-offset loads
@@ -122,8 +122,11 @@ part the machine refuses to know — that a key can be an integer index, which i
 what enumeration order turns on.
 
 
-Shapes, properties, and the operations on them. The phase where the machine
-layer's shape support gets its first real client.
+The phase where the machine layer's shape support got its first real client —
+and where a class turned out to need nothing new. A class declares its fields,
+so the shape is known before any instance exists: walk the transitions once at
+definition time, keep the `ShapeId`, and `layout()` hands compiled code one
+aggregate with fixed offsets for every instance. `shape_for` is that walk.
 
 Three traps from the language plan land here, and each is a test:
 
@@ -136,6 +139,14 @@ Three traps from the language plan land here, and each is a test:
   ascending numeric order, then the other strings in insertion order, then
   symbols. A single insertion-ordered slot list — the obvious backing for a
   shape — is wrong for any object mixing the two, which is most arrays.
+
+**Left open, deliberately.** Whether a property is data or an accessor is held
+on the object rather than in the shape. It belongs in the shape — two objects
+differing in it differ in how a read behaves, which is what a shape is for — and
+it is not there because the machine's shape carries a `Repr` per key and no
+notion of kind. Adding one is a change to the machine, which is where the fix
+belongs; inventing a second layout notion here to avoid asking is the failure
+the READMEs name. Cost until then: a map per object, empty for nearly all.
 
 ### C4 — coercion
 
