@@ -32,6 +32,8 @@
 #![deny(missing_docs)]
 #![deny(dead_code)]
 
+pub mod heap;
 pub mod value;
 
+pub use heap::{Handle, Slab, Slot};
 pub use value::{Kind, Value};
