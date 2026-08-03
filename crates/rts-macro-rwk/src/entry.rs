@@ -1,31 +1,17 @@
-//! `#[rtse::entry]` — the same derivation, for the engine that replaced the ABI.
+//! Turning a plain Rust function into a runtime entry point.
 //!
-//! # Two attributes, not one with a mode
+//! # The shape is derived, never typed
 //!
-//! [`crate::abi`] emits an `rts_abi::SymbolDesc`. `rts-abi` is the interface
-//! `rts_cranelift::abi` was built to replace — its own module says why:
-//! *"entirely scalar: no aggregate, no structure, a return position holding zero
-//! or one machine slot, and a string that cannot be returned at all… It is not a
-//! foundation."*
+//! The ABI shape comes from the Rust signature. Editing a parameter changes the
+//! descriptor in the same edit, or the crate does not compile.
 //!
-//! So the two emissions describe different things and will diverge further, not
-//! less: this one can express an aggregate parameter and more than one return,
-//! and that one cannot. A single attribute with a flag would have to keep both
-//! shapes alive in one body forever. Two attributes means the old one is
-//! **deleted whole** when `rts-abi` goes, and nothing has to be untangled first.
-//!
-//! What they share is the part that matters, and it is shared by being written
-//! once here: the ABI shape is **derived from the Rust signature**, never typed.
-//! Editing a parameter changes the descriptor in the same edit, or the crate
-//! does not compile.
-//!
-//! # Why this is worth an attribute rather than a hand-written list
-//!
-//! A hand-written entry list can be right. It cannot be *kept* right: the list
-//! says `two parameters, both tagged` in one file while the function says
-//! `(u64, u64)` in another, and nothing connects them. That is the drift this
-//! whole authoring surface exists to make unrepresentable, and re-introducing it
-//! for four entries would re-introduce it for four hundred.
+//! That is the whole reason this exists rather than a hand-written list. A
+//! hand-written list can be right; it cannot be *kept* right, because it says
+//! `two tagged parameters` in one file while the function says `(u64, u64)` in
+//! another and nothing connects them. This was not hypothetical — the first
+//! version of the new engine's entry table was written that way, and the two
+//! spellings were already sitting in different files by the time it was
+//! reviewed.
 //!
 //! # What it does not decide
 //!

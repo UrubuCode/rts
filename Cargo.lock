@@ -4157,7 +4157,7 @@ name = "rts-core-rwk"
 version = "0.1.0"
 dependencies = [
  "rts-cranelift",
- "rts-macro",
+ "rts-macro-rwk",
 ]
 
 [[package]]
@@ -4263,6 +4263,15 @@ dependencies = [
  "quote",
  "rts-abi",
  "rts-engine",
+ "syn",
+]
+
+[[package]]
+name = "rts-macro-rwk"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
  "syn",
 ]
 

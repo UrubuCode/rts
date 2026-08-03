@@ -20,6 +20,7 @@ members = [
     "crates/rts-render",
     "crates/rts-egui",
     "crates/rts-macro",
+    "crates/rts-macro-rwk",
     "crates/rts-codegen-new",
     "crates/rts-cranelift",
     "crates/rts-codegen",

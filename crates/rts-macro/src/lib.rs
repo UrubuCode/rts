@@ -91,7 +91,6 @@ use proc_macro::TokenStream;
 mod abi;
 mod class;
 mod constant;
-mod entry;
 mod function;
 mod naming;
 mod sym;
@@ -113,24 +112,6 @@ pub fn class(args: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn abi(a: TokenStream, item: TokenStream) -> TokenStream {
     abi::expand(a, item)
-}
-
-/// `#[rtse::entry]` — the same derivation as `#[rtse::abi]`, emitting the
-/// descriptor the NEW engine reads rather than the one `rts-abi` defines.
-///
-/// Two attributes rather than one with a mode, because the two emissions
-/// describe different things and will diverge further: this one can express an
-/// aggregate parameter and more than one return, and `abi` cannot. Keeping them
-/// apart means the old one is deleted whole when `rts-abi` goes.
-///
-/// See the `entry` module doc for the type mapping and for why numbering is not
-/// decided here.
-#[proc_macro_attribute]
-pub fn entry(a: TokenStream, item: TokenStream) -> TokenStream {
-    match entry::expand(a.into(), item.into()) {
-        Ok(tokens) => tokens.into(),
-        Err(error) => error.to_compile_error().into(),
-    }
 }
 
 /// `#[rtse::constant]` — expose a Rust `const` as a Registry constant, reachable
