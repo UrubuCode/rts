@@ -37,6 +37,42 @@ fn three_additions(positions: [u32; 3]) -> Function {
     func
 }
 
+/// Compiles a function, finalizes it, and puts it on a map where it landed.
+fn compile_and_place(name: &str, func: &Function) -> (CodeMap, usize) {
+    let types = TypeRegistry::new();
+    let mut funcs = FuncRegistry::new();
+    let shape = funcs.declare_signature(Signature {
+        params: vec![Repr::I64],
+        returns: vec![Repr::I64],
+        ..Signature::default()
+    });
+    let id = funcs.declare_function(shape);
+
+    let mut jit = executable_memory().expect("host");
+    let (machine_id, placements) = {
+        let mut module = MachineModule::new(&mut jit);
+        module
+            .declare(id, name, Linkage::Export, &funcs)
+            .expect("declared");
+        module.define(id, func, &funcs, &types).expect("defined");
+        let machine_id = module.declarations().machine_id(id).expect("declared");
+        (machine_id, module.into_placements())
+    };
+
+    // Nothing has an address until this happens, which is why placing is a
+    // separate step and why what it needs is handed over rather than asked for.
+    jit.finalize_definitions().expect("finalized");
+    let address = jit.get_finalized_function(machine_id) as usize;
+    std::mem::forget(jit);
+
+    let mut map = CodeMap::new();
+    assert!(
+        placements.place(&mut map, id, address),
+        "a defined function has code to place"
+    );
+    (map, address)
+}
+
 /// Compiles a function and hands back the module and what was recorded about it.
 fn compile(
     name: &str,
@@ -139,21 +175,57 @@ fn a_program_that_said_nothing_is_attributed_to_nothing() {
 }
 
 #[test]
-fn a_return_address_finds_the_function_it_is_in() {
-    let func = three_additions([1, 2, 3]);
-    let (jit, machine_id, _) = compile("named", &func);
-    let address = jit.get_finalized_function(machine_id) as usize;
-    std::mem::forget(jit);
+fn a_return_address_is_said_back_as_a_function_and_a_place() {
+    let func = three_additions([11, 22, 33]);
+    let (mut map, address) = compile_and_place("named", &func);
 
-    let mut map = CodeMap::new();
-    map.record("named", address, 64);
+    let attribution = map.attribute(address).expect("the entry is inside it");
+    assert_eq!(
+        attribution.function, "named",
+        "a stack trace can name the frame"
+    );
+    assert_eq!(attribution.offset, 0);
 
-    let (range, offset) = map.at(address + 8).expect("inside");
-    assert_eq!(range.name, "named", "a stack trace can name the frame");
-    assert_eq!(offset, 8, "and say how far into it the address was");
+    // Somewhere inside, both halves answer together — which is the only
+    // question anyone actually has.
+    let inside = (0..64)
+        .filter_map(|step| map.attribute(address + step))
+        .find(|found| found.position.is_known())
+        .expect("some address in it came from somewhere");
+    assert!(
+        [11, 22, 33].contains(&inside.position.raw()),
+        "and the place it names is one the program was built from"
+    );
 
     assert!(
-        map.at(address - 1).is_none(),
+        map.attribute(address - 1).is_none(),
         "just before it is not inside it, and saying otherwise names the wrong frame"
     );
+    let _ = &mut map;
+}
+
+#[test]
+fn a_function_that_was_declared_and_never_defined_is_not_placed() {
+    let types = TypeRegistry::new();
+    let mut funcs = FuncRegistry::new();
+    let shape = funcs.declare_signature(Signature::default());
+    let id = funcs.declare_function(shape);
+
+    let mut jit = executable_memory().expect("host");
+    let placements = {
+        let mut module = MachineModule::new(&mut jit);
+        module
+            .declare(id, "promised", Linkage::Export, &funcs)
+            .expect("declared");
+        module.into_placements()
+    };
+    let _ = types;
+
+    let mut map = CodeMap::new();
+    assert!(
+        !placements.place(&mut map, id, 0x1000),
+        "it has a name and no code, and mapping zero bytes of it would put a hole \n         in the map at a real address"
+    );
+    assert!(map.is_empty());
+    std::mem::forget(jit);
 }

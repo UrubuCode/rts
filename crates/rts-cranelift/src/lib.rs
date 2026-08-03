@@ -83,7 +83,7 @@ pub use frame::{ResumeLabel, SpillLayout, SuspendPlan, plan_suspension};
 pub use gc::{FrameDescriptor, FrameTable, describe_frames};
 pub use lower::{LowerError, lower_function};
 pub use mem::{ObjectLayout, RegionBases};
-pub use observe::{CodeMap, PositionMap};
+pub use observe::{Attribution, CodeMap, PositionMap};
 pub use repr::{RefKind, Repr};
 pub use sched::{PromiseTable, Scheduler, SchedulerId};
 pub use symbols::{EntryTable, RtEntry};

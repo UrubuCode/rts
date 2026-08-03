@@ -22,5 +22,5 @@
 mod code;
 mod positions;
 
-pub use code::{CodeMap, CodeRange};
+pub use code::{Attribution, CodeMap, CodeRange};
 pub use positions::PositionMap;

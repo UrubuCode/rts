@@ -78,6 +78,12 @@ pub struct MachineModule<'a> {
     heap: Option<crate::mem::RegionBases>,
     faults: std::collections::HashMap<FuncId, crate::fault::FaultTable>,
     positions: std::collections::HashMap<FuncId, crate::observe::PositionMap>,
+    /// What each function is called and how much code it became.
+    ///
+    /// Kept so that placing a function in a map does not ask a caller to restate
+    /// either. A length restated by hand is a length that can be wrong, and a
+    /// wrong length names the wrong function for every address past the end.
+    emitted: std::collections::HashMap<FuncId, (String, usize)>,
     call_conv: CallConv,
 }
 
@@ -92,6 +98,7 @@ impl<'a> MachineModule<'a> {
             heap: None,
             faults: std::collections::HashMap::new(),
             positions: std::collections::HashMap::new(),
+            emitted: std::collections::HashMap::new(),
             call_conv,
         }
     }
@@ -112,6 +119,18 @@ impl<'a> MachineModule<'a> {
     /// compiled rather than predicted before compiling.
     pub fn faults(&self, id: FuncId) -> Option<&crate::fault::FaultTable> {
         self.faults.get(&id)
+    }
+
+    /// Hands over what this compilation learned about its functions.
+    ///
+    /// Consumes the compilation, which is the point: what comes back is only
+    /// usable once the destination has been finalized, and finalizing is not
+    /// possible while a compilation is still holding it.
+    pub fn into_placements(self) -> Placements {
+        Placements {
+            emitted: self.emitted,
+            positions: self.positions,
+        }
     }
 
     /// Where each run of a compiled function's code came from.
@@ -150,6 +169,7 @@ impl<'a> MachineModule<'a> {
         let lowered = machine_signature(signature, self.call_conv);
         let declared = self.module.declare_function(name, linkage, &lowered)?;
         self.declarations.record(id, declared, lowered);
+        self.emitted.insert(id, (name.to_owned(), 0));
         Ok(())
     }
 
@@ -208,6 +228,9 @@ impl<'a> MachineModule<'a> {
             self.faults.insert(id, crate::fault::FaultTable::of(code));
             self.positions
                 .insert(id, crate::observe::PositionMap::of(code));
+            if let Some(emitted) = self.emitted.get_mut(&id) {
+                emitted.1 = code.code_info().total_size as usize;
+            }
         }
         Ok(())
     }
@@ -242,6 +265,52 @@ impl MachineModule<'_> {
                 record(sig);
             }
         }
+    }
+}
+
+/// What a compilation knows about its functions, once it is done with them.
+///
+/// Handed over rather than asked for while compiling, because placing a function
+/// needs its address and nothing has one until the destination is finalized — by
+/// which point the compilation is over. The borrow checker says the same thing,
+/// which is how the ordering was noticed.
+#[derive(Default)]
+pub struct Placements {
+    emitted: std::collections::HashMap<FuncId, (String, usize)>,
+    positions: std::collections::HashMap<FuncId, crate::observe::PositionMap>,
+}
+
+impl Placements {
+    /// Puts a compiled function on a map, at the address it ended up at.
+    ///
+    /// The address is the caller's to supply, because only the destination knows
+    /// one. Everything else — the name, how much code it became, where each run
+    /// of it came from — is already known, so none of it is restated. A length
+    /// restated by hand is a length that can be wrong, and a wrong one names the
+    /// wrong function for every address past the end.
+    ///
+    /// Reports whether there was anything to place. A function declared and never
+    /// defined has a name and no code, and silently mapping zero bytes of it puts
+    /// a hole in the map at a real address.
+    pub fn place(&self, map: &mut crate::observe::CodeMap, id: FuncId, address: usize) -> bool {
+        let Some((name, length)) = self.emitted.get(&id) else {
+            return false;
+        };
+        if *length == 0 {
+            return false;
+        }
+
+        let positions = self.positions.get(&id).cloned().unwrap_or_default();
+        map.record(name, address, *length, positions);
+        true
+    }
+
+    /// Every function that has code to place.
+    pub fn defined(&self) -> impl Iterator<Item = FuncId> + '_ {
+        self.emitted
+            .iter()
+            .filter(|(_, (_, length))| *length > 0)
+            .map(|(&id, _)| id)
     }
 }
 
