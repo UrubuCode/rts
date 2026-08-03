@@ -25,10 +25,14 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-target
 
 # Added by cargo
-
+#
+# Anchored, and deliberately so. A bare `target` matches a directory of that name
+# at ANY depth, which silently swallowed `crates/rts-cranelift/src/target/` — a
+# source directory, not a build one. Cargo only ever creates its build directory
+# at the workspace root, so anchoring costs nothing and stops the pattern from
+# claiming source that happens to share the name.
 /target
 debug_*
 .claude/settings.local.json
