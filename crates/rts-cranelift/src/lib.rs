@@ -54,6 +54,7 @@
 #![deny(dead_code)]
 
 pub mod abi;
+pub mod fault;
 pub mod frame;
 pub mod gc;
 pub mod ir;
@@ -69,6 +70,7 @@ pub mod unwind;
 pub mod verify;
 
 pub use abi::{AbiType, Convention, Signature as AbiSignature, TargetAbi, lower_signature};
+pub use fault::{FaultTable, Position};
 pub use frame::{ResumeLabel, SpillLayout, SuspendPlan, plan_suspension};
 pub use gc::{FrameDescriptor, FrameTable, describe_frames};
 pub use lower::{LowerError, lower_function};

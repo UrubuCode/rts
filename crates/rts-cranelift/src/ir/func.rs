@@ -89,6 +89,7 @@ pub struct Function {
     insts: Vec<InstData>,
     consts: Vec<ConstDecl>,
     block_regions: Vec<Option<RegionId>>,
+    positions: Vec<crate::fault::Position>,
 }
 
 impl Function {
@@ -107,6 +108,7 @@ impl Function {
             insts: Vec::new(),
             consts: Vec::new(),
             block_regions: Vec::new(),
+            positions: Vec::new(),
         };
 
         let entry = func.push_block();
@@ -166,9 +168,27 @@ impl Function {
             .iter()
             .map(|&repr| self.push_value(repr, ValueOrigin::InstResult(inst_id)))
             .collect();
+        self.positions.push(crate::fault::Position::UNKNOWN);
         self.insts[inst_id.index()].results = values.clone();
         self.blocks[block.index()].insts.push(inst_id);
         values
+    }
+
+    /// Says where in the client's program an instruction came from.
+    ///
+    /// Optional, and silent when omitted. An instruction with no position is not
+    /// a mistake — plenty of emitted code belongs to no single place — and
+    /// inventing one would be worse than admitting it.
+    pub fn set_position(&mut self, inst: InstId, position: crate::fault::Position) {
+        self.positions[inst.index()] = position;
+    }
+
+    /// Where an instruction came from, if anywhere.
+    pub fn position_of(&self, inst: InstId) -> crate::fault::Position {
+        self.positions
+            .get(inst.index())
+            .copied()
+            .unwrap_or(crate::fault::Position::UNKNOWN)
     }
 
     /// Sets how control leaves a block.

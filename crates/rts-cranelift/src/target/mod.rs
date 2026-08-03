@@ -76,6 +76,7 @@ pub struct MachineModule<'a> {
     declarations: Declarations,
     entries: crate::symbols::EntryTable,
     heap: Option<crate::mem::RegionBases>,
+    faults: std::collections::HashMap<FuncId, crate::fault::FaultTable>,
     call_conv: CallConv,
 }
 
@@ -88,6 +89,7 @@ impl<'a> MachineModule<'a> {
             declarations: Declarations::new(),
             entries: crate::symbols::EntryTable::new(),
             heap: None,
+            faults: std::collections::HashMap::new(),
             call_conv,
         }
     }
@@ -100,6 +102,14 @@ impl<'a> MachineModule<'a> {
     /// What has been declared so far.
     pub fn declarations(&self) -> &Declarations {
         &self.declarations
+    }
+
+    /// Where a compiled function can stop, and where each stop came from.
+    ///
+    /// Empty until the function is defined, because it is read out of what was
+    /// compiled rather than predicted before compiling.
+    pub fn faults(&self, id: FuncId) -> Option<&crate::fault::FaultTable> {
+        self.faults.get(&id)
     }
 
     /// Which runtime entry points this compilation has needed.
@@ -166,6 +176,7 @@ impl<'a> MachineModule<'a> {
             entries,
             heap,
             call_conv,
+            ..
         } = self;
         context.func = crate::lower::lower_into(
             func,
@@ -178,6 +189,13 @@ impl<'a> MachineModule<'a> {
         )?;
 
         self.module.define_function(declared, &mut context)?;
+
+        // Read out before the context is dropped: the correspondence between
+        // addresses and the program exists in what was just compiled, and
+        // nowhere else afterwards.
+        if let Some(code) = context.compiled_code() {
+            self.faults.insert(id, crate::fault::FaultTable::of(code));
+        }
         Ok(())
     }
 }

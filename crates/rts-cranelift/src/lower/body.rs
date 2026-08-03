@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
-use cranelift_codegen::ir::{Block, InstBuilder, Value, types};
+use cranelift_codegen::ir::{Block, InstBuilder, SourceLoc, Value, types};
 use cranelift_frontend::FunctionBuilder;
 
 use super::error::{Capability, LowerError};
@@ -114,8 +114,15 @@ impl<'a> Body<'a> {
                 .func
                 .inst(inst_id)
                 .expect("instruction belongs to this function");
+
+            // Said before the instruction is emitted, so that everything it
+            // becomes carries it. This is the only moment the correspondence
+            // between a program and its code exists; not recording it here is
+            // recording it nowhere.
+            builder.set_srcloc(SourceLoc::new(self.func.position_of(inst_id).raw()));
             self.lower_inst(builder, inst_id, &inst.inst, &inst.results)?;
         }
+        builder.set_srcloc(SourceLoc::default());
 
         match &data.terminator {
             Some(terminator) => self.lower_terminator(builder, id, terminator),
