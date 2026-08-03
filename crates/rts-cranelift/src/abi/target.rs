@@ -74,7 +74,10 @@ impl TargetAbi {
             float_param_registers: 8,
             int_return_registers: 2,
             float_return_registers: 2,
-            aggregate: AggregatePolicy::Pieces { max_bytes: 16, piece_bytes: 8 },
+            aggregate: AggregatePolicy::Pieces {
+                max_bytes: 16,
+                piece_bytes: 8,
+            },
             max_direct_returns: 1,
         }
     }
@@ -103,7 +106,10 @@ impl TargetAbi {
             float_param_registers: 8,
             int_return_registers: 2,
             float_return_registers: 4,
-            aggregate: AggregatePolicy::Homogeneous { max_bytes: 16, max_float_members: 4 },
+            aggregate: AggregatePolicy::Homogeneous {
+                max_bytes: 16,
+                max_float_members: 4,
+            },
             max_direct_returns: 1,
         }
     }
@@ -134,8 +140,11 @@ mod tests {
 
     #[test]
     fn every_target_starts_conservative_about_multiple_returns() {
-        for target in [TargetAbi::x86_64_sysv(), TargetAbi::x86_64_windows(), TargetAbi::aarch64()]
-        {
+        for target in [
+            TargetAbi::x86_64_sysv(),
+            TargetAbi::x86_64_windows(),
+            TargetAbi::aarch64(),
+        ] {
             assert_eq!(
                 target.max_direct_returns, 1,
                 "{}: an unproven count must fail as an indirection, not as a wrong ABI",

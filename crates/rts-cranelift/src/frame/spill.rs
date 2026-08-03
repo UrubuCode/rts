@@ -96,22 +96,38 @@ mod tests {
     #[test]
     fn a_value_appearing_twice_occupies_one_slot() {
         let v = values(2);
-        let layout =
-            SpillLayout::build(vec![(v[0], Repr::I64), (v[1], Repr::F64), (v[0], Repr::I64)]);
+        let layout = SpillLayout::build(vec![
+            (v[0], Repr::I64),
+            (v[1], Repr::F64),
+            (v[0], Repr::I64),
+        ]);
 
-        assert_eq!(layout.len(), 2, "resuming and suspending must agree on one layout");
+        assert_eq!(
+            layout.len(),
+            2,
+            "resuming and suspending must agree on one layout"
+        );
         assert_eq!(layout.slot_of(v[0]), Some(0));
     }
 
     #[test]
     fn the_order_does_not_depend_on_discovery() {
         let v = values(3);
-        let forward =
-            SpillLayout::build(vec![(v[0], Repr::I64), (v[1], Repr::I64), (v[2], Repr::I64)]);
-        let backward =
-            SpillLayout::build(vec![(v[2], Repr::I64), (v[1], Repr::I64), (v[0], Repr::I64)]);
+        let forward = SpillLayout::build(vec![
+            (v[0], Repr::I64),
+            (v[1], Repr::I64),
+            (v[2], Repr::I64),
+        ]);
+        let backward = SpillLayout::build(vec![
+            (v[2], Repr::I64),
+            (v[1], Repr::I64),
+            (v[0], Repr::I64),
+        ]);
 
-        assert_eq!(forward, backward, "a record whose shape changes for no reason is unreadable");
+        assert_eq!(
+            forward, backward,
+            "a record whose shape changes for no reason is unreadable"
+        );
     }
 
     #[test]

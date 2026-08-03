@@ -186,6 +186,7 @@ src/
   gc/       the collector's contract: liveness, safepoints, roots, barriers
   unwind/   protected regions, cleanup chains, handler search
   frame/    suspension: what a parked frame preserves, and where it resumes
+  sched/    promises, continuations, queues, and the order they run in
   abi/      types, conventions, aggregate classification, multiple returns
   verify/   the rules, and what it reports
 ```
@@ -196,15 +197,14 @@ frame, is one program point in all three concerns; three tables keyed by it woul
 be kept in agreement by hand, which is the bug that record exists to prevent.
 
 Planned and deliberately absent: `lower/` and `target/` (the code generator and
-the two output paths), `sched/` (promises and continuations), `guard/` (bailout),
-`fault/`, `observe/`, `symbols/`, `probe/`.
+the two output paths), `guard/` (bailout), `fault/`, `observe/`, `symbols/`,
+`probe/`.
 
-There are no call instructions yet, and that is not an oversight. A call is
-inseparable from the convention it uses, from the safepoint it implies, and from
-whether its callee may suspend. All three now exist as separate facts; what is
-missing is the scheduler, which decides what a call to a suspending function does
-to its caller. Adding a call node before that means choosing the answer silently
-and rediscovering it later.
+There are no call instructions yet. Every fact one needs now exists — the
+convention it uses, the safepoint it implies, whether its callee may suspend, and
+what a suspension does — so calls are next rather than blocked. They were held
+back on purpose: choosing those answers implicitly, then rediscovering them, is
+the failure this ordering avoided.
 
 ---
 

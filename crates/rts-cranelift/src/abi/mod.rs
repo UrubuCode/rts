@@ -117,12 +117,20 @@ pub struct Signature {
 impl Signature {
     /// A signature with the given types under the internal convention.
     pub fn internal(params: Vec<AbiType>, returns: Vec<AbiType>) -> Self {
-        Self { params, returns, convention: Convention::Internal }
+        Self {
+            params,
+            returns,
+            convention: Convention::Internal,
+        }
     }
 
     /// A signature crossing a library boundary.
     pub fn foreign(params: Vec<AbiType>, returns: Vec<AbiType>) -> Self {
-        Self { params, returns, convention: Convention::Foreign }
+        Self {
+            params,
+            returns,
+            convention: Convention::Foreign,
+        }
     }
 
     /// The same signature, permitting tail calls.

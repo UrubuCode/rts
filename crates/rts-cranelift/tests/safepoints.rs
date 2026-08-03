@@ -24,8 +24,19 @@ fn param(func: &Function, index: usize) -> ValueId {
 /// The values reported at the only described point of a function.
 fn only_frame_roots(func: &Function) -> Vec<ValueId> {
     let table = describe_frames(func);
-    assert_eq!(table.len(), 1, "this function has exactly one point that can collect");
-    table.iter().next().expect("one frame").roots.iter().map(|r| r.value).collect()
+    assert_eq!(
+        table.len(),
+        1,
+        "this function has exactly one point that can collect"
+    );
+    table
+        .iter()
+        .next()
+        .expect("one frame")
+        .roots
+        .iter()
+        .map(|r| r.value)
+        .collect()
 }
 
 #[test]
@@ -39,7 +50,10 @@ fn a_function_that_never_allocates_describes_nothing() {
     let sum = b.arith(NumOp::Add, x, y).expect("proven");
     b.ret(&[sum]);
 
-    assert!(describe_frames(&func).is_empty(), "no allocation means no point that can collect");
+    assert!(
+        describe_frames(&func).is_empty(),
+        "no allocation means no point that can collect"
+    );
 }
 
 #[test]
@@ -160,7 +174,10 @@ fn an_earlier_allocation_is_reported_at_a_later_one() {
     assert_eq!(table.len(), 2, "both allocations can collect");
 
     let frames: Vec<_> = table.iter().collect();
-    assert!(frames[0].roots.is_empty(), "nothing is live across the first");
+    assert!(
+        frames[0].roots.is_empty(),
+        "nothing is live across the first"
+    );
     assert_eq!(
         frames[1].roots.iter().map(|r| r.value).collect::<Vec<_>>(),
         vec![first],
@@ -173,14 +190,18 @@ fn a_reference_live_through_a_branch_is_reported_on_both_paths() {
     let mut types = TypeRegistry::new();
     let ty = types.declare(&[Repr::I64]);
 
-    let mut func = function(&[Repr::Bool, Repr::Ref(RefKind::Bytes)], &[Repr::Ref(RefKind::Bytes)]);
+    let mut func = function(
+        &[Repr::Bool, Repr::Ref(RefKind::Bytes)],
+        &[Repr::Ref(RefKind::Bytes)],
+    );
     let (cond, held) = (param(&func, 0), param(&func, 1));
 
     let entry = func.entry;
     let mut b = FuncBuilder::new(&mut func, &types, entry);
     let left = b.create_block();
     let right = b.create_block();
-    b.branch(cond, (left, &[]), (right, &[])).expect("proven boolean");
+    b.branch(cond, (left, &[]), (right, &[]))
+        .expect("proven boolean");
 
     for block in [left, right] {
         let mut b = FuncBuilder::new(&mut func, &types, block);
@@ -216,7 +237,8 @@ fn a_reference_carried_around_a_loop_stays_reported() {
 
     let mut b = FuncBuilder::new(&mut func, &types, header);
     b.alloc(ty, Region::Local);
-    b.branch(cond, (header, &[carried]), (exit, &[])).expect("proven boolean");
+    b.branch(cond, (header, &[carried]), (exit, &[]))
+        .expect("proven boolean");
 
     let mut b = FuncBuilder::new(&mut func, &types, exit);
     b.ret(&[]);
@@ -234,7 +256,11 @@ fn the_reported_order_does_not_depend_on_hashing() {
     let ty = types.declare(&[Repr::I64]);
 
     let mut func = function(
-        &[Repr::Ref(RefKind::Bytes), Repr::Ref(RefKind::Callable), Repr::Tagged],
+        &[
+            Repr::Ref(RefKind::Bytes),
+            Repr::Ref(RefKind::Callable),
+            Repr::Tagged,
+        ],
         &[Repr::Tagged],
     );
     let (a, b_ref, c) = (param(&func, 0), param(&func, 1), param(&func, 2));
@@ -252,7 +278,11 @@ fn the_reported_order_does_not_depend_on_hashing() {
         first, second,
         "a set that depends on hash order cannot be compared between builds"
     );
-    assert!(first.iter().all(|f| f.roots.windows(2).all(|w| w[0].value < w[1].value)));
+    assert!(
+        first
+            .iter()
+            .all(|f| f.roots.windows(2).all(|w| w[0].value < w[1].value))
+    );
 }
 
 #[test]
@@ -270,5 +300,8 @@ fn a_described_point_is_found_by_lookup() {
 
     let table = describe_frames(&func);
     let at = table.iter().next().expect("one frame").at;
-    assert!(table.lookup(at).is_some(), "the consumer looks up a point it discovered at run time");
+    assert!(
+        table.lookup(at).is_some(),
+        "the consumer looks up a point it discovered at run time"
+    );
 }

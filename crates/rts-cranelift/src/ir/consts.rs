@@ -92,7 +92,10 @@ mod tests {
     fn a_symbol_address_is_an_integer_not_a_reference() {
         let c = ConstDecl::Symbol(SymbolRef("entry".into()));
         assert_eq!(c.repr(), Repr::I64);
-        assert!(!c.is_gc_relevant(), "the collector does not trace code addresses");
+        assert!(
+            !c.is_gc_relevant(),
+            "the collector does not trace code addresses"
+        );
     }
 
     #[test]

@@ -56,13 +56,18 @@ use crate::ir::{BlockId, Function, Terminator};
 pub fn plan_all_throws(func: &Function) -> Vec<(BlockId, UnwindPlan)> {
     let mut plans = Vec::new();
     for (id, block) in func.blocks() {
-        let Some(Terminator::Throw { tag, .. }) = &block.terminator else { continue };
+        let Some(Terminator::Throw { tag, .. }) = &block.terminator else {
+            continue;
+        };
 
         let plan = match func.region_of(id) {
             Some(region) => plan_unwind(&func.regions, region, *tag),
             // Outside every region there is nothing to clean up and nothing to
             // match, so the value leaves immediately. That is a plan, not a gap.
-            None => UnwindPlan { cleanups: Vec::new(), handler: None },
+            None => UnwindPlan {
+                cleanups: Vec::new(),
+                handler: None,
+            },
         };
         plans.push((id, plan));
     }

@@ -74,7 +74,10 @@ pub fn lower_signature(
         .map(|&ty| classify_param(ty, types, target))
         .collect();
 
-    LoweredSignature { params, returns: classify_returns(&signature.returns, types, target) }
+    LoweredSignature {
+        params,
+        returns: classify_returns(&signature.returns, types, target),
+    }
 }
 
 /// How one parameter travels.
@@ -97,11 +100,7 @@ fn classify_param(ty: AbiType, types: &TypeRegistry, target: &TargetAbi) -> Para
 /// proven on this target, and the slots must fit the return registers. Failing
 /// either sends the whole return list through a pointer, which is the form that
 /// is unambiguously supported everywhere.
-fn classify_returns(
-    returns: &[AbiType],
-    types: &TypeRegistry,
-    target: &TargetAbi,
-) -> ReturnClass {
+fn classify_returns(returns: &[AbiType], types: &TypeRegistry, target: &TargetAbi) -> ReturnClass {
     if returns.is_empty() {
         return ReturnClass::None;
     }
@@ -145,9 +144,7 @@ fn describe_returns(returns: &[AbiType], types: &TypeRegistry) -> Vec<SlotSpec> 
                 described.push(SlotSpec::of(Repr::I64));
             }
             AbiType::Aggregate(id) => {
-                described.extend(
-                    types.layout(id).fields.iter().map(|f| SlotSpec::of(f.repr)),
-                );
+                described.extend(types.layout(id).fields.iter().map(|f| SlotSpec::of(f.repr)));
             }
         }
     }
@@ -184,7 +181,9 @@ fn classify_aggregate(
             Some(vec![SlotSpec::of(piece_repr(layout, 0, layout.size))])
         }
 
-        AggregatePolicy::Homogeneous { max_float_members, .. } => {
+        AggregatePolicy::Homogeneous {
+            max_float_members, ..
+        } => {
             if let Some(slots) = homogeneous_float_slots(layout, max_float_members) {
                 return Some(slots);
             }
@@ -228,10 +227,7 @@ fn piece_repr(layout: &AggregateLayout, start: u32, length: u32) -> Repr {
 }
 
 /// Slots for an aggregate whose fields are all the same floating-point type.
-fn homogeneous_float_slots(
-    layout: &AggregateLayout,
-    max_members: u32,
-) -> Option<Vec<SlotSpec>> {
+fn homogeneous_float_slots(layout: &AggregateLayout, max_members: u32) -> Option<Vec<SlotSpec>> {
     let first = layout.fields.first()?.repr;
     if !first.is_float() {
         return None;

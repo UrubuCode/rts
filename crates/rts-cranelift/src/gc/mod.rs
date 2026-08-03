@@ -61,13 +61,19 @@ pub fn describe_frames(func: &Function) -> FrameTable {
     let mut table = FrameTable::new();
 
     for (block_id, block) in func.blocks() {
-        if !block.insts.iter().any(|&i| func.inst(i).is_some_and(|d| d.inst.is_safepoint())) {
+        if !block
+            .insts
+            .iter()
+            .any(|&i| func.inst(i).is_some_and(|d| d.inst.is_safepoint()))
+        {
             continue;
         }
 
         let after = live_after_each_inst(func, block_id, &liveness);
         for (position, &inst_id) in block.insts.iter().enumerate() {
-            let Some(data) = func.inst(inst_id) else { continue };
+            let Some(data) = func.inst(inst_id) else {
+                continue;
+            };
             if !data.inst.is_safepoint() {
                 continue;
             }
@@ -80,7 +86,10 @@ pub fn describe_frames(func: &Function) -> FrameTable {
                 // moment it looks.
                 .filter(|&&value| Some(value) != data.result)
                 .filter(|&&value| func.repr_of(value).is_gc_relevant())
-                .map(|&value| RootSlot { value, kind: reference_kind(func.repr_of(value)) })
+                .map(|&value| RootSlot {
+                    value,
+                    kind: reference_kind(func.repr_of(value)),
+                })
                 .collect();
 
             // Ordered so that two runs over the same function produce the same

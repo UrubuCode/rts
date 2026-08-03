@@ -170,6 +170,34 @@ pub enum Inst {
     /// property of the function, declared where it is defined, not re-declared at
     /// every point that reaches it.
     Suspend,
+
+    /// Creates a pending promise owned by the current region's scheduler.
+    PromiseNew,
+
+    /// Settles a promise, making everything waiting on it runnable.
+    PromiseSettle {
+        /// The promise being settled.
+        promise: ValueId,
+        /// What it carries, in the generic form.
+        value: ValueId,
+        /// Whether this is a failure.
+        ///
+        /// A rejection resumes its waiter through the unwinding path rather than
+        /// delivering a value — one settlement with two outcomes, not two
+        /// unrelated mechanisms.
+        rejected: bool,
+    },
+
+    /// Parks the frame until a promise settles.
+    ///
+    /// A suspension that names what it waits for. Distinguished from a bare
+    /// [`Inst::Suspend`] because the two differ in what resumes them — one is
+    /// resumed by whoever holds the frame, the other by a settlement — and a
+    /// single node would have to carry an absent operand to express both.
+    Await {
+        /// The promise waited on.
+        promise: ValueId,
+    },
 }
 
 impl Inst {
@@ -180,7 +208,10 @@ impl Inst {
     /// in three places and forgotten in a fourth.
     pub fn operands(&self) -> Vec<ValueId> {
         match self {
-            Inst::Const(_) | Inst::Alloc { .. } | Inst::Suspend => Vec::new(),
+            Inst::Const(_) | Inst::Alloc { .. } | Inst::Suspend | Inst::PromiseNew => Vec::new(),
+
+            Inst::Await { promise } => vec![*promise],
+            Inst::PromiseSettle { promise, value, .. } => vec![*promise, *value],
 
             Inst::Widen(v) | Inst::Narrow(v, _) => vec![*v],
 
@@ -204,7 +235,7 @@ impl Inst {
     /// stating it here makes it a constraint the layer is designed around rather
     /// than a coincidence it happens to survive.
     pub fn is_safepoint(&self) -> bool {
-        matches!(self, Inst::Alloc { .. } | Inst::Suspend)
+        matches!(self, Inst::Alloc { .. }) || self.is_suspend()
     }
 
     /// Whether this instruction parks the frame.
@@ -214,7 +245,7 @@ impl Inst {
     /// collections, so what it holds must be findable for as long as it is
     /// parked — not merely at the moment it stops.
     pub fn is_suspend(&self) -> bool {
-        matches!(self, Inst::Suspend)
+        matches!(self, Inst::Suspend | Inst::Await { .. })
     }
 }
 
@@ -230,7 +261,10 @@ pub struct BlockCall {
 impl BlockCall {
     /// A transfer to a block that takes no parameters.
     pub fn to(block: BlockId) -> Self {
-        Self { block, args: Vec::new() }
+        Self {
+            block,
+            args: Vec::new(),
+        }
     }
 }
 
@@ -297,7 +331,11 @@ impl Terminator {
     pub fn successors(&self) -> Vec<BlockId> {
         match self {
             Terminator::Jump(call) => vec![call.block],
-            Terminator::Branch { then_block, else_block, .. } => {
+            Terminator::Branch {
+                then_block,
+                else_block,
+                ..
+            } => {
                 vec![then_block.block, else_block.block]
             }
             Terminator::Guard { ok, fail, .. } => vec![ok.block, fail.block],
@@ -313,12 +351,18 @@ impl Terminator {
         let mut operands = Vec::new();
         match self {
             Terminator::Jump(call) => operands.extend_from_slice(&call.args),
-            Terminator::Branch { cond, then_block, else_block } => {
+            Terminator::Branch {
+                cond,
+                then_block,
+                else_block,
+            } => {
                 operands.push(*cond);
                 operands.extend_from_slice(&then_block.args);
                 operands.extend_from_slice(&else_block.args);
             }
-            Terminator::Guard { input, ok, fail, .. } => {
+            Terminator::Guard {
+                input, ok, fail, ..
+            } => {
                 operands.push(*input);
                 operands.extend_from_slice(&ok.args);
                 operands.extend_from_slice(&fail.args);

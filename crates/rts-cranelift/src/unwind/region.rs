@@ -85,7 +85,11 @@ impl RegionTree {
             "a region's parent must be declared before it"
         );
         let id = RegionId(self.regions.len() as u32);
-        self.regions.push(Region { parent, handlers, cleanup });
+        self.regions.push(Region {
+            parent,
+            handlers,
+            cleanup,
+        });
         id
     }
 
@@ -99,7 +103,10 @@ impl RegionTree {
     /// This is the search order, and it is finite because a parent is always
     /// declared before its children.
     pub fn enclosing(&self, id: RegionId) -> Enclosing<'_> {
-        Enclosing { tree: self, next: Some(id) }
+        Enclosing {
+            tree: self,
+            next: Some(id),
+        }
     }
 
     /// How many regions are declared.

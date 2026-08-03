@@ -79,7 +79,10 @@ pub fn is_encoded(word: u64) -> bool {
 /// value has a bug the mask would hide, so debug builds fail instead.
 pub fn encode(tag: u8, payload: u64) -> u64 {
     debug_assert!(u64::from(tag) <= TAG_MASK, "tag does not fit the tag field");
-    debug_assert!(payload <= PAYLOAD_MASK, "payload does not fit the payload field");
+    debug_assert!(
+        payload <= PAYLOAD_MASK,
+        "payload does not fit the payload field"
+    );
     BOX_BASE | ((u64::from(tag) & TAG_MASK) << TAG_SHIFT) | (payload & PAYLOAD_MASK)
 }
 

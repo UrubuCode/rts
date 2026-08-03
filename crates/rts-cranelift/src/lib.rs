@@ -32,10 +32,16 @@
 //! read as a frame, with its roots findable and the cleanup chain it suspended
 //! inside intact.
 //!
-//! Still to come: lowering to machine code and the two output paths, the
-//! scheduler, guard failure paths, faults and observability. Calls arrive with
-//! the scheduler, because a call is inseparable from the convention it uses, the
-//! safepoint it implies, and whether its callee may suspend.
+//! On top of that model sits the concurrency substrate: promises, continuations,
+//! and the order they run in. A continuation is not a metaphor for a parked
+//! frame — it is one, plus the promise it waits on, which is why coroutines,
+//! generators, asynchronous functions and promise waiters are one mechanism here
+//! rather than four.
+//!
+//! Still to come: lowering to machine code and the two output paths, guard
+//! failure paths, faults and observability. Calls are next: every fact one needs
+//! now exists, and they were held back only so that none of those facts would be
+//! chosen implicitly.
 
 #![deny(missing_docs)]
 #![deny(dead_code)]
@@ -45,6 +51,7 @@ pub mod frame;
 pub mod gc;
 pub mod ir;
 pub mod repr;
+pub mod sched;
 pub mod tags;
 pub mod types;
 pub mod unwind;
@@ -54,6 +61,7 @@ pub use abi::{AbiType, Convention, Signature as AbiSignature, TargetAbi, lower_s
 pub use frame::{ResumeLabel, SpillLayout, SuspendPlan, plan_suspension};
 pub use gc::{FrameDescriptor, FrameTable, describe_frames};
 pub use repr::{RefKind, Repr};
+pub use sched::{PromiseTable, Scheduler, SchedulerId};
 pub use types::{FieldLayout, TypeId, TypeRegistry};
 pub use unwind::{RegionId, RegionTree, Tag, UnwindPlan, plan_unwind};
 pub use verify::{VerifyError, verify};

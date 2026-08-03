@@ -22,8 +22,10 @@ pub struct Liveness {
 impl Liveness {
     /// Computes liveness over a whole function.
     pub fn compute(func: &Function) -> Self {
-        let mut analysis =
-            Liveness { live_in: HashMap::new(), live_out: HashMap::new() };
+        let mut analysis = Liveness {
+            live_in: HashMap::new(),
+            live_out: HashMap::new(),
+        };
 
         for (id, _) in func.blocks() {
             analysis.live_in.insert(id, HashSet::new());
@@ -45,12 +47,16 @@ impl Liveness {
 
     /// Values live leaving a block.
     pub fn live_out(&self, block: BlockId) -> &HashSet<ValueId> {
-        self.live_out.get(&block).expect("block belongs to this function")
+        self.live_out
+            .get(&block)
+            .expect("block belongs to this function")
     }
 
     /// Values live entering a block.
     pub fn live_in(&self, block: BlockId) -> &HashSet<ValueId> {
-        self.live_in.get(&block).expect("block belongs to this function")
+        self.live_in
+            .get(&block)
+            .expect("block belongs to this function")
     }
 
     /// Recomputes one block's sets; reports whether anything changed.
@@ -71,7 +77,9 @@ impl Liveness {
             live.extend(terminator.operands());
         }
         for &inst_id in block.insts.iter().rev() {
-            let Some(data) = func.inst(inst_id) else { continue };
+            let Some(data) = func.inst(inst_id) else {
+                continue;
+            };
             if let Some(result) = data.result {
                 live.remove(&result);
             }
@@ -109,7 +117,9 @@ pub fn live_after_each_inst(
     for (position, &inst_id) in data.insts.iter().enumerate().rev() {
         after[position] = live.clone();
 
-        let Some(inst) = func.inst(inst_id) else { continue };
+        let Some(inst) = func.inst(inst_id) else {
+            continue;
+        };
         if let Some(result) = inst.result {
             live.remove(&result);
         }

@@ -132,7 +132,12 @@ impl Function {
     }
 
     /// Appends an instruction to a block, binding its result when it has one.
-    pub fn push_inst(&mut self, block: BlockId, inst: Inst, result: Option<Repr>) -> Option<ValueId> {
+    pub fn push_inst(
+        &mut self,
+        block: BlockId,
+        inst: Inst,
+        result: Option<Repr>,
+    ) -> Option<ValueId> {
         let inst_id = InstId(self.insts.len() as u32);
         self.insts.push(InstData { inst, result: None });
 
@@ -164,7 +169,9 @@ impl Function {
     /// Panics on a handle this function did not issue, which means two functions
     /// were mixed — a wiring mistake, not a condition a caller handles.
     pub fn repr_of(&self, id: ValueId) -> Repr {
-        self.value(id).expect("value handle does not belong to this function").repr
+        self.value(id)
+            .expect("value handle does not belong to this function")
+            .repr
     }
 
     /// A block's contents, or `None` if the handle is foreign.
@@ -184,7 +191,10 @@ impl Function {
 
     /// Every block, in creation order.
     pub fn blocks(&self) -> impl Iterator<Item = (BlockId, &BlockData)> {
-        self.blocks.iter().enumerate().map(|(i, b)| (BlockId(i as u32), b))
+        self.blocks
+            .iter()
+            .enumerate()
+            .map(|(i, b)| (BlockId(i as u32), b))
     }
 
     /// How many blocks exist.

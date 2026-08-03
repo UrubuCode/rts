@@ -126,7 +126,11 @@ impl<'a> FuncBuilder<'a> {
 
     /// Materializes a declared constant.
     pub fn use_const(&mut self, id: ConstId) -> ValueId {
-        let repr = self.func.constant(id).expect("constant belongs to this function").repr();
+        let repr = self
+            .func
+            .constant(id)
+            .expect("constant belongs to this function")
+            .repr();
         self.emit(Inst::Const(id), Some(repr))
     }
 
@@ -141,7 +145,10 @@ impl<'a> FuncBuilder<'a> {
         } else if repr.is_float() {
             Ok(self.emit(Inst::FloatArith(op, a, b), Some(repr)))
         } else {
-            Err(BuildError::WrongDomain { operation: "arith", found: repr })
+            Err(BuildError::WrongDomain {
+                operation: "arith",
+                found: repr,
+            })
         }
     }
 
@@ -149,7 +156,10 @@ impl<'a> FuncBuilder<'a> {
     pub fn bitwise(&mut self, op: BitOp, a: ValueId, b: ValueId) -> BuildResult<ValueId> {
         let repr = self.same_proven("bitwise", a, b)?;
         if !repr.is_integer() {
-            return Err(BuildError::WrongDomain { operation: "bitwise", found: repr });
+            return Err(BuildError::WrongDomain {
+                operation: "bitwise",
+                found: repr,
+            });
         }
         Ok(self.emit(Inst::Bitwise(op, a, b), Some(repr)))
     }
@@ -209,7 +219,12 @@ impl<'a> FuncBuilder<'a> {
                 });
             }
         };
-        self.emit_effect(Inst::FieldStore { object, ty, field, value });
+        self.emit_effect(Inst::FieldStore {
+            object,
+            ty,
+            field,
+            value,
+        });
         Ok(())
     }
 
@@ -235,13 +250,20 @@ impl<'a> FuncBuilder<'a> {
     ) -> BuildResult<()> {
         let cond_repr = self.func.repr_of(cond);
         if cond_repr != Repr::Bool {
-            return Err(BuildError::WrongDomain { operation: "branch", found: cond_repr });
+            return Err(BuildError::WrongDomain {
+                operation: "branch",
+                found: cond_repr,
+            });
         }
         let then_call = self.block_call(then_block.0, then_block.1)?;
         let else_call = self.block_call(else_block.0, else_block.1)?;
         self.func.set_terminator(
             self.block,
-            Terminator::Branch { cond, then_block: then_call, else_block: else_call },
+            Terminator::Branch {
+                cond,
+                then_block: then_call,
+                else_block: else_call,
+            },
         );
         Ok(())
     }
@@ -272,7 +294,12 @@ impl<'a> FuncBuilder<'a> {
         let fail_call = self.block_call(fail.0, fail.1)?;
         self.func.set_terminator(
             self.block,
-            Terminator::Guard { input, expect, ok: ok_call, fail: fail_call },
+            Terminator::Guard {
+                input,
+                expect,
+                ok: ok_call,
+                fail: fail_call,
+            },
         );
         Ok(())
     }
@@ -286,6 +313,37 @@ impl<'a> FuncBuilder<'a> {
     /// missing after a resumption.
     pub fn suspend(&mut self) -> ValueId {
         self.emit(Inst::Suspend, Some(Repr::Tagged))
+    }
+
+    /// Creates a pending promise.
+    pub fn promise_new(&mut self) -> ValueId {
+        self.emit(
+            Inst::PromiseNew,
+            Some(Repr::Ref(crate::repr::RefKind::Opaque)),
+        )
+    }
+
+    /// Settles a promise, making everything waiting on it runnable.
+    ///
+    /// The value is widened: what a settlement carries is decided by whoever
+    /// awaits it, and this layer does not know what that is.
+    pub fn promise_settle(&mut self, promise: ValueId, value: ValueId, rejected: bool) {
+        let value = self.widen_if_needed(value);
+        self.emit_effect(Inst::PromiseSettle {
+            promise,
+            value,
+            rejected,
+        });
+    }
+
+    /// Parks the frame until a promise settles, yielding what it carried.
+    ///
+    /// One node. Whether this costs a parked frame or a blocked thread is not
+    /// decided here and is not a client's concern — which is the difference from
+    /// the arrangement this replaces, where the call site had to know about
+    /// spawning.
+    pub fn await_(&mut self, promise: ValueId) -> ValueId {
+        self.emit(Inst::Await { promise }, Some(Repr::Tagged))
     }
 
     /// Declares a protected region.
@@ -311,12 +369,14 @@ impl<'a> FuncBuilder<'a> {
     /// is in, which is why there is no destination to pass.
     pub fn throw(&mut self, tag: Tag, payload: ValueId) {
         let payload = self.widen_if_needed(payload);
-        self.func.set_terminator(self.block, Terminator::Throw { tag, payload });
+        self.func
+            .set_terminator(self.block, Terminator::Throw { tag, payload });
     }
 
     /// Returns from the function.
     pub fn ret(&mut self, values: &[ValueId]) {
-        self.func.set_terminator(self.block, Terminator::Return(values.to_vec()));
+        self.func
+            .set_terminator(self.block, Terminator::Return(values.to_vec()));
     }
 
     /// Stops the program.
@@ -349,7 +409,11 @@ impl<'a> FuncBuilder<'a> {
             return Err(BuildError::GenericOperand { operation });
         }
         if left != right {
-            return Err(BuildError::MixedOperands { operation, left, right });
+            return Err(BuildError::MixedOperands {
+                operation,
+                left,
+                right,
+            });
         }
         Ok(left)
     }
@@ -410,6 +474,9 @@ impl<'a> FuncBuilder<'a> {
                 }
             });
         }
-        Ok(BlockCall { block: target, args: converted })
+        Ok(BlockCall {
+            block: target,
+            args: converted,
+        })
     }
 }

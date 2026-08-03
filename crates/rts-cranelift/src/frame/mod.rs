@@ -77,7 +77,10 @@ impl SuspendPlan {
 
     /// The label for a suspension point, if it is one.
     pub fn label_of(&self, at: InstId) -> Option<ResumeLabel> {
-        self.points.iter().find(|(inst, _)| *inst == at).map(|(_, label)| *label)
+        self.points
+            .iter()
+            .find(|(inst, _)| *inst == at)
+            .map(|(_, label)| *label)
     }
 }
 
@@ -103,13 +106,19 @@ pub fn plan_suspension_with(func: &Function, liveness: &Liveness) -> SuspendPlan
     let mut preserved: Vec<(crate::ir::ValueId, Repr)> = Vec::new();
 
     for (block_id, block) in func.blocks() {
-        if !block.insts.iter().any(|&i| func.inst(i).is_some_and(|d| d.inst.is_suspend())) {
+        if !block
+            .insts
+            .iter()
+            .any(|&i| func.inst(i).is_some_and(|d| d.inst.is_suspend()))
+        {
             continue;
         }
 
         let after = live_after_each_inst(func, block_id, liveness);
         for (position, &inst_id) in block.insts.iter().enumerate() {
-            let Some(data) = func.inst(inst_id) else { continue };
+            let Some(data) = func.inst(inst_id) else {
+                continue;
+            };
             if !data.inst.is_suspend() {
                 continue;
             }
@@ -132,5 +141,8 @@ pub fn plan_suspension_with(func: &Function, liveness: &Liveness) -> SuspendPlan
         *label = ResumeLabel(index as u32);
     }
 
-    SuspendPlan { points, spill: SpillLayout::build(preserved) }
+    SuspendPlan {
+        points,
+        spill: SpillLayout::build(preserved),
+    }
 }

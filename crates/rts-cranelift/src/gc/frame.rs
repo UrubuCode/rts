@@ -58,7 +58,12 @@ pub struct FrameDescriptor {
 impl FrameDescriptor {
     /// A descriptor reporting only roots.
     pub fn roots_only(at: InstId, roots: Vec<RootSlot>) -> Self {
-        Self { at, roots, region: None, resume_label: None }
+        Self {
+            at,
+            roots,
+            region: None,
+            resume_label: None,
+        }
     }
 
     /// Whether anything must be traced here.
@@ -89,7 +94,9 @@ impl FrameTable {
     /// sorted without a sort. Debug builds check that rather than trusting it.
     pub fn push(&mut self, descriptor: FrameDescriptor) {
         debug_assert!(
-            self.descriptors.last().is_none_or(|last| last.at < descriptor.at),
+            self.descriptors
+                .last()
+                .is_none_or(|last| last.at < descriptor.at),
             "descriptors must be produced in program order"
         );
         self.descriptors.push(descriptor);

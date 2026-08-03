@@ -45,11 +45,17 @@ pub fn plan_unwind(tree: &RegionTree, from: RegionId, tag: Tag) -> UnwindPlan {
             cleanups.push(cleanup);
         }
         if let Some(handler) = region.handlers.iter().find(|h| h.tag == tag) {
-            return UnwindPlan { cleanups, handler: Some(handler.block) };
+            return UnwindPlan {
+                cleanups,
+                handler: Some(handler.block),
+            };
         }
     }
 
-    UnwindPlan { cleanups, handler: None }
+    UnwindPlan {
+        cleanups,
+        handler: None,
+    }
 }
 
 /// Computes what leaving `from` normally does, when it must run cleanup.
@@ -58,13 +64,15 @@ pub fn plan_unwind(tree: &RegionTree, from: RegionId, tag: Tag) -> UnwindPlan {
 /// cleanup — a scope that only unwinds correctly when something goes wrong is a
 /// scope that leaks on the path taken most of the time.
 pub fn plan_normal_exit(tree: &RegionTree, from: RegionId) -> Vec<BlockId> {
-    tree.enclosing(from).filter_map(|(_, region)| region.cleanup).collect()
+    tree.enclosing(from)
+        .filter_map(|(_, region)| region.cleanup)
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::region::Handler;
+    use super::*;
 
     /// Real blocks from a real function.
     ///
@@ -80,9 +88,22 @@ mod tests {
     fn the_innermost_matching_handler_wins() {
         let b = blocks(4);
         let mut tree = RegionTree::new();
-        let outer = tree.declare(None, vec![Handler { tag: Tag(1), block: b[0] }], None);
-        let inner =
-            tree.declare(Some(outer), vec![Handler { tag: Tag(1), block: b[1] }], None);
+        let outer = tree.declare(
+            None,
+            vec![Handler {
+                tag: Tag(1),
+                block: b[0],
+            }],
+            None,
+        );
+        let inner = tree.declare(
+            Some(outer),
+            vec![Handler {
+                tag: Tag(1),
+                block: b[1],
+            }],
+            None,
+        );
 
         assert_eq!(plan_unwind(&tree, inner, Tag(1)).handler, Some(b[1]));
     }
@@ -91,9 +112,22 @@ mod tests {
     fn an_unmatched_tag_is_offered_outward() {
         let b = blocks(4);
         let mut tree = RegionTree::new();
-        let outer = tree.declare(None, vec![Handler { tag: Tag(7), block: b[0] }], None);
-        let inner =
-            tree.declare(Some(outer), vec![Handler { tag: Tag(1), block: b[1] }], None);
+        let outer = tree.declare(
+            None,
+            vec![Handler {
+                tag: Tag(7),
+                block: b[0],
+            }],
+            None,
+        );
+        let inner = tree.declare(
+            Some(outer),
+            vec![Handler {
+                tag: Tag(1),
+                block: b[1],
+            }],
+            None,
+        );
 
         assert_eq!(plan_unwind(&tree, inner, Tag(7)).handler, Some(b[0]));
     }
@@ -102,8 +136,14 @@ mod tests {
     fn cleanup_runs_innermost_first_including_the_handlers_own_region() {
         let b = blocks(4);
         let mut tree = RegionTree::new();
-        let outer =
-            tree.declare(None, vec![Handler { tag: Tag(1), block: b[0] }], Some(b[1]));
+        let outer = tree.declare(
+            None,
+            vec![Handler {
+                tag: Tag(1),
+                block: b[0],
+            }],
+            Some(b[1]),
+        );
         let inner = tree.declare(Some(outer), vec![], Some(b[2]));
 
         assert_eq!(

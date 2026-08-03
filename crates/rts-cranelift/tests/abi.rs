@@ -19,7 +19,10 @@ fn a_scalar_parameter_is_one_slot() {
     let sig = Signature::internal(vec![AbiType::Scalar(Repr::F64)], vec![]);
     let lowered = lower_signature(&sig, &types, &TargetAbi::x86_64_sysv());
 
-    assert_eq!(lowered.params, vec![ParamClass::Direct(slots(&[Repr::F64]))]);
+    assert_eq!(
+        lowered.params,
+        vec![ParamClass::Direct(slots(&[Repr::F64]))]
+    );
     assert_eq!(lowered.returns, ReturnClass::None);
 }
 
@@ -29,7 +32,10 @@ fn a_slice_is_two_slots_as_one_argument() {
     let sig = Signature::internal(vec![AbiType::Slice], vec![]);
     let lowered = lower_signature(&sig, &types, &TargetAbi::x86_64_sysv());
 
-    assert_eq!(lowered.params, vec![ParamClass::Direct(slots(&[Repr::I64, Repr::I64]))]);
+    assert_eq!(
+        lowered.params,
+        vec![ParamClass::Direct(slots(&[Repr::I64, Repr::I64]))]
+    );
 }
 
 #[test]
@@ -54,7 +60,10 @@ fn a_mixed_piece_travels_in_an_integer_register() {
     let sig = Signature::internal(vec![AbiType::Aggregate(mixed)], vec![]);
     let lowered = lower_signature(&sig, &types, &TargetAbi::x86_64_sysv());
 
-    assert_eq!(lowered.params, vec![ParamClass::Direct(slots(&[Repr::I64]))]);
+    assert_eq!(
+        lowered.params,
+        vec![ParamClass::Direct(slots(&[Repr::I64]))]
+    );
 }
 
 #[test]
@@ -90,7 +99,12 @@ fn a_homogeneous_float_aggregate_keeps_one_register_per_member_on_aarch64() {
 
     assert_eq!(
         lowered.params,
-        vec![ParamClass::Direct(slots(&[Repr::F32, Repr::F32, Repr::F32, Repr::F32]))]
+        vec![ParamClass::Direct(slots(&[
+            Repr::F32,
+            Repr::F32,
+            Repr::F32,
+            Repr::F32
+        ]))]
     );
 }
 
@@ -100,7 +114,11 @@ fn an_aggregate_holding_a_reference_never_travels_in_registers() {
     let boxed = types.declare(&[Repr::Ref(RefKind::Bytes)]);
     let sig = Signature::internal(vec![AbiType::Aggregate(boxed)], vec![]);
 
-    for target in [TargetAbi::x86_64_sysv(), TargetAbi::x86_64_windows(), TargetAbi::aarch64()] {
+    for target in [
+        TargetAbi::x86_64_sysv(),
+        TargetAbi::x86_64_windows(),
+        TargetAbi::aarch64(),
+    ] {
         let lowered = lower_signature(&sig, &types, &target);
         assert_eq!(
             lowered.params,
@@ -162,7 +180,10 @@ fn a_proven_return_count_travels_in_registers() {
     );
     let lowered = lower_signature(&sig, &types, &target);
 
-    assert_eq!(lowered.returns, ReturnClass::Direct(slots(&[Repr::I64, Repr::F64])));
+    assert_eq!(
+        lowered.returns,
+        ReturnClass::Direct(slots(&[Repr::I64, Repr::F64]))
+    );
 }
 
 #[test]
@@ -180,7 +201,10 @@ fn returns_that_outgrow_their_registers_use_a_pointer_even_when_the_count_is_pro
     );
     let lowered = lower_signature(&sig, &types, &target);
 
-    assert!(lowered.has_out_pointer(), "the register budget is a second, independent limit");
+    assert!(
+        lowered.has_out_pointer(),
+        "the register budget is a second, independent limit"
+    );
 }
 
 #[test]
@@ -201,14 +225,17 @@ fn an_out_pointer_still_describes_what_it_holds() {
 fn a_tail_call_needs_both_sides_to_permit_it_and_the_returns_to_match() {
     let ret = vec![AbiType::Scalar(Repr::I64)];
     let caller = Signature::internal(vec![], ret.clone()).with_tail_calls();
-    let callee = Signature::internal(vec![AbiType::Scalar(Repr::I64)], ret.clone())
-        .with_tail_calls();
+    let callee =
+        Signature::internal(vec![AbiType::Scalar(Repr::I64)], ret.clone()).with_tail_calls();
     let ordinary = Signature::internal(vec![], ret.clone());
-    let other_returns = Signature::internal(vec![], vec![AbiType::Scalar(Repr::F64)])
-        .with_tail_calls();
+    let other_returns =
+        Signature::internal(vec![], vec![AbiType::Scalar(Repr::F64)]).with_tail_calls();
 
     assert!(caller.permits_tail_call_to(&callee));
-    assert!(!caller.permits_tail_call_to(&ordinary), "the group compiles as a unit or not at all");
+    assert!(
+        !caller.permits_tail_call_to(&ordinary),
+        "the group compiles as a unit or not at all"
+    );
     assert!(!ordinary.permits_tail_call_to(&callee));
     assert!(!caller.permits_tail_call_to(&other_returns));
 }

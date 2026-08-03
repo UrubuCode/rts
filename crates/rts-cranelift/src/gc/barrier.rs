@@ -66,14 +66,22 @@ mod tests {
     use crate::repr::RefKind;
 
     fn store(ty: crate::types::TypeId, field: u32) -> Inst {
-        Inst::FieldStore { object: ValueId(0), ty, field, value: ValueId(1) }
+        Inst::FieldStore {
+            object: ValueId(0),
+            ty,
+            field,
+            value: ValueId(1),
+        }
     }
 
     #[test]
     fn storing_a_number_never_needs_a_barrier() {
         let mut types = TypeRegistry::new();
         let ty = types.declare(&[Repr::F64]);
-        assert_eq!(barrier_for(&store(ty, 0), &types, Region::Shared), BarrierKind::None);
+        assert_eq!(
+            barrier_for(&store(ty, 0), &types, Region::Shared),
+            BarrierKind::None
+        );
     }
 
     #[test]

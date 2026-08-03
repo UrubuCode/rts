@@ -71,7 +71,10 @@ pub enum TagError {
 impl TagRegistry {
     /// A registry with only the machine's own tags assigned.
     pub fn new() -> Self {
-        Self { next_tag: TAG_RESERVED_COUNT, singleton_count: 0 }
+        Self {
+            next_tag: TAG_RESERVED_COUNT,
+            singleton_count: 0,
+        }
     }
 
     /// Declares `count` singletons and returns their numbers in order.
@@ -98,7 +101,9 @@ impl TagRegistry {
     /// trigger silently.
     pub fn declare_kind(&mut self) -> Result<ValueKind, TagError> {
         if u64::from(self.next_tag) > TAG_MASK {
-            return Err(TagError::TagSpaceExhausted { capacity: TAG_COUNT });
+            return Err(TagError::TagSpaceExhausted {
+                capacity: TAG_COUNT,
+            });
         }
         let kind = ValueKind(self.next_tag);
         self.next_tag += 1;
@@ -129,7 +134,11 @@ mod tests {
 
         assert_eq!(first[0].number(), 0);
         assert_eq!(first[1].number(), 1);
-        assert_eq!(second[0].number(), 2, "numbering continues, it does not restart");
+        assert_eq!(
+            second[0].number(),
+            2,
+            "numbering continues, it does not restart"
+        );
         assert_eq!(reg.singleton_count(), 4);
     }
 
@@ -153,7 +162,9 @@ mod tests {
         }
         assert_eq!(
             reg.declare_kind(),
-            Err(TagError::TagSpaceExhausted { capacity: TAG_COUNT })
+            Err(TagError::TagSpaceExhausted {
+                capacity: TAG_COUNT
+            })
         );
     }
 }

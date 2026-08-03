@@ -34,7 +34,9 @@ fn a_well_formed_function_verifies_clean() {
 
     let entry = func.entry;
     let mut b = FuncBuilder::new(&mut func, &types, entry);
-    let sum = b.arith(NumOp::Add, x, y).expect("both operands are proven f64");
+    let sum = b
+        .arith(NumOp::Add, x, y)
+        .expect("both operands are proven f64");
     b.ret(&[sum]);
 
     assert_eq!(verify(&func, &types), vec![]);
@@ -67,7 +69,11 @@ fn proven_arithmetic_refuses_operands_that_disagree() {
 
     assert_eq!(
         b.arith(NumOp::Add, i, f),
-        Err(BuildError::MixedOperands { operation: "arith", left: Repr::I32, right: Repr::F64 })
+        Err(BuildError::MixedOperands {
+            operation: "arith",
+            left: Repr::I32,
+            right: Repr::F64
+        })
     );
 }
 
@@ -81,7 +87,8 @@ fn a_merge_to_the_generic_form_widens_automatically() {
     let mut b = FuncBuilder::new(&mut func, &types, entry);
     let merge = b.create_block();
     b.add_block_param(merge, Repr::Tagged);
-    b.jump(merge, &[x]).expect("widening is inserted, not demanded of the caller");
+    b.jump(merge, &[x])
+        .expect("widening is inserted, not demanded of the caller");
 
     b.switch_to(merge);
     let merged = func.block(merge).expect("merge exists").params[0];
@@ -125,12 +132,15 @@ fn a_guard_hands_the_narrowed_value_to_its_success_block() {
     let ok = b.create_block();
     let fail = b.create_block();
     b.add_block_param(ok, Repr::I32);
-    b.guard(unknown, Repr::I32, (ok, &[]), (fail, &[])).expect("well-formed guard");
+    b.guard(unknown, Repr::I32, (ok, &[]), (fail, &[]))
+        .expect("well-formed guard");
 
     // The success path may now do proven arithmetic on a value that arrived generic.
     let narrowed = func.block(ok).expect("ok exists").params[0];
     let mut b = FuncBuilder::new(&mut func, &types, ok);
-    let doubled = b.arith(NumOp::Add, narrowed, narrowed).expect("narrowed to i32");
+    let doubled = b
+        .arith(NumOp::Add, narrowed, narrowed)
+        .expect("narrowed to i32");
     let widened = b.widen(doubled);
     b.ret(&[widened]);
 
@@ -170,7 +180,9 @@ fn a_field_access_takes_its_representation_from_the_layout() {
     let obj = b.alloc(point, Region::Local);
     let x = b.field_load(obj, point, 0).expect("field 0 exists");
     let y = b.field_load(obj, point, 1).expect("field 1 exists");
-    let sum = b.arith(NumOp::Add, x, y).expect("both are f64 by declaration, not by assertion");
+    let sum = b
+        .arith(NumOp::Add, x, y)
+        .expect("both are f64 by declaration, not by assertion");
     b.ret(&[sum]);
 
     assert_eq!(verify(&func, &types), vec![]);
@@ -188,7 +200,10 @@ fn a_field_that_does_not_exist_is_refused() {
 
     assert_eq!(
         b.field_load(obj, point, 2),
-        Err(BuildError::NoSuchField { ty: point, field: 2 })
+        Err(BuildError::NoSuchField {
+            ty: point,
+            field: 2
+        })
     );
 }
 
@@ -263,7 +278,10 @@ fn the_verifier_reports_every_violation_rather_than_the_first() {
     func.set_terminator(func.entry, Terminator::Return(vec![]));
 
     let errors = verify(&func, &types);
-    assert!(errors.len() >= 2, "a program with two mistakes takes one pass to diagnose");
+    assert!(
+        errors.len() >= 2,
+        "a program with two mistakes takes one pass to diagnose"
+    );
     assert!(errors.contains(&VerifyError::UnterminatedBlock(orphan)));
 }
 

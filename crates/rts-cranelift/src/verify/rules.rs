@@ -27,11 +27,17 @@ pub(super) fn check_blocks_terminate(func: &Function, errors: &mut Vec<VerifyErr
 /// Branch targets exist, receive what they declare, and guards are well formed.
 pub(super) fn check_terminators(func: &Function, errors: &mut Vec<VerifyError>) {
     for (from, block) in func.blocks() {
-        let Some(terminator) = &block.terminator else { continue };
+        let Some(terminator) = &block.terminator else {
+            continue;
+        };
         match terminator {
             Terminator::Jump(call) => check_block_call(func, from, call, 0, errors),
 
-            Terminator::Branch { cond, then_block, else_block } => {
+            Terminator::Branch {
+                cond,
+                then_block,
+                else_block,
+            } => {
                 let repr = func.repr_of(*cond);
                 if repr != Repr::Bool {
                     errors.push(VerifyError::ConditionNotBool { from, found: repr });
@@ -40,7 +46,12 @@ pub(super) fn check_terminators(func: &Function, errors: &mut Vec<VerifyError>) 
                 check_block_call(func, from, else_block, 0, errors);
             }
 
-            Terminator::Guard { input, expect, ok, fail } => {
+            Terminator::Guard {
+                input,
+                expect,
+                ok,
+                fail,
+            } => {
                 check_guard(func, from, *input, *expect, ok, errors);
                 check_block_call(func, from, fail, 0, errors);
             }
@@ -66,7 +77,10 @@ pub(super) fn check_unwind(func: &Function, errors: &mut Vec<VerifyError>) {
         if let Some(cleanup) = region.cleanup
             && func.block(cleanup).is_none()
         {
-            errors.push(VerifyError::UnknownRegionBlock { region: id, target: cleanup });
+            errors.push(VerifyError::UnknownRegionBlock {
+                region: id,
+                target: cleanup,
+            });
         }
 
         for handler in &region.handlers {
@@ -115,17 +129,27 @@ fn check_guard(
 ) {
     let input_repr = func.repr_of(input);
     if input_repr != Repr::Tagged {
-        errors.push(VerifyError::GuardOnProvenValue { from, found: input_repr });
+        errors.push(VerifyError::GuardOnProvenValue {
+            from,
+            found: input_repr,
+        });
     }
 
     let Some(target) = func.block(ok.block) else {
-        errors.push(VerifyError::UnknownBlock { from, target: ok.block });
+        errors.push(VerifyError::UnknownBlock {
+            from,
+            target: ok.block,
+        });
         return;
     };
 
     let narrowed = target.params.first().map(|&p| func.repr_of(p));
     if narrowed != Some(expect) {
-        errors.push(VerifyError::GuardTargetMissingValue { from, target: ok.block, expect });
+        errors.push(VerifyError::GuardTargetMissingValue {
+            from,
+            target: ok.block,
+            expect,
+        });
         return;
     }
 
@@ -143,7 +167,10 @@ fn check_block_call(
     errors: &mut Vec<VerifyError>,
 ) {
     let Some(target) = func.block(call.block) else {
-        errors.push(VerifyError::UnknownBlock { from, target: call.block });
+        errors.push(VerifyError::UnknownBlock {
+            from,
+            target: call.block,
+        });
         return;
     };
 
@@ -183,7 +210,9 @@ pub(super) fn check_instructions(
 
     for (block_id, block) in func.blocks() {
         for &inst_id in &block.insts {
-            let Some(data) = func.inst(inst_id) else { continue };
+            let Some(data) = func.inst(inst_id) else {
+                continue;
+            };
             match &data.inst {
                 Inst::IntArith(_, a, b) => {
                     check_proven_pair(func, inst_id, *a, *b, Domain::Integer, errors);
@@ -223,7 +252,10 @@ pub(super) fn check_instructions(
                     for &operand in [a, b] {
                         let repr = func.repr_of(operand);
                         if repr != Repr::Tagged {
-                            errors.push(VerifyError::WrongDomain { inst: inst_id, found: repr });
+                            errors.push(VerifyError::WrongDomain {
+                                inst: inst_id,
+                                found: repr,
+                            });
                         }
                     }
                 }
@@ -232,28 +264,46 @@ pub(super) fn check_instructions(
                     check_field(types, inst_id, *ty, *field, errors);
                 }
 
-                Inst::FieldStore { ty, field, value, .. } => {
+                Inst::FieldStore {
+                    ty, field, value, ..
+                } => {
                     if let Some(expected) = check_field(types, inst_id, *ty, *field, errors) {
                         let found = func.repr_of(*value);
                         if expected != found {
-                            errors.push(VerifyError::WrongDomain { inst: inst_id, found });
+                            errors.push(VerifyError::WrongDomain {
+                                inst: inst_id,
+                                found,
+                            });
                         }
                     }
                 }
 
                 Inst::Alloc { ty, .. } => {
                     if !types.contains(*ty) {
-                        errors.push(VerifyError::ForeignType { inst: inst_id, ty: *ty });
+                        errors.push(VerifyError::ForeignType {
+                            inst: inst_id,
+                            ty: *ty,
+                        });
                     }
                 }
 
-                Inst::Suspend => {
+                Inst::Suspend | Inst::Await { .. } => {
                     if !func.signature.may_suspend {
                         errors.push(VerifyError::UndeclaredSuspension { inst: inst_id });
                     }
                 }
 
-                Inst::Const(_) => {}
+                Inst::PromiseSettle { value, .. } => {
+                    let repr = func.repr_of(*value);
+                    if repr != Repr::Tagged {
+                        errors.push(VerifyError::WrongDomain {
+                            inst: inst_id,
+                            found: repr,
+                        });
+                    }
+                }
+
+                Inst::Const(_) | Inst::PromiseNew => {}
             }
         }
     }
@@ -335,7 +385,9 @@ fn guard_success_blocks(func: &Function) -> HashMap<BlockId, Repr> {
 pub(super) fn check_returns(func: &Function, errors: &mut Vec<VerifyError>) {
     let expected = &func.signature.returns;
     for (from, block) in func.blocks() {
-        let Some(Terminator::Return(values)) = &block.terminator else { continue };
+        let Some(Terminator::Return(values)) = &block.terminator else {
+            continue;
+        };
 
         if values.len() != expected.len() {
             errors.push(VerifyError::ReturnArity {
@@ -349,7 +401,12 @@ pub(super) fn check_returns(func: &Function, errors: &mut Vec<VerifyError>) {
         for (position, (&value, &want)) in values.iter().zip(expected).enumerate() {
             let found = func.repr_of(value);
             if found != want {
-                errors.push(VerifyError::ReturnRepr { from, position, expected: want, found });
+                errors.push(VerifyError::ReturnRepr {
+                    from,
+                    position,
+                    expected: want,
+                    found,
+                });
             }
         }
     }
