@@ -5,13 +5,17 @@
 //! where a verifier can reject what should not exist, and where a program can be
 //! tested with no client present.
 //!
-//! # What is deliberately absent
+//! # Calls, and why they arrived late
 //!
-//! There are no call instructions yet. A call is inseparable from the calling
-//! convention it uses, from the safepoint it implies, and from whether its
-//! callee may suspend — none of which exist in this phase. Adding a call node
-//! now would mean choosing those answers implicitly and rediscovering them
-//! later, which is the failure this layer is built to avoid.
+//! There were no call instructions for several phases, deliberately: a call is
+//! inseparable from the convention it uses, from the safepoint it implies, and
+//! from whether its callee may suspend, and adding the node before those
+//! existed would have meant choosing their answers implicitly and
+//! rediscovering them later.
+//!
+//! All three now exist — [`crate::abi::Convention`], the frame descriptors, and
+//! the suspension form — so [`Inst::Call`] and [`Inst::CallIndirect`] are here,
+//! each carrying the convention rather than assuming one.
 
 pub mod builder;
 pub mod consts;
