@@ -35,6 +35,25 @@ That is the bar a new one has to clear.
 
 ---
 
+## Before writing anything: ask whether the machine answers it
+
+Any crate may call `rts-cranelift`; what is forbidden is reaching past it to
+Cranelift. So the first question about a new module here is whether
+`rts-cranelift` already has it — and in the first three phases the answer was
+yes twice:
+
+- **The encoding.** `tags::encode_double` and friends exist. C0 re-derived them
+  and canonicalised `NaN` differently; both spellings agree on this target and
+  nothing makes them have to.
+- **Shapes.** `shape::ShapeTree` is more complete than what C3 began writing,
+  including the `remove` the new file said it was deliberately omitting.
+
+What survived the same question, and why: the slot table (the machine's `gc/`
+and `mem/` are compile-time — frame descriptors, liveness, how emitted code
+computes an address; a runtime table is the other side of that contract),
+strings (the machine holds no text), and the equalities (the machine has no
+opinion about whether `NaN` equals `NaN`, and should not acquire one).
+
 ## The phases
 
 Ordered by what the next one cannot be built without. Each lands as its own
@@ -49,7 +68,8 @@ read back as a reference), the two cells where `===`, `SameValue` and
 `SameValueZero` disagree, `ToInt32` wrapping where a cast would saturate, and
 `to_number` refusing a reference rather than guessing zero.
 
-### C1 — the heap
+### C1 — the heap. **DONE.**
+
 
 Everything below needs somewhere to put things.
 
@@ -73,7 +93,8 @@ Decisions this phase has to make and write down:
   indices — which is the property that later makes a moving collector possible
   without rewriting every reference.
 
-### C2 — text
+### C2 — text. **DONE.**
+
 
 Strings, and one decision that is very hard to reverse.
 
@@ -91,7 +112,15 @@ Deliberately **not** here: `Number::toString`. It needs the shortest
 round-tripping decimal, which is its own problem (§5.5 of the language plan) and
 belongs with conversion.
 
-### C3 — objects
+### C3 — objects. *In progress.*
+
+The shape tree is `rts_cranelift::shape::ShapeTree`, **not one of ours**. A
+second was half-written here and deleted: the compiler emits fixed-offset loads
+from the machine's tree, so a runtime resolving a dynamic property from another
+would disagree about which slot is which property. What this phase owns is the
+part the machine refuses to know — that a key can be an integer index, which is
+what enumeration order turns on.
+
 
 Shapes, properties, and the operations on them. The phase where the machine
 layer's shape support gets its first real client.

@@ -39,6 +39,14 @@ It depends on `rts-cranelift` and on nothing below it. Not for convenience, not
 for one case. The moment a language reaches past the machine layer, the machine
 layer stops being able to change anything, and the boundary becomes a comment.
 
+**Calling `rts-cranelift` is the point, not a concession.** It carries real work
+— the representation lattice, shapes, frames, the collector contract, the
+verifier — and reaching around it to do that work again is the failure, not
+depending on it. Before writing anything here, ask whether the machine already
+answers it. In the neighbouring crate the answer was yes twice in three phases,
+and one of the two would have produced a second shape tree disagreeing with the
+compiler's about which slot is which property.
+
 ### 2. Never decide a machine question
 
 Where a field sits, how a reference becomes an address, which convention a call
@@ -134,6 +142,30 @@ What does not exist yet is the **checker**. The 1 249 programs the corpus says
 are invalid and we accept are early errors — redeclarations, duplicate
 `__proto__`, `delete` of a name in strict code — rules no grammar production
 encodes and no node can hold. `PLAN.md` L10.
+
+## What this crate deliberately holds, having been audited for the opposite
+
+Every module here was checked against `rts-cranelift` under rule 1. What
+survived, and why the machine does not already answer it:
+
+| here | the machine has | why both |
+|---|---|---|
+| `names/` — text ↔ `Name`, and `Name` → machine `Key` | `KeyRegistry`, which hands out opaque numbers | it holds **no text**, deliberately. This is the table that remembers what a number was called |
+| `values/` — `Singleton`, `ValueModel` | `TagRegistry`, `SingletonId` | the machine numbers singletons; it does not know one of them is `undefined`, or that `typeof null` is a mistake from 1995 |
+| `syntax/`, `parse/` | nothing | a machine has no tree and no parser |
+
+Two pass-through methods were deleted in that audit: `ValueModel::word` forwarded
+to `SingletonId::word`, and `ValueModel::unknown` returned a constant. A method
+that only re-exports is a second name for one thing, and the second name is the
+one that goes stale.
+
+**One number space, two tables.** `Names::key` mints from the machine's
+`KeyRegistry`, and so does `rts-core-rwk`'s runtime interner. That is deliberate
+and load-bearing: a shape is keyed by `Key` and there is one shape tree, so if
+the compiler numbered `"a"` from one counter and the runtime from another,
+`obj.a` compiled to a fixed slot and `obj["a"]` resolved at run time would look
+up two different keys in one tree. Two numberings are two shape trees, one level
+up.
 
 ## Layout
 

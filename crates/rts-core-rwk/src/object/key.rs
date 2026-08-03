@@ -11,7 +11,9 @@
 //! enumeration, and re-derive it with the exact rule below, which is the part
 //! that is easy to get subtly wrong.
 
-use crate::text::{Interned, Interner, Str};
+use rts_cranelift::shape::{Key as ShapeKey, KeyRegistry};
+
+use crate::text::{Interner, Str};
 
 /// The largest array index.
 ///
@@ -26,8 +28,8 @@ pub const MAX_ARRAY_INDEX: u32 = u32::MAX - 1;
 pub enum Key {
     /// A canonical integer index, which enumerates first and in numeric order.
     Index(u32),
-    /// Any other string.
-    Name(Interned),
+    /// Any other string, as the number one key space gave it.
+    Name(ShapeKey),
 }
 
 /// Whether a string is an array index, and which one.
@@ -82,10 +84,14 @@ pub fn as_array_index(text: &Str) -> Option<u32> {
 
 impl Key {
     /// The key a string names, choosing the index form when the string is one.
-    pub fn from_str(text: &Str, interner: &mut Interner) -> Key {
+    ///
+    /// Takes the registry because a name that is not an index becomes a machine
+    /// key, minted from the one space the compiler mints from — see
+    /// [`crate::text::Interner`].
+    pub fn from_str(text: &Str, interner: &mut Interner, registry: &mut KeyRegistry) -> Key {
         match as_array_index(text) {
             Some(index) => Key::Index(index),
-            None => Key::Name(interner.intern(text)),
+            None => Key::Name(interner.intern(text, registry)),
         }
     }
 
@@ -149,13 +155,18 @@ mod tests {
     #[test]
     fn a_key_chooses_the_index_form_only_when_the_string_is_one() {
         let mut interner = Interner::new();
+        let mut registry = KeyRegistry::new();
+        let key = |text: &str, i: &mut Interner, r: &mut KeyRegistry| {
+            Key::from_str(&Str::from_str(text), i, r)
+        };
 
-        assert_eq!(
-            Key::from_str(&Str::from_str("0"), &mut interner),
-            Key::Index(0)
+        assert_eq!(key("0", &mut interner, &mut registry), Key::Index(0));
+        assert!(
+            !key("01", &mut interner, &mut registry).is_index(),
+            "a leading zero does not survive the round trip"
         );
-        assert!(Key::from_str(&Str::from_str("01"), &mut interner).is_index() == false);
-        assert!(!Key::from_str(&Str::from_str("length"), &mut interner).is_index());
+        assert!(!key("length", &mut interner, &mut registry).is_index());
+        assert_eq!(registry.len(), 2, "only the two string keys cost a number");
     }
 
     #[test]

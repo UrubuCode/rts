@@ -26,7 +26,6 @@
 //! The rule that decides which side a value lives on is whether the machine needs
 //! it to do its own work. It needs booleans. It does not need `undefined`.
 
-use rts_cranelift::repr::Repr;
 use rts_cranelift::tags::{SingletonId, TagRegistry};
 
 /// The values JavaScript has exactly one of.
@@ -95,20 +94,6 @@ impl ValueModel {
             Singleton::Null => self.null,
         }
     }
-
-    /// The word a singleton is, as compiled code will see it.
-    pub fn word(&self, which: Singleton) -> u64 {
-        self.singleton(which).word()
-    }
-
-    /// How a JavaScript value is held when nothing has been proven about it.
-    ///
-    /// Generic, always. A language whose values are only known at run time has
-    /// nothing else to hold them in, and the interesting work — the part this
-    /// crate exists for — is establishing where that is not true.
-    pub fn unknown() -> Repr {
-        Repr::Tagged
-    }
 }
 
 #[cfg(test)]
@@ -121,8 +106,8 @@ mod tests {
         let mut tags = TagRegistry::new();
         let model = ValueModel::declare(&mut tags);
 
-        let undefined = model.word(Singleton::Undefined);
-        let null = model.word(Singleton::Null);
+        let undefined = model.singleton(Singleton::Undefined).word();
+        let null = model.singleton(Singleton::Null).word();
 
         assert_ne!(
             undefined, null,
@@ -145,8 +130,8 @@ mod tests {
         let second = ValueModel::declare(&mut tags);
 
         assert_ne!(
-            first.word(Singleton::Undefined),
-            second.word(Singleton::Undefined),
+            first.singleton(Singleton::Undefined).word(),
+            second.singleton(Singleton::Undefined).word(),
             "one program has one model; two would be two programs disagreeing"
         );
     }

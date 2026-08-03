@@ -36,7 +36,7 @@
 
 mod intern;
 
-pub use intern::{Interned, Interner};
+pub use intern::Interner;
 
 /// How a string's code units are stored.
 ///
