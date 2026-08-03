@@ -28,6 +28,7 @@
 //! the operations themselves take primitives — which makes performing them out
 //! of order something a caller has to do deliberately rather than by default.
 
+pub mod names;
 mod number;
 
 pub use number::{number_to_string, string_to_number};

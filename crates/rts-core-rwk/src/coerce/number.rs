@@ -4,6 +4,7 @@
 //! and they are wrong in opposite ways: printing is wrong about *precision*,
 //! parsing is wrong about *what counts as a number*.
 
+use super::names;
 use crate::text::Str;
 
 /// `Number::toString`, radix 10 — what `String(n)` and a template literal use.
@@ -37,7 +38,7 @@ use crate::text::Str;
 /// character.
 pub fn number_to_string(value: f64) -> Str {
     if value.is_nan() {
-        return Str::from_str("NaN");
+        return Str::from_str(names::NAN);
     }
     if value == 0.0 {
         // Both zeros print "0". The sign is a real distinction everywhere else
@@ -49,7 +50,7 @@ pub fn number_to_string(value: f64) -> Str {
         return Str::from_str("-").concat(&number_to_string(-value));
     }
     if value.is_infinite() {
-        return Str::from_str("Infinity");
+        return Str::from_str(names::INFINITY);
     }
 
     let (digits, exponent) = shortest_digits(value);
@@ -140,7 +141,7 @@ pub fn string_to_number(text: &Str) -> f64 {
         Some(rest) => (-1.0, rest),
         None => (1.0, trimmed.strip_prefix('+').unwrap_or(trimmed)),
     };
-    if magnitude == "Infinity" {
+    if magnitude == names::INFINITY {
         return sign * f64::INFINITY;
     }
 
@@ -245,6 +246,10 @@ mod tests {
         assert_eq!(printed(1.5e22), "1.5e+22");
     }
 
+    /// Spelled out on purpose. Comparing against `names::NAN` would only
+    /// prove the two sides share a constant, not that the constant is the text
+    /// the language specifies — so this test writes the letters and the next
+    /// one checks they are shared.
     #[test]
     fn the_special_values_print_as_words() {
         assert_eq!(printed(f64::NAN), "NaN");
@@ -289,10 +294,40 @@ mod tests {
 
     #[test]
     fn rust_spellings_that_javascript_does_not_have_are_refused() {
-        assert!(parsed("NaN").is_nan(), "as a number, not as the word");
         assert!(parsed("1_0").is_nan(), "no separators in a string");
         assert!(parsed("0x").is_nan(), "a prefix with no digits");
         assert!(parsed("1 2").is_nan());
+    }
+
+    #[test]
+    fn a_word_that_names_a_state_is_a_string_that_fails_to_be_a_number() {
+        // Every one of these is NaN, and asserting only that would prove
+        // nothing — refusing a word and converting it to NaN give the same
+        // answer. What distinguishes them is that NONE of these is the
+        // singleton it names: `Number("undefined")` is the number NaN, not
+        // `undefined`, and nothing here may make it one.
+        for word in [names::UNDEFINED, names::NULL, "nan", "infinity", "true"] {
+            let value = string_to_number(&Str::from_str(word));
+            assert!(value.is_nan(), "{word:?} is not a number");
+        }
+
+        // The one word that IS a number, and reads back as itself.
+        assert!(
+            parsed(names::NAN).is_nan(),
+            "the spelling ToString produces must read back"
+        );
+        assert_eq!(parsed(names::INFINITY), f64::INFINITY);
+        assert_eq!(parsed(names::NEGATIVE_INFINITY), f64::NEG_INFINITY);
+    }
+
+    #[test]
+    fn the_words_are_written_once_and_the_two_directions_share_them() {
+        // Printing produces exactly the spelling parsing recognises. Two
+        // literals would agree until one was edited, and the failure would be a
+        // number that prints one way and reads back as something else.
+        assert_eq!(printed(f64::NAN), names::NAN);
+        assert_eq!(printed(f64::INFINITY), names::INFINITY);
+        assert_eq!(printed(f64::NEG_INFINITY), names::NEGATIVE_INFINITY);
     }
 
     #[test]

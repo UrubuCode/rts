@@ -156,6 +156,15 @@ caller resolves it and asks again. Same shape as `Found` in C3, same reason:
 what is easy to get wrong is not performing the conversion but performing it on
 the right operand in the right order.
 
+**The states that are not digits belong to two different owners, and neither is
+this crate.** `NaN` and the infinities are `f64` values whose bit patterns the
+machine owns. `undefined` and `null` are singletons the *language* declares —
+`TagRegistry::new` says the singleton space "is entirely the client's" and
+numbers nothing itself — so their numbers arrive as `Singletons`, passed in and
+never assumed. What `coerce::names` owns is only how they are **spelled**, in one
+place, so the two directions cannot drift apart and so nobody reaches for a bare
+`"undefined"` and decides to be helpful about it.
+
 Still absent: `ToPropertyKey` beyond what `object::key_of` already does, and
 loose equality, which needs `ToPrimitive` resolved and therefore a caller that
 can call. Both land with the first client rather than being written blind.
