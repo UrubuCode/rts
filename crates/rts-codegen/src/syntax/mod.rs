@@ -30,8 +30,8 @@ pub use module::{
 pub use ops::{AssignOp, BinaryOp, LogicalOp, UnaryOp, UpdateOp, UpdatePosition};
 pub use pattern::{ArrayPattern, Element, ObjectPattern, Pattern, PatternProperty};
 pub use stmt::{
-    Binding, BindingKind, Catch, ForEachSource, ForEachTarget, ForInit, Function, FunctionBody,
-    Parameter, Stmt, StmtKind, SwitchClause,
+    Binding, BindingKind, Catch, Directive, ForEachSource, ForEachTarget, ForInit, Function,
+    FunctionBody, Parameter, Stmt, StmtKind, SwitchClause,
 };
 
 /// What a program said about a value.

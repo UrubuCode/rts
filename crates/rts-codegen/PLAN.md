@@ -81,14 +81,14 @@ Production names verbatim from Annex A. `✓` present, `·` absent, `~` partial
 
 | Production | State | Note |
 |---|---|---|
-| `IdentifierReference` / `BindingIdentifier` / `LabelIdentifier` / `Identifier` | ~ | one `Name`; the three roles differ in what is legal, not in shape |
+| `IdentifierReference` / `BindingIdentifier` / `LabelIdentifier` / `Identifier` | ✓ | one `Name`; the roles differ in what is legal, which is a check and not a shape |
 | `PrimaryExpression` — `this` | ✓ | a node, not a name |
 | `PrimaryExpression` — `Literal` | ✓ | |
 | `ArrayLiteral` / `ElementList` / `Elision` | ✓ | holes modelled as `Option<Expr>` |
 | `SpreadElement` | ✓ | `Spreadable` in arrays/calls/`new`, `Property::Spread` in objects |
 | `ObjectLiteral` / `PropertyDefinitionList` / `PropertyDefinition` | ✓ | five spellings; `__proto__` is a variant, not a key check |
 | `PropertyName` / `LiteralPropertyName` / `ComputedPropertyName` | ✓ | `PropertyKey::Named` / `Computed` |
-| `CoverInitializedName` | · | `{a = 1}` — only legal once reinterpreted as a pattern |
+| `CoverInitializedName` | n/a | a cover grammar, not a node: `{a = 1}` is an error as a literal and an `Element` with a default once reinterpreted |
 | `Initializer` | ✓ | |
 | `TemplateLiteral` / `SubstitutionTemplate` / `TemplateSpans` / `TemplateMiddleList` | ✓ | `TemplatePart` keeps raw beside an optional cooked |
 | `MemberExpression` | ✓ | `Member` (static) / `Index` (computed), deliberately split |
@@ -102,7 +102,7 @@ Production names verbatim from Annex A. `✓` present, `·` absent, `~` partial
 | `OptionalExpression` / `OptionalChain` | ✓ | `ExprKind::Chain` is the boundary the short circuit reaches to |
 | `UpdateExpression` | ✓ | own node, both positions — not an assignment of a constant |
 | `UnaryExpression` | ✓ | all seven; `typeof` and `delete` take a reference, not a value |
-| `AwaitExpression` | · | |
+| `AwaitExpression` | ✓ | the one expression that can end a frame residence |
 | `ExponentiationExpression` | ✓ | right-associative; unparenthesised unary left operand does not parse |
 | `MultiplicativeExpression` | ✓ | `* / %` |
 | `AdditiveExpression` | ✓ | `+ -` |
@@ -115,7 +115,7 @@ Production names verbatim from Annex A. `✓` present, `·` absent, `~` partial
 | `AssignmentExpression` / `AssignmentOperator` | ✓ | every operator incl. the three short-circuiting `&&= ||= ??=`, as `AssignOp`; targets as `AssignTarget` |
 | `AssignmentPattern` and its whole subtree | ✓ | `AssignTarget::Pattern`; leaf is `Pattern::Target`, an arbitrary place |
 | `Expression` (comma) | ✓ | flat operand list |
-| `YieldExpression` | · | `yield`, `yield*` |
+| `YieldExpression` | ✓ | bare, valued, and delegating |
 | `PrivateIdentifier` | ✓ | `ClassKey::Private`, and `ExprKind::PrivateName` for `#x in o` |
 
 ### A.3 Statements
@@ -124,7 +124,7 @@ Production names verbatim from Annex A. `✓` present, `·` absent, `~` partial
 |---|---|---|
 | `Block` / `StatementList` / `StatementListItem` | ✓ | |
 | `LexicalDeclaration` / `LetOrConst` / `BindingList` / `LexicalBinding` | ✓ | `BindingKind` + a `Pattern` target |
-| `UsingDeclaration` / `AwaitUsingDeclaration` | · | in the current draft; disposal runs on scope exit |
+| `UsingDeclaration` / `AwaitUsingDeclaration` | ✓ | its own statement — the name behaves as `const`, the difference is on the way out |
 | `VariableStatement` / `VariableDeclarationList` / `VariableDeclaration` | ✓ | same shape as above |
 | `BindingPattern` / `ObjectBindingPattern` / `ArrayBindingPattern` | ✓ | rest, holes, defaults, nesting; rest-last and rest-has-no-default are unrepresentable |
 | `EmptyStatement` | ✓ | |
@@ -136,7 +136,7 @@ Production names verbatim from Annex A. `✓` present, `·` absent, `~` partial
 | `ForInOfStatement` / `ForDeclaration` / `ForBinding` | ✓ | one node, `ForEachSource` × `ForEachTarget` |
 | `ContinueStatement` / `BreakStatement` | ✓ | with labels |
 | `ReturnStatement` | ✓ | `Option<Expr>` — bare and explicit-`undefined` stay distinguishable |
-| `WithStatement` | · | normative (14.11), forbidden in strict code |
+| `WithStatement` | ✓ | representable so it can be rejected with a reason |
 | `SwitchStatement` / `CaseBlock` / `CaseClauses` / `CaseClause` / `DefaultClause` | ✓ | flat clause list, so `default` keeps its written position |
 | `LabelledStatement` / `LabelledItem` | ✓ | |
 | `ThrowStatement` | ✓ | |
@@ -151,12 +151,12 @@ Production names verbatim from Annex A. `✓` present, `·` absent, `~` partial
 | `FormalParameters` and subtree | ✓ | patterns, defaults, rest as its own field |
 | "simple parameter list" | ✓ | `Function::has_simple_parameter_list` |
 | `ArrowFunction` / `ConciseBody` / `ExpressionBody` | ✓ | `FunctionBody::Expression` |
-| `AsyncArrowFunction` and subtree | ~ | shape complete; `await` waits on L7 |
+| `AsyncArrowFunction` and subtree | ✓ | |
 | `MethodDefinition` | ✓ | `Property::Method` — a home object, which is what `super` reads |
 | getter / setter / `PropertySetParameterList` | ✓ | |
-| `GeneratorDeclaration/Expression/Method` | ~ | `is_generator` flag; no `yield` |
-| `AsyncGenerator*` | ~ | both flags; no `await`, no `yield` |
-| `AsyncFunctionDeclaration/Expression/Method` | ~ | `is_async`; no `await` |
+| `GeneratorDeclaration/Expression/Method` | ✓ | |
+| `AsyncGenerator*` | ✓ | |
+| `AsyncFunctionDeclaration/Expression/Method` | ✓ | |
 | `ClassDeclaration` / `ClassExpression` / `ClassTail` / `ClassHeritage` | ✓ | one `Class`; heritage is an expression |
 | `ClassBody` / `ClassElementList` / `ClassElement` | ✓ | source order preserved, because it is the semantics |
 | `FieldDefinition` / `ClassElementName` | ✓ | `ClassKey` separates private from public |
@@ -194,7 +194,12 @@ parses, so ASI is a correctness feature and not a convenience.
 
 ### Count
 
-Present or partial: **86**. Absent: **8**.
+Present: **93**. Absent: **0**. One row is marked n/a: `CoverInitializedName`
+is a cover grammar rather than a node.
+
+Every production in Annex A that a tree can hold, the tree holds. What is left
+is not shape — it is the parser that fills it (ASI included, since ASI decides
+what parses) and the passes that read it.
 
 Was 31 / 63 when this document was written.
 
@@ -310,11 +315,11 @@ shape-keyed dispatch) is re-earned rather than copied.
 export form, import attributes, live bindings, hoisting. Dynamic `import()` and
 `import.meta`.
 
-**L7 — suspension.** `await`, `yield`, `yield*`, `for await-of`, top-level
+**L7 — suspension. — DONE.** `await`, `yield`, `yield*`, `for await-of`, top-level
 `await`. The machine layer already has the frame transformation and the
 scheduler; this is the language deciding where a suspension point is.
 
-**L8 — the last corners.** `with` (parse and reject outside sloppy mode rather
+**L8 — the last corners. — DONE** except ASI, which belongs to the parser and lands with it. `with` (parse and reject outside sloppy mode rather
 than fail to parse), `using`/`await using`, `new.target`, ASI in the parser,
 the sloppy-mode Annex B forms.
 

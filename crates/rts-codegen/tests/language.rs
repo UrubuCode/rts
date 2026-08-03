@@ -16,9 +16,9 @@ use rts_codegen::syntax::{
     UpdatePosition,
 };
 use rts_codegen::syntax::{Class, ClassElement, ClassKey, Field};
+use rts_codegen::syntax::{Directive, Goal, ModuleItem};
 use rts_codegen::syntax::{ForEachSource, ForEachTarget, ForInit, SwitchClause};
 use rts_codegen::syntax::{FunctionBody, Property, Spreadable, TemplatePart};
-use rts_codegen::syntax::{Goal, ModuleItem};
 use rts_codegen::values::Singleton;
 use rts_cranelift::fault::Position;
 
@@ -263,6 +263,7 @@ fn a_parameter_list_stops_being_simple_the_moment_anything_is_added() {
             claim: None,
         }],
         rest_parameter: None,
+        directives: vec![],
         body: FunctionBody::Block(vec![]),
         returns: None,
         captures_this: false,
@@ -450,6 +451,7 @@ fn a_method_is_not_a_function_stored_under_a_key() {
         name: None,
         parameters: vec![],
         rest_parameter: None,
+        directives: vec![],
         body: FunctionBody::Block(vec![]),
         returns: None,
         captures_this: false,
@@ -644,6 +646,98 @@ fn a_private_name_stands_alone_only_as_the_left_of_in() {
 }
 
 #[test]
+fn yield_delegation_is_a_loop_and_a_bare_yield_still_produces_something() {
+    let bare = ExprKind::Yield {
+        value: None,
+        delegate: false,
+    };
+    let valued = ExprKind::Yield {
+        value: Some(Box::new(number(1.0))),
+        delegate: false,
+    };
+    let delegated = ExprKind::Yield {
+        value: Some(Box::new(number(1.0))),
+        delegate: true,
+    };
+
+    assert_ne!(bare, valued, "a bare yield produces undefined, not nothing");
+    assert_ne!(
+        valued, delegated,
+        "yield* forwards next/throw/return and yields until the inner one is done"
+    );
+}
+
+#[test]
+fn await_is_not_a_call() {
+    let awaited = ExprKind::Await(Box::new(number(1.0)));
+    let called = ExprKind::Call {
+        callee: Box::new(number(1.0)),
+        arguments: vec![],
+        optional: false,
+    };
+    assert_ne!(awaited, called);
+}
+
+#[test]
+fn use_strict_is_matched_against_raw_text() {
+    let directive = Directive {
+        raw: "use strict".into(),
+    };
+    let escaped = Directive {
+        raw: "use\\u0020strict".into(),
+    };
+
+    assert!(directive.is_use_strict());
+    assert!(
+        !escaped.is_use_strict(),
+        "the escaped spelling is an ordinary string statement, not a directive"
+    );
+}
+
+#[test]
+fn using_is_a_statement_rather_than_a_third_binding_kind() {
+    let mut names = Names::new();
+    let bindings = vec![Binding {
+        target: Pattern::Name(names.intern("handle")),
+        value: Some(number(1.0)),
+        claim: None,
+    }];
+
+    let sync = StmtKind::Using {
+        bindings: bindings.clone(),
+        is_async: false,
+    };
+    let asynchronous = StmtKind::Using {
+        bindings: bindings.clone(),
+        is_async: true,
+    };
+    let plain_const = StmtKind::Declare {
+        kind: BindingKind::Const,
+        bindings,
+    };
+
+    assert_ne!(sync, asynchronous);
+    assert_ne!(
+        sync, plain_const,
+        "the name behaves exactly like const; everything different happens on the way out"
+    );
+}
+
+#[test]
+fn with_is_representable_so_it_can_be_rejected_with_a_reason() {
+    let mut names = Names::new();
+    let statement = StmtKind::With {
+        object: ident(&mut names, "obj"),
+        body: Box::new(Stmt::new(StmtKind::Empty, at())),
+    };
+
+    match statement {
+        StmtKind::With { .. } => {}
+        _ => panic!("built a With and got something else"),
+    }
+}
+
+#[test]
 fn a_named_property_and_a_computed_one_are_different_nodes() {
     let mut names = Names::new();
     let object = Box::new(ident(&mut names, "o"));
@@ -765,6 +859,7 @@ fn an_arrow_and_a_function_differ_in_one_recorded_fact() {
         name: Some(name),
         parameters: vec![],
         rest_parameter: None,
+        directives: vec![],
         body: FunctionBody::Block(vec![]),
         returns: None,
         captures_this: false,
@@ -834,6 +929,7 @@ fn a_whole_small_program_is_expressible() {
                     claim: Some(Claim::Number),
                 }],
                 rest_parameter: None,
+                directives: vec![],
                 body: FunctionBody::Block(vec![Stmt::new(
                     StmtKind::Return(Some(Expr::new(ExprKind::Ident(counter), at()))),
                     at(),
@@ -850,6 +946,7 @@ fn a_whole_small_program_is_expressible() {
 
     let program = Program {
         goal: Goal::Module,
+        directives: vec![],
         body: statements.into_iter().map(ModuleItem::Stmt).collect(),
     };
 

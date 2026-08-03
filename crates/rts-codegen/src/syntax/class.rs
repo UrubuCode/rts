@@ -236,6 +236,7 @@ mod tests {
             name: None,
             parameters: vec![],
             rest_parameter: None,
+            directives: vec![],
             body: FunctionBody::Block(vec![]),
             returns: None,
             captures_this: false,

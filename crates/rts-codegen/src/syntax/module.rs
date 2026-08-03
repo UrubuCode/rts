@@ -28,7 +28,7 @@
 use rts_cranelift::fault::Position;
 
 use super::expr::Expr;
-use super::stmt::Stmt;
+use super::stmt::{Directive, Stmt};
 use crate::names::Name;
 
 /// What kind of program this is.
@@ -203,6 +203,11 @@ pub struct ExportSpecifier {
 pub struct Program {
     /// Which language this is.
     pub goal: Goal,
+    /// A directive prologue, if the program opened with one.
+    ///
+    /// A module ignores `"use strict"` because it is already strict; a script
+    /// does not, and that is where the directive earns its existence.
+    pub directives: Vec<Directive>,
     /// What it contains, in order.
     pub body: Vec<ModuleItem>,
 }
@@ -212,6 +217,7 @@ impl Program {
     pub fn new(goal: Goal) -> Self {
         Self {
             goal,
+            directives: Vec::new(),
             body: Vec::new(),
         }
     }

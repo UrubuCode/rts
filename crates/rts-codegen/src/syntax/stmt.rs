@@ -192,6 +192,40 @@ pub enum StmtKind {
     /// `debugger;`.
     Debugger,
 
+    /// `with (obj) body`.
+    ///
+    /// Normative — it is in the main grammar, not Annex B — and a SyntaxError in
+    /// strict code. Represented so it can be *parsed and rejected with a reason*
+    /// rather than failing to parse, which is the difference between a
+    /// diagnostic and a mystery.
+    ///
+    /// It is also the single construct that makes every enclosing binding
+    /// unprovable: any free name in the body might resolve to a property of an
+    /// object nobody can see until it runs.
+    With {
+        /// What is pushed onto the scope chain.
+        object: Expr,
+        /// The body.
+        body: Box<Stmt>,
+    },
+
+    /// `using x = e` / `await using x = e`.
+    ///
+    /// A lexical declaration that also registers the value for disposal when the
+    /// scope ends — in reverse declaration order, like a stack, and even when
+    /// the scope is left by a throw.
+    ///
+    /// Its own statement rather than a third [`BindingKind`], because the extra
+    /// behaviour is not about how the *name* behaves: `using` is exactly `const`
+    /// for binding purposes, and everything that differs happens on the way out
+    /// of the scope.
+    Using {
+        /// The bindings. Each must be a plain name — `using` takes no pattern.
+        bindings: Vec<Binding>,
+        /// Whether disposal is awaited (`await using`).
+        is_async: bool,
+    },
+
     /// Raising a value.
     Throw(Expr),
 
@@ -350,6 +384,12 @@ pub struct Function {
     /// last" and "rest has no default" are facts about the type instead of rules
     /// somebody has to enforce.
     pub rest_parameter: Option<Pattern>,
+    /// A directive prologue, if the body opened with one.
+    ///
+    /// Only meaningful for a block body: a concise arrow body has no place to
+    /// put one, and a non-simple parameter list forbids `"use strict"` here
+    /// outright — see [`Function::has_simple_parameter_list`].
+    pub directives: Vec<Directive>,
     /// Its body.
     pub body: FunctionBody,
     /// What the program claimed it returns.
@@ -366,6 +406,33 @@ pub struct Function {
     pub is_generator: bool,
     /// Where it was written.
     pub at: Position,
+}
+
+/// A string expression statement at the top of a body, which may be a
+/// directive.
+///
+/// `"use strict"` is not a string being evaluated and discarded — it changes how
+/// the code around it is *compiled*. Only a string literal, only in the run of
+/// them at the very start of a body, and only with no escapes: `"use strict"`
+/// is a string, because the directive is matched against the raw text.
+///
+/// Kept as its own thing so the rule has one home. A `Vec<Stmt>` where the first
+/// element happens to be a string cannot express "with no escapes", and a
+/// lowering that checked the cooked value would accept the escaped spelling.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Directive {
+    /// The text exactly as written, between the quotes.
+    pub raw: String,
+}
+
+impl Directive {
+    /// Whether this is the strict-mode directive.
+    ///
+    /// Matches the raw text, which is what makes `"use strict"` an ordinary
+    /// string statement rather than a directive that was spelled cleverly.
+    pub fn is_use_strict(&self) -> bool {
+        self.raw == "use strict"
+    }
 }
 
 /// What a function does when called.

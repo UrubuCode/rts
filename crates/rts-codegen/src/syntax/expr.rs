@@ -125,6 +125,29 @@ pub enum ExprKind {
         arguments: Vec<Spreadable>,
     },
 
+    /// `await e` — parks the frame until a promise settles.
+    ///
+    /// Its own node, and not a call, because it is the only expression that can
+    /// end a frame's residence on the stack: everything live across it has to be
+    /// somewhere that survives, which is the machine layer's frame
+    /// transformation. Note it awaits *any* value — a non-promise resolves
+    /// immediately, but still after a turn of the loop, so it is never free.
+    Await(Box<Expr>),
+
+    /// `yield e` or `yield* e`.
+    ///
+    /// Suspends and produces. Delegation is a flag rather than a variant because
+    /// the operand plays the same role in both — but the flag is load-bearing:
+    /// `yield*` forwards `next`, `throw` and `return` to the inner iterator and
+    /// yields whatever it yields, so it is a loop, not a single suspension.
+    Yield {
+        /// What is produced. Absent for a bare `yield`, which produces
+        /// `undefined`.
+        value: Option<Box<Expr>>,
+        /// Whether `yield*`.
+        delegate: bool,
+    },
+
     /// `this`.
     ///
     /// A node rather than a name, because it does not resolve like one: it comes
