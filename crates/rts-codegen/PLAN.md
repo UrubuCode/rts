@@ -3,6 +3,16 @@
 What this crate has to be able to say, measured against the standard rather than
 against intuition, and the order in which it will come to say it.
 
+> This document includes material copied from or derived from the ECMAScript®
+> 2027 Language Specification https://tc39.es/ecma262/.
+> Copyright © Ecma International.
+>
+> The full copyright notice and licence is in `THIRD-PARTY-NOTICES.md` at the
+> repository root. That licence permits copying, modification and derivative
+> works for any purpose without fee, on the attribution conditions reproduced
+> there. It governs the specification's *text*; implementing the language it
+> describes is not a use of that text.
+
 ---
 
 ## 0. Where these facts come from
@@ -34,6 +44,10 @@ read raw) for one purpose only: the operator value sets, where an omission is
 easy and silent. ESTree is **not** the model for the tree — its
 `MemberExpression { computed: bool }` is exactly the collapse this crate refuses —
 it is used as a second, independent list to be missing things from.
+
+The clone is a working copy outside this repository and `spec.html` is
+deliberately not vendored — see `THIRD-PARTY-NOTICES.md` for why, and for the
+rule that an operation is cited by name and section id rather than reproduced.
 
 What is **not** verified: the runtime-semantics notes in §5 come from knowledge
 of the spec, not from an extraction. They are marked, and each will be checked
