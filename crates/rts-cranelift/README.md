@@ -193,6 +193,7 @@ src/
   mem/      object layout, and how a reference becomes an address
   symbols/  the closed set of runtime entry points
   fault/    what can stop, and where in the client's program it came from
+  observe/  which part of the program an address is, and which function
   target/   where compiled code goes: executable memory, or an object file
 ```
 
@@ -201,7 +202,7 @@ can collect, inside a protected region, inside a function that may park its
 frame, is one program point in all three concerns; three tables keyed by it would
 be kept in agreement by hand, which is the bug that record exists to prevent.
 
-Planned and deliberately absent: `observe/`, `probe/`.
+Planned and deliberately absent: `probe/`.
 
 `lower/` is not finished, and it is explicit about which half. Scalar work,
 control flow, widening, guards, constants and calls are emitted, checked by the

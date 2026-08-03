@@ -66,7 +66,7 @@ impl FaultTable {
                 position: srclocs
                     .iter()
                     .find(|range| range.start <= trap.offset && trap.offset < range.end)
-                    .map(|range| Position(range.loc.bits()))
+                    .map(|range| Position::from_recorded(range.loc.bits()))
                     .unwrap_or(Position::UNKNOWN),
             })
             .collect();

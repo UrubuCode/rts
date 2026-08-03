@@ -77,6 +77,7 @@ pub struct MachineModule<'a> {
     entries: crate::symbols::EntryTable,
     heap: Option<crate::mem::RegionBases>,
     faults: std::collections::HashMap<FuncId, crate::fault::FaultTable>,
+    positions: std::collections::HashMap<FuncId, crate::observe::PositionMap>,
     call_conv: CallConv,
 }
 
@@ -90,6 +91,7 @@ impl<'a> MachineModule<'a> {
             entries: crate::symbols::EntryTable::new(),
             heap: None,
             faults: std::collections::HashMap::new(),
+            positions: std::collections::HashMap::new(),
             call_conv,
         }
     }
@@ -110,6 +112,15 @@ impl<'a> MachineModule<'a> {
     /// compiled rather than predicted before compiling.
     pub fn faults(&self, id: FuncId) -> Option<&crate::fault::FaultTable> {
         self.faults.get(&id)
+    }
+
+    /// Where each run of a compiled function's code came from.
+    ///
+    /// The answer a profiler needs. Empty until the function is defined, and
+    /// empty afterwards if nothing said where anything came from — which is a
+    /// truthful empty rather than a silent one.
+    pub fn positions(&self, id: FuncId) -> Option<&crate::observe::PositionMap> {
+        self.positions.get(&id)
     }
 
     /// Which runtime entry points this compilation has needed.
@@ -195,6 +206,8 @@ impl<'a> MachineModule<'a> {
         // nowhere else afterwards.
         if let Some(code) = context.compiled_code() {
             self.faults.insert(id, crate::fault::FaultTable::of(code));
+            self.positions
+                .insert(id, crate::observe::PositionMap::of(code));
         }
         Ok(())
     }

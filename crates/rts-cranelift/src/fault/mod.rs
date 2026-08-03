@@ -46,4 +46,19 @@ impl Position {
     pub fn raw(self) -> u32 {
         self.0
     }
+
+    /// Reads a position back out of what the code generator recorded.
+    ///
+    /// Two things mean "nothing said", and both have to become one here. Ours is
+    /// zero; the code generator's own marker for an unset location is all ones.
+    /// Letting the second through would report a position no client ever gave —
+    /// a very confident answer to a question nobody asked, which is worse than
+    /// no answer at all.
+    pub fn from_recorded(bits: u32) -> Self {
+        if bits == u32::MAX {
+            Position::UNKNOWN
+        } else {
+            Position(bits)
+        }
+    }
 }

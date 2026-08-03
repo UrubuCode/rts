@@ -122,7 +122,9 @@ impl<'a> Body<'a> {
             builder.set_srcloc(SourceLoc::new(self.func.position_of(inst_id).raw()));
             self.lower_inst(builder, inst_id, &inst.inst, &inst.results)?;
         }
-        builder.set_srcloc(SourceLoc::default());
+        // Back to saying nothing. Not the code generator's own default, which is
+        // all ones and would read back as a position no client ever gave.
+        builder.set_srcloc(SourceLoc::new(crate::fault::Position::UNKNOWN.raw()));
 
         match &data.terminator {
             Some(terminator) => self.lower_terminator(builder, id, terminator),
