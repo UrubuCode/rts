@@ -4118,6 +4118,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-codegen"
+version = "0.1.0"
+dependencies = [
+ "rts-cranelift",
+]
+
+[[package]]
 name = "rts-codegen-new"
 version = "0.1.0"
 dependencies = [

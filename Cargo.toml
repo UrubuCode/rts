@@ -22,6 +22,7 @@ members = [
     "crates/rts-macro",
     "crates/rts-codegen-new",
     "crates/rts-cranelift",
+    "crates/rts-codegen",
     "crates/rts-symbol-baker",
     "crates/rts-cli",
     "crates/rts-value-probe",

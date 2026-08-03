@@ -1,0 +1,20 @@
+[package]
+name = "rts-codegen"
+version = "0.1.0"
+edition = "2024"
+description = "The language layer: JavaScript and TypeScript semantics, lowered onto the machine."
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+# The machine, and nothing else. Not Cranelift — reaching it directly is the
+# failure this pair of crates exists to prevent, and a dependency edge is where
+# that failure would start.
+rts-cranelift = { path = "../rts-cranelift" }
+
+[dev-dependencies]
+# The integration tests build trees that carry machine positions, so they name
+# the machine directly rather than through a re-export. A re-export would make
+# this crate part of the machine's public surface, which it is not.
+rts-cranelift = { path = "../rts-cranelift" }
