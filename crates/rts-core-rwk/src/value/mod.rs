@@ -1,18 +1,21 @@
 //! What a JavaScript value is, at run time.
 //!
-//! The language layer decides what a value *means*; the machine layer decides
-//! how sixty-four bits are arranged. This is the third thing: the operations a
-//! program performs on values, which belong to neither and are called by both.
+//! # This module owns no bits
 //!
-//! # Why the encoding is restated here rather than shared
+//! The encoding belongs to [`rts_cranelift::tags`] and is not restated here.
+//! Every construction and every inspection below **calls** it — `encode_double`,
+//! `is_encoded`, `tag_of`, `payload_of` — rather than re-deriving the same
+//! arithmetic from the same constants.
 //!
-//! The machine layer's [`tags`] module owns the bit layout, and this module has
-//! to agree with it exactly. It agrees by *reading the same constants*, not by
-//! copying them: `BOX_BASE` and the tag numbers come from `rts-cranelift`, so a
-//! change there is a compile error here rather than a value silently read as
-//! the wrong kind.
+//! That is not tidiness. A rule written in two places is a rule that will be
+//! written differently: this module's first draft canonicalised `NaN` as
+//! `f64::NAN.to_bits()` while the machine used `CANONICAL_NAN`. They agree on
+//! this target and there is no reason they must, and a value encoded by one and
+//! read by the other is the kind of disagreement that shows up as a wrong
+//! object rather than as a crash.
 //!
-//! [`tags`]: rts_cranelift::tags
+//! So what is this module for, if it owns no bits? For what the machine
+//! deliberately has no opinion about: **what the values mean**.
 //!
 //! # Three equalities, and they differ in two cells
 //!
@@ -25,36 +28,33 @@
 //! | `SameValue` ([`same_value`]) | **true** | false |
 //! | `SameValueZero` ([`same_value_zero`]) | **true** | **true** |
 //!
-//! Each is used somewhere the others would be wrong. `Object.is` is
-//! `SameValue`. `Map` and `Set` key on `SameValueZero`, which is why `NaN` works
-//! as a key at all. `Array.prototype.indexOf` uses `===`, which is why it cannot
-//! find one.
+//! Each is used where the others would be wrong. `Object.is` is `SameValue`.
+//! `Map` and `Set` key on `SameValueZero`, which is why `NaN` works as a key.
+//! `Array.prototype.indexOf` uses `===`, which is why it cannot find one.
 //!
 //! Getting these wrong does not crash. `map.set(NaN, 1)` twice quietly produces
 //! two entries, and nothing points at the equality that did it.
 //!
-//! # The trap this module exists to keep out of the lowering
-//!
-//! A NaN-boxed value is a bit pattern, and comparing bit patterns is one
-//! instruction. It is also wrong for both of the cells above: `+0` and `-0` have
-//! different bits and are `===`, and two `NaN`s can have identical bits and are
-//! not. Every function here that could have been a bit compare and is not says
-//! so at its definition.
+//! A NaN-boxed value is a bit pattern and comparing bit patterns is one
+//! instruction — and wrong for both cells, since `+0` and `-0` have different
+//! bits and are `===`, while two `NaN`s can have identical bits and are not.
 
-use rts_cranelift::tags::{BOX_BASE, TAG_BOOL, TAG_INT32, TAG_REFERENCE, TAG_SINGLETON, tag_of};
+use rts_cranelift::tags::{
+    BOOL_FALSE, BOOL_TRUE, TAG_BOOL, TAG_INT32, TAG_REFERENCE, TAG_SINGLETON, decode_double,
+    encode, encode_double, is_encoded, payload_of, tag_of,
+};
 
 mod convert;
 mod equality;
 
-pub use convert::{to_boolean, to_int32, to_number, to_uint32};
+pub use convert::{Singletons, to_boolean, to_int32, to_number, to_uint32};
 pub use equality::{same_value, same_value_zero, strict_equals};
 
 /// One JavaScript value, as the program holds it.
 ///
-/// A transparent wrapper over the machine's sixty-four bits. Transparent so it
-/// crosses the ABI as one word with no conversion; a wrapper so that the
-/// operations below have somewhere to live and so that a raw `u64` from
-/// somewhere else cannot be mistaken for one.
+/// A transparent wrapper over the machine's word. Transparent so it crosses the
+/// ABI as one register with no conversion; a wrapper so the meaning below has
+/// somewhere to live and so a `u64` from elsewhere cannot be mistaken for one.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct Value(pub u64);
@@ -62,8 +62,8 @@ pub struct Value(pub u64);
 /// What kind of thing a value is.
 ///
 /// Not `typeof`. `typeof` is a language question with a language answer —
-/// including `"object"` for `null`, which is a mistake from 1995 that this layer
-/// declines to reproduce. This is the representation question, and the two are
+/// including `"object"` for `null`, a mistake from 1995 that this layer declines
+/// to reproduce. This is the representation question, and the two are
 /// deliberately separate.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kind {
@@ -87,83 +87,87 @@ impl Value {
 
     /// A double.
     ///
-    /// Canonicalises `NaN`. Every arithmetic operation on this platform can
-    /// produce a `NaN`, and an uncanonicalised one may land anywhere in the
-    /// quadrant the boxed space uses — at which point a perfectly ordinary
-    /// arithmetic result reads back as a reference, and the slot it names is
-    /// whatever happened to be at those bits. One `f64::NAN` here is the whole
-    /// defence.
+    /// `NaN` canonicalisation happens in the machine's `encode_double`, and the
+    /// reason it must happen somewhere is worth knowing here: an arithmetic
+    /// `NaN` carries whatever payload the hardware chose, which can land in the
+    /// encoded quadrant — at which point an ordinary arithmetic result reads
+    /// back as a reference and names whatever heap slot those bits spell.
     pub fn from_f64(value: f64) -> Self {
-        Value(if value.is_nan() {
-            f64::NAN.to_bits()
-        } else {
-            value.to_bits()
-        })
+        Value(encode_double(value))
     }
 
     /// A small integer.
     pub fn from_i32(value: i32) -> Self {
-        Value(BOX_BASE | (u64::from(TAG_INT32) << 48) | u64::from(value as u32))
+        Value(encode(TAG_INT32, u64::from(value as u32)))
     }
 
     /// A boolean.
     pub fn from_bool(value: bool) -> Self {
-        Value(BOX_BASE | (u64::from(TAG_BOOL) << 48) | u64::from(value))
+        Value(encode(TAG_BOOL, if value { BOOL_TRUE } else { BOOL_FALSE }))
     }
 
-    /// Whether this is a boxed pattern rather than a genuine double.
+    /// A singleton, by the number the machine's registry gave it.
+    pub fn from_singleton(number: u32) -> Self {
+        Value(encode(TAG_SINGLETON, u64::from(number)))
+    }
+
+    /// A reference to a heap slot.
+    pub fn from_slot(slot: u32) -> Self {
+        Value(encode(TAG_REFERENCE, u64::from(slot)))
+    }
+
+    /// Whether this is an encoded pattern rather than a genuine double.
     pub fn is_boxed(self) -> bool {
-        (self.0 & BOX_BASE) == BOX_BASE
+        is_encoded(self.0)
     }
 
     /// What kind of thing this is.
     pub fn kind(self) -> Kind {
-        if !self.is_boxed() {
+        if !is_encoded(self.0) {
             return Kind::Float;
         }
-        let payload = self.0 & 0x0000_FFFF_FFFF_FFFF;
+        let payload = payload_of(self.0);
         match tag_of(self.0) {
             TAG_INT32 => Kind::Int,
             TAG_BOOL => Kind::Bool,
             TAG_SINGLETON => Kind::Singleton(payload as u32),
-            TAG_REFERENCE => Kind::Reference(payload),
             _ => Kind::Reference(payload),
         }
     }
 
     /// The double this holds, if it is one.
     pub fn as_f64(self) -> Option<f64> {
-        (!self.is_boxed()).then(|| f64::from_bits(self.0))
+        (!is_encoded(self.0)).then(|| decode_double(self.0))
     }
 
     /// The integer this holds, if it is one.
     pub fn as_i32(self) -> Option<i32> {
-        matches!(self.kind(), Kind::Int).then(|| self.0 as u32 as i32)
+        matches!(self.kind(), Kind::Int).then(|| payload_of(self.0) as u32 as i32)
     }
 
     /// The boolean this holds, if it is one.
     pub fn as_bool(self) -> Option<bool> {
-        matches!(self.kind(), Kind::Bool).then(|| (self.0 & 1) != 0)
+        matches!(self.kind(), Kind::Bool).then(|| payload_of(self.0) == BOOL_TRUE)
     }
 
     /// The heap slot this names, if it names one.
-    pub fn as_reference(self) -> Option<u64> {
+    pub fn as_slot(self) -> Option<u32> {
         match self.kind() {
-            Kind::Reference(slot) => Some(slot),
+            Kind::Reference(slot) => Some(slot as u32),
             _ => None,
         }
     }
 
-    /// The number this holds, whether it is stored as an integer or a double.
+    /// The number this holds, whether an integer or a double.
     ///
     /// Not a conversion — this answers only for values that already *are*
     /// numbers, and says nothing for a string that looks like one. That is
     /// [`to_number`], and keeping them apart is what stops a coercion happening
-    /// somewhere nobody meant one to.
+    /// where nobody meant one.
     pub fn numeric(self) -> Option<f64> {
         match self.kind() {
-            Kind::Float => Some(f64::from_bits(self.0)),
-            Kind::Int => Some(f64::from(self.0 as u32 as i32)),
+            Kind::Float => Some(decode_double(self.0)),
+            Kind::Int => Some(f64::from(payload_of(self.0) as u32 as i32)),
             _ => None,
         }
     }
@@ -172,9 +176,9 @@ impl Value {
 impl core::fmt::Debug for Value {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.kind() {
-            Kind::Float => write!(f, "Value({})", f64::from_bits(self.0)),
-            Kind::Int => write!(f, "Value({}i32)", self.0 as u32 as i32),
-            Kind::Bool => write!(f, "Value({})", (self.0 & 1) != 0),
+            Kind::Float => write!(f, "Value({})", decode_double(self.0)),
+            Kind::Int => write!(f, "Value({}i32)", payload_of(self.0) as u32 as i32),
+            Kind::Bool => write!(f, "Value({})", payload_of(self.0) == BOOL_TRUE),
             Kind::Singleton(id) => write!(f, "Value(singleton {id})"),
             Kind::Reference(slot) => write!(f, "Value(ref {slot})"),
         }
@@ -187,9 +191,9 @@ mod tests {
 
     #[test]
     fn an_arithmetic_nan_never_reads_back_as_a_reference() {
-        // A NaN produced by arithmetic can carry any payload the hardware
-        // chose, including one that lands in the boxed quadrant.
-        let hostile = f64::from_bits(BOX_BASE | (u64::from(TAG_REFERENCE) << 48) | 42);
+        // A NaN from arithmetic can carry any payload the hardware chose,
+        // including one landing in the encoded quadrant.
+        let hostile = decode_double_unchecked(encode(TAG_REFERENCE, 42));
         assert!(hostile.is_nan(), "the bit pattern is a NaN");
 
         let value = Value::from_f64(hostile);
@@ -202,6 +206,12 @@ mod tests {
         assert!(value.as_f64().unwrap().is_nan());
     }
 
+    /// The machine's `decode_double` asserts the word is not encoded, which is
+    /// exactly what this test needs to violate on purpose.
+    fn decode_double_unchecked(bits: u64) -> f64 {
+        f64::from_bits(bits)
+    }
+
     #[test]
     fn every_kind_round_trips() {
         assert_eq!(Value::from_i32(-7).as_i32(), Some(-7));
@@ -210,6 +220,8 @@ mod tests {
         assert_eq!(Value::from_bool(false).as_bool(), Some(false));
         assert_eq!(Value::from_f64(1.5).as_f64(), Some(1.5));
         assert_eq!(Value::from_f64(-0.0).as_f64(), Some(-0.0));
+        assert_eq!(Value::from_slot(9).as_slot(), Some(9));
+        assert_eq!(Value::from_singleton(3).kind(), Kind::Singleton(3));
     }
 
     #[test]
@@ -220,10 +232,12 @@ mod tests {
             "an int is not stored as a double"
         );
         assert!(integer.as_bool().is_none());
-        assert!(integer.as_reference().is_none());
+        assert!(integer.as_slot().is_none());
 
-        let boolean = Value::from_bool(true);
-        assert!(boolean.as_i32().is_none(), "true is not the integer 1");
+        assert!(
+            Value::from_bool(true).as_i32().is_none(),
+            "true is not the integer 1"
+        );
     }
 
     #[test]

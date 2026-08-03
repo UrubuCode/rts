@@ -101,6 +101,8 @@ pub fn to_uint32(number: f64) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    use rts_cranelift::tags::{TAG_REFERENCE, TAG_SINGLETON, encode};
+
     use super::*;
 
     const S: Singletons = Singletons {
@@ -128,7 +130,7 @@ mod tests {
 
     #[test]
     fn an_object_is_truthy_however_empty_it_is() {
-        let object = Value(super::super::BOX_BASE | (2 << 48) | 5);
+        let object = Value(encode(TAG_REFERENCE, 5));
         assert!(
             to_boolean(object, S, never_empty),
             "no unwrapping happens: new Boolean(false) is truthy"
@@ -137,8 +139,8 @@ mod tests {
 
     #[test]
     fn undefined_becomes_nan_and_null_becomes_zero() {
-        let undefined = Value(super::super::BOX_BASE | (1 << 48));
-        let null = Value(super::super::BOX_BASE | (1 << 48) | 1);
+        let undefined = Value(encode(TAG_SINGLETON, 0));
+        let null = Value(encode(TAG_SINGLETON, 1));
 
         assert!(to_number(undefined, S).unwrap().is_nan());
         assert_eq!(to_number(null, S), Some(0.0));
@@ -148,7 +150,7 @@ mod tests {
 
     #[test]
     fn to_number_refuses_a_reference_rather_than_guessing() {
-        let object = Value(super::super::BOX_BASE | (2 << 48) | 5);
+        let object = Value(encode(TAG_REFERENCE, 5));
         assert_eq!(
             to_number(object, S),
             None,

@@ -76,6 +76,8 @@ pub fn same_value_zero(left: Value, right: Value) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use rts_cranelift::tags::{TAG_REFERENCE, encode};
+
     use super::*;
 
     fn nan() -> Value {
@@ -129,9 +131,9 @@ mod tests {
 
     #[test]
     fn a_reference_is_equal_only_to_itself() {
-        let one = Value(super::super::BOX_BASE | (2 << 48) | 7);
-        let same = Value(super::super::BOX_BASE | (2 << 48) | 7);
-        let other = Value(super::super::BOX_BASE | (2 << 48) | 8);
+        let one = Value(encode(TAG_REFERENCE, 7));
+        let same = Value(encode(TAG_REFERENCE, 7));
+        let other = Value(encode(TAG_REFERENCE, 8));
 
         assert!(strict_equals(one, same), "the same slot is the same object");
         assert!(!strict_equals(one, other));
