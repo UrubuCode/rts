@@ -117,17 +117,42 @@ pub(crate) fn position(span: swc_common::Span) -> Position {
     Position(span.lo.0)
 }
 
-/// Parse a program.
+/// Which language the source is written in.
 ///
-/// TypeScript syntax is tried first and ECMAScript second, matching the rest of
-/// this repository: a `.ts` file is the common case, and every `.js` file is
-/// also valid TypeScript except where the two genuinely disagree.
+/// Not a formality. TypeScript is a superset, so its syntax **accepts programs
+/// JavaScript rejects** — `enum`, annotations, `x!`. Reading a `.js` file with
+/// TypeScript syntax therefore turns some syntax errors into successful parses,
+/// which is exactly wrong for a file the user called JavaScript.
+///
+/// Measured, not assumed: reading test262's `test/language` — pure JavaScript,
+/// with 4170 files the corpus says must *fail* to parse — with TypeScript
+/// syntax accepted 1269 of them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Dialect {
+    /// TypeScript, falling back to ECMAScript where the two disagree.
+    #[default]
+    TypeScript,
+    /// ECMAScript only. What a `.js` file gets.
+    JavaScript,
+}
+
+/// Parse a program, in the default (TypeScript) dialect.
 pub fn parse(source: &str, goal: Goal, names: &mut Names) -> Result<Program> {
+    parse_as(source, goal, Dialect::TypeScript, names)
+}
+
+/// Parse a program in a named dialect.
+pub fn parse_as(source: &str, goal: Goal, dialect: Dialect, names: &mut Names) -> Result<Program> {
     let source = strip_shebang(source);
 
+    let candidates: &[Syntax] = match dialect {
+        Dialect::TypeScript => &[ts_syntax(), es_syntax()],
+        Dialect::JavaScript => &[es_syntax()],
+    };
+
     let mut first_error = None;
-    for syntax in [ts_syntax(), es_syntax()] {
-        match parse_with(source, syntax) {
+    for syntax in candidates {
+        match parse_with(source, *syntax) {
             Ok(program) => {
                 let mut cx = Cx { names, goal };
                 return item::program(&mut cx, &program, goal);
@@ -151,14 +176,20 @@ pub fn parse_script(source: &str, names: &mut Names) -> Result<Program> {
     parse(source, Goal::Script, names)
 }
 
-/// Remove a `#!` line, keeping the newline so positions do not shift.
+/// Remove a `#!` line, keeping its line break so line numbers do not shift.
+///
+/// JavaScript has **four** line terminators, not one: line feed, carriage
+/// return, and the two Unicode separators `U+2028` and `U+2029`. Looking only
+/// for `\n` leaves the rest of a `#!` line attached to the program, which is a
+/// syntax error in a file that is perfectly valid — found by test262's
+/// `comments/hashbang/line-terminator-*` tests, which is what a corpus is for.
 fn strip_shebang(source: &str) -> &str {
-    match source.strip_prefix("#!") {
-        Some(rest) => match rest.find('\n') {
-            Some(newline) => &source[newline + 2..],
-            None => "",
-        },
-        None => source,
+    let Some(rest) = source.strip_prefix("#!") else {
+        return source;
+    };
+    match rest.find(['\n', '\r', '\u{2028}', '\u{2029}']) {
+        Some(offset) => &source[offset + 2..],
+        None => "",
     }
 }
 
@@ -222,6 +253,19 @@ mod tests {
         );
         assert_eq!(strip_shebang("let x = 1;"), "let x = 1;");
         assert_eq!(strip_shebang("#!only"), "");
+    }
+
+    #[test]
+    fn a_shebang_ends_at_any_of_the_four_line_terminators() {
+        for terminator in ['\n', '\r', '\u{2028}', '\u{2029}'] {
+            let source = format!("#!rts{terminator}let x = 1;");
+            let stripped = strip_shebang(&source);
+            assert!(
+                stripped.ends_with("let x = 1;"),
+                "{terminator:?} did not end the line: {stripped:?}"
+            );
+            assert!(!stripped.contains("rts"), "the shebang text survived");
+        }
     }
 
     #[test]

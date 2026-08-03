@@ -122,8 +122,18 @@ it holds. `PLAN.md` §2 is the inventory, extracted from the specification sourc
 rather than remembered, and §2b lists the rules the grammar enforces through
 production shapes and early errors instead of through nodes.
 
-What does not exist yet is anything that **fills** the tree. `PLAN.md` L8.5 is
-that gap, named where it was found rather than folded into the phase after it.
+`parse/` fills it, from source text, through SWC — chosen over a hand-written
+parser because ASI decides what parses and getting it wrong yields a program that
+compiles and means something else.
+
+Measured against test262's `test/language`, 23 223 files: **92.3 % read
+correctly**. That is a reading rate, not a pass rate — nothing runs. `PLAN.md`
+L9 has the full table and what each column means.
+
+What does not exist yet is the **checker**. The 1 029 programs the corpus says
+are invalid and we accept are early errors — redeclarations, duplicate
+`__proto__`, `delete` of a name in strict code — rules no grammar production
+encodes and no node can hold. `PLAN.md` L10.
 
 ## Layout
 

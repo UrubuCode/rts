@@ -354,15 +354,49 @@ rather than an afternoon:
 running the standard's own tests, which is the only kind this crate's rule 7
 permits.
 
-**Blocked on L8.5, and deliberately not approximated.** There is a tempting
-substitute — read the `features` metadata, map each feature name to constructs
-the tree holds, and report a percentage. It would be a number, and it would be
-measuring this document against itself: the mapping is something we would author,
-so the result says only that we believe what we already wrote down. Rule 7 says
-coverage is measured, never claimed, and that is the difference between the two.
+**DONE, and here is the number.** `tests/test262.rs`, run against
+`test/language` — 23 223 files after excluding fixtures:
 
-No number here until source text goes in one end and a verdict comes out the
-other.
+```
+read correctly     21 433   92.3 %
+refused, named        549    2.4 %   our gaps, each naming a construct
+wrongly rejected      212    0.9 %   valid programs we refused
+wrongly accepted    1 029    4.4 %   invalid programs we did not refuse
+```
+
+**What that measures, precisely.** Whether the front end *reads* each program
+correctly: accepts what the corpus says is valid, refuses what it says is not.
+Nothing runs. This is not a pass rate, and calling it one would be false — a
+program that parses can still be compiled wrongly. It is the floor underneath
+everything else, because a front end that mis-reads a program cannot compile it
+correctly.
+
+Two findings the number would have hidden, and the harness was fixed for both
+before it was believed:
+
+- The first run read the corpus with **TypeScript** syntax and scored 91.2 %.
+  TypeScript is a superset, so it accepts programs JavaScript rejects — 240 of
+  the 1 269 false accepts were that alone. `Dialect` now exists because of this
+  measurement, and a `.js` file gets `Dialect::JavaScript`.
+- test262 runs an `onlyStrict` file with a strict prologue prepended. Without it,
+  a test whose entire point is a strict-mode error is handed to a sloppy parse,
+  which correctly accepts it — and the harness recorded our correct answer as a
+  defect.
+
+It also found a real bug in our own code: `strip_shebang` looked only for `\n`,
+and JavaScript has four line terminators. `comments/hashbang/line-terminator-*`
+caught it. That is what a corpus is for.
+
+**L10 — early errors.** The 1 029 false accepts are not a parser gap. Sampled:
+they are redeclaration tests — `let x; function x() {}` in one scope — plus
+duplicate `__proto__`, `delete` of a name in strict code, invalid assignment
+targets. Static semantics: rules that no grammar production encodes and no node
+can hold, which is exactly the class §2b named and said would need checking
+rather than shaping.
+
+So the tree is finished and the *checker* has not started. That is one phase, it
+is measurable from the day it begins — the 1 029 is its scoreboard — and it is
+where the next work goes.
 
 ---
 
