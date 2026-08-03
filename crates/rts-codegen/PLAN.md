@@ -92,12 +92,12 @@ Production names verbatim from Annex A. `✓` present, `·` absent, `~` partial
 | `Initializer` | ✓ | |
 | `TemplateLiteral` / `SubstitutionTemplate` / `TemplateSpans` / `TemplateMiddleList` | ✓ | `TemplatePart` keeps raw beside an optional cooked |
 | `MemberExpression` | ✓ | `Member` (static) / `Index` (computed), deliberately split |
-| `SuperProperty` | · | `super.x`, `super[e]` |
-| `MetaProperty` / `NewTarget` / `ImportMeta` | · | |
+| `SuperProperty` | ✓ | reads the home object prototype, keeps `this` |
+| `MetaProperty` / `NewTarget` / `ImportMeta` | ✓ | |
 | `NewExpression` | ✓ | separate node, not a call flag |
 | `CallExpression` | ✓ | |
-| `SuperCall` | · | not a call — it binds `this` in a derived constructor |
-| `ImportCall` | · | `import(spec, options)` |
+| `SuperCall` | ✓ | not a call — it binds `this` in a derived constructor |
+| `ImportCall` | ✓ | specifier + options |
 | `Arguments` / `ArgumentList` | ✓ | `Spreadable::count_is_static` |
 | `OptionalExpression` / `OptionalChain` | ✓ | `ExprKind::Chain` is the boundary the short circuit reaches to |
 | `UpdateExpression` | ✓ | own node, both positions — not an assignment of a constant |
@@ -107,7 +107,7 @@ Production names verbatim from Annex A. `✓` present, `·` absent, `~` partial
 | `MultiplicativeExpression` | ✓ | `* / %` |
 | `AdditiveExpression` | ✓ | `+ -` |
 | `ShiftExpression` | ✓ | `>>>` is the one whose result outgrows a signed 32-bit value |
-| `RelationalExpression` | ~ | ordering + `in` + `instanceof`; `#x in o` waits on private names |
+| `RelationalExpression` | ✓ | ordering + `in` + `instanceof` + `#x in o` |
 | `EqualityExpression` | ✓ | all four |
 | `BitwiseAND/XOR/ORExpression` | ✓ | all three |
 | `LogicalAND/ORExpression` / `CoalesceExpression` / `ShortCircuitExpression` | ✓ | `LogicalOp`, kept off `BinaryOp` |
@@ -116,7 +116,7 @@ Production names verbatim from Annex A. `✓` present, `·` absent, `~` partial
 | `AssignmentPattern` and its whole subtree | ✓ | `AssignTarget::Pattern`; leaf is `Pattern::Target`, an arbitrary place |
 | `Expression` (comma) | ✓ | flat operand list |
 | `YieldExpression` | · | `yield`, `yield*` |
-| `PrivateIdentifier` | · | |
+| `PrivateIdentifier` | ✓ | `ClassKey::Private`, and `ExprKind::PrivateName` for `#x in o` |
 
 ### A.3 Statements
 
@@ -157,11 +157,11 @@ Production names verbatim from Annex A. `✓` present, `·` absent, `~` partial
 | `GeneratorDeclaration/Expression/Method` | ~ | `is_generator` flag; no `yield` |
 | `AsyncGenerator*` | ~ | both flags; no `await`, no `yield` |
 | `AsyncFunctionDeclaration/Expression/Method` | ~ | `is_async`; no `await` |
-| `ClassDeclaration` / `ClassExpression` / `ClassTail` / `ClassHeritage` | · | |
-| `ClassBody` / `ClassElementList` / `ClassElement` | · | |
-| `FieldDefinition` / `ClassElementName` | · | instance and static fields |
-| `ClassStaticBlock` | · | |
-| class element evaluation order | · | fields in source order after `super()`; statics once at definition; private installation before any initializer |
+| `ClassDeclaration` / `ClassExpression` / `ClassTail` / `ClassHeritage` | ✓ | one `Class`; heritage is an expression |
+| `ClassBody` / `ClassElementList` / `ClassElement` | ✓ | source order preserved, because it is the semantics |
+| `FieldDefinition` / `ClassElementName` | ✓ | `ClassKey` separates private from public |
+| `ClassStaticBlock` | ✓ | |
+| class element evaluation order | ✓ | `runs_at_definition` / `runs_per_instance`, documented on the module |
 
 ### A.5 Scripts and modules
 
@@ -187,7 +187,7 @@ parses, so ASI is a correctness feature and not a convenience.
 
 ### Count
 
-Present or partial: **60**. Absent: **34**.
+Present or partial: **70**. Absent: **24**.
 
 Was 31 / 63 when this document was written.
 
@@ -292,7 +292,7 @@ which is where `IteratorClose` lives (§5.6).
 getters, setters, spread, `__proto__`; spread in calls and `new`; concise arrow
 bodies; `this`; template literals with raw text; tagged templates.
 
-**L5 — classes.** Declaration and expression, `extends`, constructor, instance
+**L5 — classes. — DONE.** Declaration and expression, `extends`, constructor, instance
 and static methods, fields, static blocks, private names and `#x in o`, `super.m`
 and `super()`. Evaluation order is part of the deliverable, not a follow-up: this
 is where the machine layer's shapes get their first real client, and where the
@@ -497,6 +497,35 @@ lands, and the section id recorded in the code comment at that point.
 
 14. **ASI changes what parses.** A newline after `return` ends the statement.
     Not formatting — meaning.
+
+---
+
+## 5b. Deferred: the tree's storage
+
+The tree is `Box`-linked today. Some of those boxes are forced — `ExprKind`
+contains `PropertyKey` contains `Expr` is a cycle, and Rust needs indirection
+somewhere in it — but most are just the obvious way to write a tree.
+
+The alternative is an **arena with indices**: one `Vec<Expr>`, and `ExprId(u32)`
+where a `Box<Expr>` is now. It is what rustc, Zig and Carbon do, and it is
+probably right here too.
+
+The reason is not allocation, and saying so would be claiming a measurement that
+does not exist. It is **side tables**. A type pass wants to attach a `Claim` and
+then a representation to every node, and with indices that is a `Vec` parallel to
+the arena — no field on the node, no growth of the node, no pass rewriting the
+tree to record what it learned. With boxes, each of those becomes either a field
+nobody else uses or a `HashMap` keyed by address.
+
+Not done now because it is a mechanical change that answers no open question, and
+it would be done blind: no pass yet exists that needs the side table. The trigger
+is §4 — when representations start being decided per node, convert first, then
+write the pass.
+
+Note this is unrelated to `PolyValue` and NaN-boxing, which live in the *other*
+layer. Those encode one JavaScript value in 64 bits at **run time**. This tree is
+read once by the lowering and discarded, and never exists while the compiled
+program runs.
 
 ---
 

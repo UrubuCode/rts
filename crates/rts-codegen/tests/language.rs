@@ -15,6 +15,7 @@ use rts_codegen::syntax::{
     Literal, LogicalOp, Parameter, Pattern, Program, PropertyKey, Stmt, StmtKind, UpdateOp,
     UpdatePosition,
 };
+use rts_codegen::syntax::{Class, ClassElement, ClassKey, Field};
 use rts_codegen::syntax::{ForEachSource, ForEachTarget, ForInit, SwitchClause};
 use rts_codegen::syntax::{FunctionBody, Property, Spreadable, TemplatePart};
 use rts_codegen::values::Singleton;
@@ -554,6 +555,91 @@ fn this_is_a_node_rather_than_a_name() {
         as_name,
         "it comes from the nearest function that binds it, and arrows do not bind it"
     );
+}
+
+#[test]
+fn a_class_body_keeps_the_order_that_decides_when_things_run() {
+    let mut names = Names::new();
+    let key = |n: &mut Names, t: &str| ClassKey::Public(PropertyKey::Named(n.intern(t)));
+
+    let class = Class {
+        name: Some(names.intern("C")),
+        heritage: None,
+        body: vec![
+            ClassElement::Field(Field {
+                key: key(&mut names, "instanceFirst"),
+                value: Some(number(1.0)),
+                is_static: false,
+            }),
+            ClassElement::StaticBlock(vec![]),
+            ClassElement::Field(Field {
+                key: key(&mut names, "staticSecond"),
+                value: Some(number(2.0)),
+                is_static: true,
+            }),
+        ],
+        at: at(),
+    };
+
+    assert_eq!(
+        class.static_elements().count(),
+        2,
+        "the static block and the static field both run at definition"
+    );
+    assert_eq!(
+        class.instance_elements().count(),
+        1,
+        "and the instance field runs per construction"
+    );
+}
+
+#[test]
+fn super_is_not_a_member_access_on_a_value_called_super() {
+    let mut names = Names::new();
+    let x = names.intern("x");
+
+    let super_member = ExprKind::SuperMember {
+        property: Box::new(PropertyKey::Named(x)),
+    };
+    let ordinary = ExprKind::Member {
+        object: Box::new(Expr::new(ExprKind::This, at())),
+        property: x,
+        optional: false,
+    };
+
+    assert_ne!(
+        super_member, ordinary,
+        "super.x reads from the home object's prototype and keeps this as receiver"
+    );
+}
+
+#[test]
+fn a_super_call_is_not_a_call() {
+    let call = ExprKind::SuperCall { arguments: vec![] };
+    let member = ExprKind::SuperMember {
+        property: Box::new(PropertyKey::Named(Names::new().intern("x"))),
+    };
+    assert_ne!(call, member);
+}
+
+#[test]
+fn a_private_name_stands_alone_only_as_the_left_of_in() {
+    let mut names = Names::new();
+    let x = names.intern("x");
+
+    let brand_check = ExprKind::Binary {
+        op: BinaryOp::In,
+        left: Box::new(Expr::new(ExprKind::PrivateName(x), at())),
+        right: Box::new(ident(&mut names, "obj")),
+    };
+
+    match brand_check {
+        ExprKind::Binary { op, left, .. } => {
+            assert_eq!(op, BinaryOp::In);
+            assert_eq!(left.kind, ExprKind::PrivateName(x));
+        }
+        _ => panic!("built a Binary and got something else"),
+    }
 }
 
 #[test]

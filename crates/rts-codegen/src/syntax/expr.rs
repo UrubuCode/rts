@@ -239,6 +239,54 @@ pub enum ExprKind {
     /// A function written as an expression.
     Function(Box<super::Function>),
 
+    /// A class written as an expression.
+    Class(Box<super::Class>),
+
+    /// `super.x` or `super[e]`.
+    ///
+    /// Not a member access on a value called `super`: it reads from the *home
+    /// object's* prototype while keeping `this` as the receiver, so an inherited
+    /// getter reached this way still sees the instance. Only legal inside a
+    /// method — which is what having a home object means.
+    SuperMember {
+        /// The property, named or computed.
+        ///
+        /// Boxed: a computed key holds an expression, and this variant sits
+        /// directly inside `ExprKind` with no collection between them.
+        property: Box<PropertyKey>,
+    },
+
+    /// `super(...)`.
+    ///
+    /// Not a call. It runs the parent constructor and **binds `this`** in the
+    /// derived constructor, which is why `this` is a ReferenceError before it
+    /// and why calling it twice is an error rather than a second call.
+    SuperCall {
+        /// The arguments, in order.
+        arguments: Vec<Spreadable>,
+    },
+
+    /// `#x` where a name is expected — only as the left operand of `in`.
+    ///
+    /// `#x in obj` asks whether `obj` was constructed by this class, and it is
+    /// the one place a private name appears without a receiver in front of it.
+    PrivateName(Name),
+
+    /// `new.target` — the constructor `new` was invoked with, or `undefined`.
+    NewTarget,
+
+    /// `import.meta`.
+    ImportMeta,
+
+    /// `import(specifier, options)` — a dynamic import, which is a call in the
+    /// grammar and produces a promise.
+    ImportCall {
+        /// What to load.
+        specifier: Box<Expr>,
+        /// The options bag, if one was written.
+        options: Option<Box<Expr>>,
+    },
+
     /// An expression whose type was asserted: `e as T`.
     ///
     /// The assertion is kept rather than applied, because it is a claim and not a

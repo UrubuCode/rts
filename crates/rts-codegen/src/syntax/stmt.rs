@@ -3,7 +3,7 @@
 use rts_cranelift::fault::Position;
 
 use super::pattern::Pattern;
-use super::{Claim, Expr};
+use super::{Claim, Class, Expr};
 use crate::names::Name;
 
 /// How a binding behaves.
@@ -210,6 +210,9 @@ pub enum StmtKind {
 
     /// A function declared by name.
     Function(Box<Function>),
+
+    /// A class declared by name.
+    Class(Box<Class>),
 
     /// Nothing.
     Empty,

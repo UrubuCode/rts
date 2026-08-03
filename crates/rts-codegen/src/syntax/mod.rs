@@ -12,11 +12,13 @@
 //! is wrong — it evaluates the target twice. A tree that desugars is a tree that
 //! has already made semantic decisions somewhere no test is looking.
 
+mod class;
 mod expr;
 pub mod ops;
 mod pattern;
 mod stmt;
 
+pub use class::{Class, ClassElement, ClassKey, Field, Method, MethodKind};
 pub use expr::{
     AssignTarget, Expr, ExprKind, Literal, Property, PropertyKey, Spreadable, TemplatePart,
 };
