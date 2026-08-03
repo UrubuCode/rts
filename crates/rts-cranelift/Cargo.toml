@@ -1,0 +1,16 @@
+[package]
+name = "rts-cranelift"
+version = "0.1.0"
+edition = "2024"
+description = "The machine layer: a language-agnostic IR, verifier and code generator over Cranelift."
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+# Intentionally empty for the IR + verifier phase.
+#
+# The Cranelift dependencies belong to `lower/` and `target/`, which do not exist
+# yet. Declaring them before there is code to use them would make the crate's
+# central invariant ("only `lower/` constructs Cranelift instructions") a promise
+# rather than a fact the build can check.

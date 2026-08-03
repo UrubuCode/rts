@@ -4143,6 +4143,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-cranelift"
+version = "0.1.0"
+
+[[package]]
 name = "rts-diagnostics"
 version = "0.1.0"
 dependencies = [
