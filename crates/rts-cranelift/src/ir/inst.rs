@@ -160,6 +160,42 @@ pub enum Inst {
     },
 }
 
+impl Inst {
+    /// The values this instruction reads.
+    ///
+    /// Every analysis over the IR needs this, and each one deriving it from its
+    /// own match over the variants is how an added variant comes to be handled
+    /// in three places and forgotten in a fourth.
+    pub fn operands(&self) -> Vec<ValueId> {
+        match self {
+            Inst::Const(_) | Inst::Alloc { .. } => Vec::new(),
+
+            Inst::Widen(v) | Inst::Narrow(v, _) => vec![*v],
+
+            Inst::IntArith(_, a, b)
+            | Inst::FloatArith(_, a, b)
+            | Inst::Bitwise(_, a, b)
+            | Inst::Compare(_, a, b)
+            | Inst::Generic(_, a, b) => vec![*a, *b],
+
+            Inst::FieldLoad { object, .. } => vec![*object],
+            Inst::FieldStore { object, value, .. } => vec![*object, *value],
+        }
+    }
+
+    /// Whether this instruction can trigger a collection.
+    ///
+    /// Allocation can, and in this design it is the only thing that can:
+    /// collection runs from inside the allocator, the allocator is a call, and
+    /// every non-tail call is a point where the collector may act. That
+    /// correspondence is currently true by accident in the engine this replaces;
+    /// stating it here makes it a constraint the layer is designed around rather
+    /// than a coincidence it happens to survive.
+    pub fn is_safepoint(&self) -> bool {
+        matches!(self, Inst::Alloc { .. })
+    }
+}
+
 /// A branch target together with the arguments it receives.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct BlockCall {
@@ -221,6 +257,41 @@ pub enum Terminator {
     Return(Vec<ValueId>),
     /// Stops the program.
     Trap(TrapCode),
+}
+
+impl Terminator {
+    /// The blocks control may reach from here.
+    pub fn successors(&self) -> Vec<BlockId> {
+        match self {
+            Terminator::Jump(call) => vec![call.block],
+            Terminator::Branch { then_block, else_block, .. } => {
+                vec![then_block.block, else_block.block]
+            }
+            Terminator::Guard { ok, fail, .. } => vec![ok.block, fail.block],
+            Terminator::Return(_) | Terminator::Trap(_) => Vec::new(),
+        }
+    }
+
+    /// The values this terminator reads, including branch arguments.
+    pub fn operands(&self) -> Vec<ValueId> {
+        let mut operands = Vec::new();
+        match self {
+            Terminator::Jump(call) => operands.extend_from_slice(&call.args),
+            Terminator::Branch { cond, then_block, else_block } => {
+                operands.push(*cond);
+                operands.extend_from_slice(&then_block.args);
+                operands.extend_from_slice(&else_block.args);
+            }
+            Terminator::Guard { input, ok, fail, .. } => {
+                operands.push(*input);
+                operands.extend_from_slice(&ok.args);
+                operands.extend_from_slice(&fail.args);
+            }
+            Terminator::Return(values) => operands.extend_from_slice(values),
+            Terminator::Trap(_) => {}
+        }
+        operands
+    }
 }
 
 /// An instruction together with the value it defines, if any.

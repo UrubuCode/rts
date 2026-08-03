@@ -29,6 +29,7 @@
 #![deny(dead_code)]
 
 pub mod abi;
+pub mod gc;
 pub mod ir;
 pub mod repr;
 pub mod tags;
@@ -36,6 +37,7 @@ pub mod types;
 pub mod verify;
 
 pub use abi::{AbiType, Convention, Signature as AbiSignature, TargetAbi, lower_signature};
+pub use gc::{FrameDescriptor, FrameTable, describe_frames};
 pub use repr::{RefKind, Repr};
 pub use types::{FieldLayout, TypeId, TypeRegistry};
 pub use verify::{VerifyError, verify};
