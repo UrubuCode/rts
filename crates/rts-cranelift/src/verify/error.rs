@@ -284,6 +284,14 @@ pub enum VerifyError {
         found: Repr,
     },
 
+    /// A cached read names somewhere to remember that this function has not got.
+    UnknownCache {
+        /// Where the read is.
+        from: BlockId,
+        /// What it named.
+        cache: crate::ir::CacheId,
+    },
+
     /// A cleanup does not end by saying it is done.
     ///
     /// A cleanup is copied into each path that needs it, which is only sound if

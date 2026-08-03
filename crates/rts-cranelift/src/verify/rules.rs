@@ -66,6 +66,17 @@ pub(super) fn check_terminators(func: &Function, errors: &mut Vec<VerifyError>) 
                 check_block_call(func, from, fail, 0, errors);
             }
 
+            Terminator::CachedGet {
+                object,
+                cache,
+                hit,
+                miss,
+                ..
+            } => {
+                check_cached_get(func, from, *object, *cache, hit, errors);
+                check_block_call(func, from, miss, 0, errors);
+            }
+
             Terminator::Throw { payload, .. } => {
                 let repr = func.repr_of(*payload);
                 if repr != Repr::Tagged {
@@ -186,6 +197,49 @@ fn check_cleanups(func: &Function, errors: &mut Vec<VerifyError>) {
             errors.push(VerifyError::CleanupEndOutsideCleanup { block });
         }
     }
+}
+
+/// A cached read reads an object and hands back what it holds.
+///
+/// Three things, each for the same reason the other guards check theirs: the
+/// subject has to be a reference, because a layout is read out of an object; the
+/// value arrives as a block parameter, so it exists only where it was found; and
+/// it arrives generic, because what a property holds is not known where its
+/// layout is not.
+fn check_cached_get(
+    func: &Function,
+    from: BlockId,
+    object: ValueId,
+    cache: crate::ir::CacheId,
+    hit: &BlockCall,
+    errors: &mut Vec<VerifyError>,
+) {
+    let found = func.repr_of(object);
+    if !matches!(found, Repr::Ref(_)) {
+        errors.push(VerifyError::GuardTypeOnNonReference { from, found });
+    }
+    if cache.index() >= func.cache_count() {
+        errors.push(VerifyError::UnknownCache { from, cache });
+    }
+
+    let Some(target) = func.block(hit.block) else {
+        errors.push(VerifyError::UnknownBlock {
+            from,
+            target: hit.block,
+        });
+        return;
+    };
+
+    if target.params.first().map(|&p| func.repr_of(p)) != Some(Repr::Tagged) {
+        errors.push(VerifyError::GuardTargetMissingValue {
+            from,
+            target: hit.block,
+            expect: Repr::Tagged,
+        });
+        return;
+    }
+
+    check_block_call(func, from, hit, 1, errors);
 }
 
 /// A type guard reads an object and hands it back narrowed.

@@ -403,6 +403,37 @@ pub enum Terminator {
         fail: BlockCall,
     },
 
+    /// Reads a property of an object whose layout is not known here.
+    ///
+    /// The site remembers the last layout it saw and where the property sat in
+    /// it. An object of that layout is read without asking anything; one of a
+    /// different layout asks once and the site remembers the new answer.
+    ///
+    /// The remembering is not the client's to write. A site that had to be told
+    /// to learn is a site that will be told wrong somewhere, and the failure is
+    /// a read that is slow forever without anything being visibly broken.
+    ///
+    /// Yields a generic value, because what a property holds is not known where
+    /// its layout is not. A client that knows the layout has a type guard and an
+    /// ordinary field read, which is both faster and more precise — this is for
+    /// where it does not.
+    CachedGet {
+        /// The object read.
+        object: ValueId,
+        /// Which property.
+        key: crate::shape::Key,
+        /// Where this site keeps what it last saw.
+        cache: crate::ir::CacheId,
+        /// Entered with the value, when the object has the property.
+        hit: BlockCall,
+        /// Entered when it does not, or holds it in a form a word does not hold.
+        ///
+        /// Required, like every failure path here. What an absent property means
+        /// is a question about a client, and a machine that answered it would be
+        /// answering for every client at once.
+        miss: BlockCall,
+    },
+
     /// Ends a cleanup, handing control back to whatever is unwinding.
     ///
     /// A cleanup is not jumped to. It is copied into each path that needs it,
@@ -445,6 +476,7 @@ impl Terminator {
             Terminator::Guard { ok, fail, .. } | Terminator::GuardType { ok, fail, .. } => {
                 vec![ok.block, fail.block]
             }
+            Terminator::CachedGet { hit, miss, .. } => vec![hit.block, miss.block],
             // A throw has no successor in this function's graph. Where it lands
             // is decided by the region tree, and may be in a caller; calling it
             // an edge here would claim a transfer this block does not perform.
@@ -484,6 +516,13 @@ impl Terminator {
                 operands.push(*object);
                 operands.extend_from_slice(&ok.args);
                 operands.extend_from_slice(&fail.args);
+            }
+            Terminator::CachedGet {
+                object, hit, miss, ..
+            } => {
+                operands.push(*object);
+                operands.extend_from_slice(&hit.args);
+                operands.extend_from_slice(&miss.args);
             }
             Terminator::Return(values) => operands.extend_from_slice(values),
             Terminator::TailCall { args, .. } => operands.extend_from_slice(args),

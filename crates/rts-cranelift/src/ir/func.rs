@@ -88,6 +88,7 @@ pub struct Function {
     blocks: Vec<BlockData>,
     insts: Vec<InstData>,
     consts: Vec<ConstDecl>,
+    caches: u32,
     block_regions: Vec<Option<RegionId>>,
     positions: Vec<crate::fault::Position>,
 }
@@ -107,6 +108,7 @@ impl Function {
             blocks: Vec::new(),
             insts: Vec::new(),
             consts: Vec::new(),
+            caches: 0,
             block_regions: Vec::new(),
             positions: Vec::new(),
         };
@@ -201,6 +203,18 @@ impl Function {
         let id = ConstId(self.consts.len() as u32);
         self.consts.push(decl);
         id
+    }
+
+    /// Declares somewhere a property read can remember what it last saw.
+    pub fn push_cache(&mut self) -> crate::ir::CacheId {
+        let id = crate::ir::CacheId(self.caches);
+        self.caches += 1;
+        id
+    }
+
+    /// How many sites in this function remember anything.
+    pub fn cache_count(&self) -> usize {
+        self.caches as usize
     }
 
     /// A value's representation and origin, or `None` if the handle is foreign.

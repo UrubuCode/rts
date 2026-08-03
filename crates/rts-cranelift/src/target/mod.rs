@@ -198,6 +198,7 @@ impl<'a> MachineModule<'a> {
 
         let mut context = Context::new();
         self.record_shapes(func, funcs);
+        let caches = self.declare_caches(id, func)?;
 
         // Destructured so that the module and the cache are borrowed separately:
         // lowering needs both at once, and they are disjoint parts of this.
@@ -213,6 +214,7 @@ impl<'a> MachineModule<'a> {
             func,
             declarations,
             entries,
+            &caches,
             *module,
             *call_conv,
             heap.as_ref()
@@ -237,6 +239,47 @@ impl<'a> MachineModule<'a> {
 }
 
 impl MachineModule<'_> {
+    /// Declares somewhere for each of a function's sites to remember what it saw.
+    ///
+    /// Writable, and initialized to a layout no object has. It cannot start at
+    /// zero: zero is a real layout, and a site that had never run would claim to
+    /// recognize the first one ever declared — and then read a field of an object
+    /// of some other shape entirely, at an offset that happened to be there.
+    ///
+    /// Data rather than patched instructions, so that the same emission works
+    /// whether the result runs from memory or is written to an object file. Code
+    /// that rewrites itself cannot be written to a file at all.
+    fn declare_caches(
+        &mut self,
+        id: FuncId,
+        func: &Function,
+    ) -> Result<Vec<cranelift_module::DataId>, TargetError> {
+        let name = self
+            .emitted
+            .get(&id)
+            .map(|(name, _)| name.clone())
+            .ok_or(TargetError::UndeclaredFunction(id))?;
+
+        let mut cold = Vec::with_capacity(16);
+        cold.extend_from_slice(&(-1i64).to_ne_bytes());
+        cold.extend_from_slice(&0i64.to_ne_bytes());
+
+        let mut declared = Vec::with_capacity(func.cache_count());
+        for site in 0..func.cache_count() {
+            let data = self.module.declare_data(
+                &format!("{name}.cache.{site}"),
+                Linkage::Local,
+                true,
+                false,
+            )?;
+            let mut description = cranelift_module::DataDescription::new();
+            description.define(cold.clone().into_boxed_slice());
+            self.module.define_data(data, &description)?;
+            declared.push(data);
+        }
+        Ok(declared)
+    }
+
     /// Records every shape this function's indirect calls expect.
     ///
     /// An indirect call names a shape rather than a callee, and a shape has to

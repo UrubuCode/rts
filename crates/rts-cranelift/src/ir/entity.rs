@@ -20,6 +20,14 @@ pub struct InstId(pub(crate) u32);
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
 pub struct ConstId(pub(crate) u32);
 
+/// Somewhere a property read remembers what it last saw.
+///
+/// One per site rather than one per program: a site that read one kind of object
+/// a thousand times and another once should remember the thousand. Sharing would
+/// make every site as confused as the most confused one.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
+pub struct CacheId(pub(crate) u32);
+
 macro_rules! index_accessor {
     ($($ty:ty),+ $(,)?) => {
         $(impl $ty {
@@ -31,4 +39,4 @@ macro_rules! index_accessor {
     };
 }
 
-index_accessor!(ValueId, BlockId, InstId, ConstId);
+index_accessor!(ValueId, BlockId, InstId, ConstId, CacheId);

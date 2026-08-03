@@ -75,6 +75,17 @@ pub enum RtEntry {
     /// Parks the current frame until a promise settles.
     PromiseAwait = 4,
 
+    /// Finds where a property sits in an object, and remembers it at the site.
+    ///
+    /// Called only when the site's memory of the last layout it saw does not
+    /// match this object's. Refills the cell, so that the load after it reads the
+    /// answer this call just wrote — which is why there is one load rather than
+    /// one on each path.
+    ///
+    /// Reports a byte offset, or a negative number for a property that cannot be
+    /// read this way: absent, or held in a form a machine word does not hold.
+    CacheResolve = 6,
+
     /// Throws a value that no handler in this function catches.
     ///
     /// Only for the escaping case. Where a handler *is* in this function, the
@@ -96,6 +107,7 @@ impl RtEntry {
         RtEntry::PromiseSettle,
         RtEntry::PromiseAwait,
         RtEntry::Throw,
+        RtEntry::CacheResolve,
     ];
 
     /// How many entry points exist.
@@ -119,6 +131,7 @@ impl RtEntry {
             RtEntry::PromiseSettle => "rts_promise_settle",
             RtEntry::PromiseAwait => "rts_promise_await",
             RtEntry::Throw => "rts_throw",
+            RtEntry::CacheResolve => "rts_cache_resolve",
         }
     }
 
@@ -173,6 +186,17 @@ impl RtEntry {
             RtEntry::PromiseAwait => Signature {
                 params: vec![Repr::Ref(RefKind::Opaque)],
                 returns: vec![Repr::Tagged],
+                ..Signature::default()
+            },
+
+            // The object, which property, and where the site keeps what it last
+            // saw. The cell is passed rather than its contents because filling it
+            // in is the point — a resolver that only answered would leave the
+            // site as slow on the second read as on the first.
+            RtEntry::CacheResolve => Signature {
+                params: vec![Repr::Ref(RefKind::Opaque), Repr::I64, Repr::I64],
+                returns: vec![Repr::I64],
+                convention: crate::abi::Convention::Foreign,
                 ..Signature::default()
             },
 

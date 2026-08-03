@@ -35,6 +35,12 @@ pub struct Outside<'a> {
     /// allocates should leave no reference to an allocator, which matters on the
     /// path where every undefined symbol is something a linker must find.
     pub entries: &'a mut crate::symbols::EntryTable,
+    /// Where each site in this function keeps what it last saw.
+    ///
+    /// Declared by whoever is compiling the function, because naming a piece of
+    /// writable data needs a module and a name nothing else has taken — and the
+    /// function knows how many sites it has but not what it is called.
+    pub caches: &'a [cranelift_module::DataId],
 }
 
 /// Translates one function's body into the code generator's blocks.
@@ -465,6 +471,16 @@ impl<'a> Body<'a> {
                 builder.ins().brif(held, t, &ok_args, e, &fail_args);
             }
 
+            Terminator::CachedGet {
+                object,
+                key,
+                cache,
+                hit,
+                miss,
+            } => {
+                self.lower_cached_get(builder, block, *object, *key, *cache, hit, miss)?;
+            }
+
             Terminator::Return(values) => {
                 // Leaving a region normally owes the same cleanup as leaving it
                 // by throwing. A scope that only unwinds correctly when
@@ -586,6 +602,148 @@ impl<'a> Body<'a> {
             .map_err(|_| LowerError::UndeclaredTailCallee { block })?;
         builder.ins().call(reference, args);
         Ok(())
+    }
+
+    /// Emits a property read that remembers the last layout it saw.
+    ///
+    /// The shape of it is one comparison, one load, and a call that happens only
+    /// when the comparison fails. Two details are worth stating because both
+    /// looked optional and are not.
+    ///
+    /// The resolver refills the cell, so the load after it reads the answer that
+    /// call just wrote. That is why there is one load reached from two paths
+    /// rather than one on each: two would be two places for the addressing to be
+    /// written, and the second one is the one that gets it wrong.
+    ///
+    /// The cell starts holding a layout no object has. It cannot start at zero:
+    /// zero is a real layout, and a site that had never run would claim to
+    /// recognize the first one ever declared.
+    #[allow(clippy::too_many_arguments)]
+    fn lower_cached_get(
+        &mut self,
+        builder: &mut FunctionBuilder,
+        block: BlockId,
+        object: ValueId,
+        key: crate::shape::Key,
+        cache: crate::ir::CacheId,
+        hit: &crate::ir::BlockCall,
+        miss: &crate::ir::BlockCall,
+    ) -> Result<(), LowerError> {
+        let bases = self.heap.as_ref().map(|heap| heap.bases).ok_or(
+            LowerError::TerminatorNotYetLowered {
+                block,
+                needs: Capability::Memory,
+            },
+        )?;
+
+        let reference = self.value(object);
+        let address = memory::address_of(builder, reference, bases);
+        let header = memory::field_load(
+            builder,
+            address,
+            crate::mem::HeaderLayout::TYPE_OFFSET,
+            Repr::I64,
+        );
+
+        let cell = self.cache_address(builder, block, cache)?;
+        let remembered = builder.ins().load(
+            types::I64,
+            cranelift_codegen::ir::MemFlags::trusted(),
+            cell,
+            0,
+        );
+        let recognized = builder.ins().icmp(IntCC::Equal, header, remembered);
+
+        let read = builder.create_block();
+        let ask = builder.create_block();
+        builder.ins().brif(recognized, read, &[], ask, &[]);
+
+        // Not recognized: ask once, and the answer is written where the load
+        // below will find it.
+        builder.switch_to_block(ask);
+        let key_value = builder.ins().iconst(types::I64, i64::from(key.0));
+        let resolved = self.call_entry_at(
+            builder,
+            block,
+            RtEntry::CacheResolve,
+            &[reference, key_value, cell],
+        )?;
+        let answer = builder.inst_results(resolved)[0];
+        let found = builder
+            .ins()
+            .icmp_imm(IntCC::SignedGreaterThanOrEqual, answer, 0);
+        let miss_args = self.block_args(&miss.args);
+        let miss_target = self.blocks[&miss.block];
+        builder
+            .ins()
+            .brif(found, read, &[], miss_target, &miss_args);
+
+        // Where the property is, read once, whichever path arrived here.
+        builder.switch_to_block(read);
+        let offset = builder.ins().load(
+            types::I64,
+            cranelift_codegen::ir::MemFlags::trusted(),
+            cell,
+            8,
+        );
+        let at = builder.ins().iadd(address, offset);
+        let value = builder.ins().load(
+            types::I64,
+            cranelift_codegen::ir::MemFlags::trusted(),
+            at,
+            0,
+        );
+
+        let mut hit_args = vec![cranelift_codegen::ir::BlockArg::Value(value)];
+        hit_args.extend(self.block_args(&hit.args));
+        let hit_target = self.blocks[&hit.block];
+        builder.ins().jump(hit_target, &hit_args);
+        Ok(())
+    }
+
+    /// The address of where a site keeps what it last saw.
+    fn cache_address(
+        &mut self,
+        builder: &mut FunctionBuilder,
+        block: BlockId,
+        cache: crate::ir::CacheId,
+    ) -> Result<Value, LowerError> {
+        let outside = self
+            .outside
+            .as_mut()
+            .ok_or(LowerError::TerminatorNotYetLowered {
+                block,
+                needs: Capability::Memory,
+            })?;
+        let data = *outside
+            .caches
+            .get(cache.index())
+            .ok_or(LowerError::UndeclaredTailCallee { block })?;
+
+        let value = outside.module.declare_data_in_func(data, builder.func);
+        Ok(builder.ins().global_value(types::I64, value))
+    }
+
+    /// Calls a runtime entry point from a terminator.
+    fn call_entry_at(
+        &mut self,
+        builder: &mut FunctionBuilder,
+        block: BlockId,
+        entry: RtEntry,
+        args: &[Value],
+    ) -> Result<cranelift_codegen::ir::Inst, LowerError> {
+        let outside = self
+            .outside
+            .as_mut()
+            .ok_or(LowerError::TerminatorNotYetLowered {
+                block,
+                needs: Capability::Calls,
+            })?;
+        let reference = outside
+            .entries
+            .reference(outside.module, builder.func, entry)
+            .map_err(|_| LowerError::UndeclaredTailCallee { block })?;
+        Ok(builder.ins().call(reference, args))
     }
 
     /// Copies a chain of cleanups into the current block, innermost first.

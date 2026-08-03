@@ -301,6 +301,13 @@ impl<'a> Rewrite<'a> {
                 self.rewrite_block_call(block, ok);
                 self.rewrite_block_call(block, fail);
             }
+            Terminator::CachedGet {
+                object, hit, miss, ..
+            } => {
+                *object = self.use_value(block, *object);
+                self.rewrite_block_call(block, hit);
+                self.rewrite_block_call(block, miss);
+            }
             Terminator::Throw { payload, .. } => {
                 *payload = self.use_value(block, *payload);
             }

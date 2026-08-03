@@ -22,7 +22,7 @@ pub mod inst;
 
 pub use builder::{BuildError, BuildResult, FuncBuilder};
 pub use consts::{ConstDecl, ScalarBits, SymbolRef};
-pub use entity::{BlockId, ConstId, InstId, ValueId};
+pub use entity::{BlockId, CacheId, ConstId, InstId, ValueId};
 pub use func::{Function, Signature, ValueData, ValueOrigin};
 pub use funcs::{FuncDecl, FuncId, FuncRegistry, SigId};
 pub use inst::{

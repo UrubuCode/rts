@@ -294,6 +294,59 @@ impl<'a> FuncBuilder<'a> {
         Ok(())
     }
 
+    /// Reads a property of an object whose layout is not known here.
+    ///
+    /// The site remembers the last layout it saw. Nothing about that remembering
+    /// is the caller's: there is no cell to initialize, no miss handler to
+    /// write, and no way to forget to update it. A site that had to be told to
+    /// learn is one that will be told wrong somewhere, and the failure is a read
+    /// that is slow forever without anything looking broken.
+    ///
+    /// The value arrives generic, because what a property holds is not known
+    /// where its layout is not. A caller that knows the layout should use a type
+    /// guard and an ordinary field read instead — fewer instructions, and a
+    /// proven representation at the end of it.
+    pub fn cached_get(
+        &mut self,
+        object: ValueId,
+        key: crate::shape::Key,
+        cache: crate::ir::CacheId,
+        hit: (BlockId, &[ValueId]),
+        miss: (BlockId, &[ValueId]),
+    ) -> BuildResult<()> {
+        let found = self.func.repr_of(object);
+        if !matches!(found, Repr::Ref(_)) {
+            return Err(BuildError::WrongDomain {
+                operation: "cached_get",
+                found,
+            });
+        }
+
+        let hit_params = self.block_param_reprs(hit.0);
+        if hit_params.first() != Some(&Repr::Tagged) {
+            return Err(BuildError::GuardTargetMissingValue { target: hit.0 });
+        }
+
+        let hit_call = self.block_call_from(hit.0, hit.1, 1)?;
+        let miss_call = self.block_call(miss.0, miss.1)?;
+        self.func.set_terminator(
+            self.block,
+            Terminator::CachedGet {
+                object,
+                key,
+                cache,
+                hit: hit_call,
+                miss: miss_call,
+            },
+        );
+        Ok(())
+    }
+
+    /// Declares somewhere a cached read can remember what it last saw.
+    pub fn declare_cache(&mut self) -> crate::ir::CacheId {
+        self.func.push_cache()
+    }
+
     /// Tests which type an object is, narrowing it on the success path.
     ///
     /// Reads what the object says it is, which the encoding cannot. The two
