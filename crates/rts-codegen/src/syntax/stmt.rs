@@ -96,6 +96,55 @@ pub enum StmtKind {
         body: Box<Stmt>,
     },
 
+    /// A body run at least once, then a condition.
+    ///
+    /// Its own node rather than a `While` with the body copied ahead of it: the
+    /// copy would duplicate every `continue` target and every declaration in the
+    /// body, and a `continue` in a `do`/`while` jumps to the *condition*, not to
+    /// the top.
+    DoWhile {
+        /// The body.
+        body: Box<Stmt>,
+        /// Checked after each pass.
+        condition: Expr,
+    },
+
+    /// `for (init; test; update) body` — each of the three slots independently
+    /// absent.
+    ///
+    /// The header is not three statements. A lexical `init` introduces bindings
+    /// in a scope that wraps the loop, and — the part that is easy to get wrong
+    /// — each pass gets a *fresh copy* of them, which is why a closure made in
+    /// the body captures that pass's value rather than the last one. `var` does
+    /// not do this, which is the whole of the difference people notice.
+    For {
+        /// What runs once before the loop.
+        init: Option<ForInit>,
+        /// Checked before each pass. Absent means it never stops on its own.
+        test: Option<Expr>,
+        /// Run after each pass, including after a `continue`.
+        update: Option<Expr>,
+        /// The body.
+        body: Box<Stmt>,
+    },
+
+    /// `for (x in obj)`, `for (x of xs)`, `for await (x of xs)`.
+    ///
+    /// One node for the three because they differ in where the values come from
+    /// and in nothing else. Which is not to say the difference is small: `in`
+    /// walks string keys up the prototype chain, `of` steps an iterator, and
+    /// `await of` awaits each step.
+    ForEach {
+        /// Where the values come from.
+        source: ForEachSource,
+        /// What each value is bound or assigned to.
+        target: ForEachTarget,
+        /// What is walked or iterated.
+        subject: Expr,
+        /// The body.
+        body: Box<Stmt>,
+    },
+
     /// Leaving a function, with a value or without.
     ///
     /// Without is not the same as returning nothing: it returns `undefined`,
@@ -103,11 +152,45 @@ pub enum StmtKind {
     /// one so that the place that decides what it means is the lowering.
     Return(Option<Expr>),
 
-    /// Leaving a loop.
-    Break,
+    /// Leaving a loop, or a labelled statement of any kind.
+    ///
+    /// A label reaches anything labelled, not only loops: `outer: { break
+    /// outer; }` leaves a block. Without one it leaves the nearest loop or
+    /// `switch`.
+    Break(Option<Name>),
 
     /// Skipping to the next pass of a loop.
-    Continue,
+    ///
+    /// A label here must name a *loop*, unlike `break`.
+    Continue(Option<Name>),
+
+    /// `name: statement`.
+    Labelled {
+        /// The label.
+        label: Name,
+        /// What it labels.
+        body: Box<Stmt>,
+    },
+
+    /// `switch (d) { case … }`.
+    ///
+    /// One scope for the whole block, not one per clause: a `let` in one case is
+    /// visible — and in its temporal dead zone — from the others. Which is why
+    /// the clauses are a flat list here rather than each carrying a body that
+    /// looks like a block.
+    Switch {
+        /// What each case is compared against, with `===`.
+        discriminant: Expr,
+        /// The clauses, in source order.
+        ///
+        /// `default` keeps its position, because falling through into it and out
+        /// of it follows the written order. It is matched last and executed
+        /// where it sits.
+        clauses: Vec<SwitchClause>,
+    },
+
+    /// `debugger;`.
+    Debugger,
 
     /// Raising a value.
     Throw(Expr),
@@ -130,6 +213,89 @@ pub enum StmtKind {
 
     /// Nothing.
     Empty,
+}
+
+/// What runs once at the top of a three-part `for`.
+#[derive(Clone, PartialEq, Debug)]
+pub enum ForInit {
+    /// A declaration. If it is lexical, the loop owns a scope and each pass gets
+    /// a fresh copy of the bindings.
+    Declare {
+        /// How the bindings behave.
+        kind: BindingKind,
+        /// The bindings.
+        bindings: Vec<Binding>,
+    },
+    /// An expression, evaluated and discarded.
+    Expr(Expr),
+}
+
+impl ForInit {
+    /// Whether the loop owns a scope whose bindings are copied per pass.
+    ///
+    /// True only for a lexical declaration. This is the difference behind the
+    /// oldest closure-in-a-loop surprise in the language, and it is a property
+    /// of the header rather than of the body.
+    pub fn copies_per_pass(&self) -> bool {
+        matches!(self, ForInit::Declare { kind, .. } if kind.is_block_scoped())
+    }
+}
+
+/// Where a `for`-each loop takes its values from.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ForEachSource {
+    /// `for (k in obj)` — enumerable string keys, **including inherited ones**,
+    /// which is the trap: it walks the prototype chain, and it yields strings
+    /// even for array indices.
+    In,
+    /// `for (v of xs)` — steps `[Symbol.iterator]()`, and owes an
+    /// `IteratorClose` on `break`, `return` or `throw`.
+    Of,
+    /// `for await (v of xs)` — steps `[Symbol.asyncIterator]()`, falling back to
+    /// the sync one wrapped. Legal only where `await` is.
+    AwaitOf,
+}
+
+impl ForEachSource {
+    /// Whether leaving this loop early obliges the lowering to close an
+    /// iterator.
+    pub fn owes_iterator_close(self) -> bool {
+        !matches!(self, ForEachSource::In)
+    }
+
+    /// Whether this loop may suspend the frame.
+    pub fn suspends(self) -> bool {
+        matches!(self, ForEachSource::AwaitOf)
+    }
+}
+
+/// What a `for`-each loop puts each value into.
+#[derive(Clone, PartialEq, Debug)]
+pub enum ForEachTarget {
+    /// `for (const x of xs)` — a fresh binding per pass, which is what makes a
+    /// closure made in the body capture that pass's value.
+    Declare {
+        /// How it behaves.
+        kind: BindingKind,
+        /// What it introduces.
+        target: Pattern,
+    },
+    /// `for (x of xs)` / `for ([a, b] of pairs)` — writes to something that
+    /// already exists, once per pass, with no fresh binding at all.
+    Assign(Pattern),
+}
+
+/// One `case` or `default` of a switch.
+#[derive(Clone, PartialEq, Debug)]
+pub struct SwitchClause {
+    /// What it matches, or `None` for `default`.
+    ///
+    /// Compared with `===`, so `case "1"` does not match `1`, and `case NaN`
+    /// matches nothing at all — including `NaN`.
+    pub test: Option<Expr>,
+    /// What runs, and keeps running into the next clause unless something
+    /// leaves.
+    pub body: Vec<Stmt>,
 }
 
 /// One binding introduced by a declaration.

@@ -15,6 +15,7 @@ use rts_codegen::syntax::{
     Literal, LogicalOp, Parameter, Pattern, Program, PropertyKey, Stmt, StmtKind, UpdateOp,
     UpdatePosition,
 };
+use rts_codegen::syntax::{ForEachSource, ForEachTarget, ForInit, SwitchClause};
 use rts_codegen::values::Singleton;
 use rts_cranelift::fault::Position;
 
@@ -296,6 +297,128 @@ fn a_parameter_list_stops_being_simple_the_moment_anything_is_added() {
         ..plain
     };
     assert!(!with_pattern.has_simple_parameter_list());
+}
+
+#[test]
+fn only_for_of_and_for_await_owe_an_iterator_close() {
+    assert!(ForEachSource::Of.owes_iterator_close());
+    assert!(ForEachSource::AwaitOf.owes_iterator_close());
+    assert!(
+        !ForEachSource::In.owes_iterator_close(),
+        "for-in walks keys; there is no iterator to close"
+    );
+    assert!(ForEachSource::AwaitOf.suspends());
+    assert!(!ForEachSource::Of.suspends());
+}
+
+#[test]
+fn a_lexical_for_header_copies_its_bindings_per_pass_and_var_does_not() {
+    let mut names = Names::new();
+    let i = names.intern("i");
+    let binding = |kind| ForInit::Declare {
+        kind,
+        bindings: vec![Binding {
+            target: Pattern::Name(i),
+            value: Some(number(0.0)),
+            claim: None,
+        }],
+    };
+
+    assert!(
+        binding(BindingKind::Let).copies_per_pass(),
+        "a closure made in the body captures that pass's value"
+    );
+    assert!(binding(BindingKind::Const).copies_per_pass());
+    assert!(
+        !binding(BindingKind::Var).copies_per_pass(),
+        "which is the whole of the difference people notice"
+    );
+    assert!(!ForInit::Expr(number(1.0)).copies_per_pass());
+}
+
+#[test]
+fn a_for_each_head_either_declares_or_assigns() {
+    let mut names = Names::new();
+    let x = names.intern("x");
+
+    let declares = ForEachTarget::Declare {
+        kind: BindingKind::Const,
+        target: Pattern::Name(x),
+    };
+    let assigns = ForEachTarget::Assign(Pattern::Name(x));
+
+    assert_ne!(
+        declares, assigns,
+        "for (const x of xs) makes a binding per pass; for (x of xs) writes to one that exists"
+    );
+}
+
+#[test]
+fn do_while_is_not_a_while_with_the_body_copied_ahead_of_it() {
+    let body = Box::new(Stmt::new(StmtKind::Empty, at()));
+    let do_while = StmtKind::DoWhile {
+        body: body.clone(),
+        condition: number(1.0),
+    };
+    let while_loop = StmtKind::While {
+        condition: number(1.0),
+        body,
+    };
+
+    assert_ne!(
+        do_while, while_loop,
+        "a continue in a do/while jumps to the condition, not to the top"
+    );
+}
+
+#[test]
+fn a_switch_keeps_default_where_it_was_written() {
+    let clauses = vec![
+        SwitchClause {
+            test: Some(number(1.0)),
+            body: vec![],
+        },
+        SwitchClause {
+            test: None,
+            body: vec![],
+        },
+        SwitchClause {
+            test: Some(number(2.0)),
+            body: vec![],
+        },
+    ];
+
+    let switch = StmtKind::Switch {
+        discriminant: number(1.0),
+        clauses,
+    };
+
+    match switch {
+        StmtKind::Switch { clauses, .. } => {
+            assert!(
+                clauses[1].test.is_none(),
+                "default is matched last and executed where it sits, so its position is data"
+            );
+            assert_eq!(clauses.len(), 3);
+        }
+        _ => panic!("built a Switch and got something else"),
+    }
+}
+
+#[test]
+fn break_takes_a_label_and_reaches_more_than_loops() {
+    let mut names = Names::new();
+    let outer = names.intern("outer");
+
+    let labelled = StmtKind::Break(Some(outer));
+    let bare = StmtKind::Break(None);
+
+    assert_ne!(labelled, bare);
+    assert_ne!(
+        StmtKind::Break(Some(outer)),
+        StmtKind::Continue(Some(outer)),
+        "break reaches any labelled statement; continue must name a loop"
+    );
 }
 
 #[test]

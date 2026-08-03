@@ -130,18 +130,18 @@ Production names verbatim from Annex A. `✓` present, `·` absent, `~` partial
 | `EmptyStatement` | ✓ | |
 | `ExpressionStatement` | ✓ | the lookahead restrictions are the parser's, not the tree's |
 | `IfStatement` | ✓ | |
-| `DoWhileStatement` | · | |
+| `DoWhileStatement` | ✓ | own node; `continue` jumps to the condition |
 | `WhileStatement` | ✓ | |
-| `ForStatement` | · | three-part, each slot independently optional |
-| `ForInOfStatement` / `ForDeclaration` / `ForBinding` | · | `for-in`, `for-of`, `for await-of`; left side is a binding **or** an assignment target |
-| `ContinueStatement` / `BreakStatement` | ~ | present; no label |
+| `ForStatement` | ✓ | `ForInit`; `copies_per_pass` names the fresh-binding rule |
+| `ForInOfStatement` / `ForDeclaration` / `ForBinding` | ✓ | one node, `ForEachSource` × `ForEachTarget` |
+| `ContinueStatement` / `BreakStatement` | ✓ | with labels |
 | `ReturnStatement` | ✓ | `Option<Expr>` — bare and explicit-`undefined` stay distinguishable |
 | `WithStatement` | · | normative (14.11), forbidden in strict code |
-| `SwitchStatement` / `CaseBlock` / `CaseClauses` / `CaseClause` / `DefaultClause` | · | one scope for the whole block; `default` may sit between cases |
-| `LabelledStatement` / `LabelledItem` | · | |
+| `SwitchStatement` / `CaseBlock` / `CaseClauses` / `CaseClause` / `DefaultClause` | ✓ | flat clause list, so `default` keeps its written position |
+| `LabelledStatement` / `LabelledItem` | ✓ | |
 | `ThrowStatement` | ✓ | |
 | `TryStatement` / `Catch` / `Finally` / `CatchParameter` | ✓ | optional binding, and it is a pattern |
-| `DebuggerStatement` | · | |
+| `DebuggerStatement` | ✓ | |
 
 ### A.4 Functions and classes
 
@@ -187,7 +187,7 @@ parses, so ASI is a correctness feature and not a convenience.
 
 ### Count
 
-Present or partial: **43**. Absent: **51**.
+Present or partial: **50**. Absent: **44**.
 
 Was 31 / 63 when this document was written.
 
@@ -283,7 +283,7 @@ distinction the spec makes: a **binding** pattern introduces names, an
 **assignment** pattern writes to arbitrary targets (`[a.b] = xs` is legal). Used
 by declarations, parameters, `catch`, and `for`-heads. Unblocks the rest of L3.
 
-**L3 — the remaining control flow.** Three-part `for`, `for-in`, `for-of`,
+**L3 — the remaining control flow. — DONE.** Three-part `for`, `for-in`, `for-of`,
 `for await-of`, `do-while`, `switch` with its single shared scope, labels,
 labelled `break`/`continue`, `debugger`. `for-of` carries the iteration protocol,
 which is where `IteratorClose` lives (§5.6).
