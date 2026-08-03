@@ -48,7 +48,13 @@
 //! generator's own verifier and, for the parts that are complete, compiled and
 //! run. What cannot be emitted yet is refused by name rather than approximated.
 //!
-//! Still to come: guard failure paths, faults and observability.
+//! Guards carry their failure path, faults say where in the client's program they
+//! came from, an address can be attributed to a place and a function, and the
+//! probe measures what any of it costs with no client present.
+//!
+//! Nothing in the representation is refused by lowering any more. What is left is
+//! depth rather than shape: more fixtures, more targets, and watching the numbers
+//! the probe produces.
 
 #![deny(missing_docs)]
 #![deny(dead_code)]
