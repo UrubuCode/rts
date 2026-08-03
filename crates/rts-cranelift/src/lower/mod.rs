@@ -26,13 +26,9 @@
 //! point, and a runtime entry point is something to declare rather than something
 //! to emit.
 //!
-//! Two refusals here are findings about the representation rather than missing
-//! work. A throw that owes cleanup cannot be emitted because a cleanup block ends
-//! with its own terminator and so cannot return to several throw sites — which
-//! needs either a copy per site or a parameter saying where to continue, and that
-//! is a decision about the representation. A bare suspension is also refused, and
-//! correctly: it is rewritten away by the frame transformation before lowering
-//! should ever see one, so reaching here means that rewrite did not run.
+//! A bare suspension is refused, and correctly: it is rewritten away by the frame
+//! transformation before lowering should ever see one, so reaching here means
+//! that rewrite did not run.
 //!
 //! Two further refusals are findings rather than gaps, and are documented where
 //! they are raised: a 64-bit integer cannot be widened without a heap box, and a

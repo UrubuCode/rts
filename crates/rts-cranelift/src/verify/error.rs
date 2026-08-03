@@ -273,6 +273,44 @@ pub enum VerifyError {
         from: BlockId,
     },
 
+    /// A cleanup does not end by saying it is done.
+    ///
+    /// A cleanup is copied into each path that needs it, which is only sound if
+    /// it has one exit. Any other terminator gives it a second.
+    CleanupDoesNotEnd {
+        /// The region it belongs to.
+        region: RegionId,
+        /// The block.
+        block: BlockId,
+    },
+
+    /// A block ends as a cleanup without being one.
+    CleanupEndOutsideCleanup {
+        /// The block.
+        block: BlockId,
+    },
+
+    /// A cleanup declares parameters.
+    ///
+    /// It is entered from every path that unwinds through it, and those paths
+    /// have nothing in common to pass.
+    CleanupTakesParameters {
+        /// The block.
+        block: BlockId,
+    },
+
+    /// A cleanup reads a value defined outside itself.
+    ///
+    /// Copying it into a path where that value was never computed would read
+    /// something that does not exist there. A cleanup reaches what it needs
+    /// through the objects it is releasing, which is how cleanup works anyway.
+    CleanupReadsOutsideItself {
+        /// The block.
+        block: BlockId,
+        /// The value it read.
+        value: ValueId,
+    },
+
     /// A function parks its frame without declaring that it may.
     ///
     /// Whether a function suspends is part of what it is, and a caller decides

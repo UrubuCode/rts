@@ -419,12 +419,29 @@ impl<'a> Body<'a> {
             }
 
             Terminator::Return(values) => {
+                // Leaving a region normally owes the same cleanup as leaving it
+                // by throwing. A scope that only unwinds correctly when
+                // something goes wrong leaks on the path taken most of the time.
+                if let Some(region) = self.func.region_of(block) {
+                    let chain = crate::unwind::plan_normal_exit(&self.func.regions, region);
+                    self.emit_cleanups(builder, &chain)?;
+                }
+
                 let values = self.args(values);
                 builder.ins().return_(&values);
             }
 
             Terminator::Trap(code) => {
                 builder.ins().trap(trap_code(*code));
+            }
+
+            // A cleanup is reached by being copied into the path that needs it,
+            // so the original is never entered. Reaching it means something
+            // jumped to a block nothing should jump to.
+            Terminator::CleanupDone => {
+                builder
+                    .ins()
+                    .trap(cranelift_codegen::ir::TrapCode::unwrap_user(1));
             }
 
             Terminator::TailCall { callee, args } => {
@@ -469,15 +486,11 @@ impl<'a> Body<'a> {
                     },
                 };
 
-                // A cleanup block ends with its own terminator, so it can be
-                // entered from one place and cannot return to several throw
-                // sites. Emitting a chain of them therefore needs either a copy
-                // per site or a parameter saying where to continue — and which
-                // of those is right is a decision about the representation, not
-                // about lowering. Refused here rather than guessed at.
-                if !plan.cleanups.is_empty() {
-                    return Err(LowerError::CleanupNeedsAContinuation { block });
-                }
+                // Each cleanup is copied here, in order, innermost first. A copy
+                // rather than a jump because a cleanup has no way back: it is
+                // entered from every path that unwinds through it, and those
+                // paths have nothing in common to return to.
+                self.emit_cleanups(builder, &plan.cleanups)?;
 
                 let payload = self.value(*payload);
                 match plan.handler {
@@ -526,6 +539,78 @@ impl<'a> Body<'a> {
             .map_err(|_| LowerError::UndeclaredTailCallee { block })?;
         builder.ins().call(reference, args);
         Ok(())
+    }
+
+    /// Copies a chain of cleanups into the current block, innermost first.
+    ///
+    /// Copied rather than jumped to, and the representation is what makes that
+    /// sound: a cleanup ends by saying it is done, declares no parameters, and
+    /// reads only what it defines itself — so a copy of it is the same thing
+    /// wherever it lands. All three are checked by the verifier.
+    ///
+    /// The values a copy defines are local to that copy. Two copies of one
+    /// cleanup in one function share nothing, which is the whole reason copying
+    /// is safe where jumping was not.
+    fn emit_cleanups(
+        &mut self,
+        builder: &mut FunctionBuilder,
+        chain: &[BlockId],
+    ) -> Result<(), LowerError> {
+        for &cleanup in chain {
+            let data = self
+                .func
+                .block(cleanup)
+                .ok_or(LowerError::UnterminatedBlock { block: cleanup })?;
+
+            let mut local: HashMap<ValueId, Value> = HashMap::new();
+            for &inst_id in &data.insts {
+                let Some(inst) = self.func.inst(inst_id) else {
+                    continue;
+                };
+                self.emit_cleanup_inst(builder, inst_id, &inst.inst, &inst.results, &mut local)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Emits one instruction of a cleanup copy.
+    ///
+    /// Operands come from this copy's own values, never from the function around
+    /// it — which is exactly what the verifier's rule about reading outside
+    /// itself guarantees is possible.
+    fn emit_cleanup_inst(
+        &mut self,
+        builder: &mut FunctionBuilder,
+        id: crate::ir::InstId,
+        inst: &Inst,
+        results: &[ValueId],
+        local: &mut HashMap<ValueId, Value>,
+    ) -> Result<(), LowerError> {
+        // Temporarily present this copy's values as the function's own, so that
+        // one emission path serves both. Restored afterwards, so a cleanup's
+        // values never leak into the code around it.
+        let saved: Vec<_> = local
+            .iter()
+            .map(|(&ours, &theirs)| (ours, self.values.insert(ours, theirs)))
+            .collect();
+
+        let outcome = self.lower_inst(builder, id, inst, results);
+
+        for &result in results {
+            if let Some(&emitted) = self.values.get(&result) {
+                local.insert(result, emitted);
+            }
+        }
+        for (value, previous) in saved {
+            match previous {
+                Some(previous) => self.values.insert(value, previous),
+                None => self.values.remove(&value),
+            };
+        }
+        for &result in results {
+            self.values.remove(&result);
+        }
+        outcome
     }
 
     /// Calls a runtime entry point.

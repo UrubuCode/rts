@@ -207,9 +207,9 @@ Planned and deliberately absent: `guard/` (bailout), `fault/`, `observe/`,
 control flow, widening, guards, constants and calls are emitted, checked by the
 code generator's own verifier, and — through `target/` — compiled and run. Field access reads and writes a real heap; allocation, promises, awaiting and an
 escaping throw reach a runtime; a throw a handler catches goes straight there,
-because the destination was known while compiling. What is still refused by name: a
-throw that owes cleanup on its way out. A suspension is rewritten away before
-lowering ever sees one.
+because the destination was known while compiling. Cleanup runs on both the throwing path and the ordinary one, and a suspension is
+rewritten away before lowering ever sees one. Nothing in the representation is
+refused any more.
 
 Calls exist now, and they arrived last on purpose. A call is inseparable from the
 convention it uses, from the safepoint it implies, and from where the frame is

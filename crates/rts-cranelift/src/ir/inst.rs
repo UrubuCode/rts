@@ -386,6 +386,18 @@ pub enum Terminator {
         args: Vec<ValueId>,
     },
 
+    /// Ends a cleanup, handing control back to whatever is unwinding.
+    ///
+    /// A cleanup is not jumped to. It is copied into each path that needs it,
+    /// which is only sound if it is a piece with one entry and one exit — and
+    /// this terminator is what makes that structural rather than hoped for.
+    ///
+    /// The alternative was a parameter saying where to continue. Rejected: the
+    /// representation has no indirect branch to lower it to, and it would make
+    /// every cleanup able to reach every continuation, which is an edge in the
+    /// graph for every pair and no useful analysis afterwards.
+    CleanupDone,
+
     /// Throws a value.
     ///
     /// The value is in the generic form because this layer does not know what
@@ -421,6 +433,7 @@ impl Terminator {
             | Terminator::Throw { .. }
             | Terminator::TailCall { .. }
             | Terminator::TailCallIndirect { .. }
+            | Terminator::CleanupDone
             | Terminator::Trap(_) => Vec::new(),
         }
     }
@@ -453,7 +466,7 @@ impl Terminator {
                 operands.extend_from_slice(args);
             }
             Terminator::Throw { payload, .. } => operands.push(*payload),
-            Terminator::Trap(_) => {}
+            Terminator::CleanupDone | Terminator::Trap(_) => {}
         }
         operands
     }

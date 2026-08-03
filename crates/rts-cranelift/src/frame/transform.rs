@@ -304,7 +304,7 @@ impl<'a> Rewrite<'a> {
                 *callee = self.use_value(block, *callee);
                 *args = args.iter().map(|&a| self.use_value(block, a)).collect();
             }
-            Terminator::Trap(_) => {}
+            Terminator::CleanupDone | Terminator::Trap(_) => {}
         }
 
         self.out.set_terminator(block, rewritten);

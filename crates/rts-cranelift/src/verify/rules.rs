@@ -65,7 +65,7 @@ pub(super) fn check_terminators(func: &Function, errors: &mut Vec<VerifyError>) 
 
             Terminator::TailCall { .. } | Terminator::TailCallIndirect { .. } => {}
 
-            Terminator::Return(_) | Terminator::Trap(_) => {}
+            Terminator::Return(_) | Terminator::CleanupDone | Terminator::Trap(_) => {}
         }
     }
 }
@@ -109,6 +109,71 @@ pub(super) fn check_unwind(func: &Function, errors: &mut Vec<VerifyError>) {
             && func.regions.get(region).is_none()
         {
             errors.push(VerifyError::UnknownRegion { block, region });
+        }
+    }
+
+    check_cleanups(func, errors);
+}
+
+/// A cleanup is a piece with one entry and one exit, and reads only itself.
+///
+/// All three exist for one reason: a cleanup is not jumped to, it is copied into
+/// each path that unwinds through it. A second exit would make the copy ambiguous,
+/// parameters would have to come from paths with nothing in common, and reading a
+/// value from outside would read something that does not exist where the copy
+/// lands.
+fn check_cleanups(func: &Function, errors: &mut Vec<VerifyError>) {
+    let mut cleanups = Vec::new();
+    for index in 0..func.regions.len() {
+        let id = RegionId(index as u32);
+        if let Some(region) = func.regions.get(id)
+            && let Some(cleanup) = region.cleanup
+        {
+            cleanups.push((id, cleanup));
+        }
+    }
+
+    for &(region, block) in &cleanups {
+        let Some(data) = func.block(block) else {
+            continue;
+        };
+
+        if !matches!(data.terminator, Some(Terminator::CleanupDone)) {
+            errors.push(VerifyError::CleanupDoesNotEnd { region, block });
+        }
+        if !data.params.is_empty() {
+            errors.push(VerifyError::CleanupTakesParameters { block });
+        }
+
+        let defined: Vec<_> = data
+            .insts
+            .iter()
+            .filter_map(|&i| func.inst(i))
+            .flat_map(|d| d.results.iter().copied())
+            .collect();
+
+        for &inst in &data.insts {
+            let Some(inst_data) = func.inst(inst) else {
+                continue;
+            };
+            for operand in inst_data.inst.operands() {
+                if !defined.contains(&operand) {
+                    errors.push(VerifyError::CleanupReadsOutsideItself {
+                        block,
+                        value: operand,
+                    });
+                }
+            }
+        }
+    }
+
+    // Only a cleanup ends that way. Anywhere else it would be a block claiming
+    // to hand control back to an unwind that is not happening.
+    for (block, data) in func.blocks() {
+        if matches!(data.terminator, Some(Terminator::CleanupDone))
+            && !cleanups.iter().any(|&(_, cleanup)| cleanup == block)
+        {
+            errors.push(VerifyError::CleanupEndOutsideCleanup { block });
         }
     }
 }

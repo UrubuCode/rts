@@ -10,7 +10,9 @@ use std::sync::{Mutex, MutexGuard};
 
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::Linkage;
-use rts_cranelift::ir::{FuncBuilder, FuncRegistry, Function, Signature, ValueId};
+use rts_cranelift::ir::{
+    ConstDecl, FuncBuilder, FuncRegistry, Function, ScalarBits, Signature, ValueId,
+};
 use rts_cranelift::lower::{Capability, LowerError};
 use rts_cranelift::repr::{RefKind, Repr};
 use rts_cranelift::symbols::RtEntry;
@@ -278,48 +280,64 @@ fn a_throw_a_handler_catches_never_reaches_the_runtime() {
 }
 
 #[test]
-fn a_throw_that_owes_cleanup_is_refused_rather_than_guessed_at() {
-    let types = TypeRegistry::new();
-    let funcs = FuncRegistry::new();
+fn a_throw_runs_the_cleanup_it_owes_on_the_way_out() {
+    let _serial = reset();
 
-    let mut func = Function::new(Signature {
-        params: vec![Repr::Tagged],
-        ..Signature::default()
-    });
-    let value = param(&func, 0);
-    let entry = func.entry;
-    let mut b = FuncBuilder::new(&mut func, &types, entry);
-    let cleanup = b.create_block();
-    let region = b.declare_region(None, vec![], Some(cleanup));
-    b.place_in_region(entry, region);
-    b.throw(Tag(1), value);
+    let reached = entries_reached(
+        "careful",
+        &[Repr::Tagged],
+        &[Repr::Tagged],
+        |func, types| {
+            let value = param(func, 0);
+            let entry = func.entry;
+            let mut b = FuncBuilder::new(func, types, entry);
 
-    let mut b = FuncBuilder::new(&mut func, &types, cleanup);
-    b.ret(&[]);
+            let handler = b.create_block();
+            b.add_block_param(handler, Repr::Tagged);
+            let cleanup = b.create_block();
 
-    let mut jit = jit_with_runtime();
-    let mut module = MachineModule::new(&mut jit);
-    let mut registry = FuncRegistry::new();
-    let shape = registry.declare_signature(Signature {
-        params: vec![Repr::Tagged],
-        ..Signature::default()
-    });
-    let id = registry.declare_function(shape);
-    module
-        .declare(id, "leaky", Linkage::Export, &registry)
-        .expect("declared");
+            let region = b.declare_region(
+                None,
+                vec![Handler {
+                    tag: Tag(1),
+                    block: handler,
+                }],
+                Some(cleanup),
+            );
+            b.place_in_region(entry, region);
+            b.throw(Tag(1), value);
 
-    let error = module
-        .define(id, &func, &registry, &types)
-        .expect_err("a cleanup chain needs a decision this layer has not made");
-    assert!(
-        matches!(
-            error,
-            TargetError::Lower(LowerError::CleanupNeedsAContinuation { .. })
-        ),
-        "a cleanup block has one terminator, so it cannot return to several throw sites"
+            // The cleanup settles a promise, which is only a way of being seen. It
+            // reads nothing from around it, which is what lets it be copied.
+            let mut b = FuncBuilder::new(func, types, cleanup);
+            let promise = b.promise_new();
+            let marker = b.declare_const(ConstDecl::Scalar {
+                repr: Repr::Tagged,
+                bits: ScalarBits(1234),
+            });
+            let marker = b.use_const(marker);
+            b.promise_settle(promise, marker, false);
+            b.cleanup_done();
+
+            let caught = func.block(handler).expect("exists").params[0];
+            let mut b = FuncBuilder::new(func, types, handler);
+            b.ret(&[caught]);
+        },
     );
-    let _ = funcs;
+
+    assert_eq!(
+        SETTLED_WITH.load(Ordering::SeqCst),
+        0,
+        "compiling runs nothing; this only says the program was built"
+    );
+    assert!(
+        reached.contains(&RtEntry::PromiseSettle),
+        "the cleanup was copied into the path that throws, so what it does is emitted"
+    );
+    assert!(
+        !reached.contains(&RtEntry::Throw),
+        "and the handler is still reached without asking the runtime"
+    );
 }
 
 #[test]

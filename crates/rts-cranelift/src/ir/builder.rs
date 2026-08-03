@@ -489,6 +489,12 @@ impl<'a> FuncBuilder<'a> {
         self.func.set_block_region(block, region);
     }
 
+    /// Ends a cleanup, handing control back to whatever is unwinding.
+    pub fn cleanup_done(&mut self) {
+        self.func
+            .set_terminator(self.block, Terminator::CleanupDone);
+    }
+
     /// Throws a value.
     ///
     /// The value is widened if it is not already generic: this layer does not
