@@ -355,13 +355,13 @@ running the standard's own tests, which is the only kind this crate's rule 7
 permits.
 
 **DONE, and here is the number.** `tests/test262.rs`, run against
-`test/language` — 23 223 files after excluding fixtures:
+`test/language` — 23 724 files after excluding fixtures:
 
 ```
-read correctly     21 433   92.3 %
-refused, named        549    2.4 %   our gaps, each naming a construct
-wrongly rejected      212    0.9 %   valid programs we refused
-wrongly accepted    1 029    4.4 %   invalid programs we did not refuse
+read correctly     21 712   91.5 %
+refused, named        549    2.3 %   our gaps, each naming a construct
+wrongly rejected      214    0.9 %   valid programs we refused
+wrongly accepted    1 249    5.3 %   invalid programs we did not refuse
 ```
 
 **What that measures, precisely.** Whether the front end *reads* each program
@@ -371,13 +371,23 @@ program that parses can still be compiled wrongly. It is the floor underneath
 everything else, because a front end that mis-reads a program cannot compile it
 correctly.
 
-Two findings the number would have hidden, and the harness was fixed for both
-before it was believed:
+The first number published here was **92.3 %, and it was wrong** — measured
+against a corpus missing 503 of its 24 007 files. On Windows some test262 paths
+exceed the 260-character limit; `git sparse-checkout` *warns* rather than fails,
+skips them, and everything downstream looks healthy. The missing files were
+concentrated in `import/import-defer/…`, so they were disproportionately ones we
+get wrong: recovering them added 279 correct and **220 incorrect**. The corpus
+must be cloned with `-c core.longpaths=true`, and `check_checkout_is_complete`
+now asks git what should be on disk and refuses to report a score if anything is
+absent.
 
-- The first run read the corpus with **TypeScript** syntax and scored 91.2 %.
-  TypeScript is a superset, so it accepts programs JavaScript rejects — 240 of
-  the 1 269 false accepts were that alone. `Dialect` now exists because of this
-  measurement, and a `.js` file gets `Dialect::JavaScript`.
+Three more findings the number would have hidden, and the harness was fixed for
+each before it was believed:
+
+- An early run read the corpus with **TypeScript** syntax. TypeScript is a
+  superset, so it accepts programs JavaScript rejects — 240 false accepts were
+  that alone. `Dialect` now exists because of this measurement, and a `.js` file
+  gets `Dialect::JavaScript`.
 - test262 runs an `onlyStrict` file with a strict prologue prepended. Without it,
   a test whose entire point is a strict-mode error is handed to a sloppy parse,
   which correctly accepts it — and the harness recorded our correct answer as a
@@ -387,7 +397,7 @@ It also found a real bug in our own code: `strip_shebang` looked only for `\n`,
 and JavaScript has four line terminators. `comments/hashbang/line-terminator-*`
 caught it. That is what a corpus is for.
 
-**L10 — early errors.** The 1 029 false accepts are not a parser gap. Sampled:
+**L10 — early errors.** The 1 249 false accepts are not a parser gap. Sampled:
 they are redeclaration tests — `let x; function x() {}` in one scope — plus
 duplicate `__proto__`, `delete` of a name in strict code, invalid assignment
 targets. Static semantics: rules that no grammar production encodes and no node
@@ -395,7 +405,7 @@ can hold, which is exactly the class §2b named and said would need checking
 rather than shaping.
 
 So the tree is finished and the *checker* has not started. That is one phase, it
-is measurable from the day it begins — the 1 029 is its scoreboard — and it is
+is measurable from the day it begins — the 1 249 is its scoreboard — and it is
 where the next work goes.
 
 ---

@@ -25,10 +25,24 @@
 //! Ignored by default, because it needs the corpus:
 //!
 //! ```text
-//! git clone --depth 1 --filter=blob:none --sparse https://github.com/tc39/test262
+//! git clone --depth 1 --filter=blob:none --sparse -c core.longpaths=true \
+//!     https://github.com/tc39/test262
 //! cd test262 && git sparse-checkout set test/language
 //! RTS_TEST262=<path-to-test262> cargo test -p rts-codegen --test test262 -- --ignored --nocapture
 //! ```
+//!
+//! **`core.longpaths=true` is not optional on Windows**, and leaving it out
+//! does not fail — it *warns*. Some test262 paths exceed the 260-character
+//! limit, the checkout skips them, and everything downstream looks fine. The
+//! first run of this harness was done that way: 503 of 24 007 files were
+//! missing, and because they were concentrated in `import/import-defer/…`, they
+//! were disproportionately files we get wrong. The score read 0.8 points higher
+//! than the truth.
+//!
+//! That is why [`check_checkout_is_complete`] exists. A measurement that
+//! quietly measures less than it claims to is worse than no measurement, and
+//! the only defence is a check that compares what is on disk against what the
+//! repository says should be.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -126,6 +140,51 @@ struct Tally {
     acceptance_examples: Vec<String>,
 }
 
+/// Refuse to report a score for a corpus that is missing files.
+///
+/// Asks git what `test/language` should contain and compares it with what was
+/// found on disk. A short checkout is not a smaller measurement of the same
+/// thing — the files that go missing are the ones with the longest paths, which
+/// are the deeply-nested feature directories, so the loss is biased toward
+/// exactly the constructs least likely to be handled.
+///
+/// If git cannot answer — not a checkout, git absent — this says so and lets
+/// the run continue. An unverifiable corpus is worth reporting with a caveat;
+/// a corpus verified as incomplete is not worth reporting at all.
+fn check_checkout_is_complete(root: &Path, found: usize) {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["ls-files", "test/language/**/*.js"])
+        .output();
+
+    let Ok(output) = output else {
+        println!("note: git not available — corpus completeness unverified");
+        return;
+    };
+    if !output.status.success() {
+        println!("note: not a git checkout — corpus completeness unverified");
+        return;
+    }
+
+    let expected = String::from_utf8_lossy(&output.stdout).lines().count();
+    if expected == 0 {
+        println!("note: git listed no files — corpus completeness unverified");
+        return;
+    }
+
+    assert_eq!(
+        found,
+        expected,
+        "the checkout is missing {} of {expected} files.\n\
+         On Windows this is almost always the 260-character path limit: re-clone \
+         with `-c core.longpaths=true`.\n\
+         Reporting a score for a partial corpus would overstate it, because the \
+         files that go missing are the deeply-nested ones.",
+        expected.saturating_sub(found)
+    );
+}
+
 #[test]
 #[ignore = "needs the test262 corpus; set RTS_TEST262"]
 fn the_front_end_reads_test262() {
@@ -143,6 +202,8 @@ fn the_front_end_reads_test262() {
     collect(&language, &mut files);
     files.sort();
     assert!(!files.is_empty(), "found no tests");
+
+    check_checkout_is_complete(Path::new(&root), files.len());
 
     let mut tally = Tally::default();
     let mut considered = 0usize;

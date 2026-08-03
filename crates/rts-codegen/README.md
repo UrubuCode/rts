@@ -126,11 +126,11 @@ production shapes and early errors instead of through nodes.
 parser because ASI decides what parses and getting it wrong yields a program that
 compiles and means something else.
 
-Measured against test262's `test/language`, 23 223 files: **92.3 % read
+Measured against test262's `test/language`, 23 724 files: **91.5 % read
 correctly**. That is a reading rate, not a pass rate — nothing runs. `PLAN.md`
 L9 has the full table and what each column means.
 
-What does not exist yet is the **checker**. The 1 029 programs the corpus says
+What does not exist yet is the **checker**. The 1 249 programs the corpus says
 are invalid and we accept are early errors — redeclarations, duplicate
 `__proto__`, `delete` of a name in strict code — rules no grammar production
 encodes and no node can hold. `PLAN.md` L10.
@@ -142,11 +142,12 @@ src/
   syntax/   the tree a program is written in
   names/    identifiers, interned into what the machine keys layouts by
   values/   what a JavaScript value is, registered with the machine's encoding
+  parse/    source text in, tree out, through SWC
 ```
 
-Planned and absent: `scope/` (bindings and what a name resolves to), `lower/`
-(semantics onto the machine's representation), `types/` (what a claim is worth
-and what checks it), `parse/`.
+Planned and absent: `check/` (early errors — see PLAN.md L10), `scope/` (bindings
+and what a name resolves to), `lower/` (semantics onto the machine's
+representation), `types/` (what a claim is worth and what checks it).
 
 The tree is deliberately shaped for what has to be decided rather than for what
 was typed. `a.b` and `a[e]` are different nodes because one has a key and the
