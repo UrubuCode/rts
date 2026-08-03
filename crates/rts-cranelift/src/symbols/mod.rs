@@ -1,0 +1,154 @@
+//! Runtime entry points.
+//!
+//! The small, closed set of operations this layer cannot emit as instructions,
+//! because they touch the heap, the operating system, or global mutable state.
+//! Everything else is instructions.
+//!
+//! # Why this list is short, and hand-written
+//!
+//! The rule that decides membership is grepable: *an entry point exists if and
+//! only if the operation touches the heap, the operating system, or global
+//! mutable state.* Pure computation is instructions. That rule is what keeps
+//! this list at a size a person can hold — allocation, the barrier's slow path,
+//! collection, thread creation, the few string operations that genuinely copy,
+//! handler registration, the scheduler's park and enqueue.
+//!
+//! At that size, an explicitly numbered list in source is the right mechanism,
+//! and the same list at several hundred entries would not be — which is exactly
+//! the distinction that made a generated table necessary elsewhere. A closed set
+//! a reviewer can read in one screen is not the failure mode that motivated
+//! generation; an open-ended one is.
+//!
+//! # One side needs a table, the other does not
+//!
+//! Compiling to an object file needs no name-to-address map at all: an undefined
+//! symbol is resolved by the linker against the runtime archive, using the
+//! object format's own symbol table. Only compiling into memory needs a map,
+//! because there is no linker in the loop. Machinery that built one for both
+//! would be solving a problem one of them does not have.
+//!
+//! # Declared once
+//!
+//! An entry point is declared into a module on first use and referred to by the
+//! identifier that produced, cached in a dense array keyed by the discriminant
+//! below. No string is hashed on the path that emits code.
+
+mod table;
+
+pub use table::EntryTable;
+
+use crate::ir::Signature;
+use crate::repr::{RefKind, Repr};
+
+/// An operation the runtime performs on the program's behalf.
+///
+/// Numbered explicitly. The numbers are the cache's keys, so they are a fact
+/// about this list rather than about the order someone happened to write it in —
+/// and a reader comparing two versions can see that an entry kept its place.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
+#[repr(u16)]
+pub enum RtEntry {
+    /// Asks a heap for space, and returns a reference to it.
+    ///
+    /// The one memory operation that is not arithmetic. Everything else about an
+    /// object — where its fields are, how to reach them — is computed; obtaining
+    /// the object in the first place is not.
+    Alloc = 0,
+
+    /// Records that a store put a reference somewhere a collector must learn of.
+    ///
+    /// The slow path only. Whether the fast path can skip it is a question about
+    /// ownership, which this layer does not yet have an answer to — see the note
+    /// where the barrier is emitted.
+    WriteBarrier = 1,
+}
+
+impl RtEntry {
+    /// Every entry point, in numbering order.
+    ///
+    /// Listed rather than derived so that adding one is a visible edit here, and
+    /// so that the tests can assert the numbering has not shifted underneath a
+    /// compiled artefact.
+    pub const ALL: &'static [RtEntry] = &[RtEntry::Alloc, RtEntry::WriteBarrier];
+
+    /// How many entry points exist.
+    pub const COUNT: usize = Self::ALL.len();
+
+    /// This entry point's number.
+    pub fn index(self) -> usize {
+        self as usize
+    }
+
+    /// The name the runtime exports it under.
+    ///
+    /// A name is needed on both paths, for different reasons: to look up an
+    /// address when compiling into memory, and to leave an undefined reference
+    /// for the linker when compiling to an object file.
+    pub fn symbol(self) -> &'static str {
+        match self {
+            RtEntry::Alloc => "rts_alloc",
+            RtEntry::WriteBarrier => "rts_write_barrier",
+        }
+    }
+
+    /// What it accepts and returns.
+    ///
+    /// Stated here rather than at call sites, for the reason every other shape in
+    /// this crate is: a site that restated it could restate it wrongly, and the
+    /// two would then disagree about an interface that is only checked by
+    /// crashing.
+    pub fn signature(self) -> Signature {
+        match self {
+            // Size in bytes and the type identifier the header records, in;
+            // a reference out. The size is passed rather than derived from the
+            // type so that the runtime does not need this layer's layout rules —
+            // which would be the same rules, computed twice.
+            RtEntry::Alloc => Signature {
+                params: vec![Repr::I64, Repr::I64],
+                returns: vec![Repr::Ref(RefKind::Opaque)],
+                ..Signature::default()
+            },
+
+            // The object written into, the value written. The field's offset is
+            // not passed: a collector that needs to know which field changed can
+            // read the object's type, and passing it would make every barrier one
+            // argument wider for the benefit of collectors that do not.
+            RtEntry::WriteBarrier => Signature {
+                params: vec![Repr::Ref(RefKind::Opaque), Repr::Tagged],
+                returns: vec![],
+                ..Signature::default()
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_entry_point_is_listed_at_its_own_number() {
+        for (position, entry) in RtEntry::ALL.iter().enumerate() {
+            assert_eq!(
+                entry.index(),
+                position,
+                "the numbers are the cache's keys, so a gap or a swap is a bug"
+            );
+        }
+    }
+
+    #[test]
+    fn no_two_entry_points_share_a_name() {
+        for (i, a) in RtEntry::ALL.iter().enumerate() {
+            for b in &RtEntry::ALL[i + 1..] {
+                assert_ne!(a.symbol(), b.symbol());
+            }
+        }
+    }
+
+    #[test]
+    fn allocation_returns_a_reference_and_the_barrier_returns_nothing() {
+        assert_eq!(RtEntry::Alloc.signature().returns.len(), 1);
+        assert!(RtEntry::WriteBarrier.signature().returns.is_empty());
+    }
+}

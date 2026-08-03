@@ -191,6 +191,7 @@ src/
   verify/   the rules, and what it reports
   lower/    IR -> the code generator. The ONLY module that touches Cranelift
   mem/      object layout, and how a reference becomes an address
+  symbols/  the closed set of runtime entry points
   target/   where compiled code goes: executable memory, or an object file
 ```
 
@@ -200,12 +201,12 @@ frame, is one program point in all three concerns; three tables keyed by it woul
 be kept in agreement by hand, which is the bug that record exists to prevent.
 
 Planned and deliberately absent: `guard/` (bailout), `fault/`, `observe/`,
-`symbols/`, `probe/`.
+`probe/`.
 
 `lower/` is not finished, and it is explicit about which half. Scalar work,
 control flow, widening, guards, constants and calls are emitted, checked by the
-code generator's own verifier, and — through `target/` — compiled and run. Field access reads and writes a real heap. What needs a runtime to exist —
-allocation, suspension, scheduling, unwinding — is refused by name.
+code generator's own verifier, and — through `target/` — compiled and run. Field access reads and writes a real heap, and allocation reaches a runtime.
+What is still refused by name: suspension, scheduling, unwinding.
 
 Calls exist now, and they arrived last on purpose. A call is inseparable from the
 convention it uses, from the safepoint it implies, and from where the frame is

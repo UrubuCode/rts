@@ -74,6 +74,8 @@ impl From<ModuleError> for TargetError {
 pub struct MachineModule<'a> {
     module: &'a mut dyn Module,
     declarations: Declarations,
+    entries: crate::symbols::EntryTable,
+    heap: Option<crate::mem::RegionBases>,
     call_conv: CallConv,
 }
 
@@ -84,6 +86,8 @@ impl<'a> MachineModule<'a> {
         Self {
             module,
             declarations: Declarations::new(),
+            entries: crate::symbols::EntryTable::new(),
+            heap: None,
             call_conv,
         }
     }
@@ -119,12 +123,23 @@ impl<'a> MachineModule<'a> {
         Ok(())
     }
 
+    /// Gives this compilation a heap to read, write and allocate in.
+    ///
+    /// Optional because a compilation that never touches an object needs none,
+    /// and because how a reference becomes an address is a property of the heap
+    /// rather than of any function compiled against it.
+    pub fn with_heap(mut self, heap: crate::mem::RegionBases) -> Self {
+        self.heap = Some(heap);
+        self
+    }
+
     /// Compiles a function body into the module.
     pub fn define(
         &mut self,
         id: FuncId,
         func: &Function,
         funcs: &FuncRegistry,
+        types: &crate::types::TypeRegistry,
     ) -> Result<(), TargetError> {
         let declared = self
             .declarations
@@ -139,9 +154,19 @@ impl<'a> MachineModule<'a> {
         let Self {
             module,
             declarations,
+            entries,
+            heap,
             call_conv,
         } = self;
-        context.func = crate::lower::lower_into(func, declarations, *module, *call_conv)?;
+        context.func = crate::lower::lower_into(
+            func,
+            declarations,
+            entries,
+            *module,
+            *call_conv,
+            heap.as_ref()
+                .map(|heap| crate::lower::Heap { bases: heap, types }),
+        )?;
 
         self.module.define_function(declared, &mut context)?;
         Ok(())

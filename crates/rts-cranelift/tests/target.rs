@@ -39,7 +39,9 @@ fn compile_one(
         module
             .declare(id, name, Linkage::Export, funcs)
             .expect("declaring succeeds");
-        module.define(id, func, funcs).expect("defining succeeds");
+        module
+            .define(id, func, funcs, &TypeRegistry::new())
+            .expect("defining succeeds");
         module.declarations().machine_id(id).expect("declared")
     };
     jit.finalize_definitions().expect("finalizing succeeds");
@@ -200,8 +202,12 @@ fn a_call_reaches_the_function_it_named() {
         module
             .declare(caller_id, "quadruple", Linkage::Export, &funcs)
             .expect("declared");
-        module.define(callee_id, &callee, &funcs).expect("defined");
-        module.define(caller_id, &caller, &funcs).expect("defined");
+        module
+            .define(callee_id, &callee, &funcs, &types)
+            .expect("defined");
+        module
+            .define(caller_id, &caller, &funcs, &types)
+            .expect("defined");
         module
             .declarations()
             .machine_id(caller_id)
@@ -234,7 +240,7 @@ fn defining_before_declaring_is_refused() {
     let mut jit = executable_memory().expect("host");
     let mut module = MachineModule::new(&mut jit);
     assert!(
-        module.define(id, &func, &funcs).is_err(),
+        module.define(id, &func, &funcs, &types).is_err(),
         "declaring is what produces the identifier a call site refers to"
     );
 }
@@ -266,7 +272,7 @@ fn the_same_program_goes_to_either_destination() {
             .declare(id, "twice", Linkage::Export, &funcs)
             .expect("declared");
         module
-            .define(id, &func, &funcs)
+            .define(id, &func, &funcs, &types)
             .expect("the pipeline before the destination is the same one");
     }
 }

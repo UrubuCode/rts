@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
-use cranelift_codegen::ir::{Block, InstBuilder, Value};
+use cranelift_codegen::ir::{Block, InstBuilder, Value, types};
 use cranelift_frontend::FunctionBuilder;
 
 use super::error::{Capability, LowerError};
@@ -19,6 +19,7 @@ use crate::ir::{
     ValueId,
 };
 use crate::repr::Repr;
+use crate::symbols::RtEntry;
 use crate::target::{Declarations, FunctionRefs};
 use cranelift_module::Module;
 
@@ -28,6 +29,12 @@ pub struct Outside<'a> {
     pub module: &'a mut dyn Module,
     /// Which of our identifiers the module has seen.
     pub declarations: &'a Declarations,
+    /// Which runtime entry points the module has been told about.
+    ///
+    /// Mutable because they are declared on first use: a program that never
+    /// allocates should leave no reference to an allocator, which matters on the
+    /// path where every undefined symbol is something a linker must find.
+    pub entries: &'a mut crate::symbols::EntryTable,
 }
 
 /// Translates one function's body into the code generator's blocks.
@@ -224,21 +231,46 @@ impl<'a> Body<'a> {
                     .field_offset(*field)
                     .ok_or(LowerError::NoSuchField { inst: id })?;
 
+                let traced = heap
+                    .types
+                    .layout(*ty)
+                    .field(*field as usize)
+                    .is_some_and(|f| f.repr.is_gc_relevant());
+
                 let reference = self.value(*object);
                 let written = self.value(*value);
                 let address = memory::address_of(builder, reference, heap.bases);
                 memory::field_store(builder, address, offset, written);
+
+                if traced {
+                    self.emit_barrier(builder, id, reference, written)?;
+                }
                 return Ok(());
             }
 
             // Allocation is the one memory operation that is not arithmetic: it
-            // has to ask a heap for space, which is a runtime entry point and
-            // therefore something to declare rather than something to emit.
-            Inst::Alloc { .. } => {
-                return Err(LowerError::NotYetLowered {
+            // has to ask a heap for space. So it is the one that is a call.
+            Inst::Alloc { ty, .. } => {
+                let size = {
+                    let heap = self.heap.as_ref().ok_or(LowerError::NotYetLowered {
+                        inst: id,
+                        needs: Capability::Memory,
+                    })?;
+                    crate::mem::ObjectLayout::of(*ty, heap.types).size
+                };
+                let outside = self.outside.as_mut().ok_or(LowerError::NotYetLowered {
                     inst: id,
                     needs: Capability::Memory,
-                });
+                })?;
+
+                let allocate = outside
+                    .entries
+                    .reference(outside.module, builder.func, RtEntry::Alloc)
+                    .map_err(|_| LowerError::UndeclaredCallee { inst: id })?;
+                let size = builder.ins().iconst(types::I64, i64::from(size));
+                let ty_id = builder.ins().iconst(types::I64, ty.index() as i64);
+                let call = builder.ins().call(allocate, &[size, ty_id]);
+                return self.bind_results(builder, call, results);
             }
             Inst::Call { callee, args } => {
                 let outside = self.outside.as_mut().ok_or(LowerError::NotYetLowered {
@@ -410,6 +442,38 @@ impl<'a> Body<'a> {
                 });
             }
         }
+        Ok(())
+    }
+
+    /// Emits the barrier a reference store owes the collector.
+    ///
+    /// Unconditionally, for every store into a traced field. That is more than
+    /// strictly necessary — a store into an object no other thread can reach
+    /// makes nothing visible anywhere new, and could skip it — but deciding that
+    /// needs to know the object's region, and a reference does not carry one.
+    /// The ownership annotation that would answer it does not exist yet.
+    ///
+    /// So the direction of the error is chosen deliberately. A barrier that was
+    /// not needed costs a call. A barrier that was needed and skipped produces a
+    /// reference the collector never learns about, which becomes a use-after-free
+    /// that reproduces rarely and explains nothing. The first is a bill; the
+    /// second is a bug nobody can find.
+    fn emit_barrier(
+        &mut self,
+        builder: &mut FunctionBuilder,
+        id: crate::ir::InstId,
+        object: Value,
+        written: Value,
+    ) -> Result<(), LowerError> {
+        let outside = self.outside.as_mut().ok_or(LowerError::NotYetLowered {
+            inst: id,
+            needs: Capability::Memory,
+        })?;
+        let barrier = outside
+            .entries
+            .reference(outside.module, builder.func, RtEntry::WriteBarrier)
+            .map_err(|_| LowerError::UndeclaredCallee { inst: id })?;
+        builder.ins().call(barrier, &[object, written]);
         Ok(())
     }
 

@@ -106,10 +106,12 @@ pub fn lower_in<'a>(
 /// Lowers one function into a module, so that it may call what the module has
 /// declared.
 pub fn lower_into<'a>(
-    func: &Function,
+    func: &'a Function,
     declarations: &'a crate::target::Declarations,
+    entries: &'a mut crate::symbols::EntryTable,
     module: &'a mut dyn cranelift_module::Module,
     call_conv: cranelift_codegen::isa::CallConv,
+    heap: Option<Heap<'a>>,
 ) -> Result<cranelift_codegen::ir::Function, LowerError> {
     lower_in(
         func,
@@ -118,8 +120,9 @@ pub fn lower_into<'a>(
             outside: Some(Outside {
                 module,
                 declarations,
+                entries,
             }),
-            heap: None,
+            heap,
         },
     )
 }
