@@ -446,13 +446,6 @@ impl Function {
     }
 }
 
-/// A whole program.
-#[derive(Clone, PartialEq, Debug, Default)]
-pub struct Program {
-    /// What it does, in order.
-    pub body: Vec<Stmt>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

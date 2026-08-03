@@ -165,15 +165,22 @@ Production names verbatim from Annex A. `✓` present, `·` absent, `~` partial
 
 ### A.5 Scripts and modules
 
-Every production absent. `Script` and `Module` are different goal symbols, not a
-flag: module code is always strict, top-level `this` is `undefined`, and
-top-level `await` is legal. `Program` currently records none of it.
+Every production present.
 
-Absent: `ImportDeclaration` and all six clause shapes, `NameSpaceImport`,
-`NamedImports`, `ImportSpecifier` (including the string-named form),
-`WithClause`/`WithEntries`/`AttributeKey` (import attributes, spelled `with {}`),
-`ExportDeclaration` in all seven shapes, `ExportFromClause`, `NamedExports`,
-`ExportSpecifier`, `ModuleExportName`.
+`Script` and `Module` are recorded as a `Goal`, not derived from whether the body
+has an `import`. Three things differ before a statement is read — module code is
+always strict, top-level `this` is `undefined`, top-level `await` is legal — and
+a module with no imports is still a module.
+
+Imports are their own node rather than declarations with a source attached,
+because an imported name is unlike every other binding a scope holds: it tracks
+the binding in the other module rather than copying it, and it is immutable here.
+
+Covered: all six import clause shapes, namespace import, string-named specifiers
+(`import { "a b" as c }`), import attributes (`with { type: "json" }`, part of
+the request's identity), all four export shapes including re-export and
+`export * as ns`, and `export default` in both its declaration and expression
+forms — which differ in liveness, and so are different variants.
 
 ### A.1 Lexical
 
@@ -187,7 +194,7 @@ parses, so ASI is a correctness feature and not a convenience.
 
 ### Count
 
-Present or partial: **70**. Absent: **24**.
+Present or partial: **86**. Absent: **8**.
 
 Was 31 / 63 when this document was written.
 
@@ -299,7 +306,7 @@ is where the machine layer's shapes get their first real client, and where the
 old engine's inheritance work (parent-first ordering, flattened members,
 shape-keyed dispatch) is re-earned rather than copied.
 
-**L6 — modules.** `Script` and `Module` as distinct goals. Every import and
+**L6 — modules. — DONE.** (dynamic `import()` and `import.meta` landed with L5.) `Script` and `Module` as distinct goals. Every import and
 export form, import attributes, live bindings, hoisting. Dynamic `import()` and
 `import.meta`.
 

@@ -14,6 +14,7 @@
 
 mod class;
 mod expr;
+mod module;
 pub mod ops;
 mod pattern;
 mod stmt;
@@ -22,11 +23,15 @@ pub use class::{Class, ClassElement, ClassKey, Field, Method, MethodKind};
 pub use expr::{
     AssignTarget, Expr, ExprKind, Literal, Property, PropertyKey, Spreadable, TemplatePart,
 };
+pub use module::{
+    Export, ExportDefault, ExportKind, ExportSpecifier, Goal, Import, ImportAttribute,
+    ImportBinding, ModuleItem, Program,
+};
 pub use ops::{AssignOp, BinaryOp, LogicalOp, UnaryOp, UpdateOp, UpdatePosition};
 pub use pattern::{ArrayPattern, Element, ObjectPattern, Pattern, PatternProperty};
 pub use stmt::{
     Binding, BindingKind, Catch, ForEachSource, ForEachTarget, ForInit, Function, FunctionBody,
-    Parameter, Program, Stmt, StmtKind, SwitchClause,
+    Parameter, Stmt, StmtKind, SwitchClause,
 };
 
 /// What a program said about a value.

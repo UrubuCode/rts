@@ -18,6 +18,7 @@ use rts_codegen::syntax::{
 use rts_codegen::syntax::{Class, ClassElement, ClassKey, Field};
 use rts_codegen::syntax::{ForEachSource, ForEachTarget, ForInit, SwitchClause};
 use rts_codegen::syntax::{FunctionBody, Property, Spreadable, TemplatePart};
+use rts_codegen::syntax::{Goal, ModuleItem};
 use rts_codegen::values::Singleton;
 use rts_cranelift::fault::Position;
 
@@ -785,72 +786,79 @@ fn a_whole_small_program_is_expressible() {
     let counter = names.intern("counter");
     let limit = names.intern("limit");
 
-    let program = Program {
-        body: vec![
-            Stmt::new(
-                StmtKind::Declare {
-                    kind: BindingKind::Let,
-                    bindings: vec![Binding {
-                        target: Pattern::Name(counter),
-                        value: Some(number(0.0)),
-                        claim: Some(Claim::Number),
-                    }],
-                },
-                at(),
-            ),
-            Stmt::new(
-                StmtKind::While {
-                    condition: Expr::new(
-                        ExprKind::Binary {
-                            op: BinaryOp::Less,
-                            left: Box::new(Expr::new(ExprKind::Ident(counter), at())),
-                            right: Box::new(Expr::new(ExprKind::Ident(limit), at())),
+    let statements = vec![
+        Stmt::new(
+            StmtKind::Declare {
+                kind: BindingKind::Let,
+                bindings: vec![Binding {
+                    target: Pattern::Name(counter),
+                    value: Some(number(0.0)),
+                    claim: Some(Claim::Number),
+                }],
+            },
+            at(),
+        ),
+        Stmt::new(
+            StmtKind::While {
+                condition: Expr::new(
+                    ExprKind::Binary {
+                        op: BinaryOp::Less,
+                        left: Box::new(Expr::new(ExprKind::Ident(counter), at())),
+                        right: Box::new(Expr::new(ExprKind::Ident(limit), at())),
+                    },
+                    at(),
+                ),
+                body: Box::new(Stmt::new(
+                    StmtKind::Expr(Expr::new(
+                        ExprKind::Assign {
+                            target: AssignTarget::Place(Box::new(Expr::new(
+                                ExprKind::Ident(counter),
+                                at(),
+                            ))),
+                            value: Box::new(number(1.0)),
+                            op: AssignOp::Compound(BinaryOp::Add),
                         },
                         at(),
-                    ),
-                    body: Box::new(Stmt::new(
-                        StmtKind::Expr(Expr::new(
-                            ExprKind::Assign {
-                                target: AssignTarget::Place(Box::new(Expr::new(
-                                    ExprKind::Ident(counter),
-                                    at(),
-                                ))),
-                                value: Box::new(number(1.0)),
-                                op: AssignOp::Compound(BinaryOp::Add),
-                            },
-                            at(),
-                        )),
-                        at(),
                     )),
-                },
-                at(),
-            ),
-            Stmt::new(
-                StmtKind::Function(Box::new(Function {
-                    name: Some(names.intern("total")),
-                    parameters: vec![Parameter {
-                        target: Pattern::Name(names.intern("extra")),
-                        default: Some(number(0.0)),
-                        claim: Some(Claim::Number),
-                    }],
-                    rest_parameter: None,
-                    body: FunctionBody::Block(vec![Stmt::new(
-                        StmtKind::Return(Some(Expr::new(ExprKind::Ident(counter), at()))),
-                        at(),
-                    )]),
-                    returns: Some(Claim::Number),
-                    captures_this: false,
-                    is_async: false,
-                    is_generator: false,
-                    at: at(),
-                })),
-                at(),
-            ),
-        ],
+                    at(),
+                )),
+            },
+            at(),
+        ),
+        Stmt::new(
+            StmtKind::Function(Box::new(Function {
+                name: Some(names.intern("total")),
+                parameters: vec![Parameter {
+                    target: Pattern::Name(names.intern("extra")),
+                    default: Some(number(0.0)),
+                    claim: Some(Claim::Number),
+                }],
+                rest_parameter: None,
+                body: FunctionBody::Block(vec![Stmt::new(
+                    StmtKind::Return(Some(Expr::new(ExprKind::Ident(counter), at()))),
+                    at(),
+                )]),
+                returns: Some(Claim::Number),
+                captures_this: false,
+                is_async: false,
+                is_generator: false,
+                at: at(),
+            })),
+            at(),
+        ),
+    ];
+
+    let program = Program {
+        goal: Goal::Module,
+        body: statements.into_iter().map(ModuleItem::Stmt).collect(),
     };
 
     assert_eq!(program.body.len(), 3);
     assert_eq!(names.text(counter), "counter");
+    assert!(
+        !program.requires_module_goal(),
+        "nothing here needs it, and it is a module regardless"
+    );
 }
 
 #[test]
