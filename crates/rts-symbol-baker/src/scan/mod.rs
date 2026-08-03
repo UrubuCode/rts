@@ -92,13 +92,16 @@ pub fn scan_workspace(root: &Path, crates: &[&str]) -> Result<Vec<Declaration>> 
         // in, not inside the file. Collect those before visiting any file.
         let gates = module_gates(&src)?;
         for file in rust_files(&src)? {
-            if gates.get(&file).is_some_and(|c| is_feature_gate(c) || mentions_test(c)) {
+            if gates
+                .get(&file)
+                .is_some_and(|c| is_feature_gate(c) || mentions_test(c))
+            {
                 continue;
             }
             let text = std::fs::read_to_string(&file)
                 .with_context(|| format!("read {}", file.display()))?;
-            let ast = syn::parse_file(&text)
-                .with_context(|| format!("parse {}", file.display()))?;
+            let ast =
+                syn::parse_file(&text).with_context(|| format!("parse {}", file.display()))?;
             let rel = file
                 .strip_prefix(root)
                 .unwrap_or(&file)
@@ -127,8 +130,8 @@ pub fn scan_workspace(root: &Path, crates: &[&str]) -> Result<Vec<Declaration>> 
 fn module_gates(src: &Path) -> Result<std::collections::HashMap<PathBuf, Vec<String>>> {
     let mut map = std::collections::HashMap::new();
     for file in rust_files(src)? {
-        let text = std::fs::read_to_string(&file)
-            .with_context(|| format!("read {}", file.display()))?;
+        let text =
+            std::fs::read_to_string(&file).with_context(|| format!("read {}", file.display()))?;
         let Ok(ast) = syn::parse_file(&text) else {
             continue;
         };
@@ -253,8 +256,8 @@ fn symbol_of(f: &syn::ItemFn) -> Result<Option<String>> {
     // deliberately, "so a free function and a raw ABI symbol in the same module
     // cannot drift onto different naming". One branch, therefore, not two.
     if let Some(attr) = f.attrs.iter().find(|a| is_rtse_symbolic(a)) {
-        let naming = parse_naming(attr)
-            .with_context(|| format!("{} on `{name}`", attr_label(attr)))?;
+        let naming =
+            parse_naming(attr).with_context(|| format!("{} on `{name}`", attr_label(attr)))?;
         return Ok(Some(symbol_for(&naming, &name)));
     }
     if has_no_mangle(&f.attrs) && name.starts_with("__") {
@@ -416,7 +419,10 @@ fn parse_naming(attr: &syn::Attribute) -> Result<Naming> {
                 // linker name or the ABI slots, which is all this table records.)
                 ("throws", None) | ("pure", None) | ("constant", None) | ("ret_ts", Some(_)) => {}
                 _ => {
-                    return Err(syn::Error::new_spanned(&key, "unsupported #[rtse::abi] arg"));
+                    return Err(syn::Error::new_spanned(
+                        &key,
+                        "unsupported #[rtse::abi] arg",
+                    ));
                 }
             }
             if input.peek(syn::Token![,]) {

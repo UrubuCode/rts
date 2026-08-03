@@ -70,7 +70,9 @@ const MEMBER_MARKERS: &[&str] = &[
 
 fn member_marker(a: &syn::Attribute) -> bool {
     let segs = &a.path().segments;
-    segs.len() == 2 && segs[0].ident == "rtse" && MEMBER_MARKERS.contains(&segs[1].ident.to_string().as_str())
+    segs.len() == 2
+        && segs[0].ident == "rtse"
+        && MEMBER_MARKERS.contains(&segs[1].ident.to_string().as_str())
 }
 
 fn is_rtse_class(a: &syn::Attribute) -> bool {
@@ -129,7 +131,10 @@ fn class_name_of(attrs: &[syn::Attribute]) -> Result<Option<String>> {
 
 /// `#[rtse::class("Name")] impl Type { ... }` — one [`Declaration`] per member
 /// marker found on an `impl` fn.
-pub(super) fn declarations_from_impl(imp: &syn::ItemImpl, origin: &str) -> Result<Vec<Declaration>> {
+pub(super) fn declarations_from_impl(
+    imp: &syn::ItemImpl,
+    origin: &str,
+) -> Result<Vec<Declaration>> {
     let Some(class) = class_name_of(&imp.attrs)? else {
         return Ok(Vec::new());
     };
@@ -154,7 +159,10 @@ pub(super) fn declarations_from_impl(imp: &syn::ItemImpl, origin: &str) -> Resul
 
 /// `#[rtse::class("Name")] struct Type { ... }` — a getter (+ setter unless
 /// `readonly`) per `#[rtse::variable]` field.
-pub(super) fn declarations_from_struct(s: &syn::ItemStruct, origin: &str) -> Result<Vec<Declaration>> {
+pub(super) fn declarations_from_struct(
+    s: &syn::ItemStruct,
+    origin: &str,
+) -> Result<Vec<Declaration>> {
     let Some(class) = class_name_of(&s.attrs)? else {
         return Ok(Vec::new());
     };
@@ -228,16 +236,17 @@ fn to_camel(s: &str) -> String {
 }
 
 /// `#[rtse::constant(...)]` on a `const` — one getter symbol.
-pub(super) fn declaration_from_const(item: &syn::ItemConst, origin: &str) -> Result<Option<Declaration>> {
+pub(super) fn declaration_from_const(
+    item: &syn::ItemConst,
+    origin: &str,
+) -> Result<Option<Declaration>> {
     let Some(attr) = item.attrs.iter().find(|a| is_rtse_constant(a)) else {
         return Ok(None);
     };
     let naming = super::parse_naming(attr)
         .with_context(|| format!("#[rtse::constant] on `{}`", item.ident))?;
     let js_name = match &naming {
-        Naming::Scoped {
-            value: Some(v), ..
-        } => v.clone(),
+        Naming::Scoped { value: Some(v), .. } => v.clone(),
         _ => js_name_of(&item.ident.to_string()),
     };
     let symbol = symbol_for(&naming, &js_name);

@@ -54,6 +54,7 @@
 //! class of bug.
 
 pub mod emit;
+pub mod entries;
 pub mod scan;
 
 pub use emit::render;

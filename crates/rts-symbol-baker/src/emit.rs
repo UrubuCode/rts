@@ -46,19 +46,36 @@ use anyhow::{Result, bail};
 
 use crate::scan::Declaration;
 
-/// Sort + validate the declarations, then render the generated file.
-pub fn render(mut decls: Vec<Declaration>) -> Result<String> {
+/// Put the declarations in the order both renderings depend on, and reject the
+/// sets neither can express.
+///
+/// Separate from [`render`] because there are now two views of one scan, and
+/// they must be views of the *same* set in the *same* order. Two renderers that
+/// each sorted for themselves would agree today and drift the day one of them
+/// gained a tie-break — and the symptom would be a call reaching the wrong
+/// function, not a build failure.
+pub fn prepare(mut decls: Vec<Declaration>) -> Result<Vec<Declaration>> {
     decls.sort_by(|a, b| a.symbol.cmp(&b.symbol).then(a.origin.cmp(&b.origin)));
     decls.dedup();
     check_duplicates(&decls)?;
+    Ok(decls)
+}
 
+/// Sort + validate the declarations, then render the generated file.
+pub fn render(decls: Vec<Declaration>) -> Result<String> {
+    let decls = prepare(decls)?;
+    Ok(render_prepared(&decls))
+}
+
+/// Render declarations already put in order by [`prepare`].
+pub fn render_prepared(decls: &[Declaration]) -> String {
     let mut s = String::with_capacity(decls.len() * 200);
     header(&mut s, decls.len());
-    externs(&mut s, &decls);
-    jit_table(&mut s, &decls);
-    aot_table(&mut s, &decls);
-    sig_table(&mut s, &decls);
-    Ok(s)
+    externs(&mut s, decls);
+    jit_table(&mut s, decls);
+    aot_table(&mut s, decls);
+    sig_table(&mut s, decls);
+    s
 }
 
 /// A symbol may appear twice ONLY when every occurrence is `#[cfg]`-gated —
@@ -300,12 +317,12 @@ fn aot_table(s: &mut String, decls: &[Declaration]) {
 /// The literal expression for one signature row: `("name", &[Type, …], Ret)`.
 fn sig_row_expr(d: &Declaration) -> String {
     let (params, ret) = d.sig.as_ref().expect("filtered to Some");
-    let ps: Vec<String> = params.iter().map(|p| abi_path(*p)).collect();
+    let ps: Vec<String> = params.iter().map(|p| abi_path_of(*p)).collect();
     format!(
         "(\"{}\", &[{}], {})",
         d.symbol,
         ps.join(", "),
-        abi_path(*ret)
+        abi_path_of(*ret)
     )
 }
 
@@ -378,7 +395,12 @@ fn sig_table(s: &mut String, decls: &[Declaration]) {
 }
 
 /// The path spelling of an `AbiType` variant, for the generated source.
-fn abi_path(t: rts_abi::AbiType) -> String {
+/// The path an `AbiType` is written as in generated code.
+///
+/// Shared with [`crate::entries`], which renders the same declarations under a
+/// different linkage — two spellings of one mapping is a drift waiting to be
+/// found by a wrong call rather than by a build.
+pub fn abi_path_of(t: rts_abi::AbiType) -> String {
     let v = match t {
         rts_abi::AbiType::Void => "Void",
         rts_abi::AbiType::Bool => "Bool",
@@ -443,10 +465,13 @@ mod tests {
 
     #[test]
     fn ungated_duplicate_is_an_error() {
-        let d = vec![decl("__rtsn_x", &[]), Declaration {
-            origin: "crates/y/src/b.rs".into(),
-            ..decl("__rtsn_x", &[])
-        }];
+        let d = vec![
+            decl("__rtsn_x", &[]),
+            Declaration {
+                origin: "crates/y/src/b.rs".into(),
+                ..decl("__rtsn_x", &[])
+            },
+        ];
         assert!(render(d).is_err());
     }
 
