@@ -4,8 +4,22 @@
 //! and they are wrong in opposite ways: printing is wrong about *precision*,
 //! parsing is wrong about *what counts as a number*.
 
-use super::names;
 use crate::text::Str;
+
+/// How `ToString` writes a `NaN`, and the only spelling `ToNumber` recognises.
+///
+/// A constant rather than two literals because it is written in both
+/// directions, and two literals agree until one is edited — after which a
+/// number prints one way and reads back as something else.
+///
+/// Case-sensitive. `Number("nan")` is `NaN` because it is not a number;
+/// `Number("NaN")` is `NaN` because it IS the number. Same answer, different
+/// reasons, which is why a test asserting `is_nan()` on either proves nothing
+/// alone.
+const NAN: &str = "NaN";
+
+/// How `ToString` writes a positive infinity, and what `ToNumber` recognises.
+const INFINITY: &str = "Infinity";
 
 /// `Number::toString`, radix 10 — what `String(n)` and a template literal use.
 ///
@@ -38,7 +52,7 @@ use crate::text::Str;
 /// character.
 pub fn number_to_string(value: f64) -> Str {
     if value.is_nan() {
-        return Str::from_str(names::NAN);
+        return Str::from_str(NAN);
     }
     if value == 0.0 {
         // Both zeros print "0". The sign is a real distinction everywhere else
@@ -50,7 +64,7 @@ pub fn number_to_string(value: f64) -> Str {
         return Str::from_str("-").concat(&number_to_string(-value));
     }
     if value.is_infinite() {
-        return Str::from_str(names::INFINITY);
+        return Str::from_str(INFINITY);
     }
 
     let (digits, exponent) = shortest_digits(value);
@@ -141,7 +155,7 @@ pub fn string_to_number(text: &Str) -> f64 {
         Some(rest) => (-1.0, rest),
         None => (1.0, trimmed.strip_prefix('+').unwrap_or(trimmed)),
     };
-    if magnitude == names::INFINITY {
+    if magnitude == INFINITY {
         return sign * f64::INFINITY;
     }
 
@@ -246,7 +260,7 @@ mod tests {
         assert_eq!(printed(1.5e22), "1.5e+22");
     }
 
-    /// Spelled out on purpose. Comparing against `names::NAN` would only
+    /// Spelled out on purpose. Comparing against `NAN` would only
     /// prove the two sides share a constant, not that the constant is the text
     /// the language specifies — so this test writes the letters and the next
     /// one checks they are shared.
@@ -306,18 +320,21 @@ mod tests {
         // answer. What distinguishes them is that NONE of these is the
         // singleton it names: `Number("undefined")` is the number NaN, not
         // `undefined`, and nothing here may make it one.
-        for word in [names::UNDEFINED, names::NULL, "nan", "infinity", "true"] {
+        // Spelled out here on purpose: this crate does not know that
+        // "undefined" names a singleton, and must not learn. Which singleton a
+        // number is belongs to whoever declared it — see `Singletons`.
+        for word in ["undefined", "null", "nan", "infinity", "true"] {
             let value = string_to_number(&Str::from_str(word));
             assert!(value.is_nan(), "{word:?} is not a number");
         }
 
         // The one word that IS a number, and reads back as itself.
         assert!(
-            parsed(names::NAN).is_nan(),
+            parsed(NAN).is_nan(),
             "the spelling ToString produces must read back"
         );
-        assert_eq!(parsed(names::INFINITY), f64::INFINITY);
-        assert_eq!(parsed(names::NEGATIVE_INFINITY), f64::NEG_INFINITY);
+        assert_eq!(parsed(INFINITY), f64::INFINITY);
+        assert_eq!(parsed("-Infinity"), f64::NEG_INFINITY);
     }
 
     #[test]
@@ -325,9 +342,9 @@ mod tests {
         // Printing produces exactly the spelling parsing recognises. Two
         // literals would agree until one was edited, and the failure would be a
         // number that prints one way and reads back as something else.
-        assert_eq!(printed(f64::NAN), names::NAN);
-        assert_eq!(printed(f64::INFINITY), names::INFINITY);
-        assert_eq!(printed(f64::NEG_INFINITY), names::NEGATIVE_INFINITY);
+        assert_eq!(printed(f64::NAN), NAN);
+        assert_eq!(printed(f64::INFINITY), INFINITY);
+        assert_eq!(printed(f64::NEG_INFINITY), format!("-{INFINITY}"));
     }
 
     #[test]
