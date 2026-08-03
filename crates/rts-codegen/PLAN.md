@@ -82,15 +82,15 @@ Production names verbatim from Annex A. `✓` present, `·` absent, `~` partial
 | Production | State | Note |
 |---|---|---|
 | `IdentifierReference` / `BindingIdentifier` / `LabelIdentifier` / `Identifier` | ~ | one `Name`; the three roles differ in what is legal, not in shape |
-| `PrimaryExpression` — `this` | · | |
+| `PrimaryExpression` — `this` | ✓ | a node, not a name |
 | `PrimaryExpression` — `Literal` | ✓ | |
 | `ArrayLiteral` / `ElementList` / `Elision` | ✓ | holes modelled as `Option<Expr>` |
-| `SpreadElement` | · | needed in array, object, call, `new` |
-| `ObjectLiteral` / `PropertyDefinitionList` / `PropertyDefinition` | ~ | key+value only; no shorthand, method, getter, setter, spread, `__proto__` |
+| `SpreadElement` | ✓ | `Spreadable` in arrays/calls/`new`, `Property::Spread` in objects |
+| `ObjectLiteral` / `PropertyDefinitionList` / `PropertyDefinition` | ✓ | five spellings; `__proto__` is a variant, not a key check |
 | `PropertyName` / `LiteralPropertyName` / `ComputedPropertyName` | ✓ | `PropertyKey::Named` / `Computed` |
 | `CoverInitializedName` | · | `{a = 1}` — only legal once reinterpreted as a pattern |
 | `Initializer` | ✓ | |
-| `TemplateLiteral` / `SubstitutionTemplate` / `TemplateSpans` / `TemplateMiddleList` | · | cooked **and** raw; cooked is *absent* for an invalid escape in a tagged template (the spec's TV is `undefined`; ESTree spells it `null`) |
+| `TemplateLiteral` / `SubstitutionTemplate` / `TemplateSpans` / `TemplateMiddleList` | ✓ | `TemplatePart` keeps raw beside an optional cooked |
 | `MemberExpression` | ✓ | `Member` (static) / `Index` (computed), deliberately split |
 | `SuperProperty` | · | `super.x`, `super[e]` |
 | `MetaProperty` / `NewTarget` / `ImportMeta` | · | |
@@ -98,8 +98,8 @@ Production names verbatim from Annex A. `✓` present, `·` absent, `~` partial
 | `CallExpression` | ✓ | |
 | `SuperCall` | · | not a call — it binds `this` in a derived constructor |
 | `ImportCall` | · | `import(spec, options)` |
-| `Arguments` / `ArgumentList` | ~ | no spread |
-| `OptionalExpression` / `OptionalChain` | ~ | per-node `optional` flag exists; the **chain** does not — `a?.b.c` short-circuits the whole chain, not one link |
+| `Arguments` / `ArgumentList` | ✓ | `Spreadable::count_is_static` |
+| `OptionalExpression` / `OptionalChain` | ✓ | `ExprKind::Chain` is the boundary the short circuit reaches to |
 | `UpdateExpression` | ✓ | own node, both positions — not an assignment of a constant |
 | `UnaryExpression` | ✓ | all seven; `typeof` and `delete` take a reference, not a value |
 | `AwaitExpression` | · | |
@@ -150,10 +150,10 @@ Production names verbatim from Annex A. `✓` present, `·` absent, `~` partial
 | `FunctionDeclaration` / `FunctionExpression` | ✓ | |
 | `FormalParameters` and subtree | ✓ | patterns, defaults, rest as its own field |
 | "simple parameter list" | ✓ | `Function::has_simple_parameter_list` |
-| `ArrowFunction` / `ConciseBody` / `ExpressionBody` | ~ | `captures_this` records the one real difference; concise body absent |
-| `AsyncArrowFunction` and subtree | ~ | `is_async` + `captures_this` |
-| `MethodDefinition` | · | |
-| getter / setter / `PropertySetParameterList` | · | |
+| `ArrowFunction` / `ConciseBody` / `ExpressionBody` | ✓ | `FunctionBody::Expression` |
+| `AsyncArrowFunction` and subtree | ~ | shape complete; `await` waits on L7 |
+| `MethodDefinition` | ✓ | `Property::Method` — a home object, which is what `super` reads |
+| getter / setter / `PropertySetParameterList` | ✓ | |
 | `GeneratorDeclaration/Expression/Method` | ~ | `is_generator` flag; no `yield` |
 | `AsyncGenerator*` | ~ | both flags; no `await`, no `yield` |
 | `AsyncFunctionDeclaration/Expression/Method` | ~ | `is_async`; no `await` |
@@ -187,7 +187,7 @@ parses, so ASI is a correctness feature and not a convenience.
 
 ### Count
 
-Present or partial: **50**. Absent: **44**.
+Present or partial: **60**. Absent: **34**.
 
 Was 31 / 63 when this document was written.
 
@@ -288,7 +288,7 @@ by declarations, parameters, `catch`, and `for`-heads. Unblocks the rest of L3.
 labelled `break`/`continue`, `debugger`. `for-of` carries the iteration protocol,
 which is where `IteratorClose` lives (§5.6).
 
-**L4 — objects and functions in full.** Object-literal shorthand, methods,
+**L4 — objects and functions in full. — DONE.** Object-literal shorthand, methods,
 getters, setters, spread, `__proto__`; spread in calls and `new`; concise arrow
 bodies; `this`; template literals with raw text; tagged templates.
 

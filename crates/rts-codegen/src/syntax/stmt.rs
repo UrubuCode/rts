@@ -348,7 +348,7 @@ pub struct Function {
     /// somebody has to enforce.
     pub rest_parameter: Option<Pattern>,
     /// Its body.
-    pub body: Vec<Stmt>,
+    pub body: FunctionBody,
     /// What the program claimed it returns.
     pub returns: Option<Claim>,
     /// Whether it takes `this` from where it was written rather than from how it
@@ -363,6 +363,37 @@ pub struct Function {
     pub is_generator: bool,
     /// Where it was written.
     pub at: Position,
+}
+
+/// What a function does when called.
+#[derive(Clone, PartialEq, Debug)]
+pub enum FunctionBody {
+    /// `{ … }` — statements, and a `return` if it means to produce anything.
+    Block(Vec<Stmt>),
+
+    /// `x => x + 1` — one expression, whose value is returned.
+    ///
+    /// Kept as an expression rather than wrapped in a synthetic `return`,
+    /// because a concise body is not a block: no `{` to be a scope, and — the
+    /// part a rewrite loses — `x => ({ a: 1 })` needs its parentheses precisely
+    /// because a `{` there would have been a block. Recording which was written
+    /// keeps that distinction available to a diagnostic.
+    Expression(Box<Expr>),
+}
+
+impl FunctionBody {
+    /// The statements, if this is a block.
+    pub fn statements(&self) -> Option<&[Stmt]> {
+        match self {
+            FunctionBody::Block(body) => Some(body),
+            FunctionBody::Expression(_) => None,
+        }
+    }
+
+    /// Whether the body's value is returned without a `return` being written.
+    pub fn returns_implicitly(&self) -> bool {
+        matches!(self, FunctionBody::Expression(_))
+    }
 }
 
 /// One parameter.

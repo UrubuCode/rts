@@ -108,7 +108,7 @@ pub enum ExprKind {
         /// What is called.
         callee: Box<Expr>,
         /// The arguments, in order.
-        arguments: Vec<Expr>,
+        arguments: Vec<Spreadable>,
         /// Whether `?.(` — an absent callee yields absent instead of failing.
         optional: bool,
     },
@@ -122,7 +122,37 @@ pub enum ExprKind {
         /// What is constructed.
         callee: Box<Expr>,
         /// The arguments, in order.
-        arguments: Vec<Expr>,
+        arguments: Vec<Spreadable>,
+    },
+
+    /// `this`.
+    ///
+    /// A node rather than a name, because it does not resolve like one: it comes
+    /// from the nearest enclosing function that binds it, arrows do not bind it,
+    /// and what it holds is decided by how the function was *called*.
+    This,
+
+    /// `` `a${b}c` `` — the parts and the expressions between them.
+    Template {
+        /// The literal pieces. Always one more than `expressions`.
+        parts: Vec<TemplatePart>,
+        /// What is substituted between them, in order.
+        expressions: Vec<Expr>,
+    },
+
+    /// `` tag`a${b}` `` — a call whose first argument is the template itself.
+    ///
+    /// Its own node because it is not a call of the template's result: the tag
+    /// receives the raw and cooked strings as an array, and that array is
+    /// **cached per call site**, so the same site hands the tag the identical
+    /// object every time it runs.
+    TaggedTemplate {
+        /// What is called.
+        tag: Box<Expr>,
+        /// The literal pieces handed to it.
+        parts: Vec<TemplatePart>,
+        /// What is substituted, in order.
+        expressions: Vec<Expr>,
     },
 
     /// An object written out: `{ a: 1 }`.
@@ -137,8 +167,24 @@ pub enum ExprKind {
         /// Its elements. An absent one is a hole, which is not `undefined`:
         /// a hole is skipped by some operations and read as `undefined` by
         /// others, and collapsing the two loses that.
-        elements: Vec<Option<Expr>>,
+        ///
+        /// A spread here contributes however many the iterator yields, so an
+        /// array literal's length is not its element count — in either
+        /// direction, since a trailing comma adds none and a trailing hole
+        /// adds one.
+        elements: Vec<Option<Spreadable>>,
     },
+
+    /// The boundary of an optional chain.
+    ///
+    /// Wraps the whole of `a?.b.c`, and is what makes the short circuit reach
+    /// `.c` when `a` is absent. Without it there is nowhere to say how far the
+    /// skipping goes: the `optional` flag on a link says only that *that* link
+    /// may be skipped, and `a?.b.c` skips a link that carries no flag at all.
+    ///
+    /// It is also where two early errors attach — a tagged template and a `new`
+    /// cannot appear inside a chain.
+    Chain(Box<Expr>),
 
     /// `++x` or `x--`.
     ///
@@ -234,13 +280,109 @@ impl AssignTarget {
     }
 }
 
-/// One property of an object written out.
+/// One entry of an object literal.
+///
+/// Five spellings, not one with flags, because they do different things at
+/// construction. A method and a `key: function(){}` differ in whether the
+/// function gets a home object — which decides whether `super` works inside it.
+/// A spread does not add one property but copies many. And `__proto__` in one
+/// of its four spellings does not add a property at all.
 #[derive(Clone, PartialEq, Debug)]
-pub struct Property {
-    /// Which property.
-    pub key: PropertyKey,
-    /// What it is set to.
-    pub value: Expr,
+pub enum Property {
+    /// `key: value`, and `{ a }`, which is the same thing written shorter.
+    ///
+    /// Shorthand is recorded because it is the only form that can be
+    /// reinterpreted into a pattern, and because `{ a }` requires `a` to be a
+    /// readable binding where `{ a: 1 }` requires nothing.
+    Value {
+        /// Which property.
+        key: PropertyKey,
+        /// What it is set to.
+        value: Expr,
+        /// Whether it was written as `{ a }`.
+        shorthand: bool,
+    },
+
+    /// `m() {}`, `*m() {}`, `async m() {}`.
+    ///
+    /// Not a `Value` holding a function. A method is installed with a home
+    /// object, which is what `super.x` inside it reads from; a function stored
+    /// under a key has none, and `super` there is a syntax error.
+    Method {
+        /// Which property.
+        key: PropertyKey,
+        /// The function.
+        function: Box<super::Function>,
+    },
+
+    /// `get k() {}`.
+    Getter {
+        /// Which property.
+        key: PropertyKey,
+        /// The function. Takes no parameters.
+        function: Box<super::Function>,
+    },
+
+    /// `set k(v) {}`.
+    Setter {
+        /// Which property.
+        key: PropertyKey,
+        /// The function. Takes exactly one parameter, and no rest parameter.
+        function: Box<super::Function>,
+    },
+
+    /// `...expr` — copies the source's own enumerable properties.
+    ///
+    /// Copies *values*, so a getter on the source runs once here and what lands
+    /// is a plain data property. Not the same as inheriting.
+    Spread(Expr),
+
+    /// `__proto__: value` — sets the prototype instead of adding a property.
+    ///
+    /// Only this spelling. `{ __proto__ }`, `{ ["__proto__"]: v }` and
+    /// `{ __proto__() {} }` are ordinary properties named `__proto__`, which is
+    /// why this is a variant rather than a check on the key: four syntaxes, two
+    /// meanings, and the difference is not visible in the key alone.
+    Prototype(Expr),
+}
+
+/// One item of a list that may spread.
+///
+/// Shared by call arguments, `new` arguments and array elements, because in all
+/// three the question a lowering asks is the same one: is the length of this
+/// list known before the program runs.
+#[derive(Clone, PartialEq, Debug)]
+pub enum Spreadable {
+    /// An ordinary item.
+    Single(Expr),
+    /// `...xs` — spread, which steps an iterator and so can contribute any
+    /// number of arguments, decided at run time.
+    Spread(Expr),
+}
+
+impl Spreadable {
+    /// Whether the number of arguments this contributes is known before running.
+    ///
+    /// False for a spread. Once one appears, the call's arity is a runtime
+    /// value, so parameter positions after it cannot be resolved statically —
+    /// which is what a lowering needs to know before it plans the call.
+    pub fn count_is_static(&self) -> bool {
+        matches!(self, Spreadable::Single(_))
+    }
+}
+
+/// One piece of a template literal.
+///
+/// Both texts are kept. Cooked is what the escapes mean; raw is what was
+/// written. An ordinary template uses cooked. A *tagged* template receives
+/// both, and receives cooked as `undefined` when an escape is invalid — which
+/// is why cooked is optional and raw is not.
+#[derive(Clone, PartialEq, Debug)]
+pub struct TemplatePart {
+    /// The text with escapes resolved, absent if any of them was invalid.
+    pub cooked: Option<String>,
+    /// The text exactly as it was written.
+    pub raw: String,
 }
 
 /// How a property of an object literal is named.

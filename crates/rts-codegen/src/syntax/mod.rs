@@ -17,12 +17,14 @@ pub mod ops;
 mod pattern;
 mod stmt;
 
-pub use expr::{AssignTarget, Expr, ExprKind, Literal, Property, PropertyKey};
+pub use expr::{
+    AssignTarget, Expr, ExprKind, Literal, Property, PropertyKey, Spreadable, TemplatePart,
+};
 pub use ops::{AssignOp, BinaryOp, LogicalOp, UnaryOp, UpdateOp, UpdatePosition};
 pub use pattern::{ArrayPattern, Element, ObjectPattern, Pattern, PatternProperty};
 pub use stmt::{
-    Binding, BindingKind, Catch, ForEachSource, ForEachTarget, ForInit, Function, Parameter,
-    Program, Stmt, StmtKind, SwitchClause,
+    Binding, BindingKind, Catch, ForEachSource, ForEachTarget, ForInit, Function, FunctionBody,
+    Parameter, Program, Stmt, StmtKind, SwitchClause,
 };
 
 /// What a program said about a value.
