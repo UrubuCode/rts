@@ -61,6 +61,7 @@ pub mod ir;
 pub mod lower;
 pub mod mem;
 pub mod observe;
+pub mod probe;
 pub mod repr;
 pub mod sched;
 pub mod symbols;
