@@ -97,6 +97,23 @@ pub enum Found {
     WriteOnly,
 }
 
+impl crate::collect::Trace for Object {
+    /// Every slot this object refers to: its prototype, and whatever its
+    /// properties hold that is a reference.
+    ///
+    /// A property holding a number contributes nothing, which is why the value
+    /// is asked rather than assumed — `as_slot` answers only for a reference.
+    fn trace(&self, out: &mut Vec<Slot>) {
+        out.extend(self.prototype);
+        out.extend(
+            self.slots
+                .iter()
+                .filter_map(|value| value.as_slot())
+                .map(Slot),
+        );
+    }
+}
+
 impl Object {
     /// An object of a given layout, with every slot filled.
     ///

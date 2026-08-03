@@ -194,7 +194,18 @@ that passes the obvious test and is wrong:
   prints `"0.1"`; `0.1 + 0.2` prints `"0.30000000000000004"`. No fixed precision
   is right for both.
 
-### C5 — collection
+### C5 — collection. **DONE.**
+
+Mark and sweep over the slot table. What the machine already decides is not
+re-decided here: where a collection may happen, what is live at that point, and
+whether a store needs a barrier are all derived in `rts_cranelift::gc` while
+lowering. What arrives here is a list of slots.
+
+**The write barrier's runtime side is deliberately absent.** `BarrierKind` has
+two cases and the second is `CrossRegion` — a notification that one region now
+refers to another. There are no regions yet, so a remembered set would be a
+structure nothing writes and nothing reads. It lands with regions, not before.
+
 
 Mark and sweep over the slot table, and the write barrier's slow path.
 

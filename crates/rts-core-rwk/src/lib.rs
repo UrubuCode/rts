@@ -33,12 +33,14 @@
 #![deny(dead_code)]
 
 pub mod coerce;
+pub mod collect;
 pub mod heap;
 pub mod object;
 pub mod text;
 pub mod value;
 
 pub use coerce::{Hint, Side};
+pub use collect::{Marks, Trace};
 pub use heap::{Handle, Slab, Slot};
 pub use object::{Key, Object};
 pub use text::{Interner, Str};
