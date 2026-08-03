@@ -19,6 +19,17 @@ started yet.
 No unimplemented markers anywhere. What is absent is absent *structurally* — it
 is not that something was stubbed, it is that a connection was never made.
 
+**Pre-existing, and not on the path to `rts-host`:** `rts-macro`'s integration
+tests do not compile. Four of them — `ctor_handle_escape`, `class_param`,
+`functioncall`, `type_record` — fail on a missing
+`__rtsm_global_handlector_new`, which looks like a naming bug in the `#[rtse::class]`
+constructor path. Confirmed against an earlier commit in a scratch worktree
+rather than assumed, because "it was already broken" is the easiest thing to say
+and the easiest to be wrong about.
+
+They are old-world: `#[rtse::class]` builds Registry members for the engine being
+replaced. Worth fixing, and not a blocker for anything below.
+
 ---
 
 ## Gap 1 — nothing turns a tree into instructions
