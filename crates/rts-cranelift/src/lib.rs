@@ -38,10 +38,12 @@
 //! generators, asynchronous functions and promise waiters are one mechanism here
 //! rather than four.
 //!
+//! Calls sit on top of all of it, and arrived last on purpose: a call is
+//! inseparable from the convention it uses, from the safepoint it implies, and
+//! from where the frame is when control leaves.
+//!
 //! Still to come: lowering to machine code and the two output paths, guard
-//! failure paths, faults and observability. Calls are next: every fact one needs
-//! now exists, and they were held back only so that none of those facts would be
-//! chosen implicitly.
+//! failure paths, faults and observability.
 
 #![deny(missing_docs)]
 #![deny(dead_code)]

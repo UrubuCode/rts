@@ -16,6 +16,7 @@
 //! makes the failure path part of the program's structure.
 
 use super::entity::{BlockId, ConstId, InstId, ValueId};
+use super::funcs::{FuncId, SigId};
 use crate::repr::Repr;
 use crate::types::TypeId;
 use crate::unwind::Tag;
@@ -188,6 +189,37 @@ pub enum Inst {
         rejected: bool,
     },
 
+    /// Calls a known function.
+    ///
+    /// There is no variant for a call that suspends, and no flag for one. Whether
+    /// a call parks the caller's frame follows from what the callee is, which the
+    /// registry already records — a site that also stated it could state it
+    /// wrongly, and the two would then disagree.
+    ///
+    /// There is likewise no variant for a call behind a shape guard. That is a
+    /// guard whose success path contains an ordinary call, which composes with
+    /// tail position for free instead of requiring a product of node kinds.
+    Call {
+        /// The function called.
+        callee: FuncId,
+        /// Arguments, matching the signature's parameters exactly.
+        args: Vec<ValueId>,
+    },
+
+    /// Calls a function reached through a value.
+    ///
+    /// The shape must still be stated: a machine cannot lay out a call it cannot
+    /// describe. A client whose callee's arity is genuinely unknown resolves that
+    /// before reaching here — the machine does not guess an arity.
+    CallIndirect {
+        /// The value naming the function.
+        callee: ValueId,
+        /// The shape being called.
+        sig: SigId,
+        /// Arguments, matching that shape's parameters exactly.
+        args: Vec<ValueId>,
+    },
+
     /// Parks the frame until a promise settles.
     ///
     /// A suspension that names what it waits for. Distinguished from a bare
@@ -213,6 +245,13 @@ impl Inst {
             Inst::Await { promise } => vec![*promise],
             Inst::PromiseSettle { promise, value, .. } => vec![*promise, *value],
 
+            Inst::Call { args, .. } => args.clone(),
+            Inst::CallIndirect { callee, args, .. } => {
+                let mut operands = vec![*callee];
+                operands.extend_from_slice(args);
+                operands
+            }
+
             Inst::Widen(v) | Inst::Narrow(v, _) => vec![*v],
 
             Inst::IntArith(_, a, b)
@@ -235,7 +274,15 @@ impl Inst {
     /// stating it here makes it a constraint the layer is designed around rather
     /// than a coincidence it happens to survive.
     pub fn is_safepoint(&self) -> bool {
-        matches!(self, Inst::Alloc { .. }) || self.is_suspend()
+        matches!(
+            self,
+            Inst::Alloc { .. } | Inst::Call { .. } | Inst::CallIndirect { .. }
+        ) || self.is_suspend()
+    }
+
+    /// Whether this instruction transfers control to another function.
+    pub fn is_call(&self) -> bool {
+        matches!(self, Inst::Call { .. } | Inst::CallIndirect { .. })
     }
 
     /// Whether this instruction parks the frame.
@@ -311,6 +358,34 @@ pub enum Terminator {
     },
     /// Returns from the function.
     Return(Vec<ValueId>),
+
+    /// Replaces this frame with a call.
+    ///
+    /// A terminator rather than an instruction, which is the shape of what it
+    /// does: the frame is gone before control transfers, so nothing follows it
+    /// and there is no result to bind. Two consequences follow from that and are
+    /// checked rather than described. It is not a point where the collector can
+    /// act, because there is no frame left to scan. And it cannot be the call a
+    /// handler is installed around, because the handler's frame is the frame it
+    /// discards — returning a call's result directly and catching that call's
+    /// exception are mutually exclusive.
+    TailCall {
+        /// The function called.
+        callee: FuncId,
+        /// Arguments, matching the signature's parameters exactly.
+        args: Vec<ValueId>,
+    },
+
+    /// Replaces this frame with a call through a value.
+    TailCallIndirect {
+        /// The value naming the function.
+        callee: ValueId,
+        /// The shape being called.
+        sig: SigId,
+        /// Arguments, matching that shape's parameters exactly.
+        args: Vec<ValueId>,
+    },
+
     /// Throws a value.
     ///
     /// The value is in the generic form because this layer does not know what
@@ -342,7 +417,11 @@ impl Terminator {
             // A throw has no successor in this function's graph. Where it lands
             // is decided by the region tree, and may be in a caller; calling it
             // an edge here would claim a transfer this block does not perform.
-            Terminator::Return(_) | Terminator::Throw { .. } | Terminator::Trap(_) => Vec::new(),
+            Terminator::Return(_)
+            | Terminator::Throw { .. }
+            | Terminator::TailCall { .. }
+            | Terminator::TailCallIndirect { .. }
+            | Terminator::Trap(_) => Vec::new(),
         }
     }
 
@@ -368,6 +447,11 @@ impl Terminator {
                 operands.extend_from_slice(&fail.args);
             }
             Terminator::Return(values) => operands.extend_from_slice(values),
+            Terminator::TailCall { args, .. } => operands.extend_from_slice(args),
+            Terminator::TailCallIndirect { callee, args, .. } => {
+                operands.push(*callee);
+                operands.extend_from_slice(args);
+            }
             Terminator::Throw { payload, .. } => operands.push(*payload),
             Terminator::Trap(_) => {}
         }
@@ -375,13 +459,28 @@ impl Terminator {
     }
 }
 
-/// An instruction together with the value it defines, if any.
+/// An instruction together with the values it defines.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct InstData {
     /// The operation.
     pub inst: Inst,
-    /// The value it defines, absent for instructions that only have an effect.
-    pub result: Option<ValueId>,
+    /// The values it defines, empty for instructions that only have an effect.
+    pub results: Vec<ValueId>,
+}
+
+impl InstData {
+    /// The single value this instruction defines, if it defines exactly one.
+    pub fn result(&self) -> Option<ValueId> {
+        match self.results.as_slice() {
+            [only] => Some(*only),
+            _ => None,
+        }
+    }
+
+    /// Whether this instruction defines the given value.
+    pub fn defines(&self, value: ValueId) -> bool {
+        self.results.contains(&value)
+    }
 }
 
 /// A basic block.

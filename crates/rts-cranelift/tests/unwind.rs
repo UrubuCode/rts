@@ -6,6 +6,7 @@
 //! roots do.
 
 use rts_cranelift::gc::describe_frames;
+use rts_cranelift::ir::FuncRegistry;
 use rts_cranelift::ir::{FuncBuilder, Function, Region, Signature, ValueId};
 use rts_cranelift::repr::{RefKind, Repr};
 use rts_cranelift::types::TypeRegistry;
@@ -53,7 +54,7 @@ fn a_throw_reaches_a_handler_that_catches_its_tag() {
     assert_eq!(plans.len(), 1);
     assert_eq!(plans[0].1.handler, Some(caught));
     assert!(!plans[0].1.escapes());
-    assert_eq!(verify(&func, &types), vec![]);
+    assert_eq!(verify(&func, &types, &FuncRegistry::new()), vec![]);
 }
 
 #[test]
@@ -178,7 +179,7 @@ fn a_thrown_value_is_widened_rather_than_refused() {
     b.throw(Tag(1), number);
 
     assert_eq!(
-        verify(&func, &types),
+        verify(&func, &types, &FuncRegistry::new()),
         vec![],
         "this layer does not know what may be thrown, so what travels is the uniform form"
     );
@@ -207,7 +208,7 @@ fn a_handler_that_does_not_receive_the_value_is_rejected() {
     let mut b = FuncBuilder::new(&mut func, &types, caught);
     b.ret(&[]);
 
-    let errors = verify(&func, &types);
+    let errors = verify(&func, &types, &FuncRegistry::new());
     assert!(
         errors.contains(&VerifyError::HandlerMissingPayload {
             region,
@@ -274,7 +275,7 @@ fn a_region_naming_a_block_that_does_not_exist_is_rejected() {
     b.place_in_region(entry, region);
     b.ret(&[]);
 
-    let errors = verify(&func, &types);
+    let errors = verify(&func, &types, &FuncRegistry::new());
     assert!(errors.iter().any(|e| matches!(
         e,
         VerifyError::UnknownRegionBlock { .. } | VerifyError::HandlerMissingPayload { .. }

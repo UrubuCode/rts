@@ -200,11 +200,12 @@ Planned and deliberately absent: `lower/` and `target/` (the code generator and
 the two output paths), `guard/` (bailout), `fault/`, `observe/`, `symbols/`,
 `probe/`.
 
-There are no call instructions yet. Every fact one needs now exists — the
-convention it uses, the safepoint it implies, whether its callee may suspend, and
-what a suspension does — so calls are next rather than blocked. They were held
-back on purpose: choosing those answers implicitly, then rediscovering them, is
-the failure this ordering avoided.
+Calls exist now, and they arrived last on purpose. A call is inseparable from the
+convention it uses, from the safepoint it implies, and from where the frame is
+when control leaves — so every one of those was built and tested first. Choosing
+those answers implicitly, then rediscovering them, is the failure this ordering
+avoided, and one rule was in fact written and then withdrawn once the suspension
+model made it false.
 
 ---
 

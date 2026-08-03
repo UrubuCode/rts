@@ -63,6 +63,8 @@ pub(super) fn check_terminators(func: &Function, errors: &mut Vec<VerifyError>) 
                 }
             }
 
+            Terminator::TailCall { .. } | Terminator::TailCallIndirect { .. } => {}
+
             Terminator::Return(_) | Terminator::Trap(_) => {}
         }
     }
@@ -302,6 +304,11 @@ pub(super) fn check_instructions(
                         });
                     }
                 }
+
+                // Calls have their own pass: they are the only instructions that
+                // consult a second registry, and four separate facts have to
+                // agree at once.
+                Inst::Call { .. } | Inst::CallIndirect { .. } => {}
 
                 Inst::Const(_) | Inst::PromiseNew => {}
             }

@@ -127,7 +127,7 @@ pub fn plan_suspension_with(func: &Function, liveness: &Liveness) -> SuspendPlan
             preserved.extend(
                 after[position]
                     .iter()
-                    .filter(|&&value| Some(value) != data.result)
+                    .filter(|&&value| !data.defines(value))
                     .map(|&value| (value, func.repr_of(value))),
             );
         }

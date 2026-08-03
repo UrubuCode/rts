@@ -17,12 +17,14 @@ pub mod builder;
 pub mod consts;
 pub mod entity;
 pub mod func;
+pub mod funcs;
 pub mod inst;
 
 pub use builder::{BuildError, BuildResult, FuncBuilder};
 pub use consts::{ConstDecl, ScalarBits, SymbolRef};
 pub use entity::{BlockId, ConstId, InstId, ValueId};
 pub use func::{Function, Signature, ValueData, ValueOrigin};
+pub use funcs::{FuncDecl, FuncId, FuncRegistry, SigId};
 pub use inst::{
     BitOp, BlockCall, BlockData, CmpOp, GenericOp, Inst, InstData, NumOp, Region, Terminator,
     TrapCode,

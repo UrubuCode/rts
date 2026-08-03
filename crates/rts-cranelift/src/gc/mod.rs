@@ -84,7 +84,7 @@ pub fn describe_frames(func: &Function) -> FrameTable {
                 // it cannot be live *across* it. Reporting it would ask the
                 // collector to find a value that does not yet exist at the
                 // moment it looks.
-                .filter(|&&value| Some(value) != data.result)
+                .filter(|&&value| !data.defines(value))
                 .filter(|&&value| func.repr_of(value).is_gc_relevant())
                 .map(|&value| RootSlot {
                     value,

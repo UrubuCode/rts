@@ -5,6 +5,7 @@
 //! a slow or wrong program attributable to the layer above rather than to this
 //! one.
 
+use rts_cranelift::ir::FuncRegistry;
 use rts_cranelift::ir::{
     BuildError, ConstDecl, FuncBuilder, Function, NumOp, Region, ScalarBits, Signature, Terminator,
 };
@@ -39,7 +40,7 @@ fn a_well_formed_function_verifies_clean() {
         .expect("both operands are proven f64");
     b.ret(&[sum]);
 
-    assert_eq!(verify(&func, &types), vec![]);
+    assert_eq!(verify(&func, &types, &FuncRegistry::new()), vec![]);
 }
 
 #[test]
@@ -95,7 +96,7 @@ fn a_merge_to_the_generic_form_widens_automatically() {
     let mut b = FuncBuilder::new(&mut func, &types, merge);
     b.ret(&[merged]);
 
-    assert!(is_valid(&func, &types));
+    assert!(is_valid(&func, &types, &FuncRegistry::new()));
 }
 
 #[test]
@@ -147,7 +148,7 @@ fn a_guard_hands_the_narrowed_value_to_its_success_block() {
     let mut b = FuncBuilder::new(&mut func, &types, fail);
     b.ret(&[unknown]);
 
-    assert_eq!(verify(&func, &types), vec![]);
+    assert_eq!(verify(&func, &types, &FuncRegistry::new()), vec![]);
 }
 
 #[test]
@@ -185,7 +186,7 @@ fn a_field_access_takes_its_representation_from_the_layout() {
         .expect("both are f64 by declaration, not by assertion");
     b.ret(&[sum]);
 
-    assert_eq!(verify(&func, &types), vec![]);
+    assert_eq!(verify(&func, &types, &FuncRegistry::new()), vec![]);
 }
 
 #[test]
@@ -218,7 +219,7 @@ fn an_allocation_is_a_reference_to_its_own_type() {
     let obj = b.alloc(ty, Region::Shared);
     b.ret(&[obj]);
 
-    assert_eq!(verify(&func, &types), vec![]);
+    assert_eq!(verify(&func, &types, &FuncRegistry::new()), vec![]);
 }
 
 #[test]
@@ -236,7 +237,7 @@ fn a_constant_materializes_with_its_declared_representation() {
     b.ret(&[value]);
 
     assert_eq!(func.repr_of(value), Repr::F64);
-    assert_eq!(verify(&func, &types), vec![]);
+    assert_eq!(verify(&func, &types, &FuncRegistry::new()), vec![]);
 }
 
 #[test]
@@ -245,7 +246,7 @@ fn the_verifier_catches_a_block_that_never_ends() {
     let mut func = function(&[], &[]);
     let orphan = func.push_block();
 
-    let errors = verify(&func, &types);
+    let errors = verify(&func, &types, &FuncRegistry::new());
     assert!(errors.contains(&VerifyError::UnterminatedBlock(func.entry)));
     assert!(errors.contains(&VerifyError::UnterminatedBlock(orphan)));
 }
@@ -260,7 +261,7 @@ fn the_verifier_catches_a_return_that_contradicts_the_signature() {
     func.set_terminator(entry, Terminator::Return(vec![x]));
 
     assert_eq!(
-        verify(&func, &types),
+        verify(&func, &types, &FuncRegistry::new()),
         vec![VerifyError::ReturnRepr {
             from: entry,
             position: 0,
@@ -277,7 +278,7 @@ fn the_verifier_reports_every_violation_rather_than_the_first() {
     let orphan = func.push_block();
     func.set_terminator(func.entry, Terminator::Return(vec![]));
 
-    let errors = verify(&func, &types);
+    let errors = verify(&func, &types, &FuncRegistry::new());
     assert!(
         errors.len() >= 2,
         "a program with two mistakes takes one pass to diagnose"
@@ -300,6 +301,6 @@ fn the_verifier_rejects_a_program_built_against_another_registry() {
     // Built consistently, it is fine; verified against a registry that never
     // issued the identifier, it is not — plausible offsets read from the wrong
     // layouts is exactly the failure worth catching here.
-    assert_eq!(verify(&func, &theirs), vec![]);
-    assert!(!is_valid(&func, &ours));
+    assert_eq!(verify(&func, &theirs, &FuncRegistry::new()), vec![]);
+    assert!(!is_valid(&func, &ours, &FuncRegistry::new()));
 }

@@ -76,9 +76,14 @@ impl AbiType {
 /// conventions stable across a library boundary, one per target, and internal
 /// conventions explicitly not stable — including the one that permits tail
 /// calls. Everything else is a protocol on top.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Default)]
 pub enum Convention {
     /// Between functions this compilation owns. Not stable across a boundary.
+    ///
+    /// The default: a function is internal until something says otherwise, and
+    /// the two that are not internal both cost something a caller should have to
+    /// ask for.
+    #[default]
     Internal,
     /// Internal, and permitting tail calls.
     ///

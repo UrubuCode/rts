@@ -6,6 +6,7 @@
 
 use rts_cranelift::frame::plan_suspension;
 use rts_cranelift::gc::describe_frames;
+use rts_cranelift::ir::FuncRegistry;
 use rts_cranelift::ir::{FuncBuilder, Function, NumOp, Region, Signature, ValueId};
 use rts_cranelift::repr::{RefKind, Repr};
 use rts_cranelift::types::TypeRegistry;
@@ -18,6 +19,7 @@ fn suspending(params: &[Repr], returns: &[Repr]) -> Function {
         params: params.to_vec(),
         returns: returns.to_vec(),
         may_suspend: true,
+        ..Signature::default()
     })
 }
 
@@ -255,6 +257,7 @@ fn parking_a_frame_that_did_not_declare_it_may_is_rejected() {
         params: vec![],
         returns: vec![],
         may_suspend: false,
+        ..Signature::default()
     });
 
     let entry = func.entry;
@@ -262,7 +265,7 @@ fn parking_a_frame_that_did_not_declare_it_may_is_rejected() {
     b.suspend();
     b.ret(&[]);
 
-    let errors = verify(&func, &types);
+    let errors = verify(&func, &types, &FuncRegistry::new());
     assert!(
         errors
             .iter()

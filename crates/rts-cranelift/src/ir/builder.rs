@@ -17,7 +17,8 @@
 
 use super::consts::ConstDecl;
 use super::entity::{BlockId, ConstId, ValueId};
-use super::func::Function;
+use super::func::{Function, Signature};
+use super::funcs::{FuncId, FuncRegistry, SigId};
 use super::inst::{BitOp, BlockCall, CmpOp, GenericOp, Inst, NumOp, Region, Terminator, TrapCode};
 use crate::repr::Repr;
 use crate::types::{TypeId, TypeRegistry};
@@ -81,6 +82,36 @@ pub enum BuildError {
         /// The block that was named as the success path.
         target: BlockId,
     },
+    /// A call names a function or shape the registry did not issue.
+    UnknownCallee,
+    /// A call passes the wrong number of arguments.
+    CallArity {
+        /// How many the signature declares.
+        expected: usize,
+        /// How many were passed.
+        found: usize,
+    },
+    /// A call argument disagrees with the parameter it fills.
+    CallArgumentRepr {
+        /// Which argument.
+        position: usize,
+        /// What the signature declares.
+        expected: Repr,
+        /// What was passed.
+        found: Repr,
+    },
+    /// An indirect call reaches its callee through something that is not code.
+    IndirectCalleeNotCallable {
+        /// What was named.
+        found: Repr,
+    },
+    /// A tail call whose conventions or returns do not match.
+    TailCallNotPermitted,
+    /// A tail call inside a protected region.
+    ///
+    /// The frame is discarded before control transfers, so the handler installed
+    /// around it no longer exists when it would be needed.
+    TailCallInProtectedRegion,
 }
 
 /// Result of a building operation.
@@ -131,7 +162,7 @@ impl<'a> FuncBuilder<'a> {
             .constant(id)
             .expect("constant belongs to this function")
             .repr();
-        self.emit(Inst::Const(id), Some(repr))
+        self.emit(Inst::Const(id), repr)
     }
 
     /// Arithmetic over two proven operands of identical representation.
@@ -141,9 +172,9 @@ impl<'a> FuncBuilder<'a> {
     pub fn arith(&mut self, op: NumOp, a: ValueId, b: ValueId) -> BuildResult<ValueId> {
         let repr = self.same_proven("arith", a, b)?;
         if repr.is_integer() {
-            Ok(self.emit(Inst::IntArith(op, a, b), Some(repr)))
+            Ok(self.emit(Inst::IntArith(op, a, b), repr))
         } else if repr.is_float() {
-            Ok(self.emit(Inst::FloatArith(op, a, b), Some(repr)))
+            Ok(self.emit(Inst::FloatArith(op, a, b), repr))
         } else {
             Err(BuildError::WrongDomain {
                 operation: "arith",
@@ -161,13 +192,13 @@ impl<'a> FuncBuilder<'a> {
                 found: repr,
             });
         }
-        Ok(self.emit(Inst::Bitwise(op, a, b), Some(repr)))
+        Ok(self.emit(Inst::Bitwise(op, a, b), repr))
     }
 
     /// Comparison of two proven operands of identical representation.
     pub fn compare(&mut self, op: CmpOp, a: ValueId, b: ValueId) -> BuildResult<ValueId> {
         self.same_proven("compare", a, b)?;
-        Ok(self.emit(Inst::Compare(op, a, b), Some(Repr::Bool)))
+        Ok(self.emit(Inst::Compare(op, a, b), Repr::Bool))
     }
 
     /// An operation on operands whose representation is not proven.
@@ -178,7 +209,7 @@ impl<'a> FuncBuilder<'a> {
     pub fn generic(&mut self, op: GenericOp, a: ValueId, b: ValueId) -> ValueId {
         let a = self.widen_if_needed(a);
         let b = self.widen_if_needed(b);
-        self.emit(Inst::Generic(op, a, b), Some(Repr::Tagged))
+        self.emit(Inst::Generic(op, a, b), Repr::Tagged)
     }
 
     /// Widens a value into the generic form, or returns it unchanged.
@@ -192,7 +223,7 @@ impl<'a> FuncBuilder<'a> {
     /// pass a width, so there is no place to pass the wrong one.
     pub fn field_load(&mut self, object: ValueId, ty: TypeId, field: u32) -> BuildResult<ValueId> {
         let repr = self.field_repr(ty, field)?;
-        Ok(self.emit(Inst::FieldLoad { object, ty, field }, Some(repr)))
+        Ok(self.emit(Inst::FieldLoad { object, ty, field }, repr))
     }
 
     /// Writes a field of a registered aggregate.
@@ -231,7 +262,7 @@ impl<'a> FuncBuilder<'a> {
     /// Allocates an instance of a registered aggregate.
     pub fn alloc(&mut self, ty: TypeId, region: Region) -> ValueId {
         let repr = Repr::Ref(crate::repr::RefKind::Aggregate(ty));
-        self.emit(Inst::Alloc { ty, region }, Some(repr))
+        self.emit(Inst::Alloc { ty, region }, repr)
     }
 
     /// Transfers control unconditionally.
@@ -312,15 +343,112 @@ impl<'a> FuncBuilder<'a> {
     /// eventually list them wrong, and the failure would be a value quietly
     /// missing after a resumption.
     pub fn suspend(&mut self) -> ValueId {
-        self.emit(Inst::Suspend, Some(Repr::Tagged))
+        self.emit(Inst::Suspend, Repr::Tagged)
+    }
+
+    /// Calls a known function, binding what it returns.
+    ///
+    /// The results' representations come from the signature, so there is nowhere
+    /// to state them and nowhere to state them wrongly — the same reason a field
+    /// access takes no width.
+    pub fn call(
+        &mut self,
+        funcs: &FuncRegistry,
+        callee: FuncId,
+        args: &[ValueId],
+    ) -> BuildResult<Vec<ValueId>> {
+        let sig = funcs
+            .signature_of(callee)
+            .ok_or(BuildError::UnknownCallee)?
+            .clone();
+        self.check_call_args(&sig, args)?;
+        Ok(self.emit_multi(
+            Inst::Call {
+                callee,
+                args: args.to_vec(),
+            },
+            &sig.returns,
+        ))
+    }
+
+    /// Calls a function reached through a value of proven callable kind.
+    ///
+    /// A generic value is refused here rather than narrowed. It might be code,
+    /// and a guard is how one finds out; calling through it unguarded is exactly
+    /// the narrowing this layer refuses everywhere else.
+    pub fn call_indirect(
+        &mut self,
+        funcs: &FuncRegistry,
+        callee: ValueId,
+        sig_id: SigId,
+        args: &[ValueId],
+    ) -> BuildResult<Vec<ValueId>> {
+        self.check_callable(callee)?;
+        let sig = funcs
+            .signature(sig_id)
+            .ok_or(BuildError::UnknownCallee)?
+            .clone();
+        self.check_call_args(&sig, args)?;
+        Ok(self.emit_multi(
+            Inst::CallIndirect {
+                callee,
+                sig: sig_id,
+                args: args.to_vec(),
+            },
+            &sig.returns,
+        ))
+    }
+
+    /// Replaces this frame with a call to a known function.
+    pub fn tail_call(
+        &mut self,
+        funcs: &FuncRegistry,
+        callee: FuncId,
+        args: &[ValueId],
+    ) -> BuildResult<()> {
+        let sig = funcs
+            .signature_of(callee)
+            .ok_or(BuildError::UnknownCallee)?
+            .clone();
+        self.check_tail_call(&sig, args)?;
+        self.func.set_terminator(
+            self.block,
+            Terminator::TailCall {
+                callee,
+                args: args.to_vec(),
+            },
+        );
+        Ok(())
+    }
+
+    /// Replaces this frame with a call through a value.
+    pub fn tail_call_indirect(
+        &mut self,
+        funcs: &FuncRegistry,
+        callee: ValueId,
+        sig_id: SigId,
+        args: &[ValueId],
+    ) -> BuildResult<()> {
+        self.check_callable(callee)?;
+        let sig = funcs
+            .signature(sig_id)
+            .ok_or(BuildError::UnknownCallee)?
+            .clone();
+        self.check_tail_call(&sig, args)?;
+        self.func.set_terminator(
+            self.block,
+            Terminator::TailCallIndirect {
+                callee,
+                sig: sig_id,
+                args: args.to_vec(),
+            },
+        );
+        Ok(())
     }
 
     /// Creates a pending promise.
     pub fn promise_new(&mut self) -> ValueId {
-        self.emit(
-            Inst::PromiseNew,
-            Some(Repr::Ref(crate::repr::RefKind::Opaque)),
-        )
+        self.emit(Inst::PromiseNew, Repr::Ref(crate::repr::RefKind::Opaque))
     }
 
     /// Settles a promise, making everything waiting on it runnable.
@@ -343,7 +471,7 @@ impl<'a> FuncBuilder<'a> {
     /// the arrangement this replaces, where the call site had to know about
     /// spawning.
     pub fn await_(&mut self, promise: ValueId) -> ValueId {
-        self.emit(Inst::Await { promise }, Some(Repr::Tagged))
+        self.emit(Inst::Await { promise }, Repr::Tagged)
     }
 
     /// Declares a protected region.
@@ -384,21 +512,71 @@ impl<'a> FuncBuilder<'a> {
         self.func.set_terminator(self.block, Terminator::Trap(code));
     }
 
-    fn emit(&mut self, inst: Inst, result: Option<Repr>) -> ValueId {
-        self.func
-            .push_inst(self.block, inst, result)
-            .expect("an instruction declaring a result binds one")
+    /// Arguments match the parameters they fill, exactly.
+    ///
+    /// No widening here, unlike a branch. A branch's target is part of the same
+    /// function and its parameter representations are this layer's to choose; a
+    /// callee's are its own interface, and quietly converting to fit an interface
+    /// is how a caller and a callee come to disagree about what was passed.
+    fn check_call_args(&self, sig: &Signature, args: &[ValueId]) -> BuildResult<()> {
+        if sig.params.len() != args.len() {
+            return Err(BuildError::CallArity {
+                expected: sig.params.len(),
+                found: args.len(),
+            });
+        }
+        for (position, (&arg, &expected)) in args.iter().zip(&sig.params).enumerate() {
+            let found = self.func.repr_of(arg);
+            if found != expected {
+                return Err(BuildError::CallArgumentRepr {
+                    position,
+                    expected,
+                    found,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// A tail call is legal from this function to that shape, and here.
+    fn check_tail_call(&self, sig: &Signature, args: &[ValueId]) -> BuildResult<()> {
+        self.check_call_args(sig, args)?;
+        if !self.func.signature.permits_tail_call_to(sig) {
+            return Err(BuildError::TailCallNotPermitted);
+        }
+        if self.func.region_of(self.block).is_some() {
+            return Err(BuildError::TailCallInProtectedRegion);
+        }
+        Ok(())
+    }
+
+    fn check_callable(&self, callee: ValueId) -> BuildResult<()> {
+        let found = self.func.repr_of(callee);
+        if found != Repr::Ref(crate::repr::RefKind::Callable) {
+            return Err(BuildError::IndirectCalleeNotCallable { found });
+        }
+        Ok(())
+    }
+
+    fn emit(&mut self, inst: Inst, result: Repr) -> ValueId {
+        self.emit_multi(inst, &[result])
+            .pop()
+            .expect("one representation binds one value")
+    }
+
+    fn emit_multi(&mut self, inst: Inst, results: &[Repr]) -> Vec<ValueId> {
+        self.func.push_inst(self.block, inst, results)
     }
 
     fn emit_effect(&mut self, inst: Inst) {
-        self.func.push_inst(self.block, inst, None);
+        self.func.push_inst(self.block, inst, &[]);
     }
 
     fn widen_if_needed(&mut self, value: ValueId) -> ValueId {
         if self.func.repr_of(value) == Repr::Tagged {
             value
         } else {
-            self.emit(Inst::Widen(value), Some(Repr::Tagged))
+            self.emit(Inst::Widen(value), Repr::Tagged)
         }
     }
 

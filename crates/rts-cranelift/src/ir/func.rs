@@ -8,6 +8,7 @@
 use super::consts::ConstDecl;
 use super::entity::{BlockId, ConstId, InstId, ValueId};
 use super::inst::{BlockData, Inst, InstData, Terminator};
+use crate::abi::Convention;
 use crate::repr::Repr;
 use crate::unwind::{RegionId, RegionTree};
 
@@ -28,6 +29,23 @@ pub struct Signature {
     /// not re-declare it at each site, and a site does not choose it: whether a
     /// call parks the caller follows from what the callee is.
     pub may_suspend: bool,
+    /// Which register and stack discipline it follows.
+    pub convention: Convention,
+}
+
+impl Signature {
+    /// Whether a tail call from this function to `callee` is legal.
+    ///
+    /// Both sides must permit tail calls and the return lists must match
+    /// exactly. That makes a tail-recursive group a unit — the whole group
+    /// compiles under the tail convention or none of it does — and it is checked
+    /// here so that a call site cannot build an edge that would be rejected
+    /// further down, where the cause is no longer visible.
+    pub fn permits_tail_call_to(&self, callee: &Signature) -> bool {
+        self.convention.permits_tail_calls()
+            && callee.convention.permits_tail_calls()
+            && self.returns == callee.returns
+    }
 }
 
 /// Where a value came from.
@@ -131,20 +149,26 @@ impl Function {
         value
     }
 
-    /// Appends an instruction to a block, binding its result when it has one.
-    pub fn push_inst(
-        &mut self,
-        block: BlockId,
-        inst: Inst,
-        result: Option<Repr>,
-    ) -> Option<ValueId> {
+    /// Appends an instruction to a block, binding the values it defines.
+    ///
+    /// A list rather than an option because a call can return more than one
+    /// value, and an instruction model built around at most one result has to be
+    /// rebuilt the day that matters — which is the same reason the signature
+    /// carries a list of returns.
+    pub fn push_inst(&mut self, block: BlockId, inst: Inst, results: &[Repr]) -> Vec<ValueId> {
         let inst_id = InstId(self.insts.len() as u32);
-        self.insts.push(InstData { inst, result: None });
+        self.insts.push(InstData {
+            inst,
+            results: Vec::new(),
+        });
 
-        let value = result.map(|repr| self.push_value(repr, ValueOrigin::InstResult(inst_id)));
-        self.insts[inst_id.index()].result = value;
+        let values: Vec<_> = results
+            .iter()
+            .map(|&repr| self.push_value(repr, ValueOrigin::InstResult(inst_id)))
+            .collect();
+        self.insts[inst_id.index()].results = values.clone();
         self.blocks[block.index()].insts.push(inst_id);
-        value
+        values
     }
 
     /// Sets how control leaves a block.

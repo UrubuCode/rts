@@ -8,6 +8,7 @@
 
 use rts_cranelift::frame::{ResumeLabel, plan_suspension};
 use rts_cranelift::gc::describe_frames;
+use rts_cranelift::ir::FuncRegistry;
 use rts_cranelift::ir::{FuncBuilder, Function, Signature, ValueId};
 use rts_cranelift::repr::{RefKind, Repr};
 use rts_cranelift::sched::{
@@ -298,6 +299,7 @@ fn suspending(params: &[Repr], returns: &[Repr]) -> Function {
         params: params.to_vec(),
         returns: returns.to_vec(),
         may_suspend: true,
+        ..Signature::default()
     })
 }
 
@@ -317,7 +319,7 @@ fn awaiting_is_one_node_and_parks_the_frame() {
     let delivered = b.await_(promise);
     b.ret(&[delivered]);
 
-    assert_eq!(verify(&func, &types), vec![]);
+    assert_eq!(verify(&func, &types, &FuncRegistry::new()), vec![]);
 
     let plan = plan_suspension(&func);
     assert_eq!(plan.points.len(), 1, "an await is a suspension point");
@@ -364,7 +366,7 @@ fn settling_widens_what_it_carries() {
     b.ret(&[]);
 
     assert_eq!(
-        verify(&func, &types),
+        verify(&func, &types, &FuncRegistry::new()),
         vec![],
         "what a settlement carries is decided by whoever awaits it"
     );
@@ -377,6 +379,7 @@ fn awaiting_in_a_function_that_did_not_declare_it_may_suspend_is_rejected() {
         params: vec![],
         returns: vec![],
         may_suspend: false,
+        ..Signature::default()
     });
 
     let entry = func.entry;
@@ -386,7 +389,7 @@ fn awaiting_in_a_function_that_did_not_declare_it_may_suspend_is_rejected() {
     b.ret(&[]);
 
     assert!(
-        verify(&func, &types)
+        verify(&func, &types, &FuncRegistry::new())
             .iter()
             .any(|e| matches!(e, VerifyError::UndeclaredSuspension { .. })),
         "an await parks the frame, so it is a suspension like any other"

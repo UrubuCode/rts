@@ -8,6 +8,19 @@ use crate::repr::Repr;
 use crate::types::TypeId;
 use crate::unwind::RegionId;
 
+/// Where a call is.
+///
+/// An ordinary call is an instruction; a tail call is a terminator, because the
+/// frame is gone before control transfers. One type so that a diagnostic about
+/// calls does not come in two shapes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CallSite {
+    /// An ordinary call.
+    Inst(InstId),
+    /// A tail call, named by the block it ends.
+    Tail(BlockId),
+}
+
 /// A structural violation.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum VerifyError {
@@ -189,6 +202,75 @@ pub enum VerifyError {
         block: BlockId,
         /// The region it names.
         region: RegionId,
+    },
+
+    /// A call names a function or shape this registry did not issue.
+    UnknownCallee {
+        /// The instruction, or the terminating block for a tail call.
+        at: CallSite,
+    },
+
+    /// A call passes the wrong number of arguments.
+    CallArity {
+        /// Where the call is.
+        at: CallSite,
+        /// How many the signature declares.
+        expected: usize,
+        /// How many were passed.
+        found: usize,
+    },
+
+    /// A call argument disagrees with the parameter it fills.
+    CallArgumentRepr {
+        /// Where the call is.
+        at: CallSite,
+        /// Which argument.
+        position: usize,
+        /// What the signature declares.
+        expected: Repr,
+        /// What was passed.
+        found: Repr,
+    },
+
+    /// A call binds a different number of values than the callee returns.
+    CallResultArity {
+        /// The instruction.
+        inst: InstId,
+        /// How many the signature declares.
+        expected: usize,
+        /// How many were bound.
+        found: usize,
+    },
+
+    /// An indirect call reaches its callee through something that is not code.
+    ///
+    /// A generic value might be code, and a guard is how one finds out. Calling
+    /// through it unguarded is the narrowing this layer refuses everywhere else.
+    IndirectCalleeNotCallable {
+        /// Where the call is.
+        at: CallSite,
+        /// What was named.
+        found: Repr,
+    },
+
+    /// A tail call whose conventions or returns do not match.
+    ///
+    /// Both sides must permit tail calls and their return lists must match
+    /// exactly, which makes a tail-recursive group compile as a unit or not at
+    /// all.
+    TailCallNotPermitted {
+        /// Where the call is.
+        from: BlockId,
+    },
+
+    /// A tail call inside a protected region.
+    ///
+    /// The frame is discarded before control transfers, so the handler installed
+    /// around it no longer exists when it would be needed. Returning a call's
+    /// result directly and catching that call's exception are mutually exclusive.
+    TailCallInProtectedRegion {
+        /// Where the call is.
+        from: BlockId,
     },
 
     /// A function parks its frame without declaring that it may.

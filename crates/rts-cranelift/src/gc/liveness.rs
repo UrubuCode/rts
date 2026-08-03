@@ -80,8 +80,8 @@ impl Liveness {
             let Some(data) = func.inst(inst_id) else {
                 continue;
             };
-            if let Some(result) = data.result {
-                live.remove(&result);
+            for result in &data.results {
+                live.remove(result);
             }
             live.extend(data.inst.operands());
         }
@@ -120,8 +120,8 @@ pub fn live_after_each_inst(
         let Some(inst) = func.inst(inst_id) else {
             continue;
         };
-        if let Some(result) = inst.result {
-            live.remove(&result);
+        for result in &inst.results {
+            live.remove(result);
         }
         live.extend(inst.inst.operands());
     }
