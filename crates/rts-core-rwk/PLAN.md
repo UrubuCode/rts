@@ -218,7 +218,25 @@ look like a handle stops being a false positive.
 Written down now because it constrains C1: the slot table has to be walkable
 without knowing what put anything in it.
 
-### C6 — scheduling
+### C6 — scheduling. **DONE — and almost all of it was the machine's.**
+
+`rts_cranelift::sched` owns the promise state machine, waiter lists, cycle
+detection on adoption, the queues, and handing woken continuations to the
+scheduler that owns them. `Delivery::Elsewhere` even makes the publication
+obligation explicit when a promise settles across regions. None of that is
+repeated here.
+
+What it deliberately does not hold is a **value** — a `PromiseCell` is a state, a
+waiter list and an owner, and `Settlement` carries nothing. The machine models
+control; which value a promise resolved with is data the language chose. So this
+phase is two things: a side table from promise to value, and whether a rejection
+was ever looked at.
+
+The second is language policy with a rule that fails quietly: **a rejection is
+unhandled if nothing waits on it when the TURN ends**, not when it settles.
+`Promise.reject().catch(f)` attaches afterwards and is not one. Reporting at
+settle time warns about correct code, which teaches people to ignore the warning.
+
 
 Promise state, the microtask queue, parking and resuming a frame.
 

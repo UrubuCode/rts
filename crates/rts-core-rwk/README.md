@@ -107,10 +107,16 @@ src/
   value/    what a value is: kinds, the three equalities, heap-free coercion
   heap/     a table of slots, addressed by index
   text/     strings as UTF-16 code units, in two layouts, and interning
-  object/   what a property is named    (in progress — see PLAN.md C3)
+  object/   shapes from the machine, prototypes, and enumeration order
+  coerce/   ToPrimitive's protocol, `+`, relational order, number ↔ string
+  collect/  mark and sweep over the slot table
+  schedule/ what a promise settled with, and whether a rejection was noticed
 ```
 
-Planned: the rest of `object/`, `coerce/`, `collect/`, `schedule/`.
+All six phases are in. What is deliberately absent, each with its reason in the
+plan: the write barrier's runtime side (waits for regions), loose equality and
+`ToPrimitive` resolution (wait for something that can call), and indexed storage
+(waits for arrays).
 
 ---
 
