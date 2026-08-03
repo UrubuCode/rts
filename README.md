@@ -38,7 +38,7 @@ JS spec compatibility validated against **Bun** and **Node** over 708 standalone
 | 🚫 Rejected (RTS-only) | 0 |
 | 📦 Total fixtures | 708 |
 
-_Updated: 2026-08-02 — [how to add a fixture](docs/specs/cross-runtime-testing.md)_
+_Updated: 2026-08-03 — [how to add a fixture](docs/specs/cross-runtime-testing.md)_
 
 <!-- CROSS_RUNTIME_STATS_END -->
 
