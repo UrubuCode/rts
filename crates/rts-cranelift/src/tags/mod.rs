@@ -68,6 +68,21 @@ pub const TAG_REFERENCE: u8 = 2;
 /// How many tags this layer reserves before a client's first one.
 pub const TAG_RESERVED_COUNT: u8 = 3;
 
+/// The singleton a machine `false` widens to.
+///
+/// This layer defines the boolean representation, so it defines what that
+/// representation becomes when widened. A client is free to give these numbers
+/// its own meaning, and free to ignore them, but it does not get to renumber
+/// them: widening a boolean has to produce *something*, and asking a client
+/// which number to use would make a machine operation depend on a client.
+pub const SINGLETON_FALSE: u32 = 0;
+
+/// The singleton a machine `true` widens to.
+pub const SINGLETON_TRUE: u32 = 1;
+
+/// How many singleton numbers this layer reserves before a client's first one.
+pub const SINGLETON_RESERVED_COUNT: u32 = 2;
+
 /// Whether a word is encoded rather than a double.
 pub fn is_encoded(word: u64) -> bool {
     (word & BOX_BASE) == BOX_BASE

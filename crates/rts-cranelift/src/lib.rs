@@ -42,8 +42,12 @@
 //! inseparable from the convention it uses, from the safepoint it implies, and
 //! from where the frame is when control leaves.
 //!
-//! Still to come: lowering to machine code and the two output paths, guard
-//! failure paths, faults and observability.
+//! Lowering into the code generator is under way in `lower`, the one module that
+//! touches it. What it emits is checked by the code generator's own verifier;
+//! what it cannot emit yet is refused by name rather than approximated.
+//!
+//! Still to come: the two output paths, guard failure paths, faults and
+//! observability.
 
 #![deny(missing_docs)]
 #![deny(dead_code)]
@@ -52,6 +56,7 @@ pub mod abi;
 pub mod frame;
 pub mod gc;
 pub mod ir;
+pub mod lower;
 pub mod repr;
 pub mod sched;
 pub mod tags;
@@ -62,6 +67,7 @@ pub mod verify;
 pub use abi::{AbiType, Convention, Signature as AbiSignature, TargetAbi, lower_signature};
 pub use frame::{ResumeLabel, SpillLayout, SuspendPlan, plan_suspension};
 pub use gc::{FrameDescriptor, FrameTable, describe_frames};
+pub use lower::{LowerError, lower_function};
 pub use repr::{RefKind, Repr};
 pub use sched::{PromiseTable, Scheduler, SchedulerId};
 pub use types::{FieldLayout, TypeId, TypeRegistry};
