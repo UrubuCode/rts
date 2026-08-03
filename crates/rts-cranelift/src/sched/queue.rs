@@ -111,11 +111,6 @@ impl Queues {
     pub fn queued_continuations(&self) -> usize {
         self.continuations.len()
     }
-
-    /// How many tasks are queued.
-    pub fn queued_tasks(&self) -> usize {
-        self.tasks.len()
-    }
 }
 
 #[cfg(test)]

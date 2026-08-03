@@ -280,11 +280,6 @@ impl Inst {
         ) || self.is_suspend()
     }
 
-    /// Whether this instruction transfers control to another function.
-    pub fn is_call(&self) -> bool {
-        matches!(self, Inst::Call { .. } | Inst::CallIndirect { .. })
-    }
-
     /// Whether this instruction parks the frame.
     ///
     /// A suspension is also a safepoint, and for a sharper reason than an

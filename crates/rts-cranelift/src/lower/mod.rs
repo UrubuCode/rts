@@ -54,11 +54,48 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 
 use crate::ir::{Function, Signature};
 
+/// Which discipline the code generator should use for one of our conventions.
+///
+/// The three we declare were collapsing into one here, which meant a function
+/// that said it permitted tail calls was compiled under a convention that does
+/// not — and the code generator rejected the tail call, correctly, with a
+/// message about a convention nothing in our vocabulary had chosen.
+///
+/// The stable convention is the target's, because that is what "stable across a
+/// library boundary" means and it is not ours to pick. The other two are ours:
+/// one for speed between functions we own, one that permits replacing a frame.
+pub fn machine_call_conv(
+    convention: crate::abi::Convention,
+    target_default: cranelift_codegen::isa::CallConv,
+) -> cranelift_codegen::isa::CallConv {
+    use cranelift_codegen::isa::CallConv;
+
+    match convention {
+        // The target's, not the code generator's "fast" one. That exists, and it
+        // is explicitly not stable across a version of the compiler — so using it
+        // buys an unmeasured speedup in exchange for a convention that can change
+        // underneath compiled code, and for internal functions no longer being
+        // callable from the host that compiled them.
+        //
+        // Rule twelve of this crate: unproven behaviour fails safely, and raising
+        // it is explicit. Nothing has measured a difference yet. When something
+        // does, this is the line to change, and the cost above is what it costs.
+        crate::abi::Convention::Internal => target_default,
+        crate::abi::Convention::InternalTail => CallConv::Tail,
+        crate::abi::Convention::Foreign => target_default,
+    }
+}
+
 /// The code generator's signature for one of ours.
+///
+/// Takes the target's stable convention rather than the one to use: which one to
+/// use follows from what the signature says about itself, and a caller passing it
+/// separately is a caller who can pass the wrong one.
 pub fn machine_signature(
     signature: &Signature,
-    call_conv: cranelift_codegen::isa::CallConv,
+    target_default: cranelift_codegen::isa::CallConv,
 ) -> cranelift_codegen::ir::Signature {
+    let call_conv = machine_call_conv(signature.convention, target_default);
     let mut lowered = cranelift_codegen::ir::Signature::new(call_conv);
     lowered.params.extend(
         signature
@@ -96,10 +133,10 @@ pub struct Environment<'a> {
 /// disagree about which is authoritative.
 pub fn lower_in<'a>(
     func: &'a Function,
-    call_conv: cranelift_codegen::isa::CallConv,
+    target_default: cranelift_codegen::isa::CallConv,
     environment: Environment<'a>,
 ) -> Result<cranelift_codegen::ir::Function, LowerError> {
-    let signature = machine_signature(&func.signature, call_conv);
+    let signature = machine_signature(&func.signature, target_default);
     let mut lowered =
         cranelift_codegen::ir::Function::with_name_signature(UserFuncName::default(), signature);
 

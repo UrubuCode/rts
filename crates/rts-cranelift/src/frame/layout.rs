@@ -95,15 +95,6 @@ impl FrameLayout {
     pub fn survives(&self, value: ValueId) -> bool {
         self.spill_fields.contains_key(&value)
     }
-
-    /// How many fields the record has.
-    ///
-    /// The parameters are not added separately: they are already among the
-    /// values that survive, because that is where they were put so that one
-    /// value would not end up with two slots.
-    pub fn field_count(&self) -> usize {
-        2 + self.return_fields.len() + self.spill_fields.len()
-    }
 }
 
 /// Appends representations and returns the field indices they took.

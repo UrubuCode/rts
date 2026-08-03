@@ -60,16 +60,6 @@ pub enum AbiType {
     Slice,
 }
 
-impl AbiType {
-    /// The representation a scalar carries, if this is one.
-    pub fn scalar_repr(self) -> Option<Repr> {
-        match self {
-            AbiType::Scalar(repr) => Some(repr),
-            _ => None,
-        }
-    }
-}
-
 /// Which register and stack discipline a call follows.
 ///
 /// The compiler underneath offers two categories and neither is extensible:

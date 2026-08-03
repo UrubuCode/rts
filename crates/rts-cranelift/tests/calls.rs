@@ -4,12 +4,14 @@
 //! shape it calls, what that shape returns, whether the callee is code at all,
 //! and whether the frame still exists when control leaves.
 
+use cranelift_module::Linkage;
 use rts_cranelift::abi::Convention;
 use rts_cranelift::gc::describe_frames;
 use rts_cranelift::ir::{
-    BuildError, FuncBuilder, FuncRegistry, Function, Region, Signature, ValueId,
+    BuildError, FuncBuilder, FuncRegistry, Function, NumOp, Region, Signature, ValueId,
 };
 use rts_cranelift::repr::{RefKind, Repr};
+use rts_cranelift::target::{MachineModule, executable_memory};
 use rts_cranelift::types::TypeRegistry;
 use rts_cranelift::unwind::Tag;
 use rts_cranelift::verify::{CallSite, VerifyError, verify};
@@ -421,4 +423,196 @@ fn an_allocation_and_a_call_are_both_described() {
 /// The first instruction of a function's entry block.
 fn first_inst(func: &Function) -> rts_cranelift::ir::InstId {
     func.block(func.entry).expect("entry exists").insts[0]
+}
+
+#[test]
+fn a_tail_call_runs_and_returns_through_the_frame_it_replaced() {
+    let types = TypeRegistry::new();
+    let mut funcs = FuncRegistry::new();
+    let tail_shape = funcs.declare_signature(Signature {
+        params: vec![Repr::I64],
+        returns: vec![Repr::I64],
+        convention: Convention::InternalTail,
+        ..Signature::default()
+    });
+    // The entry point is stable, because this test calls it from outside. A
+    // function that permits tail calls does not use a stable convention, which is
+    // what makes the wrapper necessary rather than decorative.
+    let entry_shape = funcs.declare_signature(Signature {
+        params: vec![Repr::I64],
+        returns: vec![Repr::I64],
+        convention: Convention::Foreign,
+        ..Signature::default()
+    });
+    let callee_id = funcs.declare_function(tail_shape);
+    let caller_id = funcs.declare_function(tail_shape);
+    let wrapper_id = funcs.declare_function(entry_shape);
+
+    // The callee doubles. The caller tail-calls it, so its own frame is gone by
+    // the time control transfers — and the result still has to reach whoever
+    // called the caller.
+    let mut callee = tail_function(&[Repr::I64], &[Repr::I64]);
+    let x = param(&callee, 0);
+    let entry = callee.entry;
+    let mut b = FuncBuilder::new(&mut callee, &types, entry);
+    let doubled = b.arith(NumOp::Add, x, x).expect("proven");
+    b.ret(&[doubled]);
+
+    let mut caller = tail_function(&[Repr::I64], &[Repr::I64]);
+    let x = param(&caller, 0);
+    let entry = caller.entry;
+    let mut b = FuncBuilder::new(&mut caller, &types, entry);
+    b.tail_call(&funcs, callee_id, &[x])
+        .expect("conventions and returns match");
+
+    // An ordinary call into the tail-calling pair, from a convention the host can
+    // use.
+    let mut wrapper = function(&[Repr::I64], &[Repr::I64]);
+    wrapper.signature.convention = Convention::Foreign;
+    let x = param(&wrapper, 0);
+    let entry = wrapper.entry;
+    let mut b = FuncBuilder::new(&mut wrapper, &types, entry);
+    let results = b.call(&funcs, caller_id, &[x]).expect("shape matches");
+    b.ret(&results);
+
+    let mut jit = executable_memory().expect("host");
+    let caller_machine_id = {
+        let mut module = MachineModule::new(&mut jit);
+        for (id, name) in [
+            (callee_id, "tail_double"),
+            (caller_id, "tail_caller"),
+            (wrapper_id, "tail_entry"),
+        ] {
+            module
+                .declare(id, name, Linkage::Export, &funcs)
+                .expect("declared");
+        }
+        for (id, body) in [
+            (callee_id, &callee),
+            (caller_id, &caller),
+            (wrapper_id, &wrapper),
+        ] {
+            module.define(id, body, &funcs, &types).expect("defined");
+        }
+        module
+            .declarations()
+            .machine_id(wrapper_id)
+            .expect("declared")
+    };
+    jit.finalize_definitions().expect("finalized");
+    let address = jit.get_finalized_function(caller_machine_id);
+    std::mem::forget(jit);
+
+    let tail_entry: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(address) };
+    assert_eq!(
+        tail_entry(21),
+        42,
+        "the frame was replaced, and the answer still came back"
+    );
+}
+
+#[test]
+fn a_tail_call_through_a_value_runs_too() {
+    let types = TypeRegistry::new();
+    let mut funcs = FuncRegistry::new();
+    let shape_id = funcs.declare_signature(Signature {
+        params: vec![Repr::I64],
+        returns: vec![Repr::I64],
+        convention: Convention::InternalTail,
+        ..Signature::default()
+    });
+    let callee_id = funcs.declare_function(shape_id);
+    let caller_shape = funcs.declare_signature(Signature {
+        params: vec![Repr::Ref(RefKind::Callable), Repr::I64],
+        returns: vec![Repr::I64],
+        convention: Convention::InternalTail,
+        ..Signature::default()
+    });
+    let entry_shape = funcs.declare_signature(Signature {
+        params: vec![Repr::Ref(RefKind::Callable), Repr::I64],
+        returns: vec![Repr::I64],
+        convention: Convention::Foreign,
+        ..Signature::default()
+    });
+    let caller_id = funcs.declare_function(caller_shape);
+    let wrapper_id = funcs.declare_function(entry_shape);
+
+    let mut callee = tail_function(&[Repr::I64], &[Repr::I64]);
+    let x = param(&callee, 0);
+    let entry = callee.entry;
+    let mut b = FuncBuilder::new(&mut callee, &types, entry);
+    let doubled = b.arith(NumOp::Add, x, x).expect("proven");
+    b.ret(&[doubled]);
+
+    let mut caller = Function::new(Signature {
+        params: vec![Repr::Ref(RefKind::Callable), Repr::I64],
+        returns: vec![Repr::I64],
+        convention: Convention::InternalTail,
+        ..Signature::default()
+    });
+    let (target, argument) = (param(&caller, 0), param(&caller, 1));
+    let entry = caller.entry;
+    let mut b = FuncBuilder::new(&mut caller, &types, entry);
+    b.tail_call_indirect(&funcs, target, shape_id, &[argument])
+        .expect("proven callable, and the shapes match");
+
+    // Same reason as the direct case: a function that permits tail calls does not
+    // use a convention the host can call, so something stable has to let it in.
+    let mut wrapper = Function::new(Signature {
+        params: vec![Repr::Ref(RefKind::Callable), Repr::I64],
+        returns: vec![Repr::I64],
+        convention: Convention::Foreign,
+        ..Signature::default()
+    });
+    let (w_target, w_argument) = (param(&wrapper, 0), param(&wrapper, 1));
+    let entry = wrapper.entry;
+    let mut b = FuncBuilder::new(&mut wrapper, &types, entry);
+    let results = b
+        .call(&funcs, caller_id, &[w_target, w_argument])
+        .expect("shape matches");
+    b.ret(&results);
+
+    let mut jit = executable_memory().expect("host");
+    let (wrapper_machine, callee_machine) = {
+        let mut module = MachineModule::new(&mut jit);
+        for (id, name) in [
+            (callee_id, "indirect_double"),
+            (caller_id, "indirect_caller"),
+            (wrapper_id, "indirect_entry"),
+        ] {
+            module
+                .declare(id, name, Linkage::Export, &funcs)
+                .expect("declared");
+        }
+        for (id, body) in [
+            (callee_id, &callee),
+            (caller_id, &caller),
+            (wrapper_id, &wrapper),
+        ] {
+            module
+                .define(id, body, &funcs, &types)
+                .expect("a shape named at the site is recorded from the site");
+        }
+        (
+            module
+                .declarations()
+                .machine_id(wrapper_id)
+                .expect("declared"),
+            module
+                .declarations()
+                .machine_id(callee_id)
+                .expect("declared"),
+        )
+    };
+    jit.finalize_definitions().expect("finalized");
+    let caller_address = jit.get_finalized_function(wrapper_machine);
+    let callee_address = jit.get_finalized_function(callee_machine) as i64;
+    std::mem::forget(jit);
+
+    let indirect: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(caller_address) };
+    assert_eq!(
+        indirect(callee_address, 20),
+        40,
+        "a callee reached through a value, in tail position, still answers"
+    );
 }

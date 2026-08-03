@@ -56,16 +56,6 @@ pub struct FrameDescriptor {
 }
 
 impl FrameDescriptor {
-    /// A descriptor reporting only roots.
-    pub fn roots_only(at: InstId, roots: Vec<RootSlot>) -> Self {
-        Self {
-            at,
-            roots,
-            region: None,
-            resume_label: None,
-        }
-    }
-
     /// Whether anything must be traced here.
     pub fn is_empty(&self) -> bool {
         self.roots.is_empty()

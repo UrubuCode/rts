@@ -241,11 +241,6 @@ impl Function {
             .map(|(i, b)| (BlockId(i as u32), b))
     }
 
-    /// How many blocks exist.
-    pub fn block_count(&self) -> usize {
-        self.blocks.len()
-    }
-
     fn push_value(&mut self, repr: Repr, origin: ValueOrigin) -> ValueId {
         let id = ValueId(self.values.len() as u32);
         self.values.push(ValueData { repr, origin });

@@ -285,3 +285,75 @@ fn the_header_sits_before_every_field() {
         "every object pays the header, so it is one word and not more"
     );
 }
+
+#[test]
+fn a_sharded_heap_reaches_the_right_object_in_the_right_region() {
+    let mut types = TypeRegistry::new();
+    let cell = types.declare(&[Repr::I64]);
+    let layout = ObjectLayout::of(cell, &types);
+
+    // Four regions, each holding two objects. A reference's low bits select the
+    // region and the rest select the slot inside it, which is the arithmetic
+    // this test exists to check actually reaches the object it names.
+    const REGIONS: usize = 4;
+    const SLOTS: usize = 2;
+    let stride = layout.size;
+
+    let mut bases = Vec::with_capacity(REGIONS);
+    for region in 0..REGIONS {
+        let bytes = vec![0u8; stride as usize * SLOTS];
+        let leaked = Box::leak(bytes.into_boxed_slice());
+        let base = leaked.as_ptr() as u64;
+
+        // Fill every slot with a number that says where it is, so that reading
+        // the wrong one is visible rather than plausible.
+        for slot in 0..SLOTS {
+            unsafe {
+                let object = (base as usize + slot * stride as usize) as *mut u8;
+                let offset = layout.field_offset(0).expect("field exists");
+                (object.offset(offset as isize) as *mut i64).write((region * 10 + slot) as i64);
+            }
+        }
+        bases.push(base);
+    }
+
+    // The table of region bases, which the emitted code loads from.
+    let table = Box::leak(bases.into_boxed_slice());
+    let region_bases = RegionBases::sharded(
+        RegionBase::Immediate(table.as_ptr() as u64),
+        REGIONS as u32,
+        stride,
+    )
+    .expect("a power of two");
+
+    let mut funcs = FuncRegistry::new();
+    let shape = funcs.declare_signature(Signature {
+        params: vec![Repr::Ref(RefKind::Aggregate(cell))],
+        returns: vec![Repr::I64],
+        ..Signature::default()
+    });
+    let id = funcs.declare_function(shape);
+
+    let mut func = function(&[Repr::Ref(RefKind::Aggregate(cell))], &[Repr::I64]);
+    let object = param(&func, 0);
+    let entry = func.entry;
+    let mut b = FuncBuilder::new(&mut func, &types, entry);
+    let value = b.field_load(object, cell, 0).expect("field exists");
+    b.ret(&[value]);
+
+    let address = compile_with_heap("sharded", id, &func, &funcs, &types, &region_bases);
+    let read: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(address) };
+
+    for region in 0..REGIONS {
+        for slot in 0..SLOTS {
+            // A reference is the slot shifted past the region selector, plus the
+            // region — which is what the emitted code takes apart again.
+            let reference = ((slot << REGIONS.trailing_zeros()) | region) as i64;
+            assert_eq!(
+                read(reference),
+                (region * 10 + slot) as i64,
+                "region {region} slot {slot} was reached as something else"
+            );
+        }
+    }
+}

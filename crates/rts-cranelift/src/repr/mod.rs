@@ -76,11 +76,6 @@ impl Repr {
         if self == other { self } else { Repr::Tagged }
     }
 
-    /// Whether this representation lives directly in a register.
-    pub fn is_unboxed(self) -> bool {
-        !matches!(self, Repr::Tagged)
-    }
-
     /// Whether integer arithmetic applies.
     pub fn is_integer(self) -> bool {
         matches!(self, Repr::I8 | Repr::I16 | Repr::I32 | Repr::I64)

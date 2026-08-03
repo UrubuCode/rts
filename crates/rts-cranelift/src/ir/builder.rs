@@ -135,11 +135,6 @@ impl<'a> FuncBuilder<'a> {
         self.block = block;
     }
 
-    /// The block being appended to.
-    pub fn current_block(&self) -> BlockId {
-        self.block
-    }
-
     /// Appends an empty block.
     pub fn create_block(&mut self) -> BlockId {
         self.func.push_block()
