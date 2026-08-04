@@ -283,10 +283,20 @@ fn emit_literal(
         Literal::Number(value) => Ok(number_constant(builder, *value)),
         Literal::Boolean(value) => Ok(boolean_constant(builder, *value)),
         Literal::Singleton(which) => Ok(singleton(builder, ctx, *which)),
-        // A string literal is a heap value that two occurrences share, which is
-        // interning, which is a runtime entry point. An immediate here would
-        // produce something that is not a string.
-        Literal::String(_) => gap("a string literal"),
+        // Not an immediate. A string is a heap value and two occurrences of
+        // `"a"` in a program are the *same* string, so what the code carries is
+        // WHICH literal and the runtime holds the text — the same shape as a
+        // property key, and for the same reason. An immediate here would be a
+        // number that is not a string and compares wrongly with everything.
+        Literal::String(text) => {
+            let which = ctx.literal(text);
+            let index = builder.declare_const(ConstDecl::Scalar {
+                repr: Repr::I64,
+                bits: ScalarBits(u64::from(which)),
+            });
+            let index = builder.use_const(index);
+            Ok(call(builder, ctx, RuntimeOp::StringConst, &[index])?[0])
+        }
     }
 }
 

@@ -195,6 +195,23 @@ pub enum RuntimeOp {
     /// relocation the destination fills in.
     ClosureNew,
 
+    /// A string literal, named by the number the compilation gave it.
+    ///
+    /// An entry point because a string is a heap value and two occurrences of
+    /// `"a"` in a program are the same one — which is interning, which reads a
+    /// table the runtime owns. The number is not the string: it is which
+    /// literal, in the table the host seeded from what this compilation
+    /// collected.
+    StringConst,
+
+    /// `typeof v`.
+    ///
+    /// An entry point because the answer is a string, and every one of the
+    /// eight it can produce is allocated the same way any other is. It is also
+    /// the only read in the language that cannot fail, which is a fact about
+    /// the operand rather than about the result.
+    TypeOf,
+
     /// Calling a value, with a receiver and the arguments.
     ///
     /// # Why calling is a runtime operation and not `call_indirect`
@@ -236,6 +253,8 @@ impl RuntimeOp {
         RuntimeOp::GetProperty,
         RuntimeOp::SetProperty,
         RuntimeOp::ClosureNew,
+        RuntimeOp::StringConst,
+        RuntimeOp::TypeOf,
         RuntimeOp::Call,
     ];
 
@@ -263,6 +282,8 @@ impl RuntimeOp {
             RuntimeOp::GetProperty => "__rts_get_property",
             RuntimeOp::SetProperty => "__rts_set_property",
             RuntimeOp::ClosureNew => "__rts_closure_new",
+            RuntimeOp::StringConst => "__rts_string_const",
+            RuntimeOp::TypeOf => "__rts_type_of",
             RuntimeOp::Call => "__rts_call",
         }
     }
@@ -295,6 +316,9 @@ impl RuntimeOp {
             // address, nothing collects it, and widening it would hand the
             // collector a pointer into the text segment to trace.
             RuntimeOp::ClosureNew => (vec![Repr::I64, UNPROVEN], vec![UNPROVEN]),
+            // Which literal, not the text: an index the compilation minted.
+            RuntimeOp::StringConst => (vec![Repr::I64], vec![UNPROVEN]),
+            RuntimeOp::TypeOf => (vec![UNPROVEN], vec![UNPROVEN]),
             // Callee, receiver, then one slot per argument. Every one a value,
             // because a caller cannot know what it is handing over.
             RuntimeOp::Call => (vec![UNPROVEN; 2 + ARGUMENT_SLOTS], vec![UNPROVEN]),

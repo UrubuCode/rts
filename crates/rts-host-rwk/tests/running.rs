@@ -472,11 +472,15 @@ fn a_loop_can_now_be_written_the_way_a_program_writes_one() {
 
 #[test]
 fn a_construct_still_missing_is_refused_by_name_rather_than_approximated() {
-    // `~` needs ToInt32, which the runtime does not define, and `typeof` needs
-    // a string, which nothing can yet materialise. Both are named rather than
-    // guessed — the property this whole emitter is built on, restated where
-    // the next person to add an operator will read it.
-    for source in ["return ~1;", "return typeof 1;", "return \"a\";"] {
+    // `~` needs ToInt32, whose rules for infinities and for values past 2^31
+    // the runtime does not define; `==` has its own conversion table; an array
+    // is a heap value with no entry point to make one.
+    //
+    // This test named `typeof` and a string literal until strings landed, which
+    // is the right way for it to fail: what it pins is the shape of the
+    // refusal, so it moves to whatever is still missing rather than being
+    // deleted with the gap it happened to name.
+    for source in ["return ~1;", "return 1 == 1;", "return [1];"] {
         let error = compile(source).expect_err("still a gap");
         assert!(
             format!("{error:?}").contains("Unsupported"),
@@ -777,4 +781,120 @@ fn what_a_function_still_cannot_do_is_refused_by_name() {
             "expected a named refusal for `{source}`, got {error:?}"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Strings, and the operator that answers one.
+//
+// A string is the first value the compiled code cannot make: it is on the heap,
+// and two occurrences of `"a"` in a program are the same one. So the text
+// travels beside the code and what the code carries is which literal — the same
+// shape as a property key, and these tests are about that agreement holding.
+
+/// The text a value names, for a test that wants to read one back.
+///
+/// Goes through `typeof` and `===` rather than reaching into the runtime,
+/// because what a test can observe is what a *program* can observe — reading
+/// the heap directly would pass for an implementation no JavaScript could use.
+fn is_string(produced: u64) -> bool {
+    tags::tag_of(produced) == tags::TAG_REFERENCE
+}
+
+#[test]
+fn a_string_literal_is_a_value_rather_than_a_number() {
+    let produced = run("return \"hello\";");
+    assert!(
+        is_string(produced),
+        "a string is a heap value; an immediate here would be a number that is \
+         not a string and compares wrongly with everything"
+    );
+}
+
+#[test]
+fn two_occurrences_of_one_literal_are_the_same_string() {
+    // Not an optimisation. `"a" === "a"` is true, and it has to be true for the
+    // same reason `o === o` is — so the literal table is keyed by text and a
+    // second occurrence does not mint a second number.
+    let produced = run("return \"a\" === \"a\";");
+    assert_eq!(tags::tag_of(produced), tags::TAG_BOOL);
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
+fn strings_are_equal_when_their_text_is() {
+    // Two DIFFERENT literals that spell the same thing would be two entries if
+    // the table were not deduplicated, and `===` compares text, so this passes
+    // either way — which is why the test above exists beside it. What this pins
+    // is the other direction: different text is not equal.
+    assert_eq!(
+        tags::payload_of(run("return \"a\" === \"b\";")),
+        tags::BOOL_FALSE
+    );
+}
+
+#[test]
+fn a_string_survives_being_stored_and_read_back() {
+    let produced = run("let o = {}; o.name = \"x\"; return o.name === \"x\";");
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
+fn adding_a_string_concatenates_rather_than_adding() {
+    // The reason `+` is a runtime call at all, finally reachable: it converts
+    // both operands to primitives and then decides, and joining two strings
+    // allocates. Emitting an instruction here would be fast and wrong.
+    let produced = run("return (\"a\" + \"b\") === \"ab\";");
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
+fn the_empty_string_is_the_seventh_falsy_value() {
+    // The one that made `ToBoolean` a runtime call in the first place: six
+    // falsy values a comparison settles, and the seventh reads a string's
+    // length from the heap. Until now nothing could write one down.
+    assert_eq!(tags::decode_double(run("if (\"\") { return 1; } return 2;")), 2.0);
+    assert_eq!(tags::decode_double(run("if (\"x\") { return 1; } return 2;")), 1.0);
+}
+
+#[test]
+fn typeof_answers_the_word_the_language_specifies() {
+    // The comparison is written INSIDE the program rather than by reading the
+    // string out in Rust, because what a test can observe should be what a
+    // program can observe — reading the heap directly would pass for an
+    // implementation no JavaScript could use.
+    for source in [
+        "return (typeof 1) === \"number\";",
+        "return (typeof true) === \"boolean\";",
+        "return (typeof \"s\") === \"string\";",
+        "return (typeof (void 0)) === \"undefined\";",
+        "return (typeof {}) === \"object\";",
+    ] {
+        assert_eq!(
+            tags::payload_of(run(source)),
+            tags::BOOL_TRUE,
+            "wrong answer for `{source}`"
+        );
+    }
+}
+
+#[test]
+fn typeof_null_is_object_because_the_language_says_so() {
+    // A mistake from 1995 the language cannot take back. Written here rather
+    // than corrected, because a program asking `typeof` wants what JavaScript
+    // does and not what it should have done.
+    let produced = run("return (typeof null) === \"object\";");
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
+fn typeof_distinguishes_a_function_from_an_object() {
+    // The distinction the tag cannot carry: both are references, and what a
+    // reference IS is read from the cell's header. An implementation reading
+    // the tag alone answers "object" for both.
+    let produced = run(
+        "function f() { return 1; } \
+         let o = {}; \
+         return ((typeof f) === \"function\") && ((typeof o) === \"object\");",
+    );
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
 }

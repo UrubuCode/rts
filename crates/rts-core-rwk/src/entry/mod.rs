@@ -37,12 +37,14 @@ mod barrier;
 mod cache;
 mod functions;
 mod objects;
+mod text;
 mod operators;
 
 // The operators are defined in their own module and named from here, because a
 // caller wants "the entry points" in one place rather than a module tree.
 pub use functions::{ARGUMENT_SLOTS, call, closure_new};
 pub use objects::{get_property, object_new, set_property};
+pub use text::{declare_literals, string_const, type_of};
 pub use operators::{
     divide, greater, greater_equal, less, less_equal, multiply, remainder, subtract,
 };
@@ -132,6 +134,16 @@ pub struct Context {
     /// is a slower way of calling". Both produce the same wall clock scaling,
     /// and no measurement already taken can tell them apart.
     pub resolves: u64,
+    /// Every string literal the running program can name, by its number.
+    ///
+    /// Values rather than text: a literal evaluated twice is the same string,
+    /// so making one per evaluation would both allocate on every pass of a loop
+    /// and answer a different identity each time.
+    ///
+    /// Seeded by the host from what the compilation collected, in that order —
+    /// the number the code carries is a position in this list, which is the
+    /// same shape as the key and singleton numberings.
+    pub literals: Vec<u64>,
     /// Which singleton number means what, as the language declared it.
     pub singletons: Singletons,
 }
@@ -185,6 +197,10 @@ impl Context {
             closure_type,
             resolves: 0,
             barriers: 0,
+            // Empty until a host seeds it. A program with no string literal
+            // never reaches the table, and one that does gets it from the
+            // compilation that produced the code.
+            literals: Vec::new(),
             singletons,
         }
     }

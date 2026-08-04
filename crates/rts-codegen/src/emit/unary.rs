@@ -30,6 +30,7 @@ use rts_cranelift::ir::{FuncBuilder, ValueId};
 use super::choice;
 use super::expr::{self, emit_condition, emit_expr};
 use super::{Ctx, EmitResult, Scope};
+use crate::runtime::RuntimeOp;
 use crate::syntax::{BinaryOp, Expr, ExprKind, UnaryOp, UpdateOp, UpdatePosition};
 
 /// Emits a unary operator.
@@ -80,7 +81,18 @@ pub fn emit_unary(
         UnaryOp::BitNot => expr::gap("`~`"),
         // Answers a string, and a string is a heap value this module cannot
         // yet materialise.
-        UnaryOp::TypeOf => expr::gap("`typeof`"),
+        // Answers a string, which the runtime makes — and which of the eight
+        // words it is depends on a cell's header rather than on the tag, since
+        // a function and an object are both references.
+        //
+        // `typeof` on an *unbound name* is the one read in the language that
+        // does not throw, and that is not implemented: an unbound name is
+        // refused before this is reached, because there is no global object for
+        // it to be absent from.
+        UnaryOp::TypeOf => {
+            let value = emit_expr(builder, scope, ctx, operand)?;
+            Ok(expr::call(builder, ctx, RuntimeOp::TypeOf, &[value])?[0])
+        }
         // Takes a reference rather than a value, and removing a property is an
         // operation the runtime does not define.
         UnaryOp::Delete => expr::gap("`delete`"),

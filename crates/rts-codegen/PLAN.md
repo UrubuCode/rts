@@ -715,6 +715,40 @@ the language describes — an environment record is created when the function is
 entered — so `Scope::for_function` seeds every captured name and the declaration
 becomes only the store.
 
+**E6a — strings and `typeof`. DONE.** String literals and `typeof`, 10 tests,
+every one of them run.
+
+A string is the first value compiled code cannot make: it is on the heap, and
+two occurrences of `"a"` in a program are *the same one*. So the text travels
+**beside** the code and what the code carries is which literal — the third
+agreement of the same shape as the key and singleton numberings, and the one
+whose absence is quietest, because a table seeded from anything but this
+compilation makes every string the wrong one rather than failing.
+
+Rejected: putting the bytes in the compiled image and handing the runtime a
+pointer and a length. That needs the machine to lower `ConstDecl::Text` into a
+data section, which it does not do — and it would make the text part of the
+code, so a compilation destined for an object file and one destined for memory
+would carry it by two different mechanisms.
+
+The literal table is deduplicated by text, and that is not a size optimisation:
+`"a" === "a"` has to be true for the same reason `o === o` is. The table holds
+*values*, interned once when the run seeds it, so a literal inside a loop
+allocates nothing per pass.
+
+`typeof` distinguishes a function from an object by reading the cell's
+**header**, not the tag — both are references, so an implementation reading the
+tag alone answers `"object"` for both. `typeof null` is `"object"`, written as
+what the language does rather than what it should have done.
+
+Two things this unlocked that were previously unreachable rather than unwritten:
+`+` finally concatenates, and the empty string — the seventh falsy value, the
+one that made `ToBoolean` a runtime call in the first place — can now be
+written down.
+
+Still refused: `typeof` on an **unbound name**, the one read in the language
+that does not throw. It needs a global object for the name to be absent from.
+
 ### What a function still cannot do, each a mechanism rather than a spelling
 
 Rest parameters and spread arguments need the argument vector the fixed arity

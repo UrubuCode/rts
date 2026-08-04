@@ -61,6 +61,12 @@ pub struct Compiled {
     /// number of reads when none of them did — which is what tells a cache that
     /// works from one that is a slower way of calling.
     resolves: u64,
+    /// The text of every string literal the compilation collected.
+    ///
+    /// Held rather than seeded once, because a context is built per run: the
+    /// literals are interned into the heap, and a run that reused values from
+    /// a previous context would name cells in a table that no longer exists.
+    literals: Vec<String>,
     /// How many property keys the compilation minted.
     ///
     /// The runtime has to have issued the same ones, or a number the program
@@ -108,6 +114,12 @@ impl Compiled {
         if self.keys > 0 {
             context.keys.declare(self.keys as u32);
         }
+        // The third agreement, and the one whose absence is quietest: the code
+        // names a literal by its position, so a table seeded from anything but
+        // what this compilation collected makes every string the wrong one —
+        // or, past the end, absent. Seeded per run because the values are
+        // interned into this run's heap.
+        rts_core_rwk::entry::declare_literals(&mut context, &self.literals);
         let entry = self.entry;
         // A script closes over nothing, has no receiver, and was passed no
         // arguments. `undefined` for all six, from the compiler.s own numbering
@@ -315,6 +327,7 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
         model,
         region: Some(region),
         resolves: 0,
+        literals: emitted.literals,
         keys: keys.len(),
     })
 }
@@ -388,6 +401,15 @@ fn address_of(op: RuntimeOp) -> Result<*const u8, HostError> {
         RuntimeOp::Call => {
             rts_core_rwk::entry::call as extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64
                 as *const u8
+        }
+        // The argument is which literal, not the text: an `i64` index into the
+        // table the run seeds. Writing the cast out is what makes a change to
+        // that decision a type error here.
+        RuntimeOp::StringConst => {
+            rts_core_rwk::entry::string_const as extern "C" fn(i64) -> u64 as *const u8
+        }
+        RuntimeOp::TypeOf => {
+            rts_core_rwk::entry::type_of as extern "C" fn(u64) -> u64 as *const u8
         }
     })
 }

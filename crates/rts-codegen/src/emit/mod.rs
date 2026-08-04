@@ -149,6 +149,12 @@ pub struct Program {
     pub functions: Vec<(FuncId, Function)>,
     /// Which of them is the program's entry.
     pub entry: FuncId,
+    /// The text of every string literal, indexed by the number the code holds.
+    ///
+    /// Travels with the functions because it is half of the program: the code
+    /// names a literal by its position here, and placing the code without
+    /// seeding this would leave every string reading as absent.
+    pub literals: Vec<String>,
 }
 
 /// What emission needs that is not the function being built.
@@ -191,6 +197,29 @@ pub struct Ctx<'a> {
     /// which would mean every expression emitter answering a list nearly all of
     /// them would leave empty.
     pending: Vec<(FuncId, Function)>,
+    /// The text of every string literal this compilation contains, in the order
+    /// it first appeared.
+    ///
+    /// # Why the text travels beside the code rather than inside it
+    ///
+    /// A string is a heap value, so a literal cannot be an immediate — two
+    /// occurrences of `"a"` in a program are *the same string*, and an immediate
+    /// would be a number that is not a string and compares wrongly with
+    /// everything.
+    ///
+    /// The obvious alternative is to put the bytes in the compiled image and
+    /// hand the runtime a pointer and a length. That needs the machine to lower
+    /// `ConstDecl::Text` into a data section, which it does not yet do, and it
+    /// would make the text part of the code — so a compilation destined for an
+    /// object file would carry it and one destined for memory would too, by two
+    /// different mechanisms.
+    ///
+    /// This is the same shape as the two agreements that already exist. The
+    /// compiler numbers something, the host seeds the runtime with the same
+    /// numbering, and what crosses at every use is the number. A literal is
+    /// referred to by its index here exactly as a property is referred to by its
+    /// key.
+    literals: Vec<String>,
     /// Which locals were proved to hold a number.
     ///
     /// Owned rather than borrowed, and filled by [`emit_program`] rather than by
@@ -218,6 +247,7 @@ impl<'a> Ctx<'a> {
             names,
             types,
             pending: Vec::new(),
+            literals: Vec::new(),
             numeric: Numeric::default(),
         }
     }
@@ -239,6 +269,26 @@ impl<'a> Ctx<'a> {
     /// The same key as a number, for a call that carries one.
     pub fn key_of(&mut self, name: Name) -> u32 {
         self.names.key(name, self.keys).index() as u32
+    }
+
+    /// The number a string literal has, minting one on first sight.
+    ///
+    /// Deduplicated by text, which is not a size optimisation: two occurrences
+    /// of `"a"` in a program ARE the same string, so `"a" === "a"` has to be
+    /// true for the same reason `o === o` is. Two indices would be two heap
+    /// values that happen to spell the same thing, and strict equality would
+    /// still answer true — because it compares text — but object identity of
+    /// interned strings would not survive, and neither would the memory.
+    ///
+    /// Linear rather than hashed: a compilation has a handful of distinct
+    /// literals and the same reasoning the scope layers record applies —
+    /// hashing a string costs more than scanning a handful of them.
+    pub fn literal(&mut self, text: &str) -> u32 {
+        if let Some(found) = self.literals.iter().position(|held| held == text) {
+            return found as u32;
+        }
+        self.literals.push(text.to_owned());
+        (self.literals.len() - 1) as u32
     }
 
     /// Whether a binding holds a proven number, and so keeps its
@@ -281,6 +331,7 @@ pub fn emit_program(body: &[Stmt], ctx: &mut Ctx) -> EmitResult<Program> {
     Ok(Program {
         functions: std::mem::take(&mut ctx.pending),
         entry,
+        literals: std::mem::take(&mut ctx.literals),
     })
 }
 
