@@ -4233,6 +4233,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-host-rwk"
+version = "0.1.0"
+dependencies = [
+ "rts-codegen",
+ "rts-core-rwk",
+ "rts-cranelift",
+]
+
+[[package]]
 name = "rts-input"
 version = "0.1.0"
 dependencies = [

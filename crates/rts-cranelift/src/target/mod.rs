@@ -23,9 +23,11 @@
 
 mod declare;
 mod destination;
+mod hosted;
 
 pub use declare::{Declarations, FunctionRefs};
-pub use destination::{executable_memory, object_file};
+pub use destination::{executable_memory, executable_memory_calling, object_file};
+pub use hosted::{InMemory, Placing, Visibility, place_in_memory};
 
 use cranelift_codegen::Context;
 use cranelift_codegen::isa::{CallConv, OwnedTargetIsa};

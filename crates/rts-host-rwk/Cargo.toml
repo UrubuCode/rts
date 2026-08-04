@@ -1,0 +1,26 @@
+[package]
+name = "rts-host-rwk"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+description = "Where a compiler and a runtime meet: the crate that runs a program."
+
+[dependencies]
+# The language: source text to IR.
+rts-codegen = { path = "../rts-codegen" }
+
+# The machine: IR to code, and the two destinations.
+#
+# NOT cranelift-* — rts-cranelift's rule 1 is "no other crate in the workspace
+# may depend on cranelift-*", and this crate is not an exception to it. The
+# first version of this manifest named cranelift-module and cranelift-jit and
+# claimed the permission in its own README, which was an invention.
+#
+# The reason it seemed necessary is recorded in PLAN.md: the machine's placement
+# API took `cranelift_module::Linkage` and handed back a `JITModule`, so
+# obeying the rule was impossible. That was fixed where it belonged, in the
+# machine, rather than worked around here.
+rts-cranelift = { path = "../rts-cranelift" }
+
+# The runtime: what a compiled program calls out to.
+rts-core-rwk = { path = "../rts-core-rwk" }

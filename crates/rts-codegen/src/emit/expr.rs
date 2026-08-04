@@ -253,7 +253,19 @@ fn emit_binary(
         // is a call. `!==` is its negation and needs one more instruction than
         // exists here — negating a proven boolean is arithmetic, and this
         // module has no unary path yet.
-        BinaryOp::StrictEqual => RuntimeOp::StrictEquals,
+        // The runtime answers `Repr::Bool` — it PROVED one, which is what
+        // lets a branch consume it without a guard. But `a === b` written in an
+        // expression is a JavaScript value, and the widening is what turns the
+        // proof back into one.
+        //
+        // Found by running a program rather than by reading: `return 1 === 1`
+        // returned the machine's raw 1 where the signature declared a tagged
+        // value, so the caller read tag 0 — an inline integer — instead of a
+        // boolean.
+        BinaryOp::StrictEqual => {
+            let proven = call(builder, ctx, RuntimeOp::StrictEquals, &[a, b])?[0];
+            return Ok(builder.widen(proven));
+        }
         BinaryOp::StrictNotEqual => return gap("`!==`"),
         BinaryOp::LooseEqual | BinaryOp::LooseNotEqual => return gap("`==` or `!=`"),
         BinaryOp::Rem => return gap("`%`"),

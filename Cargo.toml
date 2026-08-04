@@ -25,6 +25,7 @@ members = [
     "crates/rts-cranelift",
     "crates/rts-codegen",
     "crates/rts-core-rwk",
+    "crates/rts-host-rwk",
     "crates/rts-symbol-baker",
     "crates/rts-cli",
     "crates/rts-value-probe",
