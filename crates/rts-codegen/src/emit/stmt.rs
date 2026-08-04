@@ -112,10 +112,10 @@ pub fn emit_stmt(
         // `if` needs a branch and a merge, a loop needs block parameters for
         // every local it rebinds, and `try` needs a protected region.
         StmtKind::While { condition, body } => {
-            loops::emit_while(builder, scope, ctx, loops, condition, body)
+            loops::emit_while(builder, scope, ctx, loops, condition, body, None)
         }
         StmtKind::DoWhile { body, condition } => {
-            loops::emit_do_while(builder, scope, ctx, loops, body, condition)
+            loops::emit_do_while(builder, scope, ctx, loops, body, condition, None)
         }
         StmtKind::For {
             init,
@@ -131,15 +131,18 @@ pub fn emit_stmt(
             test.as_ref(),
             update.as_ref(),
             body,
+            None,
         ),
         StmtKind::ForEach { .. } => super::expr::gap("`for-in` or `for-of`"),
         StmtKind::Switch { .. } => super::expr::gap("`switch`"),
-        // A label is refused, so an unlabelled break is the only kind that
-        // reaches here — and the innermost loop is where it goes.
-        StmtKind::Break(None) => loops::emit_jump_out(builder, scope, loops, true),
-        StmtKind::Continue(None) => loops::emit_jump_out(builder, scope, loops, false),
-        StmtKind::Break(Some(_)) | StmtKind::Continue(Some(_)) => super::expr::gap("a labelled jump"),
-        StmtKind::Labelled { .. } => super::expr::gap("a label"),
+        // Both spellings go through one path. An unlabelled jump takes the
+        // innermost frame that can accept it; a labelled one takes the frame
+        // carrying that name.
+        StmtKind::Break(label) => loops::emit_jump_out(builder, scope, loops, true, *label),
+        StmtKind::Continue(label) => loops::emit_jump_out(builder, scope, loops, false, *label),
+        StmtKind::Labelled { label, body } => {
+            emit_labelled(builder, scope, ctx, loops, *label, body)
+        }
         StmtKind::Throw(_) => super::expr::gap("`throw`"),
         StmtKind::Try { .. } => super::expr::gap("`try`"),
         // Already bound and already emitted, by the hoisting pass that ran
@@ -253,4 +256,52 @@ fn emit_if(
 
     builder.switch_to(join);
     Ok(false)
+}
+
+/// Emits a labelled statement.
+///
+/// # Why the label reaches the loop rather than wrapping it
+///
+/// `outer: while (c) { … continue outer; … }` continues the loop. If the label
+/// were a block *around* the loop, `continue outer` would have nothing to
+/// continue — the wrapper is not a loop — and the jump would either be refused
+/// or, worse, reach the wrapper's exit and turn a `continue` into a `break`.
+///
+/// So a label on a loop is handed to the loop, which records it on the frame it
+/// was going to push anyway. Only a label on something that is *not* a loop
+/// needs a frame of its own, and that one can be broken out of and not
+/// continued.
+fn emit_labelled(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    loops: &mut Loops,
+    label: crate::names::Name,
+    body: &Stmt,
+) -> EmitResult<bool> {
+    match &body.kind {
+        StmtKind::While { condition, body } => {
+            loops::emit_while(builder, scope, ctx, loops, condition, body, Some(label))
+        }
+        StmtKind::DoWhile { body, condition } => {
+            loops::emit_do_while(builder, scope, ctx, loops, body, condition, Some(label))
+        }
+        StmtKind::For {
+            init,
+            test,
+            update,
+            body,
+        } => loops::emit_for(
+            builder,
+            scope,
+            ctx,
+            loops,
+            init.as_ref(),
+            test.as_ref(),
+            update.as_ref(),
+            body,
+            Some(label),
+        ),
+        _ => loops::emit_labelled_block(builder, scope, ctx, loops, label, body),
+    }
 }

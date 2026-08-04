@@ -153,9 +153,10 @@ where a guard establishes it, the instruction is emitted instead.
 Everything not yet emitted is refused by name, and that list is the work queue.
 `PLAN.md` §3b. The three shapes a gap has today, so the next one can be placed:
 it needs a **heap value this crate cannot make** (an array, and so spread), a
-**runtime operation nobody defined** (`in`, `instanceof`, `delete`, and the
-`ToPropertyKey` a computed key needs), or a **mechanism** (globals, `throw`,
-classes, `new`, and the argument vector rest and spread need).
+**runtime operation nobody defined** (`instanceof`, which needs a prototype, and
+`delete`, which a shape tree built from transitions cannot perform), or a
+**mechanism** (globals, `throw`, classes, `new`, `switch`, iteration, and the
+argument vector rest and spread need).
 
 Named `emit` and not `lower` because `rts-cranelift::lower` is the other half of
 the same pipeline, and it claims to be the only module that constructs

@@ -56,12 +56,23 @@ use crate::syntax::{
 
 /// A loop being emitted, for `break` and `continue` to reach.
 pub struct Frame {
+    /// The label it was written with, if any.
+    ///
+    /// `break outer` names a frame rather than taking the innermost one, so the
+    /// label is recorded where the target is. Two frames sharing a label is an
+    /// early error and therefore not this module's to reject.
+    pub label: Option<Name>,
     /// Where `continue` goes.
     ///
     /// Not always the header: in a `for`, `continue` runs the update first, and
     /// in a `do`/`while` it jumps to the condition rather than to the top. So
     /// the block is recorded rather than derived.
-    pub continue_to: BlockId,
+    ///
+    /// `None` for a labelled statement that is not a loop. `outer: { … }` can
+    /// be broken out of and cannot be continued, and a `continue` written
+    /// inside one belongs to the nearest enclosing **loop** — which is why the
+    /// search skips such a frame rather than stopping at it.
+    pub continue_to: Option<BlockId>,
     /// Where `break` goes.
     pub break_to: BlockId,
     /// How many bindings were in scope when the loop started.
@@ -83,9 +94,18 @@ pub struct Loops {
 }
 
 impl Loops {
-    /// The innermost loop, if there is one.
-    pub fn innermost(&self) -> Option<&Frame> {
-        self.frames.last()
+    /// The frame a jump reaches.
+    ///
+    /// Unlabelled, it is the innermost frame that can take the jump — which for
+    /// `continue` skips a labelled block, because one cannot be continued and
+    /// the `continue` belongs to the loop around it.
+    ///
+    /// Labelled, it is the frame carrying that label, wherever it sits.
+    pub fn target(&self, label: Option<Name>, breaking: bool) -> Option<&Frame> {
+        self.frames.iter().rev().find(|frame| match label {
+            Some(wanted) => frame.label == Some(wanted),
+            None => breaking || frame.continue_to.is_some(),
+        })
     }
 
     /// Runs `body` with a frame pushed.
@@ -110,6 +130,7 @@ pub fn emit_while(
     loops: &mut Loops,
     condition: &Expr,
     body: &Stmt,
+    label: Option<Name>,
 ) -> EmitResult<bool> {
     let header = builder.create_block();
     let (merged, depth) = plan(scope, body);
@@ -138,7 +159,8 @@ pub fn emit_while(
 
     builder.switch_to(inside);
     let frame = Frame {
-        continue_to: header,
+        label,
+        continue_to: Some(header),
         break_to: exit,
         depth,
         merged: merged.clone(),
@@ -169,6 +191,7 @@ pub fn emit_do_while(
     loops: &mut Loops,
     body: &Stmt,
     condition: &Expr,
+    label: Option<Name>,
 ) -> EmitResult<bool> {
     let top = builder.create_block();
     let test = builder.create_block();
@@ -188,7 +211,8 @@ pub fn emit_do_while(
     // says so where the node is declared, and getting it wrong produces a loop
     // that runs its body twice per pass for programs that use `continue`.
     let frame = Frame {
-        continue_to: test,
+        label,
+        continue_to: Some(test),
         break_to: exit,
         depth,
         merged: merged.clone(),
@@ -227,11 +251,12 @@ pub fn emit_for(
     test: Option<&Expr>,
     update: Option<&Expr>,
     body: &Stmt,
+    label: Option<Name>,
 ) -> EmitResult<bool> {
     // The header owns a scope: `for (let i = …)` introduces `i` outside the
     // body and it does not survive the loop.
     scope.enter();
-    let result = emit_for_inner(builder, scope, ctx, loops, init, test, update, body);
+    let result = emit_for_inner(builder, scope, ctx, loops, init, test, update, body, label);
     scope.leave();
     result
 }
@@ -246,6 +271,7 @@ fn emit_for_inner(
     test: Option<&Expr>,
     update: Option<&Expr>,
     body: &Stmt,
+    label: Option<Name>,
 ) -> EmitResult<bool> {
     match init {
         Some(ForInit::Declare { bindings, .. }) => {
@@ -309,7 +335,8 @@ fn emit_for_inner(
     let stepping = builder.create_block();
     let step_params = add_params(builder, stepping, &merged, &entering);
     let frame = Frame {
-        continue_to: stepping,
+        label,
+        continue_to: Some(stepping),
         break_to: exit,
         depth,
         merged: merged.clone(),
@@ -342,31 +369,85 @@ pub fn emit_jump_out(
     scope: &Scope,
     loops: &Loops,
     breaking: bool,
+    label: Option<Name>,
 ) -> EmitResult<bool> {
-    let Some(frame) = loops.innermost() else {
-        // Not a gap: `break` outside a loop is a syntax error, and this module
-        // is not the checker. It is refused rather than emitted because there
-        // is nothing to emit.
+    let Some(frame) = loops.target(label, breaking) else {
+        // Not a gap: `break` outside a loop, and a label naming nothing, are
+        // both syntax errors, and this module is not the checker. Refused
+        // rather than emitted because there is nothing to emit.
         return Err(EmitError::Unsupported {
-            construct: if breaking {
-                "`break` outside a loop"
-            } else {
-                "`continue` outside a loop"
+            construct: match (breaking, label.is_some()) {
+                (true, false) => "`break` outside a loop",
+                (false, false) => "`continue` outside a loop",
+                (true, true) => "`break` naming a label that is not here",
+                (false, true) => "`continue` naming a label that is not a loop",
             },
         });
     };
     let here = scope.snapshot();
-    // Only the prefix the loop knows about. A binding declared inside the body
-    // has no position in the target block's parameters, because the target is
-    // outside the block that declared it.
+    // Only the prefix the target knows about. A binding declared inside the
+    // body has no position in the target block's parameters, because the target
+    // is outside the block that declared it.
     let visible = &here[..frame.depth];
     let target = if breaking {
         frame.break_to
     } else {
-        frame.continue_to
+        // `target` already refused a frame with nothing to continue to, so an
+        // unlabelled `continue` reached a loop and a labelled one reached the
+        // loop it named.
+        let Some(block) = frame.continue_to else {
+            return Err(EmitError::Unsupported {
+                construct: "`continue` naming a label that is not a loop",
+            });
+        };
+        block
     };
     builder.jump(target, &merged_args(visible, &frame.merged))?;
     Ok(true)
+}
+
+/// Emits a labelled statement that is not a loop.
+///
+/// `outer: { … break outer; … }` leaves the block. It needs the same machinery
+/// a loop's exit does — a block with a parameter per name the body assigns, and
+/// a jump from every `break` — but none of the rest: there is no back edge, so
+/// nothing carries values *into* it and there is no header.
+pub fn emit_labelled_block(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    loops: &mut Loops,
+    label: Name,
+    body: &Stmt,
+) -> EmitResult<bool> {
+    let (merged, depth) = plan(scope, body);
+    let entering = scope.snapshot();
+    let exit = builder.create_block();
+    let params = add_params(builder, exit, &merged, &entering);
+
+    let frame = Frame {
+        label: Some(label),
+        // Nothing to continue to. A `continue` written inside belongs to the
+        // loop around this, which is what `Loops::target` skipping this frame
+        // means.
+        continue_to: None,
+        break_to: exit,
+        depth,
+        merged: merged.clone(),
+    };
+    let terminated = loops.inside(frame, |loops| emit_stmt(builder, scope, ctx, loops, body))?;
+
+    if !terminated {
+        let leaving = scope.snapshot();
+        builder.jump(exit, &merged_args(&leaving[..depth], &merged))?;
+    }
+
+    builder.switch_to(exit);
+    settle(scope, &entering, &merged, &params);
+    // Control reaches the statement after it whether the body ran to the end or
+    // broke out, so the label never terminates the block it sits in — unlike
+    // the body, which may.
+    Ok(false)
 }
 
 /// Decides which bindings a loop must carry, and how deep the environment is.

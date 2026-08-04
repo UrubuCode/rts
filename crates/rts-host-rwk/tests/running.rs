@@ -1225,3 +1225,92 @@ fn a_computed_key_and_a_written_one_reach_the_same_property() {
         tags::BOOL_TRUE
     );
 }
+
+// ---------------------------------------------------------------------------
+// Labels.
+
+#[test]
+fn a_labelled_break_leaves_the_loop_it_names() {
+    // The whole point: an unlabelled `break` leaves the INNER loop and the
+    // outer one keeps going, so the two answers differ. Written so they do —
+    // if the label were ignored this returns 6 instead of 1.
+    let outer_left = run(
+        "let count = 0; \
+         outer: for (let i = 0; i < 3; i++) { \
+           for (let j = 0; j < 2; j++) { count++; break outer; } \
+         } \
+         return count;",
+    );
+    assert_eq!(tags::decode_double(outer_left), 1.0);
+
+    let inner_left = run(
+        "let count = 0; \
+         for (let i = 0; i < 3; i++) { \
+           for (let j = 0; j < 2; j++) { count++; break; } \
+         } \
+         return count;",
+    );
+    assert_eq!(tags::decode_double(inner_left), 3.0);
+}
+
+#[test]
+fn a_labelled_continue_resumes_the_loop_it_names() {
+    // `continue outer` abandons the rest of the inner loop AND the rest of the
+    // outer body, so the increment after it never runs.
+    let produced = run(
+        "let count = 0; \
+         outer: for (let i = 0; i < 3; i++) { \
+           for (let j = 0; j < 2; j++) { count++; continue outer; } \
+           count = count + 100; \
+         } \
+         return count;",
+    );
+    assert_eq!(tags::decode_double(produced), 3.0);
+}
+
+#[test]
+fn a_label_on_a_block_can_be_broken_out_of() {
+    // Not a loop, so there is nothing to continue and only `break` reaches it.
+    let produced = run(
+        "let n = 1; \
+         done: { \
+           n = 2; \
+           break done; \
+         } \
+         return n;",
+    );
+    assert_eq!(tags::decode_double(produced), 2.0);
+}
+
+#[test]
+fn a_continue_inside_a_labelled_block_belongs_to_the_loop_around_it() {
+    // The reason `Loops::target` skips a frame with nothing to continue to. A
+    // search that stopped at the innermost frame would find the block, which
+    // cannot be continued, and refuse a program that is legal.
+    let produced = run(
+        "let count = 0; \
+         for (let i = 0; i < 3; i++) { \
+           inner: { count++; continue; } \
+         } \
+         return count;",
+    );
+    assert_eq!(tags::decode_double(produced), 3.0);
+}
+
+#[test]
+fn a_label_naming_nothing_is_a_syntax_error_and_never_reaches_the_emitter() {
+    // Refused by the PARSER, not by emission — "a break statement can only
+    // jump to a label of an enclosing statement" is a grammar rule, and SWC
+    // enforces it.
+    //
+    // That is worth pinning rather than assuming: the emitter also refuses a
+    // label it cannot find, and if this ever started arriving there instead,
+    // the refusal would still look right while having moved out of the layer
+    // that can point at the source.
+    let error = compile("for (let i = 0; i < 1; i++) { break nowhere; }")
+        .expect_err("`nowhere` labels nothing");
+    assert!(
+        format!("{error:?}").contains("Parse"),
+        "expected the parser to reject it, got {error:?}"
+    );
+}
