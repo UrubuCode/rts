@@ -268,6 +268,13 @@ pub enum RuntimeOp {
     /// left, which is why it is an entry point and why it is expensive.
     DeleteProperty,
 
+    /// `for (k in o)` — the keys, as an array of strings.
+    ///
+    /// An array rather than an iterator, because an iterator is a call and an
+    /// entry point cannot make one. With an array the loop is ordinary
+    /// indexed machinery that already exists.
+    OwnKeys,
+
     /// Calling a value, with a receiver and the arguments.
     ///
     /// # Why calling is a runtime operation and not `call_indirect`
@@ -325,6 +332,7 @@ impl RuntimeOp {
         RuntimeOp::HasProperty,
         RuntimeOp::ArrayNew,
         RuntimeOp::DeleteProperty,
+        RuntimeOp::OwnKeys,
         RuntimeOp::Call,
     ];
 
@@ -368,6 +376,7 @@ impl RuntimeOp {
             RuntimeOp::HasProperty => "__rts_has_property",
             RuntimeOp::ArrayNew => "__rts_array_new",
             RuntimeOp::DeleteProperty => "__rts_delete_property",
+            RuntimeOp::OwnKeys => "__rts_own_keys",
             RuntimeOp::Call => "__rts_call",
         }
     }
@@ -423,6 +432,7 @@ impl RuntimeOp {
             // length is how many elements were written.
             RuntimeOp::ArrayNew => (vec![Repr::I64], vec![UNPROVEN]),
             RuntimeOp::DeleteProperty => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
+            RuntimeOp::OwnKeys => (vec![UNPROVEN], vec![UNPROVEN]),
             // Callee, receiver, then one slot per argument. Every one a value,
             // because a caller cannot know what it is handing over.
             RuntimeOp::Call => (vec![UNPROVEN; 2 + ARGUMENT_SLOTS], vec![UNPROVEN]),

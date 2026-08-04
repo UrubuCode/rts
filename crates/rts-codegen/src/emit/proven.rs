@@ -134,6 +134,19 @@ fn collect_candidates(statement: &Stmt, into: &mut HashSet<Name>) {
             collect_candidates(body, into);
         }
         StmtKind::Labelled { body, .. } => collect_candidates(body, into),
+        StmtKind::Switch { clauses, .. } => {
+            for clause in clauses {
+                for inner in &clause.body {
+                    collect_candidates(inner, into);
+                }
+            }
+        }
+        StmtKind::ForEach { body, .. } => {
+            // The target is deliberately NOT a candidate: what it holds is a
+            // key, and `for-in` yields strings even for array indices. Adding
+            // it would claim a representation the loop never produces.
+            collect_candidates(body, into);
+        }
         _ => {}
     }
 }
@@ -211,6 +224,33 @@ fn keep_only_numeric(statement: &Stmt, known: &Numeric, surviving: &mut HashSet<
             keep_only_numeric(body, known, surviving);
         }
         StmtKind::Labelled { body, .. } => keep_only_numeric(body, known, surviving),
+        StmtKind::Switch {
+            discriminant,
+            clauses,
+        } => {
+            check_expr(discriminant, known, surviving);
+            for clause in clauses {
+                if let Some(test) = &clause.test {
+                    check_expr(test, known, surviving);
+                }
+                for inner in &clause.body {
+                    keep_only_numeric(inner, known, surviving);
+                }
+            }
+        }
+        StmtKind::ForEach { target, subject, body, .. } => {
+            check_expr(subject, known, surviving);
+            // A `for-in` target holds a STRING, so a name it writes to is not
+            // numeric however it was declared.
+            if let crate::syntax::ForEachTarget::Declare {
+                target: Pattern::Name(name),
+                ..
+            } = target
+            {
+                surviving.remove(name);
+            }
+            keep_only_numeric(body, known, surviving);
+        }
         _ => {}
     }
 }

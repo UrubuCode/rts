@@ -44,7 +44,7 @@ mod operators;
 
 // The operators are defined in their own module and named from here, because a
 // caller wants "the entry points" in one place rather than a module tree.
-pub use array::array_new;
+pub use array::{array_new, own_keys};
 pub use bitwise::{
     bit_and, bit_not, bit_or, bit_xor, exponent, shift_left, shift_right,
     shift_right_unsigned,

@@ -1674,3 +1674,101 @@ fn properties_are_set_in_source_order() {
         2.0
     );
 }
+
+// ---------------------------------------------------------------------------
+// `for-in`.
+
+#[test]
+fn for_in_visits_every_own_key() {
+    let produced = run(
+        "let o = {}; o.a = 1; o.b = 2; o.c = 3; \
+         let total = 0; \
+         for (let k in o) { total = total + o[k]; } \
+         return total;",
+    );
+    assert_eq!(tags::decode_double(produced), 6.0);
+}
+
+#[test]
+fn for_in_yields_keys_as_strings() {
+    // Even for an array index. `for (k in [1,2])` yields "0" and "1", so a body
+    // comparing `k === 0` finds nothing — which is the language rather than a
+    // quirk of this implementation, and the reason the test asserts the string.
+    let produced = run(
+        "let a = [7, 8]; \
+         let joined = \"\"; \
+         for (let k in a) { joined = joined + k; } \
+         return joined === \"01\";",
+    );
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
+fn for_in_visits_them_in_the_order_they_were_added() {
+    let produced = run(
+        "let o = {}; o.z = 1; o.a = 2; o.m = 3; \
+         let joined = \"\"; \
+         for (let k in o) { joined = joined + k; } \
+         return joined === \"zam\";",
+    );
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
+fn for_in_over_nothing_runs_nothing() {
+    let produced = run("let o = {}; let count = 0; for (let k in o) { count++; } return count;");
+    assert_eq!(tags::decode_double(produced), 0.0);
+}
+
+#[test]
+fn break_and_continue_reach_the_for_in_they_are_written_in() {
+    // What the expansion buys: the loop machinery already gets these right, so
+    // they work without `for-in` restating any of it.
+    let produced = run(
+        "let o = {}; o.a = 1; o.b = 2; o.c = 3; \
+         let count = 0; \
+         for (let k in o) { if (k === \"b\") { continue; } count++; } \
+         return count;",
+    );
+    assert_eq!(tags::decode_double(produced), 2.0);
+
+    let produced = run(
+        "let o = {}; o.a = 1; o.b = 2; \
+         let count = 0; \
+         outer: for (let k in o) { for (let j in o) { count++; break outer; } } \
+         return count;",
+    );
+    assert_eq!(tags::decode_double(produced), 1.0);
+}
+
+#[test]
+fn a_captured_loop_variable_is_shared_across_passes_which_is_wrong() {
+    // A KNOWN DIVERGENCE, pinned so it stays visible rather than being
+    // rediscovered.
+    //
+    // The language gives `let` in a loop a fresh binding per pass, so a closure
+    // made on the first pass captures the FIRST key. This engine's environment
+    // is per function **activation** rather than per iteration, so every pass
+    // writes the same slot and every closure sees the last value.
+    //
+    // Not caused by `for-in`: an ordinary `for` has it too, and E5 shipped it.
+    // Fixing it means creating an environment inside the loop, chained to the
+    // function's, whenever the body declares a name something captures.
+    //
+    // Asserted as what it DOES, so that fixing it fails this test — which is
+    // how a divergence stays a decision rather than becoming folklore.
+    let produced = run(
+        "function collect() { \
+           let o = {}; o.a = 1; o.b = 2; \
+           let first = 0; \
+           for (let k in o) { function keep() { return k; } if (first === 0) { first = keep; } } \
+           return first(); \
+         } \
+         return collect() === \"b\";",
+    );
+    assert_eq!(
+        tags::payload_of(produced),
+        tags::BOOL_TRUE,
+        "every closure sees the LAST key, because one environment is shared"
+    );
+}

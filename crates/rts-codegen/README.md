@@ -158,6 +158,13 @@ iteration, and the argument vector rest and spread need). Nothing is left in the
 first category — a heap value this crate cannot make — now that strings and
 arrays exist.
 
+A **known divergence**, pinned by a test that asserts what the engine does so
+that fixing it fails: `let` in a loop should be a fresh binding per pass, and
+this engine's environment is per function **activation**. Every pass writes the
+same slot, so two closures made in different passes of one loop see the same
+value. It affects every loop, arrived with E5, and needs an environment created
+inside the loop and chained to the function's.
+
 One entry in that list was **wrong** and is worth recording rather than quietly
 fixing: `delete` was said to be impossible because "a shape tree built from
 transitions cannot perform it". `ShapeTree::remove` had existed all along, and

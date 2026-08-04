@@ -130,6 +130,10 @@ fn referenced_inside_statement(statement: &Stmt, found: &mut BTreeSet<Name>) {
             referenced_inside_statement(body, found);
         }
         StmtKind::Labelled { body, .. } => referenced_inside_statement(body, found),
+        StmtKind::ForEach { subject, body, .. } => {
+            referenced_inside_expr(subject, found);
+            referenced_inside_statement(body, found);
+        }
         StmtKind::Switch {
             discriminant,
             clauses,
@@ -365,6 +369,12 @@ fn declared_by_statement(statement: &Stmt, found: &mut BTreeSet<Name>) {
             declared_by_statement(body, found);
         }
         StmtKind::Labelled { body, .. } => declared_by_statement(body, found),
+        StmtKind::ForEach { target, body, .. } => {
+            if let crate::syntax::ForEachTarget::Declare { target, .. } = target {
+                names_in_pattern(target, found);
+            }
+            declared_by_statement(body, found);
+        }
         StmtKind::Switch { clauses, .. } => {
             // A clause body is a scope in the language and is not one here, for
             // the same reason a block is not: erring toward MORE names in the

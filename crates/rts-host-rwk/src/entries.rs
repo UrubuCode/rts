@@ -157,6 +157,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::DeleteProperty => (CoreEntry::DeleteProperty, {
             rts_core_rwk::entry::delete_property as extern "C" fn(u64, u64) -> bool as *const u8
         }),
+        RuntimeOp::OwnKeys => (CoreEntry::OwnKeys, {
+            rts_core_rwk::entry::own_keys as extern "C" fn(u64) -> u64 as *const u8
+        }),
     }
 }
 

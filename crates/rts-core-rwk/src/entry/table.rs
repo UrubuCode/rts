@@ -44,7 +44,7 @@ use super::operators::{
     DIVIDE_ENTRY, GREATER_ENTRY, GREATER_EQUAL_ENTRY, LESS_ENTRY, LESS_EQUAL_ENTRY, MULTIPLY_ENTRY,
     REMAINDER_ENTRY, SUBTRACT_ENTRY,
 };
-use super::array::ARRAY_NEW_ENTRY;
+use super::array::{ARRAY_NEW_ENTRY, OWN_KEYS_ENTRY};
 use super::bitwise::{
     BIT_AND_ENTRY, BIT_NOT_ENTRY, BIT_OR_ENTRY, BIT_XOR_ENTRY, EXPONENT_ENTRY, SHIFT_LEFT_ENTRY,
     SHIFT_RIGHT_ENTRY, SHIFT_RIGHT_UNSIGNED_ENTRY,
@@ -240,6 +240,11 @@ pub enum CoreEntry {
     /// Here because removing a property rebuilds the layout and moves what is
     /// left, both of which touch the heap.
     DeleteProperty = 32,
+
+    /// `for (k in o)` — the keys, as an array of strings.
+    ///
+    /// Here because it walks a layout and allocates the array it answers with.
+    OwnKeys = 33,
 }
 
 /// How many entry points exist.
@@ -247,7 +252,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 33;
+pub const CORE_ENTRY_COUNT: usize = 34;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -285,6 +290,7 @@ impl CoreEntry {
         CoreEntry::HasProperty,
         CoreEntry::ArrayNew,
         CoreEntry::DeleteProperty,
+        CoreEntry::OwnKeys,
     ];
 
     /// The number a call site holds.
@@ -333,6 +339,7 @@ impl CoreEntry {
             CoreEntry::HasProperty => HAS_PROPERTY_ENTRY,
             CoreEntry::ArrayNew => ARRAY_NEW_ENTRY,
             CoreEntry::DeleteProperty => DELETE_PROPERTY_ENTRY,
+            CoreEntry::OwnKeys => OWN_KEYS_ENTRY,
         }
     }
 

@@ -23,6 +23,7 @@
 use super::objects::undefined_of;
 use super::{Context, with_current};
 use crate::heap::Slot;
+use crate::text::Str;
 use crate::value::Value;
 
 /// `[…]` — a new array of `length` elements, each `undefined`.
@@ -94,4 +95,82 @@ pub(super) fn as_index(key: Value) -> Option<usize> {
         return None;
     }
     Some(number as usize)
+}
+
+/// `for (k in o)` — the keys, as an array of strings.
+///
+/// # Why an array and not an iterator
+///
+/// Because an iterator is a call, and a call from inside an entry point is what
+/// this layer cannot do. Handing back an array lets the compiler emit an
+/// ordinary indexed loop, which is machinery that already exists and is already
+/// tested.
+///
+/// # What the order is
+///
+/// Integer indices first in numeric order, then the other keys in the order
+/// they were added. That is what the specification says and what `Key` was
+/// split into two variants to record — see [`crate::object::key`]. An array's
+/// elements come first for the same reason: they are the integer indices.
+///
+/// # The divergence, named
+///
+/// The keys are collected **once**, so a property deleted during the loop is
+/// still visited, where the specification says it must not be. Properties
+/// *added* during one need not be visited, which snapshotting also satisfies —
+/// so the error is in one direction only, and it is the direction a program
+/// notices least. Fixing it needs the enumeration to hold a cursor into the
+/// shape rather than a copy, which is a different mechanism.
+///
+/// # What is missing
+///
+/// Inherited keys. `for-in` walks the prototype chain and there are no
+/// prototypes, so this is own keys — which is the same absence every property
+/// operation here has.
+#[rtse::entry]
+pub fn own_keys(object: u64) -> u64 {
+    let texts = with_current(|context| {
+        let Some(slot) = Value(object).as_slot() else {
+            return Vec::new();
+        };
+
+        let mut keys: Vec<Str> = Vec::new();
+        // Elements first, as strings: `for (k in [1,2])` yields "0" and "1",
+        // not 0 and 1. A loop that compared `k === 0` would find nothing, and
+        // that is the language rather than a quirk of this implementation.
+        if let Some(elements) = context.elements_at(slot) {
+            let count = elements.len();
+            for index in 0..count {
+                keys.push(crate::coerce::number_to_string(index as f64));
+            }
+        }
+        let Some(ty) = context.region.type_of(slot) else {
+            return keys;
+        };
+        let Some(shape) = context.shape_of(ty) else {
+            return keys;
+        };
+        for (key, _) in context.shapes.properties(shape) {
+            if let Some(text) = context.interner.text(key) {
+                keys.push(text.clone());
+            }
+        }
+        keys
+    });
+
+    // Built outside the borrow above, because interning each string and
+    // allocating the array both need the context again.
+    let array = array_new(texts.len() as i64);
+    with_current(|context| {
+        let values: Vec<u64> = texts
+            .into_iter()
+            .map(|text| context.intern_value(text).bits())
+            .collect();
+        if let Some(slot) = Value(array).as_slot()
+            && let Some(elements) = context.elements_at_mut(slot)
+        {
+            *elements = values;
+        }
+    });
+    array
 }

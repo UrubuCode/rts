@@ -133,7 +133,19 @@ pub fn emit_stmt(
             body,
             None,
         ),
-        StmtKind::ForEach { .. } => super::expr::gap("`for-in` or `for-of`"),
+        StmtKind::ForEach {
+            source,
+            target,
+            subject,
+            body,
+        } => match source {
+            crate::syntax::ForEachSource::In => {
+                loops::emit_for_in(builder, scope, ctx, loops, statement, target, subject, body, None)
+            }
+            // `for-of` steps `[Symbol.iterator]()`, which is a call to user
+            // code and a protocol this engine has no symbols for.
+            _ => super::expr::gap("`for-of`"),
+        },
         StmtKind::Switch {
             discriminant,
             clauses,
@@ -304,6 +316,14 @@ fn emit_labelled(
             update.as_ref(),
             body,
             Some(label),
+        ),
+        StmtKind::ForEach {
+            source: crate::syntax::ForEachSource::In,
+            target,
+            subject,
+            body: inner,
+        } => loops::emit_for_in(
+            builder, scope, ctx, loops, body, target, subject, inner, Some(label),
         ),
         _ => loops::emit_labelled_block(builder, scope, ctx, loops, label, body),
     }
