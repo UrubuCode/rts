@@ -200,8 +200,36 @@ impl Signature {
     /// exactly. Checking it here means a call site cannot construct an edge that
     /// would be rejected further down, where the cause is no longer visible.
     pub fn permits_tail_call_to(&self, callee: &Signature) -> bool {
-        self.convention.permits_tail_calls()
-            && callee.convention.permits_tail_calls()
-            && self.returns == callee.returns
+        tail_call_permitted(
+            self.convention,
+            callee.convention,
+            self.returns == callee.returns,
+        )
     }
+}
+
+/// Whether a tail call between two functions is legal.
+///
+/// # Why the rule is a free function and not written at each signature type
+///
+/// There are two signature types — this one, whose returns are [`AbiType`], and
+/// the IR's, whose returns are [`Repr`](crate::repr::Repr) — and both need this
+/// answer. Each had its own copy of the three conjuncts, byte for byte
+/// identical, with nothing tying them together.
+///
+/// The two copies agreed, which is exactly what makes the shape dangerous:
+/// relaxing the rule on one side — say, to permit *compatible* returns rather
+/// than identical ones — would produce a compiler that accepts a tail call in
+/// one vocabulary and rejects it in the other, and the disagreement would
+/// surface as a frame that was discarded when it should not have been.
+///
+/// So the rule lives here once. What each caller still owns is the part that is
+/// genuinely different: whether *its* returns match, which is a question about
+/// its own element type.
+pub fn tail_call_permitted(
+    caller: Convention,
+    callee: Convention,
+    returns_match: bool,
+) -> bool {
+    caller.permits_tail_calls() && callee.permits_tail_calls() && returns_match
 }

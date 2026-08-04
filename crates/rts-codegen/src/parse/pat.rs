@@ -37,17 +37,7 @@ pub(crate) fn binding(cx: &mut Cx, pattern: &swc::Pat) -> Result<Pattern> {
             let mut rest = None;
             for property in &object.props {
                 match property {
-                    swc::ObjectPatProp::Assign(assign) => properties.push(PatternProperty {
-                        key: crate::syntax::PropertyKey::Named(cx.name(&assign.key.sym)),
-                        value: Element {
-                            pattern: Pattern::Name(cx.name(&assign.key.sym)),
-                            default: match &assign.value {
-                                Some(value) => Some(expr(cx, value)?),
-                                None => None,
-                            },
-                        },
-                    }),
-                    swc::ObjectPatProp::KeyValue(pair) => properties.push(PatternProperty {
+                    swc::ObjectPatProp::Assign(assign) => properties.push(shorthand(cx, assign)?),                    swc::ObjectPatProp::KeyValue(pair) => properties.push(PatternProperty {
                         key: property_key(cx, &pair.key)?,
                         value: binding_element(cx, &pair.value)?,
                     }),
@@ -126,17 +116,7 @@ pub(crate) fn object_target(cx: &mut Cx, object: &swc::ObjectPat) -> Result<Patt
     let mut rest = None;
     for property in &object.props {
         match property {
-            swc::ObjectPatProp::Assign(assign) => properties.push(PatternProperty {
-                key: crate::syntax::PropertyKey::Named(cx.name(&assign.key.sym)),
-                value: Element {
-                    pattern: Pattern::Name(cx.name(&assign.key.sym)),
-                    default: match &assign.value {
-                        Some(value) => Some(expr(cx, value)?),
-                        None => None,
-                    },
-                },
-            }),
-            swc::ObjectPatProp::KeyValue(pair) => properties.push(PatternProperty {
+            swc::ObjectPatProp::Assign(assign) => properties.push(shorthand(cx, assign)?),            swc::ObjectPatProp::KeyValue(pair) => properties.push(PatternProperty {
                 key: property_key(cx, &pair.key)?,
                 value: target_element(cx, &pair.value)?,
             }),
@@ -166,5 +146,28 @@ fn target(cx: &mut Cx, pattern: &swc::Pat) -> Result<Pattern> {
         swc::Pat::Object(object) => object_target(cx, object)?,
         swc::Pat::Expr(place) => Pattern::Target(Box::new(expr(cx, place)?)),
         other => return binding(cx, other),
+    })
+}
+
+/// `{ a }` and `{ a = 1 }` — the shorthand form, where one identifier is both
+/// the property's name and the binding's.
+///
+/// Shared by the binding reader and the assignment-target reader, which had
+/// byte-identical copies of it. That the two roles agree here is not a
+/// coincidence to be re-derived twice: a shorthand property cannot name
+/// anything but an identifier in either role, which is why `{ a.b }` does not
+/// parse while `{ a: obj.b }` does. One reader, so a change to what shorthand
+/// carries cannot reach one role and miss the other.
+fn shorthand(cx: &mut Cx, assign: &swc::AssignPatProp) -> Result<PatternProperty> {
+    let name = cx.name(&assign.key.sym);
+    Ok(PatternProperty {
+        key: crate::syntax::PropertyKey::Named(name),
+        value: Element {
+            pattern: Pattern::Name(name),
+            default: match &assign.value {
+                Some(value) => Some(expr(cx, value)?),
+                None => None,
+            },
+        },
     })
 }

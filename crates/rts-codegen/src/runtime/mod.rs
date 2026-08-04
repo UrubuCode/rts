@@ -44,9 +44,17 @@ use crate::emit::UNPROVEN;
 
 /// An operation the language performs by calling the runtime.
 ///
-/// Each is here for a stated reason, and the reason is always the same shape:
-/// **it touches the heap.** Anything that does not is arithmetic, and belongs in
-/// what emission produces rather than in what it calls.
+/// Membership is decided by the machine's rule, quoted rather than paraphrased
+/// because the first version of this comment shortened it to "it touches the
+/// heap" — and a *narrower* rule in the crate that decides membership would emit
+/// an operation as instructions when it should have been a call:
+///
+/// > An entry point exists if and only if the operation touches the heap, the
+/// > operating system, or global mutable state. Pure computation is
+/// > instructions.
+///
+/// — [`rts_cranelift::symbols`]. Every operation below happens to touch the
+/// heap; the other two clauses are what will decide the next ones.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum RuntimeOp {
     /// `a + b`.

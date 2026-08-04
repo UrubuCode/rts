@@ -42,9 +42,15 @@ impl Signature {
     /// here so that a call site cannot build an edge that would be rejected
     /// further down, where the cause is no longer visible.
     pub fn permits_tail_call_to(&self, callee: &Signature) -> bool {
-        self.convention.permits_tail_calls()
-            && callee.convention.permits_tail_calls()
-            && self.returns == callee.returns
+        // The rule itself is `abi::tail_call_permitted`, stated once. This type
+        // and the ABI's both need the answer, and both used to carry their own
+        // copy of the three conjuncts — identical, and with nothing to keep
+        // them that way.
+        crate::abi::tail_call_permitted(
+            self.convention,
+            callee.convention,
+            self.returns == callee.returns,
+        )
     }
 }
 

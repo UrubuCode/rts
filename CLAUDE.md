@@ -18,7 +18,7 @@ not background reading, and the rules in it are binding for changes inside it.
 
 | Editing | Read first |
 |---|---|
-| `crates/rts-cranelift/` | its `README.md` (13 rules) + `RTS_CRANELIFT.md` |
+| `crates/rts-cranelift/` | its `README.md` (13 rules) |
 | `crates/rts-codegen/` | its `README.md` (10 rules) + `PLAN.md` |
 | `crates/rts-egui/`, DOM, render, input | `docs/ui/html-engine/` + `docs/ui/egui-crate.md` |
 | anything else | this file, and `docs/README.md` for where things live |

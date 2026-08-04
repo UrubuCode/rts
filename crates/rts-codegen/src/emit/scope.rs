@@ -43,6 +43,22 @@ pub enum Binding {
     Value(ValueId),
 }
 
+impl Binding {
+    /// The value behind it.
+    ///
+    /// A method rather than a free function, and it lives here rather than
+    /// beside either caller because this enum is the thing that will grow: when
+    /// a captured local becomes a cell, every site reading a binding has to
+    /// learn to load it. Two copies of this match — which is what `emit/loops.rs`
+    /// and `emit/stmt.rs` each had — means two places to teach, with nothing
+    /// tying them together.
+    pub fn value(self) -> ValueId {
+        match self {
+            Binding::Value(value) => value,
+        }
+    }
+}
+
 /// One lexical layer.
 #[derive(Default)]
 struct Layer {

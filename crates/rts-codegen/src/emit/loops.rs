@@ -97,16 +97,9 @@ impl Loops {
     }
 }
 
-/// The value behind a binding.
-fn value_of(binding: Binding) -> ValueId {
-    match binding {
-        Binding::Value(value) => value,
-    }
-}
-
 /// The arguments a jump into a merged block carries.
 fn merged_args(snapshot: &[Binding], merged: &[usize]) -> Vec<ValueId> {
-    merged.iter().map(|&at| value_of(snapshot[at])).collect()
+    merged.iter().map(|&at| snapshot[at].value()).collect()
 }
 
 /// Emits `while`.

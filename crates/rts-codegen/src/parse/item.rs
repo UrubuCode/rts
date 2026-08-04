@@ -564,13 +564,7 @@ fn parameters<'a>(
             rest = Some(binding(cx, &spread.arg)?);
             continue;
         }
-        let claim = type_of(cx, parameter);
-        let element = binding_element(cx, parameter)?;
-        declared.push(Parameter {
-            target: element.pattern,
-            default: element.default,
-            claim,
-        });
+        declared.push(parameter_of(cx, parameter)?);
     }
 
     Ok((declared, rest))
@@ -709,13 +703,7 @@ fn constructor_member(cx: &mut Cx, constructor: &swc::Constructor) -> Result<Met
             rest = Some(binding(cx, &spread.arg)?);
             continue;
         }
-        let claim = type_of(cx, pattern);
-        let element = binding_element(cx, pattern)?;
-        declared.push(Parameter {
-            target: element.pattern,
-            default: element.default,
-            claim,
-        });
+        declared.push(parameter_of(cx, pattern)?);
     }
 
     let (directives, body) = block_body(cx, constructor.body.as_ref())?;
@@ -745,4 +733,20 @@ fn method_kind(kind: swc::MethodKind) -> MethodKind {
         swc::MethodKind::Getter => MethodKind::Getter,
         swc::MethodKind::Setter => MethodKind::Setter,
     }
+}
+
+/// One declared parameter: its pattern, its default, and what it claims to be.
+///
+/// Shared by the ordinary parameter reader and the constructor's, which stated
+/// it identically. The three lines look mechanical and are not: the claim is
+/// read from the pattern *before* the pattern is consumed, and a copy that
+/// reordered those two would take the annotation off the wrong node.
+fn parameter_of(cx: &mut Cx, pattern: &swc::Pat) -> Result<Parameter> {
+    let claim = type_of(cx, pattern);
+    let element = binding_element(cx, pattern)?;
+    Ok(Parameter {
+        target: element.pattern,
+        default: element.default,
+        claim,
+    })
 }

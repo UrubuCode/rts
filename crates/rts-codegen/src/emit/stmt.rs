@@ -230,12 +230,12 @@ fn emit_if(
         .collect();
 
     if !else_terminated {
-        let args: Vec<_> = merged.iter().map(|&at| value_of(after_else[at])).collect();
+        let args: Vec<_> = merged.iter().map(|&at| after_else[at].value()).collect();
         builder.jump(join, &args)?;
     }
     if !then_terminated {
         builder.switch_to(then_exit);
-        let args: Vec<_> = merged.iter().map(|&at| value_of(after_then[at])).collect();
+        let args: Vec<_> = merged.iter().map(|&at| after_then[at].value()).collect();
         builder.jump(join, &args)?;
     }
 
@@ -250,11 +250,4 @@ fn emit_if(
 
     builder.switch_to(join);
     Ok(false)
-}
-
-/// The value behind a binding.
-fn value_of(binding: Binding) -> rts_cranelift::ir::ValueId {
-    match binding {
-        Binding::Value(value) => value,
-    }
 }
