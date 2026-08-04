@@ -14,7 +14,7 @@ use rts_cranelift::tags::TagRegistry;
 use rts_cranelift::target::{InMemory, Placing, Visibility, place_in_memory};
 use rts_cranelift::types::TypeRegistry;
 
-use crate::entries::{address_of, agree, machine_entry};
+use crate::entries::{agree, machine_entry, resolve};
 use crate::link::HostError;
 
 /// The name a compiled script is placed under.
@@ -267,8 +267,8 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
 
     let mut outside: Vec<(&str, *const u8)> = expected
         .iter()
-        .map(|(op, _)| Ok((op.symbol(), address_of(*op)?)))
-        .collect::<Result<_, HostError>>()?;
+        .map(|(op, _)| (op.symbol(), resolve(*op).1))
+        .collect();
 
     // The machine's own entry points, which it dials without being asked: a
     // program that allocates calls `rts_alloc`, and a cached read that misses

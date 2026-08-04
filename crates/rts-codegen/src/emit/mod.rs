@@ -61,6 +61,7 @@ mod choice;
 mod expr;
 mod function;
 mod loops;
+mod merge;
 mod proven;
 mod scope;
 mod stmt;

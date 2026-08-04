@@ -17,7 +17,6 @@ use rts_cranelift::ir::FuncBuilder;
 
 use super::expr::{emit_condition, emit_expr, stored, undefined};
 use super::loops::{self, Loops};
-use super::scope::Binding;
 use super::{Ctx, EmitError, EmitResult, Scope};
 use crate::syntax::{Pattern, Stmt, StmtKind};
 
@@ -133,30 +132,25 @@ pub fn emit_stmt(
             update.as_ref(),
             body,
         ),
-        StmtKind::ForEach { .. } => gap("`for-in` or `for-of`"),
-        StmtKind::Switch { .. } => gap("`switch`"),
+        StmtKind::ForEach { .. } => super::expr::gap("`for-in` or `for-of`"),
+        StmtKind::Switch { .. } => super::expr::gap("`switch`"),
         // A label is refused, so an unlabelled break is the only kind that
         // reaches here — and the innermost loop is where it goes.
         StmtKind::Break(None) => loops::emit_jump_out(builder, scope, loops, true),
         StmtKind::Continue(None) => loops::emit_jump_out(builder, scope, loops, false),
-        StmtKind::Break(Some(_)) | StmtKind::Continue(Some(_)) => gap("a labelled jump"),
-        StmtKind::Labelled { .. } => gap("a label"),
-        StmtKind::Throw(_) => gap("`throw`"),
-        StmtKind::Try { .. } => gap("`try`"),
+        StmtKind::Break(Some(_)) | StmtKind::Continue(Some(_)) => super::expr::gap("a labelled jump"),
+        StmtKind::Labelled { .. } => super::expr::gap("a label"),
+        StmtKind::Throw(_) => super::expr::gap("`throw`"),
+        StmtKind::Try { .. } => super::expr::gap("`try`"),
         // Already bound and already emitted, by the hoisting pass that ran
         // before this body did. Emitting it here as well would make a second
         // closure over the same code and rebind the name to it, which is
         // wasteful and — for a name something else already captured — wrong.
         StmtKind::Function(_) => Ok(false),
-        StmtKind::Class(_) => gap("a class declaration"),
-        StmtKind::Using { .. } => gap("`using`"),
-        StmtKind::With { .. } => gap("`with`"),
+        StmtKind::Class(_) => super::expr::gap("a class declaration"),
+        StmtKind::Using { .. } => super::expr::gap("`using`"),
+        StmtKind::With { .. } => super::expr::gap("`with`"),
     }
-}
-
-/// A named gap.
-fn gap(construct: &'static str) -> EmitResult<bool> {
-    Err(EmitError::Unsupported { construct })
 }
 
 /// Emits `if`.
@@ -232,27 +226,14 @@ fn emit_if(
     // Only names the two arms disagree about need a parameter. A name neither
     // touched has one definition, and giving it a parameter anyway would be a
     // correct program that moves a value through a register for no reason.
-    let merged: Vec<usize> = match (then_terminated, else_terminated) {
-        (false, false) => (0..after_then.len())
-            .filter(|&position| after_then[position] != after_else[position])
-            .collect(),
-        // One arm cannot reach the join, so nothing merges: whatever the other
-        // arm bound is the only definition that arrives.
+    // The one thing a statement's merge has that an expression's does not: an
+    // arm that cannot reach the join. Nothing merges then, because whatever the
+    // other arm bound is the only definition that arrives.
+    let merged = match (then_terminated, else_terminated) {
+        (false, false) => super::merge::disagreements(&after_then, &after_else),
         _ => Vec::new(),
     };
-    // The representation of what arrives, not `Tagged`. A generic parameter
-    // would widen every proven value passed to it — silently, because the
-    // builder inserts that — and a proof would not survive an `if`.
-    //
-    // Both arms agree because the analysis decided per NAME: a proved local is
-    // numeric on every path, an unproved one is widened at every store.
-    let params: Vec<_> = merged
-        .iter()
-        .map(|&position| {
-            let repr = builder.repr_of(after_then[position].value());
-            builder.add_block_param(join, repr)
-        })
-        .collect();
+    let params = super::merge::parameters(builder, join, &merged, &after_then);
 
     if !else_terminated {
         let args: Vec<_> = merged.iter().map(|&at| after_else[at].value()).collect();
@@ -264,14 +245,11 @@ fn emit_if(
         builder.jump(join, &args)?;
     }
 
-    // What each name means after the `if`: the merged ones are the join's
-    // parameters, and the rest are whatever survived from the arm that reached
-    // it.
-    let mut after = if then_terminated { after_else } else { after_then };
-    for (position, param) in merged.iter().zip(params) {
-        after[*position] = Binding::Value(param);
-    }
-    scope.restore(&after);
+    // Started from the arm that REACHED the join, which is the other one when
+    // an arm returned — the reason `settle` takes the environment rather than
+    // choosing one.
+    let after = if then_terminated { after_else } else { after_then };
+    super::merge::settle(scope, after, &merged, params);
 
     builder.switch_to(join);
     Ok(false)

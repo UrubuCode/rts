@@ -70,19 +70,8 @@ fn merge(
     let join = builder.create_block();
     let result = builder.add_block_param(join, UNPROVEN);
 
-    let merged: Vec<usize> = (0..first.bindings.len())
-        .filter(|&position| first.bindings[position] != second.bindings[position])
-        .collect();
-    // The representation of what arrives, not `Tagged`. Both paths agree
-    // because the numeric analysis decided per NAME rather than per store, so
-    // reading it off either one is reading the same answer.
-    let params: Vec<_> = merged
-        .iter()
-        .map(|&position| {
-            let repr = builder.repr_of(first.bindings[position].value());
-            builder.add_block_param(join, repr)
-        })
-        .collect();
+    let merged = super::merge::disagreements(&first.bindings, &second.bindings);
+    let params = super::merge::parameters(builder, join, &merged, &first.bindings);
 
     for path in [&first, &second] {
         builder.switch_to(path.exit);
@@ -94,11 +83,7 @@ fn merge(
         builder.jump(join, &args)?;
     }
 
-    let mut after = first.bindings;
-    for (position, param) in merged.iter().zip(params) {
-        after[*position] = Binding::Value(param);
-    }
-    scope.restore(&after);
+    super::merge::settle(scope, first.bindings, &merged, params);
 
     builder.switch_to(join);
     Ok(result)

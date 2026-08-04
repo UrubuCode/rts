@@ -22,7 +22,7 @@ use rts_cranelift::symbols::RtEntry;
 
 use crate::link::HostError;
 
-/// The runtime's implementation of one operation.
+/// Which numbered entry an operation is, and where its implementation lives.
 ///
 /// # Why a match and not a table
 ///
@@ -33,156 +33,115 @@ use crate::link::HostError;
 ///
 /// Adding an operation to the compiler without adding it to the runtime fails
 /// here, by name, at the moment a program first needs it.
-pub(crate) fn address_of(op: RuntimeOp) -> Result<*const u8, HostError> {
+///
+/// # Why one match and not two
+///
+/// It was two: one answering the address and one answering the numbered entry,
+/// side by side in this file, twenty-eight arms each. Both answer the same
+/// question — *what is on the other end of this call* — and an arm added to one
+/// and not the other is a compile error only for the address, because the other
+/// is what `agree` reads and `agree` would simply not be reached.
+///
+/// The two answers also belong together for a reason that is not tidiness: the
+/// cast in each arm IS the shape check, and the entry beside it is what that
+/// shape gets compared against. Splitting them put the claim and its evidence
+/// in different functions.
+pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
     // Each cast names the ABI shape the compiled program was built to expect.
     // Writing it out is what makes a signature change on either side a type
     // error here rather than a corrupt call.
-    Ok(match op {
-        RuntimeOp::Add => rts_core_rwk::entry::add as extern "C" fn(u64, u64) -> u64 as *const u8,
-        RuntimeOp::StrictEquals => {
+    match op {
+        RuntimeOp::Add => (CoreEntry::Add, rts_core_rwk::entry::add as extern "C" fn(u64, u64) -> u64 as *const u8),
+        RuntimeOp::StrictEquals => (CoreEntry::StrictEquals, {
             rts_core_rwk::entry::strict_equals as extern "C" fn(u64, u64) -> bool as *const u8
-        }
-        RuntimeOp::ToBoolean => {
+        }),
+        RuntimeOp::ToBoolean => (CoreEntry::ToBoolean, {
             rts_core_rwk::entry::to_boolean as extern "C" fn(u64) -> bool as *const u8
-        }
-        RuntimeOp::NumberToString => {
+        }),
+        RuntimeOp::NumberToString => (CoreEntry::NumberToString, {
             rts_core_rwk::entry::number_to_string as extern "C" fn(f64) -> u64 as *const u8
-        }
-        RuntimeOp::Subtract => {
+        }),
+        RuntimeOp::Subtract => (CoreEntry::Subtract, {
             rts_core_rwk::entry::subtract as extern "C" fn(u64, u64) -> u64 as *const u8
-        }
-        RuntimeOp::Multiply => {
+        }),
+        RuntimeOp::Multiply => (CoreEntry::Multiply, {
             rts_core_rwk::entry::multiply as extern "C" fn(u64, u64) -> u64 as *const u8
-        }
-        RuntimeOp::Divide => {
+        }),
+        RuntimeOp::Divide => (CoreEntry::Divide, {
             rts_core_rwk::entry::divide as extern "C" fn(u64, u64) -> u64 as *const u8
-        }
-        RuntimeOp::Remainder => {
+        }),
+        RuntimeOp::Remainder => (CoreEntry::Remainder, {
             rts_core_rwk::entry::remainder as extern "C" fn(u64, u64) -> u64 as *const u8
-        }
-        RuntimeOp::Less => {
+        }),
+        RuntimeOp::Less => (CoreEntry::Less, {
             rts_core_rwk::entry::less as extern "C" fn(u64, u64) -> bool as *const u8
-        }
-        RuntimeOp::LessEqual => {
+        }),
+        RuntimeOp::LessEqual => (CoreEntry::LessEqual, {
             rts_core_rwk::entry::less_equal as extern "C" fn(u64, u64) -> bool as *const u8
-        }
-        RuntimeOp::Greater => {
+        }),
+        RuntimeOp::Greater => (CoreEntry::Greater, {
             rts_core_rwk::entry::greater as extern "C" fn(u64, u64) -> bool as *const u8
-        }
-        RuntimeOp::GreaterEqual => {
+        }),
+        RuntimeOp::GreaterEqual => (CoreEntry::GreaterEqual, {
             rts_core_rwk::entry::greater_equal as extern "C" fn(u64, u64) -> bool as *const u8
-        }
-        RuntimeOp::ObjectNew => {
+        }),
+        RuntimeOp::ObjectNew => (CoreEntry::ObjectNew, {
             rts_core_rwk::entry::object_new as extern "C" fn() -> u64 as *const u8
-        }
-        RuntimeOp::GetProperty => {
+        }),
+        RuntimeOp::GetProperty => (CoreEntry::GetProperty, {
             rts_core_rwk::entry::get_property as extern "C" fn(u64, i64) -> u64 as *const u8
-        }
-        RuntimeOp::SetProperty => {
+        }),
+        RuntimeOp::SetProperty => (CoreEntry::SetProperty, {
             rts_core_rwk::entry::set_property as extern "C" fn(u64, i64, u64) -> u64 as *const u8
-        }
-        RuntimeOp::ClosureNew => {
+        }),
+        RuntimeOp::ClosureNew => (CoreEntry::ClosureNew, {
             rts_core_rwk::entry::closure_new as extern "C" fn(i64, u64) -> u64 as *const u8
-        }
+        }),
         // The cast is the arity agreement, written out. Six parameters: the
         // callee, the receiver, and `ARGUMENT_SLOTS` arguments — and the
         // assertion below is what makes that sentence checkable rather than a
         // comment that was true once.
-        RuntimeOp::Call => {
+        RuntimeOp::Call => (CoreEntry::Call, {
             rts_core_rwk::entry::call as extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64
                 as *const u8
-        }
+        }),
         // The argument is which literal, not the text: an `i64` index into the
         // table the run seeds. Writing the cast out is what makes a change to
         // that decision a type error here.
-        RuntimeOp::StringConst => {
+        RuntimeOp::StringConst => (CoreEntry::StringConst, {
             rts_core_rwk::entry::string_const as extern "C" fn(i64) -> u64 as *const u8
-        }
-        RuntimeOp::TypeOf => {
+        }),
+        RuntimeOp::TypeOf => (CoreEntry::TypeOf, {
             rts_core_rwk::entry::type_of as extern "C" fn(u64) -> u64 as *const u8
-        }
-        RuntimeOp::LooseEquals => {
+        }),
+        RuntimeOp::LooseEquals => (CoreEntry::LooseEquals, {
             rts_core_rwk::entry::loose_equals as extern "C" fn(u64, u64) -> bool as *const u8
-        }
-        RuntimeOp::Exponent => {
+        }),
+        RuntimeOp::Exponent => (CoreEntry::Exponent, {
             rts_core_rwk::entry::exponent as extern "C" fn(u64, u64) -> u64 as *const u8
-        }
-        RuntimeOp::BitAnd => {
+        }),
+        RuntimeOp::BitAnd => (CoreEntry::BitAnd, {
             rts_core_rwk::entry::bit_and as extern "C" fn(u64, u64) -> u64 as *const u8
-        }
-        RuntimeOp::BitOr => {
+        }),
+        RuntimeOp::BitOr => (CoreEntry::BitOr, {
             rts_core_rwk::entry::bit_or as extern "C" fn(u64, u64) -> u64 as *const u8
-        }
-        RuntimeOp::BitXor => {
+        }),
+        RuntimeOp::BitXor => (CoreEntry::BitXor, {
             rts_core_rwk::entry::bit_xor as extern "C" fn(u64, u64) -> u64 as *const u8
-        }
-        RuntimeOp::BitNot => {
+        }),
+        RuntimeOp::BitNot => (CoreEntry::BitNot, {
             rts_core_rwk::entry::bit_not as extern "C" fn(u64) -> u64 as *const u8
-        }
-        RuntimeOp::ShiftLeft => {
+        }),
+        RuntimeOp::ShiftLeft => (CoreEntry::ShiftLeft, {
             rts_core_rwk::entry::shift_left as extern "C" fn(u64, u64) -> u64 as *const u8
-        }
-        RuntimeOp::ShiftRight => {
+        }),
+        RuntimeOp::ShiftRight => (CoreEntry::ShiftRight, {
             rts_core_rwk::entry::shift_right as extern "C" fn(u64, u64) -> u64 as *const u8
-        }
-        RuntimeOp::ShiftRightUnsigned => {
+        }),
+        RuntimeOp::ShiftRightUnsigned => (CoreEntry::ShiftRightUnsigned, {
             rts_core_rwk::entry::shift_right_unsigned as extern "C" fn(u64, u64) -> u64
                 as *const u8
-        }
-    })
-}
-
-/// Which runtime entry an operation the language named actually is.
-///
-/// # Why this exists rather than the compiler reading the descriptor
-///
-/// `#[rtse::entry]` already derives a symbol and an ABI shape from each Rust
-/// signature, so `rts-core-rwk` publishes the truth about both. `rts-codegen`
-/// states them again by hand — and that is not laziness, it is the layering: the
-/// language decides *membership* of the entry-point set, which is a language
-/// judgement, and it must be able to target **a** runtime rather than **the**
-/// one in this workspace. Depending on `rts-core-rwk` to read the descriptor
-/// would make the compiler unable to compile against any other.
-///
-/// What the doctrine actually requires of a restatement is that something
-/// **check** it, and until this function nothing did. A skew between what the
-/// compiler emitted and what the runtime defined is not a link error: the symbol
-/// resolves, the call is laid out to the compiler's shape, and the callee reads
-/// its arguments to a different one. Silent, and corrupt.
-///
-/// So this is the mapping, and [`agree`] is the check. Adding an operation to
-/// the compiler without one here fails to compile, which is the same property
-/// `address_of` has and for the same reason.
-fn entry_of(op: RuntimeOp) -> CoreEntry {
-    match op {
-        RuntimeOp::Add => CoreEntry::Add,
-        RuntimeOp::StrictEquals => CoreEntry::StrictEquals,
-        RuntimeOp::ToBoolean => CoreEntry::ToBoolean,
-        RuntimeOp::NumberToString => CoreEntry::NumberToString,
-        RuntimeOp::Subtract => CoreEntry::Subtract,
-        RuntimeOp::Multiply => CoreEntry::Multiply,
-        RuntimeOp::Divide => CoreEntry::Divide,
-        RuntimeOp::Remainder => CoreEntry::Remainder,
-        RuntimeOp::Less => CoreEntry::Less,
-        RuntimeOp::LessEqual => CoreEntry::LessEqual,
-        RuntimeOp::Greater => CoreEntry::Greater,
-        RuntimeOp::GreaterEqual => CoreEntry::GreaterEqual,
-        RuntimeOp::ObjectNew => CoreEntry::ObjectNew,
-        RuntimeOp::GetProperty => CoreEntry::GetProperty,
-        RuntimeOp::SetProperty => CoreEntry::SetProperty,
-        RuntimeOp::ClosureNew => CoreEntry::ClosureNew,
-        RuntimeOp::Call => CoreEntry::Call,
-        RuntimeOp::StringConst => CoreEntry::StringConst,
-        RuntimeOp::TypeOf => CoreEntry::TypeOf,
-        RuntimeOp::LooseEquals => CoreEntry::LooseEquals,
-        RuntimeOp::Exponent => CoreEntry::Exponent,
-        RuntimeOp::BitAnd => CoreEntry::BitAnd,
-        RuntimeOp::BitOr => CoreEntry::BitOr,
-        RuntimeOp::BitXor => CoreEntry::BitXor,
-        RuntimeOp::BitNot => CoreEntry::BitNot,
-        RuntimeOp::ShiftLeft => CoreEntry::ShiftLeft,
-        RuntimeOp::ShiftRight => CoreEntry::ShiftRight,
-        RuntimeOp::ShiftRightUnsigned => CoreEntry::ShiftRightUnsigned,
+        }),
     }
 }
 
@@ -193,7 +152,7 @@ fn entry_of(op: RuntimeOp) -> CoreEntry {
 /// missing symbol at placement, which is loud, and a **shape** skew is a call
 /// laid out one way and read another, which is not.
 pub(crate) fn agree(op: RuntimeOp) -> Result<(), HostError> {
-    let described = entry_of(op).describe();
+    let described = resolve(op).0.describe();
     if op.symbol() != described.symbol {
         return Err(HostError::Malformed(format!(
             "the compiler calls {:?} `{}` and the runtime defines `{}`",
