@@ -220,7 +220,7 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
     // Given unconditionally rather than when a program looks like it needs one:
     // a JIT resolves a name at finalization and an unused address costs a row
     // in a table, while a missing one is a crash with no diagnostic.
-    for entry in [RtEntry::Alloc, RtEntry::CacheResolve] {
+    for entry in [RtEntry::Alloc, RtEntry::CacheResolve, RtEntry::WriteBarrier] {
         outside.push((entry.symbol(), machine_entry(entry)));
     }
 
@@ -354,8 +354,10 @@ fn machine_entry(entry: RtEntry) -> *const u8 {
         // the write barrier by a store the collector must learn of, the promise
         // operations by `await`, the throw by an escaping exception. Each
         // arrives with the phase that emits it.
-        RtEntry::WriteBarrier
-        | RtEntry::PromiseNew
+        RtEntry::WriteBarrier => {
+            rts_core_rwk::entry::write_barrier as extern "C" fn(u64, u64) as *const u8
+        }
+        RtEntry::PromiseNew
         | RtEntry::PromiseSettle
         | RtEntry::PromiseAwait
         | RtEntry::Throw => std::ptr::null(),

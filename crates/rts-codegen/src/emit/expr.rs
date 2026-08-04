@@ -384,15 +384,8 @@ fn emit_assign(
         };
         // Receiver first, then the value: `a().x = b()` runs `a` before `b`.
         let receiver = emit_expr(builder, scope, ctx, object)?;
-        let key = key_constant(builder, ctx, *property);
         let assigned = emit_expr(builder, scope, ctx, value)?;
-        let assigned = tagged(builder, assigned);
-        return Ok(call(
-            builder,
-            ctx,
-            RuntimeOp::SetProperty,
-            &[receiver, key, assigned],
-        )?[0]);
+        return emit_write(builder, ctx, receiver, *property, assigned);
     }
 
     let ExprKind::Ident(name) = &place.kind else {
@@ -722,4 +715,64 @@ fn runtime_binary(op: BinaryOp) -> Option<RuntimeOp> {
         BinaryOp::StrictEqual => RuntimeOp::StrictEquals,
         _ => return None,
     })
+}
+
+/// Writes a property, through the site's memory of what it last saw.
+///
+/// The mirror of [`emit_read`] with one difference that is not symmetry: the
+/// slow path is not a slower store. A key the object does not have changes what
+/// the object IS, which is a shape transition — and a transition is not
+/// something a site can remember, because the next object through it may be at
+/// a different layout entirely. `rts_cache_resolve` answers that it cannot be
+/// reached this way, and `set_property` is what takes the transition.
+///
+/// So the fast path is exactly the case a store repeats: a property the object
+/// already has.
+fn emit_write(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    receiver: ValueId,
+    property: Name,
+    value: ValueId,
+) -> EmitResult<ValueId> {
+    let receiver = tagged(builder, receiver);
+    let value = tagged(builder, value);
+    let key = ctx.shape_key(property);
+
+    let as_reference = builder.create_block();
+    let narrowed = builder.add_block_param(as_reference, Repr::Ref(RefKind::Opaque));
+    let stored = builder.create_block();
+    let slow = builder.create_block();
+    let join = builder.create_block();
+    let result = builder.add_block_param(join, UNPROVEN);
+
+    builder.guard(
+        receiver,
+        Repr::Ref(RefKind::Opaque),
+        (as_reference, &[]),
+        (slow, &[]),
+    )?;
+
+    builder.switch_to(as_reference);
+    let cache = builder.declare_cache();
+    builder.cached_set(narrowed, key, cache, value, (stored, &[]), (slow, &[]))?;
+
+    // An assignment is an expression, and what it produces is the value that was
+    // assigned — the same on both paths, which is why the join carries it rather
+    // than each path answering separately.
+    builder.switch_to(stored);
+    builder.jump(join, &[value])?;
+
+    builder.switch_to(slow);
+    let key_value = key_constant(builder, ctx, property);
+    let answered = call(
+        builder,
+        ctx,
+        RuntimeOp::SetProperty,
+        &[receiver, key_value, value],
+    )?[0];
+    builder.jump(join, &[answered])?;
+
+    builder.switch_to(join);
+    Ok(result)
 }

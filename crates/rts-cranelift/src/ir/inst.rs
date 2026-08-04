@@ -417,6 +417,45 @@ pub enum Terminator {
     /// its layout is not. A client that knows the layout has a type guard and an
     /// ordinary field read, which is both faster and more precise — this is for
     /// where it does not.
+    /// Writes a property of an object whose layout is not known here.
+    ///
+    /// The mirror of [`Self::CachedGet`], and it differs in one thing beyond
+    /// direction: **there is nothing to hand the success path**. A store
+    /// produces no value, so the hit block takes no narrowed parameter and the
+    /// two paths meet without one.
+    ///
+    /// What it does NOT do is add a property. A key the layout does not have
+    /// changes what the object is, which is a shape transition — and a
+    /// transition is not something a site can remember, because the next object
+    /// through it may be at a different layout entirely. The resolver answers
+    /// that it cannot be reached this way, and the miss path handles it.
+    CachedSet {
+        /// The object written.
+        object: ValueId,
+        /// Which property.
+        key: crate::shape::Key,
+        /// Where this site keeps what it last saw.
+        cache: crate::ir::CacheId,
+        /// What to store.
+        value: ValueId,
+        /// Entered after the store, when the object has the property.
+        hit: BlockCall,
+        /// Entered when it does not, or holds it somewhere a word does not
+        /// reach.
+        miss: BlockCall,
+    },
+
+    /// Reads a property of an object whose layout is not known here.
+    ///
+    /// The site remembers the last layout it saw. The remembering is not the
+    /// client's to write: a site that had to be told to learn is one that will
+    /// be told wrong somewhere, and the failure is a read that is slow forever
+    /// without anything being visibly broken.
+    ///
+    /// Yields a generic value, because what a property holds is not known where
+    /// its layout is not. A client that knows the layout has a type guard and an
+    /// ordinary field read, which is both faster and more precise — this is for
+    /// where it does not.
     CachedGet {
         /// The object read.
         object: ValueId,
@@ -476,7 +515,8 @@ impl Terminator {
             Terminator::Guard { ok, fail, .. } | Terminator::GuardType { ok, fail, .. } => {
                 vec![ok.block, fail.block]
             }
-            Terminator::CachedGet { hit, miss, .. } => vec![hit.block, miss.block],
+            Terminator::CachedGet { hit, miss, .. }
+            | Terminator::CachedSet { hit, miss, .. } => vec![hit.block, miss.block],
             // A throw has no successor in this function's graph. Where it lands
             // is decided by the region tree, and may be in a caller; calling it
             // an edge here would claim a transfer this block does not perform.
@@ -521,6 +561,18 @@ impl Terminator {
                 object, hit, miss, ..
             } => {
                 operands.push(*object);
+                operands.extend_from_slice(&hit.args);
+                operands.extend_from_slice(&miss.args);
+            }
+            Terminator::CachedSet {
+                object,
+                value,
+                hit,
+                miss,
+                ..
+            } => {
+                operands.push(*object);
+                operands.push(*value);
                 operands.extend_from_slice(&hit.args);
                 operands.extend_from_slice(&miss.args);
             }

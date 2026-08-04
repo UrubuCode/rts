@@ -369,7 +369,51 @@ impl<'a> FuncBuilder<'a> {
         Ok(())
     }
 
+    /// Writes a property of an object whose layout is not known here.
+    ///
+    /// The mirror of [`Self::cached_get`], and it takes no narrowed parameter on
+    /// the success path because a store produces nothing to narrow.
+    ///
+    /// The value is widened rather than refused. What is stored has to be
+    /// readable by a site that knows nothing about it, and a proven double
+    /// written into a slot a later read takes as generic would come back as
+    /// whatever its bits mean.
+    pub fn cached_set(
+        &mut self,
+        object: ValueId,
+        key: crate::shape::Key,
+        cache: crate::ir::CacheId,
+        value: ValueId,
+        hit: (BlockId, &[ValueId]),
+        miss: (BlockId, &[ValueId]),
+    ) -> BuildResult<()> {
+        let found = self.func.repr_of(object);
+        if !matches!(found, Repr::Ref(_)) {
+            return Err(BuildError::WrongDomain {
+                operation: "cached_set",
+                found,
+            });
+        }
+        let value = self.widen_if_needed(value);
+
+        let hit_call = self.block_call(hit.0, hit.1)?;
+        let miss_call = self.block_call(miss.0, miss.1)?;
+        self.func.set_terminator(
+            self.block,
+            Terminator::CachedSet {
+                object,
+                key,
+                cache,
+                value,
+                hit: hit_call,
+                miss: miss_call,
+            },
+        );
+        Ok(())
+    }
+
     /// Declares somewhere a cached read can remember what it last saw.
+
     pub fn declare_cache(&mut self) -> crate::ir::CacheId {
         self.func.push_cache()
     }

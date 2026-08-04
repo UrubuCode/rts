@@ -66,6 +66,33 @@ pub(super) fn check_terminators(func: &Function, errors: &mut Vec<VerifyError>) 
                 check_block_call(func, from, fail, 0, errors);
             }
 
+            Terminator::CachedSet {
+                object,
+                value,
+                hit,
+                miss,
+                ..
+            } => {
+                // The object must be a proven reference, for the same reason a
+                // cached read's must: the address is computed from it and a
+                // number is not an address.
+                let found = func.repr_of(*object);
+                if !matches!(found, Repr::Ref(_)) {
+                    errors.push(VerifyError::GuardTypeOnNonReference { from, found });
+                }
+                // What is stored is a JavaScript value. A proven double written
+                // into a slot a later read takes as generic would be read as
+                // whatever its bits mean, which is the widening the builder
+                // inserts rather than a check anything can make here.
+                let written = func.repr_of(*value);
+                if written != Repr::Tagged {
+                    errors.push(VerifyError::GuardTypeOnNonReference { from, found: written });
+                }
+                // No narrowed parameter: a store produces nothing.
+                check_block_call(func, from, hit, 0, errors);
+                check_block_call(func, from, miss, 0, errors);
+            }
+
             Terminator::CachedGet {
                 object,
                 cache,

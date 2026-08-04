@@ -308,6 +308,21 @@ impl<'a> Rewrite<'a> {
                 self.rewrite_block_call(block, hit);
                 self.rewrite_block_call(block, miss);
             }
+            Terminator::CachedSet {
+                object,
+                value,
+                hit,
+                miss,
+                ..
+            } => {
+                // Both operands, and the value is the half a read has no
+                // equivalent of: what is stored is live across the store and
+                // has to come out of the frame like everything else.
+                *object = self.use_value(block, *object);
+                *value = self.use_value(block, *value);
+                self.rewrite_block_call(block, hit);
+                self.rewrite_block_call(block, miss);
+            }
             Terminator::Throw { payload, .. } => {
                 *payload = self.use_value(block, *payload);
             }

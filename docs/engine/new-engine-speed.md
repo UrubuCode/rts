@@ -391,3 +391,48 @@ see, and that is the whole reason `cached_get` exists. What the recorded
 representation buys is a *layout* decision: a field the shape says holds a
 double can be stored as raw bits rather than a tagged word, which is a change to
 what a cell looks like and not to what a site emits.
+
+---
+
+# The cached store
+
+`cached_set` did not exist in the machine; a property write was the last thing
+still going through a runtime call on every pass.
+
+| | before | after |
+|---|---:|---:|
+| one property write | 71.8 ns | **5.4 ns** |
+
+Thirteen times, and it is the mirror of the read with one asymmetry that is not
+symmetry: **the slow path is not a slower store.** A key the object does not have
+changes what the object *is*, which is a shape transition — and a transition is
+not something a site can remember, because the next object through it may be at
+a different layout entirely. So the fast path is exactly the case a store
+repeats: a property the object already has.
+
+## The order this had to be built in
+
+The write barrier first. `lower/body.rs` emits one on every reference store, for
+the reason stated there — *"a barrier that was needed and skipped produces a
+reference the collector never learns about"* — and the host answered
+`RtEntry::WriteBarrier` with a **null pointer** while nothing emitted one.
+
+A cached store built before `rts_write_barrier` existed would have called that
+null pointer: a process dying with no diagnostic, on the first property write of
+the first test. The order was not a preference.
+
+What the barrier does today is count. There is no collector to tell, and
+counting rather than doing nothing means the call site does not have to be found
+again the day there is one.
+
+## Where property access ended up
+
+| | E4 | now |
+|---|---:|---:|
+| read | 132.8 ns | ~0.9 ns |
+| write | 71.8 ns | 5.4 ns |
+| arithmetic on a property | 24 ns / operator | ~1 ns / operator |
+
+The counter also started reporting one or two misses where it reported none,
+and the reason is that it now sees more: a write site is a cached site now, so
+its cold start counts. One miss per site over two million passes.

@@ -481,6 +481,17 @@ impl<'a> Body<'a> {
                 self.lower_cached_get(builder, block, *object, *key, *cache, hit, miss)?;
             }
 
+            Terminator::CachedSet {
+                object,
+                key,
+                cache,
+                value,
+                hit,
+                miss,
+            } => {
+                self.lower_cached_set(builder, block, *object, *key, *cache, *value, hit, miss)?;
+            }
+
             Terminator::Return(values) => {
                 // Leaving a region normally owes the same cleanup as leaving it
                 // by throwing. A scope that only unwinds correctly when
@@ -701,7 +712,137 @@ impl<'a> Body<'a> {
         Ok(())
     }
 
+    /// A cached store: recognise the layout, or ask once, then write.
+    ///
+    /// The mirror of `lower_cached_get`, and it differs in three things worth
+    /// naming rather than leaving to a reader to diff.
+    ///
+    /// **There is no value to hand on.** A store produces nothing, so the hit
+    /// path takes no extra argument and the two paths meet without one.
+    ///
+    /// **The barrier.** A store of a reference the collector has not seen is the
+    /// failure `emit_barrier` exists to prevent, and the reason it is emitted
+    /// unconditionally is stated there: a barrier that was not needed costs a
+    /// call, and one that was needed and skipped is a use-after-free that
+    /// reproduces rarely and explains nothing.
+    ///
+    /// **The miss path is not a slower store.** A key the layout does not have
+    /// is a shape transition, and a transition is not something a site can
+    /// remember — the next object through it may be at a different layout
+    /// entirely. The resolver answers that it cannot be reached this way, and
+    /// what to do about it is the client's.
+    #[allow(clippy::too_many_arguments)]
+    fn lower_cached_set(
+        &mut self,
+        builder: &mut FunctionBuilder,
+        block: BlockId,
+        object: ValueId,
+        key: crate::shape::Key,
+        cache: crate::ir::CacheId,
+        value: ValueId,
+        hit: &crate::ir::BlockCall,
+        miss: &crate::ir::BlockCall,
+    ) -> Result<(), LowerError> {
+        let bases = self.heap.as_ref().map(|heap| heap.bases).ok_or(
+            LowerError::TerminatorNotYetLowered {
+                block,
+                needs: Capability::Memory,
+            },
+        )?;
+
+        let reference = self.value(object);
+        let written = self.value(value);
+        let address = memory::address_of(builder, reference, bases);
+        let header = memory::field_load(
+            builder,
+            address,
+            crate::mem::HeaderLayout::TYPE_OFFSET,
+            Repr::I64,
+        );
+        let cell = self.cache_address(builder, block, cache)?;
+        let remembered = builder.ins().load(
+            types::I64,
+            cranelift_codegen::ir::MemFlags::trusted(),
+            cell,
+            0,
+        );
+        let recognized = builder.ins().icmp(IntCC::Equal, header, remembered);
+
+        let write = builder.create_block();
+        let ask = builder.create_block();
+        builder.ins().brif(recognized, write, &[], ask, &[]);
+
+        builder.switch_to_block(ask);
+        let key_value = builder.ins().iconst(types::I64, i64::from(key.0));
+        let resolved = self.call_entry_at(
+            builder,
+            block,
+            RtEntry::CacheResolve,
+            &[reference, key_value, cell],
+        )?;
+        let answer = builder.inst_results(resolved)[0];
+        let found = builder
+            .ins()
+            .icmp_imm(IntCC::SignedGreaterThanOrEqual, answer, 0);
+        let miss_args = self.block_args(&miss.args);
+        let miss_target = self.blocks[&miss.block];
+        builder
+            .ins()
+            .brif(found, write, &[], miss_target, &miss_args);
+
+        builder.switch_to_block(write);
+        let offset = builder.ins().load(
+            types::I64,
+            cranelift_codegen::ir::MemFlags::trusted(),
+            cell,
+            8,
+        );
+        let at = builder.ins().iadd(address, offset);
+        builder.ins().store(
+            cranelift_codegen::ir::MemFlags::trusted(),
+            written,
+            at,
+            0,
+        );
+        self.emit_barrier_at(builder, block, reference, written)?;
+
+        let hit_args = self.block_args(&hit.args);
+        let hit_target = self.blocks[&hit.block];
+        builder.ins().jump(hit_target, &hit_args);
+        Ok(())
+    }
+
+    /// A barrier from a terminator rather than from an instruction.
+    ///
+    /// `emit_barrier` names an `InstId` in its error, and a terminator has none.
+    /// The work is the same call; only what it can blame differs.
+    fn emit_barrier_at(
+        &mut self,
+        builder: &mut FunctionBuilder,
+        block: BlockId,
+        object: Value,
+        written: Value,
+    ) -> Result<(), LowerError> {
+        let outside = self
+            .outside
+            .as_mut()
+            .ok_or(LowerError::TerminatorNotYetLowered {
+                block,
+                needs: Capability::Memory,
+            })?;
+        let barrier = outside
+            .entries
+            .reference(outside.module, builder.func, RtEntry::WriteBarrier)
+            .map_err(|_| LowerError::TerminatorNotYetLowered {
+                block,
+                needs: Capability::Memory,
+            })?;
+        builder.ins().call(barrier, &[object, written]);
+        Ok(())
+    }
+
     /// The address of where a site keeps what it last saw.
+
     fn cache_address(
         &mut self,
         builder: &mut FunctionBuilder,

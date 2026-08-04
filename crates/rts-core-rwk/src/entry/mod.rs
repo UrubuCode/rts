@@ -33,6 +33,7 @@
 //! argument is that a small closed set beats a large open one.
 
 mod alloc;
+mod barrier;
 mod cache;
 mod objects;
 mod operators;
@@ -46,6 +47,7 @@ pub use operators::{
 mod table;
 
 pub use alloc::alloc;
+pub use barrier::write_barrier;
 pub use cache::cache_resolve;
 pub use table::{CORE_ENTRY_COUNT, CoreEntry};
 
@@ -104,6 +106,11 @@ pub struct Context {
     /// identity and the text lives beside it. That is also what a real engine
     /// does: string data is separate from string identity.
     text_type: rts_cranelift::types::TypeId,
+    /// How many reference stores told the collector about themselves.
+    ///
+    /// Counted rather than acted on, because there is no collector. It exists
+    /// so the call site does not have to be found again the day there is one.
+    pub barriers: u64,
     /// How many times a cached read site asked where a property is.
     ///
     /// A hit does not reach the runtime at all, so this counts MISSES — which
@@ -155,6 +162,7 @@ impl Context {
             shape_of_type: Vec::new(),
             text_type,
             resolves: 0,
+            barriers: 0,
             singletons,
         }
     }
