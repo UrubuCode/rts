@@ -28,9 +28,16 @@
 //!
 //! What it costs is an object that does not fit. That is a real case and it has
 //! a known answer — an overflow indirection, which a prior measurement in this
-//! repository put at 0.25 ns — and it is **not implemented here**. An allocation
-//! that does not fit is refused rather than truncated, so the gap is visible
-//! instead of being a silently wrong object.
+//! repository put at 0.25 ns — and it exists now, in `entry::objects`: a
+//! property past the seventh goes to a spill beside the cell, so the region
+//! keeps knowing only about the seven it holds.
+//!
+//! It was **not** implemented for a while, and the gap was not visible the way
+//! this paragraph used to claim. Refusing the write while the read answered
+//! `undefined` is precisely "a silently wrong object" — the refusal is only
+//! visible if something reports it, and nothing did.
+//!
+//! An **allocation** that does not fit is still refused rather than truncated.
 
 use rts_cranelift::mem::{HeaderLayout, SLOT_BYTES};
 

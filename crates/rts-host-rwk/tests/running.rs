@@ -1876,3 +1876,55 @@ fn length_is_not_enumerable() {
     );
     assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
 }
+
+#[test]
+fn an_object_can_hold_more_than_seven_properties() {
+    // A cell has seven inline slots, and the eighth property used to be LOST:
+    // the write was refused and the read answered `undefined`. The region's own
+    // documentation calls a truncated object "a wrong answer that looks like a
+    // right one" while describing that refusal — which is exactly what it
+    // became, because the read had no way to say so.
+    //
+    // This is the overflow indirection that documentation names. Compiled code
+    // never reaches it: `cache_resolve` already answered negative for a slot
+    // past the inline ones, so such a read takes the slow path — which is why
+    // the fast path needed no change at all.
+    let produced = run(
+        "let o = {}; \
+         o.a=1; o.b=2; o.c=3; o.d=4; o.e=5; o.f=6; o.g=7; o.h=8; o.i=9; o.j=10; o.k=11; o.l=12; \
+         return o.a+o.b+o.c+o.d+o.e+o.f+o.g+o.h+o.i+o.j+o.k+o.l;",
+    );
+    assert_eq!(tags::decode_double(produced), 78.0);
+
+    // The eighth on its own, which is the one that was undefined.
+    let produced = run(
+        "let o = {}; o.a=1;o.b=2;o.c=3;o.d=4;o.e=5;o.f=6;o.g=7;o.h=8; return o.h;",
+    );
+    assert_eq!(tags::decode_double(produced), 8.0);
+}
+
+#[test]
+fn deleting_a_property_reshuffles_across_the_spill_too() {
+    // `delete` reads every survivor against the old layout and writes it back
+    // against the new. With more than seven properties some of those reads and
+    // writes cross between the cell and the spill, in both directions — which
+    // is why the slot accessor is one function rather than a check at each of
+    // the four call sites.
+    let produced = run(
+        "let o = {}; \
+         o.a=1; o.b=2; o.c=3; o.d=4; o.e=5; o.f=6; o.g=7; o.h=8; o.i=9; \
+         delete o.a; \
+         return o.h + o.i + o.b;",
+    );
+    assert_eq!(tags::decode_double(produced), 19.0);
+}
+
+#[test]
+fn enumeration_sees_the_spilled_properties() {
+    let produced = run(
+        "let o = {}; \
+         o.a=1;o.b=2;o.c=3;o.d=4;o.e=5;o.f=6;o.g=7;o.h=8; \
+         let n = 0; for (let k in o) { n++; } return n;",
+    );
+    assert_eq!(tags::decode_double(produced), 8.0);
+}

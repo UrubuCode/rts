@@ -126,7 +126,7 @@ pub(super) fn put(context: &mut Context, slot: u32, key: Key, value: u64) {
 
         // Already in the layout: a store, at the offset the layout decided.
         if let Some(at) = context.shapes.slot_of(shape, machine) {
-            context.region.set_field(slot, at, value);
+            set_slot_value(context, slot, at, value);
             return;
         }
 
@@ -155,14 +155,12 @@ pub(super) fn put(context: &mut Context, slot: u32, key: Key, value: u64) {
         let Some(at) = context.shapes.slot_of(grown, machine) else {
             return;
         };
-        if at >= crate::heap::INLINE_SLOTS {
-            // Past the inline slots, which is where the overflow indirection
-            // goes. Refused rather than written into the next object.
-            return;
-        }
         let ty = context.layout_of(grown).index() as u32;
         context.region.set_type(slot, ty);
-    context.region.set_field(slot, at, value);
+        // Past the seventh this goes to the spill beside the cell rather than
+        // being refused, which is what "the overflow indirection, and it is not
+        // implemented here" was waiting for.
+        set_slot_value(context, slot, at, value);
 }
 
 /// Reads a property: header to type, type to shape, shape to offset, load.
@@ -198,7 +196,7 @@ fn read(context: &mut Context, start: u32, key: Key) -> Option<Value> {
     let ty = context.region.type_of(start)?;
     let shape = context.shape_of(ty)?;
     let at = context.shapes.slot_of(shape, machine)?;
-    context.region.field(start, at).map(Value)
+    slot_value(context, start, at).map(Value)
 }
 
 /// The key a number names, if the registry issued it.
@@ -512,7 +510,7 @@ pub fn delete_property(object: u64, key: u64) -> bool {
             .filter(|(existing, _)| *existing != machine)
             .filter_map(|(existing, _)| {
                 let at = context.shapes.slot_of(shape, existing)?;
-                let value = context.region.field(slot, at)?;
+                let value = slot_value(context, slot, at)?;
                 Some((existing, value))
             })
             .collect();
@@ -522,9 +520,65 @@ pub fn delete_property(object: u64, key: u64) -> bool {
         context.region.set_type(slot, ty);
         for (existing, value) in kept {
             if let Some(at) = context.shapes.slot_of(shrunk, existing) {
-                context.region.set_field(slot, at, value);
+                set_slot_value(context, slot, at, value);
             }
         }
         true
     })
+}
+
+/// A property's value, wherever the slot puts it.
+///
+/// Seven slots live in the cell and everything past them lives in a spill
+/// beside it. Both are reads of "the property at slot N", which is why the
+/// choice is here rather than at each of the four call sites.
+fn slot_value(context: &Context, cell: u32, at: u32) -> Option<u64> {
+    match at.checked_sub(crate::heap::INLINE_SLOTS) {
+        None => context.region.field(cell, at),
+        Some(past) => context.spill_at(cell)?.get(past as usize).copied(),
+    }
+}
+
+/// Writes a property's value, wherever the slot puts it.
+fn set_slot_value(context: &mut Context, cell: u32, at: u32, value: u64) {
+    match at.checked_sub(crate::heap::INLINE_SLOTS) {
+        None => {
+            context.region.set_field(cell, at, value);
+        }
+        Some(past) => context.spill_set(cell, past as usize, value),
+    }
+}
+
+impl Context {
+    /// A cell's spilled properties, if it has any.
+    fn spill_at(&self, cell: u32) -> Option<&Vec<u64>> {
+        self.spills.at((*self.spill_of.get(cell as usize)?)?).ok()
+    }
+
+    /// Puts a value in a cell's spill, making one and growing it as needed.
+    ///
+    /// Grown with `undefined` rather than zero: a gap here is a property the
+    /// shape says exists, and zero is not a value — it decodes as a double, so
+    /// a reader would get `0` where the language says `undefined`.
+    fn spill_set(&mut self, cell: u32, past: usize, value: u64) {
+        let absent = undefined_of(self);
+        if self.spill_of.len() <= cell as usize {
+            self.spill_of.resize(cell as usize + 1, None);
+        }
+        let slot = match self.spill_of[cell as usize] {
+            Some(slot) => slot,
+            None => {
+                let slot = self.spills.insert(Vec::new()).slot();
+                self.spill_of[cell as usize] = Some(slot);
+                slot
+            }
+        };
+        let Ok(spill) = self.spills.at_mut(slot) else {
+            return;
+        };
+        if spill.len() <= past {
+            spill.resize(past + 1, absent);
+        }
+        spill[past] = value;
+    }
 }

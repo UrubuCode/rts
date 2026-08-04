@@ -132,6 +132,21 @@ pub struct Context {
     /// and a program able to store a number there would name the instruction
     /// the next call jumps to.
     closure_type: rts_cranelift::types::TypeId,
+    /// Where a cell's properties past the seventh live.
+    ///
+    /// A cell holds seven inline slots, and an object with more used to lose
+    /// them: the write was refused and the read answered `undefined`. The
+    /// region's own documentation calls that "a wrong answer that looks like a
+    /// right one" while describing the refusal — which is what it became once
+    /// the read had no way to say so.
+    ///
+    /// This is the overflow indirection that documentation names. Compiled
+    /// code never reaches it: `cache_resolve` already answers negative for a
+    /// slot past the inline ones, so such a read takes the slow path — which
+    /// is why the fast path needed no change at all.
+    spills: Slab<Vec<u64>>,
+    /// Which spill each cell uses, by region index.
+    spill_of: Vec<Option<Slot>>,
     /// Which cells are arrays, and where their elements are.
     ///
     /// # Why a side table and not a reserved layout
@@ -223,6 +238,8 @@ impl Context {
         Context {
             cells: Slab::new(),
             arrays: Slab::new(),
+            spills: Slab::new(),
+            spill_of: Vec::new(),
             shapes: ShapeTree::new(),
             keys: KeyRegistry::new(),
             interner: Interner::new(),
