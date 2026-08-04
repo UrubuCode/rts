@@ -50,11 +50,13 @@
 
 mod expr;
 mod loops;
+mod proven;
 mod scope;
 mod stmt;
 
 pub use expr::emit_expr;
 pub use loops::Loops;
+pub use proven::{Numeric, analyse};
 pub use scope::Scope;
 pub use stmt::emit_stmt;
 
@@ -131,6 +133,34 @@ pub struct Ctx<'a> {
     pub funcs: &'a mut FuncRegistry,
     /// Which runtime operations it has asked for so far.
     pub calls: &'a mut RuntimeCalls,
+    /// Which locals were proved to hold a number.
+    ///
+    /// Owned rather than borrowed, and filled by [`emit_body`] rather than by a
+    /// caller: it is a fact about the body being emitted, so a caller supplying
+    /// it would be supplying an answer about something it has not looked at.
+    numeric: Numeric,
+}
+
+impl<'a> Ctx<'a> {
+    /// A context for one compilation.
+    pub fn new(
+        model: &'a ValueModel,
+        funcs: &'a mut FuncRegistry,
+        calls: &'a mut RuntimeCalls,
+    ) -> Self {
+        Ctx {
+            model,
+            funcs,
+            calls,
+            numeric: Numeric::default(),
+        }
+    }
+
+    /// Whether a binding holds a proven number, and so keeps its
+    /// representation instead of being widened at every store.
+    pub fn holds_number(&self, name: Name) -> bool {
+        self.numeric.holds_number(name)
+    }
 }
 
 /// Emits a body of statements as a function taking no parameters.
@@ -160,6 +190,13 @@ pub fn emit_body(
         returns: vec![UNPROVEN],
         ..Signature::default()
     };
+    // What can be proved about this body, before anything is emitted. The
+    // emitter reads it to decide which bindings keep a machine representation
+    // and which are widened at every store — and a binding cannot be decided
+    // one way in one statement and the other way three statements later, which
+    // is why it is answered for the whole body up front.
+    ctx.numeric = proven::analyse(body);
+
     let mut func = Function::new(signature);
 
     // The entry block and its parameters already exist: `Function::new` builds
@@ -242,7 +279,7 @@ mod tests {
         let types = TypeRegistry::default();
         let mut funcs = FuncRegistry::new();
         let mut calls = RuntimeCalls::new();
-        let mut ctx = Ctx { model: &model, funcs: &mut funcs, calls: &mut calls };
+        let mut ctx = Ctx::new(&model, &mut funcs, &mut calls);
         let program = parse_script(source, &mut names).expect("the test's source must parse");
         // Imports and exports are not statements and this helper compiles a
         // body, so anything that is not one is dropped rather than silently
@@ -270,7 +307,7 @@ mod tests {
         let types = TypeRegistry::default();
         let mut funcs = FuncRegistry::new();
         let mut calls = RuntimeCalls::new();
-        let mut ctx = Ctx { model: &model, funcs: &mut funcs, calls: &mut calls };
+        let mut ctx = Ctx::new(&model, &mut funcs, &mut calls);
         let program = parse_script(&format!("function __test() {{ {source} }}"), &mut names)
             .expect("the test's source must parse");
         let [ModuleItem::Stmt(statement)] = program.body.as_slice() else {
@@ -340,8 +377,39 @@ mod tests {
     }
 
     #[test]
-    fn an_operator_reaches_the_runtime_because_nothing_proved_otherwise() {
+    fn an_operator_on_proven_numbers_is_an_instruction() {
         let func = emit_source("let x = 1; x + x;").expect("emits");
+        // This test asserted the opposite until the type pass existed, and the
+        // assertion it made was correct then: `+` is a call BECAUSE it might
+        // concatenate. Proving both operands numeric is exactly the evidence
+        // that it cannot, so the call goes.
+        assert!(
+            !instructions(&func)
+                .iter()
+                .any(|inst| matches!(inst, Inst::Call { .. })),
+            "nothing here needs the runtime: both operands are proven doubles"
+        );
+        assert!(
+            instructions(&func)
+                .iter()
+                .any(|inst| matches!(inst, Inst::FloatArith(..))),
+            "the addition must be an instruction"
+        );
+    }
+
+    #[test]
+    fn an_operator_reaches_the_runtime_when_nothing_was_proved() {
+        // `s` comes from a call, so nothing here knows what it is — and `1 + s`
+        // may concatenate. The call is the correct emission, and this is what
+        // rule 5 means by generic being visible rather than a fallback.
+        let error = emit_source("let s = f(); 1 + s;")
+            .expect_err("calls are not emitted yet, which is what makes `s` unproved");
+        assert_eq!(error, EmitError::Unsupported { construct: "a call" });
+    }
+
+    #[test]
+    fn a_value_crossing_a_boundary_is_widened_back() {
+        let func = emit_body_of("let x = 1; return x;").expect("emits");
         // `1 + 1` is not integer addition until something proves both sides are
         // numbers, and nothing has. Emitting `arith` would be fast and wrong for
         // `"a" + 1`, which is the failure rule 5 exists to prevent.
@@ -354,16 +422,9 @@ mod tests {
         assert!(
             instructions(&func)
                 .iter()
-                .any(|inst| matches!(inst, Inst::Call { .. })),
-            "`+` must emit a call to the runtime, not `arith` and not a generic \
-             operation nothing can lower"
-        );
-        assert!(
-            !instructions(&func)
-                .iter()
-                .any(|inst| matches!(inst, Inst::Generic(..))),
-            "nothing this crate emits may be a generic operation: it has no \
-             lowering, so emitting one produces a program that cannot run"
+                .any(|inst| matches!(inst, Inst::Widen(_))),
+            "a proof stops at the boundary: a caller cannot know what it gets \
+             back, so the signature says tagged and the value is widened to match"
         );
     }
 

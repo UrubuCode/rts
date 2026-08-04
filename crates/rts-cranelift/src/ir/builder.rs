@@ -144,7 +144,20 @@ impl<'a> FuncBuilder<'a> {
         self.block
     }
 
+    /// What representation a value holds.
+    ///
+    /// A client passing block arguments has to match what the target declared,
+    /// and a client deciding what a merge point should declare has to know what
+    /// is arriving. Both are questions about a value this builder already
+    /// answers internally; without asking, a caller either tracks it in
+    /// parallel — which is a second record of the same fact — or declares
+    /// everything generic and loses what it proved.
+    pub fn repr_of(&self, value: ValueId) -> Repr {
+        self.func.repr_of(value)
+    }
+
     /// Moves to another block.
+
     pub fn switch_to(&mut self, block: BlockId) {
         self.block = block;
     }

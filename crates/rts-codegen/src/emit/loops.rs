@@ -113,12 +113,12 @@ pub fn emit_while(
 ) -> EmitResult<bool> {
     let header = builder.create_block();
     let (merged, depth) = plan(scope, body);
-    let carried = add_params(builder, header, &merged);
+    let entering = scope.snapshot();
+    let carried = add_params(builder, header, &merged, &entering);
 
     // Into the header with whatever the names mean now. The header's parameters
     // are what they mean *inside* the loop, which is not the same thing on the
     // second pass — and that difference is the entire reason they exist.
-    let entering = scope.snapshot();
     builder.jump(header, &merged_args(&entering, &merged))?;
 
     builder.switch_to(header);
@@ -127,7 +127,7 @@ pub fn emit_while(
     let cond = super::expr::emit_condition(builder, scope, ctx, condition)?;
     let inside = builder.create_block();
     let exit = builder.create_block();
-    let params = add_params(builder, exit, &merged);
+    let params = add_params(builder, exit, &merged, &entering);
 
     let at_header = scope.snapshot();
     builder.branch(
@@ -174,11 +174,11 @@ pub fn emit_do_while(
     let test = builder.create_block();
     let exit = builder.create_block();
     let (merged, depth) = plan(scope, body);
-    let at_top = add_params(builder, top, &merged);
-    let params = add_params(builder, exit, &merged);
-    let at_test_params = add_params(builder, test, &merged);
-
     let entering = scope.snapshot();
+    let at_top = add_params(builder, top, &merged, &entering);
+    let params = add_params(builder, exit, &merged, &entering);
+    let at_test_params = add_params(builder, test, &merged, &entering);
+
     builder.jump(top, &merged_args(&entering, &merged))?;
 
     builder.switch_to(top);
@@ -278,15 +278,15 @@ fn emit_for_inner(
     merged.dedup();
     let depth = scope.snapshot().len();
 
-    let carried = add_params(builder, header, &merged);
     let entering = scope.snapshot();
+    let carried = add_params(builder, header, &merged, &entering);
     builder.jump(header, &merged_args(&entering, &merged))?;
     builder.switch_to(header);
     settle(scope, &entering, &merged, &carried);
 
     let inside = builder.create_block();
     let exit = builder.create_block();
-    let params = add_params(builder, exit, &merged);
+    let params = add_params(builder, exit, &merged, &entering);
 
     let at_header = scope.snapshot();
     match test {
@@ -307,7 +307,7 @@ fn emit_for_inner(
     // `continue` runs the update, so it targets a block of its own rather than
     // the header — jumping straight to the header would skip `i++`.
     let stepping = builder.create_block();
-    let step_params = add_params(builder, stepping, &merged);
+    let step_params = add_params(builder, stepping, &merged, &entering);
     let frame = Frame {
         continue_to: stepping,
         break_to: exit,
@@ -410,10 +410,28 @@ fn positions_of(scope: &Scope, names: &[Name]) -> Vec<usize> {
 /// anything jumps there. The first version of this added them while switching
 /// to the header — after the entry jump — and every loop failed with
 /// `ArgumentCount { expected: 0, found: 1 }`.
-fn add_params(builder: &mut FuncBuilder, block: BlockId, merged: &[usize]) -> Vec<ValueId> {
+fn add_params(
+    builder: &mut FuncBuilder,
+    block: BlockId,
+    merged: &[usize],
+    incoming: &[Binding],
+) -> Vec<ValueId> {
     merged
         .iter()
-        .map(|_| builder.add_block_param(block, UNPROVEN))
+        .map(|&position| {
+            // The representation of what ARRIVES, not `Tagged`. A parameter
+            // declared generic would widen every proven value passed to it —
+            // the builder inserts that silently, which is correct and is
+            // exactly how a loop lost everything the type pass proved about its
+            // counter.
+            //
+            // Sound because a name the analysis proved numeric is numeric on
+            // every path into this block, so every predecessor passes the same
+            // representation. A name it did not prove is tagged at every store,
+            // so those agree too.
+            let repr = builder.repr_of(incoming[position].value());
+            builder.add_block_param(block, repr)
+        })
         .collect()
 }
 

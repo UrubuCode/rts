@@ -1,5 +1,13 @@
 # How fast the new engine is, measured against the old one
 
+> **Superseded in part, the same day.** The 130× below was measured before the
+> type pass existed, and it is what motivated writing one. After it: **0.91 ns
+> per pass against the old engine's 0.70** — 1.3× rather than 130×. The
+> measurement that follows is kept rather than rewritten, because what it found
+> is what the pass was aimed at, and a number that vanishes when it is acted on
+> leaves nothing to check the action against. The new figures are at the end.
+
+
 **2026-08-04.** Both release builds. The old engine's binary was rebuilt first —
 the one on disk was two days old and `git log` showed its sources had changed
 since, which would have made the comparison a measurement of the wrong program.
@@ -132,3 +140,56 @@ target/release/examples/perop.exe 2000000
 For the old engine, a `.ts` file holding the kernel wrapped in a function and
 called, run with `target/release/rts.exe run <file>`, timed against an empty
 file for startup.
+
+---
+
+# After the type pass
+
+Same kernel, same machine, same session, both re-measured rather than compared
+against a remembered figure.
+
+| | per pass | 20 M passes |
+|---|---:|---:|
+| old engine | 0.70 ns | 13.9 ms |
+| new engine, before | 94 ns | 1 880 ms |
+| **new engine, after** | **0.91 ns** | **18.2 ms** |
+
+**103× faster than it was, and 1.3× slower than the old engine.**
+
+The per-operator measurement moved the same way, and it is the one that says
+why:
+
+| operators in the loop | before | after |
+|---:|---:|---:|
+| 3 | 94.2 ns | 0.9 ns |
+| 4 | 119.3 ns | 1.3 ns |
+| 5 | 143.1 ns | 2.0 ns |
+
+**+24.5 ns per operator became +0.4 ns.** The call is gone; what remains is the
+instruction. That is the whole of the change: nothing about the code generator,
+the calling convention or the runtime was touched, and the same runtime entry
+points are still there for the operands nobody could prove anything about.
+
+## What is still 1.3×, and what is not known about it
+
+Not investigated, and stated as unknown rather than explained. Candidates, in no
+order: the old engine may keep its counter in an integer where this keeps a
+double; the loop may differ by an instruction or two; the measurement's own
+floor at 14 ms of work is close enough to startup noise that the gap is a few
+milliseconds of a number the difference method already spends.
+
+What is measured is that the gap is now small enough that finding out requires
+looking at the emitted code, which is a different activity from this one.
+
+## What the pass does not do
+
+- **Anything the analysis cannot prove.** A parameter, a call's result, a
+  property, a captured local: nothing here has evidence about any of them, and a
+  wrong answer would be `arith` on a string rather than slow code.
+- **`%`.** The code generator's numeric instructions are add, subtract, multiply
+  and divide; remainder on doubles stays a runtime call.
+- **Truthiness of a proven number.** `if (x)` still calls `ToBoolean` when `x`
+  is a number, because a number is truthy when it is neither zero nor NaN and
+  that is two comparisons and a conjunction rather than one instruction. It
+  costs nothing in the common case: `while (i < n)` produces a proven boolean
+  already, and a condition that is already a boolean is used directly.

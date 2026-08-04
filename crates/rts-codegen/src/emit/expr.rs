@@ -27,13 +27,16 @@
 //! a mechanism this module does not have yet rather than a shortcut it declined
 //! to take.
 
+use rts_cranelift::ir::inst::{CmpOp, NumOp};
 use rts_cranelift::ir::{ConstDecl, FuncBuilder, ScalarBits, ValueId};
+use rts_cranelift::repr::Repr;
 use rts_cranelift::tags;
 
 use super::{Ctx, EmitError, EmitResult, Scope, UNPROVEN};
 use crate::runtime::RuntimeOp;
 use crate::syntax::{AssignTarget, Expr, ExprKind, Literal};
 use crate::syntax::{AssignOp, BinaryOp};
+use crate::names::Name;
 use crate::values::Singleton;
 
 /// Materializes `undefined`.
@@ -138,6 +141,11 @@ pub fn emit_expr(
     }
 }
 
+/// Widens a value for a position that takes a JavaScript value.
+pub fn as_value(builder: &mut FuncBuilder, value: ValueId) -> ValueId {
+    tagged(builder, value)
+}
+
 /// A named gap.
 fn gap<T>(construct: &'static str) -> EmitResult<T> {
     Err(EmitError::Unsupported { construct })
@@ -155,7 +163,11 @@ fn call(
     args: &[ValueId],
 ) -> EmitResult<Vec<ValueId>> {
     let callee = ctx.calls.declare(ctx.funcs, op);
-    Ok(builder.call(ctx.funcs, callee, args)?)
+    // A runtime operation takes JavaScript values, whatever was proved about
+    // them here. Widening at the boundary rather than at the proof is what lets
+    // a proof survive across the operators in between.
+    let args: Vec<_> = args.iter().map(|value| tagged(builder, *value)).collect();
+    Ok(builder.call(ctx.funcs, callee, &args)?)
 }
 
 /// Turns a JavaScript value into the proven boolean a branch requires.
@@ -177,6 +189,12 @@ pub fn emit_condition(
     condition: &Expr,
 ) -> EmitResult<ValueId> {
     let value = emit_expr(builder, scope, ctx, condition)?;
+    // A proven boolean IS the answer: `ToBoolean` of a boolean is itself, so
+    // asking the runtime buys nothing at all. It is also the common case —
+    // `while (i < n)` and `if (a === b)` are how conditions get written.
+    if builder.repr_of(value) == Repr::Bool {
+        return Ok(value);
+    }
     Ok(call(builder, ctx, RuntimeOp::ToBoolean, &[value])?[0])
 }
 
@@ -191,7 +209,12 @@ fn emit_literal(
         // like integers. Emitting `1` as a tagged int32 would be a narrowing
         // this module has not proved is safe — `1` and `1.0` are the same
         // value and the encoding must not decide otherwise here.
-        Literal::Number(value) => Ok(constant(builder, tags::encode_double(*value))),
+        // Emitted as a PROVEN double, not as a tagged word. The bits are the
+        // same — a NaN-boxed double IS the double — but the representation is
+        // what an operator reads to decide between an instruction and a call,
+        // so tagging at the literal throws away every proof that could have
+        // started there.
+        Literal::Number(value) => Ok(number_constant(builder, *value)),
         Literal::Boolean(value) => {
             let payload = if *value { tags::BOOL_TRUE } else { tags::BOOL_FALSE };
             Ok(constant(builder, tags::encode(tags::TAG_BOOL, payload)))
@@ -220,7 +243,26 @@ fn emit_binary(
     a: ValueId,
     b: ValueId,
 ) -> EmitResult<ValueId> {
+    // The whole point of the pass. Two proven doubles turn every one of these
+    // into a machine instruction, because the decision the runtime call exists
+    // to make has exactly one answer once the operands are known.
+    //
+    // `+` included, and it is the one worth being explicit about: it is a call
+    // in general BECAUSE it might concatenate, and proving both sides numeric
+    // is precisely the evidence that it cannot.
+    if builder.repr_of(a) == Repr::F64 && builder.repr_of(b) == Repr::F64 {
+        match proven_binary(op) {
+            Some(Proven::Arith(num)) => return Ok(builder.arith(num, a, b)?),
+            // `===` on two numbers is IEEE equality, and that is not an
+            // approximation of it: NaN !== NaN and +0 === -0 are what the
+            // hardware comparison already answers.
+            Some(Proven::Compare(cmp)) => return Ok(builder.compare(cmp, a, b)?),
+            None => {}
+        }
+    }
+
     let runtime = match op {
+
         BinaryOp::Add => RuntimeOp::Add,
 
         // `-`, `*`, `/` and the four relational operators are refused rather
@@ -319,6 +361,7 @@ fn emit_assign(
         AssignOp::Logical(_) => return gap("`&&=`, `||=` or `??=`"),
     };
 
+    let result = stored(builder, ctx, *name, result);
     if !scope.assign(*name, result) {
         return Err(EmitError::UnboundName(*name));
     }
@@ -346,4 +389,72 @@ fn compared(
 ) -> EmitResult<ValueId> {
     let proven = call(builder, ctx, op, &[a, b])?[0];
     Ok(builder.widen(proven))
+}
+
+/// A number, as a value the machine knows is a number.
+fn number_constant(builder: &mut FuncBuilder, value: f64) -> ValueId {
+    let id = builder.declare_const(ConstDecl::Scalar {
+        repr: Repr::F64,
+        bits: ScalarBits(value.to_bits()),
+    });
+    builder.use_const(id)
+}
+
+/// What a binding holds, given what was proved about its name.
+///
+/// A proved local keeps its machine representation, so the next operator that
+/// reads it can be an instruction. Anything else is widened at the store, which
+/// is what makes the representation of a binding a property of the NAME rather
+/// than of whichever value reached it last — and that is what a merge needs,
+/// since two paths writing different representations into one name is a program
+/// the machine refuses to build.
+pub fn stored(builder: &mut FuncBuilder, ctx: &Ctx, name: Name, value: ValueId) -> ValueId {
+    if ctx.holds_number(name) {
+        value
+    } else {
+        tagged(builder, value)
+    }
+}
+
+/// A value as JavaScript sees it.
+///
+/// Widening where a proof stops being useful: a `return`, a runtime call's
+/// argument, a binding nothing proved. The machine inserts nothing when the
+/// value is already generic, so this costs a comparison while compiling and
+/// nothing at run time for values that were never proved.
+fn tagged(builder: &mut FuncBuilder, value: ValueId) -> ValueId {
+    builder.widen(value)
+}
+
+/// What a proven pair of doubles turns an operator into.
+enum Proven {
+    /// A machine arithmetic instruction.
+    Arith(NumOp),
+    /// A machine comparison, which yields a proven boolean.
+    Compare(CmpOp),
+}
+
+/// The instruction an operator becomes when both operands are proven doubles.
+///
+/// `None` for the ones that stay calls whatever is known: `==` has its own
+/// conversion table, `in` and `instanceof` ask the heap, and the bitwise
+/// operators are not emitted at all yet.
+fn proven_binary(op: BinaryOp) -> Option<Proven> {
+    Some(match op {
+        BinaryOp::Add => Proven::Arith(NumOp::Add),
+        BinaryOp::Sub => Proven::Arith(NumOp::Sub),
+        BinaryOp::Mul => Proven::Arith(NumOp::Mul),
+        BinaryOp::Div => Proven::Arith(NumOp::Div),
+        // `%` has no machine instruction here: the code generator's numeric
+        // set is add, subtract, multiply and divide, and a remainder on
+        // doubles is a library call on most targets anyway. It stays a runtime
+        // call, which is correct rather than a gap.
+        BinaryOp::Less => Proven::Compare(CmpOp::Lt),
+        BinaryOp::LessEqual => Proven::Compare(CmpOp::Le),
+        BinaryOp::Greater => Proven::Compare(CmpOp::Gt),
+        BinaryOp::GreaterEqual => Proven::Compare(CmpOp::Ge),
+        BinaryOp::StrictEqual => Proven::Compare(CmpOp::Eq),
+        BinaryOp::StrictNotEqual => Proven::Compare(CmpOp::Ne),
+        _ => return None,
+    })
 }

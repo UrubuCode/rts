@@ -117,11 +117,7 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
     };
 
     let script_id = {
-        let mut ctx = Ctx {
-            model: &model,
-            funcs: &mut funcs,
-            calls: &mut calls,
-        };
+        let mut ctx = Ctx::new(&model, &mut funcs, &mut calls);
         let func = emit_body(body, &[], &types, &mut ctx)?;
         (func, ())
     };
