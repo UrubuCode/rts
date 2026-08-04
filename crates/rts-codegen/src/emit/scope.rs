@@ -147,6 +147,26 @@ impl Scope {
         false
     }
 
+    /// Where a name sits in [`Self::snapshot`], innermost binding first.
+    ///
+    /// A loop asks this to turn "the body assigns `x`" into a position it can
+    /// carry as a block parameter. `None` means the name is not in scope out
+    /// here — a body-local, which is a fresh binding every pass and which
+    /// nothing outside the body can refer to.
+    pub fn position_of(&self, name: Name) -> Option<usize> {
+        let mut base = 0;
+        let mut found = None;
+        for layer in &self.layers {
+            for (offset, (bound, _)) in layer.entries.iter().enumerate() {
+                if *bound == name {
+                    found = Some(base + offset);
+                }
+            }
+            base += layer.entries.len();
+        }
+        found
+    }
+
     /// Every binding in scope, outermost first, as a flat list.
     ///
     /// # What this is for

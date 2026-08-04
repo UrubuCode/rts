@@ -16,6 +16,7 @@
 use rts_cranelift::ir::FuncBuilder;
 
 use super::expr::{emit_condition, emit_expr, undefined};
+use super::loops::{self, Loops};
 use super::scope::Binding;
 use super::UNPROVEN;
 use super::{Ctx, EmitError, EmitResult, Scope};
@@ -26,6 +27,7 @@ pub fn emit_stmt(
     builder: &mut FuncBuilder,
     scope: &mut Scope,
     ctx: &mut Ctx,
+    loops: &mut Loops,
     statement: &Stmt,
 ) -> EmitResult<bool> {
     match &statement.kind {
@@ -75,7 +77,7 @@ pub fn emit_stmt(
             scope.enter();
             let mut terminated = false;
             for inner in body {
-                if emit_stmt(builder, scope, ctx, inner)? {
+                if emit_stmt(builder, scope, ctx, loops, inner)? {
                     terminated = true;
                     break;
                 }
@@ -88,7 +90,7 @@ pub fn emit_stmt(
             condition,
             then_branch,
             else_branch,
-        } => emit_if(builder, scope, ctx, condition, then_branch, else_branch.as_deref()),
+        } => emit_if(builder, scope, ctx, loops, condition, then_branch, else_branch.as_deref()),
 
         // `debugger` with no debugger attached is specified to do nothing, and
         // "nothing" is the whole implementation rather than a gap.
@@ -98,13 +100,34 @@ pub fn emit_stmt(
         // as "control flow" because they do not all need the same mechanism:
         // `if` needs a branch and a merge, a loop needs block parameters for
         // every local it rebinds, and `try` needs a protected region.
-        StmtKind::While { .. } => gap("`while`"),
-        StmtKind::DoWhile { .. } => gap("`do`/`while`"),
-        StmtKind::For { .. } => gap("`for`"),
+        StmtKind::While { condition, body } => {
+            loops::emit_while(builder, scope, ctx, loops, condition, body)
+        }
+        StmtKind::DoWhile { body, condition } => {
+            loops::emit_do_while(builder, scope, ctx, loops, body, condition)
+        }
+        StmtKind::For {
+            init,
+            test,
+            update,
+            body,
+        } => loops::emit_for(
+            builder,
+            scope,
+            ctx,
+            loops,
+            init.as_ref(),
+            test.as_ref(),
+            update.as_ref(),
+            body,
+        ),
         StmtKind::ForEach { .. } => gap("`for-in` or `for-of`"),
         StmtKind::Switch { .. } => gap("`switch`"),
-        StmtKind::Break(_) => gap("`break`"),
-        StmtKind::Continue(_) => gap("`continue`"),
+        // A label is refused, so an unlabelled break is the only kind that
+        // reaches here — and the innermost loop is where it goes.
+        StmtKind::Break(None) => loops::emit_jump_out(builder, scope, loops, true),
+        StmtKind::Continue(None) => loops::emit_jump_out(builder, scope, loops, false),
+        StmtKind::Break(Some(_)) | StmtKind::Continue(Some(_)) => gap("a labelled jump"),
         StmtKind::Labelled { .. } => gap("a label"),
         StmtKind::Throw(_) => gap("`throw`"),
         StmtKind::Try { .. } => gap("`try`"),
@@ -150,6 +173,7 @@ fn emit_if(
     builder: &mut FuncBuilder,
     scope: &mut Scope,
     ctx: &mut Ctx,
+    loops: &mut Loops,
     condition: &crate::syntax::Expr,
     then_branch: &Stmt,
     else_branch: Option<&Stmt>,
@@ -162,7 +186,7 @@ fn emit_if(
     builder.branch(cond, (then_block, &[]), (else_block, &[]))?;
 
     builder.switch_to(then_block);
-    let then_terminated = emit_stmt(builder, scope, ctx, then_branch)?;
+    let then_terminated = emit_stmt(builder, scope, ctx, loops, then_branch)?;
     let after_then = scope.snapshot();
     // Where the arm ENDED, which is not where it started as soon as anything
     // nests inside it. Asking the builder rather than assuming `then_block` is
@@ -176,7 +200,7 @@ fn emit_if(
     scope.restore(&before);
     builder.switch_to(else_block);
     let else_terminated = match else_branch {
-        Some(statement) => emit_stmt(builder, scope, ctx, statement)?,
+        Some(statement) => emit_stmt(builder, scope, ctx, loops, statement)?,
         None => false,
     };
     let after_else = scope.snapshot();

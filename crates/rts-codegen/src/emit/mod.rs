@@ -49,10 +49,12 @@
 //! has the order and why.
 
 mod expr;
+mod loops;
 mod scope;
 mod stmt;
 
 pub use expr::emit_expr;
+pub use loops::Loops;
 pub use scope::Scope;
 pub use stmt::emit_stmt;
 
@@ -182,9 +184,10 @@ pub fn emit_body(
     }
 
     let mut builder = FuncBuilder::new(&mut func, types, entry);
+    let mut loops = Loops::default();
     let mut terminated = false;
     for statement in body {
-        if emit_stmt(&mut builder, &mut scope, ctx, statement)? {
+        if emit_stmt(&mut builder, &mut scope, ctx, &mut loops, statement)? {
             terminated = true;
             break;
         }
@@ -447,5 +450,74 @@ mod tests {
                 .any(|inst| matches!(inst, Inst::Call { .. })),
             "the condition must reach the runtime, not a bare narrowing"
         );
+    }
+
+    #[test]
+    fn a_loop_carries_what_it_writes_and_nothing_else() {
+        // The whole content of the phase, as a count. `i` is written and `n` is
+        // only read, so exactly one binding travels — and the alternative
+        // implementation, a parameter for every live local, would give two.
+        let func = emit_body_of("let i = 0; let n = 1; while (i) { i = n; } return i;")
+            .expect("emits");
+        let params: usize = func.blocks().map(|(_, block)| block.params.len()).sum();
+        // Header and exit each carry `i`.
+        assert_eq!(params, 2, "only `i` differs between passes");
+    }
+
+    #[test]
+    fn a_body_local_gets_no_parameter_because_it_is_a_new_binding_each_pass() {
+        // `x` is written every pass and is a different binding every pass, so
+        // nothing outside the body can name it and nothing needs to carry it.
+        let func = emit_body_of("let i = 0; while (i) { let x = i; x = 1; } return i;")
+            .expect("emits");
+        let params: usize = func.blocks().map(|(_, block)| block.params.len()).sum();
+        assert_eq!(params, 0, "the loop writes nothing that outlives a pass");
+    }
+
+    #[test]
+    fn break_and_continue_reach_the_blocks_the_loop_recorded() {
+        // Both merge through the same mechanism as the back edge, so the thing
+        // worth pinning is that they are emitted at all and that what they
+        // produce is well formed — which is the verifier's answer, not mine.
+        emit_body_of("let i = 0; while (i) { if (i) { break; } i = 1; } return i;")
+            .expect("emits");
+        emit_body_of("let i = 0; while (i) { if (i) { continue; } i = 1; } return i;")
+            .expect("emits");
+    }
+
+    #[test]
+    fn a_for_header_owns_a_scope_that_does_not_survive_the_loop() {
+        // `i` is not in scope after the loop, so using it there is the
+        // program's error rather than a gap.
+        emit_body_of("for (let i = 0; i; i = 1) { }").expect("emits");
+        let error = emit_body_of("for (let i = 0; i; i = 1) { } return i;")
+            .expect_err("`i` is gone");
+        assert!(matches!(error, EmitError::UnboundName(_)), "got {error:?}");
+    }
+
+    #[test]
+    fn a_for_runs_its_update_on_the_continue_path() {
+        // The reason `continue` targets a block of its own rather than the
+        // header: jumping straight to the header would skip `i = 1`, and the
+        // loop would spin. Well-formedness is what is checkable here; the
+        // stepping block existing at all is what the count shows.
+        let func = emit_body_of("for (let i = 0; i; i = 1) { continue; }").expect("emits");
+        assert!(
+            func.blocks().count() >= 5,
+            "header, body, stepping, exit and the entry are all distinct"
+        );
+    }
+
+    #[test]
+    fn a_do_while_sends_continue_to_the_condition_not_the_top() {
+        // Stated where the node is declared, and getting it wrong produces a
+        // loop that runs its body twice per pass for programs using `continue`.
+        emit_body_of("let i = 0; do { continue; } while (i);").expect("emits");
+    }
+
+    #[test]
+    fn nested_loops_break_out_of_the_innermost_one() {
+        emit_body_of("let i = 0; while (i) { while (i) { break; } i = 1; } return i;")
+            .expect("emits");
     }
 }

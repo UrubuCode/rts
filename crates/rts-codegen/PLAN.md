@@ -502,10 +502,20 @@ never see each other's source, and a disagreement between them should be an
 unresolved symbol at link time rather than a call to the wrong function with
 plausible arguments.
 
-**E3 — the rest of control flow.** The loops, `switch`, labels,
-`break`/`continue`. A loop is a join whose second predecessor has not been
-emitted when its parameters must be decided, which is the one thing `if` did not
-have to solve.
+**E3 — loops. DONE.** `while`, `do`/`while`, three-part `for`, and unlabelled
+`break`/`continue`. `switch` and labels remain refused by name.
+
+A loop header is a join whose second predecessor does not exist when its
+parameters must be decided — the one thing `if` did not have to solve. Two ways
+out, and the second is taken: giving every live local a parameter is correct and
+makes every loop pay for every variable in scope, which is the same trap as the
+stack-slot-per-local. Asking the tree which names the body *assigns* is a
+syntactic question with a syntactic answer, and it over-approximates only in the
+safe direction — an assignment in a branch that never runs still counts.
+
+`break` and `continue` merge through the same mechanism: a `continue` is a back
+edge and a `break` is an extra predecessor of the exit, so both carry the same
+names.
 
 **E4 — objects and property access.** The machine's shapes get their first
 client. `cached_get` and `guard_type` exist and have no caller.
