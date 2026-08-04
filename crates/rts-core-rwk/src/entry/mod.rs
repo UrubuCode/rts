@@ -104,6 +104,13 @@ pub struct Context {
     /// identity and the text lives beside it. That is also what a real engine
     /// does: string data is separate from string identity.
     text_type: rts_cranelift::types::TypeId,
+    /// How many times a cached read site asked where a property is.
+    ///
+    /// A hit does not reach the runtime at all, so this counts MISSES — which
+    /// makes it the one number that separates "the cache works" from "the cache
+    /// is a slower way of calling". Both produce the same wall clock scaling,
+    /// and no measurement already taken can tell them apart.
+    pub resolves: u64,
     /// Which singleton number means what, as the language declared it.
     pub singletons: Singletons,
 }
@@ -147,6 +154,7 @@ impl Context {
             types,
             shape_of_type: Vec::new(),
             text_type,
+            resolves: 0,
             singletons,
         }
     }

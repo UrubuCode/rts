@@ -50,6 +50,7 @@ use super::with_current;
 #[rtse::entry("rts_cache_resolve")]
 pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
     with_current(|context| {
+        context.resolves += 1;
         let Ok(number) = u32::try_from(key) else {
             return -1;
         };

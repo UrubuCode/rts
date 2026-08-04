@@ -251,3 +251,81 @@ machine's `cached_get` and `guard_type` are for, and they still have no caller.
 
 So the target is specific: **~95 ns per property access, of which none is
 inherent.**
+
+---
+
+# Is the cache missing every time? No — and asking found a broken benchmark
+
+The previous section left 27.2 ns per property read as unexplained and stated
+the obvious hypothesis: a hit should be a compare, a branch and two loads, and
+27 ns is close enough to the 24 ns a bare runtime call costs that the site was
+probably missing on every read.
+
+**It was not.** Counting is what settles it — a hit never reaches the runtime, so
+counting calls to `rts_cache_resolve` counts misses:
+
+```
+one property read     25.9 ns/pass    misses 0
+```
+
+Zero misses over two million reads. The cache works.
+
+## What the 27 ns actually was
+
+Asking the question exposed a flaw in the measurement that had been there from
+the start. The case was:
+
+```js
+t = t + o.n          // measured against:    t = t + n
+```
+
+`o.n` is **not proved numeric** — nothing knows what an object holds — so the
+`+` beside it is a runtime call. The `+` in the baseline is an instruction,
+because `n` is a proved local. The comparison was charging a 24 ns call to the
+property read.
+
+Measuring a read with nothing attached to it — an expression statement, which
+evaluates and discards — gives the real number:
+
+| | ns per pass | over the baseline |
+|---|---:|---:|
+| baseline, proved local | 0.8 | — |
+| one read, discarded | 1.4 | **+0.5** |
+| two reads, discarded | 2.3 | +1.5 |
+
+**A property read costs about 0.9 ns** — a compare, a branch and two loads,
+which is what the design said it would be.
+
+## The full arc, and what each step was worth
+
+| | ns per read |
+|---|---:|
+| E4, object as a Rust `Vec` behind a call | 132.8 |
+| after removing an allocation per read | 94.8 |
+| after moving objects into the region | 90.2 |
+| after `guard_type` + `cached_get` | **~0.9** |
+
+The middle two steps look like almost nothing and were the whole point: neither
+made anything fast, and together they made the last step possible. An object
+that is a Rust enum holding a `Vec` cannot be guarded and cannot be loaded from.
+
+## What is still slow, correctly attributed this time
+
+**A property write: 71.7 ns.** Still a runtime call — nothing emits a cached
+store yet, and the machine has no `cached_set` to emit.
+
+**Arithmetic on a property: ~24 ns per operator.** Not the read's cost and not
+fixable by caching. `o.n + 1` is a call because nothing proved `o.n` is a number,
+and the type pass proves things about *locals*. Proving something about what an
+object holds is what a shape carrying a representation would buy — `ShapeTree`
+already stores one per property, and nothing reads it.
+
+## The rule this is the second example of
+
+The type pass measurement found a number and acted on it. This one found a
+number, doubted it, and the doubt found a broken measurement. Both mattered; the
+second more.
+
+**A measurement that cannot be wrong has not been checked.** The counter cost
+four lines and turned an unexplained 27 ns into a 0.9 ns read and a 24 ns call
+that was never the subject.

@@ -46,6 +46,12 @@ pub struct Compiled {
     /// An `Option` only so a run can move it into the context and take it back —
     /// it is never absent between runs.
     region: Option<rts_core_rwk::heap::Region>,
+    /// How many cached read sites missed during the last run.
+    ///
+    /// Zero after a run whose sites all recognised what they saw. Equal to the
+    /// number of reads when none of them did — which is what tells a cache that
+    /// works from one that is a slower way of calling.
+    resolves: u64,
     /// How many property keys the compilation minted.
     ///
     /// The runtime has to have issued the same ones, or a number the program
@@ -96,12 +102,18 @@ impl Compiled {
         let entry = self.entry;
         let (context, value) = rts_core_rwk::entry::with_context(context, || entry());
         self.region = Some(context.region);
+        self.resolves = context.resolves;
         value
     }
 
     /// What the compiler numbered the singletons, for a caller reading a result.
     pub fn model(&self) -> &ValueModel {
         &self.model
+    }
+
+    /// How many cached reads missed during the last run.
+    pub fn resolves(&self) -> u64 {
+        self.resolves
     }
 }
 
@@ -257,6 +269,7 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
         entry,
         model,
         region: Some(region),
+        resolves: 0,
         keys: keys.len(),
     })
 }
