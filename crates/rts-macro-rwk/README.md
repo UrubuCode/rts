@@ -56,6 +56,12 @@ hatch for a symbol whose spelling predates the convention.
 The list is short and the error names it. A guess produces a call that compiles
 and passes the wrong number of registers, found at run time or not at all.
 
+A `&str` is the exception to "one parameter, one argument": it cannot cross
+`extern "C"` as itself, so a function taking one keeps its ordinary Rust
+signature and gains a trampoline that takes the pointer and the length. A
+function taking none is rewritten in place and pays nothing — a trampoline for
+every entry would add a call to the common case for no reason.
+
 `u64` is a **tagged value**, not an integer — that is what a `Value` is, and
 `Repr::Tagged` is the machine's word for "nothing has been proved about this". An
 entry wanting a genuine integer takes `i64`.

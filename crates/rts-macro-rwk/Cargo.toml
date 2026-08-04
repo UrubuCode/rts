@@ -22,3 +22,8 @@ proc-macro = true
 syn = { version = "2", features = ["full"] }
 quote = "1"
 proc-macro2 = "1"
+
+[dev-dependencies]
+# Only the tests need the type the expansion names. The library still does not:
+# it writes the path and never resolves it.
+rts-cranelift = { path = "../rts-cranelift" }
