@@ -517,7 +517,58 @@ safe direction — an assignment in a branch that never runs still counts.
 edge and a `break` is an extra predecessor of the exit, so both carry the same
 names.
 
-**E4 — objects and property access.** The machine's shapes get their first
+### Can any of this run yet? No, and the blocker was measured
+
+Asked directly, and worth the paragraph because the answer was not the expected
+one. The machine executes: a dozen of its tests compile into this process's
+memory and call the result. The plumbing is proven.
+
+What could not run was ours. E1 emitted `Inst::Generic` for every operator, and
+the machine refuses to lower a generic operation **unconditionally**:
+
+```rust
+Inst::Generic(..) => Err(LowerError::NotYetLowered { needs: Capability::Calls })
+```
+
+So E1 and E2 produced IR that passes the verifier and can never become machine
+code — and no test caught it, because every test stopped at the verifier. A
+verifier answers "is this well formed", not "can this be compiled", and the two
+questions are not the same one.
+
+Fixed by the boundary's own logic: which symbol a generic addition dials is a
+fact about JavaScript, so the language emits the call. Nothing this crate emits
+is a generic operation any more, and a test asserts that.
+
+**The regression that came with it, stated rather than quiet:** `-`, `*`, `/`
+and the four relational operators are now refused. They were accepted before as
+generic operations that could not be compiled. They return when the runtime
+defines them — inventing symbols here that `rts-core-rwk` does not export is
+exactly the drift the audit named, and nothing links the two sides yet to catch
+it.
+
+### Where the executable test has to live, and why it is not here
+
+Not in this crate. Compiling and running needs `Linkage`, `MachineModule` and a
+JIT module, and rule 1 is unambiguous: *"This crate never touches Cranelift…
+Not for convenience, not for one case."* A dev-dependency on `cranelift-module`
+to write one test would be the concession that rule refuses.
+
+There is also a real gap underneath it. The two destinations are not equal for
+this:
+
+- **object file** — an undefined `__rts_add` is resolved by the linker against
+  the runtime archive. This path works.
+- **executable memory** — `executable_memory()` builds and consumes its
+  `JITBuilder`, so nothing can register the address of a runtime symbol. The
+  machine has `EntryTable` for exactly this, and it serves `RtEntry` — the
+  machine's own entries, not the language's.
+
+So AOT could execute today and JIT could not. Both belong to the crate that may
+name a compiler and a runtime at once, which is `rts-host`. Its two stated
+preconditions — core's entry path, and a lowering — are now met.
+
+**E4 — objects and property access.**
+ The machine's shapes get their first
 client. `cached_get` and `guard_type` exist and have no caller.
 
 **E5 — functions and closures.** A captured local stops being a `ValueId` and

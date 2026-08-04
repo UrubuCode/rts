@@ -208,7 +208,7 @@ mod tests {
     use crate::parse::parse_script;
     use crate::syntax::{FunctionBody, ModuleItem, StmtKind};
     use rts_cranelift::ir::FuncRegistry;
-    use rts_cranelift::ir::inst::{GenericOp, Inst, Terminator};
+    use rts_cranelift::ir::inst::{Inst, Terminator};
     use crate::values::ValueModel;
     use rts_cranelift::tags::TagRegistry;
 
@@ -340,17 +340,30 @@ mod tests {
     }
 
     #[test]
-    fn an_operator_is_generic_because_nothing_proved_otherwise() {
+    fn an_operator_reaches_the_runtime_because_nothing_proved_otherwise() {
         let func = emit_source("let x = 1; x + x;").expect("emits");
         // `1 + 1` is not integer addition until something proves both sides are
-        // numbers, and nothing has. Emitting `arith` here would be fast and
-        // wrong for `"a" + 1`, which is the failure rule 5 exists to prevent —
-        // so the generic form is the deliverable rather than a placeholder.
+        // numbers, and nothing has. Emitting `arith` would be fast and wrong for
+        // `"a" + 1`, which is the failure rule 5 exists to prevent.
+        //
+        // The first version of this test asserted `Inst::Generic` instead, and
+        // it was pinning the wrong thing: the machine refuses to lower a generic
+        // operation at all, so what it pinned was IR that passes the verifier
+        // and can never become machine code. Which symbol a generic addition
+        // dials is a fact about JavaScript, so the language emits the call.
         assert!(
             instructions(&func)
                 .iter()
-                .any(|inst| matches!(inst, Inst::Generic(GenericOp::Add, _, _))),
-            "`+` must emit the generic operation, not `arith`"
+                .any(|inst| matches!(inst, Inst::Call { .. })),
+            "`+` must emit a call to the runtime, not `arith` and not a generic \
+             operation nothing can lower"
+        );
+        assert!(
+            !instructions(&func)
+                .iter()
+                .any(|inst| matches!(inst, Inst::Generic(..))),
+            "nothing this crate emits may be a generic operation: it has no \
+             lowering, so emitting one produces a program that cannot run"
         );
     }
 
@@ -363,7 +376,7 @@ mod tests {
         let func = emit_source("let x = 1; x += 1;").expect("emits");
         let adds = instructions(&func)
             .iter()
-            .filter(|inst| matches!(inst, Inst::Generic(GenericOp::Add, _, _)))
+            .filter(|inst| matches!(inst, Inst::Call { .. }))
             .count();
         assert_eq!(adds, 1);
     }

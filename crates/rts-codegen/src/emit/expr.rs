@@ -28,7 +28,6 @@
 //! to take.
 
 use rts_cranelift::ir::{ConstDecl, FuncBuilder, ScalarBits, ValueId};
-use rts_cranelift::ir::inst::{CmpOp, GenericOp};
 use rts_cranelift::tags;
 
 use super::{Ctx, EmitError, EmitResult, Scope, UNPROVEN};
@@ -221,22 +220,40 @@ fn emit_binary(
     a: ValueId,
     b: ValueId,
 ) -> EmitResult<ValueId> {
-    let generic = match op {
-        BinaryOp::Add => GenericOp::Add,
-        BinaryOp::Sub => GenericOp::Sub,
-        BinaryOp::Mul => GenericOp::Mul,
-        BinaryOp::Div => GenericOp::Div,
-        BinaryOp::Less => GenericOp::Compare(CmpOp::Lt),
-        BinaryOp::LessEqual => GenericOp::Compare(CmpOp::Le),
-        BinaryOp::Greater => GenericOp::Compare(CmpOp::Gt),
-        BinaryOp::GreaterEqual => GenericOp::Compare(CmpOp::Ge),
+    let runtime = match op {
+        BinaryOp::Add => RuntimeOp::Add,
+
+        // `-`, `*`, `/` and the four relational operators are refused rather
+        // than emitted, and that is a REGRESSION from what E1 accepted. Stated
+        // rather than quiet, because the rule is that a regression is allowed
+        // and never silent.
+        //
+        // E1 emitted them as `Inst::Generic`, which reads as working and is not:
+        // the machine refuses to lower a generic operation at all —
+        //
+        //     Inst::Generic(..) => Err(NotYetLowered { needs: Capability::Calls })
+        //
+        // — because which symbol a generic subtraction dials is a fact about
+        // JavaScript, and the machine declines to know it. So what E1 produced
+        // for these could pass the verifier and could never become machine
+        // code, which no test caught because the tests stopped at the verifier.
+        //
+        // They come back when the runtime defines them. Refusing until then is
+        // what keeps `runtime/` and `rts-core-rwk` from stating different sets —
+        // the exact drift the audit named, since nothing links the two yet.
+        BinaryOp::Sub => return gap("`-`"),
+        BinaryOp::Mul => return gap("`*`"),
+        BinaryOp::Div => return gap("`/`"),
+        BinaryOp::Less | BinaryOp::LessEqual | BinaryOp::Greater | BinaryOp::GreaterEqual => {
+            return gap("a relational operator");
+        }
 
         // `===` is not `CmpOp::Eq` even though the spelling matches. Two
         // strings are `===` when their *text* is, which reads the heap, so it
         // is a call. `!==` is its negation and needs one more instruction than
         // exists here — negating a proven boolean is arithmetic, and this
         // module has no unary path yet.
-        BinaryOp::StrictEqual => return Ok(call(builder, ctx, RuntimeOp::StrictEquals, &[a, b])?[0]),
+        BinaryOp::StrictEqual => RuntimeOp::StrictEquals,
         BinaryOp::StrictNotEqual => return gap("`!==`"),
         BinaryOp::LooseEqual | BinaryOp::LooseNotEqual => return gap("`==` or `!=`"),
         BinaryOp::Rem => return gap("`%`"),
@@ -246,7 +263,7 @@ fn emit_binary(
         BinaryOp::In => return gap("`in`"),
         BinaryOp::InstanceOf => return gap("`instanceof`"),
     };
-    Ok(builder.generic(generic, a, b))
+    Ok(call(builder, ctx, runtime, &[a, b])?[0])
 }
 
 /// Emits an assignment.
