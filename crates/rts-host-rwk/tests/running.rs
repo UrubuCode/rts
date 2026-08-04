@@ -1772,3 +1772,56 @@ fn a_captured_loop_variable_is_shared_across_passes_which_is_wrong() {
         "every closure sees the LAST key, because one environment is shared"
     );
 }
+
+#[test]
+fn a_captured_name_assigned_in_a_loop_does_not_need_a_block_parameter() {
+    // This CRASHED the compiler, on ordinary JavaScript. `n` is captured, so it
+    // lives in an environment object; the loop also assigns it, so the
+    // syntactic scan offered it as a name to carry across the back edge — and
+    // an environment binding has no value to carry. The panic said "which
+    // cannot happen".
+    //
+    // It could, because the two facts were established in different places: the
+    // capture analysis decided where `n` lives, the loop's scan read the tree,
+    // and nothing compared them.
+    //
+    // Every pass reads and writes the same heap slot, so the loop carries
+    // nothing for it — which is why the closure sees the finished value.
+    let produced = run(
+        "function f() { \
+           let n = 0; \
+           function g() { return n; } \
+           while (n < 3) { n = n + 1; } \
+           return g(); \
+         } \
+         return f();",
+    );
+    assert_eq!(tags::decode_double(produced), 3.0);
+}
+
+#[test]
+fn a_captured_name_assigned_in_a_switch_or_a_labelled_block_is_the_same_case() {
+    // The other two constructs that carry names across a join, for the same
+    // reason and through the same `plan`.
+    let produced = run(
+        "function f() { \
+           let n = 0; \
+           function g() { return n; } \
+           switch (1) { case 1: n = 7; } \
+           return g(); \
+         } \
+         return f();",
+    );
+    assert_eq!(tags::decode_double(produced), 7.0);
+
+    let produced = run(
+        "function f() { \
+           let n = 0; \
+           function g() { return n; } \
+           done: { n = 9; break done; } \
+           return g(); \
+         } \
+         return f();",
+    );
+    assert_eq!(tags::decode_double(produced), 9.0);
+}

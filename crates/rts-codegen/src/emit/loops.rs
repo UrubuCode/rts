@@ -487,6 +487,27 @@ fn assigned_in_expr_positions(scope: &Scope, expr: &Expr) -> Vec<usize> {
 fn positions_of(scope: &Scope, names: &[Name]) -> Vec<usize> {
     let mut positions: Vec<usize> = names
         .iter()
+        // A **captured** name carries nothing across the back edge. It lives in
+        // an environment object, so every pass reads and writes the same heap
+        // slot and there is no second definition to merge — which is exactly
+        // what `Binding::value` says when it refuses to answer for one.
+        //
+        // Without this filter an ordinary program crashed:
+        //
+        // ```js
+        // function f() {
+        //   let n = 0;
+        //   function g() { return n; }   // captures n
+        //   while (n < 3) { n = n + 1; } // and the loop assigns it
+        // }
+        // ```
+        //
+        // `assigned_positions` is syntactic — it reads the tree and does not
+        // know where a name lives — so it offered the loop a position whose
+        // binding has no value, and the panic said "which cannot happen".
+        // It could: the two facts were established in different places and
+        // nothing compared them until here.
+        .filter(|name| !matches!(scope.lookup(**name), Some(Binding::InEnvironment { .. })))
         .filter_map(|name| scope.position_of(*name))
         .collect();
     positions.sort_unstable();
