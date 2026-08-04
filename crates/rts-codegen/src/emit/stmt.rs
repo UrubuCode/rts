@@ -18,7 +18,6 @@ use rts_cranelift::ir::FuncBuilder;
 use super::expr::{emit_condition, emit_expr, stored, undefined};
 use super::loops::{self, Loops};
 use super::scope::Binding;
-use super::UNPROVEN;
 use super::{Ctx, EmitError, EmitResult, Scope};
 use crate::syntax::{Pattern, Stmt, StmtKind};
 

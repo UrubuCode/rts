@@ -27,32 +27,40 @@
 //! representation it can defend. Where it cannot defend one, it says so — see
 //! below.
 //!
-//! # Everything is `Tagged`, and that is the honest state
+//! # What is not proven is `Tagged`, and that is the honest state
 //!
-//! No type pass exists yet. So every value this emits is `Repr::Tagged` — the
-//! machine's word for "nothing has been proved about this" — and every operator
-//! becomes a `GenericOp`.
+//! A value nothing established is `Repr::Tagged` — the machine's word for
+//! "nothing has been proved about this" — and its operators are calls.
 //!
 //! That is not a placeholder to be embarrassed about; it is rule 5 working:
 //! *what cannot be proven becomes generic, visibly.* A first version that
 //! guessed `f64` because most JavaScript numbers are doubles would produce code
 //! that is wrong for `2 ** 53` and for `"a" + 1`, and would be wrong *silently*,
 //! which is the failure this crate's rules exist to prevent. Generic is slow and
-//! correct. The type pass makes it fast, and it is a separate piece of work with
-//! its own evidence.
+//! correct.
+//!
+//! Two things narrow it. A literal number is emitted proven, so an operator
+//! over literals and over locals the analysis followed is an instruction. And
+//! where nothing was proved, an operator a pair of doubles would settle emits a
+//! **guard** and takes the instruction when the values turn out to be numbers —
+//! which is what a type pass cannot reach, because a guard tests the value it
+//! actually got rather than reasoning about where it came from.
 //!
 //! # What is not here yet
 //!
-//! Control flow, calls, objects, closures. They are refused **by name** through
-//! [`EmitError::Unsupported`] rather than mis-emitted, so a program that needs
-//! one fails visibly and the gap is a list rather than a rumour. `PLAN.md` §E
-//! has the order and why.
+//! Calls, closures, globals, `throw`, classes, and every value that lives on
+//! the heap without an entry point to make it — a string, an array. They are
+//! refused **by name** through [`EmitError::Unsupported`] rather than
+//! mis-emitted, so a program that needs one fails visibly and the gap is a list
+//! rather than a rumour. `PLAN.md` §E has the order and why.
 
+mod choice;
 mod expr;
 mod loops;
 mod proven;
 mod scope;
 mod stmt;
+mod unary;
 
 pub use expr::emit_expr;
 pub use loops::Loops;

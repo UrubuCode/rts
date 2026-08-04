@@ -23,9 +23,17 @@
 //! one as an immediate would produce a value that is not a string and compares
 //! wrongly with everything. So it is named as a gap.
 //!
-//! The same reasoning covers calls, objects, member access and closures. Each is
-//! a mechanism this module does not have yet rather than a shortcut it declined
-//! to take.
+//! The same reasoning covers calls, closures and globals. Each is a mechanism
+//! this module does not have yet rather than a shortcut it declined to take.
+//!
+//! # Where the rest of an expression lives
+//!
+//! `choice.rs` holds the four that may not evaluate part of themselves — `?:`,
+//! `&&`, `||`, `??` — together with the merge that turns two paths back into
+//! one value. `unary.rs` holds the operators with a single operand and the two
+//! that also write back. Both are here rather than in this file because they
+//! create blocks and nothing else in this file does, and because this file is
+//! within sight of the thousand-line ceiling rule 8 sets.
 
 use rts_cranelift::ir::inst::{CmpOp, NumOp};
 use rts_cranelift::ir::{ConstDecl, FuncBuilder, ScalarBits, ValueId};
@@ -49,7 +57,7 @@ pub fn undefined(builder: &mut FuncBuilder, ctx: &mut Ctx) -> ValueId {
 }
 
 /// Materializes one of the language's singletons.
-fn singleton(builder: &mut FuncBuilder, ctx: &mut Ctx, which: Singleton) -> ValueId {
+pub(super) fn singleton(builder: &mut FuncBuilder, ctx: &mut Ctx, which: Singleton) -> ValueId {
     // The machine numbers singletons and this crate says what they mean, so the
     // id comes from the model rather than from a constant written here. A
     // literal `1` at this line would be the same bug the registry exists to
@@ -128,10 +136,29 @@ pub fn emit_expr(
         ExprKind::Array { .. } => gap("an array literal"),
         ExprKind::Function(_) => gap("a function expression"),
         ExprKind::Class(_) => gap("a class expression"),
-        ExprKind::Unary { .. } => gap("a unary operator"),
-        ExprKind::Update { .. } => gap("`++` or `--`"),
-        ExprKind::Logical { .. } => gap("`&&`, `||` or `??`"),
-        ExprKind::Conditional { .. } => gap("`?:`"),
+        ExprKind::Unary { op, operand } => {
+            super::unary::emit_unary(builder, scope, ctx, *op, operand)
+        }
+        ExprKind::Update {
+            op,
+            position,
+            target,
+        } => super::unary::emit_update(builder, scope, ctx, *op, *position, target),
+        ExprKind::Logical { op, left, right } => {
+            super::choice::emit_logical(builder, scope, ctx, *op, left, right)
+        }
+        ExprKind::Conditional {
+            condition,
+            then_branch,
+            else_branch,
+        } => super::choice::emit_conditional(
+            builder,
+            scope,
+            ctx,
+            condition,
+            then_branch,
+            else_branch,
+        ),
         ExprKind::This => gap("`this`"),
         ExprKind::Await(_) => gap("`await`"),
         ExprKind::Yield { .. } => gap("`yield`"),
@@ -154,7 +181,7 @@ pub fn as_value(builder: &mut FuncBuilder, value: ValueId) -> ValueId {
 }
 
 /// A named gap.
-fn gap<T>(construct: &'static str) -> EmitResult<T> {
+pub(super) fn gap<T>(construct: &'static str) -> EmitResult<T> {
     Err(EmitError::Unsupported { construct })
 }
 
@@ -163,7 +190,7 @@ fn gap<T>(construct: &'static str) -> EmitResult<T> {
 /// Declaring on demand rather than up front: what a program does not do should
 /// not appear in what it links, and a compilation that never concatenates
 /// should carry no relocation to the string path.
-fn call(
+pub(super) fn call(
     builder: &mut FuncBuilder,
     ctx: &mut Ctx,
     op: RuntimeOp,
@@ -212,6 +239,21 @@ pub fn emit_condition(
     condition: &Expr,
 ) -> EmitResult<ValueId> {
     let value = emit_expr(builder, scope, ctx, condition)?;
+    to_boolean(builder, ctx, value)
+}
+
+/// `ToBoolean` of a value already emitted.
+///
+/// Split from [`emit_condition`] because `&&` needs it and has no expression to
+/// hand over: it asks about a value it emitted itself and may not evaluate the
+/// other one at all. Two copies would be two answers to "is a proven boolean
+/// already the answer", and the day one of them stopped short-circuiting the
+/// check the other would keep calling the runtime for nothing.
+pub(super) fn to_boolean(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    value: ValueId,
+) -> EmitResult<ValueId> {
     // A proven boolean IS the answer: `ToBoolean` of a boolean is itself, so
     // asking the runtime buys nothing at all. It is also the common case —
     // `while (i < n)` and `if (a === b)` are how conditions get written.
@@ -238,10 +280,7 @@ fn emit_literal(
         // so tagging at the literal throws away every proof that could have
         // started there.
         Literal::Number(value) => Ok(number_constant(builder, *value)),
-        Literal::Boolean(value) => {
-            let payload = if *value { tags::BOOL_TRUE } else { tags::BOOL_FALSE };
-            Ok(constant(builder, tags::encode(tags::TAG_BOOL, payload)))
-        }
+        Literal::Boolean(value) => Ok(boolean_constant(builder, *value)),
         Literal::Singleton(which) => Ok(singleton(builder, ctx, *which)),
         // A string literal is a heap value that two occurrences share, which is
         // interning, which is a runtime entry point. An immediate here would
@@ -259,7 +298,7 @@ fn emit_literal(
 /// known representation; `<` in JavaScript compares text when both sides are
 /// strings. Reaching for `compare` because the spelling matches is exactly the
 /// mistake rule 2 names.
-fn emit_binary(
+pub(super) fn emit_binary(
     builder: &mut FuncBuilder,
     ctx: &mut Ctx,
     op: BinaryOp,
@@ -349,7 +388,15 @@ fn emit_binary(
         // value, so the caller read tag 0 — an inline integer — instead of a
         // boolean.
         BinaryOp::StrictEqual => return Ok(compared(builder, ctx, RuntimeOp::StrictEquals, a, b)?),
-        BinaryOp::StrictNotEqual => return gap("`!==`"),
+        // `!==` is `!(a === b)` and is emitted as exactly that, through the one
+        // definition of each half. Writing it as its own runtime entry point
+        // would be a second statement of what strict equality means, and the
+        // pair drifting is how `a !== b` starts disagreeing with `!(a === b)`
+        // for some operand nobody tested.
+        BinaryOp::StrictNotEqual => {
+            let equal = call(builder, ctx, RuntimeOp::StrictEquals, &[a, b])?[0];
+            return super::choice::from_bool(builder, equal, true);
+        }
         BinaryOp::LooseEqual | BinaryOp::LooseNotEqual => return gap("`==` or `!=`"),
         BinaryOp::Exponent => return gap("`**`"),
         BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor => return gap("a bitwise operator"),
@@ -379,12 +426,28 @@ fn emit_assign(
         object, property, ..
     } = &place.kind
     {
-        let AssignOp::Plain = op else {
-            return gap("a compound assignment to a property");
-        };
         // Receiver first, then the value: `a().x = b()` runs `a` before `b`.
         let receiver = emit_expr(builder, scope, ctx, object)?;
-        let assigned = emit_expr(builder, scope, ctx, value)?;
+        let assigned = match op {
+            AssignOp::Plain => emit_expr(builder, scope, ctx, value)?,
+            // `o.x += v` evaluates `o` once, reads the property, and only then
+            // evaluates `v` — which is the order the specification gives and
+            // the order a rewrite to `o.x = o.x + v` loses, by evaluating `o`
+            // twice.
+            AssignOp::Compound(binary) => {
+                let current = emit_read(builder, ctx, receiver, *property)?;
+                let operand = emit_expr(builder, scope, ctx, value)?;
+                emit_binary(builder, ctx, binary, current, operand)?
+            }
+            // Not the same as `o.x = o.x && v`. When the left side decides,
+            // the specification performs no write at all — which is observable
+            // through a setter, and through a property on a frozen object.
+            // Emitting the write anyway would be correct for plain data and
+            // wrong for exactly the objects the operator was added for.
+            AssignOp::Logical(_) => {
+                return gap("`&&=`, `||=` or `??=` on a property");
+            }
+        };
         return emit_write(builder, ctx, receiver, *property, assigned);
     }
 
@@ -407,8 +470,18 @@ fn emit_assign(
             emit_binary(builder, ctx, binary, current, operand)?
         }
         // `&&=` does not evaluate its right side when the target already
-        // decided, which needs a branch.
-        AssignOp::Logical(_) => return gap("`&&=`, `||=` or `??=`"),
+        // decided. On a local the "no write happens" clause is unobservable —
+        // a binding has no setter and rebinding it to what it already holds is
+        // the same program — so the operator is the short-circuit and nothing
+        // else. On a property it is not, which is why that case is refused
+        // above rather than routed here.
+        AssignOp::Logical(logical) => {
+            let current = match scope.lookup(*name) {
+                Some(super::scope::Binding::Value(current)) => current,
+                None => return Err(EmitError::UnboundName(*name)),
+            };
+            super::choice::emit_logical_from(builder, scope, ctx, logical, current, value)?
+        }
     };
 
     let result = stored(builder, ctx, *name, result);
@@ -441,8 +514,18 @@ fn compared(
     Ok(builder.widen(proven))
 }
 
+/// One of the two boolean values, encoded.
+///
+/// Shared by the literal and by every emitter that answers a boolean without
+/// one having been written — `!x` and `a !== b` both produce one from a branch,
+/// and three copies of the encoding is three places to get the payload wrong.
+pub(super) fn boolean_constant(builder: &mut FuncBuilder, value: bool) -> ValueId {
+    let payload = if value { tags::BOOL_TRUE } else { tags::BOOL_FALSE };
+    constant(builder, tags::encode(tags::TAG_BOOL, payload))
+}
+
 /// A number, as a value the machine knows is a number.
-fn number_constant(builder: &mut FuncBuilder, value: f64) -> ValueId {
+pub(super) fn number_constant(builder: &mut FuncBuilder, value: f64) -> ValueId {
     let id = builder.declare_const(ConstDecl::Scalar {
         repr: Repr::F64,
         bits: ScalarBits(value.to_bits()),
@@ -589,7 +672,7 @@ fn emit_object(
 /// Ours to fill. The machine writes it from what `rts_cache_resolve` returns:
 /// *"there is no cell to initialize, no miss handler to write, and no way to
 /// forget to update it"*. This declares one and names it; that is all.
-fn emit_read(
+pub(super) fn emit_read(
     builder: &mut FuncBuilder,
     ctx: &mut Ctx,
     receiver: ValueId,
@@ -728,7 +811,7 @@ fn runtime_binary(op: BinaryOp) -> Option<RuntimeOp> {
 ///
 /// So the fast path is exactly the case a store repeats: a property the object
 /// already has.
-fn emit_write(
+pub(super) fn emit_write(
     builder: &mut FuncBuilder,
     ctx: &mut Ctx,
     receiver: ValueId,

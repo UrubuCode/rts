@@ -48,7 +48,7 @@ use rts_cranelift::ir::{BlockId, FuncBuilder, ValueId};
 
 use super::scope::Binding;
 use super::stmt::emit_stmt;
-use super::{Ctx, EmitError, EmitResult, Scope, UNPROVEN};
+use super::{Ctx, EmitError, EmitResult, Scope};
 use crate::names::Name;
 use crate::syntax::{
     AssignTarget, Expr, ExprKind, ForInit, Pattern, Property, PropertyKey, Spreadable, Stmt, StmtKind,

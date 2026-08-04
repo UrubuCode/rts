@@ -280,3 +280,207 @@ fn two_programs_do_not_share_a_heap() {
     assert_eq!(tags::decode_double(first.run()), 1.0);
     assert_eq!(tags::decode_double(second.run()), 2.0);
 }
+
+// ---------------------------------------------------------------------------
+// The operators that choose a path, and the ones with a single operand.
+//
+// Every one of these is checked by RUNNING it. A branch-and-merge is exactly
+// the construct a verifier is happy with and a machine is not — the join
+// carrying the wrong representation, or a path jumping from the block it began
+// in rather than the one it ended in, both pass verification and both produce a
+// wrong value or a crash. So the assertion is the answer, never the shape.
+
+#[test]
+fn logical_and_yields_an_operand_rather_than_a_boolean() {
+    // `0 && 1` is `0`, not `false`. The operator answers one of its operands,
+    // and an implementation that answered the truthiness it branched on would
+    // pass every test written with booleans and fail every real program.
+    assert_eq!(tags::decode_double(run("return 0 && 1;")), 0.0);
+    assert_eq!(tags::decode_double(run("return 2 && 3;")), 3.0);
+    assert_eq!(tags::decode_double(run("return 0 || 5;")), 5.0);
+    assert_eq!(tags::decode_double(run("return 4 || 5;")), 4.0);
+}
+
+#[test]
+fn logical_and_does_not_evaluate_what_it_skipped() {
+    // The whole content of the operator. `witness` stays at its initial value
+    // because the right side never runs, and an implementation that evaluated
+    // both and then chose would leave it at 1 — a difference no assertion about
+    // the operator's result could ever catch.
+    let produced = run("let witness = 0; let go = 0; go && (witness = 1); return witness;");
+    assert_eq!(tags::decode_double(produced), 0.0);
+    let produced = run("let witness = 0; let go = 1; go && (witness = 1); return witness;");
+    assert_eq!(tags::decode_double(produced), 1.0);
+}
+
+#[test]
+fn coalesce_distinguishes_absent_from_falsy() {
+    // `0 ?? 1` is `0` where `0 || 1` is `1`. That distinction is the entire
+    // reason the operator exists, so it is what gets pinned rather than the
+    // null case, which `||` would also get right.
+    assert_eq!(tags::decode_double(run("return 0 ?? 1;")), 0.0);
+    assert_eq!(tags::decode_double(run("return null ?? 7;")), 7.0);
+    // `void 0` and not `undefined`: the second is a property of the global
+    // object rather than a literal, and there is no global object yet — so
+    // writing it here would be pinning a gap in the wrong construct. `null` IS
+    // a literal, which is why it can be written directly.
+    assert_eq!(tags::decode_double(run("return (void 0) ?? 8;")), 8.0);
+}
+
+#[test]
+fn a_conditional_evaluates_only_the_arm_it_chose() {
+    assert_eq!(tags::decode_double(run("return 1 ? 4 : 5;")), 4.0);
+    assert_eq!(tags::decode_double(run("return 0 ? 4 : 5;")), 5.0);
+    let produced =
+        run("let taken = 0; let other = 0; 1 ? (taken = 1) : (other = 1); return other;");
+    assert_eq!(tags::decode_double(produced), 0.0);
+}
+
+#[test]
+fn a_local_written_in_one_arm_merges_at_the_join() {
+    // The block parameter, through an EXPRESSION rather than a statement. `x`
+    // has two definitions reaching the return, and merging them by writing one
+    // of them twice is impossible in SSA — so if this returns 1 for a falsy
+    // condition, the merge dropped a path.
+    assert_eq!(
+        tags::decode_double(run("let x = 0; 1 ? (x = 1) : (x = 2); return x;")),
+        1.0
+    );
+    assert_eq!(
+        tags::decode_double(run("let x = 0; 0 ? (x = 1) : (x = 2); return x;")),
+        2.0
+    );
+}
+
+#[test]
+fn logical_assignment_writes_only_when_the_left_did_not_decide() {
+    assert_eq!(tags::decode_double(run("let x = 0; x ||= 9; return x;")), 9.0);
+    assert_eq!(tags::decode_double(run("let x = 3; x ||= 9; return x;")), 3.0);
+    assert_eq!(tags::decode_double(run("let x = 3; x &&= 9; return x;")), 9.0);
+    assert_eq!(tags::decode_double(run("let x = 0; x &&= 9; return x;")), 0.0);
+    assert_eq!(
+        tags::decode_double(run("let x = null; x ??= 6; return x;")),
+        6.0
+    );
+    assert_eq!(tags::decode_double(run("let x = 0; x ??= 6; return x;")), 0.0);
+}
+
+#[test]
+fn negation_produces_minus_zero_where_subtraction_would_not() {
+    // `-0` and `+0` are different values: `1 / -0` is `-Infinity`. This is what
+    // rules out emitting `-x` as `0 - x`, which answers `+0` here — and the
+    // division is how the difference becomes observable at all, since the two
+    // compare equal.
+    assert_eq!(
+        tags::decode_double(run("let z = 0; return 1 / -z;")),
+        f64::NEG_INFINITY
+    );
+    assert_eq!(tags::decode_double(run("return 0 - 5;")), -5.0);
+    assert_eq!(tags::decode_double(run("let n = 5; return -n;")), -5.0);
+}
+
+#[test]
+fn remainder_takes_the_sign_of_the_dividend_as_the_language_spells_it() {
+    // The same fact `remainder_takes_the_sign_of_the_dividend` pins, now
+    // writable the way a program would write it.
+    assert_eq!(tags::decode_double(run("return -5 % 3;")), -2.0);
+}
+
+#[test]
+fn not_answers_a_boolean_whatever_it_was_given() {
+    // Unlike `&&`, `!` really does answer a boolean — so the tag is the claim,
+    // not just the payload.
+    let produced = run("return !0;");
+    assert_eq!(tags::tag_of(produced), tags::TAG_BOOL);
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+    let produced = run("return !7;");
+    assert_eq!(tags::tag_of(produced), tags::TAG_BOOL);
+    assert_eq!(tags::payload_of(produced), tags::BOOL_FALSE);
+}
+
+#[test]
+fn strict_inequality_is_the_negation_of_strict_equality() {
+    let produced = run("return 1 !== 2;");
+    assert_eq!(tags::tag_of(produced), tags::TAG_BOOL);
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+    let produced = run("return 1 !== 1;");
+    assert_eq!(tags::payload_of(produced), tags::BOOL_FALSE);
+}
+
+#[test]
+fn void_evaluates_its_operand_and_answers_undefined() {
+    let mut compiled = compile("let w = 0; let r = void (w = 3); return r;").expect("compiles");
+    let produced = compiled.run();
+    assert_eq!(
+        produced,
+        compiled.model().singleton(Singleton::Undefined).word()
+    );
+    // The side effect happened: `void` discards the result, not the evaluation.
+    assert_eq!(
+        tags::decode_double(run("let w = 0; void (w = 3); return w;")),
+        3.0
+    );
+}
+
+#[test]
+fn postfix_yields_the_old_value_and_prefix_the_new_one() {
+    assert_eq!(
+        tags::decode_double(run("let i = 1; let r = i++; return r;")),
+        1.0
+    );
+    assert_eq!(tags::decode_double(run("let i = 1; i++; return i;")), 2.0);
+    assert_eq!(
+        tags::decode_double(run("let i = 1; let r = ++i; return r;")),
+        2.0
+    );
+    assert_eq!(tags::decode_double(run("let i = 1; i--; return i;")), 0.0);
+}
+
+#[test]
+fn an_update_writes_through_a_property_as_well_as_a_local() {
+    assert_eq!(
+        tags::decode_double(run("let o = {}; o.n = 1; o.n++; return o.n;")),
+        2.0
+    );
+    assert_eq!(
+        tags::decode_double(run("let o = {}; o.n = 1; return o.n++;")),
+        1.0
+    );
+}
+
+#[test]
+fn a_compound_assignment_to_a_property_reads_it_before_writing() {
+    assert_eq!(
+        tags::decode_double(run("let o = {}; o.n = 10; o.n += 5; return o.n;")),
+        15.0
+    );
+    assert_eq!(
+        tags::decode_double(run("let o = {}; o.n = 10; o.n *= 3; return o.n;")),
+        30.0
+    );
+}
+
+#[test]
+fn a_loop_can_now_be_written_the_way_a_program_writes_one() {
+    // Every piece this slice added, in the shape the constructs exist for: a
+    // relational test, an increment, and an accumulator. It is the test that
+    // would have been unwritable before, which is the measurement of what
+    // changed.
+    let produced = run("let total = 0; for (let i = 0; i < 5; i++) { total += i; } return total;");
+    assert_eq!(tags::decode_double(produced), 10.0);
+}
+
+#[test]
+fn a_construct_still_missing_is_refused_by_name_rather_than_approximated() {
+    // `~` needs ToInt32, which the runtime does not define, and `typeof` needs
+    // a string, which nothing can yet materialise. Both are named rather than
+    // guessed — the property this whole emitter is built on, restated where
+    // the next person to add an operator will read it.
+    for source in ["return ~1;", "return typeof 1;", "return \"a\";"] {
+        let error = compile(source).expect_err("still a gap");
+        assert!(
+            format!("{error:?}").contains("Unsupported"),
+            "expected a named refusal for `{source}`, got {error:?}"
+        );
+    }
+}
