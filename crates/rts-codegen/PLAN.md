@@ -408,6 +408,85 @@ So the tree is finished and the *checker* has not started. That is one phase, it
 is measurable from the day it begins — the 1 249 is its scoreboard — and it is
 where the next work goes.
 
+
+## 3b. Phase E — the tree, in the machine's representation
+
+**L1–L10 are all front end.** Every one of them is about what a program can be
+represented as, or about whether it was read correctly. None of them produces a
+single instruction, and the plan did not say so — which is the second omission
+of this kind after L8.5, and is recorded the same way rather than folded in
+quietly.
+
+So today a program can be read and cannot be run. `FuncBuilder` has no caller
+outside the machine's own tests.
+
+### The name
+
+`emit`, not `lower`. `rts-cranelift::lower` is IR → machine code and says it is
+"the only module permitted to construct code-generator instructions". Calling
+both steps "lowering" would make that claim uncheckable in conversation:
+
+```text
+source ──parse──▶ tree ──emit──▶ IR ──lower──▶ machine code
+                        (here)     (rts-cranelift)
+```
+
+### Everything is `Tagged`, on purpose
+
+No type pass exists, so every value is `Repr::Tagged` and every operator is a
+`GenericOp`. That is rule 5 rather than a shortcut: `a + b` in JavaScript is not
+addition — it converts both operands to primitives and *then* decides between
+concatenation and arithmetic from what came back. A first version emitting
+`arith` because most numbers are doubles would be fast, wrong for `"a" + 1`, and
+wrong **silently**.
+
+The type pass is a separate phase with its own evidence. What it adds is the
+right to emit `arith`; it does not change what is correct here.
+
+### The phases
+
+**E1 — expressions and straight-line statements. DONE.** Literals, locals,
+arithmetic and relational operators, sequence, assignment including compound
+forms, `let`/`const`/`var` with a plain name, blocks, `return`, falling off the
+end. Ten tests.
+
+A binding is a `ValueId`, not a stack slot. The slot-per-local implementation is
+the obvious one and it is wrong to start with: undoing it later is a rewrite
+rather than an optimisation, because every read has become a memory operation
+for a subsequent pass to prove away. Pinned by a test asserting nothing
+allocates.
+
+Everything else is refused **by name** — `EmitError::Unsupported { construct }`.
+The list of names in `expr.rs` and `stmt.rs` is the work queue below, and it is
+readable without running anything.
+
+**E2 — control flow.** `if`, the loops, `switch`, labels, `break`/`continue`.
+This is where the binding representation is first stressed: a local rebound
+inside a loop has two definitions reaching its use, which is a block parameter,
+and inserting those is the actual content of the phase rather than the branches.
+
+**E3 — calls.** Which unblocks the runtime: `===`, string literals and `+` on
+strings all become `CoreEntry` calls, and the entry table stops being a table
+nothing dials. Also the first phase whose output can be *executed*, so it is
+where correctness stops being an argument and starts being a measurement.
+
+**E4 — objects and property access.** The machine's shapes get their first
+client. `cached_get` and `guard_type` exist and have no caller.
+
+**E5 — functions and closures.** A captured local stops being a `ValueId` and
+becomes a cell, which is why `emit::scope::Binding` is an enum with one variant
+today.
+
+**E6 — the rest.** `throw`/`try` over the machine's protected regions,
+`await`/`yield` over its suspension, classes, modules.
+
+### What E-phases are measured against
+
+Not test262's reading rate — that measures the front end and is already
+reported. An emitted program either runs and produces the right value or does
+not, and that needs E3 before it can be asked at all. Until then the honest
+statement is a list of what is refused, which is what `Unsupported` maintains.
+
 ---
 
 ## 4. TypeScript is not a phase

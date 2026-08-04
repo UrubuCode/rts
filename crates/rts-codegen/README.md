@@ -138,6 +138,19 @@ Measured against test262's `test/language`, 23 724 files: **91.5 % read
 correctly**. That is a reading rate, not a pass rate — nothing runs. `PLAN.md`
 L9 has the full table and what each column means.
 
+`emit/` turns that tree into the machine's IR. **E1** is done: literals, locals,
+arithmetic and relational operators, assignment, declarations, blocks and
+`return`. Every value it produces is `Repr::Tagged` and every operator is a
+`GenericOp`, which is rule 5 rather than a shortcut — `a + b` decides between
+concatenation and arithmetic from its operands at run time, so a proven
+instruction would be wrong for `"a" + 1` and wrong silently. Everything not yet
+emitted is refused by name, and that list is the work queue. `PLAN.md` §3b.
+
+Named `emit` and not `lower` because `rts-cranelift::lower` is the other half of
+the same pipeline, and it claims to be the only module that constructs
+code-generator instructions. Two things called lowering would make that claim
+uncheckable.
+
 What does not exist yet is the **checker**. The 1 249 programs the corpus says
 are invalid and we accept are early errors — redeclarations, duplicate
 `__proto__`, `delete` of a name in strict code — rules no grammar production

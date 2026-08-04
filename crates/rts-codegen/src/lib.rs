@@ -34,6 +34,8 @@ pub mod parse;
 pub mod syntax;
 pub mod values;
 
+pub mod emit;
+
 pub use names::{Name, Names};
 pub use syntax::{Expr, Program, Stmt};
 pub use values::{Singleton, ValueModel};
