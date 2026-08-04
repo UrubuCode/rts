@@ -146,6 +146,54 @@ impl Scope {
         }
         false
     }
+
+    /// Every binding in scope, outermost first, as a flat list.
+    ///
+    /// # What this is for
+    ///
+    /// Merging. After an `if`, a name assigned in one branch and not the other
+    /// has two definitions reaching its use, and the machine's answer to that
+    /// is a block parameter. Finding *which* names those are means comparing
+    /// the environment on each path, which means being able to take it apart.
+    ///
+    /// # Why a flat list rather than a map is sound here
+    ///
+    /// Two snapshots are only ever compared when they come from the same point
+    /// in the same emission, so they have the same names in the same positions
+    /// — a branch that declares something does it in a layer that is popped
+    /// before the merge. Comparing by position is therefore comparing by name,
+    /// without the allocation a keyed diff would cost at every branch.
+    pub fn snapshot(&self) -> Vec<Binding> {
+        self.layers
+            .iter()
+            .flat_map(|layer| layer.entries.iter().map(|(_, binding)| *binding))
+            .collect()
+    }
+
+    /// Puts the bindings back, by position.
+    ///
+    /// Used to emit the second branch of an `if` from the same environment the
+    /// first one started in, rather than from whatever the first one left.
+    ///
+    /// # Panics
+    ///
+    /// If the snapshot does not describe this scope. That means it came from a
+    /// different point in the emission, which is a defect in this module's
+    /// bracketing rather than anything a program can express.
+    pub fn restore(&mut self, snapshot: &[Binding]) {
+        let mut taken = snapshot.iter();
+        for layer in &mut self.layers {
+            for entry in &mut layer.entries {
+                entry.1 = *taken
+                    .next()
+                    .expect("a snapshot describes exactly the scope it was taken from");
+            }
+        }
+        assert!(
+            taken.next().is_none(),
+            "a snapshot describes exactly the scope it was taken from"
+        );
+    }
 }
 
 #[cfg(test)]

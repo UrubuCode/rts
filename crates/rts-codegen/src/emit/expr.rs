@@ -31,27 +31,28 @@ use rts_cranelift::ir::{ConstDecl, FuncBuilder, ScalarBits, ValueId};
 use rts_cranelift::ir::inst::{CmpOp, GenericOp};
 use rts_cranelift::tags;
 
-use super::{EmitError, EmitResult, Scope, UNPROVEN};
+use super::{Ctx, EmitError, EmitResult, Scope, UNPROVEN};
+use crate::runtime::RuntimeOp;
 use crate::syntax::{AssignTarget, Expr, ExprKind, Literal};
 use crate::syntax::{AssignOp, BinaryOp};
-use crate::values::{Singleton, ValueModel};
+use crate::values::Singleton;
 
 /// Materializes `undefined`.
 ///
 /// Used by more than one caller — a function falling off its end, a `return`
 /// with no operand, a `var` with no initialiser — which is why it is a function
 /// rather than three copies of the same encoding.
-pub fn undefined(builder: &mut FuncBuilder, model: &ValueModel) -> ValueId {
-    singleton(builder, model, Singleton::Undefined)
+pub fn undefined(builder: &mut FuncBuilder, ctx: &mut Ctx) -> ValueId {
+    singleton(builder, ctx, Singleton::Undefined)
 }
 
 /// Materializes one of the language's singletons.
-fn singleton(builder: &mut FuncBuilder, model: &ValueModel, which: Singleton) -> ValueId {
+fn singleton(builder: &mut FuncBuilder, ctx: &mut Ctx, which: Singleton) -> ValueId {
     // The machine numbers singletons and this crate says what they mean, so the
     // id comes from the model rather than from a constant written here. A
     // literal `1` at this line would be the same bug the registry exists to
     // prevent.
-    let id = model.singleton(which);
+    let id = ctx.model.singleton(which);
     constant(builder, id.word())
 }
 
@@ -68,11 +69,11 @@ fn constant(builder: &mut FuncBuilder, bits: u64) -> ValueId {
 pub fn emit_expr(
     builder: &mut FuncBuilder,
     scope: &mut Scope,
-    model: &ValueModel,
+    ctx: &mut Ctx,
     expr: &Expr,
 ) -> EmitResult<ValueId> {
     match &expr.kind {
-        ExprKind::Literal(literal) => emit_literal(builder, model, literal),
+        ExprKind::Literal(literal) => emit_literal(builder, ctx, literal),
 
         ExprKind::Ident(name) => match scope.lookup(*name) {
             Some(super::scope::Binding::Value(value)) => Ok(value),
@@ -88,9 +89,9 @@ pub fn emit_expr(
             // operator evaluates its operands in source order even where it
             // then converts them in the other order, and emitting in the wrong
             // order changes which side effect happens first.
-            let a = emit_expr(builder, scope, model, left)?;
-            let b = emit_expr(builder, scope, model, right)?;
-            emit_binary(builder, *op, a, b)
+            let a = emit_expr(builder, scope, ctx, left)?;
+            let b = emit_expr(builder, scope, ctx, right)?;
+            emit_binary(builder, ctx, *op, a, b)
         }
 
         ExprKind::Sequence { operands } => {
@@ -98,14 +99,14 @@ pub fn emit_expr(
             // by accident — the operator exists for their side effects.
             let mut last = None;
             for operand in operands {
-                last = Some(emit_expr(builder, scope, model, operand)?);
+                last = Some(emit_expr(builder, scope, ctx, operand)?);
             }
             last.ok_or(EmitError::Unsupported {
                 construct: "an empty comma expression",
             })
         }
 
-        ExprKind::Assign { target, value, op } => emit_assign(builder, scope, model, target, value, *op),
+        ExprKind::Assign { target, value, op } => emit_assign(builder, scope, ctx, target, value, *op),
 
         // Every remaining form, named. The list is the deliverable: it is the
         // work queue for the phases after this one, and a reader can check it
@@ -143,10 +144,47 @@ fn gap<T>(construct: &'static str) -> EmitResult<T> {
     Err(EmitError::Unsupported { construct })
 }
 
+/// Calls a runtime operation.
+///
+/// Declaring on demand rather than up front: what a program does not do should
+/// not appear in what it links, and a compilation that never concatenates
+/// should carry no relocation to the string path.
+fn call(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    op: RuntimeOp,
+    args: &[ValueId],
+) -> EmitResult<Vec<ValueId>> {
+    let callee = ctx.calls.declare(ctx.funcs, op);
+    Ok(builder.call(ctx.funcs, callee, args)?)
+}
+
+/// Turns a JavaScript value into the proven boolean a branch requires.
+///
+/// # Why this cannot be an instruction
+///
+/// Seven values are falsy and six of them a comparison settles. The seventh is
+/// the empty string, and finding out whether a string is empty reads its length
+/// from the heap — so truthiness is a call, and the machine's `branch` accepts
+/// nothing but `Repr::Bool`.
+///
+/// That is the whole reason control flow could not be emitted before calls, and
+/// it was found by reading the builder rather than by assuming: `branch`
+/// answers `WrongDomain` for a tagged condition.
+pub fn emit_condition(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    condition: &Expr,
+) -> EmitResult<ValueId> {
+    let value = emit_expr(builder, scope, ctx, condition)?;
+    Ok(call(builder, ctx, RuntimeOp::ToBoolean, &[value])?[0])
+}
+
 /// Emits a literal.
 fn emit_literal(
     builder: &mut FuncBuilder,
-    model: &ValueModel,
+    ctx: &mut Ctx,
     literal: &Literal,
 ) -> EmitResult<ValueId> {
     match literal {
@@ -159,7 +197,7 @@ fn emit_literal(
             let payload = if *value { tags::BOOL_TRUE } else { tags::BOOL_FALSE };
             Ok(constant(builder, tags::encode(tags::TAG_BOOL, payload)))
         }
-        Literal::Singleton(which) => Ok(singleton(builder, model, *which)),
+        Literal::Singleton(which) => Ok(singleton(builder, ctx, *which)),
         // A string literal is a heap value that two occurrences share, which is
         // interning, which is a runtime entry point. An immediate here would
         // produce something that is not a string.
@@ -178,6 +216,7 @@ fn emit_literal(
 /// mistake rule 2 names.
 fn emit_binary(
     builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
     op: BinaryOp,
     a: ValueId,
     b: ValueId,
@@ -192,13 +231,13 @@ fn emit_binary(
         BinaryOp::Greater => GenericOp::Compare(CmpOp::Gt),
         BinaryOp::GreaterEqual => GenericOp::Compare(CmpOp::Ge),
 
-        // `===` is deliberately absent from this list even though `CmpOp::Eq`
-        // exists. Strict equality is one of three equalities that differ in
-        // exactly two cells, and two strings are `===` when their *text* is —
-        // which needs the heap. It is a runtime entry point (`CoreEntry::
-        // StrictEquals`), not a comparison instruction, and calls are the next
-        // phase.
-        BinaryOp::StrictEqual | BinaryOp::StrictNotEqual => return gap("`===` or `!==`"),
+        // `===` is not `CmpOp::Eq` even though the spelling matches. Two
+        // strings are `===` when their *text* is, which reads the heap, so it
+        // is a call. `!==` is its negation and needs one more instruction than
+        // exists here — negating a proven boolean is arithmetic, and this
+        // module has no unary path yet.
+        BinaryOp::StrictEqual => return Ok(call(builder, ctx, RuntimeOp::StrictEquals, &[a, b])?[0]),
+        BinaryOp::StrictNotEqual => return gap("`!==`"),
         BinaryOp::LooseEqual | BinaryOp::LooseNotEqual => return gap("`==` or `!=`"),
         BinaryOp::Rem => return gap("`%`"),
         BinaryOp::Exponent => return gap("`**`"),
@@ -214,7 +253,7 @@ fn emit_binary(
 fn emit_assign(
     builder: &mut FuncBuilder,
     scope: &mut Scope,
-    model: &ValueModel,
+    ctx: &mut Ctx,
     target: &AssignTarget,
     value: &Expr,
     op: AssignOp,
@@ -227,7 +266,7 @@ fn emit_assign(
     };
 
     let result = match op {
-        AssignOp::Plain => emit_expr(builder, scope, model, value)?,
+        AssignOp::Plain => emit_expr(builder, scope, ctx, value)?,
         AssignOp::Compound(binary) => {
             // `a += b` reads `a` once. The tree carries the operator rather
             // than a rewritten `a = a + b` precisely so that stays true, and
@@ -237,8 +276,8 @@ fn emit_assign(
                 Some(super::scope::Binding::Value(current)) => current,
                 None => return Err(EmitError::UnboundName(*name)),
             };
-            let operand = emit_expr(builder, scope, model, value)?;
-            emit_binary(builder, binary, current, operand)?
+            let operand = emit_expr(builder, scope, ctx, value)?;
+            emit_binary(builder, ctx, binary, current, operand)?
         }
         // `&&=` does not evaluate its right side when the target already
         // decided, which needs a branch.

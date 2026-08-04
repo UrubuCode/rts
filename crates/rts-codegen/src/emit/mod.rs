@@ -56,12 +56,14 @@ pub use expr::emit_expr;
 pub use scope::Scope;
 pub use stmt::emit_stmt;
 
-use rts_cranelift::ir::{BuildError, FuncBuilder, Function, Signature};
+use rts_cranelift::ir::{BuildError, FuncBuilder, FuncRegistry, Function, Signature};
 use rts_cranelift::repr::Repr;
 use rts_cranelift::types::TypeRegistry;
 
 use crate::names::Name;
+use crate::runtime::RuntimeCalls;
 use crate::syntax::Stmt;
+use crate::values::ValueModel;
 
 /// Why a program could not be emitted.
 ///
@@ -113,6 +115,22 @@ pub type EmitResult<T> = Result<T, EmitError>;
 /// were *assuming* are distinguishable from the sites that were *deciding*.
 pub const UNPROVEN: Repr = Repr::Tagged;
 
+/// What emission needs that is not the function being built.
+///
+/// One struct rather than four parameters threaded through every emitter, and
+/// it is `&mut` because declaring a runtime call mutates two of its fields.
+/// Grouping them also makes a real property visible: the registry and the
+/// declared-calls table outlive one function, because a compilation with two
+/// functions calling `__rts_add` must declare it once.
+pub struct Ctx<'a> {
+    /// What the language's singletons are numbered.
+    pub model: &'a ValueModel,
+    /// Every function this compilation can name.
+    pub funcs: &'a mut FuncRegistry,
+    /// Which runtime operations it has asked for so far.
+    pub calls: &'a mut RuntimeCalls,
+}
+
 /// Emits a body of statements as a function taking no parameters.
 ///
 /// # What the signature says, and why it is this one
@@ -133,7 +151,7 @@ pub fn emit_body(
     body: &[Stmt],
     params: &[Name],
     types: &TypeRegistry,
-    model: &crate::values::ValueModel,
+    ctx: &mut Ctx,
 ) -> EmitResult<Function> {
     let signature = Signature {
         params: params.iter().map(|_| UNPROVEN).collect(),
@@ -141,25 +159,39 @@ pub fn emit_body(
         ..Signature::default()
     };
     let mut func = Function::new(signature);
-    let entry = func.push_block();
 
+    // The entry block and its parameters already exist: `Function::new` builds
+    // them from the signature, because "the entry block's parameters are the
+    // function's parameters; there is no second way to name them, so they
+    // cannot disagree".
+    //
+    // The first version of this pushed a second block and declared the
+    // parameters again, which meant the real entry block was never terminated
+    // and every parameter had two values. Neither showed up until the verifier
+    // was run — noted because it is the argument for running it in the test
+    // helpers rather than at the end of the pipeline.
+    let entry = func.entry;
     let mut scope = Scope::new();
-    for name in params {
-        let value = func.push_block_param(entry, UNPROVEN);
+    let incoming = func
+        .block(entry)
+        .expect("a function always has its entry block")
+        .params
+        .clone();
+    for (name, value) in params.iter().zip(incoming) {
         scope.declare(*name, value);
     }
 
     let mut builder = FuncBuilder::new(&mut func, types, entry);
     let mut terminated = false;
     for statement in body {
-        if emit_stmt(&mut builder, &mut scope, model, statement)? {
+        if emit_stmt(&mut builder, &mut scope, ctx, statement)? {
             terminated = true;
             break;
         }
     }
 
     if !terminated {
-        let undefined = expr::undefined(&mut builder, model);
+        let undefined = expr::undefined(&mut builder, ctx);
         builder.ret(&[undefined]);
     }
 
@@ -172,9 +204,31 @@ mod tests {
     use crate::names::Names;
     use crate::parse::parse_script;
     use crate::syntax::{FunctionBody, ModuleItem, StmtKind};
+    use rts_cranelift::ir::FuncRegistry;
     use rts_cranelift::ir::inst::{GenericOp, Inst, Terminator};
     use crate::values::ValueModel;
     use rts_cranelift::tags::TagRegistry;
+
+    /// Hands back what was emitted, having asked the machine whether it is well
+    /// formed.
+    ///
+    /// Every helper here goes through this, so no test in this module can pass
+    /// on a function the verifier would reject. Emission that produced a
+    /// malformed function has not succeeded, and a test asserting something
+    /// about one is asserting something about nothing.
+    fn verified(
+        emitted: EmitResult<Function>,
+        types: &TypeRegistry,
+        funcs: &FuncRegistry,
+    ) -> EmitResult<Function> {
+        let func = emitted?;
+        let errors = rts_cranelift::verify::verify(&func, types, funcs);
+        assert!(
+            errors.is_empty(),
+            "the machine rejected what was emitted: {errors:?}"
+        );
+        Ok(func)
+    }
 
     /// Emits a script's top-level statements, for tests that want to write
     /// source rather than build a tree by hand.
@@ -183,6 +237,9 @@ mod tests {
         let mut tags = TagRegistry::new();
         let model = ValueModel::declare(&mut tags);
         let types = TypeRegistry::default();
+        let mut funcs = FuncRegistry::new();
+        let mut calls = RuntimeCalls::new();
+        let mut ctx = Ctx { model: &model, funcs: &mut funcs, calls: &mut calls };
         let program = parse_script(source, &mut names).expect("the test's source must parse");
         // Imports and exports are not statements and this helper compiles a
         // body, so anything that is not one is dropped rather than silently
@@ -195,7 +252,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        emit_body(&body, &[], &types, &model)
+        verified(emit_body(&body, &[], &types, &mut ctx), &types, &funcs)
     }
 
     /// Emits a FUNCTION body, where `return` is legal.
@@ -208,6 +265,9 @@ mod tests {
         let mut tags = TagRegistry::new();
         let model = ValueModel::declare(&mut tags);
         let types = TypeRegistry::default();
+        let mut funcs = FuncRegistry::new();
+        let mut calls = RuntimeCalls::new();
+        let mut ctx = Ctx { model: &model, funcs: &mut funcs, calls: &mut calls };
         let program = parse_script(&format!("function __test() {{ {source} }}"), &mut names)
             .expect("the test's source must parse");
         let [ModuleItem::Stmt(statement)] = program.body.as_slice() else {
@@ -219,7 +279,7 @@ mod tests {
         let FunctionBody::Block(body) = &function.body else {
             panic!("a declaration always has a block body");
         };
-        emit_body(body, &[], &types, &model)
+        verified(emit_body(body, &[], &types, &mut ctx), &types, &funcs)
     }
 
     #[test]
@@ -316,5 +376,76 @@ mod tests {
             .filter(|(_, block)| matches!(block.terminator, Some(Terminator::Return(_))))
             .count();
         assert_eq!(returns, 1);
+    }
+
+    #[test]
+    fn a_name_the_two_arms_disagree_about_becomes_a_block_parameter() {
+        // The mechanism, stated as what would be false without it: after
+        // `if (c) { x = 1 } else { x = 2 }` there is no single definition of
+        // `x`, and the IR is in SSA form, so there is nothing to write twice.
+        // The join takes a parameter and each arm passes its own value.
+        let func = emit_body_of("let x = 0; if (x) { x = 1; } else { x = 2; } return x;")
+            .expect("emits");
+        assert!(
+            func.blocks().any(|(_, block)| !block.params.is_empty()),
+            "no block took a parameter, so two definitions were merged by \
+             something that cannot be correct"
+        );
+    }
+
+    #[test]
+    fn a_name_neither_arm_touches_does_not_get_a_parameter() {
+        // A correct program that moves a value through a register for no reason
+        // is still worse than one that does not, and comparing the two paths is
+        // what prevents it — so it is pinned rather than trusted.
+        let func =
+            emit_body_of("let x = 0; let y = 1; if (x) { x = 1; } return y;").expect("emits");
+        let params: usize = func.blocks().map(|(_, block)| block.params.len()).sum();
+        assert_eq!(params, 1, "only `x` differs between the two paths");
+    }
+
+    #[test]
+    fn both_arms_returning_emits_no_join_block() {
+        // Ordinary JavaScript, and a join here would be a block nothing jumps
+        // to — malformed, and rejected by the verifier every helper runs.
+        let func = emit_body_of("if (1) { return 1; } else { return 2; }").expect("emits");
+        let returns = func
+            .blocks()
+            .filter(|(_, block)| matches!(block.terminator, Some(Terminator::Return(_))))
+            .count();
+        assert_eq!(returns, 2);
+    }
+
+    #[test]
+    fn the_second_arm_starts_from_the_environment_the_first_one_did() {
+        // Without restoring, the `else` arm would read what `then` produced.
+        // Written as source rather than as an assertion about ids because the
+        // verifier is what catches it: a value used where it does not dominate.
+        emit_body_of("let x = 0; let y = 0; if (x) { x = 1; } else { y = x; } return y;")
+            .expect("emits");
+    }
+
+    #[test]
+    fn a_nested_if_jumps_from_where_its_arm_ended_not_where_it_began() {
+        // The bug this caught: jumping from the arm's FIRST block appends a
+        // second terminator to a block whose branch is already there. It only
+        // appears once something nests, which is why the machine's builder was
+        // given a way to say where it currently is.
+        emit_body_of("let x = 0; if (x) { if (x) { x = 1; } else { x = 2; } } return x;")
+            .expect("emits");
+    }
+
+    #[test]
+    fn a_condition_reaches_the_runtime_because_the_empty_string_is_falsy() {
+        // Six of the seven falsy values a comparison settles. The seventh reads
+        // a string's length from the heap, so truthiness is a call — which is
+        // why control flow could not be emitted before calls existed.
+        let func = emit_body_of("if (1) { return 1; } return 2;").expect("emits");
+        assert!(
+            instructions(&func)
+                .iter()
+                .any(|inst| matches!(inst, Inst::Call { .. })),
+            "the condition must reach the runtime, not a bare narrowing"
+        );
     }
 }

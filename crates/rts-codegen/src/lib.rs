@@ -35,6 +35,7 @@ pub mod syntax;
 pub mod values;
 
 pub mod emit;
+pub mod runtime;
 
 pub use names::{Name, Names};
 pub use syntax::{Expr, Program, Stmt};

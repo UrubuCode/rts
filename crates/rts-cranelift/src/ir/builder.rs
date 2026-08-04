@@ -130,6 +130,20 @@ impl<'a> FuncBuilder<'a> {
         Self { func, types, block }
     }
 
+    /// Which block instructions are currently being appended to.
+    ///
+    /// A builder that can be moved must be able to say where it is. Without
+    /// this every client shadows the position in its own variable, and a shadow
+    /// that drifts from the truth is silent: the client emits into the block it
+    /// believes it is in, which already has a terminator, and the failure
+    /// surfaces as a malformed function with nothing pointing at the cause.
+    ///
+    /// Added when emitting `if`, where the block an arm *ends* in is not the
+    /// block it *starts* in as soon as anything nests inside it.
+    pub fn current(&self) -> BlockId {
+        self.block
+    }
+
     /// Moves to another block.
     pub fn switch_to(&mut self, block: BlockId) {
         self.block = block;

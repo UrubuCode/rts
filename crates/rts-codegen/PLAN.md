@@ -460,15 +460,52 @@ Everything else is refused **by name** — `EmitError::Unsupported { construct }
 The list of names in `expr.rs` and `stmt.rs` is the work queue below, and it is
 readable without running anything.
 
-**E2 — control flow.** `if`, the loops, `switch`, labels, `break`/`continue`.
-This is where the binding representation is first stressed: a local rebound
-inside a loop has two definitions reaching its use, which is a block parameter,
-and inserting those is the actual content of the phase rather than the branches.
+**E2 and E3 were listed in the wrong order, and the code said so.**
 
-**E3 — calls.** Which unblocks the runtime: `===`, string literals and `+` on
-strings all become `CoreEntry` calls, and the entry table stops being a table
-nothing dials. Also the first phase whose output can be *executed*, so it is
-where correctness stops being an argument and starts being a measurement.
+The plan had control flow before calls. Reading the machine's builder before
+writing either showed that it cannot be:
+
+```rust
+pub fn branch(&mut self, cond: ValueId, …) -> BuildResult<()> {
+    if self.func.repr_of(cond) != Repr::Bool {
+        return Err(BuildError::WrongDomain { operation: "branch", … });
+    }
+```
+
+A branch takes a **proven** boolean, and the route from a tagged JavaScript
+value to one is `ToBoolean` — which is a call, because six of the seven falsy
+values a comparison settles and the seventh is the empty string, whose emptiness
+is read from the heap.
+
+The same reading found something larger. The machine refuses to lower a generic
+operation at all:
+
+```rust
+Inst::Generic(..) => Err(LowerError::NotYetLowered { needs: Capability::Calls })
+```
+
+So **E1's own output cannot become machine code** without calls either. Calls
+are not third in the order; everything routes through them. The order below is
+the corrected one, and the correction is recorded rather than quietly applied
+because the original ordering was an assumption presented as a plan.
+
+**E2 — calls, and the first control flow. DONE.** `runtime/` holds the
+operations the language performs by calling out — `Add`, `StrictEquals`,
+`ToBoolean`, `NumberToString` — each with a symbol and a signature, declared on
+demand so a program that never concatenates carries no relocation to the string
+path. `===` and `if` are emitted; the arms merge through block parameters.
+
+Linkage here is **by name**, which is not a departure from the engine's index
+rule. Index linkage is right for a set one side numbers and the other reads,
+where a skew fails quietly. This set is stated independently in two crates that
+never see each other's source, and a disagreement between them should be an
+unresolved symbol at link time rather than a call to the wrong function with
+plausible arguments.
+
+**E3 — the rest of control flow.** The loops, `switch`, labels,
+`break`/`continue`. A loop is a join whose second predecessor has not been
+emitted when its parameters must be decided, which is the one thing `if` did not
+have to solve.
 
 **E4 — objects and property access.** The machine's shapes get their first
 client. `cached_get` and `guard_type` exist and have no caller.
