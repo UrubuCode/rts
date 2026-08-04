@@ -241,11 +241,21 @@ fn emit_binary(
         // They come back when the runtime defines them. Refusing until then is
         // what keeps `runtime/` and `rts-core-rwk` from stating different sets —
         // the exact drift the audit named, since nothing links the two yet.
-        BinaryOp::Sub => return gap("`-`"),
-        BinaryOp::Mul => return gap("`*`"),
-        BinaryOp::Div => return gap("`/`"),
-        BinaryOp::Less | BinaryOp::LessEqual | BinaryOp::Greater | BinaryOp::GreaterEqual => {
-            return gap("a relational operator");
+        BinaryOp::Sub => RuntimeOp::Subtract,
+        BinaryOp::Mul => RuntimeOp::Multiply,
+        BinaryOp::Div => RuntimeOp::Divide,
+        BinaryOp::Rem => RuntimeOp::Remainder,
+
+        // The four relational operators answer a PROVEN boolean, for the same
+        // reason `===` does, and so need the same widening back into a
+        // JavaScript value. `a < b` in expression position is a value; the
+        // proof is what a branch would want, and a branch gets it from
+        // `to_boolean` instead.
+        BinaryOp::Less => return Ok(compared(builder, ctx, RuntimeOp::Less, a, b)?),
+        BinaryOp::LessEqual => return Ok(compared(builder, ctx, RuntimeOp::LessEqual, a, b)?),
+        BinaryOp::Greater => return Ok(compared(builder, ctx, RuntimeOp::Greater, a, b)?),
+        BinaryOp::GreaterEqual => {
+            return Ok(compared(builder, ctx, RuntimeOp::GreaterEqual, a, b)?);
         }
 
         // `===` is not `CmpOp::Eq` even though the spelling matches. Two
@@ -262,13 +272,9 @@ fn emit_binary(
         // returned the machine's raw 1 where the signature declared a tagged
         // value, so the caller read tag 0 — an inline integer — instead of a
         // boolean.
-        BinaryOp::StrictEqual => {
-            let proven = call(builder, ctx, RuntimeOp::StrictEquals, &[a, b])?[0];
-            return Ok(builder.widen(proven));
-        }
+        BinaryOp::StrictEqual => return Ok(compared(builder, ctx, RuntimeOp::StrictEquals, a, b)?),
         BinaryOp::StrictNotEqual => return gap("`!==`"),
         BinaryOp::LooseEqual | BinaryOp::LooseNotEqual => return gap("`==` or `!=`"),
-        BinaryOp::Rem => return gap("`%`"),
         BinaryOp::Exponent => return gap("`**`"),
         BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor => return gap("a bitwise operator"),
         BinaryOp::Shl | BinaryOp::Shr | BinaryOp::UShr => return gap("a shift"),
@@ -319,4 +325,25 @@ fn emit_assign(
     // An assignment is an expression: `x = (y = 1)` needs the inner one's
     // value, and it is the assigned value rather than the binding.
     Ok(result)
+}
+
+/// A comparison, as a JavaScript value.
+///
+/// The runtime answers `Repr::Bool` — it **proved** one, which is what lets a
+/// branch consume it without a guard. But a comparison written in expression
+/// position is a value, so the proof is widened back into one.
+///
+/// Found by running a program rather than by reading: `return 1 === 1` handed
+/// back the machine's raw `1` where the signature declared a tagged value, and
+/// the caller read tag 0 — an inline integer — as the answer. Shared by all five
+/// comparisons so the next one cannot be added without it.
+fn compared(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    op: RuntimeOp,
+    a: ValueId,
+    b: ValueId,
+) -> EmitResult<ValueId> {
+    let proven = call(builder, ctx, op, &[a, b])?[0];
+    Ok(builder.widen(proven))
 }

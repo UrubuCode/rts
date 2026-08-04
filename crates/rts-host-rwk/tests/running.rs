@@ -92,9 +92,73 @@ fn a_program_naming_an_operation_the_runtime_lacks_is_refused_by_name() {
     // The failure the two independent statements of the entry-point set were
     // always going to produce, caught where it becomes visible instead of
     // becoming a call to whatever the linker found.
-    let error = compile("return 1 - 2;").expect_err("`-` has no runtime operation");
+    // `**` rather than `-`: this test named `-` until the runtime defined it,
+    // which is the right way for it to fail. What it pins is the shape of the
+    // refusal, so it moves to whatever is still missing rather than being
+    // deleted with the gap it happened to name.
+    let error = compile("return 2 ** 3;").expect_err("`**` has no runtime operation");
     assert!(
         format!("{error:?}").contains("Unsupported"),
         "expected a named refusal, got {error:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// The operators the runtime gained, each run rather than inspected.
+
+#[test]
+fn the_arithmetic_operators_compute() {
+    assert_eq!(tags::decode_double(run("return 7 - 2;")), 5.0);
+    assert_eq!(tags::decode_double(run("return 6 * 7;")), 42.0);
+    assert_eq!(tags::decode_double(run("return 9 / 2;")), 4.5);
+    assert_eq!(tags::decode_double(run("return 7 % 3;")), 1.0);
+}
+
+#[test]
+fn division_follows_ieee_754_rather_than_failing() {
+    // JavaScript's arithmetic is IEEE-754, so this is the answer and not an
+    // edge case. A guard in the runtime would replace what the language says.
+    assert_eq!(tags::decode_double(run("return 1 / 0;")), f64::INFINITY);
+    assert!(tags::decode_double(run("return 0 / 0;")).is_nan());
+}
+
+#[test]
+fn remainder_takes_the_sign_of_the_dividend() {
+    // `-5 % 3` is `-2`, not `1` — remainder, not modulo. Written with a unary
+    // minus the emitter does not have yet, so the dividend is built by
+    // subtracting instead.
+    assert_eq!(tags::decode_double(run("return (0 - 5) % 3;")), -2.0);
+}
+
+#[test]
+fn a_relational_operator_answers_a_javascript_value() {
+    // Widened back from the proof the runtime returned: `a < b` in expression
+    // position is a value, and only a branch wants the raw boolean.
+    let produced = run("return 2 < 10;");
+    assert_eq!(tags::tag_of(produced), tags::TAG_BOOL);
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+    assert_eq!(tags::payload_of(run("return 10 < 2;")), tags::BOOL_FALSE);
+}
+
+#[test]
+fn nan_is_unordered_so_all_four_comparisons_are_false() {
+    // The one that catches an implementation written as negations. If `<=` were
+    // `!(a > b)`, this would answer true.
+    assert_eq!(tags::payload_of(run("return (0 / 0) <= (0 / 0);")), tags::BOOL_FALSE);
+    assert_eq!(tags::payload_of(run("return (0 / 0) >= (0 / 0);")), tags::BOOL_FALSE);
+}
+
+#[test]
+fn a_loop_that_counts_up_to_a_bound() {
+    // What `<` was missing for. The loop now reads the way one is written,
+    // rather than around the operators the runtime lacked.
+    let produced = run("let i = 0; let total = 0; while (i < 5) { total = total + i; i = i + 1; } return total;");
+    assert_eq!(tags::decode_double(produced), 10.0);
+}
+
+#[test]
+fn a_for_loop_runs_end_to_end() {
+    // Header scope, condition, body and update — E3's whole shape, executed.
+    let produced = run("let total = 0; for (let i = 1; i <= 4; i = i + 1) { total = total * 10 + i; } return total;");
+    assert_eq!(tags::decode_double(produced), 1234.0);
 }

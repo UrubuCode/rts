@@ -33,6 +33,13 @@
 //! argument is that a small closed set beats a large open one.
 
 mod cell;
+mod operators;
+
+// The operators are defined in their own module and named from here, because a
+// caller wants "the entry points" in one place rather than a module tree.
+pub use operators::{
+    divide, greater, greater_equal, less, less_equal, multiply, remainder, subtract,
+};
 mod table;
 
 pub use cell::Cell;

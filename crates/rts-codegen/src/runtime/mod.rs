@@ -87,6 +87,62 @@ pub enum RuntimeOp {
     ///
     /// The result is allocated.
     NumberToString,
+
+    /// `a - b`.
+    ///
+    /// An entry point because `ToNumber` of a string reads the heap. The
+    /// operation once both operands are numbers is one instruction, and
+    /// proving that is what a type pass buys.
+    Subtract,
+
+    /// `a * b`.
+    ///
+    /// An entry point because `ToNumber` of a string reads the heap. The
+    /// operation once both operands are numbers is one instruction, and
+    /// proving that is what a type pass buys.
+    Multiply,
+
+    /// `a / b`.
+    ///
+    /// An entry point because `ToNumber` of a string reads the heap. The
+    /// operation once both operands are numbers is one instruction, and
+    /// proving that is what a type pass buys.
+    Divide,
+
+    /// `a % b`.
+    ///
+    /// An entry point because `ToNumber` of a string reads the heap. The
+    /// operation once both operands are numbers is one instruction, and
+    /// proving that is what a type pass buys.
+    Remainder,
+
+    /// `a < b`.
+    ///
+    /// An entry point because `ToNumber` of a string reads the heap. The
+    /// operation once both operands are numbers is one instruction, and
+    /// proving that is what a type pass buys.
+    Less,
+
+    /// `a <= b`.
+    ///
+    /// An entry point because `ToNumber` of a string reads the heap. The
+    /// operation once both operands are numbers is one instruction, and
+    /// proving that is what a type pass buys.
+    LessEqual,
+
+    /// `a > b`.
+    ///
+    /// An entry point because `ToNumber` of a string reads the heap. The
+    /// operation once both operands are numbers is one instruction, and
+    /// proving that is what a type pass buys.
+    Greater,
+
+    /// `a >= b`.
+    ///
+    /// An entry point because `ToNumber` of a string reads the heap. The
+    /// operation once both operands are numbers is one instruction, and
+    /// proving that is what a type pass buys.
+    GreaterEqual,
 }
 
 impl RuntimeOp {
@@ -96,6 +152,14 @@ impl RuntimeOp {
         RuntimeOp::StrictEquals,
         RuntimeOp::ToBoolean,
         RuntimeOp::NumberToString,
+        RuntimeOp::Subtract,
+        RuntimeOp::Multiply,
+        RuntimeOp::Divide,
+        RuntimeOp::Remainder,
+        RuntimeOp::Less,
+        RuntimeOp::LessEqual,
+        RuntimeOp::Greater,
+        RuntimeOp::GreaterEqual,
     ];
 
     /// The linker name the runtime must define.
@@ -110,6 +174,14 @@ impl RuntimeOp {
             RuntimeOp::StrictEquals => "__rts_strict_equals",
             RuntimeOp::ToBoolean => "__rts_to_boolean",
             RuntimeOp::NumberToString => "__rts_number_to_string",
+            RuntimeOp::Subtract => "__rts_subtract",
+            RuntimeOp::Multiply => "__rts_multiply",
+            RuntimeOp::Divide => "__rts_divide",
+            RuntimeOp::Remainder => "__rts_remainder",
+            RuntimeOp::Less => "__rts_less",
+            RuntimeOp::LessEqual => "__rts_less_equal",
+            RuntimeOp::Greater => "__rts_greater",
+            RuntimeOp::GreaterEqual => "__rts_greater_equal",
         }
     }
 
@@ -126,6 +198,14 @@ impl RuntimeOp {
             RuntimeOp::StrictEquals => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::ToBoolean => (vec![UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::NumberToString => (vec![Repr::F64], vec![UNPROVEN]),
+            RuntimeOp::Subtract => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::Multiply => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::Divide => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::Remainder => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::Less => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
+            RuntimeOp::LessEqual => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
+            RuntimeOp::Greater => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
+            RuntimeOp::GreaterEqual => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
         };
         Signature {
             params,

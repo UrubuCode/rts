@@ -159,14 +159,25 @@ pub fn relational(
     left: Value,
     right: Value,
     as_string: impl Fn(Value) -> Option<Str>,
+    as_number: impl Fn(Value) -> Option<f64>,
 ) -> Option<bool> {
     let less = |a: Value, b: Value| -> Option<bool> {
         match (as_string(a), as_string(b)) {
             // Both strings: code-unit order.
             (Some(x), Some(y)) => Some(x.units().lt(y.units())),
-            // Anything else: numbers, and NaN makes it unordered.
+            // Anything else: numbers.
+            //
+            // `as_number` rather than `Value::numeric`, and the difference is
+            // the whole of the mixed case. `numeric` answers for what a machine
+            // word already holds and returns nothing for a reference — so with
+            // it, `"2" < 10` was unordered and therefore FALSE, when the answer
+            // is true: only one side being a string means both convert.
+            //
+            // Found by running it. The specification's own wording is the
+            // reminder: the string comparison happens *only* when both sides
+            // are strings, and every other combination is a numeric one.
             _ => {
-                let (x, y) = (a.numeric()?, b.numeric()?);
+                let (x, y) = (as_number(a)?, as_number(b)?);
                 if x.is_nan() || y.is_nan() {
                     return None;
                 }
@@ -202,6 +213,13 @@ mod tests {
     /// Stands in for "this value is a string", which needs a heap this module
     /// does not have. The tests supply it, which is exactly how the real caller
     /// will.
+    /// `ToNumber` for a test that holds no heap: everything a machine word
+    /// already settles, and nothing else. A test needing the string case builds
+    /// its own, because that case is exactly the one that needs a context.
+    fn plain(value: Value) -> Option<f64> {
+        value.numeric()
+    }
+
     fn strings(pairs: Vec<(u64, &'static str)>) -> impl Fn(Value) -> Option<Str> {
         move |value: Value| {
             pairs
@@ -281,7 +299,7 @@ mod tests {
             Relational::GreaterEqual,
         ] {
             assert_eq!(
-                relational(op, nan, nan, &none),
+                relational(op, nan, nan, &none, plain),
                 None,
                 "{op:?} on NaN is unordered, not false-because-negated"
             );
@@ -294,15 +312,15 @@ mod tests {
         let one = Value::from_i32(1);
         let two = Value::from_i32(2);
 
-        assert_eq!(relational(Relational::Less, one, two, &none), Some(true));
-        assert_eq!(relational(Relational::Less, two, one, &none), Some(false));
+        assert_eq!(relational(Relational::Less, one, two, &none, plain), Some(true));
+        assert_eq!(relational(Relational::Less, two, one, &none, plain), Some(false));
         assert_eq!(
-            relational(Relational::LessEqual, one, one, &none),
+            relational(Relational::LessEqual, one, one, &none, plain),
             Some(true)
         );
-        assert_eq!(relational(Relational::Greater, two, one, &none), Some(true));
+        assert_eq!(relational(Relational::Greater, two, one, &none, plain), Some(true));
         assert_eq!(
-            relational(Relational::GreaterEqual, one, one, &none),
+            relational(Relational::GreaterEqual, one, one, &none, plain),
             Some(true)
         );
     }
@@ -314,7 +332,7 @@ mod tests {
         let as_string = strings(vec![(a.bits(), "10"), (b.bits(), "9")]);
 
         assert_eq!(
-            relational(Relational::Less, a, b, &as_string),
+            relational(Relational::Less, a, b, &as_string, plain),
             Some(true),
             "\"10\" < \"9\" because '1' precedes '9' — string comparison, not \
              numeric"

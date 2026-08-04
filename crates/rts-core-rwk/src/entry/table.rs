@@ -39,6 +39,10 @@
 
 use rts_cranelift::abi::{Convention, EntryDesc, Signature};
 
+use super::operators::{
+    DIVIDE_ENTRY, GREATER_ENTRY, GREATER_EQUAL_ENTRY, LESS_ENTRY, LESS_EQUAL_ENTRY, MULTIPLY_ENTRY,
+    REMAINDER_ENTRY, SUBTRACT_ENTRY,
+};
 use super::{ADD_ENTRY, NUMBER_TO_STRING_ENTRY, STRICT_EQUALS_ENTRY, TO_BOOLEAN_ENTRY};
 
 /// An operation compiled code performs by calling rather than by emitting.
@@ -70,6 +74,62 @@ pub enum CoreEntry {
     ///
     /// Here because the result is allocated.
     NumberToString = 3,
+
+    /// `a - b`.
+    ///
+    /// Here because `ToNumber` of a string reads its text out of the heap.
+    /// The operation itself is one instruction, and a pass that proved both
+    /// operands are numbers should emit that instead of calling this.
+    Subtract = 4,
+
+    /// `a * b`.
+    ///
+    /// Here because `ToNumber` of a string reads its text out of the heap.
+    /// The operation itself is one instruction, and a pass that proved both
+    /// operands are numbers should emit that instead of calling this.
+    Multiply = 5,
+
+    /// `a / b`.
+    ///
+    /// Here because `ToNumber` of a string reads its text out of the heap.
+    /// The operation itself is one instruction, and a pass that proved both
+    /// operands are numbers should emit that instead of calling this.
+    Divide = 6,
+
+    /// `a % b`.
+    ///
+    /// Here because `ToNumber` of a string reads its text out of the heap.
+    /// The operation itself is one instruction, and a pass that proved both
+    /// operands are numbers should emit that instead of calling this.
+    Remainder = 7,
+
+    /// `a < b`.
+    ///
+    /// Here because `ToNumber` of a string reads its text out of the heap.
+    /// The operation itself is one instruction, and a pass that proved both
+    /// operands are numbers should emit that instead of calling this.
+    Less = 8,
+
+    /// `a <= b`.
+    ///
+    /// Here because `ToNumber` of a string reads its text out of the heap.
+    /// The operation itself is one instruction, and a pass that proved both
+    /// operands are numbers should emit that instead of calling this.
+    LessEqual = 9,
+
+    /// `a > b`.
+    ///
+    /// Here because `ToNumber` of a string reads its text out of the heap.
+    /// The operation itself is one instruction, and a pass that proved both
+    /// operands are numbers should emit that instead of calling this.
+    Greater = 10,
+
+    /// `a >= b`.
+    ///
+    /// Here because `ToNumber` of a string reads its text out of the heap.
+    /// The operation itself is one instruction, and a pass that proved both
+    /// operands are numbers should emit that instead of calling this.
+    GreaterEqual = 11,
 }
 
 /// How many entry points exist.
@@ -77,7 +137,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 4;
+pub const CORE_ENTRY_COUNT: usize = 12;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -86,6 +146,14 @@ impl CoreEntry {
         CoreEntry::StrictEquals,
         CoreEntry::ToBoolean,
         CoreEntry::NumberToString,
+        CoreEntry::Subtract,
+        CoreEntry::Multiply,
+        CoreEntry::Divide,
+        CoreEntry::Remainder,
+        CoreEntry::Less,
+        CoreEntry::LessEqual,
+        CoreEntry::Greater,
+        CoreEntry::GreaterEqual,
     ];
 
     /// The number a call site holds.
@@ -105,6 +173,14 @@ impl CoreEntry {
             CoreEntry::StrictEquals => STRICT_EQUALS_ENTRY,
             CoreEntry::ToBoolean => TO_BOOLEAN_ENTRY,
             CoreEntry::NumberToString => NUMBER_TO_STRING_ENTRY,
+            CoreEntry::Subtract => SUBTRACT_ENTRY,
+            CoreEntry::Multiply => MULTIPLY_ENTRY,
+            CoreEntry::Divide => DIVIDE_ENTRY,
+            CoreEntry::Remainder => REMAINDER_ENTRY,
+            CoreEntry::Less => LESS_ENTRY,
+            CoreEntry::LessEqual => LESS_EQUAL_ENTRY,
+            CoreEntry::Greater => GREATER_ENTRY,
+            CoreEntry::GreaterEqual => GREATER_EQUAL_ENTRY,
         }
     }
 

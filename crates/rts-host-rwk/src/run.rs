@@ -221,5 +221,29 @@ fn address_of(op: RuntimeOp) -> Result<*const u8, HostError> {
         RuntimeOp::NumberToString => {
             rts_core_rwk::entry::number_to_string as extern "C" fn(f64) -> u64 as *const u8
         }
+        RuntimeOp::Subtract => {
+            rts_core_rwk::entry::subtract as extern "C" fn(u64, u64) -> u64 as *const u8
+        }
+        RuntimeOp::Multiply => {
+            rts_core_rwk::entry::multiply as extern "C" fn(u64, u64) -> u64 as *const u8
+        }
+        RuntimeOp::Divide => {
+            rts_core_rwk::entry::divide as extern "C" fn(u64, u64) -> u64 as *const u8
+        }
+        RuntimeOp::Remainder => {
+            rts_core_rwk::entry::remainder as extern "C" fn(u64, u64) -> u64 as *const u8
+        }
+        RuntimeOp::Less => {
+            rts_core_rwk::entry::less as extern "C" fn(u64, u64) -> bool as *const u8
+        }
+        RuntimeOp::LessEqual => {
+            rts_core_rwk::entry::less_equal as extern "C" fn(u64, u64) -> bool as *const u8
+        }
+        RuntimeOp::Greater => {
+            rts_core_rwk::entry::greater as extern "C" fn(u64, u64) -> bool as *const u8
+        }
+        RuntimeOp::GreaterEqual => {
+            rts_core_rwk::entry::greater_equal as extern "C" fn(u64, u64) -> bool as *const u8
+        }
     })
 }
