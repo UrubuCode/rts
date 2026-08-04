@@ -17,10 +17,10 @@
 //!
 //! An object. `a.x = 1` works and `a[0] = 1` does not go anywhere near the
 //! shape tree, which is why [`super::objects::get_indexed`] asks *which* before
-//! deciding. The one property that is not a property is `length`, which is the
-//! element count and is answered from the store.
+//! deciding. `length` is an ordinary property holding the count — see
+//! [`set_length`] for why it is stored rather than invented.
 
-use super::objects::undefined_of;
+use super::objects::{length_key, undefined_of};
 use super::{Context, with_current};
 use crate::heap::Slot;
 use crate::text::Str;
@@ -45,6 +45,7 @@ pub fn array_new(length: i64) -> u64 {
         match context.region.alloc(crate::heap::STRIDE, ty) {
             Some(cell) => {
                 context.mark_array(cell, store);
+                set_length(context, cell, length.max(0) as usize);
                 Value::from_slot(cell).bits()
             }
             // The region is full and there is no collector to ask — the same
@@ -89,7 +90,22 @@ impl Context {
 /// language says an array index is a canonical non-negative integer below
 /// 2^32-1, and everything else is a name. Getting this wrong makes `a[1.5] = 9`
 /// write into element 1, which is a wrong program that runs.
-pub(super) fn as_index(key: Value) -> Option<usize> {
+pub(super) fn as_index(context: &Context, key: Value) -> Option<usize> {
+    // A STRING that spells a canonical index is one too, and this is not a
+    // nicety: `for (k in a)` yields strings, so `a[k]` inside such a loop is
+    // always the string form. The first version took numbers only, and
+    // `for (k in [1,2,3]) s += a[k]` answered NaN — every read missed the
+    // elements and found an absent property.
+    //
+    // `as_array_index` is the runtime's own answer to which strings those are,
+    // and reusing it is what keeps this agreeing with `Key::from_str` about
+    // where the boundary is.
+    if let Some(slot) = key.as_slot()
+        && let Some(text) = context.text_at(slot)
+    {
+        return crate::object::as_array_index(text).map(|index| index as usize);
+    }
+
     let number = key.numeric()?;
     if number < 0.0 || number.fract() != 0.0 || number >= 4_294_967_295.0 {
         return None;
@@ -150,7 +166,18 @@ pub fn own_keys(object: u64) -> u64 {
         let Some(shape) = context.shape_of(ty) else {
             return keys;
         };
+        // An array's `length` is NOT enumerable. It became a real property so
+        // that compiled code and the runtime would answer it the same way, and
+        // the cost of that is exactly here: everything else reads it as an
+        // ordinary property, so the one place that must not is this one.
+        //
+        // Caught by a probe: `for (k in [1,2,3]) s += a[k]` summed to 9
+        // instead of 6, because the loop visited "length" and added 3.
+        let skip = context.elements_at(slot).is_some().then(|| length_key(context));
         for (key, _) in context.shapes.properties(shape) {
+            if Some(crate::object::Key::Name(key)) == skip {
+                continue;
+            }
             if let Some(text) = context.interner.text(key) {
                 keys.push(text.clone());
             }
@@ -173,4 +200,28 @@ pub fn own_keys(object: u64) -> u64 {
         }
     });
     array
+}
+
+/// Writes an array's `length` as an ordinary property.
+///
+/// # Why a real property and not an answer the runtime invents
+///
+/// It WAS invented: `get_property` special-cased the key and answered the
+/// element count. That worked until something stored a `length` property, and
+/// then the two paths disagreed — because compiled code does not go through
+/// `get_property` for a hit. It emits `cached_get`, which finds the stored
+/// property and never asks the runtime at all.
+///
+/// A special case only the slow path knows about is a special case that stops
+/// applying the moment the fast path starts working, which is the opposite of
+/// how a fast path is supposed to fail. So the count is a property both read.
+///
+/// The divergence that remains, named: assigning `length` stores a number and
+/// does not truncate the array, where the language shortens it. Truncating
+/// needs the write to know it is writing to an array, which is `put`'s caller
+/// rather than `put`.
+pub(super) fn set_length(context: &mut Context, cell: u32, length: usize) {
+    let key = super::objects::length_key(context);
+    let value = Value::from_f64(length as f64).bits();
+    super::objects::put(context, cell, key, value);
 }

@@ -75,15 +75,6 @@ pub fn get_property(object: u64, key: i64) -> u64 {
         let Some(key) = key_of(context, key) else {
             return undefined_of(context);
         };
-        // `length` on an array is the element count rather than a stored
-        // property. The one place a read has to know what it is reading — and
-        // the key is compared by NUMBER, because the runtime was seeded with
-        // the compiler's text for it and both therefore mean the same key.
-        if key == length_key(context)
-            && let Some(elements) = context.elements_at(slot)
-        {
-            return Value::from_f64(elements.len() as f64).bits();
-        }
         match read(context, slot, key) {
             Some(value) => value.bits(),
             None => undefined_of(context),
@@ -120,7 +111,7 @@ pub fn set_property(object: u64, key: i64, value: u64) -> u64 {
 /// Named `put` rather than `write` because `write` is a macro in scope, and a
 /// call that silently resolves to one instead is a compile error whose message
 /// points at the wrong thing.
-fn put(context: &mut Context, slot: u32, key: Key, value: u64) {
+pub(super) fn put(context: &mut Context, slot: u32, key: Key, value: u64) {
         let Some(machine) = machine_key(key) else {
             return;
         };
@@ -373,7 +364,7 @@ pub fn get_indexed(object: u64, key: u64) -> u64 {
         // An element, if this is an array and the key is a canonical index.
         // Asked BEFORE `ToPropertyKey`, because that would turn the number into
         // text and lose the distinction the array store is built on.
-        if let Some(at) = super::array::as_index(Value(key))
+        if let Some(at) = super::array::as_index(context, Value(key))
             && let Some(elements) = context.elements_at(slot)
         {
             // Past the end is absent, not an error: `[1,2][9]` is `undefined`.
@@ -397,7 +388,7 @@ pub fn set_indexed(object: u64, key: u64, value: u64) -> u64 {
         let Some(slot) = Value(object).as_slot() else {
             return value;
         };
-        if let Some(at) = super::array::as_index(Value(key))
+        if let Some(at) = super::array::as_index(context, Value(key))
             && let Some(elements) = context.elements_at_mut(slot)
         {
             // Writing past the end grows the array and fills the gap with
@@ -421,6 +412,11 @@ pub fn set_indexed(object: u64, key: u64, value: u64) -> u64 {
                 .elements_at_mut(slot)
                 .expect("the array was just found");
             elements[at] = value;
+            // `length` is a property both paths read, so growing has to write it
+            // — compiled code reads the stored one and never asks the runtime
+            // for a hit.
+            let count = elements.len();
+            super::array::set_length(context, slot, count);
             return value;
         }
         let Some(key) = property_key(context, Value(key)) else {
@@ -460,7 +456,7 @@ pub fn has_property(key: u64, object: u64) -> bool {
 /// resolved, so a program that reads `.length` already put it there and this
 /// finds the same number. A program that never mentions it mints one here that
 /// nothing else uses, which costs a key and answers nothing differently.
-fn length_key(context: &mut Context) -> Key {
+pub(super) fn length_key(context: &mut Context) -> Key {
     let text = crate::text::Str::from_str("length");
     Key::Name(context.interner.intern(&text, &mut context.keys))
 }

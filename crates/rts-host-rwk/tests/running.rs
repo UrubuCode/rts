@@ -1825,3 +1825,54 @@ fn a_captured_name_assigned_in_a_switch_or_a_labelled_block_is_the_same_case() {
     );
     assert_eq!(tags::decode_double(produced), 9.0);
 }
+
+#[test]
+fn a_string_that_spells_an_index_reaches_the_element() {
+    // `a[0]` and `a["0"]` are one thing, and this is not a nicety: `for-in`
+    // yields STRINGS, so `a[k]` inside such a loop is always the string form.
+    //
+    // Answering NaN was the first version's behaviour — every read missed the
+    // elements and found an absent property — and the loop below is the program
+    // that showed it.
+    assert_eq!(
+        tags::decode_double(run("let a = [1, 2, 3]; return a[\"1\"];")),
+        2.0
+    );
+    let produced = run("let s = 0; let a = [1, 2, 3]; for (let k in a) { s = s + a[k]; } return s;");
+    assert_eq!(tags::decode_double(produced), 6.0);
+}
+
+#[test]
+fn length_is_a_property_both_paths_read() {
+    // It used to be answered by the runtime special-casing the key, which
+    // worked until something stored a `length` property — because compiled code
+    // does not reach the runtime for a hit. It emits `cached_get`, finds the
+    // stored property, and never asks.
+    //
+    // A special case only the slow path knows about stops applying the moment
+    // the fast path starts working, which is the opposite of how a fast path
+    // should fail. So the count is stored, and both read the same thing.
+    assert_eq!(tags::decode_double(run("let a = [1, 2, 3]; return a.length;")), 3.0);
+    assert_eq!(
+        tags::decode_double(run("let a = []; a[2] = 1; return a.length;")),
+        3.0
+    );
+    // Another property does not disturb it.
+    assert_eq!(
+        tags::decode_double(run("let a = [1, 2]; a.x = 9; return a.length;")),
+        2.0
+    );
+}
+
+#[test]
+fn length_is_not_enumerable() {
+    // The cost of `length` being a real property: everything else reads it as
+    // one, so the single place that must not is enumeration. Without this,
+    // `for (k in [1,2,3]) s += a[k]` summed to 9 rather than 6 — the loop
+    // visited "length" and added 3.
+    let produced = run(
+        "let a = [1, 2]; let joined = \"\"; for (let k in a) { joined = joined + k; } \
+         return joined === \"01\";",
+    );
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
