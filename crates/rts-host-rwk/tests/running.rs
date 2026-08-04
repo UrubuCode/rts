@@ -1638,3 +1638,39 @@ fn a_computed_key_can_be_deleted() {
         tags::BOOL_FALSE
     );
 }
+
+// ---------------------------------------------------------------------------
+// The rest of an object literal.
+
+#[test]
+fn a_method_in_a_literal_is_callable() {
+    let produced = run("let o = { n: 6, twice() { return this.n * 2; } }; return o.twice();");
+    assert_eq!(tags::decode_double(produced), 12.0);
+}
+
+#[test]
+fn a_computed_key_in_a_literal_is_evaluated() {
+    let produced = run("let k = \"a\"; let o = { [k]: 5 }; return o.a;");
+    assert_eq!(tags::decode_double(produced), 5.0);
+    // And it is a value rather than a name, so it can be computed.
+    let produced = run("let o = { [\"x\" + \"y\"]: 7 }; return o.xy;");
+    assert_eq!(tags::decode_double(produced), 7.0);
+}
+
+#[test]
+fn shorthand_reads_the_binding_of_that_name() {
+    // `{ a }` requires `a` to be readable where `{ a: 1 }` requires nothing,
+    // which is the difference the tree records and the reason it is a flag
+    // rather than a separate node.
+    assert_eq!(tags::decode_double(run("let a = 3; let o = { a }; return o.a;")), 3.0);
+}
+
+#[test]
+fn properties_are_set_in_source_order() {
+    // The later one wins, which is only observable if both are emitted and in
+    // the order written.
+    assert_eq!(
+        tags::decode_double(run("let o = { a: 1, a: 2 }; return o.a;")),
+        2.0
+    );
+}

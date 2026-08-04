@@ -663,16 +663,38 @@ fn emit_object(
 ) -> EmitResult<ValueId> {
     let object = call(builder, ctx, RuntimeOp::ObjectNew, &[])?[0];
     for property in properties {
-        let Property::Value { key, value, .. } = property else {
-            return gap("a method, getter, setter, spread or `__proto__` in an object literal");
+        // A method is a function stored under a key, plus a **home object** —
+        // which is what `super.x` inside it reads from. There is no `super`
+        // yet, so the two are the same thing here; when there is, this becomes
+        // the place that differs and the tree already records which was
+        // written.
+        let (key, value) = match property {
+            Property::Value { key, value, .. } => {
+                let value = emit_expr(builder, scope, ctx, value)?;
+                (key, value)
+            }
+            Property::Method { key, function } => {
+                let value = super::function::emit_closure(builder, scope, ctx, function)?;
+                (key, value)
+            }
+            _ => return gap("a getter, setter, spread or `__proto__` in an object literal"),
         };
-        let PropertyKey::Named(name) = key else {
-            return gap("a computed key in an object literal");
-        };
-        let key = key_constant(builder, ctx, *name);
-        let value = emit_expr(builder, scope, ctx, value)?;
         let value = tagged(builder, value);
-        call(builder, ctx, RuntimeOp::SetProperty, &[object, key, value])?;
+
+        match key {
+            // The name is resolved while compiling, so the key crosses as the
+            // number — which is the whole reason a written key and a computed
+            // one are different operations rather than one taking a value.
+            PropertyKey::Named(name) => {
+                let key = key_constant(builder, ctx, *name);
+                call(builder, ctx, RuntimeOp::SetProperty, &[object, key, value])?;
+            }
+            PropertyKey::Computed(expression) => {
+                let key = emit_expr(builder, scope, ctx, expression)?;
+                let key = tagged(builder, key);
+                call(builder, ctx, RuntimeOp::SetIndexed, &[object, key, value])?;
+            }
+        }
     }
     Ok(object)
 }
