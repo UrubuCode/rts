@@ -26,7 +26,26 @@ verifier-checked work had not:
   answers, and what `eval` returns — is named as not implemented rather than
   approximated by "the last statement".
 
-## H1 — the object-file destination
+## H1 — the heap. DONE, the wiring half
+
+`rts-core-rwk::heap::Region` — one contiguous allocation, 64-byte cells, each a
+word of header and seven inline slots. `rts_alloc` implements the machine's own
+entry point, and the host hands the machine `RegionBases::single(base, stride)`.
+
+**One region per compiled program, owned by it.** Its base is a NUMBER inside
+the code, so the program and its heap are one thing. The first version of this
+wiring got it wrong in the way the comment beside it warned about: the host
+built a region for the base and the runtime context built another when the
+program ran, so compiled code would have addressed one while the allocator
+filled the other. `Context::over` exists because of it.
+
+What is NOT done: nothing allocates through it yet. Objects still live in the
+slab and property access is still a call. Moving them is the rest of
+`docs/engine/objects-are-aggregates.md`, and it needs the collector — a cell is
+never reclaimed today, so a program that allocates enough gets index 0 back and
+a wrong object. That is recorded at the entry point rather than hidden.
+
+## H2 — the object-file destination
 
 Rule 3 says both destinations or neither, and today there is one. The machine
 has both. What is missing here is the archive: an object file's undefined
@@ -37,13 +56,13 @@ Worth doing early, because it is the path that needs no addresses handed over �
 so it is the one that proves the two independent statements of the entry-point
 set agree, by failing to link when they do not.
 
-## H2 — faults
+## H3 — faults
 
 A compiled program that traps takes the process with it. The machine has
 `fault::FaultTable` and `MachineModule` already carries it; nothing here reads
 it.
 
-## H3 — what emission gains next
+## H4 — what emission gains next
 
 The host does not need changing for most of it. Objects, property access and
 closures are `rts-codegen` phases, and each arrives here as more programs that

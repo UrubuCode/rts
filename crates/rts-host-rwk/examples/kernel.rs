@@ -50,14 +50,14 @@ fn main() {
     // Compiling is timed on its own, and separately from running, because the
     // two are separate costs a caller pays at separate times.
     let mut compile_times = Vec::new();
-    let mut compiled = None;
+    let mut compiled: Option<rts_host_rwk::Compiled> = None;
     for _ in 0..repeats {
         let started = Instant::now();
         let program = rts_host_rwk::compile(&source).expect("the kernel compiles");
         compile_times.push(started.elapsed().as_secs_f64() * 1000.0);
         compiled = Some(program);
     }
-    let program = compiled.expect("at least one repeat");
+    let mut program = compiled.expect("at least one repeat");
 
     let mut run_times = Vec::new();
     let mut answer = 0u64;

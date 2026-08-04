@@ -15,14 +15,15 @@ use rts_host_rwk::compile;
 
 /// Runs a script and hands back the encoded word it produced.
 fn run(source: &str) -> u64 {
-    compile(source)
+    let mut program = compile(source)
         .unwrap_or_else(|error| panic!("compiling `{source}` failed: {error:?}"))
-        .run()
+        ;
+    program.run()
 }
 
 #[test]
 fn a_script_that_does_nothing_returns_undefined() {
-    let compiled = compile("").expect("an empty script compiles");
+    let mut compiled = compile("").expect("an empty script compiles");
     let produced = compiled.run();
     // Not "it returned something": a function falling off its end returns
     // `undefined`, and which word that is comes from the compiler's own
@@ -57,7 +58,7 @@ fn addition_reaches_the_runtime_rather_than_being_folded() {
 fn strict_equality_answers_a_boolean_the_machine_proved() {
     // `===` returns `Repr::Bool`, not a tagged value: the runtime establishes
     // it, which is what lets a branch consume one without a guard.
-    let compiled = compile("return 1 === 1;").expect("compiles");
+    let mut compiled = compile("return 1 === 1;").expect("compiles");
     let produced = compiled.run();
     assert_eq!(tags::tag_of(produced), tags::TAG_BOOL);
     assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
@@ -201,7 +202,7 @@ fn overwriting_a_property_does_not_grow_the_object() {
 fn an_absent_property_reads_as_undefined() {
     // Legal JavaScript, not an error being swallowed. Compared against the
     // compiler's own numbering rather than a constant written here.
-    let compiled = compile("let o = {}; return o.missing;").expect("compiles");
+    let mut compiled = compile("let o = {}; return o.missing;").expect("compiles");
     assert_eq!(
         compiled.run(),
         compiled.model().singleton(Singleton::Undefined).word()
@@ -246,4 +247,36 @@ fn an_object_is_only_equal_to_itself() {
         tags::payload_of(run("let a = {}; let b = a; return a === b;")),
         tags::BOOL_TRUE
     );
+}
+
+// ---------------------------------------------------------------------------
+// The heap compiled code addresses with arithmetic.
+//
+// Nothing below emits an allocation yet — the emitter still calls the runtime
+// for objects. What these pin is the wiring: one region, whose base is a
+// constant inside the compiled code, and which the program owns because of it.
+
+#[test]
+fn a_program_owns_the_region_it_was_compiled_against() {
+    // The bug this is here to prevent, which the first version of the wiring
+    // had: the host built a region for the base address and the runtime context
+    // built ANOTHER when the program ran. Compiled code would have addressed
+    // the first while the allocator filled the second.
+    //
+    // Observable as continuity: the region survives a run, so a second run sees
+    // what the first left.
+    let mut compiled = compile("let o = {}; o.n = 1; return o.n;").expect("compiles");
+    assert_eq!(tags::decode_double(compiled.run()), 1.0);
+    assert_eq!(tags::decode_double(compiled.run()), 1.0);
+}
+
+#[test]
+fn two_programs_do_not_share_a_heap() {
+    // Each compilation gets its own region, and each region's base is in its own
+    // code. Two programs sharing one would be two sets of addresses into one
+    // allocator, which is the same defect in the other direction.
+    let mut first = compile("let o = {}; o.a = 1; return o.a;").expect("compiles");
+    let mut second = compile("let o = {}; o.a = 2; return o.a;").expect("compiles");
+    assert_eq!(tags::decode_double(first.run()), 1.0);
+    assert_eq!(tags::decode_double(second.run()), 2.0);
 }

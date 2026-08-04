@@ -134,12 +134,19 @@ pub unsafe fn place_in_memory(
     outside: &[(&str, *const u8)],
     funcs: &FuncRegistry,
     types: &TypeRegistry,
+    heap: Option<crate::mem::RegionBases>,
 ) -> Result<InMemory, TargetError> {
     let mut jit = executable_memory_calling(outside)?;
 
     let mut machine_ids = Vec::new();
     {
+        // How a reference becomes an address is a property of the heap rather
+        // than of any function compiled against it, which is why it is given to
+        // the module once and not passed at each definition.
         let mut module = MachineModule::new(&mut jit);
+        if let Some(bases) = heap {
+            module = module.with_heap(bases);
+        }
 
         // Every name first, then every body. A program whose functions call
         // each other needs all of them declared before any is defined, and

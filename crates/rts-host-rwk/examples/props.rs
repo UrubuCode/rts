@@ -12,7 +12,7 @@
 use std::time::Instant;
 
 fn time(source: &str, repeats: u32) -> f64 {
-    let program = rts_host_rwk::compile(source).expect("compiles");
+    let mut program = rts_host_rwk::compile(source).expect("compiles");
     let mut best = f64::INFINITY;
     for _ in 0..repeats {
         let started = Instant::now();

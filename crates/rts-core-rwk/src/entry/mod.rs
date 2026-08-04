@@ -32,6 +32,7 @@
 //! Declaring the whole crate would put hundreds of rows in a table whose entire
 //! argument is that a small closed set beats a large open one.
 
+mod alloc;
 mod cell;
 mod objects;
 mod operators;
@@ -44,6 +45,7 @@ pub use operators::{
 };
 mod table;
 
+pub use alloc::alloc;
 pub use cell::Cell;
 pub use table::{CORE_ENTRY_COUNT, CoreEntry};
 
@@ -73,18 +75,48 @@ pub struct Context {
     pub keys: KeyRegistry,
     /// Strings that have been used as keys while running.
     pub interner: Interner,
+    /// The region compiled code allocates in and addresses with arithmetic.
+    ///
+    /// Beside the slab rather than replacing it: the slab holds what the
+    /// RUNTIME reaches for in Rust, and this holds what COMPILED CODE reaches
+    /// for with a base and a stride. Two heaps is a state to get out of, not a
+    /// design — see `docs/engine/objects-are-aggregates.md` for which one wins.
+    pub region: crate::heap::Region,
     /// Which singleton number means what, as the language declared it.
     pub singletons: Singletons,
 }
 
 impl Context {
     /// A context holding nothing.
+    /// A context around a heap that already exists.
+    ///
+    /// The region has to come from outside, and the reason is the whole of why
+    /// this constructor exists beside [`Self::new`]: **its base address is a
+    /// number baked into compiled code**. A context that made its own region
+    /// would be a second heap, and every address a compiled program computed
+    /// would point into the first one — which nothing would be allocating in.
+    pub fn over(singletons: Singletons, region: crate::heap::Region) -> Self {
+        Context {
+            region,
+            ..Context::new(singletons)
+        }
+    }
+
+    /// A context with a heap of its own.
+    ///
+    /// For the runtime's own tests and for anything that is not running
+    /// compiled code. Anything that IS must use [`Self::over`], because the
+    /// region's base is a constant inside the code.
     pub fn new(singletons: Singletons) -> Self {
         Context {
             cells: Slab::new(),
             shapes: ShapeTree::new(),
             keys: KeyRegistry::new(),
             interner: Interner::new(),
+            // A capacity fixed at construction, because growing moves the base
+            // and every reference compiled code holds was turned into an
+            // address against the old one. Growing is the collector's job.
+            region: crate::heap::Region::with_capacity(1 << 16),
             singletons,
         }
     }

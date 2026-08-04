@@ -6,6 +6,8 @@
 //! collector being possible later — is a consequence of the indirection rather
 //! than of anything clever.
 
+mod region;
 mod slab;
 
+pub use region::{INLINE_SLOTS, Region, STRIDE};
 pub use slab::{Handle, Slab, Slot, Stale};

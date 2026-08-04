@@ -7,6 +7,7 @@ use rts_codegen::runtime::{RuntimeCalls, RuntimeOp};
 use rts_codegen::syntax::{FunctionBody, ModuleItem, StmtKind};
 use rts_codegen::values::ValueModel;
 use rts_cranelift::ir::FuncRegistry;
+use rts_cranelift::mem::{RegionBase, RegionBases};
 use rts_cranelift::shape::KeyRegistry;
 use rts_cranelift::tags::TagRegistry;
 use rts_cranelift::target::{InMemory, Placing, Visibility, place_in_memory};
@@ -35,6 +36,15 @@ pub struct Compiled {
     entry: extern "C" fn() -> u64,
     /// What the compiler decided the singletons are numbered.
     model: ValueModel,
+    /// The heap the compiled code was built to address.
+    ///
+    /// Held here because its base is a constant inside that code: the program
+    /// and the region are one thing, and a run that supplied a different region
+    /// would have every address point at memory nothing allocates in.
+    ///
+    /// An `Option` only so a run can move it into the context and take it back —
+    /// it is never absent between runs.
+    region: Option<rts_core_rwk::heap::Region>,
     /// How many property keys the compilation minted.
     ///
     /// The runtime has to have issued the same ones, or a number the program
@@ -60,9 +70,16 @@ impl Compiled {
     /// the shapes, the key registry — and a compiled program calls them without
     /// knowing that. So the host installs one around the call and takes it back
     /// afterwards, which is also what makes two runs independent.
-    pub fn run(&self) -> u64 {
+    pub fn run(&mut self) -> u64 {
         let singletons = crate::link::singletons_for(&self.model);
-        let mut context = rts_core_rwk::entry::Context::new(singletons);
+        // The region the program was compiled against, moved in for the run and
+        // taken back after. Not copied: there is one heap, and its address is in
+        // the code.
+        let region = self
+            .region
+            .take()
+            .expect("the region is only absent while a run is in progress");
+        let mut context = rts_core_rwk::entry::Context::over(singletons, region);
         // The second agreement, alongside the singleton numbering. A property
         // name is resolved while compiling and crosses as a number, so the
         // runtime's registry must have issued that number — otherwise it
@@ -75,8 +92,9 @@ impl Compiled {
         if self.keys > 0 {
             context.keys.declare(self.keys as u32);
         }
-        let (_context, value) =
-            rts_core_rwk::entry::with_context(context, || (self.entry)());
+        let entry = self.entry;
+        let (context, value) = rts_core_rwk::entry::with_context(context, || entry());
+        self.region = Some(context.region);
         value
     }
 
@@ -196,7 +214,20 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
     // own entry points — functions in this binary, alive for the whole process,
     // whose signatures the runtime derives from the same Rust definitions the
     // compiler was told about.
-    let placed = unsafe { place_in_memory(&placing, &outside, &funcs, &types)? };
+    // The heap compiled code will address. Its base is this region's, so the
+    // region has to outlive the program — which is why the compiled program
+    // owns it rather than the runtime context creating its own.
+    //
+    // A second consequence, and the reason this is wired here rather than in the
+    // runtime: the base is a NUMBER baked into the compiled code. The context
+    // that runs the program must be the one holding this region, or every
+    // address the program computes points into a region that no longer exists.
+    let region = rts_core_rwk::heap::Region::with_capacity(1 << 16);
+    let bases = RegionBases::single(RegionBase::Immediate(region.base()), region.stride());
+    let stride = region.stride();
+    let _ = stride;
+
+    let placed = unsafe { place_in_memory(&placing, &outside, &funcs, &types, Some(bases))? };
 
     let address = placed
         .address_of(script)
@@ -210,6 +241,7 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
         placed,
         entry,
         model,
+        region: Some(region),
         keys: keys.len(),
     })
 }
