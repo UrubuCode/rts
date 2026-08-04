@@ -96,22 +96,38 @@ pub fn set_property(object: u64, key: i64, value: u64) -> u64 {
         let Some(key) = key_of(context, key) else {
             return value;
         };
+        put(context, slot, key, value);
+        value
+    })
+}
+
+/// Puts a value at a key, taking the shape transition if the object does not
+/// have that property yet.
+///
+/// Shared by the named write and the computed one. The transition is the part
+/// that is easy to get subtly wrong, and there is no version of it that differs
+/// between the two: by the time either arrives here, a key is a key.
+///
+/// Named `put` rather than `write` because `write` is a macro in scope, and a
+/// call that silently resolves to one instead is a compile error whose message
+/// points at the wrong thing.
+fn put(context: &mut Context, slot: u32, key: Key, value: u64) {
         let Some(machine) = machine_key(key) else {
-            return value;
+            return;
         };
         let Some(ty) = context.region.type_of(slot) else {
-            return value;
+            return;
         };
         let Some(shape) = context.shape_of(ty) else {
             // A string, or a layout nothing recorded. Writing a property to a
             // string is a silent no-op in sloppy mode, which is what this is.
-            return value;
+            return;
         };
 
         // Already in the layout: a store, at the offset the layout decided.
         if let Some(at) = context.shapes.slot_of(shape, machine) {
             context.region.set_field(slot, at, value);
-            return value;
+            return;
         }
 
         // A new property changes what the object IS, so the shape moves and the
@@ -134,21 +150,19 @@ pub fn set_property(object: u64, key: i64, value: u64) -> u64 {
             Repr::Tagged
         };
         let Ok(grown) = context.shapes.transition(shape, machine, observed) else {
-            return value;
+            return;
         };
         let Some(at) = context.shapes.slot_of(grown, machine) else {
-            return value;
+            return;
         };
         if at >= crate::heap::INLINE_SLOTS {
             // Past the inline slots, which is where the overflow indirection
             // goes. Refused rather than written into the next object.
-            return value;
+            return;
         }
         let ty = context.layout_of(grown).index() as u32;
         context.region.set_type(slot, ty);
-        context.region.set_field(slot, at, value);
-        value
-    })
+    context.region.set_field(slot, at, value);
 }
 
 /// Reads a property: header to type, type to shape, shape to offset, load.
@@ -316,4 +330,81 @@ fn machine_key(key: Key) -> Option<ShapeKey> {
         Key::Name(name) => Some(name),
         Key::Index(_) => None,
     }
+}
+
+/// `ToPropertyKey`, for a key a program computed rather than wrote.
+///
+/// # Why an index becomes a name here
+///
+/// [`Key`] distinguishes a canonical integer index from any other string,
+/// because enumeration order does: indices come first, in numeric order. That
+/// distinction is real and it is **not usable yet** — `machine_key` answers
+/// `None` for an index, because indexed storage waits for arrays.
+///
+/// So an index is held under its own spelling instead: `o[0]` and `o["0"]` are
+/// one property, which is what the language says, and the only thing lost is an
+/// enumeration order nothing implements. Routing it through `Key::from_str` and
+/// letting the `None` through would have made `o[0] = 1; o[0]` read as absent —
+/// a wrong program that runs, which is the outcome this whole layer refuses.
+///
+/// `None` means the key was an object, whose `ToPropertyKey` runs a `toString`
+/// — user code an entry point cannot call.
+fn property_key(context: &mut Context, key: Value) -> Option<Key> {
+    let text = super::text::to_text(context, key)?;
+    Some(Key::Name(context.interner.intern(&text, &mut context.keys)))
+}
+
+/// `object[key]`, where the key is a value rather than a resolved name.
+#[rtse::entry]
+pub fn get_indexed(object: u64, key: u64) -> u64 {
+    with_current(|context| {
+        let Some(slot) = Value(object).as_slot() else {
+            return undefined_of(context);
+        };
+        let Some(key) = property_key(context, Value(key)) else {
+            return undefined_of(context);
+        };
+        match read(context, slot, key) {
+            Some(value) => value.bits(),
+            None => undefined_of(context),
+        }
+    })
+}
+
+/// `object[key] = value`. Answers the value, because an assignment is an
+/// expression.
+#[rtse::entry]
+pub fn set_indexed(object: u64, key: u64, value: u64) -> u64 {
+    with_current(|context| {
+        let Some(slot) = Value(object).as_slot() else {
+            return value;
+        };
+        let Some(key) = property_key(context, Value(key)) else {
+            return value;
+        };
+        put(context, slot, key, value);
+        value
+    })
+}
+
+/// `key in object`.
+///
+/// Answers whether the object HAS the property, which is not whether reading it
+/// yields `undefined`: `({x: undefined})` has `x`, and `"x" in it` is true.
+/// That is the whole reason the operator exists, so it is what this asks.
+///
+/// A receiver that is not an object answers `false` where the language throws a
+/// `TypeError` — the same stated gap every property operation has, and for the
+/// same reason: throwing needs protected regions and nothing emits those.
+#[rtse::entry]
+pub fn has_property(key: u64, object: u64) -> bool {
+    with_current(|context| {
+        let Some(slot) = Value(object).as_slot() else {
+            return false;
+        };
+        let Some(key) = property_key(context, Value(key)) else {
+            return false;
+        };
+        read(context, slot, key).is_some()
+    })
 }

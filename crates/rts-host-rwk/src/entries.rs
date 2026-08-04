@@ -142,6 +142,15 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
             rts_core_rwk::entry::shift_right_unsigned as extern "C" fn(u64, u64) -> u64
                 as *const u8
         }),
+        RuntimeOp::GetIndexed => (CoreEntry::GetIndexed, {
+            rts_core_rwk::entry::get_indexed as extern "C" fn(u64, u64) -> u64 as *const u8
+        }),
+        RuntimeOp::SetIndexed => (CoreEntry::SetIndexed, {
+            rts_core_rwk::entry::set_indexed as extern "C" fn(u64, u64, u64) -> u64 as *const u8
+        }),
+        RuntimeOp::HasProperty => (CoreEntry::HasProperty, {
+            rts_core_rwk::entry::has_property as extern "C" fn(u64, u64) -> bool as *const u8
+        }),
     }
 }
 

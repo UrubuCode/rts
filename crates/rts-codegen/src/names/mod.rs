@@ -85,6 +85,36 @@ impl Names {
         key
     }
 
+    /// The text of every name that became a property key, in key order.
+    ///
+    /// # Why the host needs this and the count was not enough
+    ///
+    /// A key crosses to the runtime as a number, and for a property the
+    /// *compiler* resolved that is sufficient: both sides hold the same number
+    /// and neither needs the text. Seeding the runtime with the count was
+    /// therefore enough, and was what the host did.
+    ///
+    /// A **computed** key breaks that. `o[k]` hands the runtime a string while
+    /// running, and the runtime has to arrive at the number the compiler
+    /// already chose for it — which it cannot do from a count. It has to have
+    /// been told which text is which number.
+    ///
+    /// Found by running `o.n = 7; o["n"]`, which read a different property: the
+    /// runtime interned `"n"` afresh, past the seeded range, and answered a key
+    /// the compiler had never used.
+    pub fn keyed_texts(&self) -> Vec<&str> {
+        let mut ordered: Vec<(Key, &str)> = self
+            .keys
+            .iter()
+            .map(|(name, key)| (*key, self.text[name.index()].as_str()))
+            .collect();
+        // Sorted by key, because the runtime interns them in this order and
+        // interning is what mints the numbers. A different order is a different
+        // mapping, and a `HashMap` has no order at all.
+        ordered.sort_by_key(|(key, _)| key.index());
+        ordered.into_iter().map(|(_, text)| text).collect()
+    }
+
     /// Whether this identifier has ever been used as a property key.
     pub fn has_key(&self, name: Name) -> bool {
         self.keys.contains_key(&name)

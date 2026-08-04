@@ -65,6 +65,7 @@ mod merge;
 mod proven;
 mod scope;
 mod stmt;
+mod template;
 mod unary;
 
 pub use expr::emit_expr;

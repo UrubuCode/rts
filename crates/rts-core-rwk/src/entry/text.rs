@@ -43,6 +43,40 @@ pub fn declare_literals(context: &mut Context, texts: &[String]) {
     }
 }
 
+/// `ToString` of a primitive.
+///
+/// # Why this is shared rather than written where it is needed
+///
+/// Two operations need it and they look unrelated: `+` converts the non-string
+/// side of a concatenation, and a computed property key converts whatever was
+/// written between the brackets. Both are `ToString`, and the first version had
+/// it inline in `+` — where a second copy for property keys would have been the
+/// third statement of the same table.
+///
+/// An object answers `None` rather than `"[object Object]"`. `ToPrimitive` on
+/// one runs a `toString`, which is user code an entry point cannot call, so the
+/// absence is a contract violation the caller reports rather than a conversion
+/// this can perform.
+pub(super) fn to_text(context: &Context, value: Value) -> Option<Str> {
+    match value.kind() {
+        Kind::Float | Kind::Int => Some(crate::coerce::number_to_string(value.numeric()?)),
+        Kind::Bool => Some(Str::from_str(
+            if rts_cranelift::tags::payload_of(value.bits()) == rts_cranelift::tags::BOOL_TRUE {
+                "true"
+            } else {
+                "false"
+            },
+        )),
+        Kind::Singleton(number) => Some(Str::from_str(if number == context.singletons.undefined {
+            "undefined"
+        } else {
+            "null"
+        })),
+        // A string is its own text; anything else on the heap is an object.
+        Kind::Reference(slot) => context.text_at(slot as u32).cloned(),
+    }
+}
+
 /// The string a literal number names.
 ///
 /// Answers `undefined` for a number the table does not have, which is a host
@@ -101,4 +135,23 @@ pub fn type_of(value: u64) -> u64 {
         };
         context.intern_value(Str::from_str(text)).bits()
     })
+}
+
+/// Seeds the property-key numbering from what the compilation resolved.
+///
+/// # Why the texts and not just how many
+///
+/// A key the compiler resolved crosses as a number and needs no text: both
+/// sides hold the same number. A key the program **computes** does need it —
+/// `o[k]` arrives here as a string and has to reach the number the compiler
+/// already chose, which a count cannot say.
+///
+/// Interned in the order given, because interning is what mints the numbers.
+/// The compiler orders them by key for exactly that reason, and a different
+/// order is a different mapping rather than a cosmetic difference.
+pub fn declare_keys(context: &mut Context, texts: &[String]) {
+    for text in texts {
+        let text = Str::from_str(text);
+        context.interner.intern(&text, &mut context.keys);
+    }
 }

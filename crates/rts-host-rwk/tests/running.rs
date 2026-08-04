@@ -97,8 +97,8 @@ fn a_program_naming_an_operation_the_runtime_lacks_is_refused_by_name() {
     // runtime defined it, which is the right way for it to fail. What it pins
     // is the SHAPE of the refusal, so it follows whatever is still missing
     // rather than being deleted with the gap it happened to name.
-    let error = compile("let o = {}; return \"x\" in o;")
-        .expect_err("`in` has no runtime operation");
+    let error = compile("let o = {}; return o instanceof o;")
+        .expect_err("`instanceof` has no runtime operation");
     assert!(
         format!("{error:?}").contains("Unsupported"),
         "expected a named refusal, got {error:?}"
@@ -481,7 +481,7 @@ fn a_construct_still_missing_is_refused_by_name_rather_than_approximated() {
     // each moved on when it landed. What it pins is the shape of the refusal.
     for source in [
         "return [1];",
-        "let o = {}; let k = 1; return o[k];",
+        "return new Object();",
         "let o = {}; return delete o.x;",
     ] {
         let error = compile(source).expect_err("still a gap");
@@ -1103,4 +1103,125 @@ fn adding_a_string_to_a_non_string_converts_the_other_side() {
     );
     // And the direction that must NOT change: two numbers still add.
     assert_eq!(tags::decode_double(run("return 1 + 2;")), 3.0);
+}
+
+// ---------------------------------------------------------------------------
+// Computed property access, and `in`.
+
+#[test]
+fn a_computed_key_reaches_the_property_a_name_would() {
+    assert_eq!(
+        tags::decode_double(run("let o = {}; o.n = 7; return o[\"n\"];")),
+        7.0
+    );
+    assert_eq!(
+        tags::decode_double(run("let o = {}; o[\"n\"] = 7; return o.n;")),
+        7.0
+    );
+}
+
+#[test]
+fn a_key_computed_at_run_time_is_the_one_written() {
+    // The point of the operation: the name is not known while compiling, so it
+    // is a value that becomes a key while running.
+    let produced = run("let o = {}; o.a = 1; o.b = 2; let k = \"b\"; return o[k];");
+    assert_eq!(tags::decode_double(produced), 2.0);
+}
+
+#[test]
+fn a_non_string_key_is_converted_to_one() {
+    // `o[0]` and `o["0"]` are one property, because `ToPropertyKey` runs
+    // `ToString`. An implementation that kept the number as a number would make
+    // them two.
+    assert_eq!(
+        tags::decode_double(run("let o = {}; o[0] = 5; return o[\"0\"];")),
+        5.0
+    );
+    assert_eq!(
+        tags::decode_double(run("let o = {}; o[true] = 6; return o[\"true\"];")),
+        6.0
+    );
+}
+
+#[test]
+fn an_absent_computed_property_reads_as_undefined() {
+    let mut compiled =
+        compile("let o = {}; return o[\"missing\"];").expect("compiles");
+    let produced = compiled.run();
+    assert_eq!(
+        produced,
+        compiled.model().singleton(Singleton::Undefined).word()
+    );
+}
+
+#[test]
+fn a_receiver_and_a_key_are_each_evaluated_once_and_in_order() {
+    // `a()[b()] = c()` runs `a`, then `b`, then `c`. Recorded as the order the
+    // three side effects happened in, which is the only way to see it.
+    let produced = run(
+        "let log = \"\"; \
+         let o = {}; \
+         function a() { log = log + \"a\"; return o; } \
+         function b() { log = log + \"b\"; return \"k\"; } \
+         function c() { log = log + \"c\"; return 1; } \
+         a()[b()] = c(); \
+         return log === \"abc\";",
+    );
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
+fn a_compound_assignment_to_a_computed_key_reads_it_first() {
+    assert_eq!(
+        tags::decode_double(run("let o = {}; o[\"n\"] = 10; o[\"n\"] += 5; return o[\"n\"];")),
+        15.0
+    );
+}
+
+#[test]
+fn in_asks_whether_the_property_is_there_not_what_it_holds() {
+    // The whole reason the operator exists: a property holding `undefined` is
+    // still a property. An implementation written as `o[k] !== undefined`
+    // answers false here and is a different operator.
+    assert_eq!(
+        tags::payload_of(run("let o = {}; o.x = void 0; return \"x\" in o;")),
+        tags::BOOL_TRUE
+    );
+    assert_eq!(
+        tags::payload_of(run("let o = {}; return \"x\" in o;")),
+        tags::BOOL_FALSE
+    );
+}
+
+#[test]
+fn in_takes_the_key_on_the_left() {
+    // Getting the operand order backwards produces a program that runs and
+    // answers about the wrong one.
+    let produced = run("let o = {}; o.a = 1; return (\"a\" in o) && !(\"o\" in o);");
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
+fn a_computed_key_and_a_written_one_reach_the_same_property() {
+    // The agreement that a COUNT could not carry. A key the compiler resolved
+    // crosses as a number; a computed one arrives as a string and has to reach
+    // the number the compiler already chose for that text.
+    //
+    // Seeding the runtime with how many keys existed was enough while every key
+    // was compiler-resolved, and this is the program that broke it: the runtime
+    // interned "n" afresh, past the seeded range, and `o["n"]` read a property
+    // the compiler had never written to.
+    assert_eq!(
+        tags::decode_double(run("let o = {}; o.n = 7; return o[\"n\"];")),
+        7.0
+    );
+    assert_eq!(
+        tags::decode_double(run("let o = {}; o[\"n\"] = 7; return o.n;")),
+        7.0
+    );
+    // And through `in`, which resolves a key the same way.
+    assert_eq!(
+        tags::payload_of(run("let o = {}; o.n = 1; return \"n\" in o;")),
+        tags::BOOL_TRUE
+    );
 }

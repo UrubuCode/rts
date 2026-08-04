@@ -49,7 +49,10 @@ use super::bitwise::{
     SHIFT_RIGHT_ENTRY, SHIFT_RIGHT_UNSIGNED_ENTRY,
 };
 use super::functions::{CALL_ENTRY, CLOSURE_NEW_ENTRY};
-use super::objects::{GET_PROPERTY_ENTRY, OBJECT_NEW_ENTRY, SET_PROPERTY_ENTRY};
+use super::objects::{
+    GET_INDEXED_ENTRY, GET_PROPERTY_ENTRY, HAS_PROPERTY_ENTRY, OBJECT_NEW_ENTRY,
+    SET_INDEXED_ENTRY, SET_PROPERTY_ENTRY,
+};
 use super::text::{STRING_CONST_ENTRY, TYPE_OF_ENTRY};
 use super::{ADD_ENTRY, NUMBER_TO_STRING_ENTRY, STRICT_EQUALS_ENTRY, TO_BOOLEAN_ENTRY};
 
@@ -209,6 +212,21 @@ pub enum CoreEntry {
 
     /// `a >>> b`, the one whose result outgrows a signed thirty-two-bit value.
     ShiftRightUnsigned = 27,
+
+    /// `o[e]` — read a property the program computed the name of.
+    ///
+    /// Here for the same reason the named read is, plus one: turning the value
+    /// between the brackets into a key is `ToPropertyKey`, which interns text.
+    GetIndexed = 28,
+
+    /// `o[e] = v`.
+    SetIndexed = 29,
+
+    /// `k in o`.
+    ///
+    /// Asks whether the object HAS the property, which is not whether reading
+    /// it yields `undefined`.
+    HasProperty = 30,
 }
 
 /// How many entry points exist.
@@ -216,7 +234,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 28;
+pub const CORE_ENTRY_COUNT: usize = 31;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -249,6 +267,9 @@ impl CoreEntry {
         CoreEntry::ShiftLeft,
         CoreEntry::ShiftRight,
         CoreEntry::ShiftRightUnsigned,
+        CoreEntry::GetIndexed,
+        CoreEntry::SetIndexed,
+        CoreEntry::HasProperty,
     ];
 
     /// The number a call site holds.
@@ -292,6 +313,9 @@ impl CoreEntry {
             CoreEntry::ShiftLeft => SHIFT_LEFT_ENTRY,
             CoreEntry::ShiftRight => SHIFT_RIGHT_ENTRY,
             CoreEntry::ShiftRightUnsigned => SHIFT_RIGHT_UNSIGNED_ENTRY,
+            CoreEntry::GetIndexed => GET_INDEXED_ENTRY,
+            CoreEntry::SetIndexed => SET_INDEXED_ENTRY,
+            CoreEntry::HasProperty => HAS_PROPERTY_ENTRY,
         }
     }
 

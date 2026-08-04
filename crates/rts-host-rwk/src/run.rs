@@ -68,14 +68,14 @@ pub struct Compiled {
     /// literals are interned into the heap, and a run that reused values from
     /// a previous context would name cells in a table that no longer exists.
     literals: Vec<String>,
-    /// How many property keys the compilation minted.
+    /// The text of every property key the compilation minted, in key order.
     ///
-    /// The runtime has to have issued the same ones, or a number the program
-    /// carries names nothing. Kept as a count rather than as the registry
-    /// itself: a registry issues in order, so the count IS the agreement, and
-    /// two registries that issued the same number of keys agree about every one
-    /// of them.
-    keys: usize,
+    /// This was a COUNT, and a count was enough while every key was one the
+    /// compiler had resolved: both sides hold the same number and neither needs
+    /// the text. A computed key `o[k]` arrives at the runtime as a string and
+    /// has to reach the number the compiler already chose, which a count cannot
+    /// say — so the texts cross, in the order that mints those numbers.
+    keys: Vec<String>,
 }
 
 impl std::fmt::Debug for Compiled {
@@ -112,9 +112,7 @@ impl Compiled {
         // different phases: the compiler's is finished before the runtime's
         // exists. Issuing the same count is what makes them the same registry
         // for every purpose that matters.
-        if self.keys > 0 {
-            context.keys.declare(self.keys as u32);
-        }
+        rts_core_rwk::entry::declare_keys(&mut context, &self.keys);
         // The third agreement, and the one whose absence is quietest: the code
         // names a literal by its position, so a table seeded from anything but
         // what this compilation collected makes every string the wrong one —
@@ -335,7 +333,7 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
         region: Some(region),
         resolves: 0,
         literals: emitted.literals,
-        keys: keys.len(),
+        keys: names.keyed_texts().into_iter().map(str::to_owned).collect(),
     })
 }
 

@@ -48,8 +48,10 @@ pub use bitwise::{
     shift_right_unsigned,
 };
 pub use functions::{ARGUMENT_SLOTS, call, closure_new};
-pub use objects::{get_property, object_new, set_property};
-pub use text::{declare_literals, string_const, type_of};
+pub use objects::{
+    get_indexed, get_property, has_property, object_new, set_indexed, set_property,
+};
+pub use text::{declare_keys, declare_literals, string_const, type_of};
 pub use operators::{
     divide, greater, greater_equal, less, less_equal, loose_equals, multiply, remainder, subtract,
 };
@@ -359,33 +361,7 @@ pub fn add(left: u64, right: u64) -> u64 {
         // answers "is this already a string" and decides *whether* to
         // concatenate — a single function doing both would make `1 + 2` answer
         // `"12"`.
-        //
-        // An object is absent here rather than converted: `ToPrimitive` runs a
-        // `toString`, which is user code an entry point cannot call.
-        let stringify = |value: Value| -> Option<Str> {
-            match value.kind() {
-                crate::value::Kind::Float | crate::value::Kind::Int => {
-                    Some(print_number(value.numeric()?))
-                }
-                crate::value::Kind::Bool => Some(Str::from_str(
-                    if rts_cranelift::tags::payload_of(value.bits())
-                        == rts_cranelift::tags::BOOL_TRUE
-                    {
-                        "true"
-                    } else {
-                        "false"
-                    },
-                )),
-                crate::value::Kind::Singleton(number) => Some(Str::from_str(
-                    if number == context.singletons.undefined {
-                        "undefined"
-                    } else {
-                        "null"
-                    },
-                )),
-                crate::value::Kind::Reference(_) => text_of(value),
-            }
-        };
+        let stringify = |value: Value| text::to_text(context, value);
 
         match add_primitives(Value(left), Value(right), text_of, stringify) {
             Some(Sum::Number(number)) => Value::from_f64(number).bits(),

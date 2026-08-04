@@ -242,6 +242,20 @@ pub enum RuntimeOp {
     /// `a >>> b`.
     ShiftRightUnsigned,
 
+    /// `o[e]` — read a property whose name the program computed.
+    ///
+    /// A separate operation from the named read rather than the same one with
+    /// a different argument: the named one carries a key the COMPILER
+    /// resolved, and this one carries a value that has to become a key while
+    /// running, which is `ToPropertyKey` and interns text.
+    GetIndexed,
+
+    /// `o[e] = v`.
+    SetIndexed,
+
+    /// `k in o`.
+    HasProperty,
+
     /// Calling a value, with a receiver and the arguments.
     ///
     /// # Why calling is a runtime operation and not `call_indirect`
@@ -294,6 +308,9 @@ impl RuntimeOp {
         RuntimeOp::ShiftLeft,
         RuntimeOp::ShiftRight,
         RuntimeOp::ShiftRightUnsigned,
+        RuntimeOp::GetIndexed,
+        RuntimeOp::SetIndexed,
+        RuntimeOp::HasProperty,
         RuntimeOp::Call,
     ];
 
@@ -332,6 +349,9 @@ impl RuntimeOp {
             RuntimeOp::ShiftLeft => "__rts_shift_left",
             RuntimeOp::ShiftRight => "__rts_shift_right",
             RuntimeOp::ShiftRightUnsigned => "__rts_shift_right_unsigned",
+            RuntimeOp::GetIndexed => "__rts_get_indexed",
+            RuntimeOp::SetIndexed => "__rts_set_indexed",
+            RuntimeOp::HasProperty => "__rts_has_property",
             RuntimeOp::Call => "__rts_call",
         }
     }
@@ -378,6 +398,11 @@ impl RuntimeOp {
             | RuntimeOp::ShiftRight
             | RuntimeOp::ShiftRightUnsigned => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::BitNot => (vec![UNPROVEN], vec![UNPROVEN]),
+            // The key is a VALUE, where the named read takes the number the
+            // compiler resolved. That is the whole difference between them.
+            RuntimeOp::GetIndexed => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::SetIndexed => (vec![UNPROVEN, UNPROVEN, UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::HasProperty => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             // Callee, receiver, then one slot per argument. Every one a value,
             // because a caller cannot know what it is handing over.
             RuntimeOp::Call => (vec![UNPROVEN; 2 + ARGUMENT_SLOTS], vec![UNPROVEN]),
