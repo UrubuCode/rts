@@ -22,6 +22,7 @@
 
 #![deny(missing_docs)]
 
+mod entries;
 mod link;
 mod run;
 

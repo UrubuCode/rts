@@ -212,6 +212,36 @@ pub enum RuntimeOp {
     /// the operand rather than about the result.
     TypeOf,
 
+    /// `a == b`.
+    ///
+    /// Not `===` with conversions bolted on: it has its own table, and the
+    /// part of it that reads a string.s text is what makes it an entry point.
+    LooseEquals,
+
+    /// `a ** b`.
+    Exponent,
+
+    /// `a & b`. `ToInt32` runs `ToNumber` first, which reads the heap.
+    BitAnd,
+
+    /// `a | b`.
+    BitOr,
+
+    /// `a ^ b`.
+    BitXor,
+
+    /// `~a`.
+    BitNot,
+
+    /// `a << b`.
+    ShiftLeft,
+
+    /// `a >> b`.
+    ShiftRight,
+
+    /// `a >>> b`.
+    ShiftRightUnsigned,
+
     /// Calling a value, with a receiver and the arguments.
     ///
     /// # Why calling is a runtime operation and not `call_indirect`
@@ -255,6 +285,15 @@ impl RuntimeOp {
         RuntimeOp::ClosureNew,
         RuntimeOp::StringConst,
         RuntimeOp::TypeOf,
+        RuntimeOp::LooseEquals,
+        RuntimeOp::Exponent,
+        RuntimeOp::BitAnd,
+        RuntimeOp::BitOr,
+        RuntimeOp::BitXor,
+        RuntimeOp::BitNot,
+        RuntimeOp::ShiftLeft,
+        RuntimeOp::ShiftRight,
+        RuntimeOp::ShiftRightUnsigned,
         RuntimeOp::Call,
     ];
 
@@ -284,6 +323,15 @@ impl RuntimeOp {
             RuntimeOp::ClosureNew => "__rts_closure_new",
             RuntimeOp::StringConst => "__rts_string_const",
             RuntimeOp::TypeOf => "__rts_type_of",
+            RuntimeOp::LooseEquals => "__rts_loose_equals",
+            RuntimeOp::Exponent => "__rts_exponent",
+            RuntimeOp::BitAnd => "__rts_bit_and",
+            RuntimeOp::BitOr => "__rts_bit_or",
+            RuntimeOp::BitXor => "__rts_bit_xor",
+            RuntimeOp::BitNot => "__rts_bit_not",
+            RuntimeOp::ShiftLeft => "__rts_shift_left",
+            RuntimeOp::ShiftRight => "__rts_shift_right",
+            RuntimeOp::ShiftRightUnsigned => "__rts_shift_right_unsigned",
             RuntimeOp::Call => "__rts_call",
         }
     }
@@ -319,6 +367,17 @@ impl RuntimeOp {
             // Which literal, not the text: an index the compilation minted.
             RuntimeOp::StringConst => (vec![Repr::I64], vec![UNPROVEN]),
             RuntimeOp::TypeOf => (vec![UNPROVEN], vec![UNPROVEN]),
+            // A proven boolean, like the other equalities: the runtime
+            // establishes it, which is what lets a branch consume one.
+            RuntimeOp::LooseEquals => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
+            RuntimeOp::Exponent
+            | RuntimeOp::BitAnd
+            | RuntimeOp::BitOr
+            | RuntimeOp::BitXor
+            | RuntimeOp::ShiftLeft
+            | RuntimeOp::ShiftRight
+            | RuntimeOp::ShiftRightUnsigned => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::BitNot => (vec![UNPROVEN], vec![UNPROVEN]),
             // Callee, receiver, then one slot per argument. Every one a value,
             // because a caller cannot know what it is handing over.
             RuntimeOp::Call => (vec![UNPROVEN; 2 + ARGUMENT_SLOTS], vec![UNPROVEN]),

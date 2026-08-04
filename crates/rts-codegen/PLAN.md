@@ -749,6 +749,39 @@ written down.
 Still refused: `typeof` on an **unbound name**, the one read in the language
 that does not throw. It needs a global object for the name to be absent from.
 
+**E6b — the operators the runtime did not define. DONE.** `==`/`!=`, `**`, `&`,
+`|`, `^`, `~`, `<<`, `>>`, `>>>`. 14 tests, every one of them run. That empties
+an entire category from the gap list: no operator the language spells is refused
+any more.
+
+`ToInt32` is where the surprises live, and every one of them is a case the
+obvious implementation gets wrong **quietly**:
+
+- It is not `as i32`. Rust's cast **saturates**, so `2147483648 | 0` would be
+  `2147483647` where the specification says `-2147483648`. Plausible, and wrong
+  in the direction nobody checks.
+- It is not `%`. Rust's remainder keeps the sign of the dividend, so `-1` would
+  wrap to `-1` where `ToUint32` wants `4294967295`. `rem_euclid` is what the
+  specification's "modulo" means.
+- A shift count keeps five bits, so `1 << 32` is `1`. A machine shift by 32 is
+  undefined in C and panics in a Rust debug build — the masking is not an
+  optimisation.
+- `>>>` reads its operand as **unsigned** and its result outgrows a signed
+  thirty-two-bit value: `-1 >>> 0` is `4294967295`. That is the whole reason it
+  is a separate operator rather than a flag on `>>`.
+
+`**` diverges from IEEE-754 where the specification says so: `(-1) ** Infinity`
+is `NaN` in JavaScript and `1.0` from `powf`. Handled rather than inherited,
+because the wrong answer there is a plausible number rather than a crash.
+
+`==` was deliberately absent from `rts-core-rwk` until there was a client, and
+now there is. Everything that does not need a call is implemented; `null` and
+`undefined` are equal to each other and to nothing else — the one rule that is
+not a conversion, and the one an implementation written as "convert both to
+numbers" gets wrong, since `null` converts to `0`. An object against a primitive
+answers `false` and is a **contract violation**: it needed `ToPrimitive`, which
+runs user code an entry point cannot call.
+
 ### What a function still cannot do, each a mechanism rather than a spelling
 
 Rest parameters and spread arguments need the argument vector the fixed arity

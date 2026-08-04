@@ -39,9 +39,14 @@
 
 use rts_cranelift::abi::{Convention, EntryDesc, Signature};
 
+use super::operators::LOOSE_EQUALS_ENTRY;
 use super::operators::{
     DIVIDE_ENTRY, GREATER_ENTRY, GREATER_EQUAL_ENTRY, LESS_ENTRY, LESS_EQUAL_ENTRY, MULTIPLY_ENTRY,
     REMAINDER_ENTRY, SUBTRACT_ENTRY,
+};
+use super::bitwise::{
+    BIT_AND_ENTRY, BIT_NOT_ENTRY, BIT_OR_ENTRY, BIT_XOR_ENTRY, EXPONENT_ENTRY, SHIFT_LEFT_ENTRY,
+    SHIFT_RIGHT_ENTRY, SHIFT_RIGHT_UNSIGNED_ENTRY,
 };
 use super::functions::{CALL_ENTRY, CLOSURE_NEW_ENTRY};
 use super::objects::{GET_PROPERTY_ENTRY, OBJECT_NEW_ENTRY, SET_PROPERTY_ENTRY};
@@ -171,6 +176,39 @@ pub enum CoreEntry {
     ///
     /// Here because the answer is a string, and a string is allocated.
     TypeOf = 18,
+
+    /// `a == b`.
+    ///
+    /// Here because a string converts by reading its text.
+    LooseEquals = 19,
+
+    /// `a ** b`.
+    ///
+    /// Here because `ToNumber` of a string reads the heap.
+    Exponent = 20,
+
+    /// `a & b`.
+    ///
+    /// Here because `ToInt32` runs `ToNumber` first, and that reads the heap.
+    BitAnd = 21,
+
+    /// `a | b`.
+    BitOr = 22,
+
+    /// `a ^ b`.
+    BitXor = 23,
+
+    /// `~a`.
+    BitNot = 24,
+
+    /// `a << b`.
+    ShiftLeft = 25,
+
+    /// `a >> b`.
+    ShiftRight = 26,
+
+    /// `a >>> b`, the one whose result outgrows a signed thirty-two-bit value.
+    ShiftRightUnsigned = 27,
 }
 
 /// How many entry points exist.
@@ -178,7 +216,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 19;
+pub const CORE_ENTRY_COUNT: usize = 28;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -202,6 +240,15 @@ impl CoreEntry {
         CoreEntry::Call,
         CoreEntry::StringConst,
         CoreEntry::TypeOf,
+        CoreEntry::LooseEquals,
+        CoreEntry::Exponent,
+        CoreEntry::BitAnd,
+        CoreEntry::BitOr,
+        CoreEntry::BitXor,
+        CoreEntry::BitNot,
+        CoreEntry::ShiftLeft,
+        CoreEntry::ShiftRight,
+        CoreEntry::ShiftRightUnsigned,
     ];
 
     /// The number a call site holds.
@@ -236,6 +283,15 @@ impl CoreEntry {
             CoreEntry::Call => CALL_ENTRY,
             CoreEntry::StringConst => STRING_CONST_ENTRY,
             CoreEntry::TypeOf => TYPE_OF_ENTRY,
+            CoreEntry::LooseEquals => LOOSE_EQUALS_ENTRY,
+            CoreEntry::Exponent => EXPONENT_ENTRY,
+            CoreEntry::BitAnd => BIT_AND_ENTRY,
+            CoreEntry::BitOr => BIT_OR_ENTRY,
+            CoreEntry::BitXor => BIT_XOR_ENTRY,
+            CoreEntry::BitNot => BIT_NOT_ENTRY,
+            CoreEntry::ShiftLeft => SHIFT_LEFT_ENTRY,
+            CoreEntry::ShiftRight => SHIFT_RIGHT_ENTRY,
+            CoreEntry::ShiftRightUnsigned => SHIFT_RIGHT_UNSIGNED_ENTRY,
         }
     }
 

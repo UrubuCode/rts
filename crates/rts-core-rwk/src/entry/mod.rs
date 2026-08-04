@@ -34,6 +34,7 @@
 
 mod alloc;
 mod barrier;
+mod bitwise;
 mod cache;
 mod functions;
 mod objects;
@@ -42,11 +43,15 @@ mod operators;
 
 // The operators are defined in their own module and named from here, because a
 // caller wants "the entry points" in one place rather than a module tree.
+pub use bitwise::{
+    bit_and, bit_not, bit_or, bit_xor, exponent, shift_left, shift_right,
+    shift_right_unsigned,
+};
 pub use functions::{ARGUMENT_SLOTS, call, closure_new};
 pub use objects::{get_property, object_new, set_property};
 pub use text::{declare_literals, string_const, type_of};
 pub use operators::{
-    divide, greater, greater_equal, less, less_equal, multiply, remainder, subtract,
+    divide, greater, greater_equal, less, less_equal, loose_equals, multiply, remainder, subtract,
 };
 mod table;
 

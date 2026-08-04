@@ -33,7 +33,7 @@ use crate::value::{Value, to_number};
 ///
 /// This resolves the first case and leaves the second absent, which keeps the
 /// distinction the caller needs: a string is finished here, an object is not.
-fn as_number(context: &Context, value: Value) -> Option<f64> {
+pub(super) fn as_number(context: &Context, value: Value) -> Option<f64> {
     if let Some(number) = to_number(value, context.singletons) {
         return Some(number);
     }
@@ -53,7 +53,7 @@ fn as_number(context: &Context, value: Value) -> Option<f64> {
 /// `valueOf` anyway, so it is the answer least likely to be mistaken for a
 /// correct one — and unlike a panic, it does not turn a compiler defect into a
 /// dead process while the compiler is being written.
-fn operands(context: &Context, left: Value, right: Value) -> (f64, f64) {
+pub(super) fn operands(context: &Context, left: Value, right: Value) -> (f64, f64) {
     (
         as_number(context, left).unwrap_or(f64::NAN),
         as_number(context, right).unwrap_or(f64::NAN),
@@ -273,4 +273,60 @@ mod tests {
             assert!(less(two, ten_number), "with a number, both convert");
         });
     }
+}
+
+/// `a == b`.
+///
+/// # Why this waited for a client
+///
+/// Loose equality is the operation whose specification most often reaches
+/// `ToPrimitive`, and `ToPrimitive` on an object runs a `valueOf` — user code,
+/// which an entry point cannot call. So it was left out until something needed
+/// it, rather than being written with the interesting half missing and looking
+/// finished.
+///
+/// # What it does, and the one case it declines
+///
+/// Everything that does not need a call: two values of the same kind are
+/// compared strictly, `null` and `undefined` are equal to each other and to
+/// nothing else, and every remaining pair is compared **as numbers** — which is
+/// what the specification's table reduces to once objects are set aside, since
+/// a boolean converts to a number and a string compared against a number
+/// converts too.
+///
+/// An object against a primitive answers `false`, and that is a contract
+/// violation rather than an answer: the compiler is meant to have resolved
+/// `ToPrimitive` before calling here. `false` is chosen for the same reason the
+/// arithmetic operators choose `NaN` — it is the value least likely to be
+/// mistaken for a correct one, and unlike a panic it does not turn a compiler
+/// defect into a dead process while the compiler is being written.
+#[rtse::entry]
+pub fn loose_equals(left: u64, right: u64) -> bool {
+    with_current(|context| {
+        let (left, right) = (Value(left), Value(right));
+
+        let absent = |value: Value| {
+            matches!(value.kind(), crate::value::Kind::Singleton(number)
+                if number == context.singletons.undefined
+                    || number == context.singletons.null)
+        };
+        if absent(left) || absent(right) {
+            // `null == undefined` is true and neither is equal to anything
+            // else — the one rule that is not a conversion.
+            return absent(left) && absent(right);
+        }
+
+        // Same kind is strict equality, which also covers two strings (equal
+        // when their text is) and two objects (equal when they are the same
+        // one).
+        if std::mem::discriminant(&left.kind()) == std::mem::discriminant(&right.kind()) {
+            return crate::value::strict_equals(left, right, |a, b| context.same_text(a, b));
+        }
+
+        match (as_number(context, left), as_number(context, right)) {
+            (Some(a), Some(b)) => a == b,
+            // One of them is an object, so the answer needed `ToPrimitive`.
+            _ => false,
+        }
+    })
 }

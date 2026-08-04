@@ -93,11 +93,12 @@ fn a_program_naming_an_operation_the_runtime_lacks_is_refused_by_name() {
     // The failure the two independent statements of the entry-point set were
     // always going to produce, caught where it becomes visible instead of
     // becoming a call to whatever the linker found.
-    // `**` rather than `-`: this test named `-` until the runtime defined it,
-    // which is the right way for it to fail. What it pins is the shape of the
-    // refusal, so it moves to whatever is still missing rather than being
-    // deleted with the gap it happened to name.
-    let error = compile("return 2 ** 3;").expect_err("`**` has no runtime operation");
+    // This test has named `-`, then `**`, and now `in`: each moved on when the
+    // runtime defined it, which is the right way for it to fail. What it pins
+    // is the SHAPE of the refusal, so it follows whatever is still missing
+    // rather than being deleted with the gap it happened to name.
+    let error = compile("let o = {}; return \"x\" in o;")
+        .expect_err("`in` has no runtime operation");
     assert!(
         format!("{error:?}").contains("Unsupported"),
         "expected a named refusal, got {error:?}"
@@ -472,15 +473,17 @@ fn a_loop_can_now_be_written_the_way_a_program_writes_one() {
 
 #[test]
 fn a_construct_still_missing_is_refused_by_name_rather_than_approximated() {
-    // `~` needs ToInt32, whose rules for infinities and for values past 2^31
-    // the runtime does not define; `==` has its own conversion table; an array
-    // is a heap value with no entry point to make one.
+    // An array is a heap value with no entry point to make one; a computed key
+    // needs `ToPropertyKey`, which the runtime does not define; `delete`
+    // removes a property, which it does not define either.
     //
-    // This test named `typeof` and a string literal until strings landed, which
-    // is the right way for it to fail: what it pins is the shape of the
-    // refusal, so it moves to whatever is still missing rather than being
-    // deleted with the gap it happened to name.
-    for source in ["return ~1;", "return 1 == 1;", "return [1];"] {
+    // This test has named `typeof`, a string literal, `~` and `==` in turn, and
+    // each moved on when it landed. What it pins is the shape of the refusal.
+    for source in [
+        "return [1];",
+        "let o = {}; let k = 1; return o[k];",
+        "let o = {}; return delete o.x;",
+    ] {
         let error = compile(source).expect_err("still a gap");
         assert!(
             format!("{error:?}").contains("Unsupported"),
@@ -897,4 +900,138 @@ fn typeof_distinguishes_a_function_from_an_object() {
          return ((typeof f) === \"function\") && ((typeof o) === \"object\");",
     );
     assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+// ---------------------------------------------------------------------------
+// The operators that read a number as thirty-two bits, `**`, and `==`.
+//
+// Every assertion here is a case where the obvious implementation is wrong and
+// wrong quietly: a saturating cast, a remainder that keeps its sign, an
+// unmasked shift count, `powf` where the specification diverges from IEEE.
+
+#[test]
+fn the_bitwise_operators_compute() {
+    assert_eq!(tags::decode_double(run("return 12 & 10;")), 8.0);
+    assert_eq!(tags::decode_double(run("return 12 | 10;")), 14.0);
+    assert_eq!(tags::decode_double(run("return 12 ^ 10;")), 6.0);
+    assert_eq!(tags::decode_double(run("return ~5;")), -6.0);
+}
+
+#[test]
+fn to_int32_wraps_where_a_rust_cast_would_saturate() {
+    // `2147483648 | 0` is -2147483648. Rust's `as i32` answers 2147483647,
+    // which is a plausible number and the wrong one — the difference is
+    // invisible until a program touches a value above 2^31.
+    assert_eq!(tags::decode_double(run("return 2147483648 | 0;")), -2147483648.0);
+    // And past 2^32 it wraps to zero rather than saturating.
+    assert_eq!(tags::decode_double(run("return 4294967296 | 0;")), 0.0);
+}
+
+#[test]
+fn to_int32_of_a_negative_number_takes_the_positive_remainder() {
+    // `%` in Rust keeps the sign of the dividend, so `-1 % 2^32` is `-1` where
+    // the conversion wants `4294967295`. Written with `>>> 0`, which is the
+    // spelling that makes the unsigned reading observable.
+    assert_eq!(tags::decode_double(run("return -1 >>> 0;")), 4294967295.0);
+}
+
+#[test]
+fn a_non_finite_number_converts_to_zero() {
+    assert_eq!(tags::decode_double(run("return (1 / 0) | 0;")), 0.0);
+    assert_eq!(tags::decode_double(run("return (0 / 0) | 0;")), 0.0);
+}
+
+#[test]
+fn the_fractional_part_is_discarded_towards_zero() {
+    assert_eq!(tags::decode_double(run("return 3.9 | 0;")), 3.0);
+    assert_eq!(tags::decode_double(run("return -3.9 | 0;")), -3.0);
+}
+
+#[test]
+fn a_shift_count_keeps_only_five_bits() {
+    // `1 << 32` is 1, not 0. A machine shift by 32 is undefined in C and panics
+    // in a Rust debug build, so this is the case that decides whether the
+    // masking happened.
+    assert_eq!(tags::decode_double(run("return 1 << 32;")), 1.0);
+    assert_eq!(tags::decode_double(run("return 1 << 31;")), -2147483648.0);
+}
+
+#[test]
+fn the_two_right_shifts_differ_in_what_they_do_with_the_sign() {
+    // The whole reason `>>>` is a separate operator rather than a flag: its
+    // result outgrows a signed thirty-two-bit value.
+    assert_eq!(tags::decode_double(run("return -8 >> 1;")), -4.0);
+    assert_eq!(tags::decode_double(run("return -8 >>> 1;")), 2147483644.0);
+}
+
+#[test]
+fn a_bitwise_operator_converts_a_string_first() {
+    // Which is what makes these entry points at all: `ToInt32` runs `ToNumber`,
+    // and `ToNumber` of a string reads its text out of the heap.
+    assert_eq!(tags::decode_double(run("return \"12\" & 10;")), 8.0);
+}
+
+#[test]
+fn exponent_is_right_associative() {
+    // `2 ** 3 ** 2` is `2 ** 9`, not `8 ** 2`. A left-associative parse gives
+    // 64 and this gives 512.
+    assert_eq!(tags::decode_double(run("return 2 ** 3 ** 2;")), 512.0);
+}
+
+#[test]
+fn exponent_diverges_from_ieee_where_the_specification_says_so() {
+    // `(-1) ** Infinity` is NaN in JavaScript and 1.0 from IEEE-754's `pow`,
+    // which Rust's `powf` follows. Inheriting that would produce a plausible
+    // number rather than a crash, which is the kind of divergence nothing finds
+    // later.
+    assert!(tags::decode_double(run("return (0 - 1) ** (1 / 0);")).is_nan());
+    assert!(tags::decode_double(run("return 1 ** (1 / 0);")).is_nan());
+    // And the ordinary case still answers what IEEE does.
+    assert_eq!(tags::decode_double(run("return 2 ** 10;")), 1024.0);
+}
+
+#[test]
+fn loose_equality_converts_where_strict_equality_refuses() {
+    assert_eq!(tags::payload_of(run("return 1 == \"1\";")), tags::BOOL_TRUE);
+    assert_eq!(tags::payload_of(run("return 1 === \"1\";")), tags::BOOL_FALSE);
+    assert_eq!(tags::payload_of(run("return true == 1;")), tags::BOOL_TRUE);
+    assert_eq!(tags::payload_of(run("return \"\" == 0;")), tags::BOOL_TRUE);
+}
+
+#[test]
+fn null_and_undefined_are_loosely_equal_to_each_other_and_nothing_else() {
+    // The one rule in the table that is not a conversion, and the one an
+    // implementation written as "convert both to numbers" gets wrong: `null`
+    // converts to 0, so `null == 0` would answer true.
+    assert_eq!(
+        tags::payload_of(run("return null == (void 0);")),
+        tags::BOOL_TRUE
+    );
+    assert_eq!(tags::payload_of(run("return null == 0;")), tags::BOOL_FALSE);
+    assert_eq!(
+        tags::payload_of(run("return (void 0) == 0;")),
+        tags::BOOL_FALSE
+    );
+    assert_eq!(
+        tags::payload_of(run("return null == false;")),
+        tags::BOOL_FALSE
+    );
+}
+
+#[test]
+fn loose_inequality_is_the_negation_of_loose_equality() {
+    assert_eq!(tags::payload_of(run("return 1 != \"1\";")), tags::BOOL_FALSE);
+    assert_eq!(tags::payload_of(run("return 1 != 2;")), tags::BOOL_TRUE);
+}
+
+#[test]
+fn nan_is_equal_to_nothing_under_either_equality() {
+    assert_eq!(
+        tags::payload_of(run("return (0 / 0) == (0 / 0);")),
+        tags::BOOL_FALSE
+    );
+    assert_eq!(
+        tags::payload_of(run("return (0 / 0) === (0 / 0);")),
+        tags::BOOL_FALSE
+    );
 }

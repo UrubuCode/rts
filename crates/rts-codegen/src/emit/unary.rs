@@ -78,7 +78,13 @@ pub fn emit_unary(
         // the runtime does not define. Emitting an integer complement of a
         // double would be wrong for every operand that is not already a small
         // integer, and wrong silently.
-        UnaryOp::BitNot => expr::gap("`~`"),
+        // `ToInt32` then complement. The truncation has its own rules for
+        // infinities and for values past 2^31, which is why it is the
+        // runtime.s and not an integer instruction emitted here.
+        UnaryOp::BitNot => {
+            let value = emit_expr(builder, scope, ctx, operand)?;
+            Ok(expr::call(builder, ctx, RuntimeOp::BitNot, &[value])?[0])
+        }
         // Answers a string, and a string is a heap value this module cannot
         // yet materialise.
         // Answers a string, which the runtime makes — and which of the eight

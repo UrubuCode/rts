@@ -408,10 +408,20 @@ pub(super) fn emit_binary(
             let equal = call(builder, ctx, RuntimeOp::StrictEquals, &[a, b])?[0];
             return super::choice::from_bool(builder, equal, true);
         }
-        BinaryOp::LooseEqual | BinaryOp::LooseNotEqual => return gap("`==` or `!=`"),
-        BinaryOp::Exponent => return gap("`**`"),
-        BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor => return gap("a bitwise operator"),
-        BinaryOp::Shl | BinaryOp::Shr | BinaryOp::UShr => return gap("a shift"),
+        // `!=` is the negation of `==`, through the one definition of each
+        // half — the same reasoning `!==` follows.
+        BinaryOp::LooseEqual => return Ok(compared(builder, ctx, RuntimeOp::LooseEquals, a, b)?),
+        BinaryOp::LooseNotEqual => {
+            let equal = call(builder, ctx, RuntimeOp::LooseEquals, &[a, b])?[0];
+            return super::choice::from_bool(builder, equal, true);
+        }
+        BinaryOp::Exponent => RuntimeOp::Exponent,
+        BinaryOp::BitAnd => RuntimeOp::BitAnd,
+        BinaryOp::BitOr => RuntimeOp::BitOr,
+        BinaryOp::BitXor => RuntimeOp::BitXor,
+        BinaryOp::Shl => RuntimeOp::ShiftLeft,
+        BinaryOp::Shr => RuntimeOp::ShiftRight,
+        BinaryOp::UShr => RuntimeOp::ShiftRightUnsigned,
         BinaryOp::In => return gap("`in`"),
         BinaryOp::InstanceOf => return gap("`instanceof`"),
     };
