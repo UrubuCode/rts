@@ -193,3 +193,61 @@ looking at the emitted code, which is a different activity from this one.
   that is two comparisons and a conjunction rather than one instruction. It
   costs nothing in the common case: `while (i < n)` produces a proven boolean
   already, and a condition that is already a boolean is used directly.
+
+---
+
+# Property access, measured before the fast path is written
+
+E4 made property access correct and left it slow on purpose. Whether to write
+the inline cache is a question with a number, and the type pass is the precedent
+for asking it first: that one was worth 24.5 ns per operator, measured before it
+existed, and the measurement is what made its target specific rather than
+aspirational.
+
+Same loop, same passes, only the source of the addend changing:
+
+| | ns per pass | over a proven local |
+|---|---:|---:|
+| local, proven | 0.8 | — |
+| one property read | 94.8 | **+94.0** |
+| two property reads | 190.2 | +189.4 |
+| one property write | 73.9 | +73.1 |
+
+Linear in the number of accesses, so the cost is per access.
+
+## A defect found by measuring, before any conclusion was drawn from the number
+
+The first measurement said 132.8 ns for a read against 73.9 for a write, and a
+read doing nearly twice the work of a write is not a design cost — it is a
+mistake. It was: the prototype walk collected the chain into a `Vec`, so **every
+property read allocated**.
+
+Nothing required it. The heap and the shape tree are two fields of one context,
+and borrowing them apart was always available; the `Vec` was a way around a
+problem that did not exist. Removing it took the read from 132.8 ns to 94.8.
+
+Worth stating as a rule rather than a fix: **a measurement's first job is to
+find the thing that should not be there.** Had the number been taken as the cost
+of the design, the inline cache would have been built on top of an allocation
+per read and would have hidden it.
+
+## What the remaining 94.8 ns is, decomposed against a number already taken
+
+A bare runtime call cost **24 ns**, measured when `+` was one — before the type
+pass, in the per-operator table above. So:
+
+| | ns |
+|---|---:|
+| the call itself | ~24 |
+| the rest: key lookup, heap access, two hashed layout lookups | ~71 |
+
+The two lookups are `ShapeTree::index_of` — memoised, so it is two hash lookups
+rather than a walk, but two hash lookups nonetheless.
+
+**An inline cache removes both halves, not one.** `guard_type` tests the shape a
+site last saw and `field_load` reads at a constant offset, so a site that keeps
+seeing the same object shape makes no call and does no lookup. That is what the
+machine's `cached_get` and `guard_type` are for, and they still have no caller.
+
+So the target is specific: **~95 ns per property access, of which none is
+inherent.**
