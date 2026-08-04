@@ -1928,3 +1928,56 @@ fn enumeration_sees_the_spilled_properties() {
     );
     assert_eq!(tags::decode_double(produced), 8.0);
 }
+
+// ---------------------------------------------------------------------------
+// Reading a property of a string.
+
+#[test]
+fn a_string_has_a_length() {
+    assert_eq!(tags::decode_double(run("let s = \"abc\"; return s.length;")), 3.0);
+    assert_eq!(tags::decode_double(run("return \"\".length;")), 0.0);
+    // Counted in code units, not characters: a JavaScript string IS a sequence
+    // of UTF-16 code units, so an astral character is two.
+    assert_eq!(tags::decode_double(run("return \"\u{1F600}\".length;")), 2.0);
+}
+
+#[test]
+fn a_string_can_be_indexed() {
+    assert_eq!(
+        tags::payload_of(run("let s = \"abc\"; return s[1] === \"b\";")),
+        tags::BOOL_TRUE
+    );
+    // Out of range is `undefined` rather than the empty string, which is the
+    // difference between `s[9]` and `s.charAt(9)`.
+    assert_eq!(
+        tags::payload_of(run("let s = \"abc\"; return s[9] === undefined;")),
+        tags::BOOL_TRUE
+    );
+    // And what comes back is a string, so it concatenates.
+    assert_eq!(
+        tags::payload_of(run("let s = \"ab\"; return (s[0] + s[1]) === \"ab\";")),
+        tags::BOOL_TRUE
+    );
+}
+
+#[test]
+fn a_string_property_does_not_shadow_an_ordinary_one() {
+    // The special case applies to strings only. An object's `length` is a
+    // property like any other, and an array's is stored — three answers to one
+    // key, each in the place that owns it.
+    assert_eq!(
+        tags::decode_double(run("let o = {}; o.length = 5; return o.length;")),
+        5.0
+    );
+    assert_eq!(tags::decode_double(run("return [1, 2].length;")), 2.0);
+}
+
+#[test]
+fn a_string_can_be_walked_by_a_loop() {
+    let produced = run(
+        "let s = \"abc\"; let joined = \"\"; \
+         for (let i = 0; i < s.length; i++) { joined = joined + s[i]; } \
+         return joined === \"abc\";",
+    );
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}

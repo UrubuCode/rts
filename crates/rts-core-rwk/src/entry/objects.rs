@@ -75,6 +75,9 @@ pub fn get_property(object: u64, key: i64) -> u64 {
         let Some(key) = key_of(context, key) else {
             return undefined_of(context);
         };
+        if let Some(answer) = string_property(context, slot, key) {
+            return answer;
+        }
         match read(context, slot, key) {
             Some(value) => value.bits(),
             None => undefined_of(context),
@@ -368,9 +371,15 @@ pub fn get_indexed(object: u64, key: u64) -> u64 {
             // Past the end is absent, not an error: `[1,2][9]` is `undefined`.
             return elements.get(at).copied().unwrap_or_else(|| undefined_of(context));
         }
+        if let Some(answer) = string_element(context, slot, Value(key)) {
+            return answer;
+        }
         let Some(key) = property_key(context, Value(key)) else {
             return undefined_of(context);
         };
+        if let Some(answer) = string_property(context, slot, key) {
+            return answer;
+        }
         match read(context, slot, key) {
             Some(value) => value.bits(),
             None => undefined_of(context),
@@ -581,4 +590,41 @@ impl Context {
         }
         spill[past] = value;
     }
+}
+
+/// What a property read on a **string** answers, if this is one.
+///
+/// # Why a special case is safe here and was not for an array
+///
+/// An array's `length` had to become a real property, because compiled code
+/// reaches `cached_get` and finds whatever is stored — a special case only the
+/// runtime knew about stopped applying the moment the fast path started
+/// working.
+///
+/// A string cell has no shape, so `cache_resolve` answers negative for it and
+/// every read of one takes the slow path. There is nothing for a special case
+/// to disagree with, and nothing can store a property on a string to shadow it:
+/// `put` is already a no-op for a cell with no shape, which is what sloppy mode
+/// does to `"x".foo = 1`.
+///
+/// # `length` counts code units
+///
+/// Not characters and not scalar values. `"\u{1F600}".length` is 2, because a
+/// JavaScript string IS a sequence of UTF-16 code units — the decision
+/// `crate::text` is built around, read out here rather than re-derived.
+fn string_property(context: &mut Context, slot: u32, key: Key) -> Option<u64> {
+    let wanted = length_key(context);
+    let text = context.text_at(slot)?;
+    (key == wanted).then(|| Value::from_f64(text.len() as f64).bits())
+}
+
+/// The code unit at an index of a string, as a one-unit string.
+///
+/// Out of range is `undefined` rather than an empty string, which is the
+/// difference between `s[9]` and `s.charAt(9)` — and the reason this answers an
+/// `Option` rather than always producing text.
+fn string_element(context: &mut Context, slot: u32, key: Value) -> Option<u64> {
+    let at = super::array::as_index(context, key)?;
+    let unit = context.text_at(slot)?.unit_at(at)?;
+    Some(context.intern_value(crate::text::Str::from_utf16(&[unit])).bits())
 }
