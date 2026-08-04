@@ -505,7 +505,10 @@ pub(super) fn check_instructions(
                 // Calls have their own pass: they are the only instructions that
                 // consult a second registry, and four separate facts have to
                 // agree at once.
-                Inst::Call { .. } | Inst::CallIndirect { .. } => {}
+                // Calls have their own pass, and `FuncAddr` is checked there
+                // too: all three consult the function registry, which this
+                // pass does not hold.
+                Inst::Call { .. } | Inst::CallIndirect { .. } | Inst::FuncAddr { .. } => {}
 
                 Inst::Const(_) | Inst::PromiseNew => {}
             }

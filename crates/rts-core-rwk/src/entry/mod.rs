@@ -35,11 +35,13 @@
 mod alloc;
 mod barrier;
 mod cache;
+mod functions;
 mod objects;
 mod operators;
 
 // The operators are defined in their own module and named from here, because a
 // caller wants "the entry points" in one place rather than a module tree.
+pub use functions::{ARGUMENT_SLOTS, call, closure_new};
 pub use objects::{get_property, object_new, set_property};
 pub use operators::{
     divide, greater, greater_equal, less, less_equal, multiply, remainder, subtract,
@@ -106,6 +108,18 @@ pub struct Context {
     /// identity and the text lives beside it. That is also what a real engine
     /// does: string data is separate from string identity.
     text_type: rts_cranelift::types::TypeId,
+    /// The layout a callable's cell has.
+    ///
+    /// Two words: where the code is, and the environment it closes over. A
+    /// reserved layout rather than an object shape, for the same reason text
+    /// has one — a closure is not a thing whose fields a program names, and
+    /// giving it a shape would put `code` in the key registry as a property any
+    /// JavaScript could read and, worse, write.
+    ///
+    /// That last point is not tidiness. The first word is a raw code address,
+    /// and a program able to store a number there would name the instruction
+    /// the next call jumps to.
+    closure_type: rts_cranelift::types::TypeId,
     /// How many reference stores told the collector about themselves.
     ///
     /// Counted rather than acted on, because there is no collector. It exists
@@ -149,6 +163,13 @@ impl Context {
         // number is stable across contexts, which a test comparing two of them
         // would otherwise depend on the order of unrelated allocations for.
         let text_type = types.declare(&[rts_cranelift::repr::Repr::I64]);
+        // Code address, then environment. Declared here beside text and for the
+        // same reason: a number that depends on which allocation happened first
+        // is a number two contexts disagree about.
+        let closure_type = types.declare(&[
+            rts_cranelift::repr::Repr::I64,
+            rts_cranelift::repr::Repr::Tagged,
+        ]);
         Context {
             cells: Slab::new(),
             shapes: ShapeTree::new(),
@@ -161,6 +182,7 @@ impl Context {
             types,
             shape_of_type: Vec::new(),
             text_type,
+            closure_type,
             resolves: 0,
             barriers: 0,
             singletons,
@@ -184,14 +206,36 @@ impl Context {
 
     /// Which shape a cell's type came from, if it is an object's.
     ///
-    /// `None` for a string's layout, which is what makes a reference's kind
-    /// readable from the object rather than from the encoding — the machine's
-    /// own answer to a tag space that has no room for one.
+    /// `None` for a string's layout and for a callable's, which is what makes a
+    /// reference's kind readable from the object rather than from the encoding
+    /// — the machine's own answer to a tag space that has no room for one.
+    ///
+    /// # Why both reserved layouts have to be named here
+    ///
+    /// Because `shape_of_type` is grown with `resize(index + 1, shape)`, which
+    /// fills every new position with the shape being recorded. So the moment an
+    /// object's layout is numbered above a reserved one, the reserved one's
+    /// position holds a real shape that was never its own — and a callable
+    /// would answer property reads by interpreting its code address as a field.
+    ///
+    /// Excluding by index rather than fixing the fill: the reserved layouts are
+    /// the two positions that legitimately have no shape, and saying so is the
+    /// fact, where a sentinel fill would be a way of encoding it.
     pub fn shape_of(&self, ty: u32) -> Option<rts_cranelift::shape::ShapeId> {
-        if ty as usize == self.text_type.index() {
+        let ty = ty as usize;
+        if ty == self.text_type.index() || ty == self.closure_type.index() {
             return None;
         }
-        self.shape_of_type.get(ty as usize).copied()
+        self.shape_of_type.get(ty).copied()
+    }
+
+    /// The layout a callable's cell has.
+    ///
+    /// Read by the two entry points that make and call one. Exposed as a method
+    /// rather than a public field so nothing outside can claim a cell is
+    /// callable by writing the number into a header.
+    pub fn closure_type(&self) -> rts_cranelift::types::TypeId {
+        self.closure_type
     }
 
     /// The text a reference names, if it names one.

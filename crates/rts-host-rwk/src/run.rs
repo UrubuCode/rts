@@ -333,8 +333,35 @@ fn address_of(op: RuntimeOp) -> Result<*const u8, HostError> {
         RuntimeOp::SetProperty => {
             rts_core_rwk::entry::set_property as extern "C" fn(u64, i64, u64) -> u64 as *const u8
         }
+        RuntimeOp::ClosureNew => {
+            rts_core_rwk::entry::closure_new as extern "C" fn(i64, u64) -> u64 as *const u8
+        }
+        // The cast is the arity agreement, written out. Six parameters: the
+        // callee, the receiver, and `ARGUMENT_SLOTS` arguments — and the
+        // assertion below is what makes that sentence checkable rather than a
+        // comment that was true once.
+        RuntimeOp::Call => {
+            rts_core_rwk::entry::call as extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64
+                as *const u8
+        }
     })
 }
+
+/// The two sides agree about how many arguments a compiled call carries.
+///
+/// `rts-codegen` decides it, because which convention compiled code uses is a
+/// fact about what that crate emits. `rts-core-rwk` restates it, because it is
+/// what performs the call. Neither can see the other, and this crate is the one
+/// that may name both — so this is where a disagreement becomes a refusal.
+///
+/// A `const` assertion rather than a test: a test that is not run proves
+/// nothing, and this one cannot fail to be checked because the crate does not
+/// compile without it.
+const _: () = assert!(
+    rts_codegen::runtime::ARGUMENT_SLOTS == rts_core_rwk::entry::ARGUMENT_SLOTS,
+    "the compiler and the runtime disagree about how many arguments a call \
+     carries, which is a jump with a corrupt stack rather than a wrong answer"
+);
 
 /// The runtime's implementation of one of the machine's own entry points.
 ///

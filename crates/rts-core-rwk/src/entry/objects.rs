@@ -199,7 +199,7 @@ fn key_of(context: &Context, number: i64) -> Option<Key> {
 }
 
 /// The encoded `undefined`, from the numbering the language declared.
-fn undefined_of(context: &Context) -> u64 {
+pub(super) fn undefined_of(context: &Context) -> u64 {
     rts_cranelift::tags::encode(
         rts_cranelift::tags::TAG_SINGLETON,
         u64::from(context.singletons.undefined),

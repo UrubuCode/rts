@@ -40,6 +40,18 @@ pub(super) fn check_calls(func: &Function, funcs: &FuncRegistry, errors: &mut Ve
                     check_results(func, inst_id, sig, &data.results, errors);
                 }
 
+                // Not a call, and checked here anyway: it is the third
+                // instruction that consults the function registry, and the
+                // question it asks — "was this callee declared" — is this
+                // pass's question rather than the representation pass's. An id
+                // naming nothing becomes an address naming nothing, which
+                // fails at placement or, worse, does not.
+                Inst::FuncAddr { callee } => {
+                    if funcs.signature_of(*callee).is_none() {
+                        errors.push(VerifyError::UnknownCallee { at });
+                    }
+                }
+
                 Inst::CallIndirect { callee, sig, args } => {
                     check_callable(func, at, *callee, errors);
                     let Some(sig) = funcs.signature(*sig) else {

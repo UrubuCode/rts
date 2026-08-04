@@ -42,6 +42,29 @@ use rts_cranelift::repr::Repr;
 
 use crate::emit::UNPROVEN;
 
+/// How many argument slots a compiled function has.
+///
+/// # Why a constant here rather than a dynamic arity
+///
+/// JavaScript's arity is dynamic: a call may pass fewer arguments than the
+/// function declares, or more. Expressing that needs somewhere to put an
+/// argument vector, and a caller-allocated one is a stack slot this compiler
+/// does not emit yet. So the convention is fixed at four, missing arguments are
+/// filled with `undefined` at the call site, and a call with more is refused by
+/// name — refused rather than truncated, because a call whose fifth argument
+/// silently vanished is a wrong program that runs.
+///
+/// # Why it is stated here and again in the runtime
+///
+/// It is a **contract between two crates that never see each other's source**,
+/// exactly like the singleton numbering and the key numbering. The language
+/// decides it, because which convention compiled code uses is a fact about what
+/// this crate emits; the runtime restates it because it is what performs the
+/// call. `rts-host-rwk` is the one crate that may name both, and it asserts they
+/// agree — which is where a disagreement becomes a refusal instead of a jump
+/// with a corrupt stack.
+pub const ARGUMENT_SLOTS: usize = 4;
+
 /// An operation the language performs by calling the runtime.
 ///
 /// Membership is decided by the machine's rule, quoted rather than paraphrased
@@ -164,6 +187,34 @@ pub enum RuntimeOp {
     /// property walks the heap, and writing one may move the object to a new
     /// layout.
     SetProperty,
+
+    /// A function, as a value: its code and the environment it closed over.
+    ///
+    /// An entry point because the result is allocated. The code address is not
+    /// computed here — it comes from the machine's `FuncAddr`, which is a
+    /// relocation the destination fills in.
+    ClosureNew,
+
+    /// Calling a value, with a receiver and the arguments.
+    ///
+    /// # Why calling is a runtime operation and not `call_indirect`
+    ///
+    /// The machine has an indirect call and it takes a callee *proven to be
+    /// code*. A JavaScript callee is a value, and finding out whether it is
+    /// code reads the heap — so the narrowing is a heap operation, which is the
+    /// membership rule unmodified.
+    ///
+    /// The sharper reason is what happens when it is not. `1()` throws a
+    /// `TypeError`, and throwing needs the machine's protected regions, which
+    /// nothing emits yet. Compiled code therefore has no way to fail here,
+    /// while the runtime does — and the alternative, jumping through whatever
+    /// the value spelled, is not a slower wrong answer but an arbitrary
+    /// address.
+    ///
+    /// The arity is fixed at four arguments, padded with `undefined`. See
+    /// `emit/call.rs` for why, and for what changes when a stack slot exists to
+    /// put a real argument vector in.
+    Call,
 }
 
 impl RuntimeOp {
@@ -184,6 +235,8 @@ impl RuntimeOp {
         RuntimeOp::ObjectNew,
         RuntimeOp::GetProperty,
         RuntimeOp::SetProperty,
+        RuntimeOp::ClosureNew,
+        RuntimeOp::Call,
     ];
 
     /// The linker name the runtime must define.
@@ -209,6 +262,8 @@ impl RuntimeOp {
             RuntimeOp::ObjectNew => "__rts_object_new",
             RuntimeOp::GetProperty => "__rts_get_property",
             RuntimeOp::SetProperty => "__rts_set_property",
+            RuntimeOp::ClosureNew => "__rts_closure_new",
+            RuntimeOp::Call => "__rts_call",
         }
     }
 
@@ -236,6 +291,13 @@ impl RuntimeOp {
             RuntimeOp::ObjectNew => (vec![], vec![UNPROVEN]),
             RuntimeOp::GetProperty => (vec![UNPROVEN, Repr::I64], vec![UNPROVEN]),
             RuntimeOp::SetProperty => (vec![UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN]),
+            // The code address is `I64` and not a value: it is a machine
+            // address, nothing collects it, and widening it would hand the
+            // collector a pointer into the text segment to trace.
+            RuntimeOp::ClosureNew => (vec![Repr::I64, UNPROVEN], vec![UNPROVEN]),
+            // Callee, receiver, then one slot per argument. Every one a value,
+            // because a caller cannot know what it is handing over.
+            RuntimeOp::Call => (vec![UNPROVEN; 2 + ARGUMENT_SLOTS], vec![UNPROVEN]),
         };
         Signature {
             params,

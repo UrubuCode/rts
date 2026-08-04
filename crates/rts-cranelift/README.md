@@ -215,6 +215,13 @@ because the destination was known while compiling. Cleanup runs on both the thro
 rewritten away before lowering ever sees one. Nothing in the representation is
 refused any more.
 
+One capability was added after that paragraph was written, and it was genuinely
+missing rather than merely unused: `Inst::FuncAddr` takes the address of a
+declared function as a value. `ConstDecl::Symbol` was in the representation with
+no lowering — one of the structures with no producer this crate has shipped
+before — and it would have been the wrong mechanism anyway, since it addresses
+by string what the registry already numbers.
+
 Calls exist now, and they arrived last on purpose. A call is inseparable from the
 convention it uses, from the safepoint it implies, and from where the frame is
 when control leaves — so every one of those was built and tested first. Choosing

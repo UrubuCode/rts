@@ -301,6 +301,26 @@ impl<'a> Body<'a> {
                 return self.bind_results(builder, call, results);
             }
 
+            // Needs the same machinery a call does — a reference to the callee
+            // in this function — and for the same reason: the address is a
+            // relocation the destination fills in, not a number known here.
+            // That is why it is refused without `Capability::Calls` rather than
+            // being treated as a constant.
+            Inst::FuncAddr { callee } => {
+                let outside = self.outside.as_mut().ok_or(LowerError::NotYetLowered {
+                    inst: id,
+                    needs: Capability::Calls,
+                })?;
+                let reference = self
+                    .refs
+                    .callee(outside.module, builder.func, outside.declarations, *callee)
+                    .ok_or(LowerError::UndeclaredCallee { inst: id })?;
+                // `I64` because the builder gave the value `Repr::I64`. The two
+                // are one decision and disagreeing about it would produce a
+                // half-width address on any target where they differed.
+                builder.ins().func_addr(types::I64, reference)
+            }
+
             Inst::CallIndirect { callee, sig, args } => {
                 let outside = self.outside.as_mut().ok_or(LowerError::NotYetLowered {
                     inst: id,

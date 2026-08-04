@@ -602,9 +602,108 @@ Every number here is in `docs/engine/new-engine-speed.md`, with the method, the
 scaling checks, and the two occasions the measurement was wrong before the code
 was.
 
-**E5 — functions and closures.** A captured local stops being a `ValueId` and
-becomes a cell, which is why `emit::scope::Binding` is an enum with one variant
-today.
+**E4d — the operators a program is actually written with. DONE.** `!`, unary
+`-` and `+`, `void`, `?:`, `&&`/`||`/`??`, `++`/`--`, `!==`, the logical
+assignments on a local, and compound assignment to a property. `emit/choice.rs`
+and `emit/unary.rs`; 16 tests, every one of them run rather than verified,
+in `rts-host-rwk/tests/running.rs`.
+
+Chosen as a slice because it is exactly what needs **no new runtime operation
+and no new machine capability** — the whole set is branches, merges, and the
+arithmetic already defined. `for (let i = 0; i < 5; i++) total += i;` compiles
+and runs, which was unwritable before and is the measurement of what changed.
+
+Two decisions worth carrying forward, both of which the obvious spelling gets
+wrong:
+
+- `-x` is emitted as `x * -1`, not `0 - x`. `-(0)` is `-0` and `0 - 0` is `+0`,
+  and `1 / -0` is `-Infinity`, so the two are distinguishable. Going through `*`
+  also means numeric coercion is stated once — the guard, the instruction and
+  the runtime symbol are all already decided there.
+- `x++` is `x - -1`, not `x + 1`. `+` may concatenate, and `"5" + 1` is `"51"`
+  where `"5"++` is `6`.
+
+Refused deliberately rather than for want of time: `&&=` on a **property**. When
+the left side decides, the specification performs no write at all, which a
+setter observes — so emitting the write anyway would be right for plain data and
+wrong for the objects the operator exists for.
+
+**E5 — functions and closures. THE TWO LOWER HALVES ARE IN; THE EMISSION IS
+NOT.** A captured local stops being a `ValueId` and becomes heap storage, which
+is why `emit::scope::Binding` is an enum with one variant today.
+
+What was built and tested first, because emission cannot be written against
+capabilities that do not exist:
+
+- **`rts_cranelift::ir::Inst::FuncAddr { callee: FuncId }`** — the address of a
+  declared function, as `Repr::I64`. The capability was genuinely absent:
+  `ConstDecl::Symbol` existed with no lowering at all. Taken by `FuncId` rather
+  than by symbol name, because the address is known at emission and a name would
+  reintroduce string linkage for the one population that provably does not need
+  it. `Repr::I64` and not a reference, so the collector is never handed a
+  pointer into the text segment. Builder refuses an undeclared callee, verifier
+  refuses it again for IR that did not come from the builder — rule 7 wants
+  both. Two tests in `rts-cranelift/tests/calls.rs`.
+- **A callable, in `rts-core-rwk::entry::functions`** — a region cell at a
+  reserved layout holding two words, the code address and the environment. Not
+  an object with two properties: `code` would then be a key in the registry that
+  JavaScript could read and *write*, and a program storing a number there would
+  name the instruction the next call jumps to. `Context::shape_of` had to learn
+  about the second reserved layout, because `shape_of_type` is grown with
+  `resize(n, shape)` and a callable would otherwise answer property reads by
+  interpreting its code address as a field.
+- **`RuntimeOp::ClosureNew` and `RuntimeOp::Call`**, wired through the host.
+
+### The three decisions E5's emission is now committed to
+
+**Calling is a runtime operation, not `call_indirect`.** The machine's indirect
+call takes a callee *proven to be code*, and finding out whether a JavaScript
+value is code reads the heap. The sharper reason: `1()` throws a `TypeError`,
+throwing needs protected regions, and nothing emits those — so compiled code has
+no way to fail here and the runtime does. The alternative is not a slower wrong
+answer, it is a jump to an arbitrary address.
+
+**The arity is fixed at four, and the convention is
+`(env, this, a0..a3) -> value`.** JavaScript's arity is dynamic; expressing that
+needs a caller-allocated argument vector, which is a stack slot this compiler
+does not emit. A call with more arguments is refused **by name** rather than
+truncated. `ARGUMENT_SLOTS` is stated in `rts-codegen` — the language decides its
+own convention — restated in `rts-core-rwk`, and `rts-host-rwk` carries a `const`
+assertion that they agree, the same shape as the singleton and key numberings.
+
+**Capture goes in an environment object, chained by `__outer`.** A captured local
+is a property of an environment object created at function entry; two closures
+made in one activation get the same object, which is what makes them share the
+variable. A nested function receives its defining activation's environment as
+parameter 0; if it captures anything itself it creates its own and points
+`__outer` at the one it received. **The hop count is static** — the compiler
+knows how many links out a name is — so a read is `hops` loads and a
+`GetProperty`, never a search.
+
+The analysis that decides which locals those are was written and is *not* in the
+tree, because dead code is not kept: it is `declared_in_this_function ∩
+referenced_anywhere_inside_a_nested_function`, deliberately over-approximating
+(it counts a nested function's own locals too). The direction of that error is
+what makes it safe — a name wrongly in the environment costs one load, a name
+wrongly out of it is two closures disagreeing about a variable.
+
+### What is left, in order
+
+1. `Ctx` carries the `TypeRegistry` and the functions emitted so far; `emit_body`
+   becomes `emit_program`, answering a list of `(FuncId, Function)` rather than
+   one function.
+2. `Binding` gains `InEnvironment { hops, name }`, and every site that reads or
+   writes a local goes through one pair of functions rather than matching the
+   enum — `stmt.rs`, `expr.rs`, `unary.rs` and `loops.rs` each touch bindings
+   today, which is four places to teach.
+3. Function declarations are hoisted per block, so recursion and mutual
+   recursion resolve.
+4. Call sites, with `this`: `f()` passes `undefined`, `o.f()` passes `o` and
+   evaluates `o` exactly once.
+5. The host places every emitted function rather than one, and the script's own
+   entry takes the same convention.
+
+**E5 — functions and closures.** The emission itself, as listed above.
 
 **E6 — the rest.** `throw`/`try` over the machine's protected regions,
 `await`/`yield` over its suspension, classes, modules.

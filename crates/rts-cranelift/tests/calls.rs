@@ -616,3 +616,55 @@ fn a_tail_call_through_a_value_runs_too() {
         "a callee reached through a value, in tail position, still answers"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Taking a function's address.
+
+#[test]
+fn a_functions_address_is_an_integer_and_not_a_reference() {
+    // The claim that decides whether the collector will try to trace code. A
+    // reference representation would enrol the value in a root set, and the
+    // collector would follow an address into the text segment.
+    let types = TypeRegistry::new();
+    let mut funcs = FuncRegistry::new();
+    let callee = declare(&mut funcs, &[], &[]);
+
+    let mut func = function(&[], &[Repr::I64]);
+    let entry = func.entry;
+    let mut b = FuncBuilder::new(&mut func, &types, entry);
+    let address = b.func_addr(&funcs, callee).expect("declared");
+    assert_eq!(b.repr_of(address), Repr::I64);
+    b.ret(&[address]);
+
+    assert_eq!(verify(&func, &types, &funcs), vec![]);
+}
+
+#[test]
+fn the_address_of_a_function_nobody_declared_is_refused_where_it_is_written() {
+    // An id naming nothing becomes an address naming nothing, and the failure
+    // would otherwise surface at placement — far from the line that caused it.
+    let types = TypeRegistry::new();
+    let mut theirs = FuncRegistry::new();
+    let callee = declare(&mut theirs, &[], &[]);
+    let ours = FuncRegistry::new();
+
+    let mut func = function(&[], &[Repr::I64]);
+    let entry = func.entry;
+    let mut b = FuncBuilder::new(&mut func, &types, entry);
+    assert!(
+        matches!(b.func_addr(&ours, callee), Err(BuildError::UnknownCallee)),
+        "the builder refuses it where it was written"
+    );
+
+    // And the verifier refuses it too, for a function that did not come from
+    // the builder — rule 7 wants both, and only the second covers IR built by
+    // something else.
+    let address = b.func_addr(&theirs, callee).expect("declared in theirs");
+    b.ret(&[address]);
+    assert!(
+        verify(&func, &types, &ours).contains(&VerifyError::UnknownCallee {
+            at: CallSite::Inst(first_inst(&func))
+        }),
+        "an address read from the wrong registry is plausible and wrong"
+    );
+}

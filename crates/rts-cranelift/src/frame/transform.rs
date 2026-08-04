@@ -457,7 +457,11 @@ fn replace_operands(inst: &mut Inst, replacements: &[ValueId]) {
     let mut take = || next.next().expect("one replacement per operand");
 
     match inst {
-        Inst::Const(_) | Inst::Alloc { .. } | Inst::Suspend | Inst::PromiseNew => {}
+        Inst::Const(_)
+        | Inst::Alloc { .. }
+        | Inst::Suspend
+        | Inst::PromiseNew
+        | Inst::FuncAddr { .. } => {}
 
         Inst::Widen(v) | Inst::Narrow(v, _) => *v = take(),
 

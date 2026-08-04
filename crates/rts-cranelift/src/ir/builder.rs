@@ -530,6 +530,23 @@ impl<'a> FuncBuilder<'a> {
         ))
     }
 
+    /// The address of a declared function, as a machine integer.
+    ///
+    /// Refused for a function the registry never issued, for the same reason
+    /// [`Self::call`] is: an id that names nothing would become an address that
+    /// names nothing, and the failure would surface at placement — far from the
+    /// line that caused it — or not at all.
+    ///
+    /// `Repr::I64` and not a reference. It is not a heap value, nothing
+    /// collects it, and giving it a reference representation would enrol it in
+    /// a root set and have the collector attempt to trace code.
+    pub fn func_addr(&mut self, funcs: &FuncRegistry, callee: FuncId) -> BuildResult<ValueId> {
+        funcs
+            .signature_of(callee)
+            .ok_or(BuildError::UnknownCallee)?;
+        Ok(self.emit(Inst::FuncAddr { callee }, Repr::I64))
+    }
+
     /// Calls a function reached through a value of proven callable kind.
     ///
     /// A generic value is refused here rather than narrowed. It might be code,

@@ -220,6 +220,37 @@ pub enum Inst {
         args: Vec<ValueId>,
     },
 
+    /// The address of a function, as a value.
+    ///
+    /// # Why this exists rather than a client writing the address down
+    ///
+    /// Because the address is not known when the client builds the IR. Code is
+    /// placed afterwards, and where it lands is decided by the destination —
+    /// executable memory picks one, an object file leaves a relocation for a
+    /// linker. A client that wanted a function's address had no way to name one
+    /// it had only declared, so this is the missing capability rather than a
+    /// convenience.
+    ///
+    /// # Why `FuncId` and not a symbol name
+    ///
+    /// [`ConstDecl::Symbol`](crate::ir::ConstDecl) exists and takes a string,
+    /// and using it here would have addressed a function this compilation is
+    /// building by a name — reintroducing name linkage for the one population
+    /// that provably does not need it, since the address is known at emission.
+    /// A `FuncId` is what the registry already issues, so a callee that was
+    /// never declared is a refusal rather than an unresolved symbol.
+    ///
+    /// # What it is not
+    ///
+    /// A callable value. It is a machine address, `Repr::I64`, and what a
+    /// client wraps it in — a closure, a method table, a trampoline — is that
+    /// client's question. This layer does not know that a function can be a
+    /// value in some language, only that its address can be taken.
+    FuncAddr {
+        /// The function whose address is taken.
+        callee: FuncId,
+    },
+
     /// Parks the frame until a promise settles.
     ///
     /// A suspension that names what it waits for. Distinguished from a bare
@@ -240,7 +271,14 @@ impl Inst {
     /// in three places and forgotten in a fourth.
     pub fn operands(&self) -> Vec<ValueId> {
         match self {
-            Inst::Const(_) | Inst::Alloc { .. } | Inst::Suspend | Inst::PromiseNew => Vec::new(),
+            // `FuncAddr` reads nothing: which function it names is in the
+            // instruction, not in a value, which is exactly what makes it
+            // constant-foldable and hoistable where an indirect callee is not.
+            Inst::Const(_)
+            | Inst::Alloc { .. }
+            | Inst::Suspend
+            | Inst::PromiseNew
+            | Inst::FuncAddr { .. } => Vec::new(),
 
             Inst::Await { promise } => vec![*promise],
             Inst::PromiseSettle { promise, value, .. } => vec![*promise, *value],
