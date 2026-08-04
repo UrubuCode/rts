@@ -176,6 +176,16 @@ impl<'a> Ctx<'a> {
     /// Minted on first use and remembered by `Names`, so two accesses to `.x`
     /// in one program produce one key — which is what lets two objects built
     /// the same way reach the same layout.
+    /// The machine key a property name is.
+    ///
+    /// The same key `key_of` numbers, as the machine's own type rather than as
+    /// a number — which is what `cached_get` takes, because a site remembering
+    /// a layout compares keys and not spellings.
+    pub fn shape_key(&mut self, name: Name) -> rts_cranelift::shape::Key {
+        self.names.key(name, self.keys)
+    }
+
+    /// The same key as a number, for a call that carries one.
     pub fn key_of(&mut self, name: Name) -> u32 {
         self.names.key(name, self.keys).index() as u32
     }

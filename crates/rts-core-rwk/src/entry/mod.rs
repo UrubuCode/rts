@@ -33,6 +33,7 @@
 //! argument is that a small closed set beats a large open one.
 
 mod alloc;
+mod cache;
 mod objects;
 mod operators;
 
@@ -45,6 +46,7 @@ pub use operators::{
 mod table;
 
 pub use alloc::alloc;
+pub use cache::cache_resolve;
 pub use table::{CORE_ENTRY_COUNT, CoreEntry};
 
 use std::cell::RefCell;

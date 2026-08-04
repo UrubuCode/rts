@@ -9,6 +9,7 @@ use rts_codegen::values::ValueModel;
 use rts_cranelift::ir::FuncRegistry;
 use rts_cranelift::mem::{RegionBase, RegionBases};
 use rts_cranelift::shape::KeyRegistry;
+use rts_cranelift::symbols::RtEntry;
 use rts_cranelift::tags::TagRegistry;
 use rts_cranelift::target::{InMemory, Placing, Visibility, place_in_memory};
 use rts_cranelift::types::TypeRegistry;
@@ -192,10 +193,24 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
         body: Some(&func),
     });
 
-    let outside: Vec<(&str, *const u8)> = expected
+    let mut outside: Vec<(&str, *const u8)> = expected
         .iter()
         .map(|(op, _)| Ok((op.symbol(), address_of(*op)?)))
         .collect::<Result<_, HostError>>()?;
+
+    // The machine's own entry points, which it dials without being asked: a
+    // program that allocates calls `rts_alloc`, and a cached read that misses
+    // calls `rts_cache_resolve`. Neither is a `RuntimeOp` — the language never
+    // names them — so neither appears in what the compilation declared, and
+    // supplying them is the host's job rather than something to discover from a
+    // missing symbol.
+    //
+    // Given unconditionally rather than when a program looks like it needs one:
+    // a JIT resolves a name at finalization and an unused address costs a row
+    // in a table, while a missing one is a crash with no diagnostic.
+    for entry in [RtEntry::Alloc, RtEntry::CacheResolve] {
+        outside.push((entry.symbol(), machine_entry(entry)));
+    }
 
     // Asked before anything is placed, and it earns its line immediately: the
     // first program that returned `1 === 1` handed back a machine boolean where
@@ -306,4 +321,30 @@ fn address_of(op: RuntimeOp) -> Result<*const u8, HostError> {
             rts_core_rwk::entry::set_property as extern "C" fn(u64, i64, u64) -> u64 as *const u8
         }
     })
+}
+
+/// The runtime's implementation of one of the machine's own entry points.
+///
+/// Separate from `address_of` because the two are different contracts. That one
+/// serves `RuntimeOp`, which `rts-codegen` states and this crate resolves; this
+/// one serves `RtEntry`, which `rts-cranelift` states and emits itself. A match
+/// missing an arm there means the language named something the runtime lacks; a
+/// match missing an arm here means the machine emits an instruction whose entry
+/// point nobody supplied, which is a crash in compiled code.
+fn machine_entry(entry: RtEntry) -> *const u8 {
+    match entry {
+        RtEntry::Alloc => rts_core_rwk::entry::alloc as extern "C" fn(i64, i64) -> u64 as *const u8,
+        RtEntry::CacheResolve => {
+            rts_core_rwk::entry::cache_resolve as extern "C" fn(u64, i64, i64) -> i64 as *const u8
+        }
+        // The rest are emitted by instructions this compiler does not produce:
+        // the write barrier by a store the collector must learn of, the promise
+        // operations by `await`, the throw by an escaping exception. Each
+        // arrives with the phase that emits it.
+        RtEntry::WriteBarrier
+        | RtEntry::PromiseNew
+        | RtEntry::PromiseSettle
+        | RtEntry::PromiseAwait
+        | RtEntry::Throw => std::ptr::null(),
+    }
 }
