@@ -628,9 +628,14 @@ the left side decides, the specification performs no write at all, which a
 setter observes — so emitting the write anyway would be right for plain data and
 wrong for the objects the operator exists for.
 
-**E5 — functions and closures. DONE.** A captured local stops being a `ValueId`
-and becomes heap storage, which is what `emit::scope::Binding` grew a second
-variant for.
+**E5 — functions and closures. DONE, with one divergence found later.** A
+captured local stops being a `ValueId` and becomes heap storage, which is what
+`emit::scope::Binding` grew a second variant for.
+
+The environment is per function **activation**, and that is wrong for a `let`
+declared inside a loop — see *Two divergences* below. It was not noticed here
+because every test in this phase captured a name declared at function level,
+where per-activation is exactly right.
 
 What was built and tested first, because emission cannot be written against
 capabilities that do not exist:
@@ -812,8 +817,115 @@ distinguishable from `undefined` and a throw to report it.
    entry takes the same convention.
 
 
+**E6c — computed property access and `in`. DONE.** `o[e]`, `o[e] = v`, compound
+assignment through one, and `k in o`.
+
+`in` asks whether the object **has** the property, which is not whether reading
+it yields `undefined`: `({x: undefined})` has `x`. An implementation written as
+`o[k] !== undefined` is a different operator.
+
+An index becomes a **name** rather than a `Key::Index`. The distinction is real
+— indices enumerate first, in numeric order — and unusable, because
+`machine_key` answers `None` for one. Letting that through would have made
+`o[0] = 1; o[0]` read as absent.
+
+This is where the key numbering stopped being a **count**. A key the compiler
+resolved crosses as a number and needs no text; a computed one arrives as a
+string and has to reach the number the compiler already chose. So the texts
+cross, in key order, because interning is what mints the numbers.
+
+**E6d — labels and `switch`. DONE.** A label on a loop is handed **to** the
+loop, not wrapped around it: wrapping would leave `continue outer` with nothing
+to continue, and the jump would reach the wrapper's exit — turning a `continue`
+into a `break`. Only a label on something that is not a loop gets a frame of its
+own, with `continue_to: None`, which is why the search *skips* a frame it cannot
+serve.
+
+A `switch` lives beside the loops because it needs the whole of what a loop's
+exit needs. Every body block takes parameters, which `if` does not: `body₁` has
+two predecessors nowhere near each other — the test that matched it and `body₀`
+falling through — so there is no pair of snapshots to compare. `default` keeps
+its position among the bodies; only the *test* chain treats it specially.
+
+**E6e — arrays. DONE.** Elements live apart from properties, because a shape is
+a chain of transitions and a thousand-element array would be a thousand-deep
+chain with a new layout per length.
+
+The first version gave arrays a **reserved layout**, like text and callables,
+which made an array a thing with no shape — so `a.tag = 9` was a silent no-op.
+An array *is* an object; its cell now carries an ordinary shape and being an
+array is recorded beside it.
+
+Only a canonical index reaches the store: `a[1.5]` and `a[-1]` are properties.
+
+**E6f — `delete`, and a claim that was false. DONE.** `delete` was recorded here
+as impossible because "a shape tree built from transitions has no way to do it".
+`ShapeTree::remove` had existed all along. The claim was made by reasoning about
+what the tree must be like instead of reading it — §0's mistake, in this
+document.
+
+Removal rebuilds the layout without the key, and the values move with it:
+removing a property shifts every later one down a slot, so they are read against
+the old layout before the header changes.
+
+**E6g — `for-in`, `undefined`/`NaN`/`Infinity`, object-literal methods and
+computed keys. DONE.** `for-in` is built as a tree and emitted as an ordinary
+`for` over an array of keys — the one desugaring this crate permits, because
+nothing is lost once the enumeration is a value, and it buys `break`,
+`continue`, labels and block scoping without restating any of them.
+
+The three global values are constants rather than a lookup: they are the only
+properties of the global object that cannot be written. An undeclared name is
+still `UnboundName`, because reading one is a `ReferenceError` and answering
+`undefined` would turn every typo into a program that runs.
+
+### Two divergences, named rather than discovered
+
+**A captured loop variable is shared across passes.** `let` in a loop should be
+a fresh binding per pass; this engine's environment is per function
+**activation**, so every pass writes the same slot and two closures made in
+different passes see the same value. It arrived with E5 and affects every loop.
+
+Fixing it means an environment created *inside* the loop, chained to the
+function's, whenever the body declares a name something captures — and the
+awkward part is not creating it. Every enclosing captured name's hop count
+shifts by one inside that region, and `merge::disagreements` compares bindings
+by equality: two snapshots of one name at different hops would look like a
+disagreement and reach `Binding::value`, which panics for exactly that case.
+
+A test asserts what the engine *does*, so that fixing it fails the test.
+
+**`for-in` snapshots its keys.** A property deleted during the loop is still
+visited, where the specification says it must not be. Properties *added* need
+not be visited, which snapshotting also satisfies — the error is in one
+direction only.
+
+### Adding a statement means teaching four traversals, and none of them complain
+
+`emit/proven.rs` (twice), `emit/capture.rs` (twice) and `emit/loops.rs` each walk
+the tree for a different question, and every one ends in `_ => {}`. A statement
+kind they have not seen is silently skipped.
+
+Two were already wrong when this was noticed. `proven::analyse` had no `switch`
+arm, so a name assigned a non-number only inside a clause stayed marked numeric
+— which the machine catches as an implicit narrowing, loudly, but the program
+did not compile. `capture` had no `for-each` arm, which would have been quiet: a
+captured name not marked is two closures disagreeing about a variable.
+
+The fix is not more discipline. It is that these traversals should be one walk
+over a shape the tree describes, or the wildcard should be an explicit list the
+compiler forces to be exhaustive. Recorded here because the next statement kind
+will hit it again.
+
 **E6 — the rest.** `throw`/`try` over the machine's protected regions,
 `await`/`yield` over its suspension, classes, modules.
+
+`throw` is not blocked by the machine, which has protected regions, handlers and
+a `throw` terminator. It is blocked by the **call path**: `__rts_call` is the
+runtime calling compiled code, so a throw crossing it would unwind through Rust
+frames, and `RtEntry::Throw` is null in the host. Within one function it would
+work; a `try` that silently fails to catch across a call is a wrong program that
+runs, and refusing `try` that contains a call leaves it useless.
 
 ### What E-phases are measured against
 
