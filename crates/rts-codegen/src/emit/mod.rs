@@ -48,14 +48,18 @@
 //!
 //! # What is not here yet
 //!
-//! Calls, closures, globals, `throw`, classes, and every value that lives on
-//! the heap without an entry point to make it — a string, an array. They are
+//! Globals, `throw`, classes, and every value that lives on the heap without an
+//! entry point to make it — a string, an array. They are
 //! refused **by name** through [`EmitError::Unsupported`] rather than
 //! mis-emitted, so a program that needs one fails visibly and the gap is a list
 //! rather than a rumour. `PLAN.md` §E has the order and why.
 
+mod binding;
+mod call;
+mod capture;
 mod choice;
 mod expr;
+mod function;
 mod loops;
 mod proven;
 mod scope;
@@ -68,7 +72,7 @@ pub use proven::{Numeric, analyse};
 pub use scope::Scope;
 pub use stmt::emit_stmt;
 
-use rts_cranelift::ir::{BuildError, FuncBuilder, FuncRegistry, Function, Signature};
+use rts_cranelift::ir::{BuildError, FuncId, FuncRegistry, Function};
 use rts_cranelift::repr::Repr;
 use rts_cranelift::shape::KeyRegistry;
 use rts_cranelift::types::TypeRegistry;
@@ -128,6 +132,25 @@ pub type EmitResult<T> = Result<T, EmitError>;
 /// were *assuming* are distinguishable from the sites that were *deciding*.
 pub const UNPROVEN: Repr = Repr::Tagged;
 
+/// Everything one compilation produced.
+///
+/// A list rather than a function, because a program is no longer one: a body
+/// holding a function expression produces at least two, and every one of them
+/// has to be placed for a call to reach it. The entry is named separately
+/// because "the first" and "the last" are both wrong — a nested function is
+/// finished before the one that defines it, so the script is last, and relying
+/// on that would be relying on an emission order rather than on a fact.
+pub struct Program {
+    /// Each function, with the id it was declared under.
+    ///
+    /// The id is what a call site holds and what placement resolves, so the two
+    /// travel together — a list of bodies alone would need the ids re-derived,
+    /// and re-deriving them is how the wrong body gets placed under a name.
+    pub functions: Vec<(FuncId, Function)>,
+    /// Which of them is the program's entry.
+    pub entry: FuncId,
+}
+
 /// What emission needs that is not the function being built.
 ///
 /// One struct rather than four parameters threaded through every emitter, and
@@ -152,11 +175,28 @@ pub struct Ctx<'a> {
     pub keys: &'a mut KeyRegistry,
     /// Which name each number stands for, for this compilation.
     pub names: &'a mut Names,
+    /// What aggregates this compilation has laid out.
+    ///
+    /// Held here because a nested function is emitted in the middle of the one
+    /// that defines it, and building it needs a `FuncBuilder`, which needs
+    /// this. Threading it as a parameter would mean every emitter that can
+    /// contain a function expression — which is nearly all of them — carrying
+    /// an argument it does not itself use.
+    pub types: &'a TypeRegistry,
+    /// The functions emitted so far, each with the id it was declared under.
+    ///
+    /// A compilation is no longer one function. A body containing a function
+    /// expression produces at least two, and the one that defines the other is
+    /// finished *after* it — so they are accumulated here rather than returned,
+    /// which would mean every expression emitter answering a list nearly all of
+    /// them would leave empty.
+    pending: Vec<(FuncId, Function)>,
     /// Which locals were proved to hold a number.
     ///
-    /// Owned rather than borrowed, and filled by [`emit_body`] rather than by a
-    /// caller: it is a fact about the body being emitted, so a caller supplying
-    /// it would be supplying an answer about something it has not looked at.
+    /// Owned rather than borrowed, and filled by [`emit_program`] rather than by
+    /// a caller: it is a fact about the body being emitted, so a caller
+    /// supplying it would be supplying an answer about something it has not
+    /// looked at.
     numeric: Numeric,
 }
 
@@ -168,6 +208,7 @@ impl<'a> Ctx<'a> {
         calls: &'a mut RuntimeCalls,
         keys: &'a mut KeyRegistry,
         names: &'a mut Names,
+        types: &'a TypeRegistry,
     ) -> Self {
         Ctx {
             model,
@@ -175,6 +216,8 @@ impl<'a> Ctx<'a> {
             calls,
             keys,
             names,
+            types,
+            pending: Vec::new(),
             numeric: Numeric::default(),
         }
     }
@@ -221,63 +264,24 @@ impl<'a> Ctx<'a> {
 /// machine's verifier would reject an unterminated block, which means the rule
 /// cannot be forgotten — but it would be reported as a malformed function
 /// rather than as the language fact it is, so it is done here on purpose.
-pub fn emit_body(
-    body: &[Stmt],
-    params: &[Name],
-    types: &TypeRegistry,
-    ctx: &mut Ctx,
-) -> EmitResult<Function> {
-    let signature = Signature {
-        params: params.iter().map(|_| UNPROVEN).collect(),
-        returns: vec![UNPROVEN],
-        ..Signature::default()
-    };
-    // What can be proved about this body, before anything is emitted. The
-    // emitter reads it to decide which bindings keep a machine representation
-    // and which are widened at every store — and a binding cannot be decided
-    // one way in one statement and the other way three statements later, which
-    // is why it is answered for the whole body up front.
-    ctx.numeric = proven::analyse(body);
+pub fn emit_program(body: &[Stmt], ctx: &mut Ctx) -> EmitResult<Program> {
+    // The script is a function like any other, under the same convention. It
+    // was not before: it took no parameters, and every test that ran one called
+    // it directly. Making it uniform is what lets a program call itself, and
+    // what stops the host having two ways to enter compiled code.
+    let sig = ctx.funcs.declare_signature(function::signature());
+    let entry = ctx.funcs.declare_function(sig);
 
-    let mut func = Function::new(signature);
+    // Nothing encloses a script, so nothing is reachable through a chain that
+    // does not exist. An empty scope says exactly that.
+    let nothing = Scope::new();
+    let emitted = function::emit_body(ctx, &nothing, &[], body, false)?;
+    ctx.pending.push((entry, emitted));
 
-    // The entry block and its parameters already exist: `Function::new` builds
-    // them from the signature, because "the entry block's parameters are the
-    // function's parameters; there is no second way to name them, so they
-    // cannot disagree".
-    //
-    // The first version of this pushed a second block and declared the
-    // parameters again, which meant the real entry block was never terminated
-    // and every parameter had two values. Neither showed up until the verifier
-    // was run — noted because it is the argument for running it in the test
-    // helpers rather than at the end of the pipeline.
-    let entry = func.entry;
-    let mut scope = Scope::new();
-    let incoming = func
-        .block(entry)
-        .expect("a function always has its entry block")
-        .params
-        .clone();
-    for (name, value) in params.iter().zip(incoming) {
-        scope.declare(*name, value);
-    }
-
-    let mut builder = FuncBuilder::new(&mut func, types, entry);
-    let mut loops = Loops::default();
-    let mut terminated = false;
-    for statement in body {
-        if emit_stmt(&mut builder, &mut scope, ctx, &mut loops, statement)? {
-            terminated = true;
-            break;
-        }
-    }
-
-    if !terminated {
-        let undefined = expr::undefined(&mut builder, ctx);
-        builder.ret(&[undefined]);
-    }
-
-    Ok(func)
+    Ok(Program {
+        functions: std::mem::take(&mut ctx.pending),
+        entry,
+    })
 }
 
 #[cfg(test)]
@@ -290,6 +294,20 @@ mod tests {
     use rts_cranelift::ir::inst::{Inst, Terminator};
     use crate::values::ValueModel;
     use rts_cranelift::tags::TagRegistry;
+
+    /// The program.s own entry, for a test that asserts about one function.
+    ///
+    /// Named rather than indexed: a nested function is finished before the one
+    /// that defines it, so the entry is last today — and a test relying on that
+    /// would be relying on an emission order rather than on a fact.
+    fn entry_of(program: Program) -> Function {
+        program
+            .functions
+            .into_iter()
+            .find(|(id, _)| *id == program.entry)
+            .expect("the entry was emitted")
+            .1
+    }
 
     /// Hands back what was emitted, having asked the machine whether it is well
     /// formed.
@@ -335,8 +353,8 @@ mod tests {
             .collect();
         let mut keys = rts_cranelift::shape::KeyRegistry::new();
         let func = {
-            let mut ctx = Ctx::new(&model, &mut funcs, &mut calls, &mut keys, &mut names);
-            emit_body(&body, &[], &types, &mut ctx)
+            let mut ctx = Ctx::new(&model, &mut funcs, &mut calls, &mut keys, &mut names, &types);
+            emit_program(&body, &mut ctx).map(entry_of)
         };
         verified(func, &types, &funcs)
     }
@@ -366,8 +384,8 @@ mod tests {
         };
         let mut keys = rts_cranelift::shape::KeyRegistry::new();
         let func = {
-            let mut ctx = Ctx::new(&model, &mut funcs, &mut calls, &mut keys, &mut names);
-            emit_body(body, &[], &types, &mut ctx)
+            let mut ctx = Ctx::new(&model, &mut funcs, &mut calls, &mut keys, &mut names, &types);
+            emit_program(body, &mut ctx).map(entry_of)
         };
         verified(func, &types, &funcs)
     }
@@ -383,10 +401,16 @@ mod tests {
 
     #[test]
     fn a_gap_is_named_rather_than_counted() {
-        let error = emit_source("f()").expect_err("calls are not emitted yet");
+        // `f()` used to name this gap and no longer can: calls ARE emitted, so
+        // what is wrong with it is that nothing declared `f`. Moved to a
+        // construct that is still missing rather than deleted with the gap it
+        // happened to name.
+        let error = emit_source("[1];").expect_err("array literals are not emitted yet");
         assert_eq!(
             error,
-            EmitError::Unsupported { construct: "a call" },
+            EmitError::Unsupported {
+                construct: "an array literal"
+            },
             "the name is the deliverable — a gap reported as `Unsupported` with \
              no word in it is indistinguishable from any other gap"
         );
@@ -400,6 +424,19 @@ mod tests {
             "must not be `Unsupported`: the construct IS emitted, and the \
              program is the thing that is wrong. Got {error:?}"
         );
+    }
+
+    /// How many values are merged through block parameters.
+    ///
+    /// The ENTRY block is excluded, and that is the whole reason this is a
+    /// function rather than a sum written at each site: a function.s entry
+    /// parameters are its calling convention, not a merge, and counting them
+    /// would make every one of these tests report six more than it means.
+    fn merged_values(func: &Function) -> usize {
+        func.blocks()
+            .filter(|(id, _)| *id != func.entry)
+            .map(|(_, block)| block.params.len())
+            .sum()
     }
 
     /// Every instruction emitted, in no particular order.
@@ -452,9 +489,17 @@ mod tests {
         // `s` comes from a call, so nothing here knows what it is — and `1 + s`
         // may concatenate. The call is the correct emission, and this is what
         // rule 5 means by generic being visible rather than a fallback.
-        let error = emit_source("let s = f(); 1 + s;")
-            .expect_err("calls are not emitted yet, which is what makes `s` unproved");
-        assert_eq!(error, EmitError::Unsupported { construct: "a call" });
+        // `s` comes from a call, so nothing here knows what it is. The call is
+        // emitted now, so what this pins is that the ADDITION reached the
+        // runtime — which is the claim the test was always making.
+        let func = emit_source("function f() { return 1; } let s = f(); 1 + s;")
+            .expect("emits");
+        assert!(
+            instructions(&func)
+                .iter()
+                .any(|inst| matches!(inst, Inst::Call { .. })),
+            "nothing proved `s`, so `1 + s` may concatenate and must be a call"
+        );
     }
 
     #[test]
@@ -527,8 +572,7 @@ mod tests {
         // what prevents it — so it is pinned rather than trusted.
         let func =
             emit_body_of("let x = 0; let y = 1; if (x) { x = 1; } return y;").expect("emits");
-        let params: usize = func.blocks().map(|(_, block)| block.params.len()).sum();
-        assert_eq!(params, 1, "only `x` differs between the two paths");
+        assert_eq!(merged_values(&func), 1, "only `x` differs between the two paths");
     }
 
     #[test]
@@ -583,9 +627,8 @@ mod tests {
         // implementation, a parameter for every live local, would give two.
         let func = emit_body_of("let i = 0; let n = 1; while (i) { i = n; } return i;")
             .expect("emits");
-        let params: usize = func.blocks().map(|(_, block)| block.params.len()).sum();
         // Header and exit each carry `i`.
-        assert_eq!(params, 2, "only `i` differs between passes");
+        assert_eq!(merged_values(&func), 2, "only `i` differs between passes");
     }
 
     #[test]
@@ -594,8 +637,11 @@ mod tests {
         // nothing outside the body can name it and nothing needs to carry it.
         let func = emit_body_of("let i = 0; while (i) { let x = i; x = 1; } return i;")
             .expect("emits");
-        let params: usize = func.blocks().map(|(_, block)| block.params.len()).sum();
-        assert_eq!(params, 0, "the loop writes nothing that outlives a pass");
+        assert_eq!(
+            merged_values(&func),
+            0,
+            "the loop writes nothing that outlives a pass"
+        );
     }
 
     #[test]

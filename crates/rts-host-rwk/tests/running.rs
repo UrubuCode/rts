@@ -484,3 +484,297 @@ fn a_construct_still_missing_is_refused_by_name_rather_than_approximated() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Functions, calls and closures.
+//
+// A closure is not tested by asking whether it compiles. Its entire observable
+// content is that two functions made in one activation see the *same* variable,
+// and that a variable outlives the call that created it — so those are what the
+// assertions are about, and every one of them runs.
+
+#[test]
+fn a_function_is_called_and_answers() {
+    assert_eq!(
+        tags::decode_double(run("function f() { return 7; } return f();")),
+        7.0
+    );
+}
+
+#[test]
+fn an_argument_reaches_the_parameter_it_fills() {
+    assert_eq!(
+        tags::decode_double(run("function id(n) { return n; } return id(9);")),
+        9.0
+    );
+    assert_eq!(
+        tags::decode_double(run("function add(a, b) { return a + b; } return add(2, 3);")),
+        5.0
+    );
+}
+
+#[test]
+fn a_parameter_nothing_was_passed_for_is_undefined() {
+    // Ordinary JavaScript, and the reason the call site pads rather than the
+    // callee coping: the callee's parameters exist whether or not anything was
+    // passed, so there is nothing for it to cope with.
+    let mut compiled = compile("function f(a, b) { return b; } return f(1);").expect("compiles");
+    let produced = compiled.run();
+    assert_eq!(
+        produced,
+        compiled.model().singleton(Singleton::Undefined).word()
+    );
+}
+
+#[test]
+fn a_function_can_call_itself() {
+    // Recursion is the first thing that needs a declaration to be *hoisted*:
+    // `fact` is read inside `fact`, before the statement that binds it has run.
+    let produced = run(
+        "function fact(n) { if (n < 2) { return 1; } return n * fact(n - 1); } return fact(5);",
+    );
+    assert_eq!(tags::decode_double(produced), 120.0);
+}
+
+#[test]
+fn two_functions_can_call_each_other() {
+    // Mutual recursion needs both names bound before either body is emitted,
+    // which is why hoisting is two passes rather than one.
+    let produced = run(
+        "function even(n) { if (n === 0) { return 1; } return odd(n - 1); } \
+         function odd(n) { if (n === 0) { return 0; } return even(n - 1); } \
+         return even(4);",
+    );
+    assert_eq!(tags::decode_double(produced), 1.0);
+}
+
+#[test]
+fn a_function_reads_a_variable_from_where_it_was_written() {
+    assert_eq!(
+        tags::decode_double(run("let k = 4; function get() { return k; } return get();")),
+        4.0
+    );
+}
+
+#[test]
+fn a_function_writes_a_variable_the_caller_can_see() {
+    // The direction that a copied environment would get wrong. If the closure
+    // held its own copy of `n` this returns 0, and every read-only test above
+    // would still pass.
+    let produced = run(
+        "function outer() { let n = 0; function bump() { n = n + 1; } bump(); bump(); return n; } \
+         return outer();",
+    );
+    assert_eq!(tags::decode_double(produced), 2.0);
+}
+
+#[test]
+fn two_closures_made_together_share_one_variable() {
+    // The whole observable content of a closure, as the one assertion that
+    // separates a real implementation from a plausible one: `read` sees what
+    // `write` did, so the two must have been handed the SAME environment
+    // object rather than two objects with the same contents.
+    let produced = run(
+        "function pair() { \
+           let n = 0; \
+           function write() { n = 41; } \
+           function read() { return n + 1; } \
+           write(); \
+           return read(); \
+         } \
+         return pair();",
+    );
+    assert_eq!(tags::decode_double(produced), 42.0);
+}
+
+#[test]
+fn a_variable_outlives_the_call_that_created_it() {
+    // The other half. `make` has returned by the time `counter` runs, so `n`
+    // cannot have been in `make`'s frame — which is the reason a captured local
+    // stops being a register at all.
+    let produced = run(
+        "function make() { let n = 0; function step() { n = n + 1; return n; } return step; } \
+         let counter = make(); \
+         counter(); \
+         counter(); \
+         return counter();",
+    );
+    assert_eq!(tags::decode_double(produced), 3.0);
+}
+
+#[test]
+fn two_activations_do_not_share_a_variable() {
+    // The converse of the test above, and the one an environment created once
+    // per *function* rather than once per *call* would fail: each `make()` is a
+    // new activation, so each counter starts again.
+    let produced = run(
+        "function make() { let n = 0; function step() { n = n + 1; return n; } return step; } \
+         let first = make(); \
+         let second = make(); \
+         first(); \
+         first(); \
+         return second();",
+    );
+    assert_eq!(tags::decode_double(produced), 1.0);
+}
+
+#[test]
+fn a_closure_reaches_two_environments_out() {
+    // What the hop count is for. `k` lives in `outer`'s environment, `inner` is
+    // inside `middle`, and `middle` builds one of its own — so reaching `k`
+    // follows two links, and an implementation that followed one would read
+    // `middle`'s environment and find nothing.
+    let produced = run(
+        "function outer() { \
+           let k = 5; \
+           function middle() { \
+             let m = 2; \
+             function inner() { return k * m; } \
+             return inner(); \
+           } \
+           return middle(); \
+         } \
+         return outer();",
+    );
+    assert_eq!(tags::decode_double(produced), 10.0);
+}
+
+#[test]
+fn a_parameter_is_captured_like_any_other_binding() {
+    let produced = run(
+        "function adder(by) { function apply(n) { return n + by; } return apply; } \
+         let plus_three = adder(3); \
+         return plus_three(4);",
+    );
+    assert_eq!(tags::decode_double(produced), 7.0);
+}
+
+#[test]
+fn a_function_expression_is_a_value() {
+    let produced = run("let f = function (n) { return n * 2; }; return f(21);");
+    assert_eq!(tags::decode_double(produced), 42.0);
+}
+
+#[test]
+fn an_arrow_with_a_concise_body_returns_it() {
+    // A concise body is not a block, and the emitter wraps it in a `return`
+    // rather than the parser doing so — the tree keeps which was written.
+    let produced = run("let double = (n) => n * 2; return double(4);");
+    assert_eq!(tags::decode_double(produced), 8.0);
+}
+
+#[test]
+fn a_method_call_passes_its_receiver_as_this() {
+    // The one thing a call site knows that the callee cannot: `o.f()` and `f()`
+    // pass the same arguments and differ only here.
+    let produced = run(
+        "let o = {}; \
+         o.n = 12; \
+         o.get = function () { return this.n; }; \
+         return o.get();",
+    );
+    assert_eq!(tags::decode_double(produced), 12.0);
+}
+
+#[test]
+fn a_plain_call_has_no_receiver() {
+    let mut compiled =
+        compile("function f() { return this; } return f();").expect("compiles");
+    let produced = compiled.run();
+    assert_eq!(
+        produced,
+        compiled.model().singleton(Singleton::Undefined).word(),
+        "a plain call passes `undefined`, which is what strict mode specifies; \
+         sloppy mode substitutes the global object, and there is no global object"
+    );
+}
+
+#[test]
+fn a_receiver_is_evaluated_once() {
+    // `f().g()` calls `f` a single time. An implementation that emitted the
+    // object expression once for the property read and again for the receiver
+    // would call it twice — invisibly, for every receiver without a side effect,
+    // which is why the receiver here has one.
+    let produced = run(
+        "let calls = 0; \
+         let o = {}; \
+         o.answer = function () { return 1; }; \
+         function get() { calls = calls + 1; return o; } \
+         get().answer(); \
+         return calls;",
+    );
+    assert_eq!(tags::decode_double(produced), 1.0);
+}
+
+#[test]
+fn a_function_is_a_value_that_is_only_equal_to_itself() {
+    let produced = run("function f() { return 1; } let g = f; return g === f;");
+    assert_eq!(tags::tag_of(produced), tags::TAG_BOOL);
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
+fn calling_something_that_is_not_a_function_does_not_jump_to_it() {
+    // The reason calling is a runtime operation rather than the machine's
+    // indirect call. `1()` must throw a TypeError, throwing needs protected
+    // regions, and nothing emits those — so the runtime answers `undefined`
+    // instead. That is a stated gap and it is not the point of this test.
+    //
+    // The point is what does NOT happen: the program must not jump through
+    // whatever the value spelled. It running at all is the assertion.
+    let mut compiled = compile("let n = 1; return n();").expect("compiles");
+    let produced = compiled.run();
+    assert_eq!(
+        produced,
+        compiled.model().singleton(Singleton::Undefined).word()
+    );
+}
+
+#[test]
+fn the_limits_of_the_fixed_arity_are_refused_by_name() {
+    // The convention carries four arguments, and going past it is refused
+    // rather than truncated: a call whose fifth argument silently vanished is a
+    // wrong program that runs. Both directions are named — too many at the call
+    // and too many in the declaration.
+    for source in [
+        "function f(a) { return a; } return f(1, 2, 3, 4, 5);",
+        "function f(a, b, c, d, e) { return a; } return f(1);",
+    ] {
+        let error = compile(source).expect_err("past the fixed arity");
+        assert!(
+            format!("{error:?}").contains("Unsupported"),
+            "expected a named refusal for `{source}`, got {error:?}"
+        );
+    }
+}
+
+#[test]
+fn what_a_function_still_cannot_do_is_refused_by_name() {
+    // Each of these is a mechanism rather than a spelling: a rest parameter and
+    // a spread argument both need the argument vector the fixed arity exists in
+    // place of, a default needs an expression evaluated at the call, and `this`
+    // inside an arrow needs the defining function's receiver carried through the
+    // environment.
+    for source in [
+        "function f(...rest) { return rest; } return f(1);",
+        "function f(a) { return a; } let xs = 0; return f(...xs);",
+        "function f(a) { return a; } return f();",
+        "let f = () => this; return f();",
+        "async function f() { return 1; } return f();",
+        "function* f() { yield 1; } return f();",
+    ] {
+        // The third one is legal and emits — a missing argument is padded — so
+        // it is here as the control: if this loop ever passes for it, the
+        // padding stopped working and every other case is untrustworthy.
+        let outcome = compile(source);
+        if source.contains("return f();") && source.contains("function f(a)") {
+            assert!(outcome.is_ok(), "a missing argument is padded, not refused");
+            continue;
+        }
+        let error = outcome.expect_err("still a gap");
+        assert!(
+            format!("{error:?}").contains("Unsupported"),
+            "expected a named refusal for `{source}`, got {error:?}"
+        );
+    }
+}

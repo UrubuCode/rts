@@ -138,11 +138,10 @@ Measured against test262's `test/language`, 23 724 files: **91.5 % read
 correctly**. That is a reading rate, not a pass rate — nothing runs. `PLAN.md`
 L9 has the full table and what each column means.
 
-`emit/` turns that tree into the machine's IR. Done: literals, locals,
-arithmetic and relational operators, assignment, declarations, blocks, `return`,
-control flow, object literals and property access, and — since the operator
-slice — `!`, unary `-` and `+`, `void`, `?:`, `&&`/`||`/`??`, `++`/`--`, `!==`,
-the logical assignments on a local, and compound assignment to a property.
+`emit/` turns that tree into the machine's IR. Done: literals, locals, arithmetic and relational operators, assignment,
+declarations, blocks, `return`, control flow, object literals and property
+access, the one-operand operators and the ones that choose a path, and — since
+E5 — functions, calls, `this`, recursion and closures.
 
 A value nothing proved is `Repr::Tagged` and its operators are calls, which is
 rule 5 rather than a shortcut — `a + b` decides between concatenation and
@@ -154,8 +153,8 @@ Everything not yet emitted is refused by name, and that list is the work queue.
 `PLAN.md` §3b. The three shapes a gap has today, so the next one can be placed:
 it needs a **heap value this crate cannot make** (a string literal, and so
 `typeof` and templates), a **runtime operation nobody defined** (`~`, `==`,
-`in`, `instanceof`, `delete`), or a **mechanism** (calls, closures, globals,
-`throw`, classes).
+`in`, `instanceof`, `delete`), or a **mechanism** (globals, `throw`, classes,
+`new`, and the argument vector rest and spread need).
 
 Named `emit` and not `lower` because `rts-cranelift::lower` is the other half of
 the same pipeline, and it claims to be the only module that constructs

@@ -1,6 +1,6 @@
 //! Source text in, callable code out.
 
-use rts_codegen::emit::{Ctx, emit_body};
+use rts_codegen::emit::{Ctx, emit_program};
 use rts_codegen::names::Names;
 use rts_codegen::parse::parse_script;
 use rts_codegen::runtime::{RuntimeCalls, RuntimeOp};
@@ -22,6 +22,15 @@ use crate::link::HostError;
 /// one from a file path would make the symbol depend on where the file was.
 const SCRIPT: &str = "__rts_script";
 
+/// How the host enters compiled code.
+///
+/// The script is a JavaScript function like any other now, so it takes the
+/// convention every compiled function takes: an environment, a receiver, and
+/// four argument slots. It used to take nothing, which meant the host had a
+/// second way into compiled code that only the entry used — and a second way in
+/// is a second thing to keep in agreement with the callee.
+type Entry = extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64;
+
 /// A compiled program, and the memory its code lives in.
 ///
 /// `Debug` reports what it is rather than what it holds: an address and a JIT
@@ -34,7 +43,7 @@ pub struct Compiled {
     /// second time.
     #[allow(dead_code)]
     placed: InMemory,
-    entry: extern "C" fn() -> u64,
+    entry: Entry,
     /// What the compiler decided the singletons are numbered.
     model: ValueModel,
     /// The heap the compiled code was built to address.
@@ -100,7 +109,16 @@ impl Compiled {
             context.keys.declare(self.keys as u32);
         }
         let entry = self.entry;
-        let (context, value) = rts_core_rwk::entry::with_context(context, || entry());
+        // A script closes over nothing, has no receiver, and was passed no
+        // arguments. `undefined` for all six, from the compiler.s own numbering
+        // rather than from a constant written here.
+        let nothing = self
+            .model
+            .singleton(rts_codegen::values::Singleton::Undefined)
+            .word();
+        let (context, value) = rts_core_rwk::entry::with_context(context, || {
+            entry(nothing, nothing, nothing, nothing, nothing, nothing)
+        });
         self.region = Some(context.region);
         self.resolves = context.resolves;
         value
@@ -169,17 +187,15 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
         ));
     };
 
-    let script_id = {
-        let mut ctx = Ctx::new(&model, &mut funcs, &mut calls, &mut keys, &mut names);
-        let func = emit_body(body, &[], &types, &mut ctx)?;
-        (func, ())
+    // Every function the program contains, not one. Emission declares each of
+    // them itself now, including the script's own — a nested function has to be
+    // declared before the body that defines it can take its address, so the
+    // host declaring the entry afterwards stopped being possible.
+    let emitted = {
+        let mut ctx = Ctx::new(&model, &mut funcs, &mut calls, &mut keys, &mut names, &types);
+        emit_program(body, &mut ctx)?
     };
-    let (func, ()) = script_id;
-
-    // The script's own function is declared after emission, because emission is
-    // what decides its signature.
-    let script_sig = funcs.declare_signature(func.signature.clone());
-    let script = funcs.declare_function(script_sig);
+    let script = emitted.entry;
 
     // Every runtime operation the program actually asked for, and only those.
     // A compilation that never concatenates carries no reference to the string
@@ -198,12 +214,37 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
             body: None,
         })
         .collect();
-    placing.push(Placing {
-        id: script,
-        name: SCRIPT,
-        visibility: Visibility::Exported,
-        body: Some(&func),
-    });
+    // A name per function, because placement addresses by one. Only the script
+    // needs a *meaningful* name — it is what the host looks up afterwards —
+    // and the rest are numbered, because a JavaScript function need not have a
+    // name and two that do may share it. The id is what a call site holds;
+    // these strings exist for the placement surface and for a backtrace.
+    //
+    // Held in their own vector because `Placing` borrows them, and a name built
+    // inside the loop that fills `placing` would not outlive it.
+    let names_for_placing: Vec<String> = emitted
+        .functions
+        .iter()
+        .map(|(id, _)| {
+            if *id == script {
+                SCRIPT.to_owned()
+            } else {
+                format!("__rts_fn_{}", id.index())
+            }
+        })
+        .collect();
+    for ((id, body), name) in emitted.functions.iter().zip(&names_for_placing) {
+        placing.push(Placing {
+            id: *id,
+            name,
+            // Every one is exported. Internal linkage would be right for the
+            // ones only this program calls, and it is not what decides
+            // anything here: the addresses are taken with `FuncAddr` inside
+            // the same module either way.
+            visibility: Visibility::Exported,
+            body: Some(body),
+        });
+    }
 
     let mut outside: Vec<(&str, *const u8)> = expected
         .iter()
@@ -232,9 +273,13 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
     // The verifier had the check all along. Skipping it made the machine's
     // answer to "is this well formed" unavailable at the one moment it was
     // about to matter.
-    let complaints = rts_cranelift::verify::verify(&func, &types, &funcs);
-    if !complaints.is_empty() {
-        return Err(HostError::Malformed(format!("{complaints:?}")));
+    // Every function, not just the entry. A nested one is exactly as able to
+    // be malformed, and it is the one a reader is least likely to look at.
+    for (_, body) in &emitted.functions {
+        let complaints = rts_cranelift::verify::verify(body, &types, &funcs);
+        if !complaints.is_empty() {
+            return Err(HostError::Malformed(format!("{complaints:?}")));
+        }
     }
 
     // SAFETY: every address comes from `address_of`, which returns the runtime's
@@ -259,10 +304,10 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
     let address = placed
         .address_of(script)
         .expect("the script was placed with a body");
-    // SAFETY: the signature emitted for a script takes nothing and returns one
-    // tagged value, which is what `emit_body` builds and what this transmute
-    // claims.
-    let entry: extern "C" fn() -> u64 = unsafe { std::mem::transmute(address) };
+    // SAFETY: every compiled function is emitted under one convention, which
+    // `Entry` spells and `emit_program` builds — including the script, which is
+    // no longer a special shape.
+    let entry: Entry = unsafe { std::mem::transmute(address) };
 
     Ok(Compiled {
         placed,

@@ -13,13 +13,12 @@
 //! that requires, so this is the representation that fits rather than a clever
 //! one.
 //!
-//! What that costs is paid later and named now: **a local that a closure
+//! What that costs was paid, and the prediction held: **a local that a closure
 //! captures, or that a loop merges across passes, cannot be a plain `ValueId`.**
-//! The first needs a cell because two frames share it; the second needs a block
-//! parameter because two predecessors disagree. Neither is emitted yet, and both
-//! are why this type is a shallow structure rather than a `HashMap` — the moment
-//! it must distinguish "value" from "cell", the distinction goes in the entry
-//! and every reader is forced to handle it.
+//! The second needs a block parameter because two predecessors disagree. The
+//! first needs heap storage because two activations share it — and when that
+//! arrived, the distinction went in the entry and every reader was forced to
+//! handle it, which is why they now all go through `emit::binding` instead.
 //!
 //! # Why shadowing is a stack of layers rather than a rename
 //!
@@ -27,34 +26,65 @@
 //! spelling. Renaming one would work and would lose the fact that they are
 //! different, which a diagnostic pointing at the inner one needs.
 
+use std::collections::BTreeSet;
+
 use rts_cranelift::ir::ValueId;
 
 use crate::names::Name;
 
 /// What a name is bound to.
 ///
-/// One variant today. It is an enum rather than a bare `ValueId` because the
-/// second variant is known to be coming — a captured local lives in a cell, and
-/// a reader that pattern-matches here will be told to handle it, where one that
-/// dereferenced a `ValueId` would silently read the wrong thing.
+/// An enum rather than a bare `ValueId`, which is what made adding the second
+/// variant a compiler error at every reader rather than a silent wrong read.
+/// Nothing matches on this outside `emit::binding` any more — see there for why
+/// four copies of the match was the thing worth removing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Binding {
     /// A value, directly. Reading is free; assigning rebinds.
     Value(ValueId),
+
+    /// A property of an environment object, `hops` links out along the chain.
+    ///
+    /// What a captured local becomes. It is not a value because two activations
+    /// of the capturing function share the variable, and a register belongs to
+    /// one frame — so the storage has to be somewhere both can reach, which is
+    /// the heap.
+    ///
+    /// `hops` is a **compile-time** number: the emitter knows how many
+    /// environments out the name lives, so a read is that many loads and one
+    /// property access, never a search up a chain comparing names.
+    InEnvironment {
+        /// How many `__outer` links to follow before looking the name up.
+        hops: u32,
+        /// Which property it is. The key is minted from this, so the name is
+        /// kept rather than the number — `Names` is what remembers the mapping,
+        /// and holding a raw key here would be a second table.
+        name: Name,
+    },
 }
 
 impl Binding {
     /// The value behind it.
     ///
-    /// A method rather than a free function, and it lives here rather than
-    /// beside either caller because this enum is the thing that will grow: when
-    /// a captured local becomes a cell, every site reading a binding has to
-    /// learn to load it. Two copies of this match — which is what `emit/loops.rs`
-    /// and `emit/stmt.rs` each had — means two places to teach, with nothing
-    /// tying them together.
+    /// # Panics
+    ///
+    /// For a binding that lives in an environment, which has no single value to
+    /// be. That is unreachable rather than merely unlikely, and the reason is
+    /// worth stating because it is what makes the merge code correct: this is
+    /// called only for names two paths **disagree** about, and an environment
+    /// binding is identical along every path — it is a description of where the
+    /// storage is, and no branch moves it.
+    ///
+    /// Returning an `Option` was rejected. Every caller would answer it the same
+    /// way, by unwrapping, and an unwrap at four sites is four places for the
+    /// reasoning above to be re-derived and got wrong once.
     pub fn value(self) -> ValueId {
         match self {
             Binding::Value(value) => value,
+            Binding::InEnvironment { .. } => panic!(
+                "a binding in an environment was merged, which cannot happen: \
+                 it names heap storage, so two paths always agree about it"
+            ),
         }
     }
 }
@@ -75,6 +105,21 @@ struct Layer {
 /// The lexical environment during emission.
 pub struct Scope {
     layers: Vec<Layer>,
+    /// The environment object this function's captured names live in.
+    ///
+    /// `None` for a function that captures nothing and is captured by nothing,
+    /// which is the common case and the one that must cost nothing: no object
+    /// is allocated and every local stays a value.
+    environment: Option<ValueId>,
+    /// Which of this function's own names live in that object.
+    ///
+    /// Consulted when a name is *declared*, because that is the moment the
+    /// decision has to be made and the only moment it can be: a binding cannot
+    /// be a register in the statement that introduces it and heap storage four
+    /// statements later, when the closure that captures it is written.
+    captured: BTreeSet<Name>,
+    /// What `this` is in this function, when it has an answer.
+    this_value: Option<ValueId>,
 }
 
 impl Default for Scope {
@@ -84,11 +129,117 @@ impl Default for Scope {
 }
 
 impl Scope {
-    /// An environment with one layer, for a function body.
+    /// An environment with one layer, for a function body that captures
+    /// nothing.
     pub fn new() -> Self {
         Scope {
             layers: vec![Layer::default()],
+            environment: None,
+            captured: BTreeSet::new(),
+            this_value: None,
         }
+    }
+
+    /// An environment for a function body, with what it captures.
+    ///
+    /// # Why every captured name is bound immediately
+    ///
+    /// A binding normally appears when its declaration is emitted. A captured
+    /// one cannot wait, because function declarations are **hoisted**: the body
+    /// of an inner function is emitted before the outer function's `let`
+    /// statements have run, and that body has to be able to resolve the names
+    /// it closes over.
+    ///
+    /// ```text
+    /// let k = 4;                    ← emitted second
+    /// function get() { return k; }  ← emitted FIRST, and reads `k`
+    /// ```
+    ///
+    /// So the storage exists from function entry and the declaration writes
+    /// into it, which is also what the language describes: a captured variable
+    /// is a slot in an environment record created when the function is entered,
+    /// not when the declaration is reached.
+    ///
+    /// Reading one before its declaration answers `undefined` rather than
+    /// throwing, where `let` specifies a temporal dead zone. A named gap: the
+    /// zone needs a sentinel distinguishable from `undefined` and a throw to
+    /// report it, and throwing is not emitted at all yet.
+    ///
+    /// `enclosing` is what the defining functions put in their environments,
+    /// already at the hop counts seen from HERE. Bound before this function's
+    /// own names so that a local of the same spelling shadows it, which is what
+    /// the innermost binding winning means — `lookup` scans in reverse, so the
+    /// order these are pushed in IS the shadowing rule.
+    pub fn for_function(
+        environment: Option<ValueId>,
+        captured: BTreeSet<Name>,
+        enclosing: &[(Name, u32)],
+    ) -> Self {
+        let mut entries: Vec<(Name, Binding)> = enclosing
+            .iter()
+            .map(|(name, hops)| (*name, Binding::InEnvironment { hops: *hops, name: *name }))
+            .collect();
+        entries.extend(
+            captured
+                .iter()
+                .map(|name| (*name, Binding::InEnvironment { hops: 0, name: *name })),
+        );
+        Scope {
+            layers: vec![Layer { entries }],
+            environment,
+            captured,
+            this_value: None,
+        }
+    }
+
+    /// The environment object captured names live in, if this function has one.
+    pub fn environment(&self) -> Option<ValueId> {
+        self.environment
+    }
+
+    /// Records what `this` is in this function.
+    ///
+    /// # Why an arrow records nothing
+    ///
+    /// An arrow takes `this` from where it was *written*, not from how it is
+    /// called — which is, as the tree's own comment puts it, the one thing
+    /// arrows actually change. So its `this` parameter is not its answer, and
+    /// the right answer is the defining function's, which means carrying that
+    /// through the environment.
+    ///
+    /// That is not built, so an arrow records `None` and `this` inside one is
+    /// refused by name. Refused rather than answered with the parameter: the
+    /// parameter holds whatever the caller passed, so using it would make
+    /// `this` inside an arrow silently mean the wrong thing — which is worse
+    /// than not compiling.
+    pub fn set_this(&mut self, value: ValueId, is_arrow: bool) {
+        self.this_value = if is_arrow { None } else { Some(value) };
+    }
+
+    /// What `this` is here, if this function has an answer.
+    pub fn this_value(&self) -> Option<ValueId> {
+        self.this_value
+    }
+
+    /// Whether a name this function declares has to live on the heap.
+    pub fn is_captured(&self, name: Name) -> bool {
+        self.captured.contains(&name)
+    }
+
+    /// Every name reachable through the environment chain, with how far out.
+    ///
+    /// Read when a nested function's scope is built. Ordered outermost-layer
+    /// first, and innermost binding wins because the inner function re-declares
+    /// in that order — which is what shadowing means.
+    pub fn reachable(&self) -> Vec<(Name, u32)> {
+        self.layers
+            .iter()
+            .flat_map(|layer| layer.entries.iter())
+            .filter_map(|(name, binding)| match binding {
+                Binding::InEnvironment { hops, .. } => Some((*name, *hops)),
+                Binding::Value(_) => None,
+            })
+            .collect()
     }
 
     /// Enters a nested block.

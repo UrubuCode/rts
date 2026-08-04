@@ -259,7 +259,7 @@ fn emit_for_inner(
                     Some(expr) => super::expr::emit_expr(builder, scope, ctx, expr)?,
                     None => super::expr::undefined(builder, ctx),
                 };
-                scope.declare(*name, value);
+                super::binding::declare(builder, scope, ctx, *name, value)?;
             }
         }
         Some(ForInit::Expr(expr)) => {

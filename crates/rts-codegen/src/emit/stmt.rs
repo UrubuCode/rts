@@ -76,13 +76,17 @@ pub fn emit_stmt(
                     // about where the declaration goes, not what it stores.
                     None => undefined(builder, ctx),
                 };
-                scope.declare(*name, value);
+                super::binding::declare(builder, scope, ctx, *name, value)?;
             }
             Ok(false)
         }
 
         StmtKind::Block(body) => {
             scope.enter();
+            // Declarations in a block are bound before the block runs, so a
+            // closure written above one can still reach it — the same reason
+            // a function body hoists.
+            super::function::hoist(builder, scope, ctx, body)?;
             let mut terminated = false;
             for inner in body {
                 if emit_stmt(builder, scope, ctx, loops, inner)? {
@@ -139,7 +143,11 @@ pub fn emit_stmt(
         StmtKind::Labelled { .. } => gap("a label"),
         StmtKind::Throw(_) => gap("`throw`"),
         StmtKind::Try { .. } => gap("`try`"),
-        StmtKind::Function(_) => gap("a function declaration"),
+        // Already bound and already emitted, by the hoisting pass that ran
+        // before this body did. Emitting it here as well would make a second
+        // closure over the same code and rebind the name to it, which is
+        // wasteful and — for a name something else already captured — wrong.
+        StmtKind::Function(_) => Ok(false),
         StmtKind::Class(_) => gap("a class declaration"),
         StmtKind::Using { .. } => gap("`using`"),
         StmtKind::With { .. } => gap("`with`"),

@@ -628,9 +628,9 @@ the left side decides, the specification performs no write at all, which a
 setter observes — so emitting the write anyway would be right for plain data and
 wrong for the objects the operator exists for.
 
-**E5 — functions and closures. THE TWO LOWER HALVES ARE IN; THE EMISSION IS
-NOT.** A captured local stops being a `ValueId` and becomes heap storage, which
-is why `emit::scope::Binding` is an enum with one variant today.
+**E5 — functions and closures. DONE.** A captured local stops being a `ValueId`
+and becomes heap storage, which is what `emit::scope::Binding` grew a second
+variant for.
 
 What was built and tested first, because emission cannot be written against
 capabilities that do not exist:
@@ -687,7 +687,48 @@ referenced_anywhere_inside_a_nested_function`, deliberately over-approximating
 what makes it safe — a name wrongly in the environment costs one load, a name
 wrongly out of it is two closures disagreeing about a variable.
 
-### What is left, in order
+### The emission. DONE.
+
+Function declarations and expressions, arrows, calls, `this`, recursion, mutual
+recursion, capture, and closures that outlive the call that made them. 22 tests
+in `rts-host-rwk/tests/running.rs`, every one of them run.
+
+`emit/binding.rs` is the answer to the prediction `scope.rs` made: four places
+matched on a binding, and a captured one is a chain walk rather than a register,
+so four copies would have been four chances to walk it a different number of
+times — and the one that walked it wrong would read a *different function's*
+variable. There is one pair of functions now, and nothing else matches.
+
+Two things the tests exist to catch, because both are invisible to any test that
+only reads a captured variable:
+
+- **Two closures made in one activation share one variable.** They are handed
+  the same environment object; two objects with the same contents would pass
+  every read-only test and fail this.
+- **Two activations do not.** An environment created once per *function* rather
+  than once per *call* passes the first and fails this.
+
+Found while building it: hoisting emits an inner function's body *before* the
+outer function's `let` statements, so a captured name has to be bound at
+function entry rather than when its declaration is reached. That is also what
+the language describes — an environment record is created when the function is
+entered — so `Scope::for_function` seeds every captured name and the declaration
+becomes only the store.
+
+### What a function still cannot do, each a mechanism rather than a spelling
+
+Rest parameters and spread arguments need the argument vector the fixed arity
+exists in place of. A default parameter needs an expression evaluated at the
+call. `this` inside an **arrow** is refused rather than answered with the
+parameter: an arrow takes `this` from where it was written, so using what the
+caller passed would make it silently mean the wrong thing. `async` and
+generators need suspension. `new` needs a prototype.
+
+Reading a captured `let` before its declaration answers `undefined` where the
+language specifies a temporal dead zone — the zone needs a sentinel
+distinguishable from `undefined` and a throw to report it.
+
+### What was left, in order — all of it now done
 
 1. `Ctx` carries the `TypeRegistry` and the functions emitted so far; `emit_body`
    becomes `emit_program`, answering a list of `(FuncId, Function)` rather than
@@ -703,7 +744,6 @@ wrongly out of it is two closures disagreeing about a variable.
 5. The host places every emitted function rather than one, and the script's own
    entry takes the same convention.
 
-**E5 — functions and closures.** The emission itself, as listed above.
 
 **E6 — the rest.** `throw`/`try` over the machine's protected regions,
 `await`/`yield` over its suspension, classes, modules.

@@ -29,8 +29,7 @@ use rts_cranelift::ir::{FuncBuilder, ValueId};
 
 use super::choice;
 use super::expr::{self, emit_condition, emit_expr};
-use super::scope::Binding;
-use super::{Ctx, EmitError, EmitResult, Scope};
+use super::{Ctx, EmitResult, Scope};
 use crate::syntax::{BinaryOp, Expr, ExprKind, UnaryOp, UpdateOp, UpdatePosition};
 
 /// Emits a unary operator.
@@ -112,14 +111,9 @@ pub fn emit_update(
 
     match &target.kind {
         ExprKind::Ident(name) => {
-            let Some(Binding::Value(current)) = scope.lookup(*name) else {
-                return Err(EmitError::UnboundName(*name));
-            };
+            let current = super::binding::read(builder, scope, ctx, *name)?;
             let (before, after) = step_value(builder, ctx, current, step)?;
-            let held = expr::stored(builder, ctx, *name, after);
-            if !scope.assign(*name, held) {
-                return Err(EmitError::UnboundName(*name));
-            }
+            super::binding::write(builder, scope, ctx, *name, after)?;
             Ok(match position {
                 UpdatePosition::Prefix => after,
                 UpdatePosition::Postfix => before,

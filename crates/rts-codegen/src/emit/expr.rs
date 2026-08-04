@@ -85,14 +85,7 @@ pub fn emit_expr(
     match &expr.kind {
         ExprKind::Literal(literal) => emit_literal(builder, ctx, literal),
 
-        ExprKind::Ident(name) => match scope.lookup(*name) {
-            Some(super::scope::Binding::Value(value)) => Ok(value),
-            // Not a gap. The construct is emitted; the program is wrong, or the
-            // name is a global — and globals are a mechanism this module does
-            // not have, which is a different sentence from "identifiers are not
-            // supported".
-            None => Err(EmitError::UnboundName(*name)),
-        },
+        ExprKind::Ident(name) => super::binding::read(builder, scope, ctx, *name),
 
         ExprKind::Binary { op, left, right } => {
             // Left before right, unconditionally. Every JavaScript binary
@@ -121,7 +114,9 @@ pub fn emit_expr(
         // Every remaining form, named. The list is the deliverable: it is the
         // work queue for the phases after this one, and a reader can check it
         // against `PLAN.md` §E without running anything.
-        ExprKind::Call { .. } => gap("a call"),
+        ExprKind::Call {
+            callee, arguments, ..
+        } => super::call::emit_call(builder, scope, ctx, callee, arguments),
         ExprKind::New { .. } => gap("`new`"),
         ExprKind::Member {
             object, property, ..
@@ -134,7 +129,9 @@ pub fn emit_expr(
         ExprKind::Index { .. } => gap("indexing"),
         ExprKind::Object { properties } => emit_object(builder, scope, ctx, properties),
         ExprKind::Array { .. } => gap("an array literal"),
-        ExprKind::Function(_) => gap("a function expression"),
+        ExprKind::Function(function) => {
+            super::function::emit_closure(builder, scope, ctx, function)
+        }
         ExprKind::Class(_) => gap("a class expression"),
         ExprKind::Unary { op, operand } => {
             super::unary::emit_unary(builder, scope, ctx, *op, operand)
@@ -159,7 +156,11 @@ pub fn emit_expr(
             then_branch,
             else_branch,
         ),
-        ExprKind::This => gap("`this`"),
+        // Refused inside an arrow, which takes `this` from where it was
+        // written rather than from how it is called — see `Scope::set_this`.
+        ExprKind::This => scope.this_value().ok_or(EmitError::Unsupported {
+            construct: "`this` inside an arrow function",
+        }),
         ExprKind::Await(_) => gap("`await`"),
         ExprKind::Yield { .. } => gap("`yield`"),
         ExprKind::Template { .. } => gap("a template literal"),
@@ -462,10 +463,7 @@ fn emit_assign(
             // than a rewritten `a = a + b` precisely so that stays true, and
             // reading the binding here rather than re-emitting the target is
             // what honours it.
-            let current = match scope.lookup(*name) {
-                Some(super::scope::Binding::Value(current)) => current,
-                None => return Err(EmitError::UnboundName(*name)),
-            };
+            let current = super::binding::read(builder, scope, ctx, *name)?;
             let operand = emit_expr(builder, scope, ctx, value)?;
             emit_binary(builder, ctx, binary, current, operand)?
         }
@@ -476,21 +474,14 @@ fn emit_assign(
         // else. On a property it is not, which is why that case is refused
         // above rather than routed here.
         AssignOp::Logical(logical) => {
-            let current = match scope.lookup(*name) {
-                Some(super::scope::Binding::Value(current)) => current,
-                None => return Err(EmitError::UnboundName(*name)),
-            };
+            let current = super::binding::read(builder, scope, ctx, *name)?;
             super::choice::emit_logical_from(builder, scope, ctx, logical, current, value)?
         }
     };
 
-    let result = stored(builder, ctx, *name, result);
-    if !scope.assign(*name, result) {
-        return Err(EmitError::UnboundName(*name));
-    }
     // An assignment is an expression: `x = (y = 1)` needs the inner one's
     // value, and it is the assigned value rather than the binding.
-    Ok(result)
+    super::binding::write(builder, scope, ctx, *name, result)
 }
 
 /// A comparison, as a JavaScript value.
