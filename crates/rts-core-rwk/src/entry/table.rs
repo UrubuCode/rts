@@ -43,6 +43,9 @@ use super::operators::{
     DIVIDE_ENTRY, GREATER_ENTRY, GREATER_EQUAL_ENTRY, LESS_ENTRY, LESS_EQUAL_ENTRY, MULTIPLY_ENTRY,
     REMAINDER_ENTRY, SUBTRACT_ENTRY,
 };
+use super::functions::{CALL_ENTRY, CLOSURE_NEW_ENTRY};
+use super::objects::{GET_PROPERTY_ENTRY, OBJECT_NEW_ENTRY, SET_PROPERTY_ENTRY};
+use super::text::{STRING_CONST_ENTRY, TYPE_OF_ENTRY};
 use super::{ADD_ENTRY, NUMBER_TO_STRING_ENTRY, STRICT_EQUALS_ENTRY, TO_BOOLEAN_ENTRY};
 
 /// An operation compiled code performs by calling rather than by emitting.
@@ -130,6 +133,44 @@ pub enum CoreEntry {
     /// The operation itself is one instruction, and a pass that proved both
     /// operands are numbers should emit that instead of calling this.
     GreaterEqual = 11,
+
+    /// `{}` — a new object.
+    ///
+    /// Here because making one allocates.
+    ObjectNew = 12,
+
+    /// `o.x`, the name given as its key number.
+    ///
+    /// Here because reading a property walks the heap.
+    GetProperty = 13,
+
+    /// `o.x = v`.
+    ///
+    /// Here because writing one may move the object to a new layout.
+    SetProperty = 14,
+
+    /// A function, as a value: its code and the environment it closed over.
+    ///
+    /// Here because the result is allocated.
+    ClosureNew = 15,
+
+    /// Calling a value, with a receiver and the arguments.
+    ///
+    /// Here because finding out whether a value is code reads the heap — and
+    /// because a value that is NOT code must not be jumped to, which compiled
+    /// code has no way to refuse.
+    Call = 16,
+
+    /// A string literal, by the number the compilation gave it.
+    ///
+    /// Here because two occurrences of one literal are the same string, which
+    /// is interning, which reads a table this crate owns.
+    StringConst = 17,
+
+    /// `typeof v`.
+    ///
+    /// Here because the answer is a string, and a string is allocated.
+    TypeOf = 18,
 }
 
 /// How many entry points exist.
@@ -137,7 +178,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 12;
+pub const CORE_ENTRY_COUNT: usize = 19;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -154,6 +195,13 @@ impl CoreEntry {
         CoreEntry::LessEqual,
         CoreEntry::Greater,
         CoreEntry::GreaterEqual,
+        CoreEntry::ObjectNew,
+        CoreEntry::GetProperty,
+        CoreEntry::SetProperty,
+        CoreEntry::ClosureNew,
+        CoreEntry::Call,
+        CoreEntry::StringConst,
+        CoreEntry::TypeOf,
     ];
 
     /// The number a call site holds.
@@ -181,6 +229,13 @@ impl CoreEntry {
             CoreEntry::LessEqual => LESS_EQUAL_ENTRY,
             CoreEntry::Greater => GREATER_ENTRY,
             CoreEntry::GreaterEqual => GREATER_EQUAL_ENTRY,
+            CoreEntry::ObjectNew => OBJECT_NEW_ENTRY,
+            CoreEntry::GetProperty => GET_PROPERTY_ENTRY,
+            CoreEntry::SetProperty => SET_PROPERTY_ENTRY,
+            CoreEntry::ClosureNew => CLOSURE_NEW_ENTRY,
+            CoreEntry::Call => CALL_ENTRY,
+            CoreEntry::StringConst => STRING_CONST_ENTRY,
+            CoreEntry::TypeOf => TYPE_OF_ENTRY,
         }
     }
 

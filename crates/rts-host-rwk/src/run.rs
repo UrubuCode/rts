@@ -6,7 +6,10 @@ use rts_codegen::parse::parse_script;
 use rts_codegen::runtime::{RuntimeCalls, RuntimeOp};
 use rts_codegen::syntax::{FunctionBody, ModuleItem, StmtKind};
 use rts_codegen::values::ValueModel;
+use rts_core_rwk::entry::CoreEntry;
+use rts_cranelift::abi::AbiType;
 use rts_cranelift::ir::FuncRegistry;
+use rts_cranelift::repr::Repr;
 use rts_cranelift::mem::{RegionBase, RegionBases};
 use rts_cranelift::shape::KeyRegistry;
 use rts_cranelift::symbols::RtEntry;
@@ -414,6 +417,110 @@ fn address_of(op: RuntimeOp) -> Result<*const u8, HostError> {
     })
 }
 
+/// Which runtime entry an operation the language named actually is.
+///
+/// # Why this exists rather than the compiler reading the descriptor
+///
+/// `#[rtse::entry]` already derives a symbol and an ABI shape from each Rust
+/// signature, so `rts-core-rwk` publishes the truth about both. `rts-codegen`
+/// states them again by hand — and that is not laziness, it is the layering: the
+/// language decides *membership* of the entry-point set, which is a language
+/// judgement, and it must be able to target **a** runtime rather than **the**
+/// one in this workspace. Depending on `rts-core-rwk` to read the descriptor
+/// would make the compiler unable to compile against any other.
+///
+/// What the doctrine actually requires of a restatement is that something
+/// **check** it, and until this function nothing did. A skew between what the
+/// compiler emitted and what the runtime defined is not a link error: the symbol
+/// resolves, the call is laid out to the compiler's shape, and the callee reads
+/// its arguments to a different one. Silent, and corrupt.
+///
+/// So this is the mapping, and [`agree`] is the check. Adding an operation to
+/// the compiler without one here fails to compile, which is the same property
+/// `address_of` has and for the same reason.
+fn entry_of(op: RuntimeOp) -> CoreEntry {
+    match op {
+        RuntimeOp::Add => CoreEntry::Add,
+        RuntimeOp::StrictEquals => CoreEntry::StrictEquals,
+        RuntimeOp::ToBoolean => CoreEntry::ToBoolean,
+        RuntimeOp::NumberToString => CoreEntry::NumberToString,
+        RuntimeOp::Subtract => CoreEntry::Subtract,
+        RuntimeOp::Multiply => CoreEntry::Multiply,
+        RuntimeOp::Divide => CoreEntry::Divide,
+        RuntimeOp::Remainder => CoreEntry::Remainder,
+        RuntimeOp::Less => CoreEntry::Less,
+        RuntimeOp::LessEqual => CoreEntry::LessEqual,
+        RuntimeOp::Greater => CoreEntry::Greater,
+        RuntimeOp::GreaterEqual => CoreEntry::GreaterEqual,
+        RuntimeOp::ObjectNew => CoreEntry::ObjectNew,
+        RuntimeOp::GetProperty => CoreEntry::GetProperty,
+        RuntimeOp::SetProperty => CoreEntry::SetProperty,
+        RuntimeOp::ClosureNew => CoreEntry::ClosureNew,
+        RuntimeOp::Call => CoreEntry::Call,
+        RuntimeOp::StringConst => CoreEntry::StringConst,
+        RuntimeOp::TypeOf => CoreEntry::TypeOf,
+    }
+}
+
+/// The compiler and the runtime describe an operation the same way.
+///
+/// Checked for every operation a compilation actually declared, before anything
+/// is placed. Both halves matter and they fail differently: a symbol skew is a
+/// missing symbol at placement, which is loud, and a **shape** skew is a call
+/// laid out one way and read another, which is not.
+fn agree(op: RuntimeOp) -> Result<(), HostError> {
+    let described = entry_of(op).describe();
+    if op.symbol() != described.symbol {
+        return Err(HostError::Malformed(format!(
+            "the compiler calls {:?} `{}` and the runtime defines `{}`",
+            op,
+            op.symbol(),
+            described.symbol
+        )));
+    }
+    // Compared position by position rather than as whole signatures, because
+    // the two layers speak different vocabularies for the same fact: the IR
+    // says `Repr`, the ABI says `AbiType`, and an entry point's parameters are
+    // all scalars. A descriptor holding an aggregate or a slice here is not a
+    // mismatch to report — it is an entry point the compiler cannot call at
+    // all, so it is named separately.
+    let shape = describe(op.signature().params, described.params)
+        .and_then(|()| describe(op.signature().returns, described.returns));
+    if let Err(reason) = shape {
+        return Err(HostError::Malformed(format!(
+            "the compiler and the runtime disagree about the shape of `{}`: {reason}",
+            op.symbol(),
+        )));
+    }
+    Ok(())
+}
+
+/// One side's representations against the other's ABI types.
+fn describe(ours: Vec<Repr>, theirs: &[AbiType]) -> Result<(), String> {
+    if ours.len() != theirs.len() {
+        return Err(format!(
+            "{} positions against {}",
+            ours.len(),
+            theirs.len()
+        ));
+    }
+    for (at, (ours, theirs)) in ours.iter().zip(theirs).enumerate() {
+        match theirs {
+            AbiType::Scalar(theirs) if theirs == ours => {}
+            AbiType::Scalar(theirs) => {
+                return Err(format!("position {at} is {ours:?} against {theirs:?}"));
+            }
+            other => {
+                return Err(format!(
+                    "position {at} is {ours:?} against {other:?}, which is not a \
+                     scalar and so is not something a call site can lay out"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The two sides agree about how many arguments a compiled call carries.
 ///
 /// `rts-codegen` decides it, because which convention compiled code uses is a
@@ -455,5 +562,46 @@ fn machine_entry(entry: RtEntry) -> *const u8 {
         | RtEntry::PromiseSettle
         | RtEntry::PromiseAwait
         | RtEntry::Throw => std::ptr::null(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_operation_the_compiler_names_is_the_one_the_runtime_defines() {
+        // Checked for ALL of them rather than for what some program happened to
+        // call, because the failure this catches is in the operation nobody
+        // exercised yet: the compiler states a symbol and a shape by hand, the
+        // runtime derives both from a Rust signature, and until this existed
+        // nothing compared them.
+        //
+        // A symbol skew is loud — a missing symbol at placement. A shape skew is
+        // not: the call is laid out to the compiler's answer and the callee
+        // reads its arguments to a different one, which is a corrupt call that
+        // links and runs.
+        for op in RuntimeOp::ALL {
+            agree(*op).unwrap_or_else(|error| {
+                panic!("{op:?} does not match what the runtime defines: {error:?}")
+            });
+        }
+    }
+
+    #[test]
+    fn the_two_lists_are_the_same_length() {
+        // `entry_of` is exhaustive over `RuntimeOp`, so an operation added to
+        // the compiler cannot be forgotten here. The other direction has no
+        // such check: an entry point added to the runtime and never named by
+        // the language is legal — it is simply unused — but the counts being
+        // equal is what says that is not the case today, so a divergence is
+        // visible rather than assumed.
+        assert_eq!(
+            RuntimeOp::ALL.len(),
+            rts_core_rwk::entry::CORE_ENTRY_COUNT,
+            "the compiler names {} operations and the runtime numbers {}",
+            RuntimeOp::ALL.len(),
+            rts_core_rwk::entry::CORE_ENTRY_COUNT
+        );
     }
 }
