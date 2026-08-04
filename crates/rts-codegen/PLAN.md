@@ -586,6 +586,22 @@ would be a cache over a guess — and the type pass showed what the measured
 version of this work looks like, so the fast half waits for a measurement rather
 than an intention.
 
+**E4b — the fast path. DONE, and it went further than planned.** `guard_type`,
+`cached_get` and `cached_set` all have callers; the last did not exist in the
+machine and was added. A property read is ~0.9 ns and a write 5.4 ns, against
+132.8 and 71.8 when E4 landed.
+
+**E4c — arithmetic on what nothing proved. DONE.** The type pass proves things
+about locals, and `o.n` is not one. A guard needs no such knowledge: it tests the
+value it got, takes the instruction when both operands are doubles, and falls
+back to the call that would have happened anyway. 24 ns per operator to ~1 ns,
+with the fully proved kernel unchanged — a proved operand never reaches the
+guard.
+
+Every number here is in `docs/engine/new-engine-speed.md`, with the method, the
+scaling checks, and the two occasions the measurement was wrong before the code
+was.
+
 **E5 — functions and closures.** A captured local stops being a `ValueId` and
 becomes a cell, which is why `emit::scope::Binding` is an enum with one variant
 today.

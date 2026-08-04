@@ -20,6 +20,8 @@ not background reading, and the rules in it are binding for changes inside it.
 |---|---|
 | `crates/rts-cranelift/` | its `README.md` (13 rules) |
 | `crates/rts-codegen/` | its `README.md` (10 rules) + `PLAN.md` |
+| `crates/rts-core-rwk/` | its `README.md` (8 rules) + `PLAN.md` |
+| `crates/rts-host-rwk/` | its `README.md` (6 rules) + `PLAN.md` |
 | `crates/rts-egui/`, DOM, render, input | `docs/ui/html-engine/` + `docs/ui/egui-crate.md` |
 | anything else | this file, and `docs/README.md` for where things live |
 
@@ -38,6 +40,18 @@ TypeScript semantics — and knows no machine. `rts-cranelift` is the machine �
 representations, GC contract, frames, calls, unwinding — and knows no language.
 Either rule alone is a preference; both at once means a decision has exactly one
 place it can be made. Full picture: `docs/engine/architecture.md`.
+
+Two more crates finish the shape, and each is half of something on purpose.
+`rts-core-rwk` is the runtime: it implements what the language calls out for and
+never decides what to call. `rts-host-rwk` is the only crate that may name all
+three at once, which is why it is where a program runs — and why the agreements
+between them (the entry-point symbols, the singleton numbering, the property-key
+numbering) are wired and asserted there rather than assumed anywhere.
+
+**A JavaScript program compiles and runs today.** Arithmetic, comparisons, `if`,
+loops, objects and property access, through either a proven instruction or a
+runtime call. `crates/rts-host-rwk/tests/running.rs` is what says so: every test
+in it runs the program rather than inspecting it.
 
 **This is the direction for all new work.** `crates/rts-codegen-new` is the
 engine that currently runs `rts run` / `compile` / `test`, and it is being
@@ -107,9 +121,23 @@ never acceptable. Silent regression is what turns a green suite into a lie.
 
 ## MANDATORY: one source, generated views
 
-`rts-macro` (`#[rtse::*]`) is the only place a runtime symbol is declared. It
-derives the ABI signature from the Rust signature, so drift between the two is
-unrepresentable rather than merely discouraged.
+A runtime symbol is declared by an attribute and never written by hand, in both
+engines. The attribute derives the ABI signature from the Rust signature, so
+drift between the two is unrepresentable rather than merely discouraged.
+
+**Which attribute depends on which engine**, and a crate says so in one line of
+its manifest because cargo renames a dependency:
+
+```toml
+rtse = { package = "rts-macro-rwk", path = "../rts-macro-rwk" }   # new
+rtse = { package = "rts-macro",     path = "../rts-macro" }       # old
+```
+
+They are separate because `rts-macro` depends on `rts-abi`, which is what
+`rts_cranelift::abi` replaced — so a new-engine crate reaching for the old
+attribute reached, through its build graph, for the interface being removed.
+
+The rest of this section is the OLD engine's, and stays binding there.
 
 `rts-symbol-baker` renders that one declaration set twice:
 
@@ -152,8 +180,11 @@ HARD failures never ship. REVIEW lists must only shrink.
 ```
 crates/
   rts-cranelift/     the machine: IR, repr, GC contract, frames, calls, unwind
-  rts-codegen/       the language: JS/TS tree, parser bridge, semantics
-  rts-codegen-new/   the engine that currently runs. Being replaced.
+  rts-codegen/       the language: JS/TS tree, parser bridge, emit, type pass
+  rts-core-rwk/      the runtime: values, heap, objects, coercion, entry points
+  rts-host-rwk/      where the three meet, and where a program runs
+  rts-macro-rwk/     #[rtse::entry] — declares one, derives its shape
+  rts-codegen-new/   the engine that currently runs `rts`. Being replaced.
 
   rts-abi/           the ABI contract, dependency-free, at the bottom
   rts-macro/         #[rtse::*] — the only place a symbol is declared

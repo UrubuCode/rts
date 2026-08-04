@@ -74,3 +74,50 @@ one function placed — the batch interface already takes a list for this reason
 **A second way to run.** One `compile`, and the object-file path when it comes
 will produce the same program. Two entry points that diverge is how a host stops
 being able to say what it compiled.
+
+---
+
+## Where this stands
+
+A JavaScript program compiles into this process and runs. `tests/running.rs` has
+24 of them and every one runs the program rather than inspecting it.
+
+What executes: numbers, locals, arithmetic, comparisons, `===`, `if`, `while`,
+`do`/`while`, `for`, `break`/`continue`, object literals, `o.x` and `o.x = v`.
+
+What is refused **by name**, which is the list to work down: calls, functions,
+closures, strings as values, `**`, the bitwise operators and shifts, `==`, `in`,
+`instanceof`, computed keys, destructuring, `switch`, labels, `throw`/`try`,
+`await`, `yield`, classes, modules.
+
+### The three agreements this crate holds, and why they are here
+
+Each is two crates that must say the same thing and cannot check each other.
+
+1. **The entry-point symbols.** `rts-codegen`'s `RuntimeOp` names what it emits
+   calls to; `rts-core-rwk` exports names derived from its Rust functions.
+   `address_of` is where a disagreement becomes a refusal instead of a call to
+   whatever the linker found.
+2. **The singleton numbering.** Both sides number `undefined` and `null`
+   independently, and a disagreement would be quiet and total.
+3. **The property-key numbering.** Resolved while compiling and crossing as a
+   number, so `o.a` compiled by one side must be `o.a` read by the other.
+
+A fourth is coming and is recorded before it is needed: the `TypeId` a shape
+arrives at. The runtime derives them today and compiled code does not name one —
+`cached_get` exists precisely so a site need not. The day something guards a
+type by name, the two registries have to agree.
+
+### Known defects, written down rather than discovered
+
+- **A cell is never reclaimed.** There is no collector. A program that allocates
+  past the region's capacity gets cell zero back, which is a real object and the
+  wrong one. `entry/alloc.rs` records why the signature cannot say no.
+- **The region never grows**, for the same reason: its base is a constant inside
+  the compiled code.
+- **No prototype.** A region cell has no field for one, so the chain is empty
+  and every inherited property is absent.
+- **`null.x` answers `undefined`** where the language throws. Throwing needs the
+  machine's protected regions, and nothing emits those.
+- **A property past the seventh is refused**, which is where the overflow
+  indirection goes.
