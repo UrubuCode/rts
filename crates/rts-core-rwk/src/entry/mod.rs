@@ -33,7 +33,6 @@
 //! argument is that a small closed set beats a large open one.
 
 mod alloc;
-mod cell;
 mod objects;
 mod operators;
 
@@ -46,7 +45,6 @@ pub use operators::{
 mod table;
 
 pub use alloc::alloc;
-pub use cell::Cell;
 pub use table::{CORE_ENTRY_COUNT, CoreEntry};
 
 use std::cell::RefCell;
@@ -68,7 +66,7 @@ pub struct Context {
     /// the tag space already spends a tag on "reference", and splitting the
     /// payload to re-encode which kind would spend address bits to save a branch
     /// a shape check performs anyway.
-    pub cells: Slab<Cell>,
+    pub cells: Slab<Str>,
     /// Every layout. The machine's, because there is exactly one.
     pub shapes: ShapeTree,
     /// Where property keys are numbered, shared with the compiler.
@@ -82,6 +80,28 @@ pub struct Context {
     /// for with a base and a stride. Two heaps is a state to get out of, not a
     /// design — see `docs/engine/objects-are-aggregates.md` for which one wins.
     pub region: crate::heap::Region,
+    /// What the layouts a shape arrives at look like.
+    ///
+    /// A shape answers *which field*; the aggregate it becomes answers *where*.
+    /// Held here because the runtime is what turns one into the other today —
+    /// and that is a state to get out of, because compiled code guarding a type
+    /// has to name the SAME `TypeId`. A third agreement, not yet needed and
+    /// recorded before it is.
+    pub types: rts_cranelift::types::TypeRegistry,
+    /// Which shape each layout came from, by `TypeId` index.
+    ///
+    /// The reverse of `ShapeTree::layout`, which the header makes necessary: a
+    /// cell records the type, and finding a property needs the shape. Kept
+    /// rather than searched, because a linear scan of every layout per property
+    /// access is the cost this whole exercise is removing.
+    shape_of_type: Vec<rts_cranelift::shape::ShapeId>,
+    /// The layout a string's identity cell has.
+    ///
+    /// One word, holding where the text is. A string's bytes are not in the
+    /// region — they are any length and a cell is 64 bytes — so the cell is the
+    /// identity and the text lives beside it. That is also what a real engine
+    /// does: string data is separate from string identity.
+    text_type: rts_cranelift::types::TypeId,
     /// Which singleton number means what, as the language declared it.
     pub singletons: Singletons,
 }
@@ -108,6 +128,11 @@ impl Context {
     /// compiled code. Anything that IS must use [`Self::over`], because the
     /// region's base is a constant inside the code.
     pub fn new(singletons: Singletons) -> Self {
+        let mut types = rts_cranelift::types::TypeRegistry::new();
+        // One word: where the text is. Declared before anything else so its
+        // number is stable across contexts, which a test comparing two of them
+        // would otherwise depend on the order of unrelated allocations for.
+        let text_type = types.declare(&[rts_cranelift::repr::Repr::I64]);
         Context {
             cells: Slab::new(),
             shapes: ShapeTree::new(),
@@ -117,22 +142,68 @@ impl Context {
             // and every reference compiled code holds was turned into an
             // address against the old one. Growing is the collector's job.
             region: crate::heap::Region::with_capacity(1 << 16),
+            types,
+            shape_of_type: Vec::new(),
+            text_type,
             singletons,
         }
     }
 
-    /// The text at a slot, if that slot holds a string.
-    pub fn text_at(&self, slot: u32) -> Option<&Str> {
-        match self.cells.at(Slot(slot)).ok()? {
-            Cell::Text(text) => Some(text),
-            Cell::Object(_) => None,
+    /// The layout a shape arrives at, remembering the way back.
+    ///
+    /// `ShapeTree::layout` is what turns a shape into an aggregate. The reverse
+    /// is recorded here because a cell's header holds the TYPE and a property
+    /// lookup needs the SHAPE — and searching every layout per access is the
+    /// cost this design exists to remove.
+    pub fn layout_of(&mut self, shape: rts_cranelift::shape::ShapeId) -> rts_cranelift::types::TypeId {
+        let ty = self.shapes.layout(shape, &mut self.types);
+        if self.shape_of_type.len() <= ty.index() {
+            self.shape_of_type.resize(ty.index() + 1, shape);
         }
+        self.shape_of_type[ty.index()] = shape;
+        ty
+    }
+
+    /// Which shape a cell's type came from, if it is an object's.
+    ///
+    /// `None` for a string's layout, which is what makes a reference's kind
+    /// readable from the object rather than from the encoding — the machine's
+    /// own answer to a tag space that has no room for one.
+    pub fn shape_of(&self, ty: u32) -> Option<rts_cranelift::shape::ShapeId> {
+        if ty as usize == self.text_type.index() {
+            return None;
+        }
+        self.shape_of_type.get(ty as usize).copied()
+    }
+
+    /// The text a reference names, if it names one.
+    ///
+    /// A reference is a REGION index now, uniformly — for a string as much as
+    /// for an object. Its cell holds the string's type in the header and where
+    /// the text is in its first slot; the text itself is in the slab, because a
+    /// string is any length and a cell is 64 bytes.
+    ///
+    /// That indirection is not a compromise. String identity and string data are
+    /// separate things in every engine that moves either one, and putting the
+    /// identity in the region is what lets one reference space serve both kinds.
+    pub fn text_at(&self, reference: u32) -> Option<&Str> {
+        if self.region.type_of(reference)? as usize != self.text_type.index() {
+            return None;
+        }
+        let slot = self.region.field(reference, 0)? as u32;
+        self.cells.at(Slot(slot)).ok()
     }
 
     /// Put a string on the heap and return the value naming it.
     pub fn intern_value(&mut self, text: Str) -> Value {
-        let slot = self.cells.insert(Cell::Text(text)).slot();
-        Value::from_slot(slot.0)
+        let slot = self.cells.insert(text).slot();
+        let size = crate::heap::STRIDE;
+        let ty = self.text_type.index() as u32;
+        let cell = self.region.alloc(size, ty).expect("the region has room");
+        self.region
+            .set_field(cell, 0, u64::from(slot.0))
+            .expect("a string cell has a first slot");
+        Value::from_slot(cell)
     }
 
     /// Whether two slots hold equal text.
@@ -281,19 +352,15 @@ mod tests {
 
     #[test]
     fn two_distinct_objects_are_not_strictly_equal() {
-        use crate::object::Object;
-
         let mut context = fresh();
+        // Two cells in the region, which is where an object's identity is now.
         let root = context.shapes.root();
-        let first = context
-            .cells
-            .insert(Cell::Object(Object::new(root, vec![], None)));
-        let second = context
-            .cells
-            .insert(Cell::Object(Object::new(root, vec![], None)));
+        let ty = context.layout_of(root).index() as u32;
+        let first = context.region.alloc(crate::heap::STRIDE, ty).expect("room");
+        let second = context.region.alloc(crate::heap::STRIDE, ty).expect("room");
 
-        let left = Value::from_slot(first.slot().0);
-        let right = Value::from_slot(second.slot().0);
+        let left = Value::from_slot(first);
+        let right = Value::from_slot(second);
 
         let (_, equal) = with_context(context, || strict_equals(left.bits(), right.bits()));
         assert!(

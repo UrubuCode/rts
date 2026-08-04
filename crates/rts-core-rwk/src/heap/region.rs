@@ -151,6 +151,21 @@ impl Region {
         Some(())
     }
 
+    /// Records a new type for a cell.
+    ///
+    /// What a property addition does: the object changed what it IS, and the
+    /// header is where that is written. Nothing else in the cell moves — a
+    /// transition only ever appends, so the fields already there keep their
+    /// offsets.
+    pub fn set_type(&mut self, index: u32, ty: u32) -> Option<()> {
+        if index >= self.next {
+            return None;
+        }
+        let at = self.word_of(index);
+        *self.words.get_mut(at)? = u64::from(ty);
+        Some(())
+    }
+
     /// The type a cell's header holds.
     pub fn type_of(&self, index: u32) -> Option<u32> {
         self.words.get(self.word_of(index)).map(|word| *word as u32)

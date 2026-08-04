@@ -27,11 +27,11 @@
 //! this makes property access *correct*, and a cache built before there was
 //! something correct to cache would be a cache over a guess.
 
-use super::{Cell, Context, with_current};
-use crate::heap::Slot;
+use super::{Context, with_current};
 use crate::object::Key;
-use crate::object::Object;
 use crate::value::Value;
+use rts_cranelift::repr::Repr;
+use rts_cranelift::shape::Key as ShapeKey;
 
 /// `{}` — a new object with no properties.
 ///
@@ -41,10 +41,19 @@ use crate::value::Value;
 #[rtse::entry]
 pub fn object_new() -> u64 {
     with_current(|context| {
+        // The empty layout, which every object that gains its first property
+        // transitions out of — which is what makes two objects built the same
+        // way share a shape.
         let shape = context.shapes.root();
-        let object = Object::new(shape, Vec::new(), None);
-        let slot = context.cells.insert(Cell::Object(object)).slot();
-        Value::from_slot(slot.0).bits()
+        let ty = context.layout_of(shape).index() as u32;
+        match context.region.alloc(crate::heap::STRIDE, ty) {
+            Some(cell) => Value::from_slot(cell).bits(),
+            // The region is full and there is no collector to ask. Answering
+            // `undefined` is wrong — the language makes an object here — and it
+            // is less wrong than handing back cell zero, which is a real object
+            // belonging to somebody else.
+            None => undefined_of(context),
+        }
     })
 }
 
@@ -66,7 +75,7 @@ pub fn get_property(object: u64, key: i64) -> u64 {
         let Some(key) = key_of(context, key) else {
             return undefined_of(context);
         };
-        match read(context, Slot(slot), key) {
+        match read(context, slot, key) {
             Some(value) => value.bits(),
             None => undefined_of(context),
         }
@@ -87,24 +96,61 @@ pub fn set_property(object: u64, key: i64, value: u64) -> u64 {
         let Some(key) = key_of(context, key) else {
             return value;
         };
-        // Two fields of one context, borrowed apart: the heap holds the object
-        // and the shape tree holds its layout, and a write needs both at once.
-        let cells = &mut context.cells;
-        let shapes = &mut context.shapes;
-        if let Ok(Cell::Object(object)) = cells.at_mut(Slot(slot)) {
-            object.set_own(shapes, key, Value(value));
+        let Some(machine) = machine_key(key) else {
+            return value;
+        };
+        let Some(ty) = context.region.type_of(slot) else {
+            return value;
+        };
+        let Some(shape) = context.shape_of(ty) else {
+            // A string, or a layout nothing recorded. Writing a property to a
+            // string is a silent no-op in sloppy mode, which is what this is.
+            return value;
+        };
+
+        // Already in the layout: a store, at the offset the layout decided.
+        if let Some(at) = context.shapes.slot_of(shape, machine) {
+            context.region.set_field(slot, at, value);
+            return value;
         }
+
+        // A new property changes what the object IS, so the shape moves and the
+        // header moves with it. Taking the transition rather than choosing a
+        // slot is what keeps two objects built the same way at one layout.
+        let Ok(grown) = context.shapes.transition(shape, machine, Repr::Tagged) else {
+            return value;
+        };
+        let Some(at) = context.shapes.slot_of(grown, machine) else {
+            return value;
+        };
+        if at >= crate::heap::INLINE_SLOTS {
+            // Past the inline slots, which is where the overflow indirection
+            // goes. Refused rather than written into the next object.
+            return value;
+        }
+        let ty = context.layout_of(grown).index() as u32;
+        context.region.set_type(slot, ty);
+        context.region.set_field(slot, at, value);
         value
     })
 }
 
-/// Reads a property, walking the prototype chain.
+/// Reads a property: header to type, type to shape, shape to offset, load.
 ///
-/// # Why the borrows are split before the walk
+/// Three lookups where there were a hash map and a call, and none of them is
+/// what compiled code will do — it will guard the type and load at a constant
+/// offset, with no lookup at all. This is the runtime's own path, for the case
+/// where the shape was not known while compiling.
 ///
-/// The walk needs the heap immutably and the layout lookup needs the shape tree
-/// mutably, and both live in one context. Borrowing the two FIELDS apart makes
-/// them disjoint, so the walk allocates nothing and clones nothing.
+/// # There is no walk any more, and that is a REGRESSION
+///
+/// A prototype chain needs somewhere to put the prototype, and a region cell is
+/// a header and seven slots with no field reserved for one. Objects made here
+/// have no prototype — they did not before either, because `Object.prototype`
+/// does not exist in this runtime — so nothing observable changes today.
+///
+/// What changes is that the mechanism is gone rather than unused. It comes back
+/// when a cell has a place for a prototype, and this is where to look.
 ///
 /// # What it does not implement, and does not pretend to
 ///
@@ -117,28 +163,12 @@ pub fn set_property(object: u64, key: i64, value: u64) -> u64 {
 /// The second rule is still obeyed here and it matters: an own property holding
 /// `undefined` shadows an inherited one, so the walk stops when the key is
 /// **found**, not when a non-`undefined` value is found.
-fn read(context: &mut Context, start: Slot, key: Key) -> Option<Value> {
-    // Split first, walk after. The heap and the layout are two fields of one
-    // context, so borrowing them apart is what lets the walk hold an object and
-    // ask the shape tree about it at the same time.
-    //
-    // The first version collected the chain into a `Vec` to get the same
-    // effect, which allocated **on every property read** — measured at 132 ns
-    // against 74 ns for a write that does no such thing. Nothing about the
-    // design required it; splitting the borrow was always available and the
-    // `Vec` was a way around a problem that did not exist.
-    let cells = &context.cells;
-    let shapes = &mut context.shapes;
-    let mut current = start;
-    loop {
-        let Ok(Cell::Object(object)) = cells.at(current) else {
-            return None;
-        };
-        if let Some(value) = object.own_value(shapes, key) {
-            return Some(value);
-        }
-        current = object.prototype()?;
-    }
+fn read(context: &mut Context, start: u32, key: Key) -> Option<Value> {
+    let machine = machine_key(key)?;
+    let ty = context.region.type_of(start)?;
+    let shape = context.shape_of(ty)?;
+    let at = context.shapes.slot_of(shape, machine)?;
+    context.region.field(start, at).map(Value)
 }
 
 /// The key a number names, if the registry issued it.
@@ -248,15 +278,26 @@ mod tests {
             set_property(first, 3, Value::from_f64(1.0).bits());
             set_property(second, 3, Value::from_f64(2.0).bits());
             crate::entry::with_current(|context| {
-                let shape_of = |value: u64| {
-                    let slot = Value(value).as_slot().expect("an object");
-                    match context.cells.at(Slot(slot)) {
-                        Ok(Cell::Object(object)) => object.shape(),
-                        _ => panic!("an object"),
-                    }
+                // The header IS the shape, now: a cell records the type its
+                // layout arrived at, so two objects at one layout carry the
+                // same word.
+                let type_of = |value: u64| {
+                    let cell = Value(value).as_slot().expect("an object");
+                    context.region.type_of(cell).expect("a live cell")
                 };
-                assert_eq!(shape_of(first), shape_of(second));
+                assert_eq!(type_of(first), type_of(second));
             });
         });
+    }
+}
+
+/// The machine key a [`Key`] is.
+///
+/// An index has no machine key, for the reason `crate::object` gives: indexed
+/// storage is an array's problem and an array is not yet a thing.
+fn machine_key(key: Key) -> Option<ShapeKey> {
+    match key {
+        Key::Name(name) => Some(name),
+        Key::Index(_) => None,
     }
 }

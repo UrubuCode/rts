@@ -43,7 +43,7 @@ pub mod value;
 
 pub use coerce::{Hint, Side};
 pub use collect::{Marks, Trace};
-pub use entry::{Cell, Context};
+pub use entry::Context;
 pub use heap::{Handle, Slab, Slot};
 pub use object::{Key, Object};
 pub use schedule::Settlements;
