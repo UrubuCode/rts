@@ -95,14 +95,29 @@ pub fn add_operand_order() -> [Side; 2] {
 ///
 /// Returns `None` when either side is not a primitive, which a caller reaches by
 /// resolving [`Needs`] first.
-pub fn add(left: Value, right: Value, as_string: impl Fn(Value) -> Option<Str>) -> Option<Sum> {
+pub fn add(
+    left: Value,
+    right: Value,
+    as_string: impl Fn(Value) -> Option<Str>,
+    stringify: impl Fn(Value) -> Option<Str>,
+) -> Option<Sum> {
     let (left_string, right_string) = (as_string(left), as_string(right));
 
     // Either side being a string makes this concatenation — decided here, on
     // the coerced values.
     if left_string.is_some() || right_string.is_some() {
-        let left_text = left_string.or_else(|| as_string(left))?;
-        let right_text = right_string.or_else(|| as_string(right))?;
+        // The OTHER side is converted with `stringify`, not with `as_string`.
+        //
+        // Two different questions, and the first version asked the wrong one
+        // twice: `as_string` answers "is this already a string", which is what
+        // decides concatenation, and it answers `None` for a number — so
+        // `"" + 1` fell through the `?` and became a contract violation, which
+        // the caller reported as `NaN`.
+        //
+        // They cannot be one function. If `as_string` stringified numbers,
+        // every `1 + 2` would look like concatenation and answer `"12"`.
+        let left_text = left_string.or_else(|| stringify(left))?;
+        let right_text = right_string.or_else(|| stringify(right))?;
         return Some(Sum::Text(left_text.concat(&right_text)));
     }
 
@@ -237,7 +252,7 @@ mod tests {
         let as_string = strings(vec![(left.bits(), ""), (right.bits(), "[object Object]")]);
 
         assert_eq!(
-            add(left, right, &as_string),
+            add(left, right, &as_string, &as_string),
             Some(Sum::Text(Str::from_str("[object Object]"))),
             "[] + {{}} concatenates, though neither operand is a string"
         );
@@ -247,11 +262,11 @@ mod tests {
     fn add_on_two_numbers_is_arithmetic() {
         let none = strings(vec![]);
         assert_eq!(
-            add(Value::from_i32(2), Value::from_i32(3), &none),
+            add(Value::from_i32(2), Value::from_i32(3), &none, &none),
             Some(Sum::Number(5.0))
         );
         assert_eq!(
-            add(Value::from_f64(0.1), Value::from_f64(0.2), &none),
+            add(Value::from_f64(0.1), Value::from_f64(0.2), &none, &none),
             Some(Sum::Number(0.1 + 0.2))
         );
     }
@@ -260,10 +275,36 @@ mod tests {
     fn one_string_is_enough_to_make_it_concatenation() {
         let text = Value::from_slot(1);
         let as_string = strings(vec![(text.bits(), "n=")]);
+        let stringify = |value: Value| {
+            as_string(value).or_else(|| value.numeric().map(number_to_string))
+        };
 
-        // The number side has no string spelling here, so `add` cannot finish —
-        // which is the honest answer: converting it needs the heap.
-        assert_eq!(add(text, Value::from_i32(1), &as_string), None);
+        // `"n=" + 1` is `"n=1"`.
+        //
+        // This test asserted `None` until the day a template literal ran one of
+        // these, and the comment beside it argued that refusing was "the honest
+        // answer". It was not: it was the bug, written down. `as_string` says
+        // whether a value IS a string, which decides concatenation; converting
+        // the other side is a different question, and asking the first one
+        // twice made every `string + number` a contract violation reported as
+        // `NaN`.
+        assert_eq!(
+            add(text, Value::from_i32(1), &as_string, &stringify),
+            Some(Sum::Text(Str::from_str("n=1")))
+        );
+    }
+
+    #[test]
+    fn a_stringifier_that_could_spell_numbers_must_not_decide_the_branch() {
+        // The other direction, and the reason `as_string` and `stringify` are
+        // two functions rather than one: if the decision consulted the
+        // stringifier, `1 + 2` would look like concatenation and answer "12".
+        let stringify = |value: Value| value.numeric().map(number_to_string);
+        let none = strings(vec![]);
+        assert_eq!(
+            add(Value::from_i32(1), Value::from_i32(2), &none, &stringify),
+            Some(Sum::Number(3.0))
+        );
     }
 
     #[test]

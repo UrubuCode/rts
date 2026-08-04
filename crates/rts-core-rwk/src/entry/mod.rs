@@ -354,7 +354,40 @@ pub fn add(left: u64, right: u64) -> u64 {
                 .cloned()
         };
 
-        match add_primitives(Value(left), Value(right), text_of) {
+        // `ToString` of a primitive, which is what the non-string side of a
+        // concatenation becomes. Separate from `text_of` because that one
+        // answers "is this already a string" and decides *whether* to
+        // concatenate — a single function doing both would make `1 + 2` answer
+        // `"12"`.
+        //
+        // An object is absent here rather than converted: `ToPrimitive` runs a
+        // `toString`, which is user code an entry point cannot call.
+        let stringify = |value: Value| -> Option<Str> {
+            match value.kind() {
+                crate::value::Kind::Float | crate::value::Kind::Int => {
+                    Some(print_number(value.numeric()?))
+                }
+                crate::value::Kind::Bool => Some(Str::from_str(
+                    if rts_cranelift::tags::payload_of(value.bits())
+                        == rts_cranelift::tags::BOOL_TRUE
+                    {
+                        "true"
+                    } else {
+                        "false"
+                    },
+                )),
+                crate::value::Kind::Singleton(number) => Some(Str::from_str(
+                    if number == context.singletons.undefined {
+                        "undefined"
+                    } else {
+                        "null"
+                    },
+                )),
+                crate::value::Kind::Reference(_) => text_of(value),
+            }
+        };
+
+        match add_primitives(Value(left), Value(right), text_of, stringify) {
             Some(Sum::Number(number)) => Value::from_f64(number).bits(),
             Some(Sum::Text(text)) => context.intern_value(text).bits(),
             // Neither a number nor a string: the caller handed over something

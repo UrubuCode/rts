@@ -152,7 +152,7 @@ where a guard establishes it, the instruction is emitted instead.
 Everything not yet emitted is refused by name, and that list is the work queue.
 `PLAN.md` §3b. The three shapes a gap has today, so the next one can be placed:
 it needs a **heap value this crate cannot make** (an array, and so spread and
-templates), a **runtime operation nobody defined** (`in`, `instanceof`,
+templates were), a **runtime operation nobody defined** (`in`, `instanceof`,
 `delete`, and the `ToPropertyKey` a computed key needs), or a **mechanism**
 (globals, `throw`, classes, `new`, and the argument vector rest and spread
 need).

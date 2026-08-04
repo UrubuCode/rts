@@ -1035,3 +1035,72 @@ fn nan_is_equal_to_nothing_under_either_equality() {
         tags::BOOL_FALSE
     );
 }
+
+// ---------------------------------------------------------------------------
+// Template literals.
+
+#[test]
+fn a_template_with_no_substitution_is_its_text() {
+    assert_eq!(
+        tags::payload_of(run("return `abc` === \"abc\";")),
+        tags::BOOL_TRUE
+    );
+}
+
+#[test]
+fn a_template_concatenates_rather_than_adding() {
+    // The case that decides whether the fold started from a string. `${1}${2}`
+    // is "12"; a fold that began with the first SUBSTITUTION would compute 3,
+    // because `+` decides between adding and concatenating from its operands.
+    assert_eq!(
+        tags::payload_of(run("return `${1}${2}` === \"12\";")),
+        tags::BOOL_TRUE
+    );
+}
+
+#[test]
+fn a_template_evaluates_its_substitutions_in_order() {
+    assert_eq!(
+        tags::payload_of(run("let a = 1; let b = 2; return `a${a}b${b}c` === \"a1b2c\";")),
+        tags::BOOL_TRUE
+    );
+}
+
+#[test]
+fn a_template_part_is_cooked_rather_than_raw() {
+    // `\n` is one code unit, not the two characters that were written. Using
+    // the raw text would make this string two longer and compare unequal.
+    assert_eq!(
+        tags::payload_of(run(r#"return `a\nb` === "a\nb";"#)),
+        tags::BOOL_TRUE
+    );
+}
+
+#[test]
+fn adding_a_string_to_a_non_string_converts_the_other_side() {
+    // The case `adding_a_string_concatenates_rather_than_adding` did not cover,
+    // and which was broken: `"" + 1` answered NaN. `coerce::add` asked "is this
+    // a string" of the number side and took its `None` as a refusal, where the
+    // question it needed was "spell this as a string".
+    //
+    // Found by writing a template literal, which is `"" + x + ""` — the first
+    // program that ever concatenated something that was not already text.
+    assert_eq!(
+        tags::payload_of(run("return (\"n=\" + 1) === \"n=1\";")),
+        tags::BOOL_TRUE
+    );
+    assert_eq!(
+        tags::payload_of(run("return (1 + \"\") === \"1\";")),
+        tags::BOOL_TRUE
+    );
+    assert_eq!(
+        tags::payload_of(run("return (\"\" + true) === \"true\";")),
+        tags::BOOL_TRUE
+    );
+    assert_eq!(
+        tags::payload_of(run("return (\"\" + null) === \"null\";")),
+        tags::BOOL_TRUE
+    );
+    // And the direction that must NOT change: two numbers still add.
+    assert_eq!(tags::decode_double(run("return 1 + 2;")), 3.0);
+}
