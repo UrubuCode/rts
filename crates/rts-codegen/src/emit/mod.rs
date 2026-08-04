@@ -62,9 +62,10 @@ pub use stmt::emit_stmt;
 
 use rts_cranelift::ir::{BuildError, FuncBuilder, FuncRegistry, Function, Signature};
 use rts_cranelift::repr::Repr;
+use rts_cranelift::shape::KeyRegistry;
 use rts_cranelift::types::TypeRegistry;
 
-use crate::names::Name;
+use crate::names::{Name, Names};
 use crate::runtime::RuntimeCalls;
 use crate::syntax::Stmt;
 use crate::values::ValueModel;
@@ -133,6 +134,16 @@ pub struct Ctx<'a> {
     pub funcs: &'a mut FuncRegistry,
     /// Which runtime operations it has asked for so far.
     pub calls: &'a mut RuntimeCalls,
+    /// Where property names are numbered.
+    ///
+    /// The machine's registry, and the host puts the SAME one in the runtime.
+    /// A property name is resolved while compiling — that is the point of
+    /// numbering it — so what crosses at every access is the number, and the
+    /// two sides agreeing about which registry issued it is what makes the
+    /// number mean anything.
+    pub keys: &'a mut KeyRegistry,
+    /// Which name each number stands for, for this compilation.
+    pub names: &'a mut Names,
     /// Which locals were proved to hold a number.
     ///
     /// Owned rather than borrowed, and filled by [`emit_body`] rather than by a
@@ -147,13 +158,26 @@ impl<'a> Ctx<'a> {
         model: &'a ValueModel,
         funcs: &'a mut FuncRegistry,
         calls: &'a mut RuntimeCalls,
+        keys: &'a mut KeyRegistry,
+        names: &'a mut Names,
     ) -> Self {
         Ctx {
             model,
             funcs,
             calls,
+            keys,
+            names,
             numeric: Numeric::default(),
         }
+    }
+
+    /// The number a property name has.
+    ///
+    /// Minted on first use and remembered by `Names`, so two accesses to `.x`
+    /// in one program produce one key — which is what lets two objects built
+    /// the same way reach the same layout.
+    pub fn key_of(&mut self, name: Name) -> u32 {
+        self.names.key(name, self.keys).index() as u32
     }
 
     /// Whether a binding holds a proven number, and so keeps its
@@ -279,7 +303,6 @@ mod tests {
         let types = TypeRegistry::default();
         let mut funcs = FuncRegistry::new();
         let mut calls = RuntimeCalls::new();
-        let mut ctx = Ctx::new(&model, &mut funcs, &mut calls);
         let program = parse_script(source, &mut names).expect("the test's source must parse");
         // Imports and exports are not statements and this helper compiles a
         // body, so anything that is not one is dropped rather than silently
@@ -292,7 +315,12 @@ mod tests {
                 _ => None,
             })
             .collect();
-        verified(emit_body(&body, &[], &types, &mut ctx), &types, &funcs)
+        let mut keys = rts_cranelift::shape::KeyRegistry::new();
+        let func = {
+            let mut ctx = Ctx::new(&model, &mut funcs, &mut calls, &mut keys, &mut names);
+            emit_body(&body, &[], &types, &mut ctx)
+        };
+        verified(func, &types, &funcs)
     }
 
     /// Emits a FUNCTION body, where `return` is legal.
@@ -307,7 +335,6 @@ mod tests {
         let types = TypeRegistry::default();
         let mut funcs = FuncRegistry::new();
         let mut calls = RuntimeCalls::new();
-        let mut ctx = Ctx::new(&model, &mut funcs, &mut calls);
         let program = parse_script(&format!("function __test() {{ {source} }}"), &mut names)
             .expect("the test's source must parse");
         let [ModuleItem::Stmt(statement)] = program.body.as_slice() else {
@@ -319,7 +346,12 @@ mod tests {
         let FunctionBody::Block(body) = &function.body else {
             panic!("a declaration always has a block body");
         };
-        verified(emit_body(body, &[], &types, &mut ctx), &types, &funcs)
+        let mut keys = rts_cranelift::shape::KeyRegistry::new();
+        let func = {
+            let mut ctx = Ctx::new(&model, &mut funcs, &mut calls, &mut keys, &mut names);
+            emit_body(body, &[], &types, &mut ctx)
+        };
+        verified(func, &types, &funcs)
     }
 
     #[test]

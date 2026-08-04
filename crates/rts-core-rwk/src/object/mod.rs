@@ -154,11 +154,63 @@ impl Object {
         self.accessors.contains_key(&key) || self.slot_of(shapes, key).is_some()
     }
 
+    /// Writes an own data property, growing the layout when the key is new.
+    ///
+    /// # Why the shape moves and the object does not choose where to
+    ///
+    /// A property added to an object changes what that object *is*, and the
+    /// layout is where that is recorded. Transitioning is what makes two objects
+    /// built the same way share one `ShapeId` — which is the whole reason an
+    /// inline cache that has seen one of them recognises the rest.
+    ///
+    /// So the slot is never chosen here. It comes back from the transition, and
+    /// a new key always lands at the end because that is what the tree's own
+    /// ordering says. An implementation that picked a slot would be a second
+    /// authority on layout, disagreeing with the compiler's the first time the
+    /// two saw a different insertion order.
+    ///
+    /// # What it refuses
+    ///
+    /// An index key, for the reason [`machine_key`] gives: indexed storage is an
+    /// array's problem and an array does not exist yet. Answering `None` says
+    /// so rather than writing the value somewhere it cannot be read from.
+    pub fn set_own(&mut self, shapes: &mut ShapeTree, key: Key, value: Value) -> Option<()> {
+        let machine = machine_key(key)?;
+
+        if let Some(position) = shapes.slot_of(self.shape, machine) {
+            self.slots[position as usize] = value;
+            return Some(());
+        }
+
+        // Every value is generic here. A shape carrying `Repr::Tagged` for a
+        // property is not a missed optimisation: it is what a runtime write
+        // knows, since the value arrived as a word with nothing proved about it.
+        // Narrowing is the compiler's to decide, where the evidence is.
+        self.shape = shapes.transition(self.shape, machine, Repr::Tagged).ok()?;
+        let position = shapes.slot_of(self.shape, machine)?;
+        if self.slots.len() <= position as usize {
+            self.slots.resize(position as usize + 1, value);
+        }
+        self.slots[position as usize] = value;
+        Some(())
+    }
+
     fn slot_of(&self, shapes: &mut ShapeTree, key: Key) -> Option<u32> {
+
         shapes.slot_of(self.shape, machine_key(key)?)
     }
 
     /// The value of an own data property.
+    /// The value of an own data property.
+    ///
+    /// Public because the prototype walk lives where the heap is — the runtime
+    /// holds objects and strings in one table, and `ordinary_get` takes a table
+    /// of objects. Rather than copy the heap to fit a signature, the walk asks
+    /// each object in turn, and this is the question it asks.
+    pub fn own_value(&self, shapes: &mut ShapeTree, key: Key) -> Option<Value> {
+        self.own_data(shapes, key)
+    }
+
     fn own_data(&self, shapes: &mut ShapeTree, key: Key) -> Option<Value> {
         let position = self.slot_of(shapes, key)?;
         self.slots.get(position as usize).copied()

@@ -567,9 +567,24 @@ So AOT could execute today and JIT could not. Both belong to the crate that may
 name a compiler and a runtime at once, which is `rts-host`. Its two stated
 preconditions — core's entry path, and a lowering — are now met.
 
-**E4 — objects and property access.**
- The machine's shapes get their first
-client. `cached_get` and `guard_type` exist and have no caller.
+**E4 — objects and property access. DONE, the correct half.** Object literals,
+`o.x` and `o.x = v`, through three runtime entry points. A property key is
+resolved while compiling and crosses as a **number**, which makes a second
+agreement between the crates — the compiler's key registry and the runtime's
+must have issued the same ones — wired and asserted in `rts-host-rwk` beside the
+singleton numbering.
+
+Shapes get their first real client, through the runtime rather than through
+compiled code: a property write transitions the object's layout, so two objects
+built the same way share one `ShapeId`. That is the property an inline cache
+depends on, and it is tested directly.
+
+**Deliberately not done: the fast path.** `cached_get` and `guard_type` still
+have no caller. Property access is a call that looks a key up in a layout, which
+is correct and slow. A cache built before there was something correct to cache
+would be a cache over a guess — and the type pass showed what the measured
+version of this work looks like, so the fast half waits for a measurement rather
+than an intention.
 
 **E5 — functions and closures.** A captured local stops being a `ValueId` and
 becomes a cell, which is why `emit::scope::Binding` is an enum with one variant

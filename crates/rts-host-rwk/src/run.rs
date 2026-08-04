@@ -7,6 +7,7 @@ use rts_codegen::runtime::{RuntimeCalls, RuntimeOp};
 use rts_codegen::syntax::{FunctionBody, ModuleItem, StmtKind};
 use rts_codegen::values::ValueModel;
 use rts_cranelift::ir::FuncRegistry;
+use rts_cranelift::shape::KeyRegistry;
 use rts_cranelift::tags::TagRegistry;
 use rts_cranelift::target::{InMemory, Placing, Visibility, place_in_memory};
 use rts_cranelift::types::TypeRegistry;
@@ -34,6 +35,14 @@ pub struct Compiled {
     entry: extern "C" fn() -> u64,
     /// What the compiler decided the singletons are numbered.
     model: ValueModel,
+    /// How many property keys the compilation minted.
+    ///
+    /// The runtime has to have issued the same ones, or a number the program
+    /// carries names nothing. Kept as a count rather than as the registry
+    /// itself: a registry issues in order, so the count IS the agreement, and
+    /// two registries that issued the same number of keys agree about every one
+    /// of them.
+    keys: usize,
 }
 
 impl std::fmt::Debug for Compiled {
@@ -53,7 +62,19 @@ impl Compiled {
     /// afterwards, which is also what makes two runs independent.
     pub fn run(&self) -> u64 {
         let singletons = crate::link::singletons_for(&self.model);
-        let context = rts_core_rwk::entry::Context::new(singletons);
+        let mut context = rts_core_rwk::entry::Context::new(singletons);
+        // The second agreement, alongside the singleton numbering. A property
+        // name is resolved while compiling and crosses as a number, so the
+        // runtime's registry must have issued that number — otherwise it
+        // refuses it and every property reads as absent.
+        //
+        // Seeded rather than shared, because the two registries live in
+        // different phases: the compiler's is finished before the runtime's
+        // exists. Issuing the same count is what makes them the same registry
+        // for every purpose that matters.
+        if self.keys > 0 {
+            context.keys.declare(self.keys as u32);
+        }
         let (_context, value) =
             rts_core_rwk::entry::with_context(context, || (self.entry)());
         value
@@ -96,6 +117,7 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
     let types = TypeRegistry::new();
     let mut funcs = FuncRegistry::new();
     let mut calls = RuntimeCalls::new();
+    let mut keys = KeyRegistry::new();
 
     // Unwrapping what was wrapped above. Anything other than the one function
     // declaration means the wrapping did not produce what it was written to
@@ -117,7 +139,7 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
     };
 
     let script_id = {
-        let mut ctx = Ctx::new(&model, &mut funcs, &mut calls);
+        let mut ctx = Ctx::new(&model, &mut funcs, &mut calls, &mut keys, &mut names);
         let func = emit_body(body, &[], &types, &mut ctx)?;
         (func, ())
     };
@@ -188,6 +210,7 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
         placed,
         entry,
         model,
+        keys: keys.len(),
     })
 }
 
@@ -240,6 +263,15 @@ fn address_of(op: RuntimeOp) -> Result<*const u8, HostError> {
         }
         RuntimeOp::GreaterEqual => {
             rts_core_rwk::entry::greater_equal as extern "C" fn(u64, u64) -> bool as *const u8
+        }
+        RuntimeOp::ObjectNew => {
+            rts_core_rwk::entry::object_new as extern "C" fn() -> u64 as *const u8
+        }
+        RuntimeOp::GetProperty => {
+            rts_core_rwk::entry::get_property as extern "C" fn(u64, i64) -> u64 as *const u8
+        }
+        RuntimeOp::SetProperty => {
+            rts_core_rwk::entry::set_property as extern "C" fn(u64, i64, u64) -> u64 as *const u8
         }
     })
 }

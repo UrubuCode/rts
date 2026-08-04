@@ -162,3 +162,88 @@ fn a_for_loop_runs_end_to_end() {
     let produced = run("let total = 0; for (let i = 1; i <= 4; i = i + 1) { total = total * 10 + i; } return total;");
     assert_eq!(tags::decode_double(produced), 1234.0);
 }
+
+// ---------------------------------------------------------------------------
+// Objects. The machine's shapes get their first client, and the compiler and
+// the runtime have to agree about a second numbering — property keys — for any
+// of it to mean anything.
+
+#[test]
+fn a_property_written_is_the_property_read() {
+    assert_eq!(tags::decode_double(run("let o = {}; o.x = 42; return o.x;")), 42.0);
+}
+
+#[test]
+fn an_object_literal_carries_its_properties() {
+    assert_eq!(
+        tags::decode_double(run("let o = { a: 1, b: 2 }; return o.a + o.b;")),
+        3.0
+    );
+}
+
+#[test]
+fn two_properties_do_not_share_a_slot() {
+    // What the shape transition has to get right, from the outside: a second
+    // key lands beside the first rather than over it.
+    let produced = run("let o = {}; o.a = 10; o.b = 20; return o.a * 100 + o.b;");
+    assert_eq!(tags::decode_double(produced), 1020.0);
+}
+
+#[test]
+fn overwriting_a_property_does_not_grow_the_object() {
+    assert_eq!(
+        tags::decode_double(run("let o = {}; o.a = 1; o.a = 2; return o.a;")),
+        2.0
+    );
+}
+
+#[test]
+fn an_absent_property_reads_as_undefined() {
+    // Legal JavaScript, not an error being swallowed. Compared against the
+    // compiler's own numbering rather than a constant written here.
+    let compiled = compile("let o = {}; return o.missing;").expect("compiles");
+    assert_eq!(
+        compiled.run(),
+        compiled.model().singleton(Singleton::Undefined).word()
+    );
+}
+
+#[test]
+fn the_two_sides_agree_about_which_name_a_key_number_is() {
+    // The agreement this crate exists to make explicit. If the compiler
+    // numbered `a` as 0 and the runtime read 0 as `b`, both of these would
+    // still compile and run — and the second would answer 1.
+    assert_eq!(
+        tags::decode_double(run("let o = {}; o.a = 1; o.b = 2; return o.a;")),
+        1.0
+    );
+    assert_eq!(
+        tags::decode_double(run("let o = {}; o.a = 1; o.b = 2; return o.b;")),
+        2.0
+    );
+}
+
+#[test]
+fn a_property_holding_a_number_still_reaches_arithmetic_through_the_runtime() {
+    // The type pass proves LOCALS, and a property is not one: what an object
+    // holds is decided at run time, so `o.x + 1` is a call however the value
+    // got there. Stated as a test because the boundary is easy to misremember
+    // in the direction that would be unsound.
+    let produced = run("let o = {}; o.x = 20; return o.x + 22;");
+    assert_eq!(tags::decode_double(produced), 42.0);
+}
+
+#[test]
+fn an_object_is_only_equal_to_itself() {
+    // Objects compare by identity where strings compare by text, and `===`
+    // reaching the runtime is what makes that true. Two literals with the same
+    // properties are two objects.
+    assert_eq!(
+        tags::payload_of(run("let a = {}; let b = {}; return a === b;")),
+        tags::BOOL_FALSE
+    );
+    assert_eq!(
+        tags::payload_of(run("let a = {}; let b = a; return a === b;")),
+        tags::BOOL_TRUE
+    );
+}

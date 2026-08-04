@@ -143,6 +143,27 @@ pub enum RuntimeOp {
     /// operation once both operands are numbers is one instruction, and
     /// proving that is what a type pass buys.
     GreaterEqual,
+
+    /// `{}` — a new object.
+    ///
+    /// An entry point without argument: making an object allocates, reading a
+    /// property walks the heap, and writing one may move the object to a new
+    /// layout.
+    ObjectNew,
+
+    /// `o.x` — read a property named by its key number.
+    ///
+    /// An entry point without argument: making an object allocates, reading a
+    /// property walks the heap, and writing one may move the object to a new
+    /// layout.
+    GetProperty,
+
+    /// `o.x = v` — write one, and answer the value.
+    ///
+    /// An entry point without argument: making an object allocates, reading a
+    /// property walks the heap, and writing one may move the object to a new
+    /// layout.
+    SetProperty,
 }
 
 impl RuntimeOp {
@@ -160,6 +181,9 @@ impl RuntimeOp {
         RuntimeOp::LessEqual,
         RuntimeOp::Greater,
         RuntimeOp::GreaterEqual,
+        RuntimeOp::ObjectNew,
+        RuntimeOp::GetProperty,
+        RuntimeOp::SetProperty,
     ];
 
     /// The linker name the runtime must define.
@@ -182,6 +206,9 @@ impl RuntimeOp {
             RuntimeOp::LessEqual => "__rts_less_equal",
             RuntimeOp::Greater => "__rts_greater",
             RuntimeOp::GreaterEqual => "__rts_greater_equal",
+            RuntimeOp::ObjectNew => "__rts_object_new",
+            RuntimeOp::GetProperty => "__rts_get_property",
+            RuntimeOp::SetProperty => "__rts_set_property",
         }
     }
 
@@ -206,6 +233,9 @@ impl RuntimeOp {
             RuntimeOp::LessEqual => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::Greater => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::GreaterEqual => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
+            RuntimeOp::ObjectNew => (vec![], vec![UNPROVEN]),
+            RuntimeOp::GetProperty => (vec![UNPROVEN, Repr::I64], vec![UNPROVEN]),
+            RuntimeOp::SetProperty => (vec![UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN]),
         };
         Signature {
             params,

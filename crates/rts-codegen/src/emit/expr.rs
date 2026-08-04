@@ -34,7 +34,7 @@ use rts_cranelift::tags;
 
 use super::{Ctx, EmitError, EmitResult, Scope, UNPROVEN};
 use crate::runtime::RuntimeOp;
-use crate::syntax::{AssignTarget, Expr, ExprKind, Literal};
+use crate::syntax::{AssignTarget, Expr, ExprKind, Literal, Property, PropertyKey};
 use crate::syntax::{AssignOp, BinaryOp};
 use crate::names::Name;
 use crate::values::Singleton;
@@ -115,9 +115,17 @@ pub fn emit_expr(
         // against `PLAN.md` §E without running anything.
         ExprKind::Call { .. } => gap("a call"),
         ExprKind::New { .. } => gap("`new`"),
-        ExprKind::Member { .. } => gap("member access"),
+        ExprKind::Member {
+            object, property, ..
+        } => {
+            // `property` is a name, not a key: `o[e]` is `Index`, a different
+            // node. So there is no computed case to refuse here.
+            let receiver = emit_expr(builder, scope, ctx, object)?;
+            let key = key_constant(builder, ctx, *property);
+            Ok(call(builder, ctx, RuntimeOp::GetProperty, &[receiver, key])?[0])
+        }
         ExprKind::Index { .. } => gap("indexing"),
-        ExprKind::Object { .. } => gap("an object literal"),
+        ExprKind::Object { properties } => emit_object(builder, scope, ctx, properties),
         ExprKind::Array { .. } => gap("an array literal"),
         ExprKind::Function(_) => gap("a function expression"),
         ExprKind::Class(_) => gap("a class expression"),
@@ -163,10 +171,26 @@ fn call(
     args: &[ValueId],
 ) -> EmitResult<Vec<ValueId>> {
     let callee = ctx.calls.declare(ctx.funcs, op);
-    // A runtime operation takes JavaScript values, whatever was proved about
-    // them here. Widening at the boundary rather than at the proof is what lets
-    // a proof survive across the operators in between.
-    let args: Vec<_> = args.iter().map(|value| tagged(builder, *value)).collect();
+    // Widened to match what the operation DECLARED, parameter by parameter —
+    // not to tagged unconditionally.
+    //
+    // The first version widened everything, on the reasoning that a runtime
+    // operation takes JavaScript values. That is true of every parameter except
+    // the ones that are not values at all: a property key is a number the
+    // compiler resolved, declared `I64`, and widening it produced a call the
+    // machine refused — correctly, and with the position named.
+    let expected = op.signature().params;
+    let args: Vec<_> = args
+        .iter()
+        .zip(expected)
+        .map(|(value, want)| {
+            if want == UNPROVEN {
+                tagged(builder, *value)
+            } else {
+                *value
+            }
+        })
+        .collect();
     Ok(builder.call(ctx.funcs, callee, &args)?)
 }
 
@@ -338,8 +362,31 @@ fn emit_assign(
     let AssignTarget::Place(place) = target else {
         return gap("destructuring assignment");
     };
+    // A property write is the other assignment target that exists today, and
+    // it is handled before the local case because it does not go through the
+    // scope at all: the binding is on the heap.
+    if let ExprKind::Member {
+        object, property, ..
+    } = &place.kind
+    {
+        let AssignOp::Plain = op else {
+            return gap("a compound assignment to a property");
+        };
+        // Receiver first, then the value: `a().x = b()` runs `a` before `b`.
+        let receiver = emit_expr(builder, scope, ctx, object)?;
+        let key = key_constant(builder, ctx, *property);
+        let assigned = emit_expr(builder, scope, ctx, value)?;
+        let assigned = tagged(builder, assigned);
+        return Ok(call(
+            builder,
+            ctx,
+            RuntimeOp::SetProperty,
+            &[receiver, key, assigned],
+        )?[0]);
+    }
+
     let ExprKind::Ident(name) = &place.kind else {
-        return gap("assigning to anything but a local");
+        return gap("assigning to anything but a local or a property");
     };
 
     let result = match op {
@@ -457,4 +504,49 @@ fn proven_binary(op: BinaryOp) -> Option<Proven> {
         BinaryOp::StrictNotEqual => Proven::Compare(CmpOp::Ne),
         _ => return None,
     })
+}
+
+/// The number a property name has, as a machine constant.
+///
+/// An integer rather than a tagged value: it is not a JavaScript value at all,
+/// it is which name the compiler resolved. Emitting it tagged would be claiming
+/// the program could compute it, which is exactly what a computed property does
+/// and what this path is not.
+fn key_constant(builder: &mut FuncBuilder, ctx: &mut Ctx, name: Name) -> ValueId {
+    let key = ctx.key_of(name);
+    let id = builder.declare_const(ConstDecl::Scalar {
+        repr: Repr::I64,
+        bits: ScalarBits(u64::from(key)),
+    });
+    builder.use_const(id)
+}
+
+/// Emits an object literal.
+///
+/// A fresh object, then one write per property, in source order. Not a shape
+/// decided here and filled in: two objects built the same way reach the same
+/// layout because they take the same transitions, and taking them is what the
+/// writes do. Deciding a layout at the literal would be a second authority on
+/// what an object's shape is, disagreeing with the runtime's the first time a
+/// property was added after construction.
+fn emit_object(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    properties: &[Property],
+) -> EmitResult<ValueId> {
+    let object = call(builder, ctx, RuntimeOp::ObjectNew, &[])?[0];
+    for property in properties {
+        let Property::Value { key, value, .. } = property else {
+            return gap("a method, getter, setter, spread or `__proto__` in an object literal");
+        };
+        let PropertyKey::Named(name) = key else {
+            return gap("a computed key in an object literal");
+        };
+        let key = key_constant(builder, ctx, *name);
+        let value = emit_expr(builder, scope, ctx, value)?;
+        let value = tagged(builder, value);
+        call(builder, ctx, RuntimeOp::SetProperty, &[object, key, value])?;
+    }
+    Ok(object)
 }

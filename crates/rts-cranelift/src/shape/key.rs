@@ -53,7 +53,24 @@ impl KeyRegistry {
         self.declare(1)[0]
     }
 
+    /// The key a number names, if this registry issued it.
+    ///
+    /// # Why this exists when the constructor is private
+    ///
+    /// A key crosses an ABI boundary as a number — that is the whole point of
+    /// numbering names, since a compiled program resolved the name while it was
+    /// being compiled and handing over text at every access would hand back
+    /// something already decided. What crosses has to come back.
+    ///
+    /// The invariant is unchanged, and that is why this asks rather than
+    /// converts: a number this registry never issued answers `None`. Nobody can
+    /// invent a key; somebody holding one can name it again.
+    pub fn key(&self, number: u32) -> Option<Key> {
+        (number < self.issued).then_some(Key(number))
+    }
+
     /// How many exist.
+
     pub fn len(&self) -> usize {
         self.issued as usize
     }
