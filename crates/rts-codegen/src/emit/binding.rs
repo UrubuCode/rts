@@ -59,11 +59,12 @@ pub fn read(
             let environment = walk(builder, scope, ctx, hops)?;
             expr::emit_read(builder, ctx, environment, name)
         }
-        // Not a gap. The construct is emitted; the program is wrong, or the
-        // name is a global — and globals are a mechanism this module does not
-        // have, which is a different sentence from "identifiers are not
-        // supported".
-        None => Err(EmitError::UnboundName(name)),
+        // Nothing declared it. Three names are still readable, and the rest is
+        // the program being wrong — see [`predefined`].
+        None => match predefined(builder, ctx, name) {
+            Some(value) => Ok(value),
+            None => Err(EmitError::UnboundName(name)),
+        },
     }
 }
 
@@ -156,4 +157,43 @@ fn walk(
 /// one.
 pub fn outer_link(ctx: &mut Ctx) -> Name {
     ctx.names.intern(OUTER)
+}
+
+/// The three global values a program can read without a global object.
+///
+/// # Why these three and not a global object
+///
+/// `undefined`, `NaN` and `Infinity` are properties of the global object in the
+/// specification, and they are the only ones that are **non-writable,
+/// non-configurable constants**. Nothing a program does can change what they
+/// mean, so nothing has to store them: each is a constant the emitter already
+/// knows how to produce, and reading one costs an instruction rather than a
+/// property lookup.
+///
+/// That is the whole reason this exists before a global object does. A real
+/// global object is a mechanism — an object every unbound name resolves
+/// against, with `globalThis`, and writes that create properties — and it
+/// cannot be faked by a lookup table. These three can, because they are not
+/// lookups at all.
+///
+/// # Why an unbound name is still refused
+///
+/// Reading an undeclared name is a `ReferenceError`, not `undefined` — only
+/// `typeof` is exempt, and only because it takes a reference rather than a
+/// value. So a name that is not one of these three stays [`EmitError::
+/// UnboundName`] rather than becoming a silent `undefined`, which would turn
+/// every typo into a program that runs.
+///
+/// `typeof undeclared` therefore still fails, and that is the honest state: it
+/// needs the global object, not this.
+fn predefined(builder: &mut FuncBuilder, ctx: &mut Ctx, name: Name) -> Option<ValueId> {
+    match ctx.names.text(name) {
+        "undefined" => Some(expr::undefined(builder, ctx)),
+        // Proven doubles, like any other number literal — so `NaN + 1` takes
+        // the instruction rather than the call, and `1 / Infinity` folds the
+        // way the arithmetic already does.
+        "NaN" => Some(expr::number_constant(builder, f64::NAN)),
+        "Infinity" => Some(expr::number_constant(builder, f64::INFINITY)),
+        _ => None,
+    }
 }

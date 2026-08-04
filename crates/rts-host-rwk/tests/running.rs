@@ -1535,3 +1535,61 @@ fn a_hole_is_refused_rather_than_written_as_undefined() {
         "expected a named refusal, got {error:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The predefined global values.
+
+#[test]
+fn undefined_can_be_written_rather_than_spelled_void_zero() {
+    let mut compiled = compile("return undefined;").expect("compiles");
+    let produced = compiled.run();
+    assert_eq!(
+        produced,
+        compiled.model().singleton(Singleton::Undefined).word()
+    );
+    // And it is the same value `void 0` produces, which is what every test
+    // wrote before this existed.
+    assert_eq!(
+        tags::payload_of(run("return undefined === (void 0);")),
+        tags::BOOL_TRUE
+    );
+}
+
+#[test]
+fn nan_and_infinity_are_the_numbers_they_name() {
+    assert!(tags::decode_double(run("return NaN;")).is_nan());
+    assert_eq!(tags::decode_double(run("return Infinity;")), f64::INFINITY);
+    assert_eq!(
+        tags::decode_double(run("return 0 - Infinity;")),
+        f64::NEG_INFINITY
+    );
+    // NaN is equal to nothing, including the name that produced it.
+    assert_eq!(
+        tags::payload_of(run("return NaN === NaN;")),
+        tags::BOOL_FALSE
+    );
+}
+
+#[test]
+fn a_local_shadows_a_predefined_global() {
+    // They are names, not keywords: `let undefined = 1` is legal in a function
+    // and the local wins. A lookup that checked the three FIRST would answer
+    // the global here.
+    assert_eq!(
+        tags::decode_double(run("let undefined = 1; return undefined;")),
+        1.0
+    );
+    assert_eq!(tags::decode_double(run("let NaN = 2; return NaN;")), 2.0);
+}
+
+#[test]
+fn an_undeclared_name_is_still_the_programs_error() {
+    // Reading one is a `ReferenceError`, not `undefined`. Answering `undefined`
+    // would turn every typo into a program that runs, which is why only the
+    // three constants are readable and the rest is refused.
+    let error = compile("return nowhere;").expect_err("`nowhere` is undeclared");
+    assert!(
+        format!("{error:?}").contains("UnboundName"),
+        "expected the program to be wrong rather than a gap, got {error:?}"
+    );
+}
