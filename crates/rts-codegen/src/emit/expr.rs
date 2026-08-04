@@ -284,6 +284,17 @@ fn emit_binary(
         }
     }
 
+    // Neither operand was proved, and the operator is one a pair of doubles
+    // settles. So ASK: guard each side, and take the instruction when both
+    // answer. The slow path is the call that would have been made anyway.
+    //
+    // This is what the type pass cannot reach. It proves things about locals,
+    // and `o.n` is not one — nothing knows what an object holds. A guard needs
+    // no such knowledge: it tests the value it actually got.
+    if let Some(instruction) = proven_binary(op) {
+        return emit_guarded(builder, ctx, op, instruction, a, b);
+    }
+
     let runtime = match op {
 
         BinaryOp::Add => RuntimeOp::Add,
@@ -623,4 +634,92 @@ fn emit_read(
 
     builder.switch_to(join);
     Ok(result)
+}
+
+/// An operator over operands nothing proved, taking the instruction when they
+/// turn out to be numbers.
+///
+/// ```text
+///   guard a is a double ── not one ──┐
+///          │                         │
+///   guard b is a double ── not one ──┤
+///          │                         │
+///     instruction                  slow: the call
+///          │                         │
+///          └──────► join(value) ◄────┘
+/// ```
+///
+/// # Why two guards and not one test of both
+///
+/// Because a guard narrows, and narrowing is what makes the instruction legal.
+/// A test that answered "both are doubles" without producing the two narrowed
+/// values would leave the operands generic, and `arith` refuses those — which is
+/// the refusal that makes this layer worth having.
+///
+/// # What it costs when the guess is wrong
+///
+/// Two compares and a branch, then the call that would have happened anyway.
+/// A program whose operands are never numbers pays that and nothing else; the
+/// guard cannot make the slow path slower than it was.
+fn emit_guarded(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    op: BinaryOp,
+    instruction: Proven,
+    a: ValueId,
+    b: ValueId,
+) -> EmitResult<ValueId> {
+    let a = tagged(builder, a);
+    let b = tagged(builder, b);
+
+    let left_is_number = builder.create_block();
+    let left = builder.add_block_param(left_is_number, Repr::F64);
+    let both = builder.create_block();
+    let right = builder.add_block_param(both, Repr::F64);
+    let slow = builder.create_block();
+    let join = builder.create_block();
+    let result = builder.add_block_param(join, UNPROVEN);
+
+    builder.guard(a, Repr::F64, (left_is_number, &[]), (slow, &[]))?;
+
+    builder.switch_to(left_is_number);
+    builder.guard(b, Repr::F64, (both, &[]), (slow, &[]))?;
+
+    builder.switch_to(both);
+    let fast = match instruction {
+        Proven::Arith(num) => builder.arith(num, left, right)?,
+        Proven::Compare(cmp) => builder.compare(cmp, left, right)?,
+    };
+    let fast = tagged(builder, fast);
+    builder.jump(join, &[fast])?;
+
+    builder.switch_to(slow);
+    let runtime = runtime_binary(op).expect("every instruction has a runtime operation");
+    let answered = call(builder, ctx, runtime, &[a, b])?[0];
+    let answered = tagged(builder, answered);
+    builder.jump(join, &[answered])?;
+
+    builder.switch_to(join);
+    Ok(result)
+}
+
+/// The runtime operation an operator falls back to.
+///
+/// Every operator `proven_binary` names has one, which is why this cannot fail
+/// for a caller that asked that question first — and why the two lists are
+/// beside each other rather than in different files.
+fn runtime_binary(op: BinaryOp) -> Option<RuntimeOp> {
+    Some(match op {
+        BinaryOp::Add => RuntimeOp::Add,
+        BinaryOp::Sub => RuntimeOp::Subtract,
+        BinaryOp::Mul => RuntimeOp::Multiply,
+        BinaryOp::Div => RuntimeOp::Divide,
+        BinaryOp::Rem => RuntimeOp::Remainder,
+        BinaryOp::Less => RuntimeOp::Less,
+        BinaryOp::LessEqual => RuntimeOp::LessEqual,
+        BinaryOp::Greater => RuntimeOp::Greater,
+        BinaryOp::GreaterEqual => RuntimeOp::GreaterEqual,
+        BinaryOp::StrictEqual => RuntimeOp::StrictEquals,
+        _ => return None,
+    })
 }

@@ -329,3 +329,65 @@ second more.
 **A measurement that cannot be wrong has not been checked.** The counter cost
 four lines and turned an unexplained 27 ns into a 0.9 ns read and a 24 ns call
 that was never the subject.
+
+---
+
+# Guarding what nothing proved
+
+The previous section attributed 24 ns per operator to arithmetic on a property
+and said the type pass could not reach it: that pass proves things about
+**locals**, and `o.n` is not one — nothing knows what an object holds.
+
+A guard needs no such knowledge. It tests the value it actually got.
+
+```text
+  guard a is a double ── not one ──┐
+         │                         │
+  guard b is a double ── not one ──┤
+         │                         │
+    instruction                  slow: the call
+         │                         │
+         └──────► join(value) ◄────┘
+```
+
+| | before | after |
+|---|---:|---:|
+| `t = t + o.n` | 27.9 ns | **3.1 ns** |
+| `t = t + o.n + o.m` | 54.3 ns | 6.2 ns |
+| the fully proved kernel | 18.05 ms | 18.05 ms |
+
+Nine times, and the last row is the one that says it cost nothing: a loop the
+type pass already proved is unchanged, because a proved operand never reaches
+the guard.
+
+## Why two guards rather than one test of both
+
+A guard **narrows**, and narrowing is what makes the instruction legal. A test
+answering "both are doubles" without producing the two narrowed values would
+leave the operands generic, and `arith` refuses those — which is the refusal
+that makes the machine layer worth having.
+
+## What it costs when the guess is wrong
+
+Two compares and a branch, then the call that would have happened anyway. A
+program whose operands are never numbers pays that and nothing else; a guard
+cannot make the slow path slower than it was.
+
+## And the shape now records what it saw
+
+`ShapeTree` always carried a representation per property — `transition` takes
+one and `repr_of` reads it back — and the runtime wrote `Tagged` for everything,
+which made that field a place where a fact could have been and was not. It now
+records what the value turned out to be.
+
+Worth being exact about what that is: an **observation about one write**, not a
+promise about the property. A later write of something else takes a different
+transition, so the object arrives at a different shape and every site that
+remembered the old one stops recognising it. Which is what a shape is for.
+
+Nothing reads it yet, and that is the honest state. The read side is the guard
+above, which needs no shape at all — a site does not know which shape it will
+see, and that is the whole reason `cached_get` exists. What the recorded
+representation buys is a *layout* decision: a field the shape says holds a
+double can be stored as raw bits rather than a tagged word, which is a change to
+what a cell looks like and not to what a site emits.

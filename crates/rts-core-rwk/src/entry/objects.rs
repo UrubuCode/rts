@@ -117,7 +117,23 @@ pub fn set_property(object: u64, key: i64, value: u64) -> u64 {
         // A new property changes what the object IS, so the shape moves and the
         // header moves with it. Taking the transition rather than choosing a
         // slot is what keeps two objects built the same way at one layout.
-        let Ok(grown) = context.shapes.transition(shape, machine, Repr::Tagged) else {
+        // The representation the shape records is what the VALUE turned out to
+        // be, not `Tagged` unconditionally. A shape already carries one per
+        // property — `transition` takes it and `repr_of` reads it back — and
+        // writing `Tagged` for everything made that field a place where a fact
+        // could have been and was not.
+        //
+        // It is an observation about one write rather than a promise about the
+        // property: a later write of something else takes a different
+        // transition, so the object arrives at a different shape and every site
+        // that remembered the old one stops recognising it. Which is what a
+        // shape is for.
+        let observed = if Value(value).numeric().is_some() {
+            Repr::F64
+        } else {
+            Repr::Tagged
+        };
+        let Ok(grown) = context.shapes.transition(shape, machine, observed) else {
             return value;
         };
         let Some(at) = context.shapes.slot_of(grown, machine) else {
