@@ -24,17 +24,17 @@
 JS spec compatibility validated against **Bun** and **Node** over 708 standalone TS fixtures.
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱] 73.6%   508/690 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱] 73.6%   507/689 fixtures passing
 ```
 
 | Metric | Value |
 |---|---|
-| **Parity** | **73.6%** (508/690) |
-| ✅ RTS = Bun = Node | 508 |
+| **Parity** | **73.6%** (507/689) |
+| ✅ RTS = Bun = Node | 507 |
 | ❌ RTS diverges | 119 |
 | 💥 RTS runtime error | 63 |
 | 🛠️  **Left to fix** | **182** |
-| ⚠️ Bun ≠ Node (skip) | 18 |
+| ⚠️ Bun ≠ Node (skip) | 19 |
 | 🚫 Rejected (RTS-only) | 0 |
 | 📦 Total fixtures | 708 |
 
@@ -73,16 +73,16 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `7b24a8f`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `82e995b`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
-| Hello/startup | 65 ms | 56 ms | 53 ms | 144 ms | **46 ms** | **1.42×** | **1.22×** |
-| Monte Carlo π 10M (same xorshift algorithm) | 4.84 s | 7.48 s | 3.68 s | 194 ms | **111 ms** | **43.67×** | **67.46×** |
-| Monte Carlo π 10M (JS `Math.random`) | 125 ms | 268 ms | 216 ms | 203 ms | **112 ms** | **1.12×** | **2.39×** |
-| π decimal ~30 digits (i128 vs BigInt) | 53 ms | 59 ms | 44 ms | 123 ms | **19 ms** | **2.85×** | **3.17×** |
-| Monte Carlo 10M threaded (vs Bun Workers) | 239 ms | — | — | 179 ms | **71 ms** | **3.36×** | — |
-| π Machin f64 (RTS only) | — | — | — | 138 ms | **23 ms** | — | — |
+| Hello/startup | 65 ms | 56 ms | 50 ms | 155 ms | **45 ms** | **1.43×** | **1.24×** |
+| Monte Carlo π 10M (same xorshift algorithm) | 4.84 s | 7.47 s | 3.64 s | 193 ms | **111 ms** | **43.42×** | **67.06×** |
+| Monte Carlo π 10M (JS `Math.random`) | 121 ms | 267 ms | 213 ms | 197 ms | **112 ms** | **1.08×** | **2.38×** |
+| π decimal ~30 digits (i128 vs BigInt) | 51 ms | 55 ms | 39 ms | 104 ms | **18 ms** | **2.75×** | **3.00×** |
+| Monte Carlo 10M threaded (vs Bun Workers) | 165 ms | — | — | 136 ms | **50 ms** | **3.32×** | — |
+| π Machin f64 (RTS only) | — | — | — | 103 ms | **18 ms** | — | — |
 
 _Updated: 2026-08-04 — run locally with `powershell -File bench/benchmark.ps1`_
 
