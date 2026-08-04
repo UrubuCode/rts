@@ -75,6 +75,15 @@ pub fn get_property(object: u64, key: i64) -> u64 {
         let Some(key) = key_of(context, key) else {
             return undefined_of(context);
         };
+        // `length` on an array is the element count rather than a stored
+        // property. The one place a read has to know what it is reading — and
+        // the key is compared by NUMBER, because the runtime was seeded with
+        // the compiler's text for it and both therefore mean the same key.
+        if key == length_key(context)
+            && let Some(elements) = context.elements_at(slot)
+        {
+            return Value::from_f64(elements.len() as f64).bits();
+        }
         match read(context, slot, key) {
             Some(value) => value.bits(),
             None => undefined_of(context),
@@ -361,6 +370,15 @@ pub fn get_indexed(object: u64, key: u64) -> u64 {
         let Some(slot) = Value(object).as_slot() else {
             return undefined_of(context);
         };
+        // An element, if this is an array and the key is a canonical index.
+        // Asked BEFORE `ToPropertyKey`, because that would turn the number into
+        // text and lose the distinction the array store is built on.
+        if let Some(at) = super::array::as_index(Value(key))
+            && let Some(elements) = context.elements_at(slot)
+        {
+            // Past the end is absent, not an error: `[1,2][9]` is `undefined`.
+            return elements.get(at).copied().unwrap_or_else(|| undefined_of(context));
+        }
         let Some(key) = property_key(context, Value(key)) else {
             return undefined_of(context);
         };
@@ -379,6 +397,32 @@ pub fn set_indexed(object: u64, key: u64, value: u64) -> u64 {
         let Some(slot) = Value(object).as_slot() else {
             return value;
         };
+        if let Some(at) = super::array::as_index(Value(key))
+            && let Some(elements) = context.elements_at_mut(slot)
+        {
+            // Writing past the end grows the array and fills the gap with
+            // `undefined`, which is what the language does — `let a = []; a[2]
+            // = 1` leaves length 3. Holes are `undefined` here rather than a
+            // distinct absent-ness, which is a stated gap: `0 in [,1]` is
+            // false and this cannot say so.
+            if at >= elements.len() {
+                elements.resize(at + 1, 0);
+                let absent = undefined_of(context);
+                let elements = context
+                    .elements_at_mut(slot)
+                    .expect("the array was just found");
+                for hole in elements.iter_mut() {
+                    if *hole == 0 {
+                        *hole = absent;
+                    }
+                }
+            }
+            let elements = context
+                .elements_at_mut(slot)
+                .expect("the array was just found");
+            elements[at] = value;
+            return value;
+        }
         let Some(key) = property_key(context, Value(key)) else {
             return value;
         };
@@ -407,4 +451,16 @@ pub fn has_property(key: u64, object: u64) -> bool {
         };
         read(context, slot, key).is_some()
     })
+}
+
+/// The key `length` has.
+///
+/// Interned rather than held as a constant, because the number is whatever the
+/// registry issued — and the registry was seeded from what the compilation
+/// resolved, so a program that reads `.length` already put it there and this
+/// finds the same number. A program that never mentions it mints one here that
+/// nothing else uses, which costs a key and answers nothing differently.
+fn length_key(context: &mut Context) -> Key {
+    let text = crate::text::Str::from_str("length");
+    Key::Name(context.interner.intern(&text, &mut context.keys))
 }

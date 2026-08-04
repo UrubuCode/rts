@@ -133,7 +133,7 @@ pub fn emit_expr(
             Ok(call(builder, ctx, RuntimeOp::GetIndexed, &[receiver, key])?[0])
         }
         ExprKind::Object { properties } => emit_object(builder, scope, ctx, properties),
-        ExprKind::Array { .. } => gap("an array literal"),
+        ExprKind::Array { elements } => emit_array(builder, scope, ctx, elements),
         ExprKind::Function(function) => {
             super::function::emit_closure(builder, scope, ctx, function)
         }
@@ -919,4 +919,43 @@ pub(super) fn string_literal(
     });
     let index = builder.use_const(index);
     Ok(call(builder, ctx, RuntimeOp::StringConst, &[index])?[0])
+}
+
+/// Emits an array literal.
+///
+/// The length is known here, so the store is sized once and each element is
+/// written at its own index. Not a fresh array grown per element: `[1, 2, 3]`
+/// has three elements before any of them is evaluated, and a program that read
+/// `length` from a `valueOf` in the middle would see the finished count.
+///
+/// A **hole** is not `undefined`. `[,1]` has no element zero, and `0 in [,1]`
+/// is false where `[undefined,1]` answers true — so a hole is refused rather
+/// than written as `undefined`, which would be the same array as far as this
+/// runtime can tell and a different one as far as the language is.
+fn emit_array(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    elements: &[Option<crate::syntax::Spreadable>],
+) -> EmitResult<ValueId> {
+    let length = builder.declare_const(ConstDecl::Scalar {
+        repr: Repr::I64,
+        bits: ScalarBits(elements.len() as u64),
+    });
+    let length = builder.use_const(length);
+    let array = call(builder, ctx, RuntimeOp::ArrayNew, &[length])?[0];
+
+    for (position, element) in elements.iter().enumerate() {
+        let Some(crate::syntax::Spreadable::Single(value)) = element else {
+            return match element {
+                None => gap("a hole in an array literal"),
+                _ => gap("a spread in an array literal"),
+            };
+        };
+        let value = emit_expr(builder, scope, ctx, value)?;
+        let value = tagged(builder, value);
+        let at = number_constant(builder, position as f64);
+        call(builder, ctx, RuntimeOp::SetIndexed, &[array, at, value])?;
+    }
+    Ok(array)
 }

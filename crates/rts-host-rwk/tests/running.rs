@@ -480,7 +480,7 @@ fn a_construct_still_missing_is_refused_by_name_rather_than_approximated() {
     // This test has named `typeof`, a string literal, `~` and `==` in turn, and
     // each moved on when it landed. What it pins is the shape of the refusal.
     for source in [
-        "return [1];",
+        "let a = [1]; return [...a];",
         "return new Object();",
         "let o = {}; return delete o.x;",
     ] {
@@ -1433,4 +1433,105 @@ fn a_switch_clause_can_hold_a_closure() {
          return make();",
     );
     assert_eq!(tags::decode_double(produced), 10.0);
+}
+
+// ---------------------------------------------------------------------------
+// Arrays.
+
+#[test]
+fn an_array_literal_holds_its_elements() {
+    assert_eq!(tags::decode_double(run("let a = [10, 20, 30]; return a[1];")), 20.0);
+    assert_eq!(tags::decode_double(run("return [10, 20, 30].length;")), 3.0);
+    assert_eq!(tags::decode_double(run("return [].length;")), 0.0);
+}
+
+#[test]
+fn an_element_is_not_a_property() {
+    // `a[0]` goes to the element store and `a.x` to the shape tree, and the two
+    // do not collide: an array with a property still has its elements.
+    let produced = run("let a = [1, 2]; a.tag = 9; return a[0] + a[1] + a.tag;");
+    assert_eq!(tags::decode_double(produced), 12.0);
+}
+
+#[test]
+fn only_a_canonical_index_reaches_the_element_store() {
+    // `a[1.5]` and `a[-1]` are ordinary properties, not elements. An
+    // implementation that rounded would write into element 1 and change what
+    // `a[1]` answers, which is the assertion.
+    let produced = run("let a = [1, 2]; a[1.5] = 99; return a[1];");
+    assert_eq!(tags::decode_double(produced), 2.0);
+    // And the property is still readable under the name it actually has.
+    assert_eq!(
+        tags::decode_double(run("let a = [1, 2]; a[1.5] = 99; return a[1.5];")),
+        99.0
+    );
+}
+
+#[test]
+fn reading_past_the_end_is_undefined_rather_than_an_error() {
+    let mut compiled = compile("let a = [1]; return a[9];").expect("compiles");
+    let produced = compiled.run();
+    assert_eq!(
+        produced,
+        compiled.model().singleton(Singleton::Undefined).word()
+    );
+}
+
+#[test]
+fn writing_past_the_end_grows_the_array() {
+    // `let a = []; a[2] = 1` leaves length 3, which is what the language says
+    // and what a store that only wrote in range would get wrong.
+    assert_eq!(
+        tags::decode_double(run("let a = []; a[2] = 1; return a.length;")),
+        3.0
+    );
+    assert_eq!(tags::decode_double(run("let a = []; a[2] = 1; return a[2];")), 1.0);
+}
+
+#[test]
+fn an_array_is_a_reference_and_only_equal_to_itself() {
+    assert_eq!(
+        tags::payload_of(run("let a = [1]; let b = a; return a === b;")),
+        tags::BOOL_TRUE
+    );
+    assert_eq!(
+        tags::payload_of(run("return [1] === [1];")),
+        tags::BOOL_FALSE
+    );
+}
+
+#[test]
+fn an_array_is_an_object_to_typeof() {
+    // `typeof []` is "object" — there is no array type in the language, which
+    // is why `Array.isArray` exists at all.
+    assert_eq!(
+        tags::payload_of(run("return (typeof [1]) === \"object\";")),
+        tags::BOOL_TRUE
+    );
+}
+
+#[test]
+fn an_array_can_be_walked_by_a_loop() {
+    // The whole point of having them: an index computed at run time, over a
+    // length read from the array rather than written into the program.
+    let produced = run(
+        "let a = [1, 2, 3, 4]; \
+         let total = 0; \
+         for (let i = 0; i < a.length; i++) { total = total + a[i]; } \
+         return total;",
+    );
+    assert_eq!(tags::decode_double(produced), 10.0);
+}
+
+#[test]
+fn a_hole_is_refused_rather_than_written_as_undefined() {
+    // `[,1]` has no element zero, and `0 in [,1]` is false where
+    // `[undefined,1]` answers true. This runtime cannot tell the two apart, so
+    // the hole is a named gap rather than an array that is quietly the wrong
+    // one.
+    let error = compile("return [,1];").expect_err("a hole is a gap");
+    assert!(
+        format!("{error:?}").contains("Unsupported"),
+        "expected a named refusal, got {error:?}"
+    );
 }

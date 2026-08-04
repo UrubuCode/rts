@@ -454,16 +454,14 @@ mod tests {
 
     #[test]
     fn a_gap_is_named_rather_than_counted() {
-        // `f()` used to name this gap and no longer can: calls ARE emitted, so
-        // what is wrong with it is that nothing declared `f`. Moved to a
-        // construct that is still missing rather than deleted with the gap it
-        // happened to name.
-        let error = emit_source("[1];").expect_err("array literals are not emitted yet");
+        // This has named `f()` and an array literal in turn, and each moved on
+        // when it landed. `new` is what is still missing — and the name in the
+        // refusal is the point, so the test follows it rather than being
+        // deleted with the gap it happened to name.
+        let error = emit_source("new Object();").expect_err("`new` is not emitted yet");
         assert_eq!(
             error,
-            EmitError::Unsupported {
-                construct: "an array literal"
-            },
+            EmitError::Unsupported { construct: "`new`" },
             "the name is the deliverable — a gap reported as `Unsupported` with \
              no word in it is indistinguishable from any other gap"
         );

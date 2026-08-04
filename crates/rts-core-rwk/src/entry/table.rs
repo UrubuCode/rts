@@ -44,6 +44,7 @@ use super::operators::{
     DIVIDE_ENTRY, GREATER_ENTRY, GREATER_EQUAL_ENTRY, LESS_ENTRY, LESS_EQUAL_ENTRY, MULTIPLY_ENTRY,
     REMAINDER_ENTRY, SUBTRACT_ENTRY,
 };
+use super::array::ARRAY_NEW_ENTRY;
 use super::bitwise::{
     BIT_AND_ENTRY, BIT_NOT_ENTRY, BIT_OR_ENTRY, BIT_XOR_ENTRY, EXPONENT_ENTRY, SHIFT_LEFT_ENTRY,
     SHIFT_RIGHT_ENTRY, SHIFT_RIGHT_UNSIGNED_ENTRY,
@@ -227,6 +228,12 @@ pub enum CoreEntry {
     /// Asks whether the object HAS the property, which is not whether reading
     /// it yields `undefined`.
     HasProperty = 30,
+
+    /// `[…]` — a new array.
+    ///
+    /// Here because it allocates, and because elements live in a store the
+    /// region does not hold.
+    ArrayNew = 31,
 }
 
 /// How many entry points exist.
@@ -234,7 +241,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 31;
+pub const CORE_ENTRY_COUNT: usize = 32;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -270,6 +277,7 @@ impl CoreEntry {
         CoreEntry::GetIndexed,
         CoreEntry::SetIndexed,
         CoreEntry::HasProperty,
+        CoreEntry::ArrayNew,
     ];
 
     /// The number a call site holds.
@@ -316,6 +324,7 @@ impl CoreEntry {
             CoreEntry::GetIndexed => GET_INDEXED_ENTRY,
             CoreEntry::SetIndexed => SET_INDEXED_ENTRY,
             CoreEntry::HasProperty => HAS_PROPERTY_ENTRY,
+            CoreEntry::ArrayNew => ARRAY_NEW_ENTRY,
         }
     }
 

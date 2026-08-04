@@ -33,6 +33,7 @@
 //! argument is that a small closed set beats a large open one.
 
 mod alloc;
+mod array;
 mod barrier;
 mod bitwise;
 mod cache;
@@ -43,6 +44,7 @@ mod operators;
 
 // The operators are defined in their own module and named from here, because a
 // caller wants "the entry points" in one place rather than a module tree.
+pub use array::array_new;
 pub use bitwise::{
     bit_and, bit_not, bit_or, bit_xor, exponent, shift_left, shift_right,
     shift_right_unsigned,
@@ -129,6 +131,25 @@ pub struct Context {
     /// and a program able to store a number there would name the instruction
     /// the next call jumps to.
     closure_type: rts_cranelift::types::TypeId,
+    /// Which cells are arrays, and where their elements are.
+    ///
+    /// # Why a side table and not a reserved layout
+    ///
+    /// It WAS a reserved layout, like text and callables, and that made an
+    /// array a thing with no shape — so `a.tag = 9` was a silent no-op and
+    /// `a.tag` read `undefined`. A wrong program that runs, which is worse
+    /// than a refusal.
+    ///
+    /// An array IS an object: it has properties, a prototype eventually, and
+    /// elements as well. So its cell carries an ordinary shape like any other
+    /// object's, and being an array is recorded beside it rather than instead
+    /// of it.
+    ///
+    /// Keyed by region index, which a moving collector would have to update.
+    /// Noted rather than solved: there is no collector, and the alternative —
+    /// a word inside the cell — spends one of seven inline slots on every
+    /// object to record something almost none of them are.
+    array_elements: Vec<Option<Slot>>,
     /// How many reference stores told the collector about themselves.
     ///
     /// Counted rather than acted on, because there is no collector. It exists
@@ -141,6 +162,15 @@ pub struct Context {
     /// is a slower way of calling". Both produce the same wall clock scaling,
     /// and no measurement already taken can tell them apart.
     pub resolves: u64,
+    /// The elements of every array, apart from the cells that identify them.
+    ///
+    /// A second store beside `cells`, and not a contradiction of the one-table
+    /// decision that module records: that one is about the ENCODING — a
+    /// reference stays a region index and what it names is read from the
+    /// cell's header, rather than from bits carved out of the payload. How the
+    /// runtime holds the bytes on the Rust side is a different question, and
+    /// elements are a `Vec<u64>` where text is a `Str`.
+    pub arrays: Slab<Vec<u64>>,
     /// Every string literal the running program can name, by its number.
     ///
     /// Values rather than text: a literal evaluated twice is the same string,
@@ -191,6 +221,7 @@ impl Context {
         ]);
         Context {
             cells: Slab::new(),
+            arrays: Slab::new(),
             shapes: ShapeTree::new(),
             keys: KeyRegistry::new(),
             interner: Interner::new(),
@@ -202,6 +233,7 @@ impl Context {
             shape_of_type: Vec::new(),
             text_type,
             closure_type,
+            array_elements: Vec::new(),
             resolves: 0,
             barriers: 0,
             // Empty until a host seeds it. A program with no string literal
