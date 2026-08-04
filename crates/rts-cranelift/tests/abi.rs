@@ -29,7 +29,7 @@ fn a_scalar_parameter_is_one_slot() {
 #[test]
 fn a_slice_is_two_slots_as_one_argument() {
     let types = TypeRegistry::new();
-    let sig = Signature::internal(vec![AbiType::Slice], vec![]);
+    let sig = Signature::internal(vec![AbiType::Slice(Repr::I8)], vec![]);
     let lowered = lower_signature(&sig, &types, &TargetAbi::x86_64_sysv());
 
     assert_eq!(
@@ -211,7 +211,7 @@ fn returns_that_outgrow_their_registers_use_a_pointer_even_when_the_count_is_pro
 fn an_out_pointer_still_describes_what_it_holds() {
     let mut types = TypeRegistry::new();
     let pair = types.declare(&[Repr::I32, Repr::F64]);
-    let sig = Signature::internal(vec![], vec![AbiType::Aggregate(pair), AbiType::Slice]);
+    let sig = Signature::internal(vec![], vec![AbiType::Aggregate(pair), AbiType::Slice(Repr::I8)]);
     let lowered = lower_signature(&sig, &types, &TargetAbi::x86_64_windows());
 
     assert_eq!(

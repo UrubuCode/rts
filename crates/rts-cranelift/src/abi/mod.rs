@@ -56,8 +56,30 @@ pub enum AbiType {
     Scalar(Repr),
     /// An instance of a registered aggregate, passed by value.
     Aggregate(TypeId),
-    /// A pointer and a length, as one logical argument.
-    Slice,
+    /// A pointer and a length, as one logical argument, over elements of a
+    /// stated representation.
+    ///
+    /// # Why the element is named rather than assumed
+    ///
+    /// It was `Slice` with nothing inside, and that was a hole. A pointer and a
+    /// length describe UTF-8 bytes, UTF-16 code units and a buffer of doubles
+    /// equally well, so two functions with genuinely different boundaries had
+    /// the same descriptor and nothing could tell them apart.
+    ///
+    /// That matters here more than it would elsewhere, because **a JavaScript
+    /// string is a sequence of UTF-16 code units** and Rust\x27s `&str` is UTF-8.
+    /// A caller holding one and a callee expecting the other must re-encode, and
+    /// a descriptor that cannot express the difference cannot tell anyone the
+    /// cost is there: the call compiles, runs, and copies on every crossing.
+    ///
+    /// The element carries no charset and does not need one. `I8` and `I16` say
+    /// how wide a unit is; what the units *mean* is the contract between the two
+    /// sides, stated where the entry point is declared.
+    ///
+    /// The two slots this occupies are unchanged. The element decides nothing
+    /// about the crossing itself. It decides whether the two sides agree about
+    /// what crossed.
+    Slice(Repr),
 }
 
 /// Which register and stack discipline a call follows.

@@ -84,7 +84,10 @@ pub fn lower_signature(
 fn classify_param(ty: AbiType, types: &TypeRegistry, target: &TargetAbi) -> ParamClass {
     match ty {
         AbiType::Scalar(repr) => ParamClass::Direct(vec![SlotSpec::of(repr)]),
-        AbiType::Slice => {
+        // The element is not consulted: a pointer is a pointer and a length is
+        // a length whatever they address. It exists so the two sides can be
+        // checked against each other, not so the crossing changes shape.
+        AbiType::Slice(_) => {
             ParamClass::Direct(vec![SlotSpec::of(Repr::I64), SlotSpec::of(Repr::I64)])
         }
         AbiType::Aggregate(id) => match classify_aggregate(id, types, target) {
@@ -139,7 +142,7 @@ fn describe_returns(returns: &[AbiType], types: &TypeRegistry) -> Vec<SlotSpec> 
     for &ty in returns {
         match ty {
             AbiType::Scalar(repr) => described.push(SlotSpec::of(repr)),
-            AbiType::Slice => {
+            AbiType::Slice(_) => {
                 described.push(SlotSpec::of(Repr::I64));
                 described.push(SlotSpec::of(Repr::I64));
             }

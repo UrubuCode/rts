@@ -56,11 +56,32 @@ hatch for a symbol whose spelling predates the convention.
 The list is short and the error names it. A guess produces a call that compiles
 and passes the wrong number of registers, found at run time or not at all.
 
-A `&str` is the exception to "one parameter, one argument": it cannot cross
+A slice is the exception
+ to "one parameter, one argument": it cannot cross
 `extern "C"` as itself, so a function taking one keeps its ordinary Rust
 signature and gains a trampoline that takes the pointer and the length. A
 function taking none is rewritten in place and pays nothing — a trampoline for
 every entry would add a call to the common case for no reason.
+
+Three spellings, and choosing between them is a real decision rather than a
+matter of taste:
+
+| spelling | element | costs |
+|---|---|---|
+| `&[u16]` | `Repr::I16` | nothing — it is what a JavaScript string already is |
+| `&[u8]` | `Repr::I8` | nothing — bytes, meaning bytes |
+| `&str` | `Repr::I8` | a re-encode on **every call**, and an abort on a lone surrogate |
+
+`&[u16]` is the one to reach for. A JavaScript string is a sequence of UTF-16
+code units, so the caller hands over the buffer it holds and the trampoline
+hands it straight on. `&str` is UTF-8, which no string in this engine is stored
+as, and a lone surrogate — legal in JavaScript, produced by `"\u{1F600}"[0]` —
+cannot cross it at all.
+
+`&str` is accepted because the surface asking to use this attribute is already
+written in it: 119 parameters in `rts-node` alone. It is not the shape to write
+new entry points in.
+
 
 `u64` is a **tagged value**, not an integer — that is what a `Value` is, and
 `Repr::Tagged` is the machine's word for "nothing has been proved about this". An

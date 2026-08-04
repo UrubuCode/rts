@@ -51,15 +51,15 @@ pub fn expand(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
     let signature = &function.sig;
     let body = &function.block;
 
-    // A string parameter cannot cross `extern "C"` as a `&str`: it is a pointer
-    // and a length, and Rust will not pass one as a single argument. So a
-    // function taking one keeps its ordinary Rust signature and gains a
-    // trampoline; a function taking none is rewritten in place and pays nothing.
+    // A slice parameter cannot cross `extern "C"` as itself: it is a pointer and
+    // a length, and Rust will not pass one as a single argument. So a function
+    // taking one keeps its ordinary Rust signature and gains a trampoline; a
+    // function taking none is rewritten in place and pays nothing.
     //
     // Which is why the two cases are separate rather than a trampoline for all:
     // the common case is scalars, and a trampoline there would add a call for
     // no reason.
-    if function.sig.inputs.iter().any(is_string_param) {
+    if function.sig.inputs.iter().any(|arg| slice_kind(arg).is_some()) {
         return Ok(trampoline(&function, &symbol, &descriptor, &params, &returns));
     }
 
@@ -128,17 +128,32 @@ fn abi_type(ty: &Type) -> syn::Result<TokenStream> {
         "f64" => quote!(::rts_cranelift::repr::Repr::F64),
         "bool" => quote!(::rts_cranelift::repr::Repr::Bool),
         // A pointer and a length, as ONE logical argument — which is what the
-        // machine's `Slice` is, and an improvement on the interface it
-        // replaced, where a string was two loose slots a caller had to
-        // remember to pass together.
-        "&str" => return Ok(quote!(::rts_cranelift::abi::AbiType::Slice)),
+        // machine's `Slice` is, and an improvement on the interface it replaced,
+        // where a string was two loose slots a caller had to remember to pass
+        // together.
+        //
+        // Three spellings, and the difference is not cosmetic. `&[u16]` is what
+        // a JavaScript string IS — a sequence of UTF-16 code units, lone
+        // surrogates included — so it crosses as itself, byte for byte, with
+        // nothing to convert and nothing to validate. `&str` is UTF-8, which no
+        // string in this engine is stored as, so a caller holding one of ours
+        // re-encodes to reach it.
+        //
+        // Both exist because both have real callers: `&[u16]` is the shape for
+        // anything the runtime hands over, and `&str` is what the rts-std and
+        // rts-node surface is already written in — 119 parameters of it in
+        // rts-node alone. Naming the element is what lets a reader see which of
+        // the two a given entry point costs.
+        "&str" | "&[u8]" => return Ok(slice_of(quote!(::rts_cranelift::repr::Repr::I8))),
+        "&[u16]" => return Ok(slice_of(quote!(::rts_cranelift::repr::Repr::I16))),
         other => {
             return Err(syn::Error::new_spanned(
                 ty,
                 format!(
                     "`{other}` has no decided ABI crossing. The types that do are \
-                     u64 (a tagged value), i64, i32, f64, bool and &str. Adding one is a \
-                     decision about the boundary, not about this function."
+                     u64 (a tagged value), i64, i32, f64, bool, &str, &[u8] and \
+                     &[u16]. Adding one is a decision about the boundary, not \
+                     about this function."
                 ),
             ));
         }
@@ -146,22 +161,81 @@ fn abi_type(ty: &Type) -> syn::Result<TokenStream> {
     Ok(quote!(::rts_cranelift::abi::AbiType::Scalar(#repr)))
 }
 
-/// Whether a parameter is a string, which crosses as a pointer and a length.
-fn is_string_param(arg: &FnArg) -> bool {
-    let FnArg::Typed(typed) = arg else {
-        return false;
-    };
-    let ty = &typed.ty;
-    quote!(#ty).to_string().replace(' ', "") == "&str"
+/// A slice of the given element.
+fn slice_of(element: TokenStream) -> TokenStream {
+    quote!(::rts_cranelift::abi::AbiType::Slice(#element))
 }
 
-/// The expansion for a function taking a string.
+/// The three slice spellings, which differ only in what the trampoline rebuilds.
+#[derive(Clone, Copy)]
+enum SliceKind {
+    /// `&str` — UTF-8, and therefore checked.
+    Text,
+    /// `&[u8]` — bytes, with nothing to check.
+    Bytes,
+    /// `&[u16]` — UTF-16 code units, which is what a JavaScript string is.
+    ///
+    /// Nothing to check here either, and for a reason worth stating rather than
+    /// inferring: a lone surrogate is a legal JavaScript string, so a crossing
+    /// that rejected one would be unable to carry the result of an operation
+    /// the language performs. That is the whole reason this spelling exists
+    /// beside `&str` instead of everything going through UTF-8.
+    Units,
+}
+
+impl SliceKind {
+    /// The element the trampoline points at.
+    fn element(self) -> TokenStream {
+        match self {
+            SliceKind::Text | SliceKind::Bytes => quote!(u8),
+            SliceKind::Units => quote!(u16),
+        }
+    }
+}
+
+/// Which slice a parameter is, if it is one.
+fn slice_kind(arg: &FnArg) -> Option<SliceKind> {
+    let FnArg::Typed(typed) = arg else {
+        return None;
+    };
+    let ty = &typed.ty;
+    match quote!(#ty).to_string().replace(' ', "").as_str() {
+        "&str" => Some(SliceKind::Text),
+        "&[u8]" => Some(SliceKind::Bytes),
+        "&[u16]" => Some(SliceKind::Units),
+        _ => None,
+    }
+}
+
+/// The expansion for a function taking a slice.
 ///
-/// The author's function keeps its ordinary Rust signature — `&str` and all —
-/// and an `extern "C"` trampoline beside it takes the pointer and the length,
-/// rebuilds the slice, and calls it.
+/// The author's function keeps its ordinary Rust signature — `&str`, `&[u16]`
+/// and all — and an `extern "C"` trampoline beside it takes the pointer and the
+/// length, rebuilds the slice, and calls it.
 ///
-/// # What the trampoline refuses
+/// # What each of the three costs
+///
+/// `&[u16]` is free. A JavaScript string is a sequence of UTF-16 code units, so
+/// the caller hands over the buffer it already has and the trampoline hands it
+/// straight on. No copy, no check, no failure mode — including for a lone
+/// surrogate, which is legal and which any UTF-8 path would have to reject.
+///
+/// `&[u8]` is free too, and means bytes rather than text.
+///
+/// `&str` is the one that costs. It is UTF-8, and no string in this engine is
+/// stored that way: the narrow form is latin-1 and the wide form is UTF-16.
+/// Reaching a `&str` parameter from a runtime string is therefore a re-encoding
+/// on **every call**, and the machine's own ABI documentation names that class
+/// of cost as the reason the interface it replaced "is not a foundation":
+/// *"a client with value types pays an allocation at every boundary crossing —
+/// which measurement identifies as the largest single cost in the system."*
+///
+/// It is accepted anyway, because the surface asking to use this attribute is
+/// already written in it. What changed is that the descriptor now says which of
+/// the two an entry point is, so the cost is visible where the entry is declared
+/// rather than discovered in a profile.
+///
+/// # What the `&str` trampoline refuses
 ///
 /// Bytes that are not UTF-8. The caller is compiled code handing over what the
 /// runtime holds, so this cannot be a `Result` — there is nobody to return one
@@ -169,18 +243,7 @@ fn is_string_param(arg: &FnArg) -> bool {
 /// sides disagree about what a string is, which is a broken build rather than a
 /// condition a program can reach.
 ///
-/// # The conversion this makes visible
-///
-/// A string in `rts-core-rwk` is **UTF-16 code units**. A `&str` is UTF-8. So
-/// every call through this trampoline from the new runtime is a re-encoding,
-/// and the machine's own ABI documentation names that class of cost as the
-/// reason the interface it replaced "is not a foundation": *"a client with value
-/// types pays an allocation at every boundary crossing — which measurement
-/// identifies as the largest single cost in the system."*
-///
-/// That is not an argument against this existing. It is an argument for knowing
-/// which surface uses it: a handle or a scalar crosses free, and a string does
-/// not.
+/// The `&[u16]` path has no equivalent, and that is the point of it existing.
 fn trampoline(
     function: &ItemFn,
     symbol: &str,
@@ -202,24 +265,38 @@ fn trampoline(
         let len = format_ident!("__len{position}");
         let value = format_ident!("__arg{position}");
 
-        if is_string_param(arg) {
-            declared.push(quote!(#ptr: *const u8, #len: usize));
-            forwarded.push(quote! {{
-                // SAFETY: the caller passed a pointer and a length describing
-                // one allocation it keeps alive across this call, which is what
-                // a slice argument means on both sides of the boundary.
-                let bytes = unsafe { ::core::slice::from_raw_parts(#ptr, #len) };
-                match ::core::str::from_utf8(bytes) {
-                    Ok(text) => text,
-                    Err(_) => {
-                        eprintln!(
-                            "rts: {} received bytes that are not UTF-8",
-                            #symbol
-                        );
-                        ::std::process::abort();
+        if let Some(kind) = slice_kind(arg) {
+            let element = kind.element();
+            declared.push(quote!(#ptr: *const #element, #len: usize));
+
+            // SAFETY, shared by all three: the caller passed a pointer and a
+            // length describing one allocation it keeps alive across this call,
+            // which is what a slice argument means on both sides of the
+            // boundary. The length is in ELEMENTS, not bytes — `from_raw_parts`
+            // and the machine's `Slice` agree on that, and a `&[u16]` whose
+            // length were bytes would read twice what it was given.
+            let rebuilt = quote! {
+                unsafe { ::core::slice::from_raw_parts(#ptr, #len) }
+            };
+
+            forwarded.push(match kind {
+                // Code units and bytes cross as themselves. Nothing to check:
+                // for `&[u16]` specifically, a lone surrogate is a legal
+                // JavaScript string, so there is no validity to assert.
+                SliceKind::Units | SliceKind::Bytes => rebuilt,
+                SliceKind::Text => quote! {{
+                    match ::core::str::from_utf8(#rebuilt) {
+                        Ok(text) => text,
+                        Err(_) => {
+                            eprintln!(
+                                "rts: {} received bytes that are not UTF-8",
+                                #symbol
+                            );
+                            ::std::process::abort();
+                        }
                     }
-                }
-            }});
+                }},
+            });
         } else {
             let FnArg::Typed(typed) = arg else { continue };
             let ty = &typed.ty;
