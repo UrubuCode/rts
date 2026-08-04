@@ -482,7 +482,7 @@ fn a_construct_still_missing_is_refused_by_name_rather_than_approximated() {
     for source in [
         "let a = [1]; return [...a];",
         "return new Object();",
-        "let o = {}; return delete o.x;",
+        "let o = {}; let x = 1; return delete x;",
     ] {
         let error = compile(source).expect_err("still a gap");
         assert!(
@@ -1591,5 +1591,50 @@ fn an_undeclared_name_is_still_the_programs_error() {
     assert!(
         format!("{error:?}").contains("UnboundName"),
         "expected the program to be wrong rather than a gap, got {error:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// `delete`.
+
+#[test]
+fn deleting_a_property_removes_it() {
+    assert_eq!(
+        tags::payload_of(run("let o = {}; o.x = 1; delete o.x; return \"x\" in o;")),
+        tags::BOOL_FALSE
+    );
+    // And it answers whether the object now lacks it, which is `true` for one
+    // it never had.
+    assert_eq!(
+        tags::payload_of(run("let o = {}; return delete o.missing;")),
+        tags::BOOL_TRUE
+    );
+}
+
+#[test]
+fn deleting_one_property_leaves_the_others_where_they_can_be_read() {
+    // The part that is easy to get wrong. Removing a property shifts every
+    // later one down a slot, so the values have to move with the layout — an
+    // implementation that only changed the header would read `c` out of `b`'s
+    // old offset.
+    let produced = run(
+        "let o = {}; o.a = 1; o.b = 2; o.c = 3; \
+         delete o.b; \
+         return o.a + o.c;",
+    );
+    assert_eq!(tags::decode_double(produced), 4.0);
+}
+
+#[test]
+fn a_deleted_property_can_be_added_back() {
+    let produced = run("let o = {}; o.x = 1; delete o.x; o.x = 9; return o.x;");
+    assert_eq!(tags::decode_double(produced), 9.0);
+}
+
+#[test]
+fn a_computed_key_can_be_deleted() {
+    assert_eq!(
+        tags::payload_of(run("let o = {}; o.x = 1; let k = \"x\"; delete o[k]; return \"x\" in o;")),
+        tags::BOOL_FALSE
     );
 }

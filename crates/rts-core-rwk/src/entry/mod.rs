@@ -51,7 +51,8 @@ pub use bitwise::{
 };
 pub use functions::{ARGUMENT_SLOTS, call, closure_new};
 pub use objects::{
-    get_indexed, get_property, has_property, object_new, set_indexed, set_property,
+    delete_property, get_indexed, get_property, has_property, object_new, set_indexed,
+    set_property,
 };
 pub use text::{declare_keys, declare_literals, string_const, type_of};
 pub use operators::{

@@ -51,7 +51,7 @@ use super::bitwise::{
 };
 use super::functions::{CALL_ENTRY, CLOSURE_NEW_ENTRY};
 use super::objects::{
-    GET_INDEXED_ENTRY, GET_PROPERTY_ENTRY, HAS_PROPERTY_ENTRY, OBJECT_NEW_ENTRY,
+    DELETE_PROPERTY_ENTRY, GET_INDEXED_ENTRY, GET_PROPERTY_ENTRY, HAS_PROPERTY_ENTRY, OBJECT_NEW_ENTRY,
     SET_INDEXED_ENTRY, SET_PROPERTY_ENTRY,
 };
 use super::text::{STRING_CONST_ENTRY, TYPE_OF_ENTRY};
@@ -234,6 +234,12 @@ pub enum CoreEntry {
     /// Here because it allocates, and because elements live in a store the
     /// region does not hold.
     ArrayNew = 31,
+
+    /// `delete o.x`.
+    ///
+    /// Here because removing a property rebuilds the layout and moves what is
+    /// left, both of which touch the heap.
+    DeleteProperty = 32,
 }
 
 /// How many entry points exist.
@@ -241,7 +247,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 32;
+pub const CORE_ENTRY_COUNT: usize = 33;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -278,6 +284,7 @@ impl CoreEntry {
         CoreEntry::SetIndexed,
         CoreEntry::HasProperty,
         CoreEntry::ArrayNew,
+        CoreEntry::DeleteProperty,
     ];
 
     /// The number a call site holds.
@@ -325,6 +332,7 @@ impl CoreEntry {
             CoreEntry::SetIndexed => SET_INDEXED_ENTRY,
             CoreEntry::HasProperty => HAS_PROPERTY_ENTRY,
             CoreEntry::ArrayNew => ARRAY_NEW_ENTRY,
+            CoreEntry::DeleteProperty => DELETE_PROPERTY_ENTRY,
         }
     }
 

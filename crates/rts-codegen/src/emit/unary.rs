@@ -101,7 +101,37 @@ pub fn emit_unary(
         }
         // Takes a reference rather than a value, and removing a property is an
         // operation the runtime does not define.
-        UnaryOp::Delete => expr::gap("`delete`"),
+        // Takes a REFERENCE rather than a value, which is why it matches on the
+        // operand's shape instead of emitting it: `delete o.x` addresses the
+        // property, not what it holds.
+        UnaryOp::Delete => {
+            let (receiver, key) = match &operand.kind {
+                ExprKind::Member {
+                    object, property, ..
+                } => {
+                    let receiver = emit_expr(builder, scope, ctx, object)?;
+                    // The name as a STRING, because the runtime resolves a
+                    // computed key and a written one through the same path.
+                    // Handing over the key number instead would be a second
+                    // way to say the same thing.
+                    let text = ctx.names.text(*property).to_owned();
+                    let key = expr::string_literal(builder, ctx, &text)?;
+                    (receiver, key)
+                }
+                ExprKind::Index { object, index, .. } => {
+                    let receiver = emit_expr(builder, scope, ctx, object)?;
+                    let key = emit_expr(builder, scope, ctx, index)?;
+                    (receiver, key)
+                }
+                // `delete x` on a name is an early error in strict code and a
+                // no-op answering false in sloppy. Neither is emitted: the
+                // first is the checker's, and the second needs the global
+                // object a bare name would be a property of.
+                _ => return expr::gap("`delete` of anything but a property"),
+            };
+            let gone = expr::call(builder, ctx, RuntimeOp::DeleteProperty, &[receiver, key])?[0];
+            Ok(builder.widen(gone))
+        }
     }
 }
 

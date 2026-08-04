@@ -262,6 +262,12 @@ pub enum RuntimeOp {
     /// than grown per element.
     ArrayNew,
 
+    /// `delete o.x`.
+    ///
+    /// Removing a property rebuilds the layout without it and moves what is
+    /// left, which is why it is an entry point and why it is expensive.
+    DeleteProperty,
+
     /// Calling a value, with a receiver and the arguments.
     ///
     /// # Why calling is a runtime operation and not `call_indirect`
@@ -318,6 +324,7 @@ impl RuntimeOp {
         RuntimeOp::SetIndexed,
         RuntimeOp::HasProperty,
         RuntimeOp::ArrayNew,
+        RuntimeOp::DeleteProperty,
         RuntimeOp::Call,
     ];
 
@@ -360,6 +367,7 @@ impl RuntimeOp {
             RuntimeOp::SetIndexed => "__rts_set_indexed",
             RuntimeOp::HasProperty => "__rts_has_property",
             RuntimeOp::ArrayNew => "__rts_array_new",
+            RuntimeOp::DeleteProperty => "__rts_delete_property",
             RuntimeOp::Call => "__rts_call",
         }
     }
@@ -414,6 +422,7 @@ impl RuntimeOp {
             // A count the compiler knows, not a value: an array literal's
             // length is how many elements were written.
             RuntimeOp::ArrayNew => (vec![Repr::I64], vec![UNPROVEN]),
+            RuntimeOp::DeleteProperty => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             // Callee, receiver, then one slot per argument. Every one a value,
             // because a caller cannot know what it is handing over.
             RuntimeOp::Call => (vec![UNPROVEN; 2 + ARGUMENT_SLOTS], vec![UNPROVEN]),

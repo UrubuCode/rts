@@ -464,3 +464,71 @@ fn length_key(context: &mut Context) -> Key {
     let text = crate::text::Str::from_str("length");
     Key::Name(context.interner.intern(&text, &mut context.keys))
 }
+
+/// `delete o.x` / `delete o[k]`.
+///
+/// Answers whether the object now lacks the property, which is `true` for one
+/// it never had — the language's answer for `delete` of anything that was not
+/// there, including a non-object.
+///
+/// # Why this is a rebuild and not an unlink
+///
+/// `ShapeTree::remove` says it: the tree only grows, a node is shared by
+/// everything that extends it, and unlinking one would change a layout other
+/// objects are already using. So the shape is rebuilt without the key, which is
+/// a **different layout with a different identity** — code compiled to load a
+/// property at a fixed offset in the old one guards on a type number it will no
+/// longer see.
+///
+/// The values move with it. Removing a property shifts every later one down a
+/// slot, so they are read out against the old layout before the header changes
+/// and written back against the new — reading after would read the new offsets
+/// out of the old contents.
+#[rtse::entry]
+pub fn delete_property(object: u64, key: u64) -> bool {
+    with_current(|context| {
+        let Some(slot) = Value(object).as_slot() else {
+            return true;
+        };
+        let Some(key) = property_key(context, Value(key)) else {
+            return true;
+        };
+        let Some(machine) = machine_key(key) else {
+            return true;
+        };
+        let Some(ty) = context.region.type_of(slot) else {
+            return true;
+        };
+        let Some(shape) = context.shape_of(ty) else {
+            return true;
+        };
+        if context.shapes.slot_of(shape, machine).is_none() {
+            // Never had it. `delete` answers true, which is not "it was
+            // removed" but "the object does not have it", and those agree here.
+            return true;
+        }
+
+        // Read every survivor against the OLD layout first.
+        let kept: Vec<(rts_cranelift::shape::Key, u64)> = context
+            .shapes
+            .properties(shape)
+            .into_iter()
+            .filter(|(existing, _)| *existing != machine)
+            .filter_map(|(existing, _)| {
+                let at = context.shapes.slot_of(shape, existing)?;
+                let value = context.region.field(slot, at)?;
+                Some((existing, value))
+            })
+            .collect();
+
+        let shrunk = context.shapes.remove(shape, machine);
+        let ty = context.layout_of(shrunk).index() as u32;
+        context.region.set_type(slot, ty);
+        for (existing, value) in kept {
+            if let Some(at) = context.shapes.slot_of(shrunk, existing) {
+                context.region.set_field(slot, at, value);
+            }
+        }
+        true
+    })
+}

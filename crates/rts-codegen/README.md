@@ -152,11 +152,19 @@ where a guard establishes it, the instruction is emitted instead.
 
 Everything not yet emitted is refused by name, and that list is the work queue.
 `PLAN.md` §3b. The three shapes a gap has today, so the next one can be placed:
-it needs a **heap value this crate cannot make** (an array, and so spread), a
-**runtime operation nobody defined** (`instanceof`, which needs a prototype, and
-`delete`, which a shape tree built from transitions cannot perform), or a
-**mechanism** (globals, `throw`, classes, `new`, `switch`, iteration, and the
-argument vector rest and spread need).
+it needs a **runtime operation nobody defined** (`instanceof`, which needs a
+prototype) or a **mechanism** (a global object, `throw`, classes, `new`,
+iteration, and the argument vector rest and spread need). Nothing is left in the
+first category — a heap value this crate cannot make — now that strings and
+arrays exist.
+
+One entry in that list was **wrong** and is worth recording rather than quietly
+fixing: `delete` was said to be impossible because "a shape tree built from
+transitions cannot perform it". `ShapeTree::remove` had existed all along, and
+its own documentation explains the design — the tree only grows, so removal
+rebuilds the layout without the key rather than unlinking a node other objects
+share. The claim was made by reasoning about what the tree must be like instead
+of reading it, which is the mistake `PLAN.md` §0 records for the grammar.
 
 Named `emit` and not `lower` because `rts-cranelift::lower` is the other half of
 the same pipeline, and it claims to be the only module that constructs
