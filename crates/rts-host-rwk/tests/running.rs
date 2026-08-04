@@ -1314,3 +1314,123 @@ fn a_label_naming_nothing_is_a_syntax_error_and_never_reaches_the_emitter() {
         "expected the parser to reject it, got {error:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// `switch`.
+
+#[test]
+fn a_switch_runs_the_clause_that_matched() {
+    for (subject, expected) in [(1.0, 10.0), (2.0, 20.0), (9.0, 99.0)] {
+        let produced = run(&format!(
+            "let n = {subject}; let out = 0; \
+             switch (n) {{ \
+               case 1: out = 10; break; \
+               case 2: out = 20; break; \
+               default: out = 99; \
+             }} \
+             return out;"
+        ));
+        assert_eq!(tags::decode_double(produced), expected, "for {subject}");
+    }
+}
+
+#[test]
+fn a_clause_without_a_break_falls_into_the_next() {
+    // The whole reason a switch is not a chain of `if`s. Without fall-through
+    // this returns 1; with it, both bodies run.
+    let produced = run(
+        "let out = 0; \
+         switch (1) { \
+           case 1: out = out + 1; \
+           case 2: out = out + 10; break; \
+           case 3: out = out + 100; \
+         } \
+         return out;",
+    );
+    assert_eq!(tags::decode_double(produced), 11.0);
+}
+
+#[test]
+fn default_runs_where_it_sits_rather_than_last() {
+    // `default` is not a fallback appended to the end. Nothing matches 9, so
+    // control enters at `default` and falls through into the clause written
+    // after it — an implementation that ran `default` last would return 1.
+    let produced = run(
+        "let out = 0; \
+         switch (9) { \
+           case 1: out = out + 1; break; \
+           default: out = out + 10; \
+           case 2: out = out + 100; \
+         } \
+         return out;",
+    );
+    assert_eq!(tags::decode_double(produced), 110.0);
+}
+
+#[test]
+fn a_switch_matches_with_strict_equality() {
+    // `case "1"` does not match `1`, so nothing matches and `default` runs.
+    let produced = run(
+        "let out = 0; switch (1) { case \"1\": out = 1; break; default: out = 2; } return out;",
+    );
+    assert_eq!(tags::decode_double(produced), 2.0);
+    // And NaN matches nothing, including itself.
+    let produced = run(
+        "let out = 0; switch (0 / 0) { case (0 / 0): out = 1; break; default: out = 2; } \
+         return out;",
+    );
+    assert_eq!(tags::decode_double(produced), 2.0);
+}
+
+#[test]
+fn a_switch_with_no_match_and_no_default_runs_nothing() {
+    let produced = run("let out = 7; switch (9) { case 1: out = 1; } return out;");
+    assert_eq!(tags::decode_double(produced), 7.0);
+}
+
+#[test]
+fn a_value_assigned_in_one_clause_survives_the_switch() {
+    // The block parameters, doing what they exist for: `out` has a different
+    // definition on every path into the exit, and SSA has nothing to write
+    // twice.
+    let produced = run(
+        "let out = 0; \
+         for (let i = 0; i < 3; i++) { \
+           switch (i) { case 0: out = out + 1; break; case 1: out = out + 10; break; \
+                        default: out = out + 100; } \
+         } \
+         return out;",
+    );
+    assert_eq!(tags::decode_double(produced), 111.0);
+}
+
+#[test]
+fn a_continue_inside_a_switch_belongs_to_the_loop_around_it() {
+    // A switch takes `break` and is not a loop, so a `continue` written inside
+    // one has to pass through its frame to reach the loop. The same rule a
+    // labelled block follows, and the reason both record `continue_to: None`.
+    let produced = run(
+        "let count = 0; \
+         for (let i = 0; i < 4; i++) { \
+           switch (i) { case 0: continue; default: count++; } \
+         } \
+         return count;",
+    );
+    assert_eq!(tags::decode_double(produced), 3.0);
+}
+
+#[test]
+fn a_switch_clause_can_hold_a_closure() {
+    // The capture analysis had to learn about switch: a nested function inside
+    // a clause is a function like any other, and a name it captures that was
+    // not marked would be two closures disagreeing about a variable.
+    let produced = run(
+        "function make() { \
+           let n = 0; \
+           switch (1) { case 1: { function bump() { n = n + 5; } bump(); bump(); } } \
+           return n; \
+         } \
+         return make();",
+    );
+    assert_eq!(tags::decode_double(produced), 10.0);
+}

@@ -134,7 +134,10 @@ pub fn emit_stmt(
             None,
         ),
         StmtKind::ForEach { .. } => super::expr::gap("`for-in` or `for-of`"),
-        StmtKind::Switch { .. } => super::expr::gap("`switch`"),
+        StmtKind::Switch {
+            discriminant,
+            clauses,
+        } => loops::emit_switch(builder, scope, ctx, loops, statement, discriminant, clauses),
         // Both spellings go through one path. An unlabelled jump takes the
         // innermost frame that can accept it; a labelled one takes the frame
         // carrying that name.

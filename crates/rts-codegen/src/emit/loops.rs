@@ -1,4 +1,14 @@
-//! Loops, and the thing about them that `if` did not have to solve.
+//! Loops and `switch` — everything that merges more than two paths.
+//!
+//! # Why a `switch` is in a file called loops
+//!
+//! Because it needs the whole of what a loop's exit needs and nothing else in
+//! this crate does: a block with a parameter per name the statement assigns, a
+//! frame so `break` can reach it, and the truncation to a shared prefix that
+//! makes a position mean the same binding in two snapshots. Filing it elsewhere
+//! would mean exporting four private helpers to a module that uses nothing else
+//! here — which is a boundary drawn around a word rather than around
+//! the mechanism.
 //!
 //! # A loop header is a join whose second predecessor does not exist yet
 //!
@@ -593,6 +603,23 @@ fn assigned_in_stmt(statement: &Stmt, into: &mut Vec<Name>) {
             assigned_in_stmt(body, into);
         }
         StmtKind::Labelled { body, .. } => assigned_in_stmt(body, into),
+        StmtKind::Switch {
+            discriminant,
+            clauses,
+        } => {
+            // The discriminant too: `switch (x = 1)` assigns, and a name missing
+            // from this list has no parameter at the exit — so the value after
+            // the switch would be whatever reached it on one arbitrary path.
+            into.extend(assigned_in_expr_names(discriminant));
+            for clause in clauses {
+                if let Some(test) = &clause.test {
+                    into.extend(assigned_in_expr_names(test));
+                }
+                for statement in &clause.body {
+                    assigned_in_stmt(statement, into);
+                }
+            }
+        }
         // The remaining statements are refused by the emitter, so a name they
         // write cannot reach a loop this module built. When one stops being
         // refused it is added here, and the test below is what says so.
@@ -684,4 +711,158 @@ fn assigned_in_expr(expr: &Expr, into: &mut Vec<Name>) {
         // refuses closures, so nothing reaches here that would need it.
         _ => {}
     }
+}
+
+/// The names an expression assigns, as names rather than positions.
+///
+/// [`assigned_in_expr_positions`] answers the same question against a scope;
+/// this one is for a caller collecting into a list it will resolve later.
+fn assigned_in_expr_names(expr: &Expr) -> Vec<Name> {
+    let mut names = Vec::new();
+    assigned_in_expr(expr, &mut names);
+    names
+}
+
+/// Emits `switch`.
+///
+/// # Why this lives beside the loops
+///
+/// A switch is not a loop and it needs everything a loop's exit needs: a block
+/// with a parameter per name the statement assigns, a frame so `break` can
+/// reach it, and the truncation to a shared prefix that makes a position mean
+/// the same binding in two snapshots. Putting it elsewhere would mean exporting
+/// four private helpers to a module that uses nothing else here.
+///
+/// # The shape, and why every body block takes parameters
+///
+/// ```text
+///   test₀ ──match──▶ body₀ ─fall─▶ body₁ ─fall─▶ … ─▶ exit
+///     │                 ▲             ▲               ▲
+///    miss               └── test₁ ────┘               │
+///     ▼                                            break
+///   test₁ … ──all missed──▶ default, or exit
+/// ```
+///
+/// `body₁` has two predecessors that are nowhere near each other: the test that
+/// matched it, and `body₀` falling through. Their environments differ, so the
+/// body needs block parameters — the same answer `if` reaches by comparing two
+/// snapshots, except that here there is no pair to compare. Every body gets the
+/// same parameter list, over the names the whole statement assigns, and each
+/// predecessor passes its own values.
+///
+/// # Why the bodies are created before anything branches
+///
+/// A jump checks its argument count against the target's parameters, so every
+/// parameter has to exist before the first branch. That is the same ordering
+/// `add_params` records for loops, and getting it wrong there produced
+/// `ArgumentCount { expected: 0, found: 1 }` on every loop.
+///
+/// # `default` is matched last and runs where it sits
+///
+/// It is not a fallback appended to the end. `switch (9) { default: a(); case
+/// 1: b(); }` runs both, because control enters at `default` and falls through
+/// — so the clause keeps its position among the bodies and only the *test*
+/// chain treats it differently, by leaving it out and jumping there when
+/// nothing matched.
+pub fn emit_switch(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    loops: &mut Loops,
+    statement: &Stmt,
+    discriminant: &Expr,
+    clauses: &[crate::syntax::SwitchClause],
+) -> EmitResult<bool> {
+    let (merged, depth) = plan(scope, statement);
+    let subject = super::expr::emit_expr(builder, scope, ctx, discriminant)?;
+
+    let entering = scope.snapshot();
+    let exit = builder.create_block();
+    let exit_params = add_params(builder, exit, &merged, &entering);
+
+    let bodies: Vec<BlockId> = clauses.iter().map(|_| builder.create_block()).collect();
+    let body_params: Vec<Vec<ValueId>> = bodies
+        .iter()
+        .map(|&block| add_params(builder, block, &merged, &entering))
+        .collect();
+
+    // The test chain. Each comparison is `===`, so `case "1"` does not match
+    // `1` and `case NaN` matches nothing — including `NaN`.
+    let mut fell_through = None;
+    for (position, clause) in clauses.iter().enumerate() {
+        let Some(test) = &clause.test else {
+            continue;
+        };
+        if let Some(previous) = fell_through.take() {
+            builder.switch_to(previous);
+        }
+        let candidate = super::expr::emit_expr(builder, scope, ctx, test)?;
+        // The runtime answers a PROVEN boolean, which is what a branch takes —
+        // so this is the one comparison in the emitter that does not widen it
+        // back into a value afterwards.
+        let matched = super::expr::call(
+            builder,
+            ctx,
+            crate::runtime::RuntimeOp::StrictEquals,
+            &[subject, candidate],
+        )?[0];
+        let next = builder.create_block();
+        let here = scope.snapshot();
+        builder.branch(
+            matched,
+            (bodies[position], &merged_args(&here[..depth], &merged)),
+            (next, &[]),
+        )?;
+        fell_through = Some(next);
+    }
+
+    // Nothing matched. `default` where it sits, and past the whole statement
+    // where there is none.
+    if let Some(last) = fell_through.take() {
+        builder.switch_to(last);
+    }
+    let unmatched = scope.snapshot();
+    let target = clauses
+        .iter()
+        .position(|clause| clause.test.is_none())
+        .map_or(exit, |at| bodies[at]);
+    builder.jump(target, &merged_args(&unmatched[..depth], &merged))?;
+
+    // The bodies, in source order, each falling into the next.
+    let frame = Frame {
+        label: None,
+        // A switch is not a loop: `continue` inside one belongs to whatever
+        // loop encloses it, which is what a `None` here arranges.
+        continue_to: None,
+        break_to: exit,
+        depth,
+        merged: merged.clone(),
+    };
+    loops.inside(frame, |loops| -> EmitResult<()> {
+        for (position, clause) in clauses.iter().enumerate() {
+            builder.switch_to(bodies[position]);
+            settle(scope, &entering, &merged, &body_params[position]);
+            scope.enter();
+            let mut terminated = false;
+            for inner in &clause.body {
+                if emit_stmt(builder, scope, ctx, loops, inner)? {
+                    terminated = true;
+                    break;
+                }
+            }
+            scope.leave();
+            if !terminated {
+                let leaving = scope.snapshot();
+                let next = bodies.get(position + 1).copied().unwrap_or(exit);
+                builder.jump(next, &merged_args(&leaving[..depth], &merged))?;
+            }
+        }
+        Ok(())
+    })?;
+
+    builder.switch_to(exit);
+    settle(scope, &entering, &merged, &exit_params);
+    // Control reaches whatever follows: a switch with no matching clause and no
+    // `default` runs nothing at all.
+    Ok(false)
 }

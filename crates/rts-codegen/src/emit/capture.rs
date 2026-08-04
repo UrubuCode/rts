@@ -130,6 +130,20 @@ fn referenced_inside_statement(statement: &Stmt, found: &mut BTreeSet<Name>) {
             referenced_inside_statement(body, found);
         }
         StmtKind::Labelled { body, .. } => referenced_inside_statement(body, found),
+        StmtKind::Switch {
+            discriminant,
+            clauses,
+        } => {
+            referenced_inside_expr(discriminant, found);
+            for clause in clauses {
+                if let Some(test) = &clause.test {
+                    referenced_inside_expr(test, found);
+                }
+                for statement in &clause.body {
+                    referenced_inside_statement(statement, found);
+                }
+            }
+        }
 
         // Everything else is refused by the emitter, so a name inside one can
         // never be reached. Listed as a wildcard rather than enumerated because
@@ -351,6 +365,17 @@ fn declared_by_statement(statement: &Stmt, found: &mut BTreeSet<Name>) {
             declared_by_statement(body, found);
         }
         StmtKind::Labelled { body, .. } => declared_by_statement(body, found),
+        StmtKind::Switch { clauses, .. } => {
+            // A clause body is a scope in the language and is not one here, for
+            // the same reason a block is not: erring toward MORE names in the
+            // environment costs a load, and erring toward fewer is two closures
+            // disagreeing about a variable.
+            for clause in clauses {
+                for statement in &clause.body {
+                    declared_by_statement(statement, found);
+                }
+            }
+        }
         _ => {}
     }
 }
