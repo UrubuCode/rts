@@ -3060,3 +3060,88 @@ fn new_past_the_convention_keeps_its_arguments_too() {
     );
     assert_eq!(tags::decode_double(gathered), 5.0);
 }
+
+#[test]
+fn an_array_finds_its_methods_by_inheriting_them() {
+    // The same substitution a string gets, and for the same reason: a link per
+    // array would be a word spent at every allocation on a fact they all share.
+    let produced = run("let a = [1, 2]; a.push(3); return a.length;");
+    assert_eq!(tags::decode_double(produced), 3.0);
+
+    let popped = run("let a = [1, 2, 3]; return a.pop();");
+    assert_eq!(tags::decode_double(popped), 3.0);
+
+    // `length` is a real property both paths read, so a method that changes it
+    // has to write it — this is what catches forgetting.
+    let after = run("let a = [1, 2, 3]; a.pop(); return a.length;");
+    assert_eq!(tags::decode_double(after), 2.0);
+}
+
+#[test]
+fn a_method_taking_a_callback_calls_back_into_compiled_code() {
+    // The place a built-in reaches user code. It is why the elements are
+    // collected, the borrow dropped, the callback run, and the result stored in
+    // a fresh borrow — calling from inside one re-enters the RefCell.
+    let mapped = run("let a = [1, 2, 3]; return a.map(function (x) { return x * 2; })[2];");
+    assert_eq!(tags::decode_double(mapped), 6.0);
+
+    let filtered = run("let a = [1, 2, 3, 4]; return a.filter(function (x) { return x > 2; }).length;");
+    assert_eq!(tags::decode_double(filtered), 2.0);
+
+    let reduced = run("let a = [1, 2, 3]; return a.reduce(function (t, x) { return t + x; }, 0);");
+    assert_eq!(tags::decode_double(reduced), 6.0);
+
+    let found = run("let a = [1, 2, 3]; return a.find(function (x) { return x > 1; });");
+    assert_eq!(tags::decode_double(found), 2.0);
+
+    // The index is the second argument, which a callback taking only the value
+    // would pass either way — so this is what says it is really supplied.
+    let indexed = run("let a = [9, 9, 9]; return a.map(function (x, i) { return i; })[2];");
+    assert_eq!(tags::decode_double(indexed), 2.0);
+}
+
+#[test]
+fn the_predicates_answer_booleans_over_the_whole_array() {
+    let some = run("let a = [1, 2]; return a.some(function (x) { return x > 1; });");
+    assert_eq!(tags::payload_of(some), tags::BOOL_TRUE);
+
+    let every = run("let a = [1, 2]; return a.every(function (x) { return x > 1; });");
+    assert_eq!(tags::payload_of(every), tags::BOOL_FALSE);
+
+    let includes = run("return [1, 2, 3].includes(2);");
+    assert_eq!(tags::payload_of(includes), tags::BOOL_TRUE);
+
+    let missing = run("return [1, 2, 3].indexOf(9);");
+    assert_eq!(tags::decode_double(missing), -1.0);
+}
+
+#[test]
+fn join_and_slice_answer_what_the_language_says() {
+    let joined = run("return [1, 2, 3].join(\"-\") === \"1-2-3\";");
+    assert_eq!(tags::payload_of(joined), tags::BOOL_TRUE);
+
+    // A negative index counts from the end, the same clamping rule strings use
+    // — written once, so the two cannot disagree.
+    let sliced = run("return [1, 2, 3, 4].slice(-2).length;");
+    assert_eq!(tags::decode_double(sliced), 2.0);
+
+    let reversed = run("return [1, 2, 3].reverse()[0];");
+    assert_eq!(tags::decode_double(reversed), 3.0);
+}
+
+#[test]
+fn array_is_a_name_the_runtime_provides() {
+    let recognised = run("return Array.isArray([1]);");
+    assert_eq!(tags::payload_of(recognised), tags::BOOL_TRUE);
+
+    let not_one = run("return Array.isArray({});");
+    assert_eq!(tags::payload_of(not_one), tags::BOOL_FALSE);
+
+    let sized = run("return new Array(3).length;");
+    assert_eq!(tags::decode_double(sized), 3.0);
+
+    // `Array.prototype.mine = f` reaches every array, which is the whole point
+    // of the substitution being an ordinary object.
+    let extended = run("Array.prototype.first = function () { return this[0]; }; return [7, 8].first();");
+    assert_eq!(tags::decode_double(extended), 7.0);
+}

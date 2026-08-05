@@ -305,7 +305,7 @@ extern "C" fn slice(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u64) 
     });
     match taken {
         Some(taken) => built(taken),
-        None => with_current(undefined_of),
+        None => with_current(|context| undefined_of(context)),
     }
 }
 
@@ -321,7 +321,7 @@ extern "C" fn concat(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> 
                 .as_slot()
                 .and_then(|cell| context.elements_at(cell))
             {
-                Some(more) => elements.extend_from_slice(&more.clone()),
+                Some(more) => elements.extend_from_slice(more),
                 None => elements.push(value),
             }
         }
@@ -329,7 +329,7 @@ extern "C" fn concat(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> 
     });
     match joined {
         Some(joined) => built(joined),
-        None => with_current(undefined_of),
+        None => with_current(|context| undefined_of(context)),
     }
 }
 

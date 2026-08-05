@@ -35,6 +35,7 @@
 mod accessor;
 mod alloc;
 mod array;
+mod array_proto;
 mod barrier;
 mod bitwise;
 mod cache;
@@ -206,6 +207,12 @@ pub struct Context {
     /// [`objects::inherited_from`] for why a link per string would be a word
     /// spent on a fact they all share.
     string_prototype: Option<u32>,
+    /// What every array inherits from, once one has been asked for a method.
+    ///
+    /// Substituted by the chain walk rather than linked from each cell, for the
+    /// reason `string_prototype` records: `array_new` would otherwise write the
+    /// link at every allocation to record one fact they all share.
+    array_prototype: Option<u32>,
     /// Which keys on a cell are a pair of functions rather than a slot.
     ///
     /// Deliberately NOT in the shape: compiled code emits `cached_get`, which
@@ -342,6 +349,7 @@ impl Context {
             regexp_prototype: None,
             globals: None,
             string_prototype: None,
+            array_prototype: None,
             resolves: 0,
             barriers: 0,
             // Empty until a host seeds it. A program with no string literal

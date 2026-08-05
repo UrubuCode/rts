@@ -280,6 +280,14 @@ pub(super) fn inherited_from(context: &mut Context, cell: u32) -> Option<u32> {
     if context.text_at(cell).is_some() {
         return super::string::prototype_of(context);
     }
+    // An array is an ordinary object with an ordinary shape, so unlike a string
+    // it could carry a link — and does not, for the reason a string does not:
+    // the link would be written at every allocation to record one fact every
+    // array shares. `prototype_at` is asked first, so `Object.setPrototypeOf`
+    // still wins over the substitution.
+    if context.elements_at(cell).is_some() {
+        return super::array_proto::prototype_of(context);
+    }
     None
 }
 
