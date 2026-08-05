@@ -47,6 +47,7 @@ mod current;
 mod functions;
 mod global;
 mod native;
+mod object_global;
 mod objects;
 mod operators;
 mod primitives;

@@ -1,18 +1,22 @@
 //! The names the runtime provides, and how one is read.
 //!
-//! # What this is not
+//! # What a name here is, and why it is a call
 //!
-//! It is **not** the global object. A real one is an object every unbound name
-//! resolves against, with `globalThis`, with writes that create properties, and
-//! with `typeof undeclared` answering `"undefined"` instead of throwing. None of
-//! that is here, and none of it is faked: a name not in the list below is still
-//! [`super::EmitError::UnboundName`], so a typo is still a program that does not
-//! compile rather than one that runs.
+//! `RegExp` is not a constant the way `NaN` is. It is an object with a
+//! `prototype`, allocated once, that a program can write properties to — so the
+//! emitter cannot produce it, and a call is what reaches the one the runtime
+//! made. The number that crosses is the key the compiler already resolved.
 //!
-//! What this is: a fixed set of names whose values the runtime holds, read by
-//! key. It exists because `RegExp` is not a constant the way `NaN` is — it is an
-//! object with a `prototype`, allocated once, and a program can write properties
-//! to it. So the emitter cannot produce it, and a call is what reaches it.
+//! # The one thing kept stricter than the language
+//!
+//! A name that is neither provided here nor assigned anywhere in the program is
+//! [`super::EmitError::UnboundName`] rather than a read answering `undefined`.
+//! The language throws a `ReferenceError` there, which this engine cannot raise
+//! where a handler could catch it — so the choice is between a refusal that is
+//! wrong for a program meaning to CATCH that error and an `undefined` that is
+//! wrong for every program with a typo in it. `typeof` is exempt, as the
+//! specification exempts it, and that exemption is implemented rather than
+//! approximated.
 //!
 //! # Why the list lives in this crate
 //!
@@ -43,7 +47,7 @@ use crate::runtime::RuntimeOp;
 /// `globalThis` is the object itself, which is what makes this a global object
 /// rather than a table with globals in it: a program can reach it, enumerate it,
 /// and put something on it.
-const PROVIDED: &[&str] = &["RegExp", "String", "globalThis"];
+const PROVIDED: &[&str] = &["Object", "RegExp", "String", "globalThis"];
 
 /// Whether a name resolves against the global object.
 ///

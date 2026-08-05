@@ -66,6 +66,7 @@ pub fn global_get(key: i64) -> u64 {
         let made = match text.as_str() {
             "RegExp" => super::regex::constructor(context),
             "String" => super::string::constructor(context),
+            "Object" => super::object_global::constructor(context),
             // The object itself, which is what makes it a global object rather
             // than a table with globals in it: a program can reach it, read
             // what is on it, and put something there.

@@ -69,6 +69,21 @@ impl Context {
             .map(|(_, get, set)| (*get, *set))
     }
 
+    /// Which keys a cell defines accessors for.
+    ///
+    /// Read by enumeration, which would otherwise report an object holding only
+    /// `get x()` as having no properties: the pair is deliberately out of the
+    /// layout, so a walk of the shape alone cannot see it.
+    pub(super) fn accessors_at(&self, cell: u32) -> Option<Vec<rts_cranelift::shape::Key>> {
+        let defined = self.accessors.get(cell)?;
+        Some(
+            defined
+                .iter()
+                .filter_map(|(key, _, _)| self.keys.key(*key))
+                .collect(),
+        )
+    }
+
     /// Records one, keeping whichever half was already there.
     ///
     /// `get x()` and `set x(v)` are two declarations of one property, and a

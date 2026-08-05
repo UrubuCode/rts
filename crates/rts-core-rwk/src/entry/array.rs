@@ -183,6 +183,24 @@ pub fn own_keys(object: u64) -> u64 {
                 keys.push(text.clone());
             }
         }
+        // Accessors are own properties too, and enumerable ones. They are not
+        // in the layout — deliberately, so a cached read cannot find a getter
+        // and return it — so a walk of the shape alone reports an object with
+        // `get b()` as having no `b` at all. `Object.keys` and `for (k in o)`
+        // both read this, and both were wrong until it was added.
+        //
+        // After the layout's, because the shape's order is the order they were
+        // created in and an accessor was created by a separate operation. That
+        // is a divergence for an object mixing the two: the specification
+        // interleaves them in creation order, and recording that needs the
+        // shape to know about a property it is deliberately not holding.
+        if let Some(defined) = context.accessors_at(slot) {
+            for key in defined {
+                if let Some(text) = context.interner.text(key) {
+                    keys.push(text.clone());
+                }
+            }
+        }
         keys
     });
 

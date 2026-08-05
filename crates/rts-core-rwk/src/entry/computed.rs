@@ -12,15 +12,17 @@
 //! through this side. Filing them with the named read would put two answers to
 //! "what is a key" in one file.
 
+use super::objects::{machine_key, put, set_slot_value, slot_value, undefined_of};
 use super::string::text::{string_element, string_property};
-use super::objects::{
-    machine_key, put, read_property, set_slot_value, slot_value,
-    undefined_of,
-};
 use super::{Context, with_current};
 use crate::object::Key;
 use crate::value::Value;
 
+/// The key a value names, through `ToPropertyKey`.
+///
+/// # Why every key becomes a name, including one that spells an index
+///
+/// `o[0]` and `o["0"]` are
 /// one property, which is what the language says, and the only thing lost is an
 /// enumeration order nothing implements. Routing it through `Key::from_str` and
 /// letting the `None` through would have made `o[0] = 1; o[0]` read as absent —
@@ -34,11 +36,15 @@ fn property_key(context: &mut Context, key: Value) -> Option<Key> {
 }
 
 /// `object[key]`, where the key is a value rather than a resolved name.
+///
+/// Two statements, like the named read and for the same reason: the answer may
+/// be a getter, which is user code that must not run inside a borrow of the
+/// context.
 #[rtse::entry]
 pub fn get_indexed(object: u64, key: u64) -> u64 {
-    with_current(|context| {
+    let found = with_current(|context| {
         let Some(slot) = Value(object).as_slot() else {
-            return undefined_of(context);
+            return super::accessor::Found::Value(undefined_of(context));
         };
         // An element, if this is an array and the key is a canonical index.
         // Asked BEFORE `ToPropertyKey`, because that would turn the number into
@@ -47,34 +53,47 @@ pub fn get_indexed(object: u64, key: u64) -> u64 {
             && let Some(elements) = context.elements_at(slot)
         {
             // Past the end is absent, not an error: `[1,2][9]` is `undefined`.
-            return elements
+            let answer = elements
                 .get(at)
                 .copied()
                 .unwrap_or_else(|| undefined_of(context));
+            return super::accessor::Found::Value(answer);
         }
         if let Some(answer) = string_element(context, slot, Value(key)) {
-            return answer;
+            return super::accessor::Found::Value(answer);
         }
         let Some(key) = property_key(context, Value(key)) else {
-            return undefined_of(context);
+            return super::accessor::Found::Value(undefined_of(context));
         };
         if let Some(answer) = string_property(context, slot, key) {
-            return answer;
+            return super::accessor::Found::Value(answer);
         }
-        match read_property(context, slot, key) {
-            Some(value) => value.bits(),
-            None => undefined_of(context),
+        // Through the accessor-aware walk, not `read_property`, and the reason
+        // is the whole point of a computed read: `o[k]` and `o.x` name the same
+        // property, so one of them finding a getter and the other reading a
+        // slot would make which spelling was written decide what a property IS.
+        super::accessor::resolve(context, slot, key)
+    });
+    match found {
+        super::accessor::Found::Value(value) => value,
+        super::accessor::Found::Getter(getter) => {
+            let undefined = with_current(|context| undefined_of(context));
+            super::functions::call(getter, object, undefined, undefined, undefined, undefined)
         }
-    })
+        super::accessor::Found::Absent => with_current(|context| undefined_of(context)),
+    }
 }
 
 /// `object[key] = value`. Answers the value, because an assignment is an
 /// expression.
+///
+/// Two statements, like the named write: a setter is user code and runs after
+/// the borrow ends.
 #[rtse::entry]
 pub fn set_indexed(object: u64, key: u64, value: u64) -> u64 {
-    with_current(|context| {
+    let setter = with_current(|context| {
         let Some(slot) = Value(object).as_slot() else {
-            return value;
+            return None;
         };
         if let Some(at) = super::array::as_index(context, Value(key))
             && let Some(elements) = context.elements_at_mut(slot)
@@ -105,14 +124,26 @@ pub fn set_indexed(object: u64, key: u64, value: u64) -> u64 {
             // for a hit.
             let count = elements.len();
             super::array::set_length(context, slot, count);
-            return value;
+            return None;
         }
         let Some(key) = property_key(context, Value(key)) else {
-            return value;
+            return None;
         };
+        // The same question the named write asks, and it has to be asked here
+        // too: `o[k] = v` and `o.x = v` reach one property, so a setter found
+        // by one spelling and a slot written by the other is two answers to
+        // what that property IS.
+        if let Some(setter) = super::accessor::setter_for(context, slot, key) {
+            return Some(setter);
+        }
         put(context, slot, key, value);
-        value
-    })
+        None
+    });
+    if let Some(setter) = setter {
+        let undefined = with_current(|context| undefined_of(context));
+        super::functions::call(setter, object, value, undefined, undefined, undefined);
+    }
+    value
 }
 
 /// `key in object`.
@@ -133,7 +164,14 @@ pub fn has_property(key: u64, object: u64) -> bool {
         let Some(key) = property_key(context, Value(key)) else {
             return false;
         };
-        read_property(context, slot, key).is_some()
+        // An accessor is a property the object HAS, and it is not in the
+        // layout — so asking the shape alone answers false for
+        // `"x" in { get x() {} }`, which is the operator getting its one job
+        // wrong.
+        !matches!(
+            super::accessor::resolve(context, slot, key),
+            super::accessor::Found::Absent
+        )
     })
 }
 

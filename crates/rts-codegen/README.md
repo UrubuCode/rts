@@ -168,7 +168,8 @@ There **is** a global object now: `globalThis` is a real object a program can
 reach and write to, an assignment to an undeclared name creates a property on
 it, and `typeof undeclared` answers `"undefined"` rather than failing — the
 exemption the specification gives `typeof` for taking a reference rather than a
-value. `RegExp` and `String` are the names the runtime supplies so far.
+value. `Object`, `RegExp` and `String` are the names the runtime supplies so
+far.
 
 One thing is deliberately **stricter than the language**. Reading a name that
 neither the runtime provides nor the program ever assigns is refused at compile

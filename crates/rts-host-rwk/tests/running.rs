@@ -2844,3 +2844,102 @@ fn an_own_value_shadows_an_inherited_accessor_and_the_reverse() {
     );
     assert_eq!(tags::decode_double(own_getter), 2.0);
 }
+
+#[test]
+fn object_keys_and_values_agree_about_order() {
+    // The property they are useful in pairs for, and the reason `values` is
+    // built from the keys rather than from a second walk of the layout.
+    let count = run("let o = { a: 1, b: 2 }; return Object.keys(o).length;");
+    assert_eq!(tags::decode_double(count), 2.0);
+
+    let first = run("let o = { a: 1, b: 2 }; return Object.keys(o)[0] === \"a\";");
+    assert_eq!(tags::payload_of(first), tags::BOOL_TRUE);
+
+    let value = run("let o = { a: 1, b: 2 }; return Object.values(o)[1];");
+    assert_eq!(tags::decode_double(value), 2.0);
+}
+
+#[test]
+fn object_values_runs_a_getter_rather_than_reading_a_slot() {
+    // A direct read of the layout would skip it — and would find nothing at
+    // all, since an accessor is deliberately not in the layout.
+    let produced = run("let o = { a: 1, get b() { return 9; } }; return Object.values(o)[1];");
+    assert_eq!(tags::decode_double(produced), 9.0);
+}
+
+#[test]
+fn the_prototype_of_an_object_can_be_read_and_written() {
+    let linked = run(
+        "let parent = { m() { return 3; } }; let child = {}; Object.setPrototypeOf(child, parent); return child.m();",
+    );
+    assert_eq!(tags::decode_double(linked), 3.0);
+
+    let read_back = run(
+        "let parent = {}; let child = {}; Object.setPrototypeOf(child, parent); return Object.getPrototypeOf(child) === parent;",
+    );
+    assert_eq!(tags::payload_of(read_back), tags::BOOL_TRUE);
+
+    // What a class links, read back through the same operation — which is what
+    // says the class lowering and this method agree about the chain.
+    let from_a_class = run(
+        "class A {} class B extends A {} return Object.getPrototypeOf(B.prototype) === A.prototype;",
+    );
+    assert_eq!(tags::payload_of(from_a_class), tags::BOOL_TRUE);
+}
+
+#[test]
+fn define_property_makes_an_accessor_or_a_value() {
+    let accessor = run(
+        "let o = {}; Object.defineProperty(o, \"x\", { get: function () { return 5; } }); return o.x;",
+    );
+    assert_eq!(tags::decode_double(accessor), 5.0);
+
+    let data = run("let o = {}; Object.defineProperty(o, \"x\", { value: 6 }); return o.x;");
+    assert_eq!(tags::decode_double(data), 6.0);
+}
+
+#[test]
+fn assign_copies_through_the_ordinary_property_paths() {
+    let copied = run("let t = {}; Object.assign(t, { a: 1 }); return t.a;");
+    assert_eq!(tags::decode_double(copied), 1.0);
+
+    // A getter on the source runs, which a slot-to-slot copy would have skipped
+    // — and would have found nothing, an accessor not being in the layout.
+    let through_a_getter = run("let t = {}; Object.assign(t, { get a() { return 4; } }); return t.a;");
+    assert_eq!(tags::decode_double(through_a_getter), 4.0);
+}
+
+#[test]
+fn object_makes_an_empty_object_either_way_it_is_written() {
+    let called = run("let o = Object(); o.x = 1; return o.x;");
+    assert_eq!(tags::decode_double(called), 1.0);
+
+    let constructed = run("let o = new Object(); o.x = 2; return o.x;");
+    assert_eq!(tags::decode_double(constructed), 2.0);
+}
+
+#[test]
+fn an_accessor_is_a_property_the_object_has() {
+    // It is not in the layout, so every question answered from the shape alone
+    // reports it as absent — which is the operator and the enumeration both
+    // getting their one job wrong.
+    let present = run("let o = { get x() { return 1; } }; return \"x\" in o;");
+    assert_eq!(tags::payload_of(present), tags::BOOL_TRUE);
+
+    let listed = run("let o = { get x() { return 1; } }; return Object.keys(o)[0] === \"x\";");
+    assert_eq!(tags::payload_of(listed), tags::BOOL_TRUE);
+}
+
+#[test]
+fn a_computed_access_reaches_the_same_property_a_named_one_does() {
+    // `o[k]` and `o.x` name one property. A getter found by one spelling and a
+    // slot read by the other would make which was written decide what the
+    // property IS.
+    let read = run("let o = { get x() { return 5; } }; let k = \"x\"; return o[k];");
+    assert_eq!(tags::decode_double(read), 5.0);
+
+    let written = run(
+        "let o = { set x(v) { this.held = v + 1; } }; let k = \"x\"; o[k] = 2; return o.held;",
+    );
+    assert_eq!(tags::decode_double(written), 3.0);
+}
