@@ -2344,3 +2344,65 @@ fn a_lookahead_reaches_the_engine_that_has_one() {
     let absent = run("return /foo(?=bar)/.test(\"foobaz\");");
     assert_eq!(tags::payload_of(absent), tags::BOOL_FALSE);
 }
+
+#[test]
+fn a_regular_expression_can_be_constructed_from_a_value() {
+    // The other spelling of the same operation. `RegExp` is not a constant the
+    // emitter can produce — it is an object with a `prototype` — so this also
+    // pins that a name the runtime provides reaches the value it made.
+    let found = run("let r = new RegExp(\"a+\", \"i\"); return r.test(\"AAA\");");
+    assert_eq!(tags::payload_of(found), tags::BOOL_TRUE);
+
+    // The pattern is a value here, which is what a table of patterns compiled
+    // at build time could not have served.
+    let computed = run("let p = \"b\" + \"c\"; let r = new RegExp(p); return r.test(\"abcd\");");
+    assert_eq!(tags::payload_of(computed), tags::BOOL_TRUE);
+}
+
+#[test]
+fn regexp_without_new_makes_one_too() {
+    // One of the few constructors the language says behaves the same either
+    // way, and it falls out of `construct` answering the object a callee
+    // returned rather than being written for twice.
+    let produced = run("let r = RegExp(\"a\"); return r.test(\"xax\");");
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
+fn a_constructed_expression_is_the_same_kind_of_thing_as_a_literal() {
+    // Same prototype, so `test` is found by the same chain walk — and
+    // `instanceof` answers through machinery that knows nothing about regular
+    // expressions, which is what says the constructor was wired rather than
+    // special-cased.
+    let produced = run("return /a/ instanceof RegExp;");
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+
+    let constructed = run("return new RegExp(\"a\") instanceof RegExp;");
+    assert_eq!(tags::payload_of(constructed), tags::BOOL_TRUE);
+}
+
+#[test]
+fn missing_flags_are_no_flags_rather_than_a_refusal() {
+    let produced = run("return new RegExp(\"a\").flags === \"\";");
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
+fn the_provided_name_is_one_object_however_often_it_is_read() {
+    // A value made per read would make `RegExp === RegExp` false, and a program
+    // attaching something to the constructor would attach it to a copy.
+    let produced = run("return RegExp === RegExp;");
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+
+    let written = run("RegExp.mine = 7; return RegExp.mine;");
+    assert_eq!(tags::decode_double(written), 7.0);
+}
+
+#[test]
+fn a_name_nothing_provides_is_still_the_programs_error() {
+    // The provided set is not a global object, and this is the difference that
+    // matters: a typo does not become `undefined`. Removing this assertion is
+    // how the refusal would quietly stop applying.
+    let error = compile("return Elephant;").expect_err("refused");
+    assert!(format!("{error:?}").contains("UnboundName"), "{error:?}");
+}

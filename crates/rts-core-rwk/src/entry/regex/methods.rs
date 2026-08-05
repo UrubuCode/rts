@@ -30,6 +30,42 @@ pub(super) type Native = extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64;
 /// What a regular expression's prototype holds.
 pub(super) const NATIVES: &[(&str, Native)] = &[("test", test), ("exec", exec)];
 
+/// `RegExp(p, f)` and `new RegExp(p, f)`, which are the same thing here.
+///
+/// # Why one function serves both
+///
+/// The language says `RegExp` called without `new` behaves as if it had one —
+/// it is one of the few constructors that does. And `construct` answers the
+/// object a callee *returned* when the callee returned one, so a native that
+/// ignores the receiver it was handed and answers its own object satisfies both
+/// spellings without either knowing about the other.
+///
+/// # Why absent flags are the empty string rather than a refusal
+///
+/// `new RegExp("a")` is ordinary JavaScript and its second argument is
+/// `undefined`, which the specification reads as no flags. Requiring a string
+/// would refuse the common spelling.
+pub(super) extern "C" fn construct(
+    _environment: u64,
+    _this: u64,
+    pattern: u64,
+    flags: u64,
+    _a2: u64,
+    _a3: u64,
+) -> u64 {
+    with_current(|context| {
+        let Some(source) = text_of(context, pattern) else {
+            // A pattern that is not a string. `new RegExp(1)` runs `ToString`
+            // on it, and `ToString` of an object calls user code an entry point
+            // cannot call — so the conversion stops where that becomes true,
+            // rather than half-doing it for the cases that would work.
+            return undefined_of(context);
+        };
+        let letters = text_of(context, flags).unwrap_or_default();
+        super::make(context, &source, &letters)
+    })
+}
+
 /// `re.test(s)` — whether there is a match.
 ///
 /// Answers `false` for a receiver that is not a regular expression, where the

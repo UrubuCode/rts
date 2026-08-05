@@ -43,6 +43,7 @@ mod computed;
 mod context_tests;
 mod current;
 mod functions;
+mod global;
 mod objects;
 mod operators;
 mod primitives;
@@ -58,6 +59,7 @@ pub use bitwise::{
 };
 pub use computed::{delete_property, get_indexed, has_property, set_indexed};
 pub use functions::{ARGUMENT_SLOTS, call, closure_new, construct, instance_of};
+pub use global::global_get;
 pub use objects::{get_property, object_new, set_property};
 pub use operators::{
     divide, greater, greater_equal, less, less_equal, loose_equals, multiply, remainder, subtract,
@@ -181,6 +183,12 @@ pub struct Context {
     /// expression should not spend three cells of a fixed-size region on the
     /// object and the two native callables it holds.
     regexp_prototype: Option<u64>,
+    /// Where the names the runtime provides live, once one has been read.
+    ///
+    /// An object rather than a table, because `RegExp.x = 1` is an ordinary
+    /// property write and every mechanism for it already exists. See
+    /// [`global`] for why this is not the global object.
+    globals: Option<u32>,
     /// Which cells are arrays, and where their elements are.
     ///
     /// # Why a side table and not a reserved layout
@@ -285,6 +293,7 @@ impl Context {
             array_elements: Aside::new(),
             regexes: Aside::new(),
             regexp_prototype: None,
+            globals: None,
             resolves: 0,
             barriers: 0,
             // Empty until a host seeds it. A program with no string literal

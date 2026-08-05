@@ -55,6 +55,7 @@ use super::operators::{
     REMAINDER_ENTRY, SUBTRACT_ENTRY,
 };
 use super::primitives::{ADD_ENTRY, NUMBER_TO_STRING_ENTRY, STRICT_EQUALS_ENTRY, TO_BOOLEAN_ENTRY};
+use super::global::GLOBAL_GET_ENTRY;
 use super::regex::REGEX_NEW_ENTRY;
 use super::text::{STRING_CONST_ENTRY, TYPE_OF_ENTRY};
 
@@ -263,6 +264,12 @@ pub enum CoreEntry {
     /// crate holds beside the cell. Not a constant the compiler could emit: a
     /// literal evaluated twice is two objects with their own `lastIndex`.
     RegexNew = 36,
+
+    /// The value a name the runtime provides has.
+    ///
+    /// Here because those values are allocated, and because they are held as
+    /// properties of an object this crate owns.
+    GlobalGet = 37,
 }
 
 /// How many entry points exist.
@@ -270,7 +277,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 37;
+pub const CORE_ENTRY_COUNT: usize = 38;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -312,6 +319,7 @@ impl CoreEntry {
         CoreEntry::Construct,
         CoreEntry::InstanceOf,
         CoreEntry::RegexNew,
+        CoreEntry::GlobalGet,
     ];
 
     /// The number a call site holds.
@@ -364,6 +372,7 @@ impl CoreEntry {
             CoreEntry::Construct => CONSTRUCT_ENTRY,
             CoreEntry::InstanceOf => INSTANCE_OF_ENTRY,
             CoreEntry::RegexNew => REGEX_NEW_ENTRY,
+            CoreEntry::GlobalGet => GLOBAL_GET_ENTRY,
         }
     }
 

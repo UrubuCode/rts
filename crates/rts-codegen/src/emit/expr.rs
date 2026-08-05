@@ -659,7 +659,7 @@ fn proven_binary(op: BinaryOp) -> Option<Proven> {
 /// it is which name the compiler resolved. Emitting it tagged would be claiming
 /// the program could compute it, which is exactly what a computed property does
 /// and what this path is not.
-fn key_constant(builder: &mut FuncBuilder, ctx: &mut Ctx, name: Name) -> ValueId {
+pub(super) fn key_constant(builder: &mut FuncBuilder, ctx: &mut Ctx, name: Name) -> ValueId {
     let key = ctx.key_of(name);
     let id = builder.declare_const(ConstDecl::Scalar {
         repr: Repr::I64,

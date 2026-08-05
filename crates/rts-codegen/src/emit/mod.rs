@@ -61,6 +61,7 @@ mod choice;
 mod expr;
 mod foreach;
 mod function;
+mod globals;
 mod loops;
 mod merge;
 mod protect;

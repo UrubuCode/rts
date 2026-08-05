@@ -59,11 +59,15 @@ pub fn read(
             let environment = walk(builder, scope, ctx, hops)?;
             expr::emit_read(builder, ctx, environment, name)
         }
-        // Nothing declared it. Three names are still readable, and the rest is
-        // the program being wrong — see [`predefined`].
+        // Nothing declared it. A few names are still readable — three the
+        // emitter produces itself and a few the runtime holds — and the rest is
+        // the program being wrong. See [`predefined`] and [`super::globals`].
         None => match predefined(builder, ctx, name) {
             Some(value) => Ok(value),
-            None => Err(EmitError::UnboundName(name)),
+            None => match super::globals::read(builder, ctx, name) {
+                Some(answered) => answered,
+                None => Err(EmitError::UnboundName(name)),
+            },
         },
     }
 }

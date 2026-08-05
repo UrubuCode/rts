@@ -141,7 +141,8 @@ L9 has the full table and what each column means.
 `emit/` turns that tree into the machine's IR. Done: literals — including
 strings and templates — locals, declarations, blocks, `return`, control flow,
 object literals and property access, functions, calls, `this`, recursion,
-closures, `typeof`, regular-expression literals, and **every operator the
+closures, `typeof`, regular expressions — the literal and `new RegExp(…)`,
+which are one operation reached two ways — and **every operator the
 language spells**: arithmetic,
 relational, both equalities, bitwise, shifts and `**`.
 
@@ -158,6 +159,12 @@ prototype) or a **mechanism** (a global object, `throw`, classes, `new`,
 iteration, and the argument vector rest and spread need). Nothing is left in the
 first category — a heap value this crate cannot make — now that strings and
 arrays exist.
+
+The global object is **still absent**, and `emit/globals.rs` is deliberately not
+it: a fixed set of names whose values the runtime holds — `RegExp` today — read
+by key. What a real one adds is `globalThis`, writes that create bindings, and
+`typeof undeclared` answering instead of throwing. None of that is faked, so an
+unbound name is still refused rather than becoming a silent `undefined`.
 
 A **known divergence**, pinned by a test that asserts what the engine does so
 that fixing it fails: `let` in a loop should be a fresh binding per pass, and

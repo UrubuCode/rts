@@ -322,6 +322,14 @@ pub enum RuntimeOp {
     /// their own `lastIndex`, so a literal hoisted to a constant would make two
     /// passes of a loop share where the next search starts.
     RegexNew,
+
+    /// A name the runtime provides, by the key number the compiler resolved.
+    ///
+    /// Not the global object: nothing here creates a property, and an unbound
+    /// name is still refused. It is how a name whose value must be *allocated*
+    /// — `RegExp` is an object with a `prototype`, where `NaN` is a constant —
+    /// reaches the one the runtime made.
+    GlobalGet,
 }
 
 impl RuntimeOp {
@@ -364,6 +372,7 @@ impl RuntimeOp {
         RuntimeOp::InstanceOf,
         RuntimeOp::Call,
         RuntimeOp::RegexNew,
+        RuntimeOp::GlobalGet,
     ];
 
     /// The linker name the runtime must define.
@@ -411,6 +420,7 @@ impl RuntimeOp {
             RuntimeOp::InstanceOf => "__rts_instance_of",
             RuntimeOp::Call => "__rts_call",
             RuntimeOp::RegexNew => "__rts_regex_new",
+            RuntimeOp::GlobalGet => "__rts_global_get",
         }
     }
 
@@ -476,6 +486,10 @@ impl RuntimeOp {
             // The pattern and the flags, as strings — which is what makes this
             // one operation serve both the literal and the constructor.
             RuntimeOp::RegexNew => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
+            // A key the compiler resolved, like the named property read — and
+            // for the same reason: both sides hold the same number, so no text
+            // has to cross.
+            RuntimeOp::GlobalGet => (vec![Repr::I64], vec![UNPROVEN]),
         };
         Signature {
             params,

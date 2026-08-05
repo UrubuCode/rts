@@ -77,10 +77,22 @@ pub fn regex_new(pattern: u64, flags: u64) -> u64 {
         let Some(letters) = text_of(context, flags) else {
             return undefined_of(context);
         };
-        let Some(parsed) = Flags::parse(&letters) else {
+        make(context, &source, &letters)
+    })
+}
+
+/// The object, from text that has already been read.
+///
+/// Shared by the literal and by the constructor, which is the whole reason the
+/// entry point takes strings: `/a/g` and `new RegExp("a", "g")` are the same
+/// operation, and rule 3 asks for one definition of it. The two differ only in
+/// where the text came from, and that difference ends here.
+pub(super) fn make(context: &mut Context, source: &str, letters: &str) -> u64 {
+    {
+        let Some(parsed) = Flags::parse(letters) else {
             return undefined_of(context);
         };
-        let Some(engine) = Engine::compile(&source, parsed) else {
+        let Some(engine) = Engine::compile(source, parsed) else {
             return undefined_of(context);
         };
 
@@ -94,13 +106,13 @@ pub fn regex_new(pattern: u64, flags: u64) -> u64 {
 
         let prototype = prototype_of(context);
         context.set_prototype(cell, prototype);
-        describe(context, cell, &source, &letters, parsed);
+        describe(context, cell, source, letters, parsed);
         context.regexes.set(cell, Regexp {
             engine,
             flags: parsed,
         });
         Value::from_slot(cell).bits()
-    })
+    }
 }
 
 /// The text a value has, when it is genuinely a string.
@@ -155,6 +167,22 @@ fn prototype_of(context: &mut Context) -> u64 {
     }
     context.regexp_prototype = Some(object);
     object
+}
+
+/// `RegExp` itself, as the value the name reads.
+///
+/// A callable with a `prototype` property, exactly like a JavaScript function —
+/// which is what makes `new RegExp(…)` link the right chain and
+/// `re instanceof RegExp` answer true, both through machinery that already
+/// exists and knows nothing about regular expressions.
+pub(super) fn constructor(context: &mut Context) -> u64 {
+    let callable = native(context, methods::construct);
+    let prototype = prototype_of(context);
+    if let Some(cell) = Value(callable).as_slot() {
+        let key = context.well_known("prototype");
+        super::objects::put(context, cell, key, prototype);
+    }
+    callable
 }
 
 /// A callable whose code is a Rust function.
