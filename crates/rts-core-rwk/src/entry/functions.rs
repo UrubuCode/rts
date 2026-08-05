@@ -108,6 +108,101 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
 /// throwing needs protected regions and nothing emits those yet. It is named
 /// here rather than left implicit because *this* gap is the one that would
 /// otherwise be a jump to an arbitrary address.
+/// Calling with more arguments than the convention carries.
+///
+/// # Why the vector is the runtime's and not a stack slot
+///
+/// A real engine hands the callee a count and a pointer to a caller-allocated
+/// vector, which needs a stack slot this compiler does not emit — and choosing
+/// something else *because* of that would be the language layer working around a
+/// missing machine capability, which is the mistake rule 2 names.
+///
+/// This is not that. **Where the arguments of a running call live is a runtime
+/// question**, the same kind as where a string's text lives or where an array's
+/// elements do, and this crate is what answers those. The compiler says "call
+/// this with these arguments" and never learns where they were put.
+///
+/// What it costs is named rather than hidden: a `Vec` push and pop per call,
+/// because a callee reading its rest must not see an *outer* call's vector.
+/// The stack-slot convention removes that, and this is what the language can do
+/// correctly until the machine grows one.
+#[rtse::entry]
+pub fn call_with_args(callee: u64, this: u64, arguments: u64) -> u64 {
+    let first = with_current(|context| {
+        let absent = undefined_of(context);
+        let mut first = [absent; ARGUMENT_SLOTS];
+        if let Some(cell) = Value(arguments).as_slot()
+            && let Some(elements) = context.elements_at(cell)
+        {
+            for (slot, value) in first.iter_mut().zip(elements.iter()) {
+                *slot = *value;
+            }
+        }
+        // The vector this activation reads its rest from. Pushed rather than
+        // stored, because a call inside the callee pushes its own.
+        context.pending_arguments.push(arguments);
+        first
+    });
+    // Not through `call`, which pushes a marker of its own — that marker on top
+    // would hide the vector from exactly the callee it was made for.
+    let produced = invoke(callee, this, first[0], first[1], first[2], first[3]);
+    with_current(|context| context.pending_arguments.pop());
+    produced
+}
+
+/// `function f(a, ...rest)` — the arguments past the declared ones.
+///
+/// # Why the four slots are passed in
+///
+/// Because most calls do not allocate a vector, and a rest parameter over four
+/// or fewer arguments has to work anyway: `f(1, 2, 3)` reaching
+/// `function f(a, ...rest)` must see `[2, 3]`. So the callee hands over what it
+/// was given, and the vector is consulted only when a caller supplied one.
+///
+/// Trailing `undefined` is dropped, which is what makes this answer `[]` for
+/// `f(1)` rather than three padding values the call site invented.
+#[rtse::entry]
+pub fn rest_arguments(from: i64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    let collected = with_current(|context| {
+        let absent = undefined_of(context);
+        let from = from.max(0) as usize;
+        match context.pending_arguments.last().copied() {
+            Some(vector) if Value(vector).as_slot().is_some() => {
+                let cell = Value(vector).as_slot().expect("just checked");
+                match context.elements_at(cell) {
+                    Some(elements) => elements.iter().skip(from).copied().collect::<Vec<u64>>(),
+                    None => Vec::new(),
+                }
+            }
+            // No vector, so the arguments are exactly what the convention
+            // carried. Trailing padding is dropped rather than reported.
+            _ => {
+                let mut given = vec![a0, a1, a2, a3];
+                while given.last() == Some(&absent) {
+                    given.pop();
+                }
+                given.into_iter().skip(from).collect()
+            }
+        }
+    });
+    let array = super::array::array_new(collected.len() as i64);
+    with_current(|context| {
+        if let Some(cell) = Value(array).as_slot()
+            && let Some(elements) = context.elements_at_mut(cell)
+        {
+            *elements = collected;
+        }
+        array
+    })
+}
+
+/// Calls a value, with a receiver and up to [`ARGUMENT_SLOTS`] arguments.
+///
+/// Answers `undefined` for a callee that is not callable, where the language
+/// throws a `TypeError`. A stated gap and the same one property access has:
+/// throwing needs protected regions and nothing emits those yet. It is named
+/// here rather than left implicit because *this* gap is the one that would
+/// otherwise be a jump to an arbitrary address.
 #[rtse::entry]
 pub fn call(callee: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     // Read what is needed, then LET GO of the context before jumping.
@@ -118,6 +213,25 @@ pub fn call(callee: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     // a deadlock this repository has already paid for once, in a different
     // shard, and the reason this function is written as two statements rather
     // than one expression.
+    // No vector for this activation, and saying so is not optional: a callee
+    // reading its rest must not find the vector of an OUTER call that is still
+    // running. One push and one pop per call is what that costs, and
+    // `call_with_args` names what removes it.
+    with_current(|context| {
+        let absent = undefined_of(context);
+        context.pending_arguments.push(absent);
+    });
+    let produced = invoke(callee, this, a0, a1, a2, a3);
+    with_current(|context| context.pending_arguments.pop());
+    produced
+}
+
+/// The jump itself, with no argument vector of its own.
+///
+/// Split from [`call`] because `call_with_args` has already pushed the vector
+/// this activation reads, and `call`'s marker on top of it would hide that
+/// vector from the one callee it was made for.
+fn invoke(callee: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     let found = with_current(|context| resolve(context, callee));
 
     let Some((code, environment)) = found else {

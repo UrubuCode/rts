@@ -373,6 +373,21 @@ pub enum RuntimeOp {
     /// the runtime cannot see: a derived constructor and a plain function are
     /// the same kind of cell.
     MarkDerived,
+
+    /// Calling with more arguments than the convention carries.
+    ///
+    /// The arguments go in an ordinary array and the runtime holds it for the
+    /// activation. Not a stack slot the compiler emits — that is the machine
+    /// capability this waits for — and not this crate deciding where they live
+    /// either: it says "call with these" and never learns where they went.
+    CallWithArgs,
+
+    /// `...rest` — the arguments past the declared ones, as an array.
+    ///
+    /// Takes the four slots as well as the count, because most calls allocate
+    /// no vector and a rest parameter over four or fewer arguments has to work
+    /// anyway.
+    RestArguments,
 }
 
 impl RuntimeOp {
@@ -423,6 +438,8 @@ impl RuntimeOp {
         RuntimeOp::DefineSetter,
         RuntimeOp::SuperConstruct,
         RuntimeOp::MarkDerived,
+        RuntimeOp::CallWithArgs,
+        RuntimeOp::RestArguments,
     ];
 
     /// The linker name the runtime must define.
@@ -478,6 +495,8 @@ impl RuntimeOp {
             RuntimeOp::DefineSetter => "__rts_define_setter",
             RuntimeOp::SuperConstruct => "__rts_super_construct",
             RuntimeOp::MarkDerived => "__rts_mark_derived",
+            RuntimeOp::CallWithArgs => "__rts_call_with_args",
+            RuntimeOp::RestArguments => "__rts_rest_arguments",
         }
     }
 
@@ -558,6 +577,12 @@ impl RuntimeOp {
             // Answers the object, so a lowering can define several in a row.
             RuntimeOp::SuperConstruct => (vec![UNPROVEN; 1 + ARGUMENT_SLOTS], vec![UNPROVEN]),
             RuntimeOp::MarkDerived => (vec![UNPROVEN], vec![UNPROVEN]),
+            // The callee, the receiver, and the arguments as one array.
+            RuntimeOp::CallWithArgs => (vec![UNPROVEN; 3], vec![UNPROVEN]),
+            // How many are declared, then the four the convention carried.
+            RuntimeOp::RestArguments => {
+                (vec![Repr::I64, UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN], vec![UNPROVEN])
+            }
             RuntimeOp::DefineGetter | RuntimeOp::DefineSetter => {
                 (vec![UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN])
             }

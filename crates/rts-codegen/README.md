@@ -156,16 +156,21 @@ Classes land in the same shape: a constructor function, an object on its
 `prototype` holding the methods, and two links for `extends` — a lowering rather
 than a feature, so nothing in the runtime knows what a class is. A derived
 constructor holds its `this` in an environment rather than being handed one,
-because the object is the base of the chain.s to make — which is what lets
+because the object is the base of the chain's to make — which is what lets
 `class Mine extends RegExp {}` produce something with a compiled pattern.
 
 Everything not yet emitted is refused by name, and that list is the work queue.
-`PLAN.md` §3b. What each remaining one waits for:
-what is left needs a **mechanism**: an argument vector (rest, spread, and a call
-of more than four arguments), iteration, generators, and `await`. Accessor
-properties came off this list when the pair-beside-the-cell mechanism landed:
-a getter is deliberately absent from the layout, so the cache misses and the
-read reaches the runtime that can call it.
+`PLAN.md` §3b. What each remaining one waits for is a **mechanism**: iteration
+(which spread and `for-of` over anything but an array both need), generators,
+and `await`.
+
+Two came off that list and each is worth the sentence. Accessor properties
+arrived as a pair kept beside the cell, deliberately absent from the layout, so
+that a cached read misses and the runtime is what calls a getter. The argument
+vector arrived as an ordinary array the **runtime** holds for the activation —
+so a call past the convention keeps its arguments and `...rest` reads them.
+What is still fixed at four is the **declaration**: a fifth parameter has no
+slot to arrive in, and is refused rather than reading `undefined` forever.
 
 There **is** a global object now: `globalThis` is a real object a program can
 reach and write to, an assignment to an undeclared name creates a property on

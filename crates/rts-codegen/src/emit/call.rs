@@ -91,10 +91,18 @@ pub fn emit_call_with(
     receiver: ValueId,
     arguments: &[Spreadable],
 ) -> EmitResult<ValueId> {
+    // Past what the convention carries, the arguments go in an array and the
+    // runtime holds it for the activation. The common call is unchanged and
+    // allocates nothing — which is the whole reason this is a second operation
+    // rather than the only one.
     if arguments.len() > ARGUMENT_SLOTS {
-        return Err(EmitError::Unsupported {
-            construct: "a call with more than four arguments",
-        });
+        let vector = emit_argument_vector(builder, scope, ctx, arguments)?;
+        return Ok(expr::call(
+            builder,
+            ctx,
+            RuntimeOp::CallWithArgs,
+            &[function, receiver, vector],
+        )?[0]);
     }
 
     let mut passed = Vec::with_capacity(2 + ARGUMENT_SLOTS);
@@ -156,6 +164,38 @@ pub fn emit_super_construct(
     arguments: &[Spreadable],
 ) -> EmitResult<ValueId> {
     emit_construction(builder, scope, ctx, function, arguments, RuntimeOp::SuperConstruct)
+}
+
+/// The written arguments, as an ordinary array.
+///
+/// An array literal rather than a second kind of storage: the elements are
+/// evaluated in source order and written at their own indices, which is what
+/// `[a, b, c]` already does — so a call with six arguments and an array literal
+/// of six elements produce the same thing, and there is one answer to what a
+/// sequence of values is.
+fn emit_argument_vector(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    arguments: &[Spreadable],
+) -> EmitResult<ValueId> {
+    let length = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+        repr: rts_cranelift::repr::Repr::I64,
+        bits: rts_cranelift::ir::ScalarBits(arguments.len() as u64),
+    });
+    let length = builder.use_const(length);
+    let array = expr::call(builder, ctx, RuntimeOp::ArrayNew, &[length])?[0];
+    for (at, argument) in arguments.iter().enumerate() {
+        let Spreadable::Single(value) = argument else {
+            return Err(EmitError::Unsupported {
+                construct: "a spread argument",
+            });
+        };
+        let value = emit_expr(builder, scope, ctx, value)?;
+        let index = expr::number_constant(builder, at as f64);
+        expr::call(builder, ctx, RuntimeOp::SetIndexed, &[array, index, value])?;
+    }
+    Ok(array)
 }
 
 /// The shared body, differing only in which operation is dialled.

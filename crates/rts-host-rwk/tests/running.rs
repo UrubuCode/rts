@@ -519,7 +519,7 @@ fn a_construct_still_missing_is_refused_by_name_rather_than_approximated() {
     // each moved on when it landed. What it pins is the shape of the refusal.
     for source in [
         "let a = [1]; return [...a];",
-        "function f() {} return f(1, 2, 3, 4, 5);",
+        "function f(a) {} return new f(1, 2, 3, 4, 5);",
         "let o = {}; let x = 1; return delete x;",
     ] {
         let error = compile(source).expect_err("still a gap");
@@ -770,13 +770,14 @@ fn calling_something_that_is_not_a_function_does_not_jump_to_it() {
 
 #[test]
 fn the_limits_of_the_fixed_arity_are_refused_by_name() {
-    // The convention carries four arguments, and going past it is refused
-    // rather than truncated: a call whose fifth argument silently vanished is a
-    // wrong program that runs. Both directions are named — too many at the call
-    // and too many in the declaration.
+    // The convention carries four arguments. Going past it at the CALL is no
+    // longer refused — the arguments go in a vector the runtime holds — but
+    // going past it in the DECLARATION still is, because a fifth parameter has
+    // no slot to arrive in. Refused rather than truncated: a parameter that
+    // silently read `undefined` forever is a wrong program that runs.
     for source in [
-        "function f(a) { return a; } return f(1, 2, 3, 4, 5);",
         "function f(a, b, c, d, e) { return a; } return f(1);",
+        "function f(a) { return a; } return new f(1, 2, 3, 4, 5);",
     ] {
         let error = compile(source).expect_err("past the fixed arity");
         assert!(
@@ -788,13 +789,14 @@ fn the_limits_of_the_fixed_arity_are_refused_by_name() {
 
 #[test]
 fn what_a_function_still_cannot_do_is_refused_by_name() {
-    // Each of these is a mechanism rather than a spelling: a rest parameter and
-    // a spread argument both need the argument vector the fixed arity exists in
-    // place of, a default needs an expression evaluated at the call, and `this`
-    // inside an arrow needs the defining function's receiver carried through the
-    // environment.
+    // Each of these is a mechanism rather than a spelling: a spread argument
+    // needs iteration over something that may not be an array, a default needs
+    // an expression evaluated at the call, and `this` inside an arrow needs the
+    // defining function's receiver carried through the environment.
+    //
+    // A rest parameter was on this list and came off it: the vector it needed
+    // is the runtime's now.
     for source in [
-        "function f(...rest) { return rest; } return f(1);",
         "function f(a) { return a; } let xs = 0; return f(...xs);",
         "function f(a) { return a; } return f();",
         "let f = () => this; return f();",
@@ -2988,4 +2990,57 @@ fn extending_a_string_gives_an_instance_that_still_has_its_own_methods() {
     // chain, and the derived prototype is what the instance actually starts at.
     let inherited = run("class Tag extends Object { own() { return 4; } } return new Tag().own();");
     assert_eq!(tags::decode_double(inherited), 4.0);
+}
+
+#[test]
+fn a_call_past_the_convention_reaches_the_arguments_it_wrote() {
+    // Six arguments, where the convention carries four. The vector is the
+    // runtime's; the call site says "call with these" and never learns where
+    // they went.
+    let produced = run("function f(a, b, c, d) { return a + d; } return f(1, 2, 3, 4, 5, 6);");
+    assert_eq!(tags::decode_double(produced), 5.0);
+
+    // And the ones past the fourth are not lost — they reach a rest parameter.
+    let gathered = run("function f(a, ...rest) { return rest.length; } return f(1, 2, 3, 4, 5, 6);");
+    assert_eq!(tags::decode_double(gathered), 5.0);
+
+    let last = run("function f(a, ...rest) { return rest[4]; } return f(1, 2, 3, 4, 5, 6);");
+    assert_eq!(tags::decode_double(last), 6.0);
+}
+
+#[test]
+fn a_rest_parameter_works_when_no_vector_was_allocated() {
+    // The common call allocates nothing, and a rest parameter over four or
+    // fewer arguments still has to work — so the callee hands its own slots
+    // over and the runtime uses those when no caller supplied a vector.
+    let produced = run("function f(a, ...rest) { return rest.length; } return f(1, 2, 3);");
+    assert_eq!(tags::decode_double(produced), 2.0);
+
+    let value = run("function f(a, ...rest) { return rest[1]; } return f(1, 2, 3);");
+    assert_eq!(tags::decode_double(value), 3.0);
+
+    // Padding a call site invented is not an argument the program passed.
+    let empty = run("function f(a, ...rest) { return rest.length; } return f(1);");
+    assert_eq!(tags::decode_double(empty), 0.0);
+}
+
+#[test]
+fn a_callee_does_not_see_an_outer_calls_vector() {
+    // Why every call pushes a marker rather than only the ones that allocate:
+    // `outer` is running with a vector when it calls `inner`, and `inner`'s
+    // rest must be its own arguments rather than `outer`'s six.
+    let produced = run(
+        "function inner(...rest) { return rest.length; } function outer(a, b, c, d) { return inner(9); } return outer(1, 2, 3, 4, 5, 6);",
+    );
+    assert_eq!(tags::decode_double(produced), 1.0);
+}
+
+#[test]
+fn a_method_can_be_called_past_the_convention_too() {
+    // The receiver is not one of the four, so a method call with six arguments
+    // is the same operation with one more value kept apart.
+    let produced = run(
+        "let o = { n: 10, m(a, b, c, d) { return this.n + d; } }; return o.m(1, 2, 3, 4, 5, 6);",
+    );
+    assert_eq!(tags::decode_double(produced), 14.0);
 }

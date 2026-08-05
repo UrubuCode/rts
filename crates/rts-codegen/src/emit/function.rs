@@ -9,12 +9,21 @@
 //! ```
 //!
 //! JavaScript's arity is dynamic — a call may pass fewer arguments than the
-//! function declares, or more — and expressing that needs somewhere to put an
-//! argument vector. A caller-allocated one is a stack slot this compiler does
-//! not emit, so the count is fixed at [`ARGUMENT_SLOTS`], missing arguments are
-//! filled with `undefined` at the call, and a call with more is refused **by
-//! name**. Refused rather than truncated: a call whose fifth argument silently
-//! vanished is a wrong program that runs.
+//! function declares, or more. Fewer is padded with `undefined` at the call,
+//! because the callee's parameters exist whether or not anything was passed.
+//!
+//! More goes in a vector the **runtime** holds, reached by `call_with_args`.
+//! Not a caller-allocated stack slot, which is what a real engine hands over
+//! and what this compiler cannot emit — and choosing something else *because*
+//! of that would be rule 2's mistake. This is not that: where the arguments of
+//! a running call live is a runtime question, the same kind as where a string's
+//! text lives, and this layer says "call with these" without learning the
+//! answer. The stack-slot convention is still the end state, and what it buys
+//! is that the vector stops being allocated at all.
+//!
+//! What stays fixed at [`ARGUMENT_SLOTS`] is the **declaration**: a fifth
+//! parameter has no slot to arrive in, so it is refused by name rather than
+//! reading `undefined` forever.
 //!
 //! Both extra parameters earn their place. `environment` is what makes a
 //! closure a closure; `this` cannot be one of the arguments because
@@ -138,11 +147,17 @@ fn emit_function(
             construct: "an async function or a generator",
         });
     }
-    if function.rest_parameter.is_some() {
-        return Err(EmitError::Unsupported {
-            construct: "a rest parameter",
-        });
-    }
+    let rest = match &function.rest_parameter {
+        // Only a plain name. `function f(...[a, b])` is a rest parameter that
+        // destructures, which is the destructuring gap rather than this one.
+        Some(crate::syntax::Pattern::Name(name)) => Some(*name),
+        Some(_) => {
+            return Err(EmitError::Unsupported {
+                construct: "a destructured rest parameter",
+            });
+        }
+        None => None,
+    };
     let Some(parameters) = capture::plain_parameters(&function.parameters) else {
         return Err(EmitError::Unsupported {
             construct: "a destructured or defaulted parameter",
@@ -179,6 +194,7 @@ fn emit_function(
         &parameters,
         body,
         function.captures_this,
+        rest,
         late_this,
     )?;
     ctx.pending.push((id, emitted));
@@ -192,6 +208,7 @@ pub(super) fn emit_body(
     parameters: &[Name],
     body: &[Stmt],
     captures_this: bool,
+    rest: Option<Name>,
     late_this: Option<Name>,
 ) -> EmitResult<MachineFunction> {
     let mut captured = capture::captured(body, parameters);
@@ -229,6 +246,7 @@ pub(super) fn emit_body(
         &incoming,
         captured,
         builds_environment,
+        rest,
         late_this,
     );
     ctx.numeric = outer_numeric;
@@ -250,6 +268,7 @@ fn emit_body_into(
     incoming: &[ValueId],
     captured: std::collections::BTreeSet<Name>,
     builds_environment: bool,
+    rest: Option<Name>,
     late_this: Option<Name>,
 ) -> EmitResult<()> {
     let types = ctx.types;
@@ -291,6 +310,23 @@ fn emit_body_into(
 
     for (position, name) in parameters.iter().enumerate() {
         binding::declare(&mut builder, &mut scope, ctx, *name, incoming[2 + position])?;
+    }
+
+    // `...rest` is declared like any other parameter, from an array the runtime
+    // builds — out of the vector when the caller allocated one, and out of the
+    // four slots when it did not. Which of those happened is not decided here,
+    // and could not be: it is a fact about the call, not about the callee.
+    if let Some(name) = rest {
+        let declared = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+            repr: rts_cranelift::repr::Repr::I64,
+            bits: rts_cranelift::ir::ScalarBits(parameters.len() as u64),
+        });
+        let declared = builder.use_const(declared);
+        let given: Vec<ValueId> = (0..ARGUMENT_SLOTS).map(|at| incoming[2 + at]).collect();
+        let mut passed = vec![declared];
+        passed.extend(given);
+        let gathered = expr::call(&mut builder, ctx, RuntimeOp::RestArguments, &passed)?[0];
+        binding::declare(&mut builder, &mut scope, ctx, name, gathered)?;
     }
 
     hoist(&mut builder, &mut scope, ctx, body)?;

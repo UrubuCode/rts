@@ -182,6 +182,13 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
             rts_core_rwk::entry::super_construct
                 as extern "C" fn(u64, u64, u64, u64, u64) -> u64 as *const u8
         }),
+        RuntimeOp::CallWithArgs => (CoreEntry::CallWithArgs, {
+            rts_core_rwk::entry::call_with_args as extern "C" fn(u64, u64, u64) -> u64 as *const u8
+        }),
+        RuntimeOp::RestArguments => (CoreEntry::RestArguments, {
+            rts_core_rwk::entry::rest_arguments
+                as extern "C" fn(i64, u64, u64, u64, u64) -> u64 as *const u8
+        }),
         RuntimeOp::MarkDerived => (CoreEntry::MarkDerived, {
             rts_core_rwk::entry::mark_derived as extern "C" fn(u64) -> u64 as *const u8
         }),

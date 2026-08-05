@@ -64,6 +64,7 @@ pub use bitwise::{
 };
 pub use computed::{delete_property, get_indexed, has_property, set_indexed};
 pub use functions::{
+    call_with_args, rest_arguments,
     ARGUMENT_SLOTS, call, closure_new, construct, instance_of, mark_derived, super_construct,
 };
 pub use global::{global_get, global_set};
@@ -212,6 +213,13 @@ pub struct Context {
     /// instead of calling it. See [`accessor`] for why the absence is
     /// load-bearing rather than an omission.
     accessors: Aside<Vec<(u32, Option<u64>, Option<u64>)>>,
+    /// The argument vector each call in progress supplied, if any.
+    ///
+    /// A stack, and pushed by EVERY call rather than only by the ones that
+    /// allocate a vector: a callee reading its rest must not find the vector of
+    /// an outer call that is still running. The cost is named where the
+    /// operation is, along with what removes it.
+    pub pending_arguments: Vec<u64>,
     /// Which callables must ask their parent for the object they build.
     ///
     /// A syntactic fact the compiler knows and this crate cannot see: a derived
@@ -328,6 +336,7 @@ impl Context {
             array_elements: Aside::new(),
             accessors: Aside::new(),
             derived: Aside::new(),
+            pending_arguments: Vec::new(),
             new_targets: Vec::new(),
             regexes: Aside::new(),
             regexp_prototype: None,
