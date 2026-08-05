@@ -3,7 +3,7 @@
 use swc_common::Spanned;
 use swc_ecma_ast as swc;
 
-use super::{Cx, Result, position, unsupported};
+use super::{Cx, ParseError, Result, position, unsupported};
 use crate::syntax::{
     AssignOp, AssignTarget, BinaryOp, Expr, ExprKind, Literal, LogicalOp, Property, PropertyKey,
     Spreadable, TemplatePart, UnaryOp, UpdateOp, UpdatePosition,
@@ -99,11 +99,36 @@ pub(crate) fn expr(cx: &mut Cx, node: &swc::Expr) -> Result<Expr> {
             swc::Callee::Super(_) => ExprKind::SuperCall {
                 arguments: arguments(cx, &call.args)?,
             },
+            // `import()` is not a call of a function value, and its argument
+            // list is its own production: one expression, an optional second,
+            // and no spread. Anything else does not parse.
+            //
+            // This is checked here rather than left to the checker because the
+            // information only exists here. The tree holds a specifier and an
+            // options expression, so a third argument and a `...` both vanish
+            // into it — and vanishing is worse than being refused: it turns
+            // `import(...urls)` into `import(urls)`, which is a different
+            // program that runs.
             swc::Callee::Import(_) => {
+                if let Some(spread) = call.args.iter().find(|argument| argument.spread.is_some()) {
+                    return Err(ParseError::Syntax(format!(
+                        "`import()` takes no spread argument, at {:?}",
+                        position(spread.expr.span())
+                    )));
+                }
+                if call.args.len() > 2 {
+                    return Err(ParseError::Syntax(
+                        "`import()` takes at most two arguments".to_owned(),
+                    ));
+                }
                 let mut args = call.args.iter();
                 let specifier = match args.next() {
                     Some(first) => Box::new(expr(cx, &first.expr)?),
-                    None => return unsupported("import() with no specifier", at),
+                    None => {
+                        return Err(ParseError::Syntax(
+                            "`import()` needs a specifier".to_owned(),
+                        ));
+                    }
                 };
                 ExprKind::ImportCall {
                     specifier,

@@ -177,3 +177,17 @@ fn a_static_block_reserves_await_less_far_than_an_async_function_does() {
     accepted("class C { static { (() => ({ await })); } }");
     assert!(refused("async function f() { (() => ({ await })); }").contains("`await`"));
 }
+
+#[test]
+fn an_import_call_has_its_own_argument_list() {
+    // Not a call of a function value: the production is one expression, an
+    // optional second, and no spread. Refused at the bridge rather than by the
+    // checker, because the tree holds a specifier and an options expression —
+    // so a third argument and a `...` would both vanish into it, turning
+    // `import(...urls)` into `import(urls)`, a different program that runs.
+    refused("import(...['a']);");
+    refused("import('a', {}, '');");
+
+    accepted("import('a');");
+    accepted("import('a', { with: {} });");
+}
