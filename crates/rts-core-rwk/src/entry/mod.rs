@@ -41,6 +41,9 @@ mod bitwise;
 mod cache;
 mod chain;
 mod class_support;
+mod context;
+mod clone;
+mod buffers;
 mod collections;
 mod computed;
 #[cfg(test)]
@@ -63,12 +66,14 @@ mod object_proto;
 mod objects;
 mod operators;
 mod primitives;
+mod promise;
 mod reflect;
 mod regex;
 pub(super) mod string;
 mod symbol;
 mod text;
 mod throw;
+mod uri;
 
 // The operators are defined in their own module and named from here, because a
 // caller wants "the entry points" in one place rather than a module tree.
@@ -84,12 +89,13 @@ pub use functions::{
 pub use global::{global_get, global_set};
 pub use iterate::{array_append, array_append_all, iterate};
 pub use objects::{get_property, object_new, set_property};
+pub use promise::drain_microtasks;
 pub use operators::{
     divide, greater, greater_equal, less, less_equal, loose_equals, multiply, remainder, subtract,
 };
 pub use primitives::{add, number_to_string, strict_equals, to_boolean};
 pub use regex::regex_new;
-pub use text::{declare_keys, declare_literals, string_const, type_of};
+pub use text::{declare_keys, declare_literals, described, string_const, type_of};
 mod table;
 
 pub use accessor::{define_getter, define_setter};
@@ -106,7 +112,7 @@ use rts_cranelift::shape::{KeyRegistry, ShapeTree};
 
 use crate::heap::{Aside, Slab, Slot};
 use crate::text::{Interner, Str};
-use crate::value::{Singletons, Value};
+use crate::value::Singletons;
 
 /// Everything a running program's operations need and cannot be handed.
 pub struct Context {
@@ -220,6 +226,23 @@ pub struct Context {
     /// nothing: a bound function's one way to know WHICH binding is running is
     /// the call that reached it.
     callees: Vec<u64>,
+    /// The bytes every `ArrayBuffer` owns.
+    ///
+    /// A `Slab` for the reason `arrays` is one: a cell is sixty-four fixed
+    /// bytes and a buffer is any length.
+    pub buffers: Slab<Vec<u8>>,
+    /// Which cell owns which byte store.
+    ///
+    /// The collector cannot see this — the same note every `Aside` here
+    /// carries, and the same bet arrays already make.
+    buffer_of: Aside<Slot>,
+    /// What each `DataView` and typed array views: whose bytes, from where,
+    /// how many, read as what.
+    ///
+    /// Never a copy. Two views over one buffer seeing each other's writes is
+    /// the whole contract, and a copy would satisfy every test that used one
+    /// view at a time.
+    views: Aside<buffers::View>,
     collections: Aside<collections::Table>,
     regexes: Aside<regex::Regexp>,
     /// What every regular expression inherits from, once one exists.
@@ -233,6 +256,14 @@ pub struct Context {
     /// One structure rather than three fields, because they are one fact with
     /// three parts and splitting them across the context is how the registry
     /// and the counter come to disagree about which key is next.
+    /// Every promise, every reaction waiting on one, and the queue they run in.
+    ///
+    /// One structure rather than a table per part: the machine's promise table,
+    /// the value each settled with and which waiter is which reaction are one
+    /// fact in three pieces, and splitting them across the context is how the
+    /// queue and the side table come to disagree about what a `ContinuationId`
+    /// means.
+    promises: promise::Machine,
     symbols: symbol::Symbols,
     /// What each declared class registered as, once it has been asked for.
     ///
@@ -395,10 +426,14 @@ impl Context {
             new_targets: Vec::new(),
             bound: Aside::new(),
             callees: Vec::new(),
+            buffers: Slab::new(),
+            buffer_of: Aside::new(),
+            views: Aside::new(),
             collections: Aside::new(),
             regexes: Aside::new(),
             regexp_prototype: None,
             classes: Vec::new(),
+            promises: promise::Machine::new(),
             symbols: symbol::Symbols::new(),
             globals: None,
             string_prototype: None,
@@ -413,146 +448,4 @@ impl Context {
         }
     }
 
-    /// The layout a shape arrives at, remembering the way back.
-    ///
-    /// `ShapeTree::layout` is what turns a shape into an aggregate. The reverse
-    /// is recorded here because a cell's header holds the TYPE and a property
-    /// lookup needs the SHAPE — and searching every layout per access is the
-    /// cost this design exists to remove.
-    pub fn layout_of(
-        &mut self,
-        shape: rts_cranelift::shape::ShapeId,
-    ) -> rts_cranelift::types::TypeId {
-        let ty = self.shapes.layout(shape, &mut self.types);
-        if self.shape_of_type.len() <= ty.index() {
-            self.shape_of_type.resize(ty.index() + 1, shape);
-        }
-        self.shape_of_type[ty.index()] = shape;
-        ty
-    }
-
-    /// Which shape a cell's type came from, if it is an object's.
-    ///
-    /// `None` for a string's layout and for a callable's, which is what makes a
-    /// reference's kind readable from the object rather than from the encoding
-    /// — the machine's own answer to a tag space that has no room for one.
-    ///
-    /// # Why both reserved layouts have to be named here
-    ///
-    /// Because `shape_of_type` is grown with `resize(index + 1, shape)`, which
-    /// fills every new position with the shape being recorded. So the moment an
-    /// object's layout is numbered above a reserved one, the reserved one's
-    /// position holds a real shape that was never its own — and a callable
-    /// would answer property reads by interpreting its code address as a field.
-    ///
-    /// Excluding by index rather than fixing the fill: the reserved layouts are
-    /// the two positions that legitimately have no shape, and saying so is the
-    /// fact, where a sentinel fill would be a way of encoding it.
-    pub fn shape_of(&self, ty: u32) -> Option<rts_cranelift::shape::ShapeId> {
-        let ty = ty as usize;
-        if ty == self.text_type.index() {
-            return None;
-        }
-        self.shape_of_type.get(ty).copied()
-    }
-
-    /// What a cell calls, if it is callable.
-    ///
-    /// A method rather than a public field so nothing outside this module can
-    /// claim a cell is callable, which is what makes the code address
-    /// unreachable from anything a program can write.
-    pub(super) fn callable_at(&self, cell: u32) -> Option<(u64, u64)> {
-        self.callables.copied(cell)
-    }
-
-    /// What a cell inherits from, if anything.
-    pub(super) fn prototype_at(&self, cell: u32) -> Option<u64> {
-        self.prototypes.copied(cell)
-    }
-
-    /// Sets what a cell inherits from.
-    pub(super) fn set_prototype(&mut self, cell: u32, prototype: u64) {
-        self.prototypes.set(cell, prototype);
-    }
-
-    /// Whether a callable asks its parent for the object it builds.
-    pub(super) fn is_derived(&self, cell: u32) -> bool {
-        self.derived.copied(cell).unwrap_or(false)
-    }
-
-    /// Records that it does.
-    pub(super) fn mark_derived(&mut self, cell: u32) {
-        self.derived.set(cell, true);
-    }
-
-    /// Records that a cell calls this code with this environment.
-    pub(super) fn mark_callable(&mut self, cell: u32, code: u64, environment: u64) {
-        self.callables.set(cell, (code, environment));
-    }
-
-    /// The text a reference names, if it names one.
-    ///
-    /// A reference is a REGION index now, uniformly — for a string as much as
-    /// for an object. Its cell holds the string's type in the header and where
-    /// the text is in its first slot; the text itself is in the slab, because a
-    /// string is any length and a cell is 64 bytes.
-    ///
-    /// That indirection is not a compromise. String identity and string data are
-    /// separate things in every engine that moves either one, and putting the
-    /// identity in the region is what lets one reference space serve both kinds.
-    pub fn text_at(&self, reference: u32) -> Option<&Str> {
-        if self.region.type_of(reference)? as usize != self.text_type.index() {
-            return None;
-        }
-        let slot = self.region.field(reference, 0)? as u32;
-        self.cells.at(Slot(slot)).ok()
-    }
-
-    /// Put a string on the heap and return the value naming it.
-    pub fn intern_value(&mut self, text: Str) -> Value {
-        let slot = self.cells.insert(text).slot();
-        let size = crate::heap::STRIDE;
-        let ty = self.text_type.index() as u32;
-        let cell = self.region.alloc(size, ty).expect("the region has room");
-        self.region
-            .set_field(cell, 0, u64::from(slot.0))
-            .expect("a string cell has a first slot");
-        Value::from_slot(cell)
-    }
-
-    /// Whether two slots hold equal text.
-    ///
-    /// What `===` needs and cannot answer alone: two strings are equal when
-    /// their text is, however they were allocated, while two objects are equal
-    /// only when they are the same object.
-    pub fn same_text(&self, left: u32, right: u32) -> bool {
-        match (self.text_at(left), self.text_at(right)) {
-            (Some(a), Some(b)) => a.same_units(b),
-            _ => false,
-        }
-    }
-}
-
-impl Context {
-    /// The key a name the runtime itself knows has.
-    ///
-    /// `length` and `prototype` are properties this crate reads by name rather
-    /// than by a number a compilation resolved, because it is the runtime that
-    /// wants them — an array answers `length` whether or not the program ever
-    /// wrote it, and `new` reads `prototype` on a function the program may
-    /// never have touched.
-    ///
-    /// Interned rather than held as a constant: the number is whatever the
-    /// registry issued, and that registry was seeded from what the compilation
-    /// resolved. A program that mentions the name already put it there and this
-    /// finds the same number; one that never does mints one nothing else uses,
-    /// which costs a key and changes no answer.
-    ///
-    /// One function because it was two, and "intern a name the runtime knows"
-    /// is one rule — the second copy is the one that would have interned
-    /// against a different registry the day there were two.
-    pub(super) fn well_known(&mut self, name: &str) -> crate::object::Key {
-        let text = Str::from_str(name);
-        crate::object::Key::Name(self.interner.intern(&text, &mut self.keys))
-    }
 }

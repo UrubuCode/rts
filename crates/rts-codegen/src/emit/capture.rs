@@ -48,7 +48,7 @@ pub fn captured(body: &[Stmt], parameters: &[Name]) -> BTreeSet<Name> {
     let mut inner = BTreeSet::new();
     let mut protected = BTreeSet::new();
     for statement in body {
-        referenced_inside_statement(statement, &mut inner);
+        referenced_inside_statement(statement, &mut inner, false);
         assigned_under_protection(statement, &mut protected);
     }
     if inner.is_empty() && protected.is_empty() {
@@ -182,7 +182,7 @@ fn assigned_under_protection(statement: &Stmt, found: &mut BTreeSet<Name>) {
 }
 
 /// Every name a nested function mentions, anywhere inside it.
-fn referenced_inside_statement(statement: &Stmt, found: &mut BTreeSet<Name>) {
+fn referenced_inside_statement(statement: &Stmt, found: &mut BTreeSet<Name>, everything: bool) {
     match &statement.kind {
         // The nested function itself. Everything in it counts, which is the
         // over-approximation the module doc argues for.
@@ -195,22 +195,54 @@ fn referenced_inside_statement(statement: &Stmt, found: &mut BTreeSet<Name>) {
         // activation had already left.
         StmtKind::Class(class) => names_in_class(class, found),
 
-        StmtKind::Expr(expr) | StmtKind::Throw(expr) => referenced_inside_expr(expr, found),
+        StmtKind::Expr(expr) | StmtKind::Throw(expr) => referenced_inside_expr(expr, found, everything),
         StmtKind::Return(value) => {
             if let Some(expr) = value {
-                referenced_inside_expr(expr, found);
+                referenced_inside_expr(expr, found, everything);
             }
         }
         StmtKind::Declare { bindings, .. } => {
             for binding in bindings {
+                // The declared name counts too when this whole subtree is
+                // nested code: a nested function's own local shadows an outer
+                // one, and the over-approximation the module argues for is to
+                // include it rather than to work out which.
+                if everything {
+                    names_in_pattern(&binding.target, found);
+                }
                 if let Some(expr) = &binding.value {
-                    referenced_inside_expr(expr, found);
+                    referenced_inside_expr(expr, found, everything);
+                }
+            }
+        }
+        // A `try` is nested code like any other block, and it was reaching the
+        // wildcard below — so a function written inside one had its captures
+        // decided as if it did not exist.
+        StmtKind::Try {
+            body,
+            catch,
+            finally,
+        } => {
+            for statement in body {
+                referenced_inside_statement(statement, found, everything);
+            }
+            if let Some(catch) = catch {
+                if everything && let Some(binding) = &catch.binding {
+                    names_in_pattern(binding, found);
+                }
+                for statement in &catch.body {
+                    referenced_inside_statement(statement, found, everything);
+                }
+            }
+            if let Some(finally) = finally {
+                for statement in finally {
+                    referenced_inside_statement(statement, found, everything);
                 }
             }
         }
         StmtKind::Block(body) => {
             for inner in body {
-                referenced_inside_statement(inner, found);
+                referenced_inside_statement(inner, found, everything);
             }
         }
         StmtKind::If {
@@ -218,19 +250,19 @@ fn referenced_inside_statement(statement: &Stmt, found: &mut BTreeSet<Name>) {
             then_branch,
             else_branch,
         } => {
-            referenced_inside_expr(condition, found);
-            referenced_inside_statement(then_branch, found);
+            referenced_inside_expr(condition, found, everything);
+            referenced_inside_statement(then_branch, found, everything);
             if let Some(otherwise) = else_branch {
-                referenced_inside_statement(otherwise, found);
+                referenced_inside_statement(otherwise, found, everything);
             }
         }
         StmtKind::While { condition, body } => {
-            referenced_inside_expr(condition, found);
-            referenced_inside_statement(body, found);
+            referenced_inside_expr(condition, found, everything);
+            referenced_inside_statement(body, found, everything);
         }
         StmtKind::DoWhile { body, condition } => {
-            referenced_inside_statement(body, found);
-            referenced_inside_expr(condition, found);
+            referenced_inside_statement(body, found, everything);
+            referenced_inside_expr(condition, found, everything);
         }
         StmtKind::For {
             init,
@@ -239,39 +271,39 @@ fn referenced_inside_statement(statement: &Stmt, found: &mut BTreeSet<Name>) {
             body,
         } => {
             if let Some(crate::syntax::ForInit::Expr(expr)) = init {
-                referenced_inside_expr(expr, found);
+                referenced_inside_expr(expr, found, everything);
             }
             if let Some(crate::syntax::ForInit::Declare { bindings, .. }) = init {
                 for binding in bindings {
                     if let Some(expr) = &binding.value {
-                        referenced_inside_expr(expr, found);
+                        referenced_inside_expr(expr, found, everything);
                     }
                 }
             }
             if let Some(expr) = test {
-                referenced_inside_expr(expr, found);
+                referenced_inside_expr(expr, found, everything);
             }
             if let Some(expr) = update {
-                referenced_inside_expr(expr, found);
+                referenced_inside_expr(expr, found, everything);
             }
-            referenced_inside_statement(body, found);
+            referenced_inside_statement(body, found, everything);
         }
-        StmtKind::Labelled { body, .. } => referenced_inside_statement(body, found),
+        StmtKind::Labelled { body, .. } => referenced_inside_statement(body, found, everything),
         StmtKind::ForEach { subject, body, .. } => {
-            referenced_inside_expr(subject, found);
-            referenced_inside_statement(body, found);
+            referenced_inside_expr(subject, found, everything);
+            referenced_inside_statement(body, found, everything);
         }
         StmtKind::Switch {
             discriminant,
             clauses,
         } => {
-            referenced_inside_expr(discriminant, found);
+            referenced_inside_expr(discriminant, found, everything);
             for clause in clauses {
                 if let Some(test) = &clause.test {
-                    referenced_inside_expr(test, found);
+                    referenced_inside_expr(test, found, everything);
                 }
                 for statement in &clause.body {
-                    referenced_inside_statement(statement, found);
+                    referenced_inside_statement(statement, found, everything);
                 }
             }
         }
@@ -303,40 +335,39 @@ fn names_in_function(function: &Function, found: &mut BTreeSet<Name>) {
 }
 
 /// Every identifier in a statement, without caring what introduced it.
+///
+/// The same traversal with the flag set. It used to be a second function that
+/// called the first and then added the identifiers of the statement's OWN
+/// expressions — which meant a name mentioned inside a nested block was never
+/// seen, because the first traversal descends into a block looking only for
+/// further nested functions.
+///
+/// The symptom was a compiler refusal rather than a wrong answer, and only for
+/// a specific shape: `function f() { if (c) { n = 1; } }` decided that `n` was
+/// not captured, so `f` had no binding for it and the assignment was an unbound
+/// name. The same statement one level up compiled. Two traversals over one tree
+/// is exactly the failure the `walk_expr` comment below warns about, arrived at
+/// on the statement side.
 fn all_names_in_statement(statement: &Stmt, found: &mut BTreeSet<Name>) {
-    // Reuses the traversal above and adds the one case that differs: inside a
-    // nested function everything counts, where outside it only nested
-    // functions did. Written as a flag rather than as a second traversal, so
-    // there is one description of the tree's shape.
-    referenced_inside_statement(statement, found);
-    match &statement.kind {
-        StmtKind::Declare { bindings, .. } => {
-            for binding in bindings {
-                names_in_pattern(&binding.target, found);
-            }
-        }
-        StmtKind::Expr(expr) => all_names_in_expr(expr, found),
-        StmtKind::Return(Some(expr)) => all_names_in_expr(expr, found),
-        _ => {}
-    }
+    referenced_inside_statement(statement, found, true);
 }
 
 /// Every identifier in an expression.
 fn all_names_in_expr(expr: &Expr, found: &mut BTreeSet<Name>) {
-    if let ExprKind::Ident(name) = &expr.kind {
-        found.insert(*name);
-    }
-    walk_expr(expr, &mut |child| match child {
-        Child::Expr(inner) => all_names_in_expr(inner, found),
-        Child::Function(function) => names_in_function(function, found),
-        Child::Class(class) => names_in_class(class, found),
-    });
+    referenced_inside_expr(expr, found, true);
 }
 
 /// Every name a nested function inside an expression mentions.
-fn referenced_inside_expr(expr: &Expr, found: &mut BTreeSet<Name>) {
+///
+/// With `everything`, every identifier counts rather than only the ones inside a
+/// further nested function — which is what "this whole subtree is nested code"
+/// means, and the one thing the two callers differ in.
+fn referenced_inside_expr(expr: &Expr, found: &mut BTreeSet<Name>, everything: bool) {
+    if everything && let ExprKind::Ident(name) = &expr.kind {
+        found.insert(*name);
+    }
     walk_expr(expr, &mut |child| match child {
-        Child::Expr(inner) => referenced_inside_expr(inner, found),
+        Child::Expr(inner) => referenced_inside_expr(inner, found, everything),
         Child::Function(function) => names_in_function(function, found),
         Child::Class(class) => names_in_class(class, found),
     });
@@ -412,11 +443,31 @@ fn walk_expr(expr: &Expr, on: &mut impl FnMut(Child)) {
         }
         ExprKind::Object { properties } => {
             for property in properties {
-                if let Property::Value { key, value, .. } = property {
-                    if let PropertyKey::Computed(computed) = key {
-                        on(Child::Expr(computed));
+                // Every form, not just `key: value`. A method, a getter and a
+                // setter are nested code exactly as a function expression is,
+                // and skipping them decided that a local one of them closes
+                // over was not captured — so the accessor read a register the
+                // enclosing activation had already left, and the program was
+                // refused as an unbound name. The same omission the class body
+                // arm was fixed for, one node over.
+                match property {
+                    Property::Value { key, value, .. } => {
+                        if let PropertyKey::Computed(computed) = key {
+                            on(Child::Expr(computed));
+                        }
+                        on(Child::Expr(value));
                     }
-                    on(Child::Expr(value));
+                    Property::Method { key, function }
+                    | Property::Getter { key, function }
+                    | Property::Setter { key, function } => {
+                        if let PropertyKey::Computed(computed) = key {
+                            on(Child::Expr(computed));
+                        }
+                        on(Child::Function(function));
+                    }
+                    Property::Spread(value) | Property::Prototype(value) => {
+                        on(Child::Expr(value));
+                    }
                 }
             }
         }
@@ -576,19 +627,19 @@ fn writes(statement: &Stmt) -> Vec<Name> {
 fn names_in_class(class: &crate::syntax::Class, found: &mut BTreeSet<Name>) {
     use crate::syntax::ClassElement;
     if let Some(heritage) = &class.heritage {
-        referenced_inside_expr(heritage, found);
+        referenced_inside_expr(heritage, found, true);
     }
     for element in &class.body {
         match element {
             ClassElement::Method(method) => names_in_function(&method.function, found),
             ClassElement::Field(field) => {
                 if let Some(value) = &field.value {
-                    referenced_inside_expr(value, found);
+                    referenced_inside_expr(value, found, true);
                 }
             }
             ClassElement::StaticBlock(body) => {
                 for statement in body {
-                    referenced_inside_statement(statement, found);
+                    referenced_inside_statement(statement, found, true);
                 }
             }
         }

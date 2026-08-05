@@ -3629,3 +3629,26 @@ fn a_bound_function_keeps_its_receiver_and_its_leading_arguments() {
     let twice = run("function f() { return this.n; } let g = f.bind({n: 3}).bind({n: 4}); return g();");
     assert_eq!(tags::decode_double(twice), 3.0);
 }
+
+#[test]
+fn a_name_captured_from_inside_a_nested_block_is_still_captured() {
+    // The capture analysis walked a function body twice: once looking for
+    // nested functions, once collecting every identifier — and only the second
+    // pass saw identifiers, only at the top level of the body. So a write to an
+    // outer local from inside an `if` decided the local was not captured, the
+    // inner function had no binding for it, and the program was refused as an
+    // unbound name. One level up it compiled.
+    let guarded = run("let n = 0; function f(x) { if (x) { n = 1; } } f(true); return n;");
+    assert_eq!(tags::decode_double(guarded), 1.0);
+
+    let nested = run("let n = 0; function f() { { { n = 2; } } } f(); return n;");
+    assert_eq!(tags::decode_double(nested), 2.0);
+
+    let looped = run("let n = 0; function f() { for (let i = 0; i < 3; i = i + 1) { n = n + i; } } f(); return n;");
+    assert_eq!(tags::decode_double(looped), 3.0);
+
+    // A `try` was reaching the traversal's wildcard entirely, so a function
+    // written inside one had its captures decided as if it did not exist.
+    let protected = run("let n = 0; function f() { try { n = 5; } finally { n = n + 1; } } f(); return n;");
+    assert_eq!(tags::decode_double(protected), 6.0);
+}

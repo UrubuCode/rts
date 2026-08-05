@@ -6,6 +6,7 @@
 //! decision with an alternative.
 
 use super::*;
+use crate::value::Value;
 
 fn singletons() -> Singletons {
     Singletons {

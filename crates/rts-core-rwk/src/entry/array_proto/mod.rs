@@ -33,6 +33,7 @@
 //! [`store`] for exactly that reason.
 
 pub(super) mod iterate;
+mod more;
 
 use super::objects::undefined_of;
 use super::string::{absent, relative};
@@ -80,6 +81,7 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     context.array_prototype = Some(cell);
     super::native::install(context, cell, NATIVES);
     super::native::install(context, cell, iterate::NATIVES);
+    super::native::install(context, cell, more::NATIVES);
     Some(cell)
 }
 
@@ -96,6 +98,7 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
     };
     if let Some(cell) = Value(callable).as_slot() {
         super::native::install(context, cell, STATICS);
+        super::native::install(context, cell, more::STATICS);
         let key = context.well_known("prototype");
         super::objects::put(context, cell, key, prototype);
     }

@@ -67,6 +67,17 @@ pub fn get_indexed(object: u64, key: u64) -> u64 {
                 .unwrap_or_else(|| undefined_of(context));
             return super::accessor::Found::Value(answer);
         }
+        // A typed array's element, which is a byte range rather than a slot in
+        // an element vector. Asked here for the reason the array branch is
+        // asked before `ToPropertyKey`: the index is a number, and converting
+        // it to text loses what the view is addressed by.
+        //
+        // An index past the end answers `undefined` and does NOT fall through
+        // to a property — `new Uint8Array(2)[9]` is absent, not a lookup for
+        // the name "9".
+        if let Some(answer) = super::buffers::indexed_get(context, slot, Value(key)) {
+            return super::accessor::Found::Value(answer);
+        }
         if let Some(answer) = string_element(context, slot, Value(key)) {
             return super::accessor::Found::Value(answer);
         }
@@ -132,6 +143,14 @@ pub fn set_indexed(object: u64, key: u64, value: u64) -> u64 {
             // for a hit.
             let count = elements.len();
             super::array::set_length(context, slot, count);
+            return None;
+        }
+        // A typed array's element. Answering true means the write landed in the
+        // view's bytes; a write past the end is DROPPED rather than falling
+        // through to a property, which is what the language does — a typed
+        // array does not grow and `a[9] = 1` on a two-element one stores
+        // nothing anybody can read back.
+        if super::buffers::indexed_set(context, slot, Value(key), value) {
             return None;
         }
         let Some(key) = property_key(context, Value(key)) else {

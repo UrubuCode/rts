@@ -31,6 +31,7 @@
 //! be wrong in the one way that is hard to find.
 
 mod basic;
+mod more;
 pub(in crate::entry) mod text;
 pub(super) mod pattern;
 
@@ -57,6 +58,7 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     context.string_prototype = Some(cell);
     super::native::install(context, cell, basic::NATIVES);
     super::native::install(context, cell, pattern::NATIVES);
+    super::native::install(context, cell, more::NATIVES);
     Some(cell)
 }
 
@@ -72,6 +74,7 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
         None => return undefined_of(context),
     };
     if let Some(cell) = Value(callable).as_slot() {
+        super::native::install(context, cell, more::STATICS);
         let key = context.well_known("prototype");
         super::objects::put(context, cell, key, prototype);
     }

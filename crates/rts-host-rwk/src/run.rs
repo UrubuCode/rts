@@ -62,6 +62,8 @@ pub struct Compiled {
     /// number of reads when none of them did — which is what tells a cache that
     /// works from one that is a slower way of calling.
     resolves: u64,
+    /// The text the last run's answer had, read while its heap still existed.
+    described: Option<String>,
     /// The text of every string literal the compilation collected.
     ///
     /// Held rather than seeded once, because a context is built per run: the
@@ -127,12 +129,32 @@ impl Compiled {
             .model
             .singleton(rts_codegen::values::Singleton::Undefined)
             .word();
-        let (context, value) = rts_core_rwk::entry::with_context(context, || {
-            entry(nothing, nothing, nothing, nothing, nothing, nothing)
+        let (context, (value, text)) = rts_core_rwk::entry::with_context(context, || {
+            let value = entry(nothing, nothing, nothing, nothing, nothing, nothing);
+            // The turn ends here, not inside the program: a reaction must not
+            // run in the entry point that queued it, and a rejection is only
+            // unhandled once nothing more can attach to it.
+            rts_core_rwk::entry::drain_microtasks();
+            // Read while the context is still installed. A string is a cell in
+            // the region with its bytes beside it in the slab, so once this
+            // function has taken the region back there is nothing left to read
+            // it from — and a caller holding only a word cannot ask later.
+            let text = rts_core_rwk::entry::described(value);
+            (value, text)
         });
         self.region = Some(context.region);
         self.resolves = context.resolves;
+        self.described = text;
         value
+    }
+
+    /// The text the last run produced, when its answer had any.
+    ///
+    /// `None` for an object, whose conversion runs user code — see
+    /// `rts_core_rwk::entry::described`. This exists because a caller cannot
+    /// read a string out of a word after the run: the heap it names is gone.
+    pub fn described(&self) -> Option<&str> {
+        self.described.as_deref()
     }
 
     /// What the compiler numbered the singletons, for a caller reading a result.
@@ -334,6 +356,7 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
         model,
         region: Some(region),
         resolves: 0,
+        described: None,
         literals: emitted.literals,
         keys: names.keyed_texts().into_iter().map(str::to_owned).collect(),
     })

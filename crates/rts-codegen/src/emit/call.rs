@@ -61,6 +61,19 @@ pub fn emit_call(
             let function = expr::emit_read(builder, ctx, receiver, *property)?;
             (receiver, function)
         }
+        // `super.m()` looks up above the home object and calls with **this**
+        // activation's receiver. Both halves matter and it used to have
+        // neither: falling into the plain-call arm below passed `undefined`, so
+        // the parent's method ran with no receiver and every `this.x` in it read
+        // absent. The method was found — `emit_super_member` was already right —
+        // and then called as if it were a loose function.
+        ExprKind::SuperMember { property } => {
+            let function = super::class::emit_super_member(builder, scope, ctx, property)?;
+            let receiver = scope.this_value().ok_or(EmitError::Unsupported {
+                construct: "`super.m()` where there is no receiver",
+            })?;
+            (receiver, function)
+        }
         _ => {
             // A plain call has no receiver, and `undefined` is what the
             // specification passes in strict code. Sloppy mode substitutes the

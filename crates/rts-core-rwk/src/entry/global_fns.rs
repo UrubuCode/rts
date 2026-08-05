@@ -21,11 +21,6 @@
 //!
 //! # What is deliberately absent
 //!
-//! `encodeURIComponent` and its three relatives. They are pure text
-//! transformations over UTF-8 percent-escapes, which this crate can do — and
-//! they are absent because nothing has asked, not because they are hard. They
-//! land with a caller rather than being anticipated.
-//!
 //! `eval`. It needs a compiler at run time, which is a capability rather than a
 //! function.
 

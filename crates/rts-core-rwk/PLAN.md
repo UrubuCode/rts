@@ -337,19 +337,86 @@ three that has to *keep* something — a receiver and a list of arguments beside
 cell — and that is a table of values the collector cannot see. It waits on the
 open question rather than on a session.
 
-### P4 — `JSON`, `Symbol`.
+### P4 — `JSON` and `Symbol`. **DONE.**
 
-Including `Symbol.iterator`, and `Symbol.dispose`, which exists in neither engine
-and is what `using` is waiting for.
+**A symbol's key is a name in a reserved space** — `"@@iterator"`, `"@@sym:7"` —
+rather than a third `Key` variant, which is the engine being replaced's own
+encoding ported rather than reinvented. `docs/engine/authoring-natives.md` §4
+carries the argument and the one cost: a program writing `o["@@iterator"]` has
+written the symbol slot.
 
-### P5 — `Map` / `Set` / `WeakMap` / `WeakSet`.
+`JSON` diverges in three places, each documented where it is paid: a cycle
+answers `null` and a parse error `undefined` where the specification throws;
+recursion is capped at 200 in both directions, because an `extern "C"` frame
+cannot survive a stack overflow; and `toJSON` is not consulted.
 
-### P6 — `Promise`.
+### P4b — the iteration protocol. **DONE, and it made a divergence live.**
 
-`schedule/` here and `sched/` in the machine are built; `async`/`await` in the
-compiler is the separate half.
+`iterate` reads `@@iterator`, calls it, and drives `next()`. What was
+hypothetical is now reachable: the walk materialises, so an infinite iterable
+does not terminate even under `break`, `return()` is never called, and side
+effects all happen before the body runs. No cap is imposed — a limit would turn
+a program that hangs into one that quietly walks part of a sequence. The fix is
+a lazy cursor in the emitter.
 
-### P7 — everything else on the core list.
+### P5 — `Map` / `Set` / `WeakMap` / `WeakSet`. **DONE.**
 
-`Reflect`, `Proxy`, `Date`, `BigInt`, `ArrayBuffer`/`DataView`/the typed arrays,
-and the `Iterator` helpers.
+Insertion order is the source of truth and the hash index only removes the
+linear scan, because the specification requires every walk to be in insertion
+order. `delete` shifts and rehashes, deliberately the rare slow path. Equality is
+SameValueZero through the one `value::same_value_zero`, so `NaN` is a usable key.
+A reference hashes to a single bucket: hashing object identity means hashing an
+address a moving collector would change.
+
+The weak pair is **strong**, said rather than faked — real weakness needs the
+`(slot, generation)` pair C1 describes. What they do enforce is the part that is
+not about lifetime: a primitive key is refused.
+
+### P6 — `Promise`. **DONE except the half the compiler owes.**
+
+The machine drives it: `PromiseTable` holds every state and waiter list,
+`Scheduler::settle` wakes, `Queues` decides order, and there is no second queue.
+What does not fit is `Scheduler::park`, which takes a parked frame and a
+`ResumeLabel` — a `.then` callback has neither. That shape is exactly the `await`
+half, and `await` is refused by the emitter, so this lands reachable only through
+`.then`, `.catch`, `.finally` and the combinators.
+
+The host drains at the end of the turn, in `Compiled::run`. A reaction must not
+run in the entry point that queued it, and a rejection is only unhandled once
+nothing more can attach to it.
+
+### P7 — the rest of the core list. **Mostly done.**
+
+`Reflect`, `Date`, `ArrayBuffer`/`DataView`/the eight typed arrays,
+`Object.prototype`, `Function.prototype` including `bind`, `Number.prototype`,
+`structuredClone`, the URI functions, and the `String.prototype` /
+`Array.prototype` gaps.
+
+**Still absent, each for a reason rather than by omission:** `BigInt` and the two
+64-bit typed arrays that need it; `Proxy`; `Uint8ClampedArray`, whose conversion
+rule is a second one rather than a ninth element kind; `%TypedArray%` as a shared
+prototype; the `Iterator` helpers; and `AggregateError`, which `Promise.any`
+therefore rejects with a plain object carrying `name`, `message` and `errors`.
+
+---
+
+## What the primordials cost in divergence
+
+Collected here rather than scattered, because a reader wants the list in one
+place and each entry already carries its argument where it is implemented.
+
+- **No `RangeError`, `TypeError` or `SyntaxError` is ever thrown.** Every
+  operation that should throw answers a value instead — `undefined`, `NaN`,
+  `null`, or a clamp. `entry/throw.rs` says why: a throw that no handler in the
+  throwing function catches ends the program, and finding one in a caller needs
+  an exception table and a personality routine.
+- **A wrapper object is never made.** `new Number(5)`, `new String("a")` and
+  `new Boolean(true)` answer the plain object `construct` allocated, because a
+  primitive is not an object and a constructor returning one does not win.
+- **`keys`/`values`/`entries` answer arrays**, on `Map`, `Set` and `Array` alike,
+  rather than iterator objects.
+- **`size`, `length`, `byteLength` and friends are own data properties**, not
+  prototype accessors — the trade array `length` already makes, and the reason is
+  that compiled code reading one never asks the runtime.
+- **`Date` is entirely UTC**, and its time value is a real property visible to
+  `Object.keys`.

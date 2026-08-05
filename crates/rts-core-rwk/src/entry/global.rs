@@ -75,7 +75,10 @@ pub fn global_get(key: i64) -> u64 {
         // members — so it is made here rather than by a class registration, and
         // recorded as a property like every other name so that
         // `parseInt === parseInt` is true.
-        if let Some(code) = super::global_fns::provided(&text) {
+        if let Some(code) = super::global_fns::provided(&text)
+            .or_else(|| super::uri::provided(&text))
+            .or_else(|| super::clone::provided(&text))
+        {
             let made = super::native::callable(context, code);
             super::objects::put(context, object, Key::Name(name), made);
             return made;
@@ -85,6 +88,7 @@ pub fn global_get(key: i64) -> u64 {
             "Math" => super::math::register_math(context),
             "Number" => super::number::register_number(context),
             "Boolean" => super::number::register_boolean(context),
+            "Promise" => super::promise::register_promise(context),
             "Function" => super::function_proto::register_function(context),
             "Reflect" => super::reflect::register_reflect(context),
             "Symbol" => super::symbol::constructor(context),
@@ -92,6 +96,16 @@ pub fn global_get(key: i64) -> u64 {
             "Date" => super::date::register_date(context),
             "Map" => super::collections::register_map(context),
             "Set" => super::collections::register_set(context),
+            "ArrayBuffer" => super::buffers::register_array_buffer(context),
+            "DataView" => super::buffers::register_data_view(context),
+            "Int8Array" => super::buffers::int8_array(context),
+            "Uint8Array" => super::buffers::uint8_array(context),
+            "Int16Array" => super::buffers::int16_array(context),
+            "Uint16Array" => super::buffers::uint16_array(context),
+            "Int32Array" => super::buffers::int32_array(context),
+            "Uint32Array" => super::buffers::uint32_array(context),
+            "Float32Array" => super::buffers::float32_array(context),
+            "Float64Array" => super::buffers::float64_array(context),
             "WeakMap" => super::collections::register_weak_map(context),
             "WeakSet" => super::collections::register_weak_set(context),
             "String" => super::string::constructor(context),

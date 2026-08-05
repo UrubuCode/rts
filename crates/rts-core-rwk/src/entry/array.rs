@@ -213,7 +213,7 @@ pub fn own_keys(object: u64) -> u64 {
                 }
             }
         }
-        keys
+        ordered(keys)
     });
 
     // Built outside the borrow above, because interning each string and
@@ -255,4 +255,48 @@ pub(super) fn set_length(context: &mut Context, cell: u32, length: usize) {
     let key = super::computed::length_key(context);
     let value = Value::from_f64(length as f64).bits();
     super::objects::put(context, cell, key, value);
+}
+
+/// The enumeration order the language states, over keys already collected.
+///
+/// **Array-index keys first, in ascending numeric order; then everything else
+/// in the order it was added.** Not insertion order overall, and the difference
+/// is not exotic: `o.b = 1; o[2] = 1; o.a = 1; o[1] = 1` enumerates
+/// `1, 2, b, a`.
+///
+/// # Why this is a sort here rather than a `Key::Index`
+///
+/// [`super::computed`] turns every computed key into a NAME, including one that
+/// spells an index, and its own documentation says why: `o[0]` and `o["0"]` are
+/// one property, and routing an object's key through `Key::from_str` made
+/// `o[0] = 1; o[0]` read as absent. What that gave up was exactly this ordering,
+/// recorded there as "an enumeration order nothing implements".
+///
+/// So it is implemented from the text instead. A key is an index when its
+/// spelling is the canonical one for a number below 2^32 − 1 — which is what
+/// makes `"01"` and `"1.0"` ordinary names, as the specification says, and what
+/// a `parse` alone would have got wrong.
+fn ordered(keys: Vec<Str>) -> Vec<Str> {
+    let index_of = |text: &Str| -> Option<u32> {
+        let text = text.to_rust()?;
+        let number: u32 = text.parse().ok()?;
+        // The canonical spelling, and only that: `"01"` parses to 1 and is not
+        // an index, because the language decides by the round trip rather than
+        // by the value.
+        (number.to_string() == text && number != u32::MAX).then_some(number)
+    };
+
+    let mut indices: Vec<(u32, Str)> = Vec::new();
+    let mut names: Vec<Str> = Vec::new();
+    for key in keys {
+        match index_of(&key) {
+            Some(number) => indices.push((number, key)),
+            None => names.push(key),
+        }
+    }
+    indices.sort_by_key(|(number, _)| *number);
+
+    let mut out: Vec<Str> = indices.into_iter().map(|(_, key)| key).collect();
+    out.extend(names);
+    out
 }

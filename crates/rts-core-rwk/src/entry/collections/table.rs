@@ -87,7 +87,7 @@ impl Table {
     /// followed by `m.set(k, 2)` must not move `k` to the end of the iteration
     /// order, which is what the specification says and what a program printing
     /// a map after updating it would otherwise show.
-    pub(super) fn set(&mut self, context: &Context, key: u64, value: u64) {
+    pub(in crate::entry) fn set(&mut self, context: &Context, key: u64, value: u64) {
         if let Some(at) = self.slot(context, key) {
             self.values[at] = value;
             return;

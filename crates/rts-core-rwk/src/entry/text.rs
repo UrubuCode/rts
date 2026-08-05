@@ -142,6 +142,21 @@ pub fn type_of(value: u64) -> u64 {
     })
 }
 
+/// The text a value has, for a host that has to report a result.
+///
+/// # Why the host cannot do this itself
+///
+/// A string is a cell in the region and its bytes are beside it in the slab, so
+/// reading one needs the context — which the host installs for the run and takes
+/// back afterwards. By the time `run` returns, the only thing left is a word.
+///
+/// `None` for anything whose conversion runs user code, which is an object: this
+/// is a report, and reaching back into the program that produced it to ask what
+/// it would like to be called is not what a report should do.
+pub fn described(value: u64) -> Option<String> {
+    with_current(|context| to_text(context, Value(value))?.to_rust())
+}
+
 /// Seeds the property-key numbering from what the compilation resolved.
 ///
 /// # Why the texts and not just how many

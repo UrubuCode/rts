@@ -53,7 +53,7 @@ use crate::text::Str;
 use crate::value::Value;
 
 /// The property the time value lives in. See the module documentation.
-const TIME: &str = "__dateValue";
+pub(in crate::entry) const TIME: &str = "__dateValue";
 
 /// `Date`.
 #[rtse::class("Date")]
