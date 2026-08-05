@@ -57,10 +57,13 @@ pub fn emit_unary(
             Ok(expr::undefined(builder, ctx))
         }
 
+        // A call rather than `x * -1`. The multiply is right for a double and
+        // wrong for a bigint: `-1` is a NUMBER, so the product is a mixed
+        // operation the language refuses — which made every negative bigint
+        // literal `NaN`, silently.
         UnaryOp::Negate => {
             let value = emit_expr(builder, scope, ctx, operand)?;
-            let minus_one = expr::number_constant(builder, -1.0);
-            expr::emit_binary(builder, ctx, BinaryOp::Mul, value, minus_one)
+            Ok(expr::call(builder, ctx, RuntimeOp::Negate, &[value])?[0])
         }
 
         // Unary plus is not an identity: `+"3"` is `3`. It is `ToNumber`

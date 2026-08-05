@@ -68,6 +68,15 @@ fn shift_by(value: f64) -> u32 {
 #[rtse::entry]
 pub fn bit_and(left: u64, right: u64) -> u64 {
     with_current(|context| {
+        // A bigint has no thirty-two-bit truncation: `&` on two of them is
+        // over the whole two's-complement value, which is what makes
+        // `-1n & 3n` answer `3n` where `-1 & 3` also does and `(2n**40n) & 1n`
+        // would not survive `ToInt32`.
+        if let Some(answer) =
+            super::bigint_class::binary(context, super::bigint_class::Op::BitAnd, left, right)
+        {
+            return answer;
+        }
         let (a, b) = operands(context, Value(left), Value(right));
         Value::from_f64(f64::from(to_int32(a) & to_int32(b))).bits()
     })
@@ -77,6 +86,11 @@ pub fn bit_and(left: u64, right: u64) -> u64 {
 #[rtse::entry]
 pub fn bit_or(left: u64, right: u64) -> u64 {
     with_current(|context| {
+        if let Some(answer) =
+            super::bigint_class::binary(context, super::bigint_class::Op::BitOr, left, right)
+        {
+            return answer;
+        }
         let (a, b) = operands(context, Value(left), Value(right));
         Value::from_f64(f64::from(to_int32(a) | to_int32(b))).bits()
     })
@@ -86,6 +100,11 @@ pub fn bit_or(left: u64, right: u64) -> u64 {
 #[rtse::entry]
 pub fn bit_xor(left: u64, right: u64) -> u64 {
     with_current(|context| {
+        if let Some(answer) =
+            super::bigint_class::binary(context, super::bigint_class::Op::BitXor, left, right)
+        {
+            return answer;
+        }
         let (a, b) = operands(context, Value(left), Value(right));
         Value::from_f64(f64::from(to_int32(a) ^ to_int32(b))).bits()
     })

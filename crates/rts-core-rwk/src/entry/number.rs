@@ -26,7 +26,7 @@
 //! and let the wrapper convert. The parameter type is the statement.
 
 use super::objects::undefined_of;
-use super::{Context, with_current};
+use super::with_current;
 use crate::text::Str;
 use crate::value::Value;
 
@@ -406,42 +406,4 @@ pub(super) fn integer_prefix(text: &str, radix: i64) -> f64 {
         true => -answer,
         false => answer,
     }
-}
-/// What a primitive receiver borrows to answer a property read.
-///
-/// # Why a number needs this and a string does not
-///
-/// A string IS a cell here, so `"a".trim` reaches the chain walk and
-/// [`inherited_from`] substitutes `String.prototype`. A number and a boolean are
-/// not cells — they are the encoding itself — so there is nothing to walk from
-/// and `(5).toFixed` read `undefined` however complete `Number.prototype` was.
-///
-/// So the lookup starts on the shared prototype directly. The receiver is still
-/// the primitive: `get_property` calls a getter with the value it was given, and
-/// `toFixed` reads its own `this` as a number rather than as an object.
-///
-/// # Why the class is registered on demand here
-///
-/// A program writing `(5).toFixed(2)` may never name `Number`, and the
-/// registration is what makes the prototype exist. Reaching it through the
-/// global object instead would make a property read depend on whether the
-/// program happened to mention a global, which is a different answer for the
-/// same expression.
-pub(super) fn prototype_for(context: &mut Context, value: Value) -> Option<u32> {
-    let name = match value.kind() {
-        crate::value::Kind::Float | crate::value::Kind::Int => "Number",
-        crate::value::Kind::Bool => "Boolean",
-        // `undefined` and `null` have no prototype, which is exactly why
-        // `null.x` is a `TypeError` — and answering `undefined` for it is the
-        // stated gap every operation here has while a throw cannot find a
-        // handler.
-        _ => return None,
-    };
-    if super::class_support::made(context, name).is_none() {
-        match name {
-            "Number" => super::number::register_number(context),
-            _ => super::number::register_boolean(context),
-        };
-    }
-    Value(super::class_support::prototype(context, name)?).as_slot()
 }

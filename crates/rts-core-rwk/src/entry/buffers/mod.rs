@@ -77,7 +77,7 @@ pub(in crate::entry) use data_view::register_data_view;
 // also installs `BYTES_PER_ELEMENT` on the constructor, which is a property the
 // language puts on both halves and the attribute can only put on one.
 pub(in crate::entry) use typed_classes::{
-    float32_array, float64_array, int8_array, int16_array, int32_array, uint8_array, uint16_array,
+    float32_array, float64_array, int8_array, int16_array, int32_array, uint8_array, uint8_clamped_array, uint16_array,
     uint32_array,
 };
 

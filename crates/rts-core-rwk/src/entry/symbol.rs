@@ -1,6 +1,26 @@
-//! `Symbol` — a value that is a property key nothing else can spell.
+//! `Symbol` — a primitive that is a property key nothing else can spell.
 //!
-//! # Why a symbol key is a NAME with a reserved prefix
+//! # Why a symbol is a tag and not a cell
+//!
+//! It was a cell, and that was wrong in the way an implementation detail is
+//! wrong when it is observable. A symbol is a **primitive**: `typeof` answers
+//! `"symbol"`, `s.x = 1` writes nothing, `s instanceof Object` is false, and
+//! `Object.keys(s)` is empty. A cell gives none of those — it gives an object
+//! that a patched `typeof` lies about, and every other question answers "an
+//! object" correctly for the encoding and wrongly for the language.
+//!
+//! So a symbol is one of the four tags the machine hands the language, exactly
+//! as `undefined` is one of the singleton numbers: the payload is the symbol's
+//! own number, and two symbols differ in it. `Symbol("a") !== Symbol("a")` then
+//! falls out of comparing two words rather than out of comparing two heap
+//! identities — which is the same answer arrived at honestly.
+//!
+//! What stays on the side is only the **description**, which is text and does
+//! not fit in a tag's payload beside the number. That is a table this module
+//! owns, keyed by the number, and nothing about it is reachable from a program
+//! except through `description` and `toString`.
+//!
+//! # Why a symbol KEY is a name with a reserved prefix
 //!
 //! The obvious design adds a third `Key` variant beside `Index` and `Name`. It
 //! costs more than it looks: `machine_key` would answer `None` for it, so a
@@ -15,41 +35,21 @@
 //! This is not a shortcut invented here. It is what the engine being replaced
 //! does — `crates/rts-runtime/src/adapters/value/objops.rs`, `key_text` — and it
 //! is the design that survived contact with `Object.keys`, `for-in` and
-//! `JSON.stringify` there. Porting a proven encoding beats inventing a second
-//! one to be different.
+//! `JSON.stringify` there.
 //!
 //! **What the prefix costs, said out loud:** a program that writes
-//! `o["@@iterator"] = 1` has written to the symbol slot. That is unreachable
-//! from any spelling a real program uses and it is a genuine divergence rather
-//! than an impossibility, which is why it is written here rather than assumed
-//! away.
-//!
-//! # Why a symbol is a cell and not a tag
-//!
-//! `Symbol("a") === Symbol("a")` is **false**: two symbols with the same
-//! description are different values. That is identity, and identity is what a
-//! cell already is. A tag over an interned description would have made the two
-//! equal, which is the one thing a symbol exists not to be.
-//!
-//! The cell carries no shape of its own beyond the root, and what makes it a
-//! symbol is recorded beside it — the pattern arrays, callables and regular
-//! expressions all use, and for the reason the `array_elements` comment states:
-//! a reserved layout makes `s.tag = 9` a silent no-op.
+//! `o["@@iterator"] = 1` has written the symbol slot. That is unreachable from
+//! any spelling a real program uses and it is a genuine divergence rather than
+//! an impossibility, which is why it is written here rather than assumed away.
 //!
 //! # What is deliberately absent
 //!
 //! `Object.getOwnPropertySymbols`. Recovering the symbol VALUE from a key text
-//! means a table from `"@@sym:7"` back to the cell, which is a second index over
-//! something already recorded. It lands with a caller.
-//!
-//! `Symbol.prototype.description` is a real property on the instance rather than
-//! an accessor on the prototype, because an accessor pair is invisible to the
-//! collector and a data property is not — and nothing observable distinguishes
-//! them here.
+//! means a table from `"@@sym:7"` back to the number, which is a second index
+//! over something already recorded. It lands with a caller.
 
 use super::objects::undefined_of;
 use super::{Context, with_current};
-use crate::heap::Aside;
 use crate::text::Str;
 use crate::value::Value;
 
@@ -60,36 +60,31 @@ use crate::value::Value;
 /// come to use a single `@`.
 pub(super) const PREFIX: &str = "@@";
 
-/// What a symbol cell is, beside the cell.
-pub(super) struct SymbolInfo {
+/// What a symbol is, beside its number.
+struct SymbolInfo {
     /// The key text this symbol names a property with.
     key: String,
-    /// What `String(sym)` and `sym.description` answer.
+    /// What `sym.description` and `sym.toString()` answer.
     description: Option<String>,
 }
 
-/// Everything a symbol needs of the context, kept in one place.
+/// Every symbol the program has made, and what each is.
 ///
-/// A struct rather than three fields on `Context`, because they are one fact
-/// with three parts: which cells are symbols, which symbol a shared name
-/// already has, and which number the next minted one gets. Splitting them
-/// across the context is how the registry and the counter come to disagree.
+/// A `Vec` indexed by the symbol's own number rather than a map, because the
+/// number IS the index: it is minted by pushing, so the two cannot drift.
 pub struct Symbols {
-    /// Which cells are symbols.
-    beside: Aside<SymbolInfo>,
-    /// The symbols that are shared by name: the well-known ones, and whatever
+    /// One entry per symbol, in the order they were minted.
+    made: Vec<SymbolInfo>,
+    /// The symbols shared by name: the well-known ones, and whatever
     /// `Symbol.for` has been asked for.
     ///
     /// One list for both, keyed by the KEY TEXT rather than the description —
     /// which is what keeps `Symbol.for("iterator")` and `Symbol.iterator`
     /// distinct, because the first mints `"@@for:iterator"` and the second is
-    /// `"@@iterator"`. The old engine keeps two tables for this and its own
-    /// documentation says the identities must not collide; one table over
-    /// distinct key spaces says the same thing once.
-    shared: Vec<(String, u64)>,
-    /// How many symbols have been minted, which is what makes the next key
-    /// unique.
-    minted: u32,
+    /// `"@@iterator"`. The engine being replaced keeps two tables for this and
+    /// its own documentation says the identities must not collide; one table
+    /// over two disjoint key spaces says the same thing once.
+    shared: Vec<(String, u32)>,
     /// What every symbol inherits from, once one exists.
     prototype: Option<u32>,
 }
@@ -98,19 +93,18 @@ impl Symbols {
     /// A symbol table holding nothing.
     pub fn new() -> Self {
         Symbols {
-            beside: Aside::new(),
+            made: Vec::new(),
             shared: Vec::new(),
-            minted: 0,
             prototype: None,
         }
     }
 }
 
-/// The twelve names the language reserves.
+/// The twelve names the language reserves, and the two `using` is waiting for.
 ///
 /// Written out rather than minted on demand, because `Symbol.iterator` must be
-/// the same value in every program that reads it and a typo in one of these is
-/// a property that silently never matches. The spelling is the wire format:
+/// the same value in every program that reads it and a typo in one of these is a
+/// property that silently never matches. The spelling is the wire format:
 /// `"@@iterator"` is the key a `[Symbol.iterator]() {}` member writes to.
 const WELL_KNOWN: &[&str] = &[
     "iterator",
@@ -125,18 +119,15 @@ const WELL_KNOWN: &[&str] = &[
     "toPrimitive",
     "toStringTag",
     "unscopables",
-    // Not in ECMA-262 yet at the time of writing and already what `using`
-    // compiles against, which is why it is here rather than waiting: the
-    // construct is refused by the emitter today and the symbol it will need
-    // costs one row.
     "dispose",
     "asyncDispose",
 ];
 
 impl Context {
-    /// The symbol a cell is, if it is one.
-    pub(super) fn symbol_at(&self, cell: u32) -> Option<&SymbolInfo> {
-        self.symbols.beside.get(cell)
+    /// The symbol a value is, if it is one.
+    fn symbol_of(&self, value: u64) -> Option<&SymbolInfo> {
+        let number = Value(value).as_client(self.kinds.symbol)?;
+        self.symbols.made.get(number as usize)
     }
 }
 
@@ -148,50 +139,37 @@ pub(super) fn is_symbol_key(text: &str) -> bool {
     text.starts_with(PREFIX)
 }
 
+/// Whether a value is a symbol at all.
+pub(super) fn is_symbol(context: &Context, value: u64) -> bool {
+    Value(value).as_client(context.kinds.symbol).is_some()
+}
+
 /// The key text a value names, when the value is a symbol.
 ///
 /// This is `ToPropertyKey` for the one case that is not a string: a symbol is
-/// its own key rather than one derived from text, which is why the computed
-/// path asks this before converting.
+/// its own key rather than one derived from text, which is why the computed path
+/// asks this before converting.
 pub(super) fn key_text_of(context: &Context, value: u64) -> Option<String> {
-    let cell = Value(value).as_slot()?;
-    Some(context.symbol_at(cell)?.key.clone())
+    Some(context.symbol_of(value)?.key.clone())
 }
 
-/// A new symbol, with a key nothing has used.
+/// A new symbol under a key nothing has used.
 fn mint(context: &mut Context, key: String, description: Option<String>) -> u64 {
-    let Some(cell) = super::native::plain(context) else {
-        return undefined_of(context);
-    };
-    if let Some(prototype) = prototype_of(context) {
-        context.set_prototype(cell, Value::from_slot(prototype).bits());
-    }
-    // A real property rather than an accessor, for the reason the module doc
-    // gives — and written before the cell is recorded as a symbol so that
-    // interning the name cannot see a half-built one.
-    if let Some(text) = &description {
-        let value = context.intern_value(Str::from_str(text)).bits();
-        let named = context.well_known("description");
-        super::objects::put(context, cell, named, value);
-    }
-    context.symbols.beside.set(cell, SymbolInfo { key, description });
-    Value::from_slot(cell).bits()
-}
-
-/// `Symbol(description)` — a value equal to nothing but itself.
-fn fresh(context: &mut Context, description: Option<String>) -> u64 {
-    context.symbols.minted += 1;
-    let key = format!("{PREFIX}sym:{}", context.symbols.minted);
-    mint(context, key, description)
+    let number = context.symbols.made.len() as u64;
+    context.symbols.made.push(SymbolInfo { key, description });
+    Value::from_client(context.kinds.symbol, number).bits()
 }
 
 /// A symbol shared under a key text, made once.
 fn shared(context: &mut Context, key: String, description: Option<String>) -> u64 {
-    if let Some((_, made)) = context.symbols.shared.iter().find(|(held, _)| *held == key) {
-        return *made;
+    if let Some((_, number)) = context.symbols.shared.iter().find(|(held, _)| *held == key) {
+        return Value::from_client(context.kinds.symbol, u64::from(*number)).bits();
     }
     let made = mint(context, key.clone(), description);
-    context.symbols.shared.push((key, made));
+    let number = Value(made)
+        .as_client(context.kinds.symbol)
+        .expect("just minted") as u32;
+    context.symbols.shared.push((key, number));
     made
 }
 
@@ -211,41 +189,67 @@ pub(super) fn well_known(context: &mut Context, name: &str) -> u64 {
 
 /// What every symbol inherits from, made once.
 ///
-/// Recorded before the members are installed, for the reason
-/// `string::prototype_of` records: installing interns names, interning
-/// allocates, and an allocation can reach back here.
-fn prototype_of(context: &mut Context) -> Option<u32> {
+/// Reached by [`super::primitive_proto`], because a symbol has no cell to walk
+/// from — the same route `(5).toFixed(2)` takes, and the reason a primitive
+/// needs no wrapper object to have methods.
+pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     if let Some(made) = context.symbols.prototype {
         return Some(made);
     }
     let cell = super::native::plain(context)?;
+    // Recorded before the members are installed: installing interns names, and
+    // interning allocates, which can reach back here.
     context.symbols.prototype = Some(cell);
     super::native::install(context, cell, NATIVES);
     Some(cell)
 }
 
 /// What `Symbol.prototype` holds.
-const NATIVES: &[(&str, super::native::Native)] = &[("toString", to_string)];
+const NATIVES: &[(&str, super::native::Native)] =
+    &[("toString", to_string), ("valueOf", value_of)];
+
+/// The text a symbol describes itself with.
+fn described(context: &Context, value: u64) -> Option<String> {
+    let symbol = context.symbol_of(value)?;
+    Some(match &symbol.description {
+        Some(text) => format!("Symbol({text})"),
+        None => "Symbol()".to_owned(),
+    })
+}
 
 /// `sym.toString()` — `"Symbol(a)"`.
 ///
 /// A method rather than a conversion the `+` operator reaches: the language
 /// makes implicit conversion of a symbol a `TypeError` precisely so that a
-/// symbol never accidentally becomes text, and `super::text::to_text` therefore
-/// refuses one. This is the explicit spelling, and it is the only one.
+/// symbol never accidentally becomes text, and [`super::text::to_text`]
+/// therefore refuses one. This is the explicit spelling, and it is the only one.
 extern "C" fn to_string(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    with_current(|context| {
-        let described = Value(this)
-            .as_slot()
-            .and_then(|cell| context.symbol_at(cell))
-            .map(|symbol| match &symbol.description {
-                Some(text) => format!("Symbol({text})"),
-                None => "Symbol()".to_owned(),
-            });
-        match described {
-            Some(text) => context.intern_value(Str::from_str(&text)).bits(),
-            None => undefined_of(context),
-        }
+    with_current(|context| match described(context, this) {
+        Some(text) => context.intern_value(Str::from_str(&text)).bits(),
+        None => undefined_of(context),
+    })
+}
+
+/// `sym.valueOf()` — the symbol itself.
+extern "C" fn value_of(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    this
+}
+
+/// `sym.description`, which is a property read rather than a method call.
+///
+/// Answered here rather than stored, because there is nowhere to store it: a
+/// symbol has no cell, which is the whole point. So the property read on a
+/// primitive receiver asks this before it walks the prototype — the same shape
+/// `"a".length` has, and for the same reason.
+pub(super) fn property(context: &mut Context, value: u64, key: crate::object::Key) -> Option<u64> {
+    let wanted = context.well_known("description");
+    if key != wanted {
+        return None;
+    }
+    let described = context.symbol_of(value)?.description.clone();
+    Some(match described {
+        Some(text) => context.intern_value(Str::from_str(&text)).bits(),
+        None => undefined_of(context),
     })
 }
 
@@ -254,10 +258,16 @@ extern "C" fn make(_e: u64, _this: u64, description: u64, _a1: u64, _a2: u64, _a
     with_current(|context| {
         let text = match description == undefined_of(context) {
             true => None,
-            false => super::text::to_text(context, Value(description))
-                .and_then(|text| text.to_rust()),
+            false => {
+                super::text::to_text(context, Value(description)).and_then(|text| text.to_rust())
+            }
         };
-        fresh(context, text)
+        let number = context.symbols.made.len() as u64;
+        context.symbols.made.push(SymbolInfo {
+            key: format!("{PREFIX}sym:{number}"),
+            description: text,
+        });
+        Value::from_client(context.kinds.symbol, number).bits()
     })
 }
 
@@ -265,8 +275,7 @@ extern "C" fn make(_e: u64, _this: u64, description: u64, _a1: u64, _a2: u64, _a
 ///
 /// Its key space is deliberately separate from the well-known one:
 /// `Symbol.for("iterator")` is **not** `Symbol.iterator`, and giving them the
-/// same key text is the collision the old engine's own documentation warns
-/// about.
+/// same key text is the collision the engine being replaced warns about.
 extern "C" fn for_key(_e: u64, _this: u64, key: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
         let Some(text) = super::text::to_text(context, Value(key)).and_then(|text| text.to_rust())
@@ -283,10 +292,10 @@ extern "C" fn for_key(_e: u64, _this: u64, key: u64, _a1: u64, _a2: u64, _a3: u6
 /// by `Symbol()` from one made by `Symbol.for`.
 extern "C" fn key_for(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
-        let found = Value(value)
-            .as_slot()
-            .and_then(|cell| context.symbol_at(cell))
-            .and_then(|symbol| symbol.key.strip_prefix(&format!("{PREFIX}for:")))
+        let registered = format!("{PREFIX}for:");
+        let found = context
+            .symbol_of(value)
+            .and_then(|symbol| symbol.key.strip_prefix(&registered))
             .map(str::to_owned);
         match found {
             Some(text) => context.intern_value(Str::from_str(&text)).bits(),
@@ -298,10 +307,10 @@ extern "C" fn key_for(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: 
 /// `Symbol` itself, as the value the name reads.
 ///
 /// Written by hand rather than through `#[rtse::class]` for one reason worth
-/// naming: the well-known symbols are static properties whose values are
-/// **objects made at registration time**, and the attribute's constants are
-/// numbers and text. Teaching it about a computed constant would be teaching it
-/// to run code at registration, which is what this function already is.
+/// naming: the well-known symbols are static properties whose values are made at
+/// registration time, and the attribute's constants are numbers and text.
+/// Teaching it about a computed constant would be teaching it to run code at
+/// registration, which is what this function already is.
 pub(super) fn constructor(context: &mut Context) -> u64 {
     let callable = super::native::callable(context, make);
     let Some(cell) = Value(callable).as_slot() else {

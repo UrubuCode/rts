@@ -33,6 +33,15 @@
 pub(in crate::entry) enum Kind {
     Int8,
     Uint8,
+    /// Eight unsigned bits, written by CLAMPING rather than wrapping.
+    ///
+    /// A ninth kind rather than a flag on `Uint8`, because it is a different
+    /// conversion and not a different width: 300 stores 255 here and 44 there,
+    /// and a half is rounded to EVEN where every other kind truncates. It
+    /// exists because canvas image data is defined in terms of it, and a
+    /// program handed one that wrapped would see colour channels overflow into
+    /// the opposite end of the range.
+    Uint8Clamped,
     Int16,
     Uint16,
     Int32,
@@ -50,7 +59,7 @@ impl Kind {
     /// are the same number and the range arithmetic needs no special case.
     pub(in crate::entry) const fn size(self) -> usize {
         match self {
-            Kind::Int8 | Kind::Uint8 | Kind::Raw => 1,
+            Kind::Int8 | Kind::Uint8 | Kind::Uint8Clamped | Kind::Raw => 1,
             Kind::Int16 | Kind::Uint16 => 2,
             Kind::Int32 | Kind::Uint32 | Kind::Float32 => 4,
             Kind::Float64 => 8,
@@ -64,7 +73,7 @@ impl Kind {
     const fn integer(self) -> Option<(u32, bool)> {
         match self {
             Kind::Int8 => Some((8, true)),
-            Kind::Uint8 => Some((8, false)),
+            Kind::Uint8 | Kind::Uint8Clamped => Some((8, false)),
             Kind::Int16 => Some((16, true)),
             Kind::Uint16 => Some((16, false)),
             Kind::Int32 => Some((32, true)),
@@ -103,7 +112,9 @@ pub(in crate::entry) fn read(bytes: &[u8], at: usize, kind: Kind, little: bool) 
     let word = gathered(bytes, at, kind.size(), little)?;
     Some(match kind {
         Kind::Int8 => f64::from(word as u8 as i8),
-        Kind::Uint8 => f64::from(word as u8),
+        // Read identically: clamping is a WRITE rule, and the bytes it left
+        // are ordinary unsigned ones.
+        Kind::Uint8 | Kind::Uint8Clamped => f64::from(word as u8),
         Kind::Int16 => f64::from(word as u16 as i16),
         Kind::Uint16 => f64::from(word as u16),
         Kind::Int32 => f64::from(word as u32 as i32),
@@ -122,6 +133,15 @@ pub(in crate::entry) fn to_bits(value: f64, kind: Kind) -> u64 {
         Kind::Float32 => u64::from((value as f32).to_bits()),
         Kind::Float64 => value.to_bits(),
         Kind::Raw => 0,
+        // Saturate, and round a half to EVEN — the one place in this file where
+        // `f64::round_ties_even` is the right function rather than the wrong
+        // one. `0.5` stores 0 and `1.5` stores 2, which is what the
+        // specification says and what truncation and half-away-from-zero both
+        // get wrong in opposite directions.
+        Kind::Uint8Clamped => match value.is_nan() {
+            true => 0,
+            false => value.clamp(0.0, 255.0).round_ties_even() as u64,
+        },
         _ => match kind.integer() {
             Some((bits, _)) => wrapped(value, bits),
             None => 0,

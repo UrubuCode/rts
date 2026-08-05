@@ -88,6 +88,7 @@ pub fn global_get(key: i64) -> u64 {
             "Math" => super::math::register_math(context),
             "Number" => super::number::register_number(context),
             "Boolean" => super::number::register_boolean(context),
+            "BigInt" => super::bigint_class::register_big_int_class(context),
             "Promise" => super::promise::register_promise(context),
             "Function" => super::function_proto::register_function(context),
             "Reflect" => super::reflect::register_reflect(context),
@@ -100,6 +101,7 @@ pub fn global_get(key: i64) -> u64 {
             "DataView" => super::buffers::register_data_view(context),
             "Int8Array" => super::buffers::int8_array(context),
             "Uint8Array" => super::buffers::uint8_array(context),
+            "Uint8ClampedArray" => super::buffers::uint8_clamped_array(context),
             "Int16Array" => super::buffers::int16_array(context),
             "Uint16Array" => super::buffers::uint16_array(context),
             "Int32Array" => super::buffers::int32_array(context),
@@ -171,7 +173,7 @@ mod tests {
             undefined: 0,
             null: 1,
         };
-        let context = Context::new(singletons);
+        let context = Context::new(singletons, crate::value::Kinds::in_declaration_order());
         with_context(context, body).1
     }
 

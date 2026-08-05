@@ -5,7 +5,7 @@
 //! the first place either can be observed at all.
 
 use rts_codegen::emit::EmitError;
-use rts_codegen::values::{Singleton, ValueModel};
+use rts_codegen::values::{Primitive, Singleton, ValueModel};
 use rts_core_rwk::value::Singletons;
 use rts_cranelift::target::TargetError;
 
@@ -67,5 +67,19 @@ pub fn singletons_for(model: &ValueModel) -> Singletons {
     Singletons {
         undefined: model.singleton(Singleton::Undefined).number(),
         null: model.singleton(Singleton::Null).number(),
+    }
+}
+
+/// The same wiring for the kinds the language declared for itself.
+///
+/// A fourth agreement beside the singleton numbering, the key numbering and the
+/// literal table, and the quietest of the four if it were wrong: a runtime told
+/// the wrong tag would read every symbol as a bigint and hand its number to the
+/// digit slab. It is passed rather than assumed for the reason all four are —
+/// the compiler decides, and there is exactly one place that says so.
+pub fn kinds_for(model: &ValueModel) -> rts_core_rwk::Kinds {
+    rts_core_rwk::Kinds {
+        symbol: model.kind(Primitive::Symbol).tag(),
+        bigint: model.kind(Primitive::BigInt).tag(),
     }
 }

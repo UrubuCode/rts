@@ -32,6 +32,7 @@
 #![deny(missing_docs)]
 #![deny(dead_code)]
 
+pub mod bigint;
 pub mod coerce;
 pub mod collect;
 pub mod entry;
@@ -48,4 +49,4 @@ pub use heap::{Handle, Slab, Slot};
 pub use object::{Key, Object};
 pub use schedule::Settlements;
 pub use text::{Interner, Str};
-pub use value::{Kind, Value};
+pub use value::{Kind, Kinds, Value};

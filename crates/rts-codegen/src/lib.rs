@@ -40,4 +40,4 @@ pub mod runtime;
 
 pub use names::{Name, Names};
 pub use syntax::{Expr, Program, Stmt};
-pub use values::{Singleton, ValueModel};
+pub use values::{Primitive, Singleton, ValueModel};

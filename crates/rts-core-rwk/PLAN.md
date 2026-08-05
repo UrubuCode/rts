@@ -392,11 +392,46 @@ nothing more can attach to it.
 `structuredClone`, the URI functions, and the `String.prototype` /
 `Array.prototype` gaps.
 
-**Still absent, each for a reason rather than by omission:** `BigInt` and the two
-64-bit typed arrays that need it; `Proxy`; `Uint8ClampedArray`, whose conversion
-rule is a second one rather than a ninth element kind; `%TypedArray%` as a shared
-prototype; the `Iterator` helpers; and `AggregateError`, which `Promise.any`
-therefore rejects with a plain object carrying `name`, `message` and `errors`.
+**Still absent, each for a reason rather than by omission:** `Proxy`;
+`BigInt64Array` and `BigUint64Array`, which need the element codec to carry a
+*value* rather than a double — a real change to `buffers::element`, not a ninth
+row; `%TypedArray%` as a shared prototype; the `Iterator` helpers; and
+`AggregateError`, which `Promise.any` therefore rejects with a plain object
+carrying `name`, `message` and `errors`.
+
+### P8 — the two primitives the machine does not define. **DONE.**
+
+`Symbol` and `BigInt` are **kinds**, on two of the four tags
+`TagRegistry::declare_kind` leaves to a client — the same shape `undefined` has
+as a singleton number, and for the same reason: the language declares them and
+the runtime is told, so nothing in `rts-core-rwk` names either.
+
+`Symbol` **was** a cell, and that was wrong in the way an implementation detail
+is wrong when it is observable. `typeof` was patched to say `"symbol"` and every
+other question answered "an object" — correctly for the encoding and wrongly for
+the language. As a tag, `s.x = 1` writes nothing, `s instanceof Object` is false,
+`Object.keys(s)` is empty, and `Symbol("a") !== Symbol("a")` falls out of
+comparing two words.
+
+`BigInt` keeps its digits in a slab, which does **not** make it a reference:
+`typeof` answers from the tag and `1n === 1n` compares the DIGITS, exactly as two
+string cells with equal text are `===`. Arbitrary-precision arithmetic is
+`src/bigint/`, base 2^32 in sign-magnitude, with the two's-complement
+interpretation the bitwise operators need.
+
+Two facts this forced, both of which were latent bugs:
+
+- `Value::kind` answered `Reference` for every tag it did not recognise, so the
+  first client kind ever declared would have handed its payload to the region.
+  It is exhaustive now, and adding a kind is a compile error at every site that
+  has to decide.
+- `-x` was emitted as `x * -1`, which is right for a double and wrong for a
+  bigint: `-1` is a *number*, so the product was a mixed operation the language
+  refuses. Every negative bigint literal was `NaN`. It is its own entry point.
+
+**A typed array is not a primitive.** It is an object, and the grouping is worth
+correcting because it decides the encoding: an object has properties, an identity
+and a prototype, and none of the three fits in a tag.
 
 ---
 

@@ -181,16 +181,28 @@ enum Shape {
 
 fn shape_of(context: &mut Context, value: u64) -> Shape {
     let Some(cell) = Value(value).as_slot() else {
+        // A symbol is a primitive and is still not cloneable: the specification
+        // refuses one because its identity is the whole of what it is, and a
+        // copy would be a different symbol wearing the same description.
+        //
+        // A bigint IS copied, by bits, sharing its digits — unobservable for the
+        // same reason sharing a string is: neither can be written to.
+        if super::symbol::is_symbol(context, value) {
+            return Shape::Uncloneable;
+        }
         return Shape::Bits(value);
     };
     if context.text_at(cell).is_some() {
         return Shape::Bits(value);
     }
-    // Asked before anything structural, because a function is an object too and
-    // a symbol has properties. Getting the order wrong clones a function's
-    // members into a plain object that is not callable — a copy that looks like
-    // it worked.
-    if context.callable_at(cell).is_some() || context.symbol_at(cell).is_some() {
+    // Asked before anything structural, because a function is an object too.
+    // Getting the order wrong clones its members into a plain object that is not
+    // callable — a copy that looks like it worked.
+    //
+    // A symbol used to be checked here and no longer needs to be: it is a
+    // primitive now, so it never reaches a cell at all and is refused by the
+    // caller with the other non-cell values.
+    if context.callable_at(cell).is_some() {
         return Shape::Uncloneable;
     }
     if context.table_at(cell).is_some() {

@@ -2,8 +2,23 @@
 let failed = "";
 function check(name, held) { if (!held) { failed = failed + name + ","; } }
 
-// Identity, which is why a symbol is a cell rather than a tag over its
-// description: an interned encoding would have made these equal.
+// A symbol is a PRIMITIVE, and every one of these is a question a cell would
+// have answered wrongly while `typeof` lied about it.
+check("not-an-object", (Symbol("a") instanceof Object) === false);
+check("no-properties", (function () {
+    let s = Symbol("a");
+    s.tag = 5;
+    return s.tag === undefined;
+})());
+check("not-enumerable-as-a-value", Object.keys(Symbol("a")).length === 0);
+// `String(sym)` and `"" + sym` are a `TypeError` in the language, deliberately,
+// so a symbol never becomes text by accident. This cannot throw, so the
+// conversion is refused as a value — which keeps the accident from happening.
+check("does-not-become-text", ("" + Symbol("a")) !== "Symbol(a)");
+check("explicit-to-string-works", Symbol("a").toString() === "Symbol(a)");
+
+// Identity, which is why each symbol is its own number rather than a shared
+// encoding over its description: an interned one would have made these equal.
 check("distinct", Symbol("a") !== Symbol("a"));
 check("typeof", typeof Symbol("a") === "symbol");
 check("typeof-well-known", typeof Symbol.iterator === "symbol");

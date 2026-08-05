@@ -140,6 +140,8 @@ macro_rules! declare {
 declare! {
     Int8Array, register_int8_array, int8_array, "Int8Array", Kind::Int8, 1.0;
     Uint8Array, register_uint8_array, uint8_array, "Uint8Array", Kind::Uint8, 1.0;
+    Uint8ClampedArray, register_uint8_clamped_array, uint8_clamped_array,
+        "Uint8ClampedArray", Kind::Uint8Clamped, 1.0;
     Int16Array, register_int16_array, int16_array, "Int16Array", Kind::Int16, 2.0;
     Uint16Array, register_uint16_array, uint16_array, "Uint16Array", Kind::Uint16, 2.0;
     Int32Array, register_int32_array, int32_array, "Int32Array", Kind::Int32, 4.0;

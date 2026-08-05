@@ -27,6 +27,23 @@ use crate::value::{Value, strict_equals as values_strict_equals, to_boolean as v
 #[rtse::entry]
 pub fn add(left: u64, right: u64) -> u64 {
     with_current(|context| {
+        // Asked before the numeric path and AFTER the string one, which is the
+        // order the specification states and the order that is easy to get
+        // backwards: `"" + 1n` concatenates and answers `"1"`, while `1 + 1n` is
+        // a `TypeError`. A bigint checked first would have made the first of
+        // those `NaN`.
+        let is_text = |value: u64| {
+            Value(value)
+                .as_slot()
+                .is_some_and(|slot| context.text_at(slot).is_some())
+        };
+        if !is_text(left)
+            && !is_text(right)
+            && let Some(answer) =
+                super::bigint_class::binary(context, super::bigint_class::Op::Add, left, right)
+        {
+            return answer;
+        }
         let text_of = |value: Value| {
             value
                 .as_slot()
@@ -59,6 +76,16 @@ pub fn add(left: u64, right: u64) -> u64 {
 #[rtse::entry]
 pub fn strict_equals(left: u64, right: u64) -> bool {
     with_current(|context| {
+        // A bigint compares by its DIGITS, exactly as a string compares by its
+        // text: `1n === 1n` is true though the two were computed separately and
+        // live in different slots. Comparing the words would answer false, which
+        // is the one thing a primitive must not do.
+        //
+        // `1n === 1` stays false and needs nothing: a number and a bigint have
+        // different tags, so the ordinary comparison already separates them.
+        if super::bigints::same(context, left, right) {
+            return true;
+        }
         values_strict_equals(Value(left), Value(right), |a, b| context.same_text(a, b))
     })
 }
@@ -72,8 +99,19 @@ pub fn strict_equals(left: u64, right: u64) -> bool {
 pub fn to_boolean(value: u64) -> bool {
     with_current(|context| {
         let singletons = context.singletons;
-        values_to_boolean(Value(value), singletons, |slot| {
-            context.text_at(slot as u32).is_some_and(Str::is_empty)
+        let kinds = context.kinds;
+        // The two heap questions the falsy rule cannot answer alone: an empty
+        // string, and `0n`. A symbol reaches here and is never falsy, which is
+        // said by answering false rather than by the value layer learning what a
+        // symbol is.
+        values_to_boolean(Value(value), singletons, |held| {
+            if let Some(payload) = held.as_client(kinds.bigint) {
+                return context.bigint_at(payload).is_none_or(|big| big.is_zero());
+            }
+            match held.as_slot() {
+                Some(slot) => context.text_at(slot).is_some_and(Str::is_empty),
+                None => false,
+            }
         })
     })
 }

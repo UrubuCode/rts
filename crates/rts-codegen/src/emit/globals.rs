@@ -50,6 +50,7 @@ use crate::runtime::RuntimeOp;
 const PROVIDED: &[&str] = &[
     "Array",
     "ArrayBuffer",
+    "BigInt",
     "Boolean",
     "Date",
     "DataView",
@@ -84,6 +85,7 @@ const PROVIDED: &[&str] = &[
     "Uint16Array",
     "Uint32Array",
     "Uint8Array",
+    "Uint8ClampedArray",
     "structuredClone",
     "Symbol",
     "SyntaxError",

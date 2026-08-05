@@ -323,6 +323,13 @@ pub enum RuntimeOp {
     /// passes of a loop share where the next search starts.
     RegexNew,
 
+    /// The bigint a literal names, from its digits as an interned string.
+    ///
+    /// A call rather than a constant for the reason a regular-expression literal
+    /// is one, arrived at differently: the digits are arbitrary precision, so
+    /// there is no immediate that could carry them. The value itself is
+    /// immutable and could be hoisted; what cannot be, yet, is the parse.
+
     /// A name the runtime provides, by the key number the compiler resolved.
     ///
     /// Not the global object: nothing here creates a property, and an unbound
@@ -410,6 +417,27 @@ pub enum RuntimeOp {
 
     /// Appends everything an iterable yields — what `...xs` is.
     ArrayAppendAll,
+
+    /// The bigint a literal names, from its digits as an interned string.
+    ///
+    /// A call rather than a constant for the reason a regular-expression
+    /// literal is one, arrived at differently: the digits are arbitrary
+    /// precision, so there is no immediate that could carry them. The value is
+    /// immutable and could be hoisted; what cannot be, yet, is the parse.
+    ///
+    /// **Appended**, not inserted beside `RegexNew` where it belongs by
+    /// subject. The discriminant is the position in `ALL`, so inserting one
+    /// renumbers every op after it — which a caller compiled against an older
+    /// list would follow into a different function.
+    BigIntNew,
+
+    /// `-x`.
+    ///
+    /// Emitted as `x * -1` until a bigint arrived, at which point the trick
+    /// stopped working: `-1` is a number, so the multiply became a mixed
+    /// operation the language refuses, and every negative bigint literal was
+    /// `NaN`.
+    Negate,
 }
 
 impl RuntimeOp {
@@ -466,6 +494,8 @@ impl RuntimeOp {
         RuntimeOp::Iterate,
         RuntimeOp::ArrayAppend,
         RuntimeOp::ArrayAppendAll,
+        RuntimeOp::BigIntNew,
+        RuntimeOp::Negate,
     ];
 
     /// The linker name the runtime must define.
@@ -513,6 +543,8 @@ impl RuntimeOp {
             RuntimeOp::InstanceOf => "__rts_instance_of",
             RuntimeOp::Call => "__rts_call",
             RuntimeOp::RegexNew => "__rts_regex_new",
+            RuntimeOp::BigIntNew => "__rts_bigint_new",
+            RuntimeOp::Negate => "__rts_negate",
             RuntimeOp::GlobalGet => "__rts_global_get",
             RuntimeOp::GetPrototype => "__rts_get_prototype",
             RuntimeOp::SetPrototype => "__rts_set_prototype",
@@ -592,6 +624,8 @@ impl RuntimeOp {
             // The pattern and the flags, as strings — which is what makes this
             // one operation serve both the literal and the constructor.
             RuntimeOp::RegexNew => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::BigIntNew => (vec![UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::Negate => (vec![UNPROVEN], vec![UNPROVEN]),
             // A key the compiler resolved, like the named property read — and
             // for the same reason: both sides hold the same number, so no text
             // has to cross.

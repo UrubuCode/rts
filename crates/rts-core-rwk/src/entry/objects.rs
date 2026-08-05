@@ -81,10 +81,13 @@ pub fn get_property(object: u64, key: i64) -> u64 {
             return super::accessor::Found::Value(undefined_of(context));
         };
         let Some(slot) = Value(object).as_slot() else {
-            // A number or a boolean, which has no cell to walk from. See
-            // [`super::number::prototype_for`] for why the lookup starts on the
-            // shared prototype rather than on the value.
-            return match super::number::prototype_for(context, Value(object)) {
+            // A number, a boolean, a symbol or a bigint — none of which has a
+            // cell to walk from. See [`super::primitive_proto`] for why the
+            // lookup starts on the shared prototype rather than on the value.
+            if let Some(answer) = super::primitive_proto::own_property(context, Value(object), key) {
+                return super::accessor::Found::Value(answer);
+            }
+            return match super::primitive_proto::prototype_of(context, Value(object)) {
                 Some(cell) => super::accessor::resolve(context, cell, key),
                 None => super::accessor::Found::Value(undefined_of(context)),
             };
@@ -352,7 +355,7 @@ mod tests {
             undefined: 0,
             null: 1,
         };
-        let mut context = Context::new(singletons);
+        let mut context = Context::new(singletons, crate::value::Kinds::in_declaration_order());
         // The keys a test names have to have been issued, exactly as a host
         // issues the ones a program names. A registry that minted nothing
         // refuses every number, which is the behaviour being relied on.

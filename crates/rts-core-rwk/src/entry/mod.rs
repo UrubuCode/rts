@@ -37,6 +37,8 @@ mod alloc;
 mod array;
 mod array_proto;
 mod barrier;
+mod bigint_class;
+mod bigints;
 mod bitwise;
 mod cache;
 mod chain;
@@ -65,6 +67,7 @@ mod object_global;
 mod object_proto;
 mod objects;
 mod operators;
+mod primitive_proto;
 mod primitives;
 mod promise;
 mod reflect;
@@ -94,6 +97,7 @@ pub use operators::{
     divide, greater, greater_equal, less, less_equal, loose_equals, multiply, remainder, subtract,
 };
 pub use primitives::{add, number_to_string, strict_equals, to_boolean};
+pub use bigint_class::{bigint_new, negate};
 pub use regex::regex_new;
 pub use text::{declare_keys, declare_literals, described, string_const, type_of};
 mod table;
@@ -358,6 +362,11 @@ pub struct Context {
     /// runtime holds the bytes on the Rust side is a different question, and
     /// elements are a `Vec<u64>` where text is a `Str`.
     pub arrays: Slab<Vec<u64>>,
+    /// The digits of every bigint, apart from the words that name them.
+    ///
+    /// A slab for the reason `arrays` is one: a payload is forty-eight bits
+    /// and arbitrary precision is not.
+    pub bigints: Slab<crate::bigint::BigInt>,
     /// Every string literal the running program can name, by its number.
     ///
     /// Values rather than text: a literal evaluated twice is the same string,
@@ -370,6 +379,12 @@ pub struct Context {
     pub literals: Vec<u64>,
     /// Which singleton number means what, as the language declared it.
     pub singletons: Singletons,
+    /// Which tag number means which of the language's own kinds.
+    ///
+    /// Told rather than assumed, for the reason `singletons` is: the machine
+    /// hands tags out by number and a second language on it would number its
+    /// own differently.
+    pub kinds: crate::value::Kinds,
 }
 
 impl Context {
@@ -381,10 +396,14 @@ impl Context {
     /// number baked into compiled code**. A context that made its own region
     /// would be a second heap, and every address a compiled program computed
     /// would point into the first one — which nothing would be allocating in.
-    pub fn over(singletons: Singletons, region: crate::heap::Region) -> Self {
+    pub fn over(
+        singletons: Singletons,
+        kinds: crate::value::Kinds,
+        region: crate::heap::Region,
+    ) -> Self {
         Context {
             region,
-            ..Context::new(singletons)
+            ..Context::new(singletons, kinds)
         }
     }
 
@@ -393,7 +412,7 @@ impl Context {
     /// For the runtime's own tests and for anything that is not running
     /// compiled code. Anything that IS must use [`Self::over`], because the
     /// region's base is a constant inside the code.
-    pub fn new(singletons: Singletons) -> Self {
+    pub fn new(singletons: Singletons, kinds: crate::value::Kinds) -> Self {
         let mut types = rts_cranelift::types::TypeRegistry::new();
         // One word: where the text is. Declared before anything else so its
         // number is stable across contexts, which a test comparing two of them
@@ -405,6 +424,7 @@ impl Context {
         Context {
             cells: Slab::new(),
             arrays: Slab::new(),
+            bigints: Slab::new(),
             spills: Slab::new(),
             spill_of: Aside::new(),
             shapes: ShapeTree::new(),
@@ -445,6 +465,7 @@ impl Context {
             // compilation that produced the code.
             literals: Vec::new(),
             singletons,
+            kinds,
         }
     }
 

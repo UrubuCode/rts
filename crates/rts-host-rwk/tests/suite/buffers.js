@@ -83,4 +83,22 @@ check("float-array", (function () {
     return f[0] === 1.5 && f.byteLength === 16;
 })());
 
+// `Uint8ClampedArray` SATURATES where every other kind wraps, and rounds a
+// half to EVEN where they truncate. Both are the specification, and both are
+// invisible in a test written from small whole numbers.
+let clamped = new Uint8ClampedArray(1);
+clamped[0] = 300;
+check("clamp-high", clamped[0] === 255);
+clamped[0] = -5;
+check("clamp-low", clamped[0] === 0);
+clamped[0] = 0.5;
+check("clamp-half-to-even-down", clamped[0] === 0);
+clamped[0] = 1.5;
+check("clamp-half-to-even-up", clamped[0] === 2);
+check("clamp-bytes-per-element", Uint8ClampedArray.BYTES_PER_ELEMENT === 1);
+// And an ordinary `Uint8Array` still wraps, which is the pair.
+let wrapping = new Uint8Array(1);
+wrapping[0] = 300;
+check("wrap-still-wraps", wrapping[0] === 44);
+
 return failed;

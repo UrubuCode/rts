@@ -74,6 +74,15 @@ pub(super) fn to_text(context: &Context, value: Value) -> Option<Str> {
         })),
         // A string is its own text; anything else on the heap is an object.
         Kind::Reference(slot) => context.text_at(slot as u32).cloned(),
+        // A bigint prints its digits. A **symbol does not convert at all** —
+        // `"" + sym` is a `TypeError` in the language, deliberately, so that a
+        // symbol never becomes text by accident. `None` is the same absence an
+        // object gets, and it is the right one: the explicit spelling is
+        // `sym.toString()`, which is a method rather than a conversion.
+        Kind::Client { tag, payload } if tag == context.kinds.bigint => context
+            .bigint_at(payload)
+            .map(|held| Str::from_str(&held.to_decimal())),
+        Kind::Client { .. } => None,
     }
 }
 
@@ -120,14 +129,19 @@ pub fn type_of(value: u64) -> u64 {
                     "object"
                 }
             }
+            // The two the language declared for itself. Answered from the TAG,
+            // with no side table consulted — which is the whole difference
+            // between a primitive and a cell wearing a marker, and the reason
+            // `typeof` on a symbol used to need a lookup and now does not.
+            Kind::Client { tag, .. } if tag == context.kinds.symbol => "symbol",
+            Kind::Client { tag, .. } if tag == context.kinds.bigint => "bigint",
+            // A tag the language declared and this was never told about. There
+            // is no honest answer, and `"undefined"` is the one that makes a
+            // wiring mistake look like a value.
+            Kind::Client { .. } => "unknown",
             Kind::Reference(slot) => {
                 let slot = slot as u32;
                 match context.region.type_of(slot) {
-                    // Asked first, because a symbol's cell is an ordinary
-                    // object's and every question below would answer for it.
-                    // `typeof Symbol.iterator` is the one observable place the
-                    // encoding stops being an implementation detail.
-                    _ if context.symbol_at(slot).is_some() => "symbol",
                     _ if context.callable_at(slot).is_some() => "function",
                     // A string.s cell, which `shape_of` already refuses to
                     // treat as an object for exactly this reason: what a

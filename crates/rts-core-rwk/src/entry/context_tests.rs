@@ -16,7 +16,7 @@ fn singletons() -> Singletons {
 }
 
 fn fresh() -> Context {
-    Context::new(singletons())
+    Context::new(singletons(), crate::value::Kinds::in_declaration_order())
 }
 
 #[test]

@@ -47,7 +47,7 @@ use rts_cranelift::tags::{
 mod convert;
 mod equality;
 
-pub use convert::{Singletons, to_boolean, to_int32, to_number, to_uint32};
+pub use convert::{Kinds, Singletons, to_boolean, to_int32, to_number, to_uint32};
 pub use equality::{same_value, same_value_zero, strict_equals};
 
 /// One JavaScript value, as the program holds it.
@@ -77,6 +77,28 @@ pub enum Kind {
     Singleton(u32),
     /// Something on the heap, identified by its slot.
     Reference(u64),
+    /// A kind the **language** declared, carrying whatever payload it chose.
+    ///
+    /// # Why this is not four more variants
+    ///
+    /// Because this layer does not know what they are. The machine reserves
+    /// four tags for what it defines itself and hands the rest out through
+    /// `TagRegistry::declare_kind`; which language put what there is the
+    /// language's business, and naming `Symbol` here would be this crate
+    /// learning a fact rule 4 says it must be told instead.
+    ///
+    /// # Why the catch-all it replaces was a bug waiting
+    ///
+    /// `kind` used to answer `Reference` for every tag it did not recognise. So
+    /// the first client kind ever declared would have read back as a heap slot,
+    /// and `as_slot` would have handed its payload to the region — a wrong
+    /// answer that runs, found by adding the first one rather than by reading.
+    Client {
+        /// Which tag the registry issued.
+        tag: u8,
+        /// What the language put in it.
+        payload: u64,
+    },
 }
 
 impl Value {
@@ -131,7 +153,25 @@ impl Value {
             TAG_INT32 => Kind::Int,
             TAG_BOOL => Kind::Bool,
             TAG_SINGLETON => Kind::Singleton(payload as u32),
-            _ => Kind::Reference(payload),
+            TAG_REFERENCE => Kind::Reference(payload),
+            tag => Kind::Client { tag, payload },
+        }
+    }
+
+    /// A value of a kind the language declared.
+    pub fn from_client(tag: u8, payload: u64) -> Self {
+        Value(encode(tag, payload))
+    }
+
+    /// The payload this carries, if it is of the given declared kind.
+    ///
+    /// The tag is passed in rather than compared against a constant, which is
+    /// the whole of rule 4 applied to the encoding: this crate is told which
+    /// number means which language kind and never decides.
+    pub fn as_client(self, tag: u8) -> Option<u64> {
+        match self.kind() {
+            Kind::Client { tag: held, payload } if held == tag => Some(payload),
+            _ => None,
         }
     }
 
@@ -181,6 +221,7 @@ impl core::fmt::Debug for Value {
             Kind::Bool => write!(f, "Value({})", payload_of(self.0) == BOOL_TRUE),
             Kind::Singleton(id) => write!(f, "Value(singleton {id})"),
             Kind::Reference(slot) => write!(f, "Value(ref {slot})"),
+            Kind::Client { tag, payload } => write!(f, "Value(kind {tag} of {payload})"),
         }
     }
 }

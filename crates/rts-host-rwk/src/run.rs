@@ -104,7 +104,8 @@ impl Compiled {
             .region
             .take()
             .expect("the region is only absent while a run is in progress");
-        let mut context = rts_core_rwk::entry::Context::over(singletons, region);
+        let kinds = crate::link::kinds_for(&self.model);
+        let mut context = rts_core_rwk::entry::Context::over(singletons, kinds, region);
         // The second agreement, alongside the singleton numbering. A property
         // name is resolved while compiling and crosses as a number, so the
         // runtime's registry must have issued that number — otherwise it

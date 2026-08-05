@@ -26,7 +26,7 @@
 //! The rule that decides which side a value lives on is whether the machine needs
 //! it to do its own work. It needs booleans. It does not need `undefined`.
 
-use rts_cranelift::tags::{SingletonId, TagRegistry};
+use rts_cranelift::tags::{SingletonId, TagRegistry, ValueKind};
 
 /// The values JavaScript has exactly one of.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -72,6 +72,8 @@ impl Singleton {
 pub struct ValueModel {
     undefined: SingletonId,
     null: SingletonId,
+    symbol: ValueKind,
+    bigint: ValueKind,
 }
 
 impl ValueModel {
@@ -80,10 +82,27 @@ impl ValueModel {
         let declared = tags
             .declare_singletons(Singleton::ALL.len() as u32)
             .expect("two singletons fit in any payload this encoding could have");
+        // Two of the four tags the machine leaves to a client. Both are
+        // JavaScript **primitives**, and that is the reason they are kinds
+        // rather than references: `typeof` has to answer from the word alone,
+        // `s.x = 1` has to write nothing, and `1n === 1n` has to be true. A cell
+        // gives none of those, which is what the first `Symbol` here learned.
+        //
+        // Two remain unassigned, and the machine's registry reports exhaustion
+        // rather than panicking — so a third primitive is a decision with a cost
+        // a reader can see rather than a silent overflow.
+        let symbol = tags
+            .declare_kind()
+            .expect("the machine reserves four tags and leaves four");
+        let bigint = tags
+            .declare_kind()
+            .expect("the machine reserves four tags and leaves four");
 
         Self {
             undefined: declared[0],
             null: declared[1],
+            symbol,
+            bigint,
         }
     }
 
@@ -92,6 +111,44 @@ impl ValueModel {
         match which {
             Singleton::Undefined => self.undefined,
             Singleton::Null => self.null,
+        }
+    }
+
+    /// The encoding of a primitive this language declared for itself.
+    pub fn kind(&self, which: Primitive) -> ValueKind {
+        match which {
+            Primitive::Symbol => self.symbol,
+            Primitive::BigInt => self.bigint,
+        }
+    }
+}
+
+/// The primitives JavaScript has that the machine does not define.
+///
+/// A symbol and a bigint. Both are values a program can hold, compare and ask
+/// `typeof` about, and neither is a number, a boolean or a reference — so each
+/// needs a tag of its own, and what it means stays here for the reason
+/// `undefined` does: a machine has no opinion about whether a language has
+/// symbols.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum Primitive {
+    /// A value equal to nothing but itself, usable as a property key.
+    Symbol,
+    /// An integer of arbitrary size. Its digits are on the heap and its
+    /// **equality is by value** — `1n === 1n` — which is what separates it from
+    /// a reference carrying the same digits.
+    BigInt,
+}
+
+impl Primitive {
+    /// Every one, in the order they are declared.
+    pub const ALL: &'static [Primitive] = &[Primitive::Symbol, Primitive::BigInt];
+
+    /// What `typeof` answers for it.
+    pub fn type_of(self) -> &'static str {
+        match self {
+            Primitive::Symbol => "symbol",
+            Primitive::BigInt => "bigint",
         }
     }
 }

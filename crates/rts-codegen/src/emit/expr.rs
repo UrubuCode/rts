@@ -323,7 +323,15 @@ fn emit_literal(
         // arithmetic, which is a value this engine has no way to MAKE rather
         // than a construct it cannot express. The tree carries it so the front
         // end stops refusing a program it reads perfectly well.
-        Literal::BigInt(_) => gap("a BigInt literal"),
+        // The digits reach the runtime as an interned string and the parse
+        // happens there, which is the same shape a regular-expression literal
+        // takes: `1n` and `BigInt("1")` are one path, where a table of values
+        // baked here would have served the literal and had nothing to say about
+        // the call.
+        Literal::BigInt(digits) => {
+            let text = string_literal(builder, ctx, digits)?;
+            Ok(call(builder, ctx, RuntimeOp::BigIntNew, &[text])?[0])
+        }
     }
 }
 

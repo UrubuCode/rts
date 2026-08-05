@@ -23,6 +23,31 @@ pub struct Singletons {
     pub null: u32,
 }
 
+/// Which tag the language gave each kind it declared for itself.
+///
+/// The same shape as [`Singletons`] and for the same reason: the machine
+/// reserves four tags and hands the rest out by number, so which number means
+/// `symbol` is something the language decided and this crate is told. A constant
+/// written here would be this crate holding a fact about JavaScript, and a
+/// second language on the same machine would number its own differently.
+///
+/// # Why a symbol and a bigint are here and an object is not
+///
+/// Because they are **primitives**. `typeof` answers `"symbol"` and `"bigint"`,
+/// `s.x = 1` writes nothing, and `1n === 1n` is true — none of which is what a
+/// reference does. Encoding either as a cell buys the heap it needs for its
+/// description or its digits and loses every one of those properties, which is
+/// what the first version of `Symbol` here did and what this replaces.
+#[derive(Clone, Copy, Debug)]
+pub struct Kinds {
+    /// A symbol. The payload is its number, and two symbols differ in it.
+    pub symbol: u8,
+    /// A bigint. The payload is where its digits are, because arbitrary
+    /// precision does not fit in forty-eight bits — a primitive whose data is
+    /// on the heap, which is what every engine does with one.
+    pub bigint: u8,
+}
+
 /// The falsy set.
 ///
 /// `undefined`, `null`, `false`, `+0`, `-0`, `NaN`, and the empty string. Every
@@ -30,14 +55,21 @@ pub struct Singletons {
 /// array, and `new Boolean(false)`. Nothing is unwrapped, and no `valueOf` runs,
 /// which is why this needs no heap.
 ///
-/// The empty string is the one case this cannot answer alone, so a caller that
-/// may hold a string passes `string_is_empty`. Making it a parameter rather than
-/// reaching for the heap keeps the whole falsy rule in one place while leaving
-/// the one heap question with the code that owns the heap.
+/// Two cases cannot be answered without the heap, so a caller passes
+/// `falsy_on_heap` and this asks it: the **empty string**, and **`0n`** — a
+/// bigint is falsy exactly when it is zero, and whether it is zero is in digits
+/// this layer cannot see. Making it a parameter rather than reaching for the
+/// heap keeps the falsy rule in one place and leaves the two heap questions with
+/// the code that owns the heap.
+///
+/// The callback takes the whole `Value` rather than a payload, because the two
+/// questions are not the same question: a payload alone cannot say whether it
+/// names a string cell or a bigint, and a caller told only the number would have
+/// to guess.
 pub fn to_boolean(
     value: Value,
     singletons: Singletons,
-    string_is_empty: impl Fn(u64) -> bool,
+    falsy_on_heap: impl Fn(Value) -> bool,
 ) -> bool {
     match value.kind() {
         Kind::Float => {
@@ -49,7 +81,10 @@ pub fn to_boolean(
         Kind::Int => value.as_i32() != Some(0),
         Kind::Bool => value.as_bool() == Some(true),
         Kind::Singleton(id) => id != singletons.undefined && id != singletons.null,
-        Kind::Reference(slot) => !string_is_empty(slot),
+        // A symbol reaches here too and is always truthy — which the caller
+        // answers by saying it is not falsy, rather than by this layer learning
+        // that one of the language's kinds is a symbol.
+        Kind::Reference(_) | Kind::Client { .. } => !falsy_on_heap(value),
     }
 }
 
@@ -70,7 +105,12 @@ pub fn to_number(value: Value, singletons: Singletons) -> Option<f64> {
         }),
         Kind::Singleton(id) if id == singletons.undefined => Some(f64::NAN),
         Kind::Singleton(id) if id == singletons.null => Some(0.0),
-        Kind::Singleton(_) | Kind::Reference(_) => None,
+        // A reference needs `ToPrimitive`, and a language kind needs the heap
+        // its payload names — a bigint converts from digits this layer cannot
+        // see, and a symbol does not convert at all. `None` is the same honest
+        // absence in all three cases: guessing zero is how a conversion that
+        // should have run a `valueOf` becomes a wrong number nobody traces back.
+        Kind::Singleton(_) | Kind::Reference(_) | Kind::Client { .. } => None,
     }
 }
 
@@ -110,7 +150,7 @@ mod tests {
         null: 1,
     };
 
-    fn never_empty(_: u64) -> bool {
+    fn never_empty(_: Value) -> bool {
         false
     }
 
@@ -183,5 +223,22 @@ mod tests {
     fn unsigned_shift_is_the_one_that_outgrows_a_signed_result() {
         assert_eq!(to_uint32(-1.0), 4_294_967_295, "(-1) >>> 0");
         assert_eq!(to_int32(-1.0), -1, "and (-1) >> 0 is still -1");
+    }
+}
+
+impl Kinds {
+    /// The numbering a test uses when no compilation declared one.
+    ///
+    /// The machine reserves four tags and hands the rest out in order, so this
+    /// is what `ValueModel::declare` produces for the first program in a
+    /// process. Written here rather than in each test, because a test that
+    /// picked its own numbers would be asserting against a numbering nothing
+    /// else uses.
+    #[cfg(test)]
+    pub fn in_declaration_order() -> Self {
+        Kinds {
+            symbol: rts_cranelift::tags::TAG_RESERVED_COUNT,
+            bigint: rts_cranelift::tags::TAG_RESERVED_COUNT + 1,
+        }
     }
 }

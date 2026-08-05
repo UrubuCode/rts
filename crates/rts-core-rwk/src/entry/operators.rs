@@ -20,6 +20,7 @@
 //! from what its operands turn out to be, and concatenating allocates. Every
 //! operator in this file converts to a number and has no second answer.
 
+use super::bigint_class::{Op, Relation};
 use super::{Context, with_current};
 use crate::coerce::{Relational, relational};
 use crate::value::{Value, to_number};
@@ -64,6 +65,9 @@ pub(super) fn operands(context: &Context, left: Value, right: Value) -> (f64, f6
 #[rtse::entry]
 pub fn subtract(left: u64, right: u64) -> u64 {
     with_current(|context| {
+        if let Some(answer) = super::bigint_class::binary(context, Op::Sub, left, right) {
+            return answer;
+        }
         let (a, b) = operands(context, Value(left), Value(right));
         Value::from_f64(a - b).bits()
     })
@@ -73,6 +77,9 @@ pub fn subtract(left: u64, right: u64) -> u64 {
 #[rtse::entry]
 pub fn multiply(left: u64, right: u64) -> u64 {
     with_current(|context| {
+        if let Some(answer) = super::bigint_class::binary(context, Op::Mul, left, right) {
+            return answer;
+        }
         let (a, b) = operands(context, Value(left), Value(right));
         Value::from_f64(a * b).bits()
     })
@@ -86,6 +93,9 @@ pub fn multiply(left: u64, right: u64) -> u64 {
 #[rtse::entry]
 pub fn divide(left: u64, right: u64) -> u64 {
     with_current(|context| {
+        if let Some(answer) = super::bigint_class::binary(context, Op::Div, left, right) {
+            return answer;
+        }
         let (a, b) = operands(context, Value(left), Value(right));
         Value::from_f64(a / b).bits()
     })
@@ -101,6 +111,9 @@ pub fn divide(left: u64, right: u64) -> u64 {
 #[rtse::entry]
 pub fn remainder(left: u64, right: u64) -> u64 {
     with_current(|context| {
+        if let Some(answer) = super::bigint_class::binary(context, Op::Rem, left, right) {
+            return answer;
+        }
         let (a, b) = operands(context, Value(left), Value(right));
         Value::from_f64(a % b).bits()
     })
@@ -115,6 +128,20 @@ pub fn remainder(left: u64, right: u64) -> u64 {
 /// read in one screen, and each call site passes only what varies.
 fn compare(op: Relational, left: u64, right: u64) -> bool {
     with_current(|context| {
+        // Asked before the closures below, and before conversion: a bigint and
+        // a number DO compare in the language — only *arithmetic* between them
+        // is refused — but comparing them as doubles loses every value past
+        // 2^53, which is the range a bigint exists for.
+        let want = match op {
+            Relational::Less => Relation::Less,
+            Relational::LessEqual => Relation::LessEqual,
+            Relational::Greater => Relation::Greater,
+            Relational::GreaterEqual => Relation::GreaterEqual,
+        };
+        if let Some(answer) = super::bigint_class::binary(context, Op::Compare(want), left, right) {
+            return Value(answer).as_bool().unwrap_or(false);
+        }
+
         let text_of = |value: Value| {
             value
                 .as_slot()
@@ -173,7 +200,7 @@ mod tests {
 
     /// Runs a body with a context installed, as a compiled program would.
     fn hosted<T>(body: impl FnOnce() -> T) -> T {
-        let (_context, value) = with_context(Context::new(singletons()), body);
+        let (_context, value) = with_context(Context::new(singletons(), crate::value::Kinds::in_declaration_order()), body);
         value
     }
 
