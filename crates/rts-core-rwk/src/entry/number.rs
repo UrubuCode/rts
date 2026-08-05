@@ -1,18 +1,18 @@
 //! `Number` and `Boolean`: the conversions, and the facts about a double.
 //!
-//! # Why the members are static and the prototypes are empty
+//! # How a method on a primitive is reached at all
 //!
-//! `Number.isNaN(x)` is reached on the constructor. `(5).toFixed(2)` is reached
-//! on a *primitive receiver*, and a primitive number has no cell — so the chain
-//! walk that substitutes `String.prototype` for a text cell has nothing to
-//! substitute against here, because there is nothing to walk from. Writing
-//! `toFixed` would produce a method no expression can reach.
+//! `Number.isNaN(x)` is on the constructor and needs nothing. `(5).toFixed(2)`
+//! is a read on a *primitive receiver*, and a number is not a cell — it is the
+//! encoding itself — so the chain walk that substitutes `String.prototype` for a
+//! text cell has nothing to walk from.
 //!
-//! That is a gap in property access rather than in this module, and it is named
-//! rather than papered over: the fix is for a read of a property on a double to
-//! reach a substituted prototype the way a read on a string does, and it belongs
-//! in [`super::objects::inherited_from`] beside the two substitutions already
-//! there.
+//! [`super::objects::get_property`] therefore starts the lookup on this
+//! prototype directly when the receiver is a double or a boolean, and calls
+//! whatever it finds with the primitive as the receiver. That is why every
+//! member here reads its own `this` through `ToNumber` rather than expecting an
+//! object: there is no wrapper, and building one would make
+//! `(5).valueOf() === 5` depend on unwrapping it again.
 //!
 //! # Why `Number.isNaN` does not coerce and `Number(x)` does
 //!
@@ -27,6 +27,7 @@
 
 use super::objects::undefined_of;
 use super::with_current;
+use crate::text::Str;
 use crate::value::Value;
 
 /// `Number`.
@@ -75,6 +76,55 @@ impl Number {
             true => Value::from_f64(0.0).bits(),
             false => Value::from_f64(super::class_support::to_number(value)).bits(),
         }
+    }
+
+    /// `n.toString(radix)`.
+    ///
+    /// Base ten is the shortest round-tripping decimal, which is a different
+    /// problem from writing digits in a base and is why the two are separate
+    /// paths here rather than one loop with a special case.
+    fn to_string(this: u64, radix: u64) -> u64 {
+        let base = radix_of(radix);
+        let number = super::class_support::to_number(this);
+        with_current(|context| {
+            let text = match base {
+                0 | 10 => crate::coerce::number_to_string(number),
+                base if (2..=36).contains(&base) => Str::from_str(&in_radix(number, base as u32)),
+                // The specification throws a `RangeError`; this cannot yet, and
+                // answering the decimal form is the least wrong of the values
+                // available.
+                _ => crate::coerce::number_to_string(number),
+            };
+            context.intern_value(text).bits()
+        })
+    }
+
+    /// `n.valueOf()` — the number itself.
+    fn value_of(this: u64) -> f64 {
+        super::class_support::to_number(this)
+    }
+
+    /// `n.toFixed(digits)`.
+    ///
+    /// Rounds **half away from zero**, which is what the specification says and
+    /// what Rust's own `{:.*}` does not: `{:.0}` of `2.5` is `2`, because Rust
+    /// formats to nearest-even. `(2.5).toFixed(0)` is `"3"`.
+    fn to_fixed(this: u64, digits: f64) -> u64 {
+        let number = super::class_support::to_number(this);
+        let places = match digits.is_nan() {
+            true => 0,
+            false => digits.trunc().clamp(0.0, 100.0) as usize,
+        };
+        with_current(|context| {
+            let text = match number.is_finite() && number.abs() < 1e21 {
+                true => Str::from_str(&fixed(number, places)),
+                // Past 1e21 the specification falls back to the ordinary
+                // `ToString`, which is why this is not a formatting width but a
+                // branch.
+                false => crate::coerce::number_to_string(number),
+            };
+            context.intern_value(text).bits()
+        })
     }
 
     /// `Number.isNaN(x)` — without converting. See the module documentation.
@@ -139,6 +189,90 @@ impl Boolean {
     fn convert(this: u64, value: u64) -> bool {
         let _ = this;
         super::class_support::to_boolean(value)
+    }
+
+    /// `b.toString()` — `"true"` or `"false"`.
+    ///
+    /// Reached because [`super::objects::get_property`] starts a read on a
+    /// boolean here. Without it `true.toString()` was `undefined`, which is a
+    /// method a program can see is missing rather than one it never looks for.
+    fn to_string(this: u64) -> u64 {
+        let text = match super::class_support::to_boolean(this) {
+            true => "true",
+            false => "false",
+        };
+        with_current(|context| context.intern_value(Str::from_str(text)).bits())
+    }
+
+    /// `b.valueOf()`.
+    fn value_of(this: u64) -> bool {
+        super::class_support::to_boolean(this)
+    }
+}
+
+/// A number written in a base other than ten.
+///
+/// The integer part by repeated division and the fraction by repeated
+/// multiplication, to twenty places — which is where a base-2 expansion of a
+/// double stops carrying information rather than an arbitrary cut. The
+/// specification leaves the exact digit count implementation-defined here, and
+/// saying so is better than implying a precision that is not there.
+fn in_radix(number: f64, base: u32) -> String {
+    if !number.is_finite() {
+        return crate::coerce::number_to_string(number)
+            .to_rust()
+            .unwrap_or_default();
+    }
+    let negative = number < 0.0;
+    let number = number.abs();
+    let mut whole = number.trunc();
+    let mut fraction = number.fract();
+
+    let digit = |value: u32| char::from_digit(value, base).unwrap_or('0');
+    let mut left = String::new();
+    if whole == 0.0 {
+        left.push('0');
+    }
+    while whole >= 1.0 {
+        let rest = whole % f64::from(base);
+        left.push(digit(rest as u32));
+        whole = (whole / f64::from(base)).trunc();
+    }
+    let mut out: String = left.chars().rev().collect();
+
+    if fraction > 0.0 {
+        out.push('.');
+        for _ in 0..20 {
+            if fraction == 0.0 {
+                break;
+            }
+            fraction *= f64::from(base);
+            out.push(digit(fraction.trunc() as u32));
+            fraction = fraction.fract();
+        }
+    }
+    match negative {
+        true => format!("-{out}"),
+        false => out,
+    }
+}
+
+/// A number to a fixed number of decimal places, rounding half away from zero.
+///
+/// Written rather than delegated to `format!("{:.*}")`, which rounds to nearest
+/// **even**: `format!("{:.0}", 2.5)` is `"2"` and `(2.5).toFixed(0)` is `"3"`.
+/// That difference is invisible in every test whose values are not exactly half.
+fn fixed(number: f64, places: usize) -> String {
+    let scale = 10f64.powi(places as i32);
+    let scaled = number * scale;
+    // `f64::round` is half-away-from-zero, which is the rule here — the one
+    // place in this crate where it is the right function rather than the wrong
+    // one. `Math.round` wanted half-UP and had to be written out.
+    let rounded = scaled.round();
+    let value = rounded / scale;
+    match places {
+        0 => format!("{}", value.trunc() as i64),
+        _ => format!("{value:.places$}"),
     }
 }
 

@@ -3530,3 +3530,102 @@ fn a_date_is_a_time_value_and_a_calendar_over_it() {
 
     holds("return Date.now() > 1700000000000;");
 }
+
+#[test]
+fn a_map_keeps_insertion_order_and_same_value_zero_keys() {
+    holds("let m = new Map(); m.set(\"a\", 1); return m.get(\"a\") === 1 && m.size === 1;");
+    holds("let m = new Map(); m.set(\"a\", 1); m.set(\"a\", 2); return m.get(\"a\") === 2 && m.size === 1;");
+    holds("let m = new Map(); m.set(\"a\", 1); return m.has(\"a\") && m.delete(\"a\") && m.size === 0;");
+    holds("let m = new Map([[1, \"x\"], [2, \"y\"]]); return m.get(2) === \"y\" && m.size === 2;");
+
+    // Insertion order, which a bare hash table does not give and which the
+    // specification requires of every walk.
+    let order = run("let m = new Map(); m.set(\"b\", 1); m.set(\"a\", 2); m.set(\"c\", 3); let s = \"\"; m.forEach(function (v, k) { s = s + k; }); return s;");
+    let expected = run("return \"bac\";");
+    let _ = (order, expected);
+    holds("let m = new Map(); m.set(\"b\", 1); m.set(\"a\", 2); m.set(\"c\", 3); let s = \"\"; m.forEach(function (v, k) { s = s + k; }); return s === \"bac\";");
+
+    // A delete preserves it, which is the case a swap-with-last gets wrong.
+    holds("let m = new Map(); m.set(\"a\", 1); m.set(\"b\", 2); m.set(\"c\", 3); m.delete(\"b\"); return m.keys()[1] === \"c\";");
+
+    // SameValueZero: `NaN` is a usable key, where `===` would never find it.
+    holds("let m = new Map(); m.set(0 / 0, 7); return m.get(0 / 0) === 7;");
+    // And `+0` and `-0` are one key, which is where SameValueZero differs from
+    // SameValue rather than from `===`.
+    holds("let m = new Map(); m.set(0, 1); m.set(-0, 2); return m.size === 1 && m.get(0) === 2;");
+
+    // Object keys hash to one bucket and stay correct by identity.
+    holds("let a = {}; let b = {}; let m = new Map(); m.set(a, 1); m.set(b, 2); return m.get(a) === 1 && m.get(b) === 2;");
+}
+
+#[test]
+fn a_set_holds_each_member_once_and_answers_the_es2025_operations() {
+    holds("let s = new Set(); s.add(1); s.add(1); return s.size === 1;");
+    holds("let s = new Set([1, 2, 3]); return s.has(2) && !s.has(9);");
+    holds("let s = new Set([1, 2]); s.delete(1); return s.size === 1 && s.values()[0] === 2;");
+    holds("let s = new Set([1, 2]); s.clear(); return s.size === 0;");
+
+    holds("let a = new Set([1, 2]); let b = new Set([2, 3]); return a.union(b).size === 3;");
+    holds("let a = new Set([1, 2]); let b = new Set([2, 3]); return a.intersection(b).size === 1;");
+    holds("let a = new Set([1, 2]); let b = new Set([2, 3]); return a.difference(b).size === 1;");
+    holds("let a = new Set([1, 2]); let b = new Set([2, 3]); return a.symmetricDifference(b).size === 2;");
+    holds("let a = new Set([1]); let b = new Set([1, 2]); return a.isSubsetOf(b) && b.isSupersetOf(a);");
+    holds("let a = new Set([1]); let b = new Set([2]); return a.isDisjointFrom(b);");
+}
+
+#[test]
+fn a_weak_collection_takes_objects_only_and_is_strong_here() {
+    holds("let k = {}; let m = new WeakMap(); m.set(k, 5); return m.get(k) === 5 && m.has(k);");
+    holds("let k = {}; let m = new WeakMap(); m.set(k, 5); m.delete(k); return m.has(k) === false;");
+    // A primitive key is refused rather than stored. The specification throws;
+    // this cannot yet, so it refuses silently — the divergence is stated, and
+    // the important half is that the key does not go in.
+    holds("let m = new WeakMap(); m.set(1, 5); return m.has(1) === false;");
+    holds("let k = {}; let s = new WeakSet(); s.add(k); return s.has(k) && !s.has({});");
+}
+
+#[test]
+fn a_method_on_a_primitive_receiver_is_reached() {
+    // A number is not a cell, so there was nothing for the chain walk to walk
+    // from and every one of these read `undefined`.
+    holds("return (255).toString(16) === \"ff\";");
+    holds("return (5).valueOf() === 5;");
+    holds("return true.toString() === \"true\";");
+    holds("return false.valueOf() === false;");
+
+    // `toFixed` rounds half AWAY FROM ZERO. Rust formats to nearest-even, so
+    // `format!(\"{:.0}\", 2.5)` is \"2\" and this must be \"3\" — a difference
+    // invisible for every value that is not exactly half.
+    holds("return (2.5).toFixed(0) === \"3\";");
+    holds("return (1.005).toFixed(2).length === 4;");
+    holds("return (1.5).toFixed(1) === \"1.5\";");
+
+    // The class is registered by the read itself, so a program that never names
+    // `Number` still gets the method.
+    holds("return (10).toString(2) === \"1010\";");
+}
+
+#[test]
+fn a_bound_function_keeps_its_receiver_and_its_leading_arguments() {
+    let fixed = run("function f() { return this.n; } let g = f.bind({n: 7}); return g();");
+    assert_eq!(tags::decode_double(fixed), 7.0);
+
+    // The bound receiver wins over the call's, which is the whole of what
+    // `bind` does and the part a naive forward gets backwards.
+    let kept = run("function f() { return this.n; } let o = {n: 1, m: f.bind({n: 2})}; return o.m();");
+    assert_eq!(tags::decode_double(kept), 2.0);
+
+    // Partial arguments come first at every later call.
+    let partial = run("function f(a, b) { return a * 10 + b; } let g = f.bind(null, 1); return g(2);");
+    assert_eq!(tags::decode_double(partial), 12.0);
+
+    // And nothing is prepended when none were given — the case that breaks if
+    // trailing `undefined` is remembered instead of dropped.
+    let none = run("function f(a) { return a; } let g = f.bind(null); return g(9);");
+    assert_eq!(tags::decode_double(none), 9.0);
+
+    // Binding twice keeps the first receiver, because the second binds the
+    // already-bound function.
+    let twice = run("function f() { return this.n; } let g = f.bind({n: 3}).bind({n: 4}); return g();");
+    assert_eq!(tags::decode_double(twice), 3.0);
+}

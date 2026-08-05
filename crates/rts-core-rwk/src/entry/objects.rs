@@ -77,11 +77,17 @@ pub fn object_new() -> u64 {
 #[rtse::entry]
 pub fn get_property(object: u64, key: i64) -> u64 {
     let found = with_current(|context| {
-        let Some(slot) = Value(object).as_slot() else {
-            return super::accessor::Found::Value(undefined_of(context));
-        };
         let Some(key) = key_of(context, key) else {
             return super::accessor::Found::Value(undefined_of(context));
+        };
+        let Some(slot) = Value(object).as_slot() else {
+            // A number or a boolean, which has no cell to walk from. See
+            // [`primitive_prototype`] for why the lookup starts on the shared
+            // prototype rather than on the value.
+            return match primitive_prototype(context, Value(object)) {
+                Some(cell) => super::accessor::resolve(context, cell, key),
+                None => super::accessor::Found::Value(undefined_of(context)),
+            };
         };
         if let Some(answer) = super::string::text::string_property(context, slot, key) {
             return super::accessor::Found::Value(answer);
@@ -99,6 +105,45 @@ pub fn get_property(object: u64, key: i64) -> u64 {
         }
         super::accessor::Found::Absent => with_current(|context| undefined_of(context)),
     }
+}
+
+/// What a primitive receiver borrows to answer a property read.
+///
+/// # Why a number needs this and a string does not
+///
+/// A string IS a cell here, so `"a".trim` reaches the chain walk and
+/// [`inherited_from`] substitutes `String.prototype`. A number and a boolean are
+/// not cells — they are the encoding itself — so there is nothing to walk from
+/// and `(5).toFixed` read `undefined` however complete `Number.prototype` was.
+///
+/// So the lookup starts on the shared prototype directly. The receiver is still
+/// the primitive: `get_property` calls a getter with the value it was given, and
+/// `toFixed` reads its own `this` as a number rather than as an object.
+///
+/// # Why the class is registered on demand here
+///
+/// A program writing `(5).toFixed(2)` may never name `Number`, and the
+/// registration is what makes the prototype exist. Reaching it through the
+/// global object instead would make a property read depend on whether the
+/// program happened to mention a global, which is a different answer for the
+/// same expression.
+fn primitive_prototype(context: &mut Context, value: Value) -> Option<u32> {
+    let name = match value.kind() {
+        crate::value::Kind::Float | crate::value::Kind::Int => "Number",
+        crate::value::Kind::Bool => "Boolean",
+        // `undefined` and `null` have no prototype, which is exactly why
+        // `null.x` is a `TypeError` — and answering `undefined` for it is the
+        // stated gap every operation here has while a throw cannot find a
+        // handler.
+        _ => return None,
+    };
+    if super::class_support::made(context, name).is_none() {
+        match name {
+            "Number" => super::number::register_number(context),
+            _ => super::number::register_boolean(context),
+        };
+    }
+    Value(super::class_support::prototype(context, name)?).as_slot()
 }
 
 /// `object.name = value`. Answers the value, because an assignment is an

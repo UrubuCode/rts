@@ -225,9 +225,17 @@ pub fn call(callee: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
 /// this activation reads, and `call`'s marker on top of it would hide that
 /// vector from the one callee it was made for.
 fn invoke(callee: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
-    let found = with_current(|context| resolve(context, callee));
+    let found = with_current(|context| {
+        // Which callable is about to run, recorded before the jump. A compiled
+        // function never asks; a native does, because it closes over nothing —
+        // so a bound function's only way to know WHICH binding it is comes from
+        // here. See [`super::function_proto`].
+        context.callees.push(callee);
+        resolve(context, callee)
+    });
 
     let Some((code, environment)) = found else {
+        with_current(|context| context.callees.pop());
         return with_current(|context| undefined_of(context));
     };
 
@@ -239,7 +247,9 @@ fn invoke(callee: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     // `resolve` is for, and it is why the address cannot be a value a program
     // chose.
     let entry: Compiled = unsafe { std::mem::transmute::<u64, Compiled>(code) };
-    entry(environment, this, a0, a1, a2, a3)
+    let produced = entry(environment, this, a0, a1, a2, a3);
+    with_current(|context| context.callees.pop());
+    produced
 }
 
 /// The code and environment of a value, when it is genuinely a callable.

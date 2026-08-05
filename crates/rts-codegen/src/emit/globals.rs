@@ -55,6 +55,7 @@ const PROVIDED: &[&str] = &[
     "EvalError",
     "Function",
     "JSON",
+    "Map",
     "Math",
     "isFinite",
     "isNaN",
@@ -66,11 +67,14 @@ const PROVIDED: &[&str] = &[
     "ReferenceError",
     "Reflect",
     "RegExp",
+    "Set",
     "String",
     "Symbol",
     "SyntaxError",
     "TypeError",
     "URIError",
+    "WeakMap",
+    "WeakSet",
     "globalThis",
 ];
 

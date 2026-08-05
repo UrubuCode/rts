@@ -41,6 +41,7 @@ mod bitwise;
 mod cache;
 mod chain;
 mod class_support;
+mod collections;
 mod computed;
 #[cfg(test)]
 #[path = "context_tests.rs"]
@@ -200,6 +201,26 @@ pub struct Context {
     /// `lastIndex` is deliberately NOT here. It is a real property, because the
     /// language lets a program assign it, and a copy kept beside the cell would
     /// be the one a search reads while the program wrote the other.
+    /// Which cells are keyed collections, and what they hold.
+    ///
+    /// Beside the cell for the reason `array_elements` records: a `Map` IS an
+    /// object, so `m.tag = 9` has to work and its cell carries an ordinary
+    /// shape. A reserved layout would make that a silent no-op. The collector
+    /// cannot see this table — see [`collections`] for the note.
+    /// What each bound function remembers.
+    ///
+    /// Beside the cell rather than in it or on it: a program able to write a
+    /// bound function's target would be choosing what the next call jumps to
+    /// and with what receiver, which is the same argument the code address
+    /// itself is kept out of reach for.
+    bound: Aside<function_proto::Bound>,
+    /// Which callable each call in progress is running.
+    ///
+    /// A stack because calls nest, and needed because a native closes over
+    /// nothing: a bound function's one way to know WHICH binding is running is
+    /// the call that reached it.
+    callees: Vec<u64>,
+    collections: Aside<collections::Table>,
     regexes: Aside<regex::Regexp>,
     /// What every regular expression inherits from, once one exists.
     ///
@@ -372,6 +393,9 @@ impl Context {
             derived: Aside::new(),
             pending_arguments: Vec::new(),
             new_targets: Vec::new(),
+            bound: Aside::new(),
+            callees: Vec::new(),
+            collections: Aside::new(),
             regexes: Aside::new(),
             regexp_prototype: None,
             classes: Vec::new(),
