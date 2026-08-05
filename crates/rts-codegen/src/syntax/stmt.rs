@@ -320,6 +320,21 @@ pub enum ForEachTarget {
     /// `for (x of xs)` / `for ([a, b] of pairs)` — writes to something that
     /// already exists, once per pass, with no fresh binding at all.
     Assign(Pattern),
+
+    /// `for (using x of xs)` — a fresh binding per pass, disposed at the end of
+    /// that pass.
+    ///
+    /// Its own case rather than a [`BindingKind`], because a binding kind
+    /// answers "what scope, and can it be assigned again", and every place that
+    /// asks would have to learn a third answer to a question `using` does not
+    /// change. What `using` adds is an obligation on the way out, which is not
+    /// a property of the binding at all.
+    Dispose {
+        /// What it introduces. Always a plain name — `using` takes no pattern.
+        target: Name,
+        /// Whether disposal is awaited (`for await (await using x of xs)`).
+        is_async: bool,
+    },
 }
 
 /// One `case` or `default` of a switch.

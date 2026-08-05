@@ -258,6 +258,7 @@ impl<'a> Scan<'a> {
                     ForEachTarget::Declare { target, .. } | ForEachTarget::Assign(target) => {
                         self.pattern(target, context);
                     }
+                    ForEachTarget::Dispose { target, .. } => self.name(*target, context),
                 }
                 self.expr(subject, context);
                 self.stmt(body, context);

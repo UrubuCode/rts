@@ -383,8 +383,24 @@ fn for_head(cx: &mut Cx, head: &swc::ForHead) -> Result<ForEachTarget> {
         // target in a for-head — the same shape read in the wrong one of the two
         // roles this module exists to keep apart.
         swc::ForHead::Pat(pattern) => ForEachTarget::Assign(target(cx, pattern)?),
+        // Read rather than refused. The bridge had nowhere to put it, which
+        // made a construct SWC reads perfectly well look like one the front end
+        // could not parse — and moved the gap away from where it is. Where it
+        // is, is disposal: emission refuses it by name.
         swc::ForHead::UsingDecl(using) => {
-            return unsupported("`using` in a for-head", position(using.span));
+            let Some(first) = using.decls.first() else {
+                return unsupported(
+                    "a `using` for-head that declares nothing",
+                    position(using.span),
+                );
+            };
+            let swc::Pat::Ident(ident) = &first.name else {
+                return unsupported("a `using` for-head with a pattern", position(using.span));
+            };
+            ForEachTarget::Dispose {
+                target: cx.name(&ident.id.sym),
+                is_async: using.is_await,
+            }
         }
     })
 }

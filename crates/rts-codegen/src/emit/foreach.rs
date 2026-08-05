@@ -57,10 +57,15 @@ pub fn emit_for_in(
         // `for (x in o)` writes to something that already exists, once per
         // pass, with no fresh binding at all. A different rule, and one that
         // matters as soon as a closure is made in the body.
-        let ForEachTarget::Assign(_) = target else {
-            unreachable!("a for-each target is a declaration or an assignment")
+        //
+        // This said `unreachable!` for the third case until there was one. A
+        // panic in the compiler is what a closed match is worth when the thing
+        // it was closed over opens — so both remaining cases are named.
+        return match target {
+            ForEachTarget::Assign(_) => super::expr::gap("`for-in` writing to an existing binding"),
+            ForEachTarget::Dispose { .. } => super::expr::gap("`using` in a for-head"),
+            ForEachTarget::Declare { .. } => unreachable!("matched above"),
         };
-        return super::expr::gap("`for-in` writing to an existing binding");
     };
     let Pattern::Name(bound) = pattern else {
         return super::expr::gap("a destructuring `for-in` target");

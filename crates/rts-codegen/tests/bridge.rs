@@ -567,20 +567,38 @@ fn an_interface_contributes_nothing_and_an_enum_is_refused() {
 
 #[test]
 fn an_unsupported_construct_is_named_rather_than_dropped() {
-    // This named a regular expression until the tree gained somewhere to put
-    // one. SWC had been reading them correctly all along and the bridge had
-    // nowhere to hand them over, which refused 253 files of `test/language`
-    // through a parser that had not refused anything.
+    // This test has now outlived two constructs. It named a regular expression
+    // until the tree gained somewhere to put one, then `using` in a for-head
+    // until the same thing happened again — both times the refusal was a
+    // missing enum variant wearing the clothes of a language limit, and both
+    // times the fix moved the gap to emission, where it actually is.
     //
-    // `using` in a for-head is what is still refused, and the test follows the
-    // refusal rather than being deleted with the construct it happened to name.
+    // It follows the refusal rather than being deleted with whatever construct
+    // it happened to name, because what it pins is the *shape* of a refusal:
+    // named, with a position, and distinguishable from a syntax error.
     let mut names = Names::new();
-    match parse_module("for (using x of y) {}", &mut names) {
+    match parse_module("enum E { A }", &mut names) {
         Err(ParseError::Unsupported { construct, .. }) => {
-            assert!(construct.contains("using"), "{construct}");
+            assert!(construct.contains("enum"), "{construct}");
         }
         other => panic!("expected a named refusal, got {other:?}"),
     }
+}
+
+#[test]
+fn using_in_a_for_head_arrives_as_the_disposal_it_is() {
+    // Its own case rather than a `BindingKind`, because a binding kind answers
+    // "what scope, and can it be assigned again" — and `using` changes neither.
+    // What it adds is an obligation on the way out, which no binding kind can
+    // carry and every place that reads one would have to learn to ignore.
+    let (kind, _) = only_statement("for (using x of xs) {}");
+    let StmtKind::ForEach { target, .. } = kind else {
+        panic!("expected a for-each");
+    };
+    let ForEachTarget::Dispose { is_async, .. } = target else {
+        panic!("expected a disposal target: {target:?}");
+    };
+    assert!(!is_async);
 }
 
 #[test]
