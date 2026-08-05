@@ -32,12 +32,21 @@ use super::with_current;
 /// worth seeing, not because anything here decides on it.
 #[rtse::entry("rts_throw")]
 pub fn throw(tag: i64, payload: u64) {
-    // Whatever text the value has without running user code. An object answers
-    // nothing, because `ToPrimitive` on one calls a `toString` an entry point
-    // cannot call — and the diagnostic for an uncaught exception is not worth
-    // reaching back into the program that just failed.
+    // Whatever text the value has without running user code.
+    //
+    // `ToPrimitive` on an object calls a `toString` an entry point cannot call,
+    // and reaching back into the program that just failed is not worth a
+    // diagnostic. But an error object needs neither: `name` and `message` are
+    // ordinary data properties, so `throw new Error("boom")` can report
+    // `"Error: boom"` from a read rather than from a call — which is the
+    // difference between a message that names the fault and one that says "an
+    // object".
     let described = with_current(|context| {
-        super::text::to_text(context, crate::value::Value(payload)).and_then(|text| text.to_rust())
+        let value = crate::value::Value(payload);
+        if let Some(text) = super::text::to_text(context, value).and_then(|text| text.to_rust()) {
+            return Some(text);
+        }
+        super::error::joined(context, value.as_slot()?)
     });
     match described {
         Some(text) => eprintln!("rts: uncaught exception (tag {tag}): {text}"),

@@ -44,6 +44,7 @@
 
 use proc_macro::TokenStream;
 
+mod class;
 mod entry;
 
 /// Declare a runtime entry point: a function compiled code calls rather than
@@ -70,6 +71,41 @@ mod entry;
 #[proc_macro_attribute]
 pub fn entry(args: TokenStream, item: TokenStream) -> TokenStream {
     match entry::expand(args.into(), item.into()) {
+        Ok(tokens) => tokens.into(),
+        Err(error) => error.to_compile_error().into(),
+    }
+}
+
+/// Declare a built-in class: its members, and how it is installed.
+///
+/// Applied to an `impl` block, which is grouping rather than a type — nothing
+/// named `Math` is emitted, and the block's own name is only what a reader sees.
+///
+/// ```ignore
+/// #[rtse::class("Math", namespace)]
+/// impl Math {
+///     const PI: f64 = std::f64::consts::PI;
+///     fn floor(x: f64) -> f64 { x.floor() }
+/// }
+///
+/// #[rtse::class("TypeError", extends = register_error)]
+/// impl TypeError {
+///     #[construct]
+///     fn build(this: u64, message: u64) -> u64 { … }
+/// }
+/// ```
+///
+/// Emits `NAME_NATIVES`, `NAME_STATICS`, `NAME_CONSTANTS` and
+/// `register_name(context) -> u64`, in the shape `entry::native::install`
+/// already takes. It does **not** install anything by itself: a declaration
+/// cannot see its neighbours, so what a runtime provides is assembled where the
+/// whole set is visible.
+///
+/// See the `class` module for the member attributes, the coercions each
+/// parameter type gets, and why the wrapper is generated rather than written.
+#[proc_macro_attribute]
+pub fn class(args: TokenStream, item: TokenStream) -> TokenStream {
+    match class::expand(args.into(), item.into()) {
         Ok(tokens) => tokens.into(),
         Err(error) => error.to_compile_error().into(),
     }

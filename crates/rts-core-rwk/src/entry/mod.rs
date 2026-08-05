@@ -40,13 +40,18 @@ mod barrier;
 mod bitwise;
 mod cache;
 mod chain;
+mod class_support;
 mod computed;
 #[cfg(test)]
 #[path = "context_tests.rs"]
 mod context_tests;
 mod current;
+mod error;
+mod function_proto;
 mod functions;
 mod global;
+mod math;
+mod number;
 mod iterate;
 mod native;
 mod object_global;
@@ -196,6 +201,14 @@ pub struct Context {
     /// expression should not spend three cells of a fixed-size region on the
     /// object and the two native callables it holds.
     regexp_prototype: Option<u64>,
+    /// What each declared class registered as, once it has been asked for.
+    ///
+    /// A list rather than a field per class, and the reason is
+    /// [`class_support`]'s: `#[rtse::class]` expands to code that has to find
+    /// its own prototype, and a field per class would mean the attribute could
+    /// not add one without editing this struct — the "a proc macro cannot see
+    /// its neighbours" limit showing up as a build error instead of a design.
+    classes: Vec<class_support::Registered>,
     /// Where the names the runtime provides live, once one has been read.
     ///
     /// An object rather than a table, because `RegExp.x = 1` is an ordinary
@@ -349,6 +362,7 @@ impl Context {
             new_targets: Vec::new(),
             regexes: Aside::new(),
             regexp_prototype: None,
+            classes: Vec::new(),
             globals: None,
             string_prototype: None,
             array_prototype: None,

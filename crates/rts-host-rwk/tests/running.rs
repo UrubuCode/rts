@@ -3207,3 +3207,134 @@ fn a_spread_contributes_a_count_nothing_knew_while_compiling() {
     let text = run("return [...\"ab\"].length;");
     assert_eq!(tags::decode_double(text), 2.0);
 }
+
+
+/// Runs a script whose answer is a boolean, and asserts it is true.
+///
+/// Text is compared **inside** the program rather than by word, because a word
+/// is a slot in a heap that lasts one compilation — two scripts producing the
+/// same string produce different words, so an assertion across them would be
+/// comparing where two heaps happened to put something.
+fn holds(source: &str) {
+    let produced = run(source);
+    assert_eq!(
+        tags::tag_of(produced),
+        tags::TAG_BOOL,
+        "`{source}` did not answer a boolean"
+    );
+    assert_eq!(
+        tags::payload_of(produced),
+        tags::BOOL_TRUE,
+        "`{source}` answered false"
+    );
+}
+
+#[test]
+fn an_error_carries_the_message_it_was_made_with() {
+    // The statement every failing program is written with, and which did not
+    // compile before this class existed: `Error` was not a name the emitter
+    // resolved, so `new Error("x")` was an unbound name rather than an object.
+    holds("return new Error(\"boom\").message === \"boom\";");
+    holds("return new Error(\"boom\").toString() === \"Error: boom\";");
+    holds("return typeof new Error(\"boom\") === \"object\";");
+
+    // A message left out is not an empty one: `toString` answers the name
+    // alone, which is the case an implementation joining unconditionally gets
+    // wrong as `"Error: undefined"`.
+    holds("return new Error().toString() === \"Error\";");
+
+    // `Error("x")` is the same operation as `new Error("x")` — the language
+    // says so — which is what makes the receiver something this can be asked to
+    // make rather than something it is always handed.
+    holds("return Error(\"boom\").message === \"boom\";");
+}
+
+#[test]
+fn a_subclass_inherits_the_family_and_answers_its_own_name() {
+    // `name` is on the prototype, so the chain walk is what answers it — and
+    // the chain has to reach `Error.prototype`, which is where `toString` is.
+    holds("return new TypeError(\"nope\").name === \"TypeError\";");
+    holds("return new TypeError(\"nope\").toString() === \"TypeError: nope\";");
+
+    // The link `extends` writes, read the way a program reads it.
+    holds("return new RangeError(\"x\") instanceof Error;");
+    holds("return new RangeError(\"x\") instanceof RangeError;");
+
+    // `toString` reads `name` through the ordinary property path, so a program
+    // that replaces it is answered — which reading the class's own name instead
+    // would have got wrong.
+    holds("let e = new Error(\"b\"); e.name = \"Mine\"; return e.toString() === \"Mine: b\";");
+}
+
+#[test]
+fn a_user_class_can_extend_a_built_in_error() {
+    // The acceptance test for a native constructor asking `new.target` for the
+    // prototype: without it the object would reach `Error.prototype` and `own`
+    // would not be on it.
+    holds(
+        "class Mine extends Error { own() { return this.message; } } \
+         return new Mine(\"m\").own() === \"m\";",
+    );
+    holds("class Mine extends Error {} return new Mine(\"m\") instanceof Error;");
+}
+
+#[test]
+fn math_is_an_object_whose_members_are_reached_rather_than_folded() {
+    // A property read and a call, not an instruction. `Math.floor` is a
+    // writable property of a mutable object, which is the argument for it being
+    // one — and the test that says so is the one that replaces it.
+    assert_eq!(tags::decode_double(run("return Math.floor(3.7);")), 3.0);
+    assert_eq!(tags::decode_double(run("return Math.pow(2, 10);")), 1024.0);
+    assert_eq!(tags::decode_double(run("return Math.PI;")), std::f64::consts::PI);
+
+    let replaced = run("Math.floor = function (x) { return 99; }; return Math.floor(3.7);");
+    assert_eq!(tags::decode_double(replaced), 99.0);
+
+    // `Math.max(1)` is `1`, not `NaN`: the identity is `-Infinity`, so a
+    // missing argument is skipped rather than coerced.
+    assert_eq!(tags::decode_double(run("return Math.max(1, 2);")), 2.0);
+    assert_eq!(tags::decode_double(run("return Math.max(1);")), 1.0);
+    assert_eq!(tags::decode_double(run("return Math.min(3, 2);")), 2.0);
+
+    // `Math.round(-0.5)` is `-0`, not `-1`: JavaScript rounds a half up where
+    // Rust rounds it away from zero.
+    assert_eq!(tags::decode_double(run("return Math.round(-0.5);")), 0.0);
+    assert_eq!(tags::decode_double(run("return Math.round(2.5);")), 3.0);
+
+    // The argument arrives through `ToNumber`, once, in the generated wrapper.
+    assert_eq!(tags::decode_double(run("return Math.abs(\"-5\");")), 5.0);
+}
+
+#[test]
+fn number_asks_what_arrived_where_the_conversion_converts() {
+    // The pair this module exists to keep apart: `Number("abc")` converts and
+    // answers `NaN`; `Number.isNaN("abc")` does not convert and answers false,
+    // because a string is not a number at all.
+    assert!(tags::decode_double(run("return Number(\"abc\");")).is_nan());
+    holds("return Number.isNaN(\"abc\") === false;");
+    holds("return Number.isNaN(0 / 0) === true;");
+
+    assert_eq!(tags::decode_double(run("return Number(\"12\");")), 12.0);
+    assert_eq!(tags::decode_double(run("return Number.parseInt(\"42px\");")), 42.0);
+    assert_eq!(tags::decode_double(run("return Number.parseInt(\"ff\", 16);")), 255.0);
+    assert_eq!(tags::decode_double(run("return Number.parseFloat(\"3.5px\");")), 3.5);
+    assert_eq!(
+        tags::decode_double(run("return Number.MAX_SAFE_INTEGER;")),
+        9_007_199_254_740_991.0
+    );
+    holds("return Number.isInteger(3) && !Number.isInteger(3.5);");
+}
+
+#[test]
+fn a_function_inherits_call_and_apply_without_carrying_a_link() {
+    // The substitution: a callable carries no prototype link of its own, so the
+    // chain walk is what names `Function.prototype` — the same shape a string
+    // gets, and for the same reason.
+    let called = run("function f(a) { return this.n + a; } return f.call({n: 1}, 2);");
+    assert_eq!(tags::decode_double(called), 3.0);
+
+    // `apply` is the spelling carrying a count nothing knew while compiling,
+    // which is what the argument vector was built for.
+    let applied = run("function f(a, b, c) { return a + b + c; } return f.apply(null, [1, 2, 3]);");
+    assert_eq!(tags::decode_double(applied), 6.0);
+}

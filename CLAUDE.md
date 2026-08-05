@@ -151,10 +151,12 @@ That second row said "the new engine" and it was **not true**: no crate reads
 baker, and the baker does not scan `rts-core-rwk`, `rts-cranelift` or
 `rts-codegen` at all. It was written as the intent and read as the state.
 
-The intent is still right and `RTS_RWK_IMPLEMENT.md` is where it now lives, with
-what the new engine actually needs baked — which is not a table of symbol names,
-because a native there is a function pointer beside a cell rather than something
-a linker resolves.
+The intent is still right and `docs/engine/authoring-natives.md` is where it now
+lives, with what the new engine actually needs — which is not a table of symbol
+names, because a native there is a function pointer beside a cell rather than
+something a linker resolves. A built-in class is declared there with
+`#[rtse::class]`, which derives the wrappers, the install lists and the
+registration from one `impl` block.
 
 **Never hand-write a symbol name, a signature row, or a class-metadata row.**
 After adding or renaming, run `cargo run -p rts-symbol-baker` and commit the

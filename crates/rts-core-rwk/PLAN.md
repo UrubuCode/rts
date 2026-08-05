@@ -292,3 +292,64 @@ two crates with one name.
 It goes away when they do. A phase is not finished because the new code exists —
 it is finished when the old code is gone, and until then both are in the tree and
 the suffix says which is which.
+
+---
+
+## The primordial surface
+
+The phases above built what a program calls. This is what it *names*, and it is
+ordered by what a real program stops on first rather than by size. How a class is
+declared, and what `#[rtse::class]` derives from that, is
+`docs/engine/authoring-natives.md`.
+
+### P1 — `Error` and the subclass family. **DONE.**
+
+`throw new Error(…)` is how every program raises, and the name did not resolve
+before this: the emitter refused it as unbound, so the one statement a failing
+program is written with did not compile.
+
+`Error`, `TypeError`, `RangeError`, `SyntaxError`, `ReferenceError`, `EvalError`
+and `URIError`, each through the attribute, each inheriting the family's
+`toString`. What it pinned: `Error("x")` and `new Error("x")` are the same
+operation, `name` is read through the ordinary property path so a program that
+replaces it is answered, and `class Mine extends Error` reaches `Mine.prototype`
+because the native constructor asks `new.target` rather than linking to its own.
+
+`throw` still ends the program — finding a handler in a *caller* needs an
+exception table and a personality routine — but it now reports `"Error: boom"`
+from a property read rather than `"an object"`.
+
+### P2 — `Math`, `Number`, `Boolean`. **DONE.**
+
+`Math` is an object rather than a compile-time lowering, and the reason is in the
+engine document: a lowering is not observably equivalent, because the property is
+writable. Thirty-one members and eight constants, none of them written twice.
+
+`Number` is statics and constants; `Number.prototype` is empty and that is a gap
+in property access rather than in the class — a primitive number has no cell for
+the chain walk to substitute against, so a `toFixed` would be a method no
+expression can reach.
+
+### P3 — `Function.prototype`: `call` and `apply`. **DONE. `bind` is not.**
+
+Substituted by the chain walk, like `String.prototype`. `bind` is the one of the
+three that has to *keep* something — a receiver and a list of arguments beside a
+cell — and that is a table of values the collector cannot see. It waits on the
+open question rather than on a session.
+
+### P4 — `JSON`, `Symbol`.
+
+Including `Symbol.iterator`, and `Symbol.dispose`, which exists in neither engine
+and is what `using` is waiting for.
+
+### P5 — `Map` / `Set` / `WeakMap` / `WeakSet`.
+
+### P6 — `Promise`.
+
+`schedule/` here and `sched/` in the machine are built; `async`/`await` in the
+compiler is the separate half.
+
+### P7 — everything else on the core list.
+
+`Reflect`, `Proxy`, `Date`, `BigInt`, `ArrayBuffer`/`DataView`/the typed arrays,
+and the `Iterator` helpers.

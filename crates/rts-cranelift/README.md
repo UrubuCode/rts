@@ -240,7 +240,7 @@ model made it false.
 
 - `src/lib.rs` — the crate's own statement of scope.
 - `tests/invariants.rs` — the rules above, as executable claims.
-- `RTS_RWK_IMPLEMENT.md` (repository root) — how the layers above this one author
+- `docs/engine/authoring-natives.md` — how the layers above this one author
   what they call, and which of those decisions this crate owns.
 
 What is **not** here any more: `RTS_CRANELIFT.md`, and with it the section that

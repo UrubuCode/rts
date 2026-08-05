@@ -63,8 +63,20 @@ pub fn global_get(key: i64) -> u64 {
         let Some(text) = context.interner.text(name).and_then(|text| text.to_rust()) else {
             return undefined_of(context);
         };
+        // The error family answers for itself, because the arm here would
+        // otherwise name seven registrations differing only in which one they
+        // call — and which error classes exist is a fact about that module.
+        if let Some(register) = super::error::provided(&text) {
+            let made = register(context);
+            super::objects::put(context, object, Key::Name(name), made);
+            return made;
+        }
         let made = match text.as_str() {
             "RegExp" => super::regex::constructor(context),
+            "Math" => super::math::register_math(context),
+            "Number" => super::number::register_number(context),
+            "Boolean" => super::number::register_boolean(context),
+            "Function" => super::function_proto::register_function(context),
             "String" => super::string::constructor(context),
             "Array" => super::array_proto::constructor(context),
             "Object" => super::object_global::constructor(context),

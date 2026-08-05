@@ -277,6 +277,14 @@ pub(super) fn inherited_from(context: &mut Context, cell: u32) -> Option<u32> {
     if let Some(own) = context.prototype_at(cell) {
         return Value(own).as_slot();
     }
+    // A callable, like a string, has no link of its own: `closure_new` runs at
+    // every function definition, and writing one there would spend a word per
+    // function to record a fact all of them share. Asked before the two below
+    // because a callable is neither text nor an array, so the order costs
+    // nothing and reads in the order a walk actually resolves.
+    if context.callable_at(cell).is_some() {
+        return super::function_proto::prototype_of(context);
+    }
     if context.text_at(cell).is_some() {
         return super::string::prototype_of(context);
     }

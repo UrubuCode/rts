@@ -47,7 +47,24 @@ use crate::runtime::RuntimeOp;
 /// `globalThis` is the object itself, which is what makes this a global object
 /// rather than a table with globals in it: a program can reach it, enumerate it,
 /// and put something on it.
-const PROVIDED: &[&str] = &["Array", "Object", "RegExp", "String", "globalThis"];
+const PROVIDED: &[&str] = &[
+    "Array",
+    "Boolean",
+    "Error",
+    "EvalError",
+    "Function",
+    "Math",
+    "Number",
+    "Object",
+    "RangeError",
+    "ReferenceError",
+    "RegExp",
+    "String",
+    "SyntaxError",
+    "TypeError",
+    "URIError",
+    "globalThis",
+];
 
 /// Whether a name resolves against the global object.
 ///
