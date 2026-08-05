@@ -140,7 +140,7 @@ pub fn emit_stmt(
             body,
         } => match source {
             crate::syntax::ForEachSource::In => {
-                loops::emit_for_in(builder, scope, ctx, loops, statement, target, subject, body, None)
+                super::foreach::emit_for_in(builder, scope, ctx, loops, statement, target, subject, body, None)
             }
             // `for-of` steps `[Symbol.iterator]()`, which is a call to user
             // code and a protocol this engine has no symbols for.
@@ -149,7 +149,7 @@ pub fn emit_stmt(
         StmtKind::Switch {
             discriminant,
             clauses,
-        } => loops::emit_switch(builder, scope, ctx, loops, statement, discriminant, clauses),
+        } => super::switch::emit_switch(builder, scope, ctx, loops, statement, discriminant, clauses),
         // Both spellings go through one path. An unlabelled jump takes the
         // innermost frame that can accept it; a labelled one takes the frame
         // carrying that name.
@@ -322,7 +322,7 @@ fn emit_labelled(
             target,
             subject,
             body: inner,
-        } => loops::emit_for_in(
+        } => super::foreach::emit_for_in(
             builder, scope, ctx, loops, body, target, subject, inner, Some(label),
         ),
         _ => loops::emit_labelled_block(builder, scope, ctx, loops, label, body),

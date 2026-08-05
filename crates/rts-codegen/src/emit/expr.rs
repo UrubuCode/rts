@@ -18,13 +18,16 @@
 //!
 //! # What is refused, and why refusing beats approximating
 //!
-//! A string literal is a heap value: two occurrences of `"a"` in a program are
-//! the same string, which is interning, which is a runtime entry point. Emitting
-//! one as an immediate would produce a value that is not a string and compares
-//! wrongly with everything. So it is named as a gap.
+//! A gap is named rather than approximated, and the list of names is the work
+//! queue. What is left needs a mechanism this module does not have — a global
+//! object for a bare name to be a property of, a protected region to throw out
+//! of, an argument vector for spread.
 //!
-//! The same reasoning covers calls, closures and globals. Each is a mechanism
-//! this module does not have yet rather than a shortcut it declined to take.
+//! A string literal was the longest-standing entry and is no longer one: two
+//! occurrences of `"a"` in a program are the SAME string, so an immediate would
+//! have produced a value that is not a string and compares wrongly with
+//! everything. What the code carries is which literal; the runtime holds the
+//! text.
 //!
 //! # Where the rest of an expression lives
 //!

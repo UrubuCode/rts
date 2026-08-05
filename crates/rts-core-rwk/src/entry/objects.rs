@@ -35,9 +35,10 @@ use rts_cranelift::shape::Key as ShapeKey;
 
 /// `{}` — a new object with no properties.
 ///
-/// No prototype, and that is a stated gap rather than a decision:
-/// `Object.prototype` does not exist in this runtime yet, so the chain is empty
-/// and every inherited property is absent. Visible, rather than wrong-looking.
+/// No prototype. `new F()` gives one and an object literal does not, which is
+/// the language — but only because `Object.prototype` does not exist here, so
+/// what a literal SHOULD inherit is absent rather than empty. Visible, rather
+/// than wrong-looking.
 #[rtse::entry]
 pub fn object_new() -> u64 {
     with_current(|context| {

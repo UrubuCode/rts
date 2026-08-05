@@ -172,8 +172,9 @@ impl Object {
     /// # What it refuses
     ///
     /// An index key, for the reason [`machine_key`] gives: indexed storage is an
-    /// array's problem and an array does not exist yet. Answering `None` says
-    /// so rather than writing the value somewhere it cannot be read from.
+    /// array's problem, and an array keeps its elements in a store beside its
+    /// cell rather than in its shape. Answering `None` says so rather than
+    /// writing the value somewhere it cannot be read from.
     pub fn set_own(&mut self, shapes: &mut ShapeTree, key: Key, value: Value) -> Option<()> {
         let machine = machine_key(key)?;
 

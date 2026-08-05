@@ -59,12 +59,14 @@ mod call;
 mod capture;
 mod choice;
 mod expr;
+mod foreach;
 mod function;
 mod loops;
 mod merge;
 mod proven;
 mod scope;
 mod stmt;
+mod switch;
 mod template;
 mod unary;
 

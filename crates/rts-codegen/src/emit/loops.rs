@@ -1,14 +1,13 @@
-//! Loops and `switch` — everything that merges more than two paths.
+//! Loops, and the machinery everything that merges more than two paths needs.
 //!
-//! # Why a `switch` is in a file called loops
+//! # What `switch.rs` and `foreach.rs` take from here
 //!
-//! Because it needs the whole of what a loop's exit needs and nothing else in
-//! this crate does: a block with a parameter per name the statement assigns, a
-//! frame so `break` can reach it, and the truncation to a shared prefix that
-//! makes a position mean the same binding in two snapshots. Filing it elsewhere
-//! would mean exporting four private helpers to a module that uses nothing else
-//! here — which is a boundary drawn around a word rather than around
-//! the mechanism.
+//! A frame so `break` can reach an exit, a block parameter per name the
+//! statement assigns, and the truncation to a shared prefix that makes a
+//! position mean the same binding in two snapshots. Those three were private
+//! and are now `pub(super)`, which is the cost of the split — and the split
+//! happened because this file passed the thousand-line ceiling rule 8 sets,
+//! not because the mechanism stopped being one.
 //!
 //! # A loop header is a join whose second predecessor does not exist yet
 //!
@@ -119,7 +118,7 @@ impl Loops {
     }
 
     /// Runs `body` with a frame pushed.
-    fn inside<T>(&mut self, frame: Frame, body: impl FnOnce(&mut Self) -> T) -> T {
+    pub(super) fn inside<T>(&mut self, frame: Frame, body: impl FnOnce(&mut Self) -> T) -> T {
         self.frames.push(frame);
         let result = body(self);
         self.frames.pop();
@@ -128,7 +127,7 @@ impl Loops {
 }
 
 /// The arguments a jump into a merged block carries.
-fn merged_args(snapshot: &[Binding], merged: &[usize]) -> Vec<ValueId> {
+pub(super) fn merged_args(snapshot: &[Binding], merged: &[usize]) -> Vec<ValueId> {
     merged.iter().map(|&at| snapshot[at].value()).collect()
 }
 
@@ -461,7 +460,7 @@ pub fn emit_labelled_block(
 }
 
 /// Decides which bindings a loop must carry, and how deep the environment is.
-fn plan(scope: &Scope, body: &Stmt) -> (Vec<usize>, usize) {
+pub(super) fn plan(scope: &Scope, body: &Stmt) -> (Vec<usize>, usize) {
     (assigned_positions(scope, body), scope.snapshot().len())
 }
 
@@ -522,7 +521,7 @@ fn positions_of(scope: &Scope, names: &[Name]) -> Vec<usize> {
 /// anything jumps there. The first version of this added them while switching
 /// to the header — after the entry jump — and every loop failed with
 /// `ArgumentCount { expected: 0, found: 1 }`.
-fn add_params(
+pub(super) fn add_params(
     builder: &mut FuncBuilder,
     block: BlockId,
     merged: &[usize],
@@ -548,7 +547,7 @@ fn add_params(
 }
 
 /// Points the environment at parameters that already exist.
-fn settle(scope: &mut Scope, base: &[Binding], merged: &[usize], params: &[ValueId]) {
+pub(super) fn settle(scope: &mut Scope, base: &[Binding], merged: &[usize], params: &[ValueId]) {
     let mut snapshot = scope.snapshot();
     snapshot[..base.len()].copy_from_slice(base);
     for (&position, &param) in merged.iter().zip(params) {
@@ -748,297 +747,3 @@ fn assigned_in_expr_names(expr: &Expr) -> Vec<Name> {
     names
 }
 
-/// Emits `switch`.
-///
-/// # Why this lives beside the loops
-///
-/// A switch is not a loop and it needs everything a loop's exit needs: a block
-/// with a parameter per name the statement assigns, a frame so `break` can
-/// reach it, and the truncation to a shared prefix that makes a position mean
-/// the same binding in two snapshots. Putting it elsewhere would mean exporting
-/// four private helpers to a module that uses nothing else here.
-///
-/// # The shape, and why every body block takes parameters
-///
-/// ```text
-///   test₀ ──match──▶ body₀ ─fall─▶ body₁ ─fall─▶ … ─▶ exit
-///     │                 ▲             ▲               ▲
-///    miss               └── test₁ ────┘               │
-///     ▼                                            break
-///   test₁ … ──all missed──▶ default, or exit
-/// ```
-///
-/// `body₁` has two predecessors that are nowhere near each other: the test that
-/// matched it, and `body₀` falling through. Their environments differ, so the
-/// body needs block parameters — the same answer `if` reaches by comparing two
-/// snapshots, except that here there is no pair to compare. Every body gets the
-/// same parameter list, over the names the whole statement assigns, and each
-/// predecessor passes its own values.
-///
-/// # Why the bodies are created before anything branches
-///
-/// A jump checks its argument count against the target's parameters, so every
-/// parameter has to exist before the first branch. That is the same ordering
-/// `add_params` records for loops, and getting it wrong there produced
-/// `ArgumentCount { expected: 0, found: 1 }` on every loop.
-///
-/// # `default` is matched last and runs where it sits
-///
-/// It is not a fallback appended to the end. `switch (9) { default: a(); case
-/// 1: b(); }` runs both, because control enters at `default` and falls through
-/// — so the clause keeps its position among the bodies and only the *test*
-/// chain treats it differently, by leaving it out and jumping there when
-/// nothing matched.
-pub fn emit_switch(
-    builder: &mut FuncBuilder,
-    scope: &mut Scope,
-    ctx: &mut Ctx,
-    loops: &mut Loops,
-    statement: &Stmt,
-    discriminant: &Expr,
-    clauses: &[crate::syntax::SwitchClause],
-) -> EmitResult<bool> {
-    let (merged, depth) = plan(scope, statement);
-    let subject = super::expr::emit_expr(builder, scope, ctx, discriminant)?;
-
-    let entering = scope.snapshot();
-    let exit = builder.create_block();
-    let exit_params = add_params(builder, exit, &merged, &entering);
-
-    let bodies: Vec<BlockId> = clauses.iter().map(|_| builder.create_block()).collect();
-    let body_params: Vec<Vec<ValueId>> = bodies
-        .iter()
-        .map(|&block| add_params(builder, block, &merged, &entering))
-        .collect();
-
-    // The test chain. Each comparison is `===`, so `case "1"` does not match
-    // `1` and `case NaN` matches nothing — including `NaN`.
-    let mut fell_through = None;
-    for (position, clause) in clauses.iter().enumerate() {
-        let Some(test) = &clause.test else {
-            continue;
-        };
-        if let Some(previous) = fell_through.take() {
-            builder.switch_to(previous);
-        }
-        let candidate = super::expr::emit_expr(builder, scope, ctx, test)?;
-        // The runtime answers a PROVEN boolean, which is what a branch takes —
-        // so this is the one comparison in the emitter that does not widen it
-        // back into a value afterwards.
-        let matched = super::expr::call(
-            builder,
-            ctx,
-            crate::runtime::RuntimeOp::StrictEquals,
-            &[subject, candidate],
-        )?[0];
-        let next = builder.create_block();
-        let here = scope.snapshot();
-        builder.branch(
-            matched,
-            (bodies[position], &merged_args(&here[..depth], &merged)),
-            (next, &[]),
-        )?;
-        fell_through = Some(next);
-    }
-
-    // Nothing matched. `default` where it sits, and past the whole statement
-    // where there is none.
-    if let Some(last) = fell_through.take() {
-        builder.switch_to(last);
-    }
-    let unmatched = scope.snapshot();
-    let target = clauses
-        .iter()
-        .position(|clause| clause.test.is_none())
-        .map_or(exit, |at| bodies[at]);
-    builder.jump(target, &merged_args(&unmatched[..depth], &merged))?;
-
-    // The bodies, in source order, each falling into the next.
-    let frame = Frame {
-        label: None,
-        // A switch is not a loop: `continue` inside one belongs to whatever
-        // loop encloses it, which is what a `None` here arranges.
-        continue_to: None,
-        break_to: exit,
-        depth,
-        merged: merged.clone(),
-    };
-    loops.inside(frame, |loops| -> EmitResult<()> {
-        for (position, clause) in clauses.iter().enumerate() {
-            builder.switch_to(bodies[position]);
-            settle(scope, &entering, &merged, &body_params[position]);
-            scope.enter();
-            let mut terminated = false;
-            for inner in &clause.body {
-                if emit_stmt(builder, scope, ctx, loops, inner)? {
-                    terminated = true;
-                    break;
-                }
-            }
-            scope.leave();
-            if !terminated {
-                let leaving = scope.snapshot();
-                let next = bodies.get(position + 1).copied().unwrap_or(exit);
-                builder.jump(next, &merged_args(&leaving[..depth], &merged))?;
-            }
-        }
-        Ok(())
-    })?;
-
-    builder.switch_to(exit);
-    settle(scope, &entering, &merged, &exit_params);
-    // Control reaches whatever follows: a switch with no matching clause and no
-    // `default` runs nothing at all.
-    Ok(false)
-}
-
-/// Emits `for (k in o)`.
-///
-/// # Why this is built as a tree and emitted as an ordinary `for`
-///
-/// This crate refuses desugaring where it loses a fact — `a += b` is not
-/// rewritten to `a = a + b`, because the rewrite evaluates the target twice.
-/// Here nothing is lost: the keys are an array, and walking an array by index
-/// **is** what `for-in` reduces to once the enumeration itself is a value.
-///
-/// What the expansion buys is everything the loop already gets right and would
-/// otherwise be written a second time: `break`, `continue`, a label on the
-/// loop, the block parameters for names the body assigns, and a fresh binding
-/// per pass so a closure made in the body captures that pass's key.
-///
-/// ```text
-/// for (let k in o)  ──▶  for (let i = 0, ks = keys(o); i < ks.length; i++) {
-///   body                     let k = ks[i];
-///                            body
-///                          }
-/// ```
-///
-/// # The names it introduces
-///
-/// Spelled so a program cannot collide with them, and they are ordinary
-/// bindings rather than a side channel — which is what lets the existing
-/// analysis see the index being assigned and give it a block parameter without
-/// being told.
-pub fn emit_for_in(
-    builder: &mut FuncBuilder,
-    scope: &mut Scope,
-    ctx: &mut Ctx,
-    loops: &mut Loops,
-    statement: &Stmt,
-    target: &crate::syntax::ForEachTarget,
-    subject: &Expr,
-    body: &Stmt,
-    label: Option<Name>,
-) -> EmitResult<bool> {
-    use crate::syntax::{
-        Binding as SyntaxBinding, BindingKind, ExprKind, ForEachTarget, StmtKind,
-    };
-
-    let crate::syntax::ForEachTarget::Declare { target: pattern, .. } = target else {
-        // `for (x in o)` writes to something that already exists, once per
-        // pass, with no fresh binding at all. A different rule, and one that
-        // matters as soon as a closure is made in the body.
-        let ForEachTarget::Assign(_) = target else {
-            unreachable!("a for-each target is a declaration or an assignment")
-        };
-        return super::expr::gap("`for-in` writing to an existing binding");
-    };
-    let Pattern::Name(bound) = pattern else {
-        return super::expr::gap("a destructuring `for-in` target");
-    };
-
-    let at = statement.at;
-    let index = ctx.names.intern("__rts_in_index");
-    let keys = ctx.names.intern("__rts_in_keys");
-    let name = |of: Name| Expr {
-        kind: ExprKind::Ident(of),
-        at,
-    };
-    let number = |value: f64| Expr {
-        kind: ExprKind::Literal(crate::syntax::Literal::Number(value)),
-        at,
-    };
-
-    // The keys are emitted HERE rather than as a node in the expansion,
-    // because there is no name a program could write that means "the runtime
-    // operation". Bound in a scope of its own so the loop below sees an
-    // ordinary binding and needs to know nothing about where it came from.
-    scope.enter();
-    let enumerated = super::expr::emit_expr(builder, scope, ctx, subject)?;
-    let enumerated =
-        super::expr::call(builder, ctx, crate::runtime::RuntimeOp::OwnKeys, &[enumerated])?[0];
-    super::binding::declare(builder, scope, ctx, keys, enumerated)?;
-
-    let init = crate::syntax::ForInit::Declare {
-        kind: BindingKind::Let,
-        bindings: vec![SyntaxBinding {
-            target: Pattern::Name(index),
-            value: Some(number(0.0)),
-            claim: None,
-        }],
-    };
-
-    let test = Expr {
-        kind: ExprKind::Binary {
-            op: crate::syntax::BinaryOp::Less,
-            left: Box::new(name(index)),
-            right: Box::new(Expr {
-                kind: ExprKind::Member {
-                    object: Box::new(name(keys)),
-                    property: ctx.names.intern("length"),
-                    optional: false,
-                },
-                at,
-            }),
-        },
-        at,
-    };
-
-    let update = Expr {
-        kind: ExprKind::Update {
-            op: crate::syntax::UpdateOp::Increment,
-            position: crate::syntax::UpdatePosition::Postfix,
-            target: Box::new(name(index)),
-        },
-        at,
-    };
-
-    // `let k = ks[i];` in front of the body, in a block of its own so the
-    // binding is fresh every pass.
-    let bind = Stmt {
-        kind: StmtKind::Declare {
-            kind: BindingKind::Let,
-            bindings: vec![SyntaxBinding {
-                target: Pattern::Name(*bound),
-                value: Some(Expr {
-                    kind: ExprKind::Index {
-                        object: Box::new(name(keys)),
-                        index: Box::new(name(index)),
-                        optional: false,
-                    },
-                    at,
-                }),
-                claim: None,
-            }],
-        },
-        at,
-    };
-    let inner = Stmt {
-        kind: StmtKind::Block(vec![bind, body.clone()]),
-        at,
-    };
-
-    let result = emit_for(
-        builder,
-        scope,
-        ctx,
-        loops,
-        Some(&init),
-        Some(&test),
-        Some(&update),
-        &inner,
-        label,
-    );
-    scope.leave();
-    result
-}
