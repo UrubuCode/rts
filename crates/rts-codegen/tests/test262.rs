@@ -136,7 +136,6 @@ struct Tally {
     wrongly_accepted: usize,
     by_construct: BTreeMap<String, usize>,
     /// A few examples of each defect, so the report is actionable.
-    rejection_examples: Vec<String>,
     acceptance_examples: Vec<String>,
     /// Wrongly-accepted files by the area of the corpus they live in.
     ///
@@ -146,6 +145,13 @@ struct Tally {
     /// that structure — so counting by directory is counting by rule, which is
     /// what says which rule to write next.
     acceptance_areas: BTreeMap<String, usize>,
+    /// Wrongly-rejected files by the message that rejected them.
+    ///
+    /// A checker that refuses a valid program is worse than one that misses an
+    /// invalid one, and its damage hides: the count moves by one while a
+    /// hundred move the other way. Grouping by message names the rule that
+    /// overreached, which is the only thing that makes it findable at all.
+    rejection_messages: BTreeMap<String, (usize, String)>,
 }
 
 /// Refuse to report a score for a corpus that is missing files.
@@ -273,11 +279,17 @@ fn the_front_end_reads_test262() {
             // A valid program we refused. A defect.
             (Err(ParseError::Syntax(message)), false) => {
                 tally.wrongly_rejected += 1;
-                if tally.rejection_examples.len() < 12 {
-                    tally.rejection_examples.push(format!(
-                        "{}: {message}",
-                        path.strip_prefix(&language).unwrap_or(path).display()
-                    ));
+                let entry = tally
+                    .rejection_messages
+                    .entry((*message).to_owned())
+                    .or_insert_with(|| (0, String::new()));
+                entry.0 += 1;
+                if entry.1.is_empty() {
+                    entry.1 = path
+                        .strip_prefix(&language)
+                        .unwrap_or(path)
+                        .display()
+                        .to_string();
                 }
             }
 
@@ -337,12 +349,15 @@ fn the_front_end_reads_test262() {
         }
     }
 
-    if !tally.rejection_examples.is_empty() {
-        println!("\n--- valid programs we rejected (a defect; first few) ---");
-        for example in &tally.rejection_examples {
-            println!("  {example}");
+    if !tally.rejection_messages.is_empty() {
+        println!("\n--- valid programs we rejected, by reason, biggest first ---");
+        let mut ranked: Vec<_> = tally.rejection_messages.iter().collect();
+        ranked.sort_by(|a, b| b.1.0.cmp(&a.1.0).then(a.0.cmp(b.0)));
+        for (message, (count, example)) in ranked.iter().take(25) {
+            println!("{count:>6}  {message}\n          {example}");
         }
     }
+
     if !tally.acceptance_examples.is_empty() {
         println!(
             "

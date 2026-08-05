@@ -155,7 +155,15 @@ pub fn parse_as(source: &str, goal: Goal, dialect: Dialect, names: &mut Names) -
         match parse_with(source, *syntax) {
             Ok(program) => {
                 let mut cx = Cx { names, goal };
-                return item::program(&mut cx, &program, goal);
+                let tree = item::program(&mut cx, &program, goal)?;
+                // An early error is a *syntax* error: a program with one is
+                // refused before any of it runs. So it is reported here, on the
+                // way out of parsing, rather than by whatever reads the tree —
+                // by then something has already decided the program exists.
+                if let Err(early) = crate::check::check(&tree, names) {
+                    return Err(ParseError::Syntax(early.message));
+                }
+                return Ok(tree);
             }
             Err(message) => first_error.get_or_insert(message),
         };

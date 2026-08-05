@@ -29,6 +29,7 @@
 #![deny(missing_docs)]
 #![deny(dead_code)]
 
+mod check;
 pub mod names;
 pub mod parse;
 pub mod syntax;
