@@ -141,7 +141,7 @@ fn target_element(cx: &mut Cx, pattern: &swc::Pat) -> Result<Element> {
 }
 
 /// The assignment-role leaf: a name is still a name, everything else is a place.
-fn target(cx: &mut Cx, pattern: &swc::Pat) -> Result<Pattern> {
+pub(crate) fn target(cx: &mut Cx, pattern: &swc::Pat) -> Result<Pattern> {
     Ok(match pattern {
         swc::Pat::Ident(ident) => Pattern::Name(cx.name(&ident.id.sym)),
         swc::Pat::Array(array) => array_target(cx, array)?,

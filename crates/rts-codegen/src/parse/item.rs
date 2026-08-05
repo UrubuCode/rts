@@ -4,7 +4,7 @@ use swc_common::Spanned;
 use swc_ecma_ast as swc;
 
 use super::expr::{expr, property_key};
-use super::pat::{binding, binding_element};
+use super::pat::{binding, binding_element, target};
 use super::{Cx, Result, position, unsupported};
 use crate::syntax::{
     Binding, BindingKind, Catch, Claim, Class, ClassElement, ClassKey, Directive, Export,
@@ -377,7 +377,12 @@ fn for_head(cx: &mut Cx, head: &swc::ForHead) -> Result<ForEachTarget> {
                 target: binding(cx, &first.name)?,
             }
         }
-        swc::ForHead::Pat(pattern) => ForEachTarget::Assign(binding(cx, pattern)?),
+        // `target`, not `binding`: a for-head with no declaration assigns to
+        // places that already exist, so `for ([a, obj.b] of xs)` is as legal as
+        // `[a, obj.b] = xs`. Reading it in the binding role refused every member
+        // target in a for-head — the same shape read in the wrong one of the two
+        // roles this module exists to keep apart.
+        swc::ForHead::Pat(pattern) => ForEachTarget::Assign(target(cx, pattern)?),
         swc::ForHead::UsingDecl(using) => {
             return unsupported("`using` in a for-head", position(using.span));
         }

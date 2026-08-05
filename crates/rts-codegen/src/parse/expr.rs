@@ -165,14 +165,7 @@ pub(crate) fn expr(cx: &mut Cx, node: &swc::Expr) -> Result<Expr> {
         swc::Expr::Arrow(arrow) => ExprKind::Function(Box::new(super::item::arrow(cx, arrow)?)),
         swc::Expr::Class(class) => ExprKind::Class(Box::new(super::item::class_expr(cx, class)?)),
 
-        swc::Expr::SuperProp(super_prop) => ExprKind::SuperMember {
-            property: Box::new(match &super_prop.prop {
-                swc::SuperProp::Ident(ident) => PropertyKey::Named(cx.name(&ident.sym)),
-                swc::SuperProp::Computed(computed) => {
-                    PropertyKey::Computed(expr(cx, &computed.expr)?)
-                }
-            }),
-        },
+        swc::Expr::SuperProp(super_prop) => super_member(cx, super_prop)?,
 
         swc::Expr::MetaProp(meta) => match meta.kind {
             swc::MetaPropKind::NewTarget => ExprKind::NewTarget,
@@ -372,9 +365,11 @@ pub(crate) fn property_key(cx: &mut Cx, key: &swc::PropName) -> Result<PropertyK
             PropertyKey::Named(cx.name(&number_key(number.value)))
         }
         swc::PropName::Computed(computed) => PropertyKey::Computed(expr(cx, &computed.expr)?),
-        swc::PropName::BigInt(big) => {
-            return unsupported("a BigInt property key", position(big.span));
-        }
+        // `{ 1n: x }` is the property `"1"`. A BigInt key is the one place a
+        // BigInt needs no arithmetic — ToPropertyKey runs it through ToString,
+        // and a BigInt's ToString is its digits, which is what we already have.
+        // So the key is decidable here even though the value is not.
+        swc::PropName::BigInt(big) => PropertyKey::Named(cx.name(&big.value.to_string())),
     })
 }
 
@@ -391,6 +386,21 @@ fn number_key(value: f64) -> String {
     } else {
         format!("{value}")
     }
+}
+
+/// `super.x` and `super[k]`, in either role.
+///
+/// One reader because `super.x` and `super.x = v` name the same place, and SWC
+/// hands the two out through different types — an `Expr` when it is read and a
+/// `SimpleAssignTarget` when it is written. The write side was missing, so a
+/// method could read through `super` and not assign through it.
+fn super_member(cx: &mut Cx, super_prop: &swc::SuperPropExpr) -> Result<ExprKind> {
+    Ok(ExprKind::SuperMember {
+        property: Box::new(match &super_prop.prop {
+            swc::SuperProp::Ident(ident) => PropertyKey::Named(cx.name(&ident.sym)),
+            swc::SuperProp::Computed(computed) => PropertyKey::Computed(expr(cx, &computed.expr)?),
+        }),
+    })
 }
 
 /// Reinterpret the left of an assignment.
@@ -414,6 +424,9 @@ fn assign_target(cx: &mut Cx, target: &swc::AssignTarget) -> Result<AssignTarget
             swc::SimpleAssignTarget::TsAs(as_) => {
                 Ok(AssignTarget::Place(Box::new(expr(cx, &as_.expr)?)))
             }
+            swc::SimpleAssignTarget::SuperProp(super_prop) => Ok(AssignTarget::Place(Box::new(
+                Expr::new(super_member(cx, super_prop)?, position(super_prop.span)),
+            ))),
             swc::SimpleAssignTarget::TsNonNull(non_null) => {
                 Ok(AssignTarget::Place(Box::new(expr(cx, &non_null.expr)?)))
             }

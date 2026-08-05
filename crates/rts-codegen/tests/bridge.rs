@@ -11,8 +11,8 @@ use rts_codegen::names::Names;
 use rts_codegen::parse::{ParseError, parse_module, parse_script};
 use rts_codegen::syntax::{
     AssignOp, AssignTarget, BinaryOp, BindingKind, ClassElement, ExprKind, ForEachSource,
-    FunctionBody, Goal, Literal, LogicalOp, ModuleItem, Pattern, Program, Property, Stmt, StmtKind,
-    UpdatePosition,
+    ForEachTarget, FunctionBody, Goal, Literal, LogicalOp, ModuleItem, Pattern, Program, Property,
+    PropertyKey, Stmt, StmtKind, UpdatePosition,
 };
 
 fn module(source: &str) -> (Program, Names) {
@@ -686,4 +686,56 @@ fn a_pattern_reached_through_a_catch_clause_is_a_pattern() {
         }
         other => panic!("{other:?}"),
     }
+}
+
+#[test]
+fn a_for_head_with_no_declaration_may_write_to_a_place() {
+    // `for ([a, obj.b] of xs)` is `[a, obj.b] = xs` once per pass, so the head
+    // is read in the assignment role. It was read in the binding role, which
+    // refused every member target in a for-head: the same shape, read on the
+    // wrong side of the one distinction `parse::pat` exists to draw.
+    let (kind, _) = only_statement("for ([a, obj.b] of xs) {}");
+    let StmtKind::ForEach { target, .. } = kind else {
+        panic!("expected a for-each");
+    };
+    let ForEachTarget::Assign(Pattern::Array(array)) = target else {
+        panic!("a head with no declaration assigns, it does not bind: {target:?}");
+    };
+    assert!(matches!(
+        array.elements[1].as_ref().unwrap().pattern,
+        Pattern::Target(_)
+    ));
+}
+
+#[test]
+fn super_is_a_place_and_not_only_a_read() {
+    // SWC hands `super.x` out as an `Expr` and `super.x = v` as a
+    // `SimpleAssignTarget`. Only the first was bridged, so a method could read
+    // through `super` and not assign through it.
+    let (assign, _) = only_expr("super.x = 1;");
+    let ExprKind::Assign { target, .. } = assign else {
+        panic!("expected an assignment");
+    };
+    let AssignTarget::Place(place) = target else {
+        panic!("`super.x` is a place: {target:?}");
+    };
+    assert!(matches!(place.kind, ExprKind::SuperMember { .. }));
+}
+
+#[test]
+fn a_bigint_property_key_is_its_digits() {
+    // The one place a BigInt needs no arithmetic: ToPropertyKey runs it through
+    // ToString, and a BigInt's ToString is the digits already in hand. So the
+    // key is decidable even though the value is not.
+    let (kind, names) = only_expr("({ 1n: x });");
+    let ExprKind::Object { properties } = kind else {
+        panic!("expected an object");
+    };
+    let Property::Value { key, .. } = &properties[0] else {
+        panic!("expected a value property");
+    };
+    let PropertyKey::Named(name) = key else {
+        panic!("a BigInt key is static: {key:?}");
+    };
+    assert_eq!(names.text(*name), "1");
 }
