@@ -2184,16 +2184,6 @@ fn a_throw_from_inside_a_nested_block_still_finds_the_handler() {
     assert_eq!(tags::decode_double(produced), 5.0);
 }
 
-#[test]
-fn a_finally_is_refused_by_name_rather_than_emitted_once() {
-    // The machine models cleanup as one block ending in `CleanupDone`, because
-    // it is copied into every path that unwinds through it and that is sound
-    // only with one exit. A `finally` body needs arbitrary blocks -- `x + y`
-    // alone emits a fast path and a slow one -- so the missing capability is
-    // copying a subgraph, and it is missing below.
-    let error = compile("try { } finally { }").expect_err("refused");
-    assert!(format!("{error:?}").contains("finally"), "{error:?}");
-}
 
 #[test]
 fn a_value_assigned_inside_a_try_is_the_one_the_handler_sees() {
@@ -2214,4 +2204,36 @@ fn a_try_around_a_call_is_refused_by_name_rather_than_compiled() {
     let error =
         compile("function f() { throw 1; } try { f(); } catch (e) {}").expect_err("refused");
     assert!(format!("{error:?}").contains("call"), "{error:?}");
+}
+
+#[test]
+fn a_finally_runs_on_both_the_normal_path_and_the_throwing_one() {
+    // Two copies of one body: one on the normal path, one reached by unwinding.
+    // Asserting only one would pass with a `finally` that was emitted once and
+    // reached one way, which is the shape of the bug this construct invites.
+    let quiet = run("let x = 0; try { x = 1; } finally { x = x + 10; } return x;");
+    assert_eq!(tags::decode_double(quiet), 11.0);
+
+    let caught = run("let x = 0; try { throw 1; } catch (e) { x = 2; } finally { x = x + 10; } return x;");
+    assert_eq!(tags::decode_double(caught), 12.0);
+}
+
+#[test]
+fn a_finally_runs_when_the_body_returns_through_it() {
+    // The machine plans a `return` inside a region the same way it plans a
+    // throw: leaving normally owes the same cleanup as leaving by throwing. A
+    // scope that only unwinds correctly when something goes wrong leaks on the
+    // path taken most of the time.
+    let produced = run("let x = 0; try { return 5; } finally { x = 1; } return x;");
+    assert_eq!(tags::decode_double(produced), 5.0);
+}
+
+#[test]
+fn a_finally_that_branches_is_copied_whole() {
+    // The reason a cleanup stopped being one block. This body needs a branch
+    // and a merge, and the single-block cleanup could not hold either.
+    let produced = run(
+        "let x = 0; try { throw 1; } catch (e) { x = 3; } finally { if (x > 2) { x = 100; } else { x = 200; } } return x;",
+    );
+    assert_eq!(tags::decode_double(produced), 100.0);
 }

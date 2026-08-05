@@ -323,11 +323,23 @@ fn a_cleanup_that_reads_something_outside_itself_is_rejected() {
         params: vec![Repr::Tagged],
         ..Signature::default()
     });
-    let outside = param(&func, 0);
+    // Computed somewhere that is neither the cleanup nor the function's entry.
+    // A parameter would *not* be rejected, and should not be: the entry
+    // dominates every block, so its values exist wherever a copy lands. This
+    // one does not dominate anything, which is the case the rule is about.
     let entry = func.entry;
     let mut b = FuncBuilder::new(&mut func, &types, entry);
     let cleanup = b.create_block();
+    let elsewhere = b.create_block();
     let _region = b.open_region(vec![], Some(cleanup));
+    b.jump(elsewhere, &[]).expect("no parameters");
+
+    let mut b = FuncBuilder::new(&mut func, &types, elsewhere);
+    let outside = b.declare_const(ConstDecl::Scalar {
+        repr: Repr::Tagged,
+        bits: ScalarBits(1),
+    });
+    let outside = b.use_const(outside);
     b.ret(&[]);
 
     let mut b = FuncBuilder::new(&mut func, &types, cleanup);

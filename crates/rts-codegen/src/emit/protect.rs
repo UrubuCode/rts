@@ -73,21 +73,34 @@ pub fn emit_try(
     if let Some(reason) = calls_something(body) {
         return super::expr::gap(reason);
     }
-    if finally.is_some() {
-        // The machine models cleanup as one block ending in `CleanupDone`, and
-        // that is not an oversight -- a cleanup is *copied* into every path
-        // that unwinds through it, which is only sound while it has one exit.
-        // A `finally` body is arbitrary statements, and arbitrary statements
-        // need arbitrary blocks: `x + y` alone emits a fast path and a slow
-        // one. Copying a subgraph rather than a block is the capability that
-        // is missing, and it is missing below.
-        return super::expr::gap("`finally`");
+
+    // Both outside every region, and for opposite reasons. A cleanup inside its
+    // own region would run itself; the continuation inside it would run the
+    // cleanup a second time on the way out.
+    let cleanup_block = finally.map(|_| builder.create_unprotected_block());
+    let join = builder.create_unprotected_block();
+
+    let protected = builder.create_block();
+    builder.jump(protected, &[])?;
+    builder.switch_to(protected);
+
+    // Two regions, and which encloses which is the semantics. `finally` runs
+    // after `catch`, and also runs when the *handler* throws — so the handler
+    // has to sit inside the cleanup's region and outside its own. One region
+    // could not say that.
+    //
+    // Opened after switching, because opening puts the block being built into
+    // the region, and every block anything nested creates until it closes. A
+    // nested `if` inside a `try` does not have to know it is inside one.
+    let outer = finally.is_some();
+    if outer {
+        builder.open_region(Vec::new(), cleanup_block);
     }
 
-    // Declared before anything is emitted into it, because a block is placed in
-    // a region and a region cannot be named before it exists.
+    // Created while the cleanup's region is open, so a throw from inside the
+    // handler unwinds through the `finally` — which is the whole reason the two
+    // regions are not one.
     let handler_block = catch.map(|_| builder.create_block());
-
     let handlers = handler_block
         .map(|block| {
             vec![Handler {
@@ -96,16 +109,6 @@ pub fn emit_try(
             }]
         })
         .unwrap_or_default();
-    let protected = builder.create_block();
-    builder.jump(protected, &[])?;
-    builder.switch_to(protected);
-
-    // Opened *after* switching, because opening puts the block being built into
-    // the region — and every block anything nested creates until it closes. A
-    // nested `if` inside a `try` does not have to know it is inside one, which
-    // is the machine deriving membership rather than offering a call to forget.
-    // No cleanup block: `finally` is refused above, and this is the only
-    // construct that would supply one.
     builder.open_region(handlers, None);
 
     let before = scope.snapshot();
@@ -118,14 +121,9 @@ pub fn emit_try(
     // which is sound only because everything the body assigns lives in memory
     // by now — `capture::assigned_under_protection` put it there. What the
     // snapshot carries is the SSA values the body could not have changed.
-    // Created only if something reaches it. `try { throw 1 } catch (e) { return
-    // e }` leaves through both arms, and a join block nothing enters is a block
-    // with no terminator — which the verifier rejects, and rightly.
-    let mut join = None;
+    let mut reaches_join = !body_terminated;
     if !body_terminated {
-        let block = builder.create_block();
-        join = Some(block);
-        builder.jump(block, &[])?;
+        builder.jump(join, &[])?;
     }
 
     if let (Some(block), Some(catch)) = (handler_block, catch) {
@@ -136,8 +134,8 @@ pub fn emit_try(
         let thrown = builder.add_block_param(block, rts_cranelift::repr::Repr::Tagged);
         builder.switch_to(block);
         scope.restore(&before);
-        // The binding belongs to the handler alone -- `catch (e)` introduces
-        // `e` for the handler body and nowhere else.
+        // The binding belongs to the handler alone — `catch (e)` introduces `e`
+        // for the handler body and nowhere else.
         scope.enter();
         if let Some(pattern) = &catch.binding {
             bind_caught(builder, scope, ctx, pattern, thrown)?;
@@ -145,19 +143,58 @@ pub fn emit_try(
         let handler_terminated = emit_block(builder, scope, ctx, loops, &catch.body)?;
         scope.leave();
         if !handler_terminated {
-            let block = *join.get_or_insert_with(|| builder.create_block());
-            builder.jump(block, &[])?;
+            reaches_join = true;
+            builder.jump(join, &[])?;
         }
     }
 
-    let Some(join) = join else {
-        // Every arm left. Nothing follows the `try`, and saying so is what stops
-        // the caller emitting into a block that has already ended.
-        return Ok(true);
-    };
+    if outer {
+        builder.close_region();
+    }
+
+    if let (Some(block), Some(finally)) = (cleanup_block, finally) {
+        // The unwinding copy. It ends by handing control back to whatever is
+        // unwinding rather than by jumping anywhere: a cleanup has no way back,
+        // because it is entered from every path that unwinds through it and
+        // those paths have nothing in common to return to.
+        builder.switch_to(block);
+        scope.restore(&before);
+        scope.enter();
+        // The same statements the normal path gets, emitted where a
+        // `CleanupDone` rather than a jump will end them.
+        let terminated = emit_block(builder, scope, ctx, loops, finally)?;
+        scope.leave();
+        if !terminated {
+            builder.cleanup_done();
+        }
+    }
 
     builder.switch_to(join);
     scope.restore(&before);
+
+    if !reaches_join {
+        // Every arm left. The join still had to exist, because the arms were
+        // emitted before anyone could know that — so it is given a terminator
+        // nothing reaches rather than left unterminated, and the caller is told
+        // control does not continue.
+        builder.trap(rts_cranelift::ir::TrapCode::Unreachable);
+        return Ok(true);
+    }
+
+    // The normal-path copy, emitted from the tree a second time rather than
+    // shared with the unwinding one. The unwinding copy cannot be jumped to and
+    // back from — that is what `cleanup_done` makes structural — so one body
+    // reached two ways is not available, and two emissions of one tree is what
+    // "runs on every path out" costs.
+    if let Some(finally) = finally {
+        scope.enter();
+        let terminated = emit_block(builder, scope, ctx, loops, finally)?;
+        scope.leave();
+        if terminated {
+            return Ok(true);
+        }
+    }
+
     Ok(false)
 }
 

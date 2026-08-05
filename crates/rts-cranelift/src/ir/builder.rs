@@ -184,6 +184,22 @@ impl<'a> FuncBuilder<'a> {
         block
     }
 
+    /// Appends an empty block that belongs to no region, whatever is open.
+    ///
+    /// For the two blocks a protected region needs and cannot contain: where
+    /// control continues after the region has ended, and the cleanup itself. A
+    /// cleanup inside its own region would run itself; a continuation inside it
+    /// would run the cleanup a second time on the way out.
+    ///
+    /// Separate from [`FuncBuilder::create_block`] rather than a flag on it,
+    /// because the two answer different questions and a flag would let a client
+    /// answer the wrong one by leaving it at the default. These are the only
+    /// blocks a client has a reason to place outside, and they are named by
+    /// what they are for.
+    pub fn create_unprotected_block(&mut self) -> BlockId {
+        self.func.push_block()
+    }
+
     /// Appends a parameter to a block.
     pub fn add_block_param(&mut self, block: BlockId, repr: Repr) -> ValueId {
         self.func.push_block_param(block, repr)

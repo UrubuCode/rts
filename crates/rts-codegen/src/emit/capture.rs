@@ -98,14 +98,16 @@ fn assigned_under_protection(statement: &Stmt, found: &mut BTreeSet<Name>) {
             catch,
             finally,
         } => {
-            for inner in body {
+            // The handler's own assignments count too, and not for the same
+            // reason as the body's. The body's are reached by the *handler*,
+            // entered from every throwing point in it. The handler's are
+            // reached by the *cleanup*, which unwinds through a handler that
+            // threw — so `try {} catch (e) { x = 3 } finally { use(x) }` reads
+            // a value the handler wrote, from a copy the handler does not
+            // branch to. Missing this read `x` from before the `try`, silently.
+            for inner in body.iter().chain(catch.iter().flat_map(|c| &c.body)) {
                 found.extend(writes(inner));
                 assigned_under_protection(inner, found);
-            }
-            if let Some(catch) = catch {
-                for inner in &catch.body {
-                    assigned_under_protection(inner, found);
-                }
             }
             if let Some(finally) = finally {
                 for inner in finally {

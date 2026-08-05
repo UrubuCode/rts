@@ -214,9 +214,31 @@ fn check_cleanups(func: &Function, errors: &mut Vec<VerifyError>) {
             errors.push(VerifyError::CleanupTakesParameters { block: entry });
         }
 
-        // Everything the piece defines: results of its instructions, and the
-        // parameters of its blocks.
+        // Everything the piece defines, and everything the function's entry
+        // block defines.
+        //
+        // The entry is the relaxation the copy needed to be useful. Anything a
+        // cleanup does with a variable reads the environment pointer, which is
+        // established once at function entry — so a cleanup that could read
+        // only itself could touch no variable, and a `finally` that touches no
+        // variable is not one anybody writes.
+        //
+        // It is sound for the reason the original rule was: a copy must not
+        // read something that does not exist where it lands. The entry block
+        // dominates every block in the function, so its values exist at every
+        // point that can unwind. Dominance in general would admit more, and
+        // needs an analysis this does not have; the entry is the part of it
+        // that is free and covers the case.
         let mut defined: Vec<ValueId> = Vec::new();
+        if let Some(data) = func.block(func.entry) {
+            defined.extend(data.params.iter().copied());
+            defined.extend(
+                data.insts
+                    .iter()
+                    .filter_map(|&i| func.inst(i))
+                    .flat_map(|d| d.results.iter().copied()),
+            );
+        }
         for &block in &piece {
             let Some(data) = func.block(block) else {
                 continue;
@@ -252,11 +274,13 @@ fn check_cleanups(func: &Function, errors: &mut Vec<VerifyError>) {
 
             match &data.terminator {
                 Some(Terminator::CleanupDone) => leaves = true,
-                // A jump or a branch stays in the piece by construction — that
-                // is how the piece was collected. Anything else leaves it
-                // through a path the unwinding it is part of knows nothing
-                // about.
-                Some(Terminator::Jump(_) | Terminator::Branch { .. }) => {}
+                // Anything that branches stays in the piece by construction —
+                // that is how the piece was collected, and a guard and an
+                // inline cache branch as much as a jump does. What is rejected
+                // is a terminator with no successor at all: a return, a throw
+                // or a tail call leaves the copy through a path the unwinding
+                // it is part of knows nothing about.
+                Some(terminator) if !terminator.successors().is_empty() => {}
                 _ => errors.push(VerifyError::CleanupDoesNotEnd { region, block }),
             }
         }
@@ -294,17 +318,13 @@ fn cleanup_piece(func: &Function, entry: BlockId) -> Vec<BlockId> {
             continue;
         }
         order.push(id);
-        match &func.block(id).and_then(|d| d.terminator.clone()) {
-            Some(Terminator::Jump(call)) => queue.push(call.block),
-            Some(Terminator::Branch {
-                then_block,
-                else_block,
-                ..
-            }) => {
-                queue.push(then_block.block);
-                queue.push(else_block.block);
-            }
-            _ => {}
+        // Every successor, not the two obvious ones. A guard and an inline
+        // cache are branches too, and a piece that followed only jumps would
+        // stop at the first arithmetic on unproven operands — which is most
+        // cleanups, and which reads as "does not end" rather than as a missing
+        // edge.
+        if let Some(terminator) = func.block(id).and_then(|d| d.terminator.as_ref()) {
+            queue.extend(terminator.successors());
         }
     }
     order.sort();

@@ -143,17 +143,12 @@ impl Body<'_> {
                 .func
                 .block(id)
                 .ok_or(LowerError::UnterminatedBlock { block: id })?;
-            match &data.terminator {
-                Some(Terminator::Jump(call)) => queue.push(call.block),
-                Some(Terminator::Branch {
-                    then_block,
-                    else_block,
-                    ..
-                }) => {
-                    queue.push(then_block.block);
-                    queue.push(else_block.block);
-                }
-                _ => {}
+            // Every successor, not the two obvious ones. A guard and an inline
+            // cache are branches too, so a piece that followed only jumps would
+            // stop at the first arithmetic on unproven operands -- which is
+            // most cleanups.
+            if let Some(terminator) = &data.terminator {
+                queue.extend(terminator.successors());
             }
         }
         // Sorted so the copy is emitted in the function's own block order. Rule
@@ -167,10 +162,16 @@ impl Body<'_> {
 
     /// Ends one block of a cleanup copy.
     ///
-    /// Only three terminators can appear, and the verifier says so: a jump or a
-    /// branch within the piece, or the `CleanupDone` that leaves it. A return
-    /// or a throw would leave the copy through a path the unwinding it is part
-    /// of knows nothing about.
+    /// `CleanupDone` is the only one this handles itself, because it is the only
+    /// one that means something different in a copy: it leaves the piece, and
+    /// where it leaves to is where this copy was placed.
+    ///
+    /// Everything else goes through the ordinary terminator lowering, with the
+    /// copy's blocks and values temporarily standing in for the function's own.
+    /// A guard and an inline cache are branches, and re-implementing them here
+    /// would be a second statement of how each one lowers — which is the shape
+    /// of bug where a copy of a cleanup and the original disagree about the
+    /// same construct.
     fn emit_cleanup_terminator(
         &mut self,
         builder: &mut FunctionBuilder,
@@ -179,43 +180,41 @@ impl Body<'_> {
         local: &HashMap<ValueId, Value>,
         after: cranelift_codegen::ir::Block,
     ) -> Result<(), LowerError> {
-        let data = self
+        let terminator = self
             .func
             .block(id)
+            .and_then(|data| data.terminator.clone())
             .ok_or(LowerError::UnterminatedBlock { block: id })?;
-        let args = |calls: &[ValueId]| -> Vec<cranelift_codegen::ir::BlockArg> {
-            calls
-                .iter()
-                .filter_map(|value| local.get(value).copied())
-                .map(cranelift_codegen::ir::BlockArg::Value)
-                .collect()
-        };
 
-        match &data.terminator {
-            Some(Terminator::CleanupDone) => {
-                builder.ins().jump(after, &[]);
-            }
-            Some(Terminator::Jump(call)) => {
-                let target = copies[&call.block];
-                let arguments = args(&call.args);
-                builder.ins().jump(target, &arguments);
-            }
-            Some(Terminator::Branch {
-                cond,
-                then_block,
-                else_block,
-            }) => {
-                let cond = *local
-                    .get(cond)
-                    .ok_or(LowerError::UnterminatedBlock { block: id })?;
-                let (t, e) = (copies[&then_block.block], copies[&else_block.block]);
-                let then_args = args(&then_block.args);
-                let else_args = args(&else_block.args);
-                builder.ins().brif(cond, t, &then_args, e, &else_args);
-            }
-            _ => return Err(LowerError::UnterminatedBlock { block: id }),
+        if matches!(terminator, Terminator::CleanupDone) {
+            builder.ins().jump(after, &[]);
+            return Ok(());
         }
-        Ok(())
+
+        let saved_values: Vec<_> = local
+            .iter()
+            .map(|(&ours, &theirs)| (ours, self.values.insert(ours, theirs)))
+            .collect();
+        let saved_blocks: Vec<_> = copies
+            .iter()
+            .map(|(&ours, &theirs)| (ours, self.blocks.insert(ours, theirs)))
+            .collect();
+
+        let outcome = self.lower_terminator(builder, id, &terminator);
+
+        for (block, previous) in saved_blocks {
+            match previous {
+                Some(previous) => self.blocks.insert(block, previous),
+                None => self.blocks.remove(&block),
+            };
+        }
+        for (value, previous) in saved_values {
+            match previous {
+                Some(previous) => self.values.insert(value, previous),
+                None => self.values.remove(&value),
+            };
+        }
+        outcome
     }
 
     /// Emits one instruction of a cleanup copy.
