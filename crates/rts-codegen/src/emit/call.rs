@@ -73,6 +73,24 @@ pub fn emit_call(
         }
     };
 
+    emit_call_with(builder, scope, ctx, function, receiver, arguments)
+}
+
+/// Emits a call whose callee and receiver are already values.
+///
+/// Split out for `super(…)`, which has both and no member expression to derive
+/// them from: the callee comes from the class environment and the receiver is
+/// the `this` the constructor was handed. Everything after that — the arity
+/// check, the order, the padding — is the same rule, and a second copy of it is
+/// where a `super` call would come to pad differently from a method call.
+pub fn emit_call_with(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    function: ValueId,
+    receiver: ValueId,
+    arguments: &[Spreadable],
+) -> EmitResult<ValueId> {
     if arguments.len() > ARGUMENT_SLOTS {
         return Err(EmitError::Unsupported {
             construct: "a call with more than four arguments",

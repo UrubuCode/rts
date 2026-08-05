@@ -188,6 +188,13 @@ fn referenced_inside_statement(statement: &Stmt, found: &mut BTreeSet<Name>) {
         // over-approximation the module doc argues for.
         StmtKind::Function(function) => names_in_function(function, found),
 
+        // A class body is nested code too, and every name in it counts for the
+        // same reason a function's does. Skipping it was not a missing feature
+        // but a wrong answer: a local a method closes over would be decided
+        // uncaptured, and the method would read a register the enclosing
+        // activation had already left.
+        StmtKind::Class(class) => names_in_class(class, found),
+
         StmtKind::Expr(expr) | StmtKind::Throw(expr) => referenced_inside_expr(expr, found),
         StmtKind::Return(value) => {
             if let Some(expr) = value {
@@ -322,6 +329,7 @@ fn all_names_in_expr(expr: &Expr, found: &mut BTreeSet<Name>) {
     walk_expr(expr, &mut |child| match child {
         Child::Expr(inner) => all_names_in_expr(inner, found),
         Child::Function(function) => names_in_function(function, found),
+        Child::Class(class) => names_in_class(class, found),
     });
 }
 
@@ -330,6 +338,7 @@ fn referenced_inside_expr(expr: &Expr, found: &mut BTreeSet<Name>) {
     walk_expr(expr, &mut |child| match child {
         Child::Expr(inner) => referenced_inside_expr(inner, found),
         Child::Function(function) => names_in_function(function, found),
+        Child::Class(class) => names_in_class(class, found),
     });
 }
 
@@ -343,6 +352,8 @@ enum Child<'a> {
     Expr(&'a Expr),
     /// A nested function, whose every name counts.
     Function(&'a Function),
+    /// A class, whose methods and initialisers are nested code.
+    Class(&'a crate::syntax::Class),
 }
 
 /// The children of an expression.
@@ -354,6 +365,7 @@ enum Child<'a> {
 fn walk_expr(expr: &Expr, on: &mut impl FnMut(Child)) {
     match &expr.kind {
         ExprKind::Function(function) => on(Child::Function(function)),
+        ExprKind::Class(class) => on(Child::Class(class)),
 
         ExprKind::Literal(_)
         | ExprKind::Ident(_)
@@ -437,8 +449,7 @@ fn walk_expr(expr: &Expr, on: &mut impl FnMut(Child)) {
         ExprKind::ImportCall { specifier, .. } => on(Child::Expr(specifier)),
 
         // Refused by the emitter, so nothing inside one is ever reached.
-        ExprKind::Class(_)
-        | ExprKind::Template { .. }
+        ExprKind::Template { .. }
         | ExprKind::TaggedTemplate { .. }
         | ExprKind::SuperMember { .. }
         | ExprKind::SuperCall { .. } => {}
@@ -463,6 +474,13 @@ fn declared_by_statement(statement: &Stmt, found: &mut BTreeSet<Name>) {
         // captured like any other.
         StmtKind::Function(function) => {
             if let Some(name) = function.name {
+                found.insert(name);
+            }
+        }
+        // The same for a class: the name is a binding in the enclosing scope,
+        // and a method naming its own class reads it from there.
+        StmtKind::Class(class) => {
+            if let Some(name) = class.name {
                 found.insert(name);
             }
         }
@@ -548,4 +566,31 @@ fn writes(statement: &Stmt) -> Vec<Name> {
     let mut names = Vec::new();
     writes_of(statement, &mut names);
     names
+}
+
+/// Every name a class body mentions.
+///
+/// The same over-approximation [`names_in_function`] makes, and for the same
+/// reason: a method is nested code whose scope this analysis does not model, so
+/// counting every name it mentions is safe where missing one is not.
+fn names_in_class(class: &crate::syntax::Class, found: &mut BTreeSet<Name>) {
+    use crate::syntax::ClassElement;
+    if let Some(heritage) = &class.heritage {
+        referenced_inside_expr(heritage, found);
+    }
+    for element in &class.body {
+        match element {
+            ClassElement::Method(method) => names_in_function(&method.function, found),
+            ClassElement::Field(field) => {
+                if let Some(value) = &field.value {
+                    referenced_inside_expr(value, found);
+                }
+            }
+            ClassElement::StaticBlock(body) => {
+                for statement in body {
+                    referenced_inside_statement(statement, found);
+                }
+            }
+        }
+    }
 }

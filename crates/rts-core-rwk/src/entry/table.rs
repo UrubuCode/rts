@@ -44,6 +44,7 @@ use super::bitwise::{
     BIT_AND_ENTRY, BIT_NOT_ENTRY, BIT_OR_ENTRY, BIT_XOR_ENTRY, EXPONENT_ENTRY, SHIFT_LEFT_ENTRY,
     SHIFT_RIGHT_ENTRY, SHIFT_RIGHT_UNSIGNED_ENTRY,
 };
+use super::chain::{GET_PROTOTYPE_ENTRY, SET_PROTOTYPE_ENTRY};
 use super::computed::{
     DELETE_PROPERTY_ENTRY, GET_INDEXED_ENTRY, HAS_PROPERTY_ENTRY, SET_INDEXED_ENTRY,
 };
@@ -270,6 +271,16 @@ pub enum CoreEntry {
     /// Here because those values are allocated, and because they are held as
     /// properties of an object this crate owns.
     GlobalGet = 37,
+
+    /// What an object inherits from.
+    ///
+    /// Here because it reads state beside the cell. A class definition is
+    /// lowered into this and its partner, which is why they exist before any
+    /// `Object` method a program could call does.
+    GetPrototype = 38,
+
+    /// Links an object to what it inherits from.
+    SetPrototype = 39,
 }
 
 /// How many entry points exist.
@@ -277,7 +288,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 38;
+pub const CORE_ENTRY_COUNT: usize = 40;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -320,6 +331,8 @@ impl CoreEntry {
         CoreEntry::InstanceOf,
         CoreEntry::RegexNew,
         CoreEntry::GlobalGet,
+        CoreEntry::GetPrototype,
+        CoreEntry::SetPrototype,
     ];
 
     /// The number a call site holds.
@@ -373,6 +386,8 @@ impl CoreEntry {
             CoreEntry::InstanceOf => INSTANCE_OF_ENTRY,
             CoreEntry::RegexNew => REGEX_NEW_ENTRY,
             CoreEntry::GlobalGet => GLOBAL_GET_ENTRY,
+            CoreEntry::GetPrototype => GET_PROTOTYPE_ENTRY,
+            CoreEntry::SetPrototype => SET_PROTOTYPE_ENTRY,
         }
     }
 

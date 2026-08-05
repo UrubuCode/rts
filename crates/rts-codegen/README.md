@@ -141,7 +141,7 @@ L9 has the full table and what each column means.
 `emit/` turns that tree into the machine's IR. Done: literals — including
 strings and templates — locals, declarations, blocks, `return`, control flow,
 object literals and property access, functions, calls, `this`, recursion,
-closures, `typeof`, regular expressions — the literal and `new RegExp(…)`,
+closures, `typeof`, classes, regular expressions — the literal and `new RegExp(…)`,
 which are one operation reached two ways — and **every operator the
 language spells**: arithmetic,
 relational, both equalities, bitwise, shifts and `**`.
@@ -151,6 +151,10 @@ rule 5 rather than a shortcut — `a + b` decides between concatenation and
 arithmetic from its operands at run time, so a proven instruction would be wrong
 for `"a" + 1` and wrong silently. Where the operands *are* proven doubles, or
 where a guard establishes it, the instruction is emitted instead.
+
+Classes land in the same shape: a constructor function, an object on its
+`prototype` holding the methods, and two links for `extends` — a lowering rather
+than a feature, so nothing in the runtime knows what a class is.
 
 Everything not yet emitted is refused by name, and that list is the work queue.
 `PLAN.md` §3b. The three shapes a gap has today, so the next one can be placed:

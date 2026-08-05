@@ -172,6 +172,12 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::RegexNew => (CoreEntry::RegexNew, {
             rts_core_rwk::entry::regex_new as extern "C" fn(u64, u64) -> u64 as *const u8
         }),
+        RuntimeOp::GetPrototype => (CoreEntry::GetPrototype, {
+            rts_core_rwk::entry::get_prototype as extern "C" fn(u64) -> u64 as *const u8
+        }),
+        RuntimeOp::SetPrototype => (CoreEntry::SetPrototype, {
+            rts_core_rwk::entry::set_prototype as extern "C" fn(u64, u64) -> u64 as *const u8
+        }),
         RuntimeOp::GlobalGet => (CoreEntry::GlobalGet, {
             rts_core_rwk::entry::global_get as extern "C" fn(i64) -> u64 as *const u8
         }),

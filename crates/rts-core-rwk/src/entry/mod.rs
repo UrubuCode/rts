@@ -37,6 +37,7 @@ mod array;
 mod barrier;
 mod bitwise;
 mod cache;
+mod chain;
 mod computed;
 #[cfg(test)]
 #[path = "context_tests.rs"]
@@ -74,6 +75,7 @@ mod table;
 pub use alloc::alloc;
 pub use barrier::write_barrier;
 pub use cache::cache_resolve;
+pub use chain::{get_prototype, set_prototype};
 pub use current::with_context;
 pub(crate) use current::with_current;
 pub use table::{CORE_ENTRY_COUNT, CoreEntry};

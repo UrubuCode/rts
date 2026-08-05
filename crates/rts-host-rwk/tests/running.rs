@@ -519,7 +519,7 @@ fn a_construct_still_missing_is_refused_by_name_rather_than_approximated() {
     // each moved on when it landed. What it pins is the shape of the refusal.
     for source in [
         "let a = [1]; return [...a];",
-        "class C {}",
+        "class C { get x() { return 1; } }",
         "let o = {}; let x = 1; return delete x;",
     ] {
         let error = compile(source).expect_err("still a gap");
@@ -2579,4 +2579,139 @@ fn search_answers_where_rather_than_what() {
 
     let absent = run("return \"abc\".search(/[0-9]/);");
     assert_eq!(tags::decode_double(absent), -1.0);
+}
+
+#[test]
+fn a_class_is_a_constructor_and_an_object_of_methods() {
+    // Nothing in the runtime knows what a class is: this produces exactly what
+    // the equivalent hand-written function and prototype assignment produce.
+    let produced = run(
+        "class Counter { constructor(start) { this.n = start; } next() { return this.n + 1; } } return new Counter(4).next();",
+    );
+    assert_eq!(tags::decode_double(produced), 5.0);
+}
+
+#[test]
+fn a_field_is_written_per_instance_and_a_static_field_once() {
+    let instance = run("class A { x = 5; } return new A().x;");
+    assert_eq!(tags::decode_double(instance), 5.0);
+
+    // Two instances do not share it, which is the whole difference between a
+    // field and a property of the prototype.
+    let apart = run("class A { x = 1; } let a = new A(); let b = new A(); a.x = 9; return b.x;");
+    assert_eq!(tags::decode_double(apart), 1.0);
+
+    let statics = run("class A { static n = 3; } return A.n;");
+    assert_eq!(tags::decode_double(statics), 3.0);
+
+    // Declaring `x;` with no initialiser still creates the property, which is
+    // what fixes the layout — it is not the same as never declaring it.
+    let bare = run("class A { x; } return \"x\" in new A();");
+    assert_eq!(tags::payload_of(bare), tags::BOOL_TRUE);
+}
+
+#[test]
+fn a_derived_class_passes_its_arguments_to_the_parent() {
+    // With no constructor written, the language supplies
+    // `constructor(...args) { super(...args) }` — and this supplies the same
+    // thing as a synthesised tree, so it is emitted by the code that emits a
+    // written one rather than by a special case.
+    let produced =
+        run("class A { constructor(v) { this.v = v; } } class B extends A {} return new B(7).v;");
+    assert_eq!(tags::decode_double(produced), 7.0);
+
+    // And with one written, `super()` is where the parent runs.
+    let explicit = run(
+        "class A { constructor(v) { this.v = v; } } class B extends A { constructor(v) { super(v); this.w = v + 1; } } let b = new B(2); return b.v + b.w;",
+    );
+    assert_eq!(tags::decode_double(explicit), 5.0);
+}
+
+#[test]
+fn an_instance_finds_an_inherited_method_and_super_finds_the_one_above() {
+    let inherited = run("class A { m() { return 4; } } class B extends A {} return new B().m();");
+    assert_eq!(tags::decode_double(inherited), 4.0);
+
+    // `super.m()` inside `m` must not find `m` again — which is why the read
+    // starts one link above the home object rather than at `this`.
+    let above = run(
+        "class A { m() { return 1; } } class B extends A { m() { return super.m() + 1; } } return new B().m();",
+    );
+    assert_eq!(tags::decode_double(above), 2.0);
+}
+
+#[test]
+fn a_derived_class_inherits_static_members_too() {
+    // The link an implementation forgets: `B.__proto__ = A`. Its absence is
+    // invisible until a program calls an inherited static method.
+    let produced = run("class A { static s() { return 9; } } class B extends A {} return B.s();");
+    assert_eq!(tags::decode_double(produced), 9.0);
+}
+
+#[test]
+fn instances_are_recognised_by_both_classes_in_the_chain() {
+    let own = run("class A {} class B extends A {} return new B() instanceof B;");
+    assert_eq!(tags::payload_of(own), tags::BOOL_TRUE);
+
+    let parent = run("class A {} class B extends A {} return new B() instanceof A;");
+    assert_eq!(tags::payload_of(parent), tags::BOOL_TRUE);
+
+    let unrelated = run("class A {} class B {} return new B() instanceof A;");
+    assert_eq!(tags::payload_of(unrelated), tags::BOOL_FALSE);
+}
+
+#[test]
+fn a_method_can_close_over_where_the_class_was_written() {
+    // The capture analysis has to descend into a class body. Skipping it was
+    // not a missing feature but a wrong answer: `secret` would be decided
+    // uncaptured and the method would read a register the activation had left.
+    let produced = run("let secret = 42; class A { get() { return secret; } } return new A().get();");
+    assert_eq!(tags::decode_double(produced), 42.0);
+}
+
+#[test]
+fn extending_a_builtin_inherits_its_methods_but_not_its_state() {
+    // The chain is built and the method is found — nothing in the
+    // regular-expression module knows classes exist, which is what says the
+    // lowering produces an ordinary constructor rather than a second kind of
+    // thing.
+    let recognised = run("class Mine extends RegExp {} return new Mine(\"a+\") instanceof RegExp;");
+    assert_eq!(tags::payload_of(recognised), tags::BOOL_TRUE);
+
+    // But the instance has no compiled pattern, and this asserts the wrong
+    // answer on purpose so that fixing it fails here.
+    //
+    // `super()` in the specification does not run the parent against an object
+    // that already exists — it ASKS the parent for the object and binds that as
+    // `this`. This engine makes `this` in `construct`, before the callee runs,
+    // so a parent that answers an exotic object of its own has nowhere to put
+    // it. Every built-in whose instances carry state beside the cell is
+    // affected: the methods are inherited and the state is not.
+    //
+    // Fixing it means `construct` deferring the allocation to the base of the
+    // chain, which is a change to what a constructor IS rather than to this
+    // lowering.
+    let stateless = run("class Mine extends RegExp {} return new Mine(\"a+\").test(\"caat\");");
+    assert_eq!(
+        tags::payload_of(stateless),
+        tags::BOOL_FALSE,
+        "the divergence named above; a correct engine answers true"
+    );
+}
+
+#[test]
+fn what_a_class_still_cannot_express_is_refused_by_name() {
+    // Each needs a mechanism rather than more of this lowering: an accessor is
+    // a property the read has to CALL, a private name is not a property key at
+    // all, and a static block is statements with the class as `this`.
+    for (source, expected) in [
+        ("class A { get x() { return 1; } }", "getter"),
+        ("class A { #x = 1; }", "private"),
+        ("class A { static { let x = 1; } }", "static block"),
+        ("class A { [\"a\"] = 1; }", "computed"),
+    ] {
+        let error = compile(source).expect_err("refused");
+        let text = format!("{error:?}");
+        assert!(text.contains(expected), "{source} gave {text}");
+    }
 }

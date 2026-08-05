@@ -144,7 +144,7 @@ pub fn emit_expr(
         ExprKind::Function(function) => {
             super::function::emit_closure(builder, scope, ctx, function)
         }
-        ExprKind::Class(_) => gap("a class expression"),
+        ExprKind::Class(class) => super::class::emit_class(builder, scope, ctx, class),
         ExprKind::Unary { op, operand } => {
             super::unary::emit_unary(builder, scope, ctx, *op, operand)
         }
@@ -180,8 +180,12 @@ pub fn emit_expr(
         }
         ExprKind::TaggedTemplate { .. } => gap("a tagged template"),
         ExprKind::Chain(_) => gap("optional chaining"),
-        ExprKind::SuperMember { .. } => gap("`super.x`"),
-        ExprKind::SuperCall { .. } => gap("`super()`"),
+        ExprKind::SuperMember { property } => {
+            super::class::emit_super_member(builder, scope, ctx, property)
+        }
+        ExprKind::SuperCall { arguments } => {
+            super::class::emit_super_call(builder, scope, ctx, arguments)
+        }
         ExprKind::PrivateName(_) => gap("a private name"),
         ExprKind::NewTarget => gap("`new.target`"),
         ExprKind::ImportMeta => gap("`import.meta`"),

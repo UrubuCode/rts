@@ -330,6 +330,17 @@ pub enum RuntimeOp {
     /// — `RegExp` is an object with a `prototype`, where `NaN` is a constant —
     /// reaches the one the runtime made.
     GlobalGet,
+
+    /// What an object inherits from.
+    ///
+    /// `new` links a prototype without this: it reads `F.prototype` and the
+    /// runtime does the linking, both inside one operation. A class is where
+    /// the two come apart — `class B extends A {}` links at DEFINITION time
+    /// from a value the program computed, with no construction near it.
+    GetPrototype,
+
+    /// Links an object to what it inherits from.
+    SetPrototype,
 }
 
 impl RuntimeOp {
@@ -373,6 +384,8 @@ impl RuntimeOp {
         RuntimeOp::Call,
         RuntimeOp::RegexNew,
         RuntimeOp::GlobalGet,
+        RuntimeOp::GetPrototype,
+        RuntimeOp::SetPrototype,
     ];
 
     /// The linker name the runtime must define.
@@ -421,6 +434,8 @@ impl RuntimeOp {
             RuntimeOp::Call => "__rts_call",
             RuntimeOp::RegexNew => "__rts_regex_new",
             RuntimeOp::GlobalGet => "__rts_global_get",
+            RuntimeOp::GetPrototype => "__rts_get_prototype",
+            RuntimeOp::SetPrototype => "__rts_set_prototype",
         }
     }
 
@@ -490,6 +505,10 @@ impl RuntimeOp {
             // for the same reason: both sides hold the same number, so no text
             // has to cross.
             RuntimeOp::GlobalGet => (vec![Repr::I64], vec![UNPROVEN]),
+            RuntimeOp::GetPrototype => (vec![UNPROVEN], vec![UNPROVEN]),
+            // Answers the object, so a lowering can chain — which a class
+            // definition does three times in a row.
+            RuntimeOp::SetPrototype => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
         };
         Signature {
             params,

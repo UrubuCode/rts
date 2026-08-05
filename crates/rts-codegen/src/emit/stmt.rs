@@ -187,7 +187,16 @@ pub fn emit_stmt(
         // closure over the same code and rebind the name to it, which is
         // wasteful and — for a name something else already captured — wrong.
         StmtKind::Function(_) => Ok(false),
-        StmtKind::Class(_) => super::expr::gap("a class declaration"),
+        StmtKind::Class(class) => {
+            // A declaration binds its name; an expression does not. That is the
+            // only difference between the two, which is why one function emits
+            // both and this arm is three lines rather than a second lowering.
+            let value = super::class::emit_class(builder, scope, ctx, class)?;
+            if let Some(name) = class.name {
+                super::binding::declare(builder, scope, ctx, name, value)?;
+            }
+            Ok(false)
+        }
         // The cleanup a `using` needs exists now -- a cleanup is a piece rather
         // than a block, which is what `finally` was waiting on and this was
         // waiting on with it. What is still missing is the other half: disposal

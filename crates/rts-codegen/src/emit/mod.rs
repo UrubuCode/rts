@@ -58,6 +58,7 @@ mod binding;
 mod call;
 mod capture;
 mod choice;
+mod class;
 mod expr;
 mod foreach;
 mod function;
@@ -463,15 +464,19 @@ mod tests {
 
     #[test]
     fn a_gap_is_named_rather_than_counted() {
-        // This has named `f()`, an array literal and `new` in turn, and each
-        // moved on when it landed. A class is what is still missing — and the
-        // name in the refusal is the point, so the test follows it rather than
-        // being deleted with the gap it happened to name.
-        let error = emit_source("class C {}").expect_err("a class is not emitted yet");
+        // This has named `f()`, an array literal, `new` and a class in turn,
+        // and each moved on when it landed. A class getter is what is still
+        // missing — an accessor is not a value in a slot but a pair of
+        // functions the property read has to CALL, which the runtime has no
+        // property kind for. The name in the refusal is the point, so the test
+        // follows it rather than being deleted with the gap it happened to
+        // name.
+        let error = emit_source("class C { get x() { return 1; } }")
+            .expect_err("an accessor is not emitted yet");
         assert_eq!(
             error,
             EmitError::Unsupported {
-                construct: "a class declaration"
+                construct: "a class getter or setter"
             },
             "the name is the deliverable — a gap reported as `Unsupported` with \
              no word in it is indistinguishable from any other gap"
