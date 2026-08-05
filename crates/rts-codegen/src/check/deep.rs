@@ -114,11 +114,49 @@ impl Context {
 pub(super) struct Scan<'a> {
     names: &'a Names,
     found: Option<String>,
+    /// The private names each enclosing class body declares, innermost last.
+    ///
+    /// A stack rather than a set, because a private name's scope is the class
+    /// body that declares it and nested classes nest: an inner class can reach
+    /// its own `#x` and an outer one's, and an outer class cannot reach the
+    /// inner's. Flattening them would make the last of those legal.
+    private_scopes: Vec<Vec<Name>>,
 }
 
 impl<'a> Scan<'a> {
     pub(super) fn new(names: &'a Names) -> Self {
-        Self { names, found: None }
+        Self {
+            names,
+            found: None,
+            private_scopes: Vec::new(),
+        }
+    }
+
+    /// One use of a private name, which must be declared by a class we are in.
+    ///
+    /// Unlike every other identifier, this cannot be resolved at run time and
+    /// fall back to `undefined`: `this.#m` where no enclosing class declares
+    /// `#m` is not a missing property, it is not a program. The name has no
+    /// meaning outside the body that introduced it.
+    fn private_use(&mut self, name: Name) {
+        if self.found.is_some() {
+            return;
+        }
+        if !self
+            .private_scopes
+            .iter()
+            .any(|scope| scope.contains(&name))
+        {
+            self.found = Some(format!(
+                "`{}` is not declared by any enclosing class",
+                self.names.text(name)
+            ));
+        }
+    }
+
+    /// Whether a name was interned as a private one.
+    fn is_private(&self, name: Name) -> bool {
+        self.names.text(name).starts_with('#')
     }
 
     pub(super) fn finish(self) -> Option<String> {
@@ -317,7 +355,14 @@ impl<'a> Scan<'a> {
 
             // The object is an expression; the property is a key, and a key
             // named `await` is a property, not a name.
-            ExprKind::Member { object, .. } => self.expr(object, context),
+            ExprKind::Member {
+                object, property, ..
+            } => {
+                if self.is_private(*property) {
+                    self.private_use(*property);
+                }
+                self.expr(object, context);
+            }
             ExprKind::Index { object, index, .. } => {
                 self.expr(object, context);
                 self.expr(index, context);
@@ -408,11 +453,11 @@ impl<'a> Scan<'a> {
 
             // A literal names nothing, and `this`, `new.target`, `import.meta`
             // and a private name are each one fixed thing.
-            ExprKind::Literal(_)
-            | ExprKind::This
-            | ExprKind::NewTarget
-            | ExprKind::ImportMeta
-            | ExprKind::PrivateName(_) => {}
+            ExprKind::Literal(_) | ExprKind::This | ExprKind::NewTarget | ExprKind::ImportMeta => {}
+
+            // `#x in obj` — the only place a private name stands alone, and it
+            // needs declaring exactly as `this.#x` does.
+            ExprKind::PrivateName(name) => self.private_use(*name),
         }
     }
 
@@ -536,6 +581,19 @@ impl<'a> Scan<'a> {
             self.expr(heritage, outer);
         }
 
+        // Pushed before the body and popped after — and after the heritage,
+        // which is evaluated where the class is written and cannot see them.
+        self.private_scopes.push(
+            class
+                .body
+                .iter()
+                .filter_map(|element| match element.key() {
+                    Some(ClassKey::Private(name)) => Some(*name),
+                    _ => None,
+                })
+                .collect(),
+        );
+
         let initialiser = Context::static_block();
         for element in &class.body {
             if let Some(ClassKey::Public(key)) = element.key() {
@@ -551,6 +609,8 @@ impl<'a> Scan<'a> {
                 ClassElement::StaticBlock(body) => self.stmts(body, initialiser),
             }
         }
+
+        self.private_scopes.pop();
     }
 }
 

@@ -243,3 +243,27 @@ fn delete_cannot_remove_a_private_name() {
     // `delete a.#b.c` removes `c`, an ordinary property, and is legal.
     accepted("class C { #b = {}; x = delete this.#b.c; }");
 }
+
+#[test]
+fn a_private_name_must_be_declared_by_a_class_we_are_inside() {
+    // Unlike every other identifier, this cannot resolve at run time and fall
+    // back to `undefined`. `this.#m` where no enclosing class declares `#m` is
+    // not a missing property — the name has no meaning at all outside the body
+    // that introduced it.
+    assert!(refused("class C { #x; m() { return this.#m; } }").contains("#m"));
+    assert!(refused("class C { #x; y = #m in this; }").contains("#m"));
+    accepted("class C { #m() {} x = this.#m; }");
+    accepted("class C { #m; y = #m in this; }");
+}
+
+#[test]
+fn private_names_nest_with_their_classes() {
+    // An inner class reaches its own and the outer one's...
+    accepted("class Outer { #o; m() { class Inner { #i; n() { return this.#o + this.#i; } } } }");
+    // ...and the outer cannot reach the inner's, which is why these are a
+    // stack and not one flat set.
+    assert!(
+        refused("class Outer { m() { class Inner { #i; } } n() { return this.#i; } }")
+            .contains("#i")
+    );
+}
