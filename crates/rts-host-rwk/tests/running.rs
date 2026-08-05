@@ -2011,3 +2011,39 @@ fn a_computed_key_in_an_update_is_evaluated_once() {
     );
     assert_eq!(tags::decode_double(produced), 1.0);
 }
+
+#[test]
+fn a_function_is_an_object_and_can_hold_properties() {
+    // `f.x = 1` used to be a silent no-op: a callable was a cell at a reserved
+    // layout, and a cell with no shape cannot hold a property. The same defect
+    // arrays had, found the same way.
+    assert_eq!(
+        tags::decode_double(run("function f() { return 1; } f.x = 7; return f.x;")),
+        7.0
+    );
+    // And it is still callable, which is the half the reserved layout was
+    // protecting: the code address lives beside the cell, where nothing a
+    // program can write reaches it.
+    assert_eq!(
+        tags::decode_double(run("function f() { return 1; } f.x = 7; return f() + f.x;")),
+        8.0
+    );
+    assert_eq!(
+        tags::payload_of(run("function f() { return 1; } return (typeof f) === \"function\";")),
+        tags::BOOL_TRUE
+    );
+}
+
+#[test]
+fn a_property_on_a_primitive_string_is_still_dropped() {
+    // Not the same defect, and not a defect at all: assigning to a property of
+    // a primitive string is a no-op in sloppy mode and a `TypeError` in strict.
+    // Asserted so that a later change to how strings are stored does not turn
+    // this into an accidental feature.
+    let mut compiled = compile("let s = \"a\"; s.x = 7; return s.x;").expect("compiles");
+    let produced = compiled.run();
+    assert_eq!(
+        produced,
+        compiled.model().singleton(Singleton::Undefined).word()
+    );
+}

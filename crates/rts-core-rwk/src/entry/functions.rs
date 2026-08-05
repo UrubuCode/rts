@@ -54,12 +54,6 @@ use crate::value::Value;
 /// is the disagreement this crate keeps naming.
 pub const ARGUMENT_SLOTS: usize = 4;
 
-/// Which word of a callable's cell holds the code address.
-const CODE_SLOT: u32 = 0;
-
-/// Which word holds the environment.
-const ENVIRONMENT_SLOT: u32 = 1;
-
 /// The shape every compiled JavaScript function has.
 ///
 /// Written as a type alias so the `transmute` below names it once. Two spellings
@@ -76,13 +70,14 @@ type Compiled = extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64;
 #[rtse::entry]
 pub fn closure_new(code: i64, environment: u64) -> u64 {
     with_current(|context| {
-        let ty = context.closure_type().index() as u32;
+        // An ordinary object, because a function IS one: `f.x = 1` works, and
+        // `f.prototype` will. What makes it callable is recorded beside the
+        // cell, where nothing a program can write reaches it.
+        let shape = context.shapes.root();
+        let ty = context.layout_of(shape).index() as u32;
         match context.region.alloc(crate::heap::STRIDE, ty) {
             Some(cell) => {
-                context.region.set_field(cell, CODE_SLOT, code as u64);
-                context
-                    .region
-                    .set_field(cell, ENVIRONMENT_SLOT, environment);
+                context.mark_callable(cell, code as u64, environment);
                 Value::from_slot(cell).bits()
             }
             // The region is full and there is no collector to ask. Answering
@@ -137,10 +132,5 @@ pub fn call(callee: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
 /// same tag.
 fn resolve(context: &mut Context, callee: u64) -> Option<(u64, u64)> {
     let slot = Value(callee).as_slot()?;
-    if context.region.type_of(slot)? != context.closure_type().index() as u32 {
-        return None;
-    }
-    let code = context.region.field(slot, CODE_SLOT)?;
-    let environment = context.region.field(slot, ENVIRONMENT_SLOT)?;
-    Some((code, environment))
+    context.callable_at(slot)
 }

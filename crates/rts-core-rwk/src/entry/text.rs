@@ -123,11 +123,11 @@ pub fn type_of(value: u64) -> u64 {
             Kind::Reference(slot) => {
                 let slot = slot as u32;
                 match context.region.type_of(slot) {
-                    Some(ty) if ty as usize == context.closure_type().index() => "function",
-                    // A string's cell, which `shape_of` already refuses to
+                    _ if context.callable_at(slot).is_some() => "function",
+                    // A string.s cell, which `shape_of` already refuses to
                     // treat as an object for exactly this reason: what a
-                    // reference IS is readable from the cell rather than from
-                    // the encoding.
+                    // reference IS is readable from beside the cell rather
+                    // than from the encoding.
                     _ if context.text_at(slot).is_some() => "string",
                     _ => "object",
                 }

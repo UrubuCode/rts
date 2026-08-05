@@ -120,18 +120,20 @@ pub struct Context {
     /// identity and the text lives beside it. That is also what a real engine
     /// does: string data is separate from string identity.
     text_type: rts_cranelift::types::TypeId,
-    /// The layout a callable's cell has.
+    /// Which cells are callable, and what they call.
     ///
-    /// Two words: where the code is, and the environment it closes over. A
-    /// reserved layout rather than an object shape, for the same reason text
-    /// has one — a closure is not a thing whose fields a program names, and
-    /// giving it a shape would put `code` in the key registry as a property any
-    /// JavaScript could read and, worse, write.
+    /// # Why beside the cell and not in it
     ///
-    /// That last point is not tidiness. The first word is a raw code address,
-    /// and a program able to store a number there would name the instruction
-    /// the next call jumps to.
-    closure_type: rts_cranelift::types::TypeId,
+    /// Two things at once. The code address must not be reachable from
+    /// JavaScript — a program able to store a number there would name the
+    /// instruction the next call jumps to — and a function IS an object, so
+    /// `f.x = 1` has to work.
+    ///
+    /// A reserved layout gave the first and lost the second: a cell with no
+    /// shape cannot hold a property, so every write to a function was a silent
+    /// no-op. Recording it beside the cell gives both, and is the third use of
+    /// this pattern after arrays and the property spill.
+    callables: Vec<Option<(u64, u64)>>,
     /// Where a cell's properties past the seventh live.
     ///
     /// A cell holds seven inline slots, and an object with more used to lose
@@ -231,10 +233,6 @@ impl Context {
         // Code address, then environment. Declared here beside text and for the
         // same reason: a number that depends on which allocation happened first
         // is a number two contexts disagree about.
-        let closure_type = types.declare(&[
-            rts_cranelift::repr::Repr::I64,
-            rts_cranelift::repr::Repr::Tagged,
-        ]);
         Context {
             cells: Slab::new(),
             arrays: Slab::new(),
@@ -250,7 +248,7 @@ impl Context {
             types,
             shape_of_type: Vec::new(),
             text_type,
-            closure_type,
+            callables: Vec::new(),
             array_elements: Vec::new(),
             resolves: 0,
             barriers: 0,
@@ -296,19 +294,27 @@ impl Context {
     /// fact, where a sentinel fill would be a way of encoding it.
     pub fn shape_of(&self, ty: u32) -> Option<rts_cranelift::shape::ShapeId> {
         let ty = ty as usize;
-        if ty == self.text_type.index() || ty == self.closure_type.index() {
+        if ty == self.text_type.index() {
             return None;
         }
         self.shape_of_type.get(ty).copied()
     }
 
-    /// The layout a callable's cell has.
+    /// What a cell calls, if it is callable.
     ///
-    /// Read by the two entry points that make and call one. Exposed as a method
-    /// rather than a public field so nothing outside can claim a cell is
-    /// callable by writing the number into a header.
-    pub fn closure_type(&self) -> rts_cranelift::types::TypeId {
-        self.closure_type
+    /// A method rather than a public field so nothing outside this module can
+    /// claim a cell is callable, which is what makes the code address
+    /// unreachable from anything a program can write.
+    pub(super) fn callable_at(&self, cell: u32) -> Option<(u64, u64)> {
+        *self.callables.get(cell as usize)?
+    }
+
+    /// Records that a cell calls this code with this environment.
+    pub(super) fn mark_callable(&mut self, cell: u32, code: u64, environment: u64) {
+        if self.callables.len() <= cell as usize {
+            self.callables.resize(cell as usize + 1, None);
+        }
+        self.callables[cell as usize] = Some((code, environment));
     }
 
     /// The text a reference names, if it names one.
