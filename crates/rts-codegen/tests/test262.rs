@@ -138,6 +138,14 @@ struct Tally {
     /// A few examples of each defect, so the report is actionable.
     rejection_examples: Vec<String>,
     acceptance_examples: Vec<String>,
+    /// Wrongly-accepted files by the area of the corpus they live in.
+    ///
+    /// Fifteen examples say what the first defect is, alphabetically, and
+    /// nothing about how big it is. Every early error we are missing is a rule
+    /// stated in one place in the specification, and test262 is laid out by
+    /// that structure — so counting by directory is counting by rule, which is
+    /// what says which rule to write next.
+    acceptance_areas: BTreeMap<String, usize>,
 }
 
 /// Refuse to report a score for a corpus that is missing files.
@@ -278,6 +286,13 @@ fn the_front_end_reads_test262() {
             // says does not exist.
             (Ok(_), true) => {
                 tally.wrongly_accepted += 1;
+                let relative = path.strip_prefix(&language).unwrap_or(path);
+                let area: Vec<_> = relative
+                    .components()
+                    .take(2)
+                    .map(|part| part.as_os_str().to_string_lossy().into_owned())
+                    .collect();
+                *tally.acceptance_areas.entry(area.join("/")).or_default() += 1;
                 if tally.acceptance_examples.len() < 15 {
                     tally.acceptance_examples.push(
                         path.strip_prefix(&language)
@@ -310,6 +325,15 @@ fn the_front_end_reads_test262() {
         ranked.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
         for (construct, count) in ranked.iter().take(20) {
             println!("{count:>6}  {construct}");
+        }
+    }
+
+    if !tally.acceptance_areas.is_empty() {
+        println!("\n--- invalid programs we accepted, by area, biggest first ---");
+        let mut ranked: Vec<_> = tally.acceptance_areas.iter().collect();
+        ranked.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+        for (area, count) in ranked.iter().take(25) {
+            println!("{count:>6}  {area}");
         }
     }
 
