@@ -71,12 +71,25 @@ pub fn global_get(key: i64) -> u64 {
             super::objects::put(context, object, Key::Name(name), made);
             return made;
         }
+        // A global FUNCTION, which is a value rather than an object with
+        // members — so it is made here rather than by a class registration, and
+        // recorded as a property like every other name so that
+        // `parseInt === parseInt` is true.
+        if let Some(code) = super::global_fns::provided(&text) {
+            let made = super::native::callable(context, code);
+            super::objects::put(context, object, Key::Name(name), made);
+            return made;
+        }
         let made = match text.as_str() {
             "RegExp" => super::regex::constructor(context),
             "Math" => super::math::register_math(context),
             "Number" => super::number::register_number(context),
             "Boolean" => super::number::register_boolean(context),
             "Function" => super::function_proto::register_function(context),
+            "Reflect" => super::reflect::register_reflect(context),
+            "Symbol" => super::symbol::constructor(context),
+            "JSON" => super::json::register_json(context),
+            "Date" => super::date::register_date(context),
             "String" => super::string::constructor(context),
             "Array" => super::array_proto::constructor(context),
             "Object" => super::object_global::constructor(context),

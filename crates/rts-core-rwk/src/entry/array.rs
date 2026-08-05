@@ -180,6 +180,18 @@ pub fn own_keys(object: u64) -> u64 {
                 continue;
             }
             if let Some(text) = context.interner.text(key) {
+                // A symbol-keyed property is not enumerated. Its key lives in a
+                // reserved name space rather than in a third `Key` variant —
+                // see [`super::symbol`] for why — so this is the one place the
+                // encoding has to be known, and it is the whole cost of that
+                // decision.
+                if text
+                    .to_rust()
+                    .as_deref()
+                    .is_some_and(super::symbol::is_symbol_key)
+                {
+                    continue;
+                }
                 keys.push(text.clone());
             }
         }

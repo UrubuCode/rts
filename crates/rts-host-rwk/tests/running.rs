@@ -3338,3 +3338,195 @@ fn a_function_inherits_call_and_apply_without_carrying_a_link() {
     let applied = run("function f(a, b, c) { return a + b + c; } return f.apply(null, [1, 2, 3]);");
     assert_eq!(tags::decode_double(applied), 6.0);
 }
+
+#[test]
+fn reflect_reaches_the_same_operations_the_syntax_does() {
+    // Not a second implementation: `Reflect.get` and `o[k]` are the same
+    // function, which is why a getter runs in both rather than in one.
+    holds("let o = {a: 1}; return Reflect.get(o, \"a\") === 1;");
+    holds("let o = {}; Reflect.set(o, \"a\", 2); return o.a === 2;");
+    holds("let o = {a: 1}; return Reflect.has(o, \"a\") && !Reflect.has(o, \"b\");");
+    holds("let o = {a: 1, b: 2}; return Reflect.ownKeys(o).length === 2;");
+    holds("let o = {get a() { return 7; }}; return Reflect.get(o, \"a\") === 7;");
+
+    let applied = run("function f(a, b) { return a + b; } return Reflect.apply(f, null, [1, 2]);");
+    assert_eq!(tags::decode_double(applied), 3.0);
+
+    let built = run("class P { constructor(a) { this.n = a; } } return Reflect.construct(P, [5]).n;");
+    assert_eq!(tags::decode_double(built), 5.0);
+}
+
+#[test]
+fn a_global_function_converts_where_its_strict_twin_does_not() {
+    // `isNaN("abc")` is true and `Number.isNaN("abc")` is false. The pair is the
+    // reason the second spelling exists, so implementing one through the other
+    // would make it useless.
+    holds("return isNaN(\"abc\") === true;");
+    holds("return Number.isNaN(\"abc\") === false;");
+    holds("return isFinite(\"12\") === true;");
+
+    assert_eq!(tags::decode_double(run("return parseInt(\"42px\");")), 42.0);
+    assert_eq!(tags::decode_double(run("return parseInt(\"0x1f\");")), 31.0);
+    assert_eq!(tags::decode_double(run("return parseFloat(\"-2.5e1x\");")), -25.0);
+
+    // One value read twice, so a program can pass it around.
+    holds("return parseInt === parseInt;");
+    // The global object holds it once the name has been read: these are made on
+    // demand, so `globalThis.parseInt` before any read of `parseInt` is
+    // `undefined` rather than the function. A stated consequence of laziness.
+    holds("let p = parseInt; return globalThis.parseInt === p;");
+}
+
+#[test]
+fn a_symbol_is_a_key_nothing_else_can_spell() {
+    // Identity, which is the whole reason a symbol is a cell rather than a tag
+    // over its description: two symbols with the same description are different
+    // values, and an interned encoding would have made them equal.
+    holds("return Symbol(\"a\") !== Symbol(\"a\");");
+    holds("return typeof Symbol(\"a\") === \"symbol\";");
+    holds("return typeof Symbol.iterator === \"symbol\";");
+
+    // One value per name, or a property written under it could never be read
+    // back.
+    holds("return Symbol.iterator === Symbol.iterator;");
+    holds("return Symbol.for(\"x\") === Symbol.for(\"x\");");
+    // Deliberately NOT the same: the registry and the well-known set are
+    // separate key spaces, and colliding them is the bug the old engine's own
+    // documentation warns about.
+    holds("return Symbol.for(\"iterator\") !== Symbol.iterator;");
+    holds("return Symbol.keyFor(Symbol.for(\"x\")) === \"x\";");
+    holds("return Symbol.keyFor(Symbol(\"x\")) === undefined;");
+
+    holds("return Symbol(\"a\").toString() === \"Symbol(a)\";");
+    holds("return Symbol(\"a\").description === \"a\";");
+}
+
+#[test]
+fn a_symbol_keyed_property_is_reachable_and_not_enumerated() {
+    // Stored and read like any other property, which is the point of encoding
+    // the key as a reserved name rather than as a third kind of key.
+    holds("let s = Symbol(\"k\"); let o = {}; o[s] = 7; return o[s] === 7;");
+
+    // Two different symbols are two different properties, even with one
+    // description — the test that fails if identity were interned away.
+    holds("let a = Symbol(\"k\"); let b = Symbol(\"k\"); let o = {}; o[a] = 1; o[b] = 2; return o[a] === 1 && o[b] === 2;");
+
+    // Not enumerated: `Object.keys` and `for-in` walk string keys only.
+    holds("let s = Symbol(\"k\"); let o = {a: 1}; o[s] = 2; return Object.keys(o).length === 1;");
+    holds("let s = Symbol(\"k\"); let o = {}; o[s] = 2; let n = 0; for (let k in o) { n = n + 1; } return n === 0;");
+}
+
+#[test]
+fn for_of_asks_an_object_how_it_iterates() {
+    // The protocol, reached for the first time: a `Symbol.iterator` that
+    // answers an object with `next`. Before this, an object that declared one
+    // ran the loop zero times.
+    let summed = run(
+        "let o = {}; o[Symbol.iterator] = function () { \
+           let i = 0; \
+           return {next: function () { i = i + 1; \
+             if (i > 3) { return {done: true, value: undefined}; } \
+             return {done: false, value: i}; }}; \
+         }; \
+         let t = 0; for (let v of o) { t = t + v; } return t;",
+    );
+    assert_eq!(tags::decode_double(summed), 6.0);
+
+    // A spread is the same walk, which is what makes both correct at once.
+    let spread = run(
+        "let o = {}; o[Symbol.iterator] = function () { \
+           let i = 0; \
+           return {next: function () { i = i + 1; \
+             if (i > 2) { return {done: true, value: undefined}; } \
+             return {done: false, value: i}; }}; \
+         }; \
+         return [...o].length;",
+    );
+    assert_eq!(tags::decode_double(spread), 2.0);
+
+    // An object declaring nothing still walks zero times rather than failing,
+    // which is the stated gap while a throw cannot reach a handler.
+    let none = run("let n = 0; for (let v of {a: 1}) { n = n + 1; } return n;");
+    assert_eq!(tags::decode_double(none), 0.0);
+}
+
+#[test]
+fn a_plain_object_inherits_from_object_prototype() {
+    // It did not before: `object_new` links nothing, and the chain walk had no
+    // arm for a plain object — so `({}).hasOwnProperty` was `undefined` and
+    // `Object.prototype.m = f` landed where nothing looked.
+    holds("let o = {a: 1}; return o.hasOwnProperty(\"a\") === true;");
+    holds("let o = {a: 1}; return o.hasOwnProperty(\"b\") === false;");
+    holds("return ({}).toString() === \"[object Object]\";");
+    holds("Object.prototype.mine = 5; return ({}).mine === 5;");
+
+    // Own, not inherited: the distinction `hasOwnProperty` exists to make.
+    holds("Object.prototype.shared = 1; let o = {}; return o.shared === 1 && o.hasOwnProperty(\"shared\") === false;");
+
+    // `instanceof` steps through substituted prototypes now, so the kinds that
+    // never carried a link of their own answer for themselves.
+    holds("return ({}) instanceof Object;");
+    holds("return [] instanceof Array;");
+    holds("let o = {}; let p = {}; Object.setPrototypeOf(o, p); return p.isPrototypeOf(o);");
+}
+
+#[test]
+fn json_round_trips_what_it_can_represent() {
+    holds("return JSON.stringify({a: 1, b: \"x\"}) === \"{\\\"a\\\":1,\\\"b\\\":\\\"x\\\"}\";");
+    holds("return JSON.stringify([1, 2, 3]) === \"[1,2,3]\";");
+    // A control character is escaped, which is the one part of the string
+    // form a naive writer gets wrong.
+    holds(r##"return JSON.stringify(JSON.parse("\"\\n\"")).length === 4;"##);
+    // Non-finite is `null`, which is the specification's answer and not an
+    // approximation of one.
+    holds("return JSON.stringify([0 / 0, 1 / 0]) === \"[null,null]\";");
+    // An `undefined` member is dropped and an `undefined` element is `null` —
+    // two different answers for the same value, which is the pair an
+    // implementation gets wrong by treating them alike.
+    holds("return JSON.stringify({a: undefined, b: 1}) === \"{\\\"b\\\":1}\";");
+    holds("return JSON.stringify([undefined]) === \"[null]\";");
+    holds("return JSON.stringify(undefined) === undefined;");
+
+    holds("return JSON.parse(\"{\\\"a\\\":[1,2]}\").a[1] === 2;");
+    holds("return JSON.parse(\"\\\"\\u0041\\\"\") === \"A\";");
+    holds("return JSON.parse(\"-1.5e2\") === -150;");
+    holds("return JSON.parse(\"[\") === undefined;");
+
+    // A key that spells an index reaches the same property either spelling
+    // finds, which is what routing the parse through the interner buys.
+    holds("return JSON.parse(\"{\\\"0\\\":7}\")[0] === 7;");
+
+    let round = run("let o = {a: [1, {b: true}], c: null}; return JSON.stringify(JSON.parse(JSON.stringify(o)));");
+    let direct = run("let o = {a: [1, {b: true}], c: null}; return JSON.stringify(o);");
+    // Two separate programs, so the words differ; what is compared is that each
+    // produced the same text as itself round-tripped.
+    let _ = (round, direct);
+    holds("let o = {a: [1, {b: true}], c: null}; return JSON.stringify(JSON.parse(JSON.stringify(o))) === JSON.stringify(o);");
+
+    // A cycle answers `null` rather than hanging. The specification throws, and
+    // why this does not is the stated gap.
+    holds("let o = {}; o.self = o; return JSON.stringify(o) === \"{\\\"self\\\":null}\";");
+}
+
+#[test]
+fn a_date_is_a_time_value_and_a_calendar_over_it() {
+    holds("return new Date(0).getTime() === 0;");
+    holds("return new Date(0).getFullYear() === 1970;");
+    holds("return new Date(0).getDay() === 4;");
+    holds("return new Date(0).toISOString() === \"1970-01-01T00:00:00.000Z\";");
+
+    // A leap day, and a time before the epoch — the two the civil conversion
+    // gets wrong when it is written as division alone.
+    holds("return new Date(951782400000).toISOString() === \"2000-02-29T00:00:00.000Z\";");
+    holds("return new Date(-14182940000).getFullYear() === 1969;");
+
+    holds("return Date.parse(\"2020-01-02T03:04:05.006Z\") === 1577934245006;");
+    holds("return new Date(\"2020-01-02T03:04:05.006Z\").getMonth() === 0;");
+    holds("return isNaN(Date.parse(\"not a date\"));");
+
+    // Everything is UTC, said as a test rather than only in a comment.
+    holds("return new Date(0).getTimezoneOffset() === 0;");
+    holds("let d = new Date(3600000); return d.getHours() === d.getUTCHours();");
+
+    holds("return Date.now() > 1700000000000;");
+}

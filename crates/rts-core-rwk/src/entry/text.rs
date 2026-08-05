@@ -123,6 +123,11 @@ pub fn type_of(value: u64) -> u64 {
             Kind::Reference(slot) => {
                 let slot = slot as u32;
                 match context.region.type_of(slot) {
+                    // Asked first, because a symbol's cell is an ordinary
+                    // object's and every question below would answer for it.
+                    // `typeof Symbol.iterator` is the one observable place the
+                    // encoding stops being an implementation detail.
+                    _ if context.symbol_at(slot).is_some() => "symbol",
                     _ if context.callable_at(slot).is_some() => "function",
                     // A string.s cell, which `shape_of` already refuses to
                     // treat as an object for exactly this reason: what a

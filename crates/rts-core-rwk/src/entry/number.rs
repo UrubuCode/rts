@@ -123,15 +123,7 @@ impl Number {
     /// `Number.parseInt(s, radix)`.
     #[stat]
     fn parse_int(value: u64, radix: u64) -> f64 {
-        // The borrow is given back before `to_number` takes one of its own.
-        // Nesting them is a panic on the re-entry, and an `extern "C"` frame
-        // cannot unwind — so it aborts the process rather than failing a test,
-        // which is how this one was found.
-        let absent = with_current(|context| undefined_of(context));
-        let base = match radix == absent {
-            true => 0,
-            false => super::class_support::to_number(radix) as i64,
-        };
+        let base = radix_of(radix);
         leading(value, move |text| integer_prefix(text, base))
     }
 }
@@ -158,11 +150,25 @@ fn as_double(value: u64) -> Option<f64> {
     Value(value).as_f64()
 }
 
+/// The radix an argument names, with zero meaning "not given".
+///
+/// The borrow is taken and given back before `to_number` takes one of its own.
+/// Nesting them is a panic on the re-entry, and an `extern "C"` frame cannot
+/// unwind — so it aborts the process rather than failing a test, which is how
+/// this one was found.
+pub(super) fn radix_of(radix: u64) -> i64 {
+    let absent = with_current(|context| undefined_of(context));
+    match radix == absent {
+        true => 0,
+        false => super::class_support::to_number(radix) as i64,
+    }
+}
+
 /// Runs a parse over an argument's text, after `ToString` of it.
 ///
 /// The borrow is given back before the parse runs, which costs a copy of the
 /// text and buys the rule this crate keeps: nothing calls out from inside one.
-fn leading(value: u64, parse: impl FnOnce(&str) -> f64) -> f64 {
+pub(super) fn leading(value: u64, parse: impl FnOnce(&str) -> f64) -> f64 {
     let text = with_current(|context| {
         super::text::to_text(context, Value(value)).and_then(|text| text.to_rust())
     });
@@ -177,7 +183,7 @@ fn leading(value: u64, parse: impl FnOnce(&str) -> f64) -> f64 {
 /// A prefix rather than the whole string, which is the whole difference between
 /// `parseFloat` and `Number`: `parseFloat("3.5px")` is `3.5` and `Number("3.5px")`
 /// is `NaN`.
-fn float_prefix(text: &str) -> usize {
+pub(super) fn float_prefix(text: &str) -> usize {
     let bytes = text.as_bytes();
     let mut at = 0;
     if matches!(bytes.first(), Some(b'+' | b'-')) {
@@ -223,7 +229,7 @@ fn float_prefix(text: &str) -> usize {
 /// decides: `0x` selects sixteen and everything else is ten. Written as a
 /// sentinel rather than an `Option` because the argument arrives as a number and
 /// `parseInt(s, 0)` means exactly the same thing.
-fn integer_prefix(text: &str, radix: i64) -> f64 {
+pub(super) fn integer_prefix(text: &str, radix: i64) -> f64 {
     let mut rest = text;
     let mut negative = false;
     if let Some(stripped) = rest.strip_prefix('-') {

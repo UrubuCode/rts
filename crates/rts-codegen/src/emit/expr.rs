@@ -814,9 +814,18 @@ fn emit_guarded(
     builder.jump(join, &[fast])?;
 
     builder.switch_to(slow);
-    let runtime = runtime_binary(op).expect("every instruction has a runtime operation");
+    let (runtime, negated) = runtime_binary(op).expect("every instruction has a runtime operation");
     let answered = call(builder, ctx, runtime, &[a, b])?[0];
-    let answered = tagged(builder, answered);
+    // `!==` has no runtime operation of its own — deliberately, so that strict
+    // equality is stated once — so the slow path is the equality call with the
+    // answer inverted, exactly as the unspeculated path at [`emit_binary`]
+    // writes it. Reaching for a `StrictNotEquals` entry point that does not
+    // exist is what this used to do, and it panicked the compiler for any
+    // `a !== b` whose operands were not both proven numbers.
+    let answered = match negated {
+        true => super::choice::from_bool(builder, answered, true)?,
+        false => tagged(builder, answered),
+    };
     builder.jump(join, &[answered])?;
 
     builder.switch_to(join);
@@ -828,18 +837,28 @@ fn emit_guarded(
 /// Every operator `proven_binary` names has one, which is why this cannot fail
 /// for a caller that asked that question first — and why the two lists are
 /// beside each other rather than in different files.
-fn runtime_binary(op: BinaryOp) -> Option<RuntimeOp> {
+/// The runtime operation an instruction falls back to, and whether the answer
+/// is inverted.
+///
+/// The flag exists for exactly one row. `!==` has no entry point of its own —
+/// strict equality is stated once, and a second definition is how `a !== b`
+/// comes to disagree with `!(a === b)` for an operand nobody tested — so its
+/// slow path is the equality call negated. Answering `None` for it, which is
+/// what this did, made the speculative path panic on any `a !== b` whose
+/// operands were not both proven numbers.
+fn runtime_binary(op: BinaryOp) -> Option<(RuntimeOp, bool)> {
     Some(match op {
-        BinaryOp::Add => RuntimeOp::Add,
-        BinaryOp::Sub => RuntimeOp::Subtract,
-        BinaryOp::Mul => RuntimeOp::Multiply,
-        BinaryOp::Div => RuntimeOp::Divide,
-        BinaryOp::Rem => RuntimeOp::Remainder,
-        BinaryOp::Less => RuntimeOp::Less,
-        BinaryOp::LessEqual => RuntimeOp::LessEqual,
-        BinaryOp::Greater => RuntimeOp::Greater,
-        BinaryOp::GreaterEqual => RuntimeOp::GreaterEqual,
-        BinaryOp::StrictEqual => RuntimeOp::StrictEquals,
+        BinaryOp::Add => (RuntimeOp::Add, false),
+        BinaryOp::Sub => (RuntimeOp::Subtract, false),
+        BinaryOp::Mul => (RuntimeOp::Multiply, false),
+        BinaryOp::Div => (RuntimeOp::Divide, false),
+        BinaryOp::Rem => (RuntimeOp::Remainder, false),
+        BinaryOp::Less => (RuntimeOp::Less, false),
+        BinaryOp::LessEqual => (RuntimeOp::LessEqual, false),
+        BinaryOp::Greater => (RuntimeOp::Greater, false),
+        BinaryOp::GreaterEqual => (RuntimeOp::GreaterEqual, false),
+        BinaryOp::StrictEqual => (RuntimeOp::StrictEquals, false),
+        BinaryOp::StrictNotEqual => (RuntimeOp::StrictEquals, true),
         _ => return None,
     })
 }

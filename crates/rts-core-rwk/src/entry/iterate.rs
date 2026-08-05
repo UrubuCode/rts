@@ -16,9 +16,22 @@
 //!
 //! An iterable that is infinite or lazy cannot be walked this way, and one whose
 //! side effects are meant to be interleaved with the body has them all up front.
-//! Neither is reachable today — a generator is refused by name and no object can
-//! declare `Symbol.iterator`, because there are no symbols — so the divergence is
-//! recorded against the day one of those arrives rather than pretended away.
+//!
+//! That divergence is **live now**, where it used to be hypothetical. An object
+//! declaring `Symbol.iterator` is walked here to exhaustion before the loop body
+//! runs once, so:
+//!
+//! - `for (const x of infinite) { break; }` does not terminate. The language
+//!   stops after one element; this asks for all of them first.
+//! - a `return()` on the iterator is never called, because there is no early
+//!   exit to report — `IteratorClose` has nothing to close.
+//! - side effects in `next()` all happen before the first pass of the body.
+//!
+//! No cap is imposed on the walk, and that is deliberate: a limit would turn a
+//! program that hangs into a program that quietly walks part of a sequence, and
+//! a wrong answer that runs is worse than one that visibly does not. The fix is
+//! a lazy cursor in the emitter, which is what `for-of` becomes when the
+//! compiler stops reducing it to an indexed loop.
 //!
 //! # Why a string iterates by code POINT
 //!
@@ -61,7 +74,10 @@ pub fn iterate(value: u64) -> u64 {
 
     let values = match found {
         Found::Values(values) => values,
-        Found::Nothing => Vec::new(),
+        // Neither an array nor a string, so ask the object whether it declares
+        // how to be iterated. Outside the borrow above, because every step of
+        // the protocol is a call into user code.
+        Found::Nothing => protocol(value).unwrap_or_default(),
         // Interned here, outside the borrow above.
         Found::Text(points) => with_current(|context| {
             points
@@ -79,6 +95,71 @@ pub fn iterate(value: u64) -> u64 {
             *elements = values;
         }
         array
+    })
+}
+
+/// Everything an object's own `Symbol.iterator` yields.
+///
+/// `None` for an object that declares none, which is what keeps the empty-array
+/// answer for a genuinely non-iterable value distinct in the code from an
+/// iterator that legitimately yielded nothing.
+///
+/// # Why every step is outside a borrow
+///
+/// All three are calls into user code — the method, `next`, and the property
+/// reads on what it answered. `with_current` holds a `RefCell` borrow for the
+/// length of its body and a callee's first act may be to call the runtime, so
+/// each read here takes its own borrow and gives it straight back.
+fn protocol(value: u64) -> Option<Vec<u64>> {
+    let method = member(value, &format!("{}iterator", super::symbol::PREFIX));
+    if !callable(method) {
+        return None;
+    }
+    let absent = with_current(|context| super::objects::undefined_of(context));
+    let iterator = super::functions::call(method, value, absent, absent, absent, absent);
+    let next = member(iterator, "next");
+    if !callable(next) {
+        return None;
+    }
+
+    let mut produced = Vec::new();
+    loop {
+        let step = super::functions::call(next, iterator, absent, absent, absent, absent);
+        // `done` is read before `value`, which is the order the specification
+        // states — an iterator whose `done` getter has a side effect observes
+        // it first, and the other order is a difference nothing would notice
+        // until something did.
+        if super::primitives::to_boolean(member(step, "done")) {
+            return Some(produced);
+        }
+        produced.push(member(step, "value"));
+    }
+}
+
+/// One property of a value, by a name the runtime knows.
+///
+/// A data read: a getter is not run, which is the same boundary
+/// [`super::error::joined`] draws and for a smaller reason — an accessor on
+/// `next` or `done` is not something a real iterator has.
+fn member(value: u64, name: &str) -> u64 {
+    with_current(|context| {
+        let Some(cell) = Value(value).as_slot() else {
+            return super::objects::undefined_of(context);
+        };
+        let key = context.well_known(name);
+        match super::objects::read_property(context, cell, key) {
+            Some(found) => found.bits(),
+            None => super::objects::undefined_of(context),
+        }
+    })
+}
+
+/// Whether a value can be called at all.
+fn callable(value: u64) -> bool {
+    with_current(|context| {
+        Value(value)
+            .as_slot()
+            .is_some_and(|cell| context.callable_at(cell).is_some())
     })
 }
 

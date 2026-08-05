@@ -50,7 +50,10 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
     // A `prototype` property like any constructor's, so `Object.prototype.m = f`
     // has somewhere to land — and so `instanceof Object` has something to
     // compare against once literals link to it.
-    if let Some(prototype) = super::native::plain(context) {
+    // The one every plain object already inherits from, not a fresh object:
+    // making a second here would put `Object.prototype.m = f` somewhere nothing
+    // walks, which is a write that succeeds and a read that never finds it.
+    if let Some(prototype) = super::object_proto::prototype_of(context) {
         let key = context.well_known("prototype");
         let value = Value::from_slot(prototype).bits();
         super::objects::put(context, cell, key, value);

@@ -201,7 +201,7 @@ fn described(this: u64) -> u64 {
 /// the chain — a getter is the accessor path and is deliberately not this one,
 /// because the caller may be a program that has already failed.
 pub(super) fn joined(context: &mut Context, cell: u32) -> Option<String> {
-    let mut read = |context: &mut Context, field: &str| {
+    let read = |context: &mut Context, field: &str| {
         let key = context.well_known(field);
         let found = super::objects::read_property(context, cell, key)?;
         super::text::to_text(context, found)?.to_rust()

@@ -508,17 +508,20 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
         let Some(mut cell) = Value(value).as_slot() else {
             return false;
         };
+        // Stepped with `inherited_from` rather than `prototype_at`, so the
+        // prototypes that are SUBSTITUTED by kind rather than linked from the
+        // cell count too. Without it `[] instanceof Array` and
+        // `({}) instanceof Object` are both false — the object really does
+        // inherit, and asking only for an own link is asking the wrong
+        // question.
         for _ in 0..super::objects::CHAIN_LIMIT {
-            let Some(next) = context.prototype_at(cell) else {
+            let Some(next) = super::objects::inherited_from(context, cell) else {
                 return false;
             };
-            if next == wanted.bits() {
+            if Value::from_slot(next).bits() == wanted.bits() {
                 return true;
             }
-            let Some(further) = Value(next).as_slot() else {
-                return false;
-            };
-            cell = further;
+            cell = next;
         }
         false
     })

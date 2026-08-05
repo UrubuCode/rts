@@ -31,6 +31,14 @@ use crate::value::Value;
 /// `None` means the key was an object, whose `ToPropertyKey` runs a `toString`
 /// — user code an entry point cannot call.
 fn property_key(context: &mut Context, key: Value) -> Option<Key> {
+    // A symbol is its own key rather than one derived from text, and it is
+    // asked first because `ToString` of a symbol is a `TypeError` in the
+    // language — converting it here would give `o[Symbol.iterator]` a key the
+    // spelling `o["Symbol(Symbol.iterator)"]` could also reach.
+    if let Some(text) = super::symbol::key_text_of(context, key.bits()) {
+        let text = crate::text::Str::from_str(&text);
+        return Some(Key::Name(context.interner.intern(&text, &mut context.keys)));
+    }
     let text = super::text::to_text(context, key)?;
     Some(Key::Name(context.interner.intern(&text, &mut context.keys)))
 }

@@ -296,7 +296,17 @@ pub(super) fn inherited_from(context: &mut Context, cell: u32) -> Option<u32> {
     if context.elements_at(cell).is_some() {
         return super::array_proto::prototype_of(context);
     }
-    None
+    // Everything left is a plain object, and a plain object inherits from
+    // `Object.prototype`. Last, because there is nothing further to distinguish
+    // on — and substituted rather than linked at `object_new` for the reason
+    // every substitution here exists: a link written at every allocation would
+    // spend a word per object to record one fact all of them share.
+    let root = super::object_proto::prototype_of(context)?;
+    // The root inherits from nothing. Without this, `inherited_from(root)`
+    // answers `root` and every miss on it walks `CHAIN_LIMIT` steps through
+    // itself — bounded rather than a hang, which makes it a silent
+    // sixty-five-thousand-fold slowdown instead of a visible failure.
+    (cell != root).then_some(root)
 }
 
 /// How far a prototype walk goes before giving up.

@@ -46,20 +46,26 @@ mod computed;
 #[path = "context_tests.rs"]
 mod context_tests;
 mod current;
+mod date;
 mod error;
 mod function_proto;
 mod functions;
 mod global;
-mod math;
-mod number;
+mod global_fns;
 mod iterate;
+mod json;
+mod math;
 mod native;
+mod number;
 mod object_global;
+mod object_proto;
 mod objects;
 mod operators;
 mod primitives;
+mod reflect;
 mod regex;
 pub(super) mod string;
+mod symbol;
 mod text;
 mod throw;
 
@@ -201,6 +207,12 @@ pub struct Context {
     /// expression should not spend three cells of a fixed-size region on the
     /// object and the two native callables it holds.
     regexp_prototype: Option<u64>,
+    /// Which cells are symbols, which are shared, and how many were minted.
+    ///
+    /// One structure rather than three fields, because they are one fact with
+    /// three parts and splitting them across the context is how the registry
+    /// and the counter come to disagree about which key is next.
+    symbols: symbol::Symbols,
     /// What each declared class registered as, once it has been asked for.
     ///
     /// A list rather than a field per class, and the reason is
@@ -363,6 +375,7 @@ impl Context {
             regexes: Aside::new(),
             regexp_prototype: None,
             classes: Vec::new(),
+            symbols: symbol::Symbols::new(),
             globals: None,
             string_prototype: None,
             array_prototype: None,
