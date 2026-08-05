@@ -43,6 +43,19 @@ absent one sends you to the code, and a stale one sends you somewhere wrong with
 confidence. This tree previously carried specs describing a design two rewrites
 old, and the cost was not the disk space.
 
+### 1b. One document lives outside these four, with an expiry condition
+
+`RTS_RWK_IMPLEMENT.md` at the repository root — how natives are authored for the
+new engine. By rule 2 below its decisions belong in `engine/` and its queue in
+`crates/rts-core-rwk/PLAN.md`, and it is one file anyway because the work has not
+started: splitting a direction across two homes before anyone has followed it is
+how both go stale.
+
+It carries the condition that ends it — split or deleted when the first three
+classes land through the attribute. That is the difference between this and the
+root `RTS_*.md` files this tree replaced: those had no owner and no end, which is
+why they outlived the designs they described.
+
 ### 2. Plans live with the thing they plan
 
 A phase list belongs in the crate it is a plan for — `crates/rts-codegen/PLAN.md`

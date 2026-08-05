@@ -6,8 +6,13 @@ or measured, or produced a bug this repository has already paid for. If a change
 requires breaking one of them, change the rule here first, with the reason, and
 get that agreed — do not leave a rule in place that the code contradicts.
 
-The direction this crate implements is `RTS_CRANELIFT.md` at the repository root.
-That document is the design; this one is the working agreement.
+This file is the working agreement **and** the design of record. It used to
+point at `RTS_CRANELIFT.md` at the repository root for the second half; that
+document was deleted in `e39a21b9` and the pointer stayed, which is a dangling
+reference in the one file every change to this crate is required to read in full.
+Recover it with `git show e39a21b9^:RTS_CRANELIFT.md` if a decision needs its
+reasoning; do not restore it without an owner, because two documents that
+disagree is what deleting it was for.
 
 ---
 
@@ -233,7 +238,13 @@ model made it false.
 
 ## Where to look first
 
-- `RTS_CRANELIFT.md` (repository root) — the design, including section 22, which
-  separates what has been measured from what is load-bearing but still unverified.
 - `src/lib.rs` — the crate's own statement of scope.
 - `tests/invariants.rs` — the rules above, as executable claims.
+- `RTS_RWK_IMPLEMENT.md` (repository root) — how the layers above this one author
+  what they call, and which of those decisions this crate owns.
+
+What is **not** here any more: `RTS_CRANELIFT.md`, and with it the section that
+separated what had been measured from what was load-bearing and unverified. That
+separation is a real thing to keep, and it now belongs in the doc comment beside
+the decision — `lower::abi_return_type` is the worked example, naming what was
+read from the code generator's source and what was not.
