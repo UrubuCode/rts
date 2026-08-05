@@ -37,10 +37,16 @@ mod array;
 mod barrier;
 mod bitwise;
 mod cache;
+mod current;
+#[cfg(test)]
+#[path = "context_tests.rs"]
+mod context_tests;
 mod functions;
+mod computed;
 mod objects;
 mod text;
 mod operators;
+mod primitives;
 
 // The operators are defined in their own module and named from here, because a
 // caller wants "the entry points" in one place rather than a module tree.
@@ -50,10 +56,9 @@ pub use bitwise::{
     shift_right_unsigned,
 };
 pub use functions::{ARGUMENT_SLOTS, call, closure_new, construct, instance_of};
-pub use objects::{
-    delete_property, get_indexed, get_property, has_property, object_new, set_indexed,
-    set_property,
-};
+pub use computed::{delete_property, get_indexed, has_property, set_indexed};
+pub use objects::{get_property, object_new, set_property};
+pub use primitives::{add, number_to_string, strict_equals, to_boolean};
 pub use text::{declare_keys, declare_literals, string_const, type_of};
 pub use operators::{
     divide, greater, greater_equal, less, less_equal, loose_equals, multiply, remainder, subtract,
@@ -63,18 +68,16 @@ mod table;
 pub use alloc::alloc;
 pub use barrier::write_barrier;
 pub use cache::cache_resolve;
+pub use current::with_context;
+pub(crate) use current::with_current;
 pub use table::{CORE_ENTRY_COUNT, CoreEntry};
 
-use std::cell::RefCell;
 
 use rts_cranelift::shape::{KeyRegistry, ShapeTree};
 
-use crate::coerce::{Sum, add as add_primitives, number_to_string as print_number};
-use crate::heap::{Slab, Slot};
+use crate::heap::{Aside, Slab, Slot};
 use crate::text::{Interner, Str};
-use crate::value::{
-    Singletons, Value, strict_equals as values_strict_equals, to_boolean as values_to_boolean,
-};
+use crate::value::{Singletons, Value};
 
 /// Everything a running program's operations need and cannot be handed.
 pub struct Context {
@@ -129,7 +132,7 @@ pub struct Context {
     /// Beside the cell for the reason every one of these is: seven inline
     /// slots are what a program's own properties get, and spending one on a
     /// link almost nothing reads would cost every object.
-    prototypes: Vec<Option<u64>>,
+    prototypes: Aside<u64>,
     /// Which cells are callable, and what they call.
     ///
     /// # Why beside the cell and not in it
@@ -143,7 +146,7 @@ pub struct Context {
     /// shape cannot hold a property, so every write to a function was a silent
     /// no-op. Recording it beside the cell gives both, and is the third use of
     /// this pattern after arrays and the property spill.
-    callables: Vec<Option<(u64, u64)>>,
+    callables: Aside<(u64, u64)>,
     /// Where a cell's properties past the seventh live.
     ///
     /// A cell holds seven inline slots, and an object with more used to lose
@@ -158,7 +161,7 @@ pub struct Context {
     /// is why the fast path needed no change at all.
     spills: Slab<Vec<u64>>,
     /// Which spill each cell uses, by region index.
-    spill_of: Vec<Option<Slot>>,
+    spill_of: Aside<Slot>,
     /// Which cells are arrays, and where their elements are.
     ///
     /// # Why a side table and not a reserved layout
@@ -177,7 +180,7 @@ pub struct Context {
     /// Noted rather than solved: there is no collector, and the alternative —
     /// a word inside the cell — spends one of seven inline slots on every
     /// object to record something almost none of them are.
-    array_elements: Vec<Option<Slot>>,
+    array_elements: Aside<Slot>,
     /// How many reference stores told the collector about themselves.
     ///
     /// Counted rather than acted on, because there is no collector. It exists
@@ -247,7 +250,7 @@ impl Context {
             cells: Slab::new(),
             arrays: Slab::new(),
             spills: Slab::new(),
-            spill_of: Vec::new(),
+            spill_of: Aside::new(),
             shapes: ShapeTree::new(),
             keys: KeyRegistry::new(),
             interner: Interner::new(),
@@ -258,9 +261,9 @@ impl Context {
             types,
             shape_of_type: Vec::new(),
             text_type,
-            callables: Vec::new(),
-            prototypes: Vec::new(),
-            array_elements: Vec::new(),
+            callables: Aside::new(),
+            prototypes: Aside::new(),
+            array_elements: Aside::new(),
             resolves: 0,
             barriers: 0,
             // Empty until a host seeds it. A program with no string literal
@@ -317,28 +320,22 @@ impl Context {
     /// claim a cell is callable, which is what makes the code address
     /// unreachable from anything a program can write.
     pub(super) fn callable_at(&self, cell: u32) -> Option<(u64, u64)> {
-        *self.callables.get(cell as usize)?
+        self.callables.copied(cell)
     }
 
     /// What a cell inherits from, if anything.
     pub(super) fn prototype_at(&self, cell: u32) -> Option<u64> {
-        *self.prototypes.get(cell as usize)?
+        self.prototypes.copied(cell)
     }
 
     /// Sets what a cell inherits from.
     pub(super) fn set_prototype(&mut self, cell: u32, prototype: u64) {
-        if self.prototypes.len() <= cell as usize {
-            self.prototypes.resize(cell as usize + 1, None);
-        }
-        self.prototypes[cell as usize] = Some(prototype);
+        self.prototypes.set(cell, prototype);
     }
 
     /// Records that a cell calls this code with this environment.
     pub(super) fn mark_callable(&mut self, cell: u32, code: u64, environment: u64) {
-        if self.callables.len() <= cell as usize {
-            self.callables.resize(cell as usize + 1, None);
-        }
-        self.callables[cell as usize] = Some((code, environment));
+        self.callables.set(cell, (code, environment));
     }
 
     /// The text a reference names, if it names one.
@@ -384,209 +381,27 @@ impl Context {
     }
 }
 
-thread_local! {
-    /// This thread's context, absent until something installs one.
-    static CONTEXT: RefCell<Option<Context>> = const { RefCell::new(None) };
-}
 
-/// Install a context for this thread, and run something with it.
-///
-/// Returns the context afterwards so a caller can inspect what a program left
-/// behind — which is how the tests below work, and how a host would read a
-/// result out.
-pub fn with_context<T>(context: Context, body: impl FnOnce() -> T) -> (Context, T) {
-    CONTEXT.with(|slot| *slot.borrow_mut() = Some(context));
-    let value = body();
-    let context = CONTEXT.with(|slot| slot.borrow_mut().take());
-    (
-        context.expect("the context installed above is still installed"),
-        value,
-    )
-}
-
-/// Run something against this thread's context.
-///
-/// Aborts when there is none. That is not a runtime condition a program can
-/// reach — it means compiled code ran before anything installed a heap, which is
-/// a broken embedding — and unwinding out of an `extern "C"` frame is undefined
-/// behaviour, so there is nothing better to do than say so and stop.
-fn with_current<T>(body: impl FnOnce(&mut Context) -> T) -> T {
-    CONTEXT.with(|slot| {
-        let mut borrowed = slot.borrow_mut();
-        let Some(context) = borrowed.as_mut() else {
-            eprintln!("rts: an entry point ran with no context installed on this thread");
-            std::process::abort();
-        };
-        body(context)
-    })
-}
-
-/// `a + b`, on values already reduced to primitives.
-///
-/// An entry point because joining two strings allocates. The caller has already
-/// resolved `ToPrimitive` in the order [`crate::coerce::add_operand_order`]
-/// states — this cannot do it, because running a `valueOf` is calling.
-#[rtse::entry]
-pub fn add(left: u64, right: u64) -> u64 {
-    with_current(|context| {
-        let text_of = |value: Value| {
-            value
-                .as_slot()
-                .and_then(|slot| context.text_at(slot))
-                .cloned()
-        };
-
-        // `ToString` of a primitive, which is what the non-string side of a
-        // concatenation becomes. Separate from `text_of` because that one
-        // answers "is this already a string" and decides *whether* to
-        // concatenate — a single function doing both would make `1 + 2` answer
-        // `"12"`.
-        let stringify = |value: Value| text::to_text(context, value);
-
-        match add_primitives(Value(left), Value(right), text_of, stringify) {
-            Some(Sum::Number(number)) => Value::from_f64(number).bits(),
-            Some(Sum::Text(text)) => context.intern_value(text).bits(),
-            // Neither a number nor a string: the caller handed over something
-            // still needing ToPrimitive. Answering NaN would be a wrong number;
-            // this is a contract violation, and saying so beats inventing one.
-            None => Value::from_f64(f64::NAN).bits(),
-        }
-    })
-}
-
-/// `a === b`.
-///
-/// An entry point because two strings are equal when their *text* is, which
-/// needs the heap. Everything else about it is arithmetic.
-#[rtse::entry]
-pub fn strict_equals(left: u64, right: u64) -> bool {
-    with_current(|context| {
-        values_strict_equals(Value(left), Value(right), |a, b| context.same_text(a, b))
-    })
-}
-
-/// `ToBoolean`.
-///
-/// An entry point for one case out of seven: the empty string. Every other
-/// falsy value is decided by arithmetic, and a lowering that proved its operand
-/// is a number should emit the comparison rather than call this.
-#[rtse::entry]
-pub fn to_boolean(value: u64) -> bool {
-    with_current(|context| {
-        let singletons = context.singletons;
-        values_to_boolean(Value(value), singletons, |slot| {
-            context.text_at(slot as u32).is_some_and(Str::is_empty)
-        })
-    })
-}
-
-/// `String(n)`.
-///
-/// An entry point because the result is allocated.
-#[rtse::entry]
-pub fn number_to_string(value: f64) -> u64 {
-    with_current(|context| {
-        let text = print_number(value);
-        context.intern_value(text).bits()
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn singletons() -> Singletons {
-        Singletons {
-            undefined: 0,
-            null: 1,
-        }
-    }
-
-    fn fresh() -> Context {
-        Context::new(singletons())
-    }
-
-    #[test]
-    fn two_separately_allocated_strings_are_strictly_equal() {
-        let mut context = fresh();
-        let first = context.intern_value(Str::from_str("a"));
-        let second = context.intern_value(Str::from_str("a"));
-        assert_ne!(first.bits(), second.bits(), "different slots");
-
-        let (_, equal) = with_context(context, || strict_equals(first.bits(), second.bits()));
-
-        assert!(
-            equal,
-            "strings compare by text under ===; comparing the reference would \
-             make \"a\" === \"a\" false whenever the two were built separately"
-        );
-    }
-
-    #[test]
-    fn two_distinct_objects_are_not_strictly_equal() {
-        let mut context = fresh();
-        // Two cells in the region, which is where an object's identity is now.
-        let root = context.shapes.root();
-        let ty = context.layout_of(root).index() as u32;
-        let first = context.region.alloc(crate::heap::STRIDE, ty).expect("room");
-        let second = context.region.alloc(crate::heap::STRIDE, ty).expect("room");
-
-        let left = Value::from_slot(first);
-        let right = Value::from_slot(second);
-
-        let (_, equal) = with_context(context, || strict_equals(left.bits(), right.bits()));
-        assert!(
-            !equal,
-            "objects compare by identity, which is exactly what strings do not"
-        );
-    }
-
-    #[test]
-    fn adding_two_numbers_stays_a_number_and_adding_a_string_allocates() {
-        let mut context = fresh();
-        let text = context.intern_value(Str::from_str("n="));
-
-        let (context, sum) = with_context(context, || {
-            add(Value::from_i32(2).bits(), Value::from_i32(3).bits())
-        });
-        assert_eq!(Value(sum).as_f64(), Some(5.0));
-
-        let number_text = {
-            let (mut context, printed) = with_context(context, || number_to_string(1.0));
-            let joined = with_context(context, || add(text.bits(), printed));
-            context = joined.0;
-            let value = Value(joined.1);
-            context
-                .text_at(value.as_slot().unwrap())
-                .and_then(Str::to_rust)
-        };
-        assert_eq!(number_text.as_deref(), Some("n=1"));
-    }
-
-    #[test]
-    fn the_empty_string_is_the_one_falsy_value_that_needs_the_heap() {
-        let mut context = fresh();
-        let empty = context.intern_value(Str::empty());
-        let filled = context.intern_value(Str::from_str("x"));
-
-        let (_, answers) = with_context(context, || {
-            [
-                to_boolean(empty.bits()),
-                to_boolean(filled.bits()),
-                to_boolean(Value::from_i32(0).bits()),
-                to_boolean(Value::from_i32(1).bits()),
-            ]
-        });
-
-        assert_eq!(answers, [false, true, false, true]);
-    }
-
-    #[test]
-    fn a_number_prints_through_the_entry_point_as_it_prints_anywhere() {
-        let (context, printed) = with_context(fresh(), || number_to_string(0.1 + 0.2));
-        let text = context
-            .text_at(Value(printed).as_slot().unwrap())
-            .and_then(Str::to_rust);
-        assert_eq!(text.as_deref(), Some("0.30000000000000004"));
+impl Context {
+    /// The key a name the runtime itself knows has.
+    ///
+    /// `length` and `prototype` are properties this crate reads by name rather
+    /// than by a number a compilation resolved, because it is the runtime that
+    /// wants them — an array answers `length` whether or not the program ever
+    /// wrote it, and `new` reads `prototype` on a function the program may
+    /// never have touched.
+    ///
+    /// Interned rather than held as a constant: the number is whatever the
+    /// registry issued, and that registry was seeded from what the compilation
+    /// resolved. A program that mentions the name already put it there and this
+    /// finds the same number; one that never does mints one nothing else uses,
+    /// which costs a key and changes no answer.
+    ///
+    /// One function because it was two, and "intern a name the runtime knows"
+    /// is one rule — the second copy is the one that would have interned
+    /// against a different registry the day there were two.
+    pub(super) fn well_known(&mut self, name: &str) -> crate::object::Key {
+        let text = Str::from_str(name);
+        crate::object::Key::Name(self.interner.intern(&text, &mut self.keys))
     }
 }

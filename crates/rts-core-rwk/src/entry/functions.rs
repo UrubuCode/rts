@@ -153,8 +153,7 @@ fn resolve(context: &mut Context, callee: u64) -> Option<(u64, u64)> {
 
 /// The key `prototype` has.
 fn prototype_key(context: &mut Context) -> crate::object::Key {
-    let text = crate::text::Str::from_str("prototype");
-    crate::object::Key::Name(context.interner.intern(&text, &mut context.keys))
+    context.well_known("prototype")
 }
 
 /// `new f(…)`.

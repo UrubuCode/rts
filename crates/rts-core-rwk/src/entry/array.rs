@@ -20,7 +20,8 @@
 //! deciding. `length` is an ordinary property holding the count — see
 //! [`set_length`] for why it is stored rather than invented.
 
-use super::objects::{length_key, undefined_of};
+use super::computed::length_key;
+use super::objects::undefined_of;
 use super::{Context, with_current};
 use crate::heap::Slot;
 use crate::text::Str;
@@ -59,15 +60,12 @@ pub fn array_new(length: i64) -> u64 {
 impl Context {
     /// Records that a cell is an array, and where its elements are.
     fn mark_array(&mut self, cell: u32, store: Slot) {
-        if self.array_elements.len() <= cell as usize {
-            self.array_elements.resize(cell as usize + 1, None);
-        }
-        self.array_elements[cell as usize] = Some(store);
+        self.array_elements.set(cell, store);
     }
 
     /// Where a cell's elements are, if it is an array.
     fn store_of(&self, reference: u32) -> Option<Slot> {
-        *self.array_elements.get(reference as usize)?
+        self.array_elements.copied(reference)
     }
 
     /// The elements of an array, if this reference names one.
@@ -221,7 +219,7 @@ pub fn own_keys(object: u64) -> u64 {
 /// needs the write to know it is writing to an array, which is `put`'s caller
 /// rather than `put`.
 pub(super) fn set_length(context: &mut Context, cell: u32, length: usize) {
-    let key = super::objects::length_key(context);
+    let key = super::computed::length_key(context);
     let value = Value::from_f64(length as f64).bits();
     super::objects::put(context, cell, key, value);
 }

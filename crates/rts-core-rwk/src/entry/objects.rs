@@ -350,7 +350,7 @@ mod tests {
 ///
 /// An index has no machine key, for the reason `crate::object` gives: indexed
 /// storage is an array's problem and an array is not yet a thing.
-fn machine_key(key: Key) -> Option<ShapeKey> {
+pub(super) fn machine_key(key: Key) -> Option<ShapeKey> {
     match key {
         Key::Name(name) => Some(name),
         Key::Index(_) => None,
@@ -367,205 +367,8 @@ fn machine_key(key: Key) -> Option<ShapeKey> {
 /// `None` for an index, because indexed storage waits for arrays.
 ///
 /// So an index is held under its own spelling instead: `o[0]` and `o["0"]` are
-/// one property, which is what the language says, and the only thing lost is an
-/// enumeration order nothing implements. Routing it through `Key::from_str` and
-/// letting the `None` through would have made `o[0] = 1; o[0]` read as absent —
-/// a wrong program that runs, which is the outcome this whole layer refuses.
-///
-/// `None` means the key was an object, whose `ToPropertyKey` runs a `toString`
-/// — user code an entry point cannot call.
-fn property_key(context: &mut Context, key: Value) -> Option<Key> {
-    let text = super::text::to_text(context, key)?;
-    Some(Key::Name(context.interner.intern(&text, &mut context.keys)))
-}
-
-/// `object[key]`, where the key is a value rather than a resolved name.
-#[rtse::entry]
-pub fn get_indexed(object: u64, key: u64) -> u64 {
-    with_current(|context| {
-        let Some(slot) = Value(object).as_slot() else {
-            return undefined_of(context);
-        };
-        // An element, if this is an array and the key is a canonical index.
-        // Asked BEFORE `ToPropertyKey`, because that would turn the number into
-        // text and lose the distinction the array store is built on.
-        if let Some(at) = super::array::as_index(context, Value(key))
-            && let Some(elements) = context.elements_at(slot)
-        {
-            // Past the end is absent, not an error: `[1,2][9]` is `undefined`.
-            return elements.get(at).copied().unwrap_or_else(|| undefined_of(context));
-        }
-        if let Some(answer) = string_element(context, slot, Value(key)) {
-            return answer;
-        }
-        let Some(key) = property_key(context, Value(key)) else {
-            return undefined_of(context);
-        };
-        if let Some(answer) = string_property(context, slot, key) {
-            return answer;
-        }
-        match read(context, slot, key) {
-            Some(value) => value.bits(),
-            None => undefined_of(context),
-        }
-    })
-}
-
-/// `object[key] = value`. Answers the value, because an assignment is an
-/// expression.
-#[rtse::entry]
-pub fn set_indexed(object: u64, key: u64, value: u64) -> u64 {
-    with_current(|context| {
-        let Some(slot) = Value(object).as_slot() else {
-            return value;
-        };
-        if let Some(at) = super::array::as_index(context, Value(key))
-            && let Some(elements) = context.elements_at_mut(slot)
-        {
-            // Writing past the end grows the array and fills the gap with
-            // `undefined`, which is what the language does — `let a = []; a[2]
-            // = 1` leaves length 3. Holes are `undefined` here rather than a
-            // distinct absent-ness, which is a stated gap: `0 in [,1]` is
-            // false and this cannot say so.
-            if at >= elements.len() {
-                elements.resize(at + 1, 0);
-                let absent = undefined_of(context);
-                let elements = context
-                    .elements_at_mut(slot)
-                    .expect("the array was just found");
-                for hole in elements.iter_mut() {
-                    if *hole == 0 {
-                        *hole = absent;
-                    }
-                }
-            }
-            let elements = context
-                .elements_at_mut(slot)
-                .expect("the array was just found");
-            elements[at] = value;
-            // `length` is a property both paths read, so growing has to write it
-            // — compiled code reads the stored one and never asks the runtime
-            // for a hit.
-            let count = elements.len();
-            super::array::set_length(context, slot, count);
-            return value;
-        }
-        let Some(key) = property_key(context, Value(key)) else {
-            return value;
-        };
-        put(context, slot, key, value);
-        value
-    })
-}
-
-/// `key in object`.
-///
-/// Answers whether the object HAS the property, which is not whether reading it
-/// yields `undefined`: `({x: undefined})` has `x`, and `"x" in it` is true.
-/// That is the whole reason the operator exists, so it is what this asks.
-///
-/// A receiver that is not an object answers `false` where the language throws a
-/// `TypeError` — the same stated gap every property operation has, and for the
-/// same reason: throwing needs protected regions and nothing emits those.
-#[rtse::entry]
-pub fn has_property(key: u64, object: u64) -> bool {
-    with_current(|context| {
-        let Some(slot) = Value(object).as_slot() else {
-            return false;
-        };
-        let Some(key) = property_key(context, Value(key)) else {
-            return false;
-        };
-        read(context, slot, key).is_some()
-    })
-}
-
-/// The key `length` has.
-///
-/// Interned rather than held as a constant, because the number is whatever the
-/// registry issued — and the registry was seeded from what the compilation
-/// resolved, so a program that reads `.length` already put it there and this
-/// finds the same number. A program that never mentions it mints one here that
-/// nothing else uses, which costs a key and answers nothing differently.
-pub(super) fn length_key(context: &mut Context) -> Key {
-    let text = crate::text::Str::from_str("length");
-    Key::Name(context.interner.intern(&text, &mut context.keys))
-}
-
-/// `delete o.x` / `delete o[k]`.
-///
-/// Answers whether the object now lacks the property, which is `true` for one
-/// it never had — the language's answer for `delete` of anything that was not
-/// there, including a non-object.
-///
-/// # Why this is a rebuild and not an unlink
-///
-/// `ShapeTree::remove` says it: the tree only grows, a node is shared by
-/// everything that extends it, and unlinking one would change a layout other
-/// objects are already using. So the shape is rebuilt without the key, which is
-/// a **different layout with a different identity** — code compiled to load a
-/// property at a fixed offset in the old one guards on a type number it will no
-/// longer see.
-///
-/// The values move with it. Removing a property shifts every later one down a
-/// slot, so they are read out against the old layout before the header changes
-/// and written back against the new — reading after would read the new offsets
-/// out of the old contents.
-#[rtse::entry]
-pub fn delete_property(object: u64, key: u64) -> bool {
-    with_current(|context| {
-        let Some(slot) = Value(object).as_slot() else {
-            return true;
-        };
-        let Some(key) = property_key(context, Value(key)) else {
-            return true;
-        };
-        let Some(machine) = machine_key(key) else {
-            return true;
-        };
-        let Some(ty) = context.region.type_of(slot) else {
-            return true;
-        };
-        let Some(shape) = context.shape_of(ty) else {
-            return true;
-        };
-        if context.shapes.slot_of(shape, machine).is_none() {
-            // Never had it. `delete` answers true, which is not "it was
-            // removed" but "the object does not have it", and those agree here.
-            return true;
-        }
-
-        // Read every survivor against the OLD layout first.
-        let kept: Vec<(rts_cranelift::shape::Key, u64)> = context
-            .shapes
-            .properties(shape)
-            .into_iter()
-            .filter(|(existing, _)| *existing != machine)
-            .filter_map(|(existing, _)| {
-                let at = context.shapes.slot_of(shape, existing)?;
-                let value = slot_value(context, slot, at)?;
-                Some((existing, value))
-            })
-            .collect();
-
-        let shrunk = context.shapes.remove(shape, machine);
-        let ty = context.layout_of(shrunk).index() as u32;
-        context.region.set_type(slot, ty);
-        for (existing, value) in kept {
-            if let Some(at) = context.shapes.slot_of(shrunk, existing) {
-                set_slot_value(context, slot, at, value);
-            }
-        }
-        true
-    })
-}
-
-/// A property's value, wherever the slot puts it.
-///
-/// Seven slots live in the cell and everything past them lives in a spill
-/// beside it. Both are reads of "the property at slot N", which is why the
 /// choice is here rather than at each of the four call sites.
-fn slot_value(context: &Context, cell: u32, at: u32) -> Option<u64> {
+pub(super) fn slot_value(context: &Context, cell: u32, at: u32) -> Option<u64> {
     match at.checked_sub(crate::heap::INLINE_SLOTS) {
         None => context.region.field(cell, at),
         Some(past) => context.spill_at(cell)?.get(past as usize).copied(),
@@ -573,7 +376,7 @@ fn slot_value(context: &Context, cell: u32, at: u32) -> Option<u64> {
 }
 
 /// Writes a property's value, wherever the slot puts it.
-fn set_slot_value(context: &mut Context, cell: u32, at: u32, value: u64) {
+pub(super) fn set_slot_value(context: &mut Context, cell: u32, at: u32, value: u64) {
     match at.checked_sub(crate::heap::INLINE_SLOTS) {
         None => {
             context.region.set_field(cell, at, value);
@@ -585,7 +388,7 @@ fn set_slot_value(context: &mut Context, cell: u32, at: u32, value: u64) {
 impl Context {
     /// A cell's spilled properties, if it has any.
     fn spill_at(&self, cell: u32) -> Option<&Vec<u64>> {
-        self.spills.at((*self.spill_of.get(cell as usize)?)?).ok()
+        self.spills.at(self.spill_of.copied(cell)?).ok()
     }
 
     /// Puts a value in a cell's spill, making one and growing it as needed.
@@ -595,14 +398,11 @@ impl Context {
     /// a reader would get `0` where the language says `undefined`.
     fn spill_set(&mut self, cell: u32, past: usize, value: u64) {
         let absent = undefined_of(self);
-        if self.spill_of.len() <= cell as usize {
-            self.spill_of.resize(cell as usize + 1, None);
-        }
-        let slot = match self.spill_of[cell as usize] {
+        let slot = match self.spill_of.copied(cell) {
             Some(slot) => slot,
             None => {
                 let slot = self.spills.insert(Vec::new()).slot();
-                self.spill_of[cell as usize] = Some(slot);
+                self.spill_of.set(cell, slot);
                 slot
             }
         };
@@ -636,8 +436,8 @@ impl Context {
 /// Not characters and not scalar values. `"\u{1F600}".length` is 2, because a
 /// JavaScript string IS a sequence of UTF-16 code units — the decision
 /// `crate::text` is built around, read out here rather than re-derived.
-fn string_property(context: &mut Context, slot: u32, key: Key) -> Option<u64> {
-    let wanted = length_key(context);
+pub(super) fn string_property(context: &mut Context, slot: u32, key: Key) -> Option<u64> {
+    let wanted = super::computed::length_key(context);
     let text = context.text_at(slot)?;
     (key == wanted).then(|| Value::from_f64(text.len() as f64).bits())
 }
@@ -647,7 +447,7 @@ fn string_property(context: &mut Context, slot: u32, key: Key) -> Option<u64> {
 /// Out of range is `undefined` rather than an empty string, which is the
 /// difference between `s[9]` and `s.charAt(9)` — and the reason this answers an
 /// `Option` rather than always producing text.
-fn string_element(context: &mut Context, slot: u32, key: Value) -> Option<u64> {
+pub(super) fn string_element(context: &mut Context, slot: u32, key: Value) -> Option<u64> {
     let at = super::array::as_index(context, key)?;
     let unit = context.text_at(slot)?.unit_at(at)?;
     Some(context.intern_value(crate::text::Str::from_utf16(&[unit])).bits())
