@@ -52,6 +52,8 @@ pub use memory::Heap;
 pub use types::{is_word, machine_type};
 
 use cranelift_codegen::ir::{AbiParam, UserFuncName};
+
+use crate::repr::Repr;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 
 use crate::ir::{Function, Signature};
@@ -105,13 +107,51 @@ pub fn machine_signature(
             .iter()
             .map(|&r| AbiParam::new(machine_type(r))),
     );
+    let foreign = signature.convention == crate::abi::Convention::Foreign;
     lowered.returns.extend(
         signature
             .returns
             .iter()
-            .map(|&r| AbiParam::new(machine_type(r))),
+            .map(|&r| AbiParam::new(abi_return_type(r, foreign))),
     );
     lowered
+}
+
+/// The machine type a **returned** representation actually occupies.
+///
+/// # Why this is not [`machine_type`]
+///
+/// Because a boolean crossing a stable boundary is one byte, and saying
+/// otherwise is a claim about the callee that the callee does not honour. The C
+/// convention this crate targets defines only the low byte of the return
+/// register for a one-byte type; the rest is whatever the callee last had there.
+///
+/// So a foreign signature returning [`Repr::Bool`] declares `I8`, and the call
+/// site extends. Declaring `I64` reads the undefined bits as part of the value —
+/// and it did: `strict_equals` answered *true* for two different strings in an
+/// optimised build and false in an unoptimised one, because the register happened
+/// to be clean in the second. Nothing rejected it, because nothing had run the
+/// optimised build.
+///
+/// # Why the representation is still a word everywhere else
+///
+/// A value inside this crate's own IR occupies a word, for the reason
+/// [`machine_type`] gives — every boundary it has moves words. This is the one
+/// place the *other* side of a call has an opinion, so it is the one place that
+/// differs, rather than narrowing booleans everywhere and re-widening them.
+///
+/// # What was verified and what was not
+///
+/// Read from the code generator's own ABI lowering: a return declared `I8` is
+/// taken from the low byte of the return register on x86-64 and AArch64. Not
+/// verified: the same question for a `Bool` **parameter**, which is why the
+/// verifier refuses one on a foreign signature rather than this function
+/// guessing — rule 12.
+fn abi_return_type(repr: Repr, foreign: bool) -> cranelift_codegen::ir::Type {
+    match (repr, foreign) {
+        (Repr::Bool, true) => cranelift_codegen::ir::types::I8,
+        _ => machine_type(repr),
+    }
 }
 
 /// What a function is allowed to reach beyond itself.
@@ -185,4 +225,70 @@ pub fn lower_function(
     call_conv: cranelift_codegen::isa::CallConv,
 ) -> Result<cranelift_codegen::ir::Function, LowerError> {
     lower_in(func, call_conv, Environment::default())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::abi::Convention;
+    use cranelift_codegen::ir::types;
+    use cranelift_codegen::isa::CallConv;
+
+    fn returning(repr: Repr, convention: Convention) -> cranelift_codegen::ir::Signature {
+        machine_signature(
+            &Signature {
+                params: Vec::new(),
+                returns: vec![repr],
+                convention,
+                ..Signature::default()
+            },
+            CallConv::SystemV,
+        )
+    }
+
+    #[test]
+    fn a_boolean_returned_across_a_stable_boundary_is_one_byte() {
+        // The C convention defines only the low byte of the return register for
+        // a one-byte type. Declaring a word reads whatever the callee last had
+        // in the rest of it — which is not a slow answer but a wrong one, and it
+        // was: `===` said two different strings were equal in an optimised build
+        // and not in an unoptimised one.
+        assert_eq!(
+            returning(Repr::Bool, Convention::Foreign).returns[0].value_type,
+            types::I8,
+            "a foreign boolean return is a byte, because that is what the callee \
+             actually defines"
+        );
+    }
+
+    #[test]
+    fn a_boolean_inside_this_layer_is_still_a_word() {
+        // The narrowing is the boundary's, not the representation's. Every
+        // boundary this crate has of its own — a block parameter, a spill, an
+        // internal call — moves words, and narrowing booleans everywhere to
+        // re-widen them at each use would be paying for one callee's ABI
+        // everywhere it is not the question.
+        for convention in [Convention::Internal, Convention::InternalTail] {
+            assert_eq!(
+                returning(Repr::Bool, convention).returns[0].value_type,
+                types::I64,
+                "{convention:?} is ours, so nothing else has an opinion about it"
+            );
+        }
+        assert_eq!(machine_type(Repr::Bool), types::I64);
+    }
+
+    #[test]
+    fn nothing_but_a_boolean_changes_at_the_boundary() {
+        // The narrowing is one fact about one representation. A blanket rule
+        // that narrowed every return would break a reference, whose payload is a
+        // table index and needs the whole word.
+        for repr in [Repr::I64, Repr::Tagged, Repr::F64, Repr::Ref(crate::repr::RefKind::Opaque)] {
+            assert_eq!(
+                returning(repr, Convention::Foreign).returns[0].value_type,
+                machine_type(repr),
+                "{repr:?} crosses as what it is"
+            );
+        }
+    }
 }

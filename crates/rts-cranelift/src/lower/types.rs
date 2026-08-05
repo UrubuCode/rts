@@ -19,6 +19,12 @@ use crate::repr::Repr;
 ///
 /// References and generic values are also words: a reference's payload is a
 /// table index, and a generic value is one encoded word by construction.
+///
+/// **One boundary disagrees, and it is not this one.** A boolean *returned* by a
+/// foreign function is a byte, because that is what the callee defines — see
+/// `super::abi_return_type`. That is a fact about somebody else's function
+/// rather than about the representation, which is why it lives at the signature
+/// and not here.
 pub fn machine_type(repr: Repr) -> Type {
     match repr {
         Repr::I8 => types::I8,

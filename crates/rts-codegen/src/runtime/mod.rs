@@ -629,6 +629,19 @@ impl RuntimeOp {
         Signature {
             params,
             returns,
+            // Every one of these is an `extern "C"` definition the linker
+            // resolves, so the convention crossing to it is the target's stable
+            // one and not ours. It said `Internal` — the default — and that was
+            // a claim about somebody else's function that this crate had no
+            // standing to make.
+            //
+            // It linked anyway, because on this target the two happen to agree
+            // about registers. What they do not agree about is what a returned
+            // **boolean** is: a C boolean defines one byte, and the machine
+            // layer only knows to read one byte when the signature says the
+            // callee is foreign. Saying `Internal` made `strict_equals` answer
+            // true for two different strings in an optimised build.
+            convention: rts_cranelift::abi::Convention::Foreign,
             ..Signature::default()
         }
     }

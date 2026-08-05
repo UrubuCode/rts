@@ -727,15 +727,40 @@ impl<'a> Body<'a> {
     }
 
     /// Binds a call's results to the values the instruction defines.
+    /// Binds what a call produced to the values this layer names.
+    ///
+    /// # Why a result may not be the value
+    ///
+    /// Because a foreign signature tells the truth about the callee, and the
+    /// truth is narrower than a word for a boolean: the C convention defines
+    /// only the low byte of the return register. `machine_signature` declares
+    /// that, so what comes back is an `I8` where this layer's `Repr::Bool` is a
+    /// word — and the widening happens here, once, rather than at every
+    /// instruction that later consumes a boolean.
+    ///
+    /// Zero-extended and not sign-extended: a C boolean is 0 or 1, and a sign
+    /// extension would turn a true into every bit set — which compares equal to
+    /// nothing and would be a second wrong answer replacing the first.
+    ///
+    /// Written as a comparison of types rather than a test for `Repr::Bool`, so
+    /// that any future narrowing at the boundary is widened by the same line
+    /// instead of by a second one somebody has to remember to add.
     fn bind_results(
         &mut self,
-        builder: &FunctionBuilder,
+        builder: &mut FunctionBuilder,
         call: cranelift_codegen::ir::Inst,
         results: &[ValueId],
     ) -> Result<(), LowerError> {
-        let produced = builder.inst_results(call);
-        for (&ours, &theirs) in results.iter().zip(produced) {
-            self.values.insert(ours, theirs);
+        let produced: Vec<cranelift_codegen::ir::Value> = builder.inst_results(call).to_vec();
+        for (&ours, theirs) in results.iter().zip(produced) {
+            let wanted = machine_type(self.repr(ours));
+            let given = builder.func.dfg.value_type(theirs);
+            let value = if given == wanted {
+                theirs
+            } else {
+                builder.ins().uextend(wanted, theirs)
+            };
+            self.values.insert(ours, value);
         }
         Ok(())
     }
