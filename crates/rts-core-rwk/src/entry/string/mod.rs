@@ -31,6 +31,7 @@
 //! be wrong in the one way that is hard to find.
 
 mod basic;
+pub(in crate::entry) mod text;
 pub(super) mod pattern;
 
 use super::objects::undefined_of;

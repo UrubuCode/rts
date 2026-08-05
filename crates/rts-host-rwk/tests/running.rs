@@ -519,7 +519,7 @@ fn a_construct_still_missing_is_refused_by_name_rather_than_approximated() {
     // each moved on when it landed. What it pins is the shape of the refusal.
     for source in [
         "let a = [1]; return [...a];",
-        "class C { get x() { return 1; } }",
+        "function f() {} return f(1, 2, 3, 4, 5);",
         "let o = {}; let x = 1; return delete x;",
     ] {
         let error = compile(source).expect_err("still a gap");
@@ -2701,11 +2701,11 @@ fn extending_a_builtin_inherits_its_methods_but_not_its_state() {
 
 #[test]
 fn what_a_class_still_cannot_express_is_refused_by_name() {
-    // Each needs a mechanism rather than more of this lowering: an accessor is
-    // a property the read has to CALL, a private name is not a property key at
-    // all, and a static block is statements with the class as `this`.
+    // Each needs a mechanism rather than more of this lowering: a private name
+    // is not a property key at all, and a static block is statements with the
+    // class as `this`. An accessor was on this list and moved off it when the
+    // pair-beside-the-cell mechanism landed.
     for (source, expected) in [
-        ("class A { get x() { return 1; } }", "getter"),
         ("class A { #x = 1; }", "private"),
         ("class A { static { let x = 1; } }", "static block"),
         ("class A { [\"a\"] = 1; }", "computed"),
@@ -2774,4 +2774,73 @@ fn reading_a_name_nothing_declares_or_creates_is_still_refused() {
     // wrong for every program with a typo in it.
     let error = compile("return neverMentionedAgain;").expect_err("refused");
     assert!(format!("{error:?}").contains("UnboundName"), "{error:?}");
+}
+
+#[test]
+fn a_getter_is_called_rather_than_returned() {
+    // The whole of what an accessor is, and the thing that goes wrong when one
+    // is stored as an ordinary property: the read would answer the function.
+    let produced = run("let o = { get x() { return 7; } }; return o.x;");
+    assert_eq!(tags::decode_double(produced), 7.0);
+
+    let on_a_class = run("class A { get x() { return 8; } } return new A().x;");
+    assert_eq!(tags::decode_double(on_a_class), 8.0);
+}
+
+#[test]
+fn a_getter_sees_the_object_the_read_was_written_on() {
+    // The receiver is where the read happened, not where the getter was found.
+    // A getter on the prototype reading `this.n` must see the instance.
+    let produced = run(
+        "class A { constructor(n) { this.n = n; } get twice() { return this.n * 2; } } return new A(4).twice;",
+    );
+    assert_eq!(tags::decode_double(produced), 8.0);
+}
+
+#[test]
+fn a_setter_runs_instead_of_the_write_landing_in_a_slot() {
+    let produced = run(
+        "class A { set v(x) { this.stored = x + 1; } } let a = new A(); a.v = 4; return a.stored;",
+    );
+    assert_eq!(tags::decode_double(produced), 5.0);
+
+    // And the assignment still produces the value assigned, because an
+    // assignment is an expression whatever the setter did.
+    let answered = run("let o = { set v(x) { } }; return (o.v = 3);");
+    assert_eq!(tags::decode_double(answered), 3.0);
+}
+
+#[test]
+fn a_property_with_only_a_setter_reads_as_undefined() {
+    // The property exists and reading it answers nothing, which is the language
+    // and a common source of confusion.
+    let produced = run("let o = { set v(x) {} }; return o.v === undefined;");
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
+fn both_halves_of_one_accessor_survive_being_written_separately() {
+    // `get x()` and `set x(v)` are two declarations of one property. A second
+    // definition replacing the pair would make the order they were written in
+    // decide which half survives.
+    let produced = run(
+        "class A { get x() { return this.held; } set x(v) { this.held = v * 2; } } let a = new A(); a.x = 3; return a.x;",
+    );
+    assert_eq!(tags::decode_double(produced), 6.0);
+}
+
+#[test]
+fn an_own_value_shadows_an_inherited_accessor_and_the_reverse() {
+    // Why the accessors and the layouts are walked together, one cell at a
+    // time: two separate walks would let an inherited getter win over an own
+    // value, or the other way round.
+    let own_value = run(
+        "class A { get x() { return 1; } } class B extends A { constructor() { super(); } } let b = new B(); b.other = 5; return b.x;",
+    );
+    assert_eq!(tags::decode_double(own_value), 1.0);
+
+    let own_getter = run(
+        "class A { m() { return 1; } } class B extends A { get m() { return 2; } } return new B().m;",
+    );
+    assert_eq!(tags::decode_double(own_getter), 2.0);
 }

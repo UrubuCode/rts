@@ -32,6 +32,7 @@
 //! Declaring the whole crate would put hundreds of rows in a table whose entire
 //! argument is that a small closed set beats a large open one.
 
+mod accessor;
 mod alloc;
 mod array;
 mod barrier;
@@ -72,6 +73,7 @@ pub use regex::regex_new;
 pub use text::{declare_keys, declare_literals, string_const, type_of};
 mod table;
 
+pub use accessor::{define_getter, define_setter};
 pub use alloc::alloc;
 pub use barrier::write_barrier;
 pub use cache::cache_resolve;
@@ -200,6 +202,13 @@ pub struct Context {
     /// [`objects::inherited_from`] for why a link per string would be a word
     /// spent on a fact they all share.
     string_prototype: Option<u32>,
+    /// Which keys on a cell are a pair of functions rather than a slot.
+    ///
+    /// Deliberately NOT in the shape: compiled code emits `cached_get`, which
+    /// would find a getter recorded as an ordinary property and RETURN it
+    /// instead of calling it. See [`accessor`] for why the absence is
+    /// load-bearing rather than an omission.
+    accessors: Aside<Vec<(u32, Option<u64>, Option<u64>)>>,
     /// Which cells are arrays, and where their elements are.
     ///
     /// # Why a side table and not a reserved layout
@@ -302,6 +311,7 @@ impl Context {
             callables: Aside::new(),
             prototypes: Aside::new(),
             array_elements: Aside::new(),
+            accessors: Aside::new(),
             regexes: Aside::new(),
             regexp_prototype: None,
             globals: None,

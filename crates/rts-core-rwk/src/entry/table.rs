@@ -39,6 +39,7 @@
 
 use rts_cranelift::abi::{Convention, EntryDesc, Signature};
 
+use super::accessor::{DEFINE_GETTER_ENTRY, DEFINE_SETTER_ENTRY};
 use super::array::{ARRAY_NEW_ENTRY, OWN_KEYS_ENTRY};
 use super::bitwise::{
     BIT_AND_ENTRY, BIT_NOT_ENTRY, BIT_OR_ENTRY, BIT_XOR_ENTRY, EXPONENT_ENTRY, SHIFT_LEFT_ENTRY,
@@ -287,6 +288,16 @@ pub enum CoreEntry {
     /// Here for the reason the read is: the values live on an object this
     /// crate owns.
     GlobalSet = 40,
+
+    /// `get x() { … }` — records the getter half of an accessor.
+    ///
+    /// Here because it writes state beside the cell. Deliberately not a shape
+    /// transition: a getter in the layout would be RETURNED by the cache
+    /// instead of called.
+    DefineGetter = 41,
+
+    /// `set x(v) { … }` — the setter half.
+    DefineSetter = 42,
 }
 
 /// How many entry points exist.
@@ -294,7 +305,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 41;
+pub const CORE_ENTRY_COUNT: usize = 43;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -340,6 +351,8 @@ impl CoreEntry {
         CoreEntry::GetPrototype,
         CoreEntry::SetPrototype,
         CoreEntry::GlobalSet,
+        CoreEntry::DefineGetter,
+        CoreEntry::DefineSetter,
     ];
 
     /// The number a call site holds.
@@ -396,6 +409,8 @@ impl CoreEntry {
             CoreEntry::GetPrototype => GET_PROTOTYPE_ENTRY,
             CoreEntry::SetPrototype => SET_PROTOTYPE_ENTRY,
             CoreEntry::GlobalSet => GLOBAL_SET_ENTRY,
+            CoreEntry::DefineGetter => DEFINE_GETTER_ENTRY,
+            CoreEntry::DefineSetter => DEFINE_SETTER_ENTRY,
         }
     }
 

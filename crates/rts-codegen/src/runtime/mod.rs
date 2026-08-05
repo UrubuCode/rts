@@ -348,6 +348,16 @@ pub enum RuntimeOp {
     /// nothing declared puts a property on the global object. Strict mode
     /// throws instead, which is a `ReferenceError` this engine cannot raise.
     GlobalSet,
+
+    /// `get x() { … }` — the getter half of an accessor.
+    ///
+    /// Not a property write. An accessor is a pair of functions the read has to
+    /// CALL, and recording one as an ordinary property would have the cache
+    /// return the function instead of its result.
+    DefineGetter,
+
+    /// `set x(v) { … }` — the setter half.
+    DefineSetter,
 }
 
 impl RuntimeOp {
@@ -394,6 +404,8 @@ impl RuntimeOp {
         RuntimeOp::GetPrototype,
         RuntimeOp::SetPrototype,
         RuntimeOp::GlobalSet,
+        RuntimeOp::DefineGetter,
+        RuntimeOp::DefineSetter,
     ];
 
     /// The linker name the runtime must define.
@@ -445,6 +457,8 @@ impl RuntimeOp {
             RuntimeOp::GetPrototype => "__rts_get_prototype",
             RuntimeOp::SetPrototype => "__rts_set_prototype",
             RuntimeOp::GlobalSet => "__rts_global_set",
+            RuntimeOp::DefineGetter => "__rts_define_getter",
+            RuntimeOp::DefineSetter => "__rts_define_setter",
         }
     }
 
@@ -521,6 +535,11 @@ impl RuntimeOp {
             // The key the compiler resolved, and the value. Answers the value,
             // because an assignment is an expression.
             RuntimeOp::GlobalSet => (vec![Repr::I64, UNPROVEN], vec![UNPROVEN]),
+            // The object, the key the compiler resolved, and the function.
+            // Answers the object, so a lowering can define several in a row.
+            RuntimeOp::DefineGetter | RuntimeOp::DefineSetter => {
+                (vec![UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN])
+            }
         };
         Signature {
             params,

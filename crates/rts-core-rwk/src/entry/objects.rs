@@ -67,42 +67,66 @@ pub fn object_new() -> u64 {
 /// It also answers `undefined` for a receiver that is not an object, and that is
 /// **not** what the language does — `null.x` throws a `TypeError`. A stated gap:
 /// throwing needs the machine's protected regions, and nothing emits those yet.
+/// # Why this is two statements rather than one expression
+///
+/// Because the answer may be a **function to call**. An accessor's getter is
+/// user code whose first act may be to call the runtime, and calling it from
+/// inside the borrow below re-enters the `RefCell`. So the lookup answers which
+/// function, the borrow ends, and the call happens after — the same two-step
+/// shape `own_keys` and `exec` have, for the same reason.
 #[rtse::entry]
 pub fn get_property(object: u64, key: i64) -> u64 {
-    with_current(|context| {
+    let found = with_current(|context| {
         let Some(slot) = Value(object).as_slot() else {
-            return undefined_of(context);
+            return super::accessor::Found::Value(undefined_of(context));
         };
         let Some(key) = key_of(context, key) else {
-            return undefined_of(context);
+            return super::accessor::Found::Value(undefined_of(context));
         };
-        if let Some(answer) = string_property(context, slot, key) {
-            return answer;
+        if let Some(answer) = super::string::text::string_property(context, slot, key) {
+            return super::accessor::Found::Value(answer);
         }
-        match read(context, slot, key) {
-            Some(value) => value.bits(),
-            None => undefined_of(context),
+        super::accessor::resolve(context, slot, key)
+    });
+    match found {
+        super::accessor::Found::Value(value) => value,
+        // The receiver is the object the read was written on, not the one the
+        // getter was found on: `derived.x` running a getter defined on the
+        // prototype must see `derived`.
+        super::accessor::Found::Getter(getter) => {
+            let undefined = with_current(|context| undefined_of(context));
+            super::functions::call(getter, object, undefined, undefined, undefined, undefined)
         }
-    })
+        super::accessor::Found::Absent => with_current(|context| undefined_of(context)),
+    }
 }
 
 /// `object.name = value`. Answers the value, because an assignment is an
 /// expression.
+///
+/// Split for the same reason the read is: a setter is user code, and it runs
+/// after the borrow ends.
 #[rtse::entry]
 pub fn set_property(object: u64, key: i64, value: u64) -> u64 {
-    with_current(|context| {
+    let setter = with_current(|context| {
         let Some(slot) = Value(object).as_slot() else {
             // A write to a non-object is a silent no-op in sloppy mode and a
             // `TypeError` in strict. Neither is emitted yet, and the value comes
             // back either way because that is what the expression produces.
-            return value;
+            return None;
         };
-        let Some(key) = key_of(context, key) else {
-            return value;
-        };
+        let key = key_of(context, key)?;
+        if let Some(setter) = super::accessor::setter_for(context, slot, key) {
+            return Some(setter);
+        }
         put(context, slot, key, value);
-        value
-    })
+        None
+    });
+    if let Some(setter) = setter {
+        let undefined = with_current(|context| undefined_of(context));
+        super::functions::call(setter, object, value, undefined, undefined, undefined);
+    }
+    value
 }
 
 /// Puts a value at a key, taking the shape transition if the object does not
@@ -200,24 +224,34 @@ pub(super) fn read_property(context: &mut Context, start: u32, key: Key) -> Opti
 }
 
 fn read(context: &mut Context, start: u32, key: Key) -> Option<Value> {
-    let machine = machine_key(key)?;
     let mut cell = start;
     // Bounded rather than trusting the chain to end. Nothing here builds a
     // cycle, but a prototype is a value a program can set, and a walk that
     // trusted it would hang instead of answering — which is a worse failure
     // than a wrong value, because nothing reports it at all.
     for _ in 0..CHAIN_LIMIT {
-        if let Some(ty) = context.region.type_of(cell)
-            && let Some(shape) = context.shape_of(ty)
-            && let Some(at) = context.shapes.slot_of(shape, machine)
-        {
-            return slot_value(context, cell, at).map(Value);
+        if let Some(found) = own_property(context, cell, key) {
+            return Some(found);
         }
         // Not here, so ask what this inherits from. An element or a string.s
         // length never reaches this loop: those are answered before it.
         cell = inherited_from(context, cell)?;
     }
     None
+}
+
+/// What one cell holds for a key, without looking at what it inherits from.
+///
+/// Split out because the accessor walk needs the two questions interleaved: an
+/// own data property shadows an inherited getter and an own getter shadows an
+/// inherited data property, so a walk that asked one question over the whole
+/// chain and then the other would get both backwards.
+pub(super) fn own_property(context: &mut Context, cell: u32, key: Key) -> Option<Value> {
+    let machine = machine_key(key)?;
+    let ty = context.region.type_of(cell)?;
+    let shape = context.shape_of(ty)?;
+    let at = context.shapes.slot_of(shape, machine)?;
+    slot_value(context, cell, at).map(Value)
 }
 
 /// What a cell inherits from, including the one kind that has no link of its own.
@@ -236,10 +270,10 @@ fn read(context: &mut Context, start: u32, key: Key) -> Option<Value> {
 /// # Why this is not a special case the fast path can disagree with
 ///
 /// `cache_resolve` answers negative for a cell with no shape, so every read of a
-/// string takes the slow path — the same argument [`string_property`] records
+/// string takes the slow path — the same argument [`super::string::text::string_property`] records
 /// for `length`. A cached read never reaches a string, so there is nothing for
 /// this to contradict.
-fn inherited_from(context: &mut Context, cell: u32) -> Option<u32> {
+pub(super) fn inherited_from(context: &mut Context, cell: u32) -> Option<u32> {
     if let Some(own) = context.prototype_at(cell) {
         return Value(own).as_slot();
     }
@@ -447,45 +481,4 @@ impl Context {
         }
         spill[past] = value;
     }
-}
-
-/// What a property read on a **string** answers, if this is one.
-///
-/// # Why a special case is safe here and was not for an array
-///
-/// An array's `length` had to become a real property, because compiled code
-/// reaches `cached_get` and finds whatever is stored — a special case only the
-/// runtime knew about stopped applying the moment the fast path started
-/// working.
-///
-/// A string cell has no shape, so `cache_resolve` answers negative for it and
-/// every read of one takes the slow path. There is nothing for a special case
-/// to disagree with, and nothing can store a property on a string to shadow it:
-/// `put` is already a no-op for a cell with no shape, which is what sloppy mode
-/// does to `"x".foo = 1`.
-///
-/// # `length` counts code units
-///
-/// Not characters and not scalar values. `"\u{1F600}".length` is 2, because a
-/// JavaScript string IS a sequence of UTF-16 code units — the decision
-/// `crate::text` is built around, read out here rather than re-derived.
-pub(super) fn string_property(context: &mut Context, slot: u32, key: Key) -> Option<u64> {
-    let wanted = super::computed::length_key(context);
-    let text = context.text_at(slot)?;
-    (key == wanted).then(|| Value::from_f64(text.len() as f64).bits())
-}
-
-/// The code unit at an index of a string, as a one-unit string.
-///
-/// Out of range is `undefined` rather than an empty string, which is the
-/// difference between `s[9]` and `s.charAt(9)` — and the reason this answers an
-/// `Option` rather than always producing text.
-pub(super) fn string_element(context: &mut Context, slot: u32, key: Value) -> Option<u64> {
-    let at = super::array::as_index(context, key)?;
-    let unit = context.text_at(slot)?.unit_at(at)?;
-    Some(
-        context
-            .intern_value(crate::text::Str::from_utf16(&[unit]))
-            .bits(),
-    )
 }

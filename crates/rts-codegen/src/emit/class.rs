@@ -115,7 +115,20 @@ pub(super) fn emit_class(
                 let name = named_key(&method.key)?;
                 let closure = function::emit_closure(builder, &inner, ctx, &method.function)?;
                 let target = if method.is_static { constructor } else { prototype };
-                expr::emit_write(builder, ctx, target, name, closure)?;
+                // An accessor is not written as a property: it is a pair of
+                // functions the read has to CALL, and a getter stored in the
+                // layout would be returned by the cache instead of run.
+                match method.kind {
+                    MethodKind::Normal => {
+                        expr::emit_write(builder, ctx, target, name, closure)?;
+                    }
+                    MethodKind::Getter => {
+                        super::object::define_accessor(builder, ctx, target, name, closure, true)?;
+                    }
+                    MethodKind::Setter => {
+                        super::object::define_accessor(builder, ctx, target, name, closure, false)?;
+                    }
+                }
             }
             // A static field's initialiser runs once, here, with the class
             // already linked — which is what lets `static all = new X()` work.
@@ -411,15 +424,11 @@ fn refuse_what_is_not_built(class: &Class) -> EmitResult<()> {
                     construct: "a class static block",
                 });
             }
-            ClassElement::Method(Method { kind, .. }) if *kind != MethodKind::Normal => {
-                // An accessor is not a value in a slot — it is a pair of
-                // functions the property read has to CALL. The runtime has no
-                // such property, and inventing one here would be a second kind
-                // of property every read would then have to check for.
-                return Err(EmitError::Unsupported {
-                    construct: "a class getter or setter",
-                });
-            }
+            // A constructor that is a getter is a grammar error rather than
+            // something to emit, and `is_constructor` already answers false for
+            // one — so the only accessors reaching the loop above are real
+            // ones.
+            ClassElement::Method(Method { .. }) => {}
             _ => {}
         }
         if let Some(key) = element.key() {

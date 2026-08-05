@@ -12,8 +12,9 @@
 //! through this side. Filing them with the named read would put two answers to
 //! "what is a key" in one file.
 
+use super::string::text::{string_element, string_property};
 use super::objects::{
-    machine_key, put, read_property, set_slot_value, slot_value, string_element, string_property,
+    machine_key, put, read_property, set_slot_value, slot_value,
     undefined_of,
 };
 use super::{Context, with_current};

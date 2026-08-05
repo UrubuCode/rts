@@ -178,6 +178,12 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::SetPrototype => (CoreEntry::SetPrototype, {
             rts_core_rwk::entry::set_prototype as extern "C" fn(u64, u64) -> u64 as *const u8
         }),
+        RuntimeOp::DefineGetter => (CoreEntry::DefineGetter, {
+            rts_core_rwk::entry::define_getter as extern "C" fn(u64, i64, u64) -> u64 as *const u8
+        }),
+        RuntimeOp::DefineSetter => (CoreEntry::DefineSetter, {
+            rts_core_rwk::entry::define_setter as extern "C" fn(u64, i64, u64) -> u64 as *const u8
+        }),
         RuntimeOp::GlobalSet => (CoreEntry::GlobalSet, {
             rts_core_rwk::entry::global_set as extern "C" fn(i64, u64) -> u64 as *const u8
         }),

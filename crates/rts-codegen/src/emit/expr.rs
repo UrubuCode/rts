@@ -47,7 +47,7 @@ use super::{Ctx, EmitError, EmitResult, Scope, UNPROVEN};
 use crate::names::Name;
 use crate::runtime::RuntimeOp;
 use crate::syntax::{AssignOp, BinaryOp};
-use crate::syntax::{AssignTarget, Expr, ExprKind, Literal, Property, PropertyKey};
+use crate::syntax::{AssignTarget, Expr, ExprKind, Literal};
 use crate::values::Singleton;
 
 /// Materializes `undefined`.
@@ -139,7 +139,7 @@ pub fn emit_expr(
             let key = emit_expr(builder, scope, ctx, index)?;
             Ok(call(builder, ctx, RuntimeOp::GetIndexed, &[receiver, key])?[0])
         }
-        ExprKind::Object { properties } => emit_object(builder, scope, ctx, properties),
+        ExprKind::Object { properties } => super::object::emit_object(builder, scope, ctx, properties),
         ExprKind::Array { elements } => emit_array(builder, scope, ctx, elements),
         ExprKind::Function(function) => {
             super::function::emit_closure(builder, scope, ctx, function)
@@ -620,7 +620,7 @@ pub fn stored(builder: &mut FuncBuilder, ctx: &Ctx, name: Name, value: ValueId) 
 /// argument, a binding nothing proved. The machine inserts nothing when the
 /// value is already generic, so this costs a comparison while compiling and
 /// nothing at run time for values that were never proved.
-fn tagged(builder: &mut FuncBuilder, value: ValueId) -> ValueId {
+pub(super) fn tagged(builder: &mut FuncBuilder, value: ValueId) -> ValueId {
     builder.widen(value)
 }
 
@@ -672,57 +672,6 @@ pub(super) fn key_constant(builder: &mut FuncBuilder, ctx: &mut Ctx, name: Name)
     builder.use_const(id)
 }
 
-/// Emits an object literal.
-///
-/// A fresh object, then one write per property, in source order. Not a shape
-/// decided here and filled in: two objects built the same way reach the same
-/// layout because they take the same transitions, and taking them is what the
-/// writes do. Deciding a layout at the literal would be a second authority on
-/// what an object's shape is, disagreeing with the runtime's the first time a
-/// property was added after construction.
-fn emit_object(
-    builder: &mut FuncBuilder,
-    scope: &mut Scope,
-    ctx: &mut Ctx,
-    properties: &[Property],
-) -> EmitResult<ValueId> {
-    let object = call(builder, ctx, RuntimeOp::ObjectNew, &[])?[0];
-    for property in properties {
-        // A method is a function stored under a key, plus a **home object** —
-        // which is what `super.x` inside it reads from. There is no `super`
-        // yet, so the two are the same thing here; when there is, this becomes
-        // the place that differs and the tree already records which was
-        // written.
-        let (key, value) = match property {
-            Property::Value { key, value, .. } => {
-                let value = emit_expr(builder, scope, ctx, value)?;
-                (key, value)
-            }
-            Property::Method { key, function } => {
-                let value = super::function::emit_closure(builder, scope, ctx, function)?;
-                (key, value)
-            }
-            _ => return gap("a getter, setter, spread or `__proto__` in an object literal"),
-        };
-        let value = tagged(builder, value);
-
-        match key {
-            // The name is resolved while compiling, so the key crosses as the
-            // number — which is the whole reason a written key and a computed
-            // one are different operations rather than one taking a value.
-            PropertyKey::Named(name) => {
-                let key = key_constant(builder, ctx, *name);
-                call(builder, ctx, RuntimeOp::SetProperty, &[object, key, value])?;
-            }
-            PropertyKey::Computed(expression) => {
-                let key = emit_expr(builder, scope, ctx, expression)?;
-                let key = tagged(builder, key);
-                call(builder, ctx, RuntimeOp::SetIndexed, &[object, key, value])?;
-            }
-        }
-    }
-    Ok(object)
-}
 
 /// Reads a property, through the site's memory of what it last saw.
 ///

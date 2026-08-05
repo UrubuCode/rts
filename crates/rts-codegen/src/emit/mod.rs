@@ -65,6 +65,7 @@ mod function;
 mod globals;
 mod loops;
 mod merge;
+mod object;
 mod protect;
 mod proven;
 mod regex;
@@ -477,19 +478,18 @@ mod tests {
 
     #[test]
     fn a_gap_is_named_rather_than_counted() {
-        // This has named `f()`, an array literal, `new` and a class in turn,
-        // and each moved on when it landed. A class getter is what is still
-        // missing — an accessor is not a value in a slot but a pair of
-        // functions the property read has to CALL, which the runtime has no
-        // property kind for. The name in the refusal is the point, so the test
-        // follows it rather than being deleted with the gap it happened to
-        // name.
-        let error = emit_source("class C { get x() { return 1; } }")
-            .expect_err("an accessor is not emitted yet");
+        // This has named `f()`, an array literal, `new`, a class and a class
+        // getter in turn, and each moved on when it landed. A spread argument
+        // is what is still missing — it needs somewhere to put an argument
+        // vector, which is a stack slot this compiler does not emit. The name
+        // in the refusal is the point, so the test follows it rather than being
+        // deleted with the gap it happened to name.
+        let error =
+            emit_source("function f() {} let a = [1]; f(...a);").expect_err("spread is not emitted");
         assert_eq!(
             error,
             EmitError::Unsupported {
-                construct: "a class getter or setter"
+                construct: "a spread argument"
             },
             "the name is the deliverable — a gap reported as `Unsupported` with \
              no word in it is indistinguishable from any other gap"

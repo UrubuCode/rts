@@ -157,12 +157,12 @@ Classes land in the same shape: a constructor function, an object on its
 than a feature, so nothing in the runtime knows what a class is.
 
 Everything not yet emitted is refused by name, and that list is the work queue.
-`PLAN.md` §3b. The three shapes a gap has today, so the next one can be placed:
-what is left needs a **mechanism**: accessor properties (which a getter, a
-setter and `Object.defineProperty` all wait for), an argument vector (rest,
-spread, and a call of more than four arguments), iteration, generators, and
-`await`. Nothing is left in the category of *a heap value this crate cannot
-make*, now that strings, arrays and regular expressions exist.
+`PLAN.md` §3b. What each remaining one waits for:
+what is left needs a **mechanism**: an argument vector (rest, spread, and a call
+of more than four arguments), iteration, generators, and `await`. Accessor
+properties came off this list when the pair-beside-the-cell mechanism landed:
+a getter is deliberately absent from the layout, so the cache misses and the
+read reaches the runtime that can call it.
 
 There **is** a global object now: `globalThis` is a real object a program can
 reach and write to, an assignment to an undeclared name creates a property on
