@@ -37,7 +37,7 @@ use crate::syntax::{Expr, Pattern, Stmt};
 /// bindings rather than a side channel — which is what lets the existing
 /// analysis see the index being assigned and give it a block parameter without
 /// being told.
-pub fn emit_for_in(
+pub fn emit_for_each(
     builder: &mut FuncBuilder,
     scope: &mut Scope,
     ctx: &mut Ctx,
@@ -47,6 +47,7 @@ pub fn emit_for_in(
     subject: &Expr,
     body: &Stmt,
     label: Option<Name>,
+    over: crate::runtime::RuntimeOp,
 ) -> EmitResult<bool> {
     use crate::syntax::{Binding as SyntaxBinding, BindingKind, ExprKind, ForEachTarget, StmtKind};
 
@@ -94,7 +95,7 @@ pub fn emit_for_in(
     let enumerated = super::expr::call(
         builder,
         ctx,
-        crate::runtime::RuntimeOp::OwnKeys,
+        over,
         &[enumerated],
     )?[0];
     super::binding::declare(builder, scope, ctx, keys, enumerated)?;

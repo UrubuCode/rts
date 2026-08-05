@@ -394,6 +394,22 @@ pub enum RuntimeOp {
     /// Its own operation rather than the call one with a flag, for the reason
     /// `Construct` is: it makes the receiver rather than taking one.
     ConstructWithArgs,
+
+    /// The elements of an iterable, as an array.
+    ///
+    /// `for-of` becomes the indexed loop `for-in` already reduces to, which is
+    /// what buys `break`, `continue`, labels and a fresh binding per pass
+    /// without any of them being written a second time.
+    Iterate,
+
+    /// Appends one value to an array.
+    ///
+    /// Not a write at a computed index: a spread earlier in the same literal
+    /// contributed a count the compiler does not know.
+    ArrayAppend,
+
+    /// Appends everything an iterable yields — what `...xs` is.
+    ArrayAppendAll,
 }
 
 impl RuntimeOp {
@@ -447,6 +463,9 @@ impl RuntimeOp {
         RuntimeOp::CallWithArgs,
         RuntimeOp::RestArguments,
         RuntimeOp::ConstructWithArgs,
+        RuntimeOp::Iterate,
+        RuntimeOp::ArrayAppend,
+        RuntimeOp::ArrayAppendAll,
     ];
 
     /// The linker name the runtime must define.
@@ -505,6 +524,9 @@ impl RuntimeOp {
             RuntimeOp::CallWithArgs => "__rts_call_with_args",
             RuntimeOp::RestArguments => "__rts_rest_arguments",
             RuntimeOp::ConstructWithArgs => "__rts_construct_with_args",
+            RuntimeOp::Iterate => "__rts_iterate",
+            RuntimeOp::ArrayAppend => "__rts_array_append",
+            RuntimeOp::ArrayAppendAll => "__rts_array_append_all",
         }
     }
 
@@ -590,6 +612,12 @@ impl RuntimeOp {
             // The callee and the arguments — no receiver, because `new` makes
             // the one the callee gets.
             RuntimeOp::ConstructWithArgs => (vec![UNPROVEN; 2], vec![UNPROVEN]),
+            RuntimeOp::Iterate => (vec![UNPROVEN], vec![UNPROVEN]),
+            // Both answer the array, so a lowering can chain one spread after
+            // another without holding it in a local.
+            RuntimeOp::ArrayAppend | RuntimeOp::ArrayAppendAll => {
+                (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN])
+            }
             // How many are declared, then the four the convention carried.
             RuntimeOp::RestArguments => {
                 (vec![Repr::I64, UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN], vec![UNPROVEN])

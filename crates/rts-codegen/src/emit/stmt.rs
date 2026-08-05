@@ -147,12 +147,34 @@ pub fn emit_stmt(
             subject,
             body,
         } => match source {
-            crate::syntax::ForEachSource::In => super::foreach::emit_for_in(
-                builder, scope, ctx, loops, statement, target, subject, body, None,
+            crate::syntax::ForEachSource::In => super::foreach::emit_for_each(
+                builder,
+                scope,
+                ctx,
+                loops,
+                statement,
+                target,
+                subject,
+                body,
+                None,
+                crate::runtime::RuntimeOp::OwnKeys,
             ),
-            // `for-of` steps `[Symbol.iterator]()`, which is a call to user
-            // code and a protocol this engine has no symbols for.
-            _ => super::expr::gap("`for-of`"),
+            // `for-of` is the same expansion over a different sequence: the
+            // keys become the elements, and everything the loop already gets
+            // right is got right once.
+            crate::syntax::ForEachSource::Of => super::foreach::emit_for_each(
+                builder,
+                scope,
+                ctx,
+                loops,
+                statement,
+                target,
+                subject,
+                body,
+                None,
+                crate::runtime::RuntimeOp::Iterate,
+            ),
+            crate::syntax::ForEachSource::AwaitOf => super::expr::gap("`for await`"),
         },
         StmtKind::Switch {
             discriminant,
@@ -362,21 +384,33 @@ fn emit_labelled(
             Some(label),
         ),
         StmtKind::ForEach {
-            source: crate::syntax::ForEachSource::In,
+            source,
             target,
             subject,
             body: inner,
-        } => super::foreach::emit_for_in(
-            builder,
-            scope,
-            ctx,
-            loops,
-            body,
-            target,
-            subject,
-            inner,
-            Some(label),
-        ),
+        } => {
+            // A label reaches both spellings, and which sequence is walked is
+            // the only difference between them.
+            let over = match source {
+                crate::syntax::ForEachSource::In => crate::runtime::RuntimeOp::OwnKeys,
+                crate::syntax::ForEachSource::Of => crate::runtime::RuntimeOp::Iterate,
+                crate::syntax::ForEachSource::AwaitOf => {
+                    return super::expr::gap("a labelled `for await`");
+                }
+            };
+            super::foreach::emit_for_each(
+                builder,
+                scope,
+                ctx,
+                loops,
+                body,
+                target,
+                subject,
+                inner,
+                Some(label),
+                over,
+            )
+        }
         _ => loops::emit_labelled_block(builder, scope, ctx, loops, label, body),
     }
 }

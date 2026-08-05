@@ -95,7 +95,10 @@ pub fn emit_call_with(
     // runtime holds it for the activation. The common call is unchanged and
     // allocates nothing — which is the whole reason this is a second operation
     // rather than the only one.
-    if arguments.len() > ARGUMENT_SLOTS {
+    // A spread takes this path whatever the written count is, because how many
+    // values it contributes is not known while compiling — one written
+    // argument may become none or nine.
+    if arguments.len() > ARGUMENT_SLOTS || has_spread(arguments) {
         let vector = emit_argument_vector(builder, scope, ctx, arguments)?;
         return Ok(expr::call(
             builder,
@@ -173,27 +176,28 @@ pub fn emit_super_construct(
 /// `[a, b, c]` already does — so a call with six arguments and an array literal
 /// of six elements produce the same thing, and there is one answer to what a
 /// sequence of values is.
-fn emit_argument_vector(
+pub(super) fn emit_argument_vector(
     builder: &mut FuncBuilder,
     scope: &mut Scope,
     ctx: &mut Ctx,
     arguments: &[Spreadable],
 ) -> EmitResult<ValueId> {
+    // Started empty and appended to, rather than sized once and written at
+    // fixed indices: a spread contributes a count nothing knows while
+    // compiling, so every index after one is unknown too.
     let length = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
         repr: rts_cranelift::repr::Repr::I64,
-        bits: rts_cranelift::ir::ScalarBits(arguments.len() as u64),
+        bits: rts_cranelift::ir::ScalarBits(0),
     });
     let length = builder.use_const(length);
     let array = expr::call(builder, ctx, RuntimeOp::ArrayNew, &[length])?[0];
-    for (at, argument) in arguments.iter().enumerate() {
-        let Spreadable::Single(value) = argument else {
-            return Err(EmitError::Unsupported {
-                construct: "a spread argument",
-            });
+    for argument in arguments {
+        let (value, op) = match argument {
+            Spreadable::Single(value) => (value, RuntimeOp::ArrayAppend),
+            Spreadable::Spread(value) => (value, RuntimeOp::ArrayAppendAll),
         };
         let value = emit_expr(builder, scope, ctx, value)?;
-        let index = expr::number_constant(builder, at as f64);
-        expr::call(builder, ctx, RuntimeOp::SetIndexed, &[array, index, value])?;
+        expr::call(builder, ctx, op, &[array, value])?;
     }
     Ok(array)
 }
@@ -212,10 +216,10 @@ fn emit_construction(
     // `new.target`, and a vector operation that did would put the object on the
     // wrong prototype — so forwarding more than four through `super()` is a
     // named gap rather than a silently different answer.
-    if arguments.len() > ARGUMENT_SLOTS {
+    if arguments.len() > ARGUMENT_SLOTS || has_spread(arguments) {
         if op == RuntimeOp::SuperConstruct {
             return Err(EmitError::Unsupported {
-                construct: "`super()` with more than four arguments",
+                construct: "`super()` with more than four arguments or a spread",
             });
         }
         let vector = emit_argument_vector(builder, scope, ctx, arguments)?;
@@ -242,4 +246,15 @@ fn emit_construction(
         passed.push(undefined);
     }
     Ok(expr::call(builder, ctx, op, &passed)?[0])
+}
+
+/// Whether any argument is a spread.
+///
+/// Asked before the arity is, because a spread makes the arity unknowable: one
+/// written argument may contribute none or nine, so the padded path cannot be
+/// taken however few were spelled.
+fn has_spread(arguments: &[Spreadable]) -> bool {
+    arguments
+        .iter()
+        .any(|argument| matches!(argument, Spreadable::Spread(_)))
 }

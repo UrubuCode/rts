@@ -941,6 +941,24 @@ fn emit_array(
     ctx: &mut Ctx,
     elements: &[Option<crate::syntax::Spreadable>],
 ) -> EmitResult<ValueId> {
+    // A spread makes every index after it unknowable, so a literal containing
+    // one is built by appending rather than by writing at fixed positions. The
+    // ordinary literal keeps the sized-once path, which is what stops the
+    // common case paying for the rare one.
+    if elements
+        .iter()
+        .any(|element| matches!(element, Some(crate::syntax::Spreadable::Spread(_))))
+    {
+        let written: Vec<crate::syntax::Spreadable> = elements
+            .iter()
+            .map(|element| element.clone().ok_or(()))
+            .collect::<Result<_, ()>>()
+            .map_err(|()| EmitError::Unsupported {
+                construct: "a hole beside a spread in an array literal",
+            })?;
+        return super::call::emit_argument_vector(builder, scope, ctx, &written);
+    }
+
     let length = builder.declare_const(ConstDecl::Scalar {
         repr: Repr::I64,
         bits: ScalarBits(elements.len() as u64),
@@ -950,10 +968,7 @@ fn emit_array(
 
     for (position, element) in elements.iter().enumerate() {
         let Some(crate::syntax::Spreadable::Single(value)) = element else {
-            return match element {
-                None => gap("a hole in an array literal"),
-                _ => gap("a spread in an array literal"),
-            };
+            return gap("a hole in an array literal");
         };
         let value = emit_expr(builder, scope, ctx, value)?;
         let value = tagged(builder, value);

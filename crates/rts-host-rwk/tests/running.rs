@@ -104,11 +104,11 @@ fn a_program_naming_an_operation_the_runtime_lacks_is_refused_by_name() {
     // still missing rather than being deleted with the gap it happened to name.
     //
     // Nothing is left in its original category: no operator the language spells
-    // reaches a runtime operation that does not exist. So it names `for-of`,
-    // which needs the iterator protocol — a call to user code from inside the
-    // enumeration, which is the thing an entry point cannot do.
-    let error = compile("let a = [1]; for (let v of a) { }")
-        .expect_err("`for-of` needs the iterator protocol");
+    // reaches a runtime operation that does not exist. So it names `for await`,
+    // which needs a suspended frame — the operation nothing emits and nothing
+    // in this crate can stand in for.
+    let error = compile("async function f(a) { for await (let v of a) { } }")
+        .expect_err("`for await` needs a suspended frame");
     assert!(
         format!("{error:?}").contains("Unsupported"),
         "expected a named refusal, got {error:?}"
@@ -518,7 +518,7 @@ fn a_construct_still_missing_is_refused_by_name_rather_than_approximated() {
     // This test has named `typeof`, a string literal, `~` and `==` in turn, and
     // each moved on when it landed. What it pins is the shape of the refusal.
     for source in [
-        "let a = [1]; return [...a];",
+        "return [1, , 2];",
         "class A {} class B extends A { constructor() { super(1, 2, 3, 4, 5); } } return new B();",
         "let o = {}; let x = 1; return delete x;",
     ] {
@@ -789,15 +789,15 @@ fn the_limits_of_the_fixed_arity_are_refused_by_name() {
 
 #[test]
 fn what_a_function_still_cannot_do_is_refused_by_name() {
-    // Each of these is a mechanism rather than a spelling: a spread argument
-    // needs iteration over something that may not be an array, a default needs
-    // an expression evaluated at the call, and `this` inside an arrow needs the
-    // defining function's receiver carried through the environment.
+    // Each of these is a mechanism rather than a spelling: a default needs an
+    // expression evaluated at the call, `this` inside an arrow needs the
+    // defining function's receiver carried through the environment, and both
+    // `async` and `function*` need a frame that can be suspended.
     //
-    // A rest parameter was on this list and came off it: the vector it needed
-    // is the runtime's now.
+    // A rest parameter and a spread argument were both on this list and came
+    // off it: the vector one needed is the runtime's now, and the other is what
+    // iteration produces.
     for source in [
-        "function f(a) { return a; } let xs = 0; return f(...xs);",
         "function f(a) { return a; } return f();",
         "let f = () => this; return f();",
         "async function f() { return 1; } return f();",
@@ -3144,4 +3144,66 @@ fn array_is_a_name_the_runtime_provides() {
     // of the substitution being an ordinary object.
     let extended = run("Array.prototype.first = function () { return this[0]; }; return [7, 8].first();");
     assert_eq!(tags::decode_double(extended), 7.0);
+}
+
+#[test]
+fn for_of_walks_the_elements_rather_than_the_keys() {
+    // The difference from `for-in`, which is the whole reason both exist.
+    let summed = run("let t = 0; for (let v of [1, 2, 3]) { t = t + v; } return t;");
+    assert_eq!(tags::decode_double(summed), 6.0);
+
+    let keys = run("let t = 0; for (let k in [1, 2, 3]) { t = t + 1; } return t;");
+    assert_eq!(tags::decode_double(keys), 3.0);
+
+    // Everything the loop already gets right is got right once: this is the
+    // same expansion `for-in` uses, so `break` needs no second implementation.
+    let stopped = run("let t = 0; for (let v of [1, 2, 3]) { if (v > 1) { break; } t = t + v; } return t;");
+    assert_eq!(tags::decode_double(stopped), 1.0);
+}
+
+#[test]
+fn for_of_over_a_string_yields_code_points() {
+    // Not units. `"😀"` is one element here and two in `length`, which is the
+    // difference the construct was added to the language for.
+    let count = run("let n = 0; for (let c of \"ab\") { n = n + 1; } return n;");
+    assert_eq!(tags::decode_double(count), 2.0);
+
+    let astral = run("let n = 0; for (let c of \"😀a\") { n = n + 1; } return n;");
+    assert_eq!(tags::decode_double(astral), 2.0);
+
+    let length = run("return \"😀a\".length;");
+    assert_eq!(tags::decode_double(length), 3.0);
+}
+
+#[test]
+fn a_loop_walks_a_copy_so_a_body_that_grows_it_terminates() {
+    // The array is materialised, so pushing inside the body does not extend
+    // what is being walked. This test hangs rather than fails if that changes,
+    // which is why it is small.
+    let produced = run("let a = [1, 2]; let n = 0; for (let v of a) { a.push(v); n = n + 1; } return n;");
+    assert_eq!(tags::decode_double(produced), 2.0);
+}
+
+#[test]
+fn a_spread_contributes_a_count_nothing_knew_while_compiling() {
+    let in_a_literal = run("let xs = [2, 3]; return [1, ...xs, 4].length;");
+    assert_eq!(tags::decode_double(in_a_literal), 4.0);
+
+    let ordered = run("let xs = [2, 3]; return [1, ...xs, 4][2];");
+    assert_eq!(tags::decode_double(ordered), 3.0);
+
+    // One written argument becoming three is why a spread takes the vector path
+    // whatever the written count is.
+    let in_a_call = run("function f(a, b, c) { return a + b + c; } let xs = [1, 2, 3]; return f(...xs);");
+    assert_eq!(tags::decode_double(in_a_call), 6.0);
+
+    let mixed = run("function f(a, ...rest) { return rest.length; } let xs = [1, 2]; return f(0, ...xs, 9);");
+    assert_eq!(tags::decode_double(mixed), 3.0);
+
+    let constructed = run("class P { constructor(a, b) { this.n = a + b; } } let xs = [3, 4]; return new P(...xs).n;");
+    assert_eq!(tags::decode_double(constructed), 7.0);
+
+    // A string spreads by code point, the same sequence `for-of` walks.
+    let text = run("return [...\"ab\"].length;");
+    assert_eq!(tags::decode_double(text), 2.0);
 }

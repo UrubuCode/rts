@@ -478,18 +478,18 @@ mod tests {
 
     #[test]
     fn a_gap_is_named_rather_than_counted() {
-        // This has named `f()`, an array literal, `new`, a class and a class
-        // getter in turn, and each moved on when it landed. A spread argument
-        // is what is still missing — it needs somewhere to put an argument
-        // vector, which is a stack slot this compiler does not emit. The name
-        // in the refusal is the point, so the test follows it rather than being
-        // deleted with the gap it happened to name.
-        let error =
-            emit_source("function f() {} let a = [1]; f(...a);").expect_err("spread is not emitted");
+        // This has named `f()`, an array literal, `new`, a class, a class
+        // getter and a spread argument in turn, and each moved on when it
+        // landed. A hole is what is still missing — `[,1]` has no element zero,
+        // and `0 in [,1]` is false where `0 in [undefined,1]` is true, so a
+        // hole cannot be written as `undefined` without changing the answer.
+        // The name in the refusal is the point, so the test follows it rather
+        // than being deleted with the gap it happened to name.
+        let error = emit_source("let a = [1, , 2];").expect_err("a hole is not emitted");
         assert_eq!(
             error,
             EmitError::Unsupported {
-                construct: "a spread argument"
+                construct: "a hole in an array literal"
             },
             "the name is the deliverable — a gap reported as `Unsupported` with \
              no word in it is indistinguishable from any other gap"

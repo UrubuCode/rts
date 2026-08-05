@@ -182,6 +182,15 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
             rts_core_rwk::entry::super_construct
                 as extern "C" fn(u64, u64, u64, u64, u64) -> u64 as *const u8
         }),
+        RuntimeOp::Iterate => (CoreEntry::Iterate, {
+            rts_core_rwk::entry::iterate as extern "C" fn(u64) -> u64 as *const u8
+        }),
+        RuntimeOp::ArrayAppend => (CoreEntry::ArrayAppend, {
+            rts_core_rwk::entry::array_append as extern "C" fn(u64, u64) -> u64 as *const u8
+        }),
+        RuntimeOp::ArrayAppendAll => (CoreEntry::ArrayAppendAll, {
+            rts_core_rwk::entry::array_append_all as extern "C" fn(u64, u64) -> u64 as *const u8
+        }),
         RuntimeOp::ConstructWithArgs => (CoreEntry::ConstructWithArgs, {
             rts_core_rwk::entry::construct_with_args as extern "C" fn(u64, u64) -> u64 as *const u8
         }),

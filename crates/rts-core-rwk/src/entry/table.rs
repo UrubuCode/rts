@@ -63,6 +63,7 @@ use super::operators::{
 };
 use super::primitives::{ADD_ENTRY, NUMBER_TO_STRING_ENTRY, STRICT_EQUALS_ENTRY, TO_BOOLEAN_ENTRY};
 use super::global::{GLOBAL_GET_ENTRY, GLOBAL_SET_ENTRY};
+use super::iterate::{ARRAY_APPEND_ALL_ENTRY, ARRAY_APPEND_ENTRY, ITERATE_ENTRY};
 use super::regex::REGEX_NEW_ENTRY;
 use super::text::{STRING_CONST_ENTRY, TYPE_OF_ENTRY};
 
@@ -325,6 +326,18 @@ pub enum CoreEntry {
 
     /// `new f(…)` with more arguments than the convention carries.
     ConstructWithArgs = 47,
+
+    /// The elements of an iterable, as an array.
+    ///
+    /// Here because it allocates, and because what a value yields is this
+    /// crate.s question: `for-of` becomes the indexed loop `for-in` already is.
+    Iterate = 48,
+
+    /// Appends one value to an array.
+    ArrayAppend = 49,
+
+    /// Appends everything an iterable yields.
+    ArrayAppendAll = 50,
 }
 
 /// How many entry points exist.
@@ -332,7 +345,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 48;
+pub const CORE_ENTRY_COUNT: usize = 51;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -385,6 +398,9 @@ impl CoreEntry {
         CoreEntry::CallWithArgs,
         CoreEntry::RestArguments,
         CoreEntry::ConstructWithArgs,
+        CoreEntry::Iterate,
+        CoreEntry::ArrayAppend,
+        CoreEntry::ArrayAppendAll,
     ];
 
     /// The number a call site holds.
@@ -448,6 +464,9 @@ impl CoreEntry {
             CoreEntry::CallWithArgs => CALL_WITH_ARGS_ENTRY,
             CoreEntry::RestArguments => REST_ARGUMENTS_ENTRY,
             CoreEntry::ConstructWithArgs => CONSTRUCT_WITH_ARGS_ENTRY,
+            CoreEntry::Iterate => ITERATE_ENTRY,
+            CoreEntry::ArrayAppend => ARRAY_APPEND_ENTRY,
+            CoreEntry::ArrayAppendAll => ARRAY_APPEND_ALL_ENTRY,
         }
     }
 

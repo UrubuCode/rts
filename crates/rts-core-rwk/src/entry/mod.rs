@@ -47,6 +47,7 @@ mod context_tests;
 mod current;
 mod functions;
 mod global;
+mod iterate;
 mod native;
 mod object_global;
 mod objects;
@@ -69,6 +70,7 @@ pub use functions::{
     ARGUMENT_SLOTS, call, closure_new, construct, instance_of, mark_derived, super_construct,
 };
 pub use global::{global_get, global_set};
+pub use iterate::{array_append, array_append_all, iterate};
 pub use objects::{get_property, object_new, set_property};
 pub use operators::{
     divide, greater, greater_equal, less, less_equal, loose_equals, multiply, remainder, subtract,
