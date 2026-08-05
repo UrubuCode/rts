@@ -63,6 +63,7 @@ pub fn global_get(key: i64) -> u64 {
         };
         let made = match text.as_str() {
             "RegExp" => super::regex::constructor(context),
+            "String" => super::string::constructor(context),
             _ => return undefined_of(context),
         };
         super::objects::put(context, object, Key::Name(name), made);

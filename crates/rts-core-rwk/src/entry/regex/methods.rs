@@ -20,12 +20,7 @@ use super::super::{Context, with_current};
 use crate::text::Str;
 use crate::value::Value;
 
-/// The shape a compiled function has, which a Rust one can also have.
-///
-/// Spelled once, here, for the reason [`super::super::functions`] spells its
-/// own once: two spellings of a calling convention is how an argument comes to
-/// be read as the wrong thing, and a wrong one is a jump with a corrupt stack.
-pub(super) type Native = extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64;
+use super::super::native::Native;
 
 /// What a regular expression's prototype holds.
 pub(super) const NATIVES: &[(&str, Native)] = &[("test", test), ("exec", exec)];
@@ -202,7 +197,7 @@ fn text_of(context: &Context, value: u64) -> Option<String> {
 }
 
 /// How many UTF-16 code units precede a byte offset.
-fn units_before(text: &str, offset: usize) -> usize {
+pub(in crate::entry) fn units_before(text: &str, offset: usize) -> usize {
     text[..offset].encode_utf16().count()
 }
 
@@ -212,7 +207,7 @@ fn units_before(text: &str, offset: usize) -> usize {
 /// beyond the subject, and the caller resets rather than searching from it. Also
 /// `None` for a position inside a surrogate pair: that is not a place a match
 /// can begin, and answering the nearest byte would begin one inside a character.
-fn bytes_before(text: &str, units: usize) -> Option<usize> {
+pub(in crate::entry) fn bytes_before(text: &str, units: usize) -> Option<usize> {
     if units == 0 {
         return Some(0);
     }

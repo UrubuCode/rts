@@ -29,13 +29,19 @@
 //!
 //! # What is deliberately absent
 //!
-//! `new RegExp(p, f)`, because there is no global object for `RegExp` to be a
-//! property of. `str.match`, `str.replace` and `str.split` with a pattern,
-//! because a string has no prototype here to hang them on. Both arrive with the
-//! mechanism they wait for rather than with a special case that anticipates it.
+//! Named capture groups as a `groups` property, `matchAll`, and the `d` flag's
+//! `indices`. Each needs somewhere to put a second collection of results, and
+//! none of them changes what a match IS — so they wait for a reason to exist
+//! rather than being anticipated.
+//!
+//! The string methods that take a pattern are **not** here: they live on the
+//! string, in [`super::string::pattern`], because the receiver is the string.
+//! `"a-b".split("-")` and `"a-b".split(/-/)` are one method with two kinds of
+//! separator, and splitting them across two modules is where they would come to
+//! disagree about the empty one.
 
 mod compile;
-mod methods;
+pub(in crate::entry) mod methods;
 
 use compile::{Engine, Flags};
 
@@ -154,17 +160,11 @@ fn prototype_of(context: &mut Context) -> u64 {
     if let Some(made) = context.regexp_prototype {
         return made;
     }
-    let shape = context.shapes.root();
-    let ty = context.layout_of(shape).index() as u32;
-    let Some(cell) = context.region.alloc(crate::heap::STRIDE, ty) else {
+    let Some(cell) = super::native::plain(context) else {
         return undefined_of(context);
     };
     let object = Value::from_slot(cell).bits();
-    for (name, code) in methods::NATIVES {
-        let method = native(context, *code);
-        let key = context.well_known(name);
-        super::objects::put(context, cell, key, method);
-    }
+    super::native::install(context, cell, methods::NATIVES);
     context.regexp_prototype = Some(object);
     object
 }
@@ -176,30 +176,13 @@ fn prototype_of(context: &mut Context) -> u64 {
 /// `re instanceof RegExp` answer true, both through machinery that already
 /// exists and knows nothing about regular expressions.
 pub(super) fn constructor(context: &mut Context) -> u64 {
-    let callable = native(context, methods::construct);
+    let callable = super::native::callable(context, methods::construct);
     let prototype = prototype_of(context);
     if let Some(cell) = Value(callable).as_slot() {
         let key = context.well_known("prototype");
         super::objects::put(context, cell, key, prototype);
     }
     callable
-}
-
-/// A callable whose code is a Rust function.
-///
-/// The environment is `undefined`: a native method closes over nothing, and the
-/// slot exists because every callable has one rather than because this uses it.
-fn native(context: &mut Context, code: methods::Native) -> u64 {
-    let shape = context.shapes.root();
-    let ty = context.layout_of(shape).index() as u32;
-    match context.region.alloc(crate::heap::STRIDE, ty) {
-        Some(cell) => {
-            let environment = undefined_of(context);
-            context.mark_callable(cell, code as usize as u64, environment);
-            Value::from_slot(cell).bits()
-        }
-        None => undefined_of(context),
-    }
 }
 
 impl Context {
@@ -225,5 +208,16 @@ impl Regexp {
     /// Whether a search resumes from `lastIndex` and advances it.
     pub(super) fn tracks_last_index(&self) -> bool {
         self.flags.tracks_last_index()
+    }
+
+    /// Whether `g` was written.
+    ///
+    /// Not the same question as [`Self::tracks_last_index`], which `y` also
+    /// answers yes to. This one decides how many matches a string method
+    /// produces — `"aa".match(/a/)` is one match and `"aa".match(/a/g)` is two —
+    /// and reading the wrong one would make a sticky pattern collect all of
+    /// them.
+    pub(super) fn is_global(&self) -> bool {
+        self.flags.global
     }
 }

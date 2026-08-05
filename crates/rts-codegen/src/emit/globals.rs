@@ -39,7 +39,7 @@ use crate::runtime::RuntimeOp;
 /// Short on purpose. Every entry is a name a program may read without declaring
 /// it, so a name added here stops being a `ReferenceError` — which is a language
 /// decision and not a convenience.
-const PROVIDED: &[&str] = &["RegExp"];
+const PROVIDED: &[&str] = &["RegExp", "String"];
 
 /// Emits a read of one, if it is one.
 ///

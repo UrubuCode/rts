@@ -2406,3 +2406,177 @@ fn a_name_nothing_provides_is_still_the_programs_error() {
     let error = compile("return Elephant;").expect_err("refused");
     assert!(format!("{error:?}").contains("UnboundName"), "{error:?}");
 }
+
+#[test]
+fn a_string_finds_its_methods_by_inheriting_them() {
+    // The first time a string reads anything but `length` and an index. A string
+    // cell has no own prototype — one link per string would be a word spent on a
+    // fact they all share — so the chain walk substitutes the shared object.
+    let produced = run("return \"abc\".toUpperCase() === \"ABC\";");
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
+fn the_string_methods_count_code_units_and_not_bytes() {
+    // `"é"` is one code unit and two UTF-8 bytes. Every index in these methods
+    // is a position in the unit sequence, and working in bytes here would make
+    // `slice` cut a character in half while `length` said otherwise.
+    let length = run("return \"é\".length;");
+    assert_eq!(tags::decode_double(length), 1.0);
+
+    let sliced = run("return \"éa\".slice(1) === \"a\";");
+    assert_eq!(tags::payload_of(sliced), tags::BOOL_TRUE);
+
+    let found = run("return \"éa\".indexOf(\"a\");");
+    assert_eq!(tags::decode_double(found), 1.0);
+}
+
+#[test]
+fn slice_crosses_where_substring_swaps() {
+    // The one difference between the two methods, which is why the language has
+    // both and why an implementation sharing their code would be wrong.
+    let crossed = run("return \"abc\".slice(2, 1) === \"\";");
+    assert_eq!(tags::payload_of(crossed), tags::BOOL_TRUE);
+
+    let swapped = run("return \"abc\".substring(2, 1) === \"b\";");
+    assert_eq!(tags::payload_of(swapped), tags::BOOL_TRUE);
+
+    // Negative counts from the end for one and clamps to zero for the other.
+    let from_end = run("return \"abcd\".slice(-2) === \"cd\";");
+    assert_eq!(tags::payload_of(from_end), tags::BOOL_TRUE);
+}
+
+#[test]
+fn char_at_answers_the_empty_string_where_the_index_answers_undefined() {
+    // Both spellings exist because they disagree here, and an engine answering
+    // the same for both makes `s.charAt(9) === ""` false.
+    let empty = run("return \"abc\".charAt(9) === \"\";");
+    assert_eq!(tags::payload_of(empty), tags::BOOL_TRUE);
+
+    let absent = run("return \"abc\"[9] === undefined;");
+    assert_eq!(tags::payload_of(absent), tags::BOOL_TRUE);
+
+    // And `at` was added to the language precisely so a negative index works.
+    let last = run("return \"abc\".at(-1) === \"c\";");
+    assert_eq!(tags::payload_of(last), tags::BOOL_TRUE);
+}
+
+#[test]
+fn a_program_can_add_a_method_to_every_string() {
+    // `String.prototype.mine = f` is not special-cased anywhere: it is a
+    // property write on the object strings inherit from, and the chain walk
+    // finds it the way it finds a built-in.
+    let produced = run(
+        "String.prototype.shout = function () { return this.toUpperCase(); }; return \"hi\".shout() === \"HI\";",
+    );
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
+fn the_constructor_holds_properties_of_its_own() {
+    // `String.yellow = f` — an ordinary write on the constructor, which is an
+    // ordinary object.
+    let produced = run("String.twice = function (s) { return s + s; }; return String.twice(\"ab\") === \"abab\";");
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
+fn string_converts_a_value_to_its_text() {
+    let produced = run("return String(12) === \"12\";");
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
+fn a_string_method_takes_a_pattern_or_plain_text() {
+    // One method, two kinds of separator — which is how the specification
+    // writes it, and why an implementation per kind is where the two would come
+    // to disagree.
+    let by_text = run("let p = \"a-b\".split(\"-\"); return p[1] === \"b\";");
+    assert_eq!(tags::payload_of(by_text), tags::BOOL_TRUE);
+
+    let by_pattern = run("let p = \"a1b\".split(/[0-9]/); return p[1] === \"b\";");
+    assert_eq!(tags::payload_of(by_pattern), tags::BOOL_TRUE);
+
+    // No separator at all is the whole string as one piece, where an empty one
+    // splits between every unit. A sentence apart in the specification.
+    let whole = run("return \"abc\".split().length;");
+    assert_eq!(tags::decode_double(whole), 1.0);
+
+    let each = run("return \"abc\".split(\"\").length;");
+    assert_eq!(tags::decode_double(each), 3.0);
+}
+
+#[test]
+fn replace_takes_the_first_and_a_global_pattern_takes_all() {
+    let first = run("return \"aaa\".replace(\"a\", \"b\") === \"baa\";");
+    assert_eq!(tags::payload_of(first), tags::BOOL_TRUE);
+
+    let all = run("return \"aaa\".replace(/a/g, \"b\") === \"bbb\";");
+    assert_eq!(tags::payload_of(all), tags::BOOL_TRUE);
+
+    let every = run("return \"aaa\".replaceAll(\"a\", \"b\") === \"bbb\";");
+    assert_eq!(tags::payload_of(every), tags::BOOL_TRUE);
+}
+
+#[test]
+fn a_replacement_template_can_name_the_match_and_its_groups() {
+    let whole = run("return \"ab\".replace(/b/, \"[$&]\") === \"a[b]\";");
+    assert_eq!(tags::payload_of(whole), tags::BOOL_TRUE);
+
+    let group = run("return \"a1\".replace(/a(1)/, \"$1$1\") === \"11\";");
+    assert_eq!(tags::payload_of(group), tags::BOOL_TRUE);
+
+    // A `$` before anything else stands for itself, which is what keeps
+    // `"$100"` from swallowing its digits when there is no such group.
+    let literal = run("return \"a\".replace(\"a\", \"$$\") === \"$\";");
+    assert_eq!(tags::payload_of(literal), tags::BOOL_TRUE);
+}
+
+#[test]
+fn a_replacement_can_be_a_function_the_program_wrote() {
+    // The one place a built-in calls back into compiled code. It is why the
+    // replacement is computed between two borrows of the context rather than
+    // inside one — calling user code from inside a borrow re-enters it.
+    let produced = run(
+        "return \"ab\".replace(/./g, function (m) { return m.toUpperCase(); }) === \"AB\";",
+    );
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+
+    // The second argument is where the match was.
+    let located = run("return \"xy\".replace(/y/, function (m, at) { return at; }) === \"x1\";");
+    assert_eq!(tags::payload_of(located), tags::BOOL_TRUE);
+}
+
+#[test]
+fn a_pattern_matching_nothing_still_terminates() {
+    // `/x*/` matches the empty string at every position, so a loop resuming at
+    // the end of the previous match would resume where it started. This test
+    // hangs rather than fails if that regresses, which is why it is small.
+    let produced = run("return \"ab\".replace(/x*/g, \"-\") === \"-a-b-\";");
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
+fn match_answers_one_result_or_every_match_depending_on_the_flag() {
+    // Two shapes from one method, which is the language rather than a choice.
+    let one = run("let m = \"a1b\".match(/([0-9])/); return m[1] === \"1\";");
+    assert_eq!(tags::payload_of(one), tags::BOOL_TRUE);
+
+    let index = run("let m = \"a1b\".match(/[0-9]/); return m.index;");
+    assert_eq!(tags::decode_double(index), 1.0);
+
+    let all = run("return \"a1b2\".match(/[0-9]/g).length;");
+    assert_eq!(tags::decode_double(all), 2.0);
+
+    let absent = run("return \"abc\".match(/[0-9]/) === null;");
+    assert_eq!(tags::payload_of(absent), tags::BOOL_TRUE);
+}
+
+#[test]
+fn search_answers_where_rather_than_what() {
+    let found = run("return \"ab1\".search(/[0-9]/);");
+    assert_eq!(tags::decode_double(found), 2.0);
+
+    let absent = run("return \"abc\".search(/[0-9]/);");
+    assert_eq!(tags::decode_double(absent), -1.0);
+}

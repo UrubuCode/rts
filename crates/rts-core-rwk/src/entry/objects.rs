@@ -215,7 +215,36 @@ fn read(context: &mut Context, start: u32, key: Key) -> Option<Value> {
         }
         // Not here, so ask what this inherits from. An element or a string.s
         // length never reaches this loop: those are answered before it.
-        cell = Value(context.prototype_at(cell)?).as_slot()?;
+        cell = inherited_from(context, cell)?;
+    }
+    None
+}
+
+/// What a cell inherits from, including the one kind that has no link of its own.
+///
+/// # Why a string's prototype is substituted rather than stored
+///
+/// Every string in the program is a cell, and there are as many of them as there
+/// are strings. Giving each a prototype link would spend a word per string to
+/// record one fact shared by all of them — and the link would have to be written
+/// at every allocation, including the ones interning performs while the
+/// prototype is being built.
+///
+/// So the chain walk asks the question instead. A text cell has no own
+/// prototype, so it reaches here, and here is where the shared object is named.
+///
+/// # Why this is not a special case the fast path can disagree with
+///
+/// `cache_resolve` answers negative for a cell with no shape, so every read of a
+/// string takes the slow path — the same argument [`string_property`] records
+/// for `length`. A cached read never reaches a string, so there is nothing for
+/// this to contradict.
+fn inherited_from(context: &mut Context, cell: u32) -> Option<u32> {
+    if let Some(own) = context.prototype_at(cell) {
+        return Value(own).as_slot();
+    }
+    if context.text_at(cell).is_some() {
+        return super::string::prototype_of(context);
     }
     None
 }

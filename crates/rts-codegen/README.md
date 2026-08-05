@@ -161,8 +161,8 @@ first category — a heap value this crate cannot make — now that strings and
 arrays exist.
 
 The global object is **still absent**, and `emit/globals.rs` is deliberately not
-it: a fixed set of names whose values the runtime holds — `RegExp` today — read
-by key. What a real one adds is `globalThis`, writes that create bindings, and
+it: a fixed set of names whose values the runtime holds — `RegExp` and `String`
+today — read by key. What a real one adds is `globalThis`, writes that create bindings, and
 `typeof undeclared` answering instead of throwing. None of that is faked, so an
 unbound name is still refused rather than becoming a silent `undefined`.
 

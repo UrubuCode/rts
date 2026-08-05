@@ -44,10 +44,12 @@ mod context_tests;
 mod current;
 mod functions;
 mod global;
+mod native;
 mod objects;
 mod operators;
 mod primitives;
 mod regex;
+pub(super) mod string;
 mod text;
 mod throw;
 
@@ -189,6 +191,13 @@ pub struct Context {
     /// property write and every mechanism for it already exists. See
     /// [`global`] for why this is not the global object.
     globals: Option<u32>,
+    /// What every string inherits from, once one has been asked for a method.
+    ///
+    /// One object for every string in the program, substituted by the chain
+    /// walk rather than linked from each cell — see
+    /// [`objects::inherited_from`] for why a link per string would be a word
+    /// spent on a fact they all share.
+    string_prototype: Option<u32>,
     /// Which cells are arrays, and where their elements are.
     ///
     /// # Why a side table and not a reserved layout
@@ -294,6 +303,7 @@ impl Context {
             regexes: Aside::new(),
             regexp_prototype: None,
             globals: None,
+            string_prototype: None,
             resolves: 0,
             barriers: 0,
             // Empty until a host seeds it. A program with no string literal
