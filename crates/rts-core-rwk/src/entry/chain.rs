@@ -16,7 +16,7 @@
 //! needs them before any program does: a class body is lowered into them.
 
 use super::objects::undefined_of;
-use super::{Context, with_current};
+use super::with_current;
 use crate::value::Value;
 
 /// What an object inherits from — `null` when the chain ends there, `undefined`
