@@ -116,55 +116,55 @@ pub fn set_property(object: u64, key: i64, value: u64) -> u64 {
 /// call that silently resolves to one instead is a compile error whose message
 /// points at the wrong thing.
 pub(super) fn put(context: &mut Context, slot: u32, key: Key, value: u64) {
-        let Some(machine) = machine_key(key) else {
-            return;
-        };
-        let Some(ty) = context.region.type_of(slot) else {
-            return;
-        };
-        let Some(shape) = context.shape_of(ty) else {
-            // A string, or a layout nothing recorded. Writing a property to a
-            // string is a silent no-op in sloppy mode, which is what this is.
-            return;
-        };
+    let Some(machine) = machine_key(key) else {
+        return;
+    };
+    let Some(ty) = context.region.type_of(slot) else {
+        return;
+    };
+    let Some(shape) = context.shape_of(ty) else {
+        // A string, or a layout nothing recorded. Writing a property to a
+        // string is a silent no-op in sloppy mode, which is what this is.
+        return;
+    };
 
-        // Already in the layout: a store, at the offset the layout decided.
-        if let Some(at) = context.shapes.slot_of(shape, machine) {
-            set_slot_value(context, slot, at, value);
-            return;
-        }
-
-        // A new property changes what the object IS, so the shape moves and the
-        // header moves with it. Taking the transition rather than choosing a
-        // slot is what keeps two objects built the same way at one layout.
-        // The representation the shape records is what the VALUE turned out to
-        // be, not `Tagged` unconditionally. A shape already carries one per
-        // property — `transition` takes it and `repr_of` reads it back — and
-        // writing `Tagged` for everything made that field a place where a fact
-        // could have been and was not.
-        //
-        // It is an observation about one write rather than a promise about the
-        // property: a later write of something else takes a different
-        // transition, so the object arrives at a different shape and every site
-        // that remembered the old one stops recognising it. Which is what a
-        // shape is for.
-        let observed = if Value(value).numeric().is_some() {
-            Repr::F64
-        } else {
-            Repr::Tagged
-        };
-        let Ok(grown) = context.shapes.transition(shape, machine, observed) else {
-            return;
-        };
-        let Some(at) = context.shapes.slot_of(grown, machine) else {
-            return;
-        };
-        let ty = context.layout_of(grown).index() as u32;
-        context.region.set_type(slot, ty);
-        // Past the seventh this goes to the spill beside the cell rather than
-        // being refused, which is what "the overflow indirection, and it is not
-        // implemented here" was waiting for.
+    // Already in the layout: a store, at the offset the layout decided.
+    if let Some(at) = context.shapes.slot_of(shape, machine) {
         set_slot_value(context, slot, at, value);
+        return;
+    }
+
+    // A new property changes what the object IS, so the shape moves and the
+    // header moves with it. Taking the transition rather than choosing a
+    // slot is what keeps two objects built the same way at one layout.
+    // The representation the shape records is what the VALUE turned out to
+    // be, not `Tagged` unconditionally. A shape already carries one per
+    // property — `transition` takes it and `repr_of` reads it back — and
+    // writing `Tagged` for everything made that field a place where a fact
+    // could have been and was not.
+    //
+    // It is an observation about one write rather than a promise about the
+    // property: a later write of something else takes a different
+    // transition, so the object arrives at a different shape and every site
+    // that remembered the old one stops recognising it. Which is what a
+    // shape is for.
+    let observed = if Value(value).numeric().is_some() {
+        Repr::F64
+    } else {
+        Repr::Tagged
+    };
+    let Ok(grown) = context.shapes.transition(shape, machine, observed) else {
+        return;
+    };
+    let Some(at) = context.shapes.slot_of(grown, machine) else {
+        return;
+    };
+    let ty = context.layout_of(grown).index() as u32;
+    context.region.set_type(slot, ty);
+    // Past the seventh this goes to the spill beside the cell rather than
+    // being refused, which is what "the overflow indirection, and it is not
+    // implemented here" was waiting for.
+    set_slot_value(context, slot, at, value);
 }
 
 /// Reads a property: header to type, type to shape, shape to offset, load.
@@ -282,7 +282,10 @@ mod tests {
         hosted(|| {
             let object = object_new();
             let read = get_property(object, 7);
-            assert_eq!(rts_cranelift::tags::tag_of(read), rts_cranelift::tags::TAG_SINGLETON);
+            assert_eq!(
+                rts_cranelift::tags::tag_of(read),
+                rts_cranelift::tags::TAG_SINGLETON
+            );
         });
     }
 
@@ -451,5 +454,9 @@ pub(super) fn string_property(context: &mut Context, slot: u32, key: Key) -> Opt
 pub(super) fn string_element(context: &mut Context, slot: u32, key: Value) -> Option<u64> {
     let at = super::array::as_index(context, key)?;
     let unit = context.text_at(slot)?.unit_at(at)?;
-    Some(context.intern_value(crate::text::Str::from_utf16(&[unit])).bits())
+    Some(
+        context
+            .intern_value(crate::text::Str::from_utf16(&[unit]))
+            .bits(),
+    )
 }

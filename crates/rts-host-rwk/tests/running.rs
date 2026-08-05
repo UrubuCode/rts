@@ -15,9 +15,8 @@ use rts_host_rwk::compile;
 
 /// Runs a script and hands back the encoded word it produced.
 fn run(source: &str) -> u64 {
-    let mut program = compile(source)
-        .unwrap_or_else(|error| panic!("compiling `{source}` failed: {error:?}"))
-        ;
+    let mut program =
+        compile(source).unwrap_or_else(|error| panic!("compiling `{source}` failed: {error:?}"));
     program.run()
 }
 
@@ -68,8 +67,14 @@ fn strict_equality_answers_a_boolean_the_machine_proved() {
 fn a_condition_chooses_at_run_time() {
     // The `if` path end to end: truthiness is a call to the runtime, the branch
     // consumes the boolean it proved, and the join carries the value.
-    assert_eq!(tags::decode_double(run("if (1) { return 7; } return 9;")), 7.0);
-    assert_eq!(tags::decode_double(run("if (0) { return 7; } return 9;")), 9.0);
+    assert_eq!(
+        tags::decode_double(run("if (1) { return 7; } return 9;")),
+        7.0
+    );
+    assert_eq!(
+        tags::decode_double(run("if (0) { return 7; } return 9;")),
+        9.0
+    );
 }
 
 #[test]
@@ -151,22 +156,32 @@ fn a_relational_operator_answers_a_javascript_value() {
 fn nan_is_unordered_so_all_four_comparisons_are_false() {
     // The one that catches an implementation written as negations. If `<=` were
     // `!(a > b)`, this would answer true.
-    assert_eq!(tags::payload_of(run("return (0 / 0) <= (0 / 0);")), tags::BOOL_FALSE);
-    assert_eq!(tags::payload_of(run("return (0 / 0) >= (0 / 0);")), tags::BOOL_FALSE);
+    assert_eq!(
+        tags::payload_of(run("return (0 / 0) <= (0 / 0);")),
+        tags::BOOL_FALSE
+    );
+    assert_eq!(
+        tags::payload_of(run("return (0 / 0) >= (0 / 0);")),
+        tags::BOOL_FALSE
+    );
 }
 
 #[test]
 fn a_loop_that_counts_up_to_a_bound() {
     // What `<` was missing for. The loop now reads the way one is written,
     // rather than around the operators the runtime lacked.
-    let produced = run("let i = 0; let total = 0; while (i < 5) { total = total + i; i = i + 1; } return total;");
+    let produced = run(
+        "let i = 0; let total = 0; while (i < 5) { total = total + i; i = i + 1; } return total;",
+    );
     assert_eq!(tags::decode_double(produced), 10.0);
 }
 
 #[test]
 fn a_for_loop_runs_end_to_end() {
     // Header scope, condition, body and update — E3's whole shape, executed.
-    let produced = run("let total = 0; for (let i = 1; i <= 4; i = i + 1) { total = total * 10 + i; } return total;");
+    let produced = run(
+        "let total = 0; for (let i = 1; i <= 4; i = i + 1) { total = total * 10 + i; } return total;",
+    );
     assert_eq!(tags::decode_double(produced), 1234.0);
 }
 
@@ -177,7 +192,10 @@ fn a_for_loop_runs_end_to_end() {
 
 #[test]
 fn a_property_written_is_the_property_read() {
-    assert_eq!(tags::decode_double(run("let o = {}; o.x = 42; return o.x;")), 42.0);
+    assert_eq!(
+        tags::decode_double(run("let o = {}; o.x = 42; return o.x;")),
+        42.0
+    );
 }
 
 #[test]
@@ -360,15 +378,30 @@ fn a_local_written_in_one_arm_merges_at_the_join() {
 
 #[test]
 fn logical_assignment_writes_only_when_the_left_did_not_decide() {
-    assert_eq!(tags::decode_double(run("let x = 0; x ||= 9; return x;")), 9.0);
-    assert_eq!(tags::decode_double(run("let x = 3; x ||= 9; return x;")), 3.0);
-    assert_eq!(tags::decode_double(run("let x = 3; x &&= 9; return x;")), 9.0);
-    assert_eq!(tags::decode_double(run("let x = 0; x &&= 9; return x;")), 0.0);
+    assert_eq!(
+        tags::decode_double(run("let x = 0; x ||= 9; return x;")),
+        9.0
+    );
+    assert_eq!(
+        tags::decode_double(run("let x = 3; x ||= 9; return x;")),
+        3.0
+    );
+    assert_eq!(
+        tags::decode_double(run("let x = 3; x &&= 9; return x;")),
+        9.0
+    );
+    assert_eq!(
+        tags::decode_double(run("let x = 0; x &&= 9; return x;")),
+        0.0
+    );
     assert_eq!(
         tags::decode_double(run("let x = null; x ??= 6; return x;")),
         6.0
     );
-    assert_eq!(tags::decode_double(run("let x = 0; x ??= 6; return x;")), 0.0);
+    assert_eq!(
+        tags::decode_double(run("let x = 0; x ??= 6; return x;")),
+        0.0
+    );
 }
 
 #[test]
@@ -520,7 +553,9 @@ fn an_argument_reaches_the_parameter_it_fills() {
         9.0
     );
     assert_eq!(
-        tags::decode_double(run("function add(a, b) { return a + b; } return add(2, 3);")),
+        tags::decode_double(run(
+            "function add(a, b) { return a + b; } return add(2, 3);"
+        )),
         5.0
     );
 }
@@ -586,16 +621,14 @@ fn two_closures_made_together_share_one_variable() {
     // separates a real implementation from a plausible one: `read` sees what
     // `write` did, so the two must have been handed the SAME environment
     // object rather than two objects with the same contents.
-    let produced = run(
-        "function pair() { \
+    let produced = run("function pair() { \
            let n = 0; \
            function write() { n = 41; } \
            function read() { return n + 1; } \
            write(); \
            return read(); \
          } \
-         return pair();",
-    );
+         return pair();");
     assert_eq!(tags::decode_double(produced), 42.0);
 }
 
@@ -636,8 +669,7 @@ fn a_closure_reaches_two_environments_out() {
     // inside `middle`, and `middle` builds one of its own — so reaching `k`
     // follows two links, and an implementation that followed one would read
     // `middle`'s environment and find nothing.
-    let produced = run(
-        "function outer() { \
+    let produced = run("function outer() { \
            let k = 5; \
            function middle() { \
              let m = 2; \
@@ -646,8 +678,7 @@ fn a_closure_reaches_two_environments_out() {
            } \
            return middle(); \
          } \
-         return outer();",
-    );
+         return outer();");
     assert_eq!(tags::decode_double(produced), 10.0);
 }
 
@@ -679,19 +710,16 @@ fn an_arrow_with_a_concise_body_returns_it() {
 fn a_method_call_passes_its_receiver_as_this() {
     // The one thing a call site knows that the callee cannot: `o.f()` and `f()`
     // pass the same arguments and differ only here.
-    let produced = run(
-        "let o = {}; \
+    let produced = run("let o = {}; \
          o.n = 12; \
          o.get = function () { return this.n; }; \
-         return o.get();",
-    );
+         return o.get();");
     assert_eq!(tags::decode_double(produced), 12.0);
 }
 
 #[test]
 fn a_plain_call_has_no_receiver() {
-    let mut compiled =
-        compile("function f() { return this; } return f();").expect("compiles");
+    let mut compiled = compile("function f() { return this; } return f();").expect("compiles");
     let produced = compiled.run();
     assert_eq!(
         produced,
@@ -707,14 +735,12 @@ fn a_receiver_is_evaluated_once() {
     // object expression once for the property read and again for the receiver
     // would call it twice — invisibly, for every receiver without a side effect,
     // which is why the receiver here has one.
-    let produced = run(
-        "let calls = 0; \
+    let produced = run("let calls = 0; \
          let o = {}; \
          o.answer = function () { return 1; }; \
          function get() { calls = calls + 1; return o; } \
          get().answer(); \
-         return calls;",
-    );
+         return calls;");
     assert_eq!(tags::decode_double(produced), 1.0);
 }
 
@@ -860,8 +886,14 @@ fn the_empty_string_is_the_seventh_falsy_value() {
     // The one that made `ToBoolean` a runtime call in the first place: six
     // falsy values a comparison settles, and the seventh reads a string's
     // length from the heap. Until now nothing could write one down.
-    assert_eq!(tags::decode_double(run("if (\"\") { return 1; } return 2;")), 2.0);
-    assert_eq!(tags::decode_double(run("if (\"x\") { return 1; } return 2;")), 1.0);
+    assert_eq!(
+        tags::decode_double(run("if (\"\") { return 1; } return 2;")),
+        2.0
+    );
+    assert_eq!(
+        tags::decode_double(run("if (\"x\") { return 1; } return 2;")),
+        1.0
+    );
 }
 
 #[test]
@@ -899,11 +931,9 @@ fn typeof_distinguishes_a_function_from_an_object() {
     // The distinction the tag cannot carry: both are references, and what a
     // reference IS is read from the cell's header. An implementation reading
     // the tag alone answers "object" for both.
-    let produced = run(
-        "function f() { return 1; } \
+    let produced = run("function f() { return 1; } \
          let o = {}; \
-         return ((typeof f) === \"function\") && ((typeof o) === \"object\");",
-    );
+         return ((typeof f) === \"function\") && ((typeof o) === \"object\");");
     assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
 }
 
@@ -927,7 +957,10 @@ fn to_int32_wraps_where_a_rust_cast_would_saturate() {
     // `2147483648 | 0` is -2147483648. Rust's `as i32` answers 2147483647,
     // which is a plausible number and the wrong one — the difference is
     // invisible until a program touches a value above 2^31.
-    assert_eq!(tags::decode_double(run("return 2147483648 | 0;")), -2147483648.0);
+    assert_eq!(
+        tags::decode_double(run("return 2147483648 | 0;")),
+        -2147483648.0
+    );
     // And past 2^32 it wraps to zero rather than saturating.
     assert_eq!(tags::decode_double(run("return 4294967296 | 0;")), 0.0);
 }
@@ -998,7 +1031,10 @@ fn exponent_diverges_from_ieee_where_the_specification_says_so() {
 #[test]
 fn loose_equality_converts_where_strict_equality_refuses() {
     assert_eq!(tags::payload_of(run("return 1 == \"1\";")), tags::BOOL_TRUE);
-    assert_eq!(tags::payload_of(run("return 1 === \"1\";")), tags::BOOL_FALSE);
+    assert_eq!(
+        tags::payload_of(run("return 1 === \"1\";")),
+        tags::BOOL_FALSE
+    );
     assert_eq!(tags::payload_of(run("return true == 1;")), tags::BOOL_TRUE);
     assert_eq!(tags::payload_of(run("return \"\" == 0;")), tags::BOOL_TRUE);
 }
@@ -1025,7 +1061,10 @@ fn null_and_undefined_are_loosely_equal_to_each_other_and_nothing_else() {
 
 #[test]
 fn loose_inequality_is_the_negation_of_loose_equality() {
-    assert_eq!(tags::payload_of(run("return 1 != \"1\";")), tags::BOOL_FALSE);
+    assert_eq!(
+        tags::payload_of(run("return 1 != \"1\";")),
+        tags::BOOL_FALSE
+    );
     assert_eq!(tags::payload_of(run("return 1 != 2;")), tags::BOOL_TRUE);
 }
 
@@ -1066,7 +1105,9 @@ fn a_template_concatenates_rather_than_adding() {
 #[test]
 fn a_template_evaluates_its_substitutions_in_order() {
     assert_eq!(
-        tags::payload_of(run("let a = 1; let b = 2; return `a${a}b${b}c` === \"a1b2c\";")),
+        tags::payload_of(run(
+            "let a = 1; let b = 2; return `a${a}b${b}c` === \"a1b2c\";"
+        )),
         tags::BOOL_TRUE
     );
 }
@@ -1150,8 +1191,7 @@ fn a_non_string_key_is_converted_to_one() {
 
 #[test]
 fn an_absent_computed_property_reads_as_undefined() {
-    let mut compiled =
-        compile("let o = {}; return o[\"missing\"];").expect("compiles");
+    let mut compiled = compile("let o = {}; return o[\"missing\"];").expect("compiles");
     let produced = compiled.run();
     assert_eq!(
         produced,
@@ -1163,22 +1203,22 @@ fn an_absent_computed_property_reads_as_undefined() {
 fn a_receiver_and_a_key_are_each_evaluated_once_and_in_order() {
     // `a()[b()] = c()` runs `a`, then `b`, then `c`. Recorded as the order the
     // three side effects happened in, which is the only way to see it.
-    let produced = run(
-        "let log = \"\"; \
+    let produced = run("let log = \"\"; \
          let o = {}; \
          function a() { log = log + \"a\"; return o; } \
          function b() { log = log + \"b\"; return \"k\"; } \
          function c() { log = log + \"c\"; return 1; } \
          a()[b()] = c(); \
-         return log === \"abc\";",
-    );
+         return log === \"abc\";");
     assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
 }
 
 #[test]
 fn a_compound_assignment_to_a_computed_key_reads_it_first() {
     assert_eq!(
-        tags::decode_double(run("let o = {}; o[\"n\"] = 10; o[\"n\"] += 5; return o[\"n\"];")),
+        tags::decode_double(run(
+            "let o = {}; o[\"n\"] = 10; o[\"n\"] += 5; return o[\"n\"];"
+        )),
         15.0
     );
 }
@@ -1239,22 +1279,18 @@ fn a_labelled_break_leaves_the_loop_it_names() {
     // The whole point: an unlabelled `break` leaves the INNER loop and the
     // outer one keeps going, so the two answers differ. Written so they do —
     // if the label were ignored this returns 6 instead of 1.
-    let outer_left = run(
-        "let count = 0; \
+    let outer_left = run("let count = 0; \
          outer: for (let i = 0; i < 3; i++) { \
            for (let j = 0; j < 2; j++) { count++; break outer; } \
          } \
-         return count;",
-    );
+         return count;");
     assert_eq!(tags::decode_double(outer_left), 1.0);
 
-    let inner_left = run(
-        "let count = 0; \
+    let inner_left = run("let count = 0; \
          for (let i = 0; i < 3; i++) { \
            for (let j = 0; j < 2; j++) { count++; break; } \
          } \
-         return count;",
-    );
+         return count;");
     assert_eq!(tags::decode_double(inner_left), 3.0);
 }
 
@@ -1262,28 +1298,24 @@ fn a_labelled_break_leaves_the_loop_it_names() {
 fn a_labelled_continue_resumes_the_loop_it_names() {
     // `continue outer` abandons the rest of the inner loop AND the rest of the
     // outer body, so the increment after it never runs.
-    let produced = run(
-        "let count = 0; \
+    let produced = run("let count = 0; \
          outer: for (let i = 0; i < 3; i++) { \
            for (let j = 0; j < 2; j++) { count++; continue outer; } \
            count = count + 100; \
          } \
-         return count;",
-    );
+         return count;");
     assert_eq!(tags::decode_double(produced), 3.0);
 }
 
 #[test]
 fn a_label_on_a_block_can_be_broken_out_of() {
     // Not a loop, so there is nothing to continue and only `break` reaches it.
-    let produced = run(
-        "let n = 1; \
+    let produced = run("let n = 1; \
          done: { \
            n = 2; \
            break done; \
          } \
-         return n;",
-    );
+         return n;");
     assert_eq!(tags::decode_double(produced), 2.0);
 }
 
@@ -1292,13 +1324,11 @@ fn a_continue_inside_a_labelled_block_belongs_to_the_loop_around_it() {
     // The reason `Loops::target` skips a frame with nothing to continue to. A
     // search that stopped at the innermost frame would find the block, which
     // cannot be continued, and refuse a program that is legal.
-    let produced = run(
-        "let count = 0; \
+    let produced = run("let count = 0; \
          for (let i = 0; i < 3; i++) { \
            inner: { count++; continue; } \
          } \
-         return count;",
-    );
+         return count;");
     assert_eq!(tags::decode_double(produced), 3.0);
 }
 
@@ -1343,15 +1373,13 @@ fn a_switch_runs_the_clause_that_matched() {
 fn a_clause_without_a_break_falls_into_the_next() {
     // The whole reason a switch is not a chain of `if`s. Without fall-through
     // this returns 1; with it, both bodies run.
-    let produced = run(
-        "let out = 0; \
+    let produced = run("let out = 0; \
          switch (1) { \
            case 1: out = out + 1; \
            case 2: out = out + 10; break; \
            case 3: out = out + 100; \
          } \
-         return out;",
-    );
+         return out;");
     assert_eq!(tags::decode_double(produced), 11.0);
 }
 
@@ -1360,15 +1388,13 @@ fn default_runs_where_it_sits_rather_than_last() {
     // `default` is not a fallback appended to the end. Nothing matches 9, so
     // control enters at `default` and falls through into the clause written
     // after it — an implementation that ran `default` last would return 1.
-    let produced = run(
-        "let out = 0; \
+    let produced = run("let out = 0; \
          switch (9) { \
            case 1: out = out + 1; break; \
            default: out = out + 10; \
            case 2: out = out + 100; \
          } \
-         return out;",
-    );
+         return out;");
     assert_eq!(tags::decode_double(produced), 110.0);
 }
 
@@ -1398,14 +1424,12 @@ fn a_value_assigned_in_one_clause_survives_the_switch() {
     // The block parameters, doing what they exist for: `out` has a different
     // definition on every path into the exit, and SSA has nothing to write
     // twice.
-    let produced = run(
-        "let out = 0; \
+    let produced = run("let out = 0; \
          for (let i = 0; i < 3; i++) { \
            switch (i) { case 0: out = out + 1; break; case 1: out = out + 10; break; \
                         default: out = out + 100; } \
          } \
-         return out;",
-    );
+         return out;");
     assert_eq!(tags::decode_double(produced), 111.0);
 }
 
@@ -1414,13 +1438,11 @@ fn a_continue_inside_a_switch_belongs_to_the_loop_around_it() {
     // A switch takes `break` and is not a loop, so a `continue` written inside
     // one has to pass through its frame to reach the loop. The same rule a
     // labelled block follows, and the reason both record `continue_to: None`.
-    let produced = run(
-        "let count = 0; \
+    let produced = run("let count = 0; \
          for (let i = 0; i < 4; i++) { \
            switch (i) { case 0: continue; default: count++; } \
          } \
-         return count;",
-    );
+         return count;");
     assert_eq!(tags::decode_double(produced), 3.0);
 }
 
@@ -1429,14 +1451,12 @@ fn a_switch_clause_can_hold_a_closure() {
     // The capture analysis had to learn about switch: a nested function inside
     // a clause is a function like any other, and a name it captures that was
     // not marked would be two closures disagreeing about a variable.
-    let produced = run(
-        "function make() { \
+    let produced = run("function make() { \
            let n = 0; \
            switch (1) { case 1: { function bump() { n = n + 5; } bump(); bump(); } } \
            return n; \
          } \
-         return make();",
-    );
+         return make();");
     assert_eq!(tags::decode_double(produced), 10.0);
 }
 
@@ -1445,7 +1465,10 @@ fn a_switch_clause_can_hold_a_closure() {
 
 #[test]
 fn an_array_literal_holds_its_elements() {
-    assert_eq!(tags::decode_double(run("let a = [10, 20, 30]; return a[1];")), 20.0);
+    assert_eq!(
+        tags::decode_double(run("let a = [10, 20, 30]; return a[1];")),
+        20.0
+    );
     assert_eq!(tags::decode_double(run("return [10, 20, 30].length;")), 3.0);
     assert_eq!(tags::decode_double(run("return [].length;")), 0.0);
 }
@@ -1490,7 +1513,10 @@ fn writing_past_the_end_grows_the_array() {
         tags::decode_double(run("let a = []; a[2] = 1; return a.length;")),
         3.0
     );
-    assert_eq!(tags::decode_double(run("let a = []; a[2] = 1; return a[2];")), 1.0);
+    assert_eq!(
+        tags::decode_double(run("let a = []; a[2] = 1; return a[2];")),
+        1.0
+    );
 }
 
 #[test]
@@ -1519,12 +1545,10 @@ fn an_array_is_an_object_to_typeof() {
 fn an_array_can_be_walked_by_a_loop() {
     // The whole point of having them: an index computed at run time, over a
     // length read from the array rather than written into the program.
-    let produced = run(
-        "let a = [1, 2, 3, 4]; \
+    let produced = run("let a = [1, 2, 3, 4]; \
          let total = 0; \
          for (let i = 0; i < a.length; i++) { total = total + a[i]; } \
-         return total;",
-    );
+         return total;");
     assert_eq!(tags::decode_double(produced), 10.0);
 }
 
@@ -1622,11 +1646,9 @@ fn deleting_one_property_leaves_the_others_where_they_can_be_read() {
     // later one down a slot, so the values have to move with the layout — an
     // implementation that only changed the header would read `c` out of `b`'s
     // old offset.
-    let produced = run(
-        "let o = {}; o.a = 1; o.b = 2; o.c = 3; \
+    let produced = run("let o = {}; o.a = 1; o.b = 2; o.c = 3; \
          delete o.b; \
-         return o.a + o.c;",
-    );
+         return o.a + o.c;");
     assert_eq!(tags::decode_double(produced), 4.0);
 }
 
@@ -1639,7 +1661,9 @@ fn a_deleted_property_can_be_added_back() {
 #[test]
 fn a_computed_key_can_be_deleted() {
     assert_eq!(
-        tags::payload_of(run("let o = {}; o.x = 1; let k = \"x\"; delete o[k]; return \"x\" in o;")),
+        tags::payload_of(run(
+            "let o = {}; o.x = 1; let k = \"x\"; delete o[k]; return \"x\" in o;"
+        )),
         tags::BOOL_FALSE
     );
 }
@@ -1667,7 +1691,10 @@ fn shorthand_reads_the_binding_of_that_name() {
     // `{ a }` requires `a` to be readable where `{ a: 1 }` requires nothing,
     // which is the difference the tree records and the reason it is a flag
     // rather than a separate node.
-    assert_eq!(tags::decode_double(run("let a = 3; let o = { a }; return o.a;")), 3.0);
+    assert_eq!(
+        tags::decode_double(run("let a = 3; let o = { a }; return o.a;")),
+        3.0
+    );
 }
 
 #[test]
@@ -1685,12 +1712,10 @@ fn properties_are_set_in_source_order() {
 
 #[test]
 fn for_in_visits_every_own_key() {
-    let produced = run(
-        "let o = {}; o.a = 1; o.b = 2; o.c = 3; \
+    let produced = run("let o = {}; o.a = 1; o.b = 2; o.c = 3; \
          let total = 0; \
          for (let k in o) { total = total + o[k]; } \
-         return total;",
-    );
+         return total;");
     assert_eq!(tags::decode_double(produced), 6.0);
 }
 
@@ -1699,23 +1724,19 @@ fn for_in_yields_keys_as_strings() {
     // Even for an array index. `for (k in [1,2])` yields "0" and "1", so a body
     // comparing `k === 0` finds nothing — which is the language rather than a
     // quirk of this implementation, and the reason the test asserts the string.
-    let produced = run(
-        "let a = [7, 8]; \
+    let produced = run("let a = [7, 8]; \
          let joined = \"\"; \
          for (let k in a) { joined = joined + k; } \
-         return joined === \"01\";",
-    );
+         return joined === \"01\";");
     assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
 }
 
 #[test]
 fn for_in_visits_them_in_the_order_they_were_added() {
-    let produced = run(
-        "let o = {}; o.z = 1; o.a = 2; o.m = 3; \
+    let produced = run("let o = {}; o.z = 1; o.a = 2; o.m = 3; \
          let joined = \"\"; \
          for (let k in o) { joined = joined + k; } \
-         return joined === \"zam\";",
-    );
+         return joined === \"zam\";");
     assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
 }
 
@@ -1729,20 +1750,16 @@ fn for_in_over_nothing_runs_nothing() {
 fn break_and_continue_reach_the_for_in_they_are_written_in() {
     // What the expansion buys: the loop machinery already gets these right, so
     // they work without `for-in` restating any of it.
-    let produced = run(
-        "let o = {}; o.a = 1; o.b = 2; o.c = 3; \
+    let produced = run("let o = {}; o.a = 1; o.b = 2; o.c = 3; \
          let count = 0; \
          for (let k in o) { if (k === \"b\") { continue; } count++; } \
-         return count;",
-    );
+         return count;");
     assert_eq!(tags::decode_double(produced), 2.0);
 
-    let produced = run(
-        "let o = {}; o.a = 1; o.b = 2; \
+    let produced = run("let o = {}; o.a = 1; o.b = 2; \
          let count = 0; \
          outer: for (let k in o) { for (let j in o) { count++; break outer; } } \
-         return count;",
-    );
+         return count;");
     assert_eq!(tags::decode_double(produced), 1.0);
 }
 
@@ -1762,15 +1779,13 @@ fn a_captured_loop_variable_is_shared_across_passes_which_is_wrong() {
     //
     // Asserted as what it DOES, so that fixing it fails this test — which is
     // how a divergence stays a decision rather than becoming folklore.
-    let produced = run(
-        "function collect() { \
+    let produced = run("function collect() { \
            let o = {}; o.a = 1; o.b = 2; \
            let first = 0; \
            for (let k in o) { function keep() { return k; } if (first === 0) { first = keep; } } \
            return first(); \
          } \
-         return collect() === \"b\";",
-    );
+         return collect() === \"b\";");
     assert_eq!(
         tags::payload_of(produced),
         tags::BOOL_TRUE,
@@ -1792,15 +1807,13 @@ fn a_captured_name_assigned_in_a_loop_does_not_need_a_block_parameter() {
     //
     // Every pass reads and writes the same heap slot, so the loop carries
     // nothing for it — which is why the closure sees the finished value.
-    let produced = run(
-        "function f() { \
+    let produced = run("function f() { \
            let n = 0; \
            function g() { return n; } \
            while (n < 3) { n = n + 1; } \
            return g(); \
          } \
-         return f();",
-    );
+         return f();");
     assert_eq!(tags::decode_double(produced), 3.0);
 }
 
@@ -1808,26 +1821,22 @@ fn a_captured_name_assigned_in_a_loop_does_not_need_a_block_parameter() {
 fn a_captured_name_assigned_in_a_switch_or_a_labelled_block_is_the_same_case() {
     // The other two constructs that carry names across a join, for the same
     // reason and through the same `plan`.
-    let produced = run(
-        "function f() { \
+    let produced = run("function f() { \
            let n = 0; \
            function g() { return n; } \
            switch (1) { case 1: n = 7; } \
            return g(); \
          } \
-         return f();",
-    );
+         return f();");
     assert_eq!(tags::decode_double(produced), 7.0);
 
-    let produced = run(
-        "function f() { \
+    let produced = run("function f() { \
            let n = 0; \
            function g() { return n; } \
            done: { n = 9; break done; } \
            return g(); \
          } \
-         return f();",
-    );
+         return f();");
     assert_eq!(tags::decode_double(produced), 9.0);
 }
 
@@ -1843,7 +1852,8 @@ fn a_string_that_spells_an_index_reaches_the_element() {
         tags::decode_double(run("let a = [1, 2, 3]; return a[\"1\"];")),
         2.0
     );
-    let produced = run("let s = 0; let a = [1, 2, 3]; for (let k in a) { s = s + a[k]; } return s;");
+    let produced =
+        run("let s = 0; let a = [1, 2, 3]; for (let k in a) { s = s + a[k]; } return s;");
     assert_eq!(tags::decode_double(produced), 6.0);
 }
 
@@ -1857,7 +1867,10 @@ fn length_is_a_property_both_paths_read() {
     // A special case only the slow path knows about stops applying the moment
     // the fast path starts working, which is the opposite of how a fast path
     // should fail. So the count is stored, and both read the same thing.
-    assert_eq!(tags::decode_double(run("let a = [1, 2, 3]; return a.length;")), 3.0);
+    assert_eq!(
+        tags::decode_double(run("let a = [1, 2, 3]; return a.length;")),
+        3.0
+    );
     assert_eq!(
         tags::decode_double(run("let a = []; a[2] = 1; return a.length;")),
         3.0
@@ -1894,17 +1907,13 @@ fn an_object_can_hold_more_than_seven_properties() {
     // never reaches it: `cache_resolve` already answered negative for a slot
     // past the inline ones, so such a read takes the slow path — which is why
     // the fast path needed no change at all.
-    let produced = run(
-        "let o = {}; \
+    let produced = run("let o = {}; \
          o.a=1; o.b=2; o.c=3; o.d=4; o.e=5; o.f=6; o.g=7; o.h=8; o.i=9; o.j=10; o.k=11; o.l=12; \
-         return o.a+o.b+o.c+o.d+o.e+o.f+o.g+o.h+o.i+o.j+o.k+o.l;",
-    );
+         return o.a+o.b+o.c+o.d+o.e+o.f+o.g+o.h+o.i+o.j+o.k+o.l;");
     assert_eq!(tags::decode_double(produced), 78.0);
 
     // The eighth on its own, which is the one that was undefined.
-    let produced = run(
-        "let o = {}; o.a=1;o.b=2;o.c=3;o.d=4;o.e=5;o.f=6;o.g=7;o.h=8; return o.h;",
-    );
+    let produced = run("let o = {}; o.a=1;o.b=2;o.c=3;o.d=4;o.e=5;o.f=6;o.g=7;o.h=8; return o.h;");
     assert_eq!(tags::decode_double(produced), 8.0);
 }
 
@@ -1915,22 +1924,18 @@ fn deleting_a_property_reshuffles_across_the_spill_too() {
     // writes cross between the cell and the spill, in both directions — which
     // is why the slot accessor is one function rather than a check at each of
     // the four call sites.
-    let produced = run(
-        "let o = {}; \
+    let produced = run("let o = {}; \
          o.a=1; o.b=2; o.c=3; o.d=4; o.e=5; o.f=6; o.g=7; o.h=8; o.i=9; \
          delete o.a; \
-         return o.h + o.i + o.b;",
-    );
+         return o.h + o.i + o.b;");
     assert_eq!(tags::decode_double(produced), 19.0);
 }
 
 #[test]
 fn enumeration_sees_the_spilled_properties() {
-    let produced = run(
-        "let o = {}; \
+    let produced = run("let o = {}; \
          o.a=1;o.b=2;o.c=3;o.d=4;o.e=5;o.f=6;o.g=7;o.h=8; \
-         let n = 0; for (let k in o) { n++; } return n;",
-    );
+         let n = 0; for (let k in o) { n++; } return n;");
     assert_eq!(tags::decode_double(produced), 8.0);
 }
 
@@ -1939,11 +1944,17 @@ fn enumeration_sees_the_spilled_properties() {
 
 #[test]
 fn a_string_has_a_length() {
-    assert_eq!(tags::decode_double(run("let s = \"abc\"; return s.length;")), 3.0);
+    assert_eq!(
+        tags::decode_double(run("let s = \"abc\"; return s.length;")),
+        3.0
+    );
     assert_eq!(tags::decode_double(run("return \"\".length;")), 0.0);
     // Counted in code units, not characters: a JavaScript string IS a sequence
     // of UTF-16 code units, so an astral character is two.
-    assert_eq!(tags::decode_double(run("return \"\u{1F600}\".length;")), 2.0);
+    assert_eq!(
+        tags::decode_double(run("return \"\u{1F600}\".length;")),
+        2.0
+    );
 }
 
 #[test]
@@ -1979,11 +1990,9 @@ fn a_string_property_does_not_shadow_an_ordinary_one() {
 
 #[test]
 fn a_string_can_be_walked_by_a_loop() {
-    let produced = run(
-        "let s = \"abc\"; let joined = \"\"; \
+    let produced = run("let s = \"abc\"; let joined = \"\"; \
          for (let i = 0; i < s.length; i++) { joined = joined + s[i]; } \
-         return joined === \"abc\";",
-    );
+         return joined === \"abc\";");
     assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
 }
 
@@ -2008,12 +2017,10 @@ fn a_computed_key_in_an_update_is_evaluated_once() {
     // `a[f()]++` calls `f` a single time. A rewrite to `a[f()] = a[f()] + 1`
     // calls it twice — the same trap the named case records, and one step worse
     // here because a computed key can have a side effect of its own.
-    let produced = run(
-        "let calls = 0; let a = [1]; \
+    let produced = run("let calls = 0; let a = [1]; \
          function k() { calls = calls + 1; return 0; } \
          a[k()]++; \
-         return calls;",
-    );
+         return calls;");
     assert_eq!(tags::decode_double(produced), 1.0);
 }
 
@@ -2034,7 +2041,9 @@ fn a_function_is_an_object_and_can_hold_properties() {
         8.0
     );
     assert_eq!(
-        tags::payload_of(run("function f() { return 1; } return (typeof f) === \"function\";")),
+        tags::payload_of(run(
+            "function f() { return 1; } return (typeof f) === \"function\";"
+        )),
         tags::BOOL_TRUE
     );
 }
@@ -2059,11 +2068,15 @@ fn a_property_on_a_primitive_string_is_still_dropped() {
 #[test]
 fn new_makes_an_object_the_constructor_writes_to() {
     assert_eq!(
-        tags::decode_double(run("function P(v) { this.v = v; } let p = new P(5); return p.v;")),
+        tags::decode_double(run(
+            "function P(v) { this.v = v; } let p = new P(5); return p.v;"
+        )),
         5.0
     );
     assert_eq!(
-        tags::decode_double(run("function P(a, b) { this.s = a + b; } return new P(1, 2).s;")),
+        tags::decode_double(run(
+            "function P(a, b) { this.s = a + b; } return new P(1, 2).s;"
+        )),
         3.0
     );
 }
@@ -2074,21 +2087,23 @@ fn a_property_is_found_on_the_prototype() {
     // change for this: it already answered negative when the own layout misses,
     // which is exactly the inherited case, so such a read takes the slow path.
     assert_eq!(
-        tags::decode_double(run("function P() {} P.prototype.m = 7; let p = new P(); return p.m;")),
+        tags::decode_double(run(
+            "function P() {} P.prototype.m = 7; let p = new P(); return p.m;"
+        )),
         7.0
     );
     // An own property shadows an inherited one, and adding an unrelated own
     // property does not disturb the inherited one.
     assert_eq!(
-        tags::decode_double(
-            run("function P() {} P.prototype.m = 9; let p = new P(); p.m = 1; return p.m;")
-        ),
+        tags::decode_double(run(
+            "function P() {} P.prototype.m = 9; let p = new P(); p.m = 1; return p.m;"
+        )),
         1.0
     );
     assert_eq!(
-        tags::decode_double(
-            run("function P() {} P.prototype.m = 9; let p = new P(); p.own = 1; return p.m;")
-        ),
+        tags::decode_double(run(
+            "function P() {} P.prototype.m = 9; let p = new P(); p.own = 1; return p.m;"
+        )),
         9.0
     );
 }
@@ -2098,14 +2113,16 @@ fn a_constructor_that_returns_an_object_produces_that_one() {
     // The clause an implementation forgets. A factory written this way is
     // ordinary JavaScript rather than a corner.
     assert_eq!(
-        tags::decode_double(run("function P() { return { a: 1 }; } let p = new P(); return p.a;")),
+        tags::decode_double(run(
+            "function P() { return { a: 1 }; } let p = new P(); return p.a;"
+        )),
         1.0
     );
     // Returning anything that is NOT an object leaves the fresh one.
     assert_eq!(
-        tags::decode_double(
-            run("function P() { this.a = 2; return 9; } let p = new P(); return p.a;")
-        ),
+        tags::decode_double(run(
+            "function P() { this.a = 2; return 9; } let p = new P(); return p.a;"
+        )),
         2.0
     );
 }
@@ -2113,13 +2130,15 @@ fn a_constructor_that_returns_an_object_produces_that_one() {
 #[test]
 fn instanceof_walks_the_chain() {
     assert_eq!(
-        tags::payload_of(run("function P() {} let p = new P(); return p instanceof P;")),
+        tags::payload_of(run(
+            "function P() {} let p = new P(); return p instanceof P;"
+        )),
         tags::BOOL_TRUE
     );
     assert_eq!(
-        tags::payload_of(
-            run("function P() {} function Q() {} let p = new P(); return p instanceof Q;")
-        ),
+        tags::payload_of(run(
+            "function P() {} function Q() {} let p = new P(); return p instanceof Q;"
+        )),
         tags::BOOL_FALSE
     );
     // An object that was never constructed inherits from nothing.
@@ -2132,7 +2151,67 @@ fn instanceof_walks_the_chain() {
 #[test]
 fn a_constructed_object_is_an_object_to_typeof() {
     assert_eq!(
-        tags::payload_of(run("function P() {} let p = new P(); return (typeof p) === \"object\";")),
+        tags::payload_of(run(
+            "function P() {} let p = new P(); return (typeof p) === \"object\";"
+        )),
         tags::BOOL_TRUE
     );
+}
+
+#[test]
+fn a_throw_reaches_the_catch_in_the_same_function() {
+    // The machine's regions, driven by the language for the first time. The
+    // handler receives the thrown value as a block parameter, which is why the
+    // number that comes back is the one that was thrown rather than a flag
+    // saying something happened.
+    let produced = run("try { throw 7; } catch (e) { return e; } return 1;");
+    assert_eq!(tags::decode_double(produced), 7.0);
+}
+
+#[test]
+fn a_try_that_throws_nothing_runs_its_body_and_not_its_handler() {
+    let produced = run("try { return 2; } catch (e) { return 99; }");
+    assert_eq!(tags::decode_double(produced), 2.0);
+}
+
+#[test]
+fn a_throw_from_inside_a_nested_block_still_finds_the_handler() {
+    // The one this could plausibly get wrong: the `if` creates blocks of its
+    // own, and a block outside the region it is lexically inside would unwind
+    // past this `catch`. The machine derives membership from where building
+    // was, so the nested block is in the region without anything saying so.
+    let produced = run("try { if (1) { throw 5; } } catch (e) { return e; } return 0;");
+    assert_eq!(tags::decode_double(produced), 5.0);
+}
+
+#[test]
+fn a_finally_is_refused_by_name_rather_than_emitted_once() {
+    // The machine models cleanup as one block ending in `CleanupDone`, because
+    // it is copied into every path that unwinds through it and that is sound
+    // only with one exit. A `finally` body needs arbitrary blocks -- `x + y`
+    // alone emits a fast path and a slow one -- so the missing capability is
+    // copying a subgraph, and it is missing below.
+    let error = compile("try { } finally { }").expect_err("refused");
+    assert!(format!("{error:?}").contains("finally"), "{error:?}");
+}
+
+#[test]
+fn a_value_assigned_inside_a_try_is_the_one_the_handler_sees() {
+    // The reason `capture` forces these into the environment. A handler is
+    // entered from every throwing point in the region, so an SSA value assigned
+    // in the body has no name there — and reading the value from before the
+    // body would silently give 0.
+    let produced = run("let x = 0; try { x = 4; throw 1; } catch (e) { return x; } return 9;");
+    assert_eq!(tags::decode_double(produced), 4.0);
+}
+
+#[test]
+fn a_try_around_a_call_is_refused_by_name_rather_than_compiled() {
+    // A throw inside the callee would run past this handler, because where a
+    // throw lands is planned from the region tree of the function containing
+    // it. A `catch` that reads correctly and never runs is worse than one that
+    // does not compile.
+    let error =
+        compile("function f() { throw 1; } try { f(); } catch (e) {}").expect_err("refused");
+    assert!(format!("{error:?}").contains("call"), "{error:?}");
 }

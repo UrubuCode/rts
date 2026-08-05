@@ -63,6 +63,7 @@ mod foreach;
 mod function;
 mod loops;
 mod merge;
+mod protect;
 mod proven;
 mod scope;
 mod stmt;

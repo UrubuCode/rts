@@ -197,7 +197,6 @@ impl Object {
     }
 
     fn slot_of(&self, shapes: &mut ShapeTree, key: Key) -> Option<u32> {
-
         shapes.slot_of(self.shape, machine_key(key)?)
     }
 

@@ -37,32 +37,32 @@ mod array;
 mod barrier;
 mod bitwise;
 mod cache;
-mod current;
+mod computed;
 #[cfg(test)]
 #[path = "context_tests.rs"]
 mod context_tests;
+mod current;
 mod functions;
-mod computed;
 mod objects;
-mod text;
 mod operators;
 mod primitives;
+mod text;
+mod throw;
 
 // The operators are defined in their own module and named from here, because a
 // caller wants "the entry points" in one place rather than a module tree.
 pub use array::{array_new, own_keys};
 pub use bitwise::{
-    bit_and, bit_not, bit_or, bit_xor, exponent, shift_left, shift_right,
-    shift_right_unsigned,
+    bit_and, bit_not, bit_or, bit_xor, exponent, shift_left, shift_right, shift_right_unsigned,
 };
-pub use functions::{ARGUMENT_SLOTS, call, closure_new, construct, instance_of};
 pub use computed::{delete_property, get_indexed, has_property, set_indexed};
+pub use functions::{ARGUMENT_SLOTS, call, closure_new, construct, instance_of};
 pub use objects::{get_property, object_new, set_property};
-pub use primitives::{add, number_to_string, strict_equals, to_boolean};
-pub use text::{declare_keys, declare_literals, string_const, type_of};
 pub use operators::{
     divide, greater, greater_equal, less, less_equal, loose_equals, multiply, remainder, subtract,
 };
+pub use primitives::{add, number_to_string, strict_equals, to_boolean};
+pub use text::{declare_keys, declare_literals, string_const, type_of};
 mod table;
 
 pub use alloc::alloc;
@@ -71,7 +71,7 @@ pub use cache::cache_resolve;
 pub use current::with_context;
 pub(crate) use current::with_current;
 pub use table::{CORE_ENTRY_COUNT, CoreEntry};
-
+pub use throw::throw;
 
 use rts_cranelift::shape::{KeyRegistry, ShapeTree};
 
@@ -280,7 +280,10 @@ impl Context {
     /// is recorded here because a cell's header holds the TYPE and a property
     /// lookup needs the SHAPE — and searching every layout per access is the
     /// cost this design exists to remove.
-    pub fn layout_of(&mut self, shape: rts_cranelift::shape::ShapeId) -> rts_cranelift::types::TypeId {
+    pub fn layout_of(
+        &mut self,
+        shape: rts_cranelift::shape::ShapeId,
+    ) -> rts_cranelift::types::TypeId {
         let ty = self.shapes.layout(shape, &mut self.types);
         if self.shape_of_type.len() <= ty.index() {
             self.shape_of_type.resize(ty.index() + 1, shape);
@@ -380,7 +383,6 @@ impl Context {
         }
     }
 }
-
 
 impl Context {
     /// The key a name the runtime itself knows has.

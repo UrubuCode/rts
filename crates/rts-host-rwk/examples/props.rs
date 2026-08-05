@@ -45,27 +45,39 @@ fn main() {
     let cases = [
         (
             "local (proven)",
-            format!("let n = 1; let t = 0; for (let i = 0; i < {rounds}; i = i + 1) {{ t = t + n; }} return t;"),
+            format!(
+                "let n = 1; let t = 0; for (let i = 0; i < {rounds}; i = i + 1) {{ t = t + n; }} return t;"
+            ),
         ),
         (
             "read, discarded",
-            format!("let o = {{}}; o.n = 1; for (let i = 0; i < {rounds}; i = i + 1) {{ o.n; }} return 0;"),
+            format!(
+                "let o = {{}}; o.n = 1; for (let i = 0; i < {rounds}; i = i + 1) {{ o.n; }} return 0;"
+            ),
         ),
         (
             "two reads, discarded",
-            format!("let o = {{}}; o.n = 1; o.m = 2; for (let i = 0; i < {rounds}; i = i + 1) {{ o.n; o.m; }} return 0;"),
+            format!(
+                "let o = {{}}; o.n = 1; o.m = 2; for (let i = 0; i < {rounds}; i = i + 1) {{ o.n; o.m; }} return 0;"
+            ),
         ),
         (
             "one property read",
-            format!("let o = {{}}; o.n = 1; let t = 0; for (let i = 0; i < {rounds}; i = i + 1) {{ t = t + o.n; }} return t;"),
+            format!(
+                "let o = {{}}; o.n = 1; let t = 0; for (let i = 0; i < {rounds}; i = i + 1) {{ t = t + o.n; }} return t;"
+            ),
         ),
         (
             "two property reads",
-            format!("let o = {{}}; o.n = 1; o.m = 0; let t = 0; for (let i = 0; i < {rounds}; i = i + 1) {{ t = t + o.n + o.m; }} return t;"),
+            format!(
+                "let o = {{}}; o.n = 1; o.m = 0; let t = 0; for (let i = 0; i < {rounds}; i = i + 1) {{ t = t + o.n + o.m; }} return t;"
+            ),
         ),
         (
             "one property write",
-            format!("let o = {{}}; o.n = 0; for (let i = 0; i < {rounds}; i = i + 1) {{ o.n = i; }} return 0;"),
+            format!(
+                "let o = {{}}; o.n = 0; for (let i = 0; i < {rounds}; i = i + 1) {{ o.n = i; }} return 0;"
+            ),
         ),
     ];
 

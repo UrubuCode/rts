@@ -122,12 +122,25 @@ pub struct FuncBuilder<'a> {
     func: &'a mut Function,
     types: &'a TypeRegistry,
     block: BlockId,
+    /// The protected regions currently open, outermost first.
+    ///
+    /// Rule 8. A client that had to place each block in a region itself would
+    /// eventually forget one, and forgetting does not fail — it produces a
+    /// handler that silently does not catch what a nested block threw, which is
+    /// a `catch` that reads correctly and never runs. So membership is derived
+    /// from where building was when the block was made.
+    open_regions: Vec<RegionId>,
 }
 
 impl<'a> FuncBuilder<'a> {
     /// Starts building at a block.
     pub fn new(func: &'a mut Function, types: &'a TypeRegistry, block: BlockId) -> Self {
-        Self { func, types, block }
+        Self {
+            func,
+            types,
+            block,
+            open_regions: Vec::new(),
+        }
     }
 
     /// Which block instructions are currently being appended to.
@@ -162,9 +175,13 @@ impl<'a> FuncBuilder<'a> {
         self.block = block;
     }
 
-    /// Appends an empty block.
+    /// Appends an empty block, in whatever region is open.
     pub fn create_block(&mut self) -> BlockId {
-        self.func.push_block()
+        let block = self.func.push_block();
+        if let Some(&region) = self.open_regions.last() {
+            self.func.set_block_region(block, region);
+        }
+        block
     }
 
     /// Appends a parameter to a block.
@@ -650,19 +667,43 @@ impl<'a> FuncBuilder<'a> {
         self.emit(Inst::Await { promise }, Repr::Tagged)
     }
 
-    /// Declares a protected region.
-    pub fn declare_region(
-        &mut self,
-        parent: Option<RegionId>,
-        handlers: Vec<Handler>,
-        cleanup: Option<BlockId>,
-    ) -> RegionId {
-        self.func.regions.declare(parent, handlers, cleanup)
+    /// Opens a protected region, and puts building inside it.
+    ///
+    /// Every block created before the matching [`FuncBuilder::close_region`]
+    /// belongs to it, including blocks a nested construct creates without ever
+    /// hearing about regions. That is the point: a client cannot forget, and a
+    /// nested `if` inside a `try` does not have to know it is inside one.
+    ///
+    /// The parent is the region already open, not a parameter. Nesting is the
+    /// search order, and a client that could name a parent could name the wrong
+    /// one — which would send a throw to a handler that does not enclose it.
+    ///
+    /// The handler and cleanup blocks must be created *before* this is called.
+    /// A handler placed inside its own region would catch what it throws
+    /// itself, which is a loop rather than a mistake anyone would notice.
+    pub fn open_region(&mut self, handlers: Vec<Handler>, cleanup: Option<BlockId>) -> RegionId {
+        let parent = self.open_regions.last().copied();
+        let region = self.func.regions.declare(parent, handlers, cleanup);
+        // The block building is currently in joins the region too. Without it,
+        // a throw emitted before any new block is created would be planned as
+        // if it were outside — and "the first statement of a `try`" is not a
+        // corner case.
+        self.func.set_block_region(self.block, region);
+        self.open_regions.push(region);
+        region
     }
 
-    /// Places a block inside a protected region.
-    pub fn place_in_region(&mut self, block: BlockId, region: RegionId) {
-        self.func.set_block_region(block, region);
+    /// Closes the innermost open region.
+    ///
+    /// # Panics
+    ///
+    /// If no region is open. That is a client bug rather than a program
+    /// condition — rule 7 — and the alternative is silently placing later
+    /// blocks in a region that has ended.
+    pub fn close_region(&mut self) {
+        self.open_regions
+            .pop()
+            .expect("close_region without a matching open_region");
     }
 
     /// Ends a cleanup, handing control back to whatever is unwinding.

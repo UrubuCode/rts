@@ -29,15 +29,24 @@ fn main() {
     // Three loops over the same number of passes. Each `+` is one more call,
     // and nothing else differs.
     let cases = [
-        ("3 operators", format!(
-            "let t = 0; for (let i = 0; i < {rounds}; i = i + 1) {{ t = t + i; }} return t;"
-        )),
-        ("4 operators", format!(
-            "let t = 0; for (let i = 0; i < {rounds}; i = i + 1) {{ t = t + i + i; }} return t;"
-        )),
-        ("5 operators", format!(
-            "let t = 0; for (let i = 0; i < {rounds}; i = i + 1) {{ t = t + i + i + i; }} return t;"
-        )),
+        (
+            "3 operators",
+            format!(
+                "let t = 0; for (let i = 0; i < {rounds}; i = i + 1) {{ t = t + i; }} return t;"
+            ),
+        ),
+        (
+            "4 operators",
+            format!(
+                "let t = 0; for (let i = 0; i < {rounds}; i = i + 1) {{ t = t + i + i; }} return t;"
+            ),
+        ),
+        (
+            "5 operators",
+            format!(
+                "let t = 0; for (let i = 0; i < {rounds}; i = i + 1) {{ t = t + i + i + i; }} return t;"
+            ),
+        ),
     ];
 
     println!("rounds {rounds}");

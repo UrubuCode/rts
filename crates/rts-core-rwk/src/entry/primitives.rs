@@ -17,10 +17,7 @@
 use super::with_current;
 use crate::coerce::{Sum, add as add_primitives, number_to_string as print_number};
 use crate::text::Str;
-use crate::value::{
-    Value, strict_equals as values_strict_equals, to_boolean as values_to_boolean,
-};
-
+use crate::value::{Value, strict_equals as values_strict_equals, to_boolean as values_to_boolean};
 
 /// `a + b`, on values already reduced to primitives.
 ///
@@ -91,4 +88,3 @@ pub fn number_to_string(value: f64) -> u64 {
         context.intern_value(text).bits()
     })
 }
-

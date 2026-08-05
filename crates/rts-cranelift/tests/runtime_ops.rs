@@ -257,15 +257,13 @@ fn a_throw_a_handler_catches_never_reaches_the_runtime() {
 
         let handler = b.create_block();
         b.add_block_param(handler, Repr::Tagged);
-        let region = b.declare_region(
-            None,
+        b.open_region(
             vec![Handler {
                 tag: Tag(1),
                 block: handler,
             }],
             None,
         );
-        b.place_in_region(entry, region);
         b.throw(Tag(1), value);
 
         let caught = func.block(handler).expect("exists").params[0];
@@ -296,15 +294,13 @@ fn a_throw_runs_the_cleanup_it_owes_on_the_way_out() {
             b.add_block_param(handler, Repr::Tagged);
             let cleanup = b.create_block();
 
-            let region = b.declare_region(
-                None,
+            b.open_region(
                 vec![Handler {
                     tag: Tag(1),
                     block: handler,
                 }],
                 Some(cleanup),
             );
-            b.place_in_region(entry, region);
             b.throw(Tag(1), value);
 
             // The cleanup settles a promise, which is only a way of being seen. It

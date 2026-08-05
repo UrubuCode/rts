@@ -51,7 +51,10 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
     // Writing it out is what makes a signature change on either side a type
     // error here rather than a corrupt call.
     match op {
-        RuntimeOp::Add => (CoreEntry::Add, rts_core_rwk::entry::add as extern "C" fn(u64, u64) -> u64 as *const u8),
+        RuntimeOp::Add => (
+            CoreEntry::Add,
+            rts_core_rwk::entry::add as extern "C" fn(u64, u64) -> u64 as *const u8,
+        ),
         RuntimeOp::StrictEquals => (CoreEntry::StrictEquals, {
             rts_core_rwk::entry::strict_equals as extern "C" fn(u64, u64) -> bool as *const u8
         }),
@@ -139,8 +142,7 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
             rts_core_rwk::entry::shift_right as extern "C" fn(u64, u64) -> u64 as *const u8
         }),
         RuntimeOp::ShiftRightUnsigned => (CoreEntry::ShiftRightUnsigned, {
-            rts_core_rwk::entry::shift_right_unsigned as extern "C" fn(u64, u64) -> u64
-                as *const u8
+            rts_core_rwk::entry::shift_right_unsigned as extern "C" fn(u64, u64) -> u64 as *const u8
         }),
         RuntimeOp::GetIndexed => (CoreEntry::GetIndexed, {
             rts_core_rwk::entry::get_indexed as extern "C" fn(u64, u64) -> u64 as *const u8
@@ -206,11 +208,7 @@ pub(crate) fn agree(op: RuntimeOp) -> Result<(), HostError> {
 /// One side's representations against the other's ABI types.
 fn describe(ours: Vec<Repr>, theirs: &[AbiType]) -> Result<(), String> {
     if ours.len() != theirs.len() {
-        return Err(format!(
-            "{} positions against {}",
-            ours.len(),
-            theirs.len()
-        ));
+        return Err(format!("{} positions against {}", ours.len(), theirs.len()));
     }
     for (at, (ours, theirs)) in ours.iter().zip(theirs).enumerate() {
         match theirs {
@@ -259,17 +257,18 @@ pub(crate) fn machine_entry(entry: RtEntry) -> *const u8 {
         RtEntry::CacheResolve => {
             rts_core_rwk::entry::cache_resolve as extern "C" fn(u64, i64, i64) -> i64 as *const u8
         }
-        // The rest are emitted by instructions this compiler does not produce:
-        // the write barrier by a store the collector must learn of, the promise
-        // operations by `await`, the throw by an escaping exception. Each
-        // arrives with the phase that emits it.
         RtEntry::WriteBarrier => {
             rts_core_rwk::entry::write_barrier as extern "C" fn(u64, u64) as *const u8
         }
-        RtEntry::PromiseNew
-        | RtEntry::PromiseSettle
-        | RtEntry::PromiseAwait
-        | RtEntry::Throw => std::ptr::null(),
+        // Reached only when nothing in the throwing function caught it, which
+        // ends the program with the value reported. A handler one frame up is
+        // the case the language layer refuses by name rather than compiling
+        // into a `catch` that would silently never run.
+        RtEntry::Throw => rts_core_rwk::entry::throw as extern "C" fn(i64, u64) as *const u8,
+        // The rest are emitted by instructions this compiler does not produce:
+        // the promise operations by `await`. Each arrives with the phase that
+        // emits it.
+        RtEntry::PromiseNew | RtEntry::PromiseSettle | RtEntry::PromiseAwait => std::ptr::null(),
     }
 }
 

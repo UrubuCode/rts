@@ -56,4 +56,3 @@ pub(crate) fn with_current<T>(body: impl FnOnce(&mut Context) -> T) -> T {
         body(context)
     })
 }
-

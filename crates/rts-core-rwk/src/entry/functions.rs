@@ -87,12 +87,7 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
                 let ty = context.layout_of(shape).index() as u32;
                 if let Some(prototype) = context.region.alloc(crate::heap::STRIDE, ty) {
                     let key = prototype_key(context);
-                    super::objects::put(
-                        context,
-                        cell,
-                        key,
-                        Value::from_slot(prototype).bits(),
-                    );
+                    super::objects::put(context, cell, key, Value::from_slot(prototype).bits());
                 }
                 Value::from_slot(cell).bits()
             }

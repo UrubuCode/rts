@@ -275,9 +275,8 @@ mod tests {
     fn one_string_is_enough_to_make_it_concatenation() {
         let text = Value::from_slot(1);
         let as_string = strings(vec![(text.bits(), "n=")]);
-        let stringify = |value: Value| {
-            as_string(value).or_else(|| value.numeric().map(number_to_string))
-        };
+        let stringify =
+            |value: Value| as_string(value).or_else(|| value.numeric().map(number_to_string));
 
         // `"n=" + 1` is `"n=1"`.
         //
@@ -353,13 +352,22 @@ mod tests {
         let one = Value::from_i32(1);
         let two = Value::from_i32(2);
 
-        assert_eq!(relational(Relational::Less, one, two, &none, plain), Some(true));
-        assert_eq!(relational(Relational::Less, two, one, &none, plain), Some(false));
+        assert_eq!(
+            relational(Relational::Less, one, two, &none, plain),
+            Some(true)
+        );
+        assert_eq!(
+            relational(Relational::Less, two, one, &none, plain),
+            Some(false)
+        );
         assert_eq!(
             relational(Relational::LessEqual, one, one, &none, plain),
             Some(true)
         );
-        assert_eq!(relational(Relational::Greater, two, one, &none, plain), Some(true));
+        assert_eq!(
+            relational(Relational::Greater, two, one, &none, plain),
+            Some(true)
+        );
         assert_eq!(
             relational(Relational::GreaterEqual, one, one, &none, plain),
             Some(true)

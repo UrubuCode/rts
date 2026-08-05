@@ -557,7 +557,7 @@ pub(super) fn settle(scope: &mut Scope, base: &[Binding], merged: &[usize], para
 /// branch that never runs still counts. The direction of the error is the safe
 /// one — a name gets a parameter it did not need, rather than needing one it did
 /// not get.
-fn assigned_in_stmt(statement: &Stmt, into: &mut Vec<Name>) {
+pub(super) fn assigned_in_stmt(statement: &Stmt, into: &mut Vec<Name>) {
     match &statement.kind {
         StmtKind::Expr(expr) | StmtKind::Throw(expr) => assigned_in_expr(expr, into),
         StmtKind::Return(value) => {
@@ -565,8 +565,13 @@ fn assigned_in_stmt(statement: &Stmt, into: &mut Vec<Name>) {
                 assigned_in_expr(expr, into);
             }
         }
-        StmtKind::Declare { bindings, .. } => {
+        // The names it introduces count as written, not only what its
+        // initialisers assign: a `var` inside a protected region is visible
+        // after it, and a handler that read the value from before the
+        // declaration would read one the program never had.
+        StmtKind::Declare { bindings, .. } | StmtKind::Using { bindings, .. } => {
             for binding in bindings {
+                binding.target.bound_names(into);
                 if let Some(expr) = &binding.value {
                     assigned_in_expr(expr, into);
                 }

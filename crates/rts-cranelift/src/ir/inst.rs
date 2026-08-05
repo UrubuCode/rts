@@ -553,8 +553,9 @@ impl Terminator {
             Terminator::Guard { ok, fail, .. } | Terminator::GuardType { ok, fail, .. } => {
                 vec![ok.block, fail.block]
             }
-            Terminator::CachedGet { hit, miss, .. }
-            | Terminator::CachedSet { hit, miss, .. } => vec![hit.block, miss.block],
+            Terminator::CachedGet { hit, miss, .. } | Terminator::CachedSet { hit, miss, .. } => {
+                vec![hit.block, miss.block]
+            }
             // A throw has no successor in this function's graph. Where it lands
             // is decided by the region tree, and may be in a caller; calling it
             // an edge here would claim a transfer this block does not perform.

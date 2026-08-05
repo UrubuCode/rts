@@ -226,10 +226,6 @@ impl Signature {
 /// So the rule lives here once. What each caller still owns is the part that is
 /// genuinely different: whether *its* returns match, which is a question about
 /// its own element type.
-pub fn tail_call_permitted(
-    caller: Convention,
-    callee: Convention,
-    returns_match: bool,
-) -> bool {
+pub fn tail_call_permitted(caller: Convention, callee: Convention, returns_match: bool) -> bool {
     caller.permits_tail_calls() && callee.permits_tail_calls() && returns_match
 }

@@ -171,7 +171,10 @@ pub fn own_keys(object: u64) -> u64 {
         //
         // Caught by a probe: `for (k in [1,2,3]) s += a[k]` summed to 9
         // instead of 6, because the loop visited "length" and added 3.
-        let skip = context.elements_at(slot).is_some().then(|| length_key(context));
+        let skip = context
+            .elements_at(slot)
+            .is_some()
+            .then(|| length_key(context));
         for (key, _) in context.shapes.properties(shape) {
             if Some(crate::object::Key::Name(key)) == skip {
                 continue;

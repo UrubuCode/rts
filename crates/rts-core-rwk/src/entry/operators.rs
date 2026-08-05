@@ -161,8 +161,8 @@ mod tests {
     use super::*;
     use crate::entry::{Context, with_context};
     use crate::text::Str;
-    use rts_cranelift::tags;
     use crate::value::Singletons;
+    use rts_cranelift::tags;
 
     fn singletons() -> Singletons {
         Singletons {
@@ -263,9 +263,7 @@ mod tests {
                 context.intern_value(Str::from_str("2")).bits()
             });
             let ten = crate::entry::with_current(|context| {
-                context
-                    .intern_value(Str::from_str("10"))
-                    .bits()
+                context.intern_value(Str::from_str("10")).bits()
             });
             assert!(!less(two, ten), "as text, \"2\" comes after \"10\"");
 

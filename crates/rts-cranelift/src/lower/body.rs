@@ -818,12 +818,9 @@ impl<'a> Body<'a> {
             8,
         );
         let at = builder.ins().iadd(address, offset);
-        builder.ins().store(
-            cranelift_codegen::ir::MemFlags::trusted(),
-            written,
-            at,
-            0,
-        );
+        builder
+            .ins()
+            .store(cranelift_codegen::ir::MemFlags::trusted(), written, at, 0);
         self.emit_barrier_at(builder, block, reference, written)?;
 
         let hit_args = self.block_args(&hit.args);

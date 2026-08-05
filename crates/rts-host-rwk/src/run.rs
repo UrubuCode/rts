@@ -7,9 +7,9 @@ use rts_codegen::runtime::RuntimeCalls;
 use rts_codegen::syntax::{FunctionBody, ModuleItem, StmtKind};
 use rts_codegen::values::ValueModel;
 use rts_cranelift::ir::FuncRegistry;
-use rts_cranelift::symbols::RtEntry;
 use rts_cranelift::mem::{RegionBase, RegionBases};
 use rts_cranelift::shape::KeyRegistry;
+use rts_cranelift::symbols::RtEntry;
 use rts_cranelift::tags::TagRegistry;
 use rts_cranelift::target::{InMemory, Placing, Visibility, place_in_memory};
 use rts_cranelift::types::TypeRegistry;
@@ -203,7 +203,9 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
     // declared before the body that defines it can take its address, so the
     // host declaring the entry afterwards stopped being possible.
     let emitted = {
-        let mut ctx = Ctx::new(&model, &mut funcs, &mut calls, &mut keys, &mut names, &types);
+        let mut ctx = Ctx::new(
+            &model, &mut funcs, &mut calls, &mut keys, &mut names, &types,
+        );
         emit_program(body, &mut ctx)?
     };
     let script = emitted.entry;
@@ -336,4 +338,3 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
         keys: names.keyed_texts().into_iter().map(str::to_owned).collect(),
     })
 }
-

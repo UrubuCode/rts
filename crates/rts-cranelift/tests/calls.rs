@@ -302,8 +302,7 @@ fn a_tail_call_inside_a_protected_region_is_refused() {
     let entry = func.entry;
     let mut b = FuncBuilder::new(&mut func, &types, entry);
     let cleanup = b.create_block();
-    let region = b.declare_region(None, vec![], Some(cleanup));
-    b.place_in_region(entry, region);
+    let region = b.open_region(vec![], Some(cleanup));
 
     assert_eq!(
         b.tail_call(&funcs, callee, &[]),

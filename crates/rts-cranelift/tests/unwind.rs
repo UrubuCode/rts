@@ -35,15 +35,13 @@ fn a_throw_reaches_a_handler_that_catches_its_tag() {
     let mut b = FuncBuilder::new(&mut func, &types, entry);
     let caught = b.create_block();
     b.add_block_param(caught, Repr::Tagged);
-    let region = b.declare_region(
-        None,
+    b.open_region(
         vec![Handler {
             tag: Tag(1),
             block: caught,
         }],
         None,
     );
-    b.place_in_region(entry, region);
     b.throw(Tag(1), value);
 
     let recovered = func.block(caught).expect("exists").params[0];
@@ -67,15 +65,13 @@ fn a_tag_nothing_catches_leaves_the_function() {
     let mut b = FuncBuilder::new(&mut func, &types, entry);
     let caught = b.create_block();
     b.add_block_param(caught, Repr::Tagged);
-    let region = b.declare_region(
-        None,
+    b.open_region(
         vec![Handler {
             tag: Tag(1),
             block: caught,
         }],
         None,
     );
-    b.place_in_region(entry, region);
     b.throw(Tag(2), value);
 
     let mut b = FuncBuilder::new(&mut func, &types, caught);
@@ -97,8 +93,7 @@ fn cleanup_runs_on_the_way_out_even_when_nothing_catches() {
     let entry = func.entry;
     let mut b = FuncBuilder::new(&mut func, &types, entry);
     let cleanup = b.create_block();
-    let region = b.declare_region(None, vec![], Some(cleanup));
-    b.place_in_region(entry, region);
+    let region = b.open_region(vec![], Some(cleanup));
     b.throw(Tag(1), value);
 
     let mut b = FuncBuilder::new(&mut func, &types, cleanup);
@@ -126,16 +121,14 @@ fn nested_regions_clean_up_innermost_first() {
     let caught = b.create_block();
     b.add_block_param(caught, Repr::Tagged);
 
-    let outer = b.declare_region(
-        None,
+    b.open_region(
         vec![Handler {
             tag: Tag(1),
             block: caught,
         }],
         Some(outer_cleanup),
     );
-    let inner = b.declare_region(Some(outer), vec![], Some(inner_cleanup));
-    b.place_in_region(entry, inner);
+    b.open_region(vec![], Some(inner_cleanup));
     b.throw(Tag(1), value);
 
     for block in [outer_cleanup, inner_cleanup] {
@@ -194,15 +187,13 @@ fn a_handler_that_does_not_receive_the_value_is_rejected() {
     let entry = func.entry;
     let mut b = FuncBuilder::new(&mut func, &types, entry);
     let caught = b.create_block();
-    let region = b.declare_region(
-        None,
+    let region = b.open_region(
         vec![Handler {
             tag: Tag(1),
             block: caught,
         }],
         None,
     );
-    b.place_in_region(entry, region);
     b.throw(Tag(1), value);
 
     let mut b = FuncBuilder::new(&mut func, &types, caught);
@@ -229,8 +220,7 @@ fn a_point_that_can_collect_records_the_region_protecting_it() {
     let entry = func.entry;
     let mut b = FuncBuilder::new(&mut func, &types, entry);
     let cleanup = b.create_block();
-    let region = b.declare_region(None, vec![], Some(cleanup));
-    b.place_in_region(entry, region);
+    let region = b.open_region(vec![], Some(cleanup));
     b.alloc(ty, Region::Local);
     b.ret(&[held]);
 
@@ -264,15 +254,13 @@ fn a_region_naming_a_block_that_does_not_exist_is_rejected() {
     for _ in 0..2 {
         other.push_block();
     }
-    let region = b.declare_region(
-        None,
+    let region = b.open_region(
         vec![Handler {
             tag: Tag(1),
             block: foreign_block,
         }],
         None,
     );
-    b.place_in_region(entry, region);
     b.ret(&[]);
 
     let errors = verify(&func, &types, &FuncRegistry::new());

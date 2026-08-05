@@ -131,15 +131,13 @@ fn a_throw_runs_its_cleanup_before_reaching_the_handler() {
     let handler = b.create_block();
     b.add_block_param(handler, Repr::Tagged);
     let cleanup = b.create_block();
-    let region = b.declare_region(
-        None,
+    b.open_region(
         vec![Handler {
             tag: Tag(1),
             block: handler,
         }],
         Some(cleanup),
     );
-    b.place_in_region(entry, region);
     b.throw(Tag(1), value);
 
     write_cleanup(&mut func, &types, cleanup, 7);
@@ -175,16 +173,16 @@ fn nested_cleanups_run_innermost_first() {
     let outer_cleanup = b.create_block();
     let inner_cleanup = b.create_block();
 
-    let outer = b.declare_region(
-        None,
+    b.open_region(
         vec![Handler {
             tag: Tag(1),
             block: handler,
         }],
         Some(outer_cleanup),
     );
-    let inner = b.declare_region(Some(outer), vec![], Some(inner_cleanup));
-    b.place_in_region(entry, inner);
+    // Nested by being opened inside the outer one -- the parent is derived,
+    // so there is no second place to state which region encloses which.
+    b.open_region(vec![], Some(inner_cleanup));
     b.throw(Tag(1), value);
 
     write_cleanup(&mut func, &types, inner_cleanup, 1);
@@ -219,8 +217,7 @@ fn leaving_a_region_normally_owes_the_same_cleanup() {
     let entry = func.entry;
     let mut b = FuncBuilder::new(&mut func, &types, entry);
     let cleanup = b.create_block();
-    let region = b.declare_region(None, vec![], Some(cleanup));
-    b.place_in_region(entry, region);
+    let region = b.open_region(vec![], Some(cleanup));
     b.ret(&[value]);
 
     write_cleanup(&mut func, &types, cleanup, 5);
@@ -250,23 +247,23 @@ fn two_paths_through_one_cleanup_each_get_their_own_copy() {
     let entry = func.entry;
     let mut b = FuncBuilder::new(&mut func, &types, entry);
 
-    let throwing = b.create_block();
-    let returning = b.create_block();
+    // The handler and the cleanup are made before the region opens, so they
+    // are outside it. The two paths are made after, so they are inside — which
+    // is the whole discipline, and it is now the order of the calls rather than
+    // a list somebody has to keep right.
     let handler = b.create_block();
     b.add_block_param(handler, Repr::Tagged);
     let cleanup = b.create_block();
 
-    let region = b.declare_region(
-        None,
+    let region = b.open_region(
         vec![Handler {
             tag: Tag(1),
             block: handler,
         }],
         Some(cleanup),
     );
-    for block in [entry, throwing, returning] {
-        b.place_in_region(block, region);
-    }
+    let throwing = b.create_block();
+    let returning = b.create_block();
     b.branch(cond, (throwing, &[]), (returning, &[]))
         .expect("proven boolean");
 
@@ -304,8 +301,7 @@ fn a_cleanup_that_does_not_end_as_one_is_rejected() {
     let entry = func.entry;
     let mut b = FuncBuilder::new(&mut func, &types, entry);
     let cleanup = b.create_block();
-    let region = b.declare_region(None, vec![], Some(cleanup));
-    b.place_in_region(entry, region);
+    let region = b.open_region(vec![], Some(cleanup));
     b.ret(&[]);
 
     // Ends by returning, which would give the copy a second exit.
@@ -331,8 +327,7 @@ fn a_cleanup_that_reads_something_outside_itself_is_rejected() {
     let entry = func.entry;
     let mut b = FuncBuilder::new(&mut func, &types, entry);
     let cleanup = b.create_block();
-    let region = b.declare_region(None, vec![], Some(cleanup));
-    b.place_in_region(entry, region);
+    let region = b.open_region(vec![], Some(cleanup));
     b.ret(&[]);
 
     let mut b = FuncBuilder::new(&mut func, &types, cleanup);
@@ -372,8 +367,7 @@ fn a_cleanup_with_parameters_is_rejected() {
     let mut b = FuncBuilder::new(&mut func, &types, entry);
     let cleanup = b.create_block();
     b.add_block_param(cleanup, Repr::Tagged);
-    let region = b.declare_region(None, vec![], Some(cleanup));
-    b.place_in_region(entry, region);
+    let region = b.open_region(vec![], Some(cleanup));
     b.ret(&[]);
 
     let mut b = FuncBuilder::new(&mut func, &types, cleanup);

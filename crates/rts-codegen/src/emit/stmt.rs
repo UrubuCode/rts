@@ -168,8 +168,20 @@ pub fn emit_stmt(
         StmtKind::Labelled { label, body } => {
             emit_labelled(builder, scope, ctx, loops, *label, body)
         }
-        StmtKind::Throw(_) => super::expr::gap("`throw`"),
-        StmtKind::Try { .. } => super::expr::gap("`try`"),
+        StmtKind::Throw(value) => super::protect::emit_throw(builder, scope, ctx, value),
+        StmtKind::Try {
+            body,
+            catch,
+            finally,
+        } => super::protect::emit_try(
+            builder,
+            scope,
+            ctx,
+            loops,
+            body,
+            catch.as_ref(),
+            finally.as_deref(),
+        ),
         // Already bound and already emitted, by the hoisting pass that ran
         // before this body did. Emitting it here as well would make a second
         // closure over the same code and rebind the name to it, which is

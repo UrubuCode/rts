@@ -13,8 +13,8 @@
 //! "what is a key" in one file.
 
 use super::objects::{
-    machine_key, put, read_property, set_slot_value, slot_value, string_element,
-    string_property, undefined_of,
+    machine_key, put, read_property, set_slot_value, slot_value, string_element, string_property,
+    undefined_of,
 };
 use super::{Context, with_current};
 use crate::object::Key;
@@ -46,7 +46,10 @@ pub fn get_indexed(object: u64, key: u64) -> u64 {
             && let Some(elements) = context.elements_at(slot)
         {
             // Past the end is absent, not an error: `[1,2][9]` is `undefined`.
-            return elements.get(at).copied().unwrap_or_else(|| undefined_of(context));
+            return elements
+                .get(at)
+                .copied()
+                .unwrap_or_else(|| undefined_of(context));
         }
         if let Some(answer) = string_element(context, slot, Value(key)) {
             return answer;
@@ -211,4 +214,3 @@ pub fn delete_property(object: u64, key: u64) -> bool {
         true
     })
 }
-

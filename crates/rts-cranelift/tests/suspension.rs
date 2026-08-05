@@ -209,8 +209,7 @@ fn suspending_inside_a_protected_region_keeps_the_region() {
     let entry = func.entry;
     let mut b = FuncBuilder::new(&mut func, &types, entry);
     let cleanup = b.create_block();
-    let region = b.declare_region(None, vec![], Some(cleanup));
-    b.place_in_region(entry, region);
+    let region = b.open_region(vec![], Some(cleanup));
     b.suspend();
     b.ret(&[value]);
 

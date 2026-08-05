@@ -29,6 +29,8 @@
 
 use std::collections::BTreeSet;
 
+use super::loops::assigned_in_stmt as writes_of;
+
 use crate::names::Name;
 use crate::syntax::{
     AssignTarget, Expr, ExprKind, Function, FunctionBody, Parameter, Pattern, Property,
@@ -44,13 +46,15 @@ use crate::syntax::{
 /// shape tree exists to avoid.
 pub fn captured(body: &[Stmt], parameters: &[Name]) -> BTreeSet<Name> {
     let mut inner = BTreeSet::new();
+    let mut protected = BTreeSet::new();
     for statement in body {
         referenced_inside_statement(statement, &mut inner);
+        assigned_under_protection(statement, &mut protected);
     }
-    if inner.is_empty() {
-        // Nothing nested, so nothing can be captured, and no environment is
-        // built at all. The common case, and worth short-circuiting because it
-        // is what keeps a function with no closures paying nothing for them.
+    if inner.is_empty() && protected.is_empty() {
+        // Nothing nested and nothing protected, so no environment is built at
+        // all. The common case, and worth short-circuiting because it is what
+        // keeps a function with no closures paying nothing for them.
         return BTreeSet::new();
     }
 
@@ -58,7 +62,121 @@ pub fn captured(body: &[Stmt], parameters: &[Name]) -> BTreeSet<Name> {
     for statement in body {
         declared_by_statement(statement, &mut declared);
     }
-    declared.intersection(&inner).copied().collect()
+
+    // Both intersected with what this function declares. A name assigned under
+    // protection that this function did not declare is somebody else's — a
+    // global, or an outer function's — and putting it in *this* environment
+    // would give it a second home rather than a stable one.
+    let mut resident: BTreeSet<Name> = declared.intersection(&inner).copied().collect();
+    resident.extend(declared.intersection(&protected).copied());
+    resident
+}
+
+/// Names assigned inside a `try` body or a `using` scope.
+///
+/// These belong in the environment for exactly the reason a captured name does,
+/// arrived at from the other direction. A handler is entered from *every* point
+/// in the region that can throw, so at its start a name assigned in the body has
+/// as many reaching definitions as there are throwing points — and there is no
+/// SSA value to name. Cleanup has the same problem and worse, being reached from
+/// the normal path too.
+///
+/// A block parameter is the usual answer to several definitions meeting, and it
+/// does not work here: it requires every predecessor to pass an argument, and a
+/// throwing point does not branch to the handler, it unwinds to it. Memory does
+/// work, and the mechanism already exists — so this is not a second answer to
+/// the question, it is the same one asked by a different construct.
+///
+/// Collected without regard to whether anything ever throws, which is the same
+/// crudeness the module doc argues for above: a name wrongly in the environment
+/// costs a load, and a name wrongly out of it is a handler reading a value from
+/// before the assignment it is supposed to see.
+fn assigned_under_protection(statement: &Stmt, found: &mut BTreeSet<Name>) {
+    match &statement.kind {
+        StmtKind::Try {
+            body,
+            catch,
+            finally,
+        } => {
+            for inner in body {
+                found.extend(writes(inner));
+                assigned_under_protection(inner, found);
+            }
+            if let Some(catch) = catch {
+                for inner in &catch.body {
+                    assigned_under_protection(inner, found);
+                }
+            }
+            if let Some(finally) = finally {
+                for inner in finally {
+                    assigned_under_protection(inner, found);
+                }
+            }
+        }
+
+        // A `using` declaration protects the rest of its block: the disposal it
+        // owes runs on the way out, however control leaves.
+        StmtKind::Using { bindings, .. } => {
+            for binding in bindings {
+                let mut bound = Vec::new();
+                binding.target.bound_names(&mut bound);
+                found.extend(bound);
+            }
+        }
+
+        StmtKind::Block(body) => {
+            // A `using` anywhere in a block makes the whole block protected, so
+            // everything assigned after it is reached by cleanup.
+            if body
+                .iter()
+                .any(|inner| matches!(inner.kind, StmtKind::Using { .. }))
+            {
+                for inner in body {
+                    found.extend(writes(inner));
+                }
+            }
+            for inner in body {
+                assigned_under_protection(inner, found);
+            }
+        }
+
+        StmtKind::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            assigned_under_protection(then_branch, found);
+            if let Some(otherwise) = else_branch {
+                assigned_under_protection(otherwise, found);
+            }
+        }
+        StmtKind::While { body, .. }
+        | StmtKind::DoWhile { body, .. }
+        | StmtKind::For { body, .. }
+        | StmtKind::ForEach { body, .. }
+        | StmtKind::Labelled { body, .. }
+        | StmtKind::With { body, .. } => assigned_under_protection(body, found),
+        StmtKind::Switch { clauses, .. } => {
+            for clause in clauses {
+                for inner in &clause.body {
+                    assigned_under_protection(inner, found);
+                }
+            }
+        }
+
+        // A nested function has its own environment, and its own answer to this
+        // question when it is emitted.
+        StmtKind::Function(_) | StmtKind::Class(_) => {}
+
+        StmtKind::Expr(_)
+        | StmtKind::Throw(_)
+        | StmtKind::Return(_)
+        | StmtKind::Declare { .. }
+        | StmtKind::Break(_)
+        | StmtKind::Continue(_)
+        | StmtKind::Debugger
+        | StmtKind::Empty => {}
+    }
 }
 
 /// Every name a nested function mentions, anywhere inside it.
@@ -416,4 +534,16 @@ pub fn plain_parameters(parameters: &[Parameter]) -> Option<Vec<Name>> {
             _ => None,
         })
         .collect()
+}
+
+/// The names one statement writes, as a set.
+///
+/// A thin adapter over the loop emitter's collector rather than a second one:
+/// "what does this statement write" has exactly one answer, and a copy here
+/// would be a second place for it to be wrong. It is a `Vec` there because a
+/// merge needs the order.
+fn writes(statement: &Stmt) -> Vec<Name> {
+    let mut names = Vec::new();
+    writes_of(statement, &mut names);
+    names
 }

@@ -47,9 +47,7 @@ pub fn executable_memory() -> Result<JITModule, TargetError> {
 /// is, and whose signature matches what the compiled code was told to expect. A
 /// mismatch is a call through the wrong shape, which no verifier here can see —
 /// the code being called was not built by this crate.
-pub fn executable_memory_calling(
-    symbols: &[(&str, *const u8)],
-) -> Result<JITModule, TargetError> {
+pub fn executable_memory_calling(symbols: &[(&str, *const u8)]) -> Result<JITModule, TargetError> {
     let isa = host_isa()?;
     let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
     for (name, address) in symbols {

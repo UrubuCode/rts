@@ -185,5 +185,8 @@ pub unsafe fn place_in_memory(
         .map(|(id, machine_id)| (id, jit.get_finalized_function(machine_id)))
         .collect();
 
-    Ok(InMemory { module: jit, placed })
+    Ok(InMemory {
+        module: jit,
+        placed,
+    })
 }

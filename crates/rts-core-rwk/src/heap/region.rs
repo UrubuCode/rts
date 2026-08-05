@@ -145,7 +145,9 @@ impl Region {
         if slot >= INLINE_SLOTS {
             return None;
         }
-        self.words.get(self.word_of(index) + 1 + slot as usize).copied()
+        self.words
+            .get(self.word_of(index) + 1 + slot as usize)
+            .copied()
     }
 
     /// Writes a field of a cell.

@@ -86,7 +86,10 @@ pub(super) fn check_terminators(func: &Function, errors: &mut Vec<VerifyError>) 
                 // inserts rather than a check anything can make here.
                 let written = func.repr_of(*value);
                 if written != Repr::Tagged {
-                    errors.push(VerifyError::GuardTypeOnNonReference { from, found: written });
+                    errors.push(VerifyError::GuardTypeOnNonReference {
+                        from,
+                        found: written,
+                    });
                 }
                 // No narrowed parameter: a store produces nothing.
                 check_block_call(func, from, hit, 0, errors);
