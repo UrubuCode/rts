@@ -100,7 +100,13 @@ pub fn write(
             }
             Ok(held)
         }
-        None => Err(EmitError::UnboundName(name)),
+        // Nothing declared it, so this is either a global the program creates
+        // by assigning to it — which is what sloppy mode does — or the program
+        // being wrong.
+        None => match super::globals::resolves(ctx, name) {
+            true => super::globals::write(builder, ctx, name, value),
+            false => Err(EmitError::UnboundName(name)),
+        },
     }
 }
 

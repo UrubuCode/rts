@@ -62,7 +62,7 @@ pub use bitwise::{
 };
 pub use computed::{delete_property, get_indexed, has_property, set_indexed};
 pub use functions::{ARGUMENT_SLOTS, call, closure_new, construct, instance_of};
-pub use global::global_get;
+pub use global::{global_get, global_set};
 pub use objects::{get_property, object_new, set_property};
 pub use operators::{
     divide, greater, greater_equal, less, less_equal, loose_equals, multiply, remainder, subtract,

@@ -56,7 +56,7 @@ use super::operators::{
     REMAINDER_ENTRY, SUBTRACT_ENTRY,
 };
 use super::primitives::{ADD_ENTRY, NUMBER_TO_STRING_ENTRY, STRICT_EQUALS_ENTRY, TO_BOOLEAN_ENTRY};
-use super::global::GLOBAL_GET_ENTRY;
+use super::global::{GLOBAL_GET_ENTRY, GLOBAL_SET_ENTRY};
 use super::regex::REGEX_NEW_ENTRY;
 use super::text::{STRING_CONST_ENTRY, TYPE_OF_ENTRY};
 
@@ -281,6 +281,12 @@ pub enum CoreEntry {
 
     /// Links an object to what it inherits from.
     SetPrototype = 39,
+
+    /// Writes a global, creating it.
+    ///
+    /// Here for the reason the read is: the values live on an object this
+    /// crate owns.
+    GlobalSet = 40,
 }
 
 /// How many entry points exist.
@@ -288,7 +294,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 40;
+pub const CORE_ENTRY_COUNT: usize = 41;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -333,6 +339,7 @@ impl CoreEntry {
         CoreEntry::GlobalGet,
         CoreEntry::GetPrototype,
         CoreEntry::SetPrototype,
+        CoreEntry::GlobalSet,
     ];
 
     /// The number a call site holds.
@@ -388,6 +395,7 @@ impl CoreEntry {
             CoreEntry::GlobalGet => GLOBAL_GET_ENTRY,
             CoreEntry::GetPrototype => GET_PROTOTYPE_ENTRY,
             CoreEntry::SetPrototype => SET_PROTOTYPE_ENTRY,
+            CoreEntry::GlobalSet => GLOBAL_SET_ENTRY,
         }
     }
 

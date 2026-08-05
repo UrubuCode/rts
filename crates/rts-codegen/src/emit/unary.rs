@@ -96,7 +96,18 @@ pub fn emit_unary(
         // refused before this is reached, because there is no global object for
         // it to be absent from.
         UnaryOp::TypeOf => {
-            let value = emit_expr(builder, scope, ctx, operand)?;
+            // The one read in the language that does not throw for a name
+            // nothing declared, because it takes a REFERENCE rather than a
+            // value. So a bare name here goes to the global object even when
+            // reading it anywhere else would be refused — `typeof maybe` is how
+            // a program asks whether something exists, and refusing it would
+            // refuse the question itself.
+            let value = match &operand.kind {
+                ExprKind::Ident(name) if scope.lookup(*name).is_none() => {
+                    super::globals::force_read(builder, ctx, *name)?
+                }
+                _ => emit_expr(builder, scope, ctx, operand)?,
+            };
             Ok(expr::call(builder, ctx, RuntimeOp::TypeOf, &[value])?[0])
         }
         // Takes a reference rather than a value, and removing a property is an

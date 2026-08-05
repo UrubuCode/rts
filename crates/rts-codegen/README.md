@@ -158,17 +158,26 @@ than a feature, so nothing in the runtime knows what a class is.
 
 Everything not yet emitted is refused by name, and that list is the work queue.
 `PLAN.md` §3b. The three shapes a gap has today, so the next one can be placed:
-it needs a **runtime operation nobody defined** (`instanceof`, which needs a
-prototype) or a **mechanism** (a global object, `throw`, classes, `new`,
-iteration, and the argument vector rest and spread need). Nothing is left in the
-first category — a heap value this crate cannot make — now that strings and
-arrays exist.
+what is left needs a **mechanism**: accessor properties (which a getter, a
+setter and `Object.defineProperty` all wait for), an argument vector (rest,
+spread, and a call of more than four arguments), iteration, generators, and
+`await`. Nothing is left in the category of *a heap value this crate cannot
+make*, now that strings, arrays and regular expressions exist.
 
-The global object is **still absent**, and `emit/globals.rs` is deliberately not
-it: a fixed set of names whose values the runtime holds — `RegExp` and `String`
-today — read by key. What a real one adds is `globalThis`, writes that create bindings, and
-`typeof undeclared` answering instead of throwing. None of that is faked, so an
-unbound name is still refused rather than becoming a silent `undefined`.
+There **is** a global object now: `globalThis` is a real object a program can
+reach and write to, an assignment to an undeclared name creates a property on
+it, and `typeof undeclared` answers `"undefined"` rather than failing — the
+exemption the specification gives `typeof` for taking a reference rather than a
+value. `RegExp` and `String` are the names the runtime supplies so far.
+
+One thing is deliberately **stricter than the language**. Reading a name that
+neither the runtime provides nor the program ever assigns is refused at compile
+time, where the language throws a `ReferenceError` — an error this engine cannot
+raise anywhere a handler could catch it. That refusal is wrong only for a
+program meaning to catch the error, and the alternative, answering `undefined`,
+is wrong for every program with a typo in it. Which names a program creates is
+answered by `emit/sloppy.rs`, once over the whole tree, because the read can be
+emitted before the assignment that creates it is reached.
 
 A **known divergence**, pinned by a test that asserts what the engine does so
 that fixing it fails: `let` in a loop should be a fresh binding per pass, and

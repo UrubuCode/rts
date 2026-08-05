@@ -69,6 +69,7 @@ mod protect;
 mod proven;
 mod regex;
 mod scope;
+mod sloppy;
 mod stmt;
 mod switch;
 mod template;
@@ -235,6 +236,12 @@ pub struct Ctx<'a> {
     /// supplying it would be supplying an answer about something it has not
     /// looked at.
     numeric: Numeric,
+    /// Which names the program creates by assigning to them.
+    ///
+    /// Answered once for the whole program before anything is emitted, because
+    /// the read can come first: `function f() { return n; } n = 0;` emits the
+    /// body before reaching the assignment. See [`sloppy`].
+    globals: std::collections::BTreeSet<Name>,
 }
 
 impl<'a> Ctx<'a> {
@@ -257,6 +264,7 @@ impl<'a> Ctx<'a> {
             pending: Vec::new(),
             literals: Vec::new(),
             numeric: Numeric::default(),
+            globals: std::collections::BTreeSet::new(),
         }
     }
 
@@ -332,6 +340,11 @@ pub fn emit_program(body: &[Stmt], ctx: &mut Ctx) -> EmitResult<Program> {
 
     // Nothing encloses a script, so nothing is reachable through a chain that
     // does not exist. An empty scope says exactly that.
+    // Which names this program creates by assigning to them, before any of it
+    // is emitted — a body that reads one may be emitted before the assignment
+    // that creates it is reached.
+    ctx.globals = sloppy::created(body);
+
     let nothing = Scope::new();
     let emitted = function::emit_body(ctx, &nothing, &[], body, false)?;
     ctx.pending.push((entry, emitted));

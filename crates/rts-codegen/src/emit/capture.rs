@@ -347,7 +347,7 @@ fn referenced_inside_expr(expr: &Expr, found: &mut BTreeSet<Name>) {
 /// One callback taking this rather than two callbacks, because two would each
 /// need `&mut` on the same accumulator and the borrow checker is right to
 /// refuse it — the traversal genuinely visits both kinds of child into one set.
-enum Child<'a> {
+pub(super) enum Child<'a> {
     /// A sub-expression, walked by whichever traversal is running.
     Expr(&'a Expr),
     /// A nested function, whose every name counts.
@@ -593,4 +593,14 @@ fn names_in_class(class: &crate::syntax::Class, found: &mut BTreeSet<Name>) {
             }
         }
     }
+}
+
+/// The children of an expression, for a traversal that is not one of this
+/// module's own.
+///
+/// Exposed rather than duplicated: the match in [`walk_expr`] is the one
+/// description of the tree's shape, and its own comment says what a second copy
+/// costs — a node walked by one analysis and silently skipped by another.
+pub(super) fn children(expr: &Expr, on: &mut impl FnMut(Child)) {
+    walk_expr(expr, on);
 }

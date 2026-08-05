@@ -341,6 +341,13 @@ pub enum RuntimeOp {
 
     /// Links an object to what it inherits from.
     SetPrototype,
+
+    /// Writes a global, creating it.
+    ///
+    /// The whole of sloppy mode.s global creation: an assignment to a name
+    /// nothing declared puts a property on the global object. Strict mode
+    /// throws instead, which is a `ReferenceError` this engine cannot raise.
+    GlobalSet,
 }
 
 impl RuntimeOp {
@@ -386,6 +393,7 @@ impl RuntimeOp {
         RuntimeOp::GlobalGet,
         RuntimeOp::GetPrototype,
         RuntimeOp::SetPrototype,
+        RuntimeOp::GlobalSet,
     ];
 
     /// The linker name the runtime must define.
@@ -436,6 +444,7 @@ impl RuntimeOp {
             RuntimeOp::GlobalGet => "__rts_global_get",
             RuntimeOp::GetPrototype => "__rts_get_prototype",
             RuntimeOp::SetPrototype => "__rts_set_prototype",
+            RuntimeOp::GlobalSet => "__rts_global_set",
         }
     }
 
@@ -509,6 +518,9 @@ impl RuntimeOp {
             // Answers the object, so a lowering can chain — which a class
             // definition does three times in a row.
             RuntimeOp::SetPrototype => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
+            // The key the compiler resolved, and the value. Answers the value,
+            // because an assignment is an expression.
+            RuntimeOp::GlobalSet => (vec![Repr::I64, UNPROVEN], vec![UNPROVEN]),
         };
         Signature {
             params,

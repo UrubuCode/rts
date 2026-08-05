@@ -2715,3 +2715,63 @@ fn what_a_class_still_cannot_express_is_refused_by_name() {
         assert!(text.contains(expected), "{source} gave {text}");
     }
 }
+
+#[test]
+fn assigning_to_an_undeclared_name_creates_a_global() {
+    // Sloppy mode, and the only way a script without a module system introduces
+    // a global at all. Strict mode throws instead — a `ReferenceError` this
+    // engine cannot raise where a handler could catch it.
+    let produced = run("counter = 7; return counter;");
+    assert_eq!(tags::decode_double(produced), 7.0);
+}
+
+#[test]
+fn a_function_reads_a_global_the_program_creates_after_it() {
+    // Why the scan runs over the whole program before anything is emitted: the
+    // body is emitted before the assignment is reached, so a decision taken at
+    // the read would have nothing to go on.
+    let produced = run("function get() { return total; } total = 4; return get();");
+    assert_eq!(tags::decode_double(produced), 4.0);
+}
+
+#[test]
+fn globalthis_is_the_object_the_globals_are_on() {
+    // What makes this a global object rather than a table with globals in it.
+    let through = run("mine = 3; return globalThis.mine;");
+    assert_eq!(tags::decode_double(through), 3.0);
+
+    let back = run("globalThis.other = 5; return globalThis.other;");
+    assert_eq!(tags::decode_double(back), 5.0);
+
+    // But the bare name is NOT readable, and that is the compile-time refusal
+    // being consistent rather than a separate limitation: a name is readable
+    // when the language provides it or the program assigns it by name, and
+    // `globalThis.other = 5` is neither. Reading it is what a typo looks like.
+    let bare = compile("globalThis.other = 5; return other;").expect_err("refused");
+    assert!(format!("{bare:?}").contains("UnboundName"), "{bare:?}");
+
+    let itself = run("return globalThis === globalThis;");
+    assert_eq!(tags::payload_of(itself), tags::BOOL_TRUE);
+}
+
+#[test]
+fn typeof_of_an_undeclared_name_answers_rather_than_failing() {
+    // The one read in the language that does not throw for a name nothing
+    // declared, because it takes a reference rather than a value. Refusing it
+    // would refuse the question `typeof maybe === "undefined"` asks.
+    let produced = run("return (typeof nothingDeclaresThis) === \"undefined\";");
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+
+    let present = run("here = 1; return (typeof here) === \"number\";");
+    assert_eq!(tags::payload_of(present), tags::BOOL_TRUE);
+}
+
+#[test]
+fn reading_a_name_nothing_declares_or_creates_is_still_refused() {
+    // Stricter than the language, which throws a `ReferenceError` this engine
+    // cannot raise where a handler could catch it. Wrong only for a program
+    // that meant to catch that error — where answering `undefined` would be
+    // wrong for every program with a typo in it.
+    let error = compile("return neverMentionedAgain;").expect_err("refused");
+    assert!(format!("{error:?}").contains("UnboundName"), "{error:?}");
+}

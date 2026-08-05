@@ -20,16 +20,18 @@
 //! not spend them, and the region is fixed in size — so the object is empty
 //! until something asks, and each name is made the first time it is read.
 //!
-//! # What this is not
+//! # What this is, and what it is not
 //!
-//! The global object. There is no `globalThis`, a write does not create a
-//! binding, and an unbound name is still refused by the compiler rather than
-//! resolved here. This answers *which value does this provided name have*, and
-//! nothing else.
+//! A scope chain. This is the global OBJECT — `globalThis` is on it, a write to
+//! an undeclared name creates a property here, and `typeof` of a name nothing
+//! declares reaches it. What it is not is a resolution mechanism: the compiler
+//! decides which names come here, and refuses the rest rather than answering
+//! `undefined` for every typo.
 
 use super::objects::{read_property, undefined_of};
 use super::{Context, with_current};
 use crate::object::Key;
+use crate::value::Value;
 
 /// The value a provided name has, by the key number the compiler resolved.
 ///
@@ -64,10 +66,39 @@ pub fn global_get(key: i64) -> u64 {
         let made = match text.as_str() {
             "RegExp" => super::regex::constructor(context),
             "String" => super::string::constructor(context),
+            // The object itself, which is what makes it a global object rather
+            // than a table with globals in it: a program can reach it, read
+            // what is on it, and put something there.
+            "globalThis" => Value::from_slot(object).bits(),
             _ => return undefined_of(context),
         };
         super::objects::put(context, object, Key::Name(name), made);
         made
+    })
+}
+
+/// Writes a global, creating it.
+///
+/// # Why an assignment to an undeclared name creates one
+///
+/// Because that is what sloppy mode does, and it is the only way a program
+/// without a module system introduces a global at all. Strict mode throws
+/// instead — a `ReferenceError` this engine cannot raise where a handler could
+/// catch it, so the sloppy answer is the one implemented and the strict one is
+/// the stated gap.
+#[rtse::entry]
+pub fn global_set(key: i64, value: u64) -> u64 {
+    with_current(|context| {
+        let Ok(number) = u32::try_from(key) else {
+            return value;
+        };
+        let Some(name) = context.keys.key(number) else {
+            return value;
+        };
+        if let Some(object) = holder(context) {
+            super::objects::put(context, object, Key::Name(name), value);
+        }
+        value
     })
 }
 
@@ -87,7 +118,7 @@ fn holder(context: &mut Context) -> Option<u32> {
 mod tests {
     use super::*;
     use crate::entry::with_context;
-    use crate::value::{Singletons, Value};
+    use crate::value::Singletons;
 
     /// A context installed for the duration, with keys already issued.
     fn hosted<T>(body: impl FnOnce() -> T) -> T {
