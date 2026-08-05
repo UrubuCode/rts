@@ -29,6 +29,19 @@
 //! throw inside the callee would run past this `catch` and end the program.
 //! Compiling that would be a `catch` that is written, reads correctly, and never
 //! runs, which is worse than not compiling it at all.
+//!
+//! # Why `using` is not here yet, and what it is waiting on
+//!
+//! Not the cleanup. A cleanup is a piece rather than a block now, which is what
+//! `finally` was waiting on and what `using` was waiting on with it — the region
+//! and the disposal-on-every-exit are exactly the shape this module already
+//! emits.
+//!
+//! It is waiting on the *disposal*. `using x = e` calls `x[Symbol.dispose]()`,
+//! and this engine has no `Symbol`, so there is no way to name the method. A
+//! region with no call in its cleanup would scope correctly and dispose
+//! nothing, which reads as working — the one failure a resource construct must
+//! not have. So it is refused by name, and the name says which half is missing.
 
 use rts_cranelift::ir::FuncBuilder;
 use rts_cranelift::unwind::{Handler, Tag};

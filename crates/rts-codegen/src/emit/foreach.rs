@@ -63,7 +63,9 @@ pub fn emit_for_in(
         // it was closed over opens — so both remaining cases are named.
         return match target {
             ForEachTarget::Assign(_) => super::expr::gap("`for-in` writing to an existing binding"),
-            ForEachTarget::Dispose { .. } => super::expr::gap("`using` in a for-head"),
+            ForEachTarget::Dispose { .. } => {
+                super::expr::gap("`using` in a for-head, which needs `Symbol.dispose`")
+            }
             ForEachTarget::Declare { .. } => unreachable!("matched above"),
         };
     };

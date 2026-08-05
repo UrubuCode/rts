@@ -188,7 +188,16 @@ pub fn emit_stmt(
         // wasteful and — for a name something else already captured — wrong.
         StmtKind::Function(_) => Ok(false),
         StmtKind::Class(_) => super::expr::gap("a class declaration"),
-        StmtKind::Using { .. } => super::expr::gap("`using`"),
+        // The cleanup a `using` needs exists now -- a cleanup is a piece rather
+        // than a block, which is what `finally` was waiting on and this was
+        // waiting on with it. What is still missing is the other half: disposal
+        // is `x[Symbol.dispose]()`, and there is no `Symbol` in this engine, so
+        // there is no way to name the method to call.
+        //
+        // Emitting the region without the call would be a `using` that scopes
+        // correctly and disposes nothing -- which reads as working and is the
+        // one failure a resource construct must not have.
+        StmtKind::Using { .. } => super::expr::gap("`using`, which needs `Symbol.dispose`"),
         StmtKind::With { .. } => super::expr::gap("`with`"),
     }
 }
