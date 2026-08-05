@@ -22,7 +22,8 @@
 //! is about and asks its question once, which is why each rule is stated in one
 //! function and none of them is spread across the bridge.
 
-mod reserved;
+mod class;
+mod deep;
 mod scope;
 mod walk;
 
@@ -63,12 +64,10 @@ pub(crate) fn check(program: &Program, names: &Names) -> Result<(), EarlyError> 
             _ => None,
         })
         .collect();
-    let mut scan = reserved::Scan::new(names);
-    scan.stmts(&statements, reserved::Context::sloppy());
-    if let Some(word) = scan.finish() {
-        return Err(EarlyError {
-            message: format!("`{word}` cannot name anything here"),
-        });
+    let mut scan = deep::Scan::new(names);
+    scan.stmts(&statements, deep::Context::sloppy());
+    if let Some(message) = scan.finish() {
+        return Err(EarlyError { message });
     }
 
     Ok(())

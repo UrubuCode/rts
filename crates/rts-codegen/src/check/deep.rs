@@ -1,4 +1,12 @@
-//! `await` and `yield`: reserved by where you are, not by what they spell.
+//! The deep walk: the rules that need to reach every node.
+//!
+//! The scope rules in `walk` ask about statement lists and never look inside an
+//! expression. These do the opposite — they visit everything, carrying a
+//! context down — so they share one traversal rather than having one each. A
+//! second walk of the same shape is a second place that has to agree on what an
+//! arrow inherits, and it would not.
+//!
+//! # `await` and `yield`: reserved by where you are, not by what they spell
 //!
 //! Neither is a keyword. `var await = 1;` is a perfectly good program, and so is
 //! `function yield() {}` — until the code is inside an async function or a
@@ -102,10 +110,10 @@ impl Context {
     }
 }
 
-/// Look for a reserved word used as a name, and say which.
+/// Look for the first thing wrong, and say what it was.
 pub(super) struct Scan<'a> {
     names: &'a Names,
-    found: Option<&'static str>,
+    found: Option<String>,
 }
 
 impl<'a> Scan<'a> {
@@ -113,7 +121,7 @@ impl<'a> Scan<'a> {
         Self { names, found: None }
     }
 
-    pub(super) fn finish(self) -> Option<&'static str> {
+    pub(super) fn finish(self) -> Option<String> {
         self.found
     }
 
@@ -128,8 +136,12 @@ impl<'a> Scan<'a> {
             return;
         }
         match self.names.text(name) {
-            "await" if context.forbids_await() => self.found = Some("await"),
-            "yield" if context.no_yield => self.found = Some("yield"),
+            word @ "await" if context.forbids_await() => {
+                self.found = Some(format!("`{word}` cannot name anything here"));
+            }
+            word @ "yield" if context.no_yield => {
+                self.found = Some(format!("`{word}` cannot name anything here"));
+            }
             _ => {}
         }
     }
@@ -496,6 +508,17 @@ impl<'a> Scan<'a> {
     /// neither the outer one nor a method's: `await` is reserved in both,
     /// unconditionally, and `yield` is not.
     fn class(&mut self, class: &Class, outer: Context) {
+        // The rules about the body as a *set* — one constructor, no static
+        // `prototype` — ride this walk rather than one of their own, because
+        // reaching every class written anywhere in a program is exactly what
+        // this walk already does.
+        if self.found.is_none()
+            && let Some(message) = super::class::check(class, self.names)
+        {
+            self.found = Some(message);
+            return;
+        }
+
         if let Some(name) = class.name {
             self.name(name, outer);
         }

@@ -191,3 +191,43 @@ fn an_import_call_has_its_own_argument_list() {
     accepted("import('a');");
     accepted("import('a', { with: {} });");
 }
+
+#[test]
+fn the_constructor_is_the_one_member_that_cannot_be_modified() {
+    // A getter, a generator or an async function named `constructor` is not the
+    // constructor with a modifier — it is a member that cannot exist, because
+    // `new` needs an ordinary function to run.
+    refused("class C { get constructor() {} }");
+    refused("class C { async constructor() {} }");
+    refused("class C { *constructor() {} }");
+    refused("class C { constructor() {} constructor() {} }");
+    refused("class C { constructor; }");
+
+    accepted("class C { constructor() {} }");
+    // A *static* member named `constructor` is an ordinary static member with
+    // an unfortunate name — it is not what `new` runs, and the checker lets it
+    // through for exactly that reason.
+    //
+    // It is not asserted accepted here because SWC refuses it on its own, which
+    // is SWC being wrong: `expressions/class/elements/syntax/valid/
+    // grammar-static-ctor-meth-valid.js` is a valid program in the corpus and
+    // is one of the files this front end wrongly rejects.
+}
+
+#[test]
+fn a_computed_key_is_exempt_from_every_name_rule() {
+    // These are early errors, and a computed key is not known until the class
+    // is defined. So the same text in brackets is a different question, and
+    // answering it here would refuse a legal program.
+    accepted("class C { [\"constructor\"]() {} }");
+    accepted("class C { static [\"prototype\"]() {} }");
+}
+
+#[test]
+fn a_static_member_cannot_be_named_prototype() {
+    // `C.prototype` already exists and is not writable, so the member has
+    // nowhere to go.
+    assert!(refused("class C { static prototype() {} }").contains("prototype"));
+    // On an instance it is an ordinary name.
+    accepted("class C { prototype() {} }");
+}
