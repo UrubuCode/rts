@@ -49,7 +49,7 @@ pub use bitwise::{
     bit_and, bit_not, bit_or, bit_xor, exponent, shift_left, shift_right,
     shift_right_unsigned,
 };
-pub use functions::{ARGUMENT_SLOTS, call, closure_new};
+pub use functions::{ARGUMENT_SLOTS, call, closure_new, construct, instance_of};
 pub use objects::{
     delete_property, get_indexed, get_property, has_property, object_new, set_indexed,
     set_property,
@@ -120,6 +120,16 @@ pub struct Context {
     /// identity and the text lives beside it. That is also what a real engine
     /// does: string data is separate from string identity.
     text_type: rts_cranelift::types::TypeId,
+    /// What each cell inherits from.
+    ///
+    /// A value rather than a cell index, because a prototype may be `null` —
+    /// which is not "absent", it is the end of the chain, and the two have to
+    /// be distinguishable from a cell that was never given one.
+    ///
+    /// Beside the cell for the reason every one of these is: seven inline
+    /// slots are what a program's own properties get, and spending one on a
+    /// link almost nothing reads would cost every object.
+    prototypes: Vec<Option<u64>>,
     /// Which cells are callable, and what they call.
     ///
     /// # Why beside the cell and not in it
@@ -249,6 +259,7 @@ impl Context {
             shape_of_type: Vec::new(),
             text_type,
             callables: Vec::new(),
+            prototypes: Vec::new(),
             array_elements: Vec::new(),
             resolves: 0,
             barriers: 0,
@@ -307,6 +318,19 @@ impl Context {
     /// unreachable from anything a program can write.
     pub(super) fn callable_at(&self, cell: u32) -> Option<(u64, u64)> {
         *self.callables.get(cell as usize)?
+    }
+
+    /// What a cell inherits from, if anything.
+    pub(super) fn prototype_at(&self, cell: u32) -> Option<u64> {
+        *self.prototypes.get(cell as usize)?
+    }
+
+    /// Sets what a cell inherits from.
+    pub(super) fn set_prototype(&mut self, cell: u32, prototype: u64) {
+        if self.prototypes.len() <= cell as usize {
+            self.prototypes.resize(cell as usize + 1, None);
+        }
+        self.prototypes[cell as usize] = Some(prototype);
     }
 
     /// Records that a cell calls this code with this environment.

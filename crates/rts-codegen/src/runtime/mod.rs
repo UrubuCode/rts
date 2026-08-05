@@ -275,6 +275,16 @@ pub enum RuntimeOp {
     /// indexed machinery that already exists.
     OwnKeys,
 
+    /// `new f(…)`.
+    ///
+    /// Not a call with a flag: it makes an object whose prototype is the
+    /// callee's `prototype`, runs the callee with that object as `this`, and
+    /// answers the object unless the callee returned one of its own.
+    Construct,
+
+    /// `v instanceof f`.
+    InstanceOf,
+
     /// Calling a value, with a receiver and the arguments.
     ///
     /// # Why calling is a runtime operation and not `call_indirect`
@@ -333,6 +343,8 @@ impl RuntimeOp {
         RuntimeOp::ArrayNew,
         RuntimeOp::DeleteProperty,
         RuntimeOp::OwnKeys,
+        RuntimeOp::Construct,
+        RuntimeOp::InstanceOf,
         RuntimeOp::Call,
     ];
 
@@ -377,6 +389,8 @@ impl RuntimeOp {
             RuntimeOp::ArrayNew => "__rts_array_new",
             RuntimeOp::DeleteProperty => "__rts_delete_property",
             RuntimeOp::OwnKeys => "__rts_own_keys",
+            RuntimeOp::Construct => "__rts_construct",
+            RuntimeOp::InstanceOf => "__rts_instance_of",
             RuntimeOp::Call => "__rts_call",
         }
     }
@@ -433,6 +447,10 @@ impl RuntimeOp {
             RuntimeOp::ArrayNew => (vec![Repr::I64], vec![UNPROVEN]),
             RuntimeOp::DeleteProperty => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::OwnKeys => (vec![UNPROVEN], vec![UNPROVEN]),
+            // The callee and the arguments — no receiver, because `new` makes
+            // the one the callee gets.
+            RuntimeOp::Construct => (vec![UNPROVEN; 1 + ARGUMENT_SLOTS], vec![UNPROVEN]),
+            RuntimeOp::InstanceOf => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             // Callee, receiver, then one slot per argument. Every one a value,
             // because a caller cannot know what it is handing over.
             RuntimeOp::Call => (vec![UNPROVEN; 2 + ARGUMENT_SLOTS], vec![UNPROVEN]),

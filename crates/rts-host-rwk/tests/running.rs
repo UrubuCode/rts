@@ -93,12 +93,17 @@ fn a_program_naming_an_operation_the_runtime_lacks_is_refused_by_name() {
     // The failure the two independent statements of the entry-point set were
     // always going to produce, caught where it becomes visible instead of
     // becoming a call to whatever the linker found.
-    // This test has named `-`, then `**`, and now `in`: each moved on when the
-    // runtime defined it, which is the right way for it to fail. What it pins
-    // is the SHAPE of the refusal, so it follows whatever is still missing
-    // rather than being deleted with the gap it happened to name.
-    let error = compile("let o = {}; return o instanceof o;")
-        .expect_err("`instanceof` has no runtime operation");
+    // This test has named `-`, `**`, `in` and `instanceof` in turn, and each
+    // moved on when the runtime defined it — which is the right way for it to
+    // fail. What it pins is the SHAPE of the refusal, so it follows whatever is
+    // still missing rather than being deleted with the gap it happened to name.
+    //
+    // Nothing is left in its original category: no operator the language spells
+    // reaches a runtime operation that does not exist. So it names `for-of`,
+    // which needs the iterator protocol — a call to user code from inside the
+    // enumeration, which is the thing an entry point cannot do.
+    let error = compile("let a = [1]; for (let v of a) { }")
+        .expect_err("`for-of` needs the iterator protocol");
     assert!(
         format!("{error:?}").contains("Unsupported"),
         "expected a named refusal, got {error:?}"
@@ -481,7 +486,7 @@ fn a_construct_still_missing_is_refused_by_name_rather_than_approximated() {
     // each moved on when it landed. What it pins is the shape of the refusal.
     for source in [
         "let a = [1]; return [...a];",
-        "return new Object();",
+        "class C {}",
         "let o = {}; let x = 1; return delete x;",
     ] {
         let error = compile(source).expect_err("still a gap");
@@ -2045,5 +2050,89 @@ fn a_property_on_a_primitive_string_is_still_dropped() {
     assert_eq!(
         produced,
         compiled.model().singleton(Singleton::Undefined).word()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Prototypes, `new` and `instanceof`.
+
+#[test]
+fn new_makes_an_object_the_constructor_writes_to() {
+    assert_eq!(
+        tags::decode_double(run("function P(v) { this.v = v; } let p = new P(5); return p.v;")),
+        5.0
+    );
+    assert_eq!(
+        tags::decode_double(run("function P(a, b) { this.s = a + b; } return new P(1, 2).s;")),
+        3.0
+    );
+}
+
+#[test]
+fn a_property_is_found_on_the_prototype() {
+    // The read walks what the object inherits from. `cache_resolve` needed no
+    // change for this: it already answered negative when the own layout misses,
+    // which is exactly the inherited case, so such a read takes the slow path.
+    assert_eq!(
+        tags::decode_double(run("function P() {} P.prototype.m = 7; let p = new P(); return p.m;")),
+        7.0
+    );
+    // An own property shadows an inherited one, and adding an unrelated own
+    // property does not disturb the inherited one.
+    assert_eq!(
+        tags::decode_double(
+            run("function P() {} P.prototype.m = 9; let p = new P(); p.m = 1; return p.m;")
+        ),
+        1.0
+    );
+    assert_eq!(
+        tags::decode_double(
+            run("function P() {} P.prototype.m = 9; let p = new P(); p.own = 1; return p.m;")
+        ),
+        9.0
+    );
+}
+
+#[test]
+fn a_constructor_that_returns_an_object_produces_that_one() {
+    // The clause an implementation forgets. A factory written this way is
+    // ordinary JavaScript rather than a corner.
+    assert_eq!(
+        tags::decode_double(run("function P() { return { a: 1 }; } let p = new P(); return p.a;")),
+        1.0
+    );
+    // Returning anything that is NOT an object leaves the fresh one.
+    assert_eq!(
+        tags::decode_double(
+            run("function P() { this.a = 2; return 9; } let p = new P(); return p.a;")
+        ),
+        2.0
+    );
+}
+
+#[test]
+fn instanceof_walks_the_chain() {
+    assert_eq!(
+        tags::payload_of(run("function P() {} let p = new P(); return p instanceof P;")),
+        tags::BOOL_TRUE
+    );
+    assert_eq!(
+        tags::payload_of(
+            run("function P() {} function Q() {} let p = new P(); return p instanceof Q;")
+        ),
+        tags::BOOL_FALSE
+    );
+    // An object that was never constructed inherits from nothing.
+    assert_eq!(
+        tags::payload_of(run("let o = {}; function P() {} return o instanceof P;")),
+        tags::BOOL_FALSE
+    );
+}
+
+#[test]
+fn a_constructed_object_is_an_object_to_typeof() {
+    assert_eq!(
+        tags::payload_of(run("function P() {} let p = new P(); return (typeof p) === \"object\";")),
+        tags::BOOL_TRUE
     );
 }

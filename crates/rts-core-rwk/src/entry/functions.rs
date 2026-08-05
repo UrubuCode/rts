@@ -78,6 +78,22 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
         match context.region.alloc(crate::heap::STRIDE, ty) {
             Some(cell) => {
                 context.mark_callable(cell, code as u64, environment);
+                // Every function gets a `prototype` object, because `new`
+                // reads one and a function that could not be constructed with
+                // would be a different kind of function. Made here rather than
+                // on demand: `F.prototype.m = …` before any `new F()` is the
+                // ordinary way to write a method, so it has to exist first.
+                let shape = context.shapes.root();
+                let ty = context.layout_of(shape).index() as u32;
+                if let Some(prototype) = context.region.alloc(crate::heap::STRIDE, ty) {
+                    let key = prototype_key(context);
+                    super::objects::put(
+                        context,
+                        cell,
+                        key,
+                        Value::from_slot(prototype).bits(),
+                    );
+                }
                 Value::from_slot(cell).bits()
             }
             // The region is full and there is no collector to ask. Answering
@@ -133,4 +149,103 @@ pub fn call(callee: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
 fn resolve(context: &mut Context, callee: u64) -> Option<(u64, u64)> {
     let slot = Value(callee).as_slot()?;
     context.callable_at(slot)
+}
+
+/// The key `prototype` has.
+fn prototype_key(context: &mut Context) -> crate::object::Key {
+    let text = crate::text::Str::from_str("prototype");
+    crate::object::Key::Name(context.interner.intern(&text, &mut context.keys))
+}
+
+/// `new f(…)`.
+///
+/// # What the operation actually is
+///
+/// Three steps the language keeps separate and a caller cannot: make an object
+/// whose prototype is the callee's `prototype` property, run the callee with
+/// that object as `this`, and answer the object — **unless** the callee
+/// returned one of its own, in which case that wins.
+///
+/// The last clause is the one an implementation forgets. `function F() {
+/// return {a: 1}; }` produces the returned object and not the fresh one, and a
+/// factory written that way is ordinary JavaScript rather than a corner.
+///
+/// # Why the fresh object is made here and not by the compiler
+///
+/// Because its prototype comes from a value — `f.prototype` — that only exists
+/// while running. A compiler could emit the allocation, and then it would have
+/// to emit the property read and the link, which is three entry points where
+/// this is one.
+#[rtse::entry]
+pub fn construct(callee: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    let prepared = with_current(|context| {
+        let cell = Value(callee).as_slot()?;
+        context.callable_at(cell)?;
+
+        // `f.prototype`, read as an ordinary property — which is what it is,
+        // now that a function is an object.
+        let key = prototype_key(context);
+        let prototype = super::objects::read_property(context, cell, key)?;
+
+        let shape = context.shapes.root();
+        let ty = context.layout_of(shape).index() as u32;
+        let fresh = context.region.alloc(crate::heap::STRIDE, ty)?;
+        context.set_prototype(fresh, prototype.bits());
+        Some(Value::from_slot(fresh).bits())
+    });
+
+    let Some(this) = prepared else {
+        // Not callable, or the region is full. `new 1` is a `TypeError`, and
+        // throwing needs protected regions — the same stated gap calling has.
+        return with_current(|context| undefined_of(context));
+    };
+
+    let produced = call(callee, this, a0, a1, a2, a3);
+    // A constructor that returned an object produced THAT. Anything else — a
+    // number, `undefined`, the usual — leaves the fresh object as the answer.
+    if Value(produced).as_slot().is_some() {
+        produced
+    } else {
+        this
+    }
+}
+
+/// `value instanceof callee`.
+///
+/// Walks what `value` inherits from, looking for the callee's `prototype`
+/// **object** — not the callee. `x instanceof F` is false for an `x` whose
+/// chain never reaches `F.prototype`, and true for one that reaches it however
+/// many links away, which is why this is a loop rather than one comparison.
+#[rtse::entry]
+pub fn instance_of(value: u64, callee: u64) -> bool {
+    with_current(|context| {
+        let Some(function) = Value(callee).as_slot() else {
+            return false;
+        };
+        if context.callable_at(function).is_none() {
+            // `1 instanceof 2` is a `TypeError`. Answering false is the same
+            // stated gap every other operation has while throwing is missing.
+            return false;
+        }
+        let key = prototype_key(context);
+        let Some(wanted) = super::objects::read_property(context, function, key) else {
+            return false;
+        };
+        let Some(mut cell) = Value(value).as_slot() else {
+            return false;
+        };
+        for _ in 0..super::objects::CHAIN_LIMIT {
+            let Some(next) = context.prototype_at(cell) else {
+                return false;
+            };
+            if next == wanted.bits() {
+                return true;
+            }
+            let Some(further) = Value(next).as_slot() else {
+                return false;
+            };
+            cell = further;
+        }
+        false
+    })
 }

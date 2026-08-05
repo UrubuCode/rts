@@ -99,3 +99,46 @@ pub fn emit_call(
 
     Ok(expr::call(builder, ctx, RuntimeOp::Call, &passed)?[0])
 }
+
+/// Emits `new f(…)`.
+///
+/// # Why this is not a call with a flag
+///
+/// It does not pass a receiver — it *makes* one, from the callee's `prototype`
+/// — and it answers the object rather than what the callee returned, unless the
+/// callee returned an object of its own. Three differences, none of which a
+/// flag on a call site could express without the call site knowing all of them.
+///
+/// So the arguments are padded exactly as a call's are, and everything else is
+/// the runtime's.
+pub fn emit_construct(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    callee: &Expr,
+    arguments: &[Spreadable],
+) -> EmitResult<ValueId> {
+    let function = emit_expr(builder, scope, ctx, callee)?;
+    if arguments.len() > ARGUMENT_SLOTS {
+        return Err(EmitError::Unsupported {
+            construct: "`new` with more than four arguments",
+        });
+    }
+
+    let mut passed = Vec::with_capacity(1 + ARGUMENT_SLOTS);
+    passed.push(function);
+    for argument in arguments {
+        let Spreadable::Single(value) = argument else {
+            return Err(EmitError::Unsupported {
+                construct: "a spread argument",
+            });
+        };
+        passed.push(emit_expr(builder, scope, ctx, value)?);
+    }
+    while passed.len() < 1 + ARGUMENT_SLOTS {
+        let undefined = expr::undefined(builder, ctx);
+        passed.push(undefined);
+    }
+
+    Ok(expr::call(builder, ctx, RuntimeOp::Construct, &passed)?[0])
+}

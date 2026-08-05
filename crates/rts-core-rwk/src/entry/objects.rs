@@ -194,13 +194,37 @@ pub(super) fn put(context: &mut Context, slot: u32, key: Key, value: u64) {
 /// The second rule is still obeyed here and it matters: an own property holding
 /// `undefined` shadows an inherited one, so the walk stops when the key is
 /// **found**, not when a non-`undefined` value is found.
+pub(super) fn read_property(context: &mut Context, start: u32, key: Key) -> Option<Value> {
+    read(context, start, key)
+}
+
 fn read(context: &mut Context, start: u32, key: Key) -> Option<Value> {
     let machine = machine_key(key)?;
-    let ty = context.region.type_of(start)?;
-    let shape = context.shape_of(ty)?;
-    let at = context.shapes.slot_of(shape, machine)?;
-    slot_value(context, start, at).map(Value)
+    let mut cell = start;
+    // Bounded rather than trusting the chain to end. Nothing here builds a
+    // cycle, but a prototype is a value a program can set, and a walk that
+    // trusted it would hang instead of answering — which is a worse failure
+    // than a wrong value, because nothing reports it at all.
+    for _ in 0..CHAIN_LIMIT {
+        if let Some(ty) = context.region.type_of(cell)
+            && let Some(shape) = context.shape_of(ty)
+            && let Some(at) = context.shapes.slot_of(shape, machine)
+        {
+            return slot_value(context, cell, at).map(Value);
+        }
+        // Not here, so ask what this inherits from. An element or a string.s
+        // length never reaches this loop: those are answered before it.
+        cell = Value(context.prototype_at(cell)?).as_slot()?;
+    }
+    None
 }
+
+/// How far a prototype walk goes before giving up.
+///
+/// A depth no real chain reaches. It is a guard against a cycle a program
+/// built, not a limit on inheritance — and answering `undefined` for one is
+/// better than not answering, which is what a plain loop would do.
+pub(super) const CHAIN_LIMIT: usize = 1 << 16;
 
 /// The key a number names, if the registry issued it.
 ///

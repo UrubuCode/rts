@@ -49,7 +49,7 @@ use super::bitwise::{
     BIT_AND_ENTRY, BIT_NOT_ENTRY, BIT_OR_ENTRY, BIT_XOR_ENTRY, EXPONENT_ENTRY, SHIFT_LEFT_ENTRY,
     SHIFT_RIGHT_ENTRY, SHIFT_RIGHT_UNSIGNED_ENTRY,
 };
-use super::functions::{CALL_ENTRY, CLOSURE_NEW_ENTRY};
+use super::functions::{CALL_ENTRY, CLOSURE_NEW_ENTRY, CONSTRUCT_ENTRY, INSTANCE_OF_ENTRY};
 use super::objects::{
     DELETE_PROPERTY_ENTRY, GET_INDEXED_ENTRY, GET_PROPERTY_ENTRY, HAS_PROPERTY_ENTRY, OBJECT_NEW_ENTRY,
     SET_INDEXED_ENTRY, SET_PROPERTY_ENTRY,
@@ -245,6 +245,16 @@ pub enum CoreEntry {
     ///
     /// Here because it walks a layout and allocates the array it answers with.
     OwnKeys = 33,
+
+    /// `new f(…)`.
+    ///
+    /// Here because it allocates and links a prototype before calling.
+    Construct = 34,
+
+    /// `v instanceof f`.
+    ///
+    /// Here because it walks a prototype chain through the heap.
+    InstanceOf = 35,
 }
 
 /// How many entry points exist.
@@ -252,7 +262,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 34;
+pub const CORE_ENTRY_COUNT: usize = 36;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -291,6 +301,8 @@ impl CoreEntry {
         CoreEntry::ArrayNew,
         CoreEntry::DeleteProperty,
         CoreEntry::OwnKeys,
+        CoreEntry::Construct,
+        CoreEntry::InstanceOf,
     ];
 
     /// The number a call site holds.
@@ -340,6 +352,8 @@ impl CoreEntry {
             CoreEntry::ArrayNew => ARRAY_NEW_ENTRY,
             CoreEntry::DeleteProperty => DELETE_PROPERTY_ENTRY,
             CoreEntry::OwnKeys => OWN_KEYS_ENTRY,
+            CoreEntry::Construct => CONSTRUCT_ENTRY,
+            CoreEntry::InstanceOf => INSTANCE_OF_ENTRY,
         }
     }
 

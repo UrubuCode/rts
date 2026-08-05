@@ -117,7 +117,9 @@ pub fn emit_expr(
         ExprKind::Call {
             callee, arguments, ..
         } => super::call::emit_call(builder, scope, ctx, callee, arguments),
-        ExprKind::New { .. } => gap("`new`"),
+        ExprKind::New {
+            callee, arguments, ..
+        } => super::call::emit_construct(builder, scope, ctx, callee, arguments),
         ExprKind::Member {
             object, property, ..
         } => {
@@ -425,7 +427,9 @@ pub(super) fn emit_binary(
         // order — `k in o`, not `o has k`. Getting this backwards produces a
         // program that runs and answers about the wrong operand.
         BinaryOp::In => return Ok(compared(builder, ctx, RuntimeOp::HasProperty, a, b)?),
-        BinaryOp::InstanceOf => return gap("`instanceof`"),
+        // The value on the left and the constructor on the right, which is
+        // how it is written — and the runtime takes them that way.
+        BinaryOp::InstanceOf => return Ok(compared(builder, ctx, RuntimeOp::InstanceOf, a, b)?),
     };
     Ok(call(builder, ctx, runtime, &[a, b])?[0])
 }
