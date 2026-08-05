@@ -170,14 +170,117 @@ fn prototype_key(context: &mut Context) -> crate::object::Key {
 /// while running. A compiler could emit the allocation, and then it would have
 /// to emit the property read and the link, which is three entry points where
 /// this is one.
+/// # Why a derived constructor is not handed an object
+///
+/// Because the object is not its to make. `class B extends A {}` builds an
+/// instance by asking `A`, and only the **base** of a chain knows what kind of
+/// object to allocate — `class Mine extends RegExp {}` needs the one the
+/// regular-expression constructor makes, with its compiled pattern beside the
+/// cell, and no amount of allocating a plain object here produces that.
+///
+/// So a derived callee is run with no receiver at all, and its `super()` is what
+/// produces one. That is the specification's own shape: `this` does not exist in
+/// a derived constructor until `super()` returns, which is why reading it before
+/// that is a `ReferenceError` rather than `undefined`.
+///
+/// # Why `new.target` is a stack rather than an argument
+///
+/// The object a base constructor allocates must inherit from the prototype of
+/// the class `new` actually named — `new B()` produces something whose chain
+/// starts at `B.prototype`, even though `A` is what allocates it. That fact has
+/// to survive an arbitrary number of `super()` calls between the two, and the
+/// calling convention has no slot left to carry it.
+///
+/// A stack in the context rather than a field, because construction nests:
+/// `new B(new C())` has `C` finished before `B` allocates.
 #[rtse::entry]
 pub fn construct(callee: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
-    let prepared = with_current(|context| {
-        let cell = Value(callee).as_slot()?;
+    let derived = with_current(|context| {
+        let Some(cell) = Value(callee).as_slot() else {
+            return None;
+        };
         context.callable_at(cell)?;
+        context.new_targets.push(callee);
+        Some(context.is_derived(cell))
+    });
 
-        // `f.prototype`, read as an ordinary property — which is what it is,
-        // now that a function is an object.
+    let Some(derived) = derived else {
+        // Not callable. `new 1` is a `TypeError`, and throwing needs protected
+        // regions — the same stated gap calling has.
+        return with_current(|context| undefined_of(context));
+    };
+
+    let this = match derived {
+        // Its `super()` makes one, using the target this call just pushed.
+        true => with_current(|context| undefined_of(context)),
+        false => match allocate_for_target(callee) {
+            Some(fresh) => fresh,
+            None => {
+                with_current(|context| context.new_targets.pop());
+                return with_current(|context| undefined_of(context));
+            }
+        },
+    };
+
+    let produced = call(callee, this, a0, a1, a2, a3);
+    with_current(|context| context.new_targets.pop());
+
+    // A constructor that returned an object produced THAT. Anything else — a
+    // number, `undefined`, the usual — leaves the fresh object as the answer.
+    // For a derived one there is no fresh object, so what came back IS the
+    // answer: the compiler makes such a constructor return its `this`.
+    if Value(produced).as_slot().is_some() {
+        produced
+    } else {
+        this
+    }
+}
+
+/// `super(…)` — the parent constructor, producing the object.
+///
+/// Not a call with a receiver: the parent may be the base of the chain, in which
+/// case it allocates, and it may be derived itself, in which case its own
+/// `super()` does. Either way the object inherits from the prototype of the
+/// class `new` named, which is what the target stack carries.
+#[rtse::entry]
+pub fn super_construct(parent: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    let derived = with_current(|context| {
+        let cell = Value(parent).as_slot()?;
+        context.callable_at(cell)?;
+        Some(context.is_derived(cell))
+    });
+    let Some(derived) = derived else {
+        return with_current(|context| undefined_of(context));
+    };
+
+    // Deliberately NOT pushing a target: the one `new` established is the one
+    // the whole chain builds against. Pushing the parent here is exactly the
+    // bug that makes `new B()` produce something inheriting from `A.prototype`.
+    let this = match derived {
+        true => with_current(|context| undefined_of(context)),
+        false => match allocate_for_target(parent) {
+            Some(fresh) => fresh,
+            None => return with_current(|context| undefined_of(context)),
+        },
+    };
+
+    let produced = call(parent, this, a0, a1, a2, a3);
+    if Value(produced).as_slot().is_some() {
+        produced
+    } else {
+        this
+    }
+}
+
+/// An object inheriting from the prototype of the class `new` named.
+///
+/// Falls back to the callee's own `prototype` when there is no target, which is
+/// a constructor reached some way other than `new` — a call, today, and nothing
+/// else once every path is emitted.
+fn allocate_for_target(callee: u64) -> Option<u64> {
+    with_current(|context| {
+        let target = context.new_targets.last().copied().unwrap_or(callee);
+        let cell = Value(target).as_slot().or_else(|| Value(callee).as_slot())?;
         let key = prototype_key(context);
         let prototype = super::objects::read_property(context, cell, key)?;
 
@@ -186,22 +289,48 @@ pub fn construct(callee: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         let fresh = context.region.alloc(crate::heap::STRIDE, ty)?;
         context.set_prototype(fresh, prototype.bits());
         Some(Value::from_slot(fresh).bits())
-    });
+    })
+}
 
-    let Some(this) = prepared else {
-        // Not callable, or the region is full. `new 1` is a `TypeError`, and
-        // throwing needs protected regions — the same stated gap calling has.
-        return with_current(|context| undefined_of(context));
+/// What an object made by a **native** constructor should inherit from.
+///
+/// # Why a built-in has to ask
+///
+/// A native constructor makes its own object — that is the whole reason a
+/// derived class has to ask its parent for one — and it would otherwise link it
+/// to its own prototype. Then `class Mine extends RegExp { own() {} }` produces
+/// something with no `own`, because the object never reached `Mine.prototype`.
+///
+/// So the same question `allocate_for_target` answers is asked here, and the
+/// fallback is what the built-in would have chosen: a construction that is not
+/// in progress — `RegExp("a")` without `new` — has no target to consult.
+pub(super) fn prototype_for_new(context: &mut Context, fallback: u64) -> u64 {
+    let Some(target) = context.new_targets.last().copied() else {
+        return fallback;
     };
-
-    let produced = call(callee, this, a0, a1, a2, a3);
-    // A constructor that returned an object produced THAT. Anything else — a
-    // number, `undefined`, the usual — leaves the fresh object as the answer.
-    if Value(produced).as_slot().is_some() {
-        produced
-    } else {
-        this
+    let Some(cell) = Value(target).as_slot() else {
+        return fallback;
+    };
+    let key = prototype_key(context);
+    match super::objects::read_property(context, cell, key) {
+        Some(prototype) => prototype.bits(),
+        None => fallback,
     }
+}
+
+/// Records that a constructor must ask its parent for the object.
+///
+/// Written by the class lowering at definition time, because whether a class has
+/// an `extends` is a syntactic fact the compiler knows and the runtime cannot
+/// see — a derived constructor and a plain function are the same kind of cell.
+#[rtse::entry]
+pub fn mark_derived(callee: u64) -> u64 {
+    with_current(|context| {
+        if let Some(cell) = Value(callee).as_slot() {
+            context.mark_derived(cell);
+        }
+        callee
+    })
 }
 
 /// `value instanceof callee`.

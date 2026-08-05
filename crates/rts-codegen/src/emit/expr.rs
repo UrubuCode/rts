@@ -170,9 +170,17 @@ pub fn emit_expr(
         ),
         // Refused inside an arrow, which takes `this` from where it was
         // written rather than from how it is called — see `Scope::set_this`.
-        ExprKind::This => scope.this_value().ok_or(EmitError::Unsupported {
-            construct: "`this` inside an arrow function",
-        }),
+        // In a derived constructor `this` is a name in the environment rather
+        // than the receiver, because there is no receiver until `super()`
+        // answers one. Asked first, so a body that reads it takes the binding
+        // rather than the parameter — which holds `undefined` there and would
+        // silently be the wrong object.
+        ExprKind::This => match scope.late_this() {
+            Some(name) => super::binding::read(builder, scope, ctx, name),
+            None => scope.this_value().ok_or(EmitError::Unsupported {
+                construct: "`this` inside an arrow function",
+            }),
+        },
         ExprKind::Await(_) => gap("`await`"),
         ExprKind::Yield { .. } => gap("`yield`"),
         ExprKind::Template { parts, expressions } => {

@@ -62,6 +62,12 @@ const SUPER: &str = "__rts_super";
 /// The name the home object is held under.
 const HOME: &str = "__rts_home";
 
+/// The name a derived constructor holds `this` under.
+///
+/// Its own name rather than the receiver, because the object does not exist
+/// until `super()` answers one — see [`super::Scope::bind_this_late`].
+const THIS: &str = "__rts_this";
+
 /// Emits a class and answers the constructor value.
 pub(super) fn emit_class(
     builder: &mut FuncBuilder,
@@ -178,7 +184,20 @@ fn emit_constructor(
             &supplied
         }
     };
-    function::emit_closure(builder, inner, ctx, function)
+    let made = match class.is_derived() {
+        // Its `this` is the object `super()` answers, so it is a name in the
+        // environment rather than the receiver — and the runtime has to be told,
+        // because a derived constructor and a plain function are the same kind
+        // of cell to it.
+        true => {
+            let held = ctx.names.intern(THIS);
+            let closure =
+                function::emit_closure_binding_this_late(builder, inner, ctx, function, held)?;
+            expr::call(builder, ctx, RuntimeOp::MarkDerived, &[closure])?[0]
+        }
+        false => function::emit_closure(builder, inner, ctx, function)?,
+    };
+    Ok(made)
 }
 
 /// A constructor with the instance fields written in front of its body.
@@ -389,12 +408,18 @@ pub(super) fn emit_super_call(
 ) -> EmitResult<ValueId> {
     let parent = ctx.names.intern(SUPER);
     let parent = binding::read(builder, scope, ctx, parent)?;
-    let Some(receiver) = scope.this_value() else {
+    let Some(held) = scope.late_this() else {
+        // Only a derived constructor holds `this`, and only a derived
+        // constructor may write `super()`. Reaching here is the grammar's job
+        // rather than this module's, and refusing by name says so.
         return Err(EmitError::Unsupported {
-            construct: "`super()` outside a method",
+            construct: "`super()` outside a derived constructor",
         });
     };
-    super::call::emit_call_with(builder, scope, ctx, parent, receiver, arguments)
+    let produced = super::call::emit_super_construct(builder, scope, ctx, parent, arguments)?;
+    // The object the parent made becomes this activation's `this`, which is the
+    // whole of what `super()` does that a call does not.
+    binding::write(builder, scope, ctx, held, produced)
 }
 
 /// The name a member is installed under.

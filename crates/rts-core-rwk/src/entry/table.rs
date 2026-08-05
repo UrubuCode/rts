@@ -49,7 +49,10 @@ use super::chain::{GET_PROTOTYPE_ENTRY, SET_PROTOTYPE_ENTRY};
 use super::computed::{
     DELETE_PROPERTY_ENTRY, GET_INDEXED_ENTRY, HAS_PROPERTY_ENTRY, SET_INDEXED_ENTRY,
 };
-use super::functions::{CALL_ENTRY, CLOSURE_NEW_ENTRY, CONSTRUCT_ENTRY, INSTANCE_OF_ENTRY};
+use super::functions::{
+    CALL_ENTRY, CLOSURE_NEW_ENTRY, CONSTRUCT_ENTRY, INSTANCE_OF_ENTRY, MARK_DERIVED_ENTRY,
+    SUPER_CONSTRUCT_ENTRY,
+};
 use super::objects::{GET_PROPERTY_ENTRY, OBJECT_NEW_ENTRY, SET_PROPERTY_ENTRY};
 use super::operators::LOOSE_EQUALS_ENTRY;
 use super::operators::{
@@ -298,6 +301,16 @@ pub enum CoreEntry {
 
     /// `set x(v) { … }` — the setter half.
     DefineSetter = 42,
+
+    /// `super(…)` — the parent constructor, producing the object.
+    ///
+    /// Here because only the base of a chain knows what kind of object to
+    /// allocate, and because the class `new` named has to survive every
+    /// `super()` between the two.
+    SuperConstruct = 43,
+
+    /// Records that a constructor must ask its parent for the object.
+    MarkDerived = 44,
 }
 
 /// How many entry points exist.
@@ -305,7 +318,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 43;
+pub const CORE_ENTRY_COUNT: usize = 45;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -353,6 +366,8 @@ impl CoreEntry {
         CoreEntry::GlobalSet,
         CoreEntry::DefineGetter,
         CoreEntry::DefineSetter,
+        CoreEntry::SuperConstruct,
+        CoreEntry::MarkDerived,
     ];
 
     /// The number a call site holds.
@@ -411,6 +426,8 @@ impl CoreEntry {
             CoreEntry::GlobalSet => GLOBAL_SET_ENTRY,
             CoreEntry::DefineGetter => DEFINE_GETTER_ENTRY,
             CoreEntry::DefineSetter => DEFINE_SETTER_ENTRY,
+            CoreEntry::SuperConstruct => SUPER_CONSTRUCT_ENTRY,
+            CoreEntry::MarkDerived => MARK_DERIVED_ENTRY,
         }
     }
 

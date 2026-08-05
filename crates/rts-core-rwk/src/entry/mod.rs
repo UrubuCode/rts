@@ -63,7 +63,9 @@ pub use bitwise::{
     bit_and, bit_not, bit_or, bit_xor, exponent, shift_left, shift_right, shift_right_unsigned,
 };
 pub use computed::{delete_property, get_indexed, has_property, set_indexed};
-pub use functions::{ARGUMENT_SLOTS, call, closure_new, construct, instance_of};
+pub use functions::{
+    ARGUMENT_SLOTS, call, closure_new, construct, instance_of, mark_derived, super_construct,
+};
 pub use global::{global_get, global_set};
 pub use objects::{get_property, object_new, set_property};
 pub use operators::{
@@ -210,6 +212,18 @@ pub struct Context {
     /// instead of calling it. See [`accessor`] for why the absence is
     /// load-bearing rather than an omission.
     accessors: Aside<Vec<(u32, Option<u64>, Option<u64>)>>,
+    /// Which callables must ask their parent for the object they build.
+    ///
+    /// A syntactic fact the compiler knows and this crate cannot see: a derived
+    /// constructor and a plain function are the same kind of cell. Written at
+    /// class definition time, read by `construct`.
+    derived: Aside<bool>,
+    /// The class each `new` in progress actually named.
+    ///
+    /// A stack because construction nests, and a stack rather than an argument
+    /// because the fact has to survive an arbitrary number of `super()` calls
+    /// and the calling convention has no slot left to carry it.
+    pub new_targets: Vec<u64>,
     /// Which cells are arrays, and where their elements are.
     ///
     /// # Why a side table and not a reserved layout
@@ -313,6 +327,8 @@ impl Context {
             prototypes: Aside::new(),
             array_elements: Aside::new(),
             accessors: Aside::new(),
+            derived: Aside::new(),
+            new_targets: Vec::new(),
             regexes: Aside::new(),
             regexp_prototype: None,
             globals: None,
@@ -387,6 +403,16 @@ impl Context {
     /// Sets what a cell inherits from.
     pub(super) fn set_prototype(&mut self, cell: u32, prototype: u64) {
         self.prototypes.set(cell, prototype);
+    }
+
+    /// Whether a callable asks its parent for the object it builds.
+    pub(super) fn is_derived(&self, cell: u32) -> bool {
+        self.derived.copied(cell).unwrap_or(false)
+    }
+
+    /// Records that it does.
+    pub(super) fn mark_derived(&mut self, cell: u32) {
+        self.derived.set(cell, true);
     }
 
     /// Records that a cell calls this code with this environment.

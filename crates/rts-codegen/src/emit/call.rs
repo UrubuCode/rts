@@ -137,6 +137,36 @@ pub fn emit_construct(
     arguments: &[Spreadable],
 ) -> EmitResult<ValueId> {
     let function = emit_expr(builder, scope, ctx, callee)?;
+    emit_construction(builder, scope, ctx, function, arguments, RuntimeOp::Construct)
+}
+
+/// The same, for a callee that is already a value.
+///
+/// `super(…)` needs it: the parent comes from the class environment rather than
+/// from an expression, and it reaches a **different** runtime operation —
+/// `super()` must not establish a new `new.target`, because the object the chain
+/// builds has to inherit from the prototype of the class `new` actually named.
+/// Everything else — the arity, the order, the padding — is one rule, and a
+/// second copy is where the two would come to pad differently.
+pub fn emit_super_construct(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    function: ValueId,
+    arguments: &[Spreadable],
+) -> EmitResult<ValueId> {
+    emit_construction(builder, scope, ctx, function, arguments, RuntimeOp::SuperConstruct)
+}
+
+/// The shared body, differing only in which operation is dialled.
+fn emit_construction(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    function: ValueId,
+    arguments: &[Spreadable],
+    op: RuntimeOp,
+) -> EmitResult<ValueId> {
     if arguments.len() > ARGUMENT_SLOTS {
         return Err(EmitError::Unsupported {
             construct: "`new` with more than four arguments",
@@ -157,6 +187,5 @@ pub fn emit_construct(
         let undefined = expr::undefined(builder, ctx);
         passed.push(undefined);
     }
-
-    Ok(expr::call(builder, ctx, RuntimeOp::Construct, &passed)?[0])
+    Ok(expr::call(builder, ctx, op, &passed)?[0])
 }

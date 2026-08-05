@@ -154,7 +154,10 @@ where a guard establishes it, the instruction is emitted instead.
 
 Classes land in the same shape: a constructor function, an object on its
 `prototype` holding the methods, and two links for `extends` — a lowering rather
-than a feature, so nothing in the runtime knows what a class is.
+than a feature, so nothing in the runtime knows what a class is. A derived
+constructor holds its `this` in an environment rather than being handed one,
+because the object is the base of the chain.s to make — which is what lets
+`class Mine extends RegExp {}` produce something with a compiled pattern.
 
 Everything not yet emitted is refused by name, and that list is the work queue.
 `PLAN.md` §3b. What each remaining one waits for:

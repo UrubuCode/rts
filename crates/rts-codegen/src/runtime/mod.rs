@@ -358,6 +358,21 @@ pub enum RuntimeOp {
 
     /// `set x(v) { … }` — the setter half.
     DefineSetter,
+
+    /// `super(…)` — the parent constructor, producing the object.
+    ///
+    /// Not a call with a receiver. Only the base of a chain knows what kind of
+    /// object to allocate, so a derived constructor has no `this` until this
+    /// answers one — which is the specification.s own shape, and why reading
+    /// `this` before `super()` is a ReferenceError rather than `undefined`.
+    SuperConstruct,
+
+    /// Records that a constructor must ask its parent for the object.
+    ///
+    /// Whether a class has an `extends` is syntax, which this crate knows and
+    /// the runtime cannot see: a derived constructor and a plain function are
+    /// the same kind of cell.
+    MarkDerived,
 }
 
 impl RuntimeOp {
@@ -406,6 +421,8 @@ impl RuntimeOp {
         RuntimeOp::GlobalSet,
         RuntimeOp::DefineGetter,
         RuntimeOp::DefineSetter,
+        RuntimeOp::SuperConstruct,
+        RuntimeOp::MarkDerived,
     ];
 
     /// The linker name the runtime must define.
@@ -459,6 +476,8 @@ impl RuntimeOp {
             RuntimeOp::GlobalSet => "__rts_global_set",
             RuntimeOp::DefineGetter => "__rts_define_getter",
             RuntimeOp::DefineSetter => "__rts_define_setter",
+            RuntimeOp::SuperConstruct => "__rts_super_construct",
+            RuntimeOp::MarkDerived => "__rts_mark_derived",
         }
     }
 
@@ -537,6 +556,8 @@ impl RuntimeOp {
             RuntimeOp::GlobalSet => (vec![Repr::I64, UNPROVEN], vec![UNPROVEN]),
             // The object, the key the compiler resolved, and the function.
             // Answers the object, so a lowering can define several in a row.
+            RuntimeOp::SuperConstruct => (vec![UNPROVEN; 1 + ARGUMENT_SLOTS], vec![UNPROVEN]),
+            RuntimeOp::MarkDerived => (vec![UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::DefineGetter | RuntimeOp::DefineSetter => {
                 (vec![UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN])
             }

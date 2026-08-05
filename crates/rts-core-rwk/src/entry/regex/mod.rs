@@ -110,7 +110,12 @@ pub(super) fn make(context: &mut Context, source: &str, letters: &str) -> u64 {
             return undefined_of(context);
         };
 
-        let prototype = prototype_of(context);
+        // The prototype of the class `new` named, when there is one — so
+        // `class Mine extends RegExp {}` produces something that reaches
+        // `Mine.prototype` rather than something that only knows about
+        // `RegExp.prototype`.
+        let own = prototype_of(context);
+        let prototype = super::functions::prototype_for_new(context, own);
         context.set_prototype(cell, prototype);
         describe(context, cell, source, letters, parsed);
         context.regexes.set(cell, Regexp {

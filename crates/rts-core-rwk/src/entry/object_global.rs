@@ -64,7 +64,20 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
 /// wrapper objects here, and answering the primitive unchanged would be a
 /// different function wearing the same name.
 extern "C" fn make(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    super::objects::object_new()
+    let fresh = super::objects::object_new();
+    with_current(|context| {
+        // `class Tag extends Object { own() {} }` has to reach `Tag.prototype`,
+        // which means the object this makes inherits from the class `new`
+        // named rather than from nothing.
+        if let Some(cell) = Value(fresh).as_slot() {
+            let absent = undefined_of(context);
+            let prototype = super::functions::prototype_for_new(context, absent);
+            if prototype != absent {
+                context.set_prototype(cell, prototype);
+            }
+        }
+        fresh
+    })
 }
 
 /// `Object.keys(o)` — the own enumerable keys, as an array of strings.

@@ -2670,7 +2670,7 @@ fn a_method_can_close_over_where_the_class_was_written() {
 }
 
 #[test]
-fn extending_a_builtin_inherits_its_methods_but_not_its_state() {
+fn a_class_can_extend_something_the_runtime_supplied() {
     // The chain is built and the method is found — nothing in the
     // regular-expression module knows classes exist, which is what says the
     // lowering produces an ordinary constructor rather than a second kind of
@@ -2678,25 +2678,21 @@ fn extending_a_builtin_inherits_its_methods_but_not_its_state() {
     let recognised = run("class Mine extends RegExp {} return new Mine(\"a+\") instanceof RegExp;");
     assert_eq!(tags::payload_of(recognised), tags::BOOL_TRUE);
 
-    // But the instance has no compiled pattern, and this asserts the wrong
-    // answer on purpose so that fixing it fails here.
-    //
-    // `super()` in the specification does not run the parent against an object
-    // that already exists — it ASKS the parent for the object and binds that as
-    // `this`. This engine makes `this` in `construct`, before the callee runs,
-    // so a parent that answers an exotic object of its own has nowhere to put
-    // it. Every built-in whose instances carry state beside the cell is
-    // affected: the methods are inherited and the state is not.
-    //
-    // Fixing it means `construct` deferring the allocation to the base of the
-    // chain, which is a change to what a constructor IS rather than to this
-    // lowering.
-    let stateless = run("class Mine extends RegExp {} return new Mine(\"a+\").test(\"caat\");");
-    assert_eq!(
-        tags::payload_of(stateless),
-        tags::BOOL_FALSE,
-        "the divergence named above; a correct engine answers true"
+    // And the instance carries the parent's state, which is what the earlier
+    // version of this test asserted the *absence* of. `super()` does not run the
+    // parent against an object that already exists — it asks the parent for the
+    // object and binds what came back as `this`, so a built-in that makes an
+    // exotic one has somewhere to put it.
+    let stateful = run("class Mine extends RegExp {} return new Mine(\"a+\").test(\"caat\");");
+    assert_eq!(tags::payload_of(stateful), tags::BOOL_TRUE);
+
+    // The instance still inherits from the DERIVED prototype, which is the part
+    // that would break if `super()` established a new `new.target`: the base
+    // allocates, and it has to allocate against the class `new` named.
+    let own_method = run(
+        "class Mine extends RegExp { twice(s) { return this.test(s) && this.test(s); } } return new Mine(\"a\").twice(\"ba\");",
     );
+    assert_eq!(tags::payload_of(own_method), tags::BOOL_TRUE);
 }
 
 #[test]
@@ -2942,4 +2938,54 @@ fn a_computed_access_reaches_the_same_property_a_named_one_does() {
         "let o = { set x(v) { this.held = v + 1; } }; let k = \"x\"; o[k] = 2; return o.held;",
     );
     assert_eq!(tags::decode_double(written), 3.0);
+}
+
+#[test]
+fn the_base_of_the_chain_allocates_and_the_class_new_named_decides_the_prototype() {
+    // Three classes deep, so the target has to survive two `super()` calls. If
+    // `super()` established a new one, the instance would inherit from
+    // `B.prototype` and `C`'s method would be missing.
+    let produced = run(
+        "class A { constructor() { this.n = 1; } } class B extends A {} class C extends B { m() { return this.n + 1; } } return new C().m();",
+    );
+    assert_eq!(tags::decode_double(produced), 2.0);
+
+    let recognised = run("class A {} class B extends A {} class C extends B {} return new C() instanceof C;");
+    assert_eq!(tags::payload_of(recognised), tags::BOOL_TRUE);
+}
+
+#[test]
+fn a_derived_constructor_answers_the_object_super_produced() {
+    // It allocates nothing, so what it returns IS the instance — a body falling
+    // off its end has to answer its `this` rather than `undefined`.
+    let implicit = run(
+        "class A { constructor() { this.n = 5; } } class B extends A { constructor() { super(); } } return new B().n;",
+    );
+    assert_eq!(tags::decode_double(implicit), 5.0);
+
+    // And a constructor that returns an object of its own still wins, which is
+    // the clause an implementation forgets.
+    let overridden = run(
+        "class A {} class B extends A { constructor() { super(); return { n: 9 }; } } return new B().n;",
+    );
+    assert_eq!(tags::decode_double(overridden), 9.0);
+}
+
+#[test]
+fn this_in_a_derived_constructor_is_the_object_and_not_the_receiver() {
+    // The receiver a derived constructor is handed is `undefined`, because the
+    // object is not its to make. A `this` that read the parameter would be that
+    // `undefined` — silently the wrong object rather than a refusal.
+    let produced = run(
+        "class A { constructor() { this.a = 1; } } class B extends A { constructor() { super(); this.b = 2; } } let x = new B(); return x.a + x.b;",
+    );
+    assert_eq!(tags::decode_double(produced), 3.0);
+}
+
+#[test]
+fn extending_a_string_gives_an_instance_that_still_has_its_own_methods() {
+    // Both directions at once: the parent's prototype is reachable through the
+    // chain, and the derived prototype is what the instance actually starts at.
+    let inherited = run("class Tag extends Object { own() { return 4; } } return new Tag().own();");
+    assert_eq!(tags::decode_double(inherited), 4.0);
 }

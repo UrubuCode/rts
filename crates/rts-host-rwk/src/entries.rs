@@ -178,6 +178,13 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::SetPrototype => (CoreEntry::SetPrototype, {
             rts_core_rwk::entry::set_prototype as extern "C" fn(u64, u64) -> u64 as *const u8
         }),
+        RuntimeOp::SuperConstruct => (CoreEntry::SuperConstruct, {
+            rts_core_rwk::entry::super_construct
+                as extern "C" fn(u64, u64, u64, u64, u64) -> u64 as *const u8
+        }),
+        RuntimeOp::MarkDerived => (CoreEntry::MarkDerived, {
+            rts_core_rwk::entry::mark_derived as extern "C" fn(u64) -> u64 as *const u8
+        }),
         RuntimeOp::DefineGetter => (CoreEntry::DefineGetter, {
             rts_core_rwk::entry::define_getter as extern "C" fn(u64, i64, u64) -> u64 as *const u8
         }),

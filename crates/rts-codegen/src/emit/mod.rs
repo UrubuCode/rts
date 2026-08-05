@@ -347,7 +347,7 @@ pub fn emit_program(body: &[Stmt], ctx: &mut Ctx) -> EmitResult<Program> {
     ctx.globals = sloppy::created(body);
 
     let nothing = Scope::new();
-    let emitted = function::emit_body(ctx, &nothing, &[], body, false)?;
+    let emitted = function::emit_body(ctx, &nothing, &[], body, false, None)?;
     ctx.pending.push((entry, emitted));
 
     Ok(Program {

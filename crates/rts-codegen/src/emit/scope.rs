@@ -120,6 +120,9 @@ pub struct Scope {
     captured: BTreeSet<Name>,
     /// What `this` is in this function, when it has an answer.
     this_value: Option<ValueId>,
+    /// The name `this` is held under, for a function where it is assigned
+    /// partway through rather than handed over — see [`Scope::bind_this_late`].
+    late_this: Option<Name>,
 }
 
 impl Default for Scope {
@@ -137,6 +140,7 @@ impl Scope {
             environment: None,
             captured: BTreeSet::new(),
             this_value: None,
+            late_this: None,
         }
     }
 
@@ -201,6 +205,7 @@ impl Scope {
             environment,
             captured,
             this_value: None,
+            late_this: None,
         }
     }
 
@@ -226,6 +231,33 @@ impl Scope {
     /// than not compiling.
     pub fn set_this(&mut self, value: ValueId, is_arrow: bool) {
         self.this_value = if is_arrow { None } else { Some(value) };
+    }
+
+    /// Records that `this` lives in this function's environment.
+    ///
+    /// # Why one function needs that
+    ///
+    /// A derived constructor. `this` does not exist in one until `super()`
+    /// returns — the object is the base of the chain's to make, and until then
+    /// there is nothing to be a receiver. So `this` is **assigned** partway
+    /// through the body, and a block parameter cannot be: it is one SSA value
+    /// for the whole function.
+    ///
+    /// The environment is where this engine already puts a name whose value
+    /// changes and outlives a register, so it is where this goes rather than
+    /// into a second mechanism for one construct.
+    pub fn bind_this_late(&mut self, name: Name) {
+        self.late_this = Some(name);
+        // Cleared, so a read that forgot to ask about the late binding fails
+        // loudly instead of answering the receiver the caller passed — which
+        // for a derived constructor is `undefined` and would silently be the
+        // wrong object.
+        self.this_value = None;
+    }
+
+    /// The name `this` is held under, when it is held rather than passed.
+    pub fn late_this(&self) -> Option<Name> {
+        self.late_this
     }
 
     /// What `this` is here, if this function has an answer.

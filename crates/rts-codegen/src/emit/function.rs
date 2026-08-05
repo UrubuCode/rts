@@ -82,7 +82,33 @@ pub fn emit_closure(
     ctx: &mut Ctx,
     function: &Function,
 ) -> EmitResult<ValueId> {
-    let id = emit_function(ctx, scope, function)?;
+    emit_closure_with(builder, scope, ctx, function, None)
+}
+
+/// The same, for a body that holds `this` rather than being handed it.
+///
+/// One caller: a derived constructor, where `this` does not exist until
+/// `super()` answers one. See [`Scope::bind_this_late`] for why that cannot be
+/// the block parameter every other function's `this` is.
+pub fn emit_closure_binding_this_late(
+    builder: &mut FuncBuilder,
+    scope: &Scope,
+    ctx: &mut Ctx,
+    function: &Function,
+    held: Name,
+) -> EmitResult<ValueId> {
+    emit_closure_with(builder, scope, ctx, function, Some(held))
+}
+
+/// Both, differing only in whether `this` is held.
+fn emit_closure_with(
+    builder: &mut FuncBuilder,
+    scope: &Scope,
+    ctx: &mut Ctx,
+    function: &Function,
+    late_this: Option<Name>,
+) -> EmitResult<ValueId> {
+    let id = emit_function(ctx, scope, function, late_this)?;
 
     // The address is not a number known here — it is a relocation the
     // destination fills in, which is the whole reason the machine had to grow
@@ -101,7 +127,12 @@ pub fn emit_closure(
 }
 
 /// Emits a function's body as a machine function, and answers its id.
-fn emit_function(ctx: &mut Ctx, enclosing: &Scope, function: &Function) -> EmitResult<FuncId> {
+fn emit_function(
+    ctx: &mut Ctx,
+    enclosing: &Scope,
+    function: &Function,
+    late_this: Option<Name>,
+) -> EmitResult<FuncId> {
     if function.is_async || function.is_generator {
         return Err(EmitError::Unsupported {
             construct: "an async function or a generator",
@@ -142,7 +173,14 @@ fn emit_function(ctx: &mut Ctx, enclosing: &Scope, function: &Function) -> EmitR
 
     let sig = ctx.funcs.declare_signature(signature());
     let id = ctx.funcs.declare_function(sig);
-    let emitted = emit_body(ctx, enclosing, &parameters, body, function.captures_this)?;
+    let emitted = emit_body(
+        ctx,
+        enclosing,
+        &parameters,
+        body,
+        function.captures_this,
+        late_this,
+    )?;
     ctx.pending.push((id, emitted));
     Ok(id)
 }
@@ -154,8 +192,16 @@ pub(super) fn emit_body(
     parameters: &[Name],
     body: &[Stmt],
     captures_this: bool,
+    late_this: Option<Name>,
 ) -> EmitResult<MachineFunction> {
-    let captured = capture::captured(body, parameters);
+    let mut captured = capture::captured(body, parameters);
+    // A derived constructor holds `this` in its environment, so it has one
+    // whether or not anything else is captured — the name is added here rather
+    // than being special-cased below, so every reader downstream sees an
+    // ordinary captured name.
+    if let Some(name) = late_this {
+        captured.insert(name);
+    }
     let builds_environment = !captured.is_empty();
 
     let mut func = MachineFunction::new(signature());
@@ -183,6 +229,7 @@ pub(super) fn emit_body(
         &incoming,
         captured,
         builds_environment,
+        late_this,
     );
     ctx.numeric = outer_numeric;
     result?;
@@ -203,6 +250,7 @@ fn emit_body_into(
     incoming: &[ValueId],
     captured: std::collections::BTreeSet<Name>,
     builds_environment: bool,
+    late_this: Option<Name>,
 ) -> EmitResult<()> {
     let types = ctx.types;
     let mut builder = FuncBuilder::new(func, types, entry);
@@ -232,6 +280,14 @@ fn emit_body_into(
 
     let mut scope = Scope::for_function(Some(environment), captured, &reachable);
     scope.set_this(incoming[THIS_PARAM], captures_this);
+    if let Some(name) = late_this {
+        // Seeded with what the caller passed, which for a derived constructor is
+        // `undefined`. Written rather than left absent so that a read before
+        // `super()` answers the same `undefined` the language's ReferenceError
+        // would have been about, rather than whatever the slot happened to hold.
+        binding::declare(&mut builder, &mut scope, ctx, name, incoming[THIS_PARAM])?;
+        scope.bind_this_late(name);
+    }
 
     for (position, name) in parameters.iter().enumerate() {
         binding::declare(&mut builder, &mut scope, ctx, *name, incoming[2 + position])?;
@@ -248,8 +304,15 @@ fn emit_body_into(
         }
     }
     if !terminated {
-        let undefined = expr::undefined(&mut builder, ctx);
-        builder.ret(&[undefined]);
+        // A derived constructor answers its `this`, not `undefined`. That is
+        // what `construct` takes back — it allocated nothing, so what the callee
+        // returns IS the instance — and a body falling off its end is the
+        // ordinary way a constructor is written.
+        let answer = match late_this {
+            Some(name) => binding::read(&mut builder, &scope, ctx, name)?,
+            None => expr::undefined(&mut builder, ctx),
+        };
+        builder.ret(&[answer]);
     }
     Ok(())
 }
