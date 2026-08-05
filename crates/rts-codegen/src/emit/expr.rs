@@ -44,10 +44,10 @@ use rts_cranelift::repr::{RefKind, Repr};
 use rts_cranelift::tags;
 
 use super::{Ctx, EmitError, EmitResult, Scope, UNPROVEN};
-use crate::runtime::RuntimeOp;
-use crate::syntax::{AssignTarget, Expr, ExprKind, Literal, Property, PropertyKey};
-use crate::syntax::{AssignOp, BinaryOp};
 use crate::names::Name;
+use crate::runtime::RuntimeOp;
+use crate::syntax::{AssignOp, BinaryOp};
+use crate::syntax::{AssignTarget, Expr, ExprKind, Literal, Property, PropertyKey};
 use crate::values::Singleton;
 
 /// Materializes `undefined`.
@@ -112,7 +112,9 @@ pub fn emit_expr(
             })
         }
 
-        ExprKind::Assign { target, value, op } => emit_assign(builder, scope, ctx, target, value, *op),
+        ExprKind::Assign { target, value, op } => {
+            emit_assign(builder, scope, ctx, target, value, *op)
+        }
 
         // Every remaining form, named. The list is the deliverable: it is the
         // work queue for the phases after this one, and a reader can check it
@@ -301,6 +303,15 @@ fn emit_literal(
         // property key, and for the same reason. An immediate here would be a
         // number that is not a string and compares wrongly with everything.
         Literal::String(text) => string_literal(builder, ctx, text),
+
+        // Read, held, and not emitted. Both are values this engine has no way
+        // to MAKE rather than constructs it cannot express: a regular
+        // expression needs a matching engine, and a BigInt needs
+        // arbitrary-precision arithmetic. The tree carries them so the front
+        // end stops refusing a program it reads perfectly well, and the gap
+        // moves to where it actually is.
+        Literal::Regex { .. } => gap("a regular expression literal"),
+        Literal::BigInt(_) => gap("a BigInt literal"),
     }
 }
 
@@ -350,7 +361,6 @@ pub(super) fn emit_binary(
     }
 
     let runtime = match op {
-
         BinaryOp::Add => RuntimeOp::Add,
 
         // `-`, `*`, `/` and the four relational operators are refused rather
@@ -567,7 +577,11 @@ fn compared(
 /// one having been written — `!x` and `a !== b` both produce one from a branch,
 /// and three copies of the encoding is three places to get the payload wrong.
 pub(super) fn boolean_constant(builder: &mut FuncBuilder, value: bool) -> ValueId {
-    let payload = if value { tags::BOOL_TRUE } else { tags::BOOL_FALSE };
+    let payload = if value {
+        tags::BOOL_TRUE
+    } else {
+        tags::BOOL_FALSE
+    };
     constant(builder, tags::encode(tags::TAG_BOOL, payload))
 }
 
@@ -928,7 +942,6 @@ pub(super) fn emit_write(
     builder.switch_to(join);
     Ok(result)
 }
-
 
 /// A string constant, from text this module already has.
 ///

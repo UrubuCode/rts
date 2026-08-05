@@ -37,7 +37,8 @@ pub(crate) fn binding(cx: &mut Cx, pattern: &swc::Pat) -> Result<Pattern> {
             let mut rest = None;
             for property in &object.props {
                 match property {
-                    swc::ObjectPatProp::Assign(assign) => properties.push(shorthand(cx, assign)?),                    swc::ObjectPatProp::KeyValue(pair) => properties.push(PatternProperty {
+                    swc::ObjectPatProp::Assign(assign) => properties.push(shorthand(cx, assign)?),
+                    swc::ObjectPatProp::KeyValue(pair) => properties.push(PatternProperty {
                         key: property_key(cx, &pair.key)?,
                         value: binding_element(cx, &pair.value)?,
                     }),
@@ -116,7 +117,8 @@ pub(crate) fn object_target(cx: &mut Cx, object: &swc::ObjectPat) -> Result<Patt
     let mut rest = None;
     for property in &object.props {
         match property {
-            swc::ObjectPatProp::Assign(assign) => properties.push(shorthand(cx, assign)?),            swc::ObjectPatProp::KeyValue(pair) => properties.push(PatternProperty {
+            swc::ObjectPatProp::Assign(assign) => properties.push(shorthand(cx, assign)?),
+            swc::ObjectPatProp::KeyValue(pair) => properties.push(PatternProperty {
                 key: property_key(cx, &pair.key)?,
                 value: target_element(cx, &pair.value)?,
             }),

@@ -19,6 +19,36 @@ pub enum Literal {
     Boolean(bool),
     /// `undefined` or `null`.
     Singleton(Singleton),
+
+    /// `/ab+c/gi` — the pattern and the flags, exactly as written.
+    ///
+    /// # Why the pattern is text and not a parsed form
+    ///
+    /// Because the grammar of a regular expression is its own, and the point at
+    /// which it is read is a decision about **when** rather than about how: a
+    /// literal is compiled once, and a `new RegExp(s)` cannot be compiled until
+    /// the string exists. Holding the source keeps both on one path.
+    ///
+    /// It is also what the specification does — a literal carries its pattern
+    /// and flags as text, and an early error checks them without the value
+    /// existing.
+    Regex {
+        /// Between the slashes, unescaped.
+        pattern: String,
+        /// The letters after the closing slash.
+        flags: String,
+    },
+
+    /// `123n` — an integer of arbitrary size.
+    ///
+    /// # Why the digits and not a number
+    ///
+    /// A `BigInt` is exactly the thing a `f64` cannot hold, so parsing it into
+    /// one here would lose the literal in the act of recording it. The text is
+    /// kept and whatever implements the arithmetic decides the representation —
+    /// which is the same reasoning `Regex` above uses, and for a sharper reason:
+    /// there is no lossless machine type to choose yet.
+    BigInt(String),
 }
 
 /// An expression, and where it came from.

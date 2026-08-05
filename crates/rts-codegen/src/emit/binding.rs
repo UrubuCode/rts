@@ -134,12 +134,7 @@ pub fn declare(
 /// this function has one. Reaching the `None` arm means the scope was built
 /// without the environment the bindings in it refer to — which is this module's
 /// own bracketing being wrong, not anything a program can express.
-fn walk(
-    builder: &mut FuncBuilder,
-    scope: &Scope,
-    ctx: &mut Ctx,
-    hops: u32,
-) -> EmitResult<ValueId> {
+fn walk(builder: &mut FuncBuilder, scope: &Scope, ctx: &mut Ctx, hops: u32) -> EmitResult<ValueId> {
     let mut environment = scope
         .environment()
         .expect("a scope holding an environment binding has an environment");

@@ -246,11 +246,7 @@ fn branch_on_nullish(
 /// Used by `!x` and by `a !== b`, which is what makes it worth a function: the
 /// second is the first applied to strict equality, and writing it twice is how
 /// `!==` ends up meaning something subtly different from `!(a === b)`.
-pub fn from_bool(
-    builder: &mut FuncBuilder,
-    cond: ValueId,
-    negated: bool,
-) -> EmitResult<ValueId> {
+pub fn from_bool(builder: &mut FuncBuilder, cond: ValueId, negated: bool) -> EmitResult<ValueId> {
     let when_true = builder.create_block();
     let when_false = builder.create_block();
     let join = builder.create_block();

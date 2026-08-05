@@ -286,10 +286,15 @@ fn lit(literal: &swc::Lit) -> Result<Literal> {
         swc::Lit::Str(string) => Literal::String(string.value.to_string_lossy().to_string()),
         swc::Lit::Bool(boolean) => Literal::Boolean(boolean.value),
         swc::Lit::Null(_) => Literal::Singleton(Singleton::Null),
-        swc::Lit::Regex(regex) => {
-            return unsupported("a regular expression literal", position(regex.span));
-        }
-        swc::Lit::BigInt(big) => return unsupported("a BigInt literal", position(big.span)),
+        // Both are carried as the text that was written. SWC read them
+        // correctly all along — it was this bridge that had nowhere to put
+        // them, which is why 425 files of `test/language` were refused by a
+        // parser that had not refused anything.
+        swc::Lit::Regex(regex) => Literal::Regex {
+            pattern: regex.exp.to_string(),
+            flags: regex.flags.to_string(),
+        },
+        swc::Lit::BigInt(big) => Literal::BigInt(big.value.to_string()),
         swc::Lit::JSXText(text) => return unsupported("JSX text", position(text.span)),
     })
 }

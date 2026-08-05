@@ -156,4 +156,3 @@ pub fn emit_switch(
     // `default` runs nothing at all.
     Ok(false)
 }
-

@@ -60,7 +60,8 @@ use super::stmt::emit_stmt;
 use super::{Ctx, EmitError, EmitResult, Scope};
 use crate::names::Name;
 use crate::syntax::{
-    AssignTarget, Expr, ExprKind, ForInit, Pattern, Property, PropertyKey, Spreadable, Stmt, StmtKind,
+    AssignTarget, Expr, ExprKind, ForInit, Pattern, Property, PropertyKey, Spreadable, Stmt,
+    StmtKind,
 };
 
 /// A loop being emitted, for `break` and `continue` to reach.
@@ -174,9 +175,7 @@ pub fn emit_while(
         depth,
         merged: merged.clone(),
     };
-    let terminated = loops.inside(frame, |loops| {
-        emit_stmt(builder, scope, ctx, loops, body)
-    })?;
+    let terminated = loops.inside(frame, |loops| emit_stmt(builder, scope, ctx, loops, body))?;
 
     if !terminated {
         let leaving = scope.snapshot();
@@ -226,9 +225,7 @@ pub fn emit_do_while(
         depth,
         merged: merged.clone(),
     };
-    let terminated = loops.inside(frame, |loops| {
-        emit_stmt(builder, scope, ctx, loops, body)
-    })?;
+    let terminated = loops.inside(frame, |loops| emit_stmt(builder, scope, ctx, loops, body))?;
 
     if !terminated {
         let leaving = scope.snapshot();
@@ -350,9 +347,7 @@ fn emit_for_inner(
         depth,
         merged: merged.clone(),
     };
-    let terminated = loops.inside(frame, |loops| {
-        emit_stmt(builder, scope, ctx, loops, body)
-    })?;
+    let terminated = loops.inside(frame, |loops| emit_stmt(builder, scope, ctx, loops, body))?;
 
     if !terminated {
         let leaving = scope.snapshot();
@@ -684,7 +679,9 @@ fn assigned_in_expr(expr: &Expr, into: &mut Vec<Name>) {
             assigned_in_expr(then_branch, into);
             assigned_in_expr(else_branch, into);
         }
-        ExprKind::Call { callee, arguments, .. } => {
+        ExprKind::Call {
+            callee, arguments, ..
+        } => {
             assigned_in_expr(callee, into);
             for argument in arguments {
                 match argument {
@@ -726,9 +723,9 @@ fn assigned_in_expr(expr: &Expr, into: &mut Vec<Name>) {
         }
         // The literal pieces hold no expressions; only what is substituted
         // between them can write anything.
-        ExprKind::Template { expressions, .. } => {
-            expressions.iter().for_each(|expr| assigned_in_expr(expr, into))
-        }
+        ExprKind::Template { expressions, .. } => expressions
+            .iter()
+            .for_each(|expr| assigned_in_expr(expr, into)),
         ExprKind::Await(inner) | ExprKind::Chain(inner) => assigned_in_expr(inner, into),
         // A function body is a different frame. A name it assigns is captured,
         // which is a cell rather than a block parameter — and the emitter
@@ -746,4 +743,3 @@ fn assigned_in_expr_names(expr: &Expr) -> Vec<Name> {
     assigned_in_expr(expr, &mut names);
     names
 }
-

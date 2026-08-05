@@ -253,7 +253,9 @@ fn walk_expr(expr: &Expr, on: &mut impl FnMut(Child)) {
             }
             on(Child::Expr(value));
         }
-        ExprKind::Call { callee, arguments, .. } => {
+        ExprKind::Call {
+            callee, arguments, ..
+        } => {
             on(Child::Expr(callee));
             for argument in arguments {
                 if let crate::syntax::Spreadable::Single(value) = argument {
@@ -261,7 +263,9 @@ fn walk_expr(expr: &Expr, on: &mut impl FnMut(Child)) {
                 }
             }
         }
-        ExprKind::New { callee, arguments, .. } => {
+        ExprKind::New {
+            callee, arguments, ..
+        } => {
             on(Child::Expr(callee));
             for argument in arguments {
                 if let crate::syntax::Spreadable::Single(value) = argument {

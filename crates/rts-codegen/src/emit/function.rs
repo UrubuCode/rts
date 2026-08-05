@@ -40,8 +40,8 @@
 
 use rts_cranelift::ir::{FuncBuilder, FuncId, Function as MachineFunction, Signature, ValueId};
 
-use super::{binding, capture, expr};
 use super::{Ctx, EmitError, EmitResult, Loops, Scope, UNPROVEN};
+use super::{binding, capture, expr};
 use crate::names::Name;
 use crate::runtime::{ARGUMENT_SLOTS, RuntimeOp};
 use crate::syntax::{Function, FunctionBody, Stmt, StmtKind};

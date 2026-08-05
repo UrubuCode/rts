@@ -101,7 +101,15 @@ pub fn emit_stmt(
             condition,
             then_branch,
             else_branch,
-        } => emit_if(builder, scope, ctx, loops, condition, then_branch, else_branch.as_deref()),
+        } => emit_if(
+            builder,
+            scope,
+            ctx,
+            loops,
+            condition,
+            then_branch,
+            else_branch.as_deref(),
+        ),
 
         // `debugger` with no debugger attached is specified to do nothing, and
         // "nothing" is the whole implementation rather than a gap.
@@ -139,9 +147,9 @@ pub fn emit_stmt(
             subject,
             body,
         } => match source {
-            crate::syntax::ForEachSource::In => {
-                super::foreach::emit_for_in(builder, scope, ctx, loops, statement, target, subject, body, None)
-            }
+            crate::syntax::ForEachSource::In => super::foreach::emit_for_in(
+                builder, scope, ctx, loops, statement, target, subject, body, None,
+            ),
             // `for-of` steps `[Symbol.iterator]()`, which is a call to user
             // code and a protocol this engine has no symbols for.
             _ => super::expr::gap("`for-of`"),
@@ -149,7 +157,9 @@ pub fn emit_stmt(
         StmtKind::Switch {
             discriminant,
             clauses,
-        } => super::switch::emit_switch(builder, scope, ctx, loops, statement, discriminant, clauses),
+        } => {
+            super::switch::emit_switch(builder, scope, ctx, loops, statement, discriminant, clauses)
+        }
         // Both spellings go through one path. An unlabelled jump takes the
         // innermost frame that can accept it; a labelled one takes the frame
         // carrying that name.
@@ -266,7 +276,11 @@ fn emit_if(
     // Started from the arm that REACHED the join, which is the other one when
     // an arm returned — the reason `settle` takes the environment rather than
     // choosing one.
-    let after = if then_terminated { after_else } else { after_then };
+    let after = if then_terminated {
+        after_else
+    } else {
+        after_then
+    };
     super::merge::settle(scope, after, &merged, params);
 
     builder.switch_to(join);
@@ -323,7 +337,15 @@ fn emit_labelled(
             subject,
             body: inner,
         } => super::foreach::emit_for_in(
-            builder, scope, ctx, loops, body, target, subject, inner, Some(label),
+            builder,
+            scope,
+            ctx,
+            loops,
+            body,
+            target,
+            subject,
+            inner,
+            Some(label),
         ),
         _ => loops::emit_labelled_block(builder, scope, ctx, loops, label, body),
     }

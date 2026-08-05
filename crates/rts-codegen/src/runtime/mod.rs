@@ -579,6 +579,10 @@ mod tests {
         seen.sort_unstable();
         let count = seen.len();
         seen.dedup();
-        assert_eq!(seen.len(), count, "two operations claiming one symbol link to one function");
+        assert_eq!(
+            seen.len(),
+            count,
+            "two operations claiming one symbol link to one function"
+        );
     }
 }

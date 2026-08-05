@@ -195,7 +195,12 @@ pub fn emit_update(
             let current = expr::call(builder, ctx, RuntimeOp::GetIndexed, &[receiver, key])?[0];
             let (before, after) = step_value(builder, ctx, current, step)?;
             let stored = builder.widen(after);
-            expr::call(builder, ctx, RuntimeOp::SetIndexed, &[receiver, key, stored])?;
+            expr::call(
+                builder,
+                ctx,
+                RuntimeOp::SetIndexed,
+                &[receiver, key, stored],
+            )?;
             Ok(match position {
                 UpdatePosition::Prefix => after,
                 UpdatePosition::Postfix => before,

@@ -177,13 +177,25 @@ impl Scope {
     ) -> Self {
         let mut entries: Vec<(Name, Binding)> = enclosing
             .iter()
-            .map(|(name, hops)| (*name, Binding::InEnvironment { hops: *hops, name: *name }))
+            .map(|(name, hops)| {
+                (
+                    *name,
+                    Binding::InEnvironment {
+                        hops: *hops,
+                        name: *name,
+                    },
+                )
+            })
             .collect();
-        entries.extend(
-            captured
-                .iter()
-                .map(|name| (*name, Binding::InEnvironment { hops: 0, name: *name })),
-        );
+        entries.extend(captured.iter().map(|name| {
+            (
+                *name,
+                Binding::InEnvironment {
+                    hops: 0,
+                    name: *name,
+                },
+            )
+        }));
         Scope {
             layers: vec![Layer { entries }],
             environment,
@@ -280,17 +292,14 @@ impl Scope {
 
     /// What a name currently means, innermost layer first.
     pub fn lookup(&self, name: Name) -> Option<Binding> {
-        self.layers
-            .iter()
-            .rev()
-            .find_map(|layer| {
-                layer
-                    .entries
-                    .iter()
-                    .rev()
-                    .find(|(bound, _)| *bound == name)
-                    .map(|(_, binding)| *binding)
-            })
+        self.layers.iter().rev().find_map(|layer| {
+            layer
+                .entries
+                .iter()
+                .rev()
+                .find(|(bound, _)| *bound == name)
+                .map(|(_, binding)| *binding)
+        })
     }
 
     /// Rebinds an existing name, wherever it was declared.

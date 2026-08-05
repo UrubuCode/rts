@@ -345,9 +345,9 @@ mod tests {
     use crate::names::Names;
     use crate::parse::parse_script;
     use crate::syntax::{FunctionBody, ModuleItem, StmtKind};
+    use crate::values::ValueModel;
     use rts_cranelift::ir::FuncRegistry;
     use rts_cranelift::ir::inst::{Inst, Terminator};
-    use crate::values::ValueModel;
     use rts_cranelift::tags::TagRegistry;
 
     /// The program.s own entry, for a test that asserts about one function.
@@ -408,7 +408,9 @@ mod tests {
             .collect();
         let mut keys = rts_cranelift::shape::KeyRegistry::new();
         let func = {
-            let mut ctx = Ctx::new(&model, &mut funcs, &mut calls, &mut keys, &mut names, &types);
+            let mut ctx = Ctx::new(
+                &model, &mut funcs, &mut calls, &mut keys, &mut names, &types,
+            );
             emit_program(&body, &mut ctx).map(entry_of)
         };
         verified(func, &types, &funcs)
@@ -439,7 +441,9 @@ mod tests {
         };
         let mut keys = rts_cranelift::shape::KeyRegistry::new();
         let func = {
-            let mut ctx = Ctx::new(&model, &mut funcs, &mut calls, &mut keys, &mut names, &types);
+            let mut ctx = Ctx::new(
+                &model, &mut funcs, &mut calls, &mut keys, &mut names, &types,
+            );
             emit_program(body, &mut ctx).map(entry_of)
         };
         verified(func, &types, &funcs)
@@ -547,8 +551,7 @@ mod tests {
         // `s` comes from a call, so nothing here knows what it is. The call is
         // emitted now, so what this pins is that the ADDITION reached the
         // runtime — which is the claim the test was always making.
-        let func = emit_source("function f() { return 1; } let s = f(); 1 + s;")
-            .expect("emits");
+        let func = emit_source("function f() { return 1; } let s = f(); 1 + s;").expect("emits");
         assert!(
             instructions(&func)
                 .iter()
@@ -611,8 +614,8 @@ mod tests {
         // `if (c) { x = 1 } else { x = 2 }` there is no single definition of
         // `x`, and the IR is in SSA form, so there is nothing to write twice.
         // The join takes a parameter and each arm passes its own value.
-        let func = emit_body_of("let x = 0; if (x) { x = 1; } else { x = 2; } return x;")
-            .expect("emits");
+        let func =
+            emit_body_of("let x = 0; if (x) { x = 1; } else { x = 2; } return x;").expect("emits");
         assert!(
             func.blocks().any(|(_, block)| !block.params.is_empty()),
             "no block took a parameter, so two definitions were merged by \
@@ -627,7 +630,11 @@ mod tests {
         // what prevents it — so it is pinned rather than trusted.
         let func =
             emit_body_of("let x = 0; let y = 1; if (x) { x = 1; } return y;").expect("emits");
-        assert_eq!(merged_values(&func), 1, "only `x` differs between the two paths");
+        assert_eq!(
+            merged_values(&func),
+            1,
+            "only `x` differs between the two paths"
+        );
     }
 
     #[test]
@@ -680,8 +687,8 @@ mod tests {
         // The whole content of the phase, as a count. `i` is written and `n` is
         // only read, so exactly one binding travels — and the alternative
         // implementation, a parameter for every live local, would give two.
-        let func = emit_body_of("let i = 0; let n = 1; while (i) { i = n; } return i;")
-            .expect("emits");
+        let func =
+            emit_body_of("let i = 0; let n = 1; while (i) { i = n; } return i;").expect("emits");
         // Header and exit each carry `i`.
         assert_eq!(merged_values(&func), 2, "only `i` differs between passes");
     }
@@ -690,8 +697,8 @@ mod tests {
     fn a_body_local_gets_no_parameter_because_it_is_a_new_binding_each_pass() {
         // `x` is written every pass and is a different binding every pass, so
         // nothing outside the body can name it and nothing needs to carry it.
-        let func = emit_body_of("let i = 0; while (i) { let x = i; x = 1; } return i;")
-            .expect("emits");
+        let func =
+            emit_body_of("let i = 0; while (i) { let x = i; x = 1; } return i;").expect("emits");
         assert_eq!(
             merged_values(&func),
             0,
@@ -704,8 +711,7 @@ mod tests {
         // Both merge through the same mechanism as the back edge, so the thing
         // worth pinning is that they are emitted at all and that what they
         // produce is well formed — which is the verifier's answer, not mine.
-        emit_body_of("let i = 0; while (i) { if (i) { break; } i = 1; } return i;")
-            .expect("emits");
+        emit_body_of("let i = 0; while (i) { if (i) { break; } i = 1; } return i;").expect("emits");
         emit_body_of("let i = 0; while (i) { if (i) { continue; } i = 1; } return i;")
             .expect("emits");
     }
@@ -715,8 +721,8 @@ mod tests {
         // `i` is not in scope after the loop, so using it there is the
         // program's error rather than a gap.
         emit_body_of("for (let i = 0; i; i = 1) { }").expect("emits");
-        let error = emit_body_of("for (let i = 0; i; i = 1) { } return i;")
-            .expect_err("`i` is gone");
+        let error =
+            emit_body_of("for (let i = 0; i; i = 1) { } return i;").expect_err("`i` is gone");
         assert!(matches!(error, EmitError::UnboundName(_)), "got {error:?}");
     }
 

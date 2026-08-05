@@ -48,11 +48,12 @@ pub fn emit_for_in(
     body: &Stmt,
     label: Option<Name>,
 ) -> EmitResult<bool> {
-    use crate::syntax::{
-        Binding as SyntaxBinding, BindingKind, ExprKind, ForEachTarget, StmtKind,
-    };
+    use crate::syntax::{Binding as SyntaxBinding, BindingKind, ExprKind, ForEachTarget, StmtKind};
 
-    let crate::syntax::ForEachTarget::Declare { target: pattern, .. } = target else {
+    let crate::syntax::ForEachTarget::Declare {
+        target: pattern, ..
+    } = target
+    else {
         // `for (x in o)` writes to something that already exists, once per
         // pass, with no fresh binding at all. A different rule, and one that
         // matters as soon as a closure is made in the body.
@@ -83,8 +84,12 @@ pub fn emit_for_in(
     // ordinary binding and needs to know nothing about where it came from.
     scope.enter();
     let enumerated = super::expr::emit_expr(builder, scope, ctx, subject)?;
-    let enumerated =
-        super::expr::call(builder, ctx, crate::runtime::RuntimeOp::OwnKeys, &[enumerated])?[0];
+    let enumerated = super::expr::call(
+        builder,
+        ctx,
+        crate::runtime::RuntimeOp::OwnKeys,
+        &[enumerated],
+    )?[0];
     super::binding::declare(builder, scope, ctx, keys, enumerated)?;
 
     let init = crate::syntax::ForInit::Declare {

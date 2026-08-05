@@ -109,7 +109,9 @@ fn collect_candidates(statement: &Stmt, into: &mut HashSet<Name>) {
                 }
             }
         }
-        StmtKind::Block(body) => body.iter().for_each(|inner| collect_candidates(inner, into)),
+        StmtKind::Block(body) => body
+            .iter()
+            .for_each(|inner| collect_candidates(inner, into)),
         StmtKind::If {
             then_branch,
             else_branch,
@@ -238,7 +240,12 @@ fn keep_only_numeric(statement: &Stmt, known: &Numeric, surviving: &mut HashSet<
                 }
             }
         }
-        StmtKind::ForEach { target, subject, body, .. } => {
+        StmtKind::ForEach {
+            target,
+            subject,
+            body,
+            ..
+        } => {
             check_expr(subject, known, surviving);
             // A `for-in` target holds a STRING, so a name it writes to is not
             // numeric however it was declared.
@@ -350,9 +357,9 @@ fn is_numeric(expr: &Expr, known: &Numeric) -> bool {
         },
 
         // `(a, b)` is `b`.
-        ExprKind::Sequence { operands } => operands
-            .last()
-            .is_some_and(|last| is_numeric(last, known)),
+        ExprKind::Sequence { operands } => {
+            operands.last().is_some_and(|last| is_numeric(last, known))
+        }
 
         // Both arms, or it is not known which arrives.
         ExprKind::Conditional {
@@ -387,8 +394,8 @@ mod tests {
     /// The names proved numeric in a function body, as strings.
     fn proved(source: &str) -> Vec<String> {
         let mut names = Names::default();
-        let program = parse_script(&format!("function t() {{ {source} }}"), &mut names)
-            .expect("parses");
+        let program =
+            parse_script(&format!("function t() {{ {source} }}"), &mut names).expect("parses");
         let [ModuleItem::Stmt(statement)] = program.body.as_slice() else {
             panic!("one statement");
         };

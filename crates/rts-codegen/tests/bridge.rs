@@ -11,7 +11,7 @@ use rts_codegen::names::Names;
 use rts_codegen::parse::{ParseError, parse_module, parse_script};
 use rts_codegen::syntax::{
     AssignOp, AssignTarget, BinaryOp, BindingKind, ClassElement, ExprKind, ForEachSource,
-    FunctionBody, Goal, LogicalOp, ModuleItem, Pattern, Program, Property, Stmt, StmtKind,
+    FunctionBody, Goal, Literal, LogicalOp, ModuleItem, Pattern, Program, Property, Stmt, StmtKind,
     UpdatePosition,
 };
 
@@ -567,13 +567,55 @@ fn an_interface_contributes_nothing_and_an_enum_is_refused() {
 
 #[test]
 fn an_unsupported_construct_is_named_rather_than_dropped() {
+    // This named a regular expression until the tree gained somewhere to put
+    // one. SWC had been reading them correctly all along and the bridge had
+    // nowhere to hand them over, which refused 253 files of `test/language`
+    // through a parser that had not refused anything.
+    //
+    // `using` in a for-head is what is still refused, and the test follows the
+    // refusal rather than being deleted with the construct it happened to name.
     let mut names = Names::new();
-    match parse_module("const r = /ab+/g;", &mut names) {
+    match parse_module("for (using x of y) {}", &mut names) {
         Err(ParseError::Unsupported { construct, .. }) => {
-            assert!(construct.contains("regular expression"), "{construct}");
+            assert!(construct.contains("using"), "{construct}");
         }
         other => panic!("expected a named refusal, got {other:?}"),
     }
+}
+
+#[test]
+fn a_regular_expression_arrives_as_its_pattern_and_its_flags() {
+    // Held as the text that was written, because the grammar of a regular
+    // expression is its own and a literal and a `new RegExp(s)` should reach
+    // the engine by one path.
+    let (kind, _) = only_statement("const r = /ab+/gi;");
+    let StmtKind::Declare { bindings, .. } = kind else {
+        panic!("expected a declaration");
+    };
+    let Some(ExprKind::Literal(Literal::Regex { pattern, flags })) =
+        bindings[0].value.as_ref().map(|value| &value.kind)
+    else {
+        panic!("expected a regular expression literal");
+    };
+    assert_eq!(pattern, "ab+");
+    assert_eq!(flags, "gi");
+}
+
+#[test]
+fn a_bigint_arrives_as_its_digits() {
+    // Not as a number: a `BigInt` is exactly what a double cannot hold, so
+    // parsing it into one here would lose the literal in the act of recording
+    // it.
+    let (kind, _) = only_statement("const n = 9007199254740993n;");
+    let StmtKind::Declare { bindings, .. } = kind else {
+        panic!("expected a declaration");
+    };
+    let Some(ExprKind::Literal(Literal::BigInt(digits))) =
+        bindings[0].value.as_ref().map(|value| &value.kind)
+    else {
+        panic!("expected a BigInt literal");
+    };
+    assert_eq!(digits, "9007199254740993");
 }
 
 #[test]
