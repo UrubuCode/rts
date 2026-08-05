@@ -106,3 +106,74 @@ fn the_checker_does_not_reach_past_a_function_boundary() {
     accepted("let x; function f() { var x; }");
     accepted("function f() { let x; } var x;");
 }
+
+#[test]
+fn await_cannot_name_anything_inside_an_async_function() {
+    assert!(refused("async function f() { var await; }").contains("`await`"));
+    // These two SWC reaches first, with a message of its own. What is pinned
+    // is that the program is refused, not which layer says so.
+    refused("async function f() { void await; }");
+    refused("async function f() { await: ; }");
+
+    // Neither word is a keyword. Outside the context that reserves it, the
+    // same text is an ordinary identifier and the program is fine.
+    accepted("var await = 1;");
+    accepted("function f() { var await; }");
+}
+
+#[test]
+fn yield_cannot_name_anything_inside_a_generator() {
+    refused("function* g() { var yield; }");
+    accepted("function f() { var yield; }");
+}
+
+#[test]
+fn an_arrow_inherits_the_context_and_a_function_replaces_it() {
+    // An arrow has no `await` of its own to shadow the outer one, exactly as it
+    // has no `this`. This is the whole reason the rule is a walk with a context
+    // rather than one look at the nearest function.
+    assert!(refused("async function f() { const g = () => { var await; }; }").contains("`await`"));
+    // An ordinary function does have one, so it resets.
+    accepted("async function f() { function g() { var await; } }");
+}
+
+#[test]
+fn a_property_named_await_is_a_property() {
+    // The rule is about identifiers that name something. `o.await` names a
+    // property, and a checker that scanned text rather than the tree would
+    // refuse every one of these.
+    accepted("async function f() { o.await; ({ await: 1 }); o.yield; }");
+    accepted("function* g() { ({ yield: 1 }).yield; }");
+}
+
+#[test]
+fn a_class_static_block_reserves_await_with_no_async_anywhere() {
+    // Not because the block is async — it is not — but so that it cannot
+    // introduce a name a future `await` in it would collide with.
+    refused("class C { static { var await; } }");
+    // `yield` is refused there too, but for a different reason and by SWC: a
+    // class body is strict code, where `yield` is reserved outright. Asserting
+    // it was accepted here was this test being wrong about the language.
+    refused("class C { static { var yield; } }");
+}
+
+#[test]
+fn a_function_expression_binds_its_own_name_inside_itself() {
+    // The name of a function expression is visible only within it, in a scope
+    // nothing outside can see — so it is checked in the inner context, where
+    // `yield` is no longer reserved. A declaration is the opposite: it
+    // introduces its name where it is written.
+    accepted("function* g() { (function yield() {}); }");
+    // SWC reaches the declaration first, with a message of its own; what is
+    // pinned is that the two spellings get opposite answers.
+    refused("function* g() { function yield() {} }");
+}
+
+#[test]
+fn a_static_block_reserves_await_less_far_than_an_async_function_does() {
+    // `ContainsAwait` does not descend into an arrow body, so this is valid —
+    // even though the same shape inside an async function is not. Two reasons
+    // to forbid one word, reaching different distances.
+    accepted("class C { static { (() => ({ await })); } }");
+    assert!(refused("async function f() { (() => ({ await })); }").contains("`await`"));
+}

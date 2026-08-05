@@ -22,6 +22,7 @@
 //! is about and asks its question once, which is why each rule is stated in one
 //! function and none of them is spread across the bridge.
 
+mod reserved;
 mod scope;
 mod walk;
 
@@ -46,8 +47,29 @@ pub(crate) struct EarlyError {
 pub(crate) fn check(program: &Program, names: &Names) -> Result<(), EarlyError> {
     let mut checker = Checker::new(names);
     checker.program(program);
-    match checker.finish() {
-        Some(error) => Err(error),
-        None => Ok(()),
+    if let Some(error) = checker.finish() {
+        return Err(error);
     }
+
+    // A separate walk, deliberately. The scope rules ask about statement lists
+    // and never look inside an expression; this one visits every identifier in
+    // the program and carries a context down. Folding them together would make
+    // one traversal that has to remember which half it is doing.
+    let statements: Vec<_> = program
+        .body
+        .iter()
+        .filter_map(|item| match item {
+            crate::syntax::ModuleItem::Stmt(statement) => Some(statement.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut scan = reserved::Scan::new(names);
+    scan.stmts(&statements, reserved::Context::sloppy());
+    if let Some(word) = scan.finish() {
+        return Err(EarlyError {
+            message: format!("`{word}` cannot name anything here"),
+        });
+    }
+
+    Ok(())
 }
