@@ -217,7 +217,7 @@ fn leaving_a_region_normally_owes_the_same_cleanup() {
     let entry = func.entry;
     let mut b = FuncBuilder::new(&mut func, &types, entry);
     let cleanup = b.create_block();
-    let region = b.open_region(vec![], Some(cleanup));
+    let _region = b.open_region(vec![], Some(cleanup));
     b.ret(&[value]);
 
     write_cleanup(&mut func, &types, cleanup, 5);
@@ -255,7 +255,7 @@ fn two_paths_through_one_cleanup_each_get_their_own_copy() {
     b.add_block_param(handler, Repr::Tagged);
     let cleanup = b.create_block();
 
-    let region = b.open_region(
+    let _region = b.open_region(
         vec![Handler {
             tag: Tag(1),
             block: handler,
@@ -301,7 +301,7 @@ fn a_cleanup_that_does_not_end_as_one_is_rejected() {
     let entry = func.entry;
     let mut b = FuncBuilder::new(&mut func, &types, entry);
     let cleanup = b.create_block();
-    let region = b.open_region(vec![], Some(cleanup));
+    let _region = b.open_region(vec![], Some(cleanup));
     b.ret(&[]);
 
     // Ends by returning, which would give the copy a second exit.
@@ -327,7 +327,7 @@ fn a_cleanup_that_reads_something_outside_itself_is_rejected() {
     let entry = func.entry;
     let mut b = FuncBuilder::new(&mut func, &types, entry);
     let cleanup = b.create_block();
-    let region = b.open_region(vec![], Some(cleanup));
+    let _region = b.open_region(vec![], Some(cleanup));
     b.ret(&[]);
 
     let mut b = FuncBuilder::new(&mut func, &types, cleanup);
@@ -367,7 +367,7 @@ fn a_cleanup_with_parameters_is_rejected() {
     let mut b = FuncBuilder::new(&mut func, &types, entry);
     let cleanup = b.create_block();
     b.add_block_param(cleanup, Repr::Tagged);
-    let region = b.open_region(vec![], Some(cleanup));
+    let _region = b.open_region(vec![], Some(cleanup));
     b.ret(&[]);
 
     let mut b = FuncBuilder::new(&mut func, &types, cleanup);
@@ -378,5 +378,87 @@ fn a_cleanup_with_parameters_is_rejected() {
             .iter()
             .any(|e| matches!(e, VerifyError::CleanupTakesParameters { .. })),
         "every path that unwinds through it has nothing in common to pass"
+    );
+}
+
+#[test]
+fn a_cleanup_of_several_blocks_is_copied_whole() {
+    // A cleanup used to be one block, and nothing a language runs on the way
+    // out fits in one: `x + y` alone emits a fast path and a slow one, and a
+    // disposer is a call. So the piece is now every block reachable from the
+    // entry without leaving through a `CleanupDone` — and the copy has to bring
+    // all of it, branches and merges included, not only the entry.
+    let _serial = reset();
+    let types = TypeRegistry::new();
+
+    let mut func = Function::new(Signature {
+        params: vec![Repr::Bool, Repr::Tagged],
+        returns: vec![Repr::Tagged],
+        ..Signature::default()
+    });
+    let value = param(&func, 1);
+    let entry = func.entry;
+
+    let mut b = FuncBuilder::new(&mut func, &types, entry);
+    let handler = b.create_block();
+    b.add_block_param(handler, Repr::Tagged);
+    let cleanup = b.create_block();
+    b.open_region(
+        vec![Handler {
+            tag: Tag(1),
+            block: handler,
+        }],
+        Some(cleanup),
+    );
+    b.throw(Tag(1), value);
+
+    // The cleanup: a branch on a condition it computes itself, two arms, and a
+    // merge that leaves once. Every value it reads it defines, which is the
+    // rule that makes the copy sound and is unchanged by there being four
+    // blocks instead of one.
+    let mut b = FuncBuilder::new(&mut func, &types, cleanup);
+    let yes = b.create_block();
+    let no = b.create_block();
+    let done = b.create_block();
+    let flag = b.declare_const(ConstDecl::Scalar {
+        repr: Repr::Bool,
+        bits: ScalarBits(1),
+    });
+    let flag = b.use_const(flag);
+    b.branch(flag, (yes, &[]), (no, &[])).expect("a boolean");
+
+    for (block, marker) in [(yes, 21u64), (no, 22)] {
+        let mut b = FuncBuilder::new(&mut func, &types, block);
+        let promise = b.promise_new();
+        let held = b.declare_const(ConstDecl::Scalar {
+            repr: Repr::Tagged,
+            bits: ScalarBits(marker),
+        });
+        let held = b.use_const(held);
+        b.promise_settle(promise, held, false);
+        b.jump(done, &[]).expect("no parameters");
+    }
+
+    let mut b = FuncBuilder::new(&mut func, &types, done);
+    b.cleanup_done();
+
+    let caught = func.block(handler).expect("exists").params[0];
+    let mut b = FuncBuilder::new(&mut func, &types, handler);
+    b.ret(&[caught]);
+
+    assert_eq!(verify(&func, &types, &FuncRegistry::new()), vec![]);
+
+    let address = compile(
+        "branchy",
+        &[Repr::Bool, Repr::Tagged],
+        &[Repr::Tagged],
+        &func,
+    );
+    let branchy: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(address) };
+    assert_eq!(branchy(1, 5), 5, "the value still reaches the handler");
+    assert_eq!(
+        trace(),
+        vec![21],
+        "and the arm the cleanup's own branch chose is the one that ran"
     );
 }

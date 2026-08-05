@@ -517,6 +517,12 @@ pub enum Terminator {
     /// which is only sound if it is a piece with one entry and one exit — and
     /// this terminator is what makes that structural rather than hoped for.
     ///
+    /// A piece, not a block. It may branch and merge inside itself, and may end
+    /// this way in more than one of its blocks: several `CleanupDone` are still
+    /// one exit, because they all leave to the same place. The single-block
+    /// version could hold arithmetic on proven operands and nothing else, which
+    /// is not enough for anything a language actually runs on the way out.
+    ///
     /// The alternative was a parameter saying where to continue. Rejected: the
     /// representation has no indirect branch to lower it to, and it would make
     /// every cleanup able to reach every continuation, which is an edge in the

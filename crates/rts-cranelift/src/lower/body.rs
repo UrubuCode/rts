@@ -15,8 +15,7 @@ use super::memory;
 use super::types::machine_type;
 use super::value;
 use crate::ir::{
-    BitOp, BlockId, CmpOp, ConstDecl, Function, Inst, NumOp, ScalarBits, Terminator, TrapCode,
-    ValueId,
+    BitOp, BlockId, CmpOp, ConstDecl, Function, Inst, NumOp, ScalarBits, TrapCode, ValueId,
 };
 use crate::repr::Repr;
 use crate::symbols::RtEntry;
@@ -45,19 +44,19 @@ pub struct Outside<'a> {
 
 /// Translates one function's body into the code generator's blocks.
 pub struct Body<'a> {
-    func: &'a Function,
-    blocks: HashMap<BlockId, Block>,
-    values: HashMap<ValueId, Value>,
+    pub(super) func: &'a Function,
+    pub(super) blocks: HashMap<BlockId, Block>,
+    pub(super) values: HashMap<ValueId, Value>,
     /// What this function may name outside itself, and where to ask for it.
     ///
     /// Absent when lowering a function on its own. The two travel together
     /// because neither is any use without the other: knowing what has been
     /// declared is pointless without the module that declared it, and the module
     /// alone cannot say which of our identifiers means what.
-    outside: Option<Outside<'a>>,
+    pub(super) outside: Option<Outside<'a>>,
     /// The heap this function may read and write.
-    heap: Option<super::Heap<'a>>,
-    refs: FunctionRefs,
+    pub(super) heap: Option<super::Heap<'a>>,
+    pub(super) refs: FunctionRefs,
 }
 
 impl<'a> Body<'a> {
@@ -138,7 +137,7 @@ impl<'a> Body<'a> {
         }
     }
 
-    fn lower_inst(
+    pub(super) fn lower_inst(
         &mut self,
         builder: &mut FunctionBuilder,
         id: crate::ir::InstId,
@@ -403,238 +402,6 @@ impl<'a> Body<'a> {
         }
     }
 
-    fn lower_terminator(
-        &mut self,
-        builder: &mut FunctionBuilder,
-        block: BlockId,
-        terminator: &Terminator,
-    ) -> Result<(), LowerError> {
-        match terminator {
-            Terminator::Jump(call) => {
-                let args = self.block_args(&call.args);
-                let target = self.blocks[&call.block];
-                builder.ins().jump(target, &args);
-            }
-
-            Terminator::Branch {
-                cond,
-                then_block,
-                else_block,
-            } => {
-                let cond = self.value(*cond);
-                let then_args = self.block_args(&then_block.args);
-                let else_args = self.block_args(&else_block.args);
-                let (t, e) = (
-                    self.blocks[&then_block.block],
-                    self.blocks[&else_block.block],
-                );
-                builder.ins().brif(cond, t, &then_args, e, &else_args);
-            }
-
-            Terminator::Guard {
-                input,
-                expect,
-                ok,
-                fail,
-            } => {
-                let input = self.value(*input);
-                let held = value::test(builder, input, *expect)?;
-
-                // The narrowed value is computed unconditionally and passed on
-                // the success edge only. It is pure bit manipulation, so
-                // computing it where the test failed is harmless — and cheaper
-                // than a block that exists only to compute it.
-                let narrowed = value::narrow(builder, input, *expect)?;
-
-                let mut ok_args = vec![cranelift_codegen::ir::BlockArg::Value(narrowed)];
-                ok_args.extend(self.block_args(&ok.args));
-                let fail_args = self.block_args(&fail.args);
-                let (t, e) = (self.blocks[&ok.block], self.blocks[&fail.block]);
-                builder.ins().brif(held, t, &ok_args, e, &fail_args);
-            }
-
-            Terminator::GuardType {
-                object,
-                expect,
-                ok,
-                fail,
-            } => {
-                let heap = self
-                    .heap
-                    .as_ref()
-                    .ok_or(LowerError::TerminatorNotYetLowered {
-                        block,
-                        needs: Capability::Memory,
-                    })?;
-                let reference = self.value(*object);
-
-                // The type is in the object's header, which is where it was put
-                // so that a collector could read it without knowing what the
-                // object is. The same fact answers this question.
-                let address = memory::address_of(builder, reference, heap.bases);
-                let header = memory::field_load(
-                    builder,
-                    address,
-                    crate::mem::HeaderLayout::TYPE_OFFSET,
-                    Repr::I64,
-                );
-                let held = builder
-                    .ins()
-                    .icmp_imm(IntCC::Equal, header, expect.index() as i64);
-
-                // The narrowed value is the same bits: what changed is what is
-                // known about them, and nothing known is stored in the value.
-                let mut ok_args = vec![cranelift_codegen::ir::BlockArg::Value(reference)];
-                ok_args.extend(self.block_args(&ok.args));
-                let fail_args = self.block_args(&fail.args);
-                let (t, e) = (self.blocks[&ok.block], self.blocks[&fail.block]);
-                builder.ins().brif(held, t, &ok_args, e, &fail_args);
-            }
-
-            Terminator::CachedGet {
-                object,
-                key,
-                cache,
-                hit,
-                miss,
-            } => {
-                self.lower_cached_get(builder, block, *object, *key, *cache, hit, miss)?;
-            }
-
-            Terminator::CachedSet {
-                object,
-                key,
-                cache,
-                value,
-                hit,
-                miss,
-            } => {
-                self.lower_cached_set(builder, block, *object, *key, *cache, *value, hit, miss)?;
-            }
-
-            Terminator::Return(values) => {
-                // Leaving a region normally owes the same cleanup as leaving it
-                // by throwing. A scope that only unwinds correctly when
-                // something goes wrong leaks on the path taken most of the time.
-                if let Some(region) = self.func.region_of(block) {
-                    let chain = crate::unwind::plan_normal_exit(&self.func.regions, region);
-                    self.emit_cleanups(builder, &chain)?;
-                }
-
-                let values = self.args(values);
-                builder.ins().return_(&values);
-            }
-
-            Terminator::Trap(code) => {
-                builder.ins().trap(trap_code(*code));
-            }
-
-            // A cleanup is reached by being copied into the path that needs it,
-            // so the original is never entered. Reaching it means something
-            // jumped to a block nothing should jump to.
-            Terminator::CleanupDone => {
-                builder
-                    .ins()
-                    .trap(cranelift_codegen::ir::TrapCode::unwrap_user(1));
-            }
-
-            Terminator::TailCall { callee, args } => {
-                let outside = self
-                    .outside
-                    .as_mut()
-                    .ok_or(LowerError::TerminatorNotYetLowered {
-                        block,
-                        needs: Capability::Calls,
-                    })?;
-                let reference = self
-                    .refs
-                    .callee(outside.module, builder.func, outside.declarations, *callee)
-                    .ok_or(LowerError::UndeclaredTailCallee { block })?;
-                let args = self.args(args);
-                builder.ins().return_call(reference, &args);
-            }
-
-            Terminator::TailCallIndirect { callee, sig, args } => {
-                let outside = self
-                    .outside
-                    .as_mut()
-                    .ok_or(LowerError::TerminatorNotYetLowered {
-                        block,
-                        needs: Capability::Calls,
-                    })?;
-                let shape = self
-                    .refs
-                    .shape(builder.func, outside.declarations, *sig)
-                    .ok_or(LowerError::UndeclaredTailCallee { block })?;
-                let target = self.value(*callee);
-                let args = self.args(args);
-                builder.ins().return_call_indirect(shape, target, &args);
-            }
-
-            Terminator::Throw { tag, payload } => {
-                let plan = match self.func.region_of(block) {
-                    Some(region) => crate::unwind::plan_unwind(&self.func.regions, region, *tag),
-                    None => crate::unwind::UnwindPlan {
-                        cleanups: Vec::new(),
-                        handler: None,
-                    },
-                };
-
-                // Each cleanup is copied here, in order, innermost first. A copy
-                // rather than a jump because a cleanup has no way back: it is
-                // entered from every path that unwinds through it, and those
-                // paths have nothing in common to return to.
-                self.emit_cleanups(builder, &plan.cleanups)?;
-
-                let payload = self.value(*payload);
-                match plan.handler {
-                    // The destination was computed while compiling, so control
-                    // simply goes there. Asking the runtime to search for an
-                    // answer already known would be paying for it twice.
-                    Some(handler) => {
-                        let target = self.blocks[&handler];
-                        let args = vec![cranelift_codegen::ir::BlockArg::Value(payload)];
-                        builder.ins().jump(target, &args);
-                    }
-
-                    // Nothing here catches it, so it becomes the caller's
-                    // problem — and finding out whose is what the runtime is for.
-                    None => {
-                        let tag = builder.ins().iconst(types::I64, i64::from(tag.0));
-                        self.terminator_entry(builder, block, RtEntry::Throw, &[tag, payload])?;
-                        builder
-                            .ins()
-                            .trap(cranelift_codegen::ir::TrapCode::unwrap_user(1));
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// The same, for a terminator, which is named by its block.
-    fn terminator_entry(
-        &mut self,
-        builder: &mut FunctionBuilder,
-        block: BlockId,
-        entry: RtEntry,
-        args: &[Value],
-    ) -> Result<(), LowerError> {
-        let outside = self
-            .outside
-            .as_mut()
-            .ok_or(LowerError::TerminatorNotYetLowered {
-                block,
-                needs: Capability::Unwinding,
-            })?;
-        let reference = outside
-            .entries
-            .reference(outside.module, builder.func, entry)
-            .map_err(|_| LowerError::UndeclaredTailCallee { block })?;
-        builder.ins().call(reference, args);
-        Ok(())
-    }
-
     /// Emits a property read that remembers the last layout it saw.
     ///
     /// The shape of it is one comparison, one load, and a call that happens only
@@ -650,7 +417,7 @@ impl<'a> Body<'a> {
     /// zero is a real layout, and a site that had never run would claim to
     /// recognize the first one ever declared.
     #[allow(clippy::too_many_arguments)]
-    fn lower_cached_get(
+    pub(super) fn lower_cached_get(
         &mut self,
         builder: &mut FunctionBuilder,
         block: BlockId,
@@ -752,7 +519,7 @@ impl<'a> Body<'a> {
     /// entirely. The resolver answers that it cannot be reached this way, and
     /// what to do about it is the client's.
     #[allow(clippy::too_many_arguments)]
-    fn lower_cached_set(
+    pub(super) fn lower_cached_set(
         &mut self,
         builder: &mut FunctionBuilder,
         block: BlockId,
@@ -904,78 +671,6 @@ impl<'a> Body<'a> {
         Ok(builder.ins().call(reference, args))
     }
 
-    /// Copies a chain of cleanups into the current block, innermost first.
-    ///
-    /// Copied rather than jumped to, and the representation is what makes that
-    /// sound: a cleanup ends by saying it is done, declares no parameters, and
-    /// reads only what it defines itself — so a copy of it is the same thing
-    /// wherever it lands. All three are checked by the verifier.
-    ///
-    /// The values a copy defines are local to that copy. Two copies of one
-    /// cleanup in one function share nothing, which is the whole reason copying
-    /// is safe where jumping was not.
-    fn emit_cleanups(
-        &mut self,
-        builder: &mut FunctionBuilder,
-        chain: &[BlockId],
-    ) -> Result<(), LowerError> {
-        for &cleanup in chain {
-            let data = self
-                .func
-                .block(cleanup)
-                .ok_or(LowerError::UnterminatedBlock { block: cleanup })?;
-
-            let mut local: HashMap<ValueId, Value> = HashMap::new();
-            for &inst_id in &data.insts {
-                let Some(inst) = self.func.inst(inst_id) else {
-                    continue;
-                };
-                self.emit_cleanup_inst(builder, inst_id, &inst.inst, &inst.results, &mut local)?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Emits one instruction of a cleanup copy.
-    ///
-    /// Operands come from this copy's own values, never from the function around
-    /// it — which is exactly what the verifier's rule about reading outside
-    /// itself guarantees is possible.
-    fn emit_cleanup_inst(
-        &mut self,
-        builder: &mut FunctionBuilder,
-        id: crate::ir::InstId,
-        inst: &Inst,
-        results: &[ValueId],
-        local: &mut HashMap<ValueId, Value>,
-    ) -> Result<(), LowerError> {
-        // Temporarily present this copy's values as the function's own, so that
-        // one emission path serves both. Restored afterwards, so a cleanup's
-        // values never leak into the code around it.
-        let saved: Vec<_> = local
-            .iter()
-            .map(|(&ours, &theirs)| (ours, self.values.insert(ours, theirs)))
-            .collect();
-
-        let outcome = self.lower_inst(builder, id, inst, results);
-
-        for &result in results {
-            if let Some(&emitted) = self.values.get(&result) {
-                local.insert(result, emitted);
-            }
-        }
-        for (value, previous) in saved {
-            match previous {
-                Some(previous) => self.values.insert(value, previous),
-                None => self.values.remove(&value),
-            };
-        }
-        for &result in results {
-            self.values.remove(&result);
-        }
-        outcome
-    }
-
     /// Calls a runtime entry point.
     ///
     /// One place, so that declaring an entry point on first use and referring to
@@ -1045,11 +740,11 @@ impl<'a> Body<'a> {
         Ok(())
     }
 
-    fn value(&self, id: ValueId) -> Value {
+    pub(super) fn value(&self, id: ValueId) -> Value {
         self.values[&id]
     }
 
-    fn args(&self, ids: &[ValueId]) -> Vec<Value> {
+    pub(super) fn args(&self, ids: &[ValueId]) -> Vec<Value> {
         ids.iter().map(|&id| self.value(id)).collect()
     }
 
@@ -1059,13 +754,13 @@ impl<'a> Body<'a> {
     /// value used in place, because an edge can also carry things a value cannot
     /// be. Everything this layer passes is an ordinary value, so the conversion
     /// is total — but it is written once here rather than at each branch.
-    fn block_args(&self, ids: &[ValueId]) -> Vec<cranelift_codegen::ir::BlockArg> {
+    pub(super) fn block_args(&self, ids: &[ValueId]) -> Vec<cranelift_codegen::ir::BlockArg> {
         ids.iter()
             .map(|&id| cranelift_codegen::ir::BlockArg::Value(self.value(id)))
             .collect()
     }
 
-    fn repr(&self, id: ValueId) -> Repr {
+    pub(super) fn repr(&self, id: ValueId) -> Repr {
         self.func.repr_of(id)
     }
 }
@@ -1102,7 +797,7 @@ fn float_cc(op: CmpOp) -> FloatCC {
 }
 
 /// The code generator's name for why a program stopped.
-fn trap_code(code: TrapCode) -> cranelift_codegen::ir::TrapCode {
+pub(super) fn trap_code(code: TrapCode) -> cranelift_codegen::ir::TrapCode {
     use cranelift_codegen::ir::TrapCode as Cl;
     match code {
         TrapCode::Unreachable => Cl::unwrap_user(1),

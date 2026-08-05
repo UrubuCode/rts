@@ -292,10 +292,13 @@ pub enum VerifyError {
         cache: crate::ir::CacheId,
     },
 
-    /// A cleanup does not end by saying it is done.
+    /// A block of a cleanup ends in a way a cleanup may not.
     ///
     /// A cleanup is copied into each path that needs it, which is only sound if
-    /// it has one exit. Any other terminator gives it a second.
+    /// it has one exit. Within the piece a jump or a branch is fine -- it stays
+    /// inside, so it is not an exit at all. A return, a throw or a tail call is
+    /// a second exit, and so is a piece with no `CleanupDone` anywhere, which
+    /// has none.
     CleanupDoesNotEnd {
         /// The region it belongs to.
         region: RegionId,
@@ -309,10 +312,12 @@ pub enum VerifyError {
         block: BlockId,
     },
 
-    /// A cleanup declares parameters.
+    /// The entry of a cleanup declares parameters.
     ///
     /// It is entered from every path that unwinds through it, and those paths
-    /// have nothing in common to pass.
+    /// have nothing in common to pass. An interior block may take them: it is
+    /// entered from within the piece, where there is something to pass -- which
+    /// is what lets a merge inside a cleanup exist at all.
     CleanupTakesParameters {
         /// The block.
         block: BlockId,

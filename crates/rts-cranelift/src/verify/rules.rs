@@ -173,6 +173,21 @@ pub(super) fn check_unwind(func: &Function, errors: &mut Vec<VerifyError>) {
 /// parameters would have to come from paths with nothing in common, and reading a
 /// value from outside would read something that does not exist where the copy
 /// lands.
+///
+/// # Why the piece is several blocks and used to be one
+///
+/// Nothing a language runs on the way out fits in one block. `x + y` alone
+/// emits a fast path and a slow one, and a disposer is a call — so a cleanup
+/// limited to a single straight line could hold arithmetic on proven operands
+/// and nothing else, which left `finally` and `using` with no cleanup they
+/// could be.
+///
+/// The three rules did not change with it, because none of them ever depended
+/// on the piece being one block. One *entry*: the region names one, and nothing
+/// else may jump into the piece. One *exit*: every `CleanupDone` in the piece
+/// leaves to the same place, so several are still one exit. Reads only itself:
+/// now over everything the piece defines, including its own block parameters,
+/// which is what lets a merge inside a cleanup work at all.
 fn check_cleanups(func: &Function, errors: &mut Vec<VerifyError>) {
     let mut cleanups = Vec::new();
     for index in 0..func.regions.len() {
@@ -184,37 +199,73 @@ fn check_cleanups(func: &Function, errors: &mut Vec<VerifyError>) {
         }
     }
 
-    for &(region, block) in &cleanups {
-        let Some(data) = func.block(block) else {
-            continue;
-        };
+    let mut inside_some_cleanup = Vec::new();
+    for &(region, entry) in &cleanups {
+        let piece = cleanup_piece(func, entry);
+        inside_some_cleanup.extend(piece.iter().copied());
 
-        if !matches!(data.terminator, Some(Terminator::CleanupDone)) {
-            errors.push(VerifyError::CleanupDoesNotEnd { region, block });
+        // The entry alone. An interior block's parameters come from within the
+        // piece, where there is something to pass them; the entry's would have
+        // to come from every path that unwinds through it, and those have
+        // nothing in common.
+        if let Some(data) = func.block(entry)
+            && !data.params.is_empty()
+        {
+            errors.push(VerifyError::CleanupTakesParameters { block: entry });
         }
-        if !data.params.is_empty() {
-            errors.push(VerifyError::CleanupTakesParameters { block });
-        }
 
-        let defined: Vec<_> = data
-            .insts
-            .iter()
-            .filter_map(|&i| func.inst(i))
-            .flat_map(|d| d.results.iter().copied())
-            .collect();
-
-        for &inst in &data.insts {
-            let Some(inst_data) = func.inst(inst) else {
+        // Everything the piece defines: results of its instructions, and the
+        // parameters of its blocks.
+        let mut defined: Vec<ValueId> = Vec::new();
+        for &block in &piece {
+            let Some(data) = func.block(block) else {
                 continue;
             };
-            for operand in inst_data.inst.operands() {
-                if !defined.contains(&operand) {
-                    errors.push(VerifyError::CleanupReadsOutsideItself {
-                        block,
-                        value: operand,
-                    });
+            defined.extend(data.params.iter().copied());
+            defined.extend(
+                data.insts
+                    .iter()
+                    .filter_map(|&i| func.inst(i))
+                    .flat_map(|d| d.results.iter().copied()),
+            );
+        }
+
+        let mut leaves = false;
+        for &block in &piece {
+            let Some(data) = func.block(block) else {
+                continue;
+            };
+
+            for &inst in &data.insts {
+                let Some(inst_data) = func.inst(inst) else {
+                    continue;
+                };
+                for operand in inst_data.inst.operands() {
+                    if !defined.contains(&operand) {
+                        errors.push(VerifyError::CleanupReadsOutsideItself {
+                            block,
+                            value: operand,
+                        });
+                    }
                 }
             }
+
+            match &data.terminator {
+                Some(Terminator::CleanupDone) => leaves = true,
+                // A jump or a branch stays in the piece by construction — that
+                // is how the piece was collected. Anything else leaves it
+                // through a path the unwinding it is part of knows nothing
+                // about.
+                Some(Terminator::Jump(_) | Terminator::Branch { .. }) => {}
+                _ => errors.push(VerifyError::CleanupDoesNotEnd { region, block }),
+            }
+        }
+
+        if !leaves {
+            errors.push(VerifyError::CleanupDoesNotEnd {
+                region,
+                block: entry,
+            });
         }
     }
 
@@ -222,11 +273,42 @@ fn check_cleanups(func: &Function, errors: &mut Vec<VerifyError>) {
     // to hand control back to an unwind that is not happening.
     for (block, data) in func.blocks() {
         if matches!(data.terminator, Some(Terminator::CleanupDone))
-            && !cleanups.iter().any(|&(_, cleanup)| cleanup == block)
+            && !inside_some_cleanup.contains(&block)
         {
             errors.push(VerifyError::CleanupEndOutsideCleanup { block });
         }
     }
+}
+
+/// The blocks one cleanup is made of.
+///
+/// Reachable from the entry without leaving through a `CleanupDone`. Derived
+/// rather than declared, for the reason rule 8 gives generally: a piece a client
+/// listed could disagree with the piece control actually reaches, and the copy
+/// would then omit a block the original runs.
+fn cleanup_piece(func: &Function, entry: BlockId) -> Vec<BlockId> {
+    let mut order = Vec::new();
+    let mut queue = vec![entry];
+    while let Some(id) = queue.pop() {
+        if order.contains(&id) || func.block(id).is_none() {
+            continue;
+        }
+        order.push(id);
+        match &func.block(id).and_then(|d| d.terminator.clone()) {
+            Some(Terminator::Jump(call)) => queue.push(call.block),
+            Some(Terminator::Branch {
+                then_block,
+                else_block,
+                ..
+            }) => {
+                queue.push(then_block.block);
+                queue.push(else_block.block);
+            }
+            _ => {}
+        }
+    }
+    order.sort();
+    order
 }
 
 /// A cached read reads an object and hands back what it holds.

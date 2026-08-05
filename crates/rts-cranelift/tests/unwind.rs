@@ -93,7 +93,7 @@ fn cleanup_runs_on_the_way_out_even_when_nothing_catches() {
     let entry = func.entry;
     let mut b = FuncBuilder::new(&mut func, &types, entry);
     let cleanup = b.create_block();
-    let region = b.open_region(vec![], Some(cleanup));
+    let _region = b.open_region(vec![], Some(cleanup));
     b.throw(Tag(1), value);
 
     let mut b = FuncBuilder::new(&mut func, &types, cleanup);
@@ -254,7 +254,7 @@ fn a_region_naming_a_block_that_does_not_exist_is_rejected() {
     for _ in 0..2 {
         other.push_block();
     }
-    let region = b.open_region(
+    let _region = b.open_region(
         vec![Handler {
             tag: Tag(1),
             block: foreign_block,
