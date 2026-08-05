@@ -184,6 +184,24 @@ pub fn emit_update(
             })
         }
 
+        ExprKind::Index { object, index, .. } => {
+            // The receiver AND the key are evaluated once. `a[f()]++` calls `f`
+            // a single time — a rewrite to `a[f()] = a[f()] + 1` calls it
+            // twice, which is the same trap the named case records and one step
+            // worse, because a computed key can have a side effect of its own.
+            let receiver = emit_expr(builder, scope, ctx, object)?;
+            let key = emit_expr(builder, scope, ctx, index)?;
+            let key = builder.widen(key);
+            let current = expr::call(builder, ctx, RuntimeOp::GetIndexed, &[receiver, key])?[0];
+            let (before, after) = step_value(builder, ctx, current, step)?;
+            let stored = builder.widen(after);
+            expr::call(builder, ctx, RuntimeOp::SetIndexed, &[receiver, key, stored])?;
+            Ok(match position {
+                UpdatePosition::Prefix => after,
+                UpdatePosition::Postfix => before,
+            })
+        }
+
         _ => expr::gap("`++` or `--` on anything but a local or a property"),
     }
 }

@@ -1981,3 +1981,33 @@ fn a_string_can_be_walked_by_a_loop() {
     );
     assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
 }
+
+#[test]
+fn an_element_can_be_incremented() {
+    assert_eq!(
+        tags::decode_double(run("let a = [1, 2]; a[0]++; a[1]++; return a[0] + a[1];")),
+        5.0
+    );
+    // Postfix yields the old value, coerced — the same rule a local and a
+    // property follow, now reachable through a third place.
+    assert_eq!(tags::decode_double(run("let a = [5]; return a[0]--;")), 5.0);
+    assert_eq!(tags::decode_double(run("let a = [1]; return ++a[0];")), 2.0);
+    assert_eq!(
+        tags::decode_double(run("let o = {}; o[\"n\"] = 1; o[\"n\"]++; return o.n;")),
+        2.0
+    );
+}
+
+#[test]
+fn a_computed_key_in_an_update_is_evaluated_once() {
+    // `a[f()]++` calls `f` a single time. A rewrite to `a[f()] = a[f()] + 1`
+    // calls it twice — the same trap the named case records, and one step worse
+    // here because a computed key can have a side effect of its own.
+    let produced = run(
+        "let calls = 0; let a = [1]; \
+         function k() { calls = calls + 1; return 0; } \
+         a[k()]++; \
+         return calls;",
+    );
+    assert_eq!(tags::decode_double(produced), 1.0);
+}
