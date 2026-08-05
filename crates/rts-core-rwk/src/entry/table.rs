@@ -50,7 +50,8 @@ use super::computed::{
     DELETE_PROPERTY_ENTRY, GET_INDEXED_ENTRY, HAS_PROPERTY_ENTRY, SET_INDEXED_ENTRY,
 };
 use super::functions::{
-    CALL_ENTRY, CALL_WITH_ARGS_ENTRY, CLOSURE_NEW_ENTRY, CONSTRUCT_ENTRY, INSTANCE_OF_ENTRY,
+    CALL_ENTRY, CALL_WITH_ARGS_ENTRY, CLOSURE_NEW_ENTRY, CONSTRUCT_ENTRY,
+    CONSTRUCT_WITH_ARGS_ENTRY, INSTANCE_OF_ENTRY,
     MARK_DERIVED_ENTRY, REST_ARGUMENTS_ENTRY,
     SUPER_CONSTRUCT_ENTRY,
 };
@@ -321,6 +322,9 @@ pub enum CoreEntry {
 
     /// `...rest` — the arguments past the declared ones.
     RestArguments = 46,
+
+    /// `new f(…)` with more arguments than the convention carries.
+    ConstructWithArgs = 47,
 }
 
 /// How many entry points exist.
@@ -328,7 +332,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 47;
+pub const CORE_ENTRY_COUNT: usize = 48;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -380,6 +384,7 @@ impl CoreEntry {
         CoreEntry::MarkDerived,
         CoreEntry::CallWithArgs,
         CoreEntry::RestArguments,
+        CoreEntry::ConstructWithArgs,
     ];
 
     /// The number a call site holds.
@@ -442,6 +447,7 @@ impl CoreEntry {
             CoreEntry::MarkDerived => MARK_DERIVED_ENTRY,
             CoreEntry::CallWithArgs => CALL_WITH_ARGS_ENTRY,
             CoreEntry::RestArguments => REST_ARGUMENTS_ENTRY,
+            CoreEntry::ConstructWithArgs => CONSTRUCT_WITH_ARGS_ENTRY,
         }
     }
 

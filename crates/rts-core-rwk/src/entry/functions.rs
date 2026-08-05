@@ -101,13 +101,6 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
     })
 }
 
-/// Calls a value, with a receiver and up to [`ARGUMENT_SLOTS`] arguments.
-///
-/// Answers `undefined` for a callee that is not callable, where the language
-/// throws a `TypeError`. A stated gap and the same one property access has:
-/// throwing needs protected regions and nothing emits those yet. It is named
-/// here rather than left implicit because *this* gap is the one that would
-/// otherwise be a jump to an arbitrary address.
 /// Calling with more arguments than the convention carries.
 ///
 /// # Why the vector is the runtime's and not a stack slot
@@ -309,6 +302,22 @@ fn prototype_key(context: &mut Context) -> crate::object::Key {
 /// `new B(new C())` has `C` finished before `B` allocates.
 #[rtse::entry]
 pub fn construct(callee: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    // No vector for this construction, said before the callee runs — the same
+    // isolation `call` establishes, and for the same reason.
+    with_current(|context| {
+        let absent = undefined_of(context);
+        context.pending_arguments.push(absent);
+    });
+    let produced = construct_inner(callee, a0, a1, a2, a3);
+    with_current(|context| context.pending_arguments.pop());
+    produced
+}
+
+/// The construction itself, with no argument vector of its own.
+///
+/// Split from [`construct`] for the reason [`invoke`] is split from [`call`]:
+/// `construct_with_args` has already pushed the vector this construction reads.
+fn construct_inner(callee: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     let derived = with_current(|context| {
         let Some(cell) = Value(callee).as_slot() else {
             return None;
@@ -336,7 +345,7 @@ pub fn construct(callee: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         },
     };
 
-    let produced = call(callee, this, a0, a1, a2, a3);
+    let produced = invoke(callee, this, a0, a1, a2, a3);
     with_current(|context| context.new_targets.pop());
 
     // A constructor that returned an object produced THAT. Anything else — a
@@ -378,12 +387,40 @@ pub fn super_construct(parent: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         },
     };
 
-    let produced = call(parent, this, a0, a1, a2, a3);
+    let produced = invoke(parent, this, a0, a1, a2, a3);
     if Value(produced).as_slot().is_some() {
         produced
     } else {
         this
     }
+}
+
+/// `new f(…)` with more arguments than the convention carries.
+///
+/// The same trade the call side makes, and it has to be its own entry point for
+/// the same reason `construct` is not `call` with a flag: it makes the receiver
+/// rather than taking one, and it answers the object rather than what the callee
+/// returned. See [`call_with_args`] for why the vector is the runtime's.
+#[rtse::entry]
+pub fn construct_with_args(callee: u64, arguments: u64) -> u64 {
+    let first = with_current(|context| {
+        let absent = undefined_of(context);
+        let mut first = [absent; ARGUMENT_SLOTS];
+        if let Some(cell) = Value(arguments).as_slot()
+            && let Some(elements) = context.elements_at(cell)
+        {
+            for (slot, value) in first.iter_mut().zip(elements.iter()) {
+                *slot = *value;
+            }
+        }
+        context.pending_arguments.push(arguments);
+        first
+    });
+    // Not through `construct`, which pushes a marker of its own — that marker
+    // on top would hide the vector from the constructor it was made for.
+    let produced = construct_inner(callee, first[0], first[1], first[2], first[3]);
+    with_current(|context| context.pending_arguments.pop());
+    produced
 }
 
 /// An object inheriting from the prototype of the class `new` named.

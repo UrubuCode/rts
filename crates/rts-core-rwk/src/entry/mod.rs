@@ -64,7 +64,7 @@ pub use bitwise::{
 };
 pub use computed::{delete_property, get_indexed, has_property, set_indexed};
 pub use functions::{
-    call_with_args, rest_arguments,
+    call_with_args, construct_with_args, rest_arguments,
     ARGUMENT_SLOTS, call, closure_new, construct, instance_of, mark_derived, super_construct,
 };
 pub use global::{global_get, global_set};

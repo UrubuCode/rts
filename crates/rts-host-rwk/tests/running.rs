@@ -519,7 +519,7 @@ fn a_construct_still_missing_is_refused_by_name_rather_than_approximated() {
     // each moved on when it landed. What it pins is the shape of the refusal.
     for source in [
         "let a = [1]; return [...a];",
-        "function f(a) {} return new f(1, 2, 3, 4, 5);",
+        "class A {} class B extends A { constructor() { super(1, 2, 3, 4, 5); } } return new B();",
         "let o = {}; let x = 1; return delete x;",
     ] {
         let error = compile(source).expect_err("still a gap");
@@ -777,7 +777,7 @@ fn the_limits_of_the_fixed_arity_are_refused_by_name() {
     // silently read `undefined` forever is a wrong program that runs.
     for source in [
         "function f(a, b, c, d, e) { return a; } return f(1);",
-        "function f(a) { return a; } return new f(1, 2, 3, 4, 5);",
+        "class A {} class B extends A { constructor() { super(1, 2, 3, 4, 5); } } return new B();",
     ] {
         let error = compile(source).expect_err("past the fixed arity");
         assert!(
@@ -3043,4 +3043,20 @@ fn a_method_can_be_called_past_the_convention_too() {
         "let o = { n: 10, m(a, b, c, d) { return this.n + d; } }; return o.m(1, 2, 3, 4, 5, 6);",
     );
     assert_eq!(tags::decode_double(produced), 14.0);
+}
+
+#[test]
+fn new_past_the_convention_keeps_its_arguments_too() {
+    // The asymmetry the call side left behind: `new` makes the receiver rather
+    // than taking one, so it is its own operation, and it needed its own
+    // vector path rather than inheriting the call's.
+    let produced = run(
+        "class P { constructor(a, b, c, d) { this.n = a + d; } } return new P(1, 2, 3, 4, 5, 6).n;",
+    );
+    assert_eq!(tags::decode_double(produced), 5.0);
+
+    let gathered = run(
+        "class P { constructor(a, ...rest) { this.n = rest.length; } } return new P(1, 2, 3, 4, 5, 6).n;",
+    );
+    assert_eq!(tags::decode_double(gathered), 5.0);
 }

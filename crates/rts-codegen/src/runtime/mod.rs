@@ -388,6 +388,12 @@ pub enum RuntimeOp {
     /// no vector and a rest parameter over four or fewer arguments has to work
     /// anyway.
     RestArguments,
+
+    /// `new f(…)` with more arguments than the convention carries.
+    ///
+    /// Its own operation rather than the call one with a flag, for the reason
+    /// `Construct` is: it makes the receiver rather than taking one.
+    ConstructWithArgs,
 }
 
 impl RuntimeOp {
@@ -440,6 +446,7 @@ impl RuntimeOp {
         RuntimeOp::MarkDerived,
         RuntimeOp::CallWithArgs,
         RuntimeOp::RestArguments,
+        RuntimeOp::ConstructWithArgs,
     ];
 
     /// The linker name the runtime must define.
@@ -497,6 +504,7 @@ impl RuntimeOp {
             RuntimeOp::MarkDerived => "__rts_mark_derived",
             RuntimeOp::CallWithArgs => "__rts_call_with_args",
             RuntimeOp::RestArguments => "__rts_rest_arguments",
+            RuntimeOp::ConstructWithArgs => "__rts_construct_with_args",
         }
     }
 
@@ -579,6 +587,9 @@ impl RuntimeOp {
             RuntimeOp::MarkDerived => (vec![UNPROVEN], vec![UNPROVEN]),
             // The callee, the receiver, and the arguments as one array.
             RuntimeOp::CallWithArgs => (vec![UNPROVEN; 3], vec![UNPROVEN]),
+            // The callee and the arguments — no receiver, because `new` makes
+            // the one the callee gets.
+            RuntimeOp::ConstructWithArgs => (vec![UNPROVEN; 2], vec![UNPROVEN]),
             // How many are declared, then the four the convention carried.
             RuntimeOp::RestArguments => {
                 (vec![Repr::I64, UNPROVEN, UNPROVEN, UNPROVEN, UNPROVEN], vec![UNPROVEN])

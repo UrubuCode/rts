@@ -1,0 +1,436 @@
+//! What an array inherits from.
+//!
+//! # Why this is a folder and not one file
+//!
+//! Because the callback-taking methods are a different *shape* of function, not
+//! merely more of them. Everything here reads the elements inside one borrow of
+//! the context and answers; `map` and its seven relatives have to let the borrow
+//! go in the middle, because the thing they call is user code whose first act may
+//! be to call the runtime. Keeping the two kinds in one file put a reader one
+//! scroll away from copying the wrong one, and copying the wrong one is a
+//! re-entrant `RefCell` borrow — a hang, not a wrong answer. See [`iterate`].
+//!
+//! # Why arrays inherit the way strings do
+//!
+//! There is one prototype for every array in the program, and it is substituted
+//! by the chain walk rather than linked from each cell. `array_new` would
+//! otherwise write the link at every allocation — including the ones performed
+//! while the prototype itself is being built — and a word per array to record one
+//! fact they all share is the cost [`super::objects::inherited_from`] already
+//! refused for text.
+//!
+//! The alternative considered and rejected: giving `array_new` the link and
+//! making the prototype eager. That spends the cells of nineteen natives on a
+//! program that only ever indexes, and the region is fixed at construction.
+//!
+//! # Why `length` is written after every mutation
+//!
+//! Because it is a real **property**, not something the runtime invents on
+//! demand — [`super::array::set_length`] records why. Compiled code reads it
+//! through `cached_get` and never asks the runtime, so a `push` that grew the
+//! elements and left the property alone produces a program where `a.length` is
+//! stale and the loop over it is short. Every mutation here goes through
+//! [`store`] for exactly that reason.
+
+pub(super) mod iterate;
+
+use super::objects::undefined_of;
+use super::string::{absent, relative};
+use super::{Context, with_current};
+use crate::text::Str;
+use crate::value::Value;
+
+/// What an array's prototype holds, apart from the ones that call back.
+const NATIVES: &[(&str, super::native::Native)] = &[
+    ("push", push),
+    ("pop", pop),
+    ("shift", shift),
+    ("unshift", unshift),
+    ("indexOf", index_of),
+    ("includes", includes),
+    ("join", join),
+    ("slice", slice),
+    ("concat", concat),
+    ("reverse", reverse),
+    ("fill", fill),
+];
+
+/// What `Array` itself holds.
+///
+/// Statics rather than prototype methods, and the language put them there on
+/// purpose: `Array.isArray(x)` has to answer for an `x` whose own prototype was
+/// replaced, which a method reached through the chain cannot.
+const STATICS: &[(&str, super::native::Native)] = &[("isArray", is_array), ("of", of)];
+
+/// What every array inherits from, made once.
+///
+/// Lazily, like the string and regular-expression prototypes and for the same
+/// reason: nineteen natives is nineteen cells out of a region fixed at
+/// construction, and a program that only indexes should not spend them.
+pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
+    if let Some(made) = context.array_prototype {
+        return Some(made);
+    }
+    let cell = super::native::plain(context)?;
+    // Recorded BEFORE the methods are installed, for the reason the string
+    // prototype records: installing interns names, interning allocates, and an
+    // allocation is one chain walk away from asking this function again. The
+    // string version recursed until the region ran out before the order was
+    // fixed, and the same order is the fix here.
+    context.array_prototype = Some(cell);
+    super::native::install(context, cell, NATIVES);
+    super::native::install(context, cell, iterate::NATIVES);
+    Some(cell)
+}
+
+/// `Array` itself, as the value the name reads.
+///
+/// A callable with a `prototype` property, so `Array.prototype.last = f` reaches
+/// the object every array inherits from and `Array.from = g` is an ordinary
+/// property write on the constructor.
+pub(super) fn constructor(context: &mut Context) -> u64 {
+    let callable = super::native::callable(context, make);
+    let prototype = match prototype_of(context) {
+        Some(cell) => Value::from_slot(cell).bits(),
+        None => return undefined_of(context),
+    };
+    if let Some(cell) = Value(callable).as_slot() {
+        super::native::install(context, cell, STATICS);
+        let key = context.well_known("prototype");
+        super::objects::put(context, cell, key, prototype);
+    }
+    callable
+}
+
+/// `Array(n)` and `new Array(n)`.
+///
+/// One argument means two different things and the language decided which by
+/// *type*, not by count: `Array(3)` is three empty slots and `Array("3")` is one
+/// element. Getting that backwards makes `Array(x)` silently produce a different
+/// array whenever `x` stops being a number, which is a wrong program that runs.
+///
+/// `new Array(n)` answers this array rather than the object `construct` made,
+/// because a constructor returning an object wins — so nothing here has to know
+/// whether it was called with `new`.
+extern "C" fn make(_e: u64, _this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    let given = with_current(|context| args(context, [a0, a1, a2, a3]));
+    if given.len() == 1
+        && let Some(count) = Value(given[0]).numeric()
+        && (0.0..4_294_967_295.0).contains(&count)
+        && count.fract() == 0.0
+    {
+        return super::array::array_new(count as i64);
+    }
+    built(given)
+}
+
+/// `Array.isArray(x)`.
+///
+/// Asks the side table, which is what being an array IS here — not the
+/// prototype, because `Object.setPrototypeOf(a, null)` leaves `a` an array and a
+/// chain walk would say otherwise.
+extern "C" fn is_array(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    with_current(|context| {
+        let held = Value(value)
+            .as_slot()
+            .is_some_and(|cell| context.elements_at(cell).is_some());
+        Value::from_bool(held).bits()
+    })
+}
+
+/// `Array.of(…)` — an array of exactly the arguments given.
+///
+/// The method that exists because `Array(3)` does not mean what it looks like.
+extern "C" fn of(_e: u64, _this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    let given = with_current(|context| args(context, [a0, a1, a2, a3]));
+    built(given)
+}
+
+/// `a.push(…)` — answers the new length.
+extern "C" fn push(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    with_current(|context| {
+        let more = args(context, [a0, a1, a2, a3]);
+        let Some((cell, mut elements)) = staged(context, this) else {
+            return undefined_of(context);
+        };
+        elements.extend_from_slice(&more);
+        let count = elements.len();
+        store(context, cell, elements);
+        Value::from_f64(count as f64).bits()
+    })
+}
+
+/// `a.pop()` — the last element, removed.
+extern "C" fn pop(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    with_current(|context| {
+        let Some((cell, mut elements)) = staged(context, this) else {
+            return undefined_of(context);
+        };
+        // An empty array answers `undefined` and stays empty. Not a special
+        // case: the length is written back either way, so a `pop` on an empty
+        // array cannot leave the property saying -1.
+        let taken = elements.pop().unwrap_or_else(|| undefined_of(context));
+        store(context, cell, elements);
+        taken
+    })
+}
+
+/// `a.shift()` — the first element, removed.
+extern "C" fn shift(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    with_current(|context| {
+        let Some((cell, mut elements)) = staged(context, this) else {
+            return undefined_of(context);
+        };
+        if elements.is_empty() {
+            return undefined_of(context);
+        }
+        let taken = elements.remove(0);
+        store(context, cell, elements);
+        taken
+    })
+}
+
+/// `a.unshift(…)` — answers the new length.
+extern "C" fn unshift(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    with_current(|context| {
+        let more = args(context, [a0, a1, a2, a3]);
+        let Some((cell, elements)) = staged(context, this) else {
+            return undefined_of(context);
+        };
+        // The arguments keep their order at the front, which a loop of
+        // `insert(0, …)` would reverse — the corner that makes
+        // `[3].unshift(1, 2)` produce `[2, 1, 3]`.
+        let mut joined = more;
+        joined.extend_from_slice(&elements);
+        let count = joined.len();
+        store(context, cell, joined);
+        Value::from_f64(count as f64).bits()
+    })
+}
+
+/// `a.indexOf(x)` — where `x` first is, or -1.
+///
+/// Strict equality, which is what the language says and why this is not
+/// `includes` with a different answer: `[NaN].indexOf(NaN)` is -1 and
+/// `[NaN].includes(NaN)` is true. One shared implementation would have to pick
+/// one of those, and either choice is wrong half the time.
+extern "C" fn index_of(_e: u64, this: u64, search: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    with_current(|context| {
+        let Some((_, elements)) = staged(context, this) else {
+            return undefined_of(context);
+        };
+        let at = elements.iter().position(|held| {
+            crate::value::strict_equals(Value(*held), Value(search), |a, b| context.same_text(a, b))
+        });
+        Value::from_f64(at.map_or(-1.0, |at| at as f64)).bits()
+    })
+}
+
+/// `a.includes(x)` — `SameValueZero`, so `NaN` finds itself.
+extern "C" fn includes(_e: u64, this: u64, search: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    with_current(|context| {
+        let Some((_, elements)) = staged(context, this) else {
+            // False rather than `undefined`, because a predicate that answered a
+            // non-boolean would make `if (x.includes(y))` on a non-array take
+            // the same branch as one that found nothing — and look right.
+            return Value::from_bool(false).bits();
+        };
+        let found = elements.iter().any(|held| {
+            crate::value::same_value_zero(Value(*held), Value(search), |a, b| {
+                context.same_text(a, b)
+            })
+        });
+        Value::from_bool(found).bits()
+    })
+}
+
+/// `a.join(sep)` — the elements as text, `,` by default.
+///
+/// `undefined` and `null` join as the empty string, which is the whole reason
+/// this does not simply convert every element: `[1, null, 2].join()` is `"1,,2"`
+/// and a straightforward `ToString` would produce `"1,null,2"`.
+///
+/// The divergence, named: an element that is an object joins as empty too, where
+/// the language runs its `toString`. That is a call, and this is inside a borrow
+/// — the same boundary every conversion in this crate stops at.
+extern "C" fn join(_e: u64, this: u64, separator: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    with_current(|context| {
+        let Some((_, elements)) = staged(context, this) else {
+            return undefined_of(context);
+        };
+        let between = if absent(context, separator) {
+            Str::from_str(",")
+        } else {
+            match super::text::to_text(context, Value(separator)) {
+                Some(text) => text,
+                None => return undefined_of(context),
+            }
+        };
+        let between = between.to_rust().unwrap_or_default();
+        let empty = [undefined_of(context), null_of(context)];
+        let parts: Vec<String> = elements
+            .iter()
+            .map(|held| {
+                if empty.contains(held) {
+                    return String::new();
+                }
+                super::text::to_text(context, Value(*held))
+                    .and_then(|text| text.to_rust())
+                    .unwrap_or_default()
+            })
+            .collect();
+        context
+            .intern_value(Str::from_str(&parts.join(&between)))
+            .bits()
+    })
+}
+
+/// `a.slice(from, to)` — a new array, negative counting from the end.
+extern "C" fn slice(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u64) -> u64 {
+    let taken = with_current(|context| {
+        let (_, elements) = staged(context, this)?;
+        let start = relative(Value(from).numeric().unwrap_or(0.0), elements.len());
+        let end = if absent(context, to) {
+            elements.len()
+        } else {
+            relative(Value(to).numeric().unwrap_or(0.0), elements.len())
+        };
+        // Crossed rather than swapped, the same as the string method:
+        // `[1,2,3].slice(2, 1)` is empty.
+        Some(if start >= end {
+            Vec::new()
+        } else {
+            elements[start..end].to_vec()
+        })
+    });
+    match taken {
+        Some(taken) => built(taken),
+        None => with_current(undefined_of),
+    }
+}
+
+/// `a.concat(…)` — a new array, with array arguments spliced in.
+///
+/// One level deep, which is the language: `[1].concat([[2]])` is `[1, [2]]`. A
+/// recursive splice would flatten what the program deliberately nested.
+extern "C" fn concat(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    let joined = with_current(|context| {
+        let (_, mut elements) = staged(context, this)?;
+        for value in args(context, [a0, a1, a2, a3]) {
+            match Value(value)
+                .as_slot()
+                .and_then(|cell| context.elements_at(cell))
+            {
+                Some(more) => elements.extend_from_slice(&more.clone()),
+                None => elements.push(value),
+            }
+        }
+        Some(elements)
+    });
+    match joined {
+        Some(joined) => built(joined),
+        None => with_current(undefined_of),
+    }
+}
+
+/// `a.reverse()` — in place, answering the receiver.
+///
+/// In place and not a copy, because the language says so and programs rely on
+/// it: `b = a.reverse()` leaves `a` reversed too, and a version that copied
+/// would be correct at the assignment and wrong everywhere else.
+extern "C" fn reverse(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    with_current(|context| {
+        let Some((cell, mut elements)) = staged(context, this) else {
+            return undefined_of(context);
+        };
+        elements.reverse();
+        store(context, cell, elements);
+        this
+    })
+}
+
+/// `a.fill(v, from, to)` — in place, answering the receiver.
+extern "C" fn fill(_e: u64, this: u64, value: u64, from: u64, to: u64, _a3: u64) -> u64 {
+    with_current(|context| {
+        let Some((cell, mut elements)) = staged(context, this) else {
+            return undefined_of(context);
+        };
+        let start = relative(Value(from).numeric().unwrap_or(0.0), elements.len());
+        let end = if absent(context, to) {
+            elements.len()
+        } else {
+            relative(Value(to).numeric().unwrap_or(0.0), elements.len())
+        };
+        for slot in elements.iter_mut().take(end).skip(start) {
+            *slot = value;
+        }
+        store(context, cell, elements);
+        this
+    })
+}
+
+/// The receiver's cell and a copy of its elements, when it is an array.
+///
+/// A **copy**, and that is what makes the two-stage shape in [`iterate`]
+/// possible at all: the borrow of the context ends with this function, so the
+/// caller holds elements rather than a reference into the store. A method that
+/// held the reference could not call anything.
+///
+/// `None` for a receiver that is not an array. Answering `undefined` rather than
+/// panicking is the rule every entry point here follows — a runtime that aborts
+/// on `Array.prototype.push.call(1)` turns a `TypeError` into a dead process.
+pub(super) fn staged(context: &Context, this: u64) -> Option<(u32, Vec<u64>)> {
+    let cell = Value(this).as_slot()?;
+    Some((cell, context.elements_at(cell)?.clone()))
+}
+
+/// Writes elements back, and the `length` that goes with them.
+///
+/// The two together, always. Splitting them is what leaves a program whose
+/// `a.length` disagrees with what a loop over `a[i]` finds — and the fast path
+/// reads the property without ever asking the runtime, so nothing would report
+/// it.
+pub(super) fn store(context: &mut Context, cell: u32, values: Vec<u64>) {
+    let count = values.len();
+    if let Some(elements) = context.elements_at_mut(cell) {
+        *elements = values;
+    }
+    super::array::set_length(context, cell, count);
+}
+
+/// A fresh array holding the given values.
+///
+/// Called with **no borrow held**: `array_new` takes the context itself, so
+/// calling this from inside `with_current` re-enters the `RefCell`.
+pub(super) fn built(values: Vec<u64>) -> u64 {
+    let array = super::array::array_new(values.len() as i64);
+    with_current(|context| {
+        if let Some(cell) = Value(array).as_slot() {
+            store(context, cell, values);
+        }
+        array
+    })
+}
+
+/// The arguments a call actually carried.
+///
+/// Trailing `undefined` is dropped, because the convention pads missing
+/// arguments with it and a native cannot tell padding from an argument a program
+/// wrote. The divergence, named: `a.push(undefined)` pushes nothing. It is the
+/// price of the fixed arity, and it disappears with the argument vector
+/// `super::functions::ARGUMENT_SLOTS` describes rather than with more code here.
+fn args(context: &Context, given: [u64; 4]) -> Vec<u64> {
+    let mut given = given.to_vec();
+    while given.last().is_some_and(|last| absent(context, *last)) {
+        given.pop();
+    }
+    given
+}
+
+/// The encoded `null`, which `join` treats as the empty string.
+fn null_of(context: &Context) -> u64 {
+    rts_cranelift::tags::encode(
+        rts_cranelift::tags::TAG_SINGLETON,
+        u64::from(context.singletons.null),
+    )
+}

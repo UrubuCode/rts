@@ -207,10 +207,24 @@ fn emit_construction(
     arguments: &[Spreadable],
     op: RuntimeOp,
 ) -> EmitResult<ValueId> {
+    // Past what the convention carries, the same trade the call side makes.
+    // `super()` is deliberately excluded: it must not establish a new
+    // `new.target`, and a vector operation that did would put the object on the
+    // wrong prototype — so forwarding more than four through `super()` is a
+    // named gap rather than a silently different answer.
     if arguments.len() > ARGUMENT_SLOTS {
-        return Err(EmitError::Unsupported {
-            construct: "`new` with more than four arguments",
-        });
+        if op == RuntimeOp::SuperConstruct {
+            return Err(EmitError::Unsupported {
+                construct: "`super()` with more than four arguments",
+            });
+        }
+        let vector = emit_argument_vector(builder, scope, ctx, arguments)?;
+        return Ok(expr::call(
+            builder,
+            ctx,
+            RuntimeOp::ConstructWithArgs,
+            &[function, vector],
+        )?[0]);
     }
 
     let mut passed = Vec::with_capacity(1 + ARGUMENT_SLOTS);
