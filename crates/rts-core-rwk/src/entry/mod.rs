@@ -46,6 +46,7 @@ mod functions;
 mod objects;
 mod operators;
 mod primitives;
+mod regex;
 mod text;
 mod throw;
 
@@ -62,6 +63,7 @@ pub use operators::{
     divide, greater, greater_equal, less, less_equal, loose_equals, multiply, remainder, subtract,
 };
 pub use primitives::{add, number_to_string, strict_equals, to_boolean};
+pub use regex::regex_new;
 pub use text::{declare_keys, declare_literals, string_const, type_of};
 mod table;
 
@@ -162,6 +164,23 @@ pub struct Context {
     spills: Slab<Vec<u64>>,
     /// Which spill each cell uses, by region index.
     spill_of: Aside<Slot>,
+    /// Which cells are compiled patterns, and what they compiled to.
+    ///
+    /// Beside the cell for the reason every one of these is, plus one specific
+    /// to this: a regular expression is an object with properties — `source`,
+    /// `flags`, and a `lastIndex` a program writes — so its cell carries an
+    /// ordinary shape, and what it additionally *is* has nowhere else to live.
+    ///
+    /// `lastIndex` is deliberately NOT here. It is a real property, because the
+    /// language lets a program assign it, and a copy kept beside the cell would
+    /// be the one a search reads while the program wrote the other.
+    regexes: Aside<regex::Regexp>,
+    /// What every regular expression inherits from, once one exists.
+    ///
+    /// Made on demand rather than at construction: a program with no regular
+    /// expression should not spend three cells of a fixed-size region on the
+    /// object and the two native callables it holds.
+    regexp_prototype: Option<u64>,
     /// Which cells are arrays, and where their elements are.
     ///
     /// # Why a side table and not a reserved layout
@@ -264,6 +283,8 @@ impl Context {
             callables: Aside::new(),
             prototypes: Aside::new(),
             array_elements: Aside::new(),
+            regexes: Aside::new(),
+            regexp_prototype: None,
             resolves: 0,
             barriers: 0,
             // Empty until a host seeds it. A program with no string literal

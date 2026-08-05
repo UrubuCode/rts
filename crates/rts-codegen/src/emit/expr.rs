@@ -304,13 +304,13 @@ fn emit_literal(
         // number that is not a string and compares wrongly with everything.
         Literal::String(text) => string_literal(builder, ctx, text),
 
-        // Read, held, and not emitted. Both are values this engine has no way
-        // to MAKE rather than constructs it cannot express: a regular
-        // expression needs a matching engine, and a BigInt needs
-        // arbitrary-precision arithmetic. The tree carries them so the front
-        // end stops refusing a program it reads perfectly well, and the gap
-        // moves to where it actually is.
-        Literal::Regex { .. } => gap("a regular expression literal"),
+        // Never a constant — `super::regex` says what hoisting one would break.
+        Literal::Regex { pattern, flags } => super::regex::literal(builder, ctx, pattern, flags),
+
+        // Read, held, and not emitted: a BigInt needs arbitrary-precision
+        // arithmetic, which is a value this engine has no way to MAKE rather
+        // than a construct it cannot express. The tree carries it so the front
+        // end stops refusing a program it reads perfectly well.
         Literal::BigInt(_) => gap("a BigInt literal"),
     }
 }

@@ -2237,3 +2237,110 @@ fn a_finally_that_branches_is_copied_whole() {
     );
     assert_eq!(tags::decode_double(produced), 100.0);
 }
+
+#[test]
+fn a_regular_expression_literal_matches() {
+    // The first program in this file whose answer comes from a matching engine.
+    // Both directions, because a `test` that answered true unconditionally
+    // would pass the first assertion alone.
+    let found = run("return /a+/.test(\"caaat\");");
+    assert_eq!(tags::payload_of(found), tags::BOOL_TRUE);
+
+    let absent = run("return /a+/.test(\"dog\");");
+    assert_eq!(tags::payload_of(absent), tags::BOOL_FALSE);
+}
+
+#[test]
+fn a_regular_expression_answers_what_it_was_written_as() {
+    // `source` and `flags` are ordinary properties, so this also pins that the
+    // object a literal makes is an object: it goes through the same property
+    // read every other one does.
+    let source = run("return /a+/gi.source === \"a+\";");
+    assert_eq!(tags::payload_of(source), tags::BOOL_TRUE);
+
+    let flags = run("return /a+/gi.flags === \"gi\";");
+    assert_eq!(tags::payload_of(flags), tags::BOOL_TRUE);
+
+    let global = run("return /a+/g.global;");
+    assert_eq!(tags::payload_of(global), tags::BOOL_TRUE);
+
+    let local = run("return /a+/.global;");
+    assert_eq!(tags::payload_of(local), tags::BOOL_FALSE);
+}
+
+#[test]
+fn a_flag_changes_what_matches_rather_than_only_being_recorded() {
+    // The assertion `flags === "i"` would pass for an engine that stored the
+    // letter and ignored it. This one cannot.
+    let insensitive = run("return /ABC/i.test(\"xabcx\");");
+    assert_eq!(tags::payload_of(insensitive), tags::BOOL_TRUE);
+
+    let sensitive = run("return /ABC/.test(\"xabcx\");");
+    assert_eq!(tags::payload_of(sensitive), tags::BOOL_FALSE);
+}
+
+#[test]
+fn exec_answers_the_match_its_groups_and_where_it_was() {
+    let whole = run("let m = /b(c)/.exec(\"abcd\"); return m[0] === \"bc\";");
+    assert_eq!(tags::payload_of(whole), tags::BOOL_TRUE);
+
+    let group = run("let m = /b(c)/.exec(\"abcd\"); return m[1] === \"c\";");
+    assert_eq!(tags::payload_of(group), tags::BOOL_TRUE);
+
+    // In code units from the start of the subject, which is what makes a match
+    // locatable at all.
+    let produced = run("let m = /b(c)/.exec(\"abcd\"); return m.index;");
+    assert_eq!(tags::decode_double(produced), 1.0);
+}
+
+#[test]
+fn exec_answers_null_and_not_undefined_when_nothing_matches() {
+    // `while ((m = re.exec(s)) !== null)` is how a global pattern is walked, and
+    // a loop written that way against `undefined` never ends. So the difference
+    // between the two absences is load-bearing rather than cosmetic.
+    let produced = run("return /z/.exec(\"abc\") === null;");
+    assert_eq!(tags::payload_of(produced), tags::BOOL_TRUE);
+}
+
+#[test]
+fn a_global_pattern_walks_the_subject_across_calls() {
+    // What `lastIndex` is for: the second call must not find the first match
+    // again. A `g` implemented as "the same search, plus a flag stored" would
+    // answer 0 twice here.
+    let produced = run(
+        "let r = /a/g; r.test(\"aa\"); let first = r.lastIndex; r.test(\"aa\"); return r.lastIndex - first;",
+    );
+    assert_eq!(tags::decode_double(produced), 1.0);
+}
+
+#[test]
+fn a_program_can_reset_where_the_next_search_starts() {
+    // `lastIndex` is a real property rather than state held beside the cell,
+    // and this is the difference: a copy the runtime kept would ignore this
+    // assignment and search from 1.
+    let produced = run("let r = /a/g; r.test(\"aa\"); r.lastIndex = 0; r.test(\"aa\"); return r.lastIndex;");
+    assert_eq!(tags::decode_double(produced), 1.0);
+}
+
+#[test]
+fn each_evaluation_of_one_literal_is_its_own_object() {
+    // Why the literal is a call and not a constant the compilation resolved.
+    // A hoisted regular expression would make both passes share `lastIndex`,
+    // and the second would start where the first left off.
+    let produced = run(
+        "let n = 0; let i = 0; while (i < 2) { let r = /a/g; if (r.test(\"aa\")) { n = n + r.lastIndex; } i = i + 1; } return n;",
+    );
+    assert_eq!(tags::decode_double(produced), 2.0, "1 from each pass, not 1 then 2");
+}
+
+#[test]
+fn a_lookahead_reaches_the_engine_that_has_one() {
+    // `regex` refuses this by construction — the refusal is what buys its
+    // linear time — so an answer here is the fallback working rather than a
+    // pattern that happened to compile.
+    let found = run("return /foo(?=bar)/.test(\"foobar\");");
+    assert_eq!(tags::payload_of(found), tags::BOOL_TRUE);
+
+    let absent = run("return /foo(?=bar)/.test(\"foobaz\");");
+    assert_eq!(tags::payload_of(absent), tags::BOOL_FALSE);
+}

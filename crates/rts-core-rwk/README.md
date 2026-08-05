@@ -75,10 +75,33 @@ Where the language's meaning genuinely lives here — the three equalities, the
 falsy set, what an array index is — it is because those are operations *over*
 values rather than facts about one, and the machine has no opinion about them.
 
-### 5. No dependency that is not needed on every target
+### 5. The machine is reached through `rts-cranelift`, never around it
 
-Every dependency added here is added on wasm too. That is the bar. Today the
-list is `rts-cranelift`, for the encoding, and nothing else.
+That is what this rule is about, and it was written as a dependency count —
+"`rts-cranelift`, and nothing else" — which read as *few dependencies* and is a
+different rule. The count was never the point. **Cranelift is.**
+
+This crate depends on `rts-cranelift` and must not name Cranelift, its IR, or
+anything else below that boundary. The reason is rule 2's, from the other
+direction: the encoding, the shape tree and the layouts are agreements between
+this crate and the compiler, and there is exactly one place they are stated. A
+runtime reaching past `rts-cranelift` would be restating one of them — and a
+rule written twice is a rule that will be written differently, which here means
+a value read as the wrong kind or a property found in the wrong slot.
+
+An ordinary library — `regex` and `fancy-regex` are the ones here, for what a
+regular expression literal needs — is not what the rule is about. It decides
+nothing the machine decides, so it cannot disagree with the machine about
+anything. What it must still satisfy is **availability**, the same build fact
+rule 1 names: everything here exists on wasm too, which those two do, being pure
+Rust over no operating system.
+
+They are here rather than behind a crate of their own, which is what the engine
+being replaced did: `rts-primitives` could not name `rts-shared` without
+inverting the crate graph, so it reached the matcher by **link-time symbol
+name**. That inversion does not exist here — nothing this crate depends on wants
+a regular expression — so the indirection would buy a boundary with nothing on
+the other side of it.
 
 ### 6. Files stop at 500 lines
 

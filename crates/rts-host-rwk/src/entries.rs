@@ -169,6 +169,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::InstanceOf => (CoreEntry::InstanceOf, {
             rts_core_rwk::entry::instance_of as extern "C" fn(u64, u64) -> bool as *const u8
         }),
+        RuntimeOp::RegexNew => (CoreEntry::RegexNew, {
+            rts_core_rwk::entry::regex_new as extern "C" fn(u64, u64) -> u64 as *const u8
+        }),
     }
 }
 

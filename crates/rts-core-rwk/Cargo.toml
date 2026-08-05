@@ -15,6 +15,19 @@ crate-type = ["rlib"]
 # silently read as the wrong kind.
 rts-cranelift = { path = "../rts-cranelift" }
 
+# The matching engine a regular expression needs. Two of them, and the second is
+# not redundancy: `regex` refuses lookaround and backreferences by construction —
+# that refusal is what buys its linear time — and JavaScript spells both. So a
+# pattern it declines is compiled by `fancy-regex` instead, and a program pays
+# for backtracking only where it asked for something that requires it.
+#
+# Neither decides anything the machine decides, so neither can disagree with it —
+# which is what rule 5 is actually about. What they still have to satisfy is
+# availability: both are pure Rust over no operating system, so they are present
+# on wasm exactly as they are here.
+regex = "1"
+fancy-regex = "0.13"
+
 # The authoring surface. A proc macro, so it is a build-time dependency and
 # costs nothing at run time — and it emits tokens naming `rts_cranelift::abi`
 # rather than depending on it, so using it drags no compiler into anyone build.

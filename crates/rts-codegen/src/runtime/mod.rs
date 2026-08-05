@@ -305,6 +305,23 @@ pub enum RuntimeOp {
     /// `emit/call.rs` for why, and for what changes when a stack slot exists to
     /// put a real argument vector in.
     Call,
+
+    /// `/pattern/flags` — a new regular expression.
+    ///
+    /// # Why the text and not a number naming a compiled pattern
+    ///
+    /// A table of patterns compiled at build time would serve the literal and
+    /// have nothing to say about `new RegExp(s)`, where the pattern is a value.
+    /// Handing over two strings is one path both spellings reach, which is rule
+    /// 3: `/a/` and `new RegExp("a")` are the same operation and get one
+    /// definition.
+    ///
+    /// # Why it is a call at all, when the pattern is known while compiling
+    ///
+    /// Because the *object* is not. `/a/g` evaluated twice is two objects with
+    /// their own `lastIndex`, so a literal hoisted to a constant would make two
+    /// passes of a loop share where the next search starts.
+    RegexNew,
 }
 
 impl RuntimeOp {
@@ -346,6 +363,7 @@ impl RuntimeOp {
         RuntimeOp::Construct,
         RuntimeOp::InstanceOf,
         RuntimeOp::Call,
+        RuntimeOp::RegexNew,
     ];
 
     /// The linker name the runtime must define.
@@ -392,6 +410,7 @@ impl RuntimeOp {
             RuntimeOp::Construct => "__rts_construct",
             RuntimeOp::InstanceOf => "__rts_instance_of",
             RuntimeOp::Call => "__rts_call",
+            RuntimeOp::RegexNew => "__rts_regex_new",
         }
     }
 
@@ -454,6 +473,9 @@ impl RuntimeOp {
             // Callee, receiver, then one slot per argument. Every one a value,
             // because a caller cannot know what it is handing over.
             RuntimeOp::Call => (vec![UNPROVEN; 2 + ARGUMENT_SLOTS], vec![UNPROVEN]),
+            // The pattern and the flags, as strings — which is what makes this
+            // one operation serve both the literal and the constructor.
+            RuntimeOp::RegexNew => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
         };
         Signature {
             params,

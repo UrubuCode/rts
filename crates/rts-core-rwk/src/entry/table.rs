@@ -55,6 +55,7 @@ use super::operators::{
     REMAINDER_ENTRY, SUBTRACT_ENTRY,
 };
 use super::primitives::{ADD_ENTRY, NUMBER_TO_STRING_ENTRY, STRICT_EQUALS_ENTRY, TO_BOOLEAN_ENTRY};
+use super::regex::REGEX_NEW_ENTRY;
 use super::text::{STRING_CONST_ENTRY, TYPE_OF_ENTRY};
 
 /// An operation compiled code performs by calling rather than by emitting.
@@ -255,6 +256,13 @@ pub enum CoreEntry {
     ///
     /// Here because it walks a prototype chain through the heap.
     InstanceOf = 35,
+
+    /// `/pattern/flags` — a new regular expression object.
+    ///
+    /// Here because it allocates, and because compiling a pattern is state this
+    /// crate holds beside the cell. Not a constant the compiler could emit: a
+    /// literal evaluated twice is two objects with their own `lastIndex`.
+    RegexNew = 36,
 }
 
 /// How many entry points exist.
@@ -262,7 +270,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 36;
+pub const CORE_ENTRY_COUNT: usize = 37;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -303,6 +311,7 @@ impl CoreEntry {
         CoreEntry::OwnKeys,
         CoreEntry::Construct,
         CoreEntry::InstanceOf,
+        CoreEntry::RegexNew,
     ];
 
     /// The number a call site holds.
@@ -354,6 +363,7 @@ impl CoreEntry {
             CoreEntry::OwnKeys => OWN_KEYS_ENTRY,
             CoreEntry::Construct => CONSTRUCT_ENTRY,
             CoreEntry::InstanceOf => INSTANCE_OF_ENTRY,
+            CoreEntry::RegexNew => REGEX_NEW_ENTRY,
         }
     }
 

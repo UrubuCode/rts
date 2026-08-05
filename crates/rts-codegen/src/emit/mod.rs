@@ -65,6 +65,7 @@ mod loops;
 mod merge;
 mod protect;
 mod proven;
+mod regex;
 mod scope;
 mod stmt;
 mod switch;
