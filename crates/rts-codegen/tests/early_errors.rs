@@ -267,3 +267,20 @@ fn private_names_nest_with_their_classes() {
             .contains("#i")
     );
 }
+
+#[test]
+fn import_cannot_be_used_with_new() {
+    // `import()` yields a promise and `new` needs a constructor: `import()` is
+    // not a MemberExpression, so it cannot be the callee of a `new`.
+    assert!(refused("new import('');").contains("`new`"));
+
+    // Parenthesised, it *is* a MemberExpression, and this is a valid program.
+    // The bridge deletes parentheses — they change nothing else — so these two
+    // arrive as the same tree, which is why the rule is stated at the bridge
+    // one step earlier rather than in the checker. Stating it on the tree
+    // refused this line, which is how the distinction was found.
+    accepted("new (import(''));");
+    accepted("new (import(''), function() {});");
+
+    accepted("import('./a.js');");
+}

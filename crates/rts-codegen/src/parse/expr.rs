@@ -141,7 +141,22 @@ pub(crate) fn expr(cx: &mut Cx, node: &swc::Expr) -> Result<Expr> {
         },
 
         swc::Expr::New(new) => ExprKind::New {
-            callee: Box::new(expr(cx, &new.callee)?),
+            // `new import('')` is an error and `new (import(''))` is a valid
+            // program: the parentheses make it a MemberExpression, which is
+            // what `new` needs. The bridge deletes parentheses -- they change
+            // nothing else -- so the two arrive identical, and the rule can
+            // only be asked here, one step before that happens.
+            callee: {
+                if matches!(&*new.callee, swc::Expr::Call(call)
+                    if matches!(call.callee, swc::Callee::Import(_)))
+                {
+                    return Err(ParseError::Syntax(
+                        "`import()` cannot be the callee of `new` unless it is parenthesised"
+                            .to_owned(),
+                    ));
+                }
+                Box::new(expr(cx, &new.callee)?)
+            },
             arguments: match &new.args {
                 Some(args) => arguments(cx, args)?,
                 None => Vec::new(),
