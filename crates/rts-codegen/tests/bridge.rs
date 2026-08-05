@@ -10,7 +10,7 @@
 use rts_codegen::names::Names;
 use rts_codegen::parse::{ParseError, parse_module, parse_script};
 use rts_codegen::syntax::{
-    AssignOp, AssignTarget, BinaryOp, BindingKind, ClassElement, ExprKind, ForEachSource,
+    AssignOp, AssignTarget, BinaryOp, BindingKind, ClassElement, ClassKey, ExprKind, ForEachSource,
     ForEachTarget, FunctionBody, Goal, Literal, LogicalOp, ModuleItem, Pattern, Program, Property,
     PropertyKey, Stmt, StmtKind, UpdatePosition,
 };
@@ -738,4 +738,24 @@ fn a_bigint_property_key_is_its_digits() {
         panic!("a BigInt key is static: {key:?}");
     };
     assert_eq!(names.text(*name), "1");
+}
+
+#[test]
+fn a_private_member_is_not_the_property_of_the_same_letters() {
+    // SWC hands `#x` over as `x`, so interning it plainly made `this.#x` and
+    // `this.x` the *same* `Member` node — one tree for two things that are not
+    // alike at all: a property anyone can read, and a name reachable only from
+    // inside the class body. Keeping the `#` separates them everywhere at once,
+    // and a real property named `#x` cannot be reached by `.` anyway.
+    let (kind, names) = only_expr("(class { #x; m() { return this.#x; } });");
+    let ExprKind::Class(class) = kind else {
+        panic!("expected a class");
+    };
+    let ClassElement::Field(field) = &class.body[0] else {
+        panic!("expected a field");
+    };
+    let ClassKey::Private(declared) = &field.key else {
+        panic!("expected a private key");
+    };
+    assert_eq!(names.text(*declared), "#x");
 }

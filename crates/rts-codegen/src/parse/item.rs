@@ -637,7 +637,7 @@ fn class_parts(cx: &mut Cx, class: &swc::Class) -> Result<Class> {
             })),
 
             swc::ClassMember::PrivateMethod(method) => body.push(ClassElement::Method(Method {
-                key: ClassKey::Private(cx.name(&method.key.name)),
+                key: ClassKey::Private(cx.private_name(&method.key.name)),
                 kind: method_kind(method.kind),
                 function: Box::new(function(cx, &method.function)?),
                 is_static: method.is_static,
@@ -657,7 +657,7 @@ fn class_parts(cx: &mut Cx, class: &swc::Class) -> Result<Class> {
             })),
 
             swc::ClassMember::PrivateProp(property) => body.push(ClassElement::Field(Field {
-                key: ClassKey::Private(cx.name(&property.key.name)),
+                key: ClassKey::Private(cx.private_name(&property.key.name)),
                 value: match &property.value {
                     Some(value) => Some(expr(cx, value)?),
                     None => None,

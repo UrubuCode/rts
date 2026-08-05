@@ -231,3 +231,15 @@ fn a_static_member_cannot_be_named_prototype() {
     // On an instance it is an ordinary name.
     accepted("class C { prototype() {} }");
 }
+
+#[test]
+fn delete_cannot_remove_a_private_name() {
+    // A private name is not a property, so there is nothing to remove. The
+    // parenthesised spelling is the same program — parentheses are gone by the
+    // time the tree exists, which is why the rule reads the tree.
+    refused("class C { #m() {} x = delete this.#m; }");
+    refused("class C { #m() {} x = delete (this.#m); }");
+
+    // `delete a.#b.c` removes `c`, an ordinary property, and is legal.
+    accepted("class C { #b = {}; x = delete this.#b.c; }");
+}

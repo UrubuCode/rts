@@ -43,7 +43,7 @@
 use crate::names::{Name, Names};
 use crate::syntax::{
     Catch, Class, ClassElement, ClassKey, Element, Expr, ExprKind, ForEachTarget, ForInit,
-    Function, FunctionBody, Pattern, Property, PropertyKey, Stmt, StmtKind,
+    Function, FunctionBody, Pattern, Property, PropertyKey, Stmt, StmtKind, UnaryOp,
 };
 
 /// Which context a piece of code is in.
@@ -291,6 +291,16 @@ impl<'a> Scan<'a> {
             ExprKind::Binary { left, right, .. } | ExprKind::Logical { left, right, .. } => {
                 self.expr(left, context);
                 self.expr(right, context);
+            }
+            // `delete this.#x` is an early error however it is written, and
+            // `delete (((g().#m)))` is the same program — which is why this
+            // asks the tree rather than looking at the text. A private name is
+            // not a property, so there is nothing to remove.
+            ExprKind::Unary {
+                op: UnaryOp::Delete,
+                operand,
+            } if self.reaches_a_private_name(operand) => {
+                self.found = Some("`delete` cannot remove a private name".to_owned());
             }
             ExprKind::Unary { operand, .. }
             | ExprKind::Update {
@@ -540,6 +550,24 @@ impl<'a> Scan<'a> {
                 }
                 ClassElement::StaticBlock(body) => self.stmts(body, initialiser),
             }
+        }
+    }
+}
+
+/// Whether a `delete` operand ends at a private name.
+///
+/// Only the outermost member access matters: `delete a.#b.c` removes `c`, which
+/// is an ordinary property, and is legal. `delete (a.#b)` removes `#b` and is
+/// not. Parentheses are already gone by the time the tree exists, so the two
+/// spellings of the same program reach here identically — which is the reason
+/// this reads the tree instead of the source.
+impl Scan<'_> {
+    fn reaches_a_private_name(&self, operand: &Expr) -> bool {
+        match &operand.kind {
+            ExprKind::Member { property, .. } => self.names.text(*property).starts_with('#'),
+            // `?.` around it does not change what is being removed.
+            ExprKind::Chain(inner) => self.reaches_a_private_name(inner),
+            _ => false,
         }
     }
 }

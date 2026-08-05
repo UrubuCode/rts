@@ -105,6 +105,22 @@ impl Cx<'_> {
     pub(crate) fn name(&mut self, text: &str) -> crate::names::Name {
         self.names.intern(text)
     }
+
+    /// A private name, interned with the `#` it was written with.
+    ///
+    /// SWC hands over `x` for `#x`, so interning it plainly made `this.#x` and
+    /// `this.x` the *same* name — one `Member` node, indistinguishable, for two
+    /// things that are not the same at all: one is a property anyone can read
+    /// and the other is reachable only from inside the class body. That is a
+    /// misread rather than a missing feature, and it silently made a private
+    /// field public.
+    ///
+    /// Keeping the `#` is enough to separate them everywhere at once, because a
+    /// real property named `#x` cannot be reached by `.` — only by `o["#x"]`,
+    /// which is a different node.
+    pub(crate) fn private_name(&mut self, text: &str) -> crate::names::Name {
+        self.names.intern(&format!("#{text}"))
+    }
 }
 
 /// A source position from a SWC span.

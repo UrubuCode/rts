@@ -197,7 +197,7 @@ pub(crate) fn expr(cx: &mut Cx, node: &swc::Expr) -> Result<Expr> {
             swc::MetaPropKind::ImportMeta => ExprKind::ImportMeta,
         },
 
-        swc::Expr::PrivateName(private) => ExprKind::PrivateName(cx.name(&private.name)),
+        swc::Expr::PrivateName(private) => ExprKind::PrivateName(cx.private_name(&private.name)),
 
         swc::Expr::OptChain(chain) => return opt_chain(cx, chain),
 
@@ -247,7 +247,7 @@ fn member_expr(cx: &mut Cx, member: &swc::MemberExpr, optional: bool) -> Result<
         },
         swc::MemberProp::PrivateName(private) => ExprKind::Member {
             object,
-            property: cx.name(&private.name),
+            property: cx.private_name(&private.name),
             optional,
         },
         swc::MemberProp::Computed(computed) => ExprKind::Index {
