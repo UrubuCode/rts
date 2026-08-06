@@ -66,6 +66,7 @@ use super::global::{GLOBAL_GET_ENTRY, GLOBAL_SET_ENTRY};
 use super::iterate::{ARRAY_APPEND_ALL_ENTRY, ARRAY_APPEND_ENTRY, ITERATE_ENTRY};
 use super::bigint_class::{BIGINT_NEW_ENTRY, NEGATE_ENTRY};
 use super::regex::REGEX_NEW_ENTRY;
+use super::modules::{MODULE_BINDING_ENTRY, MODULE_NAMESPACE_ENTRY};
 use super::text::{STRING_CONST_ENTRY, TEMPLATE_STRINGS_ENTRY, TYPE_OF_ENTRY};
 
 /// An operation compiled code performs by calling rather than by emitting.
@@ -351,6 +352,15 @@ pub enum CoreEntry {
     /// Here because the site has ONE object for the life of the program, and the
     /// only thing that outlives an activation is this crate.
     TemplateStrings = 53,
+
+    /// One name imported from a module the host provided.
+    ///
+    /// Here because the namespace is an object in the heap, and which specifier
+    /// is a literal this crate holds the text of.
+    ModuleBinding = 54,
+
+    /// The whole namespace object, for `import * as ns`.
+    ModuleNamespace = 55,
 }
 
 /// How many entry points exist.
@@ -358,7 +368,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 54;
+pub const CORE_ENTRY_COUNT: usize = 56;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -417,6 +427,8 @@ impl CoreEntry {
         CoreEntry::BigIntNew,
         CoreEntry::Negate,
         CoreEntry::TemplateStrings,
+        CoreEntry::ModuleBinding,
+        CoreEntry::ModuleNamespace,
     ];
 
     /// The number a call site holds.
@@ -472,6 +484,8 @@ impl CoreEntry {
             CoreEntry::BigIntNew => BIGINT_NEW_ENTRY,
             CoreEntry::Negate => NEGATE_ENTRY,
             CoreEntry::TemplateStrings => TEMPLATE_STRINGS_ENTRY,
+            CoreEntry::ModuleBinding => MODULE_BINDING_ENTRY,
+            CoreEntry::ModuleNamespace => MODULE_NAMESPACE_ENTRY,
             CoreEntry::GlobalGet => GLOBAL_GET_ENTRY,
             CoreEntry::GetPrototype => GET_PROTOTYPE_ENTRY,
             CoreEntry::SetPrototype => SET_PROTOTYPE_ENTRY,

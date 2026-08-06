@@ -1,0 +1,7 @@
+[package]
+name = "rts-std-rwk"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rts-core-rwk = { path = "../rts-core-rwk" }

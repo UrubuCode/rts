@@ -66,6 +66,7 @@ mod native;
 mod number;
 mod object_global;
 mod object_proto;
+mod modules;
 mod objects;
 mod operators;
 mod primitive_proto;
@@ -92,6 +93,10 @@ pub use functions::{
 };
 pub use global::{global_get, global_set};
 pub use iterate::{array_append, array_append_all, iterate};
+pub use modules::{
+    Provided, declare_module, get_member, make_callable, make_namespace, module_binding,
+    module_namespace, null_value, put_member, undefined_value, with_runtime,
+};
 pub use objects::{get_property, object_new, set_property};
 pub use promise::drain_microtasks;
 pub use operators::{
@@ -414,6 +419,11 @@ pub struct Context {
     /// the number the code carries is a position in this list, which is the
     /// same shape as the key and singleton numberings.
     pub literals: Vec<u64>,
+    /// The namespace object each specifier the host provided names.
+    ///
+    /// A list rather than a map: a host provides a handful. See [`modules`] for
+    /// what this is and, more importantly, what it is not.
+    pub modules: Vec<(String, u64)>,
     /// What each tagged-template site declared, and what it has been made into.
     ///
     /// Two positions per piece — cooked then raw, as literal numbers — and the
@@ -546,6 +556,7 @@ impl Context {
             // never reaches the table, and one that does gets it from the
             // compilation that produced the code.
             literals: Vec::new(),
+            modules: Vec::new(),
             templates: Vec::new(),
             singletons,
             kinds,

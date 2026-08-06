@@ -196,12 +196,16 @@ fn emit_function(
         function.captures_this,
         rest,
         late_this,
+        &[],
     )?;
     ctx.pending.push((id, emitted));
     Ok(id)
 }
 
 /// Emits a body against the convention, with the environment chain set up.
+/// `imports` is bound before the first statement and is empty for every body but
+/// a module's own: an import introduces a name in the scope it is written in,
+/// which is this one, and nothing downstream learns that it came from a module.
 pub(super) fn emit_body(
     ctx: &mut Ctx,
     enclosing: &Scope,
@@ -210,8 +214,24 @@ pub(super) fn emit_body(
     captures_this: bool,
     rest: Option<Name>,
     late_this: Option<Name>,
+    imports: &[crate::syntax::Import],
 ) -> EmitResult<MachineFunction> {
-    let mut captured = capture::captured(body, parameters);
+    // An import is bound at entry and may be read from inside a nested function,
+    // exactly as a parameter is — so it is a capture CANDIDATE like one. Without
+    // this the name is declared as a plain local, a closure that reads it finds
+    // nothing reachable, and every `describe(… test(…) …)` in the corpus reported
+    // `test` as a name nothing introduces.
+    let mut candidates = parameters.to_vec();
+    for import in imports {
+        for binding in &import.bindings {
+            candidates.push(match binding {
+                crate::syntax::ImportBinding::Named { local, .. } => *local,
+                crate::syntax::ImportBinding::Default(local) => *local,
+                crate::syntax::ImportBinding::Namespace(local) => *local,
+            });
+        }
+    }
+    let mut captured = capture::captured(body, &candidates);
     // A derived constructor holds `this` in its environment, so it has one
     // whether or not anything else is captured — the name is added here rather
     // than being special-cased below, so every reader downstream sees an
@@ -264,6 +284,7 @@ pub(super) fn emit_body(
         builds_environment,
         rest,
         late_this,
+        imports,
     );
     ctx.numeric = outer_numeric;
     ctx.flattened = outer_flattened;
@@ -273,6 +294,7 @@ pub(super) fn emit_body(
 
 /// The part that holds the builder, split out so the numeric state above is
 /// restored on the failing path as well as the succeeding one.
+#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
 fn emit_body_into(
     ctx: &mut Ctx,
@@ -287,6 +309,7 @@ fn emit_body_into(
     builds_environment: bool,
     rest: Option<Name>,
     late_this: Option<Name>,
+    imports: &[crate::syntax::Import],
 ) -> EmitResult<()> {
     let types = ctx.types;
     let mut builder = FuncBuilder::new(func, types, entry);
@@ -327,6 +350,12 @@ fn emit_body_into(
 
     for (position, name) in parameters.iter().enumerate() {
         binding::declare(&mut builder, &mut scope, ctx, *name, incoming[2 + position])?;
+    }
+
+    // Before the first statement, and after the parameters: an import is a
+    // declaration in this scope, so it is bound where a declaration would be.
+    for import in imports {
+        super::module::emit_import(&mut builder, &mut scope, ctx, import)?;
     }
 
     // `...rest` is declared like any other parameter, from an array the runtime

@@ -2,7 +2,7 @@
 
 use rts_codegen::emit::{Ctx, emit_program};
 use rts_codegen::names::Names;
-use rts_codegen::parse::parse_script;
+use rts_codegen::parse::{parse_module, parse_script};
 use rts_codegen::runtime::RuntimeCalls;
 use rts_codegen::syntax::{FunctionBody, ModuleItem, StmtKind};
 use rts_codegen::values::ValueModel;
@@ -260,6 +260,12 @@ fn run_region(
     // that table, so seeding these first would record numbers into a table about
     // to be cleared.
     rts_core_rwk::entry::declare_templates(&mut context, templates);
+    // The modules a program may import. Registered by the HOST rather than by
+    // the runtime, because which of them exist is a fact about the environment
+    // the program is given — and `rts-std-rwk` is where anything needing an
+    // operating system lives, which is the same availability rule that keeps
+    // `Math` in the runtime and `io.print` out of it.
+    rts_std_rwk::install(&mut context);
     let (context, (value, described)) = rts_core_rwk::entry::with_context(context, || {
         // A script closes over nothing, has no receiver and was passed no
         // arguments: `undefined` for all six, from the compiler's own numbering
@@ -321,9 +327,23 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
 /// When `regions` is not a power of two. A selector is a mask.
 pub fn compile_for(source: &str, regions: u32) -> Result<Compiled, HostError> {
     let mut names = Names::default();
+    // A file that imports is compiled as a MODULE, and one that does not is
+    // wrapped in a function as before. The distinction is not cosmetic: an
+    // `import` is a syntax error inside a function body, so wrapping first and
+    // asking later would refuse every module before anything could look at it —
+    // which is what made the whole suite report zero.
+    let module = match source.contains("import ") {
+        true => parse_module(source, &mut names).ok(),
+        false => None,
+    };
     let wrapped = format!("function {SCRIPT}() {{ {source} }}");
-    let program = parse_script(&wrapped, &mut names)
-        .map_err(|error| HostError::Parse(format!("{error:?}")))?;
+    // Parsed even when a module was: the script path needs it, and asking for it
+    // here keeps ONE place where a parse failure becomes a `HostError`.
+    let program = match &module {
+        Some(_) => rts_codegen::syntax::Program::new(rts_codegen::syntax::Goal::Script),
+        None => parse_script(&wrapped, &mut names)
+            .map_err(|error| HostError::Parse(format!("{error:?}")))?,
+    };
 
     let mut tags = TagRegistry::new();
     let model = ValueModel::declare(&mut tags);
@@ -335,20 +355,27 @@ pub fn compile_for(source: &str, regions: u32) -> Result<Compiled, HostError> {
     // Unwrapping what was wrapped above. Anything other than the one function
     // declaration means the wrapping did not produce what it was written to
     // produce, which is a defect here rather than in the source.
-    let [ModuleItem::Stmt(statement)] = program.body.as_slice() else {
-        return Err(HostError::Parse(
-            "the wrapper did not produce one statement".to_owned(),
-        ));
-    };
-    let StmtKind::Function(function) = &statement.kind else {
-        return Err(HostError::Parse(
-            "the wrapper did not produce a function".to_owned(),
-        ));
-    };
-    let FunctionBody::Block(body) = &function.body else {
-        return Err(HostError::Parse(
-            "a declaration always has a block body".to_owned(),
-        ));
+    // Unwrapping what was wrapped above, for the script path only.
+    let body: Vec<rts_codegen::syntax::Stmt> = match &module {
+        Some(_) => Vec::new(),
+        None => {
+            let [ModuleItem::Stmt(statement)] = program.body.as_slice() else {
+                return Err(HostError::Parse(
+                    "the wrapper did not produce one statement".to_owned(),
+                ));
+            };
+            let StmtKind::Function(function) = &statement.kind else {
+                return Err(HostError::Parse(
+                    "the wrapper did not produce a function".to_owned(),
+                ));
+            };
+            let FunctionBody::Block(body) = &function.body else {
+                return Err(HostError::Parse(
+                    "a declaration always has a block body".to_owned(),
+                ));
+            };
+            body.clone()
+        }
     };
 
     // Every function the program contains, not one. Emission declares each of
@@ -359,7 +386,23 @@ pub fn compile_for(source: &str, regions: u32) -> Result<Compiled, HostError> {
         let mut ctx = Ctx::new(
             &model, &mut funcs, &mut calls, &mut keys, &mut names, &types,
         );
-        emit_program(body, &mut ctx)?
+        let emitted = match &module {
+            // A module binds its imports and then runs its statements — one
+            // function, like a script, because what differs is what is in
+            // scope before the first statement rather than how it is entered.
+            Some(program) => rts_codegen::emit::emit_module(&program.body, &mut ctx),
+            None => emit_program(&body, &mut ctx),
+        };
+        // The NAME, not its number. A `Name` is an index into a table this
+        // function owns and the error crosses out of, so rendering it here is
+        // the only place it can be done — and "a name nothing introduced"
+        // without saying which is a diagnostic that cannot be acted on.
+        match emitted {
+            Err(rts_codegen::emit::EmitError::UnboundName(name)) => {
+                return Err(HostError::Unbound(ctx.names.text(name).to_owned()));
+            }
+            other => other?,
+        }
     };
     let script = emitted.entry;
 

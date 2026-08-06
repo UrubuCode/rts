@@ -68,6 +68,7 @@ mod function;
 mod globals;
 mod loops;
 mod merge;
+mod module;
 mod object;
 mod optional;
 mod property;
@@ -378,6 +379,41 @@ impl<'a> Ctx<'a> {
 /// cannot be forgotten — but it would be reported as a malformed function
 /// rather than as the language fact it is, so it is done here on purpose.
 pub fn emit_program(body: &[Stmt], ctx: &mut Ctx) -> EmitResult<Program> {
+    emit_program_with(body, &[], ctx)
+}
+
+/// Emits a MODULE: its imports bind, then its statements run.
+///
+/// The split lives here rather than in the host because what an `import` means
+/// for a scope and what an `export` costs are language decisions, and the host
+/// is not where a language decision is taken.
+pub fn emit_module(
+    items: &[crate::syntax::ModuleItem],
+    ctx: &mut Ctx,
+) -> EmitResult<Program> {
+    let mut imports = Vec::new();
+    let mut body = Vec::new();
+    for item in items {
+        match item {
+            crate::syntax::ModuleItem::Import(import) => imports.push(import.clone()),
+            crate::syntax::ModuleItem::Stmt(statement) => body.push(statement.clone()),
+            crate::syntax::ModuleItem::Export(_) => module::emit_export()?,
+        }
+    }
+    emit_program_with(&body, &imports, ctx)
+}
+
+/// The same, for a body whose module bound names before it.
+///
+/// Separate from [`emit_program`] rather than a default argument because the
+/// two callers are different things: a script has no imports and never will,
+/// and a module always passes its own — including an empty list, which is a
+/// module that imports nothing rather than a script.
+pub fn emit_program_with(
+    body: &[Stmt],
+    imports: &[crate::syntax::Import],
+    ctx: &mut Ctx,
+) -> EmitResult<Program> {
     // The script is a function like any other, under the same convention. It
     // was not before: it took no parameters, and every test that ran one called
     // it directly. Making it uniform is what lets a program call itself, and
@@ -393,7 +429,7 @@ pub fn emit_program(body: &[Stmt], ctx: &mut Ctx) -> EmitResult<Program> {
     ctx.globals = sloppy::created(body);
 
     let nothing = Scope::new();
-    let emitted = function::emit_body(ctx, &nothing, &[], body, false, None, None)?;
+    let emitted = function::emit_body(ctx, &nothing, &[], body, false, None, None, imports)?;
     ctx.pending.push((entry, emitted));
 
     Ok(Program {

@@ -34,7 +34,7 @@ use crate::value::Value;
 /// Spelled once. Two spellings of a calling convention is how an argument comes
 /// to be read as the wrong thing, and a wrong one is a jump with a corrupt
 /// stack rather than a wrong answer.
-pub(super) type Native = extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64;
+pub(in crate::entry) type Native = extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64;
 
 /// A callable value over a Rust function.
 pub(super) fn callable(context: &mut Context, code: Native) -> u64 {
@@ -56,7 +56,7 @@ pub(super) fn callable(context: &mut Context, code: Native) -> u64 {
 /// The object is what a value inherits from, so this is what makes `s.trim` and
 /// `re.test` findable by the ordinary prototype walk rather than by anything
 /// knowing what a string or a regular expression is.
-pub(super) fn install(context: &mut Context, cell: u32, natives: &[(&str, Native)]) {
+pub(in crate::entry) fn install(context: &mut Context, cell: u32, natives: &[(&str, Native)]) {
     for (name, code) in natives {
         let method = callable(context, *code);
         let key = context.well_known(name);
@@ -65,7 +65,7 @@ pub(super) fn install(context: &mut Context, cell: u32, natives: &[(&str, Native
 }
 
 /// An object with nothing on it, for something to be a prototype.
-pub(super) fn plain(context: &mut Context) -> Option<u32> {
+pub(in crate::entry) fn plain(context: &mut Context) -> Option<u32> {
     let shape = context.shapes.root();
     let ty = context.layout_of(shape).index() as u32;
     context.region.alloc(crate::heap::STRIDE, ty)

@@ -24,3 +24,4 @@ rts-cranelift = { path = "../rts-cranelift" }
 
 # The runtime: what a compiled program calls out to.
 rts-core-rwk = { path = "../rts-core-rwk" }
+rts-std-rwk = { path = "../rts-std-rwk" }

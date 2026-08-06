@@ -13,17 +13,18 @@
 //! body rather than a module. So the honest first number is not "how many pass"
 //! but "what stops them", ranked.
 //!
-//! # Two numbers, and the second is the useful one
+//! # Two numbers, and the first is the real one now
 //!
-//! - **As written.** Every file, unchanged. This is what `rts test` would face.
+//! - **As written.** Every file, unchanged. This is what `rts test` faces. It
+//!   was 0 of 818 when this harness was written — an `import` was a syntax
+//!   error inside the function body the host wrapped every source in — and it
+//!   is 586 of 818 now that a module compiles as one.
 //! - **Without the import lines.** The same files with their `import`
-//!   statements removed, which is not a fix and does not run — a body calling
-//!   `test(…)` reads a name nothing introduced. What it does is see PAST the
-//!   module gap to the constructs behind it, so the work queue is ranked by
-//!   what is actually in the way rather than by the first thing hit.
+//!   statements removed. It was the useful column while the first was zero, and
+//!   it is kept because it still separates two different failures: a name the
+//!   test surface does not provide, and a construct the emitter does not lower.
 //!
-//! Both are reported. Quoting the second as a coverage figure would be the
-//! measurement wearing clothes it did not earn.
+//! Neither is a pass rate. Nothing here runs.
 //!
 //! # Running it
 //!
@@ -55,8 +56,8 @@ enum Outcome {
     Compiled,
     /// The emitter named a construct it does not lower.
     Unsupported(String),
-    /// A name was used and nothing introduced it.
-    Unbound,
+    /// A name was used and nothing introduced it, and which one.
+    Unbound(String),
     /// The front end refused to read it.
     Refused,
     /// The emitter built something the machine rejected — a defect here.
@@ -78,8 +79,13 @@ fn attempt(source: &str) -> Outcome {
                 let end = rest.find('"').unwrap_or(rest.len());
                 return Outcome::Unsupported(rest[..end].to_owned());
             }
-            if text.contains("UnboundName") {
-                return Outcome::Unbound;
+            if let Some(at) = text.find("Unbound(\"") {
+                // The NAME, not just the fact: it is the largest bucket and
+                // useless without saying which, which is what made the first
+                // version of this measurement unable to rank the work behind it.
+                let rest = &text[at + "Unbound(\"".len()..];
+                let end = rest.find('"').unwrap_or(rest.len());
+                return Outcome::Unbound(rest[..end].to_owned());
             }
             if text.contains("Build(") {
                 return Outcome::Build(text.chars().take(120).collect());
@@ -115,7 +121,9 @@ fn measure(files: &[(PathBuf, String)], strip: bool) -> (usize, BTreeMap<String,
         match attempt(&source) {
             Outcome::Compiled => compiled += 1,
             Outcome::Unsupported(what) => *reasons.entry(what).or_default() += 1,
-            Outcome::Unbound => *reasons.entry("<a name nothing introduced>".into()).or_default() += 1,
+            Outcome::Unbound(name) => {
+                *reasons.entry(format!("<unbound> {name}")).or_default() += 1;
+            }
             Outcome::Refused => *reasons.entry("<the front end refused it>".into()).or_default() += 1,
             Outcome::Build(what) => *reasons.entry(format!("<BUILD> {what}")).or_default() += 1,
         }
@@ -171,4 +179,18 @@ fn what_the_new_engine_compiles_of_the_suite() {
         stripped,
         &stripped_reasons,
     );
+}
+
+#[test]
+fn a_module_binds_what_it_imports() {
+    // The smallest program the corpus's first two lines are: an import, then a
+    // call of what it bound. If this refuses, every file in the suite does.
+    let source = "import { describe } from \"rts:test\";\ndescribe(\"a\", function () { return 1; });\n";
+    rts_host_rwk::compile(source).expect("a module that imports what it calls");
+}
+
+#[test]
+fn the_shape_the_corpus_actually_writes() {
+    let source = "import { describe, test, expect } from \"rts:test\";\nimport { io } from \"rts\";\n\nlet captured: string = \"\";\nfunction print(value: string): void { captured += value; }\n\ndescribe(\"a\", function () { test(\"b\", function () { expect(1).toBe(1); }); });\n";
+    rts_host_rwk::compile(source).expect("what every file in the suite starts with");
 }

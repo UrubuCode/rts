@@ -212,6 +212,17 @@ pub enum RuntimeOp {
     /// the only thing that outlives an activation is the runtime.
     TemplateStrings,
 
+    /// One name imported from a module the host provides.
+    ///
+    /// An entry point because a namespace is an object in the heap and the
+    /// specifier is a literal the runtime holds the text of. NOT a module
+    /// system: which specifiers exist is the host's, and a specifier nobody
+    /// provided answers `undefined` rather than being resolved.
+    ModuleBinding,
+
+    /// The whole namespace, for `import * as ns from "m"`.
+    ModuleNamespace,
+
     /// `typeof v`.
     ///
     /// An entry point because the answer is a string, and every one of the
@@ -469,6 +480,8 @@ impl RuntimeOp {
         RuntimeOp::ClosureNew,
         RuntimeOp::StringConst,
         RuntimeOp::TemplateStrings,
+        RuntimeOp::ModuleBinding,
+        RuntimeOp::ModuleNamespace,
         RuntimeOp::TypeOf,
         RuntimeOp::LooseEquals,
         RuntimeOp::Exponent,
@@ -533,6 +546,8 @@ impl RuntimeOp {
             RuntimeOp::ClosureNew => "__rts_closure_new",
             RuntimeOp::StringConst => "__rts_string_const",
             RuntimeOp::TemplateStrings => "__rts_template_strings",
+            RuntimeOp::ModuleBinding => "__rts_module_binding",
+            RuntimeOp::ModuleNamespace => "__rts_module_namespace",
             RuntimeOp::TypeOf => "__rts_type_of",
             RuntimeOp::LooseEquals => "__rts_loose_equals",
             RuntimeOp::Exponent => "__rts_exponent",
@@ -603,6 +618,8 @@ impl RuntimeOp {
             // Which literal, not the text: an index the compilation minted.
             RuntimeOp::StringConst => (vec![Repr::I64], vec![UNPROVEN]),
             RuntimeOp::TemplateStrings => (vec![Repr::I64], vec![UNPROVEN]),
+            RuntimeOp::ModuleBinding => (vec![Repr::I64, Repr::I64], vec![UNPROVEN]),
+            RuntimeOp::ModuleNamespace => (vec![Repr::I64], vec![UNPROVEN]),
             RuntimeOp::TypeOf => (vec![UNPROVEN], vec![UNPROVEN]),
             // A proven boolean, like the other equalities: the runtime
             // establishes it, which is what lets a branch consume one.

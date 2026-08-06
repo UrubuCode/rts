@@ -119,6 +119,12 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::TemplateStrings => (CoreEntry::TemplateStrings, {
             rts_core_rwk::entry::template_strings as extern "C" fn(i64) -> u64 as *const u8
         }),
+        RuntimeOp::ModuleBinding => (CoreEntry::ModuleBinding, {
+            rts_core_rwk::entry::module_binding as extern "C" fn(i64, i64) -> u64 as *const u8
+        }),
+        RuntimeOp::ModuleNamespace => (CoreEntry::ModuleNamespace, {
+            rts_core_rwk::entry::module_namespace as extern "C" fn(i64) -> u64 as *const u8
+        }),
         RuntimeOp::TypeOf => (CoreEntry::TypeOf, {
             rts_core_rwk::entry::type_of as extern "C" fn(u64) -> u64 as *const u8
         }),

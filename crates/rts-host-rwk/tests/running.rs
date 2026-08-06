@@ -1620,7 +1620,7 @@ fn an_undeclared_name_is_still_the_programs_error() {
     // three constants are readable and the rest is refused.
     let error = compile("return nowhere;").expect_err("`nowhere` is undeclared");
     assert!(
-        format!("{error:?}").contains("UnboundName"),
+        format!("{error:?}").contains("Unbound"),
         "expected the program to be wrong rather than a gap, got {error:?}"
     );
 }
@@ -2406,7 +2406,7 @@ fn a_name_nothing_provides_is_still_the_programs_error() {
     // matters: a typo does not become `undefined`. Removing this assertion is
     // how the refusal would quietly stop applying.
     let error = compile("return Elephant;").expect_err("refused");
-    assert!(format!("{error:?}").contains("UnboundName"), "{error:?}");
+    assert!(format!("{error:?}").contains("Unbound"), "{error:?}");
 }
 
 #[test]
@@ -2756,7 +2756,7 @@ fn globalthis_is_the_object_the_globals_are_on() {
     // when the language provides it or the program assigns it by name, and
     // `globalThis.other = 5` is neither. Reading it is what a typo looks like.
     let bare = compile("globalThis.other = 5; return other;").expect_err("refused");
-    assert!(format!("{bare:?}").contains("UnboundName"), "{bare:?}");
+    assert!(format!("{bare:?}").contains("Unbound"), "{bare:?}");
 
     let itself = run("return globalThis === globalThis;");
     assert_eq!(tags::payload_of(itself), tags::BOOL_TRUE);
@@ -2781,7 +2781,7 @@ fn reading_a_name_nothing_declares_or_creates_is_still_refused() {
     // that meant to catch that error — where answering `undefined` would be
     // wrong for every program with a typo in it.
     let error = compile("return neverMentionedAgain;").expect_err("refused");
-    assert!(format!("{error:?}").contains("UnboundName"), "{error:?}");
+    assert!(format!("{error:?}").contains("Unbound"), "{error:?}");
 }
 
 #[test]

@@ -4242,6 +4242,7 @@ dependencies = [
  "rts-codegen",
  "rts-core-rwk",
  "rts-cranelift",
+ "rts-std-rwk",
 ]
 
 [[package]]
@@ -4436,6 +4437,13 @@ dependencies = [
  "tokio",
  "ureq 2.12.1",
  "webpki-roots 1.0.6",
+]
+
+[[package]]
+name = "rts-std-rwk"
+version = "0.1.0"
+dependencies = [
+ "rts-core-rwk",
 ]
 
 [[package]]

@@ -16,6 +16,14 @@ pub enum HostError {
     Parse(String),
     /// The language could not emit it.
     Emit(EmitError),
+    /// A name is used and nothing introduces it, spelled out.
+    ///
+    /// Apart from [`Self::Emit`] because it carries the NAME rather than its
+    /// number: a `Name` is an index into a table that belongs to one
+    /// compilation and does not outlive it, so the text can only be rendered
+    /// where the error is produced. "a name nothing introduced" without saying
+    /// which one is a diagnostic nobody can act on.
+    Unbound(String),
     /// The machine could not place it.
     Place(TargetError),
     /// The emitted program is not well formed.
