@@ -72,17 +72,20 @@
 //! is not this file's to make; what this file owes is not to depend on the
 //! stale claim.
 //!
-//! # The ordering rule, and what it refuses
+//! # The ordering rule
 //!
 //! `{a: f(), b: g()}` evaluates `f` then `g`, once each. Replacing the literal
-//! has to keep that, and it does — the property values are emitted in source
-//! order at the declaration. That would make an effectful value safe, and it is
-//! **still refused**: only a literal or a read of a local may be a property
-//! value. The reason is the interaction, not the order — an effectful value
-//! that throws leaves a half-built object, a duplicate key drops an effect, and
-//! each of those is a separate argument to get right. A narrow rule that is
-//! obviously correct beats a wide one that is correct for reasons spread over
-//! four paragraphs.
+//! has to keep that, and it does: the property values are emitted in source
+//! order at the declaration, so the same expressions run the same number of
+//! times in the same order.
+//!
+//! A property value used to have to be a literal or a bare name on top of that.
+//! It no longer does — the argument is written out at [`flattenable`], with the
+//! measurement of what the restriction cost. What replaced it is narrower and
+//! actually load-bearing: a read of the name **in its own initialiser** is a
+//! `ReferenceError`, not an access, and [`Escaping::declaring`] is what says so.
+//! A duplicate key is still refused, which is what keeps "the same number of
+//! times" true.
 //!
 //! # The region rule
 //!
@@ -106,7 +109,7 @@ use super::capture::{Child, StmtChild, walk_expr, walk_stmt};
 use super::{Ctx, EmitResult, Scope};
 use crate::names::Name;
 use crate::syntax::{
-    AssignOp, AssignTarget, Expr, ExprKind, ForEachTarget, Literal, Pattern, Property, PropertyKey,
+    AssignOp, AssignTarget, Expr, ExprKind, ForEachTarget, Pattern, Property, PropertyKey,
     Spreadable, Stmt, StmtKind, UnaryOp,
 };
 
@@ -168,6 +171,7 @@ pub(super) fn analyse(
         candidates: &collected.candidates,
         escaped: HashSet::new(),
         everything: false,
+        declaring: None,
     };
     for statement in body {
         scan_stmt(statement, 0, &mut escaping);
@@ -324,43 +328,50 @@ fn collect(statement: &Stmt, depth: u32, into: &mut Collected) {
 /// readable again, which is not what the object does.
 ///
 /// Shorthand — `{a}` — is accepted, and that is not a guess: it is `{a: a}` with
-/// the value recorded as an ordinary identifier, so the value rule below decides
-/// it exactly as it decides the long spelling.
+/// the value recorded as an ordinary identifier, so nothing about it is special.
+///
+/// # Why the VALUES are not restricted
+///
+/// They were, to a literal or a bare name, and the restriction is gone. It was
+/// costing the most ordinary literal there is — `{a: i, b: i + 1}` measured
+/// 119.38 ms/compile against 42.85 ms for the same program without the `+ 1`
+/// (2026-08-06, release, 400 statements) — and the three things it was
+/// protecting are each answered somewhere better:
+///
+/// - **Evaluation order.** `declare_flattened` emits the values in source
+///   order at the point the literal was written. Same expressions, same order,
+///   same number of times. There is nothing left for a restriction to protect.
+///
+/// - **A value that mentions another candidate.** `{x: q}` puts `q` in the
+///   tree as a bare name, and the escape scan kills any candidate it reaches
+///   as one. The dependency runs the right way round, which is why this pass
+///   needs no fixpoint.
+///
+/// - **A value that reads the object being declared.** `{a: 1, b: o.a}` is a
+///   `ReferenceError` and must stay one. That is `Escaping::declaring`, and it
+///   is a real hole this restriction was hiding rather than one it was solving.
+///
+/// What is left is a value that **throws** halfway, leaving some bindings
+/// declared and the rest not. Nothing can observe it: the object provably does
+/// not escape, `o` is block-scoped, and the exception leaves the block that
+/// declares it. The half-built object in the unreplaced program is exactly as
+/// unreachable.
 fn flattenable(properties: &[Property]) -> Option<Vec<Name>> {
     let mut keys: Vec<Name> = Vec::new();
     for property in properties {
         let Property::Value {
             key: PropertyKey::Named(name),
-            value,
             ..
         } = property
         else {
             return None;
         };
-        if !is_free(value) {
-            return None;
-        }
         if keys.contains(name) {
             return None;
         }
         keys.push(*name);
     }
     Some(keys)
-}
-
-/// Whether evaluating a property's value can be seen by anything else.
-///
-/// The allow-list is two entries wide. A regular expression literal and a
-/// `BigInt` are absent although they are written as literals: each is a runtime
-/// call that produces a heap value with its own identity, so neither is the
-/// free, repeatable thing the rest of this file assumes a property value is.
-fn is_free(value: &Expr) -> bool {
-    matches!(
-        &value.kind,
-        ExprKind::Literal(
-            Literal::Number(_) | Literal::String(_) | Literal::Boolean(_) | Literal::Singleton(_)
-        ) | ExprKind::Ident(_)
-    )
 }
 
 /// What the escape scan is accumulating.
@@ -372,6 +383,21 @@ struct Escaping<'a> {
     /// Whether a node the shared walker does not descend into was reached, in
     /// which case nothing survives — see the module doc.
     everything: bool,
+    /// The name whose own initialiser is being scanned, if one is.
+    ///
+    /// # Why a read of it there is not the read this analysis models
+    ///
+    /// Because the binding does not exist yet. `let o = {a: 1, b: o.a}` is a
+    /// `ReferenceError`: `o` is in its temporal dead zone until the whole
+    /// declaration finishes, so `o.a` throws rather than answering `1`. The
+    /// scan cannot see that from the shape of the node — an `o.a` inside the
+    /// initialiser looks exactly like the `o.a` on the next line — so the
+    /// position is carried instead.
+    ///
+    /// It costs a field rather than a traversal. The alternative was a second
+    /// walk of the initialiser looking for the name, which is the shape this
+    /// crate has removed six times.
+    declaring: Option<Name>,
 }
 
 impl Escaping<'_> {
@@ -391,6 +417,12 @@ impl Escaping<'_> {
 
     /// Records an access this analysis models: `o.k`, read or written.
     fn note_use(&mut self, object: Name, property: Name, depth: u32, is_write: bool) {
+        // In its own initialiser the name is dead, so this is not an access at
+        // all — it is the throw the program is entitled to.
+        if self.declaring == Some(object) {
+            self.kill(object);
+            return;
+        }
         let Some(candidate) = self.candidates.get(&object) else {
             // Not a candidate, so `o.k` on it is an ordinary property access and
             // there is nothing to decide.
@@ -425,7 +457,17 @@ fn scan_stmt(statement: &Stmt, depth: u32, state: &mut Escaping) {
         StmtChild::Expr(expr) => scan_expr(expr, inner, state, true),
         StmtChild::Binding(binding) => {
             if let Some(value) = &binding.value {
+                // The initialiser is scanned with the name being bound marked
+                // dead, so a read of it in there refuses the replacement rather
+                // than being taken for an ordinary access. Restored rather than
+                // cleared: a declaration is not nested inside another one, but
+                // saying so by construction costs nothing.
+                let outer = match &binding.target {
+                    Pattern::Name(name) => state.declaring.replace(*name),
+                    _ => state.declaring.take(),
+                };
                 scan_expr(value, inner, state, true);
+                state.declaring = outer;
             }
         }
         StmtChild::Catch(catch) => {
@@ -811,12 +853,37 @@ mod tests {
     }
 
     #[test]
-    fn a_property_value_that_calls_something_is_refused_for_its_ordering() {
-        // `{a: f(), b: g()}` runs `f` then `g`, once each. Emitting the values
-        // in source order would keep that — and this is refused anyway, because
-        // the argument for the wide rule needs the throwing case and the
-        // duplicate-key case defended too. The narrow rule needs neither.
-        assert!(replaced("let o = {a: f()}; return o.a;").is_empty());
+    fn a_property_value_that_calls_something_still_runs_in_source_order() {
+        // `{a: f(), b: g()}` runs `f` then `g`, once each, and `declare_flattened`
+        // emits them in that order at that point. This was refused until the
+        // ordering argument was written down; refusing it cost 2.8x on the most
+        // ordinary literal there is.
+        assert_eq!(
+            replaced("let o = {a: f(), b: g()}; return o.a + o.b;").len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_property_value_that_names_another_candidate_lets_that_one_escape() {
+        // `q` appears bare, which kills `q`. `p` is replaceable *because* `q` is
+        // not — the dependency that makes this pass need no fixpoint.
+        assert_eq!(replaced("let q = {a: 1}; let p = {x: q}; return p.x;"), ["p"]);
+    }
+
+    #[test]
+    fn reading_the_object_inside_its_own_initialiser_is_the_dead_zone() {
+        // `let o = {a: 1, b: o.a}` throws a ReferenceError: `o` is not bound
+        // until the declaration finishes. Replacing it would answer `1` instead,
+        // and the read looks exactly like the legal one on the next line — so
+        // the position is carried rather than inferred.
+        assert!(replaced("let o = {a: 1, b: o.a}; return o.b;").is_empty());
+    }
+
+    #[test]
+    fn naming_the_object_inside_its_own_initialiser_is_refused_too() {
+        // The same dead zone reached as a bare name rather than through a key.
+        assert!(replaced("let o = {a: o}; return o.a;").is_empty());
     }
 
     #[test]

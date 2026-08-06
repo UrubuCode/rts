@@ -157,13 +157,11 @@ fn escaping() {
     );
     timed("object, never escapes", 6, &numbered(400,
         "let t = 0; let i = 1;", "{ let o# = {a: i, b: i}; t = t + o#.a + o#.b; }"));
-    // What the analysis refuses today, kept beside what it accepts so the cost
-    // of the refusal is a number rather than a note. `i + 1` is not a literal
-    // and not a bare name, so the literal is left alone — even though the
-    // values are emitted in source order and the ordering is therefore already
-    // kept. Loosening that rule is its own change, with its own argument about
-    // a value that throws halfway.
-    timed("object, one computed value (refused today)", 6, &numbered(400,
+    // A value that is neither a literal nor a bare name. This was refused, and
+    // the refusal cost 119.38 ms against the 42.85 ms of the row above — which
+    // is why the row is still here now that it is accepted: it is the pair that
+    // would show a rule quietly narrowing again.
+    timed("object, one computed value", 6, &numbered(400,
         "let t = 0; let i = 1;", "{ let o# = {a: i, b: i + 1}; t = t + o#.a + o#.b; }"));
     // The control: the same object, escaping through a call, which must NOT be
     // replaced. If this one ever becomes as cheap as the first, the analysis is

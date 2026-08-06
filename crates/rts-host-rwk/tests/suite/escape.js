@@ -55,6 +55,38 @@ let g = {x: 1};
 }
 check("shadow-outer", g.x === 1);
 
+// -- property values that do something ---------------------------------------
+
+// The values run in source order, once each, at the point the literal is
+// written. That is the whole ordering obligation, and it is what allows a value
+// to be any expression rather than only a literal or a name.
+let order = "";
+function note(tag, value) { order = order + tag; return value; }
+let ord = {a: note("a", 1), b: note("b", 2), c: note("c", 3)};
+check("order", order === "abc");
+check("order-values", ord.a + ord.b + ord.c === 6);
+
+// Once each, not once per read.
+let calls = 0;
+function counted() { calls = calls + 1; return 9; }
+let once = {a: counted()};
+check("evaluated-once", once.a + once.a === 18 && calls === 1);
+
+// A computed value, which is the shape the old rule refused outright.
+let base = 10;
+let computed = {a: base, b: base + 1, c: base * 2};
+check("computed-values", computed.a + computed.b + computed.c === 41);
+
+// Reading the object inside its own initialiser — `let o = {a: 1, b: o.a}` — is
+// a temporal dead zone reference and should throw. There is no check for it
+// here, and that is deliberate rather than an omission: this engine does not
+// implement the dead zone yet, so the program does not throw whether or not the
+// object is replaced, and a check would pass by agreeing with a bug.
+//
+// The analysis refuses it regardless, which is the half that is this file's to
+// keep: `Escaping::declaring`, pinned by two unit tests in `escape.rs`. When the
+// dead zone lands, replacement will already be out of its way.
+
 // -- the same programs, escaping ---------------------------------------------
 
 let h = keep({x: 1, y: 2});
