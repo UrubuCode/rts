@@ -68,6 +68,7 @@ mod globals;
 mod loops;
 mod merge;
 mod object;
+mod optional;
 mod property;
 mod protect;
 mod proven;

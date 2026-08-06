@@ -211,7 +211,7 @@ pub fn emit_logical_from(
 /// the contract between two crates for something the existing one already
 /// answers. The second comparison is only reached when the first said no, which
 /// is where the cost sits: a value that IS undefined pays one.
-fn branch_on_nullish(
+pub(super) fn branch_on_nullish(
     builder: &mut FuncBuilder,
     ctx: &mut Ctx,
     value: ValueId,

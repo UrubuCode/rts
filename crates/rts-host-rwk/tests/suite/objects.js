@@ -372,4 +372,50 @@ check("map-size-not-enumerated", (function () {
     return Object.keys(m).length === 0 && m.size === 1;
 })());
 
+// A type assertion is erased: the program's claim about a type does not
+// change what the expression computes, because nothing checked the claim.
+check("type-assertion-is-erased-but-still-computes", (function () {
+    let x = (1 + 1) ;
+    return x === 2;
+})());
+
+// Optional chaining: the object side.
+check("optional-chain-present-object", (function () {
+    let o = { b: 5 };
+    return o?.b === 5;
+})());
+check("optional-chain-undefined-object", (function () {
+    let a;
+    return (a?.b) === undefined;
+})());
+check("optional-chain-null-object", (function () {
+    let a = null;
+    return (a?.b) === undefined;
+})());
+// The whole rest of the chain is skipped, not just the optional link: `a?.b.c`
+// must not crash reading `.c` off `undefined` when `a` is nullish.
+check("optional-chain-short-circuits-whole-chain", (function () {
+    let a;
+    return (a?.b.c) === undefined;
+})());
+check("optional-chain-computed-key", (function () {
+    let o = { k: 7 };
+    let key = "k";
+    return (o?.[key]) === 7;
+})());
+check("optional-chain-call", (function () {
+    let o = { f: function () { return 3; } };
+    return (o?.f()) === 3;
+})());
+check("optional-chain-call-on-absent", (function () {
+    let o = {};
+    return (o.f?.()) === undefined;
+})());
+// Only `null` and `undefined` short-circuit — `0` is falsy but present, so
+// `0?.toString` must still read the property rather than skip it.
+check("optional-chain-zero-does-not-short-circuit", (function () {
+    let z = 0;
+    return typeof (z?.toString) === "function";
+})());
+
 return failed;

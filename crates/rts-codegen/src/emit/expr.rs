@@ -229,7 +229,7 @@ pub fn emit_expr(
             parts,
             expressions,
         } => super::template::emit_tagged_template(builder, scope, ctx, tag, parts, expressions),
-        ExprKind::Chain(_) => gap("optional chaining"),
+        ExprKind::Chain(inner) => super::optional::emit_chain(builder, scope, ctx, inner),
         ExprKind::SuperMember { property } => {
             super::class::emit_super_member(builder, scope, ctx, property)
         }
@@ -240,7 +240,16 @@ pub fn emit_expr(
         ExprKind::NewTarget => gap("`new.target`"),
         ExprKind::ImportMeta => gap("`import.meta`"),
         ExprKind::ImportCall { .. } => gap("`import()`"),
-        ExprKind::Asserted { .. } => gap("a type assertion"),
+        // `e as T` and `<T>e` are erased, not proved. Rule 4 says an annotation
+        // is a CLAIM, not a proof, and TypeScript gives no guarantee that this
+        // one is true — `x as string` on a number compiles and runs, and at
+        // run time `x` is still a number. Emitting the assertion as a guard, or
+        // as evidence for `Repr::F64`, would be treating the program's word for
+        // "trust me" as something that checked anything, which is the mistake
+        // this rule exists to name. So the assertion carries no weight here: it
+        // lowers to exactly what its inner expression lowers to, and whatever
+        // representation THAT earns on its own is what this value gets.
+        ExprKind::Asserted { value, .. } => emit_expr(builder, scope, ctx, value),
     }
 }
 
