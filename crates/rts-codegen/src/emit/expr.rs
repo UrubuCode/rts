@@ -40,7 +40,7 @@
 
 use rts_cranelift::ir::inst::{CmpOp, NumOp};
 use rts_cranelift::ir::{ConstDecl, FuncBuilder, ScalarBits, ValueId};
-use rts_cranelift::repr::{RefKind, Repr};
+use rts_cranelift::repr::Repr;
 use rts_cranelift::tags;
 
 use super::{Ctx, EmitError, EmitResult, Scope, UNPROVEN};
@@ -139,12 +139,21 @@ pub fn emit_expr(
             callee, arguments, ..
         } => super::call::emit_construct(builder, scope, ctx, callee, arguments),
         ExprKind::Member {
-            object, property, ..
+            object,
+            property,
+            optional,
         } => {
+            // A local whose object the escape analysis replaced has no object to
+            // read from: the property IS a local, so the read is free rather
+            // than a guard, a cache and a possible call. `escape.rs` says what
+            // has to be true for that to be the same program.
+            if let Some(field) = super::escape::field_of(ctx, object, *property, *optional) {
+                return super::binding::read(builder, scope, ctx, field);
+            }
             // `property` is a name, not a key: `o[e]` is `Index`, a different
             // node. So there is no computed case to refuse here.
             let receiver = emit_expr(builder, scope, ctx, object)?;
-            emit_read(builder, ctx, receiver, *property)
+            super::property::emit_read(builder, ctx, receiver, *property)
         }
         ExprKind::Index { object, index, .. } => {
             // Receiver first, then the key: `a()[b()]` runs `a` before `b`.
@@ -154,7 +163,7 @@ pub fn emit_expr(
             // run time. See [`literal_name`] for why this is worth doing and
             // when it is refused.
             if let Some(name) = literal_name(ctx, index) {
-                return emit_read(builder, ctx, receiver, name);
+                return super::property::emit_read(builder, ctx, receiver, name);
             }
             let key = emit_expr(builder, scope, ctx, index)?;
             Ok(call(builder, ctx, RuntimeOp::GetIndexed, &[receiver, key])?[0])
@@ -555,9 +564,32 @@ fn emit_assign(
     // it is handled before the local case because it does not go through the
     // scope at all: the binding is on the heap.
     if let ExprKind::Member {
-        object, property, ..
+        object,
+        property,
+        optional,
     } = &place.kind
     {
+        // The replaced case first, and it does not go through a receiver at all
+        // — there is no object. The order it has to keep is trivially kept: the
+        // "receiver" is an identifier, so nothing was evaluated before the value.
+        if let Some(field) = super::escape::field_of(ctx, object, *property, *optional) {
+            let assigned = match op {
+                AssignOp::Plain => emit_expr(builder, scope, ctx, value)?,
+                // Still one read of the target, which is what the tree carrying
+                // the operator is for.
+                AssignOp::Compound(binary) => {
+                    let current = super::binding::read(builder, scope, ctx, field)?;
+                    let operand = emit_expr(builder, scope, ctx, value)?;
+                    emit_binary(builder, ctx, binary, current, operand)?
+                }
+                // Unreachable: the analysis refuses a candidate this is written
+                // on, precisely so that replacing an object cannot turn a
+                // refusal into a program. Stated rather than assumed, because
+                // the two facts live in different files.
+                AssignOp::Logical(_) => return gap("`&&=`, `||=` or `??=` on a property"),
+            };
+            return super::binding::write(builder, scope, ctx, field, assigned);
+        }
         // Receiver first, then the value: `a().x = b()` runs `a` before `b`.
         let receiver = emit_expr(builder, scope, ctx, object)?;
         let assigned = match op {
@@ -567,7 +599,7 @@ fn emit_assign(
             // the order a rewrite to `o.x = o.x + v` loses, by evaluating `o`
             // twice.
             AssignOp::Compound(binary) => {
-                let current = emit_read(builder, ctx, receiver, *property)?;
+                let current = super::property::emit_read(builder, ctx, receiver, *property)?;
                 let operand = emit_expr(builder, scope, ctx, value)?;
                 emit_binary(builder, ctx, binary, current, operand)?
             }
@@ -580,7 +612,7 @@ fn emit_assign(
                 return gap("`&&=`, `||=` or `??=` on a property");
             }
         };
-        return emit_write(builder, ctx, receiver, *property, assigned);
+        return super::property::emit_write(builder, ctx, receiver, *property, assigned);
     }
 
     // `o[e] = v`, where the key is computed. The receiver and the key are
@@ -596,13 +628,13 @@ fn emit_assign(
             let assigned = match op {
                 AssignOp::Plain => emit_expr(builder, scope, ctx, value)?,
                 AssignOp::Compound(binary) => {
-                    let current = emit_read(builder, ctx, receiver, name)?;
+                    let current = super::property::emit_read(builder, ctx, receiver, name)?;
                     let operand = emit_expr(builder, scope, ctx, value)?;
                     emit_binary(builder, ctx, binary, current, operand)?
                 }
                 AssignOp::Logical(_) => return gap("`&&=`, `||=` or `??=` on a property"),
             };
-            return emit_write(builder, ctx, receiver, name, assigned);
+            return super::property::emit_write(builder, ctx, receiver, name, assigned);
         }
         let key = emit_expr(builder, scope, ctx, index)?;
         let assigned = match op {
@@ -761,96 +793,6 @@ fn proven_binary(op: BinaryOp) -> Option<Proven> {
     })
 }
 
-/// The number a property name has, as a machine constant.
-///
-/// An integer rather than a tagged value: it is not a JavaScript value at all,
-/// it is which name the compiler resolved. Emitting it tagged would be claiming
-/// the program could compute it, which is exactly what a computed property does
-/// and what this path is not.
-pub(super) fn key_constant(builder: &mut FuncBuilder, ctx: &mut Ctx, name: Name) -> ValueId {
-    let key = ctx.key_of(name);
-    let id = builder.declare_const(ConstDecl::Scalar {
-        repr: Repr::I64,
-        bits: ScalarBits(u64::from(key)),
-    });
-    builder.use_const(id)
-}
-
-
-/// Reads a property, through the site's memory of what it last saw.
-///
-/// # The shape of what this emits
-///
-/// ```text
-///   guard the receiver is a reference ─── not one ──┐
-///            │                                      │
-///   cached_get ─── the layout changed ──────────────┤
-///            │                                      │
-///          hit(value)                             slow: call the runtime
-///            │                                      │
-///            └───────────────► join(value) ◄────────┘
-/// ```
-///
-/// Four blocks for one property read, and every one of them is required by
-/// something the machine refuses to assume.
-///
-/// # Why the guard is there at all
-///
-/// `cached_get` takes a **proven reference** and a JavaScript value is generic:
-/// `o` might be a number. The machine will not narrow without a guard, because
-/// narrowing can fail — and `1..x` failing quietly is a load from an integer.
-///
-/// # Why the slow path is a call and not a repeat of the fast one
-///
-/// The site missed, which means either the object has a different layout or the
-/// property is not somewhere a load reaches. Both are the runtime's to answer,
-/// and answering them here would be a second implementation of what
-/// `get_property` already is.
-///
-/// # What the cache is not
-///
-/// Ours to fill. The machine writes it from what `rts_cache_resolve` returns:
-/// *"there is no cell to initialize, no miss handler to write, and no way to
-/// forget to update it"*. This declares one and names it; that is all.
-pub(super) fn emit_read(
-    builder: &mut FuncBuilder,
-    ctx: &mut Ctx,
-    receiver: ValueId,
-    property: Name,
-) -> EmitResult<ValueId> {
-    let receiver = tagged(builder, receiver);
-    let key = ctx.shape_key(property);
-
-    let as_reference = builder.create_block();
-    let narrowed = builder.add_block_param(as_reference, Repr::Ref(RefKind::Opaque));
-    let hit = builder.create_block();
-    let found = builder.add_block_param(hit, UNPROVEN);
-    let slow = builder.create_block();
-    let join = builder.create_block();
-    let result = builder.add_block_param(join, UNPROVEN);
-
-    builder.guard(
-        receiver,
-        Repr::Ref(RefKind::Opaque),
-        (as_reference, &[]),
-        (slow, &[]),
-    )?;
-
-    builder.switch_to(as_reference);
-    let cache = builder.declare_cache();
-    builder.cached_get(narrowed, key, cache, (hit, &[]), (slow, &[]))?;
-
-    builder.switch_to(hit);
-    builder.jump(join, &[found])?;
-
-    builder.switch_to(slow);
-    let key_value = key_constant(builder, ctx, property);
-    let answered = call(builder, ctx, RuntimeOp::GetProperty, &[receiver, key_value])?[0];
-    builder.jump(join, &[answered])?;
-
-    builder.switch_to(join);
-    Ok(result)
-}
 
 /// An operator over operands nothing proved, taking the instruction when they
 /// turn out to be numbers.
@@ -958,67 +900,6 @@ fn runtime_binary(op: BinaryOp) -> Option<(RuntimeOp, bool)> {
         _ => return None,
     })
 }
-
-/// Writes a property, through the site's memory of what it last saw.
-///
-/// The mirror of [`emit_read`] with one difference that is not symmetry: the
-/// slow path is not a slower store. A key the object does not have changes what
-/// the object IS, which is a shape transition — and a transition is not
-/// something a site can remember, because the next object through it may be at
-/// a different layout entirely. `rts_cache_resolve` answers that it cannot be
-/// reached this way, and `set_property` is what takes the transition.
-///
-/// So the fast path is exactly the case a store repeats: a property the object
-/// already has.
-pub(super) fn emit_write(
-    builder: &mut FuncBuilder,
-    ctx: &mut Ctx,
-    receiver: ValueId,
-    property: Name,
-    value: ValueId,
-) -> EmitResult<ValueId> {
-    let receiver = tagged(builder, receiver);
-    let value = tagged(builder, value);
-    let key = ctx.shape_key(property);
-
-    let as_reference = builder.create_block();
-    let narrowed = builder.add_block_param(as_reference, Repr::Ref(RefKind::Opaque));
-    let stored = builder.create_block();
-    let slow = builder.create_block();
-    let join = builder.create_block();
-    let result = builder.add_block_param(join, UNPROVEN);
-
-    builder.guard(
-        receiver,
-        Repr::Ref(RefKind::Opaque),
-        (as_reference, &[]),
-        (slow, &[]),
-    )?;
-
-    builder.switch_to(as_reference);
-    let cache = builder.declare_cache();
-    builder.cached_set(narrowed, key, cache, value, (stored, &[]), (slow, &[]))?;
-
-    // An assignment is an expression, and what it produces is the value that was
-    // assigned — the same on both paths, which is why the join carries it rather
-    // than each path answering separately.
-    builder.switch_to(stored);
-    builder.jump(join, &[value])?;
-
-    builder.switch_to(slow);
-    let key_value = key_constant(builder, ctx, property);
-    let answered = call(
-        builder,
-        ctx,
-        RuntimeOp::SetProperty,
-        &[receiver, key_value, value],
-    )?[0];
-    builder.jump(join, &[answered])?;
-
-    builder.switch_to(join);
-    Ok(result)
-}
-
 /// A string constant, from text this module already has.
 ///
 /// The same path a string literal takes — `ctx.literal` numbers it and the

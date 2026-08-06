@@ -21,7 +21,8 @@
 
 use rts_cranelift::ir::{FuncBuilder, ValueId};
 
-use super::expr::{call, emit_expr, gap, key_constant, tagged};
+use super::expr::{call, emit_expr, gap, tagged};
+use super::property::key_constant;
 use super::{Ctx, EmitResult, Scope};
 use crate::names::Name;
 use crate::runtime::RuntimeOp;

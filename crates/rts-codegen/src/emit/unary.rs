@@ -189,9 +189,9 @@ pub fn emit_update(
             // re-emitting the object for the write is the rewrite that breaks
             // it — invisibly, for every receiver without a side effect.
             let receiver = emit_expr(builder, scope, ctx, object)?;
-            let current = expr::emit_read(builder, ctx, receiver, *property)?;
+            let current = super::property::emit_read(builder, ctx, receiver, *property)?;
             let (before, after) = step_value(builder, ctx, current, step)?;
-            expr::emit_write(builder, ctx, receiver, *property, after)?;
+            super::property::emit_write(builder, ctx, receiver, *property, after)?;
             Ok(match position {
                 UpdatePosition::Prefix => after,
                 UpdatePosition::Postfix => before,

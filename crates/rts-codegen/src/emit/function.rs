@@ -234,6 +234,13 @@ pub(super) fn emit_body(
     // emitted in the middle of an outer one would otherwise be read against the
     // outer's answers.
     let outer_numeric = std::mem::replace(&mut ctx.numeric, super::analyse(body));
+    // The same lifetime, and it takes `captured` because which names nested code
+    // can see is decided once — recomputing it here would be a second chance to
+    // say "not captured" about a local a closure holds.
+    let outer_flattened = std::mem::replace(
+        &mut ctx.flattened,
+        super::escape::analyse(body, parameters, &captured),
+    );
 
     let result = emit_body_into(
         ctx,
@@ -250,6 +257,7 @@ pub(super) fn emit_body(
         late_this,
     );
     ctx.numeric = outer_numeric;
+    ctx.flattened = outer_flattened;
     result?;
     Ok(func)
 }
@@ -281,7 +289,7 @@ fn emit_body_into(
     let environment = if builds_environment {
         let fresh = expr::call(&mut builder, ctx, RuntimeOp::ObjectNew, &[])?[0];
         let outer = binding::outer_link(ctx);
-        expr::emit_write(&mut builder, ctx, fresh, outer, handed)?;
+        super::property::emit_write(&mut builder, ctx, fresh, outer, handed)?;
         fresh
     } else {
         handed

@@ -57,7 +57,7 @@ pub fn read(
         Some(Binding::Value(value)) => Ok(value),
         Some(Binding::InEnvironment { hops, name }) => {
             let environment = walk(builder, scope, ctx, hops)?;
-            expr::emit_read(builder, ctx, environment, name)
+            super::property::emit_read(builder, ctx, environment, name)
         }
         // Nothing declared it. A few names are still readable — three the
         // emitter produces itself and a few the runtime holds — and the rest is
@@ -87,7 +87,7 @@ pub fn write(
     match scope.lookup(name) {
         Some(Binding::InEnvironment { hops, name }) => {
             let environment = walk(builder, scope, ctx, hops)?;
-            expr::emit_write(builder, ctx, environment, name, value)
+            super::property::emit_write(builder, ctx, environment, name, value)
         }
         Some(Binding::Value(_)) => {
             // A value binding is rebound rather than stored to, which is what
@@ -128,7 +128,7 @@ pub fn declare(
         // function entry, because a hoisted inner function may have read it
         // before this declaration was reached. So declaring is only the store.
         let environment = walk(builder, scope, ctx, 0)?;
-        expr::emit_write(builder, ctx, environment, name, value)?;
+        super::property::emit_write(builder, ctx, environment, name, value)?;
         return Ok(());
     }
     let held = expr::stored(builder, ctx, name, value);
@@ -150,7 +150,7 @@ fn walk(builder: &mut FuncBuilder, scope: &Scope, ctx: &mut Ctx, hops: u32) -> E
         .expect("a scope holding an environment binding has an environment");
     for _ in 0..hops {
         let outer = ctx.names.intern(OUTER);
-        environment = expr::emit_read(builder, ctx, environment, outer)?;
+        environment = super::property::emit_read(builder, ctx, environment, outer)?;
     }
     Ok(environment)
 }

@@ -30,8 +30,20 @@ const ROLE: &str = "RTS_EXHAUSTION_ROLE";
 /// A region is 65 536 cells and nothing reclaims them, so a loop of a quarter of
 /// a million allocations cannot finish however the engine behaves. What differs
 /// is whether it says so.
-const TOO_MANY: &str = "let t = 0; \
-     for (let i = 0; i < 250000; i = i + 1) { let o = {a: i}; t = t + o.a; } \
+///
+/// # Why the object is handed to a function
+///
+/// Because it has to allocate, and this fixture used to read `o.a` and nothing
+/// else — which scalar replacement now recognises as an object that cannot
+/// escape and removes entirely. The program then ran a quarter of a million
+/// iterations of plain arithmetic and returned, and the test failed for the
+/// right reason: its premise had gone.
+///
+/// `keep` makes the object reach somewhere the compiler cannot see through, so
+/// the allocation is real again. It is the escape analysis's own control case,
+/// borrowed: if this ever stops allocating, the analysis has become wrong.
+const TOO_MANY: &str = "function keep(x) { return x.a; } let t = 0; \
+     for (let i = 0; i < 250000; i = i + 1) { let o = {a: i}; t = t + keep(o); } \
      return t;";
 
 #[test]

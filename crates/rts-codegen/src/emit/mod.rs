@@ -59,6 +59,7 @@ mod call;
 mod capture;
 mod choice;
 mod class;
+mod escape;
 mod expr;
 mod fold;
 mod foreach;
@@ -67,6 +68,7 @@ mod globals;
 mod loops;
 mod merge;
 mod object;
+mod property;
 mod protect;
 mod proven;
 mod regex;
@@ -238,6 +240,12 @@ pub struct Ctx<'a> {
     /// supplying it would be supplying an answer about something it has not
     /// looked at.
     numeric: Numeric,
+    /// Which locals hold an object that never has to be allocated.
+    ///
+    /// Owned and scoped exactly as `numeric` is, and for the same reason: it is
+    /// a fact about ONE body, so a nested function emitted in the middle of an
+    /// outer one has to be read against its own answer.
+    flattened: escape::Flattened,
     /// Which names the program creates by assigning to them.
     ///
     /// Answered once for the whole program before anything is emitted, because
@@ -266,6 +274,7 @@ impl<'a> Ctx<'a> {
             pending: Vec::new(),
             literals: Vec::new(),
             numeric: Numeric::default(),
+            flattened: escape::Flattened::default(),
             globals: std::collections::BTreeSet::new(),
         }
     }

@@ -127,6 +127,64 @@ fn scaling() {
     }
 
     spread();
+    escaping();
+}
+
+/// What an object that never leaves its function costs.
+///
+/// `let o = {a: i}; t = t + o.a;` emits three calls — the allocation, the write
+/// and the read — and allocates a cell that nothing reclaims. If the compiler
+/// can prove the object never escapes, all three and the cell go away.
+///
+/// The pair is the measurement: the same arithmetic written with an object and
+/// written without one. A compiler that sees through the object makes them cost
+/// the same; one that does not shows the gap, which is what the object costs.
+///
+/// # Why every statement spells a different name
+///
+/// Because the first version of this benchmark did not, and measured nothing.
+/// Four hundred blocks each declaring `o` is four hundred bindings of one
+/// spelling, which the analysis refuses outright — a name introduced twice is
+/// two things, and it cannot tell which literal a read means. So every reading
+/// was of the refusal, and the optimisation looked inert when it was simply
+/// never asked. `numbered` is what makes the four hundred candidates distinct.
+fn escaping() {
+    println!("\n  -- 400 statements: an object that cannot escape, and the same sum without one --");
+    timed(
+        "no object at all",
+        6,
+        &program_of(400, "let t = 0; let i = 1;", "t = t + i + i;"),
+    );
+    timed("object, never escapes", 6, &numbered(400,
+        "let t = 0; let i = 1;", "{ let o# = {a: i, b: i}; t = t + o#.a + o#.b; }"));
+    // What the analysis refuses today, kept beside what it accepts so the cost
+    // of the refusal is a number rather than a note. `i + 1` is not a literal
+    // and not a bare name, so the literal is left alone — even though the
+    // values are emitted in source order and the ordering is therefore already
+    // kept. Loosening that rule is its own change, with its own argument about
+    // a value that throws halfway.
+    timed("object, one computed value (refused today)", 6, &numbered(400,
+        "let t = 0; let i = 1;", "{ let o# = {a: i, b: i + 1}; t = t + o#.a + o#.b; }"));
+    // The control: the same object, escaping through a call, which must NOT be
+    // replaced. If this one ever becomes as cheap as the first, the analysis is
+    // wrong rather than good.
+    timed("object, escapes (must not be replaced)", 6, &numbered(400,
+        "function keep(x) { return 1; } let t = 0; let i = 1;",
+        "{ let o# = {a: i, b: i}; t = t + keep(o#); }"));
+}
+
+/// `program_of`, with `#` in the body replaced by the statement's number.
+///
+/// Separate from `program_of` rather than a flag on it: the other sections
+/// deliberately repeat one statement, and a numbering they did not ask for
+/// would change what they measure.
+fn numbered(count: usize, preamble: &str, body: &str) -> String {
+    let mut source = String::from(preamble);
+    for n in 0..count {
+        source.push_str(&body.replace('#', &n.to_string()));
+    }
+    source.push_str(" return 0;");
+    source
 }
 
 /// The same work in one function versus in many, which decides whether

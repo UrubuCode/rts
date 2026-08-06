@@ -93,10 +93,10 @@ pub(super) fn emit_class(
     // this reads what exists rather than making a second one — two would be the
     // classic bug where methods land on an object no instance inherits from.
     let prototype_name = ctx.names.intern("prototype");
-    let prototype = expr::emit_read(builder, ctx, constructor, prototype_name)?;
+    let prototype = super::property::emit_read(builder, ctx, constructor, prototype_name)?;
 
     if let Some(parent) = parent {
-        let parent_prototype = expr::emit_read(builder, ctx, parent, prototype_name)?;
+        let parent_prototype = super::property::emit_read(builder, ctx, parent, prototype_name)?;
         expr::call(
             builder,
             ctx,
@@ -112,7 +112,7 @@ pub(super) fn emit_class(
     // exist until the constructor did.
     if let Some(environment) = inner.environment() {
         let home = ctx.names.intern(HOME);
-        expr::emit_write(builder, ctx, environment, home, prototype)?;
+        super::property::emit_write(builder, ctx, environment, home, prototype)?;
     }
 
     for element in &class.body {
@@ -126,7 +126,7 @@ pub(super) fn emit_class(
                 // layout would be returned by the cache instead of run.
                 match method.kind {
                     MethodKind::Normal => {
-                        expr::emit_write(builder, ctx, target, name, closure)?;
+                        super::property::emit_write(builder, ctx, target, name, closure)?;
                     }
                     MethodKind::Getter => {
                         super::object::define_accessor(builder, ctx, target, name, closure, true)?;
@@ -144,7 +144,7 @@ pub(super) fn emit_class(
                     Some(value) => super::emit_expr(builder, &mut inner, ctx, value)?,
                     None => expr::undefined(builder, ctx),
                 };
-                expr::emit_write(builder, ctx, constructor, name, value)?;
+                super::property::emit_write(builder, ctx, constructor, name, value)?;
             }
             // An instance field runs per construction, so it is not emitted
             // here at all — see `with_fields`.
@@ -355,10 +355,10 @@ fn class_scope(
         Some(environment) => environment,
         None => expr::undefined(builder, ctx),
     };
-    expr::emit_write(builder, ctx, environment, outer, handed)?;
+    super::property::emit_write(builder, ctx, environment, outer, handed)?;
 
     let super_name = ctx.names.intern(SUPER);
-    expr::emit_write(builder, ctx, environment, super_name, parent)?;
+    super::property::emit_write(builder, ctx, environment, super_name, parent)?;
     let home_name = ctx.names.intern(HOME);
 
     // One link further out for everything the enclosing scope could reach,
@@ -392,7 +392,7 @@ pub(super) fn emit_super_member(
     // `m` again, which is the whole reason the home object exists rather than
     // the read starting at `this`.
     let above = expr::call(builder, ctx, RuntimeOp::GetPrototype, &[home])?[0];
-    expr::emit_read(builder, ctx, above, *name)
+    super::property::emit_read(builder, ctx, above, *name)
 }
 
 /// `super(...)` — the parent constructor, run against the object that exists.

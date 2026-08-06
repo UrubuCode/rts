@@ -58,7 +58,7 @@ pub fn emit_call(
                 });
             }
             let receiver = emit_expr(builder, scope, ctx, object)?;
-            let function = expr::emit_read(builder, ctx, receiver, *property)?;
+            let function = super::property::emit_read(builder, ctx, receiver, *property)?;
             (receiver, function)
         }
         // `o[k]()` is a method call, exactly as `o.k()` is. It fell into the

@@ -33,7 +33,8 @@
 
 use rts_cranelift::ir::{FuncBuilder, ValueId};
 
-use super::expr::{call, key_constant};
+use super::expr::call;
+use super::property::key_constant;
 use super::{Ctx, EmitResult};
 use crate::names::Name;
 use crate::runtime::RuntimeOp;

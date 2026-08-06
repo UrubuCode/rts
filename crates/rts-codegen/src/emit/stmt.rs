@@ -64,6 +64,20 @@ pub fn emit_stmt(
                         construct: "a destructuring declaration",
                     });
                 };
+                // An object literal whose local provably never leaves this
+                // function is not built: each property becomes a binding of its
+                // own, in source order, and the allocation and its two calls per
+                // property go away. `escape.rs` says what "provably" means and
+                // what it refuses.
+                if super::escape::declare_flattened(
+                    builder,
+                    scope,
+                    ctx,
+                    *name,
+                    binding.value.as_ref(),
+                )? {
+                    continue;
+                }
                 let value = match &binding.value {
                     Some(expr) => {
                         let produced = emit_expr(builder, scope, ctx, expr)?;
