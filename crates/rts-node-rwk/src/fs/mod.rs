@@ -14,14 +14,15 @@
 //! # `readFileSync` and the missing `Buffer`
 //!
 //! Node's `readFileSync(p)` with no encoding answers a `Buffer`. This engine
-//! has none, so this DIVERGES: `readFileSync(p)` and `readFileSync(p, "utf8")`
-//! both answer the file's contents as a TEXT string. A caller relying on
-//! `Buffer`-specific behaviour (binary contents, `.length` in bytes over
-//! non-UTF-8 data) gets something else here, named rather than approximated —
-//! there is no Buffer-like object standing in for it. The same gap is why
-//! `readSync`/`writeSync`/`readvSync`/`writevSync` (which take a
-//! `Uint8Array`/`Buffer` argument, not a path) are refused below rather than
-//! given a wrong shape.
+//! has none, but it has `Uint8Array`, which is what `readFileSync(p)` (no
+//! encoding) now answers — real bytes, over [`rts_core_rwk::entry::bytes_of`]
+//! / [`rts_core_rwk::entry::make_bytes`]. `readFileSync(p, "utf8")` still
+//! answers TEXT. A caller relying on `Buffer`-specific behaviour (a
+//! `Buffer`'s own methods, not just its bytes) still gets a `Uint8Array`
+//! instead — a named divergence, not the byte-access gap that used to force
+//! text unconditionally. `readSync`/`writeSync`/`readvSync`/`writevSync` read
+//! and write through the same accessors; see [`bytes`] for the one limit that
+//! remains (no five-positional-argument form).
 //!
 //! # Errors: no throw, a stated stand-in
 //!
@@ -62,11 +63,13 @@
 //!   function, `FileHandle` and all its methods. Blocked on the same
 //!   no-user-code-reentry limit as the module doc states; out of scope per
 //!   this task's own instructions.
-//! - **`readSync`/`writeSync`/`readvSync`/`writevSync`** — need a
-//!   `Buffer`/`Uint8Array`/`TypedArray` argument. The value API this module
-//!   was given (`rts_core_rwk::entry`) has no accessor for typed-array
-//!   backing bytes at all — not a missing wrapper here, a missing primitive
-//!   in the API. Named as the hole in the report for this task.
+//! - **`readSync`/`writeSync`'s five-positional-argument form**
+//!   (`readSync(fd, buffer, offset, length, position)`) — a member here has
+//!   four call slots at most; the options-object form
+//!   (`readSync(fd, buffer, { offset, length, position })`) is implemented in
+//!   [`bytes`] instead, per its module doc. `writeSync`'s string form
+//!   (`writeSync(fd, string, position?, encoding?)`) is also not implemented:
+//!   `buffer` there is always read as a typed-array window.
 //! - **`watch`, `watchFile`, `unwatchFile`, `FSWatcher`, `StatWatcher`** —
 //!   need a background OS thread/subscription and a callback invoked
 //!   repeatedly over the object's lifetime; both are user-code re-entry.
@@ -105,6 +108,7 @@
 //!   everything else in this list still waiting.
 
 mod basic;
+mod bytes;
 mod constants;
 mod dirs;
 mod fd;
@@ -117,7 +121,7 @@ use rts_core_rwk::entry::{Context, Provided};
 /// The namespace `node:fs` is.
 pub fn namespace(context: &mut Context) -> u64 {
     let members: &[(&str, Provided)] = &[
-        ("readFileSync", basic::read_file_sync),
+        ("readFileSync", bytes::read_file_sync),
         ("writeFileSync", basic::write_file_sync),
         ("appendFileSync", basic::append_file_sync),
         ("existsSync", basic::exists_sync),
@@ -145,6 +149,10 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("fsyncSync", fd::fsync_sync),
         ("fdatasyncSync", fd::fdatasync_sync),
         ("ftruncateSync", fd::ftruncate_sync),
+        ("readSync", bytes::read_sync),
+        ("writeSync", bytes::write_sync),
+        ("readvSync", bytes::readv_sync),
+        ("writevSync", bytes::writev_sync),
     ];
     let namespace = rts_core_rwk::entry::make_namespace(context, members);
     constants::install(context, namespace);
