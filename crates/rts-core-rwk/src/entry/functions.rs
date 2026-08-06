@@ -91,12 +91,8 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
                 }
                 Value::from_slot(cell).bits()
             }
-            // The region is full and there is no collector to ask. Answering
-            // `undefined` is wrong — the language makes a function here — and
-            // it is less wrong than handing back cell zero, which is a real
-            // object belonging to somebody else. The same answer `object_new`
-            // gives, for the same reason.
-            None => undefined_of(context),
+            // The region is full — see [`super::alloc::heap_exhausted`].
+            None => super::alloc::heap_exhausted(context),
         }
     })
 }

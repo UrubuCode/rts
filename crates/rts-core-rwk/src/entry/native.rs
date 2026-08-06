@@ -46,9 +46,8 @@ pub(super) fn callable(context: &mut Context, code: Native) -> u64 {
             context.mark_callable(cell, code as usize as u64, environment);
             Value::from_slot(cell).bits()
         }
-        // The region is full and there is no collector to ask — the same answer
-        // every other allocation here gives.
-        None => undefined_of(context),
+        // The region is full — see [`super::alloc::heap_exhausted`].
+        None => super::alloc::heap_exhausted(context),
     }
 }
 

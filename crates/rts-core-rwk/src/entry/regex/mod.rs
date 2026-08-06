@@ -105,9 +105,8 @@ pub(super) fn make(context: &mut Context, source: &str, letters: &str) -> u64 {
         let shape = context.shapes.root();
         let ty = context.layout_of(shape).index() as u32;
         let Some(cell) = context.region.alloc(crate::heap::STRIDE, ty) else {
-            // The region is full and there is no collector to ask — the same
-            // answer `object_new` gives, and for the same reason.
-            return undefined_of(context);
+            // The region is full — see [`super::alloc::heap_exhausted`].
+            super::alloc::heap_exhausted(context);
         };
 
         // The prototype of the class `new` named, when there is one — so

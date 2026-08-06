@@ -231,6 +231,11 @@ impl Region {
         STRIDE
     }
 
+    /// How many cells the region has room for.
+    pub fn capacity(&self) -> u32 {
+        self.capacity
+    }
+
     /// How many cells have been handed out.
     pub fn used(&self) -> u32 {
         self.next

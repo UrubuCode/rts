@@ -49,11 +49,10 @@ pub fn object_new() -> u64 {
         let ty = context.layout_of(shape).index() as u32;
         match context.region.alloc(crate::heap::STRIDE, ty) {
             Some(cell) => Value::from_slot(cell).bits(),
-            // The region is full and there is no collector to ask. Answering
-            // `undefined` is wrong — the language makes an object here — and it
-            // is less wrong than handing back cell zero, which is a real object
-            // belonging to somebody else.
-            None => undefined_of(context),
+            // The region is full. Said out loud rather than answered as a
+            // value — see [`super::alloc::heap_exhausted`] for why `undefined`
+            // here was a wrong answer that looked like a right one.
+            None => super::alloc::heap_exhausted(context),
         }
     })
 }

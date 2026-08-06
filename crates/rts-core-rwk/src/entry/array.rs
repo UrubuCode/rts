@@ -49,10 +49,8 @@ pub fn array_new(length: i64) -> u64 {
                 set_length(context, cell, length.max(0) as usize);
                 Value::from_slot(cell).bits()
             }
-            // The region is full and there is no collector to ask — the same
-            // answer `object_new` gives, and less wrong than handing back cell
-            // zero, which is a real object belonging to somebody else.
-            None => absent,
+            // The region is full — see [`super::alloc::heap_exhausted`].
+            None => super::alloc::heap_exhausted(context),
         }
     })
 }
