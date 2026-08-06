@@ -204,6 +204,14 @@ pub enum RuntimeOp {
     /// collected.
     StringConst,
 
+    /// The strings object of a tagged-template site, built once and kept.
+    ///
+    /// An entry point for the reason [`Self::StringConst`] is one, plus the
+    /// reason it cannot be more instructions: the specification gives a site ONE
+    /// object for the life of the program, so something has to remember it, and
+    /// the only thing that outlives an activation is the runtime.
+    TemplateStrings,
+
     /// `typeof v`.
     ///
     /// An entry point because the answer is a string, and every one of the
@@ -460,6 +468,7 @@ impl RuntimeOp {
         RuntimeOp::SetProperty,
         RuntimeOp::ClosureNew,
         RuntimeOp::StringConst,
+        RuntimeOp::TemplateStrings,
         RuntimeOp::TypeOf,
         RuntimeOp::LooseEquals,
         RuntimeOp::Exponent,
@@ -523,6 +532,7 @@ impl RuntimeOp {
             RuntimeOp::SetProperty => "__rts_set_property",
             RuntimeOp::ClosureNew => "__rts_closure_new",
             RuntimeOp::StringConst => "__rts_string_const",
+            RuntimeOp::TemplateStrings => "__rts_template_strings",
             RuntimeOp::TypeOf => "__rts_type_of",
             RuntimeOp::LooseEquals => "__rts_loose_equals",
             RuntimeOp::Exponent => "__rts_exponent",
@@ -592,6 +602,7 @@ impl RuntimeOp {
             RuntimeOp::ClosureNew => (vec![Repr::I64, UNPROVEN], vec![UNPROVEN]),
             // Which literal, not the text: an index the compilation minted.
             RuntimeOp::StringConst => (vec![Repr::I64], vec![UNPROVEN]),
+            RuntimeOp::TemplateStrings => (vec![Repr::I64], vec![UNPROVEN]),
             RuntimeOp::TypeOf => (vec![UNPROVEN], vec![UNPROVEN]),
             // A proven boolean, like the other equalities: the runtime
             // establishes it, which is what lets a branch consume one.

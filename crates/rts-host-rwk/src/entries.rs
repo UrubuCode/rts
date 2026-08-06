@@ -114,6 +114,11 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::StringConst => (CoreEntry::StringConst, {
             rts_core_rwk::entry::string_const as extern "C" fn(i64) -> u64 as *const u8
         }),
+        // The argument is which SITE, not a value: the pieces are compile-time
+        // constants and the object is built once, so what crosses is a number.
+        RuntimeOp::TemplateStrings => (CoreEntry::TemplateStrings, {
+            rts_core_rwk::entry::template_strings as extern "C" fn(i64) -> u64 as *const u8
+        }),
         RuntimeOp::TypeOf => (CoreEntry::TypeOf, {
             rts_core_rwk::entry::type_of as extern "C" fn(u64) -> u64 as *const u8
         }),

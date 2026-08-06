@@ -77,6 +77,11 @@ pub struct Compiled {
     /// literals are interned into the heap, and a run that reused values from
     /// a previous context would name cells in a table that no longer exists.
     literals: Vec<String>,
+    /// What each tagged-template site is made of, by literal position.
+    ///
+    /// Beside the literals because a site names them: the two are seeded
+    /// together, into the same region, in that order.
+    templates: Vec<Vec<u32>>,
     /// The text of every property key the compilation minted, in key order.
     ///
     /// This was a COUNT, and a count was enough while every key was one the
@@ -115,6 +120,7 @@ impl Compiled {
             crate::link::kinds_for(&self.model),
             &self.keys,
             &self.literals,
+            &self.templates,
             region,
         );
         self.regions[0] = Some(outcome.region);
@@ -163,6 +169,7 @@ impl Compiled {
         // are used here for: the alternative is N copies of every literal.
         let keys = &self.keys;
         let literals = &self.literals;
+        let templates = &self.templates;
 
         let finished: Vec<(u64, rts_core_rwk::heap::Region)> = std::thread::scope(|scope| {
             let handles: Vec<_> = taken
@@ -170,7 +177,10 @@ impl Compiled {
                 .map(|region| {
                     scope.spawn(move || {
                         let outcome =
-                            run_region(entry, nothing, singletons, kinds, keys, literals, region);
+                            run_region(
+                                entry, nothing, singletons, kinds, keys, literals, templates,
+                                region,
+                            );
                         (outcome.value, outcome.region)
                     })
                 })
@@ -232,6 +242,7 @@ fn run_region(
     kinds: rts_core_rwk::Kinds,
     keys: &[String],
     literals: &[String],
+    templates: &[Vec<u32>],
     region: rts_core_rwk::heap::Region,
 ) -> Outcome {
     let mut context = rts_core_rwk::entry::Context::over(singletons, kinds, region);
@@ -245,6 +256,10 @@ fn run_region(
     // wrong one. Seeded here rather than once — the values intern into THIS
     // region, and another region decodes them as absent.
     rts_core_rwk::entry::declare_literals(&mut context, literals);
+    // After the literals, never before: a site names its pieces by position in
+    // that table, so seeding these first would record numbers into a table about
+    // to be cleared.
+    rts_core_rwk::entry::declare_templates(&mut context, templates);
     let (context, (value, described)) = rts_core_rwk::entry::with_context(context, || {
         // A script closes over nothing, has no receiver and was passed no
         // arguments: `undefined` for all six, from the compiler's own numbering
@@ -500,6 +515,7 @@ pub fn compile_for(source: &str, regions: u32) -> Result<Compiled, HostError> {
         resolves: 0,
         described: None,
         literals: emitted.literals,
+        templates: emitted.templates,
         keys: names.keyed_texts().into_iter().map(str::to_owned).collect(),
     })
 }

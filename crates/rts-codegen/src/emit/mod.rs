@@ -169,7 +169,26 @@ pub struct Program {
     /// names a literal by its position here, and placing the code without
     /// seeding this would leave every string reading as absent.
     pub literals: Vec<String>,
+    /// The pieces of every tagged-template site, indexed the same way.
+    ///
+    /// A site is a flat list of literal positions, two per piece: the cooked
+    /// text then the raw text, with [`NO_COOKED`] where the escapes were invalid.
+    /// Flat rather than a structure because it crosses to a runtime that must
+    /// not depend on this crate to name one — the same reason the literals cross
+    /// as text and not as a table.
+    ///
+    /// The strings object is built ONCE per site, on first evaluation, which is
+    /// what the specification requires: a tag using it as a map key sees the
+    /// same object on every pass.
+    pub templates: Vec<Vec<u32>>,
 }
+
+/// The cooked position of a piece whose escapes are invalid.
+///
+/// A sentinel rather than an `Option`, because the list crosses as numbers. It
+/// is `u32::MAX`, which is not a literal index any program reaches: the table it
+/// indexes is built from the program's own text.
+pub const NO_COOKED: u32 = u32::MAX;
 
 /// What emission needs that is not the function being built.
 ///
@@ -234,6 +253,8 @@ pub struct Ctx<'a> {
     /// referred to by its index here exactly as a property is referred to by its
     /// key.
     literals: Vec<String>,
+    /// The pieces of each tagged-template site, in the order the sites were met.
+    templates: Vec<Vec<u32>>,
     /// Which locals were proved to hold a number.
     ///
     /// Owned rather than borrowed, and filled by [`emit_program`] rather than by
@@ -274,6 +295,7 @@ impl<'a> Ctx<'a> {
             types,
             pending: Vec::new(),
             literals: Vec::new(),
+            templates: Vec::new(),
             numeric: Numeric::default(),
             flattened: escape::Flattened::default(),
             globals: std::collections::BTreeSet::new(),
@@ -317,6 +339,17 @@ impl<'a> Ctx<'a> {
         }
         self.literals.push(text.to_owned());
         (self.literals.len() - 1) as u32
+    }
+
+    /// Records a tagged-template site and answers its number.
+    ///
+    /// NOT deduplicated, where [`Self::literal`] is: two identical templates
+    /// written in two places are two sites, and the specification gives each its
+    /// own strings object. Sharing one would make `` tag`a` `` in two functions
+    /// hand the tag the same object, which a tag using it as a key would see.
+    pub fn template(&mut self, pieces: Vec<u32>) -> u32 {
+        self.templates.push(pieces);
+        (self.templates.len() - 1) as u32
     }
 
     /// Whether a binding holds a proven number, and so keeps its
@@ -365,6 +398,7 @@ pub fn emit_program(body: &[Stmt], ctx: &mut Ctx) -> EmitResult<Program> {
         functions: std::mem::take(&mut ctx.pending),
         entry,
         literals: std::mem::take(&mut ctx.literals),
+        templates: std::mem::take(&mut ctx.templates),
     })
 }
 

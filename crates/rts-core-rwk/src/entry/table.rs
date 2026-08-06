@@ -66,7 +66,7 @@ use super::global::{GLOBAL_GET_ENTRY, GLOBAL_SET_ENTRY};
 use super::iterate::{ARRAY_APPEND_ALL_ENTRY, ARRAY_APPEND_ENTRY, ITERATE_ENTRY};
 use super::bigint_class::{BIGINT_NEW_ENTRY, NEGATE_ENTRY};
 use super::regex::REGEX_NEW_ENTRY;
-use super::text::{STRING_CONST_ENTRY, TYPE_OF_ENTRY};
+use super::text::{STRING_CONST_ENTRY, TEMPLATE_STRINGS_ENTRY, TYPE_OF_ENTRY};
 
 /// An operation compiled code performs by calling rather than by emitting.
 ///
@@ -345,6 +345,12 @@ pub enum CoreEntry {
 
     /// `-x`, which a bigint cannot reach through a multiply.
     Negate = 52,
+
+    /// The strings object of a tagged-template site, by its number.
+    ///
+    /// Here because the site has ONE object for the life of the program, and the
+    /// only thing that outlives an activation is this crate.
+    TemplateStrings = 53,
 }
 
 /// How many entry points exist.
@@ -352,7 +358,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 53;
+pub const CORE_ENTRY_COUNT: usize = 54;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -410,6 +416,7 @@ impl CoreEntry {
         CoreEntry::ArrayAppendAll,
         CoreEntry::BigIntNew,
         CoreEntry::Negate,
+        CoreEntry::TemplateStrings,
     ];
 
     /// The number a call site holds.
@@ -464,6 +471,7 @@ impl CoreEntry {
             CoreEntry::RegexNew => REGEX_NEW_ENTRY,
             CoreEntry::BigIntNew => BIGINT_NEW_ENTRY,
             CoreEntry::Negate => NEGATE_ENTRY,
+            CoreEntry::TemplateStrings => TEMPLATE_STRINGS_ENTRY,
             CoreEntry::GlobalGet => GLOBAL_GET_ENTRY,
             CoreEntry::GetPrototype => GET_PROTOTYPE_ENTRY,
             CoreEntry::SetPrototype => SET_PROTOTYPE_ENTRY,

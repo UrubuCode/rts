@@ -87,14 +87,20 @@ pub fn emit_template(
 /// So [`emit_template`] refuses what this one has to allow, and the difference is
 /// the language's rather than an inconsistency.
 ///
-/// # The divergence, named
+/// # Why the pieces are declared rather than emitted
 ///
-/// The specification caches the strings object **per call site**, so a tag that
-/// uses it as a map key sees the same object on every pass. This builds a fresh
-/// one per evaluation. Caching it needs somewhere per-site to keep a value, which
-/// is what an inline cache cell is and it holds two words of machine data rather
-/// than a reference the collector must see. Recorded rather than approximated:
-/// the wrong version is one that looks identical until a program memoises.
+/// The specification gives a site ONE strings object for the life of the
+/// program, so a tag using it as a map key sees the same object on every pass.
+/// Building it here would produce a fresh one per evaluation.
+///
+/// Every piece is a compile-time constant, so the site is **declared** — a list
+/// of literal positions travelling with the program, exactly as the literals
+/// themselves do — and the runtime materialises it once, on first ask. That also
+/// removes the building from the path a tagged template in a loop takes.
+///
+/// The rejected alternative was a per-site cache cell holding the object: an
+/// inline cache cell holds two words of machine data the collector does not
+/// scan, and a reference kept there would be one it cannot see.
 pub fn emit_tagged_template(
     builder: &mut FuncBuilder,
     scope: &mut Scope,
@@ -107,19 +113,27 @@ pub fn emit_tagged_template(
     // `` o.tag`x` `` passes `o` as its receiver.
     let (receiver, function) = super::call::callee_and_receiver(builder, scope, ctx, tag)?;
 
-    let cooked_texts: Vec<Option<&str>> = parts
-        .iter()
-        .map(|part| part.cooked.as_deref())
-        .collect();
-    let strings = string_array(builder, ctx, &cooked_texts)?;
-    let raw_texts: Vec<Option<&str>> = parts.iter().map(|part| Some(part.raw.as_str())).collect();
-    let raw = string_array(builder, ctx, &raw_texts)?;
-    // Interned like any other property name, so `strings.raw` written in a tag
-    // reaches the same key number this write used — one numbering, which is the
-    // agreement `Names` exists to hold.
-    let name = ctx.names.intern("raw");
-    let key = super::property::key_constant(builder, ctx, name);
-    super::expr::call(builder, ctx, RuntimeOp::SetProperty, &[strings, key, raw])?;
+    // Two positions per piece — the cooked text then the raw one — because the
+    // site crosses to the runtime as numbers. A piece whose escapes are invalid
+    // has no cooked text and carries the sentinel, which is legal here and a
+    // syntax error in an untagged template.
+    let mut pieces = Vec::with_capacity(parts.len() * 2);
+    for part in parts {
+        pieces.push(match &part.cooked {
+            Some(text) => ctx.literal(text),
+            None => super::NO_COOKED,
+        });
+        pieces.push(ctx.literal(&part.raw));
+    }
+    // An integer rather than a tagged value, for the reason a property key is
+    // one: it is not a value the program could compute, it is which site.
+    let which = ctx.template(pieces);
+    let which = builder.declare_const(ConstDecl::Scalar {
+        repr: Repr::I64,
+        bits: ScalarBits(u64::from(which)),
+    });
+    let which = builder.use_const(which);
+    let strings = super::expr::call(builder, ctx, RuntimeOp::TemplateStrings, &[which])?[0];
 
     let mut values = Vec::with_capacity(1 + expressions.len());
     values.push(strings);
@@ -127,33 +141,6 @@ pub fn emit_tagged_template(
         values.push(emit_expr(builder, scope, ctx, expression)?);
     }
     super::call::issue(builder, ctx, function, receiver, &values)
-}
-
-/// An array of string values, with `undefined` where there is no text.
-///
-/// A hole would be wrong: the specification puts `undefined` at a cooked
-/// position whose escapes were invalid, and the array's length is what tells the
-/// tag how many pieces there were.
-fn string_array(
-    builder: &mut FuncBuilder,
-    ctx: &mut Ctx,
-    texts: &[Option<&str>],
-) -> EmitResult<ValueId> {
-    let length = builder.declare_const(ConstDecl::Scalar {
-        repr: Repr::I64,
-        bits: ScalarBits(texts.len() as u64),
-    });
-    let length = builder.use_const(length);
-    let array = super::expr::call(builder, ctx, RuntimeOp::ArrayNew, &[length])?[0];
-    for (position, text) in texts.iter().enumerate() {
-        let value = match text {
-            Some(text) => string_literal(builder, ctx, text)?,
-            None => super::expr::undefined(builder, ctx),
-        };
-        let at = super::expr::number_constant(builder, position as f64);
-        super::expr::call(builder, ctx, RuntimeOp::SetIndexed, &[array, at, value])?;
-    }
-    Ok(array)
 }
 
 /// The value a template part stands for.

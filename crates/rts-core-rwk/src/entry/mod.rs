@@ -100,7 +100,10 @@ pub use operators::{
 pub use primitives::{add, number_to_string, strict_equals, to_boolean};
 pub use bigint_class::{bigint_new, negate};
 pub use regex::regex_new;
-pub use text::{declare_keys, declare_literals, described, string_const, type_of};
+pub use text::{
+    declare_keys, declare_literals, declare_templates, described, string_const, template_strings,
+    type_of,
+};
 mod table;
 
 pub use accessor::{define_getter, define_setter};
@@ -404,6 +407,18 @@ pub struct Context {
     /// the number the code carries is a position in this list, which is the
     /// same shape as the key and singleton numberings.
     pub literals: Vec<u64>,
+    /// What each tagged-template site declared, and what it has been made into.
+    ///
+    /// Two positions per piece — cooked then raw, as literal numbers — and the
+    /// object beside them, absent until the site is first evaluated. Built once
+    /// because the specification says a site has ONE strings object: a tag using
+    /// it as a map key has to see the same one on every pass, which is the whole
+    /// reason this is a table rather than something the code emits.
+    ///
+    /// Lazily rather than at declaration time: a program declares every site it
+    /// contains and runs a few of them, and building all of them would allocate
+    /// two arrays per template nobody evaluated.
+    pub templates: Vec<(Vec<u32>, Option<u64>)>,
     /// Which singleton number means what, as the language declared it.
     pub singletons: Singletons,
     /// Which tag number means which of the language's own kinds.
@@ -522,6 +537,7 @@ impl Context {
             // never reaches the table, and one that does gets it from the
             // compilation that produced the code.
             literals: Vec::new(),
+            templates: Vec::new(),
             singletons,
             kinds,
         }

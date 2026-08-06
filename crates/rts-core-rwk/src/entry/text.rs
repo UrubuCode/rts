@@ -189,3 +189,93 @@ pub fn declare_keys(context: &mut Context, texts: &[String]) {
         context.interner.intern(&text, &mut context.keys);
     }
 }
+
+/// Seeds the tagged-template sites for a program about to run.
+///
+/// Alongside [`declare_literals`] and after it, because a site names its pieces
+/// by literal position: seeding these first would record numbers into a table
+/// that is about to be cleared.
+pub fn declare_templates(context: &mut Context, sites: &[Vec<u32>]) {
+    context.templates.clear();
+    for pieces in sites {
+        context.templates.push((pieces.clone(), None));
+    }
+}
+
+/// The strings object of a tagged-template site.
+///
+/// # Why it is built once and kept
+///
+/// Because the specification says a site has ONE of them for the life of the
+/// program: a tag that uses it as a map key must see the same object on every
+/// pass, which is the reason tagged templates are used for caching at all.
+/// Building it per evaluation is the version that looks identical until a
+/// program memoises.
+///
+/// # Why the pieces are numbers
+///
+/// They are positions in the literal table, which the compilation filled and the
+/// host seeded — so the text crosses once, and a template repeating a piece
+/// another literal already spells shares it. The sentinel is a cooked text that
+/// does not exist, which is legal only here: a tag reads `raw` instead.
+#[rtse::entry]
+pub fn template_strings(which: i64) -> u64 {
+    let at = which as usize;
+    if let Some(made) = with_current(|context| {
+        context.templates.get(at).and_then(|(_, made)| *made)
+    }) {
+        return made;
+    }
+    let Some(pieces) = with_current(|context| {
+        context.templates.get(at).map(|(pieces, _)| pieces.clone())
+    }) else {
+        return with_current(|context| undefined_of(context));
+    };
+
+    // Two arrays and a property, through the ordinary operations rather than by
+    // reaching into a layout: what a tag receives has to be an array a program
+    // can push to, read a length off, and hand to `Array.from`.
+    let cooked = super::array_proto::built(texts(&pieces, 0));
+    let raw = super::array_proto::built(texts(&pieces, 1));
+    with_current(|context| {
+        if let Some(cell) = crate::value::Value(cooked).as_slot() {
+            let key = context.well_known("raw");
+            super::objects::put(context, cell, key, raw);
+        }
+        if let Some(site) = context.templates.get_mut(at) {
+            site.1 = Some(cooked);
+        }
+        cooked
+    })
+}
+
+/// Every cooked or raw piece of a site, as values.
+///
+/// `step` is which half of each pair to read — 0 for cooked, 1 for raw — which
+/// is what keeps one function rather than two that could disagree about the
+/// stride they walk.
+fn texts(pieces: &[u32], step: usize) -> Vec<u64> {
+    with_current(|context| {
+        pieces
+            .chunks(2)
+            .map(|pair| match pair.get(step) {
+                // A piece whose escapes were invalid. `undefined` rather than a
+                // hole: the array's length is what tells the tag how many
+                // pieces there were.
+                Some(&NO_COOKED) | None => undefined_of(context),
+                Some(&at) => context
+                    .literals
+                    .get(at as usize)
+                    .copied()
+                    .unwrap_or_else(|| undefined_of(context)),
+            })
+            .collect()
+    })
+}
+
+/// The cooked position of a piece whose escapes are invalid.
+///
+/// The compiler's `emit::NO_COOKED`, restated because this crate cannot depend
+/// on that one — the sentinel is part of the agreement the two sides hold, like
+/// the singleton numbering, and the host is where a disagreement would show.
+const NO_COOKED: u32 = u32::MAX;

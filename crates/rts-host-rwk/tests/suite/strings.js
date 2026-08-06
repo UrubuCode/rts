@@ -106,6 +106,19 @@ check("tag-substitutions", substitutions`${2}-${3}` === 5);
 let holder = { tag: function (strings) { return this.n; }, n: 7 };
 check("tag-receiver", holder.tag`x` === 7);
 
+// A SITE has one strings object for the life of the program, which is what
+// makes a tagged template usable as a cache key. Same site, twice: identical.
+function identity(strings) { return strings; }
+function twice() { return identity`same`; }
+check("tag-site-identity", twice() === twice());
+// Two sites spelling the same template are two objects, which is also the
+// specification: a site is a place in the program, not a piece of text.
+function elsewhere() { return identity`same`; }
+check("tag-sites-are-distinct", twice() !== elsewhere());
+// The object survives being written to, because it is the same one.
+function marked() { let s = identity`m`; s.seen = (s.seen || 0) + 1; return s.seen; }
+check("tag-site-keeps-writes", marked() === 1 && marked() === 2);
+
 check("plus-concatenates", "a" + 1 === "a1");
 check("equal-by-text", "ab" === "a" + "b");
 check("typeof", typeof s === "string");
