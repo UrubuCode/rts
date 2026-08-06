@@ -3652,3 +3652,26 @@ fn a_name_captured_from_inside_a_nested_block_is_still_captured() {
     let protected = run("let n = 0; function f() { try { n = 5; } finally { n = n + 1; } } f(); return n;");
     assert_eq!(tags::decode_double(protected), 6.0);
 }
+#[test]
+fn a_write_inside_a_constructors_arguments_survives_a_loop() {
+    // The loop-merge analysis walked the expression tree with its OWN match over
+    // `ExprKind`, and that copy had no arm for `New`. So a write that happened
+    // only inside a constructor's arguments was invisible: the name got no block
+    // parameter, the header restored it to its pre-loop value on every pass, and
+    // every write to it was discarded. The program compiled and ran wrong.
+    let inside_new = run(
+        "let y = 0; let i = 0; while (i < 3) { new Object(y = i); i = i + 1; } return y;",
+    );
+    assert_eq!(tags::decode_double(inside_new), 2.0);
+
+    // The same shape through the nodes that copy also covered, so a regression
+    // in either direction is visible.
+    let inside_call = run(
+        "let y = 0; let i = 0; while (i < 3) { Object(y = i); i = i + 1; } return y;",
+    );
+    assert_eq!(tags::decode_double(inside_call), 2.0);
+
+    // A template's substitution and an array literal reach the same walk.
+    let inside_array = run("let y = 0; let i = 0; while (i < 2) { [y = i]; i = i + 1; } return y;");
+    assert_eq!(tags::decode_double(inside_array), 1.0);
+}

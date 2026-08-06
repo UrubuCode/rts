@@ -60,7 +60,7 @@ use super::stmt::emit_stmt;
 use super::{Ctx, EmitError, EmitResult, Scope};
 use crate::names::Name;
 use crate::syntax::{
-    AssignTarget, Expr, ExprKind, ForInit, Pattern, Property, PropertyKey, Spreadable, Stmt,
+    AssignTarget, Expr, ExprKind, ForInit, Pattern, Stmt,
     StmtKind,
 };
 
@@ -651,92 +651,48 @@ pub(super) fn assigned_in_stmt(statement: &Stmt, into: &mut Vec<Name>) {
     }
 }
 
+
 /// Collects the names an expression writes.
+///
+/// # Why the shape of the tree comes from `capture` and is not written here
+///
+/// It WAS written here, as a second full match over `ExprKind`, and it was
+/// missing `New` — so a write that happened only inside a constructor's
+/// arguments was invisible to this analysis. `while (…) { new F(y = i); }` gave
+/// `y` no block parameter, the header restored it to its pre-loop value on every
+/// pass, and every write to it was discarded. The program compiled and ran
+/// wrong, which is the outcome this whole module exists to prevent.
+///
+/// [`super::capture::walk_expr`] already describes what is inside an expression,
+/// exhaustively, and its own comment names this exact failure: *"Two copies of
+/// this match is how a node comes to be walked by one analysis and silently
+/// skipped by the other."* That warning was written for two traversals and there
+/// were four. This is one of them removed.
+///
+/// A nested function is deliberately not descended into: a name it assigns is
+/// captured, which is a cell rather than a block parameter, and the environment
+/// is what carries it.
 fn assigned_in_expr(expr: &Expr, into: &mut Vec<Name>) {
     match &expr.kind {
-        ExprKind::Assign { target, value, .. } => {
+        ExprKind::Assign { target, .. } => {
             if let AssignTarget::Place(place) = target
                 && let ExprKind::Ident(name) = &place.kind
             {
                 into.push(*name);
             }
-            assigned_in_expr(value, into);
         }
         ExprKind::Update { target, .. } => {
             if let ExprKind::Ident(name) = &target.kind {
                 into.push(*name);
             }
         }
-        ExprKind::Binary { left, right, .. } | ExprKind::Logical { left, right, .. } => {
-            assigned_in_expr(left, into);
-            assigned_in_expr(right, into);
-        }
-        ExprKind::Unary { operand, .. } => assigned_in_expr(operand, into),
-        ExprKind::Sequence { operands } => {
-            operands.iter().for_each(|one| assigned_in_expr(one, into))
-        }
-        ExprKind::Conditional {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            assigned_in_expr(condition, into);
-            assigned_in_expr(then_branch, into);
-            assigned_in_expr(else_branch, into);
-        }
-        ExprKind::Call {
-            callee, arguments, ..
-        } => {
-            assigned_in_expr(callee, into);
-            for argument in arguments {
-                match argument {
-                    Spreadable::Single(expr) | Spreadable::Spread(expr) => {
-                        assigned_in_expr(expr, into)
-                    }
-                }
-            }
-        }
-        ExprKind::Member { object, .. } => assigned_in_expr(object, into),
-        ExprKind::Index { object, index, .. } => {
-            assigned_in_expr(object, into);
-            assigned_in_expr(index, into);
-        }
-        ExprKind::Array { elements } => {
-            for element in elements.iter().flatten() {
-                match element {
-                    Spreadable::Single(expr) | Spreadable::Spread(expr) => {
-                        assigned_in_expr(expr, into)
-                    }
-                }
-            }
-        }
-        ExprKind::Object { properties } => {
-            for property in properties {
-                match property {
-                    Property::Value { key, value, .. } => {
-                        if let PropertyKey::Computed(key) = key {
-                            assigned_in_expr(key, into);
-                        }
-                        assigned_in_expr(value, into);
-                    }
-                    Property::Spread(expr) | Property::Prototype(expr) => {
-                        assigned_in_expr(expr, into)
-                    }
-                    _ => {}
-                }
-            }
-        }
-        // The literal pieces hold no expressions; only what is substituted
-        // between them can write anything.
-        ExprKind::Template { expressions, .. } => expressions
-            .iter()
-            .for_each(|expr| assigned_in_expr(expr, into)),
-        ExprKind::Await(inner) | ExprKind::Chain(inner) => assigned_in_expr(inner, into),
-        // A function body is a different frame. A name it assigns is captured,
-        // which is a cell rather than a block parameter — and the emitter
-        // refuses closures, so nothing reaches here that would need it.
         _ => {}
     }
+    super::capture::walk_expr(expr, &mut |child| {
+        if let super::capture::Child::Expr(inner) = child {
+            assigned_in_expr(inner, into);
+        }
+    });
 }
 
 /// The names an expression assigns, as names rather than positions.
