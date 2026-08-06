@@ -50,7 +50,8 @@ use crate::value::Value;
 /// walks what it is given and a body that pushes to the original must not walk
 /// its own additions forever.
 ///
-/// Anything that is not an array or a string answers an empty array, where the
+/// Anything that is not an array, a string, a `Map`, a `Set`, or an object
+/// declaring `Symbol.iterator` answers an empty array, where the
 /// language throws a `TypeError`. The same stated gap every operation here has
 /// while a throw cannot find a handler in a caller — and it fails as a loop that
 /// runs zero times, which is visible, rather than as a wrong element.
@@ -66,6 +67,16 @@ pub fn iterate(value: u64) -> u64 {
         if let Some(elements) = context.elements_at(cell) {
             return Found::Values(elements.clone());
         }
+        // Before the text check and before the protocol, because a collection's
+        // elements are already held here: asking it for them through two calls
+        // per element into a method of its own would be the same answer, slower,
+        // and one more thing to keep agreeing with `entries()`.
+        if let Some(iterated) = super::collections::iterated(context, cell) {
+            return match iterated {
+                super::collections::Iterated::Members(values) => Found::Values(values),
+                super::collections::Iterated::Pairs(pairs) => Found::Pairs(pairs),
+            };
+        }
         match context.text_at(cell) {
             Some(text) => Found::Text(code_points(text)),
             None => Found::Nothing,
@@ -74,6 +85,12 @@ pub fn iterate(value: u64) -> u64 {
 
     let values = match found {
         Found::Values(values) => values,
+        // Each pair becomes its own array, which allocates — so it happens here
+        // rather than inside the borrow that read the table.
+        Found::Pairs(pairs) => pairs
+            .into_iter()
+            .map(|(key, value)| super::array_proto::built(vec![key, value]))
+            .collect(),
         // Neither an array nor a string, so ask the object whether it declares
         // how to be iterated. Outside the borrow above, because every step of
         // the protocol is a call into user code.
@@ -165,8 +182,10 @@ fn callable(value: u64) -> bool {
 
 /// What an iterable turned out to be.
 enum Found {
-    /// Elements already, from an array.
+    /// Elements already, from an array or a `Set`.
     Values(Vec<u64>),
+    /// A `Map`'s entries, each of which still has to become a two-element array.
+    Pairs(Vec<(u64, u64)>),
     /// Code points that still have to become strings.
     Text(Vec<Vec<u16>>),
     /// Not something this engine iterates.

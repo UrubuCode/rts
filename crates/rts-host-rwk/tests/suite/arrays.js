@@ -83,6 +83,16 @@ let total = 0;
 for (let v of [1, 2, 3]) { total = total + v; }
 check("for-of", total === 6);
 
+// `Array.from` reads indices off a `length` where `for-of` throws, so the
+// fallback lives in that function alone.
+let like = { length: 2 };
+like[0] = 7;
+like[1] = 8;
+check("from-array-like", Array.from(like)[1] === 8);
+check("from-array-like-length", Array.from(like).length === 2);
+check("from-no-length", Array.from({}).length === 0);
+check("from-string", Array.from("ab")[0] === "a");
+
 check("spread", [0, ...[1, 2], 3].length === 4);
 check("instance-of", [] instanceof Array);
 

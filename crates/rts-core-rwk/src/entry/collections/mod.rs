@@ -36,12 +36,17 @@
 //! # What the iteration methods answer, and what they do not
 //!
 //! `keys()`, `values()` and `entries()` each answer an **array**. A real
-//! iterator object — one with `next()`, and one `for-of` reaches through
-//! `Symbol.iterator` — waits on the iteration protocol, which this engine does
-//! not have: [`super::iterate`] materialises an array precisely because no
-//! object here can declare `Symbol.iterator` and there are no symbols to
-//! declare it with. So `for (const k of m.keys())` works, `m.keys().next()` does
-//! not, and `for (const [k, v] of m)` does not either.
+//! iterator object — one with `next()` — is still absent, and
+//! [`super::iterate`] records why materialising is the shape this engine
+//! walks. So `m.keys().next()` is not a function.
+//!
+//! What a collection IS iterable by is answered by [`iterated`]: `for-of` over a
+//! `Map` or a `Set` reaches the table directly rather than through a declared
+//! `Symbol.iterator`. That is not a shortcut around the protocol — the protocol
+//! is there, [`super::iterate::iterate`] dispatches on it, and a program may
+//! declare its own. It is that a built-in whose elements the runtime already
+//! holds has nothing to gain from being asked for them through two calls per
+//! element into itself.
 
 mod map;
 mod set;
@@ -168,11 +173,10 @@ pub(super) fn entries_of(collection: u64) -> Vec<(u64, u64)> {
 
 /// The elements an iterable yields.
 ///
-/// [`super::iterate::iterate`] answers an array for an array and for a string,
-/// and an EMPTY array for anything else — it does not dispatch on
-/// `Symbol.iterator`, because there are no symbols. So `new Set(anotherSet)` and
-/// `new Map(aGenerator)` yield nothing rather than throwing, which is the same
-/// stated gap `for-of` over such a value already has.
+/// Everything [`super::iterate::iterate`] walks: an array, a string, another
+/// collection, or an object declaring `Symbol.iterator`. Anything else yields
+/// nothing rather than throwing, which is the same stated gap `for-of` over such
+/// a value has.
 pub(super) fn elements_of(iterable: u64) -> Vec<u64> {
     let array = super::iterate::iterate(iterable);
     with_current(|context| {
@@ -208,6 +212,70 @@ pub(super) fn pairs_of(iterable: u64) -> Vec<(u64, u64)> {
             .collect()
     })
 }
+
+/// What a `for-of` over a collection yields.
+///
+/// Two answers rather than one, because a `Map` yields a `[key, value]` array
+/// per entry and building one needs the context mutably — which the borrow that
+/// read the table is holding. The caller decides where that happens.
+pub(in crate::entry) enum Iterated {
+    /// A `Set`: its members, once each, in insertion order.
+    Members(Vec<u64>),
+    /// A `Map`: its entries, still as pairs.
+    Pairs(Vec<(u64, u64)>),
+}
+
+/// How a cell iterates, if it is a collection that iterates at all.
+///
+/// # Why the prototype decides rather than the table
+///
+/// All four classes share one [`Table`] — [`set`] records why — so the table
+/// cannot say which class made it, and `WeakMap`/`WeakSet` are not iterable at
+/// all. A `Set` additionally stores each member as both key and value, so
+/// "keys equal values" is true of `new Map([[1, 1]])` as well.
+///
+/// So the chain is walked and compared against the prototypes the registrations
+/// recorded. A subclass answers, which is what makes `class Mine extends Set {}`
+/// iterate; an object that merely got `Map.prototype` hung on it and has no
+/// table answers `None`, because the table is asked for first.
+pub(in crate::entry) fn iterated(context: &Context, cell: u32) -> Option<Iterated> {
+    let table = context.table_at(cell)?;
+    if inherits(context, cell, "Set") {
+        return Some(Iterated::Members(table.keys().to_vec()));
+    }
+    if inherits(context, cell, "Map") {
+        return Some(Iterated::Pairs(table.entries()));
+    }
+    None
+}
+
+/// Whether a class's prototype is anywhere on a cell's chain.
+///
+/// Bounded by the number of cells, because a chain a program built with
+/// `Object.setPrototypeOf` can be a cycle and this must answer rather than hang.
+fn inherits(context: &Context, cell: u32, class: &'static str) -> bool {
+    let Some(wanted) = super::class_support::prototype(context, class) else {
+        return false;
+    };
+    let mut at = context.prototype_at(cell);
+    let mut steps = 0;
+    while let Some(link) = at {
+        if link == wanted {
+            return true;
+        }
+        steps += 1;
+        if steps > MAX_CHAIN {
+            return false;
+        }
+        at = Value(link).as_slot().and_then(|cell| context.prototype_at(cell));
+    }
+    false
+}
+
+/// How far a prototype chain is walked before it is treated as a cycle.
+///
+/// A real chain is a handful of links; the language's own limit is the heap.
+const MAX_CHAIN: usize = 1024;
 
 /// An array holding these values.
 pub(super) fn array_of(values: Vec<u64>) -> u64 {

@@ -370,14 +370,23 @@ extern "C" fn find_last_index(
 ///
 /// Through the runtime's own iteration, so anything `for-of` walks this accepts
 /// — including a string, which becomes one element per code point rather than
-/// per unit. The divergence, named: an array-*like* with a `length` and no
-/// `Symbol.iterator` answers an empty array, where the language walks its
-/// indices. `iterate` is the one place that decides what is iterable, and a
-/// second answer here is the rule written twice this crate keeps refusing.
+/// per unit.
+///
+/// # Why the array-like fallback is here and not in `iterate`
+///
+/// `Array.from({length: 2})` is `[undefined, undefined]` and
+/// `for (const x of {length: 2})` is a `TypeError`: the language reads indices
+/// off a `length` **only for this function**. Putting the fallback in `iterate`
+/// would make `for-of` accept what the language refuses, which is a wrong
+/// program that runs. So `iterate` still decides what is *iterable*, and this
+/// decides what it additionally accepts when nothing was iterated.
 extern "C" fn from(_e: u64, _this: u64, items: u64, mapper: u64, _a2: u64, _a3: u64) -> u64 {
     // Outside every borrow: `iterate` is an entry point, and it may run a
     // user-defined `Symbol.iterator` to exhaustion before it answers.
-    let produced = super::super::iterate::iterate(items);
+    let produced = match array_like(items) {
+        Some(values) => built(values),
+        None => super::super::iterate::iterate(items),
+    };
     if !calls(mapper) {
         // Already a fresh array — `iterate` copies — so there is nothing to
         // build a second time.
@@ -425,6 +434,49 @@ fn sought_last(this: u64, callback: u64) -> Option<(u64, usize)> {
         }
     }
     None
+}
+
+/// The indices of an array-like, if that is what this is and nothing else.
+///
+/// `None` for everything iteration already answers — an array, a string, a
+/// collection, or an object declaring `Symbol.iterator` — so the fallback can
+/// never shadow the real protocol. A `length` that is absent, negative or not a
+/// number is `None` too, which is what keeps `Array.from({})` an empty array
+/// rather than a guess.
+///
+/// A data read throughout: a `length` getter is not run, the same boundary
+/// [`super::super::iterate`] draws for `next` and `done`.
+fn array_like(items: u64) -> Option<Vec<u64>> {
+    with_current(|context| {
+        let cell = Value(items).as_slot()?;
+        if context.elements_at(cell).is_some()
+            || context.text_at(cell).is_some()
+            || super::super::collections::iterated(context, cell).is_some()
+        {
+            return None;
+        }
+        let iterator = format!("{}iterator", super::super::symbol::PREFIX);
+        if read(context, cell, &iterator).is_some() {
+            return None;
+        }
+        let count = Value(read(context, cell, "length")?).numeric()?;
+        if !(count >= 0.0) {
+            return None;
+        }
+        let absent = undefined_of(context);
+        Some(
+            (0..count as usize)
+                .map(|at| read(context, cell, &at.to_string()).unwrap_or(absent))
+                .collect(),
+        )
+    })
+}
+
+/// One property, by name, as a value — `None` where the language reads
+/// `undefined`.
+fn read(context: &mut Context, cell: u32, name: &str) -> Option<u64> {
+    let key = context.well_known(name);
+    super::super::objects::read_property(context, cell, key).map(|found| found.bits())
 }
 
 /// A snapshot of the receiver's elements, the borrow ending here.

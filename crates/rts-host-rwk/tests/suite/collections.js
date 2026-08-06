@@ -75,6 +75,33 @@ check("subset", new Set([1]).isSubsetOf(left));
 check("superset", left.isSupersetOf(new Set([1])));
 check("disjoint", new Set([1]).isDisjointFrom(new Set([2])));
 
+// A collection is iterable by what it holds, not by a declared method: `for-of`
+// over a `Set` yields members, over a `Map` yields `[key, value]` arrays.
+let members = 0;
+for (let v of new Set([1, 2, 3])) { members = members + v; }
+check("set-for-of", members === 6);
+
+let pairs = new Map();
+pairs.set("a", 1);
+pairs.set("b", 2);
+let names = "";
+let values = 0;
+for (let e of pairs) { names = names + e[0]; values = values + e[1]; }
+check("map-for-of-key", names === "ab");
+check("map-for-of-value", values === 3);
+
+check("set-from-set", new Set(new Set([1, 2, 2])).size === 2);
+check("map-from-map", new Map(pairs).get("b") === 2);
+check("set-spread", [...new Set([1, 2])].length === 2);
+check("array-from-set", Array.from(new Set([4, 5]))[1] === 5);
+check("array-from-map", Array.from(pairs)[0][0] === "a");
+
+// A weak collection shares the table and is NOT iterable: it must yield
+// nothing rather than leak the keys it holds strongly.
+let leaked = 0;
+for (let v of new WeakSet()) { leaked = leaked + 1; }
+check("weak-set-not-iterable", leaked === 0);
+
 let key = {};
 let weak = new WeakMap();
 weak.set(key, 5);
