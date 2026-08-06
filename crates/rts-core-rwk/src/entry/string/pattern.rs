@@ -33,6 +33,7 @@ use crate::value::Value;
 pub(super) const NATIVES: &[(&str, Native)] = &[
     ("search", search),
     ("match", match_),
+    ("matchAll", match_all),
     ("replace", replace),
     ("replaceAll", replace_all),
     ("split", split),
@@ -114,6 +115,55 @@ extern "C" fn match_(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: 
         }
         array
     })
+}
+
+/// `s.matchAll(re)` — every match, each with its groups.
+///
+/// What `match` with `g` throws away: that form answers a flat list of matched
+/// text and no groups at all, which is why this exists beside it rather than as
+/// a flag on it.
+///
+/// The language answers an iterator of match arrays and this answers an array of
+/// them, for the reason [`super::super::iterate`] records — and it is the shape
+/// `for-of` and `...` both accept. The divergence, named: `.next()` is not a
+/// function on the result, and the matches are all found before the first is
+/// looked at.
+extern "C" fn match_all(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let collected = with_current(|context| {
+        let (subject, sought) = staged(context, this, pattern)?;
+        let found = scan(context, &subject, &sought, true);
+        let each: Vec<(Vec<Option<String>>, usize)> = found
+            .iter()
+            .map(|one| (one.groups.clone(), units_before(&subject, one.from)))
+            .collect();
+        Some((each, subject))
+    });
+
+    let Some((each, subject)) = collected else {
+        return super::super::array_proto::built(Vec::new());
+    };
+    let matches: Vec<u64> = each
+        .into_iter()
+        .map(|(groups, at)| {
+            let array = super::super::array::array_new(groups.len() as i64);
+            with_current(|context| {
+                fill(context, array, groups);
+                // `index` and `input`, which a single match carries and the
+                // global form of `match` drops — the whole reason a program
+                // reaches for this method.
+                if let Some(cell) = Value(array).as_slot() {
+                    let index = Value::from_f64(at as f64).bits();
+                    let key = context.well_known("index");
+                    super::super::objects::put(context, cell, key, index);
+                    let input = context.intern_value(Str::from_str(&subject)).bits();
+                    let key = context.well_known("input");
+                    super::super::objects::put(context, cell, key, input);
+                }
+            });
+            array
+        })
+        .collect();
+    super::super::array_proto::built(matches)
 }
 
 /// `s.replace(pattern, replacement)`.

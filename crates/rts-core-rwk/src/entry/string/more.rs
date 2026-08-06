@@ -30,6 +30,8 @@ pub(super) const NATIVES: &[(&str, Native)] = &[
     ("normalize", normalize),
     ("toString", text_value),
     ("valueOf", value_of),
+    ("isWellFormed", is_well_formed),
+    ("toWellFormed", to_well_formed),
 ];
 
 /// What `String` itself holds.
@@ -40,6 +42,7 @@ pub(super) const NATIVES: &[(&str, Native)] = &[
 pub(super) const STATICS: &[(&str, Native)] = &[
     ("fromCharCode", from_char_code),
     ("fromCodePoint", from_code_point),
+    ("raw", raw),
 ];
 
 /// `s.codePointAt(i)` — the whole character at a position, not half of one.
@@ -292,9 +295,118 @@ fn as_unit(context: &super::Context, value: u64) -> u16 {
     (number.trunc() as i64).rem_euclid(65536) as u16
 }
 
+/// `s.isWellFormed()` — whether every surrogate is part of a pair.
+///
+/// A JavaScript string is a sequence of code units and may legally hold half a
+/// pair; text handed to anything that speaks UTF-8 may not. That is the whole
+/// reason the pair of methods exists, and it is why they cannot be written over
+/// `char`s: converting first is what would hide the answer.
+extern "C" fn is_well_formed(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let well = with_current(|context| {
+        units_of(context, this).is_some_and(|units| lone(&units).is_none())
+    });
+    Value::from_bool(well).bits()
+}
+
+/// `s.toWellFormed()` — each lone surrogate replaced by U+FFFD.
+///
+/// Replaced rather than dropped, which the specification requires and which is
+/// the difference a program notices: dropping shifts every later index by one.
+extern "C" fn to_well_formed(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    with_current(|context| {
+        let Some(mut units) = units_of(context, this) else {
+            return nothing(context);
+        };
+        while let Some(at) = lone(&units) {
+            units[at] = 0xFFFD;
+        }
+        answer(context, &units)
+    })
+}
+
+/// Where the first unpaired surrogate is, if there is one.
+///
+/// A high surrogate counts as paired only when a low one follows it, and a low
+/// one only when a high one precedes it — so the scan cannot be written as
+/// "is a surrogate", which would report every valid pair.
+fn lone(units: &[u16]) -> Option<usize> {
+    let high = |unit: u16| (0xD800..0xDC00).contains(&unit);
+    let low = |unit: u16| (0xDC00..0xE000).contains(&unit);
+    let mut at = 0;
+    while at < units.len() {
+        let unit = units[at];
+        if high(unit) {
+            if at + 1 < units.len() && low(units[at + 1]) {
+                at += 2;
+                continue;
+            }
+            return Some(at);
+        }
+        if low(unit) {
+            return Some(at);
+        }
+        at += 1;
+    }
+    None
+}
+
+/// `String.raw(strings, a, b, c)` — a tagged template's text, escapes unread.
+///
+/// The `raw` property of the first argument, joined with the substitutions
+/// between. Three of them, because the convention carries four slots and the
+/// strings array takes one — a template with more substitutions than that is
+/// refused at the call site rather than losing them here.
+extern "C" fn raw(_e: u64, _this: u64, strings: u64, a: u64, b: u64, c: u64) -> u64 {
+    let key = with_current(|context| {
+        context.intern_value(crate::text::Str::from_str("raw")).bits()
+    });
+    let parts = super::super::computed::get_indexed(strings, key);
+    let (parts, absent) = with_current(|context| {
+        let held = Value(parts)
+            .as_slot()
+            .and_then(|cell| context.elements_at(cell).cloned())
+            .unwrap_or_default();
+        (held, nothing(context))
+    });
+
+    let mut out: Vec<u16> = Vec::new();
+    for (at, part) in parts.iter().enumerate() {
+        with_current(|context| {
+            if let Some(units) = arg_units(context, *part) {
+                out.extend(units);
+            }
+        });
+        // A substitution goes BETWEEN parts, so the last part has none after it
+        // — which is what makes `String.raw` of a template with no substitutions
+        // the template itself rather than a trailing `undefined`.
+        let Some(value) = [a, b, c].get(at).copied() else {
+            continue;
+        };
+        if at + 1 >= parts.len() || value == absent {
+            continue;
+        }
+        with_current(|context| {
+            if let Some(units) = arg_units(context, value) {
+                out.extend(units);
+            }
+        });
+    }
+    with_current(|context| answer(context, &out))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_lone_surrogate_is_found_and_a_pair_is_not() {
+        // The corner the pair of methods exists for: both halves of a pair are
+        // surrogates, so "is a surrogate" is not the question being asked.
+        let pair: Vec<u16> = "😀".encode_utf16().collect();
+        assert_eq!(lone(&pair), None);
+        assert_eq!(lone(&[0xD83Du16]), Some(0));
+        assert_eq!(lone(&[0x0061u16, 0xDE00]), Some(1));
+    }
 
     #[test]
     fn a_surrogate_pair_is_one_code_point_and_two_units() {

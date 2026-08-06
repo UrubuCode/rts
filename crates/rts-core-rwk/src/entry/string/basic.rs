@@ -33,6 +33,8 @@ pub(super) const NATIVES: &[(&str, Native)] = &[
     ("substring", substring),
     ("toUpperCase", to_upper_case),
     ("toLowerCase", to_lower_case),
+    ("toLocaleUpperCase", to_upper_case),
+    ("toLocaleLowerCase", to_lower_case),
     ("trim", trim),
     ("repeat", repeat),
     ("concat", concat),
@@ -213,6 +215,13 @@ extern "C" fn to_upper_case(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a
 }
 
 /// `s.toLowerCase()`.
+///
+/// `toLocaleUpperCase` and `toLocaleLowerCase` are installed as these same two
+/// functions rather than as wrappers. They differ from them in exactly three
+/// locales — Turkish, Azeri and Lithuanian dotted `i` — and this crate carries
+/// no locale data, so a separate body would be the same mapping under a second
+/// name and one more place for the two to drift. The divergence is the locale
+/// data, not the dispatch.
 extern "C" fn to_lower_case(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     mapped(this, str::to_lowercase)
 }

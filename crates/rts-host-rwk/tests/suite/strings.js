@@ -65,6 +65,35 @@ check("astral-spread", [...astral].length === 2);
 String.prototype.mine = function () { return "m"; };
 check("extensible", "x".mine() === "m");
 
+// `matchAll` keeps the groups every match had, which the global form of
+// `match` throws away.
+let all = "a1b2".matchAll(/([a-z])(\d)/g);
+check("match-all-count", all.length === 2);
+check("match-all-group", all[1][1] === "b");
+check("match-all-index", all[1].index === 2);
+check("match-all-input", all[0].input === "a1b2");
+check("match-all-none", "zz".matchAll(/q/g).length === 0);
+
+check("locale-upper", "aß".toLocaleUpperCase() === "ASS");
+check("locale-lower", "AB".toLocaleLowerCase() === "ab");
+
+// Built with `fromCharCode` rather than written as an escape: a lone surrogate
+// in SOURCE does not survive being read, so a literal would test nothing.
+let lone = "a" + String.fromCharCode(0xD800);
+check("well-formed", "ab".isWellFormed());
+check("well-formed-pair", "\u{1F600}".isWellFormed());
+check("well-formed-lone", lone.isWellFormed() === false);
+check("to-well-formed-replaces", lone.toWellFormed().isWellFormed());
+check("to-well-formed-length", lone.toWellFormed().length === 2);
+check("to-well-formed-keeps-pairs", "\u{1F600}".toWellFormed().length === 2);
+
+// `String.raw` reads `raw` off its first argument. Called plainly rather than
+// as a tag: the emitter refuses a tagged template, so the tag form cannot be
+// pinned here and the function it would call can.
+check("raw", String.raw({ raw: ["a\\nb"] }) === "a\\nb");
+check("raw-substitution", String.raw({ raw: ["x", "y"] }, 1) === "x1y");
+check("raw-trailing-substitution", String.raw({ raw: ["x"] }, 1) === "x");
+
 check("plus-concatenates", "a" + 1 === "a1");
 check("equal-by-text", "ab" === "a" + "b");
 check("typeof", typeof s === "string");
