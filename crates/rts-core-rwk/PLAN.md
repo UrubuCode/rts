@@ -330,12 +330,17 @@ in property access rather than in the class — a primitive number has no cell f
 the chain walk to substitute against, so a `toFixed` would be a method no
 expression can reach.
 
-### P3 — `Function.prototype`: `call` and `apply`. **DONE. `bind` is not.**
+### P3 — `Function.prototype`: `call`, `apply` and `bind`. **DONE.**
 
 Substituted by the chain walk, like `String.prototype`. `bind` is the one of the
 three that has to *keep* something — a receiver and a list of arguments beside a
-cell — and that is a table of values the collector cannot see. It waits on the
-open question rather than on a session.
+cell — and that is a table of values the collector cannot see.
+
+It landed anyway, and the reason is in `function_proto.rs`: **nothing collects
+yet**, and the accessor table and the array element table are already values an
+eventual collector has to learn about. So this is the same bet those two make
+rather than a new one, and it is one more table to trace the day there is a
+tracer. This line said `bind` was still waiting long after it was written.
 
 ### P4 — `JSON` and `Symbol`. **DONE.**
 
