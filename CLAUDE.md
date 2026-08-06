@@ -33,6 +33,35 @@ per-developer, unversioned, and takes priority over general preference.
 
 ---
 
+## RULE 0b — a README is the rule; a skill is the procedure
+
+The tables above say what is *binding*. They do not say what to *do*, and the
+steps for one change are spread across a README, a PLAN and a doc — which is how
+a second value encoding and a second shape tree both got half-written inside one
+crate's first three phases.
+
+`.claude/skills/` holds those steps. Each one ends where the rules begin: it
+points at the README rather than restating it, because two answers to one
+question is what the rest of this file exists to prevent.
+
+| doing | invoke |
+|---|---|
+| anything new in the new engine, before writing | `reuse-check` |
+| an operation compiled code calls instead of emitting | `add-entry-point` |
+| a built-in class, namespace or prototype method | `add-builtin-class` |
+| an instruction, a layout, a machine capability | `add-ir-instruction` |
+| emitting a JS/TS construct, deciding a semantic | `add-language-node` |
+| any claim that something is faster or slower | `perf-claim` |
+
+`reuse-check` is the one that is not optional: it is the anti-duplication rule the
+crate READMEs state, turned into a search. **Invoking a skill does not replace
+RULE 0** — the README is still read in full.
+
+A skill that grows a rule of its own has drifted. Move the rule to the README and
+leave the pointer.
+
+---
+
 ## The engine, in one paragraph
 
 Two crates and a boundary. `rts-codegen` is the language — JavaScript and
