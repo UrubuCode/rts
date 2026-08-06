@@ -94,8 +94,10 @@ pub use functions::{
 pub use global::{global_get, global_set};
 pub use iterate::{array_append, array_append_all, iterate};
 pub use modules::{
-    Provided, declare_module, get_member, make_callable, make_namespace, module_binding,
-    module_namespace, null_value, put_member, undefined_value, with_runtime,
+    Provided, boolean_value, declare_global, declare_module, get_member, make_array, make_array_in, make_callable,
+    make_namespace, make_number, make_object, make_string,
+    module_binding, module_namespace, null_value, put_member, text_of, undefined_value,
+    with_runtime,
 };
 pub use objects::{get_property, object_new, set_property};
 pub use promise::drain_microtasks;

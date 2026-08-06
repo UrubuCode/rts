@@ -37,21 +37,29 @@ use crate::value::Value;
 pub fn array_new(length: i64) -> u64 {
     with_current(|context| {
         let absent = undefined_of(context);
-        let elements = vec![absent; length.max(0) as usize];
-        let store = context.arrays.insert(elements).slot();
-
-        let shape = context.shapes.root();
-        let ty = context.layout_of(shape).index() as u32;
-        match context.region.alloc(crate::heap::STRIDE, ty) {
-            Some(cell) => {
-                context.mark_array(cell, store);
-                set_length(context, cell, length.max(0) as usize);
-                Value::from_slot(cell).bits()
-            }
-            // The region is full — see [`super::alloc::heap_exhausted`].
-            None => super::alloc::heap_exhausted(context),
-        }
+        built_in(context, vec![absent; length.max(0) as usize])
     })
+}
+
+/// The same, from a context already in hand and with its elements.
+///
+/// Split out because a HOST building a namespace has a `&mut Context` and no
+/// ambient one — `process.argv` is an array built before the program starts —
+/// and the entry point above would abort there with nothing installed.
+pub(in crate::entry) fn built_in(context: &mut Context, elements: Vec<u64>) -> u64 {
+    let count = elements.len();
+    let store = context.arrays.insert(elements).slot();
+    let shape = context.shapes.root();
+    let ty = context.layout_of(shape).index() as u32;
+    match context.region.alloc(crate::heap::STRIDE, ty) {
+        Some(cell) => {
+            context.mark_array(cell, store);
+            set_length(context, cell, count);
+            Value::from_slot(cell).bits()
+        }
+        // The region is full — see [`super::alloc::heap_exhausted`].
+        None => super::alloc::heap_exhausted(context),
+    }
 }
 
 impl Context {

@@ -106,7 +106,7 @@ extern "C" fn test(_e: u64, _this: u64, name: u64, body: u64, _a2: u64, _a3: u64
 
 /// `expect(value)` — an object carrying the value and the matchers.
 extern "C" fn expect(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let object = rts_core_rwk::entry::object_new();
+    let object = rts_core_rwk::entry::with_runtime(rts_core_rwk::entry::make_object);
     let members: &[(&str, Provided)] = &[
         ("toBe", to_be),
         ("toEqual", to_be),

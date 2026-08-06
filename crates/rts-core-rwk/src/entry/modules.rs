@@ -219,3 +219,89 @@ pub fn null_value() -> u64 {
         )
     })
 }
+
+/// A string value over Rust text.
+///
+/// Interned, which is not an optimisation: two occurrences of one string in a
+/// program ARE the same string, so a host handing back a fresh cell each time
+/// would break the identity `===` reports for interned text.
+pub fn make_string(context: &mut Context, text: &str) -> u64 {
+    context.intern_value(Str::from_str(text)).bits()
+}
+
+/// The text a value holds, for a host reading an argument.
+///
+/// `None` for an object, whose `ToString` runs user code an entry point cannot
+/// call — the boundary every conversion in this crate stops at.
+pub fn text_of(value: u64) -> Option<String> {
+    with_current(|context| super::text::to_text(context, Value(value))?.to_rust())
+}
+
+/// An array value holding these.
+pub fn make_array(values: Vec<u64>) -> u64 {
+    super::array_proto::built(values)
+}
+
+/// A boolean value.
+///
+/// Not a Rust `bool` handed across the boundary: that is one BYTE, and a caller
+/// reading it as a word takes the callee's leftover bits — the failure that made
+/// `===` answer true for two different strings in release and false in debug.
+pub fn boolean_value(held: bool) -> u64 {
+    Value::from_bool(held).bits()
+}
+
+/// Puts a value on the global object, under a name.
+///
+/// # Why a host needs this and `declare_module` is not enough
+///
+/// `console` is not imported. A program writes `console.log(x)` with no import
+/// line at all, so the value has to be reachable by NAME — which means the
+/// global object, which is this crate's and is made on demand.
+///
+/// The compiler decides which bare names are readable at all and refuses the
+/// rest; this decides which of those actually have a value. The two sets are
+/// allowed to differ, and the difference shows up as `undefined` rather than as
+/// a link error — the same arrangement `global_get` already documents.
+pub fn declare_global(context: &mut Context, name: &str, value: u64) {
+    let Some(object) = super::global::holder(context) else {
+        return;
+    };
+    let key = context.well_known(name);
+    super::objects::put(context, object, key, value);
+}
+
+/// A number value.
+///
+/// The gap the first host module found: without it a byte count had to cross as
+/// TEXT, which is a different type for a program to compare against. Numbers
+/// need no interning — a double is the encoding itself, not a cell — which is
+/// why this takes no context where [`make_string`] does.
+pub fn make_number(value: f64) -> u64 {
+    Value::from_f64(value).bits()
+}
+
+/// An empty object, from a context already in hand.
+///
+/// [`super::objects::object_new`] is an entry point and takes the ambient
+/// borrow, so it can be called neither while a host holds a `&mut Context` nor
+/// from inside [`with_runtime`] — the first aborts with no context installed and
+/// the second with a borrow already held. Both were real: a namespace built one
+/// at construction, and a native built one inside its own borrow.
+pub fn make_object(context: &mut Context) -> u64 {
+    let shape = context.shapes.root();
+    let ty = context.layout_of(shape).index() as u32;
+    match context.region.alloc(crate::heap::STRIDE, ty) {
+        Some(cell) => Value::from_slot(cell).bits(),
+        None => super::alloc::heap_exhausted(context),
+    }
+}
+
+/// An array holding these, from a context already in hand.
+///
+/// [`make_array`] reaches the ambient context, which a host building a namespace
+/// does not have — `process.argv` is an array built before the program starts,
+/// and the ambient form aborts there.
+pub fn make_array_in(context: &mut Context, values: Vec<u64>) -> u64 {
+    super::array::built_in(context, values)
+}

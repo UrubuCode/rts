@@ -152,7 +152,7 @@ pub fn global_set(key: i64, value: u64) -> u64 {
 }
 
 /// The object the provided names are properties of, made once.
-fn holder(context: &mut Context) -> Option<u32> {
+pub(in crate::entry) fn holder(context: &mut Context) -> Option<u32> {
     if let Some(made) = context.globals {
         return Some(made);
     }

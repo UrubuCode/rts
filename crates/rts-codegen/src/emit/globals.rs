@@ -48,8 +48,14 @@ use crate::runtime::RuntimeOp;
 /// `globalThis` is the object itself, which is what makes this a global object
 /// rather than a table with globals in it: a program can reach it, enumerate it,
 /// and put something on it.
+/// `console` is here for the same reason and is worth its own sentence: it is
+/// in no specification, and every runtime has it. A program writes
+/// `console.log` with no import line, so refusing the NAME would refuse the
+/// program — and which of these actually has a value is the runtime's to answer,
+/// which is why this list may be longer than what any one host installs.
 const PROVIDED: &[&str] = &[
     "Array",
+    "console",
     "ArrayBuffer",
     "BigInt",
     "BigInt64Array",

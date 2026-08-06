@@ -26,6 +26,7 @@ members = [
     "crates/rts-codegen",
     "crates/rts-core-rwk",
     "crates/rts-std-rwk",
+    "crates/rts-node-rwk",
     "crates/rts-host-rwk",
     "crates/rts-symbol-baker",
     "crates/rts-cli",

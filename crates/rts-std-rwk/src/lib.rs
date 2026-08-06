@@ -23,14 +23,14 @@
 //! with the record — print it, fail a build, compare it against another engine —
 //! belongs to whatever runs the program.
 //!
-//! `node:*` is deliberately absent. 102 of the 818 files import one, and none of
-//! them can be read yet; a module nothing can reach is a gap rather than a
-//! feature, which is what the crate READMEs say about a structure with no
-//! producer.
+//! `node:*` lives in `rts-node-rwk`, which exists now that modules compile and
+//! those 102 files can be read. It was absent from here on purpose and stayed
+//! absent until it had a producer.
 
 #![deny(missing_docs)]
 #![deny(dead_code)]
 
+pub mod console;
 pub mod io;
 pub mod test;
 
@@ -46,4 +46,7 @@ pub fn install(context: &mut Context) {
     rts_core_rwk::entry::declare_module(context, "rts:test", harness);
     let standard = io::namespace(context);
     rts_core_rwk::entry::declare_module(context, "rts", standard);
+    // Not a module: a program writes `console.log` with no import line, so it
+    // has to be reachable by name.
+    console::install(context);
 }

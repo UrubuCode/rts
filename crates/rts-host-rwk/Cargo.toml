@@ -5,6 +5,9 @@ edition = "2024"
 license.workspace = true
 description = "Where a compiler and a runtime meet: the crate that runs a program."
 
+[dev-dependencies]
+rts-std-rwk = { path = "../rts-std-rwk" }
+
 [dependencies]
 # The language: source text to IR.
 rts-codegen = { path = "../rts-codegen" }
@@ -25,3 +28,4 @@ rts-cranelift = { path = "../rts-cranelift" }
 # The runtime: what a compiled program calls out to.
 rts-core-rwk = { path = "../rts-core-rwk" }
 rts-std-rwk = { path = "../rts-std-rwk" }
+rts-node-rwk = { path = "../rts-node-rwk" }

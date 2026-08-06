@@ -4242,6 +4242,7 @@ dependencies = [
  "rts-codegen",
  "rts-core-rwk",
  "rts-cranelift",
+ "rts-node-rwk",
  "rts-std-rwk",
 ]
 
@@ -4341,6 +4342,13 @@ dependencies = [
  "sha3",
  "socket2 0.6.3",
  "x25519-dalek",
+]
+
+[[package]]
+name = "rts-node-rwk"
+version = "0.1.0"
+dependencies = [
+ "rts-core-rwk",
 ]
 
 [[package]]

@@ -260,12 +260,17 @@ fn run_region(
     // that table, so seeding these first would record numbers into a table about
     // to be cleared.
     rts_core_rwk::entry::declare_templates(&mut context, templates);
+    // Before the context is installed, and every namespace here is built from
+    // the `context` it is HANDED. A module reaching the ambient one instead
+    // would be asking for a borrow this call already holds, which is a panic in
+    // an `extern "C"` frame and therefore an abort.
+    rts_std_rwk::install(&mut context);
+    rts_node_rwk::install(&mut context);
     // The modules a program may import. Registered by the HOST rather than by
     // the runtime, because which of them exist is a fact about the environment
     // the program is given — and `rts-std-rwk` is where anything needing an
     // operating system lives, which is the same availability rule that keeps
     // `Math` in the runtime and `io.print` out of it.
-    rts_std_rwk::install(&mut context);
     let (context, (value, described)) = rts_core_rwk::entry::with_context(context, || {
         // A script closes over nothing, has no receiver and was passed no
         // arguments: `undefined` for all six, from the compiler's own numbering
