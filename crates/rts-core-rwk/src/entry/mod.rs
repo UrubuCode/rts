@@ -346,6 +346,13 @@ pub struct Context {
     /// Counted rather than acted on, because there is no collector. It exists
     /// so the call site does not have to be found again the day there is one.
     pub barriers: u64,
+    /// The stores that made this region point at another.
+    ///
+    /// Empty in every program this engine can express, because nothing
+    /// publishes a reference across a thread — which is what makes an entry
+    /// here evidence of a defect rather than a fact about the heap. See
+    /// `barrier` for why it is built before there is a collector to read it.
+    pub remembered: barrier::Remembered,
     /// How many times a cached read site asked where a property is.
     ///
     /// A hit does not reach the runtime at all, so this counts MISSES — which
@@ -488,6 +495,7 @@ impl Context {
             array_prototype: None,
             resolves: 0,
             barriers: 0,
+            remembered: barrier::Remembered::default(),
             // Empty until a host seeds it. A program with no string literal
             // never reaches the table, and one that does gets it from the
             // compilation that produced the code.

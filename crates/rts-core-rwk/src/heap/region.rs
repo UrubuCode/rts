@@ -80,8 +80,9 @@
 //!
 //! - There is no `Local` versus `Shared` distinction on a region, so nothing can
 //!   even state that an object escaped its thread.
-//! - The write barrier's runtime half is still absent — [`crate::entry`] counts
-//!   barriers and acts on none of them.
+//! - The write barrier records a store that crosses a region and nothing reads
+//!   what it records, because the collector that would is the next piece rather
+//!   than this one. See the write barrier in `entry/barrier.rs`.
 //! - There is no collector, so there is nothing that would have to be told.
 //!
 //! Publishing a value to another thread is therefore **not expressible**: a
@@ -173,6 +174,16 @@ impl Region {
     /// How many low bits of a reference name the region.
     pub fn selector_bits(&self) -> u32 {
         self.selector_bits
+    }
+
+    /// Which region a reference belongs to.
+    ///
+    /// Answers about a reference this region did not hand out, which is the
+    /// whole reason it is not [`Self::decompose`]: that one refuses a foreign
+    /// reference, and the write barrier's question is precisely *is this one
+    /// foreign*.
+    pub fn region_of(&self, reference: u32) -> u32 {
+        reference & self.selector_mask()
     }
 
     /// The reference naming a cell of this region.
