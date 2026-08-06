@@ -85,7 +85,9 @@ fn measure(width: usize) {
             .expect("declared");
     }
 
-    // The serial half: our lowering, plus everything that assigns an id.
+    // The OLD shape, which still exists as the per-function API: lowering
+    // serial, then the code generator on the pool. Timed apart, because the
+    // split between them is what decided this was worth doing.
     let started = Instant::now();
     let prepared: Vec<_> = bodies
         .iter()
@@ -93,23 +95,52 @@ fn measure(width: usize) {
         .collect();
     let preparing = started.elapsed();
 
-    // The parallel half: the code generator.
     let started = Instant::now();
     module.compile_and_define(prepared).expect("compiled");
     let compiling = started.elapsed();
+    let split = preparing + compiling;
 
-    let total = preparing + compiling;
-    let share = preparing.as_secs_f64() / total.as_secs_f64() * 100.0;
+    assert_eq!(
+        module.into_placements().defined().count(),
+        COUNT,
+        "every function was compiled"
+    );
+
+    // The NEW shape, on the same program: one batch, lowering and code
+    // generation together on the pool, over a serial pre-pass that hands out
+    // every identifier in program order.
+    //
+    // A second module rather than reusing the first, because the first has
+    // already defined these functions — redefining is an error, and measuring
+    // an error path would be measuring nothing.
+    let mut jit = executable_memory().expect("this machine hosts its own code");
+    let mut module = MachineModule::new(&mut jit);
+    for (index, (id, _)) in bodies.iter().enumerate() {
+        module
+            .declare(*id, &format!("f{index}"), Linkage::Export, &funcs)
+            .expect("declared");
+    }
+    let batch: Vec<(rts_cranelift::ir::FuncId, &Function)> =
+        bodies.iter().map(|(id, func)| (*id, func)).collect();
+
+    let started = Instant::now();
+    module.compile_all(&batch, &funcs, &types).expect("compiled");
+    let together = started.elapsed();
+
+    let share = preparing.as_secs_f64() / split.as_secs_f64() * 100.0;
     println!(
-        "  {width:>3} additions each: prepare {:>7.2} ms ({share:>4.1}%)   compile {:>7.2} ms   total {:>7.2} ms",
+        "  {width:>3} additions each:  lower {:>6.2} + codegen {:>6.2} = {:>6.2} ms  ({share:>4.1}% was serial)   both on the pool: {:>6.2} ms",
         preparing.as_secs_f64() * 1000.0,
         compiling.as_secs_f64() * 1000.0,
-        total.as_secs_f64() * 1000.0,
+        split.as_secs_f64() * 1000.0,
+        together.as_secs_f64() * 1000.0,
     );
 
     // Consumed, so that a phase optimised away would show as a number too good
     // to be true rather than as a fast one.
-    let placements = module.into_placements();
-    let placed = placements.defined().count();
-    assert_eq!(placed, COUNT, "every function was compiled");
+    assert_eq!(
+        module.into_placements().defined().count(),
+        COUNT,
+        "every function was compiled the second way too"
+    );
 }

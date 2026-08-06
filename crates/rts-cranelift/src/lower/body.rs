@@ -20,20 +20,32 @@ use crate::ir::{
 use crate::repr::Repr;
 use crate::symbols::RtEntry;
 use crate::target::{Declarations, FunctionRefs};
-use cranelift_module::Module;
+use cranelift_module::ModuleDeclarations;
 
-/// The module a function may name things in, and what it has named.
+/// What a function may name outside itself — all of it already decided.
+///
+/// # Why every field is a shared reference
+///
+/// Because lowering may not declare anything. Everything a body can name — its
+/// callees, the seven entry points, its cache slots, the shapes its indirect
+/// calls expect — is declared by a serial pre-pass in program order before any
+/// function is lowered, and lowering only looks up. That is what makes a whole
+/// program's bodies lowerable at once on a pool without any of them handing out
+/// an identifier, which rule 13 (`rts-cranelift/README.md`) forbids.
+///
+/// The type carries the rule: there is no `&mut` here to declare *through*, so
+/// "lowering declared something" is unrepresentable rather than merely
+/// discouraged (rule 7).
 pub struct Outside<'a> {
-    /// Where to ask for a reference to something declared.
-    pub module: &'a mut dyn Module,
+    /// What the module has been told about, in the module's own vocabulary.
+    ///
+    /// Immutable, and taken instead of the module itself — see
+    /// [`crate::target::func_ref`] for why the module was not needed after all.
+    pub machine: &'a ModuleDeclarations,
     /// Which of our identifiers the module has seen.
     pub declarations: &'a Declarations,
-    /// Which runtime entry points the module has been told about.
-    ///
-    /// Mutable because they are declared on first use: a program that never
-    /// allocates should leave no reference to an allocator, which matters on the
-    /// path where every undefined symbol is something a linker must find.
-    pub entries: &'a mut crate::symbols::EntryTable,
+    /// The module's identifier for each runtime entry point.
+    pub entries: &'a crate::symbols::EntryImports,
     /// Where each site in this function keeps what it last saw.
     ///
     /// Declared by whoever is compiling the function, because naming a piece of
@@ -61,11 +73,15 @@ pub struct Body<'a> {
 
 impl<'a> Body<'a> {
     /// Lowers a function in the environment it is allowed to reach.
+    /// Reports which runtime entry points the body ended up naming, because
+    /// nothing else can: the entry points are all declared before lowering
+    /// starts, so what a program reaches for is only knowable from what lowering
+    /// asked for.
     pub fn lower_with(
         func: &'a Function,
         builder: &mut FunctionBuilder,
         environment: super::Environment<'a>,
-    ) -> Result<(), LowerError> {
+    ) -> Result<crate::symbols::EntryTable, LowerError> {
         let mut body = Body {
             func,
             blocks: HashMap::new(),
@@ -81,7 +97,7 @@ impl<'a> Body<'a> {
             body.lower_block(builder, id)?;
         }
         builder.seal_all_blocks();
-        Ok(())
+        Ok(body.refs.entries_used())
     }
 
     /// Creates every block with its parameters, before any is filled.
@@ -276,28 +292,27 @@ impl<'a> Body<'a> {
                     })?;
                     crate::mem::ObjectLayout::size_of(*ty, heap.types)
                 };
-                let outside = self.outside.as_mut().ok_or(LowerError::NotYetLowered {
+                let outside = self.outside.as_ref().ok_or(LowerError::NotYetLowered {
                     inst: id,
                     needs: Capability::Memory,
                 })?;
 
-                let allocate = outside
-                    .entries
-                    .reference(outside.module, builder.func, RtEntry::Alloc)
-                    .map_err(|_| LowerError::UndeclaredCallee { inst: id })?;
+                let allocate =
+                    self.refs
+                        .entry(outside.machine, outside.entries, builder.func, RtEntry::Alloc);
                 let size = builder.ins().iconst(types::I64, i64::from(size));
                 let ty_id = builder.ins().iconst(types::I64, ty.index() as i64);
                 let call = builder.ins().call(allocate, &[size, ty_id]);
                 return self.bind_results(builder, call, results);
             }
             Inst::Call { callee, args } => {
-                let outside = self.outside.as_mut().ok_or(LowerError::NotYetLowered {
+                let outside = self.outside.as_ref().ok_or(LowerError::NotYetLowered {
                     inst: id,
                     needs: Capability::Calls,
                 })?;
                 let reference = self
                     .refs
-                    .callee(outside.module, builder.func, outside.declarations, *callee)
+                    .callee(outside.machine, builder.func, outside.declarations, *callee)
                     .ok_or(LowerError::UndeclaredCallee { inst: id })?;
                 let args = self.args(args);
                 let call = builder.ins().call(reference, &args);
@@ -310,13 +325,13 @@ impl<'a> Body<'a> {
             // That is why it is refused without `Capability::Calls` rather than
             // being treated as a constant.
             Inst::FuncAddr { callee } => {
-                let outside = self.outside.as_mut().ok_or(LowerError::NotYetLowered {
+                let outside = self.outside.as_ref().ok_or(LowerError::NotYetLowered {
                     inst: id,
                     needs: Capability::Calls,
                 })?;
                 let reference = self
                     .refs
-                    .callee(outside.module, builder.func, outside.declarations, *callee)
+                    .callee(outside.machine, builder.func, outside.declarations, *callee)
                     .ok_or(LowerError::UndeclaredCallee { inst: id })?;
                 // `I64` because the builder gave the value `Repr::I64`. The two
                 // are one decision and disagreeing about it would produce a
@@ -325,7 +340,7 @@ impl<'a> Body<'a> {
             }
 
             Inst::CallIndirect { callee, sig, args } => {
-                let outside = self.outside.as_mut().ok_or(LowerError::NotYetLowered {
+                let outside = self.outside.as_ref().ok_or(LowerError::NotYetLowered {
                     inst: id,
                     needs: Capability::Calls,
                 })?;
@@ -613,18 +628,17 @@ impl<'a> Body<'a> {
     ) -> Result<(), LowerError> {
         let outside = self
             .outside
-            .as_mut()
+            .as_ref()
             .ok_or(LowerError::TerminatorNotYetLowered {
                 block,
                 needs: Capability::Memory,
             })?;
-        let barrier = outside
-            .entries
-            .reference(outside.module, builder.func, RtEntry::WriteBarrier)
-            .map_err(|_| LowerError::TerminatorNotYetLowered {
-                block,
-                needs: Capability::Memory,
-            })?;
+        let barrier = self.refs.entry(
+            outside.machine,
+            outside.entries,
+            builder.func,
+            RtEntry::WriteBarrier,
+        );
         builder.ins().call(barrier, &[object, written]);
         Ok(())
     }
@@ -639,7 +653,7 @@ impl<'a> Body<'a> {
     ) -> Result<Value, LowerError> {
         let outside = self
             .outside
-            .as_mut()
+            .as_ref()
             .ok_or(LowerError::TerminatorNotYetLowered {
                 block,
                 needs: Capability::Memory,
@@ -649,7 +663,7 @@ impl<'a> Body<'a> {
             .get(cache.index())
             .ok_or(LowerError::UndeclaredTailCallee { block })?;
 
-        let value = outside.module.declare_data_in_func(data, builder.func);
+        let value = crate::target::data_ref(outside.machine, builder.func, data);
         Ok(builder.ins().global_value(types::I64, value))
     }
 
@@ -663,15 +677,14 @@ impl<'a> Body<'a> {
     ) -> Result<cranelift_codegen::ir::Inst, LowerError> {
         let outside = self
             .outside
-            .as_mut()
+            .as_ref()
             .ok_or(LowerError::TerminatorNotYetLowered {
                 block,
                 needs: Capability::Calls,
             })?;
-        let reference = outside
-            .entries
-            .reference(outside.module, builder.func, entry)
-            .map_err(|_| LowerError::UndeclaredTailCallee { block })?;
+        let reference = self
+            .refs
+            .entry(outside.machine, outside.entries, builder.func, entry);
         Ok(builder.ins().call(reference, args))
     }
 
@@ -687,14 +700,13 @@ impl<'a> Body<'a> {
         entry: RtEntry,
         args: &[Value],
     ) -> Result<cranelift_codegen::ir::Inst, LowerError> {
-        let outside = self.outside.as_mut().ok_or(LowerError::NotYetLowered {
+        let outside = self.outside.as_ref().ok_or(LowerError::NotYetLowered {
             inst: id,
             needs: Capability::Calls,
         })?;
-        let reference = outside
-            .entries
-            .reference(outside.module, builder.func, entry)
-            .map_err(|_| LowerError::UndeclaredCallee { inst: id })?;
+        let reference = self
+            .refs
+            .entry(outside.machine, outside.entries, builder.func, entry);
         Ok(builder.ins().call(reference, args))
     }
 
@@ -718,14 +730,16 @@ impl<'a> Body<'a> {
         object: Value,
         written: Value,
     ) -> Result<(), LowerError> {
-        let outside = self.outside.as_mut().ok_or(LowerError::NotYetLowered {
+        let outside = self.outside.as_ref().ok_or(LowerError::NotYetLowered {
             inst: id,
             needs: Capability::Memory,
         })?;
-        let barrier = outside
-            .entries
-            .reference(outside.module, builder.func, RtEntry::WriteBarrier)
-            .map_err(|_| LowerError::UndeclaredCallee { inst: id })?;
+        let barrier = self.refs.entry(
+            outside.machine,
+            outside.entries,
+            builder.func,
+            RtEntry::WriteBarrier,
+        );
         builder.ins().call(barrier, &[object, written]);
         Ok(())
     }

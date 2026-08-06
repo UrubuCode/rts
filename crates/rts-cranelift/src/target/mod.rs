@@ -25,14 +25,16 @@ mod declare;
 mod destination;
 mod hosted;
 
-pub use declare::{Declarations, FunctionRefs};
+pub use declare::{Declarations, FunctionRefs, data_ref, func_ref};
 pub use destination::{executable_memory, executable_memory_calling, object_file};
 pub use hosted::{InMemory, Placing, Visibility, place_in_memory};
 
 use cranelift_codegen::Context;
 use cranelift_codegen::control::ControlPlane;
-use cranelift_codegen::isa::{CallConv, OwnedTargetIsa};
-use cranelift_module::{FuncId as MachineFuncId, Linkage, Module, ModuleError, ModuleReloc};
+use cranelift_codegen::isa::{CallConv, OwnedTargetIsa, TargetIsa};
+use cranelift_module::{
+    DataId, FuncId as MachineFuncId, Linkage, Module, ModuleDeclarations, ModuleError, ModuleReloc,
+};
 
 use crate::ir::{FuncId, FuncRegistry, Function};
 use crate::lower::{LowerError, machine_signature};
@@ -86,6 +88,13 @@ impl From<ModuleError> for TargetError {
 pub struct MachineModule<'a> {
     module: &'a mut dyn Module,
     declarations: Declarations,
+    /// The module's identifier for each runtime entry point.
+    ///
+    /// Filled by the first pre-pass and read-only afterwards. Optional only
+    /// because declaring can fail and [`MachineModule::new`] cannot, so it is
+    /// done on the first compilation rather than at construction.
+    imports: Option<crate::symbols::EntryImports>,
+    /// Which entry points the code compiled so far names.
     entries: crate::symbols::EntryTable,
     heap: Option<crate::mem::RegionBases>,
     faults: std::collections::HashMap<FuncId, crate::fault::FaultTable>,
@@ -106,6 +115,7 @@ impl<'a> MachineModule<'a> {
         Self {
             module,
             declarations: Declarations::new(),
+            imports: None,
             entries: crate::symbols::EntryTable::new(),
             heap: None,
             faults: std::collections::HashMap::new(),
@@ -154,11 +164,13 @@ impl<'a> MachineModule<'a> {
         self.positions.get(&id)
     }
 
-    /// Which runtime entry points this compilation has needed.
+    /// Which runtime entry points this compilation's code reaches for.
     ///
-    /// Worth being able to ask: entry points are declared on first use, so this
-    /// says what the compiled code actually reaches for — which is a structural
-    /// fact, and cheaper to check than arranging to observe a side effect.
+    /// A structural fact, and cheaper to check than arranging to observe a side
+    /// effect. It is no longer the same thing as which were *declared* — all
+    /// seven are, before anything is lowered, so that lowering never assigns an
+    /// identifier — and [`crate::symbols::EntryTable`] says why that trade was
+    /// made and what it costs.
     pub fn entries(&self) -> &crate::symbols::EntryTable {
         &self.entries
     }
@@ -213,23 +225,86 @@ impl<'a> MachineModule<'a> {
         self.compile_and_define(vec![prepared])
     }
 
-    /// Lowers a function body to the code generator's IR, ready for machine
+    /// Compiles a whole program: everything that assigns an identifier first,
+    /// then every body lowered and machine-compiled at once, then the
+    /// definitions replayed in order.
+    ///
+    /// # The three phases, and why the boundaries are where they are
+    ///
+    /// **Serial pre-pass** ([`plan`](Self::plan)). Every identifier this
+    /// compilation will use is handed out here, in program order: the seven
+    /// runtime entry points, the machine signature of every indirect-call shape,
+    /// and one `DataId` per cache site of every function. Nothing about any of
+    /// them depends on lowering — the entry-point set is closed and its
+    /// signatures are program-independent, a shape is a pure function of the
+    /// registry, and a function's cache count is known before its body is
+    /// touched. Callees were already declared before this by the caller, because
+    /// a program whose functions call each other needs all of them named before
+    /// any is defined.
+    ///
+    /// **Parallel phase.** Lowering *and* `Context::compile`, per function.
+    /// Lowering used to be serial because it declared what it reached for as it
+    /// went; now it cannot declare anything at all — [`crate::lower::Outside`]
+    /// has no `&mut` in it — so it is a pure function of shared, `Sync` state
+    /// and one body. This is the change that matters: on realistic bodies our
+    /// lowering was the majority of compile time (`examples/phase_split.rs`:
+    /// 54% at 32 instructions per function) and all of it was on one thread.
+    ///
+    /// **Serial replay.** `define_function_bytes`, the fault table, the position
+    /// map — all reading compiled bytes back into the module, in the original
+    /// order regardless of which worker finished first, so the module's layout
+    /// and everything derived from it is identical to compiling serially.
+    ///
+    /// A batch under [`PARALLEL_THRESHOLD`] skips the pool entirely.
+    pub fn compile_all(
+        &mut self,
+        bodies: &[(FuncId, &Function)],
+        funcs: &FuncRegistry,
+        types: &crate::types::TypeRegistry,
+    ) -> Result<(), TargetError> {
+        let planned = self.plan(bodies, funcs)?;
+        if planned.is_empty() {
+            return Ok(());
+        }
+
+        let results = {
+            let shared = self.shared(types);
+            let isa = self.module.isa();
+            // Lower AND compile, per function, in one pass over the batch. The
+            // two used to be separated by a thread boundary because only the
+            // second could cross it; nothing separates them now.
+            let work = |one| -> Result<Emitted, TargetError> {
+                compile_one(isa, lower_one(&shared, one)?)
+            };
+
+            if planned.len() < PARALLEL_THRESHOLD {
+                planned
+                    .into_iter()
+                    .map(work)
+                    .collect::<Result<Vec<_>, _>>()?
+            } else {
+                use rayon::prelude::*;
+                pool().install(|| {
+                    planned
+                        .into_par_iter()
+                        .map(work)
+                        .collect::<Result<Vec<_>, _>>()
+                })?
+            }
+        };
+
+        self.define_all(results)
+    }
+
+    /// Lowers one function body to the code generator's IR, ready for machine
     /// compilation.
     ///
-    /// # Why this is the serial half
-    ///
-    /// Lowering declares whatever the body reaches for as it goes: callees
-    /// (`FuncId`s, through [`Declarations`]), the per-site cache slots
-    /// (`DataId`s, through `declare_caches`, which also *defines* their initial
-    /// contents — a `Module` write), and indirect-call shapes (through
-    /// `record_shapes`, into `self.declarations`). Every one of those hands out
-    /// an id or writes module state in the order the code reaches it. Moving
-    /// any of this into a parallel phase would make that order depend on
-    /// thread scheduling, and rule 13 (`rts-cranelift/README.md`) requires the
-    /// output to be independent of it — so everything that touches `self.module`,
-    /// `self.declarations` or `self.entries` stays here, single-threaded, and
-    /// only the part that touches none of them — `Context::compile` — moves to
-    /// [`compile_and_define`](Self::compile_and_define).
+    /// The one-function shape of [`compile_all`](Self::compile_all): it runs the
+    /// same serial pre-pass over that single body and then lowers it here, on
+    /// the calling thread. Kept because a caller with one function has nothing
+    /// to parallelise, and because it is what
+    /// [`compile_and_define`](Self::compile_and_define) — and the determinism
+    /// test — are written against.
     pub fn prepare(
         &mut self,
         id: FuncId,
@@ -237,113 +312,28 @@ impl<'a> MachineModule<'a> {
         funcs: &FuncRegistry,
         types: &crate::types::TypeRegistry,
     ) -> Result<Prepared, TargetError> {
-        let declared = self
-            .declarations
-            .machine_id(id)
-            .ok_or(TargetError::UndeclaredFunction(id))?;
-        let name = self
-            .emitted
-            .get(&id)
-            .map(|(name, _)| name.clone())
-            .ok_or(TargetError::UndeclaredFunction(id))?;
-
-        let mut context = Context::new();
-        self.record_shapes(func, funcs);
-        let caches = self.declare_caches(id, func)?;
-
-        // Destructured so that the module and the cache are borrowed separately:
-        // lowering needs both at once, and they are disjoint parts of this.
-        let Self {
-            module,
-            declarations,
-            entries,
-            heap,
-            call_conv,
-            ..
-        } = self;
-        context.func = crate::lower::lower_into(
-            func,
-            declarations,
-            entries,
-            &caches,
-            *module,
-            *call_conv,
-            heap.as_ref()
-                .map(|heap| crate::lower::Heap { bases: heap, types }),
-        )?;
-
-        Ok(Prepared {
-            id,
-            declared,
-            name,
-            context,
-        })
+        let mut planned = self.plan(&[(id, func)], funcs)?;
+        let one = planned.pop().ok_or(TargetError::UndeclaredFunction(id))?;
+        lower_one(&self.shared(types), one)
     }
 
     /// Machine-compiles a batch of [`Prepared`] functions and defines them
     /// into the module.
     ///
-    /// # The split, and why the boundary is here
-    ///
-    /// `Context::compile` — regalloc, verification, machine-code emission — is
-    /// a pure function of one `Context` and the ISA: it touches no shared
-    /// state, unlike everything [`prepare`](Self::prepare) did. That is what
-    /// makes it safe to run on a rayon pool while nothing shared is being
-    /// written. Definition — `Module::define_function_bytes`, plus recording
-    /// this compilation's fault table and position map — reads compiled bytes
-    /// back into `self.module`/`self.faults`/`self.positions`, so it goes back
-    /// to being serial, and is replayed in `prepared`'s ORIGINAL order (the
-    /// order [`prepare`](Self::prepare) was called in) regardless of which
-    /// worker finished first — so the module's layout, and everything derived
-    /// from it, is byte-identical to compiling the same batch serially.
-    ///
-    /// A batch under [`PARALLEL_THRESHOLD`] skips the pool: the module is one
-    /// function (a fixture, a REPL line, a test) more often than it is
-    /// hundreds, and building a thread pool to compile one function is pure
-    /// loss.
+    /// `Context::compile` — regalloc, verification, machine-code emission — is a
+    /// pure function of one `Context` and the ISA, which is what makes running a
+    /// batch of them on the pool sound. The definitions that follow are replayed
+    /// in `prepared`'s original order.
     pub fn compile_and_define(&mut self, prepared: Vec<Prepared>) -> Result<(), TargetError> {
         if prepared.is_empty() {
             return Ok(());
         }
 
-        // PARALLEL PHASE (conditionally). Borrows `self.module` only
-        // immutably, for the ISA — `TargetIsa` is `Send + Sync` — so the
-        // mutable borrow the serial phase below needs is free to start the
-        // moment this ends.
+        // Borrows `self.module` only immutably, for the ISA — `TargetIsa` is
+        // `Send + Sync` — so the mutable borrow the serial phase below needs is
+        // free to start the moment this ends.
         let isa = self.module.isa();
-        let emit = move |mut p: Prepared| -> Result<Emitted, TargetError> {
-            p.context
-                .compile(isa, &mut ControlPlane::default())
-                .map_err(|error| {
-                    TargetError::Compile(format!("in fn `{}`: {:?}", p.name, error.inner))
-                })?;
-            // A fresh, plain shared borrow — not the value `compile` returned,
-            // whose lifetime is tied to `&mut p.context` and would make the
-            // `&p.context.func` borrow below a borrow-checker error.
-            let code = p
-                .context
-                .compiled_code()
-                .expect("compiled_code present after a successful compile");
-            let relocs = code
-                .buffer
-                .relocs()
-                .iter()
-                .map(|r| ModuleReloc::from_mach_reloc(r, &p.context.func, p.declared))
-                .collect();
-            Ok(Emitted {
-                id: p.id,
-                declared: p.declared,
-                alignment: code.buffer.alignment as u64,
-                bytes: code.buffer.data().to_vec(),
-                relocs,
-                // Read out of `code` here rather than after `define_function_bytes`:
-                // the correspondence between addresses and the program exists in
-                // what was just compiled, and nowhere else afterwards.
-                faults: crate::fault::FaultTable::of(code),
-                positions: crate::observe::PositionMap::of(code),
-                size: code.code_info().total_size as usize,
-            })
-        };
+        let emit = move |p: Prepared| compile_one(isa, p);
 
         let results: Vec<Emitted> = if prepared.len() < PARALLEL_THRESHOLD {
             prepared.into_iter().map(emit).collect::<Result<_, _>>()?
@@ -357,21 +347,177 @@ impl<'a> MachineModule<'a> {
             })?
         };
 
-        // SERIAL PHASE, replayed in `results`' order — which is `prepared`'s
-        // order, which is the order the caller called `prepare` in. Neither
-        // rayon's work-stealing above nor which worker finished first can move
-        // a function within this loop.
+        self.define_all(results)
+    }
+
+    /// The serial pre-pass: everything that assigns an identifier, in program
+    /// order.
+    ///
+    /// # Why this is the only place a number is handed out
+    ///
+    /// Rule 13 (`rts-cranelift/README.md`) requires two compilations of one
+    /// program to produce the same thing. An identifier assigned on a worker
+    /// would be assigned in whatever order the scheduler happened to run, and a
+    /// mutex would fix the race while leaving the order — which is the part that
+    /// is observable in the artefact. So there is no lock anywhere in this
+    /// crate's compile path: the ordering is a property of this loop instead.
+    fn plan<'b>(
+        &mut self,
+        bodies: &[(FuncId, &'b Function)],
+        funcs: &FuncRegistry,
+    ) -> Result<Vec<Planned<'b>>, TargetError> {
+        if self.imports.is_none() {
+            self.imports = Some(crate::symbols::EntryImports::declare_all(self.module)?);
+        }
+
+        let mut planned = Vec::with_capacity(bodies.len());
+        for &(id, body) in bodies {
+            let declared = self
+                .declarations
+                .machine_id(id)
+                .ok_or(TargetError::UndeclaredFunction(id))?;
+            let name = self
+                .emitted
+                .get(&id)
+                .map(|(name, _)| name.clone())
+                .ok_or(TargetError::UndeclaredFunction(id))?;
+
+            self.record_shapes(body, funcs);
+            let caches = self.declare_caches(id, body)?;
+
+            planned.push(Planned {
+                id,
+                declared,
+                name,
+                body,
+                caches,
+            });
+        }
+        Ok(planned)
+    }
+
+    /// Everything lowering may read, gathered once.
+    ///
+    /// A separate structure rather than `&self` because `self` holds
+    /// `&mut dyn Module`, which is neither `Send` nor `Sync` — and the point of
+    /// the change is that lowering does not need it.
+    fn shared<'s>(&'s self, types: &'s crate::types::TypeRegistry) -> Shared<'s> {
+        Shared {
+            machine: self.module.declarations(),
+            declarations: &self.declarations,
+            imports: self
+                .imports
+                .as_ref()
+                .expect("the pre-pass declared the entry points"),
+            heap: self.heap.as_ref(),
+            types,
+            call_conv: self.call_conv,
+        }
+    }
+
+    /// Reads compiled functions back into the module, in the order given.
+    ///
+    /// Serial, and deliberately so: this writes to the module, and the order it
+    /// writes in is the module's layout.
+    fn define_all(&mut self, results: Vec<Emitted>) -> Result<(), TargetError> {
         for e in results {
             self.module
                 .define_function_bytes(e.declared, e.alignment, &e.bytes, &e.relocs)?;
             self.faults.insert(e.id, e.faults);
             self.positions.insert(e.id, e.positions);
+            self.entries.union(&e.entries);
             if let Some(entry) = self.emitted.get_mut(&e.id) {
                 entry.1 = e.size;
             }
         }
         Ok(())
     }
+}
+
+/// What one function needs, all of it decided by the serial pre-pass.
+///
+/// Owns nothing that could hand out an identifier, which is what makes a batch
+/// of these safe to move onto worker threads.
+struct Planned<'a> {
+    id: FuncId,
+    declared: MachineFuncId,
+    name: String,
+    body: &'a Function,
+    caches: Vec<DataId>,
+}
+
+/// Everything the parallel phase may read, and nothing it may write.
+struct Shared<'a> {
+    machine: &'a ModuleDeclarations,
+    declarations: &'a Declarations,
+    imports: &'a crate::symbols::EntryImports,
+    heap: Option<&'a crate::mem::RegionBases>,
+    types: &'a crate::types::TypeRegistry,
+    call_conv: CallConv,
+}
+
+/// Lowers one planned function.
+///
+/// A free function taking [`Shared`] rather than a method, so that the type
+/// system says what the comment used to: this can run anywhere, because there is
+/// nothing here to write to.
+fn lower_one(shared: &Shared<'_>, planned: Planned<'_>) -> Result<Prepared, TargetError> {
+    let lowered = crate::lower::lower_into(
+        planned.body,
+        shared.machine,
+        shared.declarations,
+        shared.imports,
+        &planned.caches,
+        shared.call_conv,
+        shared.heap.map(|bases| crate::lower::Heap {
+            bases,
+            types: shared.types,
+        }),
+    )?;
+
+    let mut context = Context::new();
+    context.func = lowered.func;
+    Ok(Prepared {
+        id: planned.id,
+        declared: planned.declared,
+        name: planned.name,
+        entries: lowered.entries,
+        context,
+    })
+}
+
+/// Machine-compiles one lowered function.
+fn compile_one(isa: &dyn TargetIsa, mut p: Prepared) -> Result<Emitted, TargetError> {
+    p.context
+        .compile(isa, &mut ControlPlane::default())
+        .map_err(|error| TargetError::Compile(format!("in fn `{}`: {:?}", p.name, error.inner)))?;
+    // A fresh, plain shared borrow — not the value `compile` returned, whose
+    // lifetime is tied to `&mut p.context` and would make the `&p.context.func`
+    // borrow below a borrow-checker error.
+    let code = p
+        .context
+        .compiled_code()
+        .expect("compiled_code present after a successful compile");
+    let relocs = code
+        .buffer
+        .relocs()
+        .iter()
+        .map(|r| ModuleReloc::from_mach_reloc(r, &p.context.func, p.declared))
+        .collect();
+    Ok(Emitted {
+        id: p.id,
+        declared: p.declared,
+        alignment: code.buffer.alignment as u64,
+        bytes: code.buffer.data().to_vec(),
+        relocs,
+        // Read out of `code` here rather than after `define_function_bytes`: the
+        // correspondence between addresses and the program exists in what was
+        // just compiled, and nowhere else afterwards.
+        faults: crate::fault::FaultTable::of(code),
+        positions: crate::observe::PositionMap::of(code),
+        size: code.code_info().total_size as usize,
+        entries: p.entries,
+    })
 }
 
 /// A function lowered to the code generator's IR, waiting to be machine
@@ -386,6 +532,10 @@ pub struct Prepared {
     /// Only for the error a failed `Context::compile` names — a bail in a
     /// batch of hundreds is otherwise untraceable to which function it was.
     name: String,
+    /// Which runtime entry points this body named, carried out of lowering
+    /// because lowering has nowhere to record it any more — and recorded into
+    /// the compilation serially, so the answer does not depend on scheduling.
+    entries: crate::symbols::EntryTable,
     context: Context,
 }
 
@@ -402,10 +552,12 @@ struct Emitted {
     faults: crate::fault::FaultTable,
     positions: crate::observe::PositionMap,
     size: usize,
+    entries: crate::symbols::EntryTable,
 }
 
-/// Below this many functions in one [`MachineModule::compile_and_define`]
-/// batch, the serial path runs instead of the rayon pool.
+/// Below this many functions in one batch, the serial path runs instead of the
+/// rayon pool — in [`MachineModule::compile_all`] and in
+/// [`MachineModule::compile_and_define`] alike.
 ///
 /// A program of a handful of functions — a fixture, a REPL line, most unit
 /// tests in this crate — is the common case while iterating, and building a
@@ -418,7 +570,7 @@ struct Emitted {
 /// evidence behind it.
 const PARALLEL_THRESHOLD: usize = 8;
 
-/// A dedicated rayon pool for the machine-compile phase.
+/// A dedicated rayon pool for the phase that lowers and machine-compiles.
 ///
 /// `Context::compile` recurses over the function's IR and is stack-hungry — a
 /// default rayon worker's stack is far smaller than the process main thread's.

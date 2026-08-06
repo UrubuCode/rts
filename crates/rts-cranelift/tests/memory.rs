@@ -65,7 +65,10 @@ fn compile_with_heap(
             heap: Some(Heap { bases, types }),
         },
     )
-    .expect("lowering succeeds");
+    .expect("lowering succeeds")
+    // Lowering answers the body and which entry points it named; this test is
+    // about the body.
+    .func;
 
     let mut flags = settings::builder();
     flags

@@ -85,24 +85,18 @@ fn compiled(count: usize) -> Vec<(String, usize)> {
                 .declare(*id, &format!("adder{index}"), Linkage::Export, &funcs)
                 .expect("declared");
         }
-        // `prepare` every function first, then hand the whole batch to
-        // `compile_and_define` — which is what the parallel path needs and what
-        // `define` per function would never reach. `define` prepares one and
-        // compiles a batch of one, so it is always below the threshold: a test
-        // written through it would have exercised the serial path as many times
-        // as there are functions and proved nothing about the other one.
+        // Through `compile_all`, which is what `place_in_memory` calls and
+        // therefore the path a real program takes. Driving `define` per
+        // function would prove nothing: it plans one and compiles a batch of
+        // one, so it is always below the threshold and always serial — a test
+        // written through it exercises the serial path as many times as there
+        // are functions and never the one at risk.
         //
-        // This is the shape `place_in_memory` uses, and using it here is what
-        // makes the assertion below about the path that is actually at risk.
-        let prepared: Vec<_> = bodies
-            .iter()
-            .map(|(id, func)| {
-                module
-                    .prepare(*id, func, &funcs, &types)
-                    .expect("prepared")
-            })
-            .collect();
-        module.compile_and_define(prepared).expect("compiled");
+        // This test was first written that way, which is why the comment is
+        // here rather than assumed.
+        let batch: Vec<(rts_cranelift::ir::FuncId, &Function)> =
+            bodies.iter().map(|(id, func)| (*id, func)).collect();
+        module.compile_all(&batch, &funcs, &types).expect("compiled");
         module.into_placements()
     };
 

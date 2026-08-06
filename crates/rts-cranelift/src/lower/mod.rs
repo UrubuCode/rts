@@ -156,6 +156,10 @@ fn abi_return_type(repr: Repr, foreign: bool) -> cranelift_codegen::ir::Type {
 
 /// What a function is allowed to reach beyond itself.
 ///
+/// Every field is a shared reference, so this is `Send` and `Sync` whenever its
+/// contents are — which is what makes lowering a whole program at once on a pool
+/// possible at all.
+///
 /// Both halves are optional and independent: a function can read memory without
 /// calling anything, and can call without touching memory. One flag covering
 /// both would make each unavailable whenever the other is.
@@ -177,35 +181,60 @@ pub fn lower_in<'a>(
     func: &'a Function,
     target_default: cranelift_codegen::isa::CallConv,
     environment: Environment<'a>,
-) -> Result<cranelift_codegen::ir::Function, LowerError> {
+) -> Result<Lowered, LowerError> {
     let signature = machine_signature(&func.signature, target_default);
     let mut lowered =
         cranelift_codegen::ir::Function::with_name_signature(UserFuncName::default(), signature);
 
     let mut context = FunctionBuilderContext::new();
     let mut builder = FunctionBuilder::new(&mut lowered, &mut context);
-    body::Body::lower_with(func, &mut builder, environment)?;
+    let entries = body::Body::lower_with(func, &mut builder, environment)?;
     builder.finalize();
-    Ok(lowered)
+    Ok(Lowered {
+        func: lowered,
+        entries,
+    })
 }
 
-/// Lowers one function into a module, so that it may call what the module has
-/// declared.
+/// One lowered function, and what it named outside itself.
+///
+/// The entry points come back rather than being written into a table as they are
+/// reached, because there is no longer a table to write into while lowering: the
+/// seven are declared before any body is lowered, so which ones a program
+/// *reaches* is a result of lowering rather than a side effect of it. That is
+/// also what lets a caller collect the set serially from a batch lowered in
+/// parallel, in the order it prepared them.
+pub struct Lowered {
+    /// The body, in the code generator's representation.
+    pub func: cranelift_codegen::ir::Function,
+    /// The runtime entry points it names.
+    pub entries: crate::symbols::EntryTable,
+}
+
+/// Lowers one function against what a module has already been told, so that it
+/// may name what the module declared.
+///
+/// Every argument is shared, and that is the interface rather than an accident:
+/// nothing here can declare anything, so a whole program's bodies can be lowered
+/// at once on a pool without any of them assigning an identifier — which rule 13
+/// (`rts-cranelift/README.md`) forbids. The module itself is deliberately absent;
+/// [`crate::target::func_ref`] documents why it was never needed.
+#[allow(clippy::too_many_arguments)]
 pub fn lower_into<'a>(
     func: &'a Function,
+    machine: &'a cranelift_module::ModuleDeclarations,
     declarations: &'a crate::target::Declarations,
-    entries: &'a mut crate::symbols::EntryTable,
+    entries: &'a crate::symbols::EntryImports,
     caches: &'a [cranelift_module::DataId],
-    module: &'a mut dyn cranelift_module::Module,
     call_conv: cranelift_codegen::isa::CallConv,
     heap: Option<Heap<'a>>,
-) -> Result<cranelift_codegen::ir::Function, LowerError> {
+) -> Result<Lowered, LowerError> {
     lower_in(
         func,
         call_conv,
         Environment {
             outside: Some(Outside {
-                module,
+                machine,
                 declarations,
                 entries,
                 caches,
@@ -224,7 +253,10 @@ pub fn lower_function(
     func: &Function,
     call_conv: cranelift_codegen::isa::CallConv,
 ) -> Result<cranelift_codegen::ir::Function, LowerError> {
-    lower_in(func, call_conv, Environment::default())
+    // The entry-point set is dropped rather than returned: a function that names
+    // nothing outside itself cannot have reached one, so the answer is always
+    // empty and returning it would be an output with one value.
+    lower_in(func, call_conv, Environment::default()).map(|lowered| lowered.func)
 }
 
 #[cfg(test)]

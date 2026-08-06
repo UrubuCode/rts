@@ -157,14 +157,14 @@ impl Body<'_> {
             Terminator::TailCall { callee, args } => {
                 let outside = self
                     .outside
-                    .as_mut()
+                    .as_ref()
                     .ok_or(LowerError::TerminatorNotYetLowered {
                         block,
                         needs: Capability::Calls,
                     })?;
                 let reference = self
                     .refs
-                    .callee(outside.module, builder.func, outside.declarations, *callee)
+                    .callee(outside.machine, builder.func, outside.declarations, *callee)
                     .ok_or(LowerError::UndeclaredTailCallee { block })?;
                 let args = self.args(args);
                 builder.ins().return_call(reference, &args);
@@ -173,7 +173,7 @@ impl Body<'_> {
             Terminator::TailCallIndirect { callee, sig, args } => {
                 let outside = self
                     .outside
-                    .as_mut()
+                    .as_ref()
                     .ok_or(LowerError::TerminatorNotYetLowered {
                         block,
                         needs: Capability::Calls,
@@ -238,15 +238,14 @@ impl Body<'_> {
     ) -> Result<(), LowerError> {
         let outside = self
             .outside
-            .as_mut()
+            .as_ref()
             .ok_or(LowerError::TerminatorNotYetLowered {
                 block,
                 needs: Capability::Unwinding,
             })?;
-        let reference = outside
-            .entries
-            .reference(outside.module, builder.func, entry)
-            .map_err(|_| LowerError::UndeclaredTailCallee { block })?;
+        let reference = self
+            .refs
+            .entry(outside.machine, outside.entries, builder.func, entry);
         builder.ins().call(reference, args);
         Ok(())
     }

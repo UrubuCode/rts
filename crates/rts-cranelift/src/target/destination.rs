@@ -29,7 +29,7 @@ pub fn executable_memory() -> Result<JITModule, TargetError> {
 /// constructed and consumed in one expression, so the only reachable
 /// destination was one that could call nothing outside itself.
 ///
-/// [`crate::symbols::EntryTable`] is not the same mechanism and does not replace
+/// [`crate::symbols::EntryImports`] is not the same mechanism and does not replace
 /// this. It serves [`crate::symbols::RtEntry`] — the operations **this layer**
 /// cannot emit as instructions — and a language's own runtime is not in that
 /// set, by the same rule that keeps it short. A host compiling JavaScript has to

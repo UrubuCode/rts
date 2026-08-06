@@ -27,15 +27,18 @@
 //! because there is no linker in the loop. Machinery that built one for both
 //! would be solving a problem one of them does not have.
 //!
-//! # Declared once
+//! # Declared once, and all at once
 //!
-//! An entry point is declared into a module on first use and referred to by the
-//! identifier that produced, cached in a dense array keyed by the discriminant
-//! below. No string is hashed on the path that emits code.
+//! Every entry point is declared into a module before any function is lowered,
+//! and referred to afterwards by the identifier that produced, held in a dense
+//! array keyed by the discriminant below. No string is hashed on the path that
+//! emits code, and — because the set is closed and its signatures are
+//! program-independent — nothing about lowering can add to it. That is what lets
+//! lowering run on a pool without handing out a number; see [`table`].
 
 mod table;
 
-pub use table::EntryTable;
+pub use table::{EntryImports, EntryTable};
 
 use crate::ir::Signature;
 use crate::repr::{RefKind, Repr};

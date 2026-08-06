@@ -88,7 +88,7 @@ pub use observe::{Attribution, CodeMap, PositionMap};
 pub use repr::{RefKind, Repr};
 pub use sched::{PromiseTable, Scheduler, SchedulerId};
 pub use shape::{Key, ShapeId, ShapeTree};
-pub use symbols::{EntryTable, RtEntry};
+pub use symbols::{EntryImports, EntryTable, RtEntry};
 pub use target::{MachineModule, TargetError};
 pub use types::{FieldLayout, TypeId, TypeRegistry};
 pub use unwind::{RegionId, RegionTree, Tag, UnwindPlan, plan_unwind};
