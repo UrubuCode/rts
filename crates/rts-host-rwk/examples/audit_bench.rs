@@ -105,6 +105,25 @@ fn scaling() {
         let source = program_of(count, "let n = 0;", "if (n > 0) { n = n - 1; } else { n = n + 1; }");
         timed(&format!("branches x{count}"), 6, &source);
     }
+
+    // What the constant is made of. Each of these is 400 statements; they differ
+    // in how many runtime CALLS each statement makes the emitter produce.
+    //
+    // Arithmetic on proven locals emits none — the machine has an instruction.
+    // A property read emits one per access. If the totals track the call count
+    // rather than the statement count, the cost is Cranelift compiling a call
+    // site, which is neither an allocation nor a scan and is not fixed by
+    // removing either.
+    println!("\n  -- 400 statements each, differing only in calls emitted --");
+    let shapes: [(&str, &str, &str); 4] = [
+        ("0 calls (local arithmetic)", "let t = 0; let u = 1;", "t = t + u * 2 - 1;"),
+        ("1 call (one property read)", "let o = {a: 1}; let t = 0;", "t = t + o.a;"),
+        ("2 calls (two reads)", "let o = {a: 1, b: 2}; let t = 0;", "t = t + o.a + o.b;"),
+        ("4 calls (four reads)", "let o = {a: 1, b: 2, c: 3, d: 4}; let t = 0;", "t = t + o.a + o.b + o.c + o.d;"),
+    ];
+    for (what, preamble, body) in shapes {
+        timed(what, 6, &program_of(400, preamble, body));
+    }
 }
 
 /// What the compiled code then costs, on the paths the audit named.

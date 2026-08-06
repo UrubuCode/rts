@@ -13,7 +13,6 @@
 //! forgotten.
 
 use crate::ir::{Inst, Region};
-use crate::repr::Repr;
 use crate::types::TypeRegistry;
 
 /// What a store must do beyond writing.
@@ -51,19 +50,22 @@ pub fn barrier_for(inst: &Inst, types: &TypeRegistry, object_region: Region) -> 
     }
 }
 
-/// Whether a representation can carry a reference across a store.
-///
-/// Exposed because the same question is asked when deriving a frame's root set,
-/// and two answers to one question is how they come to disagree.
-pub fn can_carry_reference(repr: Repr) -> bool {
-    repr.is_gc_relevant()
-}
+// `can_carry_reference(repr)` used to live here, wrapping `repr.is_gc_relevant()`
+// with no added logic. It had no caller outside its own tests: the frame-root
+// question at `gc::describe_frames` and the traced-field question above both
+// ask `Repr::is_gc_relevant` directly. A wrapper that only forwards is not a
+// second place the question is answered — it is a second *name* for the one
+// place, and keeping it invited a real second answer to grow inside it later
+// while looking, from the call site, indistinguishable from the first. Deleted
+// rather than wired up: wiring it up would have meant passing a `Repr` out of
+// `barrier_for`'s own field lookup and back through it for no behavioural
+// difference. `Repr::is_gc_relevant` is the one place now.
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ir::{Inst, ValueId};
-    use crate::repr::RefKind;
+    use crate::repr::{RefKind, Repr};
 
     fn store(ty: crate::types::TypeId, field: u32) -> Inst {
         Inst::FieldStore {

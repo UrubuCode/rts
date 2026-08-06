@@ -241,18 +241,26 @@ impl<'a> Body<'a> {
                 let offset = crate::mem::ObjectLayout::field_offset_of(*ty, heap.types, *field)
                     .ok_or(LowerError::NoSuchField { inst: id })?;
 
-                let traced = heap
-                    .types
-                    .layout(*ty)
-                    .field(*field as usize)
-                    .is_some_and(|f| f.repr.is_gc_relevant());
+                // `Region::Shared` is fixed here rather than read from the
+                // object, because nothing in this crate assigns an object to a
+                // region yet (see `emit_barrier`'s doc for the tracking issue).
+                // Fixing it to `Shared` is what keeps this call equivalent to
+                // the inline check it replaces: `barrier_for` only distinguishes
+                // `Shared` from `Local` when the field is traced, so a traced
+                // field still always yields `CrossRegion` and an untraced one
+                // still always yields `None` — the same two outcomes the old
+                // code produced, from one predicate instead of a second copy of
+                // its field-lookup.
+                let region = crate::ir::Region::Shared;
+                let kind = crate::gc::barrier_for(inst, heap.types, region);
+                let barrier = kind != crate::gc::BarrierKind::None;
 
                 let reference = self.value(*object);
                 let written = self.value(*value);
                 let address = memory::address_of(builder, reference, heap.bases);
                 memory::field_store(builder, address, offset, written);
 
-                if traced {
+                if barrier {
                     self.emit_barrier(builder, id, reference, written)?;
                 }
                 return Ok(());

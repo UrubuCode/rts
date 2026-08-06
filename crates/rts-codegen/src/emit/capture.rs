@@ -33,8 +33,8 @@ use super::loops::assigned_in_stmt as writes_of;
 
 use crate::names::Name;
 use crate::syntax::{
-    AssignTarget, Expr, ExprKind, Function, FunctionBody, Parameter, Pattern, Property,
-    PropertyKey, Stmt, StmtKind,
+    AssignTarget, Binding, Catch, Class, Expr, ExprKind, ForInit, Function, FunctionBody,
+    Parameter, Pattern, Property, PropertyKey, Stmt, StmtKind,
 };
 
 /// The names a function declares that some nested function could still see.
@@ -182,87 +182,137 @@ fn assigned_under_protection(statement: &Stmt, found: &mut BTreeSet<Name>) {
 }
 
 /// Every name a nested function mentions, anywhere inside it.
+///
+/// Routed through [`walk_stmt`] for the structural part. `Using` used to reach
+/// the trailing wildcard the module used to end on — so a nested function
+/// written inside a `using` binding's value, `using x = (function () {
+/// return y; })()`, had its captures decided as if the binding did not exist:
+/// not merely under-scanned but skipped whole, in both the `everything` walk
+/// and the top-level one `captured()` runs to find nested functions at all.
+/// Found by making this match exhaustive rather than by a report; fixed here
+/// because the correct behaviour — scan it like `Declare`, which the language
+/// treats `using` as being for binding purposes — is not in question.
+///
+/// `for (const x of xs)`'s own target is deliberately still not added under
+/// `everything`, matching the original: a for-each target belongs to the loop
+/// body's own scope and is never read from the enclosing function, so whether
+/// it is counted cannot change which outer name gets captured.
 fn referenced_inside_statement(statement: &Stmt, found: &mut BTreeSet<Name>, everything: bool) {
     match &statement.kind {
         // The nested function itself. Everything in it counts, which is the
         // over-approximation the module doc argues for.
-        StmtKind::Function(function) => names_in_function(function, found),
+        StmtKind::Function(function) => return names_in_function(function, found),
 
         // A class body is nested code too, and every name in it counts for the
         // same reason a function's does. Skipping it was not a missing feature
         // but a wrong answer: a local a method closes over would be decided
         // uncaptured, and the method would read a register the enclosing
         // activation had already left.
-        StmtKind::Class(class) => names_in_class(class, found),
+        StmtKind::Class(class) => return names_in_class(class, found),
 
-        StmtKind::Expr(expr) | StmtKind::Throw(expr) => referenced_inside_expr(expr, found, everything),
-        StmtKind::Return(value) => {
-            if let Some(expr) = value {
+        _ => {}
+    }
+    walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => referenced_inside_statement(inner, found, everything),
+        StmtChild::Expr(inner) => referenced_inside_expr(inner, found, everything),
+        StmtChild::Binding(binding) => {
+            // The declared name counts too when this whole subtree is nested
+            // code: a nested function's own local shadows an outer one, and
+            // the over-approximation the module argues for is to include it
+            // rather than to work out which. Applies uniformly to `Declare`,
+            // `for (...)`'s own declaration, and `using` — one binding is one
+            // binding regardless of which statement introduces it, so the
+            // previous split (only `Declare` got the target under
+            // `everything`, `for`'s own declaration never did) was a second
+            // place for this rule to disagree with itself, not a distinction
+            // that meant anything.
+            if everything {
+                names_in_pattern(&binding.target, found);
+            }
+            if let Some(expr) = &binding.value {
                 referenced_inside_expr(expr, found, everything);
             }
         }
-        StmtKind::Declare { bindings, .. } => {
-            for binding in bindings {
-                // The declared name counts too when this whole subtree is
-                // nested code: a nested function's own local shadows an outer
-                // one, and the over-approximation the module argues for is to
-                // include it rather than to work out which.
-                if everything {
-                    names_in_pattern(&binding.target, found);
-                }
-                if let Some(expr) = &binding.value {
-                    referenced_inside_expr(expr, found, everything);
-                }
+        StmtChild::Catch(catch) => {
+            if everything && let Some(binding) = &catch.binding {
+                names_in_pattern(binding, found);
             }
-        }
-        // A `try` is nested code like any other block, and it was reaching the
-        // wildcard below — so a function written inside one had its captures
-        // decided as if it did not exist.
-        StmtKind::Try {
-            body,
-            catch,
-            finally,
-        } => {
-            for statement in body {
+            for statement in &catch.body {
                 referenced_inside_statement(statement, found, everything);
             }
-            if let Some(catch) = catch {
-                if everything && let Some(binding) = &catch.binding {
-                    names_in_pattern(binding, found);
-                }
-                for statement in &catch.body {
-                    referenced_inside_statement(statement, found, everything);
-                }
-            }
-            if let Some(finally) = finally {
-                for statement in finally {
-                    referenced_inside_statement(statement, found, everything);
-                }
+        }
+        StmtChild::Function(function) => names_in_function(function, found),
+        StmtChild::Class(class) => names_in_class(class, found),
+    });
+}
+
+/// What sits directly inside a statement, one level down.
+///
+/// The statement-side sibling of [`Child`]. A statement has more shapes of
+/// child than an expression does — a nested statement, a sub-expression, a
+/// binding (target pattern plus optional initialiser), a `catch` clause — so a
+/// caller that wants only the nested statements can match one variant and
+/// ignore the rest, the same way [`walk_expr`]'s callers do.
+pub(super) enum StmtChild<'a> {
+    /// A nested statement, walked by whichever traversal is running.
+    Stmt(&'a Stmt),
+    /// A sub-expression.
+    Expr(&'a Expr),
+    /// One binding of a `let`/`const`/`var`/`using` declaration, or of a `for`
+    /// header's own declaration. Carries both the target pattern and the
+    /// optional initialiser, because a caller regularly wants to treat the two
+    /// differently — a target's own name is a declaration, not a reference.
+    Binding(&'a Binding),
+    /// A `catch` clause: its optional binding and its body.
+    Catch(&'a Catch),
+    /// A nested function, whose every name counts.
+    Function(&'a Function),
+    /// A class, whose methods and initialisers are nested code.
+    Class(&'a Class),
+}
+
+/// The children of a statement, one level down.
+///
+/// One description of the tree's shape, on the statement side of the same
+/// argument [`walk_expr`] makes on the expression side: a second copy of this
+/// match is how a node comes to be walked by one analysis and silently
+/// skipped by another.
+///
+/// Deliberately silent about a `for`-each loop's own target and about a
+/// `for`-await-`using` loop's disposed name — neither is a sub-statement, a
+/// sub-expression, a binding with an initialiser, or a `catch`, and the two
+/// callers that care about either (`declared_by_statement`,
+/// `referenced_inside_statement`) want different things from them, so folding
+/// them into this enum would not remove a distinction, only hide one two
+/// callers still have to make.
+pub(super) fn walk_stmt<'a>(statement: &'a Stmt, on: &mut impl FnMut(StmtChild<'a>)) {
+    match &statement.kind {
+        StmtKind::Expr(expr) | StmtKind::Throw(expr) => on(StmtChild::Expr(expr)),
+        StmtKind::Return(value) => {
+            if let Some(expr) = value {
+                on(StmtChild::Expr(expr));
             }
         }
-        StmtKind::Block(body) => {
-            for inner in body {
-                referenced_inside_statement(inner, found, everything);
+        StmtKind::Declare { bindings, .. } | StmtKind::Using { bindings, .. } => {
+            for binding in bindings {
+                on(StmtChild::Binding(binding));
             }
         }
+        StmtKind::Block(body) => body.iter().for_each(|inner| on(StmtChild::Stmt(inner))),
         StmtKind::If {
             condition,
             then_branch,
             else_branch,
         } => {
-            referenced_inside_expr(condition, found, everything);
-            referenced_inside_statement(then_branch, found, everything);
+            on(StmtChild::Expr(condition));
+            on(StmtChild::Stmt(then_branch));
             if let Some(otherwise) = else_branch {
-                referenced_inside_statement(otherwise, found, everything);
+                on(StmtChild::Stmt(otherwise));
             }
         }
-        StmtKind::While { condition, body } => {
-            referenced_inside_expr(condition, found, everything);
-            referenced_inside_statement(body, found, everything);
-        }
-        StmtKind::DoWhile { body, condition } => {
-            referenced_inside_statement(body, found, everything);
-            referenced_inside_expr(condition, found, everything);
+        StmtKind::While { condition, body } | StmtKind::DoWhile { body, condition } => {
+            on(StmtChild::Expr(condition));
+            on(StmtChild::Stmt(body));
         }
         StmtKind::For {
             init,
@@ -270,49 +320,64 @@ fn referenced_inside_statement(statement: &Stmt, found: &mut BTreeSet<Name>, eve
             update,
             body,
         } => {
-            if let Some(crate::syntax::ForInit::Expr(expr)) = init {
-                referenced_inside_expr(expr, found, everything);
-            }
-            if let Some(crate::syntax::ForInit::Declare { bindings, .. }) = init {
-                for binding in bindings {
-                    if let Some(expr) = &binding.value {
-                        referenced_inside_expr(expr, found, everything);
+            match init {
+                Some(ForInit::Declare { bindings, .. }) => {
+                    for binding in bindings {
+                        on(StmtChild::Binding(binding));
                     }
                 }
+                Some(ForInit::Expr(expr)) => on(StmtChild::Expr(expr)),
+                None => {}
             }
             if let Some(expr) = test {
-                referenced_inside_expr(expr, found, everything);
+                on(StmtChild::Expr(expr));
             }
             if let Some(expr) = update {
-                referenced_inside_expr(expr, found, everything);
+                on(StmtChild::Expr(expr));
             }
-            referenced_inside_statement(body, found, everything);
+            on(StmtChild::Stmt(body));
         }
-        StmtKind::Labelled { body, .. } => referenced_inside_statement(body, found, everything),
+        // The target is deliberately not surfaced here — see the function doc.
         StmtKind::ForEach { subject, body, .. } => {
-            referenced_inside_expr(subject, found, everything);
-            referenced_inside_statement(body, found, everything);
+            on(StmtChild::Expr(subject));
+            on(StmtChild::Stmt(body));
         }
+        StmtKind::Break(_) | StmtKind::Continue(_) => {}
+        StmtKind::Labelled { body, .. } => on(StmtChild::Stmt(body)),
         StmtKind::Switch {
             discriminant,
             clauses,
         } => {
-            referenced_inside_expr(discriminant, found, everything);
+            on(StmtChild::Expr(discriminant));
             for clause in clauses {
                 if let Some(test) = &clause.test {
-                    referenced_inside_expr(test, found, everything);
+                    on(StmtChild::Expr(test));
                 }
                 for statement in &clause.body {
-                    referenced_inside_statement(statement, found, everything);
+                    on(StmtChild::Stmt(statement));
                 }
             }
         }
-
-        // Everything else is refused by the emitter, so a name inside one can
-        // never be reached. Listed as a wildcard rather than enumerated because
-        // the emitter's refusal is what makes it unreachable, and duplicating
-        // that list here is a second place to update.
-        _ => {}
+        StmtKind::Debugger | StmtKind::Empty => {}
+        StmtKind::With { object, body } => {
+            on(StmtChild::Expr(object));
+            on(StmtChild::Stmt(body));
+        }
+        StmtKind::Try {
+            body,
+            catch,
+            finally,
+        } => {
+            body.iter().for_each(|inner| on(StmtChild::Stmt(inner)));
+            if let Some(catch) = catch {
+                on(StmtChild::Catch(catch));
+            }
+            if let Some(finally) = finally {
+                finally.iter().for_each(|inner| on(StmtChild::Stmt(inner)));
+            }
+        }
+        StmtKind::Function(function) => on(StmtChild::Function(function)),
+        StmtKind::Class(class) => on(StmtChild::Class(class)),
     }
 }
 
