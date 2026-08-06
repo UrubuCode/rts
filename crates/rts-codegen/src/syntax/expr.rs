@@ -470,6 +470,19 @@ impl Spreadable {
     pub fn count_is_static(&self) -> bool {
         matches!(self, Spreadable::Single(_))
     }
+
+    /// What is evaluated, whichever of the two this is.
+    ///
+    /// The distinction between an item and a spread is about how many arguments
+    /// the result contributes, not about whether the expression runs — both run,
+    /// exactly once, in position. A traversal that matched only `Single` was
+    /// therefore skipping a live sub-expression, and `capture.rs` did: a name
+    /// mentioned only as `f(...xs)` was not counted as captured.
+    pub fn expression(&self) -> &Expr {
+        match self {
+            Spreadable::Single(value) | Spreadable::Spread(value) => value,
+        }
+    }
 }
 
 /// One piece of a template literal.

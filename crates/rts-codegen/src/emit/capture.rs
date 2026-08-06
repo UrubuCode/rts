@@ -486,9 +486,7 @@ pub(super) fn walk_expr(expr: &Expr, on: &mut impl FnMut(Child)) {
         } => {
             on(Child::Expr(callee));
             for argument in arguments {
-                if let crate::syntax::Spreadable::Single(value) = argument {
-                    on(Child::Expr(value));
-                }
+                on(Child::Expr(argument.expression()));
             }
         }
         ExprKind::New {
@@ -496,9 +494,7 @@ pub(super) fn walk_expr(expr: &Expr, on: &mut impl FnMut(Child)) {
         } => {
             on(Child::Expr(callee));
             for argument in arguments {
-                if let crate::syntax::Spreadable::Single(value) = argument {
-                    on(Child::Expr(value));
-                }
+                on(Child::Expr(argument.expression()));
             }
         }
         ExprKind::Member { object, .. } => on(Child::Expr(object)),
@@ -538,9 +534,7 @@ pub(super) fn walk_expr(expr: &Expr, on: &mut impl FnMut(Child)) {
         }
         ExprKind::Array { elements } => {
             for element in elements.iter().flatten() {
-                if let crate::syntax::Spreadable::Single(value) = element {
-                    on(Child::Expr(value));
-                }
+                on(Child::Expr(element.expression()));
             }
         }
         ExprKind::Unary { operand, .. } => on(Child::Expr(operand)),
@@ -564,11 +558,39 @@ pub(super) fn walk_expr(expr: &Expr, on: &mut impl FnMut(Child)) {
         ExprKind::Asserted { value, .. } => on(Child::Expr(value)),
         ExprKind::ImportCall { specifier, .. } => on(Child::Expr(specifier)),
 
-        // Refused by the emitter, so nothing inside one is ever reached.
-        ExprKind::Template { .. }
-        | ExprKind::TaggedTemplate { .. }
-        | ExprKind::SuperMember { .. }
-        | ExprKind::SuperCall { .. } => {}
+        // These four carried a comment saying the emitter refused them, so that
+        // nothing inside one was ever reached. It stopped being true: `emit_expr`
+        // routes a template to `template.rs` and both `super` forms to
+        // `class.rs`. What the stale comment cost was a name mentioned ONLY
+        // inside a substitution — `function f() { return `${x}`; }` did not
+        // count `x` as captured, so the environment had no slot for it and
+        // emission failed with `UnboundName`. Legal JavaScript that would not
+        // compile, and the error at least came from the safe direction.
+        ExprKind::Template { expressions, .. } => {
+            for expression in expressions {
+                on(Child::Expr(expression));
+            }
+        }
+        ExprKind::TaggedTemplate {
+            tag, expressions, ..
+        } => {
+            on(Child::Expr(tag));
+            for expression in expressions {
+                on(Child::Expr(expression));
+            }
+        }
+        // A computed key is an expression like any other. The receiver is
+        // `this`, which is not a name this pass tracks.
+        ExprKind::SuperMember { property } => {
+            if let PropertyKey::Computed(computed) = property.as_ref() {
+                on(Child::Expr(computed));
+            }
+        }
+        ExprKind::SuperCall { arguments } => {
+            for argument in arguments {
+                on(Child::Expr(argument.expression()));
+            }
+        }
     }
 }
 

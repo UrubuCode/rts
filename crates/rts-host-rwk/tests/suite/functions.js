@@ -122,4 +122,20 @@ check("var-in-catch-binding", (function () {
     return run() === 1;
 })());
 
+// A name mentioned ONLY inside a template substitution is still captured.
+// `capture.rs` used to skip a template entirely, on a comment claiming the
+// emitter refused one — so this was `UnboundName` rather than a value.
+check("captured-only-in-template", (function () {
+    let x = 5;
+    function run() { return `v=${x}`; }
+    return run() === "v=5";
+})());
+
+// The same for a name that only appears spread into a call.
+check("captured-only-in-spread", (function () {
+    let xs = [1, 2];
+    function run() { return Math.max(...xs); }
+    return run() === 2;
+})());
+
 return failed;
