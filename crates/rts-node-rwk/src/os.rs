@@ -10,24 +10,34 @@
 //!
 //! # Read once or read every call
 //!
-//! `platform`, `arch`, `type`, `EOL` cannot change during a process's life, so
-//! there is no difference to observe between computing them at namespace
-//! construction and computing them on each call — this computes them on each
-//! call anyway, because building a namespace with a mix of precomputed
-//! strings and closures over precomputed strings is a second encoding of the
-//! same string for zero behavioural gain. `hostname`, `tmpdir`, `homedir`,
-//! `totalmem`, `freemem`, `uptime` are read on EVERY call, matching Node:
-//! Node's own docs mark `freemem`/`uptime` as live and there is no reason a
-//! host directory or a hostname would be more stable inside one process than
-//! Node assumes.
+//! `platform`, `arch`, `type`, `EOL`, `devNull`, `endianness`, `machine`
+//! cannot change during a process's life, so there is no difference to
+//! observe between computing them at namespace construction and computing
+//! them on each call — this computes them on each call anyway, because
+//! building a namespace with a mix of precomputed strings and closures over
+//! precomputed strings is a second encoding of the same string for zero
+//! behavioural gain. `hostname`, `tmpdir`, `homedir`, `totalmem`, `freemem`,
+//! `uptime` are read on EVERY call, matching Node: Node's own docs mark
+//! `freemem`/`uptime` as live and there is no reason a host directory or a
+//! hostname would be more stable inside one process than Node assumes.
 //!
 //! # Not implemented, by name
 //!
-//! `loadavg`, `networkInterfaces`, `userInfo`, `constants`, `endianness`,
-//! `machine`, `availableParallelism` (Node 19+), `setPriority`/`getPriority`,
-//! `devNull`. Each is a syscall or a table this crate does not have a
-//! dependency-free path to yet; each answers `undefined` rather than a
-//! plausible wrong value.
+//! `loadavg`, `networkInterfaces`, `userInfo`, `getPriority`/`setPriority` —
+//! each needs a real syscall (`getloadavg`, `getifaddrs`/`GetAdaptersAddresses`,
+//! `getpwuid_r`/`GetUserNameW`, `getpriority`/`SetPriorityClass`) that `std`
+//! alone does not expose, and this crate has no dependency on `libc` or
+//! `windows-sys` to reach for one — `Cargo.toml` is `lib.rs`'s to own, not
+//! this file's. Each answers `undefined` rather than a plausible wrong value.
+//!
+//! `constants` — the `signals`/`errno`/`dlopen`/`priority`/`libuv` tables.
+//! `priority` and `libuv` are fixed, Node-level values with no OS dependency
+//! and could be added without new machinery; `signals` and `errno` need
+//! platform-correct numeric values (POSIX errno numbers differ across Linux/
+//! macOS/Windows, and are not literals this crate can safely invent without
+//! `libc`) — refused as a whole rather than half-built, since a `constants`
+//! object missing `errno`/`signals` while claiming the name is the "plausible
+//! wrong value" this module's own doctrine refuses elsewhere.
 //!
 //! # `cpus()` — a named divergence
 //!
@@ -38,6 +48,14 @@
 //! entry per available core, each with `model: "unknown"` and `speed: 0`,
 //! rather than one entry (which would misreport a multi-core machine as
 //! having one CPU) or a fabricated model name.
+//!
+//! # `availableParallelism()`
+//!
+//! Node's version is cgroup/affinity-aware, which needs platform-specific
+//! reads this crate has no dependency for (see `constants`, above); this
+//! answers `std::thread::available_parallelism()` directly — the same count
+//! `cpus()` uses — which is correct off a container and an overcount inside
+//! one with a CPU quota. Named here rather than silently claimed exact.
 //!
 //! # `totalmem()` / `freemem()` — a named divergence
 //!
@@ -72,10 +90,17 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("totalmem", totalmem),
         ("freemem", freemem),
         ("uptime", uptime),
+        ("endianness", endianness),
+        ("machine", machine),
+        ("release", release),
+        ("version", version),
+        ("availableParallelism", available_parallelism),
     ];
     let namespace = rts_core_rwk::entry::make_namespace(context, members);
     let eol = rts_core_rwk::entry::make_string(context, EOL);
     rts_core_rwk::entry::put_member(context, namespace, "EOL", eol);
+    let dev_null = rts_core_rwk::entry::make_string(context, DEV_NULL);
+    rts_core_rwk::entry::put_member(context, namespace, "devNull", dev_null);
     namespace
 }
 
@@ -84,6 +109,12 @@ pub fn namespace(context: &mut Context) -> u64 {
 const EOL: &str = "\r\n";
 #[cfg(not(windows))]
 const EOL: &str = "\n";
+
+/// `os.devNull` — the discard file, in this platform's spelling.
+#[cfg(windows)]
+const DEV_NULL: &str = "\\\\.\\nul";
+#[cfg(not(windows))]
+const DEV_NULL: &str = "/dev/null";
 
 /// `os.platform()` — Node's spelling, not Rust's.
 ///
@@ -108,13 +139,16 @@ extern "C" fn platform(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u
 /// `"ia32"`. `"aarch64"` becomes Node's `"arm64"`; anything else passes
 /// through.
 extern "C" fn arch(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let name = match std::env::consts::ARCH {
+    string(arch_name())
+}
+
+fn arch_name() -> &'static str {
+    match std::env::consts::ARCH {
         "x86_64" => "x64",
         "x86" => "ia32",
         "aarch64" => "arm64",
         other => other,
-    };
-    string(name)
+    }
 }
 
 /// `os.type()` — the OS kernel name, in Node's spelling.
@@ -126,6 +160,49 @@ extern "C" fn type_(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64)
         other => other,
     };
     string(name)
+}
+
+/// `os.machine()` — the raw architecture name, distinct from `os.arch()`'s
+/// Node-normalized one (Node's `arch()` says `"x64"`; `machine()` says
+/// `"x86_64"`).
+///
+/// A named divergence: real Node calls `uname -m`, which can differ from the
+/// Rust *compile* target on an emulated/translated host; this reports the
+/// compiled target, matching `os.arch()`'s own compiled-in nature (see
+/// `docs/reference/node/os.md` §4 on `arch`/`platform` being compiled-in).
+extern "C" fn machine(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let name = match std::env::consts::ARCH {
+        "x86_64" => "x86_64",
+        "x86" => "i686",
+        "aarch64" => "aarch64",
+        other => other,
+    };
+    string(name)
+}
+
+/// `os.endianness()`.
+extern "C" fn endianness(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    #[cfg(target_endian = "big")]
+    let name = "BE";
+    #[cfg(target_endian = "little")]
+    let name = "LE";
+    string(name)
+}
+
+/// `os.release()` — a named divergence.
+///
+/// Node calls `uname -r`/reads the Windows build number, both real syscalls
+/// this crate has no dependency to reach (see the module doc). This answers
+/// the compiled OS-architecture pair instead of the running kernel's
+/// version — a non-empty, truthful-about-the-BUILD string rather than an
+/// invented kernel number.
+extern "C" fn release(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    string(&format!("{}-{}", std::env::consts::OS, arch_name()))
+}
+
+/// `os.version()` — same divergence as `release()`, same reason.
+extern "C" fn version(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    string(&format!("{}-{}", std::env::consts::OS, arch_name()))
 }
 
 /// `os.tmpdir()`.
@@ -164,9 +241,7 @@ extern "C" fn hostname(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u
 
 /// `os.cpus()` — see the module doc for what `model` and `speed` are here.
 extern "C" fn cpus(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let count = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1);
+    let count = parallelism();
     let entries = (0..count)
         .map(|_| {
             rts_core_rwk::entry::with_runtime(|context| {
@@ -179,6 +254,16 @@ extern "C" fn cpus(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) 
         })
         .collect();
     rts_core_rwk::entry::make_array(entries)
+}
+
+/// `os.availableParallelism()` — see the module doc for the divergence from
+/// Node's cgroup/affinity-aware count.
+extern "C" fn available_parallelism(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    number(parallelism() as f64)
+}
+
+fn parallelism() -> usize {
+    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1)
 }
 
 /// `os.totalmem()` — see the module doc for the non-Linux divergence.

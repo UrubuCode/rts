@@ -186,5 +186,6 @@ pub(crate) fn option_flag(options: u64, name: &str) -> bool {
 /// form (including a number's), so the parse happens here rather than adding
 /// a second value-API accessor for what is already reachable this way.
 pub(crate) fn number(value: u64) -> Option<f64> {
-    text(value).and_then(|text| text.parse::<f64>().ok())
+    // Asked of the value rather than of its text — see `number_of`.
+    rts_core_rwk::entry::number_of(value)
 }

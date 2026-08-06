@@ -96,8 +96,8 @@ pub use iterate::{array_append, array_append_all, iterate};
 pub use modules::{
     Provided, boolean_value, declare_global, declare_module, get_member, make_array, make_array_in, make_callable,
     make_namespace, make_number, make_object, make_string,
-    module_binding, module_namespace, null_value, put_member, text_of, undefined_value,
-    with_runtime,
+    is_array, module_binding, module_namespace, null_value, number_of, put_member, text_in,
+    text_of, undefined_in, undefined_value, with_runtime,
 };
 pub use objects::{get_property, object_new, set_property};
 pub use promise::drain_microtasks;

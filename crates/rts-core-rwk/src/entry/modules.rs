@@ -305,3 +305,41 @@ pub fn make_object(context: &mut Context) -> u64 {
 pub fn make_array_in(context: &mut Context, values: Vec<u64>) -> u64 {
     super::array::built_in(context, values)
 }
+
+/// The number a value holds, if it holds one.
+///
+/// The hole three modules reported at once: without it a native read a number by
+/// asking for its TEXT and parsing that back — which is slow, and lossy at the
+/// edges where a double's shortest decimal is not the double.
+pub fn number_of(value: u64) -> Option<f64> {
+    Value(value).numeric()
+}
+
+/// Whether a value is an array.
+///
+/// Also reported by three modules, each having inferred it differently: one by
+/// whether `described` answered nothing, one by reading a numeric `length`. Two
+/// inferences of one fact is the drift this crate keeps refusing, and neither
+/// was right — a plain object with a `length` satisfied the second.
+pub fn is_array(value: u64) -> bool {
+    with_current(|context| {
+        Value(value)
+            .as_slot()
+            .is_some_and(|cell| context.elements_at(cell).is_some())
+    })
+}
+
+/// The text a value holds, from a context already in hand.
+///
+/// The context-taking half of [`text_of`], so a module reading an argument
+/// object's fields can do it in ONE borrow instead of two passes — collect the
+/// raw values under the borrow, then drop it to read their text was the shape
+/// `path.format` had to be written in without this.
+pub fn text_in(context: &Context, value: u64) -> Option<String> {
+    super::text::to_text(context, Value(value))?.to_rust()
+}
+
+/// `undefined`, from a context already in hand.
+pub fn undefined_in(context: &Context) -> u64 {
+    undefined_of(context)
+}

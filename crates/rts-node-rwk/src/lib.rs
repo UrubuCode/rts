@@ -31,10 +31,13 @@
 #![deny(missing_docs)]
 #![deny(dead_code)]
 
+pub mod assert;
+pub mod events;
 pub mod fs;
 pub mod os;
 pub mod path;
 pub mod process;
+pub mod querystring;
 pub mod util;
 
 use rts_core_rwk::entry::Context;
@@ -47,10 +50,13 @@ use rts_core_rwk::entry::Context;
 /// reason that has nothing to do with what it can do.
 pub fn install(context: &mut Context) {
     for (name, namespace) in [
+        ("assert", assert::namespace(context)),
+        ("events", events::namespace(context)),
         ("fs", fs::namespace(context)),
         ("os", os::namespace(context)),
         ("path", path::namespace(context)),
         ("process", process::namespace(context)),
+        ("querystring", querystring::namespace(context)),
         ("util", util::namespace(context)),
     ] {
         rts_core_rwk::entry::declare_module(context, &format!("node:{name}"), namespace);

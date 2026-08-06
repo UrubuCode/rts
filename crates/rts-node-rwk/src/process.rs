@@ -2,27 +2,28 @@
 //!
 //! # Property vs function
 //!
-//! `platform`, `arch`, `version`, `versions`, `pid`, `argv`, `env` are
-//! PROPERTIES here, not functions — `process.platform`, never
-//! `process.platform()`. That is the opposite convention from [`super::os`]'s
-//! `os.platform()`, and the two are deliberately not unified: Node itself
-//! disagrees between the two modules, and a program written against Node
-//! reads `process.platform` as a value.
+//! `platform`, `arch`, `version`, `versions`, `pid`, `argv`, `argv0`,
+//! `execPath`, `env` are PROPERTIES here, not functions — `process.platform`,
+//! never `process.platform()`. That is the opposite convention from
+//! [`super::os`]'s `os.platform()`, and the two are deliberately not unified:
+//! Node itself disagrees between the two modules, and a program written
+//! against Node reads `process.platform` as a value.
 //!
 //! # Read once
 //!
-//! `argv`, `env`, `platform`, `arch`, `version`, `versions`, `pid` are all
-//! read ONCE, at namespace construction, and become fixed values on the
-//! namespace object. Node re-reads none of these during a run either —
-//! `process.argv` and `process.env` are ordinary mutable properties in Node
-//! only because everything reachable from `process` is a plain object there,
-//! not because Node consults the OS again on each read. `cwd()` is the one
-//! member that must NOT be captured this way, because a program can
-//! `chdir` — Node has no `chdir` exposed on `process` in a browser-hosted
-//! sense but does via `process.chdir` elsewhere in Node; this crate does not
-//! implement `chdir` (see below), but `cwd()` stays a live call regardless,
-//! since answering a directory read at startup under the name `cwd()` would
-//! be a function that lies about being one.
+//! `argv`, `argv0`, `execPath`, `env`, `platform`, `arch`, `version`,
+//! `versions`, `pid` are all read ONCE, at namespace construction, and become
+//! fixed values on the namespace object. Node re-reads none of these during a
+//! run either — `process.argv` and `process.env` are ordinary mutable
+//! properties in Node only because everything reachable from `process` is a
+//! plain object there, not because Node consults the OS again on each read.
+//! `cwd()` and `uptime()` are the members that must NOT be captured this way:
+//! a program can `chdir`, and uptime is elapsed time by definition — Node has
+//! no `chdir` exposed on `process` in a browser-hosted sense but does via
+//! `process.chdir` elsewhere in Node; this crate does not implement `chdir`
+//! (see below), but `cwd()`/`uptime()` stay live calls regardless, since
+//! answering a directory or an elapsed-time read at startup under the name of
+//! a function would be a function that lies about being one.
 //!
 //! # `version` / `versions` — a named divergence
 //!
@@ -43,13 +44,33 @@
 //! process — and reproducing anything softer here would be the divergence,
 //! not the faithful behaviour.
 //!
+//! # `stdout`/`stderr` — a narrow write surface, honestly
+//!
+//! Node's `process.stdout`/`stderr` are full `stream.Writable` instances —
+//! backpressure, `'drain'`, encodings, all of it. This crate has no
+//! `node:stream` to build that on, and inventing a stream class here would be
+//! `node:process` reaching into a sibling module's job. What IS honest with
+//! only `rts_core_rwk::entry::modules` in hand: a plain object carrying `.fd`
+//! and a single `.write(text)` method over `std::io::stdout()`/`stderr()`'s
+//! `Write` impl — the one piece of the real surface a program actually
+//! blocks on working (`process.stdout.write(...)`), with no claim to be a
+//! `Writable`.
+//!
+//! # `nextTick` — refused, by name
+//!
+//! Not implemented. Node's own docs place it ahead of the microtask queue,
+//! drained at a fixed point in the event loop — a point this crate has no
+//! hook into (see `docs/reference/node/process.md` §5.7: the tick-scheduler
+//! primitive is not yet reachable from a crate `rts-node` can depend on).
+//! Registering the callback and never running it would be a `nextTick` that
+//! silently drops every call — worse than absent.
+//!
 //! # Not implemented, by name
 //!
-//! `stdout`/`stderr`/`stdin`, `on` (no event emitter here), `nextTick`,
-//! `chdir`, `kill`, `memoryUsage`, `cpuUsage`, `hrtime()` (the callable form;
-//! only the module doc below explains why even `hrtime.bigint()` is out),
-//! `execPath`, `execArgv`, `title`, `umask`, `getuid`/`getgid` and the rest of
-//! the POSIX credential surface.
+//! `on` (no event emitter here), `nextTick`, `chdir`, `kill`, `memoryUsage`,
+//! `cpuUsage`, `hrtime()` (the callable form; only the module doc below
+//! explains why even `hrtime.bigint()` is out), `title`, `umask`,
+//! `getuid`/`getgid` and the rest of the POSIX credential surface.
 //!
 //! # `hrtime.bigint()` — refused, by name
 //!
@@ -61,14 +82,33 @@
 //! rather than registered as an object with only a `bigint` member missing.
 
 use rts_core_rwk::entry::{Context, Provided};
+use std::io::Write;
 
 /// The namespace `node:process` is.
 pub fn namespace(context: &mut Context) -> u64 {
-    let members: &[(&str, Provided)] = &[("cwd", cwd), ("exit", exit)];
+    let members: &[(&str, Provided)] = &[
+        ("cwd", cwd),
+        ("exit", exit),
+        ("uptime", uptime),
+    ];
     let namespace = rts_core_rwk::entry::make_namespace(context, members);
 
-    let argv = argv_value(context);
+    let exe = std::env::current_exe()
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_default();
+
+    let argv = argv_value(context, &exe);
     rts_core_rwk::entry::put_member(context, namespace, "argv", argv);
+
+    // `argv0` is the RAW, unprocessed `argv[0]` the OS handed the process —
+    // distinct from `argv[0]` above, which is `argv0` resolved to an
+    // absolute path the way Node's own `argv[0]` is.
+    let argv0_raw = std::env::args().next().unwrap_or_default();
+    let argv0 = rts_core_rwk::entry::make_string(context, &argv0_raw);
+    rts_core_rwk::entry::put_member(context, namespace, "argv0", argv0);
+
+    let exec_path = rts_core_rwk::entry::make_string(context, &exe);
+    rts_core_rwk::entry::put_member(context, namespace, "execPath", exec_path);
 
     let env = env_value(context);
     rts_core_rwk::entry::put_member(context, namespace, "env", env);
@@ -102,6 +142,11 @@ pub fn namespace(context: &mut Context) -> u64 {
     let pid = rts_core_rwk::entry::make_number(f64::from(std::process::id()));
     rts_core_rwk::entry::put_member(context, namespace, "pid", pid);
 
+    let stdout = stream_object(context, 1.0, write_stdout);
+    rts_core_rwk::entry::put_member(context, namespace, "stdout", stdout);
+    let stderr = stream_object(context, 2.0, write_stderr);
+    rts_core_rwk::entry::put_member(context, namespace, "stderr", stderr);
+
     namespace
 }
 
@@ -110,16 +155,13 @@ pub fn namespace(context: &mut Context) -> u64 {
 /// Node's `argv[0]` is the path to the `node` binary and `argv[1]` is the
 /// script path; both are what a program actually indexes, so element 0 here
 /// is `std::env::current_exe()` rather than whatever `argv[0]` the OS handed
-/// the process (which on Unix can be a bare, unqualified name). Everything
-/// from `std::env::args()` after the first is appended after — that first
-/// entry is what a native process loader supplies as its own argv[0] and is
-/// discarded in favour of the resolved executable path so it is not counted
-/// twice.
-fn argv_value(context: &mut Context) -> u64 {
-    let exe = std::env::current_exe()
-        .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let mut values = vec![rts_core_rwk::entry::make_string(context, &exe)];
+/// the process (which on Unix can be a bare, unqualified name; that raw value
+/// is `process.argv0`, above). Everything from `std::env::args()` after the
+/// first is appended after — that first entry is what a native process
+/// loader supplies as its own argv[0] and is discarded in favour of the
+/// resolved executable path so it is not counted twice.
+fn argv_value(context: &mut Context, exe: &str) -> u64 {
+    let mut values = vec![rts_core_rwk::entry::make_string(context, exe)];
     for arg in std::env::args().skip(1) {
         values.push(rts_core_rwk::entry::make_string(context, &arg));
     }
@@ -146,12 +188,51 @@ fn env_value(context: &mut Context) -> u64 {
     object
 }
 
+/// A `{ fd, write(text) }` object over one of the standard streams. See the
+/// module doc for why this is not a `stream.Writable`.
+fn stream_object(context: &mut Context, fd: f64, code: Provided) -> u64 {
+    let object = rts_core_rwk::entry::make_object(context);
+    let fd_value = rts_core_rwk::entry::make_number(fd);
+    rts_core_rwk::entry::put_member(context, object, "fd", fd_value);
+    let write = rts_core_rwk::entry::make_callable(context, code);
+    rts_core_rwk::entry::put_member(context, object, "write", write);
+    object
+}
+
+/// `process.stdout.write(text)`. Returns `true`, matching the common case of
+/// Node's own return (no backpressure model exists here to report `false`
+/// from).
+extern "C" fn write_stdout(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    if let Some(text) = text(value) {
+        let _ = std::io::stdout().write_all(text.as_bytes());
+    }
+    rts_core_rwk::entry::boolean_value(true)
+}
+
+/// `process.stderr.write(text)` — same shape as `write_stdout`, other stream.
+extern "C" fn write_stderr(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    if let Some(text) = text(value) {
+        let _ = std::io::stderr().write_all(text.as_bytes());
+    }
+    rts_core_rwk::entry::boolean_value(true)
+}
+
 /// `process.cwd()`.
 extern "C" fn cwd(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     let text = std::env::current_dir()
         .map(|path| path.to_string_lossy().into_owned())
         .unwrap_or_default();
     rts_core_rwk::entry::with_runtime(|context| rts_core_rwk::entry::make_string(context, &text))
+}
+
+/// `process.uptime()` — seconds since this namespace was first reached,
+/// which is the process's own uptime for any program that reaches it near
+/// startup (the only shape a program calling this early actually observes).
+extern "C" fn uptime(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    use std::sync::OnceLock;
+    static STARTED: OnceLock<std::time::Instant> = OnceLock::new();
+    let started = STARTED.get_or_init(std::time::Instant::now);
+    rts_core_rwk::entry::make_number(started.elapsed().as_secs_f64())
 }
 
 /// `process.exit(code)` — ends the OS process. See the module doc.
@@ -166,4 +247,13 @@ extern "C" fn exit(_e: u64, _this: u64, code: u64, _a1: u64, _a2: u64, _a3: u64)
         false => rts_core_rwk::value::Value(code).as_f64().unwrap_or(0.0) as i32,
     };
     std::process::exit(status);
+}
+
+/// An argument as text.
+fn text(value: u64) -> Option<String> {
+    let absent = rts_core_rwk::entry::undefined_value();
+    match value == absent {
+        true => None,
+        false => rts_core_rwk::entry::text_of(value),
+    }
 }

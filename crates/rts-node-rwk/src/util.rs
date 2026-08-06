@@ -324,8 +324,9 @@ fn array_items(array_value: u64) -> Vec<u64> {
 /// An array value's `length`, as a Rust count.
 fn length_of(array_value: u64) -> usize {
     let value = rts_core_rwk::entry::get_indexed(array_value, string("length"));
-    rts_core_rwk::entry::described(value)
-        .and_then(|text| text.parse::<f64>().ok())
+    // Asked of the value, not of its text: reading a number by parsing its
+    // decimal back is lossy where a double's shortest decimal is not the double.
+    rts_core_rwk::entry::number_of(value)
         .map(|count| count as usize)
         .unwrap_or(0)
 }
