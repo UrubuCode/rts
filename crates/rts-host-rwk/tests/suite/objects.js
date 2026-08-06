@@ -159,4 +159,48 @@ check("digit-key-on-an-object", (function () {
     return o[0] === 3 && o["0"] === 3;
 })());
 
+let pairs = { a: 1, b: 2 };
+check("entries-key", Object.entries(pairs)[1][0] === "b");
+check("entries-value", Object.entries(pairs)[1][1] === 2);
+check("entries-length", Object.entries(pairs).length === 2);
+check("from-entries", Object.fromEntries([["x", 5]]).x === 5);
+// `for-of` over a Map yields exactly the pairs `fromEntries` reads.
+let source = new Map();
+source.set("y", 6);
+check("from-entries-map", Object.fromEntries(source).y === 6);
+
+// `hasOwn` answers for a key holding `undefined`, which is why it cannot be
+// written as a read compared against `undefined`.
+let held = { present: undefined };
+check("object-has-own", Object.hasOwn(held, "present"));
+check("object-has-own-absent", Object.hasOwn(held, "missing") === false);
+
+check("is-nan", Object.is(NaN, NaN));
+check("is-zero", Object.is(0, -0) === false);
+check("is-same", Object.is("a", "a"));
+
+let ancestor = { inherited: 1 };
+let made = Object.create(ancestor);
+check("create-inherits", made.inherited === 1);
+check("create-own-empty", Object.keys(made).length === 0);
+check("create-null", Object.getPrototypeOf(Object.create(null)) === null);
+
+let described = Object.create(ancestor, { own: { value: 3 } });
+check("create-descriptors", described.own === 3);
+
+let target = {};
+Object.defineProperties(target, { one: { value: 1 }, two: { value: 2 } });
+check("define-properties", target.one + target.two === 3);
+
+check("own-property-names", Object.getOwnPropertyNames(pairs).length === 2);
+check("descriptor-value", Object.getOwnPropertyDescriptor(pairs, "a").value === 1);
+check("descriptor-writable", Object.getOwnPropertyDescriptor(pairs, "a").writable);
+check("descriptor-absent", Object.getOwnPropertyDescriptor(pairs, "z") === undefined);
+check("descriptors-all", Object.getOwnPropertyDescriptors(pairs).b.value === 2);
+
+let accessor = {};
+Object.defineProperty(accessor, "computed", { get: function () { return 4; } });
+check("descriptor-getter", typeof Object.getOwnPropertyDescriptor(accessor, "computed").get === "function");
+check("descriptor-getter-not-value", Object.getOwnPropertyDescriptor(accessor, "computed").value === undefined);
+
 return failed;

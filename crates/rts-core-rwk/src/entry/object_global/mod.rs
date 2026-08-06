@@ -24,16 +24,23 @@
 //! the one place here that answers less than it appears to. Recording them needs
 //! a per-property flag word, which is a change to what a shape IS.
 
+mod describe;
+
 use super::native::Native;
 use super::objects::undefined_of;
 use super::{Context, with_current};
+use crate::object::Key;
 use crate::text::Str;
 use crate::value::Value;
 
-/// What `Object` holds.
+/// What `Object` holds, apart from the five in [`describe`].
 const STATICS: &[(&str, Native)] = &[
     ("keys", keys),
     ("values", values),
+    ("entries", entries),
+    ("fromEntries", from_entries),
+    ("hasOwn", has_own),
+    ("is", is),
     ("getPrototypeOf", get_prototype_of),
     ("setPrototypeOf", set_prototype_of),
     ("defineProperty", define_property),
@@ -47,6 +54,7 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
         return callable;
     };
     super::native::install(context, cell, STATICS);
+    super::native::install(context, cell, describe::STATICS);
     // A `prototype` property like any constructor's, so `Object.prototype.m = f`
     // has somewhere to land — and so `instanceof Object` has something to
     // compare against once literals link to it.
@@ -154,10 +162,18 @@ extern "C" fn define_property(
     descriptor: u64,
     _a3: u64,
 ) -> u64 {
+    define(object, name, descriptor);
+    object
+}
+
+/// One property defined from one descriptor.
+///
+/// Its own function because `Object.create` and `Object.defineProperties` are
+/// this in a loop, and a second reading of what a descriptor means is where one
+/// of the three learns that `{}` defines `undefined` and the others do not.
+pub(super) fn define(object: u64, name: u64, descriptor: u64) {
     let read = |field: &str| {
-        let key = with_current(|context| {
-            context.intern_value(Str::from_str(field)).bits()
-        });
+        let key = with_current(|context| context.intern_value(Str::from_str(field)).bits());
         super::computed::get_indexed(descriptor, key)
     };
     let getter = read("get");
@@ -165,14 +181,17 @@ extern "C" fn define_property(
     let value = read("value");
 
     let (key, absent) = with_current(|context| {
-        let text = super::text::to_text(context, Value(name));
-        let key = text.map(|text| {
-            context.interner.intern(&text, &mut context.keys).index() as i64
+        let key = key_for(context, name).and_then(|key| match key {
+            Key::Name(named) => Some(named.index() as i64),
+            // An index has no `ShapeKey`, and `define_getter` speaks in one. A
+            // descriptor on `a[0]` is therefore refused rather than written to
+            // the wrong key — the gap `machine_key` already reports elsewhere.
+            Key::Index(_) => None,
         });
         (key, undefined_of(context))
     });
     let Some(key) = key else {
-        return object;
+        return;
     };
 
     if getter != absent {
@@ -187,7 +206,100 @@ extern "C" fn define_property(
     if getter == absent && setter == absent {
         super::objects::set_property(object, key, value);
     }
-    object
+}
+
+/// The key a property name value denotes.
+///
+/// Shared with [`describe`] so that a descriptor is read back under the same key
+/// it was written to — two spellings of "intern the text" is how a key written
+/// as a name gets read as an index.
+pub(super) fn key_for(context: &mut Context, name: u64) -> Option<Key> {
+    let text = super::text::to_text(context, Value(name))?;
+    Some(Key::Name(context.interner.intern(&text, &mut context.keys)))
+}
+
+/// `Object.entries(o)` — `[key, value]` per own key.
+///
+/// Built from `keys` and `values` rather than from a third walk, for the reason
+/// [`values`] records: the three are useful because they agree about order.
+extern "C" fn entries(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let names = super::array::own_keys(object);
+    let Some(names) = held(names) else {
+        return names;
+    };
+    let pairs: Vec<u64> = names
+        .into_iter()
+        .map(|name| {
+            let value = super::computed::get_indexed(object, name);
+            super::array_proto::built(vec![name, value])
+        })
+        .collect();
+    super::array_proto::built(pairs)
+}
+
+/// `Object.fromEntries(entries)` — the inverse.
+///
+/// Through the runtime's own iteration, so a `Map` is accepted: `for-of` over
+/// one yields exactly the pairs this reads, which is what makes
+/// `Object.fromEntries(map)` the spelling programs use.
+extern "C" fn from_entries(_e: u64, _this: u64, entries: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let produced = super::iterate::iterate(entries);
+    let made = super::objects::object_new();
+    let Some(pairs) = held(produced) else {
+        return made;
+    };
+    for pair in pairs {
+        let Some(pair) = held(pair) else {
+            continue;
+        };
+        let absent = with_current(|context| undefined_of(context));
+        let key = pair.first().copied().unwrap_or(absent);
+        let value = pair.get(1).copied().unwrap_or(absent);
+        super::computed::set_indexed(made, key, value);
+    }
+    made
+}
+
+/// `Object.hasOwn(o, k)`.
+///
+/// Own rather than inherited, which is the whole reason it exists beside `in` —
+/// and it answers for a key holding `undefined`, which is why it cannot be
+/// written as a read compared against `undefined`.
+extern "C" fn has_own(_e: u64, _this: u64, object: u64, name: u64, _a2: u64, _a3: u64) -> u64 {
+    let owns = with_current(|context| {
+        let Some(cell) = Value(object).as_slot() else {
+            return false;
+        };
+        let Some(key) = key_for(context, name) else {
+            return false;
+        };
+        if let Key::Name(named) = key
+            && context.accessor_at(cell, named.index() as u32).is_some()
+        {
+            return true;
+        }
+        super::objects::own_property(context, cell, key).is_some()
+    });
+    Value::from_bool(owns).bits()
+}
+
+/// `Object.is(a, b)` — SameValue.
+///
+/// Not `===`, and the two cases that differ are the reason it exists:
+/// `Object.is(NaN, NaN)` is true and `Object.is(0, -0)` is false.
+extern "C" fn is(_e: u64, _this: u64, left: u64, right: u64, _a2: u64, _a3: u64) -> u64 {
+    let same = with_current(|context| {
+        crate::value::same_value(Value(left), Value(right), |a, b| context.same_text(a, b))
+    });
+    Value::from_bool(same).bits()
+}
+
+/// An array's elements, the borrow ending here.
+fn held(array: u64) -> Option<Vec<u64>> {
+    with_current(|context| {
+        let cell = Value(array).as_slot()?;
+        Some(context.elements_at(cell)?.clone())
+    })
 }
 
 /// `Object.assign(target, source)` — copies the own keys across.
