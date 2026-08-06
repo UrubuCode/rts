@@ -48,7 +48,7 @@ use rts_cranelift::unwind::{Handler, Tag};
 
 use super::stmt::emit_stmt;
 use super::{Ctx, EmitResult, Scope};
-use crate::syntax::{Catch, Expr, ExprKind, Property, Stmt, StmtKind};
+use crate::syntax::{Catch, Expr, ExprKind, Property, Stmt};
 
 /// What a JavaScript `throw` is tagged with.
 ///
@@ -261,104 +261,29 @@ fn calls_something(body: &[Stmt]) -> Option<&'static str> {
     found.then_some("a `try` whose body contains a call")
 }
 
+/// Routed through [`super::capture::walk_stmt`] for the structural part.
+///
+/// A function or a class written here is not one called here — its body is
+/// reached only through a call, which this walk finds where the call is made
+/// — so `Function`/`Class` stop the walk, matching what the same children do
+/// in `capture.rs`'s own traversals.
 fn walk_stmt(statement: &Stmt, found: &mut bool) {
     if *found {
         return;
     }
-    match &statement.kind {
-        StmtKind::Expr(expr) | StmtKind::Throw(expr) => walk_expr(expr, found),
-        StmtKind::Return(value) => {
-            if let Some(expr) = value {
-                walk_expr(expr, found);
+    super::capture::walk_stmt(statement, &mut |child| match child {
+        super::capture::StmtChild::Stmt(inner) => walk_stmt(inner, found),
+        super::capture::StmtChild::Expr(inner) => walk_expr(inner, found),
+        super::capture::StmtChild::Binding(binding) => {
+            if let Some(value) = &binding.value {
+                walk_expr(value, found);
             }
         }
-        StmtKind::Declare { bindings, .. } | StmtKind::Using { bindings, .. } => {
-            for binding in bindings {
-                if let Some(value) = &binding.value {
-                    walk_expr(value, found);
-                }
-            }
+        super::capture::StmtChild::Catch(catch) => {
+            catch.body.iter().for_each(|inner| walk_stmt(inner, found));
         }
-        StmtKind::Block(body) => body.iter().for_each(|inner| walk_stmt(inner, found)),
-        StmtKind::If {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            walk_expr(condition, found);
-            walk_stmt(then_branch, found);
-            if let Some(otherwise) = else_branch {
-                walk_stmt(otherwise, found);
-            }
-        }
-        StmtKind::While { condition, body } | StmtKind::DoWhile { condition, body } => {
-            walk_expr(condition, found);
-            walk_stmt(body, found);
-        }
-        StmtKind::For {
-            init,
-            test,
-            update,
-            body,
-        } => {
-            match init {
-                Some(crate::syntax::ForInit::Declare { bindings, .. }) => {
-                    for binding in bindings {
-                        if let Some(value) = &binding.value {
-                            walk_expr(value, found);
-                        }
-                    }
-                }
-                Some(crate::syntax::ForInit::Expr(expr)) => walk_expr(expr, found),
-                None => {}
-            }
-            if let Some(test) = test {
-                walk_expr(test, found);
-            }
-            if let Some(update) = update {
-                walk_expr(update, found);
-            }
-            walk_stmt(body, found);
-        }
-        StmtKind::ForEach { subject, body, .. } => {
-            walk_expr(subject, found);
-            walk_stmt(body, found);
-        }
-        StmtKind::Switch {
-            discriminant,
-            clauses,
-        } => {
-            walk_expr(discriminant, found);
-            for clause in clauses {
-                if let Some(test) = &clause.test {
-                    walk_expr(test, found);
-                }
-                clause.body.iter().for_each(|inner| walk_stmt(inner, found));
-            }
-        }
-        StmtKind::Labelled { body, .. } | StmtKind::With { body, .. } => walk_stmt(body, found),
-        StmtKind::Try {
-            body,
-            catch,
-            finally,
-        } => {
-            body.iter().for_each(|inner| walk_stmt(inner, found));
-            if let Some(catch) = catch {
-                catch.body.iter().for_each(|inner| walk_stmt(inner, found));
-            }
-            if let Some(finally) = finally {
-                finally.iter().for_each(|inner| walk_stmt(inner, found));
-            }
-        }
-        // A function written here is not a function called here. Its body is
-        // reached only through a call, which this walk finds where it is made.
-        StmtKind::Function(_)
-        | StmtKind::Class(_)
-        | StmtKind::Break(_)
-        | StmtKind::Continue(_)
-        | StmtKind::Debugger
-        | StmtKind::Empty => {}
-    }
+        super::capture::StmtChild::Function(_) | super::capture::StmtChild::Class(_) => {}
+    });
 }
 
 fn walk_expr(expression: &Expr, found: &mut bool) {

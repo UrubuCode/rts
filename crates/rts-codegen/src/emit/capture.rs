@@ -578,13 +578,28 @@ pub(super) fn walk_expr(expr: &Expr, on: &mut impl FnMut(Child)) {
 /// declares `x` for this purpose even though it is not in scope at the end. The
 /// error is again in the safe direction — a name that did not need to be in the
 /// environment costs a load, and one missing from it is a wrong program.
+/// Routed through [`walk_stmt`] for the structural part.
+///
+/// This is where the module's own warning was found to have been unheeded:
+/// there was no `Try` arm here at all, so a `var` declared inside a `try`
+/// body, a `catch` body, or a `finally` body was never counted as declared by
+/// the enclosing function. A name assigned there under protection —
+/// `assigned_under_protection` finds exactly this shape — was intersected
+/// against a `declared` set that did not contain it, so `resident` dropped it
+/// silently: the handler read a value from before the assignment it was
+/// supposed to see, for a `var` specifically, in a function whose capture
+/// analysis otherwise looked complete because the wildcard this used to end on
+/// gave no warning that `Try` was missing.
+///
+/// `catch (e)`'s binding is now included too, on the same reasoning the module
+/// doc gives for ignoring block scope generally: a name captured by a nested
+/// function is put in the environment whether or not it is technically in
+/// scope at the point captured, because the direction of the error is what
+/// makes it safe to over-include. A `for`-await-`using` loop's disposed name
+/// is included for the same reason — it is a declaration this function owns,
+/// like the `for`-declare target next to it, which was already handled.
 fn declared_by_statement(statement: &Stmt, found: &mut BTreeSet<Name>) {
     match &statement.kind {
-        StmtKind::Declare { bindings, .. } => {
-            for binding in bindings {
-                names_in_pattern(&binding.target, found);
-            }
-        }
         // A declaration binds its own name in the enclosing scope, which is how
         // recursion works: `f` inside `f` is the enclosing function's binding,
         // captured like any other.
@@ -592,6 +607,7 @@ fn declared_by_statement(statement: &Stmt, found: &mut BTreeSet<Name>) {
             if let Some(name) = function.name {
                 found.insert(name);
             }
+            return;
         }
         // The same for a class: the name is a binding in the enclosing scope,
         // and a method naming its own class reads it from there.
@@ -599,53 +615,32 @@ fn declared_by_statement(statement: &Stmt, found: &mut BTreeSet<Name>) {
             if let Some(name) = class.name {
                 found.insert(name);
             }
+            return;
         }
-        StmtKind::Block(body) => {
-            for inner in body {
+        StmtKind::ForEach { target, .. } => match target {
+            crate::syntax::ForEachTarget::Declare { target, .. } => {
+                names_in_pattern(target, found);
+            }
+            crate::syntax::ForEachTarget::Dispose { target, .. } => {
+                found.insert(*target);
+            }
+            crate::syntax::ForEachTarget::Assign(_) => {}
+        },
+        _ => {}
+    }
+    walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => declared_by_statement(inner, found),
+        StmtChild::Binding(binding) => names_in_pattern(&binding.target, found),
+        StmtChild::Catch(catch) => {
+            if let Some(binding) = &catch.binding {
+                names_in_pattern(binding, found);
+            }
+            for inner in &catch.body {
                 declared_by_statement(inner, found);
             }
         }
-        StmtKind::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            declared_by_statement(then_branch, found);
-            if let Some(otherwise) = else_branch {
-                declared_by_statement(otherwise, found);
-            }
-        }
-        StmtKind::While { body, .. } | StmtKind::DoWhile { body, .. } => {
-            declared_by_statement(body, found);
-        }
-        StmtKind::For { init, body, .. } => {
-            if let Some(crate::syntax::ForInit::Declare { bindings, .. }) = init {
-                for binding in bindings {
-                    names_in_pattern(&binding.target, found);
-                }
-            }
-            declared_by_statement(body, found);
-        }
-        StmtKind::Labelled { body, .. } => declared_by_statement(body, found),
-        StmtKind::ForEach { target, body, .. } => {
-            if let crate::syntax::ForEachTarget::Declare { target, .. } = target {
-                names_in_pattern(target, found);
-            }
-            declared_by_statement(body, found);
-        }
-        StmtKind::Switch { clauses, .. } => {
-            // A clause body is a scope in the language and is not one here, for
-            // the same reason a block is not: erring toward MORE names in the
-            // environment costs a load, and erring toward fewer is two closures
-            // disagreeing about a variable.
-            for clause in clauses {
-                for statement in &clause.body {
-                    declared_by_statement(statement, found);
-                }
-            }
-        }
-        _ => {}
-    }
+        StmtChild::Expr(_) | StmtChild::Function(_) | StmtChild::Class(_) => {}
+    });
 }
 
 /// The names a binding pattern introduces.

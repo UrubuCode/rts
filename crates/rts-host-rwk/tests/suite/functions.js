@@ -98,4 +98,28 @@ check("inherits-call", typeof plain.call === "function");
 check("inherits-apply", typeof plain.apply === "function");
 check("inherits-bind", typeof plain.bind === "function");
 
+// A `var` declared inside a `try` reaches the rest of its function. It did not:
+// `declared_by_statement` had no `Try` arm at all, so the name never joined the
+// set the environment is built from — and a name assigned under protection that
+// is not in that set is dropped by the intersection. The program did not
+// compile: the read was an unbound name.
+check("var-in-try-seen-by-finally", (function () {
+    let seen = 0;
+    function run() { try { var x = 5; } finally { seen = x; } }
+    run();
+    return seen === 5;
+})());
+check("var-in-try-seen-after", (function () {
+    function run() { try { var x = 7; } finally { } return x; }
+    return run() === 7;
+})());
+check("var-in-try-captured", (function () {
+    function run() { try { var x = 3; } finally { } return (function () { return x; })(); }
+    return run() === 3;
+})());
+check("var-in-catch-binding", (function () {
+    function run() { try { var x = 1; } catch (e) { x = 2; } return x; }
+    return run() === 1;
+})());
+
 return failed;
