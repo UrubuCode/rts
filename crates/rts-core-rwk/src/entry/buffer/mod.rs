@@ -35,7 +35,7 @@
 //! See that module's doc — `rts-node-rwk::buffer` no longer has one of its own.
 
 pub(in crate::entry) mod codec;
-mod ops;
+pub(in crate::entry) mod ops;
 
 use super::buffers::element::Kind;
 use super::buffers::uint8_array;

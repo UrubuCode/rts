@@ -22,3 +22,25 @@ glob = "0.3"
 # unused)" / "notify (ws) | bump→8.2 | CC0 | fs.watch". Declared at the
 # workspace root (`notify = "6.1"`) but unused until this change.
 notify = "6.1"
+
+# node:crypto — every crate below is listed by name in crates.md §4.1
+# ("crypto — hash / MAC / KDF / random"), which is what CLAUDE.md's RULE 0b/
+# the task brief means by "already vetted": "sha2 (ws) ... SHA-224/256/384/512"
+# / "sha1 ... SHA-1" / "md-5 ... MD5 (import `md5`)" / "sha3 ... SHA3/Keccak"
+# / "blake2 ... BLAKE2b/2s" / "ripemd ... RIPEMD-160" / "digest · hmac · hkdf
+# · pbkdf2 · scrypt ... trait plumbing + HMAC + KDFs" / "getrandom ...
+# randomBytes/randomFillSync/getRandomValues". `uuid` is NOT added — §4.1
+# lists it as optional ("or hand-roll, zero-dep") and randomUUID is hand-rolled
+# here (16 CSPRNG bytes + RFC 4122 v4 bit twiddling) per that note.
+sha2 = "0.11"
+sha1 = "0.11"
+md-5 = "0.11"
+sha3 = "0.12"
+blake2 = "0.11.0-rc.6"
+ripemd = "0.2"
+digest = "0.11"
+hmac = "0.13"
+hkdf = "0.13"
+pbkdf2 = "0.13"
+scrypt = "0.12"
+getrandom = "0.4"

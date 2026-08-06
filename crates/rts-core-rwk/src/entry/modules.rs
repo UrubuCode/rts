@@ -504,3 +504,29 @@ pub fn is_object(context: &Context, value: u64) -> bool {
         .as_slot()
         .is_some_and(|cell| context.region.type_of(cell).is_some())
 }
+
+/// A `Buffer` over a copy of these bytes.
+///
+/// [`make_bytes`] answers a `Uint8Array`, which was the only shape available
+/// while `Buffer` was functions beside a typed array. It is a class now, so a
+/// host answering bytes where Node answers a `Buffer` can answer one — and the
+/// difference is observable: `Buffer.isBuffer` on a plain `Uint8Array` is false,
+/// and so is every instance method.
+///
+/// Built through the class's own construction rather than by linking a
+/// prototype here, so there is one answer to what a `Buffer` IS.
+pub fn make_buffer(context: &mut Context, source: &[u8]) -> u64 {
+    super::buffer::ops::made(context, source)
+}
+
+/// Links one object to another, from a context already in hand.
+///
+/// `chain::set_prototype` is an entry point and takes the ambient borrow, so a
+/// host chaining one class onto another — which is what a stream does to
+/// `EventEmitter` — aborts with nothing installed. The same pairing
+/// [`make_object`] documents, and found the same way.
+pub fn set_prototype_in(context: &mut Context, object: u64, prototype: u64) {
+    if let Some(cell) = Value(object).as_slot() {
+        context.set_prototype(cell, prototype);
+    }
+}

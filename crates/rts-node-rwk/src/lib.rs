@@ -33,12 +33,16 @@
 
 pub mod assert;
 pub mod buffer;
+pub mod crypto;
 pub mod events;
 pub mod fs;
 pub mod os;
 pub mod path;
 pub mod process;
 pub mod querystring;
+/// Written, and NOT registered — see the module doc. It builds, and a program
+/// reaching it aborts the process on construction, which is worse than absent.
+pub mod stream;
 pub mod util;
 
 use rts_core_rwk::entry::Context;
@@ -57,6 +61,7 @@ pub fn install(context: &mut Context) {
     for (name, namespace) in [
         ("assert", assert::namespace(context)),
         ("buffer", buffer::namespace(context)),
+        ("crypto", crypto::namespace(context)),
         ("events", events::namespace(context)),
         ("fs", files),
         ("os", os::namespace(context)),
