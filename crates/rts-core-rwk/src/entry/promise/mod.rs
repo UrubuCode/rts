@@ -123,3 +123,36 @@ fn elements_of(iterable: u64) -> Vec<u64> {
             .unwrap_or_default()
     })
 }
+
+/// A promise that is already settled, for a host answering an async-shaped API.
+///
+/// # Why a host needs this, and what it is NOT
+///
+/// `fs.promises.readFile` answers a promise. This engine has no asynchronous
+/// file I/O — nothing here yields to an event loop — so the work happens before
+/// the promise exists and the promise is handed over already settled.
+///
+/// That is a real divergence and it is the shape of it that matters: the CALL
+/// blocks where Node's does not, so two reads do not overlap and a program that
+/// starts several and awaits them all takes as long as doing them in order. What
+/// is NOT wrong is the observable order of the reactions — a `.then` still runs
+/// on the microtask drain rather than immediately, because settling a promise
+/// goes through the machine's queue like any other settlement.
+///
+/// The alternative was refusing `fs.promises` entirely. It was rejected because
+/// a promise-shaped answer over synchronous work is what every runtime's first
+/// version of this was, and because the divergence is one of TIMING rather than
+/// of value — a program gets the right bytes.
+pub fn settled(context: &mut super::Context, value: u64, rejected: bool) -> u64 {
+    let Some((cell, id)) = state::fresh(context) else {
+        return super::objects::undefined_of(context);
+    };
+    match rejected {
+        true => state::settle(context, id, rts_cranelift::sched::Settlement::Rejected, value),
+        // Through `resolve` rather than `settle`, because resolving with
+        // another promise adopts it — and a host answering a value it got from
+        // somewhere else must not turn a promise into a promise for a promise.
+        false => state::resolve(context, id, value),
+    }
+    crate::value::Value::from_slot(cell).bits()
+}

@@ -100,7 +100,7 @@ pub use modules::{
     text_of, undefined_in, undefined_value, with_runtime,
 };
 pub use objects::{get_property, object_new, set_property};
-pub use promise::drain_microtasks;
+pub use promise::{drain_microtasks, settled};
 pub use operators::{
     divide, greater, greater_equal, less, less_equal, loose_equals, multiply, remainder, subtract,
 };

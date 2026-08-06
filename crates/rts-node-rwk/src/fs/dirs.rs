@@ -11,10 +11,13 @@ use super::{option_flag, string, text};
 pub(super) extern "C" fn mkdir_sync(_e: u64, _this: u64, path: u64, options: u64, _a2: u64, _a3: u64) -> u64 {
     if let Some(path) = text(path) {
         let recursive = option_flag(options, "recursive");
-        let _ = match recursive {
-            true => std::fs::create_dir_all(path),
-            false => std::fs::create_dir(path),
-        };
+        super::record(
+            match recursive {
+                true => std::fs::create_dir_all(path),
+                false => std::fs::create_dir(path),
+            }
+            .is_ok(),
+        );
     }
     rts_core_rwk::entry::undefined_value()
 }
@@ -24,10 +27,13 @@ pub(super) extern "C" fn rm_sync(_e: u64, _this: u64, path: u64, options: u64, _
     if let Some(path) = text(path) {
         let recursive = option_flag(options, "recursive");
         let target = std::path::Path::new(&path);
-        let _ = match (recursive, target.is_dir()) {
-            (true, true) => std::fs::remove_dir_all(target),
-            _ => std::fs::remove_file(target),
-        };
+        super::record(
+            match (recursive, target.is_dir()) {
+                (true, true) => std::fs::remove_dir_all(target),
+                _ => std::fs::remove_file(target),
+            }
+            .is_ok(),
+        );
     }
     rts_core_rwk::entry::undefined_value()
 }
@@ -36,7 +42,7 @@ pub(super) extern "C" fn rm_sync(_e: u64, _this: u64, path: u64, options: u64, _
 /// `recursive` lives, matching Node's own split between the two.
 pub(super) extern "C" fn rmdir_sync(_e: u64, _this: u64, path: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     if let Some(path) = text(path) {
-        let _ = std::fs::remove_dir(path);
+        super::record(std::fs::remove_dir(path).is_ok());
     }
     rts_core_rwk::entry::undefined_value()
 }
@@ -110,9 +116,9 @@ pub(super) extern "C" fn cp_sync(_e: u64, _this: u64, src: u64, dest: u64, optio
         let src = std::path::Path::new(&src);
         let dest = std::path::Path::new(&dest);
         if recursive && src.is_dir() {
-            let _ = copy_dir_all(src, dest);
+            super::record(copy_dir_all(src, dest).is_ok());
         } else {
-            let _ = std::fs::copy(src, dest);
+            super::record(std::fs::copy(src, dest).is_ok());
         }
     }
     rts_core_rwk::entry::undefined_value()

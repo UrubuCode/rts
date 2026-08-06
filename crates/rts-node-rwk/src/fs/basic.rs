@@ -21,7 +21,7 @@ pub(super) extern "C" fn read_file_sync(_e: u64, _this: u64, path: u64, _encodin
 /// `fs.writeFileSync(path, data)` — overwrites, creates if absent.
 pub(super) extern "C" fn write_file_sync(_e: u64, _this: u64, path: u64, data: u64, _a2: u64, _a3: u64) -> u64 {
     if let (Some(path), Some(data)) = (text(path), text(data)) {
-        let _ = std::fs::write(path, data);
+        super::record(std::fs::write(path, data).is_ok());
     }
     rts_core_rwk::entry::undefined_value()
 }
@@ -31,7 +31,7 @@ pub(super) extern "C" fn append_file_sync(_e: u64, _this: u64, path: u64, data: 
     use std::io::Write;
     if let (Some(path), Some(data)) = (text(path), text(data)) {
         if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-            let _ = file.write_all(data.as_bytes());
+            super::record(file.write_all(data.as_bytes()).is_ok());
         }
     }
     rts_core_rwk::entry::undefined_value()
@@ -48,7 +48,7 @@ pub(super) extern "C" fn exists_sync(_e: u64, _this: u64, path: u64, _a1: u64, _
 /// `fs.copyFileSync(src, dest)`.
 pub(super) extern "C" fn copy_file_sync(_e: u64, _this: u64, src: u64, dest: u64, _a2: u64, _a3: u64) -> u64 {
     if let (Some(src), Some(dest)) = (text(src), text(dest)) {
-        let _ = std::fs::copy(src, dest);
+        super::record(std::fs::copy(src, dest).is_ok());
     }
     rts_core_rwk::entry::undefined_value()
 }
@@ -56,7 +56,7 @@ pub(super) extern "C" fn copy_file_sync(_e: u64, _this: u64, src: u64, dest: u64
 /// `fs.renameSync(from, to)`.
 pub(super) extern "C" fn rename_sync(_e: u64, _this: u64, from: u64, to: u64, _a2: u64, _a3: u64) -> u64 {
     if let (Some(from), Some(to)) = (text(from), text(to)) {
-        let _ = std::fs::rename(from, to);
+        super::record(std::fs::rename(from, to).is_ok());
     }
     rts_core_rwk::entry::undefined_value()
 }
@@ -64,7 +64,7 @@ pub(super) extern "C" fn rename_sync(_e: u64, _this: u64, from: u64, to: u64, _a
 /// `fs.unlinkSync(path)`.
 pub(super) extern "C" fn unlink_sync(_e: u64, _this: u64, path: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     if let Some(path) = text(path) {
-        let _ = std::fs::remove_file(path);
+        super::record(std::fs::remove_file(path).is_ok());
     }
     rts_core_rwk::entry::undefined_value()
 }

@@ -49,10 +49,14 @@ use rts_core_rwk::entry::Context;
 /// resolver that answered only one of them would refuse half the corpus for a
 /// reason that has nothing to do with what it can do.
 pub fn install(context: &mut Context) {
+    // Built once and named twice. `fs::namespace` makes a NEW object every call,
+    // so asking it a second time for `fs.promises` would register a specifier
+    // pointing at an object no `fs` a program imported ever held.
+    let files = fs::namespace(context);
     for (name, namespace) in [
         ("assert", assert::namespace(context)),
         ("events", events::namespace(context)),
-        ("fs", fs::namespace(context)),
+        ("fs", files),
         ("os", os::namespace(context)),
         ("path", path::namespace(context)),
         ("process", process::namespace(context)),
@@ -62,4 +66,11 @@ pub fn install(context: &mut Context) {
         rts_core_rwk::entry::declare_module(context, &format!("node:{name}"), namespace);
         rts_core_rwk::entry::declare_module(context, name, namespace);
     }
+
+    // `node:fs/promises` is its own specifier and resolves to the object `fs`
+    // carries as `promises` — the SAME object, not a second one built beside it.
+    // Two would be two answers to what `fs.promises.readFile === ` compares.
+    let promises = rts_core_rwk::entry::get_member(context, files, "promises");
+    rts_core_rwk::entry::declare_module(context, "node:fs/promises", promises);
+    rts_core_rwk::entry::declare_module(context, "fs/promises", promises);
 }

@@ -109,6 +109,7 @@ mod constants;
 mod dirs;
 mod fd;
 mod links;
+mod promises;
 mod stats;
 
 use rts_core_rwk::entry::{Context, Provided};
@@ -147,6 +148,8 @@ pub fn namespace(context: &mut Context) -> u64 {
     ];
     let namespace = rts_core_rwk::entry::make_namespace(context, members);
     constants::install(context, namespace);
+    let promises = promises::namespace(context);
+    rts_core_rwk::entry::put_member(context, namespace, "promises", promises);
     namespace
 }
 
@@ -189,3 +192,46 @@ pub(crate) fn number(value: u64) -> Option<f64> {
     // Asked of the value rather than of its text — see `number_of`.
     rts_core_rwk::entry::number_of(value)
 }
+
+/// Whether the last operation performed by a member of this module succeeded.
+///
+/// # Why a side channel and not a return value
+///
+/// Because these members answer `undefined` in Node whether they worked or not
+/// — that is the shape of the synchronous API, and Node reports failure by
+/// throwing, which this engine cannot do across a call.
+///
+/// So the outcome has to reach the caller some other way, and the promise half
+/// genuinely needs it: `fs.promises.writeFile` must REJECT where the sync form
+/// silently did nothing. Without this it resolved, and a program's `.then`
+/// success path ran after a write that never happened — a wrong program that
+/// runs, which is the outcome this repository refuses everywhere else.
+///
+/// This is `errno`, and the resemblance is the argument rather than an
+/// accident: a per-thread "what happened last" is what C settled on for exactly
+/// this problem, and it has C's rule too — **read it immediately, in the same
+/// native, with nothing in between**. A second operation overwrites it.
+///
+/// Thread-local because a context is: two threads running programs do not share
+/// one.
+mod outcome {
+    use std::cell::Cell;
+
+    thread_local! {
+        static LAST: Cell<bool> = const { Cell::new(true) };
+    }
+
+    /// Records what an operation answered, and answers `undefined` — which is
+    /// what every member using this returns anyway, so the call reads as the
+    /// tail of the member rather than as bookkeeping beside it.
+    pub(in crate::fs) fn record(succeeded: bool) {
+        LAST.with(|held| held.set(succeeded));
+    }
+
+    /// Whether it succeeded.
+    pub(in crate::fs) fn succeeded() -> bool {
+        LAST.with(Cell::get)
+    }
+}
+
+pub(self) use outcome::{record, succeeded};

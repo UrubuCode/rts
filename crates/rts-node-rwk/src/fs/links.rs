@@ -58,7 +58,7 @@ pub(super) extern "C" fn realpath_sync(_e: u64, _this: u64, path: u64, _a1: u64,
 /// unconditionally.
 pub(super) extern "C" fn symlink_sync(_e: u64, _this: u64, target: u64, path: u64, kind: u64, _a3: u64) -> u64 {
     if let (Some(target), Some(path)) = (text(target), text(path)) {
-        let _ = create_symlink(&target, &path, text(kind));
+        super::record(create_symlink(&target, &path, text(kind)).is_ok());
     }
     rts_core_rwk::entry::undefined_value()
 }
@@ -85,7 +85,7 @@ fn create_symlink(target: &str, path: &str, kind: Option<String>) -> std::io::Re
 /// `fs.linkSync(existingPath, newPath)` — a hard link.
 pub(super) extern "C" fn link_sync(_e: u64, _this: u64, existing: u64, new: u64, _a2: u64, _a3: u64) -> u64 {
     if let (Some(existing), Some(new)) = (text(existing), text(new)) {
-        let _ = std::fs::hard_link(existing, new);
+        super::record(std::fs::hard_link(existing, new).is_ok());
     }
     rts_core_rwk::entry::undefined_value()
 }
@@ -97,7 +97,7 @@ pub(super) extern "C" fn link_sync(_e: u64, _this: u64, existing: u64, new: u64,
 /// reference doc's stated Windows divergence.
 pub(super) extern "C" fn chmod_sync(_e: u64, _this: u64, path: u64, mode: u64, _a2: u64, _a3: u64) -> u64 {
     if let (Some(path), Some(mode)) = (text(path), super::number(mode)) {
-        let _ = apply_chmod(&path, mode as u32);
+        super::record(apply_chmod(&path, mode as u32).is_ok());
     }
     rts_core_rwk::entry::undefined_value()
 }
@@ -122,7 +122,7 @@ pub(super) extern "C" fn truncate_sync(_e: u64, _this: u64, path: u64, len: u64,
     if let Some(path) = text(path) {
         let len = super::number(len).unwrap_or(0.0).max(0.0) as u64;
         if let Ok(file) = std::fs::OpenOptions::new().write(true).open(path) {
-            let _ = file.set_len(len);
+            super::record(file.set_len(len).is_ok());
         }
     }
     rts_core_rwk::entry::undefined_value()
