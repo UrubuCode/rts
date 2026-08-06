@@ -120,4 +120,43 @@ check("computed-call-evaluates-once", (function () {
     return n === 1;
 })());
 
+// A literal computed key takes the NAMED path — the inline cache — because the
+// compiler already knows the name. Measured at 150x before this.
+check("literal-key-reads", (function () {
+    let o = {alpha: 1};
+    return o["alpha"] === 1;
+})());
+check("literal-key-writes", (function () {
+    let o = {};
+    o["alpha"] = 2;
+    return o.alpha === 2 && o["alpha"] === 2;
+})());
+check("literal-key-compound", (function () {
+    let o = {alpha: 1};
+    o["alpha"] = o["alpha"] + 4;
+    return o.alpha === 5;
+})());
+check("literal-and-named-are-one-property", (function () {
+    let o = {};
+    o.alpha = 1;
+    o["alpha"] = 2;
+    return o.alpha === 2 && Object.keys(o).length === 1;
+})());
+// The trap: an all-digit key on an ARRAY reads the element, and a named read
+// never asks about elements. Refused conservatively, so these still work.
+check("digit-key-on-an-array", (function () {
+    let a = [7, 8];
+    return a["0"] === 7 && a["1"] === 8;
+})());
+check("digit-key-writes-an-element", (function () {
+    let a = [7];
+    a["0"] = 9;
+    return a[0] === 9 && a.length === 1;
+})());
+check("digit-key-on-an-object", (function () {
+    let o = {};
+    o["0"] = 3;
+    return o[0] === 3 && o["0"] === 3;
+})());
+
 return failed;

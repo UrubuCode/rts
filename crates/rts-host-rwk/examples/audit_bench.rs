@@ -124,6 +124,36 @@ fn scaling() {
     for (what, preamble, body) in shapes {
         timed(what, 6, &program_of(400, preamble, body));
     }
+
+    spread();
+}
+
+/// The same work in one function versus in many, which decides whether
+/// compiling functions concurrently has anything to compile concurrently.
+///
+/// Both programs emit the same number of call sites. If they cost the same, the
+/// cost is per site and a thread pool over functions would help the second and
+/// not the first — which is what a real program looks like and what a
+/// single-script benchmark hides. If the many-function one costs MORE, there is
+/// a per-function overhead worth finding before any threading is considered.
+fn spread() {
+    println!("\n  -- 400 property reads, spread over N functions --");
+    for count in [1usize, 10, 40, 200] {
+        let per = 400 / count;
+        let mut source = String::from("let o = {a: 1}; let t = 0;");
+        for index in 0..count {
+            source.push_str(&format!("function f{index}(){{ let u = 0;"));
+            for _ in 0..per {
+                source.push_str("u = u + o.a;");
+            }
+            source.push_str("return u; }");
+        }
+        for index in 0..count {
+            source.push_str(&format!("t = t + f{index}();"));
+        }
+        source.push_str(" return t;");
+        timed(&format!("{count} function(s) x{per} reads"), 6, &source);
+    }
 }
 
 /// What the compiled code then costs, on the paths the audit named.
@@ -138,8 +168,16 @@ fn run_side() {
          for (let i = 0; i < 200000; i = i + 1) { t = t + o[k]; } return t;",
     );
 
+    // The same read with a LITERAL key, which the emitter now resolves to a
+    // name — so it takes the cache rather than the conversion. The gap
+    // between this and the variable-key case above is what remains.
+    ran(
+        "literal computed key (200k)",
+        "let o = {alpha: 1}; let t = 0; \n         for (let i = 0; i < 200000; i = i + 1) { t = t + o[\"alpha\"]; } return t;",
+    );
+
     // The named form, for contrast: it carries a resolved key and never
-    // interns. The DIFFERENCE between the two is the finding's cost.
+    // interns.
     ran(
         "named property read (200k)",
         "let o = {alpha: 1}; let t = 0; \
