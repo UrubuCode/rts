@@ -160,11 +160,19 @@ pub unsafe fn place_in_memory(
                 funcs,
             )?;
         }
+        // Lowered one at a time, in listed order (SERIAL — see
+        // `MachineModule::prepare`'s doc for why), then machine-compiled and
+        // defined as one batch (parallel above a size threshold — see
+        // `MachineModule::compile_and_define`). `prepared` keeps this call's
+        // order, which is what makes the batch's output independent of
+        // whichever worker in that phase finishes first.
+        let mut prepared = Vec::new();
         for placing in program {
             if let Some(body) = placing.body {
-                module.define(placing.id, body, funcs, types)?;
+                prepared.push(module.prepare(placing.id, body, funcs, types)?);
             }
         }
+        module.compile_and_define(prepared)?;
 
         for placing in program {
             if placing.body.is_some() {

@@ -22,3 +22,8 @@ cranelift-native = "0.131"
 cranelift-jit = "0.131"
 cranelift-object = "0.131"
 anyhow = "1.0"
+
+# The parallel machine-compile phase in `target/` — `Context::compile` run
+# across a pool, never `lower/`'s IR construction (see `target/mod.rs`'s
+# `MachineModule::prepare` doc for why that half must stay serial).
+rayon = "1.10"

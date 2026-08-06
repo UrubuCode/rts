@@ -4173,6 +4173,7 @@ dependencies = [
  "cranelift-module",
  "cranelift-native",
  "cranelift-object",
+ "rayon",
 ]
 
 [[package]]
