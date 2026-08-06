@@ -61,6 +61,33 @@ pub fn emit_call(
             let function = expr::emit_read(builder, ctx, receiver, *property)?;
             (receiver, function)
         }
+        // `o[k]()` is a method call, exactly as `o.k()` is. It fell into the
+        // plain-call arm below and was called with `undefined` as its receiver,
+        // so `arr["push"](1)` pushed onto nothing and `(255)["toString"](16)`
+        // read its own `this` as `NaN`.
+        //
+        // Which spelling was written decides how the KEY is resolved and nothing
+        // else — the same rule `computed.rs` states for the read side, arrived at
+        // here from the call side.
+        ExprKind::Index {
+            object,
+            index,
+            optional,
+        } => {
+            if *optional {
+                return Err(EmitError::Unsupported {
+                    construct: "an optional call",
+                });
+            }
+            // The object once, into a value both the read and the call use.
+            // Emitting it twice would evaluate it twice, which is the mistake
+            // this whole `(receiver, function)` pair exists to prevent —
+            // `f()["m"]()` must call `f` once.
+            let receiver = emit_expr(builder, scope, ctx, object)?;
+            let key = emit_expr(builder, scope, ctx, index)?;
+            let function = expr::call(builder, ctx, RuntimeOp::GetIndexed, &[receiver, key])?[0];
+            (receiver, function)
+        }
         // `super.m()` looks up above the home object and calls with **this**
         // activation's receiver. Both halves matter and it used to have
         // neither: falling into the plain-call arm below passed `undefined`, so

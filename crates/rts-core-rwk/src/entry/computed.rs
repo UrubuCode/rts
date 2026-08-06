@@ -43,6 +43,34 @@ fn property_key(context: &mut Context, key: Value) -> Option<Key> {
     Some(Key::Name(context.interner.intern(&text, &mut context.keys)))
 }
 
+/// A read on a receiver that is not a cell: a number, a boolean, a symbol or a
+/// bigint.
+///
+/// # Why this is here and not another copy of the named path's cascade
+///
+/// Because it was going to be one. `objects::get_property` grew this fallback
+/// when `(5).toFixed(2)` had to work, and the computed path did not — so the two
+/// spellings of one read disagreed about whether a primitive has a prototype.
+/// Writing the same cascade a second time here would have fixed that instance
+/// and left the next one to be found the same way.
+///
+/// So the cascade is stated once, and both callers reach it. What is genuinely
+/// different between the two paths is upstream of this: which key was resolved,
+/// and by whom.
+pub(super) fn primitive_found(
+    context: &mut Context,
+    object: Value,
+    key: crate::object::Key,
+) -> super::accessor::Found {
+    if let Some(answer) = super::primitive_proto::own_property(context, object, key) {
+        return super::accessor::Found::Value(answer);
+    }
+    match super::primitive_proto::prototype_of(context, object) {
+        Some(cell) => super::accessor::resolve(context, cell, key),
+        None => super::accessor::Found::Value(undefined_of(context)),
+    }
+}
+
 /// `object[key]`, where the key is a value rather than a resolved name.
 ///
 /// Two statements, like the named read and for the same reason: the answer may
@@ -52,7 +80,19 @@ fn property_key(context: &mut Context, key: Value) -> Option<Key> {
 pub fn get_indexed(object: u64, key: u64) -> u64 {
     let found = with_current(|context| {
         let Some(slot) = Value(object).as_slot() else {
-            return super::accessor::Found::Value(undefined_of(context));
+            // A number, a boolean, a symbol or a bigint — none of which has a
+            // cell to walk from. The same fallback [`super::objects::get_property`]
+            // makes, and it was missing here: `(255).toString(16)` answered
+            // `"ff"` while `(255)["toString"](16)` answered `undefined`.
+            //
+            // Two spellings of one operation cannot differ on what the receiver
+            // IS. This file's own documentation says why the two are split —
+            // how a KEY is resolved — and that argument stops at the key: by
+            // the time either path reaches a receiver, "a key is a key".
+            let Some(key) = property_key(context, Value(key)) else {
+                return super::accessor::Found::Value(undefined_of(context));
+            };
+            return primitive_found(context, Value(object), key);
         };
         // An element, if this is an array and the key is a canonical index.
         // Asked BEFORE `ToPropertyKey`, because that would turn the number into

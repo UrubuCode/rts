@@ -94,4 +94,30 @@ check("typeof-null", typeof null === "object");
 check("typeof-function", typeof function () {} === "function");
 check("typeof-undefined", typeof undefined === "undefined");
 
+// A computed CALL carries the object as its receiver, exactly as a named one
+// does. It did not: `o["m"]()` fell into the plain-call path and ran with
+// `undefined` as `this`.
+check("computed-call-receiver", (function () {
+    let o = {n: 7, read: function () { return this.n; }};
+    return o["read"]() === 7;
+})());
+check("computed-call-through-a-variable", (function () {
+    let o = {n: 7, read: function () { return this.n; }};
+    let k = "read";
+    return o[k]() === 7;
+})());
+check("computed-call-on-an-array", (function () {
+    let a = [1];
+    a["push"](2);
+    return a.length === 2 && a[1] === 2;
+})());
+// The object is evaluated ONCE, which is why the receiver and the read share a
+// value rather than each emitting the object.
+check("computed-call-evaluates-once", (function () {
+    let n = 0;
+    function make() { n = n + 1; return {m: function () { return 1; }}; }
+    make()["m"]();
+    return n === 1;
+})());
+
 return failed;

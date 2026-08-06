@@ -83,14 +83,11 @@ pub fn get_property(object: u64, key: i64) -> u64 {
         let Some(slot) = Value(object).as_slot() else {
             // A number, a boolean, a symbol or a bigint — none of which has a
             // cell to walk from. See [`super::primitive_proto`] for why the
-            // lookup starts on the shared prototype rather than on the value.
-            if let Some(answer) = super::primitive_proto::own_property(context, Value(object), key) {
-                return super::accessor::Found::Value(answer);
-            }
-            return match super::primitive_proto::prototype_of(context, Value(object)) {
-                Some(cell) => super::accessor::resolve(context, cell, key),
-                None => super::accessor::Found::Value(undefined_of(context)),
-            };
+            // lookup starts on the shared prototype rather than on the value,
+            // and [`super::computed::primitive_found`] for why the cascade is
+            // stated there rather than twice: the computed spelling reaches the
+            // same receivers, and for a while it did not.
+            return super::computed::primitive_found(context, Value(object), key);
         };
         if let Some(answer) = super::string::text::string_property(context, slot, key) {
             return super::accessor::Found::Value(answer);

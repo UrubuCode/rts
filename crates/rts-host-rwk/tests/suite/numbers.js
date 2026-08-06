@@ -48,4 +48,15 @@ check("boolean-empty-string", Boolean("") === false);
 check("boolean-to-string", true.toString() === "true");
 check("boolean-value-of", false.valueOf() === false);
 
+// A computed key reaches the same receiver a named one does. It did not:
+// `(255).toString(16)` answered "ff" while `(255)["toString"](16)` answered
+// `undefined`, because only the named path had the primitive fallback.
+check("computed-on-a-number", (255)["toString"](16) === "ff");
+check("computed-on-a-boolean", true["toString"]() === "true");
+check("computed-through-a-variable", (function () {
+    let k = "valueOf";
+    return (5)[k]() === 5;
+})());
+check("computed-absent-is-still-absent", (5)["nope"] === undefined);
+
 return failed;
