@@ -80,8 +80,8 @@
 
 mod array_buffer;
 mod data_view;
-mod element;
-mod typed;
+pub(in crate::entry) mod element;
+pub(in crate::entry) mod typed;
 mod typed_classes;
 
 pub(in crate::entry) use array_buffer::register_array_buffer;

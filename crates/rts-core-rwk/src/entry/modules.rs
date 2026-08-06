@@ -343,3 +343,63 @@ pub fn text_in(context: &Context, value: u64) -> Option<String> {
 pub fn undefined_in(context: &Context) -> u64 {
     undefined_of(context)
 }
+
+/// The bytes a typed array or `DataView` is a window onto.
+///
+/// # Nothing new is invented here
+///
+/// `rts-core-rwk`'s buffer module already holds every piece: a `View` records
+/// which buffer cell, the byte offset and the length, and `window` answers the
+/// slice. This is that, exported — the machine layer answers none of it, because
+/// a buffer's bytes are a runtime table rather than anything the compiler emits.
+///
+/// A COPY, not a borrow: the slice is alive only while the context is, and a
+/// host holding one across a call into user code would hold a reference into a
+/// table that call may reallocate. The copy is what makes the boundary safe, and
+/// it is why a host reading a large buffer pays for it — named rather than
+/// hidden.
+pub fn bytes_of(context: &Context, value: u64) -> Option<Vec<u8>> {
+    let view = super::buffers::view_of(context, value)?;
+    Some(super::buffers::window(context, &view)?.to_vec())
+}
+
+/// Writes bytes into a typed array's window, and answers how many landed.
+///
+/// Short of the window is a partial write rather than a refusal, which is what
+/// `fs.readSync` needs: it answers how many bytes it read, and a buffer larger
+/// than the file is the ordinary case rather than an error.
+pub fn write_bytes(context: &mut Context, value: u64, at: usize, source: &[u8]) -> usize {
+    let Some(view) = super::buffers::view_of(context, value) else {
+        return 0;
+    };
+    let Some(window) = super::buffers::window_mut(context, &view) else {
+        return 0;
+    };
+    if at >= window.len() {
+        return 0;
+    }
+    let count = source.len().min(window.len() - at);
+    window[at..at + count].copy_from_slice(&source[..count]);
+    count
+}
+
+/// A `Uint8Array` over a copy of these bytes.
+///
+/// The one shape a host needs to ANSWER bytes with, and it is a `Uint8Array`
+/// rather than a `Buffer` because this engine has no `Buffer` — which is the
+/// divergence `node:fs` already states rather than a decision taken here.
+pub fn make_bytes(context: &mut Context, source: &[u8]) -> u64 {
+    let Some(buffer) = super::buffers::new_buffer(context, source.len()) else {
+        return undefined_of(context);
+    };
+    let view = super::buffers::View {
+        buffer,
+        offset: 0,
+        length: source.len(),
+        kind: super::buffers::element::Kind::Uint8,
+    };
+    if let Some(window) = super::buffers::window_mut(context, &view) {
+        window.copy_from_slice(source);
+    }
+    super::buffers::typed::made(context, view)
+}

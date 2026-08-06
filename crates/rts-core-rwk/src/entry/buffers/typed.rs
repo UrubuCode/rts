@@ -353,7 +353,7 @@ fn word_of(context: &Context, value: u64, kind: Kind) -> u64 {
 }
 
 /// A new instance of the view's own class, over these bytes.
-fn made(context: &mut Context, view: View) -> u64 {
+pub(in crate::entry) fn made(context: &mut Context, view: View) -> u64 {
     let Some(cell) = crate::entry::native::plain(context) else {
         return undefined_of(context);
     };
