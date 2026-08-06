@@ -38,7 +38,7 @@ JS spec compatibility validated against **Bun** and **Node** over 708 standalone
 | 🚫 Rejected (RTS-only) | 0 |
 | 📦 Total fixtures | 708 |
 
-_Updated: 2026-08-05 — [how to add a fixture](the spec removed 2026-08-03 (see git history))_
+_Updated: 2026-08-06 — [how to add a fixture](the spec removed 2026-08-03 (see git history))_
 
 <!-- CROSS_RUNTIME_STATS_END -->
 
@@ -73,18 +73,18 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `e9ad013`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `d858785`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
-| Hello/startup | 71 ms | 56 ms | 53 ms | 148 ms | **49 ms** | **1.45×** | **1.14×** |
-| Monte Carlo π 10M (same xorshift algorithm) | 4.88 s | 7.50 s | 3.65 s | 194 ms | **116 ms** | **42.01×** | **64.60×** |
-| Monte Carlo π 10M (JS `Math.random`) | 120 ms | 267 ms | 217 ms | 196 ms | **113 ms** | **1.06×** | **2.36×** |
-| π decimal ~30 digits (i128 vs BigInt) | 51 ms | 57 ms | 42 ms | 108 ms | **19 ms** | **2.67×** | **2.96×** |
-| Monte Carlo 10M threaded (vs Bun Workers) | 178 ms | — | — | 144 ms | **54 ms** | **3.27×** | — |
-| π Machin f64 (RTS only) | — | — | — | 109 ms | **19 ms** | — | — |
+| Hello/startup | 63 ms | 58 ms | 57 ms | 141 ms | **46 ms** | **1.37×** | **1.26×** |
+| Monte Carlo π 10M (same xorshift algorithm) | 4.93 s | 9.60 s | 3.66 s | 204 ms | **123 ms** | **40.04×** | **77.97×** |
+| Monte Carlo π 10M (JS `Math.random`) | 125 ms | 269 ms | 219 ms | 205 ms | **123 ms** | **1.02×** | **2.19×** |
+| π decimal ~30 digits (i128 vs BigInt) | 51 ms | 56 ms | 42 ms | 106 ms | **19 ms** | **2.69×** | **2.92×** |
+| Monte Carlo 10M threaded (vs Bun Workers) | 176 ms | — | — | 137 ms | **51 ms** | **3.44×** | — |
+| π Machin f64 (RTS only) | — | — | — | 104 ms | **19 ms** | — | — |
 
-_Updated: 2026-08-05 — run locally with `powershell -File bench/benchmark.ps1`_
+_Updated: 2026-08-06 — run locally with `powershell -File bench/benchmark.ps1`_
 
 <!-- BENCH_STATS_END -->
 
