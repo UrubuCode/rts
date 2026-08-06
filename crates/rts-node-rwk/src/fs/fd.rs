@@ -35,6 +35,14 @@ fn with_table<T>(body: impl FnOnce(&mut HashMap<i64, std::fs::File>) -> T) -> T 
     body(table)
 }
 
+/// Runs `body` with the open file `fd` names, `None` when there is none —
+/// the accessor `bytes.rs`'s byte-level members (`readSync`/`writeSync`/
+/// `readvSync`/`writevSync`) reach [`TABLE`] through, so there is one table
+/// of open files rather than a second one keyed the same way.
+pub(super) fn with_file<T>(fd: i64, body: impl FnOnce(&mut std::fs::File) -> T) -> Option<T> {
+    with_table(|table| table.get_mut(&fd).map(body))
+}
+
 /// `fs.openSync(path, flags?, mode?)` — a subset of Node's flag strings:
 /// `'r'`, `'r+'`, `'w'`, `'wx'`, `'w+'`, `'a'`, `'a+'`. `mode` (the
 /// create-permission bits) is not applied — POSIX permission bits on create

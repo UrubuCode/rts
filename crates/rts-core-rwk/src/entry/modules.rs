@@ -403,3 +403,48 @@ pub fn make_bytes(context: &mut Context, source: &[u8]) -> u64 {
     }
     super::buffers::typed::made(context, view)
 }
+
+/// A prototype a host's instances inherit from, made once and named.
+///
+/// # What this is, and what `#[rtse::class]` is
+///
+/// The attribute builds a class from an `impl` block at COMPILE time, which is
+/// how everything in this crate is written. A host outside it has an `impl`
+/// block the attribute cannot see, so it needs the same thing at run time: an
+/// object holding the methods, remembered under a name so a second call answers
+/// the same one.
+///
+/// That "same one" is the whole reason this is not just [`make_namespace`].
+/// `node:fs`'s `Dirent` and `EventEmitter` both hand back many instances, and
+/// `a instanceof b`, `Object.getPrototypeOf(x) === Object.getPrototypeOf(y)` and
+/// a method added by a program to the prototype all depend on there being ONE.
+///
+/// Registered through the same table `#[rtse::class]` uses, so a name taken by a
+/// built-in is answered rather than shadowed — and recorded BEFORE the members
+/// are installed, because installing interns names and interning allocates,
+/// which is the recursion `string::prototype_of` paid for once.
+pub fn make_prototype(context: &mut Context, name: &'static str, members: &[(&str, Provided)]) -> u64 {
+    if let Some(made) = super::class_support::prototype(context, name) {
+        return made;
+    }
+    let Some(cell) = super::native::plain(context) else {
+        return undefined_of(context);
+    };
+    let object = Value::from_slot(cell).bits();
+    super::class_support::record(context, name, object, object);
+    super::native::install(context, cell, members);
+    object
+}
+
+/// An object inheriting from a prototype.
+///
+/// The instance half of [`make_prototype`]: an ordinary object with the link
+/// set, which is what makes a method found by the ordinary chain walk rather
+/// than by anything knowing what a `Dirent` is.
+pub fn make_instance(context: &mut Context, prototype: u64) -> u64 {
+    let instance = make_object(context);
+    if let Some(cell) = Value(instance).as_slot() {
+        context.set_prototype(cell, prototype);
+    }
+    instance
+}
