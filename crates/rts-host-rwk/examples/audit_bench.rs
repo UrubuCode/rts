@@ -37,6 +37,7 @@ fn main() {
 
     compile_side();
     run_side();
+    threads();
 }
 
 /// The compiler's own throughput, on programs shaped to reach each finding.
@@ -197,6 +198,75 @@ fn run_side() {
          for (let i = 0; i < 50000; i = i + 1) { t = \"ab\"; } return t;",
     );
 
+    println!();
+}
+
+/// Whether threads actually run at the same time.
+///
+/// The multi-region heap exists so that N threads can allocate without touching
+/// each other. That is a correctness property and `tests/threads.rs` pins it.
+/// This asks the performance question the property was for: does running the
+/// same program on four threads take about as long as running it on one, or four
+/// times as long?
+///
+/// Four times as long would mean they are serialised somewhere — a shared lock,
+/// a contended allocator — and the regions bought nothing. The number is the
+/// answer.
+fn threads() {
+    println!("== running on threads (each with a heap of its own) ==");
+
+    // Enough allocation to be worth measuring, and enough arithmetic that the
+    // answer depends on every object written.
+    //
+    // **The count is bounded by the region, not chosen for the clock.** A region
+    // holds 65536 cells and nothing reclaims them, so a loop past that gets
+    // `undefined` from a full heap, adds it, and answers `NaN` — while still
+    // taking time and still looking like a measurement. The first version of
+    // this fixture ran 40 000 iterations and reported a beautiful number for a
+    // program that had run out of memory: the answer was the canonical `NaN`
+    // and the timing was of the failure path.
+    //
+    // So the loop is sized to fit and the answer is checked below. This is the
+    // file's own rule — a measurement of nothing measures nothing — catching
+    // the file's own author.
+    const ROUNDS: u32 = 20_000;
+    let source = format!(
+        "let t = 0; \
+         for (let i = 0; i < {ROUNDS}; i = i + 1) {{ let o = {{a: i, b: i + 1}}; t = t + o.a + o.b; }} \
+         return t;"
+    );
+    let expected: f64 = (0..ROUNDS).map(|i| f64::from(i) + f64::from(i + 1)).sum();
+
+    for threads in [1usize, 2, 4] {
+        let mut program = match rts_host_rwk::compile_for(&source, 4) {
+            Ok(program) => program,
+            Err(error) => {
+                println!("  DID NOT COMPILE — {error:?}");
+                return;
+            }
+        };
+        // One warm run, so a page fault on first touch is not in the number.
+        program.run_on(threads);
+
+        let start = Instant::now();
+        let answers = program.run_on(threads);
+        let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+        let each = elapsed / threads as f64;
+        // Every thread must have computed the sum. A thread whose region filled
+        // up answers `NaN` in just as much time and looks exactly like a fast
+        // one, which is what this catches — and did.
+        let wrong = answers
+            .iter()
+            .filter(|answer| rts_cranelift::tags::decode_double(**answer) != expected)
+            .count();
+        let verdict = match wrong {
+            0 => String::new(),
+            n => format!("   *** {n}/{} WRONG — not a measurement ***", answers.len()),
+        };
+        println!(
+            "  {threads} thread(s): {elapsed:>7.2} ms wall   {each:>7.2} ms per thread{verdict}"
+        );
+    }
     println!();
 }
 

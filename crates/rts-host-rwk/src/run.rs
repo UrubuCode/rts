@@ -47,15 +47,22 @@ pub struct Compiled {
     entry: Entry,
     /// What the compiler decided the singletons are numbered.
     model: ValueModel,
-    /// The heap the compiled code was built to address.
+    /// The heaps the code was built to address, one per thread it can run on.
     ///
-    /// Held here because its base is a constant inside that code: the program
-    /// and the region are one thing, and a run that supplied a different region
-    /// would have every address point at memory nothing allocates in.
+    /// Held here because their bases are constants inside that code: a run
+    /// supplying a different region would have every address point at memory
+    /// nothing allocates in. One entry for a single-region program. Each is an
+    /// `Option` only so a run can move it into a context and take it back.
+    regions: Vec<Option<rts_core_rwk::heap::Region>>,
+    /// Where those bases are listed, for a program compiled for several.
     ///
-    /// An `Option` only so a run can move it into the context and take it back —
-    /// it is never absent between runs.
-    region: Option<rts_core_rwk::heap::Region>,
+    /// `None` for one region, and the absence is the point: one region keeps its
+    /// base as an immediate, so a single-threaded program never pays the two
+    /// extra instructions per access `RegionBases::address_instructions` reports
+    /// for the sharded form. Held and never read, like `placed`: the field IS
+    /// the lifetime.
+    #[allow(dead_code)]
+    table: Option<rts_core_rwk::heap::BaseTable>,
     /// How many cached read sites missed during the last run.
     ///
     /// Zero after a run whose sites all recognised what they saw. Equal to the
@@ -89,64 +96,99 @@ impl std::fmt::Debug for Compiled {
 impl Compiled {
     /// Runs it, and hands back the encoded value it produced.
     ///
-    /// # Why a context is installed here
-    ///
     /// Every runtime entry point reaches for the thread's context — the heap,
     /// the shapes, the key registry — and a compiled program calls them without
-    /// knowing that. So the host installs one around the call and takes it back
-    /// afterwards, which is also what makes two runs independent.
+    /// knowing that. So [`run_region`] installs one around the call and takes it
+    /// back afterwards, which is what makes two runs independent.
     pub fn run(&mut self) -> u64 {
-        let singletons = crate::link::singletons_for(&self.model);
-        // The region the program was compiled against, moved in for the run and
-        // taken back after. Not copied: there is one heap, and its address is in
-        // the code.
-        let region = self
-            .region
+        // Region zero, moved in for the run and taken back after. Not copied:
+        // there is one heap and its address is in the code.
+        let region = self.regions[0]
             .take()
             .expect("the region is only absent while a run is in progress");
+        let outcome = run_region(
+            self.entry,
+            self.model
+                .singleton(rts_codegen::values::Singleton::Undefined)
+                .word(),
+            crate::link::singletons_for(&self.model),
+            crate::link::kinds_for(&self.model),
+            &self.keys,
+            &self.literals,
+            region,
+        );
+        self.regions[0] = Some(outcome.region);
+        self.resolves = outcome.resolves;
+        self.described = outcome.described;
+        outcome.value
+    }
+
+    /// Runs the same program on `threads` threads, one region each.
+    ///
+    /// The `Context` is built **inside** each thread and never crosses one, so
+    /// nothing about it has to be shareable — which is why this needs no `Send`
+    /// bound and no lock. What crosses is a `Region`, two `Copy` numberings, two
+    /// borrowed seed tables and the entry's address.
+    ///
+    /// A heap per thread and nothing more; see this crate's module
+    /// documentation for what is absent, and do not read it as making a shared
+    /// value safe.
+    ///
+    /// `resolves` and `described` are deliberately not updated: there are now N
+    /// of each and one field, and picking one thread's would be a number that
+    /// looks like the program's.
+    ///
+    /// # Panics
+    ///
+    /// When `threads` exceeds the count [`compile_for`] was given — that count
+    /// is in every address computation, so a run cannot revisit it.
+    pub fn run_on(&mut self, threads: usize) -> Vec<u64> {
+        assert!(
+            threads <= self.regions.len(),
+            "compiled for {} regions, asked for {threads} threads: the selector \
+             width is in the code and cannot be widened after placement",
+            self.regions.len()
+        );
+        let taken: Vec<rts_core_rwk::heap::Region> = (0..threads)
+            .map(|index| self.regions[index].take().expect("no run is in progress"))
+            .collect();
+        let singletons = crate::link::singletons_for(&self.model);
         let kinds = crate::link::kinds_for(&self.model);
-        let mut context = rts_core_rwk::entry::Context::over(singletons, kinds, region);
-        // The second agreement, alongside the singleton numbering. A property
-        // name is resolved while compiling and crosses as a number, so the
-        // runtime's registry must have issued that number — otherwise it
-        // refuses it and every property reads as absent.
-        //
-        // Seeded rather than shared, because the two registries live in
-        // different phases: the compiler's is finished before the runtime's
-        // exists. Issuing the same count is what makes them the same registry
-        // for every purpose that matters.
-        rts_core_rwk::entry::declare_keys(&mut context, &self.keys);
-        // The third agreement, and the one whose absence is quietest: the code
-        // names a literal by its position, so a table seeded from anything but
-        // what this compilation collected makes every string the wrong one —
-        // or, past the end, absent. Seeded per run because the values are
-        // interned into this run's heap.
-        rts_core_rwk::entry::declare_literals(&mut context, &self.literals);
-        let entry = self.entry;
-        // A script closes over nothing, has no receiver, and was passed no
-        // arguments. `undefined` for all six, from the compiler.s own numbering
-        // rather than from a constant written here.
         let nothing = self
             .model
             .singleton(rts_codegen::values::Singleton::Undefined)
             .word();
-        let (context, (value, text)) = rts_core_rwk::entry::with_context(context, || {
-            let value = entry(nothing, nothing, nothing, nothing, nothing, nothing);
-            // The turn ends here, not inside the program: a reaction must not
-            // run in the entry point that queued it, and a rejection is only
-            // unhandled once nothing more can attach to it.
-            rts_core_rwk::entry::drain_microtasks();
-            // Read while the context is still installed. A string is a cell in
-            // the region with its bytes beside it in the slab, so once this
-            // function has taken the region back there is nothing left to read
-            // it from — and a caller holding only a word cannot ask later.
-            let text = rts_core_rwk::entry::described(value);
-            (value, text)
+        let entry = self.entry;
+        // Borrowed rather than cloned per thread, which is what scoped threads
+        // are used here for: the alternative is N copies of every literal.
+        let keys = &self.keys;
+        let literals = &self.literals;
+
+        let finished: Vec<(u64, rts_core_rwk::heap::Region)> = std::thread::scope(|scope| {
+            let handles: Vec<_> = taken
+                .into_iter()
+                .map(|region| {
+                    scope.spawn(move || {
+                        let outcome =
+                            run_region(entry, nothing, singletons, kinds, keys, literals, region);
+                        (outcome.value, outcome.region)
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().expect("a thread running compiled code"))
+                .collect()
         });
-        self.region = Some(context.region);
-        self.resolves = context.resolves;
-        self.described = text;
-        value
+
+        finished
+            .into_iter()
+            .enumerate()
+            .map(|(index, (value, region))| {
+                self.regions[index] = Some(region);
+                value
+            })
+            .collect()
     }
 
     /// The text the last run produced, when its answer had any.
@@ -166,6 +208,63 @@ impl Compiled {
     /// How many cached reads missed during the last run.
     pub fn resolves(&self) -> u64 {
         self.resolves
+    }
+}
+
+/// What one run left behind. The region comes back because it went in: a
+/// `Context` owns it for the run, and the program outlives that context.
+struct Outcome {
+    value: u64,
+    region: rts_core_rwk::heap::Region,
+    resolves: u64,
+    described: Option<String>,
+}
+
+/// Installs a context over one region and calls the entry.
+///
+/// A free function rather than a method, because [`Compiled::run_on`] calls it
+/// from a thread that must not be able to name `self`: that nothing but scalars,
+/// a region and two borrowed tables crosses is the whole property.
+fn run_region(
+    entry: Entry,
+    nothing: u64,
+    singletons: rts_core_rwk::value::Singletons,
+    kinds: rts_core_rwk::Kinds,
+    keys: &[String],
+    literals: &[String],
+    region: rts_core_rwk::heap::Region,
+) -> Outcome {
+    let mut context = rts_core_rwk::entry::Context::over(singletons, kinds, region);
+    // The second agreement, alongside the singleton numbering: a property name
+    // is resolved while compiling and crosses as a number, so this registry must
+    // have issued that number or every property reads as absent. Seeded rather
+    // than shared, because the compiler's is finished before this one exists.
+    rts_core_rwk::entry::declare_keys(&mut context, keys);
+    // The third, and the quietest if wrong: the code names a literal by its
+    // position, so a table seeded from anything else makes every string the
+    // wrong one. Seeded here rather than once — the values intern into THIS
+    // region, and another region decodes them as absent.
+    rts_core_rwk::entry::declare_literals(&mut context, literals);
+    let (context, (value, described)) = rts_core_rwk::entry::with_context(context, || {
+        // A script closes over nothing, has no receiver and was passed no
+        // arguments: `undefined` for all six, from the compiler's own numbering
+        // rather than a constant written here.
+        let value = entry(nothing, nothing, nothing, nothing, nothing, nothing);
+        // The turn ends here, not inside the program: a reaction must not run in
+        // the entry point that queued it, and a rejection is only unhandled once
+        // nothing more can attach to it.
+        rts_core_rwk::entry::drain_microtasks();
+        // Read while the context is still installed. A string's bytes are in the
+        // slab beside its cell, so once the caller has the region back there is
+        // nothing left to read it from.
+        let described = rts_core_rwk::entry::described(value);
+        (value, described)
+    });
+    Outcome {
+        value,
+        resolves: context.resolves,
+        region: context.region,
+        described,
     }
 }
 
@@ -190,6 +289,22 @@ impl Compiled {
 /// value is implemented, this gains a second entry point rather than changing
 /// what this one means.
 pub fn compile(source: &str) -> Result<Compiled, HostError> {
+    compile_for(source, 1)
+}
+
+/// The same, for a program that will run on up to `regions` threads at once.
+///
+/// The count is a parameter of COMPILATION because `regions` decides the
+/// selector width, that decides what the low bits of every reference mean, and
+/// every address computation in the emitted program masks and shifts by it. A
+/// program placed for four regions cannot run on five, and running it on one
+/// still costs the table load — so `compile` stays at one and this is the
+/// opt-in, which is what keeps the single-threaded path on `Addressing::Single`.
+///
+/// # Panics
+///
+/// When `regions` is not a power of two. A selector is a mask.
+pub fn compile_for(source: &str, regions: u32) -> Result<Compiled, HostError> {
     let mut names = Names::default();
     let wrapped = format!("function {SCRIPT}() {{ {source} }}");
     let program = parse_script(&wrapped, &mut names)
@@ -328,18 +443,38 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
     // own entry points — functions in this binary, alive for the whole process,
     // whose signatures the runtime derives from the same Rust definitions the
     // compiler was told about.
-    // The heap compiled code will address. Its base is this region's, so the
-    // region has to outlive the program — which is why the compiled program
-    // owns it rather than the runtime context creating its own.
+    // The heaps compiled code will address, made here rather than by a runtime
+    // context, because a base — or the table of them — is a NUMBER baked into
+    // the code. The context that runs the program must be the one holding these
+    // regions, or every address it computes points at nothing.
     //
-    // A second consequence, and the reason this is wired here rather than in the
-    // runtime: the base is a NUMBER baked into the compiled code. The context
-    // that runs the program must be the one holding this region, or every
-    // address the program computes points into a region that no longer exists.
-    let region = rts_core_rwk::heap::Region::with_capacity(1 << 16);
-    let bases = RegionBases::single(RegionBase::Immediate(region.base()), region.stride());
-    let stride = region.stride();
-    let _ = stride;
+    // One region takes the SINGLE form deliberately, and that must not quietly
+    // change: the sharded form costs a mask, a load and an add on every access,
+    // and a program that never asked for a second thread must not pay them.
+    const CELLS: u32 = 1 << 16;
+    let (table, mut owned) = if regions <= 1 {
+        (None, vec![rts_core_rwk::heap::Region::with_capacity(CELLS)])
+    } else {
+        // A precondition rather than a `HostError`: every variant of that enum
+        // is about the SOURCE, and a region count is the embedder's own
+        // argument. Reporting it as though the program were at fault would put
+        // it where nobody looks.
+        let several = rts_core_rwk::heap::Regions::new(regions, CELLS)
+            .expect("the region count must be a power of two: a selector is a mask");
+        let (table, list) = several.into_parts();
+        (Some(table), list)
+    };
+    let bases = match &table {
+        None => {
+            let region = &owned[0];
+            RegionBases::single(RegionBase::Immediate(region.base()), region.stride())
+        }
+        Some(table) => {
+            let at = RegionBase::Immediate(table.address());
+            RegionBases::sharded(at, regions, rts_core_rwk::heap::STRIDE)
+                .expect("the machine refuses a count `Regions::new` just accepted")
+        }
+    };
 
     let placed = unsafe { place_in_memory(&placing, &outside, &funcs, &types, Some(bases))? };
 
@@ -355,7 +490,8 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
         placed,
         entry,
         model,
-        region: Some(region),
+        regions: owned.drain(..).map(Some).collect(),
+        table,
         resolves: 0,
         described: None,
         literals: emitted.literals,

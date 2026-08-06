@@ -396,6 +396,12 @@ impl Context {
     /// number baked into compiled code**. A context that made its own region
     /// would be a second heap, and every address a compiled program computed
     /// would point into the first one — which nothing would be allocating in.
+    ///
+    /// This is also how a thread gets a heap of its own: one region out of a
+    /// [`crate::heap::Regions`], installed on that thread. The context never
+    /// crosses a thread boundary — it is built where it is used — so the region
+    /// is the only thing that moves, and the references it hands out carry its
+    /// number, which is what stops two threads naming the same cell.
     pub fn over(
         singletons: Singletons,
         kinds: crate::value::Kinds,

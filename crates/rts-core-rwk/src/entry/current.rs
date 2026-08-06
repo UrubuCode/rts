@@ -15,6 +15,24 @@
 //!
 //! A global behind a lock would serialise every property read in the program,
 //! which is the opposite of what a per-region heap is for.
+//!
+//! # What else a second thread would have to be given, and the answer
+//!
+//! Nothing. That was checked rather than assumed, because "the context is
+//! thread-local" only makes a thread independent if the context is the *only*
+//! mutable state a running program reaches. It is: this crate declares no
+//! process-global mutable state at all, and the three entry points the machine
+//! dials without being asked — `alloc`, `cache_resolve`, `write_barrier` —
+//! reach the heap through [`with_current`] like everything else.
+//!
+//! `rts-cranelift` has two `OnceLock`s, and both are in `target`: a thread pool
+//! and its size, used while **placing** code. Neither is reachable from a
+//! running program.
+//!
+//! So a thread that installs a context over its own region shares nothing that
+//! can change. What it must still be given, per thread and not once, is the two
+//! seeded tables — the key registry and the literal table — because their
+//! contents are cells in *that* thread's region.
 
 use std::cell::RefCell;
 

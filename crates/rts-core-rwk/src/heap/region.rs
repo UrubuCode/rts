@@ -38,6 +38,56 @@
 //! visible if something reports it, and nothing did.
 //!
 //! An **allocation** that does not fit is still refused rather than truncated.
+//!
+//! # Several regions, and what a reference becomes
+//!
+//! One base address cannot serve two threads, because the base is an
+//! **immediate** in the compiled code — there is one number, in the
+//! instructions, and a second thread allocating against it would be allocating
+//! in the first thread's memory. `rts_cranelift::mem::Addressing::Sharded` is
+//! the machine's answer and it was written before anything used it: the
+//! reference carries which region it belongs to, and the base is *loaded* from a
+//! table the host writes once.
+//!
+//! So a reference is composed:
+//!
+//! ```text
+//! reference = (cell << selector_bits) | region_index
+//! ```
+//!
+//! and this module composes and decomposes it. That placement is the whole
+//! design. [`Region`] has exactly five accessors that take a cell — [`alloc`],
+//! [`field`], [`set_field`], [`set_type`], [`type_of`] — and every caller in the
+//! crate reaches them through `context.region`. Teaching those five the encoding
+//! means no call site learns it, and `Value::from_slot`/`as_slot` keep carrying
+//! whatever number the region hands out without knowing it has parts.
+//!
+//! The rejected alternative was decomposing at each call site, or handing the
+//! runtime a `(region, cell)` pair. Both put the encoding in a dozen places, and
+//! the encoding is exactly the thing the compiler and the runtime have to agree
+//! about bit for bit.
+//!
+//! [`alloc`]: Region::alloc
+//! [`field`]: Region::field
+//! [`set_field`]: Region::set_field
+//! [`set_type`]: Region::set_type
+//! [`type_of`]: Region::type_of
+//!
+//! # What a region per thread does NOT give you
+//!
+//! It gives each thread a heap of its own. It does **not** make a value shared
+//! between threads safe, and nothing here pretends otherwise:
+//!
+//! - There is no `Local` versus `Shared` distinction on a region, so nothing can
+//!   even state that an object escaped its thread.
+//! - The write barrier's runtime half is still absent — [`crate::entry`] counts
+//!   barriers and acts on none of them.
+//! - There is no collector, so there is nothing that would have to be told.
+//!
+//! Publishing a value to another thread is therefore **not expressible**: a
+//! reference composed for region 3 decodes to nothing in region 5, so the read
+//! answers absent rather than reading the wrong memory — which is a refusal, not
+//! protection. A program that arranges to share anyway is protected by nothing.
 
 use rts_cranelift::mem::{HeaderLayout, SLOT_BYTES};
 
@@ -73,6 +123,14 @@ pub struct Region {
     words: Vec<u64>,
     next: u32,
     capacity: u32,
+    /// Which region this is, and what goes in the low bits of its references.
+    index: u32,
+    /// How many low bits that takes.
+    ///
+    /// Zero for a lone region, which makes composition the identity — that is
+    /// what keeps every reference in a single-region program bit-for-bit what it
+    /// was before this encoding existed.
+    selector_bits: u32,
 }
 
 impl Region {
@@ -83,13 +141,69 @@ impl Region {
     /// holds was turned into an address against the old one. Growing a region is
     /// the collector's business — it is what "compacting by requirement rather
     /// than by preference" means — and there is no collector yet.
+    ///
+    /// The lone region of a single-region heap: index 0, selector width 0. Its
+    /// references are cell numbers, unshifted, which is why every existing
+    /// caller and every existing test is unaffected by the composition above.
     pub fn with_capacity(cells: u32) -> Self {
+        Region::sharded(cells, 0, 0)
+    }
+
+    /// One region of several, numbered `index` out of `1 << selector_bits`.
+    ///
+    /// Separate from [`Self::with_capacity`] rather than a defaulted parameter,
+    /// because the single-region case is the one that must stay free: a caller
+    /// that never asks for shards must not be able to accidentally pay for them.
+    pub fn sharded(cells: u32, index: u32, selector_bits: u32) -> Self {
         let words = (cells as usize) * (STRIDE as usize / SLOT_BYTES as usize);
         Region {
             words: vec![0; words],
             next: 0,
             capacity: cells,
+            index,
+            selector_bits,
         }
+    }
+
+    /// Which region this is.
+    pub fn index(&self) -> u32 {
+        self.index
+    }
+
+    /// How many low bits of a reference name the region.
+    pub fn selector_bits(&self) -> u32 {
+        self.selector_bits
+    }
+
+    /// The reference naming a cell of this region.
+    ///
+    /// `None` when the shift would push the cell number out of a reference.
+    /// Refused rather than wrapped, for the reason an oversized allocation is:
+    /// a wrapped reference names a real cell, so it is a wrong answer that looks
+    /// like a right one.
+    fn compose(&self, cell: u32) -> Option<u32> {
+        if self.selector_bits >= u32::BITS || cell > (u32::MAX >> self.selector_bits) {
+            return None;
+        }
+        Some((cell << self.selector_bits) | self.index)
+    }
+
+    /// The low bits a reference spends naming its region.
+    fn selector_mask(&self) -> u32 {
+        ((1u64 << self.selector_bits) - 1) as u32
+    }
+
+    /// The cell a reference names, when it is one of this region's.
+    ///
+    /// `None` for a reference belonging to another region. That is what stops a
+    /// value that reached the wrong thread from reading this thread's memory at
+    /// the wrong offset: it decodes to nothing and every accessor answers absent.
+    /// It is a refusal, not safety — see this module's opening note.
+    fn decompose(&self, reference: u32) -> Option<u32> {
+        if reference & self.selector_mask() != self.index {
+            return None;
+        }
+        Some(reference >> self.selector_bits)
     }
 
     /// Where the region starts.
@@ -113,15 +227,19 @@ impl Region {
 
     /// Takes a cell for an object of `size` bytes and type `ty`.
     ///
-    /// Returns the **index**, which is what a reference carries. `None` when the
-    /// region is full or the object does not fit a cell — refused rather than
-    /// truncated, because an object missing its last field is a wrong answer
-    /// that looks like a right one.
+    /// Returns the **composed reference**, which is what a value carries: the
+    /// cell number shifted past the region selector, with this region's number
+    /// in the low bits. For a lone region that is the cell number itself.
+    ///
+    /// `None` when the region is full or the object does not fit a cell —
+    /// refused rather than truncated, because an object missing its last field
+    /// is a wrong answer that looks like a right one.
     pub fn alloc(&mut self, size: u32, ty: u32) -> Option<u32> {
         if size > STRIDE || self.next >= self.capacity {
             return None;
         }
         let index = self.next;
+        let reference = self.compose(index)?;
         self.next += 1;
 
         // The header is one word and it is the type. The collector reads it
@@ -133,7 +251,7 @@ impl Region {
         // The fields are zeroed by construction and stay that way: a cell handed
         // out twice would otherwise carry the previous object's values, and
         // there is no collector yet to have made that impossible.
-        Some(index)
+        Some(reference)
     }
 
     /// Reads a field of a cell, for a runtime that needs to look at one.
@@ -141,17 +259,19 @@ impl Region {
     /// Compiled code does not use this — it computes the address and loads. This
     /// is for the runtime's own reads, and it exists so nothing else has to
     /// know how a cell is laid out.
-    pub fn field(&self, index: u32, slot: u32) -> Option<u64> {
+    pub fn field(&self, reference: u32, slot: u32) -> Option<u64> {
         if slot >= INLINE_SLOTS {
             return None;
         }
+        let index = self.decompose(reference)?;
         self.words
             .get(self.word_of(index) + 1 + slot as usize)
             .copied()
     }
 
     /// Writes a field of a cell.
-    pub fn set_field(&mut self, index: u32, slot: u32, value: u64) -> Option<()> {
+    pub fn set_field(&mut self, reference: u32, slot: u32, value: u64) -> Option<()> {
+        let index = self.decompose(reference)?;
         if slot >= INLINE_SLOTS || index >= self.next {
             return None;
         }
@@ -166,7 +286,8 @@ impl Region {
     /// header is where that is written. Nothing else in the cell moves — a
     /// transition only ever appends, so the fields already there keep their
     /// offsets.
-    pub fn set_type(&mut self, index: u32, ty: u32) -> Option<()> {
+    pub fn set_type(&mut self, reference: u32, ty: u32) -> Option<()> {
+        let index = self.decompose(reference)?;
         if index >= self.next {
             return None;
         }
@@ -176,7 +297,8 @@ impl Region {
     }
 
     /// The type a cell's header holds.
-    pub fn type_of(&self, index: u32) -> Option<u32> {
+    pub fn type_of(&self, reference: u32) -> Option<u32> {
+        let index = self.decompose(reference)?;
         self.words.get(self.word_of(index)).map(|word| *word as u32)
     }
 
@@ -254,5 +376,16 @@ mod tests {
         let mut region = Region::with_capacity(2);
         let cell = region.alloc(64, 1).expect("fits");
         assert_eq!(region.set_field(cell, INLINE_SLOTS, 1), None);
+    }
+
+    #[test]
+    fn a_lone_region_hands_out_the_cell_number_itself() {
+        // The property that keeps single-region programs unchanged: with no
+        // selector there is nothing to shift, so a reference is what it always
+        // was and no existing compiled code sees a different number.
+        let mut region = Region::with_capacity(4);
+        assert_eq!(region.selector_bits(), 0);
+        assert_eq!(region.alloc(16, 1), Some(0));
+        assert_eq!(region.alloc(16, 1), Some(1));
     }
 }
