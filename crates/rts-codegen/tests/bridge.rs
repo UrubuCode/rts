@@ -763,8 +763,12 @@ fn a_private_member_is_not_the_property_of_the_same_letters() {
     // SWC hands `#x` over as `x`, so interning it plainly made `this.#x` and
     // `this.x` the *same* `Member` node — one tree for two things that are not
     // alike at all: a property anyone can read, and a name reachable only from
-    // inside the class body. Keeping the `#` separates them everywhere at once,
-    // and a real property named `#x` cannot be reached by `.` anyway.
+    // inside the class body.
+    //
+    // The separator is `@@#`, not `#`: `@@` is the space the runtime already
+    // excludes from every enumeration, and `#` alone is a prefix a program can
+    // write — `o["#main"]` is an ordinary property that would have vanished from
+    // `Object.keys`.
     let (kind, names) = only_expr("(class { #x; m() { return this.#x; } });");
     let ExprKind::Class(class) = kind else {
         panic!("expected a class");
@@ -775,5 +779,5 @@ fn a_private_member_is_not_the_property_of_the_same_letters() {
     let ClassKey::Private(declared) = &field.key else {
         panic!("expected a private key");
     };
-    assert_eq!(names.text(*declared), "#x");
+    assert_eq!(names.text(*declared), "@@#x");
 }

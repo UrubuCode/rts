@@ -2699,14 +2699,24 @@ fn a_class_can_extend_something_the_runtime_supplied() {
 
 #[test]
 fn what_a_class_still_cannot_express_is_refused_by_name() {
-    // Each needs a mechanism rather than more of this lowering: a private name
-    // is not a property key at all, and a static block is statements with the
-    // class as `this`. An accessor was on this list and moved off it when the
-    // pair-beside-the-cell mechanism landed.
+    // A private field, a private method, a computed member name and a static
+    // block moved OFF this list: `crates/rts-codegen/src/emit/class.rs` lowers
+    // all four now, reusing the reserved-name space `rts-core-rwk`'s `Symbol`
+    // key already uses for a private member's key, the ordinary computed-key
+    // machinery for a member name, and an inline run of statements for a
+    // static block. What is left needs a mechanism this lowering genuinely does
+    // not have:
+    //
+    // - a computed ACCESSOR name, because `DefineGetter`/`DefineSetter` take
+    //   the key the compiler resolved as a constant — the same limit an object
+    //   literal's accessor has, named in `object.rs`.
+    // - `#x in o`, because the private name on its own reaches `emit_expr`
+    //   through the generic binary-operator path in `expr.rs`, which is a
+    //   file this lowering's own module does not own and a gap outside its
+    //   present scope to close.
     for (source, expected) in [
-        ("class A { #x = 1; }", "private"),
-        ("class A { static { let x = 1; } }", "static block"),
-        ("class A { [\"a\"] = 1; }", "computed"),
+        ("class A { get [\"a\"]() { return 1; } }", "computed accessor"),
+        ("class A { #x = 1; has() { return #x in this; } }", "private name"),
     ] {
         let error = compile(source).expect_err("refused");
         let text = format!("{error:?}");

@@ -156,7 +156,7 @@ impl<'a> Scan<'a> {
 
     /// Whether a name was interned as a private one.
     fn is_private(&self, name: Name) -> bool {
-        self.names.text(name).starts_with('#')
+        self.names.text(name).starts_with("@@#")
     }
 
     pub(super) fn finish(self) -> Option<String> {
@@ -625,7 +625,7 @@ impl<'a> Scan<'a> {
 impl Scan<'_> {
     fn reaches_a_private_name(&self, operand: &Expr) -> bool {
         match &operand.kind {
-            ExprKind::Member { property, .. } => self.names.text(*property).starts_with('#'),
+            ExprKind::Member { property, .. } => self.names.text(*property).starts_with("@@#"),
             // `?.` around it does not change what is being removed.
             ExprKind::Chain(inner) => self.reaches_a_private_name(inner),
             _ => false,

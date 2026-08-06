@@ -119,7 +119,13 @@ impl Cx<'_> {
     /// real property named `#x` cannot be reached by `.` — only by `o["#x"]`,
     /// which is a different node.
     pub(crate) fn private_name(&mut self, text: &str) -> crate::names::Name {
-        self.names.intern(&format!("#{text}"))
+        // `@@#`, not `#`. The runtime excludes a reserved key from enumeration by
+        // its PREFIX, and `#` alone is a prefix a program can write: `o["#main"]`
+        // is an ordinary property and would have vanished from `Object.keys`.
+        // `@@` is the space already reserved for keys no program can spell — see
+        // `rts-core-rwk`'s `symbol` module — so a private name joins it rather
+        // than opening a second one that collides with real text.
+        self.names.intern(&format!("@@#{text}"))
     }
 }
 

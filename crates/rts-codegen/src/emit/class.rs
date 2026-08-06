@@ -38,18 +38,55 @@
 //! That is also what the specification describes: a method's `[[HomeObject]]` is
 //! an internal slot of the function, and an environment entry is the same fact
 //! stored where this engine can already store facts.
+//!
+//! # Private members: unreachable, not access-checked
+//!
+//! `this.#x` is not a property a program can reach by any string it can write —
+//! it is not access CONTROL, it is a key OUTSIDE the space a string literal can
+//! spell. That is the same shape `rts-core-rwk`'s `Symbol` key already uses:
+//! `crates/rts-core-rwk/src/entry/symbol.rs` keeps a well-known symbol as an
+//! ordinary interned name under a reserved prefix (`"@@iterator"`) rather than a
+//! third `Key` variant, because a third variant would need a second path through
+//! every place a shape becomes a layout, a cache, or an enumeration.
+//!
+//! A private name is the same problem answered the same way, and it goes in the
+//! same space: `parse/mod.rs`'s `Cx::private_name` interns `#x` as `"@@#x"`, so
+//! the key is inside the `@@` prefix the runtime already excludes from every
+//! enumeration. One filter, not two — `is_symbol_key` is unchanged.
+//!
+//! It was `"#x"` for the length of one review. `#` alone is a prefix a program
+//! CAN write: `o["#main"]` is an ordinary property, and a runtime filtering on
+//! `#` would have made it disappear from `Object.keys` and `JSON.stringify`.
+//! That is the whole reason the reserved space is spelled `@@` — it is the one
+//! no source text produces.
+//!
+//! **What this buys, and what it does not.** A program cannot reach the key by
+//! any spelling `.` or a computed access lets it type: `.#x` is legal only inside
+//! the declaring class body, and `o["@@#x"]` is the same construction the `@@`
+//! space already documents as possible and pointless. What it does not give is
+//! an access check — the same caveat `symbol.rs` writes down for `"@@iterator"`,
+//! and the same trade.
+//!
+//! **Divergence, named**: this engine gives every `#x` across every class the
+//! same identity, because `Cx::private_name` interns by text and text is global.
+//! The specification gives each declaration its own private name, so two
+//! unrelated classes that both write `#x` are, per spec, unrelated fields; here
+//! they are the same property key. That was already true before this module did
+//! anything with private members — `Cx::private_name`'s interning made the
+//! choice — and this module does not change it, only makes the key reachable
+//! from inside the class body rather than refused outright.
 
 use std::collections::BTreeSet;
 
 use rts_cranelift::ir::{FuncBuilder, ValueId};
 
-use super::{Ctx, EmitError, EmitResult, Scope};
+use super::{Ctx, EmitError, EmitResult, Loops, Scope};
 use super::{binding, expr, function};
 use crate::names::Name;
 use crate::runtime::RuntimeOp;
 use crate::syntax::{
     AssignOp, AssignTarget, Class, ClassElement, ClassKey, Expr, ExprKind, Function, FunctionBody,
-    Method, MethodKind, PropertyKey, Stmt, StmtKind,
+    MethodKind, PropertyKey, Stmt, StmtKind,
 };
 
 /// The name the parent constructor is held under.
@@ -68,6 +105,21 @@ const HOME: &str = "__rts_home";
 /// until `super()` answers one — see [`super::Scope::bind_this_late`].
 const THIS: &str = "__rts_this";
 
+/// The name a computed member key's VALUE is held under, once per element
+/// position in the class body.
+///
+/// Only an instance field needs this. A method's and a static field's key is
+/// used in the same activation that evaluated it, so the `ValueId` is reused
+/// directly — see the `computed` slice threaded through [`emit_class`]. An
+/// instance field's initialiser runs later, inside the constructor, which is a
+/// *different* compiled function: the value has to survive as a captured name
+/// the way `__rts_super` and `__rts_home` already do, or the field would
+/// re-evaluate the key expression once per instance, which is not what the
+/// specification says a computed key does.
+fn computed_key_name(index: usize) -> String {
+    format!("__rts_key{index}")
+}
+
 /// Emits a class and answers the constructor value.
 pub(super) fn emit_class(
     builder: &mut FuncBuilder,
@@ -85,8 +137,47 @@ pub(super) fn emit_class(
         None => None,
     };
 
-    let mut inner = class_scope(builder, scope, ctx, parent)?;
-    let constructor = emit_constructor(builder, &mut inner, ctx, class)?;
+    // Every computed key is evaluated exactly once, here, in source order,
+    // against the scope the class was WRITTEN in — before any field
+    // initialiser or static block runs, and before the class's own environment
+    // exists, because a computed key can see neither `this`, nor `super`, nor a
+    // private name the class it names is still in the middle of declaring.
+    let computed: Vec<Option<ValueId>> = class
+        .body
+        .iter()
+        .map(|element| match element.key() {
+            Some(ClassKey::Public(PropertyKey::Computed(key_expr))) => {
+                super::emit_expr(builder, scope, ctx, key_expr).map(Some)
+            }
+            _ => Ok(None),
+        })
+        .collect::<EmitResult<_>>()?;
+
+    // A class needs its own environment for `super`, as before, and now also
+    // for a computed INSTANCE field's key — that value is read again inside the
+    // constructor, a function this scope does not reach into otherwise.
+    let needs_environment = class.is_derived()
+        || class
+            .body
+            .iter()
+            .enumerate()
+            .any(|(index, element)| computed[index].is_some() && element.runs_per_instance());
+
+    let mut inner = class_scope(builder, scope, ctx, parent, needs_environment)?;
+
+    for (index, element) in class.body.iter().enumerate() {
+        let (Some(value), true) = (computed[index], element.runs_per_instance()) else {
+            continue;
+        };
+        // `class_scope` already made an environment whenever any instance
+        // field's key is computed, so this is always present here.
+        if let Some(environment) = inner.environment() {
+            let held = ctx.names.intern(&computed_key_name(index));
+            super::property::emit_write(builder, ctx, environment, held, value)?;
+        }
+    }
+
+    let constructor = emit_constructor(builder, &mut inner, ctx, class, &computed)?;
 
     // `ClosureNew` already made a `prototype` object, because a function that
     // could not be constructed with would be a different kind of function. So
@@ -115,10 +206,15 @@ pub(super) fn emit_class(
         super::property::emit_write(builder, ctx, environment, home, prototype)?;
     }
 
-    for element in &class.body {
+    // A static field initialiser and a static block both run with `this` bound
+    // to the class itself — the specification's words for it, not an
+    // approximation. Set once, here, because both live in the loop below and
+    // neither is a separate compiled function the way an instance method is.
+    inner.set_this(constructor, false);
+
+    for (index, element) in class.body.iter().enumerate() {
         match element {
             ClassElement::Method(method) if !method.is_constructor(&ctx.names) => {
-                let name = named_key(&method.key)?;
                 let closure = function::emit_closure(builder, &inner, ctx, &method.function)?;
                 let target = if method.is_static { constructor } else { prototype };
                 // An accessor is not written as a property: it is a pair of
@@ -126,12 +222,14 @@ pub(super) fn emit_class(
                 // layout would be returned by the cache instead of run.
                 match method.kind {
                     MethodKind::Normal => {
-                        super::property::emit_write(builder, ctx, target, name, closure)?;
+                        write_member(builder, ctx, target, &method.key, computed[index], closure)?;
                     }
                     MethodKind::Getter => {
+                        let name = accessor_name(&method.key)?;
                         super::object::define_accessor(builder, ctx, target, name, closure, true)?;
                     }
                     MethodKind::Setter => {
+                        let name = accessor_name(&method.key)?;
                         super::object::define_accessor(builder, ctx, target, name, closure, false)?;
                     }
                 }
@@ -139,12 +237,24 @@ pub(super) fn emit_class(
             // A static field's initialiser runs once, here, with the class
             // already linked — which is what lets `static all = new X()` work.
             ClassElement::Field(field) if field.is_static => {
-                let name = named_key(&field.key)?;
                 let value = match &field.value {
                     Some(value) => super::emit_expr(builder, &mut inner, ctx, value)?,
                     None => expr::undefined(builder, ctx),
                 };
-                super::property::emit_write(builder, ctx, constructor, name, value)?;
+                write_member(builder, ctx, constructor, &field.key, computed[index], value)?;
+            }
+            // `static { … }` — statements run once, in this same activation,
+            // with `this` already bound above and after every static element
+            // written before it, because the loop visits the body in source
+            // order and does nothing to reorder this case.
+            ClassElement::StaticBlock(statements) => {
+                function::hoist(builder, &mut inner, ctx, statements)?;
+                let mut loops = Loops::default();
+                for statement in statements {
+                    if super::emit_stmt(builder, &mut inner, ctx, &mut loops, statement)? {
+                        break;
+                    }
+                }
             }
             // An instance field runs per construction, so it is not emitted
             // here at all — see `with_fields`.
@@ -153,6 +263,38 @@ pub(super) fn emit_class(
     }
 
     Ok(constructor)
+}
+
+/// Writes a member under its key, computed or not.
+///
+/// A named or private key is resolved at compile time, so the write goes
+/// through the ordinary cached property path — the same one an object literal
+/// uses, and the reason `this.#x` inside a method needs nothing special from
+/// `expr.rs`'s member read: it is, underneath, an ordinary named property whose
+/// name a program cannot spell.
+///
+/// A computed key was evaluated once already, in [`emit_class`]'s key pass —
+/// `computed_value` is that answer, threaded through rather than recomputed,
+/// because recomputing it here would run the key expression a second time.
+fn write_member(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    target: ValueId,
+    key: &ClassKey,
+    computed_value: Option<ValueId>,
+    value: ValueId,
+) -> EmitResult<ValueId> {
+    match key {
+        ClassKey::Public(PropertyKey::Named(name)) | ClassKey::Private(name) => {
+            super::property::emit_write(builder, ctx, target, *name, value)
+        }
+        ClassKey::Public(PropertyKey::Computed(_)) => {
+            let key_value = computed_value.expect("evaluated in emit_class's key pass");
+            let key_value = expr::tagged(builder, key_value);
+            let value = expr::tagged(builder, value);
+            Ok(expr::call(builder, ctx, RuntimeOp::SetIndexed, &[target, key_value, value])?[0])
+        }
+    }
 }
 
 /// The constructor function, declared or supplied.
@@ -170,17 +312,18 @@ fn emit_constructor(
     inner: &mut Scope,
     ctx: &mut Ctx,
     class: &Class,
+    computed: &[Option<ValueId>],
 ) -> EmitResult<ValueId> {
     let declared = class.constructor(&ctx.names).map(|method| &method.function);
     let supplied;
     let function = match declared {
         Some(function) => {
-            supplied = with_fields(class, function)?;
+            supplied = with_fields(ctx, class, function, computed)?;
             &supplied
         }
         None => {
             let default = default_constructor(ctx, class);
-            supplied = with_fields(class, &default)?;
+            supplied = with_fields(ctx, class, &default, computed)?;
             &supplied
         }
     };
@@ -210,6 +353,13 @@ fn emit_constructor(
 /// mechanism of its own would be a second path to the same store, differing
 /// wherever somebody forgot to update both.
 ///
+/// A private field's initialiser is `this.#x = value` the same way — the member
+/// node does not care that the name is private, because nothing downstream of
+/// parsing does either; see the module doc for what makes it private. A
+/// computed field's initialiser is `this[k] = value` where `k` reads the name
+/// [`emit_class`] captured the already-evaluated key under, because the key runs
+/// once at class definition and this body runs once per instance.
+///
 /// # The divergence, named
 ///
 /// They run at the **start** of the constructor. The specification runs them
@@ -218,16 +368,20 @@ fn emit_constructor(
 /// calling. So a derived field initialiser that reads a property the parent
 /// constructor sets reads it too early, and that is the one program this order
 /// gets wrong.
-fn with_fields(class: &Class, function: &Function) -> EmitResult<Function> {
+fn with_fields(
+    ctx: &mut Ctx,
+    class: &Class,
+    function: &Function,
+    computed: &[Option<ValueId>],
+) -> EmitResult<Function> {
     let mut prologue = Vec::new();
-    for element in &class.body {
+    for (index, element) in class.body.iter().enumerate() {
         let ClassElement::Field(field) = element else {
             continue;
         };
         if field.is_static {
             continue;
         }
-        let name = named_key(&field.key)?;
         let value = match &field.value {
             Some(value) => value.clone(),
             // Declaring `x;` with no initialiser is not the same as never
@@ -239,20 +393,42 @@ fn with_fields(class: &Class, function: &Function) -> EmitResult<Function> {
                 at: class.at,
             },
         };
+        let this_expr = Expr {
+            kind: ExprKind::This,
+            at: class.at,
+        };
+        let target = match &field.key {
+            ClassKey::Public(PropertyKey::Named(name)) | ClassKey::Private(name) => Expr {
+                kind: ExprKind::Member {
+                    object: Box::new(this_expr),
+                    property: *name,
+                    optional: false,
+                },
+                at: class.at,
+            },
+            ClassKey::Public(PropertyKey::Computed(_)) => {
+                debug_assert!(
+                    computed[index].is_some(),
+                    "every computed key was evaluated in emit_class's key pass"
+                );
+                let held = ctx.names.intern(&computed_key_name(index));
+                Expr {
+                    kind: ExprKind::Index {
+                        object: Box::new(this_expr),
+                        index: Box::new(Expr {
+                            kind: ExprKind::Ident(held),
+                            at: class.at,
+                        }),
+                        optional: false,
+                    },
+                    at: class.at,
+                }
+            }
+        };
         prologue.push(Stmt {
             kind: StmtKind::Expr(Expr {
                 kind: ExprKind::Assign {
-                    target: AssignTarget::Place(Box::new(Expr {
-                        kind: ExprKind::Member {
-                            object: Box::new(Expr {
-                                kind: ExprKind::This,
-                                at: class.at,
-                            }),
-                            property: name,
-                            optional: false,
-                        },
-                        at: class.at,
-                    })),
+                    target: AssignTarget::Place(Box::new(target)),
                     value: Box::new(value),
                     op: AssignOp::Plain,
                 },
@@ -330,15 +506,20 @@ fn default_constructor(ctx: &mut Ctx, class: &Class) -> Function {
 
 /// The environment a class body is emitted against.
 ///
-/// Built only for a derived class: `super` is a syntax error outside one, so a
-/// plain class would allocate an object nothing could read.
+/// Built for a derived class, as before, and now also for one with a computed
+/// INSTANCE field key — `needs_environment` says which. `super` is a syntax
+/// error outside a derived class, so only a derived class's environment holds
+/// one; a plain class with a computed instance key gets an environment that
+/// holds no `__rts_super` at all, which is fine, because nothing in it is ever
+/// asked to read one.
 fn class_scope(
     builder: &mut FuncBuilder,
     scope: &mut Scope,
     ctx: &mut Ctx,
     parent: Option<ValueId>,
+    needs_environment: bool,
 ) -> EmitResult<Scope> {
-    let Some(parent) = parent else {
+    if parent.is_none() && !needs_environment {
         // Not a copy of the enclosing scope: methods are emitted against it, and
         // `Scope` is not `Clone`. Rebuilt from what it can reach, which is
         // exactly what a nested function sees.
@@ -347,7 +528,7 @@ fn class_scope(
             BTreeSet::new(),
             &scope.reachable(),
         ));
-    };
+    }
 
     let environment = expr::call(builder, ctx, RuntimeOp::ObjectNew, &[])?[0];
     let outer = binding::outer_link(ctx);
@@ -357,9 +538,15 @@ fn class_scope(
     };
     super::property::emit_write(builder, ctx, environment, outer, handed)?;
 
-    let super_name = ctx.names.intern(SUPER);
-    super::property::emit_write(builder, ctx, environment, super_name, parent)?;
+    let mut held = BTreeSet::new();
     let home_name = ctx.names.intern(HOME);
+    held.insert(home_name);
+
+    if let Some(parent) = parent {
+        let super_name = ctx.names.intern(SUPER);
+        super::property::emit_write(builder, ctx, environment, super_name, parent)?;
+        held.insert(super_name);
+    }
 
     // One link further out for everything the enclosing scope could reach,
     // because this environment sits between it and the methods.
@@ -368,9 +555,6 @@ fn class_scope(
         .into_iter()
         .map(|(name, hops)| (name, hops + 1))
         .collect();
-    let mut held = BTreeSet::new();
-    held.insert(super_name);
-    held.insert(home_name);
     Ok(Scope::for_function(Some(environment), held, &reachable))
 }
 
@@ -422,15 +606,21 @@ pub(super) fn emit_super_call(
     binding::write(builder, scope, ctx, held, produced)
 }
 
-/// The name a member is installed under.
-fn named_key(key: &ClassKey) -> EmitResult<Name> {
+/// The name an accessor is installed under.
+///
+/// Unlike [`write_member`], an accessor has no computed form here: `DefineGetter`
+/// and `DefineSetter` take the key the compiler resolved as a constant, the same
+/// way an object literal's accessor does — see `object.rs`'s own refusal of a
+/// computed accessor name. Giving classes a capability object literals do not
+/// have would be a second answer to "how is an accessor key spelled", so a
+/// computed accessor name is refused here for the same reason, not a
+/// coincidentally similar one.
+fn accessor_name(key: &ClassKey) -> EmitResult<Name> {
     match key {
         ClassKey::Public(PropertyKey::Named(name)) => Ok(*name),
+        ClassKey::Private(name) => Ok(*name),
         ClassKey::Public(PropertyKey::Computed(_)) => Err(EmitError::Unsupported {
-            construct: "a computed class member name",
-        }),
-        ClassKey::Private(_) => Err(EmitError::Unsupported {
-            construct: "a private class member",
+            construct: "a computed accessor name in a class body",
         }),
     }
 }
@@ -440,25 +630,34 @@ fn named_key(key: &ClassKey) -> EmitResult<Name> {
 ///
 /// Up front rather than as each is reached, so a class is either wholly emitted
 /// or wholly refused — a half-built one would leave a constructor whose methods
-/// are missing, which runs and is wrong.
+/// are missing, which runs and is wrong. The only case left here is a computed
+/// accessor name: everything else a class body can hold — a private member, a
+/// computed method or field name, a static block — is emitted by the loop in
+/// [`emit_class`], and refusing it up front as well would be the duplicated
+/// rule 3 warns about.
 fn refuse_what_is_not_built(class: &Class) -> EmitResult<()> {
     for element in &class.body {
-        match element {
-            ClassElement::StaticBlock(_) => {
-                return Err(EmitError::Unsupported {
-                    construct: "a class static block",
-                });
+        if let ClassElement::Method(method) = element {
+            if method.kind != MethodKind::Normal {
+                accessor_name(&method.key)?;
             }
-            // A constructor that is a getter is a grammar error rather than
-            // something to emit, and `is_constructor` already answers false for
-            // one — so the only accessors reaching the loop above are real
-            // ones.
-            ClassElement::Method(Method { .. }) => {}
-            _ => {}
-        }
-        if let Some(key) = element.key() {
-            named_key(key)?;
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::names::Names;
+
+    #[test]
+    fn a_private_key_and_its_public_namesake_are_still_different_identifiers() {
+        // Reusing the `Name` `Cx::private_name` already produced means the
+        // separation this module relies on has to come from THAT interning, not
+        // from anything here — this test pins that it still does.
+        let mut names = Names::new();
+        let private = names.intern("@@#x");
+        let public = names.intern("x");
+        assert_ne!(private, public);
+    }
 }

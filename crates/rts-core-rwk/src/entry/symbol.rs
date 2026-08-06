@@ -131,10 +131,14 @@ impl Context {
     }
 }
 
-/// Whether a key text is a symbol's.
+/// Whether a key text is reserved — a symbol's, or a private class member's.
 ///
 /// What enumeration filters on, and the only thing outside this module that
-/// needs to know the encoding exists.
+/// needs to know the encoding exists. A private member's key is `@@#x`, inside
+/// this same space and for the same reason: `@@` is what no program can spell.
+/// It was `#x` for one commit, and `#` alone is a prefix a program CAN write —
+/// `o["#main"]` is an ordinary property, and it would have disappeared from
+/// `Object.keys` and `JSON.stringify`.
 pub(super) fn is_symbol_key(text: &str) -> bool {
     text.starts_with(PREFIX)
 }
