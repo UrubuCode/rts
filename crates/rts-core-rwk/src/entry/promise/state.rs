@@ -59,27 +59,41 @@ pub(in crate::entry) struct Machine {
 
 impl Default for Machine {
     fn default() -> Self {
+        Self::in_region(0)
+    }
+}
+
+impl Machine {
+    /// A machine belonging to one region.
+    ///
+    /// # Why the scheduler is numbered by the region
+    ///
+    /// It was `SchedulerId(0)`, unconditionally, because there was one region
+    /// and one thread. There are now as many of each as the program was
+    /// compiled for, and every thread built its own machine — so every thread
+    /// had scheduler zero, and `PromiseTable::owner` answered zero for a
+    /// promise whichever thread made it.
+    ///
+    /// That is the number `Delivery::Elsewhere` compares against to decide
+    /// whether a settled promise's waiters belong here or have to be handed
+    /// over. With every scheduler called zero it can only ever answer `Here`,
+    /// so the one case the machine models for crossing a thread would have
+    /// been silently unreachable — and reached, would have run another
+    /// thread's reactions on this one.
+    ///
+    /// Nothing hands waiters over yet. What this buys is that the question is
+    /// asked with the real numbers, so the day something does, the answer is
+    /// not a constant.
+    pub(in crate::entry) fn in_region(region: u32) -> Self {
         Machine {
             promises: PromiseTable::new(),
-            // One scheduler, because there is one region and one thread today.
-            // The machine numbers them so that a promise settled from another
-            // region hands its waiters over rather than running them on the
-            // wrong thread; with one region that path is unreachable and the
-            // number is still the machine's rather than invented here.
-            scheduler: Scheduler::new(SchedulerId(0)),
+            scheduler: Scheduler::new(SchedulerId(region)),
             settlements: Settlements::new(),
             reactions: Vec::new(),
             groups: Vec::new(),
             of_cell: HashMap::new(),
             cells: Vec::new(),
         }
-    }
-}
-
-impl Machine {
-    /// A machine with no promises in it.
-    pub(in crate::entry) fn new() -> Self {
-        Self::default()
     }
 
     /// Registers a cell as a fresh pending promise.

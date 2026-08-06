@@ -414,6 +414,11 @@ impl Context {
             // cell is a reference with the region bits shifted off — so a table
             // built at the wrong width would index by a number that is not a
             // cell, and two objects would collide in it.
+            // Numbered by the region for the same reason: `Delivery::Elsewhere`
+            // compares scheduler numbers to decide whether a settled promise's
+            // waiters are this thread's, and every thread calling itself zero
+            // makes that comparison a constant.
+            promises: promise::Machine::in_region(region.index()),
             prototypes: Aside::in_region(bits),
             callables: Aside::in_region(bits),
             spill_of: Aside::in_region(bits),
@@ -476,7 +481,7 @@ impl Context {
             regexes: Aside::new(),
             regexp_prototype: None,
             classes: Vec::new(),
-            promises: promise::Machine::new(),
+            promises: promise::Machine::in_region(0),
             symbols: symbol::Symbols::new(),
             globals: None,
             string_prototype: None,
