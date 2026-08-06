@@ -39,6 +39,19 @@ fn property_key(context: &mut Context, key: Value) -> Option<Key> {
         let text = crate::text::Str::from_str(&text);
         return Some(Key::Name(context.interner.intern(&text, &mut context.keys)));
     }
+    // The common case, and the one that was measured: the key is ALREADY a
+    // string, so there is nothing to convert — only to look up. Reached without
+    // copying the text, which the general path below cannot do because
+    // `to_text` has to answer an owned `Str` for the cases that build one.
+    //
+    // Measured before this existed: a read through a computed key cost 123x a
+    // read through a named one, and two heap allocations per access were the
+    // difference — this copy, and a second inside the interner.
+    if let Some(cell) = key.as_slot()
+        && let Some(found) = context.key_of_text_cell(cell)
+    {
+        return Some(found);
+    }
     let text = super::text::to_text(context, key)?;
     Some(Key::Name(context.interner.intern(&text, &mut context.keys)))
 }

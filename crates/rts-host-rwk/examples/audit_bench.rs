@@ -78,7 +78,33 @@ fn compile_side() {
     );
     timed("cleanups (60 try/finally)", 20, &cleanups);
 
+    scaling();
     println!();
+}
+
+/// How the cost grows with the input, which is the question that says WHERE to
+/// look before any code is read.
+///
+/// A doubling that costs twice as much is linear and uninteresting. One that
+/// costs four times as much is quadratic, and then the search is for a walk over
+/// everything performed per something. Measuring the shape first is what stops a
+/// guess from being dressed as a diagnosis — the 205 ms this file first reported
+/// for field access was attributed to two allocations per access, and two
+/// allocations do not cost 128 microseconds.
+fn scaling() {
+    println!("\n  -- growth (a doubling that costs 4x is quadratic) --");
+    for count in [100usize, 200, 400, 800] {
+        let source = program_of(
+            count,
+            "let o = {a: 1, b: 2, c: 3, d: 4}; let t = 0;",
+            "t = t + o.a + o.b + o.c + o.d;",
+        );
+        timed(&format!("field access x{count}"), 6, &source);
+    }
+    for count in [75usize, 150, 300, 600] {
+        let source = program_of(count, "let n = 0;", "if (n > 0) { n = n - 1; } else { n = n + 1; }");
+        timed(&format!("branches x{count}"), 6, &source);
+    }
 }
 
 /// What the compiled code then costs, on the paths the audit named.

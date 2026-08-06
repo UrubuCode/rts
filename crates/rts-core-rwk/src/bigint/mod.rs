@@ -68,6 +68,7 @@
 
 mod arith;
 mod bits;
+mod div;
 mod text;
 
 use core::cmp::Ordering;

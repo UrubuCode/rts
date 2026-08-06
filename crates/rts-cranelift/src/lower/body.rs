@@ -214,9 +214,7 @@ impl<'a> Body<'a> {
                     inst: id,
                     needs: Capability::Memory,
                 })?;
-                let layout = crate::mem::ObjectLayout::of(*ty, heap.types);
-                let offset = layout
-                    .field_offset(*field)
+                let offset = crate::mem::ObjectLayout::field_offset_of(*ty, heap.types, *field)
                     .ok_or(LowerError::NoSuchField { inst: id })?;
                 let repr = heap
                     .types
@@ -240,9 +238,7 @@ impl<'a> Body<'a> {
                     inst: id,
                     needs: Capability::Memory,
                 })?;
-                let layout = crate::mem::ObjectLayout::of(*ty, heap.types);
-                let offset = layout
-                    .field_offset(*field)
+                let offset = crate::mem::ObjectLayout::field_offset_of(*ty, heap.types, *field)
                     .ok_or(LowerError::NoSuchField { inst: id })?;
 
                 let traced = heap
@@ -270,7 +266,7 @@ impl<'a> Body<'a> {
                         inst: id,
                         needs: Capability::Memory,
                     })?;
-                    crate::mem::ObjectLayout::of(*ty, heap.types).size
+                    crate::mem::ObjectLayout::size_of(*ty, heap.types)
                 };
                 let outside = self.outside.as_mut().ok_or(LowerError::NotYetLowered {
                     inst: id,

@@ -43,42 +43,6 @@ impl BigInt {
         )
     }
 
-    /// The quotient, **truncated toward zero**, or `None` when dividing by zero.
-    ///
-    /// Truncation is worth spelling out because it is only visible with a
-    /// negative operand and the alternative is widespread: `-7n / 2n` is `-3n`
-    /// here and in JavaScript, and `-4` in Python and in several bignum
-    /// libraries that floor. Rust's own `/` truncates, so the machine agrees
-    /// with the language for once.
-    ///
-    /// Division by zero answers `None` rather than throwing: the language raises
-    /// a `RangeError`, and this module holds no language knowledge it can be
-    /// told instead.
-    pub fn div(&self, other: &Self) -> Option<Self> {
-        if other.is_zero() {
-            return None;
-        }
-        let (quotient, _) = mag_divrem(&self.digits, &other.digits);
-        Some(Self::from_parts(
-            self.negative != other.negative,
-            quotient,
-        ))
-    }
-
-    /// The remainder, or `None` when dividing by zero.
-    ///
-    /// Takes the sign of the **dividend**, which is what truncating division
-    /// forces: `-7n % 2n` is `-1n`, not `1n`. A flooring division would give the
-    /// sign of the divisor instead, and the identity `(a/b)*b + a%b === a` is
-    /// what holds either way — it is not what tells the two apart.
-    pub fn rem(&self, other: &Self) -> Option<Self> {
-        if other.is_zero() {
-            return None;
-        }
-        let (_, remainder) = mag_divrem(&self.digits, &other.digits);
-        Some(Self::from_parts(self.negative, remainder))
-    }
-
     /// This value raised to a non-negative power.
     ///
     /// Square-and-multiply rather than a loop of multiplications: the operand
@@ -182,71 +146,6 @@ pub(super) fn mag_mul(left: &[u32], right: &[u32]) -> Vec<u32> {
     out
 }
 
-/// The quotient and remainder of two magnitudes, where the divisor is non-zero.
-///
-/// Binary long division, one bit at a time. Knuth's algorithm D is the faster
-/// answer and it is rejected here for now: it needs a normalisation shift, a
-/// two-digit trial quotient and a correction step that fires on inputs a test
-/// does not reach by accident, and a division that is wrong once in ten million
-/// inputs is worse than one that is slower on all of them. It is the place to
-/// look when division shows up in a profile, and `to_radix` already avoids this
-/// path entirely by dividing by a single digit.
-pub(super) fn mag_divrem(dividend: &[u32], divisor: &[u32]) -> (Vec<u32>, Vec<u32>) {
-    debug_assert!(!divisor.is_empty());
-    if mag_cmp(dividend, divisor) == Ordering::Less {
-        return (Vec::new(), dividend.to_vec());
-    }
-
-    let length = mag_bit_len(dividend);
-    let mut quotient = vec![0u32; dividend.len()];
-    let mut remainder: Vec<u32> = Vec::new();
-    for index in (0..length).rev() {
-        mag_shl1_in_place(&mut remainder, mag_bit(dividend, index));
-        if mag_cmp(&remainder, divisor) != Ordering::Less {
-            remainder = mag_sub(&remainder, divisor);
-            quotient[index / 32] |= 1 << (index % 32);
-        }
-    }
-    trim(&mut quotient);
-    trim(&mut remainder);
-    (quotient, remainder)
-}
-
-/// Divides a magnitude by a single digit, returning the quotient and remainder.
-///
-/// Exists because `to_radix` and `parse` only ever need this shape, and this is
-/// a linear pass where the general division is quadratic in bits.
-pub(super) fn mag_divrem_small(digits: &[u32], divisor: u32) -> (Vec<u32>, u32) {
-    debug_assert!(divisor != 0);
-    let mut out = vec![0u32; digits.len()];
-    let mut remainder = 0u64;
-    for index in (0..digits.len()).rev() {
-        let current = (remainder << 32) | digits[index] as u64;
-        out[index] = (current / divisor as u64) as u32;
-        remainder = current % divisor as u64;
-    }
-    trim(&mut out);
-    (out, remainder as u32)
-}
-
-/// Multiplies a magnitude by a digit and adds another, in one pass.
-///
-/// One function rather than two because `parse` always does both together, and
-/// splitting them would walk the digits twice per input character.
-pub(super) fn mag_mul_add_small(digits: &mut Vec<u32>, factor: u32, addend: u32) {
-    let mut carry = addend as u64;
-    for digit in digits.iter_mut() {
-        let product = *digit as u64 * factor as u64 + carry;
-        *digit = product as u32;
-        carry = product >> 32;
-    }
-    while carry != 0 {
-        digits.push(carry as u32);
-        carry >>= 32;
-    }
-    trim(digits);
-}
-
 /// A magnitude shifted left, growing without limit.
 pub(super) fn mag_shl(digits: &[u32], amount: u32) -> Vec<u32> {
     if digits.is_empty() {
@@ -310,23 +209,8 @@ pub(super) fn mag_bit(digits: &[u32], index: usize) -> bool {
     digit(digits, index / 32) >> (index % 32) & 1 == 1
 }
 
-/// Doubles a magnitude and sets the low bit, which is the inner step of the
-/// long division above and has no other caller.
-fn mag_shl1_in_place(digits: &mut Vec<u32>, low_bit: bool) {
-    let mut carry = u32::from(low_bit);
-    for digit in digits.iter_mut() {
-        let next = *digit >> 31;
-        *digit = (*digit << 1) | carry;
-        carry = next;
-    }
-    if carry != 0 {
-        digits.push(carry);
-    }
-    trim(digits);
-}
-
 /// A digit, or zero past the end — the sign extension a magnitude has.
-fn digit(digits: &[u32], index: usize) -> u32 {
+pub(super) fn digit(digits: &[u32], index: usize) -> u32 {
     digits.get(index).copied().unwrap_or(0)
 }
 
@@ -373,55 +257,6 @@ mod tests {
         );
         assert_eq!(product.div(&a).unwrap(), b, "and it divides back exactly");
         assert_eq!(product.to_decimal().len(), 60);
-    }
-
-    #[test]
-    fn division_truncates_toward_zero_rather_than_flooring() {
-        // The whole difference is here, and only with a negative operand: a
-        // flooring implementation answers -4 and 1 for the first pair.
-        assert_eq!(big("-7").div(&big("2")).unwrap().to_decimal(), "-3");
-        assert_eq!(big("-7").rem(&big("2")).unwrap().to_decimal(), "-1");
-        assert_eq!(big("7").div(&big("-2")).unwrap().to_decimal(), "-3");
-        assert_eq!(big("7").rem(&big("-2")).unwrap().to_decimal(), "1");
-        assert_eq!(big("-7").div(&big("-2")).unwrap().to_decimal(), "3");
-        assert_eq!(big("-7").rem(&big("-2")).unwrap().to_decimal(), "-1");
-    }
-
-    #[test]
-    fn the_remainder_takes_the_sign_of_the_dividend_and_the_identity_holds() {
-        for (a, b) in [("-7", "2"), ("7", "-2"), ("-100", "-7"), ("0", "5")] {
-            let (a, b) = (big(a), big(b));
-            let q = a.div(&b).unwrap();
-            let r = a.rem(&b).unwrap();
-            assert_eq!(q.mul(&b).add(&r), a, "(a/b)*b + a%b == a");
-            if !r.is_zero() {
-                assert_eq!(r.is_negative(), a.is_negative(), "sign of the dividend");
-            }
-        }
-    }
-
-    #[test]
-    fn dividing_by_zero_is_refused_rather_than_answered() {
-        // `None` and not a panic and not zero: the language throws a RangeError
-        // and this module is not the one that knows that.
-        assert_eq!(big("1").div(&BigInt::zero()), None);
-        assert_eq!(big("1").rem(&BigInt::zero()), None);
-        assert_eq!(BigInt::zero().div(&BigInt::zero()), None);
-    }
-
-    #[test]
-    fn division_by_a_multi_digit_divisor_far_past_a_u64() {
-        let dividend = big("123456789012345678901234567890123456789012345678901234567890");
-        let divisor = big("98765432109876543210987654321");
-        let quotient = dividend.div(&divisor).unwrap();
-        let remainder = dividend.rem(&divisor).unwrap();
-        assert_eq!(quotient.mul(&divisor).add(&remainder), dividend);
-        assert!(remainder.cmp(&divisor) == Ordering::Less, "reduced");
-        assert!(!remainder.is_negative());
-        // The quotient has as many digits as the two lengths differ by, give or
-        // take one — enough to catch a bit index off by 32, which is the way
-        // the long division fails, and it fails by a factor of a billion.
-        assert_eq!(quotient.to_decimal().len(), 60 - 29);
     }
 
     #[test]

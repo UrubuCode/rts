@@ -5,6 +5,8 @@
 //! at the site — a site that restated it could restate it wrongly, and the
 //! failure would be an interface mismatch surviving until something crashes.
 
+use std::collections::HashMap;
+
 use super::func::Signature;
 
 /// Identifies a signature.
@@ -48,6 +50,19 @@ pub struct FuncDecl {
 pub struct FuncRegistry {
     signatures: Vec<Signature>,
     functions: Vec<FuncDecl>,
+    // A membership/lookup index over `signatures`, not a second source of
+    // truth: `signatures` (a `Vec`) is what assigns a `SigId` its number, by
+    // insertion order, and that order is call order, not hash order — nothing
+    // here iterates this map to produce output, so rule 13 does not apply to
+    // it. Before this, `declare_signature` scanned `signatures` linearly with
+    // `position`, which is what made it O(N^2) across a compilation: every
+    // function and closure the language layer emits declares at least one
+    // signature, so this ran once per declaration over everything declared
+    // so far. Measured on the language-layer side of this same class of
+    // problem (60 `try`/`finally` costing 29.32 ms against 300 `if`/`else`
+    // costing 7.55 ms) — a linear scan inside a loop that runs once per
+    // declaration is exactly that shape.
+    by_signature: HashMap<Signature, SigId>,
 }
 
 impl FuncRegistry {
@@ -58,11 +73,12 @@ impl FuncRegistry {
 
     /// Interns a signature.
     pub fn declare_signature(&mut self, signature: Signature) -> SigId {
-        if let Some(index) = self.signatures.iter().position(|s| *s == signature) {
-            return SigId(index as u32);
+        if let Some(&id) = self.by_signature.get(&signature) {
+            return id;
         }
         let id = SigId(self.signatures.len() as u32);
-        self.signatures.push(signature);
+        self.signatures.push(signature.clone());
+        self.by_signature.insert(signature, id);
         id
     }
 

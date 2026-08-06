@@ -21,6 +21,39 @@
 //! So this table does not invent numbers. It remembers which string got which,
 //! and asks the registry when it has not seen one before.
 //!
+//! # Probing without allocating
+//!
+//! Measured: `obj[computed]` was **123x** slower than `obj.field` for the same
+//! property (103.38ms vs 0.84ms over 200k reads), and interning was where it
+//! went — two heap allocations per lookup, *including a hit that inserts
+//! nothing*. One was upstream, copying the [`Str`]'s buffer just to have an
+//! owned value to intern. The other was here: the table used to be
+//! `HashMap<Vec<u16>, Key>`, so every probe first did `text.units().collect()`
+//! to build a `Vec<u16>` whose only job was being compared against and thrown
+//! away.
+//!
+//! The fix keys by a hash computed by walking [`Str::units`] as an iterator —
+//! nothing collected — into `HashMap<u64, Vec<Key>>`, and disambiguates a
+//! bucket (collisions are rare, and more than one distinct string can share a
+//! hash) by comparing against the text this table already keeps in `text` for
+//! [`Interner::text`], via [`Str::same_units`]. A hit therefore touches no heap
+//! at all; only a genuine miss clones `text` once, to have an owned copy for
+//! that same `text` table — which was always paid on a miss and never was the
+//! measured cost.
+//!
+//! Two alternatives were rejected:
+//! - `HashMap::raw_entry`, which would probe by hash directly without a
+//!   collision bucket at all. It is nightly-only, and this crate builds on
+//!   stable.
+//! - Keying by [`Str`] itself, deriving `Hash`/`Eq` on it directly. Rejected
+//!   because `Str`'s derived `Eq` compares [`Repr`](super::Repr) — the
+//!   *representation* — not the units: `Repr::Latin1(vec![b'a'])` and
+//!   `Repr::Utf16(vec![0x61])` are unequal by that derive even though
+//!   [`Str::same_units`] says they are one string. Deriving on `Str` as stored
+//!   would silently mint two keys for one property name the moment a narrow
+//!   and a wide spelling of it both showed up — worse than the allocation it
+//!   would have saved.
+//!
 //! # Why there are still two tables
 //!
 //! The compiler's table maps *source identifiers* to keys and holds them for the
@@ -32,22 +65,49 @@
 //! life of the process.
 
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 use rts_cranelift::shape::{Key, KeyRegistry};
 
 use super::Str;
 
+/// The hash a string's code units probe under.
+///
+/// Walks [`Str::units`] as an iterator, so a probe never allocates — see the
+/// module documentation for the 123x measurement this is the fix for. Two
+/// strings with the same units always produce the same hash, which is what
+/// makes bucketing by it in [`Interner::keys`] sound; two different strings
+/// occasionally sharing one is expected and handled by the equality check
+/// that follows a bucket hit.
+fn units_hash(text: &Str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    // The length goes in too, so e.g. `[0x61, 0x00]` and `[0x6100]` — which
+    // cannot both be code-unit sequences of one string, but would otherwise
+    // be hashed by an unbounded stream of units alone — are not relied upon
+    // to disagree by accident.
+    text.len().hash(&mut hasher);
+    for unit in text.units() {
+        unit.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
 /// Every string that has been used as a property key while running.
 #[derive(Default)]
 pub struct Interner {
-    /// The number for a string, keyed by its code units.
+    /// The key(s) whose text hashes to a given value, keyed by that hash
+    /// rather than by the text itself.
     ///
-    /// Keyed by units rather than by [`Str`] so that a narrow and a wide
-    /// spelling of one string find each other. Two layouts of `"a"` must reach
-    /// one key, or `obj["a"]` would miss a property stored under a
-    /// differently-built `"a"`.
-    keys: HashMap<Vec<u16>, Key>,
-    /// The text, for the places the language genuinely needs it back.
+    /// Bucketed rather than one-to-one because a hash collision between two
+    /// *different* strings is possible, however rare; when a bucket has more
+    /// than one candidate, [`Interner::intern`] disambiguates by comparing
+    /// against `text`, so correctness never depends on the hash being
+    /// collision-free — only speed does.
+    keys: HashMap<u64, Vec<Key>>,
+    /// The text, for the places the language genuinely needs it back — and,
+    /// on a bucket hit, for the equality check that confirms it rather than
+    /// merely a matching hash.
     text: HashMap<Key, Str>,
 }
 
@@ -62,13 +122,23 @@ impl Interner {
     /// Takes the registry rather than owning it, for the reason in the module
     /// documentation: there is one key space, and a table that owned a registry
     /// would be a second one.
+    ///
+    /// A hit — the common case, every re-read of an existing property —
+    /// allocates nothing: the hash is computed over the borrowed `text`
+    /// without collecting, and the bucket lookup borrows the already-owned
+    /// [`Str`] in `text` for the comparison. Only a genuine miss clones
+    /// `text`, because `text` needs an owned copy regardless of this change.
     pub fn intern(&mut self, text: &Str, registry: &mut KeyRegistry) -> Key {
-        let units: Vec<u16> = text.units().collect();
-        if let Some(existing) = self.keys.get(&units) {
-            return *existing;
+        let hash = units_hash(text);
+        if let Some(candidates) = self.keys.get(&hash) {
+            for candidate in candidates {
+                if self.text.get(candidate).is_some_and(|found| found.same_units(text)) {
+                    return *candidate;
+                }
+            }
         }
         let key = registry.declare_one();
-        self.keys.insert(units, key);
+        self.keys.entry(hash).or_default().push(key);
         self.text.insert(key, text.clone());
         key
     }

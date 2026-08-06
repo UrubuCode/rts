@@ -20,7 +20,7 @@
 //! and nothing else, which left `finally` and `using` with no cleanup they
 //! could be. None of the three rules depended on the block count.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use cranelift_codegen::ir::InstBuilder;
 use cranelift_frontend::FunctionBuilder;
@@ -133,9 +133,19 @@ impl Body<'_> {
     /// original reaches.
     fn cleanup_piece(&self, entry: BlockId) -> Result<Vec<BlockId>, LowerError> {
         let mut order = Vec::new();
+        // `seen` is a membership index beside `order`, not a replacement for
+        // it: `order.contains(&id)` was a linear scan of a `Vec` that grows
+        // with every block already collected, O(n^2) in the blocks of one
+        // cleanup — the same shape as `verify::rules::cleanup_piece`, which
+        // this mirrors and which carries the full measurement (60
+        // `try`/`finally`, 29.32 ms). Sound under rule 13 for the same reason
+        // as there: `order` is sorted below before it is ever read, so which
+        // order the worklist visited blocks in — and hash order along with
+        // it — is never observed.
+        let mut seen: HashSet<BlockId> = HashSet::new();
         let mut queue = vec![entry];
         while let Some(id) = queue.pop() {
-            if order.contains(&id) {
+            if !seen.insert(id) {
                 continue;
             }
             order.push(id);
@@ -230,12 +240,36 @@ impl Body<'_> {
         results: &[ValueId],
         local: &mut HashMap<ValueId, Value>,
     ) -> Result<(), LowerError> {
-        // Temporarily present this copy's values as the function's own, so that
-        // one emission path serves both. Restored afterwards, so a cleanup's
-        // values never leak into the code around it.
-        let saved: Vec<_> = local
-            .iter()
-            .map(|(&ours, &theirs)| (ours, self.values.insert(ours, theirs)))
+        // Only this instruction's own operands are staged into `self.values`,
+        // not the whole `local` map. `lower_inst` reads `self.values` by
+        // looking each operand up individually (`self.value(id)`) — it never
+        // iterates the map — so nothing beyond what this instruction actually
+        // names needs to be visible. The previous version copied every entry
+        // of `local` in and back out for every instruction lowered: O(locals x
+        // instructions) over a cleanup copy, where O(locals + instructions)
+        // is what the work requires. Measured on the language-layer side of
+        // this same shape: 60 `try`/`finally` cost 29.32 ms against 300
+        // `if`/`else` at 7.55 ms, roughly 4x the per-statement cost. The
+        // rejected alternative was swapping the whole map in and out once per
+        // cleanup copy (outside this function, around the whole piece); that
+        // is sound too, but it was not chosen because `local` grows across the
+        // copy as results are produced, so "once per copy" would still mean
+        // restoring entries this particular instruction never touched.
+        // Deduplicated first: an instruction like `x + x` names the same
+        // operand twice, and staging it twice would save the restore-value
+        // from the *first* staging as the "previous" value for the second —
+        // so restoring in order would overwrite the correct original value
+        // with the value this instruction saw. `seen` keeps one save/restore
+        // pair per distinct operand.
+        let mut seen = HashSet::new();
+        let saved: Vec<_> = inst
+            .operands()
+            .into_iter()
+            .filter(|operand| seen.insert(*operand))
+            .filter_map(|operand| {
+                let theirs = *local.get(&operand)?;
+                Some((operand, self.values.insert(operand, theirs)))
+            })
             .collect();
 
         let outcome = self.lower_inst(builder, id, inst, results);

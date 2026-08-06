@@ -112,6 +112,35 @@ impl Context {
         self.cells.at(Slot(slot)).ok()
     }
 
+    /// The key a string cell's text has, without copying that text.
+    ///
+    /// # Why this exists rather than `intern(text_at(cell))`
+    ///
+    /// Because that does not compile, and the shape it was written as instead
+    /// cost an allocation on every computed property access. `text_at` borrows
+    /// the whole context; `Interner::intern` needs the interner and the key
+    /// registry mutably. So the caller cloned the `Str` to break the borrow —
+    /// a full copy of the string's buffer, per access, discarded immediately.
+    ///
+    /// Written out as three **disjoint field** borrows, the borrow checker
+    /// accepts it: `cells` is read while `interner` and `keys` are written, and
+    /// they are different fields. That is the whole trick, and it is why this is
+    /// a method on the context rather than a helper beside the caller — only a
+    /// function that can name the fields can split them.
+    ///
+    /// `None` for a reference that is not a string, which is what makes the
+    /// caller fall through to the general conversion instead of guessing.
+    pub(super) fn key_of_text_cell(&mut self, reference: u32) -> Option<crate::object::Key> {
+        if self.region.type_of(reference)? as usize != self.text_type.index() {
+            return None;
+        }
+        let slot = self.region.field(reference, 0)? as u32;
+        let text = self.cells.at(Slot(slot)).ok()?;
+        Some(crate::object::Key::Name(
+            self.interner.intern(text, &mut self.keys),
+        ))
+    }
+
     /// Put a string on the heap and return the value naming it.
     pub fn intern_value(&mut self, text: Str) -> Value {
         let slot = self.cells.insert(text).slot();

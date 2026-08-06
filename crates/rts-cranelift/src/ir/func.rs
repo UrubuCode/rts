@@ -17,7 +17,13 @@ use crate::unwind::{RegionId, RegionTree};
 /// Multiple returns are expressible from the start. A signature model built
 /// around a single return has to be rebuilt the day a client needs more, and
 /// rebuilding an ABI is not a local change.
-#[derive(Clone, PartialEq, Eq, Debug, Default)]
+// `Hash` derived alongside the existing `PartialEq`/`Eq`: every field is
+// `Repr`, `Vec<Repr>`, `bool` or `Convention`, all of which derive `Hash`
+// themselves with no hand-written `PartialEq` anywhere in the chain, so the
+// derived `Hash` agrees with the derived `Eq` by construction. This is what
+// lets `FuncRegistry::declare_signature` index signatures by a `HashMap`
+// instead of scanning every signature interned so far (see its doc comment).
+#[derive(Clone, PartialEq, Eq, Debug, Default, Hash)]
 pub struct Signature {
     /// Parameter representations, in order.
     pub params: Vec<Repr>,

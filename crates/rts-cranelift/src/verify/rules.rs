@@ -4,7 +4,7 @@
 //! finds. They are kept separate so that a rule can be read, and argued with, on
 //! its own.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::error::VerifyError;
 use crate::ir::{BlockCall, BlockId, Function, Inst, InstId, Terminator, ValueId};
@@ -229,7 +229,15 @@ fn check_cleanups(func: &Function, errors: &mut Vec<VerifyError>) {
         // point that can unwind. Dominance in general would admit more, and
         // needs an analysis this does not have; the entry is the part of it
         // that is free and covers the case.
-        let mut defined: Vec<ValueId> = Vec::new();
+        // A `HashSet`, not a `Vec`: every use below is `.contains(&operand)` —
+        // membership only, never iterated to produce output — so rule 13 does
+        // not constrain this collection at all. It used to be a `Vec` probed
+        // with `.contains`, which is a linear scan repeated for every operand
+        // of every instruction in the piece: O(pieces x instructions x
+        // defined-values). The `try`/`finally` measurement (60 statements,
+        // 29.32 ms, ~4x the per-statement cost of 300 `if`/`else` at 7.55 ms)
+        // is this shape — a scan inside a loop that runs once per operand.
+        let mut defined: HashSet<ValueId> = HashSet::new();
         if let Some(data) = func.block(func.entry) {
             defined.extend(data.params.iter().copied());
             defined.extend(
@@ -312,9 +320,18 @@ fn check_cleanups(func: &Function, errors: &mut Vec<VerifyError>) {
 /// would then omit a block the original runs.
 fn cleanup_piece(func: &Function, entry: BlockId) -> Vec<BlockId> {
     let mut order = Vec::new();
+    // `seen` exists purely as a membership index alongside `order`: the
+    // worklist can revisit a block through more than one predecessor, and
+    // `order.contains(&id)` here was a linear scan of a `Vec` that grows with
+    // every block already collected — O(n^2) in the blocks of one cleanup.
+    // Safe as a `HashSet` under rule 13 because `order` is sorted below
+    // regardless of the order blocks were popped from the worklist in, so
+    // hash-iteration order is never observed — only `seen.contains` is used,
+    // never `seen`'s own iteration.
+    let mut seen: HashSet<BlockId> = HashSet::new();
     let mut queue = vec![entry];
     while let Some(id) = queue.pop() {
-        if order.contains(&id) || func.block(id).is_none() {
+        if !seen.insert(id) || func.block(id).is_none() {
             continue;
         }
         order.push(id);

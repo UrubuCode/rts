@@ -84,6 +84,36 @@ impl ObjectLayout {
     pub fn has_traced_fields(&self) -> bool {
         !self.traced_offsets.is_empty()
     }
+
+    /// Where a single field sits, without building the whole-object offset table.
+    ///
+    /// `FieldLoad` and `FieldStore` each want exactly one offset, once per
+    /// instruction lowered. `ObjectLayout::of` answers that by mapping every
+    /// field in the aggregate into a freshly allocated `Vec` and then indexing
+    /// into it once — for a hot path called per field access, that is an
+    /// allocation (two, counting `traced_offsets`, which this call never
+    /// touches) to read one integer.
+    ///
+    /// This reads the same registry number `of` would have shifted into that
+    /// `Vec` and shifts it the same way, with nothing collected around it. It
+    /// is not a second copy of the offset table — the offset itself still comes
+    /// from `AggregateLayout::field`, computed once at declaration; this only
+    /// skips building a throwaway container to hold one answer.
+    pub fn field_offset_of(ty: TypeId, types: &TypeRegistry, field: u32) -> Option<i32> {
+        types
+            .layout(ty)
+            .field(field as usize)
+            .map(|f| f.offset as i32 + HeaderLayout::BYTES as i32)
+    }
+
+    /// An object's total size, header included, without building the field or
+    /// traced-offset tables `ObjectLayout::of` computes alongside it.
+    ///
+    /// `Alloc` needs only the byte count to ask the heap for space — the two
+    /// `Vec`s `of` would also produce are dropped unread on that path.
+    pub fn size_of(ty: TypeId, types: &TypeRegistry) -> u32 {
+        HeaderLayout::BYTES + types.layout(ty).size
+    }
 }
 
 #[cfg(test)]

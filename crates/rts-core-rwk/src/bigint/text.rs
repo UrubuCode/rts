@@ -7,7 +7,7 @@
 //! quadratic with a constant nine times too large, and `to_decimal` is what a
 //! program calls to print.
 
-use super::arith::{mag_divrem_small, mag_mul_add_small};
+use super::div::{mag_divrem_small, mag_mul_add_small};
 use super::BigInt;
 
 /// The digit characters, in the order their values run.
