@@ -58,11 +58,13 @@
 //!
 //! # Not implemented, by name
 //!
-//! - **Every async/Promise/callback form** — `readFile`, `writeFile`,
-//!   `fs.promises.*`, `fsPromises.*`, every bare (non-`Sync`) top-level
-//!   function, `FileHandle` and all its methods. Blocked on the same
-//!   no-user-code-reentry limit as the module doc states; out of scope per
-//!   this task's own instructions.
+//! - **Every bare (non-`Sync`) top-level async/callback form** — `readFile`,
+//!   `writeFile`, and so on called directly off `fs` rather than
+//!   `fs.promises`. Blocked on the same no-user-code-reentry limit the module
+//!   doc states: a callback is user code a native cannot call back into.
+//!   `fs.promises.*`/`fsPromises.*` (including `FileHandle`, see
+//!   [`handle`]) do not have this problem — they settle a `Promise` rather
+//!   than invoke anything, which is ordinary data a native can build.
 //! - **`readSync`/`writeSync`'s five-positional-argument form**
 //!   (`readSync(fd, buffer, offset, length, position)`) — a member here has
 //!   four call slots at most; the options-object form
@@ -77,13 +79,14 @@
 //!   `Utf8Stream`** — stream classes with `EventEmitter` semantics, same
 //!   re-entry problem, and (for `Utf8Stream`) unverified even in Node itself
 //!   per the reference doc's own flag.
-//! - **`Dir`/`Dirent`/`opendirSync`/`globSync`** — `opendirSync` needs a
-//!   cursor object whose `readSync()` method advances hidden state across
-//!   calls; this module has no handle table for that (unlike the fd table
-//!   above, which only ever answers a fixed function, never a stateful
-//!   iterator method built at call time). `globSync` needs a pattern matcher
-//!   this crate does not own and was told not to add a dependency for.
-//!   `readdirSync` covers flat directory listing without either.
+//! - **`globSync`** — needs a glob-pattern matcher this crate does not own
+//!   and was told not to add a dependency for. `readdirSync`/`opendirSync`
+//!   cover directory listing without one.
+//!
+//! `Dir`/`Dirent`/`opendirSync` ARE implemented — see [`dir`] and [`dirent`]
+//! — now that [`rts_core_rwk::entry::make_prototype`]/`make_instance` give a
+//! host a real shared prototype; they were blocked on that, not on anything
+//! specific to a directory cursor.
 //! - **`utimesSync`, `lutimesSync`, `futimesSync`** — setting file times has
 //!   no `std::fs` API; only `libc`/a timestamp crate provides it, and this
 //!   module may not add a dependency (`Cargo.toml` is not owned by this
@@ -96,9 +99,8 @@
 //! - **`mkdtempDisposableSync`** — needs a `{ path, remove(), [Symbol.dispose]() }`
 //!   object whose `remove` is itself a bound closure over the generated path;
 //!   the value API's `make_callable` takes a bare `extern "C" fn` with no
-//!   captured state (see the same limit noted on `stat_sync`'s `is_file_answer`
-//!   pattern), so this cannot be built without a second per-call function per
-//!   path.
+//!   captured state, so this cannot be built without a second per-call
+//!   function per path.
 //! - **`openAsBlob`** — promise-only in Node, and needs a global `Blob` this
 //!   engine does not have.
 //! - **`fs.realpathSync.native`, `fs.F_OK`/`R_OK`/`W_OK`/`X_OK` top-level
@@ -110,8 +112,11 @@
 mod basic;
 mod bytes;
 mod constants;
+mod dir;
+mod dirent;
 mod dirs;
 mod fd;
+mod handle;
 mod links;
 mod promises;
 mod stats;
@@ -132,6 +137,7 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("rmSync", dirs::rm_sync),
         ("rmdirSync", dirs::rmdir_sync),
         ("readdirSync", dirs::readdir_sync),
+        ("opendirSync", dir::opendir_sync),
         ("mkdtempSync", dirs::mkdtemp_sync),
         ("cpSync", dirs::cp_sync),
         ("statSync", stats::stat_sync),

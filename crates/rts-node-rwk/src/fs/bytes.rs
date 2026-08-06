@@ -34,7 +34,7 @@ use rts_core_rwk::entry::{bytes_of, make_bytes, make_number, undefined_value, wi
 /// A numeric field off an options object, `None` when the object is absent,
 /// not an object, or does not carry the key — the same "absent" `option_flag`
 /// in the parent module already treats a missing options argument as.
-fn option_number(options: u64, name: &str) -> Option<f64> {
+pub(super) fn option_number(options: u64, name: &str) -> Option<f64> {
     let absent = undefined_value();
     if options == absent {
         return None;

@@ -32,6 +32,7 @@
 #![deny(dead_code)]
 
 pub mod assert;
+pub mod buffer;
 pub mod events;
 pub mod fs;
 pub mod os;
@@ -55,6 +56,7 @@ pub fn install(context: &mut Context) {
     let files = fs::namespace(context);
     for (name, namespace) in [
         ("assert", assert::namespace(context)),
+        ("buffer", buffer::namespace(context)),
         ("events", events::namespace(context)),
         ("fs", files),
         ("os", os::namespace(context)),

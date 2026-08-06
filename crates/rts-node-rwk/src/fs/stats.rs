@@ -1,116 +1,191 @@
-//! `statSync`/`lstatSync` — the `fs.Stats`-shaped objects built over
+//! `statSync`/`lstatSync` — `Stats` instances over one shared prototype and
 //! `std::fs::Metadata`.
 //!
 //! `fstatSync` (the fd-based form) lives in [`super::fd`] beside the fd table
 //! it needs, and calls [`build`] from here rather than duplicating it.
+//!
+//! # One prototype, not a closure per instance
+//!
+//! Every earlier version of this module hung `isFile`/`isDirectory`/
+//! `isSymbolicLink` directly on each instance as one of two statically
+//! distinct zero-argument natives, chosen by the boolean at build time — a
+//! [`Provided`] is a bare `extern "C" fn` with no captured-state slot, so a
+//! closure over a bool could not exist and two fixed functions stood in for
+//! one. That gave every `Stats` its OWN methods: `Object.keys(stats)` listed
+//! them, and two `Stats` objects shared no prototype under
+//! `Object.getPrototypeOf`.
+//!
+//! [`entry::make_prototype`]/[`entry::make_instance`] fix both: one object
+//! holds every predicate, made once and remembered by name, and each instance
+//! only carries its OWN data. The predicates read a hidden `__type` bitmask
+//! rather than a captured bool — the exact tagging [`super::dirent::type_bits`]
+//! computes, reused rather than re-derived, so a `Stats` and a `Dirent` built
+//! from the same `std::fs::FileType` never disagree about what it was.
+//!
+//! # `Date` fields: not built, named rather than approximated
+//!
+//! The reference doc lists `atime`/`mtime`/`ctime`/`birthtime` as `Date`
+//! objects alongside their `*Ms` millisecond twins. `rts_core_rwk::entry`
+//! exposes no constructor a host can call to build a `Date` value — the class
+//! exists (`crates/rts-core-rwk/src/entry/date/mod.rs`) but nothing in the
+//! host-facing surface this module was given reaches it. So only the `*Ms`
+//! numbers are built; the `Date` forms are refused BY NAME rather than stood
+//! in for with a plain object that merely looks like one.
+//!
+//! # Per-field honesty, not a plausible zero
+//!
+//! `dev`/`ino`/`mode`/`nlink`/`uid`/`gid`/`rdev`/`blksize`/`blocks` need
+//! `std::os::unix::fs::MetadataExt`, which exists only on Unix — on any other
+//! target every one of those is `undefined`, not `0`, because `0` is a
+//! legitimate device/inode number on some systems and would read as an
+//! answer rather than as "not available here". `ctimeMs` is the same story
+//! one field at a time: Unix has a real change time
+//! (`MetadataExt::ctime`/`ctime_nsec`); `std::fs::Metadata` has no
+//! cross-platform accessor for it at all, so it is `undefined` everywhere
+//! else. `atimeMs`/`mtimeMs`/`birthtimeMs` come from
+//! `Metadata::accessed`/`modified`/`created`, which exist on every target but
+//! answer `Err` where the underlying filesystem does not track that
+//! timestamp (Linux `birthtime` on some filesystems is the common case) —
+//! `undefined` there too, learned from the `Result` rather than guessed.
 
-use super::text;
+use rts_core_rwk::entry::{self, Context, Provided};
 
-/// `fs.statSync(path)` — an object with `size`, `isFile()`, `isDirectory()`,
-/// `isSymbolicLink()`. Follows a symlink at the final component, matching
-/// Node.
-///
-/// `undefined` on failure.
-pub(super) extern "C" fn stat_sync(_e: u64, _this: u64, path: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(path) = text(path) else {
-        return rts_core_rwk::entry::undefined_value();
-    };
-    let Ok(metadata) = std::fs::metadata(&path) else {
-        return rts_core_rwk::entry::undefined_value();
-    };
-    build(&metadata, false)
+use super::dirent::type_bits;
+
+const METHODS: &[(&str, Provided)] = &[
+    ("isFile", is_file),
+    ("isDirectory", is_directory),
+    ("isSymbolicLink", is_symbolic_link),
+    ("isBlockDevice", is_block_device),
+    ("isCharacterDevice", is_character_device),
+    ("isFIFO", is_fifo),
+    ("isSocket", is_socket),
+];
+
+fn type_of(this: u64) -> u32 {
+    let value = entry::get_indexed(this, super::string("__type"));
+    entry::number_of(value).unwrap_or(0.0) as u32
 }
 
-/// `fs.lstatSync(path)` — identical to `statSync` except it does not follow
-/// a symlink at the final path component (reports the link itself).
+macro_rules! predicate {
+    ($name:ident, $bit:expr) => {
+        extern "C" fn $name(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+            entry::boolean_value(type_of(this) & $bit != 0)
+        }
+    };
+}
+predicate!(is_file, super::dirent::TYPE_FILE);
+predicate!(is_directory, super::dirent::TYPE_DIR);
+predicate!(is_symbolic_link, super::dirent::TYPE_SYMLINK);
+predicate!(is_block_device, super::dirent::TYPE_BLOCK);
+predicate!(is_character_device, super::dirent::TYPE_CHAR);
+predicate!(is_fifo, super::dirent::TYPE_FIFO);
+predicate!(is_socket, super::dirent::TYPE_SOCKET);
+
+/// `fs.statSync(path)`. `undefined` on failure. Follows a symlink at the
+/// final component, matching Node.
+pub(super) extern "C" fn stat_sync(_e: u64, _this: u64, path: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let Some(path) = super::text(path) else {
+        return entry::undefined_value();
+    };
+    let Ok(metadata) = std::fs::metadata(&path) else {
+        return entry::undefined_value();
+    };
+    build(&metadata)
+}
+
+/// `fs.lstatSync(path)` — identical to `statSync` except it does not follow a
+/// symlink at the final path component (reports the link itself).
 pub(super) extern "C" fn lstat_sync(_e: u64, _this: u64, path: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let Some(path) = text(path) else {
-        return rts_core_rwk::entry::undefined_value();
+    let Some(path) = super::text(path) else {
+        return entry::undefined_value();
     };
     let Ok(metadata) = std::fs::symlink_metadata(&path) else {
-        return rts_core_rwk::entry::undefined_value();
+        return entry::undefined_value();
     };
-    let is_symlink = metadata.is_symlink();
-    build(&metadata, is_symlink)
+    build(&metadata)
+}
+
+/// A `SystemTime` result as milliseconds since the epoch, `None` when the
+/// platform/filesystem could not answer it (`Err`) or when it predates 1970
+/// (`duration_since` fails the same way).
+fn ms_of(result: std::io::Result<std::time::SystemTime>) -> Option<f64> {
+    let time = result.ok()?;
+    let elapsed = time.duration_since(std::time::UNIX_EPOCH).ok()?;
+    Some(elapsed.as_secs_f64() * 1000.0)
+}
+
+#[cfg(unix)]
+fn unix_numeric(metadata: &std::fs::Metadata) -> [(&'static str, f64); 9] {
+    use std::os::unix::fs::MetadataExt;
+    [
+        ("dev", metadata.dev() as f64),
+        ("ino", metadata.ino() as f64),
+        ("mode", metadata.mode() as f64),
+        ("nlink", metadata.nlink() as f64),
+        ("uid", metadata.uid() as f64),
+        ("gid", metadata.gid() as f64),
+        ("rdev", metadata.rdev() as f64),
+        ("blksize", metadata.blksize() as f64),
+        ("blocks", metadata.blocks() as f64),
+    ]
+}
+
+#[cfg(unix)]
+fn ctime_ms(metadata: &std::fs::Metadata) -> Option<f64> {
+    use std::os::unix::fs::MetadataExt;
+    Some(metadata.ctime() as f64 * 1000.0 + metadata.ctime_nsec() as f64 / 1_000_000.0)
+}
+
+#[cfg(not(unix))]
+fn ctime_ms(_metadata: &std::fs::Metadata) -> Option<f64> {
+    None
 }
 
 /// The `Stats`-shaped object every stat-family member answers.
-///
-/// `size` is a NUMBER, which it was not for the length of one review: the
-/// host-facing surface had no numeric constructor, so the first version of
-/// this answered a decimal string and said so rather than smuggling a byte
-/// count through as some other type. `make_number` exists because of that
-/// report — the gap was in the API this module was given, not in the module.
-///
-/// `dev`/`ino`/`mode`/`nlink`/`uid`/`gid`/`rdev`/`blksize`/`blocks` and every
-/// `*Ms`/`*Ns`/`Date` time field from the reference doc are NOT built: they
-/// need `std::os::unix::fs::MetadataExt`/`std::os::windows::fs::MetadataExt`
-/// behind a `cfg` this module did not add given everything else still on the
-/// "not implemented" list, and a `Date` value this value API has no
-/// constructor for. `size`/`isFile`/`isDirectory`/`isSymbolicLink` are the
-/// subset every earlier version of this module already answered.
-pub(super) fn build(metadata: &std::fs::Metadata, is_symlink: bool) -> u64 {
-    let is_file = metadata.is_file();
-    let is_dir = metadata.is_dir();
-    let size = metadata.len();
-    rts_core_rwk::entry::with_runtime(|context| {
-        let stats = rts_core_rwk::entry::make_object(context);
-        let size_value = rts_core_rwk::entry::make_number(size as f64);
-        rts_core_rwk::entry::put_member(context, stats, "size", size_value);
-        let is_file_fn = rts_core_rwk::entry::make_callable(context, is_file_answer(is_file));
-        rts_core_rwk::entry::put_member(context, stats, "isFile", is_file_fn);
-        let is_dir_fn = rts_core_rwk::entry::make_callable(context, is_dir_answer(is_dir));
-        rts_core_rwk::entry::put_member(context, stats, "isDirectory", is_dir_fn);
-        let is_symlink_fn = rts_core_rwk::entry::make_callable(context, is_symlink_answer(is_symlink));
-        rts_core_rwk::entry::put_member(context, stats, "isSymbolicLink", is_symlink_fn);
+pub(super) fn build(metadata: &std::fs::Metadata) -> u64 {
+    let bits = type_bits(metadata.file_type());
+    let size = metadata.len() as f64;
+    let atime_ms = ms_of(metadata.accessed());
+    let mtime_ms = ms_of(metadata.modified());
+    let birthtime_ms = ms_of(metadata.created());
+    let ctime_ms = ctime_ms(metadata);
+    #[cfg(unix)]
+    let numeric: &[(&str, f64)] = &unix_numeric(metadata);
+    #[cfg(not(unix))]
+    let numeric: &[(&str, f64)] = &[];
+    const UNIX_ONLY: &[&str] = &["dev", "ino", "mode", "nlink", "uid", "gid", "rdev", "blksize", "blocks"];
+
+    entry::with_runtime(|context| {
+        let prototype = entry::make_prototype(context, "Stats", METHODS);
+        let stats = entry::make_instance(context, prototype);
+        let type_value = entry::make_number(bits as f64);
+        entry::put_member(context, stats, "__type", type_value);
+        let size_value = entry::make_number(size);
+        entry::put_member(context, stats, "size", size_value);
+        set_number(context, stats, "atimeMs", atime_ms);
+        set_number(context, stats, "mtimeMs", mtime_ms);
+        set_number(context, stats, "ctimeMs", ctime_ms);
+        set_number(context, stats, "birthtimeMs", birthtime_ms);
+        for &(name, value) in numeric {
+            let field = entry::make_number(value);
+            entry::put_member(context, stats, name, field);
+        }
+        #[cfg(not(unix))]
+        for name in UNIX_ONLY {
+            let undef = entry::undefined_in(context);
+            entry::put_member(context, stats, name, undef);
+        }
+        #[cfg(unix)]
+        let _ = UNIX_ONLY;
         stats
     })
 }
 
-/// Picks the zero-argument native that answers a fixed `isFile()` result.
-///
-/// Two functions rather than one closing over a captured bool: a
-/// `Provided`/`Native` here is a bare `extern "C" fn`, with no room for
-/// captured state, so the two possible answers are two statically distinct
-/// functions instead.
-fn is_file_answer(value: bool) -> rts_core_rwk::entry::Provided {
-    match value {
-        true => is_file_true,
-        false => is_file_false,
-    }
-}
-
-/// Picks the zero-argument native that answers a fixed `isDirectory()` result.
-fn is_dir_answer(value: bool) -> rts_core_rwk::entry::Provided {
-    match value {
-        true => is_dir_true,
-        false => is_dir_false,
-    }
-}
-
-/// Picks the zero-argument native that answers a fixed `isSymbolicLink()` result.
-fn is_symlink_answer(value: bool) -> rts_core_rwk::entry::Provided {
-    match value {
-        true => is_symlink_true,
-        false => is_symlink_false,
-    }
-}
-
-extern "C" fn is_file_true(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    rts_core_rwk::entry::boolean_value(true)
-}
-extern "C" fn is_file_false(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    rts_core_rwk::entry::boolean_value(false)
-}
-extern "C" fn is_dir_true(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    rts_core_rwk::entry::boolean_value(true)
-}
-extern "C" fn is_dir_false(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    rts_core_rwk::entry::boolean_value(false)
-}
-extern "C" fn is_symlink_true(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    rts_core_rwk::entry::boolean_value(true)
-}
-extern "C" fn is_symlink_false(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    rts_core_rwk::entry::boolean_value(false)
+fn set_number(context: &mut Context, object: u64, name: &str, value: Option<f64>) {
+    let field = match value {
+        Some(value) => entry::make_number(value),
+        None => entry::undefined_in(context),
+    };
+    entry::put_member(context, object, name, field);
 }

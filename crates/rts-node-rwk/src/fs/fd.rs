@@ -119,7 +119,7 @@ pub(super) extern "C" fn fstat_sync(_e: u64, _this: u64, fd: u64, _a1: u64, _a2:
     };
     let metadata = with_table(|table| table.get(&(fd as i64)).and_then(|file| file.metadata().ok()));
     match metadata {
-        Some(metadata) => super::stats::build(&metadata, false),
+        Some(metadata) => super::stats::build(&metadata),
         None => rts_core_rwk::entry::undefined_value(),
     }
 }

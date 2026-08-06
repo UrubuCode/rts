@@ -448,3 +448,18 @@ pub fn make_instance(context: &mut Context, prototype: u64) -> u64 {
     }
     instance
 }
+
+/// Whether a value is an object a host can hang a property on.
+///
+/// What a constructor asks to tell `new C()` from `C()`: the first hands over an
+/// object already linked to the class's prototype, the second hands over
+/// `undefined`.
+///
+/// Takes the context rather than reaching for it, because a constructor asks
+/// this from inside `with_runtime` — where the ambient form is a nested borrow
+/// and therefore an abort.
+pub fn is_object(context: &Context, value: u64) -> bool {
+    Value(value)
+        .as_slot()
+        .is_some_and(|cell| context.region.type_of(cell).is_some())
+}

@@ -96,7 +96,7 @@ pub use iterate::{array_append, array_append_all, iterate};
 pub use modules::{
     Provided, boolean_value, declare_global, declare_module, get_member, make_array, make_array_in, make_callable,
     make_namespace, make_number, make_object, make_string,
-    bytes_of, is_array, make_bytes, make_instance, make_prototype, module_binding, module_namespace, null_value, number_of,
+    bytes_of, is_array, is_object, make_bytes, make_instance, make_prototype, module_binding, module_namespace, null_value, number_of,
     put_member, text_in, write_bytes,
     text_of, undefined_in, undefined_value, with_runtime,
 };

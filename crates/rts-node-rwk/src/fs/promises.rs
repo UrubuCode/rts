@@ -58,12 +58,13 @@
 
 use rts_core_rwk::entry::{settled, undefined_in, Context, Provided};
 
-use super::{basic, dirs, links, stats};
+use super::{basic, dirs, handle, links, stats};
 
 /// The namespace `fs.promises` is. Not registered as `node:fs/promises` here
 /// — that specifier is the coordinator's line in `lib.rs`.
 pub(crate) fn namespace(context: &mut Context) -> u64 {
     let members: &[(&str, Provided)] = &[
+        ("open", handle::open),
         ("readFile", read_file),
         ("writeFile", write_file),
         ("appendFile", append_file),

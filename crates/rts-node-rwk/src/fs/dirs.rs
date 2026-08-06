@@ -47,27 +47,39 @@ pub(super) extern "C" fn rmdir_sync(_e: u64, _this: u64, path: u64, _a1: u64, _a
     rts_core_rwk::entry::undefined_value()
 }
 
-/// `fs.readdirSync(path)` — an array of entry names.
+/// `fs.readdirSync(path, { withFileTypes })` — an array of entry names, or of
+/// [`super::dirent`] objects when `withFileTypes` is set.
 ///
 /// `undefined` on failure, matching `readFileSync`'s stand-in rather than an
 /// empty array: a missing directory and an empty one must not read the same.
 ///
-/// `withFileTypes`/`recursive` are not read from `options` — the first needs
-/// `Dirent` objects this module does not build (see the module doc), and
-/// this is the plain flat-name form Node calls the default.
-pub(super) extern "C" fn readdir_sync(_e: u64, _this: u64, path: u64, _options: u64, _a2: u64, _a3: u64) -> u64 {
+/// `recursive` is not read from `options` — this is the flat single-level
+/// listing Node calls the default.
+pub(super) extern "C" fn readdir_sync(_e: u64, _this: u64, path: u64, options: u64, _a2: u64, _a3: u64) -> u64 {
     let Some(path) = text(path) else {
         return rts_core_rwk::entry::undefined_value();
     };
-    match std::fs::read_dir(&path) {
-        Ok(entries) => {
-            let names: Vec<u64> = entries
-                .filter_map(|entry| entry.ok())
-                .map(|entry| string(&entry.file_name().to_string_lossy()))
-                .collect();
-            rts_core_rwk::entry::make_array(names)
-        }
-        Err(_) => rts_core_rwk::entry::undefined_value(),
+    let with_file_types = option_flag(options, "withFileTypes");
+    let Ok(entries) = std::fs::read_dir(&path) else {
+        return rts_core_rwk::entry::undefined_value();
+    };
+    let items: Vec<_> = entries.filter_map(|entry| entry.ok()).collect();
+    if with_file_types {
+        let dirents = rts_core_rwk::entry::with_runtime(|context| {
+            items
+                .into_iter()
+                .map(|entry| {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    let bits = entry.file_type().map(super::dirent::type_bits).unwrap_or(0);
+                    super::dirent::build(context, &name, &path, bits)
+                })
+                .collect::<Vec<_>>()
+        });
+        rts_core_rwk::entry::make_array(dirents)
+    } else {
+        let names: Vec<u64> =
+            items.into_iter().map(|entry| string(&entry.file_name().to_string_lossy())).collect();
+        rts_core_rwk::entry::make_array(names)
     }
 }
 
