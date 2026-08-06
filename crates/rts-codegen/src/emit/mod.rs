@@ -81,7 +81,8 @@ mod unary;
 
 pub use expr::emit_expr;
 pub use loops::Loops;
-pub use proven::{Numeric, analyse};
+pub use proven::Numeric;
+use proven::analyse;
 pub use scope::Scope;
 pub use stmt::emit_stmt;
 

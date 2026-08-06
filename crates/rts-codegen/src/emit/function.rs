@@ -233,14 +233,23 @@ pub(super) fn emit_body(
     // emission because it is a fact about ONE body, and a nested function
     // emitted in the middle of an outer one would otherwise be read against the
     // outer's answers.
-    let outer_numeric = std::mem::replace(&mut ctx.numeric, super::analyse(body));
-    // The same lifetime, and it takes `captured` because which names nested code
-    // can see is decided once — recomputing it here would be a second chance to
-    // say "not captured" about a local a closure holds.
-    let outer_flattened = std::mem::replace(
-        &mut ctx.flattened,
-        super::escape::analyse(body, parameters, &captured),
-    );
+    // Escape first, because what it replaces changes what there is to prove: a
+    // replaced object has no binding of its own, and its properties have
+    // bindings the source never named. It takes `captured` because which names
+    // nested code can see is decided once — recomputing it here would be a
+    // second chance to say "not captured" about a local a closure holds.
+    let flattened = super::escape::analyse(body, parameters, &captured);
+    let mut numeric = super::analyse(body, &flattened);
+    // The properties are proved as `(object, key)` pairs, because `proven` has
+    // no `Ctx` to mint a name from. Minting them here rather than there keeps
+    // the interning out of a loop that runs to convergence.
+    numeric.name_fields(|object, property| super::escape::field_name(ctx, object, property));
+
+    // Both saved and restored around the emission because each is a fact about
+    // ONE body, and a nested function emitted in the middle of an outer one
+    // would otherwise be read against the outer's answers.
+    let outer_numeric = std::mem::replace(&mut ctx.numeric, numeric);
+    let outer_flattened = std::mem::replace(&mut ctx.flattened, flattened);
 
     let result = emit_body_into(
         ctx,

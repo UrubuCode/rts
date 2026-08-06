@@ -155,6 +155,14 @@ fn escaping() {
         6,
         &program_of(400, "let t = 0; let i = 1;", "t = t + i + i;"),
     );
+    // What the replaced program SHOULD cost: the same block, the same two
+    // declarations, written without an object. The distance between this row
+    // and the next is the whole of what replacement still leaves behind, and it
+    // is here because that distance was once 42 ms of it — the flattened names
+    // were invisible to `proven.rs`, so every operator on one fell back to the
+    // generic call.
+    timed("two plain locals (the target)", 6, &numbered(400,
+        "let t = 0; let i = 1;", "{ let a# = i; let b# = i; t = t + a# + b#; }"));
     timed("object, never escapes", 6, &numbered(400,
         "let t = 0; let i = 1;", "{ let o# = {a: i, b: i}; t = t + o#.a + o#.b; }"));
     // A value that is neither a literal nor a bare name. This was refused, and

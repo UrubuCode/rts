@@ -87,6 +87,40 @@ check("computed-values", computed.a + computed.b + computed.c === 41);
 // keep: `Escaping::declaring`, pinned by two unit tests in `escape.rs`. When the
 // dead zone lands, replacement will already be out of its way.
 
+// -- what a replaced property is proved to hold ------------------------------
+
+// A replaced property is proved numeric like any local, which is what makes the
+// arithmetic on it an instruction instead of a runtime call. The hazard is the
+// same one `proven.rs` names: a wrong answer is not slow code, it is `arith` on
+// a string. Every check here is a property the proof must NOT be given.
+let s = {a: "x", b: "y"};
+check("string-concat", s.a + s.b === "xy");
+
+let mix = {n: 1, t: "u"};
+check("mixed-concat", mix.n + mix.t === "1u");
+
+// Numeric at the declaration and a string later. The store has to take the
+// proof away, or the `+` below is an addition of two pointers.
+let turned = {a: 1};
+turned.a = "z";
+check("turned-string", turned.a + turned.a === "zz");
+
+// The reverse: a string first, so nothing was ever proved.
+let began = {a: "z"};
+began.a = 1;
+check("turned-number", began.a + began.a === 2);
+
+// A property whose value is a call the compiler cannot see into.
+function opaque() { return "q"; }
+let called = {a: opaque()};
+check("opaque-value", called.a + "!" === "q!");
+
+// Booleans and undefined are not numbers either, and `+` on them is not
+// addition.
+let odd = {a: true, b: undefined};
+check("boolean-value", odd.a + "" === "true");
+check("undefined-value", odd.b === undefined);
+
 // -- the same programs, escaping ---------------------------------------------
 
 let h = keep({x: 1, y: 2});

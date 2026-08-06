@@ -120,7 +120,7 @@ use crate::syntax::{
 /// what makes a collision with `p["o.a"]` impossible rather than merely
 /// unlikely, and it follows the spelling `binding::OUTER` already uses for a
 /// name the compiler invents.
-const MARKER: &str = "__rts_flat.";
+pub(super) const MARKER: &str = "__rts_flat.";
 
 /// The locals a function body holds an object in and never lets escape.
 #[derive(Default, Debug)]
@@ -655,7 +655,7 @@ fn scan_expr(expr: &Expr, depth: u32, state: &mut Escaping, allow_member: bool) 
 /// Minted through `Names` like any other, so the rest of the emitter cannot tell
 /// it from a name the program wrote — which is the point: it merges, shadows and
 /// stores by the same rules.
-fn field_name(ctx: &mut Ctx, object: Name, property: Name) -> Name {
+pub(super) fn field_name(ctx: &mut Ctx, object: Name, property: Name) -> Name {
     let text = format!(
         "{MARKER}{}.{}",
         ctx.names.text(object),

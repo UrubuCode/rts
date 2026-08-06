@@ -40,19 +40,58 @@
 //! result of a call, a property, a captured local. Each is a claim this pass has
 //! no evidence for, and a wrong answer here is not slow code — it is `arith` on
 //! a string.
+//!
+//! # The one property it does prove, and why that is not an exception
+//!
+//! A property [`super::escape`] replaced. `let o = {a: 1}` with `o` proved not
+//! to escape leaves no object and no property — it leaves a binding, and every
+//! store to it is in this body where this pass can see it. So it is proved as
+//! `(o, a)` rather than as `o`, and named once at the end.
+//!
+//! This is not a softening of the rule above; a replaced property is not a
+//! property. The rule is unchanged for every object that survives, and it is
+//! `escape.rs` that decides which those are.
+//!
+//! It also has to be able to take the proof BACK: `let o = {a: 1}; o.a = "x";`
+//! must not leave `(o, a)` proved. That is the same shape as the assignment
+//! rule for a local, applied to the same fixpoint.
+//!
+//! Leaving it out cost the whole of what scalar replacement had bought.
+//! Measured 2026-08-06, release, 400 statements: the replaced program compiled
+//! in 49.05 ms against 5.82 ms for the same program written with two plain
+//! locals, because every operator on a replaced property was widened at its
+//! store and fell back to the generic call. With this, 7.11 ms.
 
 use std::collections::HashSet;
 
+use super::escape::Flattened;
 use crate::names::Name;
 use crate::syntax::{
-    AssignOp, AssignTarget, BinaryOp, Expr, ExprKind, ForInit, Literal, Pattern, Stmt, StmtKind,
+    AssignOp, AssignTarget, BinaryOp, Expr, ExprKind, ForInit, Literal, Pattern, Property,
+    PropertyKey, Stmt, StmtKind,
     UnaryOp,
 };
 
 /// The locals a function body only ever puts numbers in.
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct Numeric {
     names: HashSet<Name>,
+    /// The replaced object properties, before they have names.
+    ///
+    /// # Why these are pairs and not names
+    ///
+    /// A replaced property is a binding like any other and wants to be proved
+    /// like any other — otherwise `«o.a»` is widened at its store and `t + o.a`
+    /// is the generic operator with a runtime call under it, which measured as
+    /// the whole of what scalar replacement was leaving on the table.
+    ///
+    /// But its name does not exist yet. `escape::field_name` mints it from
+    /// `ctx.names`, and this pass has no `Ctx` — deliberately, since taking one
+    /// would let a fixpoint that runs to convergence intern on every round.
+    /// So the proof is carried on `(object, key)`, which the tree already
+    /// spells, and [`Numeric::name_fields`] turns the survivors into names once
+    /// at the end.
+    fields: HashSet<(Name, Name)>,
 }
 
 impl Numeric {
@@ -61,9 +100,33 @@ impl Numeric {
         self.names.contains(&name)
     }
 
+    /// Whether a replaced property is known to hold a number.
+    fn field_holds_number(&self, object: Name, property: Name) -> bool {
+        self.fields.contains(&(object, property))
+    }
+
+    /// Mints a name for every proved property and adopts it as an ordinary one.
+    ///
+    /// After this the rest of the emitter cannot tell a replaced property from a
+    /// local the program declared, which is the same reason `escape.rs` mints
+    /// through `Names` rather than inventing a second kind of binding.
+    pub fn name_fields(&mut self, mut name_of: impl FnMut(Name, Name) -> Name) {
+        for (object, property) in std::mem::take(&mut self.fields) {
+            let name = name_of(object, property);
+            self.names.insert(name);
+        }
+    }
+
     /// How many were proved. For tests and for saying what a pass achieved.
     pub fn len(&self) -> usize {
         self.names.len()
+    }
+
+    /// Everything still standing, whether or not it has a name yet. The
+    /// fixpoint's measure of progress, which has to count both or a round that
+    /// only dropped properties would look like convergence.
+    fn total(&self) -> usize {
+        self.names.len() + self.fields.len()
     }
 
     /// Whether nothing was proved.
@@ -73,73 +136,89 @@ impl Numeric {
 }
 
 /// Proves what can be proved about a function body's locals.
-pub fn analyse(body: &[Stmt]) -> Numeric {
+///
+/// `flattened` is [`super::escape`]'s answer, so a local it replaced is proved
+/// as its properties rather than as itself: `let o = {a: 1}` puts `(o, a)` in
+/// and never `o`, because after replacement there is no binding called `o` for
+/// a proof about it to describe.
+pub(super) fn analyse(body: &[Stmt], flattened: &Flattened) -> Numeric {
     // Optimistic start: everything declared with an initialiser that could be
     // numeric. A declaration with no initialiser is `undefined`, which is not a
     // number, so it never enters.
-    let mut candidates = HashSet::new();
+    let mut candidates = Numeric::default();
     for statement in body {
-        collect_candidates(statement, &mut candidates);
+        collect_candidates(statement, flattened, &mut candidates);
     }
 
     // Shrink until stable. Each round asks the same question with a smaller set,
     // so a local removed can remove the ones that depended on it.
     loop {
         let mut surviving = candidates.clone();
-        let known = Numeric {
-            names: candidates.clone(),
-        };
         for statement in body {
-            keep_only_numeric(statement, &known, &mut surviving);
+            keep_only_numeric(statement, flattened, &candidates, &mut surviving);
         }
-        if surviving.len() == candidates.len() {
-            return Numeric { names: surviving };
+        if surviving.total() == candidates.total() {
+            return surviving;
         }
         candidates = surviving;
     }
 }
 
 /// Every local declared with an initialiser, as a candidate.
-fn collect_candidates(statement: &Stmt, into: &mut HashSet<Name>) {
+fn collect_candidates(statement: &Stmt, flattened: &Flattened, into: &mut Numeric) {
     match &statement.kind {
         StmtKind::Declare { bindings, .. } => {
             for binding in bindings {
                 if let (Pattern::Name(name), Some(_)) = (&binding.target, &binding.value) {
-                    into.insert(*name);
+                    match flattened.properties(*name) {
+                        // Replaced, so what exists afterwards is one binding per
+                        // key and the name itself is gone.
+                        Some(keys) => {
+                            for key in keys {
+                                into.fields.insert((*name, *key));
+                            }
+                        }
+                        None => {
+                            into.names.insert(*name);
+                        }
+                    }
                 }
             }
         }
         StmtKind::Block(body) => body
             .iter()
-            .for_each(|inner| collect_candidates(inner, into)),
+            .for_each(|inner| collect_candidates(inner, flattened, into)),
         StmtKind::If {
             then_branch,
             else_branch,
             ..
         } => {
-            collect_candidates(then_branch, into);
+            collect_candidates(then_branch, flattened, into);
             if let Some(otherwise) = else_branch {
-                collect_candidates(otherwise, into);
+                collect_candidates(otherwise, flattened, into);
             }
         }
         StmtKind::While { body, .. } | StmtKind::DoWhile { body, .. } => {
-            collect_candidates(body, into)
+            collect_candidates(body, flattened, into)
         }
         StmtKind::For { init, body, .. } => {
             if let Some(ForInit::Declare { bindings, .. }) = init {
                 for binding in bindings {
                     if let (Pattern::Name(name), Some(_)) = (&binding.target, &binding.value) {
-                        into.insert(*name);
+                        // Never a replaced object: `escape::collect` only makes
+                        // a candidate of a `StmtKind::Declare`, and a `for`'s
+                        // initialiser is a `ForInit`.
+                        into.names.insert(*name);
                     }
                 }
             }
-            collect_candidates(body, into);
+            collect_candidates(body, flattened, into);
         }
-        StmtKind::Labelled { body, .. } => collect_candidates(body, into),
+        StmtKind::Labelled { body, .. } => collect_candidates(body, flattened, into),
         StmtKind::Switch { clauses, .. } => {
             for clause in clauses {
                 for inner in &clause.body {
-                    collect_candidates(inner, into);
+                    collect_candidates(inner, flattened, into);
                 }
             }
         }
@@ -147,52 +226,80 @@ fn collect_candidates(statement: &Stmt, into: &mut HashSet<Name>) {
             // The target is deliberately NOT a candidate: what it holds is a
             // key, and `for-in` yields strings even for array indices. Adding
             // it would claim a representation the loop never produces.
-            collect_candidates(body, into);
+            collect_candidates(body, flattened, into);
         }
         _ => {}
     }
 }
 
 /// Removes any candidate this statement puts something non-numeric into.
-fn keep_only_numeric(statement: &Stmt, known: &Numeric, surviving: &mut HashSet<Name>) {
+fn keep_only_numeric(
+    statement: &Stmt,
+    flattened: &Flattened,
+    known: &Numeric,
+    surviving: &mut Numeric,
+) {
     match &statement.kind {
         StmtKind::Declare { bindings, .. } => {
             for binding in bindings {
-                if let Pattern::Name(name) = &binding.target {
-                    let numeric = binding
-                        .value
-                        .as_ref()
-                        .is_some_and(|value| is_numeric(value, known));
-                    if !numeric {
-                        surviving.remove(name);
+                let Pattern::Name(name) = &binding.target else {
+                    continue;
+                };
+                // A replaced object is proved key by key against its literal's
+                // own values, which is the same rule one level down: the
+                // initialiser of `«o.a»` is what the literal wrote at `a`.
+                if flattened.properties(*name).is_some()
+                    && let Some(Expr {
+                        kind: ExprKind::Object { properties },
+                        ..
+                    }) = &binding.value
+                {
+                    for property in properties {
+                        if let Property::Value {
+                            key: PropertyKey::Named(key),
+                            value,
+                            ..
+                        } = property
+                            && !is_numeric(value, known)
+                        {
+                            surviving.fields.remove(&(*name, *key));
+                        }
                     }
+                    continue;
+                }
+                let numeric = binding
+                    .value
+                    .as_ref()
+                    .is_some_and(|value| is_numeric(value, known));
+                if !numeric {
+                    surviving.names.remove(name);
                 }
             }
         }
         StmtKind::Expr(expr) | StmtKind::Return(Some(expr)) | StmtKind::Throw(expr) => {
-            check_expr(expr, known, surviving)
+            check_expr(expr, flattened, known, surviving)
         }
         StmtKind::Block(body) => body
             .iter()
-            .for_each(|inner| keep_only_numeric(inner, known, surviving)),
+            .for_each(|inner| keep_only_numeric(inner, flattened, known, surviving)),
         StmtKind::If {
             condition,
             then_branch,
             else_branch,
         } => {
-            check_expr(condition, known, surviving);
-            keep_only_numeric(then_branch, known, surviving);
+            check_expr(condition, flattened, known, surviving);
+            keep_only_numeric(then_branch, flattened, known, surviving);
             if let Some(otherwise) = else_branch {
-                keep_only_numeric(otherwise, known, surviving);
+                keep_only_numeric(otherwise, flattened, known, surviving);
             }
         }
         StmtKind::While { condition, body } => {
-            check_expr(condition, known, surviving);
-            keep_only_numeric(body, known, surviving);
+            check_expr(condition, flattened, known, surviving);
+            keep_only_numeric(body, flattened, known, surviving);
         }
         StmtKind::DoWhile { body, condition } => {
-            keep_only_numeric(body, known, surviving);
-            check_expr(condition, known, surviving);
+            keep_only_numeric(body, flattened, known, surviving);
+            check_expr(condition, flattened, known, surviving);
         }
         StmtKind::For {
             init,
@@ -209,34 +316,34 @@ fn keep_only_numeric(statement: &Stmt, known: &Numeric, surviving: &mut HashSet<
                                 .as_ref()
                                 .is_some_and(|value| is_numeric(value, known));
                             if !numeric {
-                                surviving.remove(name);
+                                surviving.names.remove(name);
                             }
                         }
                     }
                 }
-                Some(ForInit::Expr(expr)) => check_expr(expr, known, surviving),
+                Some(ForInit::Expr(expr)) => check_expr(expr, flattened, known, surviving),
                 None => {}
             }
             if let Some(test) = test {
-                check_expr(test, known, surviving);
+                check_expr(test, flattened, known, surviving);
             }
             if let Some(update) = update {
-                check_expr(update, known, surviving);
+                check_expr(update, flattened, known, surviving);
             }
-            keep_only_numeric(body, known, surviving);
+            keep_only_numeric(body, flattened, known, surviving);
         }
-        StmtKind::Labelled { body, .. } => keep_only_numeric(body, known, surviving),
+        StmtKind::Labelled { body, .. } => keep_only_numeric(body, flattened, known, surviving),
         StmtKind::Switch {
             discriminant,
             clauses,
         } => {
-            check_expr(discriminant, known, surviving);
+            check_expr(discriminant, flattened, known, surviving);
             for clause in clauses {
                 if let Some(test) = &clause.test {
-                    check_expr(test, known, surviving);
+                    check_expr(test, flattened, known, surviving);
                 }
                 for inner in &clause.body {
-                    keep_only_numeric(inner, known, surviving);
+                    keep_only_numeric(inner, flattened, known, surviving);
                 }
             }
         }
@@ -246,7 +353,7 @@ fn keep_only_numeric(statement: &Stmt, known: &Numeric, surviving: &mut HashSet<
             body,
             ..
         } => {
-            check_expr(subject, known, surviving);
+            check_expr(subject, flattened, known, surviving);
             // A `for-in` target holds a STRING, so a name it writes to is not
             // numeric however it was declared.
             if let crate::syntax::ForEachTarget::Declare {
@@ -254,19 +361,24 @@ fn keep_only_numeric(statement: &Stmt, known: &Numeric, surviving: &mut HashSet<
                 ..
             } = target
             {
-                surviving.remove(name);
+                surviving.names.remove(name);
             }
-            keep_only_numeric(body, known, surviving);
+            keep_only_numeric(body, flattened, known, surviving);
         }
         _ => {}
     }
 }
 
 /// Removes any candidate an expression assigns something non-numeric to.
-fn check_expr(expr: &Expr, known: &Numeric, surviving: &mut HashSet<Name>) {
+fn check_expr(
+    expr: &Expr,
+    flattened: &Flattened,
+    known: &Numeric,
+    surviving: &mut Numeric,
+) {
     match &expr.kind {
         ExprKind::Assign { target, value, op } => {
-            check_expr(value, known, surviving);
+            check_expr(value, flattened, known, surviving);
             if let AssignTarget::Place(place) = target
                 && let ExprKind::Ident(name) = &place.kind
             {
@@ -282,7 +394,33 @@ fn check_expr(expr: &Expr, known: &Numeric, surviving: &mut HashSet<Name>) {
                     AssignOp::Logical(_) => false,
                 };
                 if !numeric {
-                    surviving.remove(name);
+                    surviving.names.remove(name);
+                }
+            }
+            // `o.k = v` on a replaced object is a store to that binding, and it
+            // has to be able to take the proof away — otherwise `let o = {a: 1};
+            // o.a = "x";` would leave `(o, a)` proved and the next `+` would be
+            // `arith` on a string.
+            if let AssignTarget::Place(place) = target
+                && let ExprKind::Member {
+                    object,
+                    property,
+                    optional: false,
+                } = &place.kind
+                && let ExprKind::Ident(object) = &object.kind
+                && flattened.has(*object, *property)
+            {
+                let numeric = match op {
+                    AssignOp::Plain => is_numeric(value, known),
+                    AssignOp::Compound(binary) => {
+                        known.field_holds_number(*object, *property)
+                            && arithmetic(*binary)
+                            && is_numeric(value, known)
+                    }
+                    AssignOp::Logical(_) => false,
+                };
+                if !numeric {
+                    surviving.fields.remove(&(*object, *property));
                 }
             }
         }
@@ -293,25 +431,25 @@ fn check_expr(expr: &Expr, known: &Numeric, surviving: &mut HashSet<Name>) {
             if let ExprKind::Ident(name) = &target.kind
                 && !known.holds_number(*name)
             {
-                surviving.remove(name);
+                surviving.names.remove(name);
             }
         }
         ExprKind::Binary { left, right, .. } | ExprKind::Logical { left, right, .. } => {
-            check_expr(left, known, surviving);
-            check_expr(right, known, surviving);
+            check_expr(left, flattened, known, surviving);
+            check_expr(right, flattened, known, surviving);
         }
-        ExprKind::Unary { operand, .. } => check_expr(operand, known, surviving),
+        ExprKind::Unary { operand, .. } => check_expr(operand, flattened, known, surviving),
         ExprKind::Sequence { operands } => operands
             .iter()
-            .for_each(|one| check_expr(one, known, surviving)),
+            .for_each(|one| check_expr(one, flattened, known, surviving)),
         ExprKind::Conditional {
             condition,
             then_branch,
             else_branch,
         } => {
-            check_expr(condition, known, surviving);
-            check_expr(then_branch, known, surviving);
-            check_expr(else_branch, known, surviving);
+            check_expr(condition, flattened, known, surviving);
+            check_expr(then_branch, flattened, known, surviving);
+            check_expr(else_branch, flattened, known, surviving);
         }
         _ => {}
     }
@@ -334,6 +472,21 @@ fn is_numeric(expr: &Expr, known: &Numeric) -> bool {
     match &expr.kind {
         ExprKind::Literal(Literal::Number(_)) => true,
         ExprKind::Ident(name) => known.holds_number(*name),
+
+        // A read of a replaced property. This is the ONE property read this
+        // pass answers about, and it is not an exception to "a property is a
+        // claim with no evidence" below — a replaced property is not a property.
+        // `escape.rs` proved the object never leaves the function and that every
+        // access names a key of its own literal, so `o.a` is a binding whose
+        // every store this pass has seen, exactly like a local.
+        ExprKind::Member {
+            object,
+            property,
+            optional: false,
+        } => match &object.kind {
+            ExprKind::Ident(name) => known.field_holds_number(*name, *property),
+            _ => false,
+        },
 
         ExprKind::Binary { op, left, right } => match op {
             // `+` needs both sides proved, because two strings concatenate and
@@ -405,7 +558,22 @@ mod tests {
         let FunctionBody::Block(body) = &function.body else {
             panic!("a block");
         };
-        let numeric = analyse(body);
+        // Composed the way `function.rs` composes it, rather than against an
+        // empty `Flattened`: what is being tested includes what this pass says
+        // about a replaced property, and an empty one would answer "nothing was
+        // replaced" for every source and pass by not looking.
+        let captured = super::super::capture::captured(body, &[]);
+        let flattened = super::super::escape::analyse(body, &[], &captured);
+        let mut numeric = analyse(body, &flattened);
+        numeric.name_fields(|object, property| {
+            let text = format!(
+                "{}{}.{}",
+                super::super::escape::MARKER,
+                names.text(object),
+                names.text(property)
+            );
+            names.intern(&text)
+        });
         // Every interned name, asked whether it survived. `Names` has no
         // iterator, and adding one for a test would be adding surface to the
         // crate for the benefit of this file.
