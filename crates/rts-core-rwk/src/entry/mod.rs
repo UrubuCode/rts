@@ -407,7 +407,24 @@ impl Context {
         kinds: crate::value::Kinds,
         region: crate::heap::Region,
     ) -> Self {
+        let bits = region.selector_bits();
         Context {
+            // Every `Aside` is rebuilt at the region's width rather than taken
+            // from `new`'s single-region default. They index by cell, and the
+            // cell is a reference with the region bits shifted off — so a table
+            // built at the wrong width would index by a number that is not a
+            // cell, and two objects would collide in it.
+            prototypes: Aside::in_region(bits),
+            callables: Aside::in_region(bits),
+            spill_of: Aside::in_region(bits),
+            bound: Aside::in_region(bits),
+            collections: Aside::in_region(bits),
+            buffer_of: Aside::in_region(bits),
+            views: Aside::in_region(bits),
+            regexes: Aside::in_region(bits),
+            accessors: Aside::in_region(bits),
+            derived: Aside::in_region(bits),
+            array_elements: Aside::in_region(bits),
             region,
             ..Context::new(singletons, kinds)
         }
