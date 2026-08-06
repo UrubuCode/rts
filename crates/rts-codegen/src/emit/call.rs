@@ -46,7 +46,22 @@ pub fn emit_call(
 ) -> EmitResult<ValueId> {
     // The receiver and the callee, in the order the language evaluates them:
     // the member expression first, then the arguments.
-    let (receiver, function) = match &callee.kind {
+    let (receiver, function) = callee_and_receiver(builder, scope, ctx, callee)?;
+    emit_call_with(builder, scope, ctx, function, receiver, arguments)
+}
+
+/// What a call site calls, and what it calls it ON.
+///
+/// Extracted so a tagged template reaches the same answer: `` o.tag`x` `` passes
+/// `o` as its receiver exactly as `o.tag(x)` does, and deciding that a second
+/// time is how the two spellings would come to disagree about `this`.
+pub(super) fn callee_and_receiver(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    callee: &Expr,
+) -> EmitResult<(ValueId, ValueId)> {
+    let pair = match &callee.kind {
         ExprKind::Member {
             object,
             property,
@@ -112,8 +127,7 @@ pub fn emit_call(
             (undefined, function)
         }
     };
-
-    emit_call_with(builder, scope, ctx, function, receiver, arguments)
+    Ok(pair)
 }
 
 /// Emits a call whose callee and receiver are already values.
@@ -148,17 +162,57 @@ pub fn emit_call_with(
         )?[0]);
     }
 
-    let mut passed = Vec::with_capacity(2 + ARGUMENT_SLOTS);
-    passed.push(function);
-    passed.push(receiver);
+    let mut values = Vec::with_capacity(ARGUMENT_SLOTS);
     for argument in arguments {
         let Spreadable::Single(value) = argument else {
             return Err(EmitError::Unsupported {
                 construct: "a spread argument",
             });
         };
-        passed.push(emit_expr(builder, scope, ctx, value)?);
+        values.push(emit_expr(builder, scope, ctx, value)?);
     }
+    issue(builder, ctx, function, receiver, &values)
+}
+
+/// Emits a call whose arguments are already values.
+///
+/// # Why this exists beside [`emit_call_with`]
+///
+/// A tagged template's first argument is not written in the program — it is the
+/// strings object, built by the emitter — so there is no expression to hand the
+/// function above. What must NOT be duplicated is what happens after the
+/// arguments exist: the padding, the order it happens in, and the choice between
+/// the convention and the argument vector. A second copy of that is where a
+/// tagged template would come to pad differently from a call.
+pub(super) fn issue(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    function: ValueId,
+    receiver: ValueId,
+    values: &[ValueId],
+) -> EmitResult<ValueId> {
+    if values.len() > ARGUMENT_SLOTS {
+        let length = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+            repr: rts_cranelift::repr::Repr::I64,
+            bits: rts_cranelift::ir::ScalarBits(0),
+        });
+        let length = builder.use_const(length);
+        let vector = expr::call(builder, ctx, RuntimeOp::ArrayNew, &[length])?[0];
+        for value in values {
+            expr::call(builder, ctx, RuntimeOp::ArrayAppend, &[vector, *value])?;
+        }
+        return Ok(expr::call(
+            builder,
+            ctx,
+            RuntimeOp::CallWithArgs,
+            &[function, receiver, vector],
+        )?[0]);
+    }
+
+    let mut passed = Vec::with_capacity(2 + ARGUMENT_SLOTS);
+    passed.push(function);
+    passed.push(receiver);
+    passed.extend_from_slice(values);
     // Padded after the written arguments were evaluated, so the padding cannot
     // get between two of them and change the order side effects happen in.
     while passed.len() < 2 + ARGUMENT_SLOTS {

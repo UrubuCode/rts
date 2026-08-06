@@ -141,7 +141,7 @@ L9 has the full table and what each column means.
 `emit/` turns that tree into the machine's IR. Done: literals — including
 strings and templates — locals, declarations, blocks, `return`, control flow,
 object literals and property access, functions, calls, `this`, recursion,
-closures, `typeof`, classes, regular expressions — the literal and `new RegExp(…)`,
+closures, `typeof`, classes, tagged templates, regular expressions — the literal and `new RegExp(…)`,
 which are one operation reached two ways — and **every operator the
 language spells**: arithmetic,
 relational, both equalities, bitwise, shifts and `**`.

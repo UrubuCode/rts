@@ -224,7 +224,11 @@ pub fn emit_expr(
         ExprKind::Template { parts, expressions } => {
             super::template::emit_template(builder, scope, ctx, parts, expressions)
         }
-        ExprKind::TaggedTemplate { .. } => gap("a tagged template"),
+        ExprKind::TaggedTemplate {
+            tag,
+            parts,
+            expressions,
+        } => super::template::emit_tagged_template(builder, scope, ctx, tag, parts, expressions),
         ExprKind::Chain(_) => gap("optional chaining"),
         ExprKind::SuperMember { property } => {
             super::class::emit_super_member(builder, scope, ctx, property)

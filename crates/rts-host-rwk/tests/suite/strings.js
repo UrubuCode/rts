@@ -87,12 +87,24 @@ check("to-well-formed-replaces", lone.toWellFormed().isWellFormed());
 check("to-well-formed-length", lone.toWellFormed().length === 2);
 check("to-well-formed-keeps-pairs", "\u{1F600}".toWellFormed().length === 2);
 
-// `String.raw` reads `raw` off its first argument. Called plainly rather than
-// as a tag: the emitter refuses a tagged template, so the tag form cannot be
-// pinned here and the function it would call can.
-check("raw", String.raw({ raw: ["a\\nb"] }) === "a\\nb");
-check("raw-substitution", String.raw({ raw: ["x", "y"] }, 1) === "x1y");
-check("raw-trailing-substitution", String.raw({ raw: ["x"] }, 1) === "x");
+// `String.raw` reads `raw` off its first argument, and a tagged template is
+// what builds one: the escapes reach the tag unresolved.
+check("raw", String.raw`a\nb` === "a\\nb");
+check("raw-substitution", String.raw`x${1}y` === "x1y");
+check("raw-plain-call", String.raw({ raw: ["x", "y"] }, 1) === "x1y");
+
+// A tag receives the PIECES, not the joined string.
+function pieces(strings, a, b) { return strings.length; }
+check("tag-piece-count", pieces`one${1}two${2}three` === 3);
+function cooked(strings) { return strings[0]; }
+check("tag-cooked", cooked`a\nb` === "a\nb");
+function bothTexts(strings) { return strings[0] + "|" + strings.raw[0]; }
+check("tag-cooked-and-raw-differ", bothTexts`a\nb` === "a\nb|a\\nb");
+function substitutions(strings, a, b) { return a + b; }
+check("tag-substitutions", substitutions`${2}-${3}` === 5);
+// A tag written as a member call receives the object, exactly as `o.m()` does.
+let holder = { tag: function (strings) { return this.n; }, n: 7 };
+check("tag-receiver", holder.tag`x` === 7);
 
 check("plus-concatenates", "a" + 1 === "a1");
 check("equal-by-text", "ab" === "a" + "b");
