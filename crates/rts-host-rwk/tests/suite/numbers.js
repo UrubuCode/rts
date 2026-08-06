@@ -81,4 +81,22 @@ check("fold-mixed-not-folded", ("a" + 1) === "a1");
 check("fold-negate", (-(5)) === (0 - 5));
 check("fold-relational", (1 < 2) && !(2 < 1) && (2 <= 2));
 
+// The argument left out is not the same as zero digits, which is the one thing
+// an implementation taking an `f64` cannot say.
+check("exponential", (12).toExponential(1) === "1.2e+1");
+check("exponential-zero-digits", (12).toExponential(0) === "1e+1");
+check("exponential-shortest", (12).toExponential() === "1.2e+1");
+check("exponential-negative-power", (0.0001).toExponential(1) === "1.0e-4");
+check("exponential-negative", (-12).toExponential(1) === "-1.2e+1");
+// Rounding carries into the exponent: the answer is 1.0e+1, never 10.0e+0.
+check("exponential-carries", (9.99).toExponential(1) === "1.0e+1");
+
+check("precision-fixed", (123.456).toPrecision(5) === "123.46");
+check("precision-exponential", (123.456).toPrecision(2) === "1.2e+2");
+check("precision-pads", (1).toPrecision(3) === "1.00");
+check("precision-absent", (1.5).toPrecision() === "1.5");
+
+// No locale data, so no grouping — a separator is a claim about the reader.
+check("locale-string", (1234).toLocaleString() === "1234");
+
 return failed;

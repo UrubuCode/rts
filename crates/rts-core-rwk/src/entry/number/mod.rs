@@ -25,6 +25,8 @@
 //! So these take `u64` and ask what arrived, where `Math`'s members take `f64`
 //! and let the wrapper convert. The parameter type is the statement.
 
+mod format;
+
 use super::objects::undefined_of;
 use super::with_current;
 use crate::text::Str;
@@ -124,6 +126,59 @@ impl Number {
                 false => crate::coerce::number_to_string(number),
             };
             context.intern_value(text).bits()
+        })
+    }
+
+    /// `n.toExponential(digits)`.
+    ///
+    /// The argument left out is not the same as zero digits: `(12).toExponential()`
+    /// is `"1.2e+1"` and `(12).toExponential(0)` is `"1e+1"`. So it arrives as
+    /// the value it was passed rather than as an `f64`.
+    fn to_exponential(this: u64, digits: u64) -> u64 {
+        let number = super::class_support::to_number(this);
+        let places = places_of(digits);
+        with_current(|context| {
+            let text = Str::from_str(&format::exponential(number, places));
+            context.intern_value(text).bits()
+        })
+    }
+
+    /// `n.toPrecision(digits)`.
+    ///
+    /// With no argument it is `toString`, which the specification states and
+    /// which is not the same as one significant digit.
+    fn to_precision(this: u64, digits: u64) -> u64 {
+        let number = super::class_support::to_number(this);
+        // Asked BEFORE the borrow: `places_of` takes one of its own, and
+        // nesting them aborts the process rather than failing a test — the trap
+        // `radix_of` records paying for once already.
+        let asked = places_of(digits);
+        with_current(|context| {
+            let text = match asked {
+                // The specification's range is 1 to 100 and outside it throws a
+                // `RangeError`; this cannot yet, so the decimal form is the
+                // least wrong of the values available — the same answer
+                // `toString` settles on for a bad radix.
+                Some(places) if (1..=100).contains(&places) => {
+                    Str::from_str(&format::precision(number, places))
+                }
+                _ => crate::coerce::number_to_string(number),
+            };
+            context.intern_value(text).bits()
+        })
+    }
+
+    /// `n.toLocaleString()`.
+    ///
+    /// The plain decimal form, with no grouping. This crate carries no locale
+    /// data — the same wall `normalize` and `localeCompare` stop at — and
+    /// inventing one locale's separators would make the answer wrong for every
+    /// program running under another. `"1,234"` is a claim about the reader, not
+    /// about the number.
+    fn to_locale_string(this: u64) -> u64 {
+        let number = super::class_support::to_number(this);
+        with_current(|context| {
+            context.intern_value(crate::coerce::number_to_string(number)).bits()
         })
     }
 
@@ -273,6 +328,23 @@ fn fixed(number: f64, places: usize) -> String {
     match places {
         0 => format!("{}", value.trunc() as i64),
         _ => format!("{value:.places$}"),
+    }
+}
+
+/// A digit count an argument names, with `None` for "not given".
+///
+/// Its own function because two methods need the distinction and each answers
+/// something different without it — `toExponential` shortens and `toPrecision`
+/// becomes `toString`.
+fn places_of(digits: u64) -> Option<usize> {
+    let absent = with_current(|context| undefined_of(context));
+    if digits == absent {
+        return None;
+    }
+    let asked = super::class_support::to_number(digits);
+    match asked.is_nan() {
+        true => Some(0),
+        false => Some(asked.trunc().clamp(0.0, 100.0) as usize),
     }
 }
 
