@@ -72,30 +72,28 @@
 //!   [`bytes`] instead, per its module doc. `writeSync`'s string form
 //!   (`writeSync(fd, string, position?, encoding?)`) is also not implemented:
 //!   `buffer` there is always read as a typed-array window.
-//! - **`watch`, `watchFile`, `unwatchFile`, `FSWatcher`, `StatWatcher`** —
-//!   need a background OS thread/subscription and a callback invoked
-//!   repeatedly over the object's lifetime; both are user-code re-entry.
 //! - **`createReadStream`, `createWriteStream`, `ReadStream`, `WriteStream`,
-//!   `Utf8Stream`** — stream classes with `EventEmitter` semantics, same
-//!   re-entry problem, and (for `Utf8Stream`) unverified even in Node itself
-//!   per the reference doc's own flag.
-//! - **`globSync`** — needs a glob-pattern matcher this crate does not own
-//!   and was told not to add a dependency for. `readdirSync`/`opendirSync`
-//!   cover directory listing without one.
+//!   `Utf8Stream`** — stream classes with `EventEmitter` semantics needing a
+//!   callback invoked repeatedly over the object's lifetime, which is
+//!   user-code re-entry these natives cannot do, and (for `Utf8Stream`)
+//!   unverified even in Node itself per the reference doc's own flag.
 //!
 //! `Dir`/`Dirent`/`opendirSync` ARE implemented — see [`dir`] and [`dirent`]
 //! — now that [`rts_core_rwk::entry::make_prototype`]/`make_instance` give a
 //! host a real shared prototype; they were blocked on that, not on anything
 //! specific to a directory cursor.
-//! - **`utimesSync`, `lutimesSync`, `futimesSync`** — setting file times has
-//!   no `std::fs` API; only `libc`/a timestamp crate provides it, and this
-//!   module may not add a dependency (`Cargo.toml` is not owned by this
-//!   task).
-//! - **`chownSync`, `lchownSync`, `fchownSync`, `fchmodSync`, `lchmodSync`**
-//!   — POSIX uid/gid/lchmod need `libc`, same as above; not a `std::fs` API
-//!   and no dependency may be added.
-//! - **`statfsSync`** — filesystem-level statistics need `libc::statvfs`/
-//!   Windows `GetDiskFreeSpaceExW`, same dependency limit.
+//!
+//! **`chownSync`/`lchownSync`/`fchownSync`/`fchmodSync`/`lchmodSync`/
+//! `utimesSync`/`lutimesSync`/`futimesSync`** (see [`perms`]),
+//! **`statfsSync`** (see [`statfs`]), **`globSync`** (see [`glob`]) and
+//! **`watch`/`watchFile`/`unwatchFile`/`FSWatcher`/`StatWatcher`** (see
+//! [`watch`]) ARE implemented — each was blocked on a dependency
+//! (`libc`/`glob`/`notify`) this crate was earlier told not to add;
+//! `docs/reference/node/crates.md` §2/§4.14 now vets all three and
+//! `Cargo.toml` says which line. See each module's own doc for its
+//! platform coverage and, for `watch`, for exactly WHEN a queued listener
+//! actually runs — this engine has no event loop, and that doc names the
+//! consequence rather than shipping a watcher that silently never fires.
 //! - **`mkdtempDisposableSync`** — needs a `{ path, remove(), [Symbol.dispose]() }`
 //!   object whose `remove` is itself a bound closure over the generated path;
 //!   the value API's `make_callable` takes a bare `extern "C" fn` with no
@@ -116,10 +114,14 @@ mod dir;
 mod dirent;
 mod dirs;
 mod fd;
+mod glob;
 mod handle;
 mod links;
+mod perms;
 mod promises;
 mod stats;
+mod statfs;
+mod watch;
 
 use rts_core_rwk::entry::{Context, Provided};
 
@@ -159,6 +161,19 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("writeSync", bytes::write_sync),
         ("readvSync", bytes::readv_sync),
         ("writevSync", bytes::writev_sync),
+        ("chownSync", perms::chown_sync),
+        ("lchownSync", perms::lchown_sync),
+        ("fchownSync", perms::fchown_sync),
+        ("fchmodSync", perms::fchmod_sync),
+        ("lchmodSync", perms::lchmod_sync),
+        ("utimesSync", perms::utimes_sync),
+        ("lutimesSync", perms::lutimes_sync),
+        ("futimesSync", perms::futimes_sync),
+        ("statfsSync", statfs::statfs_sync),
+        ("globSync", glob::glob_sync),
+        ("watch", watch::watch),
+        ("watchFile", watch::watch_file),
+        ("unwatchFile", watch::unwatch_file),
     ];
     let namespace = rts_core_rwk::entry::make_namespace(context, members);
     constants::install(context, namespace);
@@ -168,7 +183,13 @@ pub fn namespace(context: &mut Context) -> u64 {
 }
 
 /// An argument as text, `None` when absent.
+///
+/// Also where a queued `watch`/`watchFile` event is DELIVERED — see
+/// [`watch::pump`]'s own doc for why this (and [`number`], the other
+/// argument reader nearly every native here calls first) is the delivery
+/// point this crate can actually offer, with no event loop to post to.
 pub(crate) fn text(value: u64) -> Option<String> {
+    watch::pump();
     let absent = rts_core_rwk::entry::undefined_value();
     match value == absent {
         true => None,
@@ -203,6 +224,7 @@ pub(crate) fn option_flag(options: u64, name: &str) -> bool {
 /// form (including a number's), so the parse happens here rather than adding
 /// a second value-API accessor for what is already reachable this way.
 pub(crate) fn number(value: u64) -> Option<f64> {
+    watch::pump();
     // Asked of the value rather than of its text — see `number_of`.
     rts_core_rwk::entry::number_of(value)
 }

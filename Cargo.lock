@@ -4348,6 +4348,9 @@ dependencies = [
 name = "rts-node-rwk"
 version = "0.1.0"
 dependencies = [
+ "glob",
+ "libc",
+ "notify",
  "rts-core-rwk",
 ]
 

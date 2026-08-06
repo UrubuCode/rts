@@ -5,3 +5,20 @@ edition = "2024"
 
 [dependencies]
 rts-core-rwk = { path = "../rts-core-rwk" }
+
+# FFI *declaration* crate over libc/OS syscalls (chown/lchown/fchown, utimensat/
+# futimens) — ACCEPTED per docs/reference/node/crates.md §2: "libc-as-FFI-
+# declaration is accepted (the project already links it); only a C
+# compile/vendor step is rejected." No C is compiled by this dependency.
+libc = "0.2"
+
+# fs.globSync — vetted in docs/reference/node/crates.md §4.14 ("fs-misc
+# (foundation)"): "tempfile · glob (ws) · globset · bytes (ws) ... temp files,
+# glob, byte buffers", already a workspace-resolvable version (0.3, MIT/Apache).
+glob = "0.3"
+
+# fs.watch/FSWatcher — vetted in docs/reference/node/crates.md §3 ("Already in
+# the workspace (reuse first)") and §4.14: "notify | ... | fs.watch (declared,
+# unused)" / "notify (ws) | bump→8.2 | CC0 | fs.watch". Declared at the
+# workspace root (`notify = "6.1"`) but unused until this change.
+notify = "6.1"

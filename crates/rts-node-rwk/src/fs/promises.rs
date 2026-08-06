@@ -56,9 +56,32 @@
 //! say which of success/failure happened. Named as the hole in the report
 //! for this task, not papered over.
 
+//! # What this task added, and what it did not
+//!
+//! `chown`/`lchown`/`fchown`/`fchmod`/`lchmod`/`utimes`/`lutimes`/`futimes`
+//! (over [`super::perms`]) and `statfs` (over [`super::statfs`]) follow the
+//! exact reuse rule above: each calls its `*Sync` sibling and reads
+//! [`super::succeeded`]/the sync return value for the reject signal, same as
+//! every member already here.
+//!
+//! `fs.promises.glob` is NOT implemented: real Node answers an
+//! `AsyncIterable`, not a resolved array — a fundamentally different shape
+//! from every other member of this module, which settles one `Promise` and
+//! is done. Building an async-iterable here needs the same missing
+//! "construct a promise from Rust and drive it" capability
+//! `crate::events`' own module doc names for `events.on`/`events.once`.
+//! `fs.globSync` (see [`super::glob`]) is implemented and is what a caller
+//! wanting a resolved array should call, awaiting nothing.
+//!
+//! `fs.promises.watch` is NOT implemented for the same reason — also an
+//! `AsyncIterable`, and additionally reads to a listener the queueing model
+//! [`super::watch`]'s module doc describes has nowhere synchronous to
+//! deliver into. `fs.watch`/`fs.watchFile` (callback/`EventEmitter` forms)
+//! are implemented; see that module for exactly when a listener fires.
+
 use rts_core_rwk::entry::{settled, undefined_in, Context, Provided};
 
-use super::{basic, dirs, handle, links, stats};
+use super::{basic, dirs, handle, links, perms, statfs, stats};
 
 /// The namespace `fs.promises` is. Not registered as `node:fs/promises` here
 /// — that specifier is the coordinator's line in `lib.rs`.
@@ -86,6 +109,15 @@ pub(crate) fn namespace(context: &mut Context) -> u64 {
         ("truncate", truncate),
         ("mkdtemp", mkdtemp),
         ("cp", cp),
+        ("chown", chown),
+        ("lchown", lchown),
+        ("fchown", fchown),
+        ("fchmod", fchmod),
+        ("lchmod", lchmod),
+        ("utimes", utimes),
+        ("lutimes", lutimes),
+        ("futimes", futimes),
+        ("statfs", statfs_promise),
     ];
     rts_core_rwk::entry::make_namespace(context, members)
 }
@@ -197,4 +229,43 @@ pub(super) extern "C" fn chmod(e: u64, this: u64, path: u64, mode: u64, a2: u64,
 
 pub(super) extern "C" fn truncate(e: u64, this: u64, path: u64, len: u64, a2: u64, a3: u64) -> u64 {
     done(links::truncate_sync(e, this, path, len, a2, a3))
+}
+
+pub(super) extern "C" fn chown(e: u64, this: u64, path: u64, uid: u64, gid: u64, a3: u64) -> u64 {
+    done(perms::chown_sync(e, this, path, uid, gid, a3))
+}
+
+pub(super) extern "C" fn lchown(e: u64, this: u64, path: u64, uid: u64, gid: u64, a3: u64) -> u64 {
+    done(perms::lchown_sync(e, this, path, uid, gid, a3))
+}
+
+pub(super) extern "C" fn fchown(e: u64, this: u64, fd: u64, uid: u64, gid: u64, a3: u64) -> u64 {
+    done(perms::fchown_sync(e, this, fd, uid, gid, a3))
+}
+
+pub(super) extern "C" fn fchmod(e: u64, this: u64, fd: u64, mode: u64, a2: u64, a3: u64) -> u64 {
+    done(perms::fchmod_sync(e, this, fd, mode, a2, a3))
+}
+
+pub(super) extern "C" fn lchmod(e: u64, this: u64, path: u64, mode: u64, a2: u64, a3: u64) -> u64 {
+    done(perms::lchmod_sync(e, this, path, mode, a2, a3))
+}
+
+pub(super) extern "C" fn utimes(e: u64, this: u64, path: u64, atime: u64, mtime: u64, a3: u64) -> u64 {
+    done(perms::utimes_sync(e, this, path, atime, mtime, a3))
+}
+
+pub(super) extern "C" fn lutimes(e: u64, this: u64, path: u64, atime: u64, mtime: u64, a3: u64) -> u64 {
+    done(perms::lutimes_sync(e, this, path, atime, mtime, a3))
+}
+
+pub(super) extern "C" fn futimes(e: u64, this: u64, fd: u64, atime: u64, mtime: u64, a3: u64) -> u64 {
+    done(perms::futimes_sync(e, this, fd, atime, mtime, a3))
+}
+
+/// `fsPromises.statfs(path, options?)` — [`answered`], reusing `statfsSync`'s
+/// own "`undefined` means failure" convention (a real answer is always a
+/// `StatFs` object).
+pub(super) extern "C" fn statfs_promise(e: u64, this: u64, path: u64, options: u64, a2: u64, a3: u64) -> u64 {
+    answered(statfs::statfs_sync(e, this, path, options, a2, a3))
 }
