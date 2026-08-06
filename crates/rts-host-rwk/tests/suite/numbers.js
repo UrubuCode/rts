@@ -59,4 +59,26 @@ check("computed-through-a-variable", (function () {
 })());
 check("computed-absent-is-still-absent", (5)["nope"] === undefined);
 
+// Constant folding must agree with the runtime EXACTLY. A fold that disagrees
+// is worse than no fold: one program behaves two ways depending on whether the
+// compiler could see through it. Each of these is folded on the left and
+// computed at run time on the right, through locals the folder cannot read.
+let one = 1;
+let two = 2;
+let zero = 0;
+check("fold-add", (1 + 2) === (one + two));
+check("fold-divide-by-zero", (1 / 0) === (one / zero));
+check("fold-nan", isNaN(0 / 0) && isNaN(zero / zero));
+check("fold-remainder-sign", (-5 % 3) === -2);
+check("fold-nan-unordered", ((0 / 0) < 1) === false && ((0 / 0) >= 1) === false);
+check("fold-signed-zero-equal", (0 === -0) === (zero === -zero));
+check("fold-bitwise-wraps", (4294967296 | 0) === 0);
+check("fold-bitwise-sign", (2147483648 | 0) === -2147483648);
+check("fold-shift", (1 << 31) === -2147483648);
+check("fold-unsigned-shift", (-1 >>> 0) === 4294967295);
+check("fold-strings", ("a" + "b") === "ab");
+check("fold-mixed-not-folded", ("a" + 1) === "a1");
+check("fold-negate", (-(5)) === (0 - 5));
+check("fold-relational", (1 < 2) && !(2 < 1) && (2 <= 2));
+
 return failed;

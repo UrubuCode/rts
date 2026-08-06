@@ -60,6 +60,7 @@ mod capture;
 mod choice;
 mod class;
 mod expr;
+mod fold;
 mod foreach;
 mod function;
 mod globals;

@@ -91,6 +91,19 @@ pub fn emit_expr(
         ExprKind::Ident(name) => super::binding::read(builder, scope, ctx, *name),
 
         ExprKind::Binary { op, left, right } => {
+            // A literal on both sides has no side effect to preserve, so the
+            // ordering rule below does not apply and folding it at compile
+            // time is free: it removes a runtime call site (~100us of
+            // Cranelift codegen each, measured — see `fold.rs`) rather than
+            // just precomputing a run-time operation. Anything else — a
+            // proven-constant LOCAL, say — is deliberately not attempted
+            // here: proving that is safe needs knowing the read has no
+            // intervening write, which `fold.rs` has no way to ask.
+            if let (ExprKind::Literal(l), ExprKind::Literal(r)) = (&left.kind, &right.kind) {
+                if let Some(folded) = super::fold::fold_binary(*op, l, r) {
+                    return emit_literal(builder, ctx, &folded);
+                }
+            }
             // Left before right, unconditionally. Every JavaScript binary
             // operator evaluates its operands in source order even where it
             // then converts them in the other order, and emitting in the wrong
@@ -153,6 +166,15 @@ pub fn emit_expr(
         }
         ExprKind::Class(class) => super::class::emit_class(builder, scope, ctx, class),
         ExprKind::Unary { op, operand } => {
+            // `-x` on a literal number, folded the same way a binary literal
+            // pair is: no side effect to preserve, and a removed call site.
+            if *op == crate::syntax::UnaryOp::Negate {
+                if let ExprKind::Literal(literal) = &operand.kind {
+                    if let Some(folded) = super::fold::fold_negate(literal) {
+                        return emit_literal(builder, ctx, &folded);
+                    }
+                }
+            }
             super::unary::emit_unary(builder, scope, ctx, *op, operand)
         }
         ExprKind::Update {
