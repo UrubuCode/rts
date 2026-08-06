@@ -144,6 +144,15 @@ fn elements_of(iterable: u64) -> Vec<u64> {
 /// version of this was, and because the divergence is one of TIMING rather than
 /// of value — a program gets the right bytes.
 pub fn settled(context: &mut super::Context, value: u64, rejected: bool) -> u64 {
+    // The class REGISTERED, not merely asked for. `state::fresh` links
+    // `Promise.prototype` from what a registration recorded, and a program that
+    // never writes the word `Promise` has never triggered one — so the promise
+    // came back with no prototype and therefore no `.then`, and every reaction a
+    // host-made promise carried was silently unreachable.
+    //
+    // Idempotent: a registration answers what it already made. That is what lets
+    // this be a call rather than a question about whether one has happened.
+    register_promise(context);
     let Some((cell, id)) = state::fresh(context) else {
         return super::objects::undefined_of(context);
     };
