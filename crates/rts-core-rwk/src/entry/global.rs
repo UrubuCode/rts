@@ -97,6 +97,7 @@ pub fn global_get(key: i64) -> u64 {
             "Date" => super::date::register_date(context),
             "Map" => super::collections::register_map(context),
             "Set" => super::collections::register_set(context),
+            "Buffer" => super::buffer::register_buffer(context),
             "ArrayBuffer" => super::buffers::register_array_buffer(context),
             "DataView" => super::buffers::register_data_view(context),
             "Int8Array" => super::buffers::int8_array(context),

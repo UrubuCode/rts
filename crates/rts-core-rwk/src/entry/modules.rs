@@ -436,6 +436,47 @@ pub fn make_prototype(context: &mut Context, name: &'static str, members: &[(&st
     object
 }
 
+/// A string's bytes under a named encoding — the codec [`buffer_class`]'s
+/// `Buffer` uses, exported so a host's own top-level functions (`node:buffer`'s
+/// `atob`/`btoa`/`transcode`, which are not `Buffer` methods) reach the ONE
+/// implementation rather than a second one on the other side of the crate
+/// boundary. `None` for a name the codec does not recognize.
+pub fn encode_text(text: &str, encoding: &str) -> Option<Vec<u8>> {
+    super::buffer::codec::encode(text, encoding)
+}
+
+/// Bytes decoded to text under a named encoding — the read half of
+/// [`encode_text`].
+pub fn decode_bytes(bytes: &[u8], encoding: &str) -> String {
+    super::buffer::codec::decode(bytes, encoding)
+}
+
+/// Whether a name is one of the encodings [`encode_text`]/[`decode_bytes`]
+/// recognize, and its canonical spelling.
+pub fn canonical_encoding(name: &str) -> Option<&'static str> {
+    super::buffer::codec::canonical_encoding(name)
+}
+
+/// Base64 encode, standard (`true`) or URL-safe (`false`) alphabet.
+pub fn encode_base64(bytes: &[u8], standard: bool) -> String {
+    super::buffer::codec::encode_base64(bytes, standard)
+}
+
+/// Base64/base64url decode, permissive about which alphabet and about padding.
+pub fn decode_base64(text: &str) -> Vec<u8> {
+    super::buffer::codec::decode_base64(text)
+}
+
+/// The `Buffer` class, registering it if this is the first read.
+///
+/// A host module (`node:buffer`) cannot reach `entry::buffer` directly — it is
+/// a private submodule, the same way every other declared class is — so this is
+/// the small accessor `rts-node-rwk` needs to hand its own `Buffer` name back to
+/// the one this crate builds, rather than fabricating a second one.
+pub fn buffer_class(context: &mut Context) -> u64 {
+    super::buffer::register_buffer(context)
+}
+
 /// An object inheriting from a prototype.
 ///
 /// The instance half of [`make_prototype`]: an ordinary object with the link
