@@ -102,6 +102,8 @@ pub fn global_get(key: i64) -> u64 {
             "Int8Array" => super::buffers::int8_array(context),
             "Uint8Array" => super::buffers::uint8_array(context),
             "Uint8ClampedArray" => super::buffers::uint8_clamped_array(context),
+            "BigInt64Array" => super::buffers::big_int64_array(context),
+            "BigUint64Array" => super::buffers::big_uint64_array(context),
             "Int16Array" => super::buffers::int16_array(context),
             "Uint16Array" => super::buffers::uint16_array(context),
             "Int32Array" => super::buffers::int32_array(context),

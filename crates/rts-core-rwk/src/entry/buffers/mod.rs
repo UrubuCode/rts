@@ -47,23 +47,36 @@
 //! That is the note, not a mechanism — inventing a tracing hook with no collector
 //! to call it would be a second design for the collector to disagree with.
 //!
-//! # What is absent, and why
+//! # Eleven classes, and the two that are not like the other nine
 //!
-//! `Uint8ClampedArray`. It is the one class whose write does not wrap — it
-//! saturates and rounds half-to-even — so it is not a ninth row in
-//! [`element::Kind`] but a second conversion rule, and the only thing that
-//! constructs one today is canvas image data, which this engine has no path to.
-//! It comes back with a caller, per the crate's rule 8.
+//! Nine of them differ in a width and a conversion rule, which is why they are
+//! one line each over one implementation. `Uint8ClampedArray` is the ninth and
+//! stretches that: its write saturates and rounds half-to-even where every other
+//! one wraps and truncates — a different rule at the same width.
 //!
-//! `BigInt64Array` and `BigUint64Array` need a BigInt, which is not a value this
-//! engine has.
+//! `BigInt64Array` and `BigUint64Array` are the two that genuinely differ,
+//! because their elements are **bigints and not numbers**. Sixty-four bits is
+//! exactly the width where a double stops being able to carry an integer
+//! element: every other kind fits inside 2^53, so the codec could speak in
+//! doubles throughout, and these two are the reason it now speaks in **words**
+//! with the double as one face over them.
 //!
-//! **Indexed access.** `a[0]` and `a[0] = 1` go through
-//! [`super::computed::get_indexed`] / `set_indexed`, which ask whether the cell is
-//! an *array* and then fall through to properties. A typed array is neither, so
-//! `a[0]` reads an absent property and answers `undefined`. Until that hook
-//! exists, [`typed::element_at`] is reachable as `a.at(i)` / `a.get(i)` and
-//! [`typed::store_at`] as `a.setAt(i, v)`.
+//! What that costs is one question at each element access — [`element::Kind::is_bigint`]
+//! — and what it buys is that the byte gathering and the byte order are still
+//! written once. Two codecs would have been two places for the endianness
+//! decision, and a typed array and a `DataView` disagreeing about byte three is
+//! invisible until it is not.
+//!
+//! The language refuses coercion between the two families in **both**
+//! directions: a number written into a bigint element is a `TypeError`, and so is
+//! a bigint written into a numeric one. This engine cannot raise it, so such a
+//! write is **dropped** — the element keeps what it held. Coercing instead was
+//! the rejected alternative, and it is the dangerous one: it would make a program
+//! no other engine accepts run and answer something.
+//!
+//! A `DataView` has no `getBigInt64` here. It would need the same split at every
+//! one of its sixteen methods and nothing has asked; the class-shaped spelling
+//! reaches the same bytes.
 
 mod array_buffer;
 mod data_view;
@@ -77,7 +90,8 @@ pub(in crate::entry) use data_view::register_data_view;
 // also installs `BYTES_PER_ELEMENT` on the constructor, which is a property the
 // language puts on both halves and the attribute can only put on one.
 pub(in crate::entry) use typed_classes::{
-    float32_array, float64_array, int8_array, int16_array, int32_array, uint8_array, uint8_clamped_array, uint16_array,
+    big_int64_array, big_uint64_array, float32_array, float64_array, int8_array, int16_array,
+    int32_array, uint8_array, uint8_clamped_array, uint16_array,
     uint32_array,
 };
 
@@ -247,15 +261,25 @@ pub(in crate::entry) fn stamp(context: &mut Context, cell: u32, name: &str, valu
 ///
 /// Both halves take a borrow they are handed. The caller is inside
 /// [`super::computed::get_indexed`]'s, which already holds one.
-pub(in crate::entry) fn indexed_get(context: &Context, cell: u32, key: Value) -> Option<u64> {
+pub(in crate::entry) fn indexed_get(context: &mut Context, cell: u32, key: Value) -> Option<u64> {
     let view = context.view_at(cell)?;
     let at = super::array::as_index(context, key)?;
     let absent = undefined_of(context);
     if at >= view.count() {
         return Some(absent);
     }
+    let kind = view.kind;
     let bytes = window(context, &view)?;
-    Some(match element::read(bytes, at * view.kind.size(), view.kind, true) {
+    // A bigint element takes the word straight, where a numeric one goes
+    // through the double the codec speaks in. The two paths meet at the same
+    // gathering, so they cannot disagree about byte order.
+    if kind.is_bigint() {
+        let word = element::word_at(bytes, at * kind.size(), kind, true)?;
+        // The read is finished with the bytes, which is what lets the borrow
+        // become mutable — allocating the digits needs it.
+        return Some(bigint_value(context, word, kind));
+    }
+    Some(match element::read(bytes, at * kind.size(), kind, true) {
         Some(number) => Value::from_f64(number).bits(),
         None => absent,
     })
@@ -278,14 +302,89 @@ pub(in crate::entry) fn indexed_set(
     let Some(at) = super::array::as_index(context, key) else {
         return false;
     };
-    // Handed the borrow rather than taking one: `class_support::to_number` would
-    // take a second, and a second panics inside a frame that cannot unwind.
-    let number = super::operators::as_number(context, Value(value)).unwrap_or(f64::NAN);
     let kind = view.kind;
+    // Read before the mutable borrow, because both halves need the context: a
+    // bigint's digits are in the slab and a number's conversion may read a
+    // string's text.
+    //
+    // `None` is a value the element refuses, in either direction. Answering true
+    // still — the key was a view's, so no property is created — and the element
+    // keeps what it held.
+    let Some(word) = element_word(context, value, kind) else {
+        return true;
+    };
     if let Some(bytes) = window_mut(context, &view) {
-        element::write(bytes, at * kind.size(), kind, number, true);
+        element::write_word(bytes, at * kind.size(), kind, word, true);
     }
     true
+}
+
+/// The value a bigint element reads as, from the word it holds.
+///
+/// # Why the two kinds differ only here
+///
+/// The bytes are the same bytes: `BigInt64Array` and `BigUint64Array` over one
+/// buffer see one bit pattern, and which of them is looked at decides only
+/// whether the top bit means a sign. So the sign lives in this function and in
+/// [`bigint_word`] beside it, and nowhere else — the codec gathers and orders
+/// bytes without knowing either class exists.
+pub(in crate::entry) fn bigint_value(context: &mut Context, word: u64, kind: Kind) -> u64 {
+    let held = match kind.is_signed() {
+        true => crate::bigint::BigInt::from_i64(word as i64),
+        // Not `from_i64(word as i64)`, which answers a negative value for
+        // everything at or above 2^63 — precisely the half of the range this
+        // class exists to hold.
+        false => crate::bigint::BigInt::from_u64(word),
+    };
+    context.bigint_value(held)
+}
+
+/// The word a value stores into a bigint element, if it is a bigint at all.
+///
+/// `None` for a number, which the language refuses in both directions: a bigint
+/// element takes a bigint and nothing else. This engine cannot raise the
+/// `TypeError` that refusal is, so the write is dropped — which leaves the
+/// element holding what it held, where coercing would make a program no other
+/// engine accepts run and answer something.
+///
+/// The value is wrapped to sixty-four bits first, because that is what a store
+/// into a fixed width IS: `BigInt64Array` given `2n ** 64n` stores zero, exactly
+/// as `Int8Array` given 256 stores zero.
+pub(in crate::entry) fn bigint_word(context: &Context, value: u64, kind: Kind) -> Option<u64> {
+    let held = super::bigints::digits_of(context, value)?;
+    held.wrap_to_bits(64, kind.is_signed()).as_u64().or_else(|| {
+        // Signed and negative: the wrap answered the value rather than its bit
+        // pattern, so the two's complement is taken here. `as_i64` is exact for
+        // everything `wrap_to_bits(64, true)` can produce.
+        held.wrap_to_bits(64, true).as_i64().map(|signed| signed as u64)
+    })
+}
+
+/// The word a value stores into an element of any kind.
+///
+/// `None` is a value the destination **refuses**, and the refusal runs in both
+/// directions: a number written into a bigint element is a `TypeError` in the
+/// language, and so is a bigint written into a numeric one. The second half is
+/// the one an implementation forgets, because the numeric path has a conversion
+/// that will happily answer for anything — `as_number` of a bigint is `NaN`, and
+/// `NaN` stores as zero. So a `Uint8Array` given `9n` would have been quietly
+/// zeroed rather than left alone.
+///
+/// One function for both families, because "does this value belong in this
+/// element" is one question and answering it in two places is how one of them
+/// comes to answer it only one way round.
+pub(in crate::entry) fn element_word(context: &Context, value: u64, kind: Kind) -> Option<u64> {
+    if kind.is_bigint() {
+        return bigint_word(context, value, kind);
+    }
+    if super::bigints::digits_of(context, value).is_some() {
+        return None;
+    }
+    // `as_number` rather than the entry point: it is handed the borrow the
+    // caller already holds, where `class_support::to_number` would take a second
+    // one and abort the process.
+    let number = super::operators::as_number(context, Value(value)).unwrap_or(f64::NAN);
+    Some(element::to_bits(number, kind))
 }
 
 /// `undefined`, from outside a borrow.

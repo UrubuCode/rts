@@ -109,6 +109,16 @@ impl BigInt {
         Self::from_parts(value < 0, digits_of_u64(value.unsigned_abs()))
     }
 
+    /// An unsigned sixty-four-bit integer, exactly.
+    ///
+    /// Beside [`Self::from_i64`] rather than reached through it, because the
+    /// top half of the range has no signed counterpart: `from_i64(word as i64)`
+    /// answers a negative value for anything at or above `2^63`, which is
+    /// precisely the range `BigUint64Array` exists to hold.
+    pub fn from_u64(value: u64) -> Self {
+        Self::from_parts(false, digits_of_u64(value))
+    }
+
     /// The exact value of a double, or `None` when it does not name an integer.
     ///
     /// `None` covers a fractional value and a non-finite one alike. `BigInt(1.5)`

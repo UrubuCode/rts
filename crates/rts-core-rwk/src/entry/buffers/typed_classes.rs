@@ -84,7 +84,12 @@ macro_rules! declare {
 
                 /// `t.setAt(i, v)` — the write half of the same gap. Named apart
                 /// from `set`, which the language already gave to the bulk copy.
-                fn set_at(this: u64, index: f64, value: f64) -> u64 {
+                ///
+                /// The value crosses as it arrived, not as a number: a bigint
+                /// element takes a bigint, and coercing at the wrapper would
+                /// have left the two 64-bit classes unwritable through this
+                /// spelling while `t[i] = v` worked.
+                fn set_at(this: u64, index: f64, value: u64) -> u64 {
                     typed::store_at(this, index, value)
                 }
 
@@ -105,7 +110,7 @@ macro_rules! declare {
                 }
 
                 /// `t.fill(value, begin, end)` — the array, so calls chain.
-                fn fill(this: u64, value: f64, begin: u64, end: u64) -> u64 {
+                fn fill(this: u64, value: u64, begin: u64, end: u64) -> u64 {
                     typed::fill(this, value, begin, end)
                 }
             }
@@ -148,4 +153,11 @@ declare! {
     Uint32Array, register_uint32_array, uint32_array, "Uint32Array", Kind::Uint32, 4.0;
     Float32Array, register_float32_array, float32_array, "Float32Array", Kind::Float32, 4.0;
     Float64Array, register_float64_array, float64_array, "Float64Array", Kind::Float64, 8.0;
+    // The two whose elements are BIGINTS rather than numbers. They are one line
+    // each here for the same reason the other eight are: the width and the
+    // conversion live in `element`, and a class declaration says only which.
+    BigInt64Array, register_big_int64_array, big_int64_array,
+        "BigInt64Array", Kind::BigInt64, 8.0;
+    BigUint64Array, register_big_uint64_array, big_uint64_array,
+        "BigUint64Array", Kind::BigUint64, 8.0;
 }

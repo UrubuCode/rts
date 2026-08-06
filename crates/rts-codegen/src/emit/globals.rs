@@ -51,6 +51,8 @@ const PROVIDED: &[&str] = &[
     "Array",
     "ArrayBuffer",
     "BigInt",
+    "BigInt64Array",
+    "BigUint64Array",
     "Boolean",
     "Date",
     "DataView",

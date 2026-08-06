@@ -48,6 +48,17 @@ pub(in crate::entry) enum Kind {
     Uint32,
     Float32,
     Float64,
+    /// Sixty-four signed bits, held as a **bigint** rather than as a number.
+    ///
+    /// The reason these two are here and not eight rows earlier: a `f64` cannot
+    /// carry them. Every other integer kind fits in a double exactly — the
+    /// widest is `Uint32`, and 2^32 is well inside the 2^53 a double counts to —
+    /// so the whole codec could speak in doubles. Sixty-four bits is the width
+    /// where that stops being true, which is why the language made these the two
+    /// classes whose elements are a different TYPE.
+    BigInt64,
+    /// Sixty-four unsigned bits, held as a bigint.
+    BigUint64,
     /// A `DataView`, which decides the width per call.
     Raw,
 }
@@ -62,8 +73,24 @@ impl Kind {
             Kind::Int8 | Kind::Uint8 | Kind::Uint8Clamped | Kind::Raw => 1,
             Kind::Int16 | Kind::Uint16 => 2,
             Kind::Int32 | Kind::Uint32 | Kind::Float32 => 4,
-            Kind::Float64 => 8,
+            Kind::Float64 | Kind::BigInt64 | Kind::BigUint64 => 8,
         }
+    }
+
+    /// Whether an element of this kind is a **bigint** rather than a number.
+    ///
+    /// The one question the two new kinds make the callers ask, and it is asked
+    /// rather than answered by a separate codec: the bytes are gathered and
+    /// ordered identically, and only what the word is turned INTO differs. Two
+    /// codecs would be two places for the endianness decision, which is the
+    /// mistake [`gathered`] is written once to avoid.
+    pub(in crate::entry) const fn is_bigint(self) -> bool {
+        matches!(self, Kind::BigInt64 | Kind::BigUint64)
+    }
+
+    /// Whether a bigint element of this kind is read back as signed.
+    pub(in crate::entry) const fn is_signed(self) -> bool {
+        matches!(self, Kind::BigInt64)
     }
 
     /// How many bits an integer of this kind keeps, and whether it is signed.
@@ -89,7 +116,11 @@ impl Kind {
 /// off the low bits, and assembling once is what keeps the endianness decision in
 /// exactly one place. Getting it into two places is how a `DataView` and a typed
 /// array over the same buffer come to disagree about what byte three is.
-fn gathered(bytes: &[u8], at: usize, size: usize, little: bool) -> Option<u64> {
+///
+/// Public so the two bigint kinds can reach it: their element IS the word, with
+/// no conversion to a double in between, and a second gathering for them would
+/// be exactly the duplicated endianness decision this comment warns about.
+pub(in crate::entry) fn gathered(bytes: &[u8], at: usize, size: usize, little: bool) -> Option<u64> {
     let slice = bytes.get(at..at.checked_add(size)?)?;
     let mut word = 0u64;
     for (index, byte) in slice.iter().enumerate() {
@@ -124,7 +155,53 @@ pub(in crate::entry) fn read(bytes: &[u8], at: usize, kind: Kind, little: bool) 
         // No width of its own. A `DataView` reaches this through the kind its
         // method names, never through `Raw`.
         Kind::Raw => return None,
+        // A bigint element is not a number, and answering the nearest double
+        // would be the wrong answer in the one range these classes exist for.
+        // The caller asks [`Kind::is_bigint`] first and takes [`word_at`].
+        Kind::BigInt64 | Kind::BigUint64 => return None,
     })
+}
+
+/// The raw sixty-four-bit word an element holds.
+///
+/// What a bigint element reads through, where the numeric kinds read through
+/// [`read`]. Two faces over one gathering rather than two gatherings: the bytes
+/// and their order are the same question whichever type the answer has.
+pub(in crate::entry) fn word_at(bytes: &[u8], at: usize, kind: Kind, little: bool) -> Option<u64> {
+    gathered(bytes, at, kind.size(), little)
+}
+
+/// Writes a raw word at an element's width, in the byte order asked for.
+///
+/// The bigint counterpart of [`write`], and the same loop — which is why the
+/// loop moved here rather than being copied: a byte order written twice is two
+/// places that can come to disagree, and a typed array and a `DataView` over one
+/// buffer disagreeing about byte three is invisible until it is not.
+pub(in crate::entry) fn write_word(
+    bytes: &mut [u8],
+    at: usize,
+    kind: Kind,
+    word: u64,
+    little: bool,
+) -> bool {
+    let size = kind.size();
+    if kind == Kind::Raw {
+        return false;
+    }
+    let Some(end) = at.checked_add(size) else {
+        return false;
+    };
+    if end > bytes.len() {
+        return false;
+    }
+    for index in 0..size {
+        let shift = match little {
+            true => index,
+            false => size - 1 - index,
+        };
+        bytes[at + index] = (word >> (shift * 8)) as u8;
+    }
+    true
 }
 
 /// The bits an element would hold, which is where the wrapping happens.
@@ -181,25 +258,15 @@ pub(in crate::entry) fn write(
     value: f64,
     little: bool,
 ) -> bool {
-    let size = kind.size();
-    if kind == Kind::Raw {
+    // A number written into a bigint element is a `TypeError` in the language —
+    // the two kinds refuse coercion in both directions, which is the whole point
+    // of them being a different element type. Refused here too, as a write that
+    // does not land: the alternative is coercing, which would make a program no
+    // other engine accepts run and answer something.
+    if kind.is_bigint() {
         return false;
     }
-    let Some(end) = at.checked_add(size) else {
-        return false;
-    };
-    if end > bytes.len() {
-        return false;
-    }
-    let word = to_bits(value, kind);
-    for index in 0..size {
-        let shift = match little {
-            true => index,
-            false => size - 1 - index,
-        };
-        bytes[at + index] = (word >> (shift * 8)) as u8;
-    }
-    true
+    write_word(bytes, at, kind, to_bits(value, kind), little)
 }
 
 #[cfg(test)]
@@ -244,6 +311,36 @@ mod tests {
         assert!(write(&mut bytes, 0, Kind::Uint16, 0x0102 as f64, false));
         assert_eq!(bytes, [0x01, 0x02], "big-endian puts the high byte first");
         assert_eq!(read(&bytes, 0, Kind::Uint16, true), Some(0x0201 as f64));
+    }
+
+    #[test]
+    fn a_sixty_four_bit_element_is_a_word_and_never_a_double() {
+        // The whole reason these two kinds exist: 2^63 − 1 has no double, so a
+        // codec that answered `f64` would round it — and round it to a value
+        // that compares equal to its neighbour, which is silent.
+        let mut bytes = [0u8; 8];
+        let widest = i64::MAX as u64;
+        assert!(write_word(&mut bytes, 0, Kind::BigInt64, widest, true));
+        assert_eq!(word_at(&bytes, 0, Kind::BigInt64, true), Some(widest));
+        assert_eq!(
+            read(&bytes, 0, Kind::BigInt64, true),
+            None,
+            "the numeric face refuses a bigint element rather than approximating it"
+        );
+
+        // One bit pattern, two signs. Which class looks at it decides only
+        // whether the top bit means a sign, which is why the sign lives with the
+        // caller and not in the codec.
+        assert!(write_word(&mut bytes, 0, Kind::BigUint64, u64::MAX, true));
+        assert_eq!(word_at(&bytes, 0, Kind::BigInt64, true), Some(u64::MAX));
+
+        // And a number is refused rather than coerced.
+        assert!(!write(&mut bytes, 0, Kind::BigInt64, 5.0, true));
+        assert_eq!(
+            word_at(&bytes, 0, Kind::BigUint64, true),
+            Some(u64::MAX),
+            "a refused write leaves the element holding what it held"
+        );
     }
 
     #[test]

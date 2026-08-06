@@ -101,4 +101,88 @@ let wrapping = new Uint8Array(1);
 wrapping[0] = 300;
 check("wrap-still-wraps", wrapping[0] === 44);
 
+// The two classes whose elements are BIGINTS. Sixty-four bits is exactly the
+// width where a double stops carrying an integer element, which is why these are
+// a different element type rather than a wider row.
+let big = new BigInt64Array(2);
+check("big-length", big.length === 2);
+check("big-byte-length", big.byteLength === 16);
+check("big-bytes-per-element", BigInt64Array.BYTES_PER_ELEMENT === 8);
+check("big-zeroed", big[0] === 0n);
+check("big-reads-a-bigint", typeof big[0] === "bigint");
+
+big[0] = 7n;
+check("big-round-trip", big[0] === 7n);
+big[0] = -1n;
+check("big-signed", big[0] === -1n);
+
+// Past 2^53, where a double could not have told two values apart. This is the
+// whole reason the class exists, and the check that fails if the element ever
+// travels through one.
+big[0] = 9007199254740993n;
+check("big-past-double", big[0] === 9007199254740993n);
+big[0] = 9223372036854775807n;
+check("big-max-signed", big[0] === 9223372036854775807n);
+// A store into a fixed width wraps, exactly as `Int8Array` given 256 stores 0.
+big[0] = 9223372036854775808n;
+check("big-wraps", big[0] === -9223372036854775808n);
+
+let unsignedWide = new BigUint64Array(1);
+unsignedWide[0] = 18446744073709551615n;
+check("unsigned-max", unsignedWide[0] === 18446744073709551615n);
+unsignedWide[0] = -1n;
+check("unsigned-wraps-negative", unsignedWide[0] === 18446744073709551615n);
+check("unsigned-never-negative", unsignedWide[0] > 0n);
+
+// The two read the same bytes and differ only in whether the top bit is a sign.
+let shared64 = new ArrayBuffer(8);
+let asSigned = new BigInt64Array(shared64);
+let asUnsigned = new BigUint64Array(shared64);
+asSigned[0] = -1n;
+check("same-bytes-two-signs", asUnsigned[0] === 18446744073709551615n);
+
+// A NUMBER written into a bigint element is a `TypeError` in the language.
+// This cannot throw, so the write is dropped — the element keeps what it held,
+// where coercing would make a program no other engine accepts answer something.
+big[0] = 5n;
+big[0] = 5;
+check("refuses-a-number", big[0] === 5n);
+// And the other direction, on an ordinary typed array.
+let plain = new Uint8Array(1);
+plain[0] = 3;
+plain[0] = 9n;
+check("numeric-refuses-a-bigint", plain[0] === 3);
+
+check("big-at", (function () {
+    let t = new BigInt64Array(2);
+    t[1] = 4n;
+    return t.at(-1) === 4n;
+})());
+check("big-fill", (function () {
+    let t = new BigInt64Array(2);
+    t.fill(6n);
+    return t[0] === 6n && t[1] === 6n;
+})());
+check("big-from-array", (function () {
+    let t = new BigInt64Array([1n, 2n, 3n]);
+    return t.length === 3 && t[2] === 3n;
+})());
+check("big-slice", (function () {
+    let t = new BigInt64Array([1n, 2n, 3n]);
+    return t.slice(1).length === 2 && t.slice(1)[0] === 2n;
+})());
+check("big-set", (function () {
+    let t = new BigInt64Array(3);
+    t.set(new BigInt64Array([8n, 9n]), 1);
+    return t[1] === 8n && t[2] === 9n && t[0] === 0n;
+})());
+// A copy between the two families copies nothing, for the same reason a single
+// write is dropped.
+check("no-cross-family-copy", (function () {
+    let t = new BigInt64Array(1);
+    t[0] = 3n;
+    t.set(new Uint8Array([9]));
+    return t[0] === 3n;
+})());
+
 return failed;

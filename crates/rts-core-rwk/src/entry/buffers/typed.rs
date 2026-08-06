@@ -77,7 +77,7 @@ pub(in crate::entry) fn construct(
         // From data, or from a length.
         let values = match source == absent {
             true => Vec::new(),
-            false => numbers_of(context, source),
+            false => words_of(context, source, kind),
         };
         let count = match values.is_empty() {
             true => super::as_count(Value(source).numeric().unwrap_or(0.0)),
@@ -93,8 +93,8 @@ pub(in crate::entry) fn construct(
             kind,
         };
         if let Some(bytes) = super::window_mut(context, &view) {
-            for (index, number) in values.iter().enumerate() {
-                super::element::write(bytes, index * size, kind, *number, true);
+            for (index, word) in values.iter().enumerate() {
+                super::element::write_word(bytes, index * size, kind, *word, true);
             }
         }
         super::attach(context, cell, view);
@@ -118,10 +118,20 @@ pub(in crate::entry) fn element_at(this: u64, index: f64, negatives: bool) -> u6
         let Some(at) = resolve(&view, index, negatives) else {
             return absent;
         };
+        let kind = view.kind;
         let Some(bytes) = super::window(context, &view) else {
             return absent;
         };
-        match super::element::read(bytes, at * view.kind.size(), view.kind, true) {
+        // The same split `indexed_get` makes, and it has to be made twice
+        // because a program reaches an element both ways: a bigint element is
+        // the word, where a numeric one is the double the codec speaks in.
+        if kind.is_bigint() {
+            return match super::element::word_at(bytes, at * kind.size(), kind, true) {
+                Some(word) => super::bigint_value(context, word, kind),
+                None => absent,
+            };
+        }
+        match super::element::read(bytes, at * kind.size(), kind, true) {
             Some(number) => Value::from_f64(number).bits(),
             None => absent,
         }
@@ -133,17 +143,26 @@ pub(in crate::entry) fn element_at(this: u64, index: f64, negatives: bool) -> u6
 /// Out of range writes nothing and is not an error, which is what indexing a
 /// typed array does: `a[99] = 1` on a three-element one neither grows it nor
 /// creates a property.
-pub(in crate::entry) fn store_at(this: u64, index: f64, value: f64) -> u64 {
+/// The value is taken as it arrived rather than as a number, because a bigint
+/// element takes a bigint: coercing at the boundary would have made the two new
+/// classes unwritable through this spelling while `t[i] = v` worked.
+pub(in crate::entry) fn store_at(this: u64, index: f64, value: u64) -> u64 {
     with_current(|context| {
         if let Some(view) = super::view_of(context, this)
             && let Some(at) = resolve(&view, index, false)
         {
             let kind = view.kind;
-            if let Some(bytes) = super::window_mut(context, &view) {
-                super::element::write(bytes, at * kind.size(), kind, value, true);
+            // `element_word` rather than `word_of`: a refused value leaves this
+            // element alone, where the bulk paths write a zero. The difference
+            // is the one `word_of` documents, and this is the side of it that
+            // has something to leave.
+            if let Some(word) = super::element_word(context, value, kind)
+                && let Some(bytes) = super::window_mut(context, &view)
+            {
+                super::element::write_word(bytes, at * kind.size(), kind, word, true);
             }
         }
-        Value::from_f64(value).bits()
+        value
     })
 }
 
@@ -155,13 +174,16 @@ pub(in crate::entry) fn copy_from(this: u64, source: u64, offset: u64) -> u64 {
         // Read out before anything is written: the source may be a view over the
         // very bytes about to be overwritten, and a copy is what makes an
         // overlapping `set` answer what a non-overlapping one would.
-        let values = numbers_of(context, source);
+        let values = match super::view_of(context, this) {
+            Some(view) => words_of(context, source, view.kind),
+            None => Vec::new(),
+        };
         if let Some(view) = super::view_of(context, this) {
             let kind = view.kind;
             let size = kind.size();
             if let Some(bytes) = super::window_mut(context, &view) {
-                for (index, number) in values.iter().enumerate() {
-                    super::element::write(bytes, (start + index) * size, kind, *number, true);
+                for (index, word) in values.iter().enumerate() {
+                    super::element::write_word(bytes, (start + index) * size, kind, *word, true);
                 }
             }
         }
@@ -229,7 +251,7 @@ pub(in crate::entry) fn slice(this: u64, begin: u64, end: u64) -> u64 {
 }
 
 /// `t.fill(value, begin, end)` — the array itself, so that calls chain.
-pub(in crate::entry) fn fill(this: u64, value: f64, begin: u64, end: u64) -> u64 {
+pub(in crate::entry) fn fill(this: u64, value: u64, begin: u64, end: u64) -> u64 {
     let begin = super::optional_number(begin);
     let end = super::optional_number(end);
     with_current(|context| {
@@ -237,9 +259,12 @@ pub(in crate::entry) fn fill(this: u64, value: f64, begin: u64, end: u64) -> u64
             let (first, last) = super::range(view.count(), begin, end);
             let kind = view.kind;
             let size = kind.size();
+            // Converted once, before the loop: the value does not change per
+            // element, and a bigint's conversion reads the digit slab.
+            let word = word_of(context, value, kind);
             if let Some(bytes) = super::window_mut(context, &view) {
                 for at in first..last {
-                    super::element::write(bytes, at * size, kind, value, true);
+                    super::element::write_word(bytes, at * size, kind, word, true);
                 }
             }
         }
@@ -264,13 +289,25 @@ fn resolve(view: &View, index: f64, negatives: bool) -> Option<usize> {
     }
 }
 
-/// The numbers a value yields as source data: an array's elements, or another
-/// view's.
+/// The **words** a value yields as source data, already in the destination's
+/// element form: an array's elements, or another view's.
 ///
-/// An empty vector for anything else, including a number — which is what makes
-/// `new T(8)` fall through to the length form rather than needing to be asked
-/// about first.
-fn numbers_of(context: &Context, source: u64) -> Vec<f64> {
+/// # Why words and not numbers
+///
+/// It was `Vec<f64>`, and that was right while every element fitted in a double.
+/// `BigInt64Array` is the width where it stops: 2^63 − 1 is not a double, so a
+/// copy through one would round, silently, in exactly the range the class exists
+/// for.
+///
+/// A word is what an element IS at every width, so converting once here rather
+/// than at each write also puts the destination's conversion rule in one place —
+/// which is what lets a source of one kind and a destination of another be one
+/// question rather than a table.
+///
+/// An empty vector for anything else, including a number, which is what makes
+/// `new T(8)` fall through to the length form rather than being asked about
+/// first.
+fn words_of(context: &Context, source: u64, kind: Kind) -> Vec<u64> {
     let Some(cell) = Value(source).as_slot() else {
         return Vec::new();
     };
@@ -278,22 +315,41 @@ fn numbers_of(context: &Context, source: u64) -> Vec<f64> {
         && let Some(bytes) = super::window(context, &view)
     {
         let size = view.kind.size();
+        // A view of matching bigint-ness copies the WORD, and one of the other
+        // kind copies nothing: the language refuses a numeric element written
+        // into a bigint one in both directions, and there is no double that
+        // could carry the conversion honestly anyway. Between two bigint kinds
+        // the bits are the value, so signed-to-unsigned is the reinterpretation
+        // the spec's wrap already produces.
+        if view.kind.is_bigint() != kind.is_bigint() {
+            return Vec::new();
+        }
         return (0..view.count())
-            .filter_map(|at| super::element::read(bytes, at * size, view.kind, true))
+            .filter_map(|at| match kind.is_bigint() {
+                true => super::element::word_at(bytes, at * size, view.kind, true),
+                false => super::element::read(bytes, at * size, view.kind, true)
+                    .map(|number| super::element::to_bits(number, kind)),
+            })
             .collect();
     }
     match context.elements_at(cell) {
-        // `as_number` rather than the entry point: it is handed the borrow this
-        // function already holds, where `class_support::to_number` would take a
-        // second one and abort the process.
         Some(elements) => elements
             .iter()
-            .map(|value| {
-                crate::entry::operators::as_number(context, Value(*value)).unwrap_or(f64::NAN)
-            })
+            .map(|value| word_of(context, *value, kind))
             .collect(),
         None => Vec::new(),
     }
+}
+
+/// One value as the word a destination element holds, or zero if it refuses it.
+///
+/// The refusal is [`super::element_word`]'s and is not restated here. What this
+/// adds is what a **bulk** copy does with one: zero, where an element-at-a-time
+/// write leaves the old value. They differ because a bulk copy is building bytes
+/// that did not exist, so there is nothing to leave — and a fresh
+/// `BigInt64Array` full of zeros is what a program sees either way.
+fn word_of(context: &Context, value: u64, kind: Kind) -> u64 {
+    super::element_word(context, value, kind).unwrap_or(0)
 }
 
 /// A new instance of the view's own class, over these bytes.

@@ -393,11 +393,11 @@ nothing more can attach to it.
 `Array.prototype` gaps.
 
 **Still absent, each for a reason rather than by omission:** `Proxy`;
-`BigInt64Array` and `BigUint64Array`, which need the element codec to carry a
-*value* rather than a double — a real change to `buffers::element`, not a ninth
-row; `%TypedArray%` as a shared prototype; the `Iterator` helpers; and
-`AggregateError`, which `Promise.any` therefore rejects with a plain object
-carrying `name`, `message` and `errors`.
+`%TypedArray%` as a shared prototype; the `Iterator` helpers; `AggregateError`,
+which `Promise.any` therefore rejects with a plain object carrying `name`,
+`message` and `errors`; and `DataView`'s `getBigInt64` / `setBigInt64`, which
+would need the numeric-versus-bigint split at each of sixteen methods where the
+class-shaped spelling already reaches the same bytes.
 
 ### P8 — the two primitives the machine does not define. **DONE.**
 
@@ -432,6 +432,32 @@ Two facts this forced, both of which were latent bugs:
 **A typed array is not a primitive.** It is an object, and the grouping is worth
 correcting because it decides the encoding: an object has properties, an identity
 and a prototype, and none of the three fits in a tag.
+
+### P9 — the two typed arrays whose elements are bigints. **DONE.**
+
+`BigInt64Array` and `BigUint64Array` were the one place the bigint work left
+unfinished, and the reason was real: the element codec spoke in `f64`. Sixty-four
+bits is exactly the width where that stops working — every other integer kind
+fits inside 2^53, so a double could carry it, and 2^63 − 1 cannot.
+
+So the codec speaks in **words** now, with the double as one face over them.
+`gathered` already produced a `u64` and the write loop already consumed one; what
+changed is that both are exposed, and `read`/`write` sit on top for the nine
+numeric kinds. The byte order stays written once, which was the constraint: two
+codecs would be two places for it, and a typed array and a `DataView` disagreeing
+about byte three is invisible until it is not.
+
+`typed.rs` went from `Vec<f64>` to `Vec<u64>` for the same reason — a bulk copy
+through a double would round in the range the classes exist for.
+
+**Coercion is refused in both directions**, which the language spells as a
+`TypeError` each way. This engine drops the write instead: an element-at-a-time
+one leaves the old value, and a bulk one writes zero, because it is building
+bytes that did not exist. The second direction is the one an implementation
+forgets — the numeric path has a conversion that answers for anything, and
+`as_number` of a bigint is `NaN`, which stores as zero. A `Uint8Array` given `9n`
+would have been quietly zeroed. It is one function for both families now, because
+"does this value belong in this element" is one question.
 
 ---
 
