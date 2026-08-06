@@ -310,6 +310,13 @@ pub(crate) fn machine_entry(entry: RtEntry) -> *const u8 {
         RtEntry::CacheResolve => {
             rts_core_rwk::entry::cache_resolve as extern "C" fn(u64, i64, i64) -> i64 as *const u8
         }
+        // A store asks a different resolver, which refuses for an object that
+        // refuses to be written. Same signature, and deliberately not the same
+        // function: a READ of a frozen object still resolves to its offset.
+        RtEntry::CacheResolveStore => {
+            rts_core_rwk::entry::cache_resolve_store as extern "C" fn(u64, i64, i64) -> i64
+                as *const u8
+        }
         RtEntry::WriteBarrier => {
             rts_core_rwk::entry::write_barrier as extern "C" fn(u64, u64) as *const u8
         }

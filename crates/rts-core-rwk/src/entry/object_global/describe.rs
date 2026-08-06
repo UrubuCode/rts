@@ -14,21 +14,25 @@
 //! the flags is a change to what a shape IS, and both halves land the day it
 //! happens.
 //!
-//! # Why `freeze` and `seal` are absent rather than approximated
+//! # `freeze` and `seal` are enforced, and what it took
 //!
-//! They cannot be enforced from here. Compiled code emits `cached_set`, which
-//! writes the slot a layout says a key is at without asking the runtime — so a
-//! frozen object would be frozen only against the slow path, and `o.x = 1` in a
-//! loop that had warmed its cache would go through. An `Object.freeze` that
-//! silently does not freeze is a wrong program that runs, where its absence is a
-//! `TypeError` a program can see.
+//! This section used to say they were absent because compiled code writes the
+//! slot a layout names without asking the runtime — so a flag only the slow path
+//! read would freeze an object against every site that had not warmed up yet and
+//! against none that had.
 //!
-//! Enforcing it is a machine question: a guard on the store, which is
-//! `rts-cranelift`'s to add. Recorded here because this is where a reader looks
-//! for it.
+//! That is still true of a flag. What makes the freeze real is in
+//! [`super::super::integrity`]: freezing gives the cell a new type, so every
+//! warmed site misses, and a store's miss asks `rts_cache_resolve_store`, which
+//! refuses. The machine grew `RtEntry::CacheResolveStore` for the second half.
+//!
+//! A descriptor on a frozen object therefore reports `writable: false` and
+//! `configurable: false` — the two flags that ARE recorded, per object rather
+//! than per property.
 
 use super::super::native::Native;
 use super::super::objects::undefined_of;
+use super::super::integrity::Integrity;
 use super::super::with_current;
 use crate::object::Key;
 use crate::value::Value;
@@ -40,7 +44,69 @@ pub(super) const STATICS: &[(&str, Native)] = &[
     ("getOwnPropertyDescriptor", get_own_property_descriptor),
     ("getOwnPropertyDescriptors", get_own_property_descriptors),
     ("defineProperties", define_properties),
+    ("freeze", freeze),
+    ("seal", seal),
+    ("preventExtensions", prevent_extensions),
+    ("isFrozen", is_frozen),
+    ("isSealed", is_sealed),
+    ("isExtensible", is_extensible),
 ];
+
+/// `Object.freeze(o)` — answers the object, which is what makes it chain.
+extern "C" fn freeze(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    super::super::integrity::restrict(object, Integrity::Frozen)
+}
+
+/// `Object.seal(o)` — no properties added or removed, the rest still writable.
+extern "C" fn seal(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    super::super::integrity::restrict(object, Integrity::Sealed)
+}
+
+/// `Object.preventExtensions(o)` — no properties added. Nothing else changes.
+extern "C" fn prevent_extensions(
+    _e: u64,
+    _this: u64,
+    object: u64,
+    _a1: u64,
+    _a2: u64,
+    _a3: u64,
+) -> u64 {
+    super::super::integrity::restrict(object, Integrity::Closed)
+}
+
+/// `Object.isFrozen(o)`.
+///
+/// A primitive is frozen, which the specification says and which falls out of
+/// there being nothing to write rather than out of a special case.
+extern "C" fn is_frozen(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let held = with_current(|context| match Value(object).as_slot() {
+        Some(cell) => super::super::integrity::is_frozen(context, cell),
+        None => true,
+    });
+    Value::from_bool(held).bits()
+}
+
+/// `Object.isSealed(o)`.
+extern "C" fn is_sealed(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let held = with_current(|context| match Value(object).as_slot() {
+        Some(cell) => super::super::integrity::is_sealed(context, cell),
+        None => true,
+    });
+    Value::from_bool(held).bits()
+}
+
+/// `Object.isExtensible(o)`.
+///
+/// The one of the three whose answer for a primitive is `false` rather than
+/// `true`: a primitive cannot be frozen further and cannot be extended either.
+extern "C" fn is_extensible(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let open = with_current(|context| {
+        Value(object)
+            .as_slot()
+            .is_some_and(|cell| context.integrity_at(cell).is_none())
+    });
+    Value::from_bool(open).bits()
+}
 
 /// `Object.create(proto, descriptors?)`.
 ///
@@ -182,6 +248,17 @@ fn descriptor(object: u64, name: u64) -> Option<u64> {
         Some(Descriptor::Value(held.bits()))
     })?;
 
+    // The two flags that ARE recorded, and they are recorded for the object
+    // rather than for the property — which is the whole of what integrity is.
+    let (writable, configurable) = with_current(|context| {
+        let Some(cell) = Value(object).as_slot() else {
+            return (true, true);
+        };
+        (
+            !super::super::integrity::refuses_write(context, cell),
+            !super::super::integrity::refuses_removal(context, cell),
+        )
+    });
     let made = super::super::objects::object_new();
     let truth = Value::from_bool(true).bits();
     match found {
@@ -191,11 +268,11 @@ fn descriptor(object: u64, name: u64) -> Option<u64> {
         }
         Descriptor::Value(held) => {
             put(made, "value", held);
-            put(made, "writable", truth);
+            put(made, "writable", Value::from_bool(writable).bits());
         }
     }
     put(made, "enumerable", truth);
-    put(made, "configurable", truth);
+    put(made, "configurable", Value::from_bool(configurable).bits());
     Some(made)
 }
 

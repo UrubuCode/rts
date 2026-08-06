@@ -308,6 +308,13 @@ pub fn delete_property(object: u64, key: u64) -> bool {
             // removed" but "the object does not have it", and those agree here.
             return true;
         }
+        // A sealed object keeps what it has. `delete` answers FALSE here rather
+        // than failing silently: this is the one refusal in the family the
+        // language reports through a return value instead of a throw, so it can
+        // be said honestly without a handler to throw to.
+        if super::integrity::refuses_removal(context, slot) {
+            return false;
+        }
 
         // Read every survivor against the OLD layout first.
         let kept: Vec<(rts_cranelift::shape::Key, u64)> = context

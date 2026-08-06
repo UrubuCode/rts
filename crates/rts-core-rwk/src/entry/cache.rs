@@ -95,3 +95,27 @@ pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
         offset
     })
 }
+
+/// The same question, from a site that is about to **write**.
+///
+/// # Why a frozen object answers negative instead of being caught later
+///
+/// Because there is no later. A site that gets an offset writes at it on every
+/// subsequent pass without asking again — so the only place a store to a frozen
+/// object can be stopped is before the site remembers where it would write.
+///
+/// Refusing here sends the store to its miss path, which is
+/// [`super::objects::put`], which reads the integrity table and does nothing.
+/// [`cache_resolve`] still answers an offset for the same property, which is
+/// what keeps a frozen object's properties readable at full speed — and the
+/// reason the machine has two entry points rather than one with a flag.
+#[rtse::entry("rts_cache_resolve_store")]
+pub fn cache_resolve_store(object: u64, key: i64, cache: i64) -> i64 {
+    let frozen = with_current(|context| {
+        super::integrity::refuses_write(context, object as u32)
+    });
+    if frozen {
+        return -1;
+    }
+    cache_resolve(object, key, cache)
+}

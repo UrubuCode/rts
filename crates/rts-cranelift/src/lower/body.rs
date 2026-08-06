@@ -537,6 +537,11 @@ impl<'a> Body<'a> {
     /// remember — the next object through it may be at a different layout
     /// entirely. The resolver answers that it cannot be reached this way, and
     /// what to do about it is the client's.
+    ///
+    /// **A different resolver.** [`RtEntry::CacheResolveStore`], not
+    /// `CacheResolve`: the two answer the same question except when the runtime
+    /// refuses the store outright, and which of them is asking is known here
+    /// rather than passed as a flag. Its own documentation carries the reason.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn lower_cached_set(
         &mut self,
@@ -583,7 +588,7 @@ impl<'a> Body<'a> {
         let resolved = self.call_entry_at(
             builder,
             block,
-            RtEntry::CacheResolve,
+            RtEntry::CacheResolveStore,
             &[reference, key_value, cell],
         )?;
         let answer = builder.inst_results(resolved)[0];

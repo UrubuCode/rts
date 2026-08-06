@@ -89,6 +89,27 @@ pub enum RtEntry {
     /// read this way: absent, or held in a form a machine word does not hold.
     CacheResolve = 6,
 
+    /// The same question, asked by a site that is about to **write**.
+    ///
+    /// # Why a read and a write cannot share one answer
+    ///
+    /// Because they can disagree, and only about one thing: whether the runtime
+    /// permits the store at all. A layout says where a property is; it does not
+    /// say whether the object accepts being changed, and that is a fact this
+    /// layer has no vocabulary for — nor should, since it is the client's.
+    ///
+    /// The alternative was a flag on `CacheResolve`. It was rejected because a
+    /// flag is a value a caller supplies, and the caller here is the lowering of
+    /// two different terminators: which one is asking is already known where the
+    /// call is emitted, so making it a parameter turns a fact into something
+    /// that can be passed wrongly. That is rule 8 — derive what a client would
+    /// otherwise have to remember.
+    ///
+    /// Reports a byte offset, or a negative number when the store cannot be done
+    /// by writing — which now includes "this object refuses stores", where the
+    /// read of the same property still answers an offset.
+    CacheResolveStore = 7,
+
     /// Throws a value that no handler in this function catches.
     ///
     /// Only for the escaping case. Where a handler *is* in this function, the
@@ -111,6 +132,7 @@ impl RtEntry {
         RtEntry::PromiseAwait,
         RtEntry::Throw,
         RtEntry::CacheResolve,
+        RtEntry::CacheResolveStore,
     ];
 
     /// How many entry points exist.
@@ -135,6 +157,7 @@ impl RtEntry {
             RtEntry::PromiseAwait => "rts_promise_await",
             RtEntry::Throw => "rts_throw",
             RtEntry::CacheResolve => "rts_cache_resolve",
+            RtEntry::CacheResolveStore => "rts_cache_resolve_store",
         }
     }
 
@@ -196,7 +219,11 @@ impl RtEntry {
             // saw. The cell is passed rather than its contents because filling it
             // in is the point — a resolver that only answered would leave the
             // site as slow on the second read as on the first.
-            RtEntry::CacheResolve => Signature {
+            // The same three, because it is the same question with one more
+            // thing it may refuse. Written out rather than delegated to the
+            // arm above: two entry points sharing a signature by construction
+            // is a coupling that would silently survive one of them changing.
+            RtEntry::CacheResolve | RtEntry::CacheResolveStore => Signature {
                 params: vec![Repr::Ref(RefKind::Opaque), Repr::I64, Repr::I64],
                 returns: vec![Repr::I64],
                 convention: crate::abi::Convention::Foreign,
@@ -236,6 +263,24 @@ mod tests {
                 assert_ne!(a.symbol(), b.symbol());
             }
         }
+    }
+
+    #[test]
+    fn the_two_resolvers_are_one_shape_asked_of_two_functions() {
+        // The store lowering passes the same three operands to a different
+        // symbol, which only works while the signatures agree — and the whole
+        // point of the second entry is that the runtime may answer differently.
+        assert_eq!(
+            RtEntry::CacheResolve.signature().params,
+            RtEntry::CacheResolveStore.signature().params,
+            "a store passes what a read passes; a signature that drifted would \
+             be a call with the wrong stack rather than a wrong answer"
+        );
+        assert_ne!(
+            RtEntry::CacheResolve.symbol(),
+            RtEntry::CacheResolveStore.symbol(),
+            "one symbol for both is the flag this pair exists instead of"
+        );
     }
 
     #[test]

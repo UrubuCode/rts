@@ -418,7 +418,12 @@ pub fn compile_for(source: &str, regions: u32) -> Result<Compiled, HostError> {
     // Given unconditionally rather than when a program looks like it needs one:
     // a JIT resolves a name at finalization and an unused address costs a row
     // in a table, while a missing one is a crash with no diagnostic.
-    for entry in [RtEntry::Alloc, RtEntry::CacheResolve, RtEntry::WriteBarrier] {
+    for entry in [
+        RtEntry::Alloc,
+        RtEntry::CacheResolve,
+        RtEntry::CacheResolveStore,
+        RtEntry::WriteBarrier,
+    ] {
         outside.push((entry.symbol(), machine_entry(entry)));
     }
 

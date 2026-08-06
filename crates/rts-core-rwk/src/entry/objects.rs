@@ -159,7 +159,20 @@ pub(super) fn put(context: &mut Context, slot: u32, key: Key, value: u64) {
 
     // Already in the layout: a store, at the offset the layout decided.
     if let Some(at) = context.shapes.slot_of(shape, machine) {
+        // A frozen object refuses it. Silently, like every other write this
+        // engine cannot report — the language throws in strict mode, and
+        // `super::throw` cannot find a handler in a caller.
+        if super::integrity::refuses_write(context, slot) {
+            return;
+        }
         set_slot_value(context, slot, at, value);
+        return;
+    }
+
+    // A property the object does not have yet is growth, which all three
+    // integrity levels refuse — that is the whole of what `preventExtensions`
+    // says, and the reason the check is here rather than beside the frozen one.
+    if super::integrity::refuses_growth(context, slot) {
         return;
     }
 

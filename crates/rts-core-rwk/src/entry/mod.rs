@@ -58,6 +58,7 @@ mod function_proto;
 mod functions;
 mod global;
 mod global_fns;
+mod integrity;
 mod iterate;
 mod json;
 mod math;
@@ -105,7 +106,7 @@ mod table;
 pub use accessor::{define_getter, define_setter};
 pub use alloc::alloc;
 pub use barrier::write_barrier;
-pub use cache::cache_resolve;
+pub use cache::{cache_resolve, cache_resolve_store};
 pub use chain::{get_prototype, set_prototype};
 pub use current::with_context;
 pub(crate) use current::with_current;
@@ -303,6 +304,25 @@ pub struct Context {
     /// instead of calling it. See [`accessor`] for why the absence is
     /// load-bearing rather than an omission.
     accessors: Aside<Vec<(u32, Option<u64>, Option<u64>)>>,
+    /// Which cells refuse to be changed, and how much.
+    ///
+    /// # Why this is beside the cell and not in the shape
+    ///
+    /// A shape is a key, a slot and a representation, and the machine's own
+    /// documentation says so. Integrity is a fact about one OBJECT rather than
+    /// about the layout it shares with every other object of that shape, so a
+    /// flag in the tree would freeze every `{x: 1}` in the program at once.
+    ///
+    /// # Why it is not enough on its own
+    ///
+    /// Because compiled code does not ask. `cached_set` compares the object's
+    /// type against the one the site remembers and writes at the offset it
+    /// remembers — so a site that warmed up before the freeze would keep
+    /// writing. `objects::freeze` therefore also gives the cell a **new type**
+    /// with the same layout, which makes every site miss and ask; the store
+    /// resolver then answers negative and the write reaches the slow path,
+    /// where this table is read. See [`cache::cache_resolve_store`].
+    integrity: Aside<integrity::Integrity>,
     /// The argument vector each call in progress supplied, if any.
     ///
     /// A stack, and pushed by EVERY call rather than only by the ones that
@@ -436,6 +456,7 @@ impl Context {
             regexes: Aside::in_region(bits),
             accessors: Aside::in_region(bits),
             derived: Aside::in_region(bits),
+            integrity: Aside::in_region(bits),
             array_elements: Aside::in_region(bits),
             region,
             ..Context::new(singletons, kinds)
@@ -477,6 +498,7 @@ impl Context {
             array_elements: Aside::new(),
             accessors: Aside::new(),
             derived: Aside::new(),
+            integrity: Aside::new(),
             pending_arguments: Vec::new(),
             new_targets: Vec::new(),
             bound: Aside::new(),

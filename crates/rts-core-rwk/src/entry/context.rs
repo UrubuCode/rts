@@ -28,11 +28,26 @@ impl Context {
         shape: rts_cranelift::shape::ShapeId,
     ) -> rts_cranelift::types::TypeId {
         let ty = self.shapes.layout(shape, &mut self.types);
+        self.record_shape(ty, shape);
+        ty
+    }
+
+    /// Records which shape a layout came from.
+    ///
+    /// Split out of [`Self::layout_of`] because a second caller appeared:
+    /// `integrity::retype` mints a DUPLICATE layout for one cell and points it
+    /// at the shape that cell already had. Both need the reverse map filled the
+    /// same way, and the resize-then-write pair is exactly the kind of thing
+    /// that gets written differently the second time.
+    pub(super) fn record_shape(
+        &mut self,
+        ty: rts_cranelift::types::TypeId,
+        shape: rts_cranelift::shape::ShapeId,
+    ) {
         if self.shape_of_type.len() <= ty.index() {
             self.shape_of_type.resize(ty.index() + 1, shape);
         }
         self.shape_of_type[ty.index()] = shape;
-        ty
     }
 
     /// Which shape a cell's type came from, if it is an object's.

@@ -203,4 +203,101 @@ Object.defineProperty(accessor, "computed", { get: function () { return 4; } });
 check("descriptor-getter", typeof Object.getOwnPropertyDescriptor(accessor, "computed").get === "function");
 check("descriptor-getter-not-value", Object.getOwnPropertyDescriptor(accessor, "computed").value === undefined);
 
+// A freeze has to survive a WARMED inline cache: the first loop teaches the
+// store site the object's layout, and without the retype plus the store
+// resolver the writes after the freeze would go straight through it.
+// ONE store site, run on both sides of the freeze. Two loops would not test
+// this: each `o.n = v` in the source is its own site with its own cold cache,
+// so the second one would ask the runtime and be refused for the wrong reason.
+check("freeze-beats-a-warm-cache", (function () {
+    function write(target, v) { target.n = v; }
+    let o = { n: 0 };
+    write(o, 1);
+    write(o, 2);
+    Object.freeze(o);
+    write(o, 99);
+    write(o, 98);
+    return o.n === 2;
+})());
+check("freeze-still-reads", (function () {
+    let o = { a: 1, b: 2 };
+    Object.freeze(o);
+    return o.a === 1 && o.b === 2;
+})());
+check("freeze-refuses-new", (function () {
+    let o = {};
+    Object.freeze(o);
+    o.fresh = 1;
+    return o.fresh === undefined;
+})());
+check("freeze-refuses-delete", (function () {
+    let o = { a: 1 };
+    Object.freeze(o);
+    return (delete o.a) === false && o.a === 1;
+})());
+check("is-frozen", (function () {
+    let o = { a: 1 };
+    return Object.isFrozen(o) === false && Object.isFrozen(Object.freeze(o));
+})());
+check("frozen-descriptor", (function () {
+    let o = { a: 1 };
+    Object.freeze(o);
+    let d = Object.getOwnPropertyDescriptor(o, "a");
+    return d.writable === false && d.configurable === false;
+})());
+
+// Sealed is the middle: writes still land, the shape may not change.
+check("seal-allows-writes", (function () {
+    let o = { n: 1 };
+    Object.seal(o);
+    o.n = 5;
+    return o.n === 5;
+})());
+check("seal-refuses-new", (function () {
+    let o = { n: 1 };
+    Object.seal(o);
+    o.other = 2;
+    return o.other === undefined;
+})());
+check("seal-refuses-delete", (function () {
+    let o = { n: 1 };
+    Object.seal(o);
+    return (delete o.n) === false;
+})());
+check("is-sealed", (function () {
+    let o = { n: 1 };
+    return Object.isSealed(o) === false && Object.isSealed(Object.seal(o));
+})());
+
+// `preventExtensions` refuses only growth.
+check("prevent-extensions-writes", (function () {
+    let o = { n: 1 };
+    Object.preventExtensions(o);
+    o.n = 3;
+    return o.n === 3;
+})());
+check("prevent-extensions-refuses-new", (function () {
+    let o = { n: 1 };
+    Object.preventExtensions(o);
+    o.other = 1;
+    return o.other === undefined;
+})());
+check("prevent-extensions-allows-delete", (function () {
+    let o = { n: 1 };
+    Object.preventExtensions(o);
+    return (delete o.n) === true && o.n === undefined;
+})());
+check("is-extensible", (function () {
+    let o = {};
+    return Object.isExtensible(o) && Object.isExtensible(Object.preventExtensions(o)) === false;
+})());
+// One-way: a weaker level must not thaw a stronger one.
+check("prevent-extensions-does-not-thaw", (function () {
+    let o = { n: 1 };
+    Object.freeze(o);
+    Object.preventExtensions(o);
+    o.n = 7;
+    return o.n === 1;
+})());
+
 return failed;
