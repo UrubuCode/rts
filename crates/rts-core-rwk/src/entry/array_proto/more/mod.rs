@@ -51,6 +51,7 @@ pub(in crate::entry) const NATIVES: &[(&str, Native)] = &[
     ("flat", flat),
     ("flatMap", flat_map),
     ("splice", splice),
+    ("toSpliced", to_spliced),
     ("sort", sorting::sort),
     ("toSorted", sorting::to_sorted),
     ("toReversed", to_reversed),
@@ -230,6 +231,39 @@ extern "C" fn splice(_e: u64, this: u64, start: u64, count: u64, x: u64, y: u64)
     });
     match removed {
         Some(removed) => built(removed),
+        None => nothing(),
+    }
+}
+
+/// `a.toSpliced(start, count, x)` — a copy, where `splice` mutates.
+///
+/// One insertion rather than the two `splice` takes: this answers the new array,
+/// so the receiver does not need a slot and the fourth is spent on the value.
+///
+/// The receiver is left alone, which is the whole distinction — and the reason
+/// this is not `splice` on a copy: `splice` writes `length` back through
+/// `store`, and doing that to a copy is the version that works until someone
+/// passes the same array twice.
+extern "C" fn to_spliced(_e: u64, this: u64, start: u64, count: u64, x: u64, _a3: u64) -> u64 {
+    let spliced = with_current(|context| {
+        let (_, mut elements) = staged(context, this)?;
+        let from = relative(Value(start).numeric().unwrap_or(0.0), elements.len());
+        let left = (elements.len() - from) as f64;
+        // An absent count removes to the end, for the reason `splice` records:
+        // defaulting it to zero turns every truncation into nothing at all.
+        let taken = if absent(context, count) {
+            left as usize
+        } else {
+            Value(count).numeric().unwrap_or(0.0).clamp(0.0, left) as usize
+        };
+        elements.drain(from..from + taken);
+        if !absent(context, x) {
+            elements.insert(from, x);
+        }
+        Some(elements)
+    });
+    match spliced {
+        Some(elements) => built(elements),
         None => nothing(),
     }
 }

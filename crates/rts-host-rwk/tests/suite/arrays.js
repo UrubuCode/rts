@@ -93,6 +93,20 @@ check("from-array-like-length", Array.from(like).length === 2);
 check("from-no-length", Array.from({}).length === 0);
 check("from-string", Array.from("ab")[0] === "a");
 
+// `toSpliced` copies where `splice` mutates, which is the whole distinction.
+let source = [1, 2, 3, 4];
+check("to-spliced-removes", source.toSpliced(1, 2).join(",") === "1,4");
+check("to-spliced-inserts", source.toSpliced(1, 0, 9).join(",") === "1,9,2,3,4");
+check("to-spliced-to-the-end", source.toSpliced(2).join(",") === "1,2");
+check("to-spliced-leaves-the-receiver", source.length === 4);
+
+// A property key is text, so `1` and `"1"` name one group — the difference from
+// `Map.groupBy`, which keeps them apart.
+let grouped = Object.groupBy([1, 2, 3, 4], function (n) { return n % 2 === 0 ? "even" : "odd"; });
+check("group-by-even", grouped.even.join(",") === "2,4");
+check("group-by-odd", grouped.odd.join(",") === "1,3");
+check("group-by-numeric-key", Object.groupBy([1], function () { return 1; })["1"].length === 1);
+
 check("spread", [0, ...[1, 2], 3].length === 4);
 check("instance-of", [] instanceof Array);
 

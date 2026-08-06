@@ -45,6 +45,7 @@ const STATICS: &[(&str, Native)] = &[
     ("setPrototypeOf", set_prototype_of),
     ("defineProperty", define_property),
     ("assign", assign),
+    ("groupBy", group_by),
 ];
 
 /// `Object` itself, as the value the name reads.
@@ -292,6 +293,40 @@ extern "C" fn is(_e: u64, _this: u64, left: u64, right: u64, _a2: u64, _a3: u64)
         crate::value::same_value(Value(left), Value(right), |a, b| context.same_text(a, b))
     });
     Value::from_bool(same).bits()
+}
+
+/// `Object.groupBy(items, f)` — an object of arrays, keyed by what `f` answered.
+///
+/// The key is a **property key**, so `1` and `"1"` name one group — which is the
+/// difference from `Map.groupBy` and the reason the two exist side by side. A
+/// program that needs `1` and `"1"` apart reaches for that one.
+///
+/// The object inherits nothing, which the specification requires: a group named
+/// `toString` must be a group rather than the method it would otherwise shadow.
+/// Nothing here arranges that — `object_new` allocates with no prototype, which
+/// the module documentation records as a gap and which this one method wants.
+extern "C" fn group_by(_e: u64, _this: u64, items: u64, callback: u64, _a2: u64, _a3: u64) -> u64 {
+    let elements = super::collections::elements_of(items);
+    let made = super::objects::object_new();
+    let absent = with_current(|context| undefined_of(context));
+    for (at, element) in elements.into_iter().enumerate() {
+        let index = Value::from_f64(at as f64).bits();
+        // No borrow held: the callback is user code.
+        let key = super::collections::invoke(callback, absent, element, index, absent);
+        // The group is read back off the object rather than accumulated in a
+        // Rust map, for the reason `Map::group_by` states from the other side:
+        // what makes two keys one group is the key space, and the object is the
+        // thing that already decides it. A second answer here is where `1` and
+        // `"1"` would stop naming one property.
+        let group = super::computed::get_indexed(made, key);
+        if group == absent {
+            let fresh = super::array_proto::built(vec![element]);
+            super::computed::set_indexed(made, key, fresh);
+        } else {
+            super::iterate::array_append(group, element);
+        }
+    }
+    made
 }
 
 /// An array's elements, the borrow ending here.
