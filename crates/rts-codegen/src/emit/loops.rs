@@ -59,10 +59,7 @@ use super::scope::Binding;
 use super::stmt::emit_stmt;
 use super::{Ctx, EmitError, EmitResult, Scope};
 use crate::names::Name;
-use crate::syntax::{
-    AssignTarget, Expr, ExprKind, ForInit, Pattern, Stmt,
-    StmtKind,
-};
+use crate::syntax::{AssignTarget, Expr, ExprKind, ForInit, Stmt, StmtKind};
 
 /// A loop being emitted, for `break` and `continue` to reach.
 pub struct Frame {
@@ -282,16 +279,15 @@ fn emit_for_inner(
     match init {
         Some(ForInit::Declare { bindings, .. }) => {
             for binding in bindings {
-                let Pattern::Name(name) = &binding.target else {
-                    return Err(EmitError::Unsupported {
-                        construct: "a destructuring `for` header",
-                    });
-                };
                 let value = match &binding.value {
                     Some(expr) => super::expr::emit_expr(builder, scope, ctx, expr)?,
                     None => super::expr::undefined(builder, ctx),
                 };
-                super::binding::declare(builder, scope, ctx, *name, value)?;
+                // `Pattern::Name` and a destructuring header both go through
+                // one lowering now — `destructure::declare` is the fast path
+                // for the plain case too, since a name is the leaf that
+                // introduces itself.
+                super::destructure::declare(builder, scope, ctx, &binding.target, value, body.at)?;
             }
         }
         Some(ForInit::Expr(expr)) => {

@@ -406,12 +406,43 @@ impl Escaping<'_> {
         self.escaped.insert(name);
     }
 
-    /// The same, for whatever a pattern writes to.
-    fn kill_pattern(&mut self, pattern: &Pattern) {
-        let mut bound = Vec::new();
-        pattern.bound_names(&mut bound);
-        for name in bound {
-            self.kill(name);
+    /// The same, for whatever a pattern writes to — plus every name a default
+    /// or a computed key reads along the way, and the receiver a
+    /// [`Pattern::Target`] leaf writes through.
+    ///
+    /// `[a.b] = xs` binds nothing, but it reads `a` as a value to write a
+    /// property on — exactly the case the line below `note_use`'s call sites
+    /// exists for — so a `Target` leaf is scanned rather than skipped, on the
+    /// same footing `AssignTarget::Place` already gets one line up.
+    fn kill_pattern(&mut self, pattern: &Pattern, depth: u32) {
+        match pattern {
+            Pattern::Name(name) => self.kill(*name),
+            Pattern::Target(expr) => scan_expr(expr, depth, self, false),
+            Pattern::Object(object) => {
+                for property in &object.properties {
+                    if let PropertyKey::Computed(key) = &property.key {
+                        scan_expr(key, depth, self, true);
+                    }
+                    self.kill_pattern(&property.value.pattern, depth);
+                    if let Some(default) = &property.value.default {
+                        scan_expr(default, depth, self, true);
+                    }
+                }
+                if let Some(rest) = &object.rest {
+                    self.kill_pattern(rest, depth);
+                }
+            }
+            Pattern::Array(array) => {
+                for element in array.elements.iter().flatten() {
+                    self.kill_pattern(&element.pattern, depth);
+                    if let Some(default) = &element.default {
+                        scan_expr(default, depth, self, true);
+                    }
+                }
+                if let Some(rest) = &array.rest {
+                    self.kill_pattern(rest, depth);
+                }
+            }
         }
     }
 
@@ -448,7 +479,7 @@ fn scan_stmt(statement: &Stmt, depth: u32, state: &mut Escaping) {
         ..
     } = &statement.kind
     {
-        state.kill_pattern(pattern);
+        state.kill_pattern(pattern, depth);
     }
 
     let inner = depth + u32::from(is_barrier(statement));
@@ -610,7 +641,7 @@ fn scan_expr(expr: &Expr, depth: u32, state: &mut Escaping, allow_member: bool) 
             match target {
                 AssignTarget::Place(place) => scan_expr(place, depth, state, false),
                 // Destructuring writes several names at once.
-                AssignTarget::Pattern(pattern) => state.kill_pattern(pattern),
+                AssignTarget::Pattern(pattern) => state.kill_pattern(pattern, depth),
             }
             scan_expr(value, depth, state, true);
             return;

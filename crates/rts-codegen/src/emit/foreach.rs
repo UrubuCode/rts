@@ -70,10 +70,6 @@ pub fn emit_for_each(
             ForEachTarget::Declare { .. } => unreachable!("matched above"),
         };
     };
-    let Pattern::Name(bound) = pattern else {
-        return super::expr::gap("a destructuring `for-in` target");
-    };
-
     let at = statement.at;
     let index = ctx.names.intern("__rts_in_index");
     let keys = ctx.names.intern("__rts_in_keys");
@@ -135,12 +131,16 @@ pub fn emit_for_each(
     };
 
     // `let k = ks[i];` in front of the body, in a block of its own so the
-    // binding is fresh every pass.
+    // binding is fresh every pass. `target: pattern.clone()` rather than
+    // requiring a plain name: `Declare`'s own lowering already knows how to
+    // destructure, through `destructure::declare`, so a `for-of` over a
+    // pattern is this expansion with nothing extra — the same reasoning that
+    // makes `for-in` an ordinary `for` in the first place.
     let bind = Stmt {
         kind: StmtKind::Declare {
             kind: BindingKind::Let,
             bindings: vec![SyntaxBinding {
-                target: Pattern::Name(*bound),
+                target: pattern.clone(),
                 value: Some(Expr {
                     kind: ExprKind::Index {
                         object: Box::new(name(keys)),

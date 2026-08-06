@@ -19,10 +19,10 @@ of names rather than a list of line numbers.
 ## What a fixture may not use
 
 The emitter refuses these by name, and a fixture is subject to all of them:
-`async`/`await`, generators, destructuring anywhere (including `const {a} = o`
-and `for (const [k, v] of m)`), default parameters, a spread in an object
-literal, `this` inside an arrow, `using`, and any function of more than four
-parameters. The host wraps the source in a function, so a fixture `return`s
+`async`/`await`, generators, a DESTRUCTURED or defaulted PARAMETER — the
+pattern forms in a declaration, a `for`-head and an assignment all lower now —
+a spread in an object literal, `this` inside an arrow, `using`, and any function
+of more than four parameters. The host wraps the source in a function, so a fixture `return`s
 rather than exporting.
 
 A fixture that does not COMPILE is a failure, not a skip. `suite.rs` reports the

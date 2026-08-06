@@ -210,6 +210,18 @@ fn referenced_inside_statement(statement: &Stmt, found: &mut BTreeSet<Name>, eve
         // activation had already left.
         StmtKind::Class(class) => return names_in_class(class, found),
 
+        // Not a sub-statement, a sub-expression, a binding, or a `catch` — the
+        // shared walker's own doc says it is silent about a `for`-each
+        // target, so this is the one place left to reach the expressions a
+        // destructuring target can hold: a default, and a computed key. Both
+        // run whether or not `everything` is set, on the same footing as
+        // `binding.value` below — an outer name a default reads is captured
+        // whether or not the target's own binding is nested code.
+        StmtKind::ForEach {
+            target: crate::syntax::ForEachTarget::Declare { target, .. },
+            ..
+        } => pattern_exprs(target, found, everything),
+
         _ => {}
     }
     walk_stmt(statement, &mut |child| match child {
@@ -229,13 +241,20 @@ fn referenced_inside_statement(statement: &Stmt, found: &mut BTreeSet<Name>, eve
             if everything {
                 names_in_pattern(&binding.target, found);
             }
+            // A default or a computed key is an ordinary expression that runs,
+            // regardless of `everything` — the same footing `binding.value`
+            // is on below.
+            pattern_exprs(&binding.target, found, everything);
             if let Some(expr) = &binding.value {
                 referenced_inside_expr(expr, found, everything);
             }
         }
         StmtChild::Catch(catch) => {
-            if everything && let Some(binding) = &catch.binding {
-                names_in_pattern(binding, found);
+            if let Some(binding) = &catch.binding {
+                if everything {
+                    names_in_pattern(binding, found);
+                }
+                pattern_exprs(binding, found, everything);
             }
             for statement in &catch.body {
                 referenced_inside_statement(statement, found, everything);
@@ -244,6 +263,46 @@ fn referenced_inside_statement(statement: &Stmt, found: &mut BTreeSet<Name>, eve
         StmtChild::Function(function) => names_in_function(function, found),
         StmtChild::Class(class) => names_in_class(class, found),
     });
+}
+
+/// The expressions a pattern embeds — a [`Pattern::Target`] leaf, a slot's
+/// default, or an object property's computed key — walked as ordinary
+/// references.
+///
+/// Kept apart from [`names_in_pattern`] on purpose: a bound name and a name
+/// read *while computing* one are different questions, the same distinction
+/// [`referenced_inside_statement`]'s `Binding` arm already draws between a
+/// declaration's target and its initialiser.
+fn pattern_exprs(pattern: &Pattern, found: &mut BTreeSet<Name>, everything: bool) {
+    match pattern {
+        Pattern::Name(_) => {}
+        Pattern::Target(expr) => referenced_inside_expr(expr, found, everything),
+        Pattern::Object(object) => {
+            for property in &object.properties {
+                if let PropertyKey::Computed(key) = &property.key {
+                    referenced_inside_expr(key, found, everything);
+                }
+                pattern_exprs(&property.value.pattern, found, everything);
+                if let Some(default) = &property.value.default {
+                    referenced_inside_expr(default, found, everything);
+                }
+            }
+            if let Some(rest) = &object.rest {
+                pattern_exprs(rest, found, everything);
+            }
+        }
+        Pattern::Array(array) => {
+            for element in array.elements.iter().flatten() {
+                pattern_exprs(&element.pattern, found, everything);
+                if let Some(default) = &element.default {
+                    referenced_inside_expr(default, found, everything);
+                }
+            }
+            if let Some(rest) = &array.rest {
+                pattern_exprs(rest, found, everything);
+            }
+        }
+    }
 }
 
 /// What sits directly inside a statement, one level down.
@@ -476,8 +535,13 @@ pub(super) fn walk_expr(expr: &Expr, on: &mut impl FnMut(Child)) {
         }
         ExprKind::Sequence { operands } => operands.iter().for_each(|e| on(Child::Expr(e))),
         ExprKind::Assign { target, value, .. } => {
-            if let AssignTarget::Place(place) = target {
-                on(Child::Expr(place));
+            match target {
+                AssignTarget::Place(place) => on(Child::Expr(place)),
+                // `([a.b] = xs)` writes through `a`, and `({[k()]: x} = o)`
+                // computes `k()` — both are ordinary reads this walk must not
+                // skip, or a local either one closes over is decided
+                // uncaptured.
+                AssignTarget::Pattern(pattern) => walk_pattern_exprs(pattern, on),
             }
             on(Child::Expr(value));
         }
@@ -594,6 +658,50 @@ pub(super) fn walk_expr(expr: &Expr, on: &mut impl FnMut(Child)) {
     }
 }
 
+/// The expressions an assignment **pattern** embeds — every [`Pattern::Target`]
+/// leaf, every slot's default, every computed key — fed to the same callback
+/// [`walk_expr`]'s other children are, so a caller matching on [`Child::Expr`]
+/// sees these the same way it sees an ordinary sub-expression.
+///
+/// [`Pattern::Name`] is silently skipped rather than reported as a reference.
+/// That is a known gap, harmless today because nothing yet builds an
+/// `AssignTarget::Pattern` whose leaf is a name reachable from here —
+/// `emit/expr.rs` still refuses the assignment role outright, so a program
+/// containing one fails to compile before this walk's answer is ever used.
+/// Wiring that role back in must also make this leaf report its name, the same
+/// way an `Ident` would.
+fn walk_pattern_exprs<'a>(pattern: &'a Pattern, on: &mut impl FnMut(Child<'a>)) {
+    match pattern {
+        Pattern::Name(_) => {}
+        Pattern::Target(expr) => on(Child::Expr(expr)),
+        Pattern::Object(object) => {
+            for property in &object.properties {
+                if let PropertyKey::Computed(key) = &property.key {
+                    on(Child::Expr(key));
+                }
+                walk_pattern_exprs(&property.value.pattern, on);
+                if let Some(default) = &property.value.default {
+                    on(Child::Expr(default));
+                }
+            }
+            if let Some(rest) = &object.rest {
+                walk_pattern_exprs(rest, on);
+            }
+        }
+        Pattern::Array(array) => {
+            for element in array.elements.iter().flatten() {
+                walk_pattern_exprs(&element.pattern, on);
+                if let Some(default) = &element.default {
+                    on(Child::Expr(default));
+                }
+            }
+            if let Some(rest) = &array.rest {
+                walk_pattern_exprs(rest, on);
+            }
+        }
+    }
+}
+
 /// The names a statement introduces in the function that contains it.
 ///
 /// Block scoping is deliberately ignored: `{ let x = 1; }` inside a function
@@ -666,12 +774,16 @@ fn declared_by_statement(statement: &Stmt, found: &mut BTreeSet<Name>) {
 }
 
 /// The names a binding pattern introduces.
+///
+/// `Pattern::bound_names` walks the whole tree — nested objects, nested
+/// arrays, rest — which stopped being optional the day destructuring stopped
+/// being refused by the emitter: `let {a: {b}} = o` in a closure needs `b`
+/// found here or the environment has no slot for it, and the inner function
+/// reads a register the outer activation already left.
 fn names_in_pattern(pattern: &Pattern, found: &mut BTreeSet<Name>) {
-    if let Pattern::Name(name) = pattern {
-        found.insert(*name);
-    }
-    // Destructuring is refused by the emitter, so a pattern that is not a plain
-    // name never reaches emission and nothing it would have bound can be read.
+    let mut bound = Vec::new();
+    pattern.bound_names(&mut bound);
+    found.extend(bound);
 }
 
 /// The plain names a parameter list introduces, or `None` if any is not one.

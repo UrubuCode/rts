@@ -59,6 +59,7 @@ mod call;
 mod capture;
 mod choice;
 mod class;
+mod destructure;
 mod escape;
 mod expr;
 mod fold;

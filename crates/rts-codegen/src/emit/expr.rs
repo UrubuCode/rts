@@ -571,7 +571,28 @@ fn emit_assign(
     op: AssignOp,
 ) -> EmitResult<ValueId> {
     let AssignTarget::Place(place) = target else {
-        return gap("destructuring assignment");
+        // A destructuring assignment: the same walk a declaration takes, in the
+        // role where a bare name writes an existing binding instead of
+        // introducing one. `destructure` holds both because everything else
+        // about them — the iteration protocol, when a default fires, how a rest
+        // is built — is one rule.
+        let AssignTarget::Pattern(pattern) = target else {
+            return gap("an assignment target that is neither a place nor a pattern");
+        };
+        if op != AssignOp::Plain {
+            // `[a] += xs` does not parse, and a compound assignment to a
+            // pattern is a grammar error rather than a gap. Refused by name so
+            // a tree that produced one is a defect that reports itself.
+            return gap("a compound assignment to a pattern");
+        }
+        // Evaluated once, before anything is written: `[a, b] = f()` calls `f`
+        // a single time whatever the pattern does with the result.
+        let source = emit_expr(builder, scope, ctx, value)?;
+        let source = tagged(builder, source);
+        super::destructure::assign(builder, scope, ctx, pattern, source, value.at)?;
+        // An assignment is an expression and what it produces is the SOURCE,
+        // not the last element written: `let x = ([a] = [1])` is the array.
+        return Ok(source);
     };
     // A property write is the other assignment target that exists today, and
     // it is handled before the local case because it does not go through the

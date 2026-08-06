@@ -17,7 +17,7 @@ use rts_cranelift::ir::FuncBuilder;
 
 use super::expr::{emit_condition, emit_expr, stored, undefined};
 use super::loops::{self, Loops};
-use super::{Ctx, EmitError, EmitResult, Scope};
+use super::{Ctx, EmitResult, Scope};
 use crate::syntax::{Pattern, Stmt, StmtKind};
 
 /// Emits a statement. Returns whether it terminated the block.
@@ -60,9 +60,25 @@ pub fn emit_stmt(
         StmtKind::Declare { bindings, .. } => {
             for binding in bindings {
                 let Pattern::Name(name) = &binding.target else {
-                    return Err(EmitError::Unsupported {
-                        construct: "a destructuring declaration",
-                    });
+                    // A destructuring declaration. Nothing here is a
+                    // flattening candidate — `escape.rs` only ever makes one
+                    // of a `Pattern::Name` target — so there is no fast path
+                    // to try before falling to the general lowering.
+                    let value = match &binding.value {
+                        Some(expr) => emit_expr(builder, scope, ctx, expr)?,
+                        // A pattern with nothing to destructure is a syntax
+                        // error the checker owns, not a case this reaches.
+                        None => undefined(builder, ctx),
+                    };
+                    super::destructure::declare(
+                        builder,
+                        scope,
+                        ctx,
+                        &binding.target,
+                        value,
+                        statement.at,
+                    )?;
+                    continue;
                 };
                 // An object literal whose local provably never leaves this
                 // function is not built: each property becomes a binding of its
