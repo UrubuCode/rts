@@ -1,18 +1,20 @@
 //! The static methods that speak in **descriptors**, and `Object.create`.
 //!
-//! # Why a descriptor this engine answers is mostly `true`
+//! # Where the three flags live
 //!
-//! `writable`, `enumerable` and `configurable` are not recorded anywhere: a
-//! shape holds a key, a slot and a representation, and nothing else. So a
-//! descriptor built here reports all three as `true`, which is what a property
-//! written by a program actually is — and it is a **lie for the two cases the
-//! engine already treats differently**: an array's `length` and a collection's
-//! `size` are non-enumerable in the language and ordinary properties here.
+//! This section used to say they lived nowhere, and that recording them was a
+//! change to what a shape IS. That was wrong about the place: an attribute is
+//! per OBJECT per property — `defineProperty(o, "x", {enumerable: false})` says
+//! nothing about the other objects sharing `o`'s shape — so the shape is exactly
+//! where it must not go.
 //!
-//! That is the same gap [`super`]'s `defineProperty` records from the writing
-//! side, and it is one fact with two faces rather than two problems: recording
-//! the flags is a change to what a shape IS, and both halves land the day it
-//! happens.
+//! They live beside the cell, in the accessor table's shape and for the accessor
+//! table's reason. [`super::super::integrity`] holds them, records only
+//! deviations, and makes a non-writable one stick the same way a freeze does.
+//!
+//! The two cases that used to be named as lies are now ordinary: an array's
+//! `length` and a collection's `size` are non-enumerable properties, recorded
+//! where each is written rather than as a name the enumeration knows to skip.
 //!
 //! # `freeze` and `seal` are enforced, and what it took
 //!
@@ -32,7 +34,7 @@
 
 use super::super::native::Native;
 use super::super::objects::undefined_of;
-use super::super::integrity::Integrity;
+use super::super::integrity::{Attributes, Integrity};
 use super::super::with_current;
 use crate::object::Key;
 use crate::value::Value;
@@ -167,9 +169,9 @@ fn apply(object: u64, descriptors: u64) {
 
 /// `Object.getOwnPropertyNames(o)`.
 ///
-/// The same answer `Object.keys` gives, because there are no non-enumerable
-/// properties to tell apart — see the module documentation for the one place
-/// that is observably wrong.
+/// NOT the same answer `Object.keys` gives: this one reports a property whose
+/// `enumerable` is false, which is the whole difference between the two and was
+/// not expressible until attributes were recorded.
 extern "C" fn get_own_property_names(
     _e: u64,
     _this: u64,
@@ -178,7 +180,7 @@ extern "C" fn get_own_property_names(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
-    super::super::array::own_keys(object)
+    super::super::array::own_names(object)
 }
 
 /// `Object.getOwnPropertyDescriptor(o, k)`.
@@ -248,19 +250,21 @@ fn descriptor(object: u64, name: u64) -> Option<u64> {
         Some(Descriptor::Value(held.bits()))
     })?;
 
-    // The two flags that ARE recorded, and they are recorded for the object
-    // rather than for the property — which is the whole of what integrity is.
-    let (writable, configurable) = with_current(|context| {
-        let Some(cell) = Value(object).as_slot() else {
-            return (true, true);
+    // All three, from the property's own attributes and from the object's
+    // integrity — either can refuse, so a frozen object reports a property
+    // written the ordinary way as non-writable.
+    let attributes = with_current(|context| {
+        let (Some(cell), Some(key)) = (Value(object).as_slot(), key_of(context, object, name))
+        else {
+            return Attributes::default();
         };
-        (
-            !super::super::integrity::refuses_write(context, cell),
-            !super::super::integrity::refuses_removal(context, cell),
-        )
+        Attributes {
+            writable: !super::super::integrity::refuses_key_write(context, cell, key),
+            enumerable: super::super::integrity::enumerable(context, cell, key),
+            configurable: !super::super::integrity::refuses_key_removal(context, cell, key),
+        }
     });
     let made = super::super::objects::object_new();
-    let truth = Value::from_bool(true).bits();
     match found {
         Descriptor::Accessor(getter, setter) => {
             put(made, "get", getter);
@@ -268,12 +272,32 @@ fn descriptor(object: u64, name: u64) -> Option<u64> {
         }
         Descriptor::Value(held) => {
             put(made, "value", held);
-            put(made, "writable", Value::from_bool(writable).bits());
+            put(made, "writable", Value::from_bool(attributes.writable).bits());
         }
     }
-    put(made, "enumerable", truth);
-    put(made, "configurable", Value::from_bool(configurable).bits());
+    put(made, "enumerable", Value::from_bool(attributes.enumerable).bits());
+    put(
+        made,
+        "configurable",
+        Value::from_bool(attributes.configurable).bits(),
+    );
     Some(made)
+}
+
+/// The machine key a descriptor's name denotes, for a receiver that is a cell.
+///
+/// `None` for an index, which has no `ShapeKey` — the same boundary
+/// [`super::define`] stops at, stated here so the two answer alike.
+fn key_of(
+    context: &mut super::super::Context,
+    object: u64,
+    name: u64,
+) -> Option<rts_cranelift::shape::Key> {
+    let _ = object;
+    match super::key_for(context, name)? {
+        Key::Name(named) => Some(named),
+        Key::Index(_) => None,
+    }
 }
 
 /// What an own key turned out to be.

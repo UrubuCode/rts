@@ -20,7 +20,6 @@
 //! deciding. `length` is an ordinary property holding the count — see
 //! [`set_length`] for why it is stored rather than invented.
 
-use super::computed::length_key;
 use super::objects::undefined_of;
 use super::{Context, with_current};
 use crate::heap::Slot;
@@ -141,6 +140,21 @@ pub(super) fn as_index(context: &Context, key: Value) -> Option<usize> {
 /// operation here has.
 #[rtse::entry]
 pub fn own_keys(object: u64) -> u64 {
+    keys_of(object, true)
+}
+
+/// Every own key, INCLUDING the ones an enumeration does not report.
+///
+/// What `Object.getOwnPropertyNames` answers, and the reason the two are one
+/// function with a flag rather than two walks: they differ in a single `if`,
+/// and the ordering, the symbol rule and the accessor pass are the same rules
+/// — which this crate keeps refusing to state twice.
+pub(super) fn own_names(object: u64) -> u64 {
+    keys_of(object, false)
+}
+
+/// The shared walk.
+fn keys_of(object: u64, enumerable_only: bool) -> u64 {
     let texts = with_current(|context| {
         let Some(slot) = Value(object).as_slot() else {
             return Vec::new();
@@ -162,19 +176,16 @@ pub fn own_keys(object: u64) -> u64 {
         let Some(shape) = context.shape_of(ty) else {
             return keys;
         };
-        // An array's `length` is NOT enumerable. It became a real property so
-        // that compiled code and the runtime would answer it the same way, and
-        // the cost of that is exactly here: everything else reads it as an
-        // ordinary property, so the one place that must not is this one.
-        //
-        // Caught by a probe: `for (k in [1,2,3]) s += a[k]` summed to 9
-        // instead of 6, because the loop visited "length" and added 3.
-        let skip = context
-            .elements_at(slot)
-            .is_some()
-            .then(|| length_key(context));
         for (key, _) in context.shapes.properties(shape) {
-            if Some(crate::object::Key::Name(key)) == skip {
+            // An array's `length` and a collection's `size` are real properties
+            // — so that compiled code and the runtime answer them the same way
+            // — and the language says neither is enumerable. That used to be a
+            // special case here naming `length`; it is now the ordinary
+            // attribute every property has, recorded where each is written.
+            //
+            // Caught by a probe when it was missing: `for (k in [1,2,3])`
+            // summed to 9 instead of 6, because the loop visited "length".
+            if enumerable_only && !super::integrity::enumerable(context, slot, key) {
                 continue;
             }
             if let Some(text) = context.interner.text(key) {
@@ -253,6 +264,17 @@ pub(super) fn set_length(context: &mut Context, cell: u32, length: usize) {
     let key = super::computed::length_key(context);
     let value = Value::from_f64(length as f64).bits();
     super::objects::put(context, cell, key, value);
+    // Not enumerable, which is the language — and recorded here, at the one
+    // funnel every array's length passes through, rather than as a name
+    // `own_keys` knows to skip. Written every time rather than once at
+    // construction: an array reaches this before it has the property at all,
+    // and the attribute has nowhere to live until it does.
+    if let crate::object::Key::Name(key) = key {
+        super::integrity::set_attributes(context, cell, key, super::integrity::Attributes {
+            enumerable: false,
+            ..super::integrity::Attributes::default()
+        });
+    }
 }
 
 /// The enumeration order the language states, over keys already collected.

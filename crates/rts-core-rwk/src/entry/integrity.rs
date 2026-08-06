@@ -29,17 +29,19 @@
 //! A type with no shape would have made every read of a frozen object answer
 //! `undefined`, which is a wrong program that runs.
 //!
-//! # What is still not per-property
+//! # Per-property, and per-object, in one file
 //!
-//! `Object.defineProperty(o, "x", {writable: false})` is not this: a shape holds
-//! a key, a slot and a representation, and nothing else, so there is nowhere to
-//! record a flag for ONE property. Integrity here is a fact about the whole
-//! object, which is exactly what `freeze`, `seal` and `preventExtensions` are —
-//! and it is why those three landed and the per-property descriptor fields did
-//! not.
+//! `Object.freeze` says "refuses" of every key at once; `writable: false` says
+//! it of one. They are the same refusal at two granularities, so both are here
+//! and every question is asked of the pair — see [`refuses_key_write`].
+//!
+//! An attribute is per OBJECT per property, never per layout: a shape is shared
+//! by every object built the same way, and hiding `x` on one must not hide it on
+//! all of them.
 
 use super::{Context, with_current};
 use crate::value::Value;
+use rts_cranelift::shape::Key as ShapeKey;
 
 /// How much a cell refuses.
 ///
@@ -63,13 +65,92 @@ impl Context {
     }
 }
 
-/// Whether a store to this cell is refused.
+/// What one property permits, when it does not permit everything.
+///
+/// # Why beside the cell rather than in the shape
+///
+/// Because an attribute is per OBJECT per property, not per layout:
+/// `Object.defineProperty(o, "x", {enumerable: false})` says nothing about the
+/// other objects that share `o`'s shape. Recording it in the tree would either
+/// hide `x` on all of them or fork the shape — and forking on a fact the
+/// compiler never emits a guard for buys nothing and costs every site that had
+/// warmed up on the original.
+///
+/// So this is the accessor table's shape, for the accessor table's reason: what
+/// is true of one cell's one key lives beside that cell.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(in crate::entry) struct Attributes {
+    /// Whether a store lands.
+    pub writable: bool,
+    /// Whether `Object.keys` and `for-in` report it.
+    pub enumerable: bool,
+    /// Whether `delete` removes it.
+    pub configurable: bool,
+}
+
+impl Default for Attributes {
+    /// What a property a program wrote has: all three.
+    ///
+    /// Which is why only DEVIATIONS are recorded — an object whose properties
+    /// were all written the ordinary way has no entry here at all, and the
+    /// common case pays nothing.
+    fn default() -> Self {
+        Attributes {
+            writable: true,
+            enumerable: true,
+            configurable: true,
+        }
+    }
+}
+
+impl Context {
+    /// What one key of one cell permits.
+    pub(in crate::entry) fn attributes_at(&self, cell: u32, key: ShapeKey) -> Attributes {
+        self.attributes
+            .get(cell)
+            .and_then(|held| held.iter().find(|(at, _)| *at == key))
+            .map_or_else(Attributes::default, |(_, attributes)| *attributes)
+    }
+}
+
+/// Records what a key permits, and makes a non-writable one stick.
+///
+/// The retype is the same mechanism `freeze` needs and for the same reason: a
+/// site that had warmed up writes at a remembered offset without asking, so the
+/// only way to stop it is to stop it recognising the object.
+pub(in crate::entry) fn set_attributes(
+    context: &mut Context,
+    cell: u32,
+    key: ShapeKey,
+    attributes: Attributes,
+) {
+    let mut held = context.attributes.get(cell).cloned().unwrap_or_default();
+    match held.iter_mut().find(|(at, _)| *at == key) {
+        Some((_, existing)) => *existing = attributes,
+        None => held.push((key, attributes)),
+    }
+    context.attributes.set(cell, held);
+    if !attributes.writable {
+        retype(context, cell);
+    }
+}
+
+/// Whether a store to this cell is refused, whatever the key.
 ///
 /// Read by [`super::objects::put`], which is the one funnel every named and
 /// computed write passes through — so this is asked once rather than at each
 /// spelling of an assignment.
 pub(in crate::entry) fn refuses_write(context: &Context, cell: u32) -> bool {
     context.integrity_at(cell) == Some(Integrity::Frozen)
+}
+
+/// Whether a store to this key of this cell is refused.
+///
+/// The object's own answer OR the property's, because either alone is a way to
+/// refuse: `Object.freeze` says it of every key at once and `writable: false`
+/// says it of one.
+pub(in crate::entry) fn refuses_key_write(context: &Context, cell: u32, key: ShapeKey) -> bool {
+    refuses_write(context, cell) || !context.attributes_at(cell, key).writable
 }
 
 /// Whether a NEW property on this cell is refused.
@@ -83,6 +164,19 @@ pub(in crate::entry) fn refuses_growth(context: &Context, cell: u32) -> bool {
 /// Whether removing a property from this cell is refused.
 pub(in crate::entry) fn refuses_removal(context: &Context, cell: u32) -> bool {
     context.integrity_at(cell) >= Some(Integrity::Sealed)
+}
+
+/// Whether removing this key of this cell is refused.
+pub(in crate::entry) fn refuses_key_removal(context: &Context, cell: u32, key: ShapeKey) -> bool {
+    refuses_removal(context, cell) || !context.attributes_at(cell, key).configurable
+}
+
+/// Whether this key of this cell is reported by an enumeration.
+///
+/// The one attribute integrity says nothing about: freezing an object does not
+/// hide its properties, it stops them changing.
+pub(in crate::entry) fn enumerable(context: &Context, cell: u32, key: ShapeKey) -> bool {
+    context.attributes_at(cell, key).enumerable
 }
 
 /// Applies a level, keeping the strictest one the object has been given.

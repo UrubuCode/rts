@@ -112,6 +112,15 @@ pub(super) fn restore_sized(context: &mut Context, cell: u32, table: Table) {
     let key = context.well_known("size");
     let value = Value::from_f64(size as f64).bits();
     super::objects::put(context, cell, key, value);
+    // Not enumerable, like an array's `length` and for the same reason: it is a
+    // real property so both paths agree about it, and the language does not
+    // report it. `Object.keys(new Map())` was `["size"]` before this.
+    if let crate::object::Key::Name(key) = key {
+        super::integrity::set_attributes(context, cell, key, super::integrity::Attributes {
+            enumerable: false,
+            ..super::integrity::Attributes::default()
+        });
+    }
 }
 
 /// A fresh instance of one of these classes, empty.

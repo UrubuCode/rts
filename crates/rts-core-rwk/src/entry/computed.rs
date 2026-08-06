@@ -312,7 +312,7 @@ pub fn delete_property(object: u64, key: u64) -> bool {
         // than failing silently: this is the one refusal in the family the
         // language reports through a return value instead of a throw, so it can
         // be said honestly without a handler to throw to.
-        if super::integrity::refuses_removal(context, slot) {
+        if super::integrity::refuses_key_removal(context, slot, machine) {
             return false;
         }
 

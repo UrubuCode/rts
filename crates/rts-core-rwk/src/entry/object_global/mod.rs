@@ -180,6 +180,15 @@ pub(super) fn define(object: u64, name: u64, descriptor: u64) {
     let getter = read("get");
     let setter = read("set");
     let value = read("value");
+    // The three flags, read the same way. A field left out is FALSE here where
+    // an ordinary assignment gives all three: that is what the language says of
+    // `defineProperty` and it is the difference programs reach for it for —
+    // `{value: 1}` alone defines something a later write cannot change.
+    let attributes = super::integrity::Attributes {
+        writable: super::primitives::to_boolean(read("writable")),
+        enumerable: super::primitives::to_boolean(read("enumerable")),
+        configurable: super::primitives::to_boolean(read("configurable")),
+    };
 
     let (key, absent) = with_current(|context| {
         let key = key_for(context, name).and_then(|key| match key {
@@ -207,6 +216,16 @@ pub(super) fn define(object: u64, name: u64, descriptor: u64) {
     if getter == absent && setter == absent {
         super::objects::set_property(object, key, value);
     }
+    // Recorded AFTER the value is stored, never before: a non-writable
+    // attribute is what `put` refuses, so writing the flag first would make
+    // `defineProperty` refuse its own definition.
+    with_current(|context| {
+        if let Some(cell) = Value(object).as_slot()
+            && let Some(key) = context.keys.key(key as u32)
+        {
+            super::integrity::set_attributes(context, cell, key, attributes);
+        }
+    });
 }
 
 /// The key a property name value denotes.

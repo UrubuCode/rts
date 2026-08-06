@@ -326,6 +326,13 @@ pub struct Context {
     /// resolver then answers negative and the write reaches the slow path,
     /// where this table is read. See [`cache::cache_resolve_store`].
     integrity: Aside<integrity::Integrity>,
+    /// What individual properties permit, where they do not permit everything.
+    ///
+    /// Deviations only: a property a program wrote is writable, enumerable and
+    /// configurable, so an object nobody called `defineProperty` on has no entry
+    /// here. Beside the cell for the accessor table's reason — what is true of
+    /// one cell's one key is not true of its layout.
+    attributes: Aside<Vec<(rts_cranelift::shape::Key, integrity::Attributes)>>,
     /// The argument vector each call in progress supplied, if any.
     ///
     /// A stack, and pushed by EVERY call rather than only by the ones that
@@ -472,6 +479,7 @@ impl Context {
             accessors: Aside::in_region(bits),
             derived: Aside::in_region(bits),
             integrity: Aside::in_region(bits),
+            attributes: Aside::in_region(bits),
             array_elements: Aside::in_region(bits),
             region,
             ..Context::new(singletons, kinds)
@@ -514,6 +522,7 @@ impl Context {
             accessors: Aside::new(),
             derived: Aside::new(),
             integrity: Aside::new(),
+            attributes: Aside::new(),
             pending_arguments: Vec::new(),
             new_targets: Vec::new(),
             bound: Aside::new(),

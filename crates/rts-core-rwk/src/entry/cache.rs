@@ -111,10 +111,13 @@ pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
 /// reason the machine has two entry points rather than one with a flag.
 #[rtse::entry("rts_cache_resolve_store")]
 pub fn cache_resolve_store(object: u64, key: i64, cache: i64) -> i64 {
-    let frozen = with_current(|context| {
-        super::integrity::refuses_write(context, object as u32)
+    let refused = with_current(|context| {
+        u32::try_from(key)
+            .ok()
+            .and_then(|number| context.keys.key(number))
+            .is_some_and(|key| super::integrity::refuses_key_write(context, object as u32, key))
     });
-    if frozen {
+    if refused {
         return -1;
     }
     cache_resolve(object, key, cache)

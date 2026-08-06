@@ -300,4 +300,76 @@ check("prevent-extensions-does-not-thaw", (function () {
     return o.n === 1;
 })());
 
+// A descriptor's flags are per OBJECT per property: `defineProperty` on one
+// object says nothing about another sharing its shape.
+check("writable-false-refuses", (function () {
+    let o = {};
+    Object.defineProperty(o, "fixed", { value: 1, writable: false });
+    o.fixed = 9;
+    return o.fixed === 1;
+})());
+// The same warm-cache case a freeze has to survive, for one property.
+check("writable-false-beats-a-warm-cache", (function () {
+    function write(target, v) { target.n = v; }
+    let o = { n: 0 };
+    write(o, 1);
+    write(o, 2);
+    Object.defineProperty(o, "n", { value: 2, writable: false });
+    write(o, 99);
+    return o.n === 2;
+})());
+check("writable-false-is-per-object", (function () {
+    let a = { shared: 1 };
+    let b = { shared: 1 };
+    Object.defineProperty(a, "shared", { value: 1, writable: false });
+    b.shared = 5;
+    return b.shared === 5 && a.shared === 1;
+})());
+check("enumerable-false-hides", (function () {
+    let o = { seen: 1 };
+    Object.defineProperty(o, "hidden", { value: 2, enumerable: false });
+    return Object.keys(o).join(",") === "seen" && o.hidden === 2;
+})());
+check("enumerable-false-not-in-for-in", (function () {
+    let o = {};
+    Object.defineProperty(o, "hidden", { value: 2, enumerable: false });
+    let count = 0;
+    for (let k in o) { count = count + 1; }
+    return count === 0;
+})());
+// `getOwnPropertyNames` reports what an enumeration does not, which is the
+// whole difference between it and `Object.keys`.
+check("own-property-names-includes-hidden", (function () {
+    let o = {};
+    Object.defineProperty(o, "hidden", { value: 2, enumerable: false });
+    return Object.getOwnPropertyNames(o).length === 1 && Object.keys(o).length === 0;
+})());
+check("configurable-false-refuses-delete", (function () {
+    let o = {};
+    Object.defineProperty(o, "fixed", { value: 1, configurable: false });
+    return (delete o.fixed) === false && o.fixed === 1;
+})());
+// A field left out of a descriptor is FALSE, where an ordinary assignment gives
+// all three. That is what programs reach for `defineProperty` for.
+check("descriptor-defaults-to-false", (function () {
+    let o = {};
+    Object.defineProperty(o, "x", { value: 1 });
+    let d = Object.getOwnPropertyDescriptor(o, "x");
+    return d.writable === false && d.enumerable === false && d.configurable === false;
+})());
+check("assignment-defaults-to-true", (function () {
+    let o = { x: 1 };
+    let d = Object.getOwnPropertyDescriptor(o, "x");
+    return d.writable && d.enumerable && d.configurable;
+})());
+
+// The two the engine already treated specially are now ordinary non-enumerable
+// properties rather than names the enumeration knew to skip.
+check("array-length-not-enumerated", Object.keys([1, 2]).join(",") === "0,1");
+check("map-size-not-enumerated", (function () {
+    let m = new Map();
+    m.set("k", 1);
+    return Object.keys(m).length === 0 && m.size === 1;
+})());
+
 return failed;

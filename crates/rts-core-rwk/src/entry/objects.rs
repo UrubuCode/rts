@@ -159,10 +159,11 @@ pub(super) fn put(context: &mut Context, slot: u32, key: Key, value: u64) {
 
     // Already in the layout: a store, at the offset the layout decided.
     if let Some(at) = context.shapes.slot_of(shape, machine) {
-        // A frozen object refuses it. Silently, like every other write this
-        // engine cannot report — the language throws in strict mode, and
-        // `super::throw` cannot find a handler in a caller.
-        if super::integrity::refuses_write(context, slot) {
+        // A frozen object refuses it, and so does a property declared
+        // non-writable. Silently, like every other write this engine cannot
+        // report — the language throws in strict mode, and `super::throw`
+        // cannot find a handler in a caller.
+        if super::integrity::refuses_key_write(context, slot, machine) {
             return;
         }
         set_slot_value(context, slot, at, value);
