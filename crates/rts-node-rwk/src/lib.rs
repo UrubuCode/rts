@@ -45,6 +45,7 @@ pub mod domain;
 pub mod events;
 pub mod fs;
 pub mod http;
+pub mod http2;
 pub mod https;
 pub mod module;
 pub mod os;
@@ -111,6 +112,7 @@ pub fn install(context: &mut Context) {
         ("test", test_runner::namespace(context)),
         ("diagnostics_channel", diagnostics_channel::namespace(context)),
         ("http", http::namespace(context)),
+        ("http2", http2::namespace(context)),
         ("https", https::namespace(context)),
         ("net", net::namespace(context)),
         ("perf_hooks", perf_hooks::namespace(context)),

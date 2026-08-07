@@ -11,7 +11,7 @@ grep -oE '^\s+\("([a-z_]+)"' crates/rts-node-rwk/src/lib.rs | tr -d ' ("' | sort
 comm -23 /tmp/ref.txt /tmp/done.txt
 ```
 
-**33 of 42 documented modules are registered.** A module being registered means a
+**34 of 42 documented modules are registered.** A module being registered means a
 program can import it and call what it provides — it does NOT mean the surface is
 complete. Each module's own doc carries a "Not implemented, by name" section, and
 that is the authority on its gaps; this file is about which modules exist at all.
@@ -25,7 +25,7 @@ that is the authority on its gaps; this file is about which modules exist at all
 `os` · `path` · `perf_hooks` · `process` · `punycode` · `querystring` ·
 `stream` · `string_decoder` · `test` · `timers` · `tty` · `url` · `util` · `v8` · `zlib` ·
 `console` · `dgram` · `http` · `https` · `module` · `readline` · `tls` ·
-`cluster` · `domain` · `trace_events`
+`cluster` · `domain` · `trace_events` · `http2` (framing and HPACK only — see below)
 
 `Buffer` and `console` are not modules: `Buffer` is a class in the runtime
 (`rts-core-rwk`, where `layering.md` puts it) and `console` is a global installed
@@ -37,7 +37,7 @@ Ordered by what unblocks the most rather than by size.
 
 | module | doc | waits on |
 |---|---|---|
-| `http2` | 1165 | `tls` and HPACK. |
+| `http2` | 1165 | framing and HPACK are DONE and tested against the RFC. What is missing is the session/stream lifecycle — see below. |
 | `worker_threads` | 688 | a second engine context on another thread. `rts-host-rwk` compiles for N regions already — this is the first module that needs the host, not just the runtime. |
 | `repl` | 371 | `readline`, and a way to compile a string at run time — the host has one, this crate cannot reach it. |
 | `vm` | 1102 | the same: compiling source from inside a running program. |
@@ -128,3 +128,24 @@ cause is legible.
   is no tracing sink anywhere in the engine.
 
 Each says this at the top of its own module doc rather than only here.
+
+## `node:http2` — the half that is real, and why the other half was refused
+
+Done and pinned by 37 unit tests against the RFCs' own vectors: the 9-byte frame
+header, the connection preface, and `SETTINGS`/`HEADERS`/`DATA`/`WINDOW_UPDATE`/
+`RST_STREAM`/`GOAWAY`/`PING`/`PRIORITY`; and HPACK (RFC 7541) in full — static
+table, integer and string primitives, dynamic table with byte-budgeted eviction,
+all four header-field representations, checked against C.6.1's worked example.
+
+Huffman DECODING works and is checked against C.4.1/C.4.2. Huffman ENCODING does
+not exist and the encoder writes literals. That asymmetry is deliberate: a peer
+may Huffman-encode whatever this side emits, so decoding is mandatory and
+encoding is not. Getting it backwards yields a client that works until a server
+compresses.
+
+`connect`, `createServer`, the session and stream classes: **not built**.
+Refused rather than half-built, and the reason is specific — a session that
+claims `'stream'`, `close()` and `goaway()` without an owned frame-dispatch
+loop, flow control, and the rapid-reset mitigation (CVE-2023-44487) the spec
+calls mandatory is exactly the module that looks finished and drops frames it
+never learned.
