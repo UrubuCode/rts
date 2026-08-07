@@ -37,9 +37,12 @@ pub mod buffer;
 pub mod child_process;
 pub mod diagnostics_channel;
 pub mod dns;
+pub mod console;
 pub mod crypto;
+pub mod dgram;
 pub mod events;
 pub mod fs;
+pub mod http;
 pub mod module;
 pub mod os;
 pub mod net;
@@ -48,8 +51,10 @@ pub mod perf_hooks;
 pub mod punycode;
 pub mod process;
 pub mod querystring;
+pub mod readline;
 pub mod string_decoder;
 pub mod stream;
+pub mod test_runner;
 pub mod timers;
 pub mod tty;
 
@@ -71,21 +76,34 @@ pub fn install(context: &mut Context) {
     // so asking it a second time for `fs.promises` would register a specifier
     // pointing at an object no `fs` a program imported ever held.
     let files = fs::namespace(context);
+    // `events` and `stream` FIRST, and this is load-bearing rather than tidy:
+    // `make_prototype` is idempotent BY NAME, so whoever asks for "EventEmitter"
+    // first decides what is on it. A module that chains onto it asks with an
+    // empty member list, so if it runs first the real methods never arrive and
+    // `emit` silently reaches no listener — which is what the alphabetical order
+    // of this table caused the moment `console` and `dgram` joined it.
+    let events_namespace = events::namespace(context);
+    let stream_namespace = stream::namespace(context);
     let modules = [
         ("assert", assert::namespace(context)),
         ("async_hooks", async_hooks::namespace(context)),
         ("buffer", buffer::namespace(context)),
         ("child_process", child_process::namespace(context)),
+        ("console", console::namespace(context)),
         ("crypto", crypto::namespace(context)),
+        ("dgram", dgram::namespace(context)),
         ("dns", dns::namespace(context)),
-        ("events", events::namespace(context)),
+        ("events", events_namespace),
         ("fs", files),
         ("os", os::namespace(context)),
         ("path", path::namespace(context)),
         ("process", process::namespace(context)),
         ("querystring", querystring::namespace(context)),
-        ("stream", stream::namespace(context)),
+        ("readline", readline::namespace(context)),
+        ("stream", stream_namespace),
+        ("test", test_runner::namespace(context)),
         ("diagnostics_channel", diagnostics_channel::namespace(context)),
+        ("http", http::namespace(context)),
         ("net", net::namespace(context)),
         ("perf_hooks", perf_hooks::namespace(context)),
         ("punycode", punycode::namespace(context)),

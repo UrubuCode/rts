@@ -11,7 +11,7 @@ grep -oE '^\s+\("([a-z_]+)"' crates/rts-node-rwk/src/lib.rs | tr -d ' ("' | sort
 comm -23 /tmp/ref.txt /tmp/done.txt
 ```
 
-**23 of 42 documented modules are registered.** A module being registered means a
+**28 of 42 documented modules are registered.** A module being registered means a
 program can import it and call what it provides — it does NOT mean the surface is
 complete. Each module's own doc carries a "Not implemented, by name" section, and
 that is the authority on its gaps; this file is about which modules exist at all.
@@ -23,7 +23,8 @@ that is the authority on its gaps; this file is about which modules exist at all
 `assert` · `async_hooks` · `buffer` · `child_process` · `crypto` ·
 `diagnostics_channel` · `dns` · `events` · `fs` (+ `fs/promises`) · `net` ·
 `os` · `path` · `perf_hooks` · `process` · `punycode` · `querystring` ·
-`stream` · `string_decoder` · `timers` · `tty` · `url` · `util` · `zlib`
+`stream` · `string_decoder` · `test` · `timers` · `tty` · `url` · `util` · `v8` · `zlib` ·
+`console` · `dgram` · `http` · `module` · `readline`
 
 `Buffer` and `console` are not modules: `Buffer` is a class in the runtime
 (`rts-core-rwk`, where `layering.md` puts it) and `console` is a global installed
@@ -35,20 +36,13 @@ Ordered by what unblocks the most rather than by size.
 
 | module | doc | waits on |
 |---|---|---|
-| `http` | 933 | a request/response parser over `net`, which exists. No new mechanism. |
 | `https` | 777 | `tls`. |
-| `tls` | 644 | a pure-Rust TLS stack — `crates.md` §6 names one; a dependency decision. |
+| `tls` | 644 | in progress: the crates are in the manifest and a provider is being built, per §6 option (b). |
 | `http2` | 1165 | `tls` and HPACK. |
-| `dgram` | 846 | `std::net::UdpSocket` plus the delivery rule `net` already uses. No new mechanism. |
 | `worker_threads` | 688 | a second engine context on another thread. `rts-host-rwk` compiles for N regions already — this is the first module that needs the host, not just the runtime. |
 | `cluster` | 355 | `child_process` (registered) and IPC, which does not exist. |
-| `readline` | 425 | `tty` raw mode, refused there for want of a terminal dependency. |
 | `repl` | 371 | `readline`, and a way to compile a string at run time — the host has one, this crate cannot reach it. |
 | `vm` | 1102 | the same: compiling source from inside a running program. |
-| `test` | 1131 | mostly buildable now — it is `rts:test`'s shape with more matchers. |
-| `console` | 651 | already a global; the MODULE form adds `Console` as a class. |
-| `module` | — | written, registered, and `builtinModules` is a function where Node has an array. See the pinned test. |
-| `v8` | — | written and registered. |
 | `sqlite` | 1113 | a pure-Rust SQLite — `crates.md` §4.12 names `turso_core`; a dependency decision. |
 | `wasi` | 722 | a WebAssembly runtime — `crates.md` names `wasmi`. |
 | `inspector` | 1072 | a debugger protocol over a socket, and a debugger to speak it. |
@@ -82,3 +76,17 @@ and its doc says why: its walk takes and releases its own borrows, so it must
 A helper that can only be called correctly beats one that must be — where a
 helper is always called from inside a borrow, change its signature to take the
 context rather than wrapping each call. That is what `node:stream`'s fix did.
+
+---
+
+## One ordering that is load-bearing, not tidy
+
+`install` builds `events` and `stream` BEFORE the table it iterates.
+`make_prototype` is idempotent **by name**, so whoever asks for `"EventEmitter"`
+first decides what is on it — and a module that merely chains onto it asks with
+an empty member list. When `console` and `dgram` joined the table, they sorted
+ahead of `events`, won the name, and `emit` silently reached no listener.
+
+Caught by the fixture that pins `emit`, not by a compiler. Any module added here
+that chains onto a base must either sort after it or the base must be built
+first, and building first is the answer that does not depend on a name.
