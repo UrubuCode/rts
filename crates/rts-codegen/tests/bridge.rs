@@ -548,7 +548,7 @@ fn a_cast_is_kept_rather_than_applied() {
 }
 
 #[test]
-fn an_interface_contributes_nothing_and_an_enum_is_refused() {
+fn an_interface_is_erased_and_an_enum_becomes_the_object_it_means() {
     let mut names = Names::new();
 
     let erased = parse_module("interface I { a: number } const x = 1;", &mut names).unwrap();
@@ -558,10 +558,19 @@ fn an_interface_contributes_nothing_and_an_enum_is_refused() {
         "the interface is present as an empty statement — erased, not dropped silently"
     );
 
-    let refused = parse_module("enum E { A }", &mut names);
+    // An enum emits code, so it was refused rather than approximated. It is not
+    // approximated now either: every rule about it — the auto-increment, which
+    // members get a reverse mapping — is settled before anything runs, so it is
+    // the object TypeScript's own emitter makes, built here.
+    let lowered = parse_module("enum E { A }", &mut names).expect("an enum is a declaration");
+    assert_eq!(statements(&lowered).len(), 1);
+
+    // A NAMESPACE still is refused, and for the reason the enum stopped being:
+    // nothing lowers one yet.
+    let refused = parse_module("namespace N { export const a = 1; }", &mut names);
     assert!(
         matches!(refused, Err(ParseError::Unsupported { .. })),
-        "an enum emits code, so refusing it is honest and approximating it is not"
+        "a namespace emits code, so refusing it is honest and approximating it is not"
     );
 }
 
@@ -569,17 +578,18 @@ fn an_interface_contributes_nothing_and_an_enum_is_refused() {
 fn an_unsupported_construct_is_named_rather_than_dropped() {
     // This test has now outlived two constructs. It named a regular expression
     // until the tree gained somewhere to put one, then `using` in a for-head
-    // until the same thing happened again — both times the refusal was a
-    // missing enum variant wearing the clothes of a language limit, and both
-    // times the fix moved the gap to emission, where it actually is.
+    // until the same thing happened again, then an `enum` until that became the
+    // object it means. Each time the refusal was a missing capability wearing
+    // the clothes of a language limit, and each time the fix moved the gap to
+    // where it actually is.
     //
     // It follows the refusal rather than being deleted with whatever construct
     // it happened to name, because what it pins is the *shape* of a refusal:
     // named, with a position, and distinguishable from a syntax error.
     let mut names = Names::new();
-    match parse_module("enum E { A }", &mut names) {
+    match parse_module("namespace N { export const a = 1; }", &mut names) {
         Err(ParseError::Unsupported { construct, .. }) => {
-            assert!(construct.contains("enum"), "{construct}");
+            assert!(construct.contains("namespace"), "{construct}");
         }
         other => panic!("expected a named refusal, got {other:?}"),
     }

@@ -22,6 +22,7 @@ mod stmt;
 pub use class::{Class, ClassElement, ClassKey, Field, Method, MethodKind};
 pub use expr::{
     AssignTarget, Expr, ExprKind, Literal, Property, PropertyKey, Spreadable, TemplatePart,
+    number_to_key,
 };
 pub use module::{
     Export, ExportDefault, ExportKind, ExportSpecifier, Goal, Import, ImportAttribute,

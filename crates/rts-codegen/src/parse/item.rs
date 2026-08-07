@@ -12,6 +12,7 @@ use crate::syntax::{
     Function, FunctionBody, Goal, Import, ImportAttribute, ImportBinding, Method, MethodKind,
     ModuleItem, Parameter, Pattern, Program, Stmt, StmtKind, SwitchClause,
 };
+use crate::syntax::{Expr, ExprKind, Literal};
 
 /// A whole program.
 pub(crate) fn program(cx: &mut Cx, parsed: &swc::Program, goal: Goal) -> Result<Program> {
@@ -434,7 +435,8 @@ fn decl(cx: &mut Cx, declaration: &swc::Decl) -> Result<Stmt> {
             // honest until they are lowered.
             match declaration {
                 swc::Decl::TsInterface(_) | swc::Decl::TsTypeAlias(_) => StmtKind::Empty,
-                _ => return unsupported("a TypeScript enum or namespace", at),
+                swc::Decl::TsEnum(held) => return enum_declaration(cx, held),
+                _ => return unsupported("a TypeScript namespace", at),
             }
         }
     };
@@ -771,3 +773,118 @@ fn parameter_of(cx: &mut Cx, pattern: &swc::Pat) -> Result<Parameter> {
         claim,
     })
 }
+
+/// A TypeScript `enum`, as the statements it means.
+///
+/// # Why this is a desugaring in the parser and not a node in the tree
+///
+/// Because an enum is not a runtime concept: TypeScript's own emitter turns it
+/// into an object and a series of assignments, and every rule about it — the
+/// auto-increment, which members get a reverse mapping — is settled before
+/// anything runs. A node would carry those rules into the emitter, where the
+/// same decisions would be made a second time.
+///
+/// ```text
+/// enum E { A, B = 5, C = "s" }
+/// ```
+/// becomes
+/// ```text
+/// var E = {};
+/// E["A"] = 0;  E[0] = "A";
+/// E["B"] = 5;  E[5] = "B";
+/// E["C"] = "s";
+/// ```
+///
+/// # The two rules a reader would get wrong
+///
+/// A REVERSE mapping exists only for a numeric member. A string member gets the
+/// forward direction and nothing else, which is what makes `E[E.C]` `undefined`
+/// there and `"B"` for a numeric one.
+///
+/// `var` and not `let`: the block below is a scope, and TypeScript's own output
+/// puts the binding in the enclosing function. A `let` would make the enum
+/// invisible one line after it was written.
+///
+/// # What is refused, and why by name
+///
+/// A member whose value is neither a numeric nor a string literal — `A = 1 << 2`
+/// or `A = B`. TypeScript settles those at compile time through constant
+/// folding this parser does not do, and emitting the expression instead would
+/// be right for the forward direction and wrong for the reverse one, which
+/// needs the VALUE to index by. A member that is right in one direction and
+/// missing in the other is the shape a program finds out about late.
+fn enum_declaration(cx: &mut Cx, declaration: &swc::TsEnumDecl) -> Result<Stmt> {
+    let at = position(declaration.span);
+    let name = cx.names.intern(declaration.id.sym.as_ref());
+    let mut properties: Vec<crate::syntax::Property> = Vec::new();
+    let mut next = 0.0;
+    for member in &declaration.members {
+        let member_name = match &member.id {
+            swc::TsEnumMemberId::Ident(id) => id.sym.to_string(),
+            swc::TsEnumMemberId::Str(text) => text.value.to_string_lossy().to_string(),
+        };
+        let (value, numeric) = match &member.init {
+            None => (Literal::Number(next), Some(next)),
+            Some(init) => match &**init {
+                swc::Expr::Lit(swc::Lit::Num(number)) => {
+                    (Literal::Number(number.value), Some(number.value))
+                }
+                swc::Expr::Lit(swc::Lit::Str(text)) => {
+                    (Literal::String(text.value.to_string_lossy().to_string()), None)
+                }
+                _ => {
+                    return unsupported("an enum member that is not a literal", at);
+                }
+            },
+        };
+        if let Some(held) = numeric {
+            next = held + 1.0;
+        }
+        properties.push(crate::syntax::Property::Value {
+            key: crate::syntax::PropertyKey::Named(cx.names.intern(&member_name)),
+            value: Expr {
+                kind: ExprKind::Literal(value),
+                at,
+            },
+            shorthand: false,
+        });
+        // Only a NUMERIC member is reachable by its value. A string one gets the
+        // forward direction and nothing else, which is what makes `E[E.C]`
+        // undefined for a string member and the member name for a numeric one.
+        //
+        // The key is the number as text because that is what a property key is:
+        // `E[0]` and `E["0"]` are the same lookup, and writing the digits keeps
+        // this a plain object rather than something with elements.
+        if let Some(held) = numeric {
+            properties.push(crate::syntax::Property::Value {
+                key: crate::syntax::PropertyKey::Named(
+                    cx.names.intern(&crate::syntax::number_to_key(held)),
+                ),
+                value: Expr {
+                    kind: ExprKind::Literal(Literal::String(member_name)),
+                    at,
+                },
+                shorthand: false,
+            });
+        }
+    }
+    // ONE statement, and a `var` rather than a block of assignments: a block is
+    // a scope here, and a `var` inside one did not reach past it — the enum was
+    // unbound on the next line. Every value is a literal, so the whole thing is
+    // an object literal and the question does not arise.
+    Ok(Stmt {
+        kind: StmtKind::Declare {
+            kind: BindingKind::Var,
+            bindings: vec![Binding {
+                target: Pattern::Name(name),
+                value: Some(Expr {
+                    kind: ExprKind::Object { properties },
+                    at,
+                }),
+                claim: None,
+            }],
+        },
+        at,
+    })
+}
+

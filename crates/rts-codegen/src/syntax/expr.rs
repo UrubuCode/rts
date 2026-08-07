@@ -507,3 +507,16 @@ pub enum PropertyKey {
     /// Computed: `{ [e]: v }`.
     Computed(Expr),
 }
+
+/// A number as the property key it is.
+///
+/// `E[0]` and `E["0"]` are one lookup, so an enum's reverse mapping is written
+/// as the digits. Whole numbers print without a fraction, which is what a key
+/// has to be — `"0"` and not `"0.0"`, or the forward and reverse halves would
+/// disagree about which property they mean.
+pub fn number_to_key(value: f64) -> String {
+    match value.fract() == 0.0 && value.is_finite() {
+        true => format!("{}", value as i64),
+        false => format!("{value}"),
+    }
+}
