@@ -83,6 +83,9 @@
 
 pub mod frame;
 pub mod hpack;
+pub mod session;
+#[cfg(test)]
+mod session_tests;
 
 use rts_core_rwk::entry::{self, Provided};
 
