@@ -142,9 +142,15 @@ fn emit_function(
     function: &Function,
     late_this: Option<Name>,
 ) -> EmitResult<FuncId> {
-    if function.is_async || function.is_generator {
+    // Two refusals and not one, because they are two constructs and the
+    // measurement that ranks this crate's gaps counts by this string. Merged,
+    // they were the largest single entry in that ranking and it was impossible
+    // to tell which of the two it was — the corpus turned out to hold 52 async
+    // functions across 15 files and 203 generators across 34, which is not the
+    // split the merged number suggested.
+    if function.is_generator {
         return Err(EmitError::Unsupported {
-            construct: "an async function or a generator",
+            construct: "a generator",
         });
     }
     let rest = match &function.rest_parameter {
@@ -186,7 +192,14 @@ fn emit_function(
         }
     };
 
-    let sig = ctx.funcs.declare_signature(signature());
+    // An async body may contain `Await`, and the verifier refuses that
+    // instruction in a function whose signature does not say so. Declared on the
+    // BODY and not on the wrapper: the wrapper only calls and settles, and a
+    // signature claiming a capability the function does not use would be a claim
+    // nothing checked.
+    let mut shape = signature();
+    shape.may_suspend = function.is_async;
+    let sig = ctx.funcs.declare_signature(shape);
     let id = ctx.funcs.declare_function(sig);
     let emitted = emit_body(
         ctx,
@@ -203,8 +216,73 @@ fn emit_function(
         None,
         &[],
     )?;
+    // Set on the EMITTED function and not only on the declared signature:
+    // `emit_body` builds its own `Function` from `signature()`, so a flag set on
+    // the registry copy alone never reached the thing the verifier reads. It
+    // refused every `await` with `UndeclaredSuspension` until this line existed.
+    let mut emitted = emitted;
+    emitted.signature.may_suspend = function.is_async;
     ctx.pending.push((id, emitted));
-    Ok(id)
+    match function.is_async {
+        false => Ok(id),
+        true => Ok(wrap_async(ctx, id)),
+    }
+}
+
+/// Wraps an async function's body so that calling it answers a promise.
+///
+/// # Why a wrapper and not a rewritten body
+///
+/// An `await` here does not park the frame — `Inst::Await` lowers to a call that
+/// drains until the promise settles, which is the contract `rts-cranelift`'s own
+/// signature doc states for it. So an async function runs to completion the
+/// moment it is called, and the only thing that separates it from an ordinary
+/// one is what the CALLER receives: a promise rather than the value.
+///
+/// That is a boundary, and a boundary is a wrapper. The alternative was
+/// threading "this body is async" through `emit_body` and rewriting every
+/// `return` inside it — more code, in the one place shared with a module's own
+/// body, to express something that only happens at the edge.
+///
+/// # What this does NOT do, by name
+///
+/// A `throw` escaping the body does not reject the promise; it escapes, and with
+/// nothing to catch it the program ends. Rejecting would need the body's
+/// unwinding to be visible here, and `try` around a call is refused by this
+/// crate anyway — so there is no shape in which the difference is observable
+/// yet. It is written down because there will be.
+fn wrap_async(ctx: &mut Ctx, inner: FuncId) -> FuncId {
+    let sig = ctx.funcs.declare_signature(signature());
+    let id = ctx.funcs.declare_function(sig);
+    let mut func = MachineFunction::new(signature());
+    let entry = func.entry;
+    let arguments: Vec<ValueId> = func
+        .block(entry)
+        .expect("a function always has its entry block")
+        .params
+        .clone();
+    let types = rts_cranelift::types::TypeRegistry::new();
+    let mut builder = FuncBuilder::new(&mut func, &types, entry);
+    // The body runs first and to its end. Its completion value is what the
+    // promise carries, which is what `async function f() { return 1 }`
+    // resolving with `1` means.
+    let produced = builder
+        .call(ctx.funcs, inner, &arguments)
+        .map(|results| results.first().copied())
+        .ok()
+        .flatten();
+    let promise = builder.promise_new();
+    if let Some(value) = produced {
+        builder.promise_settle(promise, value, false);
+    }
+    // Widened, because the convention returns `Tagged` and a promise is a
+    // reference. The verifier caught this rather than a test: a function whose
+    // declared return and actual return disagree is refused at build time, which
+    // is the point of declaring it.
+    let answered = builder.widen(promise);
+    builder.ret(&[answered]);
+    ctx.pending.push((id, func));
+    id
 }
 
 /// Emits a body against the convention, with the environment chain set up.

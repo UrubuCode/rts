@@ -120,3 +120,34 @@ pub fn pump_sources() -> Option<Duration> {
     }
     soonest
 }
+
+/// How a host makes time pass.
+///
+/// # Why this is handed down rather than done here
+///
+/// `std::thread::sleep` is not on every target, and this crate's membership rule
+/// is availability — the same rule that keeps `pump_sources` sleepless and puts
+/// the waiting in `rts-host-rwk`'s loop. But `await` needs to wait from INSIDE a
+/// call, where there is no host loop to return to, so the capability has to come
+/// down the way the evaluator does.
+///
+/// `None` until a host installs one, and a caller that finds none must say so
+/// rather than spin: a promise only time can settle, waited on by a runtime that
+/// cannot let time pass, is a deadlock and reporting it beats burning a core.
+pub type Rest = fn(Duration);
+
+/// Installs the host's waiter.
+pub fn declare_rest(context: &mut Context, rest: Rest) {
+    context.rest = Some(rest);
+}
+
+/// Waits, and says whether anything could.
+pub fn rest_for(wait: Duration) -> bool {
+    let Some(rest) = super::current::with_current(|context| context.rest) else {
+        return false;
+    };
+    // OUTSIDE the borrow: resting is the host's, it takes real time, and holding
+    // the runtime across it would stop every other entry point for its duration.
+    rest(wait);
+    true
+}

@@ -69,6 +69,7 @@
 //! sequence.
 
 mod class;
+mod machine;
 mod combinators;
 mod drain;
 mod group;
@@ -77,6 +78,7 @@ mod state;
 
 pub(in crate::entry) use class::register_promise;
 pub use drain::drain_microtasks;
+pub use machine::{promise_await, promise_new, promise_settle};
 pub(in crate::entry) use state::Machine;
 
 use super::objects::undefined_of;

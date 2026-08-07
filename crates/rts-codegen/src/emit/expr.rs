@@ -219,7 +219,16 @@ pub fn emit_expr(
                 construct: "`this` inside an arrow function",
             }),
         },
-        ExprKind::Await(_) => gap("`await`"),
+        // The promise is produced first and the instruction waits on it. What
+        // waiting MEANS is the machine's: `Inst::Await` lowers to a call that
+        // drains until the promise settles, so this frame keeps the machine
+        // rather than yielding to its caller. That divergence is stated in
+        // `rts-core-rwk`'s `promise/machine.rs`, which is the half that does it.
+        ExprKind::Await(inner) => {
+            let produced = emit_expr(builder, scope, ctx, inner)?;
+            let promise = as_value(builder, produced);
+            Ok(builder.await_(promise))
+        }
         ExprKind::Yield { .. } => gap("`yield`"),
         ExprKind::Template { parts, expressions } => {
             super::template::emit_template(builder, scope, ctx, parts, expressions)

@@ -792,15 +792,22 @@ fn what_a_function_still_cannot_do_is_refused_by_name() {
     // Each of these is a mechanism rather than a spelling: a default needs an
     // expression evaluated at the call, `this` inside an arrow needs the
     // defining function's receiver carried through the environment, and both
-    // `async` and `function*` need a frame that can be suspended.
+    // `function*` needs a frame that can be suspended.
+    //
+    // `async` was on this list and came off it. It did NOT get the suspendable
+    // frame: `Inst::Await` lowers to a call that drains until the promise
+    // settles, so an async function runs to completion when it is called and
+    // the only thing that differs is what the caller receives. That is the
+    // contract `rts-cranelift`'s own signature doc states for `PromiseAwait`,
+    // and the interleaving it does not reproduce is written down in
+    // `rts-core-rwk`'s `promise/machine.rs`.
     //
     // A rest parameter and a spread argument were both on this list and came
-    // off it: the vector one needed is the runtime's now, and the other is what
-    // iteration produces.
+    // off it too: the vector one needed is the runtime's now, and the other is
+    // what iteration produces.
     for source in [
         "function f(a) { return a; } return f();",
         "let f = () => this; return f();",
-        "async function f() { return 1; } return f();",
         "function* f() { yield 1; } return f();",
     ] {
         // The third one is legal and emits — a missing argument is padded — so

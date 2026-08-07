@@ -85,7 +85,7 @@ mod uri;
 // The operators are defined in their own module and named from here, because a
 // caller wants "the entry points" in one place rather than a module tree.
 pub use array::{array_new, own_keys};
-pub use loops::{Pending, Source, declare_loop_source, pump_sources};
+pub use loops::{Pending, Rest, Source, declare_loop_source, declare_rest, pump_sources};
 pub use bitwise::{
     bit_and, bit_not, bit_or, bit_xor, exponent, shift_left, shift_right, shift_right_unsigned,
 };
@@ -106,7 +106,7 @@ pub use modules::{
     text_of, undefined_in, undefined_value, with_runtime,
 };
 pub use objects::{get_property, object_new, set_property};
-pub use promise::{drain_microtasks, settled};
+pub use promise::{drain_microtasks, promise_await, promise_new, promise_settle, settled};
 pub use operators::{
     divide, greater, greater_equal, less, less_equal, loose_equals, multiply, remainder, subtract,
 };
@@ -445,6 +445,8 @@ pub struct Context {
     /// [`loops`] for the six copies of one recipe this replaced and for why four
     /// of them were never pumped at all.
     pub loop_sources: Vec<(&'static str, loops::Source)>,
+    /// How this host makes time pass, if it offered a way. See [`loops::Rest`].
+    pub rest: Option<loops::Rest>,
     /// What each tagged-template site declared, and what it has been made into.
     ///
     /// Two positions per piece — cooked then raw, as literal numbers — and the
@@ -580,6 +582,7 @@ impl Context {
             modules: Vec::new(),
             evaluator: None,
             loop_sources: Vec::new(),
+            rest: None,
             templates: Vec::new(),
             singletons,
             kinds,

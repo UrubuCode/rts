@@ -560,13 +560,20 @@ fn assemble(
     // Given unconditionally rather than when a program looks like it needs one:
     // a JIT resolves a name at finalization and an unused address costs a row
     // in a table, while a missing one is a crash with no diagnostic.
-    for entry in [
-        RtEntry::Alloc,
-        RtEntry::CacheResolve,
-        RtEntry::CacheResolveStore,
-        RtEntry::WriteBarrier,
-    ] {
-        outside.push((entry.symbol(), machine_entry(entry)));
+    // From `RtEntry::ALL` and not from a list written here. It WAS such a list,
+    // and it omitted the three promise operations — so the first compiled
+    // `async function` reached finalization and died on "can't resolve symbol
+    // rts_promise_new", with nothing between the machine emitting the call and
+    // the JIT failing to find it. A hand-written list of everything is a list
+    // that forgets one; the machine already enumerates them.
+    for &entry in RtEntry::ALL {
+        let address = machine_entry(entry);
+        assert!(
+            !address.is_null(),
+            "the machine emits {} and this host has no address for it — a program \n             reaching it would die inside compiled code with no diagnostic",
+            entry.symbol()
+        );
+        outside.push((entry.symbol(), address));
     }
 
     // Asked before anything is placed, and it earns its line immediately: the

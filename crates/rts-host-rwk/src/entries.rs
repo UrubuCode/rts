@@ -342,7 +342,19 @@ pub(crate) fn machine_entry(entry: RtEntry) -> *const u8 {
         // The rest are emitted by instructions this compiler does not produce:
         // the promise operations by `await`. Each arrives with the phase that
         // emits it.
-        RtEntry::PromiseNew | RtEntry::PromiseSettle | RtEntry::PromiseAwait => std::ptr::null(),
+        // The three `await` compiles into. They answered a NULL POINTER until
+        // the runtime half existed, so a compiled `await` called address zero —
+        // which is why the language layer refused an async function rather than
+        // emitting one. The casts are the shape check, written out.
+        RtEntry::PromiseNew => {
+            rts_core_rwk::entry::promise_new as extern "C" fn() -> u64 as *const u8
+        }
+        RtEntry::PromiseSettle => {
+            rts_core_rwk::entry::promise_settle as extern "C" fn(u64, u64, i64) as *const u8
+        }
+        RtEntry::PromiseAwait => {
+            rts_core_rwk::entry::promise_await as extern "C" fn(u64) -> u64 as *const u8
+        }
     }
 }
 
