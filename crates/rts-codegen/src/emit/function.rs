@@ -117,6 +117,31 @@ fn emit_closure_with(
     function: &Function,
     late_this: Option<Name>,
 ) -> EmitResult<ValueId> {
+    // An ARROW reads `this` as a NAME, from the environment the enclosing
+    // function put it in. `Scope::late_this` is the mechanism — it already
+    // exists for a derived constructor, where `this` is also a name rather than
+    // the receiver — so nothing new is invented here, only pointed at a second
+    // case.
+    let late_this = match function.captures_this {
+        // Only when the enclosing function actually handed one over. It is
+        // reachable exactly when that function declared it, which it does when a
+        // walk found an arrow inside it reading `this` — so asking the scope is
+        // asking the same question from the other side, and it cannot answer
+        // yes where the declaration did not happen.
+        //
+        // Setting it unconditionally made every arrow take the name path,
+        // including the ones in bodies where nothing was declared, and 739 files
+        // failed with `Unbound("__rts_this")`.
+        true => {
+            let held = ctx.names.intern("__rts_this");
+            scope
+                .reachable()
+                .iter()
+                .any(|(name, _)| *name == held)
+                .then_some(held)
+        }
+        false => late_this,
+    };
     let id = emit_function(ctx, scope, function, late_this)?;
 
     // The address is not a number known here — it is a relocation the
@@ -346,12 +371,36 @@ pub(super) fn emit_body(
     if binds_arguments {
         candidates.push(named_arguments);
     }
+    // `this` for the arrows inside, under a name a program cannot write. An
+    // arrow takes `this` from where it was written rather than from how it is
+    // called, so the only function that can answer is this one — and it answers
+    // by handing it over as an ordinary captured name.
+    let held_this = ctx.names.intern("__rts_this");
+    let hands_this_to_an_arrow = !captures_this && capture::arrow_reads_this(body);
+    if hands_this_to_an_arrow {
+        candidates.push(held_this);
+    }
     let mut captured = capture::captured(body, &candidates);
-    // A derived constructor holds `this` in its environment, so it has one
+    // FORCED into the environment rather than left to the analysis. The arrow
+    // reads it through `Scope::late_this`, not through an `Ident`, so nothing
+    // the walk can see mentions the name — and a captured set derived from
+    // mentions alone would leave the arrow with nothing reachable.
+    if hands_this_to_an_arrow {
+        captured.insert(held_this);
+    }
+    // A derived constructor holds `this` in its own environment, so it has one
     // whether or not anything else is captured — the name is added here rather
     // than being special-cased below, so every reader downstream sees an
     // ordinary captured name.
-    if let Some(name) = late_this {
+    //
+    // `!captures_this` is what keeps that from applying to an ARROW, which also
+    // arrives with a `late_this` and does NOT own it. Inserting there put the
+    // name in the arrow's own environment at zero hops, shadowing the enclosing
+    // function's slot with one nothing ever writes — so every `this` inside an
+    // arrow read `undefined` while looking like it worked.
+    if let Some(name) = late_this
+        && !captures_this
+    {
         captured.insert(name);
     }
     let builds_environment = !captured.is_empty();
@@ -459,11 +508,19 @@ fn emit_body_into(
     let mut scope = Scope::for_function(Some(environment), captured, &reachable);
     scope.set_this(incoming[THIS_PARAM], captures_this);
     if let Some(name) = late_this {
-        // Seeded with what the caller passed, which for a derived constructor is
-        // `undefined`. Written rather than left absent so that a read before
-        // `super()` answers the same `undefined` the language's ReferenceError
-        // would have been about, rather than whatever the slot happened to hold.
-        binding::declare(&mut builder, &mut scope, ctx, name, incoming[THIS_PARAM])?;
+        // DECLARED only where this function owns the name. A derived constructor
+        // does: `this` does not exist in one until `super()` returns, so the
+        // slot is seeded with what the caller passed — `undefined` — rather than
+        // left absent, so a read before `super()` answers the same `undefined`
+        // the language's ReferenceError would have been about.
+        //
+        // An ARROW does NOT. It borrows the enclosing function's, and declaring
+        // here would seed a fresh local from the arrow's own receiver and shadow
+        // the one it came for — which is what it did, and every `this` inside an
+        // arrow read `undefined` while looking like it worked.
+        if !captures_this {
+            binding::declare(&mut builder, &mut scope, ctx, name, incoming[THIS_PARAM])?;
+        }
         scope.bind_this_late(name);
     }
 
@@ -504,6 +561,15 @@ fn emit_body_into(
     // agree; `Array.isArray(arguments)` is `true` here and `false` in a real
     // engine, and `arguments.callee` does not exist. Named rather than papered
     // over: the exotic object needs a kind of cell this runtime does not have.
+    // `this` handed to the arrows inside, declared before anything can read it.
+    // The value is the receiver this function was called with, which is exactly
+    // what an arrow written here should see.
+    if !captures_this && capture::arrow_reads_this(body) {
+        let held_this = ctx.names.intern("__rts_this");
+        let receiver = incoming[THIS_PARAM];
+        binding::declare(&mut builder, &mut scope, ctx, held_this, receiver)?;
+    }
+
     let named = ctx.names.intern("arguments");
     if !captures_this && capture::mentions(body, named) {
         {

@@ -805,12 +805,15 @@ fn what_a_function_still_cannot_do_is_refused_by_name() {
     // A rest parameter and a spread argument were both on this list and came
     // off it too: the vector one needed is the runtime's now, and the other is
     // what iteration produces.
+    // `this` inside an arrow came off it as well. An arrow takes `this` from
+    // where it was WRITTEN, so the enclosing function hands it over as an
+    // ordinary captured name — `Scope::late_this`, the mechanism a derived
+    // constructor already used, pointed at a second case.
     for source in [
         "function f(a) { return a; } return f();",
-        "let f = () => this; return f();",
         "function* f() { yield 1; } return f();",
     ] {
-        // The third one is legal and emits — a missing argument is padded — so
+        // The first one is legal and emits — a missing argument is padded — so
         // it is here as the control: if this loop ever passes for it, the
         // padding stopped working and every other case is untrustworthy.
         let outcome = compile(source);

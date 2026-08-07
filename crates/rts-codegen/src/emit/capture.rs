@@ -926,3 +926,123 @@ fn mentions_in_class(class: &crate::syntax::Class, wanted: Name, found: &mut boo
         }
     }
 }
+
+/// Whether an arrow inside this body reads `this`.
+///
+/// # Why the question is asked of the ENCLOSING function
+///
+/// An arrow takes `this` from where it was written rather than from how it is
+/// called, so the answer has to come from the function that wrote it — which is
+/// the only one that has a `this` to hand over. It hands it over as an ordinary
+/// name, so the capture machinery carries it in like any other.
+///
+/// The walk descends into arrows, because an arrow inside an arrow still means
+/// the outermost non-arrow function, and stops at a plain function, because that
+/// one has its own `this` and answers for the arrows inside it.
+pub(super) fn arrow_reads_this(body: &[Stmt]) -> bool {
+    let mut found = false;
+    for statement in body {
+        arrow_this_in_stmt(statement, &mut found);
+    }
+    found
+}
+
+fn arrow_this_in_stmt(statement: &Stmt, found: &mut bool) {
+    if *found {
+        return;
+    }
+    walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => arrow_this_in_stmt(inner, found),
+        StmtChild::Expr(expr) => arrow_this_in_expr(expr, found),
+        StmtChild::Binding(binding) => {
+            if let Some(value) = &binding.value {
+                arrow_this_in_expr(value, found);
+            }
+        }
+        StmtChild::Catch(catch) => {
+            for inner in &catch.body {
+                arrow_this_in_stmt(inner, found);
+            }
+        }
+        // A plain function has its own `this`, so it answers for what is inside
+        // it. A class body is the same: a method is not an arrow.
+        StmtChild::Function(function) => {
+            if function.captures_this {
+                reads_this(function, found);
+            }
+        }
+        StmtChild::Class(_) => {}
+    });
+}
+
+fn arrow_this_in_expr(expr: &Expr, found: &mut bool) {
+    if *found {
+        return;
+    }
+    walk_expr(expr, &mut |child| match child {
+        Child::Expr(inner) => arrow_this_in_expr(inner, found),
+        Child::Function(function) => {
+            if function.captures_this {
+                reads_this(function, found);
+            }
+        }
+        Child::Class(_) => {}
+    });
+}
+
+/// Whether an arrow's own body reads `this`, descending through further arrows.
+fn reads_this(function: &Function, found: &mut bool) {
+    match &function.body {
+        FunctionBody::Block(body) => {
+            for statement in body {
+                this_in_stmt(statement, found);
+            }
+        }
+        FunctionBody::Expression(value) => this_in_expr(value, found),
+    }
+}
+
+fn this_in_stmt(statement: &Stmt, found: &mut bool) {
+    if *found {
+        return;
+    }
+    walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => this_in_stmt(inner, found),
+        StmtChild::Expr(expr) => this_in_expr(expr, found),
+        StmtChild::Binding(binding) => {
+            if let Some(value) = &binding.value {
+                this_in_expr(value, found);
+            }
+        }
+        StmtChild::Catch(catch) => {
+            for inner in &catch.body {
+                this_in_stmt(inner, found);
+            }
+        }
+        StmtChild::Function(function) => {
+            if function.captures_this {
+                reads_this(function, found);
+            }
+        }
+        StmtChild::Class(_) => {}
+    });
+}
+
+fn this_in_expr(expr: &Expr, found: &mut bool) {
+    if *found {
+        return;
+    }
+    if matches!(expr.kind, ExprKind::This) {
+        *found = true;
+        return;
+    }
+    walk_expr(expr, &mut |child| match child {
+        Child::Expr(inner) => this_in_expr(inner, found),
+        Child::Function(function) => {
+            if function.captures_this {
+                reads_this(function, found);
+            }
+        }
+        Child::Class(_) => {}
+    });
+}
