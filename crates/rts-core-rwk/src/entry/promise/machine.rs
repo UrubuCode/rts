@@ -131,10 +131,10 @@ pub fn promise_await(promise: u64) -> u64 {
             return match settlement {
                 Settlement::Fulfilled => value,
                 // A rejection crossing an `await` is a throw, which is what the
-                // language says. `throw` ends the program when nothing catches
-                // it, and nothing can here: the language layer refuses a `try`
-                // whose body contains a call, so there is no handler to find.
-                // Reporting the rejection beats answering it as a value.
+                // language says. It used to be uncatchable — `throw` ended the
+                // program and a `try` around a call was refused — and it is not
+                // any more: a throw leaves one frame and every call site asks,
+                // so `try { await p } catch` reaches this one like any other.
                 Settlement::Rejected => {
                     super::super::throw(0, value);
                     value

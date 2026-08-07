@@ -214,13 +214,39 @@ impl Body<'_> {
                     }
 
                     // Nothing here catches it, so it becomes the caller's
-                    // problem — and finding out whose is what the runtime is for.
+                    // problem — and this is where it is handed over. The runtime
+                    // RECORDS the value, and then this frame simply returns:
+                    // a throw leaves one frame at a time, and the frame above
+                    // asks whether it did.
+                    //
+                    // It used to `trap` here, on the reasoning that the entry
+                    // point never comes back — it ended the program. That drew
+                    // the boundary at one frame and made `try` around a call
+                    // uncompilable, because a handler one frame up could never
+                    // be reached. Returning is what moved it.
+                    //
+                    // The returned values are zeros of the declared widths. They
+                    // are never read: the caller's check sees a throw in flight
+                    // and re-raises before touching what the call produced. A
+                    // width that disagreed with the signature would be refused
+                    // by the verifier, which is why they are built from it.
                     None => {
                         let tag = builder.ins().iconst(types::I64, i64::from(tag.0));
                         self.terminator_entry(builder, block, RtEntry::Throw, &[tag, payload])?;
-                        builder
-                            .ins()
-                            .trap(cranelift_codegen::ir::TrapCode::unwrap_user(1));
+                        let results: Vec<_> = self
+                            .func
+                            .signature
+                            .returns
+                            .iter()
+                            .map(|repr| {
+                                let ty = crate::lower::types::machine_type(*repr);
+                                match ty {
+                                    types::F64 => builder.ins().f64const(0.0),
+                                    other => builder.ins().iconst(other, 0),
+                                }
+                            })
+                            .collect();
+                        builder.ins().return_(&results);
                     }
                 }
             }

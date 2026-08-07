@@ -326,6 +326,21 @@ fn run_region(
             std::thread::sleep(wait);
         }
         rts_core_rwk::entry::drain_microtasks();
+        // An uncaught throw, reported where this program ends.
+        //
+        // `rts_throw` used to print and `exit(1)` inline, which is what made a
+        // `try` around a call uncompilable: a throw that ended the process could
+        // never reach a handler one frame up. It records now, the machine returns
+        // from the throwing function, and every call site asks — so the last
+        // place a throw can still be in flight is here, with nobody left to ask.
+        if let Some((tag, described)) = rts_core_rwk::entry::pending() {
+            eprintln!("rts: uncaught exception (tag {tag}): {described}");
+            // `exit`, not `abort`: this is a program ending because of something
+            // the program did, and a core dump describes the engine rather than
+            // the fault. Same choice the runtime used to make, in the one place
+            // that can still make it.
+            std::process::exit(1);
+        }
         // Read while the context is still installed. A string's bytes are in the
         // slab beside its cell, so once the caller has the region back there is
         // nothing left to read it from.

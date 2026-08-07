@@ -201,6 +201,19 @@ pub const NO_COOKED: u32 = u32::MAX;
 /// declared-calls table outlive one function, because a compilation with two
 /// functions calling `__rts_add` must declare it once.
 pub struct Ctx<'a> {
+    /// Whether a CLEANUP body is being emitted right now.
+    ///
+    /// A cleanup block has a shape the machine checks: it ends by handing
+    /// control back to whatever is unwinding, never by branching. The throw
+    /// check `expr::call` emits after every operation branches, so emitting one
+    /// inside a cleanup splits it into blocks that do not end that way — which
+    /// the verifier refuses with `CleanupDoesNotEnd`, and did, on the first
+    /// `finally` containing an assignment.
+    ///
+    /// So the check is skipped there, and the gap that leaves is named in
+    /// `protect.rs`: a call inside a `finally` that throws does not propagate
+    /// out of the cleanup.
+    pub in_cleanup: bool,
     /// What the language's singletons are numbered.
     pub model: &'a ValueModel,
     /// Every function this compilation can name.
@@ -290,6 +303,7 @@ impl<'a> Ctx<'a> {
         types: &'a TypeRegistry,
     ) -> Self {
         Ctx {
+            in_cleanup: false,
             model,
             funcs,
             calls,
@@ -838,10 +852,17 @@ mod tests {
         // plain local the difference is invisible, and it is pinned here anyway
         // because the rewrite that loses it is the tempting one, and the day
         // the target is `a[i++]` the test that catches it will already exist.
+        //
+        // Calls that TAKE something are counted, not calls. Every operation now
+        // carries a throw check behind it — `__rts_thrown`, and `__rts_take_thrown`
+        // on the unwinding edge — and both take nothing, so counting every call
+        // stopped meaning "how many times was the target operated on". The
+        // distinction is real rather than a way to make the number come out: an
+        // operation on values has values, and the check has none.
         let func = emit_source("let x = 1; x += 1;").expect("emits");
         let adds = instructions(&func)
             .iter()
-            .filter(|inst| matches!(inst, Inst::Call { .. }))
+            .filter(|inst| matches!(inst, Inst::Call { args, .. } if !args.is_empty()))
             .count();
         assert_eq!(adds, 1);
     }

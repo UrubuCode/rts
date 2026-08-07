@@ -195,6 +195,20 @@ pub enum RuntimeOp {
     /// relocation the destination fills in.
     ClosureNew,
 
+    /// Whether a throw is in flight, as `1` or `0`.
+    ///
+    /// A call and not an instruction because the answer is global mutable state:
+    /// the runtime holds the value a throw left behind. Emitted after every
+    /// operation that can raise one, which is what lets a throw cross a frame at
+    /// all — see `rts-core-rwk`'s `entry/throw.rs`.
+    Thrown,
+
+    /// The value in flight, clearing it.
+    ///
+    /// Separate from [`RuntimeOp::Thrown`] because the fast path — nothing
+    /// thrown — must not pay for reading a value that is not there.
+    TakeThrown,
+
     /// A string literal, named by the number the compilation gave it.
     ///
     /// An entry point because a string is a heap value and two occurrences of
@@ -495,6 +509,8 @@ impl RuntimeOp {
         RuntimeOp::GetProperty,
         RuntimeOp::SetProperty,
         RuntimeOp::ClosureNew,
+        RuntimeOp::Thrown,
+        RuntimeOp::TakeThrown,
         RuntimeOp::StringConst,
         RuntimeOp::TemplateStrings,
         RuntimeOp::ModuleBinding,
@@ -562,6 +578,8 @@ impl RuntimeOp {
             RuntimeOp::GetProperty => "__rts_get_property",
             RuntimeOp::SetProperty => "__rts_set_property",
             RuntimeOp::ClosureNew => "__rts_closure_new",
+            RuntimeOp::Thrown => "__rts_thrown",
+            RuntimeOp::TakeThrown => "__rts_take_thrown",
             RuntimeOp::StringConst => "__rts_string_const",
             RuntimeOp::TemplateStrings => "__rts_template_strings",
             RuntimeOp::ModuleBinding => "__rts_module_binding",
@@ -634,6 +652,10 @@ impl RuntimeOp {
             // address, nothing collects it, and widening it would hand the
             // collector a pointer into the text segment to trace.
             RuntimeOp::ClosureNew => (vec![Repr::I64, UNPROVEN], vec![UNPROVEN]),
+            // `I64` and not a boolean: a Rust `bool` is one byte and reading it
+            // as a word takes the callee's leftover bits.
+            RuntimeOp::Thrown => (vec![], vec![Repr::I64]),
+            RuntimeOp::TakeThrown => (vec![], vec![UNPROVEN]),
             // Which literal, not the text: an index the compilation minted.
             RuntimeOp::StringConst => (vec![Repr::I64], vec![UNPROVEN]),
             RuntimeOp::TemplateStrings => (vec![Repr::I64], vec![UNPROVEN]),

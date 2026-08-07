@@ -347,7 +347,65 @@ pub(super) fn call(
             }
         })
         .collect();
-    Ok(builder.call(ctx.funcs, callee, &args)?)
+    let produced = builder.call(ctx.funcs, callee, &args)?;
+    check_for_throw(builder, ctx, op)?;
+    Ok(produced)
+}
+
+/// Emits, after a call, the branch a throw in the callee takes.
+///
+/// # Why every call site pays this
+///
+/// A throw leaves ONE frame: the machine records it and returns rather than
+/// ending the program, so the frame above only learns what happened by asking.
+/// Re-raising here puts the value back into the machine's own hands, which then
+/// routes it to a handler in THIS function through the region tree it already
+/// computes — or, finding none, returns and lets the frame above ask in turn.
+///
+/// That is the whole of cross-frame unwinding here, and it is what made `try`
+/// around a call compilable. The alternative is an exception table and a
+/// personality routine, which is a campaign rather than a branch.
+///
+/// # Why after nearly every operation and not only after a call
+///
+/// Because nearly every one of them can run user code. `a + b` calls `valueOf`;
+/// a property read calls a getter; a comparison coerces. Listing the ones that
+/// cannot would be a list to get wrong, and getting it wrong means a throw that
+/// vanishes — so the two operations that ARE the check are the only exceptions,
+/// and they are excluded because including them recurses forever.
+///
+/// No claim is made about what this costs. It is a call, a compare and a branch
+/// per operation, it has not been measured, and this repository's rule is that a
+/// performance claim is a measurement or nothing.
+fn check_for_throw(builder: &mut FuncBuilder, ctx: &mut Ctx, op: RuntimeOp) -> EmitResult<()> {
+    // Not inside a cleanup: its block has a shape the machine checks, and a
+    // branch breaks it. See `Ctx::in_cleanup` for what that costs.
+    if ctx.in_cleanup || matches!(op, RuntimeOp::Thrown | RuntimeOp::TakeThrown) {
+        return Ok(());
+    }
+    let asked = ctx.calls.declare(ctx.funcs, RuntimeOp::Thrown);
+    let flag = builder.call(ctx.funcs, asked, &[])?[0];
+    let zero = builder.declare_const(ConstDecl::Scalar {
+        repr: Repr::I64,
+        bits: ScalarBits(0),
+    });
+    let zero = builder.use_const(zero);
+    let raised = builder.compare(CmpOp::Ne, flag, zero)?;
+
+    // Created while the protected region is open, so the machine places them in
+    // it — which is what makes the re-raise below land in this function's
+    // handler rather than leaving the function.
+    let unwinding = builder.create_block();
+    let carrying_on = builder.create_block();
+    builder.branch(raised, (unwinding, &[]), (carrying_on, &[]))?;
+
+    builder.switch_to(unwinding);
+    let taken = ctx.calls.declare(ctx.funcs, RuntimeOp::TakeThrown);
+    let value = builder.call(ctx.funcs, taken, &[])?[0];
+    builder.throw(super::protect::JS_THROW, value);
+
+    builder.switch_to(carrying_on);
+    Ok(())
 }
 
 /// Turns a JavaScript value into the proven boolean a branch requires.

@@ -2205,14 +2205,28 @@ fn a_value_assigned_inside_a_try_is_the_one_the_handler_sees() {
 }
 
 #[test]
-fn a_try_around_a_call_is_refused_by_name_rather_than_compiled() {
-    // A throw inside the callee would run past this handler, because where a
-    // throw lands is planned from the region tree of the function containing
-    // it. A `catch` that reads correctly and never runs is worse than one that
-    // does not compile.
-    let error =
-        compile("function f() { throw 1; } try { f(); } catch (e) {}").expect_err("refused");
-    assert!(format!("{error:?}").contains("call"), "{error:?}");
+fn a_try_around_a_call_catches_what_the_callee_threw() {
+    // This was refused by name, and the reason was sound while it held: a throw
+    // inside the callee ran past the handler, because where a throw lands is
+    // planned from the region tree of the function containing it, and a `catch`
+    // that reads correctly and never runs is worse than one that does not
+    // compile.
+    //
+    // What changed is not the handler search. A throw leaves ONE frame — the
+    // runtime records it and the machine returns instead of ending the program —
+    // and every call site asks whether the frame below left by throwing, then
+    // re-raises. The region tree does the rest, exactly as it already did.
+    let produced = run("function f() { throw 7; } try { f(); } catch (e) { return e; } return 0;");
+    assert_eq!(tags::decode_double(produced), 7.0);
+
+    // Two frames, which is what makes it propagation rather than a special case
+    // for the innermost call: the middle frame has to stop after its own call
+    // returned instead of carrying on to its `return`.
+    let deep = run(
+        "function inner() { throw 8; } function outer() { inner(); return 1; } \
+         try { outer(); } catch (e) { return e; } return 0;",
+    );
+    assert_eq!(tags::decode_double(deep), 8.0);
 }
 
 #[test]

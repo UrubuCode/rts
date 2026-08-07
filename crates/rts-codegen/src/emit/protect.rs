@@ -21,14 +21,20 @@
 //! more, and using one here is not leaving a feature unused — it is declining to
 //! invent a distinction the language does not have.
 //!
-//! # The boundary, stated
+//! # The boundary that moved
 //!
-//! A `try` whose body contains a call is refused by name. The machine computes
-//! where a throw lands from the region tree of the function it is *in*, which is
-//! complete for handlers in that function and silent about a caller's — so a
-//! throw inside the callee would run past this `catch` and end the program.
-//! Compiling that would be a `catch` that is written, reads correctly, and never
-//! runs, which is worse than not compiling it at all.
+//! A `try` whose body contains a call USED to be refused by name. The machine
+//! computes where a throw lands from the region tree of the function it is *in*,
+//! which is complete for handlers in that function and silent about a caller's —
+//! so a throw inside a callee ran past the `catch` and ended the program, and
+//! compiling that would have been a `catch` that reads correctly and never runs.
+//!
+//! What moved it is not an unwinder. A throw leaves ONE frame — the runtime
+//! records it and the machine returns instead of trapping — and every call site
+//! asks whether the frame below left by throwing. Asking is `expr::call`'s
+//! `check_for_throw`, and what it does when the answer is yes is re-raise, which
+//! puts the value straight back into the region tree this module already builds.
+//! So the handler search is unchanged; only the reach is.
 //!
 //! # Why `using` is not here yet, and what it is waiting on
 //!
@@ -48,7 +54,7 @@ use rts_cranelift::unwind::{Handler, Tag};
 
 use super::stmt::emit_stmt;
 use super::{Ctx, EmitResult, Scope};
-use crate::syntax::{Catch, Expr, ExprKind, Property, Stmt};
+use crate::syntax::{Catch, Expr, Stmt};
 
 /// What a JavaScript `throw` is tagged with.
 ///
@@ -83,10 +89,6 @@ pub fn emit_try(
     catch: Option<&Catch>,
     finally: Option<&[Stmt]>,
 ) -> EmitResult<bool> {
-    if let Some(reason) = calls_something(body) {
-        return super::expr::gap(reason);
-    }
-
     // Both outside every region, and for opposite reasons. A cleanup inside its
     // own region would run itself; the continuation inside it would run the
     // cleanup a second time on the way out.
@@ -175,7 +177,14 @@ pub fn emit_try(
         scope.enter();
         // The same statements the normal path gets, emitted where a
         // `CleanupDone` rather than a jump will end them.
+        // The throw check is suppressed for the length of this body; see
+        // `Ctx::in_cleanup`. Saved and restored rather than set and cleared,
+        // because a `try` inside a `finally` would otherwise re-enable it half
+        // way through the outer one.
+        let outer = ctx.in_cleanup;
+        ctx.in_cleanup = true;
         let terminated = emit_block(builder, scope, ctx, loops, finally)?;
+        ctx.in_cleanup = outer;
         scope.leave();
         if !terminated {
             builder.cleanup_done();
@@ -244,128 +253,5 @@ fn bind_caught(
         // nothing, which would make `catch ({ message })` a `message` that is
         // always `undefined`.
         _ => super::expr::gap("a destructuring `catch` binding").map(|_: bool| ()),
-    }
-}
-
-/// Whether a protected body contains a call, and what to say if it does.
-///
-/// The reason this exists is in the module doc: a throw inside a callee runs
-/// past a handler in the caller, because the machine plans a throw from the
-/// region tree of the function containing it. Until a throw can cross a frame,
-/// a `catch` around a call is a `catch` that never runs.
-fn calls_something(body: &[Stmt]) -> Option<&'static str> {
-    let mut found = false;
-    for statement in body {
-        walk_stmt(statement, &mut found);
-    }
-    found.then_some("a `try` whose body contains a call")
-}
-
-/// Routed through [`super::capture::walk_stmt`] for the structural part.
-///
-/// A function or a class written here is not one called here — its body is
-/// reached only through a call, which this walk finds where the call is made
-/// — so `Function`/`Class` stop the walk, matching what the same children do
-/// in `capture.rs`'s own traversals.
-fn walk_stmt(statement: &Stmt, found: &mut bool) {
-    if *found {
-        return;
-    }
-    super::capture::walk_stmt(statement, &mut |child| match child {
-        super::capture::StmtChild::Stmt(inner) => walk_stmt(inner, found),
-        super::capture::StmtChild::Expr(inner) => walk_expr(inner, found),
-        super::capture::StmtChild::Binding(binding) => {
-            if let Some(value) = &binding.value {
-                walk_expr(value, found);
-            }
-        }
-        super::capture::StmtChild::Catch(catch) => {
-            catch.body.iter().for_each(|inner| walk_stmt(inner, found));
-        }
-        super::capture::StmtChild::Function(_) | super::capture::StmtChild::Class(_) => {}
-    });
-}
-
-fn walk_expr(expression: &Expr, found: &mut bool) {
-    if *found {
-        return;
-    }
-    match &expression.kind {
-        ExprKind::Call { .. }
-        | ExprKind::New { .. }
-        | ExprKind::SuperCall { .. }
-        | ExprKind::TaggedTemplate { .. }
-        | ExprKind::ImportCall { .. } => *found = true,
-
-        ExprKind::Binary { left, right, .. } | ExprKind::Logical { left, right, .. } => {
-            walk_expr(left, found);
-            walk_expr(right, found);
-        }
-        ExprKind::Unary { operand, .. } => walk_expr(operand, found),
-        ExprKind::Update { target, .. } => walk_expr(target, found),
-        ExprKind::Await(inner) | ExprKind::Chain(inner) => walk_expr(inner, found),
-        ExprKind::Yield { value, .. } => {
-            if let Some(value) = value {
-                walk_expr(value, found);
-            }
-        }
-        ExprKind::Member { object, .. } => walk_expr(object, found),
-        ExprKind::Index { object, index, .. } => {
-            walk_expr(object, found);
-            walk_expr(index, found);
-        }
-        ExprKind::Template { expressions, .. } => {
-            expressions.iter().for_each(|e| walk_expr(e, found));
-        }
-        ExprKind::Object { properties } => {
-            for property in properties {
-                match property {
-                    Property::Value { value, .. } => walk_expr(value, found),
-                    Property::Spread(value) | Property::Prototype(value) => walk_expr(value, found),
-                    // A method written here is not one called here.
-                    Property::Method { .. } | Property::Getter { .. } | Property::Setter { .. } => {
-                    }
-                }
-            }
-        }
-        ExprKind::Array { elements } => {
-            for element in elements.iter().flatten() {
-                match element {
-                    crate::syntax::Spreadable::Single(value)
-                    | crate::syntax::Spreadable::Spread(value) => walk_expr(value, found),
-                }
-            }
-        }
-        ExprKind::Assign { target, value, .. } => {
-            if let crate::syntax::AssignTarget::Place(place) = target {
-                walk_expr(place, found);
-            }
-            walk_expr(value, found);
-        }
-        ExprKind::Sequence { operands } => operands.iter().for_each(|e| walk_expr(e, found)),
-        ExprKind::Conditional {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            walk_expr(condition, found);
-            walk_expr(then_branch, found);
-            walk_expr(else_branch, found);
-        }
-        ExprKind::Asserted { value, .. } => walk_expr(value, found),
-        ExprKind::SuperMember { property } => {
-            if let crate::syntax::PropertyKey::Computed(key) = &**property {
-                walk_expr(key, found);
-            }
-        }
-
-        ExprKind::Literal(_)
-        | ExprKind::Ident(_)
-        | ExprKind::This
-        | ExprKind::NewTarget
-        | ExprKind::ImportMeta
-        | ExprKind::PrivateName(_)
-        | ExprKind::Function(_)
-        | ExprKind::Class(_) => {}
     }
 }

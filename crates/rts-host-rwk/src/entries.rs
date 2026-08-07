@@ -100,6 +100,16 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::ClosureNew => (CoreEntry::ClosureNew, {
             rts_core_rwk::entry::closure_new as extern "C" fn(i64, u64) -> u64 as *const u8
         }),
+        // The two a throw crosses a frame on. Emitted after every operation that
+        // can raise one, so the frame above learns that the frame below left by
+        // throwing — which is what a `try` protecting a call needs and what the
+        // language refused for want of.
+        RuntimeOp::Thrown => (CoreEntry::Thrown, {
+            rts_core_rwk::entry::thrown as extern "C" fn() -> i64 as *const u8
+        }),
+        RuntimeOp::TakeThrown => (CoreEntry::TakeThrown, {
+            rts_core_rwk::entry::take_thrown as extern "C" fn() -> u64 as *const u8
+        }),
         // The cast is the arity agreement, written out. Six parameters: the
         // callee, the receiver, and `ARGUMENT_SLOTS` arguments — and the
         // assertion below is what makes that sentence checkable rather than a

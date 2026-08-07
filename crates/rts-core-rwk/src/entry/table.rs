@@ -56,6 +56,7 @@ use super::functions::{
     SUPER_CONSTRUCT_ENTRY,
 };
 use super::objects::{GET_PROPERTY_ENTRY, OBJECT_NEW_ENTRY, SET_PROPERTY_ENTRY};
+use super::throw::{TAKE_THROWN_ENTRY, THROWN_ENTRY};
 use super::operators::LOOSE_EQUALS_ENTRY;
 use super::operators::{
     DIVIDE_ENTRY, GREATER_ENTRY, GREATER_EQUAL_ENTRY, LESS_ENTRY, LESS_EQUAL_ENTRY, MULTIPLY_ENTRY,
@@ -364,6 +365,15 @@ pub enum CoreEntry {
     /// One exported binding written into the specifier table — the write whose
     /// read is [`CoreEntry::ModuleBinding`].
     ModulePublish = 56,
+
+    /// Whether a throw is in flight.
+    ///
+    /// Numbered after everything that existed, because a number is never reused
+    /// and never renumbered: compiled code names an entry by its position.
+    Thrown = 57,
+
+    /// The value in flight, clearing it.
+    TakeThrown = 58,
 }
 
 /// How many entry points exist.
@@ -371,7 +381,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 57;
+pub const CORE_ENTRY_COUNT: usize = 59;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -433,6 +443,8 @@ impl CoreEntry {
         CoreEntry::ModuleBinding,
         CoreEntry::ModuleNamespace,
         CoreEntry::ModulePublish,
+        CoreEntry::Thrown,
+        CoreEntry::TakeThrown,
     ];
 
     /// The number a call site holds.
@@ -464,6 +476,8 @@ impl CoreEntry {
             CoreEntry::GetProperty => GET_PROPERTY_ENTRY,
             CoreEntry::SetProperty => SET_PROPERTY_ENTRY,
             CoreEntry::ClosureNew => CLOSURE_NEW_ENTRY,
+            CoreEntry::Thrown => THROWN_ENTRY,
+            CoreEntry::TakeThrown => TAKE_THROWN_ENTRY,
             CoreEntry::Call => CALL_ENTRY,
             CoreEntry::StringConst => STRING_CONST_ENTRY,
             CoreEntry::TypeOf => TYPE_OF_ENTRY,
