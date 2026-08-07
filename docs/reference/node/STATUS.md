@@ -41,15 +41,18 @@ Ordered by what unblocks the most rather than by size.
 | `worker_threads` | 688 | a second engine context on another thread. `rts-host-rwk` compiles for N regions already — this is the first module that needs the host, not just the runtime. |
 | `inspector` | 1072 | a debugger protocol over a socket, and a debugger to speak it. |
 
-## The two defects with tests that fail when fixed
+## The one defect with a test that fails when fixed
 
-Both are pinned in `crates/rts-host-rwk/tests/node_modules.rs`, asserting what
-the engine DOES so that fixing them breaks the test:
+Pinned in `crates/rts-host-rwk/tests/node_modules.rs`, asserting what the engine
+DOES so that fixing it breaks the test:
 
 - **`setTimeout(f, 0)` alone never fires.** The host pumps due timers where it
   drains microtasks, and it is reached, so "nothing pumps" is not the cause.
-- **`builtinModules` is a function** where Node has a data property holding an
-  array, so a program reading its `length` gets a function's arity.
+
+`builtinModules` was the second and is fixed: it was a member FUNCTION where Node
+has a data property holding an array, so a program reading its `length` got a
+function's arity. It is built once in `module::namespace` from the same list
+`isBuiltin` answers from.
 
 ## The rule every module here pays
 

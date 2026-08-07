@@ -72,26 +72,25 @@ static IMPLEMENTED: OnceLock<Vec<String>> = OnceLock::new();
 /// rather than a second copy.
 pub fn namespace(context: &mut Context, implemented: &[&str]) -> u64 {
     IMPLEMENTED.get_or_init(|| implemented.iter().map(|name| (*name).to_owned()).collect());
-    let members: &[(&str, Provided)] = &[
-        ("builtinModules", builtin_modules),
-        ("isBuiltin", is_builtin),
-    ];
-    rts_core_rwk::entry::make_namespace(context, members)
-}
-
-/// `module.builtinModules` — every name `install` registers, in the bare
-/// (unprefixed) spelling `install`'s own list is written in; a caller
-/// wanting `"node:fs"` gets that by prefixing, which is what
-/// [`is_builtin`] accepts on either side.
-extern "C" fn builtin_modules(_e: u64, _this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    let names = IMPLEMENTED.get().cloned().unwrap_or_default();
-    rts_core_rwk::entry::with_runtime(|context| {
-        let values = names
-            .iter()
-            .map(|name| rts_core_rwk::entry::make_string(context, name))
-            .collect();
-        rts_core_rwk::entry::make_array_in(context, values)
-    })
+    let members: &[(&str, Provided)] = &[("isBuiltin", is_builtin)];
+    let namespace = rts_core_rwk::entry::make_namespace(context, members);
+    // `builtinModules` is a DATA property holding an array, because that is what
+    // it is in Node. It was a function here, so a program reading
+    // `builtinModules.length` got a function's arity — a number, plausible, and
+    // wrong. The names are the bare (unprefixed) spelling `install`'s own list is
+    // written in; a caller wanting `"node:fs"` prefixes, which is what
+    // `is_builtin` accepts on either side.
+    //
+    // Built once rather than per read: the list cannot change after `install`
+    // assembled it, and a fresh array each read would also make
+    // `builtinModules === builtinModules` false.
+    let values = implemented
+        .iter()
+        .map(|name| rts_core_rwk::entry::make_string(context, name))
+        .collect();
+    let names = rts_core_rwk::entry::make_array_in(context, values);
+    rts_core_rwk::entry::put_member(context, namespace, "builtinModules", names);
+    namespace
 }
 
 /// `module.isBuiltin(name)` — true for a name `install` provides, under
