@@ -83,6 +83,9 @@
 
 pub mod frame;
 pub mod hpack;
+mod delivery;
+mod js;
+mod registry;
 pub mod session;
 #[cfg(test)]
 mod session_tests;
@@ -100,6 +103,7 @@ pub fn namespace(context: &mut entry::Context) -> u64 {
     let namespace = entry::make_namespace(context, members);
     let constants = constants_object(context);
     entry::put_member(context, namespace, "constants", constants);
+    js::extend(context, namespace);
     namespace
 }
 

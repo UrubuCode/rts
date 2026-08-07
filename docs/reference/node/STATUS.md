@@ -11,7 +11,7 @@ grep -oE '^\s+\("([a-z_]+)"' crates/rts-node-rwk/src/lib.rs | tr -d ' ("' | sort
 comm -23 /tmp/ref.txt /tmp/done.txt
 ```
 
-**39 of 42 documented modules are registered.** A module being registered means a
+**39 of 42 documented modules are registered**, and `node:http2` is now a working client and server rather than framing alone. A module being registered means a
 program can import it and call what it provides — it does NOT mean the surface is
 complete. Each module's own doc carries a "Not implemented, by name" section, and
 that is the authority on its gaps; this file is about which modules exist at all.
@@ -25,7 +25,7 @@ that is the authority on its gaps; this file is about which modules exist at all
 `os` · `path` · `perf_hooks` · `process` · `punycode` · `querystring` ·
 `stream` · `string_decoder` · `test` · `timers` · `tty` · `url` · `util` · `v8` · `zlib` ·
 `console` · `dgram` · `http` · `https` · `module` · `readline` · `tls` ·
-`cluster` · `domain` · `repl` · `sqlite` · `worker_threads` · `trace_events` · `vm` · `wasi` · `http2` (framing and HPACK only — see below)
+`cluster` · `domain` · `repl` · `sqlite` · `worker_threads` · `trace_events` · `vm` · `wasi` · `http2`
 
 `Buffer` and `console` are not modules: `Buffer` is a class in the runtime
 (`rts-core-rwk`, where `layering.md` puts it) and `console` is a global installed
@@ -37,7 +37,6 @@ Ordered by what unblocks the most rather than by size.
 
 | module | doc | waits on |
 |---|---|---|
-| `http2` | 1165 | framing and HPACK are DONE and tested against the RFC. What is missing is the session/stream lifecycle — see below. |
 | `inspector` | 1072 | a debugger protocol over a socket, and a debugger to speak it. |
 
 ## No defect is pinned as unfixed any more
@@ -137,7 +136,7 @@ cause is legible.
 
 Each says this at the top of its own module doc rather than only here.
 
-## `node:http2` — the half that is real, and why the other half was refused
+## `node:http2` — a working client and server over h2c
 
 Done and pinned by 37 unit tests against the RFCs' own vectors: the 9-byte frame
 header, the connection preface, and `SETTINGS`/`HEADERS`/`DATA`/`WINDOW_UPDATE`/
@@ -151,12 +150,31 @@ may Huffman-encode whatever this side emits, so decoding is mandatory and
 encoding is not. Getting it backwards yields a client that works until a server
 compresses.
 
-`connect`, `createServer`, the session and stream classes: **not built**.
-Refused rather than half-built, and the reason is specific — a session that
-claims `'stream'`, `close()` and `goaway()` without an owned frame-dispatch
-loop, flow control, and the rapid-reset mitigation (CVE-2023-44487) the spec
-calls mandatory is exactly the module that looks finished and drops frames it
-never learned.
+`connect`, `createServer`, the session and stream classes: **built**, and built
+with the three things their absence was justified by. `session.rs` holds the
+frame-dispatch loop, real connection- and stream-level flow control, and the
+rapid-reset mitigation (CVE-2023-44487) the spec calls mandatory — a budget of
+resets per connection that never decays, because a window that forgives lets an
+attacker pace itself under it forever. Nine unit tests run a real client against
+a real server through two byte buffers, with no socket and no heap; an
+end-to-end fixture runs both over a real TCP socket.
+
+**h2c only, and `createSecureServer` is deliberately absent.** HTTP/2 over TLS is
+chosen by ALPN, which `node:tls` here does not have — a client that opened a TLS
+socket and started sending frames would be talking to a server that believes it
+agreed to HTTP/1.1. `connect("https://…")` refuses by name.
+
+Also absent: `PUSH_PROMISE` and every `pushStream`, the
+`Http2ServerRequest`/`Http2ServerResponse` compatibility API (`createServer`
+raises `'stream'` and nothing else), trailers, and `CONTINUATION`.
+
+The loop taught this module the distinction it needed: a session with a live
+stream answers `Pending::In`, because a response is coming and the program asked
+for it, while an idle listening server answers `Blocked`. Both were `Blocked` at
+first, and the fixture caught it at once — nothing held the loop, so the client
+got one pass and the response the server had already sent was never delivered.
+The mirror of that mistake is a stream never forgotten, which holds the loop open
+forever; that hung the same fixture until `end_stream` removed it.
 
 ## `node:vm` and `node:repl` — registered, and the two things that made them work
 
