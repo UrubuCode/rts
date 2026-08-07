@@ -11,7 +11,7 @@ grep -oE '^\s+\("([a-z_]+)"' crates/rts-node-rwk/src/lib.rs | tr -d ' ("' | sort
 comm -23 /tmp/ref.txt /tmp/done.txt
 ```
 
-**34 of 42 documented modules are registered.** A module being registered means a
+**35 of 42 documented modules are registered.** A module being registered means a
 program can import it and call what it provides — it does NOT mean the surface is
 complete. Each module's own doc carries a "Not implemented, by name" section, and
 that is the authority on its gaps; this file is about which modules exist at all.
@@ -25,7 +25,7 @@ that is the authority on its gaps; this file is about which modules exist at all
 `os` · `path` · `perf_hooks` · `process` · `punycode` · `querystring` ·
 `stream` · `string_decoder` · `test` · `timers` · `tty` · `url` · `util` · `v8` · `zlib` ·
 `console` · `dgram` · `http` · `https` · `module` · `readline` · `tls` ·
-`cluster` · `domain` · `trace_events` · `http2` (framing and HPACK only — see below)
+`cluster` · `domain` · `trace_events` · `wasi` · `http2` (framing and HPACK only — see below)
 
 `Buffer` and `console` are not modules: `Buffer` is a class in the runtime
 (`rts-core-rwk`, where `layering.md` puts it) and `console` is a global installed
@@ -42,7 +42,6 @@ Ordered by what unblocks the most rather than by size.
 | `repl` | 371 | `readline`, and a way to compile a string at run time — the host has one, this crate cannot reach it. |
 | `vm` | 1102 | the same: compiling source from inside a running program. |
 | `sqlite` | 1113 | a pure-Rust SQLite — `crates.md` §4.12 names `turso_core`; a dependency decision. |
-| `wasi` | 722 | a WebAssembly runtime — `crates.md` names `wasmi`. |
 | `inspector` | 1072 | a debugger protocol over a socket, and a debugger to speak it. |
 
 ## The two defects with tests that fail when fixed
@@ -168,3 +167,30 @@ and they are not equivalent:
 
 Until then, both modules' code stands and their doc comments describe a
 capability nothing can reach.
+
+## `node:wasi` — a different shape, named as one
+
+There is no `WebAssembly` global in this engine — checked, not assumed. Node's
+`node:wasi` hands its import object to `WebAssembly.instantiate`, so with no such
+function there is nothing to hand it to.
+
+So `start(bytes)` takes the module's raw bytes and runs them through `wasmi`
+itself. `getImportObject`/`wasiImport` still exist with the right shape and key,
+and their functions are inert: the real host calls are wired into `wasmi`'s
+linker where nothing in JavaScript can reach them. That is a divergence from
+Node's API and the module doc says so in its second paragraph rather than
+implying parity.
+
+**No filesystem access is ever granted.** `preopens` is parsed and stored and
+never consulted; every `path_*` call answers `ENOTCAPABLE`/`EBADF` regardless of
+what was configured. Refusing is safe and granting by accident is not, so the
+refusal is unconditional rather than conditional on a table being right.
+
+Real preview1 calls: `args_*`, `environ_*`, `clock_time_get`, `random_get`,
+`proc_exit`, `sched_yield`, `fd_write` (stdout/stderr), `fd_read` (stdin),
+`fd_close`. A module importing anything not linked fails at `instantiate` — a
+named failure rather than a silent one.
+
+A unit test hand-assembles a WASM binary byte by byte and runs it through the
+real `wasmi` path: it writes to stdout and exits with 7, and the test asserts the
+7. That is worth more than any claim in this file.

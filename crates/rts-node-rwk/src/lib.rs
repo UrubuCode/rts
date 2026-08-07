@@ -69,6 +69,7 @@ pub mod tty;
 pub mod url;
 pub mod util;
 pub mod v8;
+pub mod wasi;
 /// Written and NOT registered. `entry::evaluate` installs a fresh context while
 /// the calling program's is still installed, and the thread-local holding one is
 /// a single slot — so evaluating from inside a running program ABORTS. The
@@ -133,6 +134,7 @@ pub fn install(context: &mut Context) {
         ("url", url::namespace(context)),
         ("util", util::namespace(context)),
         ("v8", v8::namespace(context)),
+        ("wasi", wasi::namespace(context)),
         ("zlib", zlib::namespace(context)),
     ];
     for (name, namespace) in modules {
