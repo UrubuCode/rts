@@ -56,7 +56,6 @@ pub mod punycode;
 pub mod process;
 pub mod querystring;
 pub mod readline;
-/// Written and NOT registered: see `vm`.
 pub mod repl;
 pub mod string_decoder;
 pub mod sqlite;
@@ -71,11 +70,6 @@ pub mod url;
 pub mod util;
 pub mod v8;
 pub mod wasi;
-/// Written and NOT registered. `entry::evaluate` installs a fresh context while
-/// the calling program's is still installed, and the thread-local holding one is
-/// a single slot — so evaluating from inside a running program ABORTS. The
-/// evaluator needs to refuse re-entry, or the slot needs to be a stack, before
-/// either module can be reached.
 pub mod vm;
 pub mod zlib;
 
@@ -117,6 +111,7 @@ pub fn install(context: &mut Context) {
         ("path", path::namespace(context)),
         ("process", process::namespace(context)),
         ("querystring", querystring::namespace(context)),
+        ("repl", repl::namespace(context)),
         ("readline", readline::namespace(context)),
         ("sqlite", sqlite::namespace(context)),
         ("stream", stream_namespace),
@@ -136,6 +131,7 @@ pub fn install(context: &mut Context) {
         ("url", url::namespace(context)),
         ("util", util::namespace(context)),
         ("v8", v8::namespace(context)),
+        ("vm", vm::namespace(context)),
         ("wasi", wasi::namespace(context)),
         ("zlib", zlib::namespace(context)),
     ];

@@ -39,8 +39,29 @@ use std::cell::RefCell;
 use super::Context;
 
 thread_local! {
-    /// This thread's context, absent until something installs one.
-    static CONTEXT: RefCell<Option<Context>> = const { RefCell::new(None) };
+    /// This thread's contexts, innermost last, empty until something installs
+    /// one.
+    ///
+    /// # Why a stack and not one slot
+    ///
+    /// It was one slot, and installing over it **dropped what was there**. That
+    /// is fine for a host running one program and fatal the moment a running
+    /// program evaluates source: `node:vm` and `node:repl` reach
+    /// [`super::evaluate`], the host compiles a second program, installing it
+    /// destroyed the caller's heap, and the first entry point after the inner
+    /// program returned found no context and aborted. Both modules were written
+    /// and left unregistered for exactly this.
+    ///
+    /// The rejected alternative was making the evaluator refuse re-entry. It is
+    /// cheaper and it makes `vm.runInNewContext` answer `undefined` from inside
+    /// a program, which is where a program actually calls it — so it removes the
+    /// abort by removing the feature. A stack is also the shape a second context
+    /// on another thread needs, so it is the one that pays twice.
+    ///
+    /// Nesting does NOT make the inner program's references usable outside it: a
+    /// reference belongs to the region that made it, and that rule is unchanged.
+    /// What the stack fixes is the outer heap surviving.
+    static CONTEXTS: RefCell<Vec<Context>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Install a context for this thread, and run something with it.
@@ -48,12 +69,15 @@ thread_local! {
 /// Returns the context afterwards so a caller can inspect what a program left
 /// behind — which is how the tests below work, and how a host would read a
 /// result out.
+///
+/// Nesting is allowed: the context installed here is the current one until this
+/// call returns, and whatever was installed before it becomes current again.
 pub fn with_context<T>(context: Context, body: impl FnOnce() -> T) -> (Context, T) {
-    CONTEXT.with(|slot| *slot.borrow_mut() = Some(context));
+    CONTEXTS.with(|stack| stack.borrow_mut().push(context));
     let value = body();
-    let context = CONTEXT.with(|slot| slot.borrow_mut().take());
+    let context = CONTEXTS.with(|stack| stack.borrow_mut().pop());
     (
-        context.expect("the context installed above is still installed"),
+        context.expect("the context pushed above is still on the stack"),
         value,
     )
 }
@@ -65,9 +89,9 @@ pub fn with_context<T>(context: Context, body: impl FnOnce() -> T) -> (Context, 
 /// a broken embedding — and unwinding out of an `extern "C"` frame is undefined
 /// behaviour, so there is nothing better to do than say so and stop.
 pub(crate) fn with_current<T>(body: impl FnOnce(&mut Context) -> T) -> T {
-    CONTEXT.with(|slot| {
-        let mut borrowed = slot.borrow_mut();
-        let Some(context) = borrowed.as_mut() else {
+    CONTEXTS.with(|stack| {
+        let mut borrowed = stack.borrow_mut();
+        let Some(context) = borrowed.last_mut() else {
             eprintln!("rts: an entry point ran with no context installed on this thread");
             std::process::abort();
         };

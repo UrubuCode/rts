@@ -601,7 +601,21 @@ pub fn compile_for(source: &str, regions: u32) -> Result<Compiled, HostError> {
 /// and anything else answers `None` rather than a wrong object. Named rather
 /// than discovered, and it is what a shared heap would remove.
 fn evaluate_source(source: &str) -> Option<u64> {
-    let mut program = compile(source).ok()?;
+    // An EXPRESSION answers itself, and that is what a caller of this asks for:
+    // `vm.runInNewContext("1 + 2")` and a repl line both want the value, and
+    // there is no completion value to give them — `compile` wraps a script in a
+    // function, and a function that reaches its end answers `undefined`. So the
+    // expression form is tried first and the plain one is the fallback, which is
+    // what makes `let x = 1; x` still compile.
+    //
+    // Rejected: making the wrapper return its last expression statement for
+    // every program. That changes what `compile` means for every caller,
+    // including the suite, to fix something only this seam asks for.
+    let expression = format!("return ({source});");
+    let mut program = match compile(&expression) {
+        Ok(program) => program,
+        Err(_) => compile(source).ok()?,
+    };
     let produced = program.run();
     // A reference belongs to the region that made it. Refusing to hand one over
     // is the whole of the safety here; a tagged non-reference is self-contained.

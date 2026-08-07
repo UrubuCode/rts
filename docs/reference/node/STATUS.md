@@ -11,7 +11,7 @@ grep -oE '^\s+\("([a-z_]+)"' crates/rts-node-rwk/src/lib.rs | tr -d ' ("' | sort
 comm -23 /tmp/ref.txt /tmp/done.txt
 ```
 
-**36 of 42 documented modules are registered.** A module being registered means a
+**38 of 42 documented modules are registered.** A module being registered means a
 program can import it and call what it provides — it does NOT mean the surface is
 complete. Each module's own doc carries a "Not implemented, by name" section, and
 that is the authority on its gaps; this file is about which modules exist at all.
@@ -25,7 +25,7 @@ that is the authority on its gaps; this file is about which modules exist at all
 `os` · `path` · `perf_hooks` · `process` · `punycode` · `querystring` ·
 `stream` · `string_decoder` · `test` · `timers` · `tty` · `url` · `util` · `v8` · `zlib` ·
 `console` · `dgram` · `http` · `https` · `module` · `readline` · `tls` ·
-`cluster` · `domain` · `sqlite` · `trace_events` · `wasi` · `http2` (framing and HPACK only — see below)
+`cluster` · `domain` · `repl` · `sqlite` · `trace_events` · `vm` · `wasi` · `http2` (framing and HPACK only — see below)
 
 `Buffer` and `console` are not modules: `Buffer` is a class in the runtime
 (`rts-core-rwk`, where `layering.md` puts it) and `console` is a global installed
@@ -39,8 +39,6 @@ Ordered by what unblocks the most rather than by size.
 |---|---|---|
 | `http2` | 1165 | framing and HPACK are DONE and tested against the RFC. What is missing is the session/stream lifecycle — see below. |
 | `worker_threads` | 688 | a second engine context on another thread. `rts-host-rwk` compiles for N regions already — this is the first module that needs the host, not just the runtime. |
-| `repl` | 371 | `readline`, and a way to compile a string at run time — the host has one, this crate cannot reach it. |
-| `vm` | 1102 | the same: compiling source from inside a running program. |
 | `inspector` | 1072 | a debugger protocol over a socket, and a debugger to speak it. |
 
 ## The two defects with tests that fail when fixed
@@ -148,24 +146,28 @@ loop, flow control, and the rapid-reset mitigation (CVE-2023-44487) the spec
 calls mandatory is exactly the module that looks finished and drops frames it
 never learned.
 
-## `node:vm` and `node:repl` — written, not registered, and what stops them
+## `node:vm` and `node:repl` — registered, and the two things that made them work
 
-Both are built on `entry::evaluate`, the capability the host hands down. Both are
-unregistered because calling it from inside a running program **aborts**: it
-installs a fresh context while the caller's is still installed, and the
-thread-local holding one is a single slot.
+Both are built on `entry::evaluate`. Both were written and left unregistered
+because calling it from inside a running program ABORTED, and two separate
+defects were behind that.
 
-That is a finding about the engine rather than about either module. Two ways out,
-and they are not equivalent:
+**The context slot became a stack.** Installing a context OVERWROTE what was
+there, so the inner program destroyed the caller's heap and the first entry point
+after the evaluation found none. The rejected alternative was making the
+evaluator refuse re-entry: cheaper, and it removes the abort by removing the
+feature. A stack is also the shape `worker_threads` needs for a second context.
 
-- **The evaluator refuses re-entry** — cheap, and it makes `vm.runInNewContext`
-  answer `undefined` from inside a program, which is most of what a program does.
-- **The slot becomes a stack** — a program can evaluate source, which is what the
-  modules are for. It is also the shape `worker_threads` will need for a second
-  context, so it is the one that pays twice.
+**The evaluator tries the expression form first.** `compile` wraps a script in a
+function and a function reaching its end answers `undefined`, so there was no
+completion value — `runInNewContext("1 + 2")` answered `undefined` with nothing
+wrong anywhere. `evaluate_source` compiles `return (source);` and falls back to
+the plain form, which is what keeps `let x = 1; x` compiling. Making the wrapper
+return its last expression statement for EVERY program was rejected: it changes
+what `compile` means for the suite to fix what one seam asks for.
 
-Until then, both modules' code stands and their doc comments describe a
-capability nothing can reach.
+A reference still does not cross — it belongs to the region that made it — and a
+fixture pins that alongside the value crossing and the caller's heap surviving.
 
 ## `node:wasi` — a different shape, named as one
 
