@@ -19,7 +19,7 @@
 //! |---|---|---|
 //! | protocol | TLS 1.3 only | TLS 1.2 (even ECDHE) |
 //! | AEAD | AES-128-GCM, ChaCha20-Poly1305 | AES-256-GCM |
-//! | key exchange | P-256 (ECDHE) | X25519, P-384 |
+//! | key exchange | X25519 (preferred), P-256 (ECDHE fallback) | P-384 |
 //! | verify (peer certs, handshake sigs) | ECDSA P-256, Ed25519, RSA PKCS#1v1.5 | RSA-PSS, P-384, Ed448 |
 //! | sign (our own `SecureContext` key) | ECDSA P-256, Ed25519 | RSA |
 //!
@@ -35,10 +35,6 @@
 //!   does not reach.
 //! - **AES-256-GCM** — mechanically AES-128-GCM with a 32-byte key
 //!   (`aead.rs`'s own note); deferred for time.
-//! - **X25519 key exchange** — tried first; every from-raw-bytes constructor
-//!   on `x25519-dalek` sits behind a Cargo feature (`static_secrets` or
-//!   `getrandom`) this crate's dependency does not enable, and enabling one
-//!   is the `Cargo.toml` edit this change may not make (`kx.rs`'s own note).
 //! - **P-384 key exchange** — no `SupportedKxGroup` impl written for it;
 //!   mechanically the same shape as the P-256 one `kx.rs` has.
 //! - **RSA-PSS verification, Ed448, P-384 verification** — no
@@ -100,6 +96,7 @@ static SCHEME_MAPPING: &[(SignatureScheme, &[&dyn SignatureVerificationAlgorithm
     (SignatureScheme::RSA_PKCS1_SHA256, &[&VERIFY_RSA_PKCS1]),
 ];
 
+static X25519: kx::X25519 = kx::X25519;
 static SECP256R1: kx::Secp256r1 = kx::Secp256r1;
 static RANDOM: random::Random = random::Random;
 static KEY_PROVIDER: sign::KeyProvider = sign::KeyProvider;
@@ -113,7 +110,7 @@ pub(crate) fn provider() -> Arc<CryptoProvider> {
             SupportedCipherSuite::Tls13(&AES_128_GCM_SHA256),
             SupportedCipherSuite::Tls13(&CHACHA20_POLY1305_SHA256),
         ],
-        kx_groups: vec![&SECP256R1],
+        kx_groups: vec![&X25519, &SECP256R1],
         signature_verification_algorithms: WebPkiSupportedAlgorithms {
             all: ALL_VERIFY_ALGS,
             mapping: SCHEME_MAPPING,

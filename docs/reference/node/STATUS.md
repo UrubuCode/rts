@@ -98,14 +98,15 @@ RustCrypto crates `node:crypto` already uses. No `ring`, no `aws-lc-rs`, no C.
 Covered: TLS 1.3, AES-128-GCM and ChaCha20-Poly1305, ECDSA-P256/Ed25519/RSA-PKCS1
 verification, ECDSA-P256 and Ed25519 signing.
 
-**Not covered, and the first one is not cosmetic: X25519.** It is the group a
-TLS 1.3 peer offers first, so a handshake against most of the internet has
-nothing to agree on. The provider was written while `x25519-dalek`'s
-`static_secrets` feature was off — every constructor taking raw secret bytes is
-gated behind it — and P-256 ECDHE was substituted rather than the dependency
-being reached around. **The feature is enabled now**; wiring X25519 into the
-provider is the next change, and until it lands `tls` is a module that works
-against a server configured to accept P-256 and not against one that is not.
+X25519 is covered and PREFERRED, with P-256 kept as the fallback so a peer that
+only speaks it still works. It was absent for one commit, and the reason is worth
+keeping: the provider was written while `x25519-dalek`'s `static_secrets` feature
+was off, every constructor taking raw secret bytes is gated behind it, and P-256
+was substituted and REPORTED rather than the dependency being reached around.
+Three wrong answers were available — a `ring`-backed path, a new dependency, and
+a secret derived by hand from a hash — and the third would have compiled,
+handshaken, and been broken cryptography. The secret's 32 bytes come from
+`getrandom`, the same call the rest of the provider uses.
 
 Also absent: TLS 1.2 entirely, AES-256-GCM, P-384, RSA-PSS, RSA signing, and
 encrypted PKCS#8 keys. PEM and PKCS#8 are read by hand — `rustls-pemfile`,
