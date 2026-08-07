@@ -35,6 +35,21 @@ ed25519-dalek = "2"         # §6 — signatures
 rsa = "0.9"                 # §6 — signatures. RUSTSEC-2023-0071 (Marvin) applies to RSA
                             # DECRYPTION; TLS 1.3 uses RSA only to sign, which is what limits it.
 
+
+# node:sqlite — §4.12. Pure-Rust, SQLite-file-compatible. The feature pin is not
+# cosmetic: stock defaults pull `aegis`, which cc-compiles C on Windows and
+# Linux, and `pure-rust-crypto` forces the softaes backend instead. MIT.
+turso_core = { version = "0.6", default-features = false, features = ["fs", "uuid", "time", "json", "series", "pure-rust-crypto"] }
+# `percentile` is in §4.12's pin list and does not exist in turso_core 0.6 —
+# the document drifted from the crate. Dropped rather than the version being
+# bent to match a feature nobody needs.
+
+# node:wasi — §4.13. A pure-Rust interpreter, audited by Runtime Verification in
+# 2024, MIT/Apache. `wasmtime` is rejected by that section: it cc-compiles C for
+# any real execution and vendors its own Cranelift fork against the one this
+# workspace pins. An interpreter is slower than a JIT and is the correct trade.
+wasmi = "0.31"
+
 # FFI *declaration* crate over libc/OS syscalls (chown/lchown/fchown, utimensat/
 # futimens) — ACCEPTED per docs/reference/node/crates.md §2: "libc-as-FFI-
 # declaration is accepted (the project already links it); only a C
