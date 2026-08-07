@@ -33,16 +33,28 @@
 
 pub mod assert;
 pub mod buffer;
+/// Written and NOT registered: a `spawnSync` aborts the process on an ambient
+/// call inside a runtime borrow, the same fault `stream` shipped with and the
+/// same fix — find it with the backtrace, not by reading. Absent beats dying.
+pub mod child_process;
+pub mod diagnostics_channel;
 pub mod crypto;
 pub mod events;
 pub mod fs;
 pub mod os;
+pub mod net;
 pub mod path;
+pub mod perf_hooks;
+pub mod punycode;
 pub mod process;
 pub mod querystring;
+pub mod string_decoder;
 pub mod stream;
+pub mod timers;
 
+pub mod url;
 pub mod util;
+pub mod zlib;
 
 use rts_core_rwk::entry::Context;
 
@@ -68,7 +80,15 @@ pub fn install(context: &mut Context) {
         ("process", process::namespace(context)),
         ("querystring", querystring::namespace(context)),
         ("stream", stream::namespace(context)),
+        ("diagnostics_channel", diagnostics_channel::namespace(context)),
+        ("net", net::namespace(context)),
+        ("perf_hooks", perf_hooks::namespace(context)),
+        ("punycode", punycode::namespace(context)),
+        ("string_decoder", string_decoder::namespace(context)),
+        ("timers", timers::namespace(context)),
+        ("url", url::namespace(context)),
         ("util", util::namespace(context)),
+        ("zlib", zlib::namespace(context)),
     ] {
         rts_core_rwk::entry::declare_module(context, &format!("node:{name}"), namespace);
         rts_core_rwk::entry::declare_module(context, name, namespace);
