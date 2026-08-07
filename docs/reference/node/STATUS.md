@@ -11,7 +11,7 @@ grep -oE '^\s+\("([a-z_]+)"' crates/rts-node-rwk/src/lib.rs | tr -d ' ("' | sort
 comm -23 /tmp/ref.txt /tmp/done.txt
 ```
 
-**39 of 42 documented modules are registered**, and `node:http2` is now a working client and server rather than framing alone. A module being registered means a
+**All 42 documented modules are registered**, and `node:http2` is a working client and server rather than framing alone. A module being registered means a
 program can import it and call what it provides — it does NOT mean the surface is
 complete. Each module's own doc carries a "Not implemented, by name" section, and
 that is the authority on its gaps; this file is about which modules exist at all.
@@ -25,7 +25,7 @@ that is the authority on its gaps; this file is about which modules exist at all
 `os` · `path` · `perf_hooks` · `process` · `punycode` · `querystring` ·
 `stream` · `string_decoder` · `test` · `timers` · `tty` · `url` · `util` · `v8` · `zlib` ·
 `console` · `dgram` · `http` · `https` · `module` · `readline` · `tls` ·
-`cluster` · `domain` · `repl` · `sqlite` · `worker_threads` · `trace_events` · `vm` · `wasi` · `http2`
+`cluster` · `domain` · `inspector` · `repl` · `sqlite` · `worker_threads` · `trace_events` · `vm` · `wasi` · `http2`
 
 `Buffer` and `console` are not modules: `Buffer` is a class in the runtime
 (`rts-core-rwk`, where `layering.md` puts it) and `console` is a global installed
@@ -37,7 +37,6 @@ Ordered by what unblocks the most rather than by size.
 
 | module | doc | waits on |
 |---|---|---|
-| `inspector` | 1072 | a debugger protocol over a socket, and a debugger to speak it. |
 
 ## No defect is pinned as unfixed any more
 
@@ -339,3 +338,41 @@ Every table of this shape is now keyed by the OWNING thread. They are
 process-wide statics holding JS instance handles, and the loop pumps on every
 thread — so without it a worker's pass would emit onto cells in the parent's
 region. The same fault `node:worker_threads` found first.
+
+## `node:inspector` — the API shape, and which parts are real
+
+Built to `inspector.md` §5.1's scope **(b)**, which that document recommends over
+the wire-level endpoint: reproduce the shape, back each member with a real
+primitive where an honest equivalent exists, refuse by name everywhere else. No
+part of it emulates a protocol, because this project does not embed the engine
+Node's binding wraps.
+
+Genuinely backed: `open`/`close`/`url`/`waitForDebugger` over a real loopback
+`TcpListener` with a real HTTP discovery responder (`/json`, `/json/list`,
+`/json/version`), so `url()` answers a reachable address and `waitForDebugger()`
+blocks on a real accepted connection; `Runtime.evaluate` through
+`entry::evaluate`, the same seam `node:vm` runs on; heap usage through the same
+`region.capacity()`/`used()` primitive `node:v8` already reports; the
+enable/disable acknowledgements, so a program that sends them unconditionally is
+not stopped; and `Schema.getDomains` answering the domains actually backed rather
+than Node's full list — telling a frontend it can drive a domain that refuses is
+a wrong answer that runs.
+
+Refused by name with Node's own `ERR_INSPECTOR_COMMAND`: `Profiler.start`/`stop`
+and `HeapProfiler.takeHeapSnapshot`, because there is no sampling profiler here —
+the identical gap `node:v8`'s `startCpuProfile` documents. An empty profile would
+look like a working profiler.
+
+**No WebSocket upgrade and no JSON-RPC command loop.** A frontend that probes
+discovery and then attaches fails at the upgrade. That is the named deferral, and
+the whole difference between this and scope (a).
+
+`node:inspector/promises` resolves to the same namespace. The two differ in Node
+by exactly one thing — `post` answering a promise — and this crate cannot mint a
+promise from a native, so the difference cannot be expressed. An unresolved
+specifier would be worse than a working `Session` with a callback `post`.
+
+Registering it cost a test run and confirmed the install ordering above is
+load-bearing rather than tidy: built before `events`, it asked for
+`"EventEmitter"` with an empty member list, won the name, and every emitter in
+the program silently lost its methods.

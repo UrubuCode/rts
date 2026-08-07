@@ -46,6 +46,7 @@ pub mod events;
 pub mod fs;
 pub mod http;
 pub mod http2;
+pub mod inspector;
 pub mod https;
 pub mod module;
 pub mod os;
@@ -95,6 +96,12 @@ pub fn install(context: &mut Context) {
     // of this table caused the moment `console` and `dgram` joined it.
     let events_namespace = events::namespace(context);
     let stream_namespace = stream::namespace(context);
+    // AFTER those two, and built once because `node:inspector/promises` names it
+    // a second time below. Putting it before them cost a test run: it chains
+    // onto `EventEmitter` with an empty member list, won the name, and every
+    // emitter in the program silently lost its methods. The comment above is
+    // load-bearing and this is the proof.
+    let inspecting = inspector::namespace(context);
     let modules = [
         ("assert", assert::namespace(context)),
         ("async_hooks", async_hooks::namespace(context)),
@@ -121,6 +128,7 @@ pub fn install(context: &mut Context) {
         ("http", http::namespace(context)),
         ("http2", http2::namespace(context)),
         ("https", https::namespace(context)),
+        ("inspector", inspecting),
         ("net", net::namespace(context)),
         ("perf_hooks", perf_hooks::namespace(context)),
         ("punycode", punycode::namespace(context)),
@@ -174,6 +182,18 @@ pub fn install(context: &mut Context) {
     let modules_module = module::namespace(context, &provided);
     rts_core_rwk::entry::declare_module(context, "node:module", modules_module);
     rts_core_rwk::entry::declare_module(context, "module", modules_module);
+
+    // `node:inspector/promises` is its own specifier, and here it resolves to
+    // the SAME namespace as `node:inspector`. In Node the two differ in exactly
+    // one way — `session.post` answers a promise instead of taking a callback —
+    // and this crate cannot mint a promise from a native, so the difference
+    // cannot be expressed. Registering it anyway is the lesser wrong: a program
+    // importing it gets a working `Session` whose `post` takes a callback,
+    // rather than an unresolved specifier. `inspector/mod.rs` says so in its
+    // "not implemented" list, which is where a program's author would look.
+
+    rts_core_rwk::entry::declare_module(context, "node:inspector/promises", inspecting);
+    rts_core_rwk::entry::declare_module(context, "inspector/promises", inspecting);
 
     // `node:fs/promises` is its own specifier and resolves to the object `fs`
     // carries as `promises` — the SAME object, not a second one built beside it.
