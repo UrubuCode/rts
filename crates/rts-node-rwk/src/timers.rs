@@ -22,17 +22,17 @@
 //! `clearImmediate` call the program issues — in practice, whichever of those
 //! six the program happens to call next, on whichever thread issues it.
 //!
-//! **A program that schedules a timer and calls no further timer function
-//! never observes it fire.** There is no timer thread, no event loop, and no
-//! other point this engine hands control back to in a way this crate can
-//! hook — unlike `watch.rs`, which gets a second call "for free" because a
-//! program that starts a watcher overwhelmingly also keeps calling `fs`, a
-//! `setTimeout` is very often the LAST thing a small program does, so this is
-//! a real, common-case limitation, not an edge case. It is the honest
-//! answer required over a `setTimeout` that silently never fires with no way
-//! to find out why: a program that calls `setTimeout(cb, 0)` immediately
-//! followed by `setTimeout(cb2, 0)` (or any second timer call) observes `cb`
-//! fire; a program that calls `setTimeout(cb, 0)` and then returns does not.
+//! **A timer scheduled with nothing after it DOES fire**, and that used to be
+//! the paragraph saying it never could. The host calls [`drain`] at the end of
+//! the turn, which pumps and then SLEEPS to the nearest deadline and pumps
+//! again — the waiting an event loop does, narrowed to what a host without one
+//! can honestly provide. A `setTimeout(cb, 0)` is clamped to `1`ms exactly as
+//! Node clamps it, so a single pump could never have found it due; that, and
+//! not "nothing pumps", was the whole of the defect.
+//!
+//! An INTERVAL does not hold a program open, and that is a divergence from Node
+//! stated rather than discovered: `drain` waits only on non-periodic timers,
+//! because the alternative is every fixture with a stray interval hanging.
 //!
 //! # Reuse-check
 //!
@@ -76,9 +76,9 @@
 //! being separately validated against the documented `2147483647` ceiling.
 
 use rts_core_rwk::entry;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 /// One pending timer. `period` is what distinguishes the three JS-visible
@@ -93,28 +93,47 @@ struct Timer {
     period: Option<Duration>,
 }
 
-static TIMERS: Mutex<Option<HashMap<u64, Timer>>> = Mutex::new(None);
+thread_local! {
+    /// This thread's timers.
+    ///
+    /// # Why per thread and not one table
+    ///
+    /// It WAS one table behind a `Mutex`, and a timer holds two things — a
+    /// callback and an argument — that are cells in the region of the thread
+    /// that scheduled them. So a shared table lets one thread's [`pump`] fire
+    /// another thread's callback, with the wrong context installed and handles
+    /// that name cells in a region this thread does not have.
+    ///
+    /// That is not hypothetical: two `#[test]`s scheduling timers run on two
+    /// threads of one process, and each was firing the other's. It became
+    /// visible only when [`drain`] made the loop long enough for the two to
+    /// overlap; before that each pumped once and usually missed. A worker thread
+    /// is the same shape with no test harness to notice.
+    ///
+    /// The context is thread-local for exactly this reason, and anything holding
+    /// values has to follow it.
+    static TIMERS: RefCell<HashMap<u64, Timer>> = RefCell::new(HashMap::new());
+}
+
+/// Ids stay process-wide, which is deliberate: a handle a program prints or
+/// compares should not repeat across threads, and nothing indexes by it except
+/// the table that issued it.
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
 fn with_timers<T>(body: impl FnOnce(&mut HashMap<u64, Timer>) -> T) -> T {
-    let mut guard = TIMERS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    body(guard.get_or_insert_with(HashMap::new))
+    TIMERS.with(|table| body(&mut table.borrow_mut()))
 }
 
-/// Delivers every currently-due timer, oldest-registered-id first, THEN
-/// drops the lock — and it is PUBLIC because the host calls it too.
+/// Delivers every currently-DUE timer, oldest-registered-id first.
 ///
-/// Where the program's own timer calls pump it as they go, the host pumps once
-/// more where it already drains microtasks: at the end of the turn, after the
-/// last statement. That is what makes `setTimeout(f, 0)` with nothing after it
-/// run `f` at all — the single most common way a timer is written, and the one
-/// the program-driven pump alone never reaches, because a timer is often the
-/// last thing a program does.
+/// Public because the host calls it too, and because [`drain`] is built on it:
+/// this fires what is already due and never waits, which is why one call could
+/// not run a `setTimeout(f, 0)` and `drain` can.
 ///
-/// drops [`TIMERS`]'s lock before calling anything — a callback that itself
-/// schedules or clears a timer (an ordinary, expected thing to do) must not
-/// deadlock on a lock this function is still holding. See the module doc for
-/// WHEN this runs.
+/// Releases [`TIMERS`]'s borrow before calling anything. A callback that
+/// schedules or clears a timer is ordinary and expected, and it would otherwise
+/// panic on a borrow this function still holds — which in an `extern "C"` frame
+/// is an abort.
 pub fn pump() {
     let now = Instant::now();
     let due: Vec<(u64, u64, u64)> = with_timers(|table| {
@@ -237,4 +256,50 @@ fn cancel(id: u64) {
     with_timers(|table| {
         table.remove(&key);
     });
+}
+
+/// Runs every pending TIMEOUT to its deadline, sleeping between passes.
+///
+/// # The defect this removes, and why it was never mysterious once measured
+///
+/// `setTimeout(f, 0)` alone did not fire, and it was pinned as a defect with the
+/// note that "nothing pumps" was not the cause — which was right and stopped one
+/// step early. A delay of `0` is clamped to `1`ms, exactly as Node clamps it, and
+/// the host's single end-of-turn [`pump`] runs microseconds after the schedule.
+/// The timer is not due yet. Pumping once can only ever fire a timer whose
+/// deadline has already passed.
+///
+/// What was missing is the waiting an event loop does. This is that, narrowed to
+/// what a host without one can honestly provide: pump, sleep, repeat, until no
+/// non-periodic timer is left.
+///
+/// # Why an interval does NOT hold a program open
+///
+/// It would never finish. In Node a live `setInterval` does keep a process
+/// alive, and the answers to that — `unref()`, `clearInterval` — assume an event
+/// loop and a program written to end itself. A suite whose every fixture hangs
+/// on a stray interval is worse than the divergence, so an interval fires
+/// whenever this passes and stops the program from ending never. Stated here
+/// rather than discovered.
+pub fn drain() {
+    loop {
+        pump();
+        let waiting = with_timers(|table| {
+            table
+                .values()
+                .filter(|timer| timer.period.is_none())
+                .map(|timer| timer.deadline)
+                .min()
+        });
+        let Some(deadline) = waiting else {
+            return;
+        };
+        // Sleeping until the nearest deadline rather than spinning: the whole
+        // point of the loop is that time has to pass, and a busy wait makes it
+        // pass on a core the callback might want.
+        let now = Instant::now();
+        if deadline > now {
+            std::thread::sleep(deadline - now);
+        }
+    }
 }

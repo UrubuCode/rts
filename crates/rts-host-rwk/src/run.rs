@@ -289,7 +289,7 @@ fn run_region(
         // is written, and the module's own pump — which runs on the NEXT timer
         // call — never reaches it, because a timer is often the last thing a
         // program does.
-        rts_node_rwk::timers::pump();
+        rts_node_rwk::timers::drain();
         rts_core_rwk::entry::drain_microtasks();
         // Every worker joined, and its queued messages delivered, before this
         // program is finished. Node keeps a process alive while a worker runs;

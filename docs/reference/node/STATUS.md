@@ -40,15 +40,25 @@ Ordered by what unblocks the most rather than by size.
 | `http2` | 1165 | framing and HPACK are DONE and tested against the RFC. What is missing is the session/stream lifecycle — see below. |
 | `inspector` | 1072 | a debugger protocol over a socket, and a debugger to speak it. |
 
-## The one defect with a test that fails when fixed
+## No defect is pinned as unfixed any more
 
-Pinned in `crates/rts-host-rwk/tests/node_modules.rs`, asserting what the engine
-DOES so that fixing it breaks the test:
+Both that were are fixed.
 
-- **`setTimeout(f, 0)` alone never fires.** The host pumps due timers where it
-  drains microtasks, and it is reached, so "nothing pumps" is not the cause.
+**`setTimeout(f, 0)` alone now fires.** The note on it said "nothing pumps" was
+not the cause, which was true and stopped one step early: a delay of `0` is
+clamped to `1`ms exactly as Node clamps it, and the host's single end-of-turn
+pump ran microseconds after the schedule, so the timer was not due. Pumping once
+can only fire what is already due. `timers::drain` adds the waiting an event loop
+does — pump, sleep to the nearest deadline, repeat — and an interval deliberately
+does not hold a program open, because the alternative is every fixture with a
+stray interval hanging.
 
-`builtinModules` was the second and is fixed: it was a member FUNCTION where Node
+Finding it exposed a second, worse bug: the timer table was one process-wide
+`Mutex`, so one thread's pump fired another thread's callback with handles naming
+cells in a region it does not have. It is thread-local now, like the context and
+for the same reason.
+
+`builtinModules` was the other and is fixed: it was a member FUNCTION where Node
 has a data property holding an array, so a program reading its `length` got a
 function's arity. It is built once in `module::namespace` from the same list
 `isBuiltin` answers from.
