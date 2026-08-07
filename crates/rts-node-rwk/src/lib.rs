@@ -37,9 +37,11 @@ pub mod buffer;
 pub mod child_process;
 pub mod diagnostics_channel;
 pub mod dns;
+pub mod cluster;
 pub mod console;
 pub mod crypto;
 pub mod dgram;
+pub mod domain;
 pub mod events;
 pub mod fs;
 pub mod http;
@@ -57,6 +59,7 @@ pub mod string_decoder;
 pub mod stream;
 pub mod test_runner;
 pub mod timers;
+pub mod trace_events;
 pub mod tls;
 pub mod tty;
 
@@ -91,9 +94,11 @@ pub fn install(context: &mut Context) {
         ("async_hooks", async_hooks::namespace(context)),
         ("buffer", buffer::namespace(context)),
         ("child_process", child_process::namespace(context)),
+        ("cluster", cluster::namespace(context)),
         ("console", console::namespace(context)),
         ("crypto", crypto::namespace(context)),
         ("dgram", dgram::namespace(context)),
+        ("domain", domain::namespace(context)),
         ("dns", dns::namespace(context)),
         ("events", events_namespace),
         ("fs", files),
@@ -113,6 +118,7 @@ pub fn install(context: &mut Context) {
         ("string_decoder", string_decoder::namespace(context)),
         ("timers", timers::namespace(context)),
         ("tls", tls::namespace(context)),
+        ("trace_events", trace_events::namespace(context)),
         ("tty", tty::namespace(context)),
         ("url", url::namespace(context)),
         ("util", util::namespace(context)),

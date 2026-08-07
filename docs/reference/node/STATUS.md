@@ -11,7 +11,7 @@ grep -oE '^\s+\("([a-z_]+)"' crates/rts-node-rwk/src/lib.rs | tr -d ' ("' | sort
 comm -23 /tmp/ref.txt /tmp/done.txt
 ```
 
-**30 of 42 documented modules are registered.** A module being registered means a
+**33 of 42 documented modules are registered.** A module being registered means a
 program can import it and call what it provides — it does NOT mean the surface is
 complete. Each module's own doc carries a "Not implemented, by name" section, and
 that is the authority on its gaps; this file is about which modules exist at all.
@@ -24,7 +24,8 @@ that is the authority on its gaps; this file is about which modules exist at all
 `diagnostics_channel` · `dns` · `events` · `fs` (+ `fs/promises`) · `net` ·
 `os` · `path` · `perf_hooks` · `process` · `punycode` · `querystring` ·
 `stream` · `string_decoder` · `test` · `timers` · `tty` · `url` · `util` · `v8` · `zlib` ·
-`console` · `dgram` · `http` · `https` · `module` · `readline` · `tls`
+`console` · `dgram` · `http` · `https` · `module` · `readline` · `tls` ·
+`cluster` · `domain` · `trace_events`
 
 `Buffer` and `console` are not modules: `Buffer` is a class in the runtime
 (`rts-core-rwk`, where `layering.md` puts it) and `console` is a global installed
@@ -38,14 +39,11 @@ Ordered by what unblocks the most rather than by size.
 |---|---|---|
 | `http2` | 1165 | `tls` and HPACK. |
 | `worker_threads` | 688 | a second engine context on another thread. `rts-host-rwk` compiles for N regions already — this is the first module that needs the host, not just the runtime. |
-| `cluster` | 355 | `child_process` (registered) and IPC, which does not exist. |
 | `repl` | 371 | `readline`, and a way to compile a string at run time — the host has one, this crate cannot reach it. |
 | `vm` | 1102 | the same: compiling source from inside a running program. |
 | `sqlite` | 1113 | a pure-Rust SQLite — `crates.md` §4.12 names `turso_core`; a dependency decision. |
 | `wasi` | 722 | a WebAssembly runtime — `crates.md` names `wasmi`. |
 | `inspector` | 1072 | a debugger protocol over a socket, and a debugger to speak it. |
-| `domain` | 597 | deprecated in Node; needs the async-id tracking `async_hooks` refuses. |
-| `trace_events` | 743 | a tracing sink, and the async-id tracking again. |
 
 ## The two defects with tests that fail when fixed
 
@@ -112,3 +110,21 @@ encrypted PKCS#8 keys. PEM and PKCS#8 are read by hand — `rustls-pemfile`,
 `pkcs8` and `der` are not dependencies, and `node:crypto` declined asymmetric-key
 work for the same missing infrastructure, which is corroboration rather than
 coincidence.
+
+## Three modules that are mostly refusals, and why they were still worth writing
+
+`cluster`, `domain` and `trace_events` are registered and each is honest about
+being a shell around a mechanism that does not exist. That turns a program
+failing at an arbitrary later call into one failing at its import, where the
+cause is legible.
+
+- **`cluster`** forks real processes through `child_process`, and there is no
+  IPC and no handle passing — so workers cannot share a listening socket, which
+  is what `cluster` is actually FOR. It is process spawning wearing the name.
+- **`domain`** has a real `enter`/`exit`/`active` stack, and `run` cannot catch a
+  throw, because a native cannot catch one crossing back through it. Catching is
+  the module's entire value proposition, so what is left is bookkeeping.
+- **`trace_events`** tracks enabled categories correctly and emits nothing: there
+  is no tracing sink anywhere in the engine.
+
+Each says this at the top of its own module doc rather than only here.
