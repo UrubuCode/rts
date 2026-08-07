@@ -140,7 +140,10 @@ pub(super) fn option_flag_default(
         return None;
     }
     let value = entry::get_member(context, options, name);
-    if value == absent { None } else { Some(entry::to_boolean(value)) }
+    // `to_boolean_in`, which is what the comment above was asking for and did
+    // not get: the ambient form here aborted `new Readable({objectMode: true})`
+    // and every other stream built with an option object.
+    if value == absent { None } else { Some(entry::to_boolean_in(context, value)) }
 }
 
 /// A boolean option, `false` when absent — see [`option_flag_default`] for

@@ -244,7 +244,13 @@ extern "C" fn exit(_e: u64, _this: u64, code: u64, _a1: u64, _a2: u64, _a3: u64)
     let absent = rts_core_rwk::entry::undefined_value();
     let status = match code == absent {
         true => 0,
-        false => rts_core_rwk::value::Value(code).as_f64().unwrap_or(0.0) as i32,
+        // `entry::number_of`, which is `ToNumber`. `Value::as_f64` answers `None`
+        // for anything that is not an unboxed double — a tagged integer, and the
+        // STRING Node documents this argument may be — so `process.exit("7")`
+        // and `process.exit(1)` both exited 0. A failing program reporting
+        // success is the worst shape a wrong answer takes: nothing downstream
+        // can tell.
+        false => rts_core_rwk::entry::number_of(code).unwrap_or(0.0) as i32,
     };
     std::process::exit(status);
 }

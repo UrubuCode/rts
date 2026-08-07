@@ -133,7 +133,7 @@ pub(super) extern "C" fn format(_e: u64, _this: u64, value: u64, options: u64, _
         let protocol = entry::get_member(context, value, "protocol");
         let protocol = entry::text_in(context, protocol).unwrap_or_default();
         let slashes_raw = entry::get_member(context, value, "slashes");
-        let slashes = entry::to_boolean(slashes_raw);
+        let slashes = entry::to_boolean_in(context, slashes_raw);
         let auth_raw = entry::get_member(context, value, "auth");
         let auth = entry::text_in(context, auth_raw);
         let host_raw = entry::get_member(context, value, "host");

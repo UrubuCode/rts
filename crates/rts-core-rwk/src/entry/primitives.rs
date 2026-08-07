@@ -14,7 +14,7 @@
 //! result is allocated. The arithmetic ones next door are all one sentence —
 //! `ToNumber` of a string reads the heap — and these are four different ones.
 
-use super::with_current;
+use super::{Context, with_current};
 use crate::coerce::{Sum, add as add_primitives, number_to_string as print_number};
 use crate::text::Str;
 use crate::value::{Value, strict_equals as values_strict_equals, to_boolean as values_to_boolean};
@@ -97,7 +97,19 @@ pub fn strict_equals(left: u64, right: u64) -> bool {
 /// is a number should emit the comparison rather than call this.
 #[rtse::entry]
 pub fn to_boolean(value: u64) -> bool {
-    with_current(|context| {
+    with_current(|context| to_boolean_in(context, value))
+}
+
+/// `ToBoolean`, from a context already in hand.
+///
+/// The context-taking half, and it is not a convenience: every caller that reads
+/// an option object is inside `with_runtime` by construction, so the ambient
+/// form there is a nested borrow and an `extern "C"` frame cannot unwind past
+/// it. `node:stream`'s own option reader said so in a comment and then called
+/// the ambient form three lines below — `new Readable({objectMode: true})`
+/// aborted the process, and nothing tested it.
+pub fn to_boolean_in(context: &Context, value: u64) -> bool {
+    {
         let singletons = context.singletons;
         let kinds = context.kinds;
         // The two heap questions the falsy rule cannot answer alone: an empty
@@ -113,7 +125,7 @@ pub fn to_boolean(value: u64) -> bool {
                 None => false,
             }
         })
-    })
+    }
 }
 
 /// `String(n)`.

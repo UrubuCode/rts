@@ -217,8 +217,15 @@ fn env_var(env: u64, name: &str) -> Option<String> {
     if env == absent {
         return std::env::var(name).ok();
     }
-    let value = entry::with_runtime(|context| entry::get_member(context, env, name));
-    entry::text_of(value)
+    // `string_in`, not `text_of`. The second is `ToString`, so the `undefined`
+    // of an absent key answered `Some("undefined")` — every key of every env
+    // object looked present, and `getColorDepth` short-circuited on `NO_COLOR`
+    // every time. The same coercion-mistaken-for-a-test that made
+    // `node:worker_threads` cross every number as a string.
+    entry::with_runtime(|context| {
+        let value = entry::get_member(context, env, name);
+        entry::string_in(context, value)
+    })
 }
 
 /// The `getColorDepth`/`hasColors` heuristic — `FORCE_COLOR`, `NO_COLOR`,

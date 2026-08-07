@@ -216,7 +216,9 @@ extern "C" fn on_end(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> 
 extern "C" fn close(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     let (already, emit_method, name) = entry::with_runtime(|context| {
         let flag = entry::get_member(context, this, "__closed__");
-        let already = entry::to_boolean(flag);
+        // Inside the borrow, so the context-taking form: the ambient one aborted
+        // every `rl.close()`.
+        let already = entry::to_boolean_in(context, flag);
         entry::put_member(context, this, "__closed__", entry::boolean_value(true));
         (already, entry::get_member(context, this, "emit"), entry::make_string(context, "close"))
     });
