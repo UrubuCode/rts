@@ -173,6 +173,59 @@ pub fn install(context: &mut Context) {
         child_process::source,
     );
 
+    // What a program reaches with NO import line.
+    //
+    // Node makes these globals and this crate had exactly one — `console`, in
+    // `rts-std-rwk`. So `process.argv`, `Buffer.from`, `setTimeout` and `new
+    // URL(...)` were all unbound names in a program that never imported them,
+    // which is how most programs write them.
+    //
+    // Every one of these is a member of a namespace built above, reached rather
+    // than rebuilt: a second `URL` class beside `node:url`'s would make
+    // `new URL(x) instanceof (await import("node:url")).URL` false, and two
+    // `Buffer`s would not compare equal. The classes stay where they are and the
+    // global is another name for the same cell.
+    let by_name = |name: &str| {
+        modules
+            .iter()
+            .find(|(held, _)| *held == name)
+            .map(|(_, namespace)| *namespace)
+    };
+    // `process` and `Buffer` are the two a program reaches for without thinking.
+    // `Buffer` comes from the runtime rather than from `node:buffer`, because
+    // that is where the class lives — `layering.md` puts it in `rts-core-rwk`.
+    if let Some(namespace) = by_name("process") {
+        rts_core_rwk::entry::declare_global(context, "process", namespace);
+    }
+    let buffer_class = rts_core_rwk::entry::buffer_class(context);
+    rts_core_rwk::entry::declare_global(context, "Buffer", buffer_class);
+    // The timer family, `URL`/`URLSearchParams` and `performance`: each named
+    // out of the namespace that owns it.
+    let from_modules: &[(&str, &[&str])] = &[
+        (
+            "timers",
+            &[
+                "setTimeout",
+                "clearTimeout",
+                "setInterval",
+                "clearInterval",
+                "setImmediate",
+                "clearImmediate",
+            ],
+        ),
+        ("url", &["URL", "URLSearchParams"]),
+        ("perf_hooks", &["performance"]),
+    ];
+    for (module, names) in from_modules {
+        let Some(namespace) = by_name(module) else {
+            continue;
+        };
+        for name in *names {
+            let member = rts_core_rwk::entry::get_member(context, namespace, name);
+            rts_core_rwk::entry::declare_global(context, name, member);
+        }
+    }
+
     // `node:module` answers WHICH modules exist, so it is built from the list
     // just registered rather than from a second copy of the names — two lists is
     // how `isBuiltin` comes to disagree with what an import actually finds. It

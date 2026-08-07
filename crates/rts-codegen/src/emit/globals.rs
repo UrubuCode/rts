@@ -104,6 +104,43 @@ const PROVIDED: &[&str] = &[
     "WeakMap",
     "WeakSet",
     "globalThis",
+    // The rest of this list is in no ECMA-262 section, and belongs here for the
+    // reason `console`'s own sentence gives: a program writes them with no
+    // import line, so refusing the NAME refuses the program. Whether any of them
+    // has a value is the runtime's answer and not this crate's — which is the
+    // asymmetry stated above, and the reason this list may be longer than what a
+    // given host installs.
+    //
+    // Measured rather than guessed: these are the names the suite's own files
+    // reach for undeclared, ranked by how many files each one refused
+    // (`rts-host-rwk`'s `suite_coverage`). `URL` and `TextEncoder` cost six
+    // files each, `URLSearchParams` three.
+    //
+    // **Every name below has a real value in this workspace's host.** That is a
+    // rule and not an accident: a name listed here whose value does not exist
+    // turns a refusal at compile time into an `undefined` at run time, and it
+    // makes the compile-rate measurement count a file that cannot work. This
+    // repository's honesty floor names that exact failure — a number measured
+    // against a corpus quietly smaller than claimed. `fetch`, `Blob`, `require`,
+    // `Proxy`, `AggregateError`, `SharedArrayBuffer`, `WeakRef`,
+    // `FinalizationRegistry`, `Atomics`, `eval` and `Intl` are all reached by
+    // the suite and are all ABSENT here for that reason, until something
+    // supplies them — as are `TextEncoder`, `TextDecoder`, `atob`, `btoa`,
+    // `Event`, `EventTarget` and `AbortController`, which are being built now
+    // and are added by the change that installs them, not before it.
+    //
+    // Node's:
+    "process",
+    "setTimeout",
+    "clearTimeout",
+    "setInterval",
+    "clearInterval",
+    "setImmediate",
+    "clearImmediate",
+    // WHATWG's, which every JavaScript host outside a browser also provides:
+    "URL",
+    "URLSearchParams",
+    "performance",
 ];
 
 /// Whether a name resolves against the global object.
