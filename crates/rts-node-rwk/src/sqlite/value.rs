@@ -90,7 +90,14 @@ pub(super) fn from_js(context: &Context, value: u64) -> turso_core::Value {
 
 /// A JS `number` as `INTEGER` (whole, in `i64` range) or `REAL`.
 fn numeric_of(number: f64) -> turso_core::Value {
-    if number.fract() == 0.0 && number.is_finite() && (i64::MIN as f64..=i64::MAX as f64).contains(&number) {
+    // `i64::MAX as f64` rounds UP to 2^63 (f64 cannot represent `i64::MAX`
+    // exactly), so a half-open bound against 2^63 is used instead of
+    // `..=i64::MAX as f64` — the closed range would accept 2^63 itself, which
+    // overflows an `i64` and would have been truncated by `as i64` rather
+    // than refused.
+    const MIN: f64 = -9_223_372_036_854_775_808.0; // -2^63, exact in f64
+    const BOUND: f64 = 9_223_372_036_854_775_808.0; // 2^63, exact in f64
+    if number.fract() == 0.0 && number.is_finite() && number >= MIN && number < BOUND {
         return turso_core::Value::Numeric(turso_core::Numeric::Integer(number as i64));
     }
     match turso_core::NonNan::new(number) {

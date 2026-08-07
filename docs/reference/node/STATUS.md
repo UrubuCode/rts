@@ -11,7 +11,7 @@ grep -oE '^\s+\("([a-z_]+)"' crates/rts-node-rwk/src/lib.rs | tr -d ' ("' | sort
 comm -23 /tmp/ref.txt /tmp/done.txt
 ```
 
-**35 of 42 documented modules are registered.** A module being registered means a
+**36 of 42 documented modules are registered.** A module being registered means a
 program can import it and call what it provides — it does NOT mean the surface is
 complete. Each module's own doc carries a "Not implemented, by name" section, and
 that is the authority on its gaps; this file is about which modules exist at all.
@@ -25,7 +25,7 @@ that is the authority on its gaps; this file is about which modules exist at all
 `os` · `path` · `perf_hooks` · `process` · `punycode` · `querystring` ·
 `stream` · `string_decoder` · `test` · `timers` · `tty` · `url` · `util` · `v8` · `zlib` ·
 `console` · `dgram` · `http` · `https` · `module` · `readline` · `tls` ·
-`cluster` · `domain` · `trace_events` · `wasi` · `http2` (framing and HPACK only — see below)
+`cluster` · `domain` · `sqlite` · `trace_events` · `wasi` · `http2` (framing and HPACK only — see below)
 
 `Buffer` and `console` are not modules: `Buffer` is a class in the runtime
 (`rts-core-rwk`, where `layering.md` puts it) and `console` is a global installed
@@ -41,7 +41,6 @@ Ordered by what unblocks the most rather than by size.
 | `worker_threads` | 688 | a second engine context on another thread. `rts-host-rwk` compiles for N regions already — this is the first module that needs the host, not just the runtime. |
 | `repl` | 371 | `readline`, and a way to compile a string at run time — the host has one, this crate cannot reach it. |
 | `vm` | 1102 | the same: compiling source from inside a running program. |
-| `sqlite` | 1113 | a pure-Rust SQLite — `crates.md` §4.12 names `turso_core`; a dependency decision. |
 | `inspector` | 1072 | a debugger protocol over a socket, and a debugger to speak it. |
 
 ## The two defects with tests that fail when fixed
@@ -194,3 +193,24 @@ named failure rather than a silent one.
 A unit test hand-assembles a WASM binary byte by byte and runs it through the
 real `wasmi` path: it writes to stdout and exits with 7, and the test asserts the
 7. That is worth more than any claim in this file.
+
+## `node:sqlite` — and the one value that does not cross cleanly
+
+Over `turso_core`, pure Rust and SQLite-file-compatible. NULL, TEXT, REAL and
+BLOB round-trip: BLOB is a `Buffer` in both directions.
+
+**INTEGER does not.** `turso_core` holds a real `i64`, and nothing is lost on the
+Rust side — but the host-facing API has no way to make a BigInt, so every
+INTEGER read back becomes a JavaScript `number` and a value outside
+`Number.MAX_SAFE_INTEGER` **silently rounds**. `setReadBigInts` is accepted and
+does nothing.
+
+That is a wrong answer that runs, and it is the kind this project refuses
+everywhere else. It is here because the fix is not in the module: the runtime's
+only bigint constructor parses TEXT and takes the ambient borrow, so a native
+holding one would abort. A context-taking `make_bigint` on
+`rts-core-rwk`'s host surface removes it — the same shape as the six pairs added
+before it, and the next thing to add.
+
+Binding the other way: a whole `number` in `i64` range becomes INTEGER, and a
+unit test pins the trap that `i64::MAX as f64` rounds UP past the range.

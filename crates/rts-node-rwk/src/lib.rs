@@ -59,6 +59,7 @@ pub mod readline;
 /// Written and NOT registered: see `vm`.
 pub mod repl;
 pub mod string_decoder;
+pub mod sqlite;
 pub mod stream;
 pub mod test_runner;
 pub mod timers;
@@ -117,6 +118,7 @@ pub fn install(context: &mut Context) {
         ("process", process::namespace(context)),
         ("querystring", querystring::namespace(context)),
         ("readline", readline::namespace(context)),
+        ("sqlite", sqlite::namespace(context)),
         ("stream", stream_namespace),
         ("test", test_runner::namespace(context)),
         ("diagnostics_channel", diagnostics_channel::namespace(context)),
