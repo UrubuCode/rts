@@ -53,7 +53,7 @@ use super::{Ctx, EmitError, EmitResult, Loops, Scope, UNPROVEN};
 use super::{binding, capture, expr};
 use crate::names::Name;
 use crate::runtime::{ARGUMENT_SLOTS, RuntimeOp};
-use crate::syntax::{Function, FunctionBody, Stmt, StmtKind};
+use crate::syntax::{Expr, ExprKind, Function, FunctionBody, Stmt, StmtKind};
 
 /// Which entry-block parameter is the environment.
 pub const ENVIRONMENT_PARAM: usize = 0;
@@ -153,21 +153,32 @@ fn emit_function(
             construct: "a generator",
         });
     }
+    let (parameters, mut prologue) = bind_parameters(ctx, function);
+    // A rest parameter that destructures is the same desugaring as a parameter
+    // that does: bind the vector to a name, then unpack it with an ordinary
+    // declaration. It was refused separately, and the refusal only made sense
+    // while a parameter could not be unpacked either.
     let rest = match &function.rest_parameter {
-        // Only a plain name. `function f(...[a, b])` is a rest parameter that
-        // destructures, which is the destructuring gap rather than this one.
         Some(crate::syntax::Pattern::Name(name)) => Some(*name),
-        Some(_) => {
-            return Err(EmitError::Unsupported {
-                construct: "a destructured rest parameter",
+        Some(pattern) => {
+            let held = ctx.names.intern("__rts_rest");
+            prologue.push(Stmt {
+                kind: StmtKind::Declare {
+                    kind: crate::syntax::BindingKind::Let,
+                    bindings: vec![crate::syntax::Binding {
+                        target: pattern.clone(),
+                        value: Some(Expr {
+                            kind: ExprKind::Ident(held),
+                            at: function.at,
+                        }),
+                        claim: None,
+                    }],
+                },
+                at: function.at,
             });
+            Some(held)
         }
         None => None,
-    };
-    let Some(parameters) = capture::plain_parameters(&function.parameters) else {
-        return Err(EmitError::Unsupported {
-            construct: "a destructured or defaulted parameter",
-        });
     };
     if parameters.len() > ARGUMENT_SLOTS {
         return Err(EmitError::Unsupported {
@@ -191,6 +202,16 @@ fn emit_function(
             &synthesised
         }
     };
+
+    // The prologue goes FIRST, so a destructured or defaulted parameter is a
+    // binding before any statement can read it. Prepended rather than emitted
+    // separately, because it is ordinary code: `capture.rs` has to see these
+    // declarations to decide whether a nested function captures one of them.
+    let body: Vec<Stmt> = match prologue.is_empty() {
+        true => body.to_vec(),
+        false => prologue.into_iter().chain(body.iter().cloned()).collect(),
+    };
+    let body = body.as_slice();
 
     // An async body may contain `Await`, and the verifier refuses that
     // instruction in a function whose signature does not say so. Declared on the
@@ -544,4 +565,82 @@ pub fn hoist(
         }
     }
     Ok(())
+}
+
+/// A function's parameter list as plain names, with the statements that unpack
+/// what was not one.
+///
+/// # Why this is a desugaring and not an emission
+///
+/// `function f({a}, b = 1)` means exactly `function f(p0, p1) { let {a} = p0;
+/// let b = p1 === undefined ? 1 : p1; … }`. Both halves already emit: a
+/// destructuring declaration is `destructure.rs`, and a conditional is
+/// `choice.rs`. Writing a second unpacker here that emitted patterns against
+/// parameter slots would be the same rule stated twice, which rule 3 forbids —
+/// and the two would eventually disagree about a hole, a nested default, or a
+/// rest element.
+///
+/// # The two things the language decides here
+///
+/// A default fires on `undefined` and NOT on `null`, which is why the test is
+/// `=== undefined` rather than a truthiness or a nullish check. And a default is
+/// evaluated at the CALL rather than once at the declaration, which is what
+/// keeping it as an expression in the prologue gives for free — `f()` twice with
+/// `b = []` must not share one array.
+fn bind_parameters(ctx: &mut Ctx, function: &Function) -> (Vec<Name>, Vec<Stmt>) {
+    let mut names = Vec::with_capacity(function.parameters.len());
+    let mut prologue = Vec::new();
+    for (position, parameter) in function.parameters.iter().enumerate() {
+        // A plain name with no default is already what the convention wants, so
+        // it costs nothing: no synthetic name, no prologue statement, and the
+        // common case stays exactly the code it was before this existed.
+        if let (crate::syntax::Pattern::Name(name), None) = (&parameter.target, &parameter.default) {
+            names.push(*name);
+            continue;
+        }
+        // Not a name a program can write: a parameter called `__rts_param_0`
+        // would otherwise shadow the slot it is being unpacked from.
+        let held = ctx.names.intern(&format!("__rts_param_{position}"));
+        names.push(held);
+        let read = Expr {
+            kind: ExprKind::Ident(held),
+            at: function.at,
+        };
+        let value = match &parameter.default {
+            None => read,
+            Some(default) => Expr {
+                kind: ExprKind::Conditional {
+                    condition: Box::new(Expr {
+                        kind: ExprKind::Binary {
+                            op: crate::syntax::BinaryOp::StrictEqual,
+                            left: Box::new(read.clone()),
+                            right: Box::new(Expr {
+                                kind: ExprKind::Ident(ctx.names.intern("undefined")),
+                                at: function.at,
+                            }),
+                        },
+                        at: function.at,
+                    }),
+                    then_branch: Box::new(default.clone()),
+                    else_branch: Box::new(read),
+                },
+                at: function.at,
+            },
+        };
+        prologue.push(Stmt {
+            kind: StmtKind::Declare {
+                // `let` and not `var`: a parameter is scoped to the function
+                // body, and hoisting one to the top would make a name declared
+                // in an inner block collide with it.
+                kind: crate::syntax::BindingKind::Let,
+                bindings: vec![crate::syntax::Binding {
+                    target: parameter.target.clone(),
+                    value: Some(value),
+                    claim: parameter.claim.clone(),
+                }],
+            },
+            at: function.at,
+        });
+    }
+    (names, prologue)
 }

@@ -34,7 +34,7 @@ use super::loops::assigned_in_stmt as writes_of;
 use crate::names::Name;
 use crate::syntax::{
     AssignTarget, Binding, Catch, Class, Expr, ExprKind, ForInit, Function, FunctionBody,
-    Parameter, Pattern, Property, PropertyKey, Stmt, StmtKind,
+    Pattern, Property, PropertyKey, Stmt, StmtKind,
 };
 
 /// The names a function declares that some nested function could still see.
@@ -785,22 +785,6 @@ fn names_in_pattern(pattern: &Pattern, found: &mut BTreeSet<Name>) {
     pattern.bound_names(&mut bound);
     found.extend(bound);
 }
-
-/// The plain names a parameter list introduces, or `None` if any is not one.
-///
-/// Returning `None` rather than skipping: a default or a destructured parameter
-/// is a gap the emitter names, and quietly analysing the ones around it would
-/// produce an environment that does not match the function that gets emitted.
-pub fn plain_parameters(parameters: &[Parameter]) -> Option<Vec<Name>> {
-    parameters
-        .iter()
-        .map(|parameter| match (&parameter.target, &parameter.default) {
-            (Pattern::Name(name), None) => Some(*name),
-            _ => None,
-        })
-        .collect()
-}
-
 /// The names one statement writes, as a set.
 ///
 /// A thin adapter over the loop emitter's collector rather than a second one:
