@@ -52,28 +52,29 @@ pub(super) extern "C" fn construct(_e: u64, this: u64, options: u64, _b: u64, _c
 /// `duplex::construct` can call it without going through [`construct`]'s own
 /// `self_or_new`/`init_emitter` (`Duplex` does those once for both halves).
 pub(super) fn init(context: &mut entry::Context, instance: u64, options: u64) {
-    let absent = entry::undefined_value();
-    let object_mode = super::option_flag(options, "objectMode");
-    let hwm = super::option_number(options, "highWaterMark").unwrap_or(if object_mode { 16.0 } else { 16384.0 });
+    let absent = entry::undefined_in(context);
+    let object_mode = super::option_flag(context, options, "objectMode");
+    let hwm = super::option_number(context, options, "highWaterMark").unwrap_or(if object_mode { 16.0 } else { 16384.0 });
     set_bool(context, instance, "readableObjectMode", object_mode);
     set_num(context, instance, "readableHighWaterMark", hwm);
     set_num(context, instance, "readableLength", 0.0);
-    set_value(context, instance, "readableEncoding", entry::null_value());
+    set_value(context, instance, "readableEncoding", entry::null_in(context));
     set_bool(context, instance, "readableEnded", false);
-    set_value(context, instance, "readableFlowing", entry::null_value());
+    set_value(context, instance, "readableFlowing", entry::null_in(context));
     set_bool(context, instance, "readable", true);
     set_bool(context, instance, "readableDidRead", false);
     set_bool(context, instance, "readableAborted", false);
     set_bool(context, instance, "destroyed", false);
     set_bool(context, instance, "closed", false);
-    set_value(context, instance, "errored", entry::null_value());
+    set_value(context, instance, "errored", entry::null_in(context));
     set_array(context, instance, "__buf__", Vec::new());
     set_array(context, instance, "__pipes__", Vec::new());
     set_array(context, instance, "__pipeEnd__", Vec::new());
     set_bool(context, instance, "__ended__", false);
-    set_bool(context, instance, "__emitClose__", !super::option_flag_default(options, "emitClose").is_some_and(|v| !v));
+    let emit_close = !super::option_flag_default(context, options, "emitClose").is_some_and(|v| !v);
+    set_bool(context, instance, "__emitClose__", emit_close);
     for (name, member) in [("_read", "read"), ("_destroy", "destroy"), ("_construct", "construct")] {
-        let function = super::option_member(options, member);
+        let function = super::option_member(context, options, member);
         if function != absent {
             set_value(context, instance, name, function);
         }
@@ -234,7 +235,11 @@ fn pause_flow(this: u64) {
 
 /// `readable.pipe(destination, options?)`.
 extern "C" fn pipe(_e: u64, this: u64, destination: u64, options: u64, _c: u64, _d: u64) -> u64 {
-    let ends = !super::option_flag_default(options, "end").is_some_and(|v| !v).then_some(false).unwrap_or(true);
+    // Read through its own borrow: this is a native entry, not a builder, so
+    // there is no context in hand here.
+    let ends = entry::with_runtime(|context| {
+        !super::option_flag_default(context, options, "end").is_some_and(|v| !v)
+    });
     let mut pipes = get_array(this, "__pipes__");
     let mut flags = get_array(this, "__pipeEnd__");
     pipes.push(destination);

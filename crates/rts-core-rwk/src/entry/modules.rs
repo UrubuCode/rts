@@ -530,3 +530,14 @@ pub fn set_prototype_in(context: &mut Context, object: u64, prototype: u64) {
         context.set_prototype(cell, prototype);
     }
 }
+
+/// `null`, from a context already in hand.
+///
+/// The pair of [`null_value`], for the reason [`undefined_in`] exists: a module
+/// holding the context cannot call the ambient form without aborting.
+pub fn null_in(context: &Context) -> u64 {
+    rts_cranelift::tags::encode(
+        rts_cranelift::tags::TAG_SINGLETON,
+        u64::from(context.singletons.null),
+    )
+}

@@ -40,9 +40,8 @@ pub mod os;
 pub mod path;
 pub mod process;
 pub mod querystring;
-/// Written, and NOT registered — see the module doc. It builds, and a program
-/// reaching it aborts the process on construction, which is worse than absent.
 pub mod stream;
+
 pub mod util;
 
 use rts_core_rwk::entry::Context;
@@ -68,6 +67,7 @@ pub fn install(context: &mut Context) {
         ("path", path::namespace(context)),
         ("process", process::namespace(context)),
         ("querystring", querystring::namespace(context)),
+        ("stream", stream::namespace(context)),
         ("util", util::namespace(context)),
     ] {
         rts_core_rwk::entry::declare_module(context, &format!("node:{name}"), namespace);

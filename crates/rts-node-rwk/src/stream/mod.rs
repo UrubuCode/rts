@@ -1,11 +1,3 @@
-//! **NOT REGISTERED.** `lib.rs` does not name this module as a specifier, and
-//! the reason is measured rather than cautious: building a `Readable` aborts the
-//! process. The cause is this crate's one fatal rule — `with_runtime` holds a
-//! `RefCell` borrow for its body, an entry point called inside one is a nested
-//! borrow, and an `extern "C"` frame cannot unwind. Two such calls were already
-//! found and fixed here (`set_prototype` at four sites, ambient where the host
-//! holds the context); at least one more remains on the construction path.
-//!
 //! Registering it anyway would trade "the module is absent" for "the program
 //! dies", which is the worse of the two and the one this repository refuses.
 //! Finding the last one is a bisect over the construction path, not a redesign.
@@ -134,28 +126,36 @@ extern "C" fn stream_construct(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d
 /// [`option_flag`], which collapses that into `false`, because a caller
 /// choosing between "explicitly set" and "left at the default" needs the
 /// third answer.
-pub(super) fn option_flag_default(options: u64, name: &str) -> Option<bool> {
-    let absent = entry::undefined_value();
+pub(super) fn option_flag_default(
+    context: &mut entry::Context,
+    options: u64,
+    name: &str,
+) -> Option<bool> {
+    // Takes the context rather than reaching for it: every caller reads options
+    // while BUILDING a stream, which happens inside `with_runtime` — where the
+    // ambient form is a nested borrow and therefore an abort. That is exactly
+    // where `new Readable()` died.
+    let absent = entry::undefined_in(context);
     if options == absent {
         return None;
     }
-    let value = entry::with_runtime(|context| entry::get_member(context, options, name));
+    let value = entry::get_member(context, options, name);
     if value == absent { None } else { Some(entry::to_boolean(value)) }
 }
 
 /// A boolean option, `false` when absent — see [`option_flag_default`] for
 /// when the distinction from "explicitly `false`" matters.
-pub(super) fn option_flag(options: u64, name: &str) -> bool {
-    option_flag_default(options, name).unwrap_or(false)
+pub(super) fn option_flag(context: &mut entry::Context, options: u64, name: &str) -> bool {
+    option_flag_default(context, options, name).unwrap_or(false)
 }
 
 /// A numeric option, `None` when absent or not a number.
-pub(super) fn option_number(options: u64, name: &str) -> Option<f64> {
-    let absent = entry::undefined_value();
+pub(super) fn option_number(context: &mut entry::Context, options: u64, name: &str) -> Option<f64> {
+    let absent = entry::undefined_in(context);
     if options == absent {
         return None;
     }
-    let value = entry::with_runtime(|context| entry::get_member(context, options, name));
+    let value = entry::get_member(context, options, name);
     entry::number_of(value)
 }
 
@@ -163,10 +163,10 @@ pub(super) fn option_number(options: u64, name: &str) -> Option<f64> {
 /// `undefined` when absent or not that shape — no validation beyond
 /// presence; a non-function value stored this way fails loudly the first
 /// time this crate tries to `call` it, which is `entry::call`'s own concern.
-pub(super) fn option_member(options: u64, name: &str) -> u64 {
-    let absent = entry::undefined_value();
+pub(super) fn option_member(context: &mut entry::Context, options: u64, name: &str) -> u64 {
+    let absent = entry::undefined_in(context);
     if options == absent {
         return absent;
     }
-    entry::with_runtime(|context| entry::get_member(context, options, name))
+    entry::get_member(context, options, name)
 }

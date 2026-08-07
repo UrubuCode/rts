@@ -51,7 +51,7 @@ pub(super) extern "C" fn duplex_construct(_e: u64, this: u64, options: u64, _b: 
         init_emitter(context, instance);
         readable::init(context, instance, options);
         writable::init(context, instance, options);
-        let half_open = super::option_flag_default(options, "allowHalfOpen").unwrap_or(true);
+        let half_open = super::option_flag_default(context, options, "allowHalfOpen").unwrap_or(true);
         set_bool(context, instance, "allowHalfOpen", half_open);
         instance
     })
@@ -101,7 +101,7 @@ fn build_transform(this: u64, options: u64, prototype_fn: fn(&mut entry::Context
         init_emitter(context, instance);
         readable::init(context, instance, options);
         writable::init(context, instance, options);
-        let half_open = super::option_flag_default(options, "allowHalfOpen").unwrap_or(true);
+        let half_open = super::option_flag_default(context, options, "allowHalfOpen").unwrap_or(true);
         set_bool(context, instance, "allowHalfOpen", half_open);
         // Overrides whatever `writable::init` read from `options.write` —
         // `Transform`'s write path is never the caller's to set directly.
@@ -109,12 +109,12 @@ fn build_transform(this: u64, options: u64, prototype_fn: fn(&mut entry::Context
         set_value(context, instance, "_write", write_hook);
         let final_hook = entry::make_callable(context, transform_final);
         set_value(context, instance, "_final", final_hook);
-        let function = super::option_member(options, "transform");
-        let absent = entry::undefined_value();
+        let function = super::option_member(context, options, "transform");
+        let absent = entry::undefined_in(context);
         if function != absent {
             set_value(context, instance, "_transform", function);
         }
-        let flush = super::option_member(options, "flush");
+        let flush = super::option_member(context, options, "flush");
         if flush != absent {
             set_value(context, instance, "_flush", flush);
         }

@@ -53,9 +53,9 @@ pub(super) extern "C" fn construct(_e: u64, this: u64, options: u64, _b: u64, _c
 }
 
 pub(super) fn init(context: &mut entry::Context, instance: u64, options: u64) {
-    let absent = entry::undefined_value();
-    let object_mode = super::option_flag(options, "objectMode");
-    let hwm = super::option_number(options, "highWaterMark").unwrap_or(if object_mode { 16.0 } else { 16384.0 });
+    let absent = entry::undefined_in(context);
+    let object_mode = super::option_flag(context, options, "objectMode");
+    let hwm = super::option_number(context, options, "highWaterMark").unwrap_or(if object_mode { 16.0 } else { 16384.0 });
     set_bool(context, instance, "writableObjectMode", object_mode);
     set_num(context, instance, "writableHighWaterMark", hwm);
     set_num(context, instance, "writableLength", 0.0);
@@ -67,12 +67,13 @@ pub(super) fn init(context: &mut entry::Context, instance: u64, options: u64) {
     set_bool(context, instance, "writable", true);
     set_bool(context, instance, "destroyed", false);
     set_bool(context, instance, "closed", false);
-    set_value(context, instance, "errored", entry::null_value());
-    set_value(context, instance, "__defaultEncoding__", entry::null_value());
+    set_value(context, instance, "errored", entry::null_in(context));
+    set_value(context, instance, "__defaultEncoding__", entry::null_in(context));
     set_array(context, instance, "__wqueue__", Vec::new());
-    set_bool(context, instance, "__emitClose__", !super::option_flag_default(options, "emitClose").is_some_and(|v| !v));
+    let emit_close = !super::option_flag_default(context, options, "emitClose").is_some_and(|v| !v);
+    set_bool(context, instance, "__emitClose__", emit_close);
     for (name, member) in [("_write", "write"), ("_final", "final"), ("_destroy", "destroy"), ("_construct", "construct")] {
-        let function = super::option_member(options, member);
+        let function = super::option_member(context, options, member);
         if function != absent {
             set_value(context, instance, name, function);
         }
