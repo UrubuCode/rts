@@ -149,3 +149,22 @@ claims `'stream'`, `close()` and `goaway()` without an owned frame-dispatch
 loop, flow control, and the rapid-reset mitigation (CVE-2023-44487) the spec
 calls mandatory is exactly the module that looks finished and drops frames it
 never learned.
+
+## `node:vm` and `node:repl` — written, not registered, and what stops them
+
+Both are built on `entry::evaluate`, the capability the host hands down. Both are
+unregistered because calling it from inside a running program **aborts**: it
+installs a fresh context while the caller's is still installed, and the
+thread-local holding one is a single slot.
+
+That is a finding about the engine rather than about either module. Two ways out,
+and they are not equivalent:
+
+- **The evaluator refuses re-entry** — cheap, and it makes `vm.runInNewContext`
+  answer `undefined` from inside a program, which is most of what a program does.
+- **The slot becomes a stack** — a program can evaluate source, which is what the
+  modules are for. It is also the shape `worker_threads` will need for a second
+  context, so it is the one that pays twice.
+
+Until then, both modules' code stands and their doc comments describe a
+capability nothing can reach.

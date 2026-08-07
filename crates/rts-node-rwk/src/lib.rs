@@ -56,6 +56,8 @@ pub mod punycode;
 pub mod process;
 pub mod querystring;
 pub mod readline;
+/// Written and NOT registered: see `vm`.
+pub mod repl;
 pub mod string_decoder;
 pub mod stream;
 pub mod test_runner;
@@ -67,6 +69,12 @@ pub mod tty;
 pub mod url;
 pub mod util;
 pub mod v8;
+/// Written and NOT registered. `entry::evaluate` installs a fresh context while
+/// the calling program's is still installed, and the thread-local holding one is
+/// a single slot — so evaluating from inside a running program ABORTS. The
+/// evaluator needs to refuse re-entry, or the slot needs to be a stack, before
+/// either module can be reached.
+pub mod vm;
 pub mod zlib;
 
 use rts_core_rwk::entry::Context;
