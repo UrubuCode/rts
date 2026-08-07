@@ -78,13 +78,17 @@ pub(super) extern "C" fn connect(_e: u64, _this: u64, a: u64, b: u64, c: u64, _d
 
     // The underlying `net.Socket` — built through `node:net`'s own public
     // surface, per this file's own doc, never a `TcpStream` opened here.
-    let underlying = entry::with_runtime(|context| {
+    // Read under the borrow, called after it. Calling `net.connect` inside was
+    // an abort — it is a native that takes the borrow itself — and it is the
+    // same fault `tls/server.rs` had one function away.
+    let (connect_fn, port_v, host_v) = entry::with_runtime(|context| {
         let net_ns = crate::net::namespace(context);
         let connect_fn = entry::get_member(context, net_ns, "connect");
         let port_v = entry::make_number(port as f64);
         let host_v = entry::make_string(context, &host);
-        entry::call(connect_fn, absent, port_v, host_v, absent, absent)
+        (connect_fn, port_v, host_v)
     });
+    let underlying = entry::call(connect_fn, absent, port_v, host_v, absent, absent);
 
     let tls_instance = entry::with_runtime(|context| {
         let proto = prototype(context);

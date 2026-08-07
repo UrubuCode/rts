@@ -48,11 +48,15 @@ pub(super) extern "C" fn create_server(_e: u64, _this: u64, options: u64, listen
         }
     }
 
-    let underlying = entry::with_runtime(|context| {
+    // The constructor is READ under the borrow and CALLED after it. Calling it
+    // inside was an abort: `net.createServer` is a native that takes the borrow
+    // itself, and an `extern "C"` frame cannot unwind past the panic that
+    // follows. Every `tls.createServer()` died here.
+    let ctor = entry::with_runtime(|context| {
         let net_ns = crate::net::namespace(context);
-        let ctor = entry::get_member(context, net_ns, "createServer");
-        entry::call(ctor, absent, absent, absent, absent, absent)
+        entry::get_member(context, net_ns, "createServer")
     });
+    let underlying = entry::call(ctor, absent, absent, absent, absent, absent);
     entry::with_runtime(|context| super::common::set_value(context, server_instance, "__underlyingServer", underlying));
     entry::with_runtime(|context| super::common::set_num(context, underlying, "__tlsContextId", context_id.unwrap_or(0) as f64));
     entry::with_runtime(|context| super::common::set_value(context, underlying, "__tlsServerInstance", server_instance));
