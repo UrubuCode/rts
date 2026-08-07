@@ -6,6 +6,17 @@ edition = "2024"
 [dependencies]
 rts-core-rwk = { path = "../rts-core-rwk" }
 
+# Vetted by docs/reference/node/crates.md, added ahead of the modules that need
+# them so that several agents writing modules at once never touch this file:
+# a manifest is the one place parallel work collides.
+url = "2.5"                 # §4.8 — WHATWG URL/URLSearchParams
+percent-encoding = "2.3"    # §4.8 — encode/decodeURIComponent building blocks
+form_urlencoded = "1.2"     # §4.8 — querystring core
+idna = "1.1"                # §4.8 — UTS-46 + punycode
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }  # §4.4 — NEVER the zlib/zlib-ng features, which pull C
+brotli = "8.0"              # §4.4 — brotli, pure Rust
+encoding_rs = "0.8"         # §4.9 — WHATWG label set for string_decoder
+
 # FFI *declaration* crate over libc/OS syscalls (chown/lchown/fchown, utimensat/
 # futimens) — ACCEPTED per docs/reference/node/crates.md §2: "libc-as-FFI-
 # declaration is accepted (the project already links it); only a C

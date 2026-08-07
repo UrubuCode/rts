@@ -4451,21 +4451,28 @@ name = "rts-node-rwk"
 version = "0.1.0"
 dependencies = [
  "blake2 0.11.0-rc.6",
+ "brotli",
  "digest 0.11.2",
+ "encoding_rs",
+ "flate2",
+ "form_urlencoded",
  "getrandom 0.4.2",
  "glob",
  "hkdf",
  "hmac 0.13.0",
+ "idna",
  "libc",
  "md-5 0.11.0",
  "notify",
  "pbkdf2 0.13.0",
+ "percent-encoding",
  "ripemd 0.2.0",
  "rts-core-rwk",
  "scrypt 0.12.0",
  "sha1 0.11.0",
  "sha2 0.11.0",
  "sha3 0.12.0",
+ "url",
 ]
 
 [[package]]
