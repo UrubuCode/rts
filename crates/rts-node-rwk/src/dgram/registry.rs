@@ -32,6 +32,14 @@ pub(super) enum DgramEvent {
 }
 
 pub(super) struct SocketEntry {
+    /// The thread that made it.
+    ///
+    /// This table is process-wide and every thread running a program pumps it,
+    /// so without this one thread delivers another thread's event: it emits
+    /// onto a JS instance naming cells in a region it does not have. Found in
+    /// `node:worker_threads` first, where two parallel tests were doing it to
+    /// each other. Every table of this shape needs it.
+    pub(super) owner: std::thread::ThreadId,
     /// The `Socket` JS instance.
     pub(super) instance: u64,
     pub(super) queue: VecDeque<DgramEvent>,
@@ -75,7 +83,7 @@ pub(super) fn pump() {
     let due: Vec<(u64, Vec<DgramEvent>)> = with_sockets(|table| {
         table
             .iter_mut()
-            .filter(|(_, entry)| !entry.closed && !entry.queue.is_empty())
+            .filter(|(_, entry)| entry.owner == std::thread::current().id() && !entry.closed && !entry.queue.is_empty())
             .map(|(&id, entry)| (id, entry.queue.drain(..).collect()))
             .collect()
     });
@@ -164,4 +172,25 @@ pub(super) fn spawn_reader(id: u64, socket: UdpSocket) {
             }
         }
     });
+}
+
+/// This module as a loop source: deliver what its background threads queued,
+/// then say whether any is still live.
+///
+/// `Blocked` and never `In`, because what this waits on is the outside world
+/// and that has no deadline to report. A `Blocked` source is pumped on every
+/// pass and does NOT hold the program open — `entry::loops` says why. It means
+/// a program whose last act is to start one of these still ends, where Node
+/// would keep running; the alternative is every fixture hanging on a listener
+/// nothing closes.
+pub fn source() -> entry::Pending {
+    pump();
+    let mine = std::thread::current().id();
+    let live = with_sockets(|table| {
+        table.values().any(|entry| entry.owner == mine && !entry.closed)
+    });
+    match live {
+        true => entry::Pending::Blocked,
+        false => entry::Pending::Idle,
+    }
 }

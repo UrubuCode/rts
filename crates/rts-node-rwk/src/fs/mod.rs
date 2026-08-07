@@ -125,6 +125,9 @@ mod watch;
 
 use rts_core_rwk::entry::{Context, Provided};
 
+/// This module as a loop source; see the function it re-exports.
+pub use watch::source;
+
 /// The namespace `node:fs` is.
 pub fn namespace(context: &mut Context) -> u64 {
     let members: &[(&str, Provided)] = &[
@@ -271,3 +274,28 @@ mod outcome {
 }
 
 pub(self) use outcome::{record, succeeded};
+
+/// Node's `(path[, options], listener)` overload, resolved.
+///
+/// # Why this exists rather than each site reading slot three
+///
+/// `fs.watch(path, listener)` is how a program actually writes it, and the
+/// two-argument form puts the function in the OPTIONS slot. `watch` read slot
+/// three, found `undefined`, and registered no listener at all — so every event
+/// it queued was delivered to nobody, silently, for as long as no test called it
+/// with the common form.
+///
+/// Answers `(options, listener)` with the shift applied.
+pub(crate) fn options_and_listener(options: u64, listener: u64) -> (u64, u64) {
+    let absent = rts_core_rwk::entry::undefined_value();
+    if listener != absent {
+        return (options, listener);
+    }
+    let shifted = rts_core_rwk::entry::with_runtime(|context| {
+        rts_core_rwk::entry::is_callable_in(context, options)
+    });
+    match shifted {
+        true => (absent, options),
+        false => (options, absent),
+    }
+}

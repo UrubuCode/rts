@@ -218,37 +218,31 @@ pub(super) fn pump() {
     }
 }
 
-/// Waits for every worker to finish, delivering what they queued.
+/// This module as a loop source: deliver what the workers queued, then say
+/// whether any is still running.
 ///
-/// # Why the host calls this and a program does not
+/// # Why an unfinished worker answers `In` and not `Blocked`
 ///
-/// Node keeps a process alive while a worker runs, and this engine's host
-/// otherwise returns the moment the main program's last statement does — so a
-/// worker's `'message'` would be queued into a table nothing ever reads again.
-/// Joining here is what makes `worker.on('message', …)` mean something without
-/// an event loop to hold the process open.
+/// Because it must hold the program open. Node keeps a process alive while a
+/// worker runs, and this host otherwise returns the moment the last statement
+/// does — leaving a `'message'` queued in a table nothing reads again. A worker
+/// also finishes on its own, which is what makes waiting for it safe in a way
+/// waiting for a listening socket is not.
 ///
-/// Pumping runs BETWEEN joins as well as after: a worker that posts and then
-/// keeps running has its message delivered while it still runs, which is what a
-/// program expects of a message.
-pub fn join_all() {
-    loop {
-        pump();
-        let outstanding = with_workers(|table| {
-            table
-                .values()
-                .filter(|entry| entry.owner == std::thread::current().id())
-                .filter(|entry| !entry.finished)
-                .count()
-        });
-        if outstanding == 0 {
-            return;
-        }
-        // Sleeping rather than spinning: a bare `yield_now` loop burns a core
-        // for the length of the worker, and a worker is the thing most likely
-        // to want that core. Two hundred microseconds is below what a message
-        // round trip is worth measuring at.
-        std::thread::sleep(std::time::Duration::from_micros(200));
+/// Two hundred microseconds because a worker has no deadline to report: it ends
+/// when its source ends. That is a poll, and it is below what a message round
+/// trip is worth measuring at.
+pub fn source() -> entry::Pending {
+    pump();
+    let running = with_workers(|table| {
+        table
+            .values()
+            .filter(|entry| entry.owner == std::thread::current().id())
+            .any(|entry| !entry.finished)
+    });
+    match running {
+        true => entry::Pending::In(std::time::Duration::from_micros(200)),
+        false => entry::Pending::Idle,
     }
 }
 

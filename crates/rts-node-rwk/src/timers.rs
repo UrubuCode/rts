@@ -183,6 +183,7 @@ pub fn namespace(context: &mut entry::Context) -> u64 {
         ("setImmediate", set_immediate),
         ("clearImmediate", clear_immediate),
     ];
+    entry::declare_loop_source(context, "node:timers", source);
     entry::make_namespace(context, members)
 }
 
@@ -258,48 +259,41 @@ fn cancel(id: u64) {
     });
 }
 
-/// Runs every pending TIMEOUT to its deadline, sleeping between passes.
+
+/// This module as a loop source: deliver what is due, then say when to come
+/// back.
 ///
-/// # The defect this removes, and why it was never mysterious once measured
+/// # What replaced a `drain` that slept here
 ///
-/// `setTimeout(f, 0)` alone did not fire, and it was pinned as a defect with the
-/// note that "nothing pumps" was not the cause — which was right and stopped one
-/// step early. A delay of `0` is clamped to `1`ms, exactly as Node clamps it, and
-/// the host's single end-of-turn [`pump`] runs microseconds after the schedule.
-/// The timer is not due yet. Pumping once can only ever fire a timer whose
-/// deadline has already passed.
+/// This module briefly owned the waiting itself — pump, sleep to the nearest
+/// deadline, repeat. It worked and it was in the wrong place: five other modules
+/// have the same problem, the host named two of them by hand, and a sixth copy
+/// of one loop is what `entry::loops` exists to stop.
 ///
-/// What was missing is the waiting an event loop does. This is that, narrowed to
-/// what a host without one can honestly provide: pump, sleep, repeat, until no
-/// non-periodic timer is left.
+/// So the sleeping moved out and this answers a duration instead. A
+/// `setTimeout(f, 0)` is still clamped to `1`ms exactly as Node clamps it, and
+/// the host waits that millisecond — which is the whole of why a single pump
+/// could never fire it.
 ///
-/// # Why an interval does NOT hold a program open
-///
-/// It would never finish. In Node a live `setInterval` does keep a process
-/// alive, and the answers to that — `unref()`, `clearInterval` — assume an event
-/// loop and a program written to end itself. A suite whose every fixture hangs
-/// on a stray interval is worse than the divergence, so an interval fires
-/// whenever this passes and stops the program from ending never. Stated here
-/// rather than discovered.
-pub fn drain() {
-    loop {
-        pump();
-        let waiting = with_timers(|table| {
-            table
-                .values()
-                .filter(|timer| timer.period.is_none())
-                .map(|timer| timer.deadline)
-                .min()
-        });
-        let Some(deadline) = waiting else {
-            return;
-        };
-        // Sleeping until the nearest deadline rather than spinning: the whole
-        // point of the loop is that time has to pass, and a busy wait makes it
-        // pass on a core the callback might want.
-        let now = Instant::now();
-        if deadline > now {
-            std::thread::sleep(deadline - now);
-        }
+/// An INTERVAL answers `Blocked`, not `In`: it is pumped on every pass and does
+/// not hold the program open. That is a stated divergence from Node, where a
+/// live interval keeps a process alive — the answers to that (`unref`,
+/// `clearInterval`) assume an event loop and a program written to end itself,
+/// and a suite where one stray interval hangs every fixture is worse.
+pub fn source() -> entry::Pending {
+    pump();
+    let now = Instant::now();
+    let (soonest, periodic) = with_timers(|table| {
+        let soonest = table
+            .values()
+            .filter(|timer| timer.period.is_none())
+            .map(|timer| timer.deadline)
+            .min();
+        (soonest, table.values().any(|timer| timer.period.is_some()))
+    });
+    match (soonest, periodic) {
+        (Some(deadline), _) => entry::Pending::In(deadline.saturating_duration_since(now)),
+        (None, true) => entry::Pending::Blocked,
+        (None, false) => entry::Pending::Idle,
     }
 }

@@ -68,6 +68,14 @@ enum Queued {
 }
 
 struct ProcEntry {
+    /// The thread that made it.
+    ///
+    /// This table is process-wide and every thread running a program pumps it,
+    /// so without this one thread delivers another thread's event: it emits
+    /// onto a JS instance naming cells in a region it does not have. Found in
+    /// `node:worker_threads` first, where two parallel tests were doing it to
+    /// each other. Every table of this shape needs it.
+    owner: std::thread::ThreadId,
     child: Option<Child>,
     instance: u64,
     queue: VecDeque<Queued>,
@@ -91,7 +99,7 @@ fn with_table<T>(body: impl FnOnce(&mut HashMap<u64, ProcEntry>) -> T) -> T {
 /// module doc for exactly when that puts a listener on the JS thread.
 pub(super) fn pump() {
     let due: Vec<(u64, Vec<Queued>)> =
-        with_table(|table| table.iter_mut().filter(|(_, entry)| !entry.queue.is_empty()).map(|(&id, entry)| (id, entry.queue.drain(..).collect())).collect());
+        with_table(|table| table.iter_mut().filter(|(_, entry)| entry.owner == std::thread::current().id()).filter(|(_, entry)| !entry.queue.is_empty()).map(|(&id, entry)| (id, entry.queue.drain(..).collect())).collect());
     if due.is_empty() {
         return;
     }
@@ -201,7 +209,7 @@ pub(super) extern "C" fn spawn(_e: u64, _this: u64, command_value: u64, args_val
 
     let has_child = child.is_some();
     with_table(|table| {
-        table.insert(id, ProcEntry { child, instance, queue: VecDeque::from([queued]), reaped: false });
+        table.insert(id, ProcEntry { owner: std::thread::current().id(), child, instance, queue: VecDeque::from([queued]), reaped: false });
     });
     if has_child {
         spawn_waiter(id);
@@ -268,4 +276,25 @@ extern "C" fn kill(_e: u64, this: u64, _signal: u64, _a1: u64, _a2: u64, _a3: u6
 
 extern "C" fn noop_self(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     this
+}
+
+/// This module as a loop source: deliver what its background threads queued,
+/// then say whether any is still live.
+///
+/// `Blocked` and never `In`, because what this waits on is the outside world
+/// and that has no deadline to report. A `Blocked` source is pumped on every
+/// pass and does NOT hold the program open — `entry::loops` says why. It means
+/// a program whose last act is to start one of these still ends, where Node
+/// would keep running; the alternative is every fixture hanging on a listener
+/// nothing closes.
+pub fn source() -> entry::Pending {
+    pump();
+    let mine = std::thread::current().id();
+    let live = with_table(|table| {
+        table.values().any(|entry| entry.owner == mine && !entry.reaped)
+    });
+    match live {
+        true => entry::Pending::Blocked,
+        false => entry::Pending::Idle,
+    }
 }

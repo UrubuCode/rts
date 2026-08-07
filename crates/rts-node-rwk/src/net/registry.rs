@@ -33,6 +33,14 @@ pub(super) enum SocketEvent {
 }
 
 pub(super) struct SocketEntry {
+    /// The thread that made it.
+    ///
+    /// This table is process-wide and every thread running a program pumps it,
+    /// so without this one thread delivers another thread's event: it emits
+    /// onto a JS instance naming cells in a region it does not have. Found in
+    /// `node:worker_threads` first, where two parallel tests were doing it to
+    /// each other. Every table of this shape needs it.
+    pub(super) owner: std::thread::ThreadId,
     /// The `Socket` JS instance — see the module doc's last section for the
     /// one assumption holding it across calls adds.
     pub(super) instance: u64,
@@ -53,6 +61,14 @@ pub(super) enum ServerEvent {
 }
 
 pub(super) struct ServerEntry {
+    /// The thread that made it.
+    ///
+    /// This table is process-wide and every thread running a program pumps it,
+    /// so without this one thread delivers another thread's event: it emits
+    /// onto a JS instance naming cells in a region it does not have. Found in
+    /// `node:worker_threads` first, where two parallel tests were doing it to
+    /// each other. Every table of this shape needs it.
+    pub(super) owner: std::thread::ThreadId,
     pub(super) instance: u64,
     pub(super) queue: VecDeque<ServerEvent>,
     pub(super) listening: bool,
@@ -111,7 +127,7 @@ fn pump_sockets() {
     let due: Vec<(u64, Vec<SocketEvent>)> = with_sockets(|table| {
         table
             .iter_mut()
-            .filter(|(_, entry)| !entry.closed && !entry.queue.is_empty())
+            .filter(|(_, entry)| entry.owner == std::thread::current().id() && !entry.closed && !entry.queue.is_empty())
             .map(|(&id, entry)| (id, entry.queue.drain(..).collect()))
             .collect()
     });
@@ -168,7 +184,7 @@ fn pump_servers() {
     let due: Vec<(u64, Vec<ServerEvent>)> = with_servers(|table| {
         table
             .iter_mut()
-            .filter(|(_, entry)| !entry.closed && !entry.queue.is_empty())
+            .filter(|(_, entry)| entry.owner == std::thread::current().id() && !entry.closed && !entry.queue.is_empty())
             .map(|(&id, entry)| (id, entry.queue.drain(..).collect()))
             .collect()
     });
@@ -218,4 +234,28 @@ pub(super) fn write_now(id: u64, bytes: &[u8]) -> std::io::Result<()> {
         };
         stream.write_all(bytes)
     })
+}
+
+/// This module as a loop source: deliver what its background threads queued,
+/// then say whether any is still live.
+///
+/// `Blocked` and never `In`, because what this waits on is the outside world
+/// and that has no deadline to report. A `Blocked` source is pumped on every
+/// pass and does NOT hold the program open — `entry::loops` says why. It means
+/// a program whose last act is to start one of these still ends, where Node
+/// would keep running; the alternative is every fixture hanging on a listener
+/// nothing closes.
+pub fn source() -> entry::Pending {
+    pump();
+    let mine = std::thread::current().id();
+    let sockets = with_sockets(|table| {
+        table.values().any(|entry| entry.owner == mine && !entry.closed)
+    });
+    let servers = with_servers(|table| {
+        table.values().any(|entry| entry.owner == mine && !entry.closed)
+    });
+    match sockets || servers {
+        true => entry::Pending::Blocked,
+        false => entry::Pending::Idle,
+    }
 }

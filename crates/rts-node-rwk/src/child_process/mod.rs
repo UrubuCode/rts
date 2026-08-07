@@ -75,6 +75,9 @@ mod sync_ops;
 
 use rts_core_rwk::entry::{Context, Provided};
 
+/// This module as a loop source; see the function it re-exports.
+pub use spawn_async::source;
+
 /// The namespace `node:child_process` is.
 pub fn namespace(context: &mut Context) -> u64 {
     let members: &[(&str, Provided)] =

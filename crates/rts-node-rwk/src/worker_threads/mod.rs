@@ -63,12 +63,15 @@
 mod portable;
 mod registry;
 
+/// This module as a loop source; see `registry::source`.
+pub use registry::source;
+
 use rts_core_rwk::entry::{self, Context, Provided};
 
 use portable::{Portable, portable, rebuild};
 use registry::{WorkerEvent, with_workers};
 
-pub use registry::join_all;
+
 
 /// The namespace `node:worker_threads` is.
 ///
@@ -83,6 +86,7 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("setEnvironmentData", set_environment_data),
     ];
     let namespace = entry::make_namespace(context, members);
+    entry::declare_loop_source(context, "node:worker_threads", source);
 
     let prototype = entry::make_prototype(context, "Worker", WORKER_METHODS);
     let constructor = entry::make_callable(context, worker_ctor);

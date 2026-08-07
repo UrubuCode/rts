@@ -142,6 +142,29 @@ pub fn install(context: &mut Context) {
         rts_core_rwk::entry::declare_module(context, name, namespace);
     }
 
+    // What still has work to do after the program's last statement.
+    //
+    // Four of these were never pumped by anything: each has a background thread
+    // and a `pump` that only ran when the program happened to call into that
+    // same module again, so a watcher started and then waited on delivered
+    // nothing. The host used to name two by hand, which is precisely how the
+    // other four went unnoticed — a list of names is a thing to forget to add
+    // to.
+    //
+    // `timers` and `worker_threads` register themselves where they build their
+    // namespaces, because both are reached on a worker's thread too. These four
+    // are registered here because they are reached through several namespaces
+    // each (`fs` and `fs/promises`; `net`, `http` and `https`) and registering
+    // per namespace would register them more than once.
+    rts_core_rwk::entry::declare_loop_source(context, "node:fs.watch", fs::source);
+    rts_core_rwk::entry::declare_loop_source(context, "node:net", net::source);
+    rts_core_rwk::entry::declare_loop_source(context, "node:dgram", dgram::source);
+    rts_core_rwk::entry::declare_loop_source(
+        context,
+        "node:child_process",
+        child_process::source,
+    );
+
     // `node:module` answers WHICH modules exist, so it is built from the list
     // just registered rather than from a second copy of the names — two lists is
     // how `isBuiltin` comes to disagree with what an import actually finds. It

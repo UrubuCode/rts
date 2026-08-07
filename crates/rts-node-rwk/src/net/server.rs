@@ -101,7 +101,7 @@ extern "C" fn listen(_e: u64, this: u64, a: u64, b: u64, c: u64, _d: u64) -> u64
     entry::with_runtime(|context| super::common::set_num(context, this, "__serverId", id as f64));
     let stop = Arc::new(AtomicBool::new(false));
     registry::with_servers(|table| {
-        table.insert(id, ServerEntry { instance: this, queue: Default::default(), listening: false, closed: false, stop: stop.clone(), local_addr: None });
+        table.insert(id, ServerEntry { owner: std::thread::current().id(), instance: this, queue: Default::default(), listening: false, closed: false, stop: stop.clone(), local_addr: None });
     });
     std::thread::spawn(move || match TcpListener::bind((host.as_str(), port)) {
         Ok(listener) => {

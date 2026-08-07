@@ -84,6 +84,9 @@ const METHODS: &[(&str, Provided)] = &[
     ("unref", ref_unref),
 ];
 
+/// This module as a loop source; see the function it re-exports.
+pub use registry::source;
+
 /// The namespace `node:dgram` is.
 pub fn namespace(context: &mut Context) -> u64 {
     let members: &[(&str, Provided)] = &[("createSocket", create_socket)];
@@ -187,7 +190,7 @@ extern "C" fn bind(_e: u64, this: u64, a: u64, b: u64, c: u64, _d: u64) -> u64 {
             registry::with_sockets(|table| {
                 table.insert(
                     id,
-                    SocketEntry { instance: this, queue: Default::default(), socket: Some(socket), closed: false },
+                    SocketEntry { owner: std::thread::current().id(), instance: this, queue: Default::default(), socket: Some(socket), closed: false },
                 );
                 if let Some(entry) = table.get_mut(&id) {
                     entry.queue.push_back(DgramEvent::Listening);
@@ -200,7 +203,7 @@ extern "C" fn bind(_e: u64, this: u64, a: u64, b: u64, c: u64, _d: u64) -> u64 {
         Err(error) => {
             let id = registry::next_id();
             registry::with_sockets(|table| {
-                table.insert(id, SocketEntry { instance: this, queue: Default::default(), socket: None, closed: false });
+                table.insert(id, SocketEntry { owner: std::thread::current().id(), instance: this, queue: Default::default(), socket: None, closed: false });
                 if let Some(entry) = table.get_mut(&id) {
                     entry.queue.push_back(DgramEvent::BindFailed(error.to_string()));
                 }

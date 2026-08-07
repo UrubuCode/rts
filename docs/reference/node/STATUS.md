@@ -275,3 +275,49 @@ for being silent.
 `eval: false` is refused by name: a filename would have to be resolved the way an
 import is, and this crate has no loader — the same missing piece `createRequire`
 is refused for.
+
+## The event loop, and the six copies of it that existed before
+
+Six modules had grown the same recipe — a background thread that cannot call
+into JavaScript, a table of native records, and a `pump` that turns those into
+calls on the program's thread: `fs/watch`, `net`, `dgram`, `child_process`,
+`timers`, `worker_threads`. The recipe is right. Six copies are not, and they had
+already diverged where it counts: the host named **two** of them by hand, so the
+other four only delivered if the program happened to call into that same module
+again.
+
+`entry::loops` replaces the list of names with registration. A module declares
+itself a `LoopSource`; the host runs one loop — drain microtasks, ask every
+source to deliver and to say when it wants to be asked again, sleep that long,
+repeat.
+
+**Why `rts-core-rwk` and not `rts-cranelift`.** The machine owns the *ordering*
+(`src/sched/` — promises, continuations, the order they run in), because that is
+observable and the compiler emits for it. A deadline in milliseconds is not: it
+needs a wall clock and a way to wait, which not every target has, and a source's
+callback is a **value**, which the machine layer does not know exists. So
+`pump_sources` never sleeps — it answers how long the host should.
+
+**What holds a program open.** Only a source answering `Pending::In`: timers and
+unfinished workers. A source answering `Pending::Blocked` — a listening socket, a
+watcher, a live child — is pumped on every pass and does not keep the loop alive,
+because a program that starts a server would otherwise never end. Stated rather
+than discovered.
+
+Two defects were found by writing the first test that exercised this end to end,
+and both had been invisible because nothing called the code:
+
+- **`fs.watch` aborted the process.** `chained_prototype` called the ambient
+  `set_prototype` from inside a `with_runtime` body — a nested borrow, which an
+  `extern "C"` frame cannot unwind past.
+- **`fs.watch(path, listener)` registered no listener.** Node overloads on
+  `(path[, options], listener)`, and the two-argument form — the one every
+  program writes — puts the function in the OPTIONS slot. Every event it queued
+  was delivered to nobody. `entry::is_callable_in` is what resolves the overload,
+  and `fs::options_and_listener` is where both `watch` and `watchFile` resolve
+  it once.
+
+Every table of this shape is now keyed by the OWNING thread. They are
+process-wide statics holding JS instance handles, and the loop pumps on every
+thread — so without it a worker's pass would emit onto cells in the parent's
+region. The same fault `node:worker_threads` found first.

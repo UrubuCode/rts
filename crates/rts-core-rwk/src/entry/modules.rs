@@ -662,3 +662,21 @@ pub fn string_in(context: &Context, value: u64) -> Option<String> {
     let slot = Value(value).as_slot()?;
     context.text_at(slot)?.to_rust()
 }
+
+/// Whether a value can be called, from a context already in hand.
+///
+/// # Why a host needed this
+///
+/// Node's own signatures overload on it: `fs.watch(path[, options], listener)`
+/// decides what its second argument IS by asking whether it is a function. A
+/// module that cannot ask reads the listener as an options object and registers
+/// nothing — which is exactly what `fs.watch` did, silently, for as long as no
+/// test called it with the two-argument form every program uses.
+///
+/// Context-taking because every such check happens while reading arguments, and
+/// arguments are read inside a borrow.
+pub fn is_callable_in(context: &Context, value: u64) -> bool {
+    Value(value)
+        .as_slot()
+        .is_some_and(|cell| context.callable_at(cell).is_some())
+}

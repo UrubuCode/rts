@@ -67,6 +67,14 @@ enum Queued {
 }
 
 struct WatcherEntry {
+    /// The thread that made it.
+    ///
+    /// This table is process-wide and every thread running a program pumps it,
+    /// so without this one thread delivers another thread's event: it emits
+    /// onto a JS instance naming cells in a region it does not have. Found in
+    /// `node:worker_threads` first, where two parallel tests were doing it to
+    /// each other. Every table of this shape needs it.
+    owner: std::thread::ThreadId,
     /// See the module doc's last section.
     instance: u64,
     queue: VecDeque<Queued>,
@@ -104,7 +112,7 @@ pub(super) fn pump() {
     let due: Vec<(u64, u64, Vec<Queued>)> = with_watchers(|table| {
         table
             .iter_mut()
-            .filter(|(_, entry)| !entry.closed && !entry.queue.is_empty())
+            .filter(|(_, entry)| entry.owner == std::thread::current().id() && !entry.closed && !entry.queue.is_empty())
             .map(|(&id, entry)| (id, entry.instance, entry.queue.drain(..).collect()))
             .collect()
     });
@@ -145,7 +153,12 @@ pub(super) fn pump() {
 fn chained_prototype(context: &mut entry::Context, name: &'static str, methods: &[(&str, Provided)]) -> u64 {
     let event_emitter = entry::make_prototype(context, "EventEmitter", &[]);
     let prototype = entry::make_prototype(context, name, methods);
-    entry::set_prototype(prototype, event_emitter);
+    // `set_prototype_in`, never the ambient `set_prototype`: this runs inside a
+    // `with_runtime` body (it takes the context to prove it), and the ambient
+    // form takes a second borrow — which in an `extern "C"` frame aborts the
+    // process rather than failing. It did, on the first test that called
+    // `fs.watch` at all.
+    entry::set_prototype_in(context, prototype, event_emitter);
     prototype
 }
 
@@ -196,6 +209,7 @@ fn start_fs_watch(id: u64, path: &str, recursive: bool) -> Option<RecommendedWat
 /// `fs.watch(filename, options?, listener?)`. `undefined` when the path
 /// cannot be subscribed to (missing, no permission, platform refusal).
 pub(super) extern "C" fn watch(_e: u64, _this: u64, filename: u64, options: u64, listener: u64, _a3: u64) -> u64 {
+    let (options, listener) = super::options_and_listener(options, listener);
     let Some(path) = super::text(filename) else {
         return entry::undefined_value();
     };
@@ -215,7 +229,7 @@ pub(super) extern "C" fn watch(_e: u64, _this: u64, filename: u64, options: u64,
         (instance, on_fn)
     });
     with_watchers(|table| {
-        table.insert(id, WatcherEntry { instance, queue: VecDeque::new(), closed: false, handle: Some(handle), stop: None });
+        table.insert(id, WatcherEntry { owner: std::thread::current().id(), instance, queue: VecDeque::new(), closed: false, handle: Some(handle), stop: None });
     });
     let absent = entry::undefined_value();
     if listener != absent {
@@ -286,6 +300,7 @@ fn spawn_poll(id: u64, path: String, interval: Duration, stop: Arc<AtomicBool>, 
 /// read as nothing here (this engine keeps no process alive on a
 /// background thread's account) — named rather than silently honored.
 pub(super) extern "C" fn watch_file(_e: u64, _this: u64, filename: u64, options: u64, listener: u64, _a3: u64) -> u64 {
+    let (options, listener) = super::options_and_listener(options, listener);
     let Some(path) = super::text(filename) else {
         return entry::undefined_value();
     };
@@ -313,7 +328,7 @@ pub(super) extern "C" fn watch_file(_e: u64, _this: u64, filename: u64, options:
         (instance, on_fn)
     });
     with_watchers(|table| {
-        table.insert(id, WatcherEntry { instance, queue: VecDeque::new(), closed: false, handle: None, stop: Some(stop) });
+        table.insert(id, WatcherEntry { owner: std::thread::current().id(), instance, queue: VecDeque::new(), closed: false, handle: None, stop: Some(stop) });
     });
     with_path_watchers(|table| table.entry(path).or_default().push(id));
     let absent = entry::undefined_value();
@@ -347,4 +362,25 @@ pub(super) extern "C" fn unwatch_file(_e: u64, _this: u64, filename: u64, _liste
         }
     }
     entry::undefined_value()
+}
+
+/// This module as a loop source: deliver what its background threads queued,
+/// then say whether any is still live.
+///
+/// `Blocked` and never `In`, because what this waits on is the outside world
+/// and that has no deadline to report. A `Blocked` source is pumped on every
+/// pass and does NOT hold the program open — `entry::loops` says why. It means
+/// a program whose last act is to start one of these still ends, where Node
+/// would keep running; the alternative is every fixture hanging on a listener
+/// nothing closes.
+pub fn source() -> entry::Pending {
+    pump();
+    let mine = std::thread::current().id();
+    let live = with_watchers(|table| {
+        table.values().any(|entry| entry.owner == mine && !entry.closed)
+    });
+    match live {
+        true => entry::Pending::Blocked,
+        false => entry::Pending::Idle,
+    }
 }

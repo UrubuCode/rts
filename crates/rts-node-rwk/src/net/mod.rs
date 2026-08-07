@@ -74,6 +74,9 @@ mod socket_address;
 
 use rts_core_rwk::entry::{self, Provided};
 
+/// This module as a loop source; see the function it re-exports.
+pub use registry::source;
+
 /// The namespace `node:net` is.
 pub fn namespace(context: &mut entry::Context) -> u64 {
     let members: &[(&str, Provided)] = &[

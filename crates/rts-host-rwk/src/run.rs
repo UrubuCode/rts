@@ -283,24 +283,32 @@ fn run_region(
         // The turn ends here, not inside the program: a reaction must not run in
         // the entry point that queued it, and a rejection is only unhandled once
         // nothing more can attach to it.
-        // Timers due by the end of the turn, then the microtasks their callbacks
-        // queued. In that order and both after the last statement: a
-        // `setTimeout(f, 0)` with nothing after it is the commonest way a timer
-        // is written, and the module's own pump — which runs on the NEXT timer
-        // call — never reaches it, because a timer is often the last thing a
-        // program does.
-        rts_node_rwk::timers::drain();
-        rts_core_rwk::entry::drain_microtasks();
-        // Every worker joined, and its queued messages delivered, before this
-        // program is finished. Node keeps a process alive while a worker runs;
-        // this host would otherwise return the moment the last statement did,
-        // and a worker's `'message'` would be queued into a table nothing reads
-        // again. Joining here is what makes `worker.on('message', …)` mean
-        // something without an event loop to hold the program open.
+        // The event loop, and it is the whole of one: drain what is already
+        // queued, ask every registered source to deliver and to say when it
+        // wants to be asked again, wait that long, repeat.
         //
-        // After the microtasks rather than before: a worker started from inside
-        // a reaction has to have been started before anything waits on it.
-        rts_node_rwk::worker_threads::join_all();
+        // This used to be two module names written here by hand —
+        // `timers::drain()` and `worker_threads::join_all()` — and the four
+        // other modules with background threads were simply not on the list.
+        // Nothing pumped them, so an `fs.watch` started and then waited on
+        // delivered nothing at all. A host that names its sources is a host that
+        // forgets one; `entry::declare_loop_source` is what a module registers
+        // itself with instead.
+        //
+        // Microtasks first and again inside: a reaction must not run in the
+        // entry point that queued it, and a source may start work — a worker, a
+        // timer — from inside one.
+        loop {
+            rts_core_rwk::entry::drain_microtasks();
+            let Some(wait) = rts_core_rwk::entry::pump_sources() else {
+                break;
+            };
+            // The waiting lives here rather than in the runtime, because
+            // `std::thread::sleep` is not something every target has and
+            // `rts-core-rwk`'s membership rule is availability. See
+            // `entry::loops`.
+            std::thread::sleep(wait);
+        }
         rts_core_rwk::entry::drain_microtasks();
         // Read while the context is still installed. A string's bytes are in the
         // slab beside its cell, so once the caller has the region back there is

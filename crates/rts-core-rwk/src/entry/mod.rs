@@ -62,6 +62,7 @@ mod global_fns;
 mod integrity;
 mod iterate;
 mod json;
+mod loops;
 mod math;
 mod native;
 mod number;
@@ -84,6 +85,7 @@ mod uri;
 // The operators are defined in their own module and named from here, because a
 // caller wants "the entry points" in one place rather than a module tree.
 pub use array::{array_new, own_keys};
+pub use loops::{Pending, Source, declare_loop_source, pump_sources};
 pub use bitwise::{
     bit_and, bit_not, bit_or, bit_xor, exponent, shift_left, shift_right, shift_right_unsigned,
 };
@@ -99,7 +101,7 @@ pub use modules::{
     declare_module, encode_base64, encode_text, get_member, make_array, make_array_in, make_callable,
     make_bigint, make_buffer, make_namespace, make_number, make_object, make_string,
     bytes_of, is_array, is_object, make_bytes, make_instance, make_prototype, module_binding, module_namespace, null_value, number_of,
-    Evaluator, declare_evaluator, evaluate, evaluator, is_array_in, member_names, string_in, null_in, put_member, set_prototype_in, text_in,
+    Evaluator, declare_evaluator, evaluate, evaluator, is_array_in, is_callable_in, member_names, string_in, null_in, put_member, set_prototype_in, text_in,
     write_bytes,
     text_of, undefined_in, undefined_value, with_runtime,
 };
@@ -437,6 +439,12 @@ pub struct Context {
     /// that does depends on this one, so the capability can only arrive from
     /// above. See [`modules::evaluate`].
     pub evaluator: Option<modules::Evaluator>,
+    /// What still has work to do after the program.s last statement.
+    ///
+    /// Registered by whoever owns a background thread, never by the host — see
+    /// [`loops`] for the six copies of one recipe this replaced and for why four
+    /// of them were never pumped at all.
+    pub loop_sources: Vec<(&'static str, loops::Source)>,
     /// What each tagged-template site declared, and what it has been made into.
     ///
     /// Two positions per piece — cooked then raw, as literal numbers — and the
@@ -571,6 +579,7 @@ impl Context {
             literals: Vec::new(),
             modules: Vec::new(),
             evaluator: None,
+            loop_sources: Vec::new(),
             templates: Vec::new(),
             singletons,
             kinds,
