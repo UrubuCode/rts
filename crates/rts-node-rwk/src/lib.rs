@@ -56,6 +56,7 @@ pub mod string_decoder;
 pub mod stream;
 pub mod test_runner;
 pub mod timers;
+pub mod tls;
 pub mod tty;
 
 pub mod url;
@@ -109,6 +110,7 @@ pub fn install(context: &mut Context) {
         ("punycode", punycode::namespace(context)),
         ("string_decoder", string_decoder::namespace(context)),
         ("timers", timers::namespace(context)),
+        ("tls", tls::namespace(context)),
         ("tty", tty::namespace(context)),
         ("url", url::namespace(context)),
         ("util", util::namespace(context)),

@@ -11,7 +11,7 @@ grep -oE '^\s+\("([a-z_]+)"' crates/rts-node-rwk/src/lib.rs | tr -d ' ("' | sort
 comm -23 /tmp/ref.txt /tmp/done.txt
 ```
 
-**28 of 42 documented modules are registered.** A module being registered means a
+**29 of 42 documented modules are registered.** A module being registered means a
 program can import it and call what it provides — it does NOT mean the surface is
 complete. Each module's own doc carries a "Not implemented, by name" section, and
 that is the authority on its gaps; this file is about which modules exist at all.
@@ -24,7 +24,7 @@ that is the authority on its gaps; this file is about which modules exist at all
 `diagnostics_channel` · `dns` · `events` · `fs` (+ `fs/promises`) · `net` ·
 `os` · `path` · `perf_hooks` · `process` · `punycode` · `querystring` ·
 `stream` · `string_decoder` · `test` · `timers` · `tty` · `url` · `util` · `v8` · `zlib` ·
-`console` · `dgram` · `http` · `module` · `readline`
+`console` · `dgram` · `http` · `module` · `readline` · `tls`
 
 `Buffer` and `console` are not modules: `Buffer` is a class in the runtime
 (`rts-core-rwk`, where `layering.md` puts it) and `console` is a global installed
@@ -36,8 +36,7 @@ Ordered by what unblocks the most rather than by size.
 
 | module | doc | waits on |
 |---|---|---|
-| `https` | 777 | `tls`. |
-| `tls` | 644 | in progress: the crates are in the manifest and a provider is being built, per §6 option (b). |
+| `https` | 777 | `tls` is registered, so this is now reachable — it is `http` over a `TLSSocket`. |
 | `http2` | 1165 | `tls` and HPACK. |
 | `worker_threads` | 688 | a second engine context on another thread. `rts-host-rwk` compiles for N regions already — this is the first module that needs the host, not just the runtime. |
 | `cluster` | 355 | `child_process` (registered) and IPC, which does not exist. |
@@ -90,3 +89,26 @@ ahead of `events`, won the name, and `emit` silently reached no listener.
 Caught by the fixture that pins `emit`, not by a compiler. Any module added here
 that chains onto a base must either sort after it or the base must be built
 first, and building first is the answer that does not depend on a name.
+
+## `node:tls` — what the provider covers, and the one gap that matters
+
+Built per `crates.md` §6 option (b): a `rustls::CryptoProvider` assembled from the
+RustCrypto crates `node:crypto` already uses. No `ring`, no `aws-lc-rs`, no C.
+
+Covered: TLS 1.3, AES-128-GCM and ChaCha20-Poly1305, ECDSA-P256/Ed25519/RSA-PKCS1
+verification, ECDSA-P256 and Ed25519 signing.
+
+**Not covered, and the first one is not cosmetic: X25519.** It is the group a
+TLS 1.3 peer offers first, so a handshake against most of the internet has
+nothing to agree on. The provider was written while `x25519-dalek`'s
+`static_secrets` feature was off — every constructor taking raw secret bytes is
+gated behind it — and P-256 ECDHE was substituted rather than the dependency
+being reached around. **The feature is enabled now**; wiring X25519 into the
+provider is the next change, and until it lands `tls` is a module that works
+against a server configured to accept P-256 and not against one that is not.
+
+Also absent: TLS 1.2 entirely, AES-256-GCM, P-384, RSA-PSS, RSA signing, and
+encrypted PKCS#8 keys. PEM and PKCS#8 are read by hand — `rustls-pemfile`,
+`pkcs8` and `der` are not dependencies, and `node:crypto` declined asymmetric-key
+work for the same missing infrastructure, which is corroboration rather than
+coincidence.

@@ -25,7 +25,10 @@ rustls = { version = "0.23", default-features = false, features = ["std", "tls12
 webpki-roots = "1.0"        # §3 — the CA store; NOT rustls-native-certs, which links schannel/Security.framework
 aes-gcm = "0.10"            # §6 — AEAD
 chacha20poly1305 = "0.10"   # §6 — AEAD
-x25519-dalek = "2"          # §6 — key exchange
+x25519-dalek = { version = "2", features = ["static_secrets"] }  # §6 — key exchange.
+                            # The feature is not optional: without it every constructor that
+                            # builds a secret from raw bytes is gated off, and the provider has
+                            # to substitute P-256 — which is not what a TLS 1.3 peer offers first.
 p256 = "0.13"               # §6 — ECDH + ECDSA
 p384 = "0.13"               # §6 — ECDH + ECDSA
 ed25519-dalek = "2"         # §6 — signatures

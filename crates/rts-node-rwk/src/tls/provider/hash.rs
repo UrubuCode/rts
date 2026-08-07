@@ -7,7 +7,7 @@
 //! and for P-384 handshake signatures) is not implemented — see `mod.rs`'s
 //! "Not implemented, by name" section.
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::{Digest, Sha256};
 
 pub(crate) struct Sha256Hash;
