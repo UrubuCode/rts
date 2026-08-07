@@ -1,5 +1,4 @@
 import { describe, test, expect } from "rts:test";
-import { io } from "rts";
 
 let __out: string = "";
 function p(s: string): void { __out += s + "\n"; }

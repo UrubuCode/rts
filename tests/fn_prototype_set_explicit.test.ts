@@ -1,5 +1,4 @@
 import { describe, test, expect } from "rts:test";
-import { collections } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {

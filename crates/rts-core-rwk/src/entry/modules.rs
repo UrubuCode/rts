@@ -742,3 +742,42 @@ pub fn module_publish(specifier: i64, key: i64, value: u64) -> u64 {
         value
     })
 }
+
+/// The namespace a specifier names, from a context already in hand.
+///
+/// The host-facing half of [`module_namespace`], which takes a literal index a
+/// compiled program holds and nothing outside this crate can mint. `undefined`
+/// for a specifier nothing registered.
+pub fn module_at_name(context: &Context, specifier: &str) -> u64 {
+    context.module_at(specifier).unwrap_or_else(|| undefined_of(context))
+}
+
+/// Every specifier registered, in registration order.
+///
+/// # Why a host needed this
+///
+/// `node:module`'s `builtinModules` is built from `install`'s own list, which is
+/// right for it — that list IS what it registered. A program asking the RUNTIME
+/// what it can import is a different question, and it includes the modules a
+/// compiled program published for itself, which no static list has.
+pub fn module_specifiers(context: &Context) -> Vec<String> {
+    context.modules.iter().map(|(name, _)| name.clone()).collect()
+}
+
+/// Removes a specifier, answering whether one was there.
+///
+/// # What this does and does not undo
+///
+/// It makes a later import of that specifier answer `undefined`. It does NOT
+/// unrun the module: whatever its body did — a listener registered, a file
+/// written, an object another module already holds — has happened and is not
+/// reachable from here. Anything already bound keeps working, because an import
+/// read the value once.
+///
+/// So this is "forget the name", which is what a module cache eviction actually
+/// is, and calling it `delete` would suggest the module itself went away.
+pub fn forget_module(context: &mut Context, specifier: &str) -> bool {
+    let before = context.modules.len();
+    context.modules.retain(|(name, _)| name != specifier);
+    context.modules.len() != before
+}

@@ -125,9 +125,8 @@ const PROVIDED: &[&str] = &[
     // `Proxy`, `AggregateError`, `SharedArrayBuffer`, `WeakRef`,
     // `FinalizationRegistry`, `Atomics`, `eval` and `Intl` are all reached by
     // the suite and are all ABSENT here for that reason, until something
-    // supplies them — as are `TextEncoder`, `TextDecoder`, `atob`, `btoa`,
-    // `Event`, `EventTarget` and `AbortController`, which are being built now
-    // and are added by the change that installs them, not before it.
+    // supplies them. The WHATWG group below was added by the change that
+    // installed it in `rts-std-rwk`, not before.
     //
     // Node's:
     "process",
@@ -141,6 +140,21 @@ const PROVIDED: &[&str] = &[
     "URL",
     "URLSearchParams",
     "performance",
+    // This engine's own, and the reason they are on this list rather than in a
+    // module: `globals/output.rs` measured that the module shape was not being
+    // used, and a program declaring its own `print` shadows this one anyway.
+    "print",
+    "println",
+    "prompt",
+    "TextEncoder",
+    "TextDecoder",
+    "atob",
+    "btoa",
+    "AbortController",
+    "AbortSignal",
+    "Event",
+    "EventTarget",
+    "CustomEvent",
 ];
 
 /// Whether a name resolves against the global object.
