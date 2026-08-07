@@ -291,6 +291,17 @@ fn run_region(
         // program does.
         rts_node_rwk::timers::pump();
         rts_core_rwk::entry::drain_microtasks();
+        // Every worker joined, and its queued messages delivered, before this
+        // program is finished. Node keeps a process alive while a worker runs;
+        // this host would otherwise return the moment the last statement did,
+        // and a worker's `'message'` would be queued into a table nothing reads
+        // again. Joining here is what makes `worker.on('message', …)` mean
+        // something without an event loop to hold the program open.
+        //
+        // After the microtasks rather than before: a worker started from inside
+        // a reaction has to have been started before anything waits on it.
+        rts_node_rwk::worker_threads::join_all();
+        rts_core_rwk::entry::drain_microtasks();
         // Read while the context is still installed. A string's bytes are in the
         // slab beside its cell, so once the caller has the region back there is
         // nothing left to read it from.

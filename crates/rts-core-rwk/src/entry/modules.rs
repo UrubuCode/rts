@@ -322,11 +322,7 @@ pub fn number_of(value: u64) -> Option<f64> {
 /// inferences of one fact is the drift this crate keeps refusing, and neither
 /// was right — a plain object with a `length` satisfied the second.
 pub fn is_array(value: u64) -> bool {
-    with_current(|context| {
-        Value(value)
-            .as_slot()
-            .is_some_and(|cell| context.elements_at(cell).is_some())
-    })
+    with_current(|context| is_array_in(context, value))
 }
 
 /// The text a value holds, from a context already in hand.
@@ -594,4 +590,75 @@ pub fn evaluate(source: &str) -> Option<u64> {
 /// it from outside this crate.
 pub fn make_bigint(context: &mut Context, value: i64) -> u64 {
     context.bigint_value(crate::bigint::BigInt::from_i64(value))
+}
+
+/// The host's evaluator itself, for a caller that will use it somewhere this
+/// thread's context cannot be reached.
+///
+/// # Why the pointer and not another `evaluate`
+///
+/// [`evaluate`] reads the evaluator off THIS thread's context and calls it here.
+/// A caller starting a second thread cannot do that on the far side: a context
+/// is thread-local, the new thread has none, and the first thing it would do is
+/// abort. A `fn` pointer is `Copy` and `Send`, so taking it here and carrying it
+/// across is the whole of what a second thread needs — it installs its own
+/// context when it runs, which is what makes the two independent.
+///
+/// `None` when no host installed one, the same answer [`evaluate`] gives.
+pub fn evaluator() -> Option<Evaluator> {
+    with_current(|context| context.evaluator)
+}
+
+/// Whether a value is an array, from a context already in hand.
+///
+/// The context-taking half of [`is_array`], and the eighth pair of this shape.
+/// It is here because the ambient form takes its own borrow, so asking it from
+/// inside [`with_runtime`] is a nested borrow — a panic in an `extern "C"`
+/// frame, which cannot unwind and therefore **aborts the process**. Any walk
+/// over a value's structure holds a context by construction, so the ambient
+/// form is unusable there rather than merely slower.
+pub fn is_array_in(context: &Context, value: u64) -> bool {
+    Value(value)
+        .as_slot()
+        .is_some_and(|cell| context.elements_at(cell).is_some())
+}
+
+/// Every enumerable own property name of an object, from a context already in
+/// hand.
+///
+/// # Why a host needed this
+///
+/// `node:worker_threads` copies a value out of one region and rebuilds it in
+/// another, and had no way to ask what an object's properties are — so a plain
+/// object crossed as a marker, or, worse, as an empty object, which is the
+/// answer that looks like it worked. Nothing on this surface enumerated a cell.
+///
+/// The walk itself is `Object.keys`'s, reached rather than repeated: element
+/// indices first as strings, then the shape's properties minus the
+/// non-enumerable and the symbol-keyed, then accessors. Two walks would be two
+/// answers to what an object's keys are.
+pub fn member_names(context: &mut Context, object: u64) -> Vec<String> {
+    super::array::key_texts(context, object, true)
+        .into_iter()
+        .filter_map(|text| text.to_rust())
+        .collect()
+}
+
+/// The text a value holds **only when it really is a string**, from a context
+/// already in hand.
+///
+/// # Why this is not [`text_in`]
+///
+/// [`text_in`] is `ToString`: it answers `"42"` for the number `42` and `"true"`
+/// for a boolean, which is right for printing and wrong for asking what
+/// something is. `node:worker_threads` asked it that second question while
+/// copying a value out of a region, so every number crossed as a string — and
+/// the copy arrived looking correct, right up to `1 + 2` answering `"12"`.
+///
+/// That is the shape of defect this repository refuses, and the fix is a
+/// predicate rather than a convention about when to call which: a coercion that
+/// can be mistaken for a test will be.
+pub fn string_in(context: &Context, value: u64) -> Option<String> {
+    let slot = Value(value).as_slot()?;
+    context.text_at(slot)?.to_rust()
 }

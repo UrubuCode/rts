@@ -11,7 +11,7 @@ grep -oE '^\s+\("([a-z_]+)"' crates/rts-node-rwk/src/lib.rs | tr -d ' ("' | sort
 comm -23 /tmp/ref.txt /tmp/done.txt
 ```
 
-**38 of 42 documented modules are registered.** A module being registered means a
+**39 of 42 documented modules are registered.** A module being registered means a
 program can import it and call what it provides — it does NOT mean the surface is
 complete. Each module's own doc carries a "Not implemented, by name" section, and
 that is the authority on its gaps; this file is about which modules exist at all.
@@ -25,7 +25,7 @@ that is the authority on its gaps; this file is about which modules exist at all
 `os` · `path` · `perf_hooks` · `process` · `punycode` · `querystring` ·
 `stream` · `string_decoder` · `test` · `timers` · `tty` · `url` · `util` · `v8` · `zlib` ·
 `console` · `dgram` · `http` · `https` · `module` · `readline` · `tls` ·
-`cluster` · `domain` · `repl` · `sqlite` · `trace_events` · `vm` · `wasi` · `http2` (framing and HPACK only — see below)
+`cluster` · `domain` · `repl` · `sqlite` · `worker_threads` · `trace_events` · `vm` · `wasi` · `http2` (framing and HPACK only — see below)
 
 `Buffer` and `console` are not modules: `Buffer` is a class in the runtime
 (`rts-core-rwk`, where `layering.md` puts it) and `console` is a global installed
@@ -38,7 +38,6 @@ Ordered by what unblocks the most rather than by size.
 | module | doc | waits on |
 |---|---|---|
 | `http2` | 1165 | framing and HPACK are DONE and tested against the RFC. What is missing is the session/stream lifecycle — see below. |
-| `worker_threads` | 688 | a second engine context on another thread. `rts-host-rwk` compiles for N regions already — this is the first module that needs the host, not just the runtime. |
 | `inspector` | 1072 | a debugger protocol over a socket, and a debugger to speak it. |
 
 ## The one defect with a test that fails when fixed
@@ -216,3 +215,53 @@ be are.
 
 Binding the other way: a whole `number` in `i64` range becomes INTEGER, and a
 unit test pins the trap that `i64::MAX as f64` rounds UP past the range.
+
+## `node:worker_threads` — a real thread running a real engine
+
+A `Worker` starts an OS thread, and that thread calls the host's evaluator: it
+compiles the source, installs its own context, its own region and its own copy of
+every module, runs to the end and goes away. Nothing is shared — not a heap, not
+a cell, not a lock. It could not be written before the context stack, because a
+second context could not exist.
+
+**What crosses is a copy.** A reference belongs to the region that made it, so
+`worker_threads/portable.rs` carries `undefined`, `null`, booleans, numbers,
+strings, arrays and plain objects, and turns anything else into a named marker.
+An object's keys come from `entry::member_names`, which is `Object.keys`'s own
+walk rather than a second one.
+
+**Two host pairs were added for it**, and one of them was a defect first:
+
+- `entry::is_array_in` — the ambient `is_array` takes its own borrow, so any walk
+  over a value's structure aborted on it.
+- `entry::string_in` — asks whether a value **is** a string. `text_in` is
+  `ToString`, and asking it as a type test made every number cross as a string:
+  the copy arrived looking correct until `value.a + value.b.c` answered `"12"`
+  instead of `3`. A coercion that can be mistaken for a test will be.
+
+**Parent → worker is a poll, not an event.** `worker.postMessage` queues and the
+worker reads it with `receiveMessageOnPort(parentPort)`, which is a real Node API
+for exactly this. `parentPort.on('message', …)` exists and never fires: a worker
+here has no event loop, its thread runs the source to the end and stops. Stated
+rather than approximated.
+
+`terminate()` sets a flag, since nothing can stop a thread at an arbitrary
+instruction. A worker observes it through `isTerminating()` — **not a Node API**,
+under a name a program can only reach deliberately, because inventing a
+Node-shaped name for a non-Node capability is how a divergence stops being
+visible.
+
+**The host joins every worker** before a program is finished, where it already
+pumps timers: Node keeps a process alive while a worker runs, and this host would
+otherwise return the moment the last statement did, leaving a `'message'` queued
+in a table nothing reads again.
+
+The table is keyed by the OWNING thread, which was not optional: the worker's own
+program runs `join_all` too, found its own entry, and waited on the thread that
+was waiting on it — and its `pump` would have emitted onto a JS instance
+belonging to the parent's region. The first hung the suite; the second is worse
+for being silent.
+
+`eval: false` is refused by name: a filename would have to be resolved the way an
+import is, and this crate has no loader — the same missing piece `createRequire`
+is refused for.

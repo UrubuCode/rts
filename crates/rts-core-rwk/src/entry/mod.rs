@@ -99,7 +99,7 @@ pub use modules::{
     declare_module, encode_base64, encode_text, get_member, make_array, make_array_in, make_callable,
     make_bigint, make_buffer, make_namespace, make_number, make_object, make_string,
     bytes_of, is_array, is_object, make_bytes, make_instance, make_prototype, module_binding, module_namespace, null_value, number_of,
-    Evaluator, declare_evaluator, evaluate, null_in, put_member, set_prototype_in, text_in,
+    Evaluator, declare_evaluator, evaluate, evaluator, is_array_in, member_names, string_in, null_in, put_member, set_prototype_in, text_in,
     write_bytes,
     text_of, undefined_in, undefined_value, with_runtime,
 };

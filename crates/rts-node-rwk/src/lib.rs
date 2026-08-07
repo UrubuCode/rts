@@ -71,6 +71,7 @@ pub mod util;
 pub mod v8;
 pub mod wasi;
 pub mod vm;
+pub mod worker_threads;
 pub mod zlib;
 
 use rts_core_rwk::entry::Context;
@@ -133,6 +134,7 @@ pub fn install(context: &mut Context) {
         ("v8", v8::namespace(context)),
         ("vm", vm::namespace(context)),
         ("wasi", wasi::namespace(context)),
+        ("worker_threads", worker_threads::namespace(context)),
         ("zlib", zlib::namespace(context)),
     ];
     for (name, namespace) in modules {

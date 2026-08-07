@@ -161,9 +161,18 @@ pub(super) fn own_names(object: u64) -> u64 {
     keys_of(object, false)
 }
 
-/// The shared walk.
-fn keys_of(object: u64, enumerable_only: bool) -> u64 {
-    let texts = with_current(|context| {
+/// The shared walk, from a context already in hand.
+///
+/// Split out from [`keys_of`] because a host walking a value's structure holds a
+/// context by construction — `entry::member_names` is that caller — and the
+/// ambient form would be a nested borrow, which in an `extern "C"` frame is an
+/// abort rather than an error.
+pub(in crate::entry) fn key_texts(
+    context: &mut Context,
+    object: u64,
+    enumerable_only: bool,
+) -> Vec<Str> {
+    {
         let Some(slot) = Value(object).as_slot() else {
             return Vec::new();
         };
@@ -231,7 +240,12 @@ fn keys_of(object: u64, enumerable_only: bool) -> u64 {
             }
         }
         ordered(keys)
-    });
+    }
+}
+
+/// The shared walk.
+fn keys_of(object: u64, enumerable_only: bool) -> u64 {
+    let texts = with_current(|context| key_texts(context, object, enumerable_only));
 
     // Built outside the borrow above, because interning each string and
     // allocating the array both need the context again.
