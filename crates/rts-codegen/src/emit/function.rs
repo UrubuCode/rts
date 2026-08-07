@@ -337,6 +337,15 @@ pub(super) fn emit_body(
             });
         }
     }
+    // `arguments` the same way, and for the same reason one line up: it is bound
+    // at entry and an ARROW inside reads the enclosing function's. Without it in
+    // the candidate list the arrow finds nothing reachable — which is exactly
+    // what happened, and the identical fault the import line above records.
+    let named_arguments = ctx.names.intern("arguments");
+    let binds_arguments = !captures_this && capture::mentions(body, named_arguments);
+    if binds_arguments {
+        candidates.push(named_arguments);
+    }
     let mut captured = capture::captured(body, &candidates);
     // A derived constructor holds `this` in its environment, so it has one
     // whether or not anything else is captured — the name is added here rather
@@ -483,6 +492,32 @@ fn emit_body_into(
         passed.extend(given);
         let gathered = expr::call(&mut builder, ctx, RuntimeOp::RestArguments, &passed)?[0];
         binding::declare(&mut builder, &mut scope, ctx, name, gathered)?;
+    }
+
+    // `arguments`, when the body mentions it and this function has any of its
+    // own. An ARROW has none — it sees the enclosing function's, which is why
+    // that one binds it as an ordinary local and the capture analysis carries it
+    // in like any other name.
+    //
+    // What this answers is an ARRAY, where the language says an arguments
+    // exotic object. `length` and indexing are what a program reads and they
+    // agree; `Array.isArray(arguments)` is `true` here and `false` in a real
+    // engine, and `arguments.callee` does not exist. Named rather than papered
+    // over: the exotic object needs a kind of cell this runtime does not have.
+    let named = ctx.names.intern("arguments");
+    if !captures_this && capture::mentions(body, named) {
+        {
+            let from = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+                repr: rts_cranelift::repr::Repr::I64,
+                bits: rts_cranelift::ir::ScalarBits(0),
+            });
+            let from = builder.use_const(from);
+            let given: Vec<ValueId> = (0..ARGUMENT_SLOTS).map(|at| incoming[2 + at]).collect();
+            let mut passed = vec![from];
+            passed.extend(given);
+            let all = expr::call(&mut builder, ctx, RuntimeOp::RestArguments, &passed)?[0];
+            binding::declare(&mut builder, &mut scope, ctx, named, all)?;
+        }
     }
 
     hoist(&mut builder, &mut scope, ctx, body)?;

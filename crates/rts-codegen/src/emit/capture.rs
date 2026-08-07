@@ -833,3 +833,96 @@ fn names_in_class(class: &crate::syntax::Class, found: &mut BTreeSet<Name>) {
 pub(super) fn children(expr: &Expr, on: &mut impl FnMut(Child)) {
     walk_expr(expr, on);
 }
+
+/// Whether a body mentions a name anywhere inside it, nested code included.
+///
+/// # Why nested code counts, which over-approximates on purpose
+///
+/// One caller: deciding whether a function has to bind `arguments`. An ARROW
+/// that reads it means the enclosing function must, because an arrow has no
+/// arguments of its own — so the walk cannot stop at a function boundary. A
+/// nested plain function that reads it does NOT need the outer one to bind,
+/// because it binds its own and shadows; walking into it anyway costs an array
+/// nothing reads and keeps this from being a rule about which kind of function
+/// was nested where.
+///
+/// Reported rather than fixed because the cost is one allocation on a call to a
+/// function that mentions the word, and the alternative is a second traversal
+/// that has to agree with `emit_body` about what an arrow is.
+pub(super) fn mentions(body: &[Stmt], wanted: Name) -> bool {
+    let mut found = false;
+    for statement in body {
+        mentions_in_stmt(statement, wanted, &mut found);
+    }
+    found
+}
+
+fn mentions_in_stmt(statement: &Stmt, wanted: Name, found: &mut bool) {
+    if *found {
+        return;
+    }
+    walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => mentions_in_stmt(inner, wanted, found),
+        StmtChild::Expr(expr) => mentions_in_expr(expr, wanted, found),
+        StmtChild::Binding(binding) => {
+            if let Some(value) = &binding.value {
+                mentions_in_expr(value, wanted, found);
+            }
+        }
+        StmtChild::Catch(catch) => {
+            for inner in &catch.body {
+                mentions_in_stmt(inner, wanted, found);
+            }
+        }
+        StmtChild::Function(function) => mentions_in_function(function, wanted, found),
+        StmtChild::Class(class) => mentions_in_class(class, wanted, found),
+    });
+}
+
+fn mentions_in_expr(expr: &Expr, wanted: Name, found: &mut bool) {
+    if *found {
+        return;
+    }
+    if let ExprKind::Ident(name) = &expr.kind
+        && *name == wanted
+    {
+        *found = true;
+        return;
+    }
+    walk_expr(expr, &mut |child| match child {
+        Child::Expr(inner) => mentions_in_expr(inner, wanted, found),
+        Child::Function(function) => mentions_in_function(function, wanted, found),
+        Child::Class(class) => mentions_in_class(class, wanted, found),
+    });
+}
+
+fn mentions_in_function(function: &Function, wanted: Name, found: &mut bool) {
+    match &function.body {
+        FunctionBody::Block(body) => {
+            for statement in body {
+                mentions_in_stmt(statement, wanted, found);
+            }
+        }
+        FunctionBody::Expression(value) => mentions_in_expr(value, wanted, found),
+    }
+}
+
+fn mentions_in_class(class: &crate::syntax::Class, wanted: Name, found: &mut bool) {
+    for element in &class.body {
+        match element {
+            crate::syntax::ClassElement::Method(method) => {
+                mentions_in_function(&method.function, wanted, found)
+            }
+            crate::syntax::ClassElement::Field(field) => {
+                if let Some(value) = &field.value {
+                    mentions_in_expr(value, wanted, found);
+                }
+            }
+            crate::syntax::ClassElement::StaticBlock(body) => {
+                for statement in body {
+                    mentions_in_stmt(statement, wanted, found);
+                }
+            }
+        }
+    }
+}
