@@ -398,11 +398,35 @@ pub fn compile_for(source: &str, regions: u32) -> Result<Compiled, HostError> {
     // `import` is a syntax error inside a function body, so wrapping first and
     // asking later would refuse every module before anything could look at it —
     // which is what made the whole suite report zero.
-    let module = match source.contains("import ") {
-        true => parse_module(source, &mut names).ok(),
+    // `export` counts as much as `import`. It did not, and 25 files in the
+    // corpus were parsed as scripts for it — where `export` is a syntax error,
+    // so they were refused by the FRONT END with a message about module code
+    // rather than by anything this compiler decided.
+    //
+    // A module whose parse FAILS reports its own error rather than falling
+    // through. It used to `.ok()` and fall to the script path, where `import` is
+    // a syntax error — so twenty files in the corpus were refused with a message
+    // about module code when the real fault was something else entirely, and the
+    // message named the wrapper this host wrote rather than anything in the
+    // file. A diagnostic that points at the wrong thing is worse than a terse
+    // one.
+    let looks_like_a_module = source.contains("import ") || source.contains("export ");
+    let module = match looks_like_a_module {
+        true => Some(
+            parse_module(source, &mut names)
+                .map_err(|error| HostError::Parse(format!("{error:?}")))?,
+        ),
         false => None,
     };
-    let wrapped = format!("function {SCRIPT}() {{ {source} }}");
+    // `async` when the source awaits at its top level. A script is wrapped in a
+    // function, and `await` outside an async function is a SYNTAX error — so 14
+    // files in the corpus were refused by the parser for a wrapper this host
+    // wrote, not for anything they contained.
+    let wrapper = match source.contains("await ") {
+        true => "async function",
+        false => "function",
+    };
+    let wrapped = format!("{wrapper} {SCRIPT}() {{ {source} }}");
     // Parsed even when a module was: the script path needs it, and asking for it
     // here keeps ONE place where a parse failure becomes a `HostError`.
     let program = match &module {
@@ -470,6 +494,21 @@ pub fn compile_for(source: &str, regions: u32) -> Result<Compiled, HostError> {
             other => other?,
         }
     };
+    // The top-level body may `await`, and the verifier refuses that instruction
+    // in a function whose signature does not say so. `emit_body` builds the
+    // signature from `function::signature()`, which cannot know — only this
+    // level knows whether the source it was handed awaits at its top level.
+    //
+    // Set here rather than threaded down, because the alternative is a parameter
+    // on `emit_module` and `emit_program` that means "the host wrapped you in an
+    // async function", which is a fact about this host rather than about either.
+    let mut emitted = emitted;
+    if source.contains("await ") {
+        let entry = emitted.entry;
+        if let Some((_, function)) = emitted.functions.iter_mut().find(|(id, _)| *id == entry) {
+            function.signature.may_suspend = true;
+        }
+    }
     assemble(
         emitted,
         &[],
