@@ -11,7 +11,7 @@ grep -oE '^\s+\("([a-z_]+)"' crates/rts-node-rwk/src/lib.rs | tr -d ' ("' | sort
 comm -23 /tmp/ref.txt /tmp/done.txt
 ```
 
-**29 of 42 documented modules are registered.** A module being registered means a
+**30 of 42 documented modules are registered.** A module being registered means a
 program can import it and call what it provides — it does NOT mean the surface is
 complete. Each module's own doc carries a "Not implemented, by name" section, and
 that is the authority on its gaps; this file is about which modules exist at all.
@@ -24,7 +24,7 @@ that is the authority on its gaps; this file is about which modules exist at all
 `diagnostics_channel` · `dns` · `events` · `fs` (+ `fs/promises`) · `net` ·
 `os` · `path` · `perf_hooks` · `process` · `punycode` · `querystring` ·
 `stream` · `string_decoder` · `test` · `timers` · `tty` · `url` · `util` · `v8` · `zlib` ·
-`console` · `dgram` · `http` · `module` · `readline` · `tls`
+`console` · `dgram` · `http` · `https` · `module` · `readline` · `tls`
 
 `Buffer` and `console` are not modules: `Buffer` is a class in the runtime
 (`rts-core-rwk`, where `layering.md` puts it) and `console` is a global installed
@@ -36,7 +36,6 @@ Ordered by what unblocks the most rather than by size.
 
 | module | doc | waits on |
 |---|---|---|
-| `https` | 777 | `tls` is registered, so this is now reachable — it is `http` over a `TLSSocket`. |
 | `http2` | 1165 | `tls` and HPACK. |
 | `worker_threads` | 688 | a second engine context on another thread. `rts-host-rwk` compiles for N regions already — this is the first module that needs the host, not just the runtime. |
 | `cluster` | 355 | `child_process` (registered) and IPC, which does not exist. |

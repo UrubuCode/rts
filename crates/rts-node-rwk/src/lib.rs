@@ -43,6 +43,7 @@ pub mod dgram;
 pub mod events;
 pub mod fs;
 pub mod http;
+pub mod https;
 pub mod module;
 pub mod os;
 pub mod net;
@@ -105,6 +106,7 @@ pub fn install(context: &mut Context) {
         ("test", test_runner::namespace(context)),
         ("diagnostics_channel", diagnostics_channel::namespace(context)),
         ("http", http::namespace(context)),
+        ("https", https::namespace(context)),
         ("net", net::namespace(context)),
         ("perf_hooks", perf_hooks::namespace(context)),
         ("punycode", punycode::namespace(context)),
