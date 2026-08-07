@@ -121,6 +121,7 @@ pub use alloc::alloc;
 pub use barrier::write_barrier;
 pub use cache::{cache_resolve, cache_resolve_store};
 pub use chain::{get_prototype, set_prototype};
+pub use clone::deep_copy;
 pub use current::with_context;
 pub(crate) use current::with_current;
 pub use table::{CORE_ENTRY_COUNT, CoreEntry};

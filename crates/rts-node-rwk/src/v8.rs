@@ -62,7 +62,11 @@ use rts_core_rwk::entry::{Context, Provided};
 /// The namespace `node:v8` is — one real function, and nothing invented
 /// beside it.
 pub fn namespace(context: &mut Context) -> u64 {
-    let members: &[(&str, Provided)] = &[("getHeapStatistics", get_heap_statistics)];
+    let members: &[(&str, Provided)] = &[
+        ("getHeapStatistics", get_heap_statistics),
+        ("serialize", serialize),
+        ("deserialize", deserialize),
+    ];
     rts_core_rwk::entry::make_namespace(context, members)
 }
 
@@ -87,4 +91,37 @@ extern "C" fn get_heap_statistics(_e: u64, _this: u64, _a: u64, _b: u64, _c: u64
         rts_core_rwk::entry::put_member(context, object, "used_heap_size", used_v);
         object
     })
+}
+
+/// `v8.serialize(value)` — a deep copy, not a byte format.
+///
+/// # What this answers and what Node answers
+///
+/// Node answers a `Buffer` holding V8's own wire format, opaque and versioned,
+/// which another process running the same V8 can read back. This answers the
+/// COPY itself, because the runtime has a deep-copy walk — the one
+/// `structuredClone` is — and no wire format at all.
+///
+/// So the round trip a program actually writes,
+/// `deserialize(serialize(x))`, produces what it expects: a value equal to `x`
+/// and sharing nothing with it, cycles included. What does NOT work is treating
+/// the result as bytes — writing it to a file, sending it over a socket, or
+/// reading its `length`. That is the divergence, and it is stated rather than
+/// approximated with a `Buffer` whose contents would mean nothing.
+///
+/// The alternative was leaving both refused. It was rejected because the round
+/// trip is what the pair is used for, and a copy is a correct answer to it.
+extern "C" fn serialize(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // Outside any borrow: the walk takes and releases its own, because it reads
+    // properties and allocates and can do neither while one is held.
+    rts_core_rwk::entry::deep_copy(value)
+}
+
+/// `v8.deserialize(value)` — the same copy, for the same reason.
+///
+/// Copying again rather than answering what it was handed: a program calling
+/// `deserialize` on a value it kept a reference to must not get that reference
+/// back, or the pair would share structure where Node's does not.
+extern "C" fn deserialize(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    rts_core_rwk::entry::deep_copy(value)
 }

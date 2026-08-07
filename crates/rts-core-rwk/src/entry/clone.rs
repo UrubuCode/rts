@@ -79,6 +79,28 @@ const DEPTH: usize = 200;
 
 /// The name this module provides, in the shape [`super::global_fns::provided`]
 /// has — one function, asked for the same way the other globals are.
+/// A deep copy of a value, cycles included.
+///
+/// # Why a host gets this and not a `serialize`
+///
+/// Because "serialize" is a name from another runtime, and this crate holds no
+/// knowledge of one — the same rule that keeps the machine layer free of
+/// language names applies here. What a host actually needs when it is asked to
+/// round-trip a value is a COPY that survives a cycle, which is what
+/// `structuredClone` already is, and a module wearing another runtime's name can
+/// build its own surface on top of it.
+///
+/// Ambient rather than context-taking on purpose: the walk takes and releases
+/// its own borrows between steps, because it reads properties and allocates,
+/// and it cannot do either while one is held. So this must NOT be called from
+/// inside `with_runtime`.
+pub fn deep_copy(value: u64) -> u64 {
+    let mut graph = Graph::default();
+    let root = walk(&mut graph, value, 0);
+    let made = materialise(&graph);
+    resolve(root, &made)
+}
+
 pub(super) fn provided(name: &str) -> Option<super::native::Native> {
     match name {
         "structuredClone" => Some(structured_clone),
