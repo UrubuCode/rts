@@ -45,6 +45,12 @@ pub struct Compiled {
     #[allow(dead_code)]
     placed: InMemory,
     entry: Entry,
+    /// The modules this program imported, in the order they must run — each an
+    /// entry like [`Self::entry`], and empty for a single-file program.
+    ///
+    /// Run BEFORE the entry, because a module publishes its exports when its
+    /// body finishes and the importer reads them when its own body starts.
+    dependencies: Vec<Entry>,
     /// What the compiler decided the singletons are numbered.
     model: ValueModel,
     /// The heaps the code was built to address, one per thread it can run on.
@@ -113,6 +119,7 @@ impl Compiled {
             .expect("the region is only absent while a run is in progress");
         let outcome = run_region(
             self.entry,
+            &self.dependencies,
             self.model
                 .singleton(rts_codegen::values::Singleton::Undefined)
                 .word(),
@@ -178,8 +185,8 @@ impl Compiled {
                     scope.spawn(move || {
                         let outcome =
                             run_region(
-                                entry, nothing, singletons, kinds, keys, literals, templates,
-                                region,
+                                entry, &[], nothing, singletons, kinds, keys, literals,
+                                templates, region,
                             );
                         (outcome.value, outcome.region)
                     })
@@ -237,6 +244,9 @@ struct Outcome {
 /// a region and two borrowed tables crosses is the whole property.
 fn run_region(
     entry: Entry,
+    // The modules the entry imports, run in order before it. See
+    // `Compiled::dependencies`.
+    dependencies: &[Entry],
     nothing: u64,
     singletons: rts_core_rwk::value::Singletons,
     kinds: rts_core_rwk::Kinds,
@@ -279,6 +289,12 @@ fn run_region(
         // A script closes over nothing, has no receiver and was passed no
         // arguments: `undefined` for all six, from the compiler's own numbering
         // rather than a constant written here.
+        // Dependencies first, and their answers dropped: a module's value is
+        // not what an importer reads — its published exports are, and it
+        // publishes them as its body finishes.
+        for dependency in dependencies {
+            dependency(nothing, nothing, nothing, nothing, nothing, nothing);
+        }
         let value = entry(nothing, nothing, nothing, nothing, nothing, nothing);
         // The turn ends here, not inside the program: a reaction must not run in
         // the entry point that queued it, and a rejection is only unhandled once
@@ -439,7 +455,40 @@ pub fn compile_for(source: &str, regions: u32) -> Result<Compiled, HostError> {
             other => other?,
         }
     };
+    assemble(
+        emitted,
+        &[],
+        regions,
+        model,
+        funcs,
+        types,
+        calls,
+        names,
+    )
+}
+
+/// Places a finished compilation and hands back something that can run it.
+///
+/// # Why this is shared between one file and a graph
+///
+/// Everything from here down is about MACHINE CODE — which symbols the program
+/// asked for, where each function is placed, which heap its addresses are baked
+/// against — and none of it changes when a program is several files instead of
+/// one. The two callers differ only in what they emitted and which entries run
+/// before the last, so that is all they pass.
+#[allow(clippy::too_many_arguments)]
+fn assemble(
+    emitted: rts_codegen::emit::Program,
+    dependency_ids: &[rts_cranelift::ir::FuncId],
+    regions: u32,
+    model: ValueModel,
+    funcs: FuncRegistry,
+    types: TypeRegistry,
+    calls: RuntimeCalls,
+    names: Names,
+) -> Result<Compiled, HostError> {
     let script = emitted.entry;
+
 
     // Every runtime operation the program actually asked for, and only those.
     // A compilation that never concatenates carries no reference to the string
@@ -583,10 +632,19 @@ pub fn compile_for(source: &str, regions: u32) -> Result<Compiled, HostError> {
     // `Entry` spells and `emit_program` builds — including the script, which is
     // no longer a special shape.
     let entry: Entry = unsafe { std::mem::transmute(address) };
+    // The same transmute for each module the entry imports, in the order the
+    // loader put them: every one was placed with a body under the same
+    // convention, so there is nothing special about the last.
+    let dependencies: Vec<Entry> = dependency_ids
+        .iter()
+        .filter_map(|id| placed.address_of(*id))
+        .map(|at| unsafe { std::mem::transmute::<*const u8, Entry>(at) })
+        .collect();
 
     Ok(Compiled {
         placed,
         entry,
+        dependencies,
         model,
         regions: owned.drain(..).map(Some).collect(),
         table,
@@ -642,4 +700,79 @@ fn evaluate_source(source: &str) -> Option<u64> {
         Some(_) => None,
         None => Some(produced),
     }
+}
+
+/// Compiles a file and everything it imports, as one program.
+///
+/// # What this is that [`compile`] is not
+///
+/// A module system. `compile` takes source text and knows nothing about where it
+/// came from, so `import { x } from "./other.ts"` answered `undefined` — the gap
+/// `rts-core-rwk`'s `modules` doc names. This resolves the graph, reads every
+/// file, and emits all of them into ONE compilation.
+///
+/// One compilation is not an optimisation; it is the only shape that works. A
+/// module compiled separately would hold its exports in its own region, and a
+/// reference belongs to the region that made it — so the importer could not
+/// touch them. That is the wall `node:vm` and `worker_threads` met, and this
+/// does not try to cross it.
+///
+/// # Order
+///
+/// Dependencies first, and each module publishes its exports as its body
+/// finishes ([`rts_codegen::emit`]'s `emit_publications`). So by the time a
+/// module's body starts, every namespace it imports from has been written.
+pub fn compile_graph(entry: &std::path::Path) -> Result<Compiled, HostError> {
+    let loaded = crate::graph::load(entry)?;
+    let mut names = Names::default();
+
+    // Parsed HERE, against the `Names` the whole compilation shares — the walk
+    // that found the graph parsed each file too, with a table of its own, and
+    // threw the trees away. A `Name` is an index, so a tree from that walk would
+    // name locals by numbers this compilation never issued.
+    let mut parsed = Vec::with_capacity(loaded.len());
+    for file in &loaded {
+        let mut program = parse_module(&file.source, &mut names)
+            .map_err(|error| HostError::Parse(format!("{}: {error:?}", file.specifier)))?;
+        // Every relative specifier becomes the path the loader resolved it to,
+        // on BOTH sides: the import that reads and the re-export that forwards.
+        // The runtime's table is a string comparison, and `./x` means different
+        // files in two directories.
+        crate::graph::rewrite(&mut program.body, &file.path);
+        parsed.push(program);
+    }
+
+    let mut tags = TagRegistry::new();
+    let model = ValueModel::declare(&mut tags);
+    let types = TypeRegistry::new();
+    let mut funcs = FuncRegistry::new();
+    let mut calls = RuntimeCalls::new();
+    let mut keys = KeyRegistry::new();
+
+    let units: Vec<rts_codegen::emit::Unit<'_>> = loaded
+        .iter()
+        .zip(&parsed)
+        .map(|(file, program)| rts_codegen::emit::Unit {
+            specifier: file.specifier.clone(),
+            items: &program.body,
+        })
+        .collect();
+
+    let emitted = {
+        let mut ctx = Ctx::new(
+            &model, &mut funcs, &mut calls, &mut keys, &mut names, &types,
+        );
+        match rts_codegen::emit::emit_modules(&units, &mut ctx) {
+            Err(rts_codegen::emit::EmitError::UnboundName(name)) => {
+                return Err(HostError::Unbound(ctx.names.text(name).to_owned()));
+            }
+            other => other?,
+        }
+    };
+    // The last unit is the entry — the file the caller named — and everything
+    // before it is a dependency the loader ordered.
+    let mut entries = emitted.entries;
+
+    entries.pop();
+    assemble(emitted.program, &entries, 1, model, funcs, types, calls, names)
 }

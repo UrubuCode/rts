@@ -197,6 +197,11 @@ fn emit_function(
         rest,
         late_this,
         &[],
+        // A nested function is not a module: it has no specifier and nothing to
+        // publish. Passing the enclosing module's would make every closure
+        // re-publish its exports on every call.
+        None,
+        &[],
     )?;
     ctx.pending.push((id, emitted));
     Ok(id)
@@ -215,6 +220,8 @@ pub(super) fn emit_body(
     rest: Option<Name>,
     late_this: Option<Name>,
     imports: &[crate::syntax::Import],
+    module: Option<&str>,
+    publications: &[super::module::Publication],
 ) -> EmitResult<MachineFunction> {
     // An import is bound at entry and may be read from inside a nested function,
     // exactly as a parameter is — so it is a capture CANDIDATE like one. Without
@@ -285,6 +292,8 @@ pub(super) fn emit_body(
         rest,
         late_this,
         imports,
+        module,
+        publications,
     );
     ctx.numeric = outer_numeric;
     ctx.flattened = outer_flattened;
@@ -310,6 +319,8 @@ fn emit_body_into(
     rest: Option<Name>,
     late_this: Option<Name>,
     imports: &[crate::syntax::Import],
+    module: Option<&str>,
+    publications: &[super::module::Publication],
 ) -> EmitResult<()> {
     let types = ctx.types;
     let mut builder = FuncBuilder::new(func, types, entry);
@@ -384,6 +395,20 @@ fn emit_body_into(
             terminated = true;
             break;
         }
+    }
+    // A module publishes what it exports here: after its last statement, so the
+    // value published is the one it finished with, and before the return, so it
+    // happens whether or not anything reads the module's answer.
+    //
+    // Guarded on `terminated` because a body that returned has no reachable
+    // point to emit into. A module cannot contain a top-level `return` — that is
+    // a syntax error in a module — so this guard is unreachable for a real
+    // module and is here because "unreachable" is a claim the emitter should not
+    // have to make about IR it is building.
+    if !terminated
+        && let Some(specifier) = module
+    {
+        super::module::emit_publications(&mut builder, &scope, ctx, specifier, publications)?;
     }
     if !terminated {
         // A derived constructor answers its `this`, not `undefined`. That is

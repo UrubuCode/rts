@@ -125,6 +125,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::ModuleNamespace => (CoreEntry::ModuleNamespace, {
             rts_core_rwk::entry::module_namespace as extern "C" fn(i64) -> u64 as *const u8
         }),
+        RuntimeOp::ModulePublish => (CoreEntry::ModulePublish, {
+            rts_core_rwk::entry::module_publish as extern "C" fn(i64, i64, u64) -> u64 as *const u8
+        }),
         RuntimeOp::TypeOf => (CoreEntry::TypeOf, {
             rts_core_rwk::entry::type_of as extern "C" fn(u64) -> u64 as *const u8
         }),

@@ -680,3 +680,65 @@ pub fn is_callable_in(context: &Context, value: u64) -> bool {
         .as_slot()
         .is_some_and(|cell| context.callable_at(cell).is_some())
 }
+
+/// Publishes one exported binding into the specifier table.
+///
+/// # Why an export is a write to the table an import reads
+///
+/// Because there is then ONE place that decides what a specifier resolves to,
+/// for a host-provided module and a compiled one alike. The alternative — a
+/// second mechanism holding compiled modules' exports — is two answers to that
+/// question, and the two would disagree the first time a program re-exported a
+/// host module.
+///
+/// So `export const x = 1` in `./a.ts` puts `x` on the namespace object for
+/// `"./a.ts"`, and `import { x } from "./a.ts"` reads it back through
+/// [`module_binding`] with nothing new in the path.
+///
+/// # What is NOT live about it
+///
+/// A later assignment to the local `x` does not change what the importer sees.
+/// A live binding needs the two sides to share a cell, which is the same
+/// divergence [`module_binding`] already states — this makes the export as live
+/// as the import was, and no more.
+///
+/// Answers the value it was given, so a caller can publish and bind in one
+/// expression rather than emitting a temporary.
+#[rtse::entry]
+pub fn module_publish(specifier: i64, key: i64, value: u64) -> u64 {
+    with_current(|context| {
+        let Some(text) = context
+            .literals
+            .get(specifier as usize)
+            .copied()
+            .and_then(|held| Value(held).as_slot())
+            .and_then(|cell| context.text_at(cell))
+            .and_then(Str::to_rust)
+        else {
+            return value;
+        };
+        // The namespace is created on the first export rather than by whoever
+        // compiles the module: a module that exports nothing has no namespace
+        // to speak of, and `import * as ns` of it answering `undefined` is the
+        // honest result of that rather than an empty object pretending.
+        let namespace = match context.module_at(&text) {
+            Some(namespace) => namespace,
+            None => {
+                let made = make_object(context);
+                context.modules.push((text, made));
+                made
+            }
+        };
+        let Some(cell) = Value(namespace).as_slot() else {
+            return value;
+        };
+        let Ok(number) = u32::try_from(key) else {
+            return value;
+        };
+        let Some(key) = context.keys.key(number) else {
+            return value;
+        };
+        super::objects::put(context, cell, crate::object::Key::Name(key), value);
+        value
+    })
+}

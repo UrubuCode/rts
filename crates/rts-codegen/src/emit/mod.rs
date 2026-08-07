@@ -391,16 +391,38 @@ pub fn emit_module(
     items: &[crate::syntax::ModuleItem],
     ctx: &mut Ctx,
 ) -> EmitResult<Program> {
+    emit_module_as(items, None, ctx)
+}
+
+/// The same, for a module the host resolved to a specifier.
+///
+/// `None` is a module compiled on its own — the shape every caller had before
+/// there was a loader — and it may not export, because there is no specifier to
+/// publish under. Refusing there rather than inventing a name is what keeps a
+/// program's exports findable by exactly the specifier that imports it.
+pub fn emit_module_as(
+    items: &[crate::syntax::ModuleItem],
+    specifier: Option<&str>,
+    ctx: &mut Ctx,
+) -> EmitResult<Program> {
     let mut imports = Vec::new();
     let mut body = Vec::new();
+    let mut publications = Vec::new();
     for item in items {
         match item {
             crate::syntax::ModuleItem::Import(import) => imports.push(import.clone()),
             crate::syntax::ModuleItem::Stmt(statement) => body.push(statement.clone()),
-            crate::syntax::ModuleItem::Export(_) => module::emit_export()?,
+            crate::syntax::ModuleItem::Export(export) => {
+                if specifier.is_none() {
+                    return Err(module::refuse(
+                        "an export in a module the host did not resolve to a specifier",
+                    ));
+                }
+                module::lower_export(export, &mut body, &mut publications, ctx)?;
+            }
         }
     }
-    emit_program_with(&body, &imports, ctx)
+    emit_program_with_exports(&body, &imports, specifier, &publications, ctx)
 }
 
 /// The same, for a body whose module bound names before it.
@@ -412,6 +434,21 @@ pub fn emit_module(
 pub fn emit_program_with(
     body: &[Stmt],
     imports: &[crate::syntax::Import],
+    ctx: &mut Ctx,
+) -> EmitResult<Program> {
+    emit_program_with_exports(body, imports, None, &[], ctx)
+}
+
+/// The same, for a module that publishes exports when its body finishes.
+///
+/// `specifier` is the module's own, resolved by the host. It is what the
+/// publications are written under, and the reason a module compiled without one
+/// may not export: there would be no name for an importer to find them by.
+pub fn emit_program_with_exports(
+    body: &[Stmt],
+    imports: &[crate::syntax::Import],
+    specifier: Option<&str>,
+    publications: &[module::Publication],
     ctx: &mut Ctx,
 ) -> EmitResult<Program> {
     // The script is a function like any other, under the same convention. It
@@ -429,15 +466,125 @@ pub fn emit_program_with(
     ctx.globals = sloppy::created(body);
 
     let nothing = Scope::new();
-    let emitted = function::emit_body(ctx, &nothing, &[], body, false, None, None, imports)?;
+    let emitted = function::emit_body(
+        ctx,
+        &nothing,
+        &[],
+        body,
+        false,
+        None,
+        None,
+        imports,
+        specifier,
+        publications,
+    )?;
     ctx.pending.push((entry, emitted));
+    Ok(finish(entry, ctx))
+}
 
-    Ok(Program {
+/// Takes everything one compilation accumulated, leaving the `Ctx` empty.
+///
+/// Split out because a compilation of SEVERAL modules must do this exactly once,
+/// at the end. Doing it per module would restart the literal table, and a
+/// literal is referred to by its position — so the second module's strings would
+/// be numbered over the first's and every one of them would read as the wrong
+/// text.
+fn finish(entry: FuncId, ctx: &mut Ctx) -> Program {
+    Program {
         functions: std::mem::take(&mut ctx.pending),
         entry,
         literals: std::mem::take(&mut ctx.literals),
         templates: std::mem::take(&mut ctx.templates),
+    }
+}
+
+/// One module of a multi-module compilation: its specifier and its items.
+pub struct Unit<'a> {
+    /// What an `import` of it names. The host resolved it.
+    pub specifier: String,
+    /// Its parsed body.
+    pub items: &'a [crate::syntax::ModuleItem],
+}
+
+/// Every module of one program, emitted into one compilation.
+///
+/// # Why one compilation and not one per file
+///
+/// Because a reference belongs to the region that made it. A module compiled and
+/// run on its own would hold its exports in its own region, and the importer —
+/// in another — could not touch them. That is the same wall `node:vm` and
+/// `worker_threads` hit, and the answer here is not to cross it: every module of
+/// a program shares one compilation, one literal table, one key registry and one
+/// region.
+///
+/// The order is the caller's. It knows the graph, because it is what read the
+/// files.
+pub struct Emitted {
+    /// The functions, literals and templates of the whole program.
+    pub program: Program,
+    /// Each module's entry, in the order given — dependencies first.
+    pub entries: Vec<FuncId>,
+}
+
+/// Emits several modules into one program.
+pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
+    let mut entries = Vec::with_capacity(units.len());
+    for unit in units {
+        let mut imports = Vec::new();
+        let mut body = Vec::new();
+        let mut publications = Vec::new();
+        for item in unit.items {
+            match item {
+                crate::syntax::ModuleItem::Import(import) => imports.push(import.clone()),
+                crate::syntax::ModuleItem::Stmt(statement) => body.push(statement.clone()),
+                crate::syntax::ModuleItem::Export(export) => {
+                    module::lower_export(export, &mut body, &mut publications, ctx)?;
+                }
+            }
+        }
+        entries.push(emit_unit(
+            &body,
+            &imports,
+            Some(&unit.specifier),
+            &publications,
+            ctx,
+        )?);
+    }
+    let last = *entries.last().ok_or(EmitError::Unsupported {
+        construct: "a program with no modules",
+    })?;
+    Ok(Emitted {
+        program: finish(last, ctx),
+        entries,
     })
+}
+
+/// One module's body as a function, without taking the compilation apart.
+fn emit_unit(
+    body: &[Stmt],
+    imports: &[crate::syntax::Import],
+    specifier: Option<&str>,
+    publications: &[module::Publication],
+    ctx: &mut Ctx,
+) -> EmitResult<FuncId> {
+    let sig = ctx.funcs.declare_signature(function::signature());
+    let entry = ctx.funcs.declare_function(sig);
+    ctx.globals = sloppy::created(body);
+    let nothing = Scope::new();
+    let emitted = function::emit_body(
+        ctx,
+        &nothing,
+        &[],
+        body,
+        false,
+        None,
+        None,
+        imports,
+        specifier,
+        publications,
+    )?;
+    ctx.pending.push((entry, emitted));
+    Ok(entry)
 }
 
 #[cfg(test)]

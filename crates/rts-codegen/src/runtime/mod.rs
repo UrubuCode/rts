@@ -222,6 +222,23 @@ pub enum RuntimeOp {
 
     /// The whole namespace, for `import * as ns from "m"`.
     ModuleNamespace,
+    /// One exported binding, published into the specifier table under the
+    /// module being compiled.
+    ///
+    /// # Why a call and not something the emitter produces
+    ///
+    /// The table is the runtime's, it is global mutable state, and creating a
+    /// namespace object allocates — three separate reasons this cannot be
+    /// instructions.
+    ///
+    /// # Why publishing rather than returning
+    ///
+    /// An `import` is already a READ of this table (`ModuleBinding`). Making an
+    /// export a WRITE to the same table means one place decides what a specifier
+    /// resolves to, for a host module and a compiled one alike — where a second
+    /// mechanism for compiled modules would be two answers to that question,
+    /// which is what this repository keeps refusing.
+    ModulePublish,
 
     /// `typeof v`.
     ///
@@ -482,6 +499,7 @@ impl RuntimeOp {
         RuntimeOp::TemplateStrings,
         RuntimeOp::ModuleBinding,
         RuntimeOp::ModuleNamespace,
+        RuntimeOp::ModulePublish,
         RuntimeOp::TypeOf,
         RuntimeOp::LooseEquals,
         RuntimeOp::Exponent,
@@ -548,6 +566,7 @@ impl RuntimeOp {
             RuntimeOp::TemplateStrings => "__rts_template_strings",
             RuntimeOp::ModuleBinding => "__rts_module_binding",
             RuntimeOp::ModuleNamespace => "__rts_module_namespace",
+            RuntimeOp::ModulePublish => "__rts_module_publish",
             RuntimeOp::TypeOf => "__rts_type_of",
             RuntimeOp::LooseEquals => "__rts_loose_equals",
             RuntimeOp::Exponent => "__rts_exponent",
@@ -620,6 +639,10 @@ impl RuntimeOp {
             RuntimeOp::TemplateStrings => (vec![Repr::I64], vec![UNPROVEN]),
             RuntimeOp::ModuleBinding => (vec![Repr::I64, Repr::I64], vec![UNPROVEN]),
             RuntimeOp::ModuleNamespace => (vec![Repr::I64], vec![UNPROVEN]),
+            // Answers the value it was given, so a caller can publish and bind
+            // in one expression. Nothing is proved about it: it is whatever the
+            // program exported.
+            RuntimeOp::ModulePublish => (vec![Repr::I64, Repr::I64, UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::TypeOf => (vec![UNPROVEN], vec![UNPROVEN]),
             // A proven boolean, like the other equalities: the runtime
             // establishes it, which is what lets a branch consume one.

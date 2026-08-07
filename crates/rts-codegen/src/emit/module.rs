@@ -22,17 +22,25 @@
 //! replaces this, and it will replace the runtime side rather than this file:
 //! what an import MEANS for a scope is decided here and does not change.
 //!
-//! # Why `export` is refused rather than ignored
+//! # What an `export` is, on the other side of the same table
 //!
-//! An ignored `export` compiles a program whose exports nobody can see, which
-//! looks like it worked. The suite this engine is measured against exports
-//! nothing, so refusing costs nothing there and keeps the gap visible.
+//! A write. An import READS the specifier table, so an export WRITES it — under
+//! the module's own specifier, which the host resolves and hands down. That way
+//! one table decides what a specifier resolves to, for a host-provided module
+//! and a compiled one alike; a second mechanism holding compiled modules'
+//! exports would be two answers to that question, and they would disagree the
+//! first time a program re-exported a host module.
+//!
+//! Exports were refused entirely before this, and the reason given was that an
+//! ignored `export` compiles a program whose exports nobody can see. That is
+//! still true and is why nothing here is silent about a shape it cannot lower.
 
 use rts_cranelift::ir::{ConstDecl, FuncBuilder, ScalarBits, ValueId};
 use rts_cranelift::repr::Repr;
 
 use super::{Ctx, EmitError, EmitResult, Scope};
 use crate::runtime::RuntimeOp;
+use crate::names::Name;
 use crate::syntax::{Import, ImportBinding};
 
 /// Binds everything one `import` introduces.
@@ -98,11 +106,95 @@ pub fn emit_import(
     Ok(())
 }
 
-/// Refuses an `export`, by name.
-pub fn emit_export() -> EmitResult<()> {
-    Err(EmitError::Unsupported {
-        construct: "an export",
-    })
+/// One name this module makes visible, and where its value comes from.
+///
+/// Collected while lowering the module's items and emitted after its body, so
+/// the value published is the one the module finished with. See
+/// [`emit_publications`] for why that is the order.
+#[derive(Clone, Debug)]
+pub struct Publication {
+    /// The name the outside sees. A string, not a `Name`, because
+    /// `export { x as "a b" }` is legal.
+    pub exported: String,
+    /// What supplies it.
+    pub source: PublicationSource,
+}
+
+/// Where a published value comes from.
+#[derive(Clone, Debug)]
+pub enum PublicationSource {
+    /// A binding this module has. `export const x = 1` and `export { x }` are
+    /// both this, because both leave `x` in the module's own scope.
+    Local(Name),
+    /// `export { x } from "m"` — forwarded without ever being bound here, which
+    /// is what the specification says a re-export is.
+    Reexport {
+        /// Which module.
+        specifier: String,
+        /// The name in it.
+        name: String,
+    },
+    /// `export * as ns from "m"` — the other module's whole namespace, under
+    /// one name.
+    Namespace {
+        /// Which module.
+        specifier: String,
+    },
+}
+
+/// Writes this module's exports into the table an `import` reads.
+///
+/// # Why after the body rather than at each `export`
+///
+/// Because an export is observable only once the module has been evaluated, and
+/// publishing at the declaration would snapshot a value the module was about to
+/// change. Publishing at the end makes `export let n = 0; n = 1;` answer `1`,
+/// which is what a live binding would answer — as close to live as a table of
+/// values can be, and the same divergence [`super::super::runtime`]'s
+/// `ModuleBinding` already states from the other side.
+///
+/// The one thing this would get wrong is the evaluation ORDER of
+/// `export default <expression>`, which must run where it is written. That is
+/// why the lowering binds such an expression to a local in place and publishes
+/// the local from here: the order is the body's and the publication is uniform.
+pub fn emit_publications(
+    builder: &mut FuncBuilder,
+    scope: &Scope,
+    ctx: &mut Ctx,
+    module: &str,
+    publications: &[Publication],
+) -> EmitResult<()> {
+    if publications.is_empty() {
+        return Ok(());
+    }
+    let own = ctx.literal(module);
+    let own = number(builder, u64::from(own));
+    for publication in publications {
+        let value = match &publication.source {
+            PublicationSource::Local(local) => super::binding::read(builder, scope, ctx, *local)?,
+            PublicationSource::Reexport { specifier, name } => {
+                let from = ctx.literal(specifier);
+                let from = number(builder, u64::from(from));
+                let interned = ctx.names.intern(name);
+                let key = number(builder, u64::from(ctx.key_of(interned)));
+                super::expr::call(builder, ctx, RuntimeOp::ModuleBinding, &[from, key])?[0]
+            }
+            PublicationSource::Namespace { specifier } => {
+                let from = ctx.literal(specifier);
+                let from = number(builder, u64::from(from));
+                super::expr::call(builder, ctx, RuntimeOp::ModuleNamespace, &[from])?[0]
+            }
+        };
+        let interned = ctx.names.intern(&publication.exported);
+        let key = number(builder, u64::from(ctx.key_of(interned)));
+        super::expr::call(builder, ctx, RuntimeOp::ModulePublish, &[own, key, value])?;
+    }
+    Ok(())
+}
+
+/// Refuses an export shape this lowering does not have, by name.
+pub fn refuse(construct: &'static str) -> EmitError {
+    EmitError::Unsupported { construct }
 }
 
 /// An integer operand: which specifier, or which key.
@@ -116,4 +208,144 @@ fn number(builder: &mut FuncBuilder, bits: u64) -> ValueId {
         bits: ScalarBits(bits),
     });
     builder.use_const(id)
+}
+
+/// Turns one `export` into the statements it runs and the names it publishes.
+///
+/// # Why the two are separated
+///
+/// An `export const x = 1` does two things — it declares `x` here, and it makes
+/// `x` visible outside — and only the first has an order that matters. So the
+/// declaration joins the body where it was written, keeping evaluation order
+/// exactly as the source has it, and the publication joins a list emitted once
+/// at the end. See [`emit_publications`] for why the end is the right place.
+pub fn lower_export(
+    export: &crate::syntax::Export,
+    body: &mut Vec<crate::syntax::Stmt>,
+    publications: &mut Vec<Publication>,
+    ctx: &mut Ctx,
+) -> EmitResult<()> {
+    use crate::syntax::{ExportDefault, ExportKind, StmtKind};
+    match &export.kind {
+        ExportKind::Declaration(statement) => {
+            for name in declared_names(statement) {
+                publications.push(Publication {
+                    exported: ctx.names.text(name).to_owned(),
+                    source: PublicationSource::Local(name),
+                });
+            }
+            body.push((**statement).clone());
+        }
+        ExportKind::Named {
+            specifiers,
+            source: None,
+            ..
+        } => {
+            for specifier in specifiers {
+                // `export { x }` names a binding this module has, and the name
+                // is an identifier there even when the EXPORTED name is not.
+                let local = ctx.names.intern(&specifier.local);
+                publications.push(Publication {
+                    exported: specifier.exported.clone(),
+                    source: PublicationSource::Local(local),
+                });
+            }
+        }
+        ExportKind::Named {
+            specifiers,
+            source: Some(from),
+            ..
+        } => {
+            for specifier in specifiers {
+                // Nothing is bound locally: a re-export forwards, and this
+                // module never sees the name. That is the specification's own
+                // distinction and it is why this is a separate source rather
+                // than a synthesised import.
+                publications.push(Publication {
+                    exported: specifier.exported.clone(),
+                    source: PublicationSource::Reexport {
+                        specifier: from.clone(),
+                        name: specifier.local.clone(),
+                    },
+                });
+            }
+        }
+        ExportKind::Default(ExportDefault::Declaration(statement)) => {
+            let Some(name) = declared_names(statement).into_iter().next() else {
+                // `export default function () {}` has nothing to bind, and a
+                // synthetic name would be a name the program could collide
+                // with. Refused rather than invented.
+                return Err(refuse("an anonymous `export default` declaration"));
+            };
+            publications.push(Publication {
+                exported: "default".to_owned(),
+                source: PublicationSource::Local(name),
+            });
+            body.push((**statement).clone());
+        }
+        ExportKind::Default(ExportDefault::Expr(expression)) => {
+            // Bound to a local IN PLACE, so the expression runs where it was
+            // written — the one thing publishing at the end would otherwise get
+            // wrong. The name is in the reserved space no program can spell, for
+            // the same reason a synthetic name is refused above.
+            let local = ctx.names.intern("@@default");
+            body.push(crate::syntax::Stmt {
+                kind: StmtKind::Declare {
+                    kind: crate::syntax::BindingKind::Const,
+                    bindings: vec![crate::syntax::Binding {
+                        target: crate::syntax::Pattern::Name(local),
+                        value: Some(expression.clone()),
+                        // No type annotation was written, and inventing one
+                        // would be a claim about a value only the program knows.
+                        claim: None,
+                    }],
+                },
+                at: export.at,
+            });
+            publications.push(Publication {
+                exported: "default".to_owned(),
+                source: PublicationSource::Local(local),
+            });
+        }
+        ExportKind::All {
+            source,
+            alias: Some(alias),
+            ..
+        } => publications.push(Publication {
+            exported: alias.clone(),
+            source: PublicationSource::Namespace {
+                specifier: source.clone(),
+            },
+        }),
+        ExportKind::All { alias: None, .. } => {
+            // `export * from "m"` needs every name `m` exports, which means
+            // enumerating a namespace at run time and re-publishing each. That
+            // is a real operation and it does not exist yet; a version that
+            // published nothing would compile a module whose exports are
+            // silently missing, which is exactly what refusing exports outright
+            // was protecting against.
+            return Err(refuse("`export * from` without `as`"));
+        }
+    }
+    Ok(())
+}
+
+/// Every name a statement introduces, for the declaration forms an `export` may
+/// wrap.
+fn declared_names(statement: &crate::syntax::Stmt) -> Vec<Name> {
+    use crate::syntax::StmtKind;
+    let mut names = Vec::new();
+    match &statement.kind {
+        StmtKind::Declare { bindings, .. } => {
+            for binding in bindings {
+                binding.target.bound_names(&mut names);
+            }
+        }
+        StmtKind::Function(function) => names.extend(function.name),
+        StmtKind::Class(class) => names.extend(class.name),
+        // Nothing else is a declaration, and the parser does not produce one
+        // here — an `export` over anything else is a syntax error before this.
+        _ => {}
+    }
+    names
 }
