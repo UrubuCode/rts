@@ -199,18 +199,15 @@ real `wasmi` path: it writes to stdout and exits with 7, and the test asserts th
 Over `turso_core`, pure Rust and SQLite-file-compatible. NULL, TEXT, REAL and
 BLOB round-trip: BLOB is a `Buffer` in both directions.
 
-**INTEGER does not.** `turso_core` holds a real `i64`, and nothing is lost on the
-Rust side — but the host-facing API has no way to make a BigInt, so every
-INTEGER read back becomes a JavaScript `number` and a value outside
-`Number.MAX_SAFE_INTEGER` **silently rounds**. `setReadBigInts` is accepted and
-does nothing.
+INTEGER crosses as a `number` while a double holds it exactly, and as a BIGINT
+when it would not. It silently rounded for one commit, and the fix was not in the
+module: the runtime's only bigint constructor parsed TEXT and took the ambient
+borrow, so a native holding the context could not call it. `make_bigint` is the
+context-taking pair that removed it — the seventh of that shape.
 
-That is a wrong answer that runs, and it is the kind this project refuses
-everywhere else. It is here because the fix is not in the module: the runtime's
-only bigint constructor parses TEXT and takes the ambient borrow, so a native
-holding one would abort. A context-taking `make_bigint` on
-`rts-core-rwk`'s host surface removes it — the same shape as the six pairs added
-before it, and the next thing to add.
+`setReadBigInts` is still accepted and still does nothing: it asks for EVERY
+integer as a bigint, and what happens instead is that only the ones that need to
+be are.
 
 Binding the other way: a whole `number` in `i64` range becomes INTEGER, and a
 unit test pins the trap that `i64::MAX as f64` rounds UP past the range.

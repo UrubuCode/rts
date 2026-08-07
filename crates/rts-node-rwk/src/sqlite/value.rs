@@ -40,7 +40,14 @@ use rts_core_rwk::entry::{self, Context};
 pub(super) fn to_js(context: &mut Context, value: &turso_core::Value) -> u64 {
     match value {
         turso_core::Value::Null => entry::null_in(context),
-        turso_core::Value::Numeric(turso_core::Numeric::Integer(i)) => entry::make_number(*i as f64),
+        // A whole number a double holds exactly stays a number, which is what a
+        // program expects for an ordinary id or count. One that a double would
+        // ROUND becomes a bigint instead — silently rounding it was the wrong
+        // answer this module shipped with, and `make_bigint` is what removed it.
+        turso_core::Value::Numeric(turso_core::Numeric::Integer(i)) => match i.unsigned_abs() {
+            0..=9_007_199_254_740_991 => entry::make_number(*i as f64),
+            _ => entry::make_bigint(context, *i),
+        },
         turso_core::Value::Numeric(turso_core::Numeric::Float(f)) => entry::make_number(f64::from(*f)),
         turso_core::Value::Text(text) => entry::make_string(context, text.as_str()),
         turso_core::Value::Blob(bytes) => entry::make_buffer(context, bytes),

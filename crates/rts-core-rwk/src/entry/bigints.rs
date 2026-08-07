@@ -31,7 +31,7 @@ impl Context {
     }
 
     /// Puts digits on the heap and answers the primitive naming them.
-    pub(super) fn bigint_value(&mut self, held: BigInt) -> u64 {
+    pub(in crate::entry) fn bigint_value(&mut self, held: BigInt) -> u64 {
         let slot = self.bigints.insert(held).slot();
         Value::from_client(self.kinds.bigint, u64::from(slot.0)).bits()
     }

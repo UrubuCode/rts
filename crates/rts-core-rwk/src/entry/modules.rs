@@ -579,3 +579,19 @@ pub fn evaluate(source: &str) -> Option<u64> {
     let evaluator = with_current(|context| context.evaluator)?;
     evaluator(source)
 }
+
+/// A bigint over a whole number, from a context already in hand.
+///
+/// # Why a host needed this
+///
+/// `node:sqlite` reads a real `i64` out of a database and had nowhere to put it:
+/// the only bigint constructor here parses TEXT and takes the ambient borrow, so
+/// a native holding the context could not call it. Every INTEGER became a
+/// double, and one past `Number.MAX_SAFE_INTEGER` **silently rounded** — a wrong
+/// answer that runs, which is the outcome this project refuses everywhere else.
+///
+/// `from_i64` already existed on the value; what was missing was a way to reach
+/// it from outside this crate.
+pub fn make_bigint(context: &mut Context, value: i64) -> u64 {
+    context.bigint_value(crate::bigint::BigInt::from_i64(value))
+}
