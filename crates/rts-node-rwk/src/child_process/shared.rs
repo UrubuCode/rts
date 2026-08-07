@@ -23,6 +23,22 @@ pub(super) fn text(value: u64) -> Option<String> {
     }
 }
 
+/// [`text`], for a caller that already holds the context.
+///
+/// [`text`] pumps [`super::spawn_async`]'s queue and re-enters
+/// [`entry::with_runtime`] through [`entry::text_of`] — both a second borrow
+/// when called from inside a `with_runtime` closure already in progress, which
+/// this repository's fault is always the same shape of: an ambient helper
+/// called from inside a borrow the host cannot unwind out of. This pair takes
+/// the context instead, so it can only be called correctly.
+pub(super) fn text_in(context: &entry::Context, value: u64) -> Option<String> {
+    let absent = entry::undefined_in(context);
+    match value == absent {
+        true => None,
+        false => entry::text_in(context, value),
+    }
+}
+
 /// A string value.
 pub(super) fn string(text: &str) -> u64 {
     entry::with_runtime(|context| entry::make_string(context, text))
@@ -50,6 +66,20 @@ fn option_member(options: u64, name: &str) -> Option<u64> {
 /// A text option.
 pub(super) fn option_text(options: u64, name: &str) -> Option<String> {
     option_member(options, name).and_then(text)
+}
+
+/// [`option_text`], for a caller that already holds the context — see
+/// [`text_in`] for why this pair exists instead of wrapping each call.
+pub(super) fn option_text_in(context: &mut entry::Context, options: u64, name: &str) -> Option<String> {
+    let absent = entry::undefined_in(context);
+    if options == absent {
+        return None;
+    }
+    let value = entry::get_member(context, options, name);
+    match value == absent {
+        true => None,
+        false => text_in(context, value),
+    }
 }
 
 /// A numeric option.

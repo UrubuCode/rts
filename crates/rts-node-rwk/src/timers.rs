@@ -102,11 +102,20 @@ fn with_timers<T>(body: impl FnOnce(&mut HashMap<u64, Timer>) -> T) -> T {
 }
 
 /// Delivers every currently-due timer, oldest-registered-id first, THEN
+/// drops the lock — and it is PUBLIC because the host calls it too.
+///
+/// Where the program's own timer calls pump it as they go, the host pumps once
+/// more where it already drains microtasks: at the end of the turn, after the
+/// last statement. That is what makes `setTimeout(f, 0)` with nothing after it
+/// run `f` at all — the single most common way a timer is written, and the one
+/// the program-driven pump alone never reaches, because a timer is often the
+/// last thing a program does.
+///
 /// drops [`TIMERS`]'s lock before calling anything — a callback that itself
 /// schedules or clears a timer (an ordinary, expected thing to do) must not
 /// deadlock on a lock this function is still holding. See the module doc for
 /// WHEN this runs.
-fn pump() {
+pub fn pump() {
     let now = Instant::now();
     let due: Vec<(u64, u64, u64)> = with_timers(|table| {
         let mut ready: Vec<u64> = table

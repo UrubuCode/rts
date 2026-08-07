@@ -279,6 +279,13 @@ fn run_region(
         // The turn ends here, not inside the program: a reaction must not run in
         // the entry point that queued it, and a rejection is only unhandled once
         // nothing more can attach to it.
+        // Timers due by the end of the turn, then the microtasks their callbacks
+        // queued. In that order and both after the last statement: a
+        // `setTimeout(f, 0)` with nothing after it is the commonest way a timer
+        // is written, and the module's own pump — which runs on the NEXT timer
+        // call — never reaches it, because a timer is often the last thing a
+        // program does.
+        rts_node_rwk::timers::pump();
         rts_core_rwk::entry::drain_microtasks();
         // Read while the context is still installed. A string's bytes are in the
         // slab beside its cell, so once the caller has the region back there is

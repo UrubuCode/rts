@@ -33,9 +33,6 @@
 
 pub mod assert;
 pub mod buffer;
-/// Written and NOT registered: a `spawnSync` aborts the process on an ambient
-/// call inside a runtime borrow, the same fault `stream` shipped with and the
-/// same fix — find it with the backtrace, not by reading. Absent beats dying.
 pub mod child_process;
 pub mod diagnostics_channel;
 pub mod crypto;
@@ -72,6 +69,7 @@ pub fn install(context: &mut Context) {
     for (name, namespace) in [
         ("assert", assert::namespace(context)),
         ("buffer", buffer::namespace(context)),
+        ("child_process", child_process::namespace(context)),
         ("crypto", crypto::namespace(context)),
         ("events", events::namespace(context)),
         ("fs", files),

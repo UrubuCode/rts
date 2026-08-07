@@ -32,7 +32,7 @@ use rts_core_rwk::entry;
 
 use super::capture::{self, Capture};
 use super::command;
-use super::shared::{option_number, option_text, string, string_array, text};
+use super::shared::{option_number, string_array, text};
 
 const DEFAULT_MAX_BUFFER: usize = 1024 * 1024;
 
@@ -89,7 +89,7 @@ fn run(spec: &command::Spec, options: u64) -> Capture {
 /// so this runs inside [`entry::with_runtime`] rather than the ambient form.
 fn input_bytes(value: u64) -> Option<Vec<u8>> {
     entry::with_runtime(|context| {
-        if let Some(text) = super::shared::text(value) {
+        if let Some(text) = super::shared::text_in(context, value) {
             return Some(text.into_bytes());
         }
         entry::bytes_of(context, value)
@@ -109,7 +109,7 @@ fn stdout_or_undefined(capture: &Capture, options: u64) -> u64 {
 
 /// Bytes as a `Buffer` (the default) or as text under `options.encoding`.
 fn encoded(context: &mut entry::Context, bytes: &[u8], options: u64) -> u64 {
-    match option_text(options, "encoding") {
+    match super::shared::option_text_in(context, options, "encoding") {
         Some(name) if name != "buffer" => {
             let text = entry::decode_bytes(bytes, &name);
             entry::make_string(context, &text)
@@ -138,7 +138,7 @@ fn spawn_sync_result(spec: &command::Spec, capture: &Capture, options: u64) -> u
             capture.status.map(|code| entry::make_number(f64::from(code))).unwrap_or_else(|| entry::null_in(context));
         entry::put_member(context, object, "status", status);
 
-        let signal = capture.signal.map(string).unwrap_or_else(|| entry::null_in(context));
+        let signal = capture.signal.map(|name| entry::make_string(context, name)).unwrap_or_else(|| entry::null_in(context));
         entry::put_member(context, object, "signal", signal);
 
         if let Some((message, code)) = &capture.error {
