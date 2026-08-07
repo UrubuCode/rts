@@ -426,7 +426,13 @@ pub fn compile_for(source: &str, regions: u32) -> Result<Compiled, HostError> {
         true => "async function",
         false => "function",
     };
-    let wrapped = format!("{wrapper} {SCRIPT}() {{ {source} }}");
+    // The newline before the closing brace is load-bearing. A file ending in a
+    // `//` comment with no trailing newline put that brace INSIDE the comment,
+    // so the wrapper never closed and the parser reported `Expected '}', got
+    // '<eof>'` — twelve files in the corpus, refused for a character this host
+    // wrote rather than for anything they contained.
+    let wrapped = format!("{wrapper} {SCRIPT}() {{ {source}
+ }}");
     // Parsed even when a module was: the script path needs it, and asking for it
     // here keeps ONE place where a parse failure becomes a `HostError`.
     let program = match &module {

@@ -110,6 +110,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::TakeThrown => (CoreEntry::TakeThrown, {
             rts_core_rwk::entry::take_thrown as extern "C" fn() -> u64 as *const u8
         }),
+        RuntimeOp::ObjectSpread => (CoreEntry::ObjectSpread, {
+            rts_core_rwk::entry::object_spread as extern "C" fn(u64, u64) -> u64 as *const u8
+        }),
         // The cast is the arity agreement, written out. Six parameters: the
         // callee, the receiver, and `ARGUMENT_SLOTS` arguments — and the
         // assertion below is what makes that sentence checkable rather than a

@@ -527,3 +527,38 @@ impl Context {
         spill[past] = value;
     }
 }
+
+/// Copies a source's own enumerable properties onto a target.
+///
+/// What `{ ...source }` is, and what `Object.assign` is over one source. A call
+/// and not emitted code because it walks a shape the compiler cannot see: how
+/// many properties a value has, and which, is a run-time fact.
+///
+/// # Why the read goes through `get_indexed`
+///
+/// A getter on the source RUNS, once, and what lands on the target is a plain
+/// data property — that is what the language says a spread does, and it is the
+/// difference from inheriting. Running it means calling user code, so the borrow
+/// is taken and released around every step rather than held across the loop: a
+/// borrow held across a call into a program aborts the process.
+///
+/// # Why the keys are collected first
+///
+/// The walk answers what the source had when the spread started. A getter that
+/// adds a property to its own object would otherwise be observed halfway, and
+/// which properties a spread copies would depend on the order they were visited
+/// in.
+#[rtse::entry("__rts_object_spread")]
+pub fn object_spread(target: u64, source: u64) -> u64 {
+    let keys = with_current(|context| {
+        super::array::key_texts(context, source, true)
+            .into_iter()
+            .map(|text| context.intern_value(text).bits())
+            .collect::<Vec<_>>()
+    });
+    for key in keys {
+        let value = super::computed::get_indexed(source, key);
+        super::computed::set_indexed(target, key, value);
+    }
+    target
+}

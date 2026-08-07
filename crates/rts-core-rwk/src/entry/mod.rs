@@ -105,7 +105,7 @@ pub use modules::{
     write_bytes,
     text_of, undefined_in, undefined_value, with_runtime,
 };
-pub use objects::{get_property, object_new, set_property};
+pub use objects::{get_property, object_new, object_spread, set_property};
 pub use promise::{drain_microtasks, promise_await, promise_new, promise_settle, settled};
 pub use operators::{
     divide, greater, greater_equal, less, less_equal, loose_equals, multiply, remainder, subtract,

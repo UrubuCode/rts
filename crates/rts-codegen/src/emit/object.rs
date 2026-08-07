@@ -96,7 +96,25 @@ pub(super) fn emit_object(
                 define_accessor(builder, ctx, object, *name, closure, is_getter)?;
                 continue;
             }
-            _ => return gap("a spread or `__proto__` in an object literal"),
+            // `{ ...source }` — the source's own enumerable properties, copied
+            // in the order they are written. A getter on the source RUNS and
+            // what lands is a plain data property, which is what the language
+            // says a spread does and the difference from inheriting.
+            Property::Spread(source) => {
+                let source = emit_expr(builder, scope, ctx, source)?;
+                let source = super::expr::as_value(builder, source);
+                super::expr::call(builder, ctx, RuntimeOp::ObjectSpread, &[object, source])?;
+                continue;
+            }
+            // `__proto__: v` in a literal SETS the prototype rather than adding
+            // a property, and only in this spelling — the tree already made that
+            // distinction, so nothing here has to re-decide it.
+            Property::Prototype(value) => {
+                let value = emit_expr(builder, scope, ctx, value)?;
+                let value = super::expr::as_value(builder, value);
+                super::expr::call(builder, ctx, RuntimeOp::SetPrototype, &[object, value])?;
+                continue;
+            }
         };
         let value = tagged(builder, value);
 

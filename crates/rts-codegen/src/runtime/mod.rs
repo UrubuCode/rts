@@ -195,6 +195,13 @@ pub enum RuntimeOp {
     /// relocation the destination fills in.
     ClosureNew,
 
+    /// Copies a source object's own enumerable properties onto a target.
+    ///
+    /// What `{ ...source }` is. A call because it walks a shape the compiler
+    /// cannot see: how many properties a value has, and which, is a run-time
+    /// fact.
+    ObjectSpread,
+
     /// Whether a throw is in flight, as `1` or `0`.
     ///
     /// A call and not an instruction because the answer is global mutable state:
@@ -509,6 +516,7 @@ impl RuntimeOp {
         RuntimeOp::GetProperty,
         RuntimeOp::SetProperty,
         RuntimeOp::ClosureNew,
+        RuntimeOp::ObjectSpread,
         RuntimeOp::Thrown,
         RuntimeOp::TakeThrown,
         RuntimeOp::StringConst,
@@ -578,6 +586,7 @@ impl RuntimeOp {
             RuntimeOp::GetProperty => "__rts_get_property",
             RuntimeOp::SetProperty => "__rts_set_property",
             RuntimeOp::ClosureNew => "__rts_closure_new",
+            RuntimeOp::ObjectSpread => "__rts_object_spread",
             RuntimeOp::Thrown => "__rts_thrown",
             RuntimeOp::TakeThrown => "__rts_take_thrown",
             RuntimeOp::StringConst => "__rts_string_const",
@@ -652,6 +661,7 @@ impl RuntimeOp {
             // address, nothing collects it, and widening it would hand the
             // collector a pointer into the text segment to trace.
             RuntimeOp::ClosureNew => (vec![Repr::I64, UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::ObjectSpread => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
             // `I64` and not a boolean: a Rust `bool` is one byte and reading it
             // as a word takes the callee's leftover bits.
             RuntimeOp::Thrown => (vec![], vec![Repr::I64]),

@@ -55,7 +55,9 @@ use super::functions::{
     MARK_DERIVED_ENTRY, REST_ARGUMENTS_ENTRY,
     SUPER_CONSTRUCT_ENTRY,
 };
-use super::objects::{GET_PROPERTY_ENTRY, OBJECT_NEW_ENTRY, SET_PROPERTY_ENTRY};
+use super::objects::{
+    GET_PROPERTY_ENTRY, OBJECT_NEW_ENTRY, OBJECT_SPREAD_ENTRY, SET_PROPERTY_ENTRY,
+};
 use super::throw::{TAKE_THROWN_ENTRY, THROWN_ENTRY};
 use super::operators::LOOSE_EQUALS_ENTRY;
 use super::operators::{
@@ -366,6 +368,9 @@ pub enum CoreEntry {
     /// read is [`CoreEntry::ModuleBinding`].
     ModulePublish = 56,
 
+    /// Copies a source object's own enumerable properties onto a target.
+    ObjectSpread = 59,
+
     /// Whether a throw is in flight.
     ///
     /// Numbered after everything that existed, because a number is never reused
@@ -381,7 +386,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 59;
+pub const CORE_ENTRY_COUNT: usize = 60;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -445,6 +450,7 @@ impl CoreEntry {
         CoreEntry::ModulePublish,
         CoreEntry::Thrown,
         CoreEntry::TakeThrown,
+        CoreEntry::ObjectSpread,
     ];
 
     /// The number a call site holds.
@@ -478,6 +484,7 @@ impl CoreEntry {
             CoreEntry::ClosureNew => CLOSURE_NEW_ENTRY,
             CoreEntry::Thrown => THROWN_ENTRY,
             CoreEntry::TakeThrown => TAKE_THROWN_ENTRY,
+            CoreEntry::ObjectSpread => OBJECT_SPREAD_ENTRY,
             CoreEntry::Call => CALL_ENTRY,
             CoreEntry::StringConst => STRING_CONST_ENTRY,
             CoreEntry::TypeOf => TYPE_OF_ENTRY,
