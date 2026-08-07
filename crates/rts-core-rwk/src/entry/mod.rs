@@ -99,7 +99,8 @@ pub use modules::{
     declare_module, encode_base64, encode_text, get_member, make_array, make_array_in, make_callable,
     make_buffer, make_namespace, make_number, make_object, make_string,
     bytes_of, is_array, is_object, make_bytes, make_instance, make_prototype, module_binding, module_namespace, null_value, number_of,
-    null_in, put_member, set_prototype_in, text_in, write_bytes,
+    Evaluator, declare_evaluator, evaluate, null_in, put_member, set_prototype_in, text_in,
+    write_bytes,
     text_of, undefined_in, undefined_value, with_runtime,
 };
 pub use objects::{get_property, object_new, set_property};
@@ -430,6 +431,12 @@ pub struct Context {
     /// A list rather than a map: a host provides a handful. See [`modules`] for
     /// what this is and, more importantly, what it is not.
     pub modules: Vec<(String, u64)>,
+    /// How a host turns source text into a value, if it offered a way.
+    ///
+    /// Absent unless one installs it: this crate has no compiler and the crate
+    /// that does depends on this one, so the capability can only arrive from
+    /// above. See [`modules::evaluate`].
+    pub evaluator: Option<modules::Evaluator>,
     /// What each tagged-template site declared, and what it has been made into.
     ///
     /// Two positions per piece — cooked then raw, as literal numbers — and the
@@ -563,6 +570,7 @@ impl Context {
             // compilation that produced the code.
             literals: Vec::new(),
             modules: Vec::new(),
+            evaluator: None,
             templates: Vec::new(),
             singletons,
             kinds,

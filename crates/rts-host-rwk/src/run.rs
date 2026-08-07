@@ -264,6 +264,10 @@ fn run_region(
     // the `context` it is HANDED. A module reaching the ambient one instead
     // would be asking for a borrow this call already holds, which is a panic in
     // an `extern "C"` frame and therefore an abort.
+    // What this crate can do and the module crates cannot: compile source. Handed
+    // DOWN because they cannot reach up — this crate depends on them, so the
+    // other direction is a cycle. See `entry::declare_evaluator`.
+    rts_core_rwk::entry::declare_evaluator(&mut context, evaluate_source);
     rts_std_rwk::install(&mut context);
     rts_node_rwk::install(&mut context);
     // The modules a program may import. Registered by the HOST rather than by
@@ -573,4 +577,36 @@ pub fn compile_for(source: &str, regions: u32) -> Result<Compiled, HostError> {
         templates: emitted.templates,
         keys: names.keyed_texts().into_iter().map(str::to_owned).collect(),
     })
+}
+
+/// Compiles and runs source text inside the program already running.
+///
+/// # Why the answer is a value and not a program
+///
+/// Because the caller is a native inside a running program — `node:vm`'s
+/// `runInThisContext`, a `repl`'s line — and what it wants is what the source
+/// produced, not something to place and enter later.
+///
+/// # What it shares with its caller, and what it does not
+///
+/// Nothing. `compile` builds a fresh program with its own key registry, literal
+/// table and region, so source evaluated here cannot see the caller's variables
+/// and the caller cannot see its declarations. That is `vm.runInNewContext`'s
+/// semantics and NOT `eval`'s, which is why nothing here is called `eval`.
+///
+/// The region is the part that matters and the part that costs: a value the
+/// evaluated program built lives in ITS region, and handing one back to a caller
+/// addressing another region is a reference that means something else there. So
+/// only a value needing no region crosses — a number, a boolean, a singleton —
+/// and anything else answers `None` rather than a wrong object. Named rather
+/// than discovered, and it is what a shared heap would remove.
+fn evaluate_source(source: &str) -> Option<u64> {
+    let mut program = compile(source).ok()?;
+    let produced = program.run();
+    // A reference belongs to the region that made it. Refusing to hand one over
+    // is the whole of the safety here; a tagged non-reference is self-contained.
+    match rts_core_rwk::value::Value(produced).as_slot() {
+        Some(_) => None,
+        None => Some(produced),
+    }
 }

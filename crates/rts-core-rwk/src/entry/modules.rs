@@ -541,3 +541,41 @@ pub fn null_in(context: &Context) -> u64 {
         u64::from(context.singletons.null),
     )
 }
+
+/// What a host can offer that this crate cannot do: turn source text into a
+/// value.
+///
+/// # Why this is an injection and not a call
+///
+/// Compiling is the host's — it owns the compiler, the placement and the region.
+/// A module that wanted it could not reach up: the host DEPENDS on the module
+/// crates, so a dependency the other way is a cycle. So the host hands the
+/// capability down, and a module asks for it by name without knowing who
+/// answered.
+///
+/// # Why the name says nothing about a client
+///
+/// `evaluate`, not `runInNewContext` or `compileScript` — the same rule that
+/// keeps a language's name out of the machine layer keeps a module's name out of
+/// this one. What crosses is the operation; what a `node:vm` or a `repl` calls
+/// it is theirs.
+///
+/// `None` until a host installs one, which is what makes a module able to say
+/// "this engine cannot evaluate source" rather than crash trying.
+pub type Evaluator = fn(&str) -> Option<u64>;
+
+/// Installs the host's evaluator.
+pub fn declare_evaluator(context: &mut Context, evaluator: Evaluator) {
+    context.evaluator = Some(evaluator);
+}
+
+/// Compiles and runs source text, answering what it produced.
+///
+/// `None` when no host installed an evaluator, or when the source did not
+/// compile — the two are deliberately one answer here, because a module asking
+/// this cannot act differently on them and a second channel to tell them apart
+/// would be a mechanism nothing uses.
+pub fn evaluate(source: &str) -> Option<u64> {
+    let evaluator = with_current(|context| context.evaluator)?;
+    evaluator(source)
+}
