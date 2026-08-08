@@ -770,15 +770,21 @@ fn calling_something_that_is_not_a_function_does_not_jump_to_it() {
 
 #[test]
 fn the_limits_of_the_fixed_arity_are_refused_by_name() {
-    // The convention carries four arguments. Going past it at the CALL is no
-    // longer refused — the arguments go in a vector the runtime holds — but
-    // going past it in the DECLARATION still is, because a fifth parameter has
-    // no slot to arrive in. Refused rather than truncated: a parameter that
-    // silently read `undefined` forever is a wrong program that runs.
-    for source in [
-        "function f(a, b, c, d, e) { return a; } return f(1);",
-        "class A {} class B extends A { constructor() { super(1, 2, 3, 4, 5); } } return new B();",
-    ] {
+    // The convention carries four arguments, and going past it is no longer
+    // refused in two of the three places it can happen. At the CALL the
+    // arguments go in a vector the runtime holds; in the DECLARATION the extra
+    // parameters are read back out of that same vector, by position, which is
+    // the array `arguments` already is.
+    compile("function f(a, b, c, d, e) { return e; } return f(1, 2, 3, 4, 5);")
+        .expect("a fifth parameter is read from the vector");
+
+    // `super()` is the one left, and it is a different path: it does not go
+    // through `CallWithArgs`, so there is no vector for a fifth argument to be
+    // in. Refused rather than truncated — an argument that silently vanished
+    // would be a wrong program that runs.
+    for source in
+        ["class A {} class B extends A { constructor() { super(1, 2, 3, 4, 5); } } return new B();"]
+    {
         let error = compile(source).expect_err("past the fixed arity");
         assert!(
             format!("{error:?}").contains("Unsupported"),

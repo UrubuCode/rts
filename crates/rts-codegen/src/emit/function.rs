@@ -205,11 +205,6 @@ fn emit_function(
         }
         None => None,
     };
-    if parameters.len() > ARGUMENT_SLOTS {
-        return Err(EmitError::Unsupported {
-            construct: "a function of more than four parameters",
-        });
-    }
 
     // A concise arrow body is `x => e`, which produces `e`. Wrapped in a
     // synthetic `return` here rather than in the parser, because the tree
@@ -524,8 +519,35 @@ fn emit_body_into(
         scope.bind_this_late(name);
     }
 
-    for (position, name) in parameters.iter().enumerate() {
+    // The first four come from the convention's slots, which is the whole of the
+    // common case and costs nothing.
+    for (position, name) in parameters.iter().take(ARGUMENT_SLOTS).enumerate() {
         binding::declare(&mut builder, &mut scope, ctx, *name, incoming[2 + position])?;
+    }
+    // A FIFTH parameter and beyond has no slot to arrive in, and this used to be
+    // refused for that. It does not need one: a call passing more than four
+    // arguments already builds a vector and goes through `CallWithArgs`, and
+    // `rest_arguments` is what reads that vector back — so the extra parameters
+    // are read out of the same array `arguments` is, by position.
+    //
+    // A caller that passed fewer builds no vector, `rest_arguments` falls back
+    // to the four slots, and the read answers `undefined` — which is exactly
+    // what a parameter nothing was passed for holds.
+    if parameters.len() > ARGUMENT_SLOTS {
+        let from = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+            repr: rts_cranelift::repr::Repr::I64,
+            bits: rts_cranelift::ir::ScalarBits(0),
+        });
+        let from = builder.use_const(from);
+        let given: Vec<ValueId> = (0..ARGUMENT_SLOTS).map(|at| incoming[2 + at]).collect();
+        let mut passed = vec![from];
+        passed.extend(given);
+        let all = expr::call(&mut builder, ctx, RuntimeOp::RestArguments, &passed)?[0];
+        for (position, name) in parameters.iter().enumerate().skip(ARGUMENT_SLOTS) {
+            let at = expr::number_constant(&mut builder, position as f64);
+            let value = expr::call(&mut builder, ctx, RuntimeOp::GetIndexed, &[all, at])?[0];
+            binding::declare(&mut builder, &mut scope, ctx, *name, value)?;
+        }
     }
 
     // Before the first statement, and after the parameters: an import is a
