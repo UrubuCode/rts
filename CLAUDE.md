@@ -77,10 +77,28 @@ three at once, which is why it is where a program runs — and why the agreement
 between them (the entry-point symbols, the singleton numbering, the property-key
 numbering) are wired and asserted there rather than assumed anywhere.
 
-**A JavaScript program compiles and runs today.** Arithmetic, comparisons, `if`,
-loops, objects and property access, through either a proven instruction or a
-runtime call. `crates/rts-host-rwk/tests/running.rs` is what says so: every test
-in it runs the program rather than inspecting it.
+**A JavaScript program compiles and runs today**, and the sentence that used to
+be here — "arithmetic, comparisons, `if`, loops, objects and property access" —
+now understates it by a long way. Classes with inheritance and private fields,
+closures, `try`/`catch`/`finally` across calls, `async`/`await` over real timers
+and sockets, modules, template literals, regular expressions, destructuring,
+spread, `for-of`, and the built-ins a program reaches by name: the `Error`
+family, `Math`, `JSON`, `Map`, `Set`, `Promise`, `Date`, `Symbol`, plus what
+`node:` provides.
+
+`crates/rts-host-rwk/tests/running.rs` is what says so — every test in it runs
+the program rather than inspecting it — and the number is measured rather than
+claimed. **2026-08-08: 535 of the 818 files in `tests/` pass, and 723 compile.**
+`crates/rts-host-rwk/examples/suite_run.rs` produced it, one process per file,
+because an uncaught exception and an endless loop each take the process with
+them and a single-process harness would report whatever it reached first as the
+score.
+
+The largest single gap is **generators**: 38 files, and the machine's half of it
+is already built and tested (`rts_cranelift::frame::resumable_form`) with nothing
+calling it. The second is that **a native cannot yet raise a catchable error**,
+which is what a dozen `node:` tests assert; `crates/rts-core-rwk/README.md` says
+what that needs and why the two obvious call sites were reverted before commit.
 
 **This is the direction for all new work.** `crates/rts-codegen-new` is the
 engine that currently runs `rts run` / `compile` / `test`, and it is being

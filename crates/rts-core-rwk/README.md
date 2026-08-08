@@ -137,10 +137,31 @@ src/
   entry/    how compiled code reaches all of the above
 ```
 
-All seven phases are in. What is deliberately absent, each with its reason in the
-plan: the write barrier's runtime side (waits for regions), loose equality and
-`ToPrimitive` resolution (wait for something that can call), and indexed storage
-(waits for arrays).
+All seven phases are in.
+
+`ToPrimitive` resolution and loose equality were listed here as absent, "waiting
+for something that can call". That thing was already in the crate: `functions::call`
+is how `Array.prototype.map`, `Set.forEach` and every promise reaction run. What
+is true is narrower — a call may not happen INSIDE a `with_current` borrow — so
+`entry/primitive.rs` holds none across one, and the protocol `coerce` states is
+wired at `+`, the four relational operators, `==`, `String()`, `Number()` and
+`join`.
+
+What is still deliberately absent: the write barrier's runtime side (waits for
+regions), `Symbol.toPrimitive` (additive on the above), and a collector — the
+heap is a region that fills, and `entry/alloc.rs` says so rather than handing
+back a cell somebody else owns.
+
+**A native still cannot raise a catchable error**, and that is now a gap with a
+known shape rather than an unexplored one. The machinery exists — a throw leaves
+one frame and every compiled call site asks — but `context.thrown` is read in
+five places, all in `entry/throw.rs` and the two operations the compiler emits.
+No native checks it. So a throw raised inside a native that was called by another
+native is left in flight and re-raised somewhere unrelated, and `entry/iterate.rs`
+loops until `done` is true, which a throwing `next` never makes it. Two callers
+were written, measured, and reverted before commit for exactly that. The
+discipline comes first: a native that calls user code must ask whether the callee
+left a throw behind before it looks at the answer.
 
 ---
 

@@ -160,9 +160,29 @@ because the object is the base of the chain's to make — which is what lets
 `class Mine extends RegExp {}` produce something with a compiled pattern.
 
 Everything not yet emitted is refused by name, and that list is the work queue.
-`PLAN.md` §3b. What each remaining one waits for is a **mechanism**: iteration
-(which spread and `for-of` over anything but an array both need), generators,
-and `await`.
+`PLAN.md` §3b. Iteration and `await` came off it — spread, `for-of` and `async`
+functions all emit — and what remains at the top is **generators**: 38 of the
+818 files in `tests/`, the largest single entry by a wide margin.
+
+The machine's half of generators is already built and tested.
+`rts_cranelift::frame::resumable_form` rewrites a suspending function into one
+that takes its frame and answers whether it finished, with a dispatch on a resume
+label; `crates/rts-cranelift/tests/frame_transform.rs` verifies, lowers, compiles
+and RUNS the result. Nothing calls it yet. What is missing is this side and the
+two around it: `function*` emitting a body that suspends, a call creating a
+generator object rather than running, and the runtime holding the parked frame.
+
+## Measured, and by what
+
+`cargo test -p rts-host-rwk --test suite_coverage -- --ignored`, over the 818
+`.test.ts` files in `tests/`, plus `crates/rts-host-rwk/examples/suite_run.rs`,
+which RUNS each one in its own process because two failure modes take the process
+with them.
+
+**2026-08-08: 723 of 818 compile (88.4 %), and 535 of 818 pass (65.4 %).** 179
+fail, 9 die. The first number is this crate's floor — a file it cannot compile
+cannot pass — and the second is the one that matters, because it is the only one
+that ran anything.
 
 Two came off that list and each is worth the sentence. Accessor properties
 arrived as a pair kept beside the cell, deliberately absent from the layout, so
@@ -176,8 +196,11 @@ There **is** a global object now: `globalThis` is a real object a program can
 reach and write to, an assignment to an undeclared name creates a property on
 it, and `typeof undeclared` answers `"undefined"` rather than failing — the
 exemption the specification gives `typeof` for taking a reference rather than a
-value. `Object`, `RegExp` and `String` are the names the runtime supplies so
-far.
+value. The runtime supplied three names when that was written — `Object`,
+`RegExp`, `String` — and supplies twenty-one now, including the `Error` family,
+`Math`, `Number`, `Boolean`, `JSON`, `Map`, `Set`, `Promise`, `Date` and
+`Symbol`. `rts-node-rwk` adds what Node makes global without an import:
+`process`, `Buffer`, `setTimeout` and `URL`.
 
 One thing is deliberately **stricter than the language**. Reading a name that
 neither the runtime provides nor the program ever assigns is refused at compile
