@@ -136,6 +136,45 @@ impl UriError {
     }
 }
 
+/// `AggregateError` — several failures reported as one.
+///
+/// # Why this one is not another line beside its siblings
+///
+/// Every other member of the family differs from `Error` in nothing but its
+/// name, which is why they are six near-identical declarations. This one takes
+/// a SECOND argument and writes a second property: `new AggregateError(errors,
+/// message)` carries the list, and `Promise.any` is the reason the language has
+/// it — a rejection that is several rejections needs somewhere to put them.
+///
+/// The argument order is the language's and is easy to get backwards: the errors
+/// come FIRST, unlike every other constructor in the family where the message
+/// is the only argument.
+#[rtse::class("AggregateError", extends = register_error)]
+impl AggregateError {
+    /// The name every instance answers.
+    const name: &str = "AggregateError";
+
+    /// `new AggregateError(errors, message)`.
+    #[construct]
+    fn build(this: u64, errors: u64, message: u64) -> u64 {
+        let made = written(this, message, "AggregateError");
+        with_current(|context| {
+            let Some(cell) = Value(made).as_slot() else {
+                return made;
+            };
+            // Written whatever it is, and NOT copied into a fresh array. The
+            // language says `errors` is iterated and the result is an array; an
+            // iteration here would call user code from an entry point, which is
+            // the borrow rule this crate aborts on. So an array arrives as
+            // itself and anything else arrives as itself — visible to a program
+            // rather than silently emptied.
+            let key = context.well_known("errors");
+            super::objects::put(context, cell, key, errors);
+            made
+        })
+    }
+}
+
 /// The object, with its message written on it.
 ///
 /// # Why the receiver may have to be made here
@@ -232,6 +271,7 @@ pub(super) fn provided(name: &str) -> Option<fn(&mut Context) -> u64> {
         "ReferenceError" => register_reference_error,
         "EvalError" => register_eval_error,
         "URIError" => register_uri_error,
+        "AggregateError" => register_aggregate_error,
         _ => return None,
     })
 }

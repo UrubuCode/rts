@@ -98,6 +98,7 @@ const PROVIDED: &[&str] = &[
     "Uint8ClampedArray",
     "structuredClone",
     "Symbol",
+    "AggregateError",
     "SyntaxError",
     "TypeError",
     "URIError",
@@ -122,11 +123,13 @@ const PROVIDED: &[&str] = &[
     // makes the compile-rate measurement count a file that cannot work. This
     // repository's honesty floor names that exact failure — a number measured
     // against a corpus quietly smaller than claimed. `fetch`, `Blob`, `require`,
-    // `Proxy`, `AggregateError`, `SharedArrayBuffer`, `WeakRef`,
-    // `FinalizationRegistry`, `Atomics`, `eval` and `Intl` are all reached by
-    // the suite and are all ABSENT here for that reason, until something
-    // supplies them. The WHATWG group below was added by the change that
-    // installed it in `rts-std-rwk`, not before.
+    // `Proxy`, `SharedArrayBuffer`, `WeakRef`, `FinalizationRegistry`,
+    // `Atomics`, `eval` and `Intl` are all reached by the suite and are all
+    // ABSENT here for that reason, until something supplies them. `Error` is
+    // above rather than here because the runtime's error family answers for
+    // itself, and `AggregateError` joined that family in the change that added
+    // it — the list follows the value, never the other way round. The WHATWG
+    // group below was added by the change that installed it in `rts-std-rwk`.
     //
     // Node's:
     "process",
