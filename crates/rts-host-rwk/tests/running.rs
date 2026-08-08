@@ -2728,32 +2728,31 @@ fn a_class_can_extend_something_the_runtime_supplied() {
 }
 
 #[test]
-fn what_a_class_still_cannot_express_is_refused_by_name() {
+fn what_a_class_could_not_express_now_compiles() {
     // A private field, a private method, a computed member name and a static
-    // block moved OFF this list: `crates/rts-codegen/src/emit/class.rs` lowers
-    // all four now, reusing the reserved-name space `rts-core-rwk`'s `Symbol`
-    // key already uses for a private member's key, the ordinary computed-key
-    // machinery for a member name, and an inline run of statements for a
-    // static block. What is left needs a mechanism this lowering genuinely does
-    // not have:
+    // block moved off this list first, when `emit/class.rs` learned to lower
+    // them. The last two came off after:
     //
-    // - a computed ACCESSOR name, because `DefineGetter`/`DefineSetter` take
-    //   the key the compiler resolved as a constant — the same limit an object
-    //   literal's accessor has, named in `object.rs`.
-    // - `#x in o`, because the private name on its own reaches `emit_expr`
-    //   through the generic binary-operator path in `expr.rs`, which is a
-    //   file this lowering's own module does not own and a gap outside its
-    //   present scope to close.
-    // A computed ACCESSOR name was on this list and came off. It was refused
-    // because `DefineGetter`/`DefineSetter` take the key the compiler resolved
-    // as a constant — still true — and what changed is that a VALUE can now be
-    // resolved to one, through `__rts_key_number`. There is still exactly one
-    // way to define an accessor, which is what the refusal was protecting.
-    for (source, expected) in [("class A { #x = 1; has() { return #x in this; } }", "private name")]
-    {
-        let error = compile(source).expect_err("refused");
-        let text = format!("{error:?}");
-        assert!(text.contains(expected), "{source} gave {text}");
+    // - a computed ACCESSOR name was refused because `DefineGetter`/
+    //   `DefineSetter` take the key the compiler resolved as a constant. Still
+    //   true — what changed is that a VALUE can be resolved to one, through
+    //   `__rts_key_number`, so there is still exactly one way to define an
+    //   accessor. That is what the refusal was protecting.
+    // - `#x in o` was refused because the private name reached `emit_expr`
+    //   through the generic binary-operator path, which asks both operands for
+    //   a VALUE. A private name is a key and nothing else, so the operator
+    //   answers for it rather than the operand, and only the object is
+    //   evaluated.
+    //
+    // The list is empty, and this is what it BECAME rather than what it was
+    // deleted as. An empty loop asserts nothing; these two do — each is a
+    // construct that worked the day this changed and would otherwise stop
+    // silently.
+    for source in [
+        "class A { get [\"a\"]() { return 1; } } return new A().a;",
+        "class A { #x = 1; has() { return #x in this; } } return new A().has();",
+    ] {
+        compile(source).unwrap_or_else(|error| panic!("`{source}` no longer compiles: {error:?}"));
     }
 }
 
