@@ -104,6 +104,20 @@ pub fn emit_expr(
                     return emit_literal(builder, ctx, &folded);
                 }
             }
+            // `#x in o` is the one binary form whose LEFT operand is not a
+            // value. A private name is a key and nothing else — `parse/mod.rs`
+            // interns `#x` as `"@@#x"`, an ordinary property in a reserved name
+            // space — so there is nothing to evaluate on that side, and asking
+            // `emit_expr` for one is what refused this by name.
+            //
+            // Only the object is evaluated, which is also the order the language
+            // states: there is no other operand to have a side effect.
+            if let (BinaryOp::In, ExprKind::PrivateName(held)) = (op, &left.kind) {
+                let object = emit_expr(builder, scope, ctx, right)?;
+                let text = ctx.names.text(*held).to_owned();
+                let key = emit_literal(builder, ctx, &Literal::String(text))?;
+                return emit_binary(builder, ctx, BinaryOp::In, key, object);
+            }
             // Left before right, unconditionally. Every JavaScript binary
             // operator evaluates its operands in source order even where it
             // then converts them in the other order, and emitting in the wrong
