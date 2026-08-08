@@ -275,12 +275,31 @@ fn bind_caught(
 /// frame now, so that is gone — EXCEPT where the region has a cleanup.
 ///
 /// The check `expr::call` emits after every operation creates blocks, and a
-/// throw raised from one of them unwinds through the cleanup chain. Something
-/// about that combination makes the lowering read a value it has not lowered
-/// yet — `no entry found for key`, a panic inside the compiler rather than a
-/// refusal. It is refused here until that is understood, because a compiler that
-/// crashes is worse than one that says no: the crash was found by a probe over
-/// the corpus, not by a test, and it had already been committed.
+/// throw raised from one of them unwinds through the cleanup chain. That
+/// combination makes the lowering read a value it has not lowered yet — `no
+/// entry found for key`, a panic inside the compiler rather than a refusal.
+///
+/// # What is known about it, so the next attempt starts further along
+///
+/// Narrowed with a probe that prints the missing value and what defines it:
+///
+/// - `try { g(); } finally { g(); }` over a LOCAL function compiles and runs.
+///   The ingredient is a GLOBAL read — `console.log` — in either arm.
+/// - the missing value is defined by an ordinary `Call` in an early block, and
+///   is read while a later position is being lowered. So a cleanup COPY is
+///   reading a value defined outside itself — which is exactly what
+///   `lower/cleanup.rs`'s own doc names as the thing making a copy sound: "it
+///   still reads only values it defines itself".
+/// - `emit_try` creates the cleanup block BEFORE the body, so it carries a lower
+///   id and is lowered earlier than the block defining what it reads.
+///
+/// That reframes it as a violation of the cleanup contract rather than a fault
+/// in the throw check, which is only what exposed it. Whoever picks it up should
+/// look at what a cleanup's copy is allowed to reference.
+///
+/// Refused meanwhile, because a compiler that crashes is worse than one that
+/// says no — and this one was found by a probe over the corpus rather than by a
+/// test, after it had already been committed.
 fn calls_something(body: &[Stmt]) -> Option<&'static str> {
     let mut found = false;
     for statement in body {
