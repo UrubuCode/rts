@@ -38,7 +38,7 @@ JS spec compatibility validated against **Bun** and **Node** over 708 standalone
 | 🚫 Rejected (RTS-only) | 0 |
 | 📦 Total fixtures | 708 |
 
-_Updated: 2026-08-07 — [how to add a fixture](the spec removed 2026-08-03 (see git history))_
+_Updated: 2026-08-08 — [how to add a fixture](the spec removed 2026-08-03 (see git history))_
 
 <!-- CROSS_RUNTIME_STATS_END -->
 
