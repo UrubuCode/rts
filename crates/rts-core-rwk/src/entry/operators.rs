@@ -61,9 +61,24 @@ pub(super) fn operands(context: &Context, left: Value, right: Value) -> (f64, f6
     )
 }
 
+/// The order every operator in this file converts its operands in.
+///
+/// Left then right, which is what `coerce::add_operand_order` states for `+`.
+/// The same order, taken from the same place rather than written a second time:
+/// the two have no reason to differ and every reason to be got wrong separately.
+fn operand_order() -> [crate::coerce::Side; 2] {
+    crate::coerce::add_operand_order()
+}
+
 /// `a - b`.
 #[rtse::entry]
 pub fn subtract(left: u64, right: u64) -> u64 {
+    let (left, right) = super::primitive::operands(
+        left,
+        right,
+        operand_order(),
+        crate::coerce::Hint::Number,
+    );
     with_current(|context| {
         if let Some(answer) = super::bigint_class::binary(context, Op::Sub, left, right) {
             return answer;
@@ -76,6 +91,12 @@ pub fn subtract(left: u64, right: u64) -> u64 {
 /// `a * b`.
 #[rtse::entry]
 pub fn multiply(left: u64, right: u64) -> u64 {
+    let (left, right) = super::primitive::operands(
+        left,
+        right,
+        operand_order(),
+        crate::coerce::Hint::Number,
+    );
     with_current(|context| {
         if let Some(answer) = super::bigint_class::binary(context, Op::Mul, left, right) {
             return answer;
@@ -92,6 +113,12 @@ pub fn multiply(left: u64, right: u64) -> u64 {
 /// would be replacing the language's answer with a different one.
 #[rtse::entry]
 pub fn divide(left: u64, right: u64) -> u64 {
+    let (left, right) = super::primitive::operands(
+        left,
+        right,
+        operand_order(),
+        crate::coerce::Hint::Number,
+    );
     with_current(|context| {
         if let Some(answer) = super::bigint_class::binary(context, Op::Div, left, right) {
             return answer;
@@ -110,6 +137,12 @@ pub fn divide(left: u64, right: u64) -> u64 {
 /// recorded rather than relied on silently.
 #[rtse::entry]
 pub fn remainder(left: u64, right: u64) -> u64 {
+    let (left, right) = super::primitive::operands(
+        left,
+        right,
+        operand_order(),
+        crate::coerce::Hint::Number,
+    );
     with_current(|context| {
         if let Some(answer) = super::bigint_class::binary(context, Op::Rem, left, right) {
             return answer;
@@ -127,6 +160,16 @@ pub fn remainder(left: u64, right: u64) -> u64 {
 /// the compiler already knows. Four symbols cost four rows in a table that is
 /// read in one screen, and each call site passes only what varies.
 fn compare(op: Relational, left: u64, right: u64) -> bool {
+    // Outside the borrow, and in the operators own order: `a <= b` is specified
+    // as `!(b < a)`, so it converts the RIGHT operand first. That is invisible
+    // until an operand has a side-effecting `valueOf`, which is why the order
+    // comes from `coerce` rather than being assumed to be left-to-right here.
+    let (left, right) = super::primitive::operands(
+        left,
+        right,
+        crate::coerce::relational_operand_order(op),
+        crate::coerce::Hint::Number,
+    );
     with_current(|context| {
         // Asked before the closures below, and before conversion: a bigint and
         // a number DO compare in the language — only *arithmetic* between them
@@ -319,14 +362,31 @@ mod tests {
 /// a boolean converts to a number and a string compared against a number
 /// converts too.
 ///
-/// An object against a primitive answers `false`, and that is a contract
-/// violation rather than an answer: the compiler is meant to have resolved
-/// `ToPrimitive` before calling here. `false` is chosen for the same reason the
-/// arithmetic operators choose `NaN` — it is the value least likely to be
-/// mistaken for a correct one, and unlike a panic it does not turn a compiler
-/// defect into a dead process while the compiler is being written.
+/// An object against a primitive is converted first, by
+/// [`super::primitive::to_primitive`] — which is what "waited for a client"
+/// above was waiting for. It used to answer `false`, so `[] == 0` and `[] == ""`
+/// were both wrong.
+///
+/// **Only when exactly one side is an object.** Two objects compare by identity
+/// and must never be converted: `{} == {}` is false, and a pair converted first
+/// would compare `"[object Object]"` against itself and answer true.
 #[rtse::entry]
 pub fn loose_equals(left: u64, right: u64) -> bool {
+    // Outside the borrow, and before anything else reads the operands: a
+    // conversion runs user code. Guarded so the identity rule above survives.
+    let (left_object, right_object) = with_current(|context| {
+        (
+            super::primitive::is_object_in(context, left),
+            super::primitive::is_object_in(context, right),
+        )
+    });
+    let hint = crate::coerce::Hint::Default;
+    let (left, right) = match (left_object, right_object) {
+        (true, false) => (super::primitive::to_primitive(left, hint), right),
+        (false, true) => (left, super::primitive::to_primitive(right, hint)),
+        _ => (left, right),
+    };
+
     with_current(|context| {
         let (left, right) = (Value(left), Value(right));
 

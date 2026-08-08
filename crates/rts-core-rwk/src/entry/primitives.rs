@@ -26,6 +26,27 @@ use crate::value::{Value, strict_equals as values_strict_equals, to_boolean as v
 /// states — this cannot do it, because running a `valueOf` is calling.
 #[rtse::entry]
 pub fn add(left: u64, right: u64) -> u64 {
+    // Before the borrow, and left before right — which is what
+    // `coerce::add_operand_order` states and the reason it is a function rather
+    // than a comment: the left operand's `valueOf` runs to completion before the
+    // right operand is looked at, so a pair of side-effecting conversions
+    // observes the same sequence the language specifies. Converting both in
+    // whatever order was convenient gives the right answer for every value
+    // without a side effect and the wrong one for the values that have them.
+    //
+    // Outside `with_current` because a conversion calls user code, and a second
+    // borrow inside an `extern "C"` frame aborts the process rather than
+    // unwinding.
+    let mut operands = [left, right];
+    for side in crate::coerce::add_operand_order() {
+        let at = match side {
+            crate::coerce::Side::Left => 0,
+            crate::coerce::Side::Right => 1,
+        };
+        operands[at] = super::primitive::to_primitive(operands[at], crate::coerce::Hint::Default);
+    }
+    let [left, right] = operands;
+
     with_current(|context| {
         // Asked before the numeric path and AFTER the string one, which is the
         // order the specification states and the order that is easy to get

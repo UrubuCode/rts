@@ -3727,3 +3727,52 @@ fn a_write_inside_a_constructors_arguments_survives_a_loop() {
     let inside_array = run("let y = 0; let i = 0; while (i < 2) { [y = i]; i = i + 1; } return y;");
     assert_eq!(tags::decode_double(inside_array), 1.0);
 }
+
+/// `ToPrimitive` runs the object's own method, and in the order each operator
+/// specifies.
+///
+/// Every one of these answered `NaN`, `undefined` or `false` before: nothing
+/// called `valueOf` or `toString`, so an object reaching an operator fell out of
+/// the conversion as an absence and was reported as a value. That is the worst
+/// shape a defect can have — `'x' + {}` being `NaN` is indistinguishable from
+/// arithmetic that went wrong somewhere upstream.
+#[test]
+fn an_object_operand_is_converted_by_its_own_method() {
+    // `+` prefers `valueOf`; `String` prefers `toString`. The same object, two
+    // answers, which is what makes the hint more than decoration.
+    let both = run(
+        "let o = { valueOf() { return 9; }, toString() { return \"t\"; } }; \
+         return (o + 0) === 9 && String(o) === \"t\" ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(both), 1.0);
+
+    // Through the prototypes that were already there and unreachable: an array
+    // converts by `Array.prototype.toString`, a plain object by
+    // `Object.prototype.toString`.
+    let inherited = run("return \"x\" + {} === \"x[object Object]\" && String([1, 2]) === \"1,2\" ? 1 : 0;");
+    assert_eq!(tags::decode_double(inherited), 1.0);
+
+    // Arithmetic, relational and loose equality, all of which read the object
+    // through the same conversion.
+    let operators = run(
+        "let o = { valueOf() { return 7; } }; \
+         return (o - 2) === 5 && (o * 2) === 14 && o > 6 && ([] == 0) ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(operators), 1.0);
+
+    // Two objects are still compared by identity. Converting both first would
+    // make `{} == {}` true, which is the one thing this must not break.
+    let identity = run("let a = {}; return ({} == {}) === false && (a == a) === true ? 1 : 0;");
+    assert_eq!(tags::decode_double(identity), 1.0);
+
+    // The order is observable, and it is not left-to-right for `<=`: that is
+    // specified as `!(b < a)`, so the right operand converts first.
+    let order = run(
+        "let log = \"\"; \
+         let a = { valueOf() { log += \"a\"; return 1; } }; \
+         let b = { valueOf() { log += \"b\"; return 2; } }; \
+         a <= b; let first = log; log = \"\"; a + b; \
+         return first === \"ba\" && log === \"ab\" ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(order), 1.0);
+}

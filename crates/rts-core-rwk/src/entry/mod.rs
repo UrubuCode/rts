@@ -71,6 +71,7 @@ mod object_proto;
 mod modules;
 mod objects;
 mod operators;
+mod primitive;
 mod primitive_proto;
 mod primitives;
 mod promise;

@@ -97,10 +97,16 @@ extern "C" fn convert(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
+    // `ToPrimitive` first, and OUTSIDE the borrow: it may run a `toString`,
+    // and that is user code whose first act may be to call the runtime. This
+    // used to answer `undefined` for every object — `String([1, 2])` was
+    // `"undefined"` — with a comment saying an entry point cannot call. It can;
+    // `functions::call` is how every callback in this crate already runs.
+    let value = super::primitive::to_primitive(value, crate::coerce::Hint::String);
     with_current(|context| match super::text::to_text(context, Value(value)) {
         Some(text) => context.intern_value(text).bits(),
-        // An object, whose `ToString` runs a `toString` an entry point cannot
-        // call. The same boundary every conversion in this crate stops at.
+        // Still not a primitive after the conversion, or a symbol, which does
+        // not convert at all. The absence stays.
         None => undefined_of(context),
     })
 }

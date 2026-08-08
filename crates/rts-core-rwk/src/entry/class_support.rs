@@ -113,12 +113,18 @@ pub(in crate::entry) fn constants(context: &mut Context, cell: u32, constants: &
     }
 }
 
-/// `ToNumber` of an argument, as far as an entry point can take it.
+/// `ToNumber` of an argument.
 ///
-/// `NaN` for an object, which is where the conversion would run a `valueOf` —
-/// the same boundary every coercion in this crate stops at, and the answer such
-/// an object would have produced anyway.
+/// An object is converted by its `valueOf` first, outside any borrow, because
+/// that is user code. It used to answer `NaN` there with a comment calling it
+/// "the answer such an object would have produced anyway" — which was true of
+/// `{}` and false of every object that defines a `valueOf`, so
+/// `Number({ valueOf() { return 5 } })` was `NaN`.
+///
+/// `NaN` remains for what genuinely does not convert: an object whose two
+/// methods both answer objects, and a symbol.
 pub(in crate::entry) fn to_number(value: u64) -> f64 {
+    let value = super::primitive::to_primitive(value, crate::coerce::Hint::Number);
     with_current(|context| super::operators::as_number(context, Value(value)).unwrap_or(f64::NAN))
 }
 
