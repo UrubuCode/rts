@@ -194,3 +194,67 @@ fn the_shape_the_corpus_actually_writes() {
     let source = "import { describe, test, expect } from \"rts:test\";\nimport { io } from \"rts\";\n\nlet captured: string = \"\";\nfunction print(value: string): void { captured += value; }\n\ndescribe(\"a\", function () { test(\"b\", function () { expect(1).toBe(1); }); });\n";
     rts_host_rwk::compile(source).expect("what every file in the suite starts with");
 }
+
+/// Every `.ts` under `tests/`, not only the `.test.ts` at its top level.
+///
+/// # Why a second measurement rather than a wider first one
+///
+/// Because they answer different questions and one of them was going
+/// unanswered. [`what_the_new_engine_compiles_of_the_suite`] reads the 818
+/// top-level `.test.ts` — the harness corpus, the files `rts test` runs — and
+/// that is the number this crate's documentation quotes. Underneath them sit
+/// another seven hundred: `tests/cross-runtime/` and its siblings, driven by
+/// `examples/run_fixture.rs` in a separate process.
+///
+/// Nearly half the corpus was therefore outside the only committed measurement,
+/// and it showed. A change that took the top-level number from 673 to 673 moved
+/// this one by twelve; a change that broke 739 files here was invisible there
+/// until someone happened to look. Both were measured with a throwaway probe
+/// written from scratch each time, which is exactly the shape this repository's
+/// rule about coverage exists to prevent — a number produced by running
+/// something, stated with what produced it, rather than by a script that does
+/// not survive the session that needed it.
+///
+/// Ignored by default like its neighbour: it compiles fifteen hundred files.
+#[test]
+#[ignore = "walks every .ts under tests/; run with --ignored --nocapture"]
+fn what_the_new_engine_compiles_of_every_file() {
+    let mut files: Vec<(PathBuf, String)> = Vec::new();
+    collect(&suite(), &mut files);
+
+    // The same guard the top-level measurement carries, for the same reason: a
+    // corpus that quietly shrank is a number measured against less than it
+    // claims.
+    assert!(
+        files.len() > 1400,
+        "the tree holds about 1542 .ts files; {} were read, so this would report \
+         a score for a corpus smaller than the one being claimed",
+        files.len()
+    );
+
+    let total = files.len();
+    let (compiled, reasons) = measure(&files, false);
+    report("Every .ts under tests/", total, compiled, &reasons);
+}
+
+/// Every `.ts` under a directory, walked.
+///
+/// Recursive where the top-level measurement is not, which is the whole
+/// difference between the two.
+fn collect(at: &Path, into: &mut Vec<(PathBuf, String)>) {
+    let Ok(entries) = fs::read_dir(at) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect(&path, into);
+            continue;
+        }
+        if path.extension().is_some_and(|kind| kind == "ts")
+            && let Ok(source) = fs::read_to_string(&path)
+        {
+            into.push((path, source));
+        }
+    }
+}
