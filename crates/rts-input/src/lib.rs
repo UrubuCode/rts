@@ -27,7 +27,9 @@
 
 use std::cell::RefCell;
 
+#[cfg(feature = "old-engine")]
 pub mod abi;
+#[cfg(feature = "old-engine")]
 pub use abi::register_input;
 
 /// O contrato de ENTRADA: o backend CAPTA o input cru (tem a janela; o SO entrega

@@ -19,7 +19,7 @@
 //! |---|---|
 //! | `rts:test` | `describe`/`test`/`expect`, and the record they leave |
 //! | `rts:runtime` | the module table, from inside a running program |
-//! | `rts:egui` | **not registered** — see below |
+//! | `rts:egui` | outro crate — `rts-ui-rwk`, ver abaixo |
 //!
 //! # `rts:io` is gone, and the measurement that removed it
 //!
@@ -34,20 +34,21 @@
 //! replaced by a thinner one — a specifier kept alive for one caller is a
 //! surface to keep in agreement for no reader.
 //!
-//! # `rts:egui` is absent, and why that is not an omission
+//! # `rts:egui` vive em `rts-ui-rwk`, e por quê
 //!
-//! The `rts-egui` crate exists and is real, and it was written against the OLD
-//! engine: its natives are linker symbols resolved through `rts-abi`, which is
-//! the interface `rts_cranelift::abi` replaced. A native in the new engine is a
-//! function pointer stored beside a cell — see
-//! `docs/engine/authoring-natives.md` — so wiring the two together is a port,
-//! not a registration.
+//! Este arquivo dizia que `rts:egui` não era registrado: o crate `rts-egui`
+//! falava a ABI do motor antigo — natives como símbolos de linker resolvidos por
+//! `rts-abi`, que `rts_cranelift::abi` substituiu — e registrar uma casca que
+//! recusasse todo membro faria o `import` compilar e não desenhar nada, que para
+//! uma superfície de UI é o modo de falhar que custa mais tempo até ser
+//! entendido.
 //!
-//! Registering a shell that refused every member was considered and rejected: it
-//! would make `import { … } from "rts:egui"` compile and then draw nothing,
-//! which for a UI surface is the failure mode that wastes the most time before
-//! it is understood. An unresolved specifier says the same thing at the import
-//! line.
+//! Ele foi portado, e não para cá. Uma janela precisa de um sistema de janelas:
+//! não existe em wasm nem num build headless, e essa é a mesma regra de
+//! DISPONIBILIDADE que mantém `Math` no runtime e `io.print` fora dele. Um alvo
+//! sem tela não deve carregar wgpu e winit no grafo para descobrir isso, então
+//! `rts:egui` e `rts:input` são um crate próprio — `rts-ui-rwk` — atrás de uma
+//! feature do host.
 //!
 //! # What this crate is NOT
 //!
