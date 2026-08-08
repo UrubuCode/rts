@@ -223,6 +223,20 @@ pub enum RuntimeOp {
     /// thrown — must not pay for reading a value that is not there.
     TakeThrown,
 
+    /// The function currently running, as a value.
+    ///
+    /// What a NAMED FUNCTION EXPRESSION resolves its own name to. `const f =
+    /// function fact(n) { … fact(n - 1) … }` binds `fact` inside the body and
+    /// nowhere else, and the value it binds is the function itself — not the
+    /// outer `f`, which may be reassigned or may not exist.
+    ///
+    /// A call and not an instruction because the answer is global mutable state:
+    /// the runtime pushes the callable it is about to jump to, and this reads the
+    /// top of that stack. A function has no other way to name itself — its
+    /// environment slot holds what it CLOSES OVER, which for a function defined
+    /// at the top level is nothing at all.
+    RunningFunction,
+
     /// A string literal, named by the number the compilation gave it.
     ///
     /// An entry point because a string is a heap value and two occurrences of
@@ -527,6 +541,7 @@ impl RuntimeOp {
         RuntimeOp::KeyNumber,
         RuntimeOp::Thrown,
         RuntimeOp::TakeThrown,
+        RuntimeOp::RunningFunction,
         RuntimeOp::StringConst,
         RuntimeOp::TemplateStrings,
         RuntimeOp::ModuleBinding,
@@ -598,6 +613,7 @@ impl RuntimeOp {
             RuntimeOp::KeyNumber => "__rts_key_number",
             RuntimeOp::Thrown => "__rts_thrown",
             RuntimeOp::TakeThrown => "__rts_take_thrown",
+            RuntimeOp::RunningFunction => "__rts_running_function",
             RuntimeOp::StringConst => "__rts_string_const",
             RuntimeOp::TemplateStrings => "__rts_template_strings",
             RuntimeOp::ModuleBinding => "__rts_module_binding",
@@ -678,6 +694,7 @@ impl RuntimeOp {
             // as a word takes the callee's leftover bits.
             RuntimeOp::Thrown => (vec![], vec![Repr::I64]),
             RuntimeOp::TakeThrown => (vec![], vec![UNPROVEN]),
+            RuntimeOp::RunningFunction => (vec![], vec![UNPROVEN]),
             // Which literal, not the text: an index the compilation minted.
             RuntimeOp::StringConst => (vec![Repr::I64], vec![UNPROVEN]),
             RuntimeOp::TemplateStrings => (vec![Repr::I64], vec![UNPROVEN]),

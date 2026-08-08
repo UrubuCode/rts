@@ -9,10 +9,19 @@
 //! and answer differently from every other engine.
 //!
 //! So the receiver becomes `Vec<u16>` at the top of each method and the answer
-//! is built from units. That is a copy per call, which is a real cost and the
-//! honest starting point: the alternative is indexing into the two layouts a
-//! `Str` can have from seventeen places, and a rope-aware version of that
-//! belongs after something measures it.
+//! is built from units. That is a copy per call, which was called "a real cost
+//! and the honest starting point" here, with the note that indexing the two
+//! layouts a `Str` can have belonged "after something measures it".
+//!
+//! **Something measured it.** For the three methods that read ONE unit —
+//! `charAt`, `charCodeAt`, `at` — the copy is the whole cost, and it makes a
+//! scan quadratic: 10 000 characters took 0.86 s, 20 000 took 3.17 s, 40 000
+//! took 14.4 s, 80 000 took 63.1 s. Four times per doubling, and the suite file
+//! that scans 100 000 never finished at all.
+//!
+//! Those three now use `super::indexed`, which is `Str::unit_at` — constant time
+//! for both layouts, and it already existed. The methods that genuinely walk the
+//! whole string still take the copy, because they read all of it anyway.
 
 use super::super::with_current;
 use super::super::native::Native;
@@ -49,54 +58,63 @@ pub(super) const NATIVES: &[(&str, Native)] = &[
 /// that answered the same for both would make `s.charAt(9) === ""` false.
 extern "C" fn char_at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
-        let Some(units) = units_of(context, this) else {
+        let Some(length) = super::length_of(context, this) else {
             return nothing(context);
         };
         let at = Value(index).numeric().unwrap_or(0.0);
-        if at < 0.0 || at >= units.len() as f64 {
+        if at < 0.0 || at >= length as f64 {
             return answer(context, &[]);
         }
-        answer(context, &units[at as usize..at as usize + 1])
+        match super::indexed(context, this, at as usize) {
+            Some(unit) => answer(context, &[unit]),
+            None => answer(context, &[]),
+        }
     })
 }
 
 /// `s.charCodeAt(i)` — the code unit as a number.
 extern "C" fn char_code_at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
-        let Some(units) = units_of(context, this) else {
+        let Some(length) = super::length_of(context, this) else {
             return nothing(context);
         };
         let at = Value(index).numeric().unwrap_or(0.0);
-        if at < 0.0 || at >= units.len() as f64 {
+        if at < 0.0 || at >= length as f64 {
             // `NaN`, not `undefined`. A program comparing the result to a number
             // gets false either way; one doing arithmetic with it gets `NaN`
             // where `undefined` would also give `NaN` — but `typeof` tells them
             // apart, and the language says which it is.
             return Value::from_f64(f64::NAN).bits();
         }
-        Value::from_f64(f64::from(units[at as usize])).bits()
+        match super::indexed(context, this, at as usize) {
+            Some(unit) => Value::from_f64(f64::from(unit)).bits(),
+            None => Value::from_f64(f64::NAN).bits(),
+        }
     })
 }
 
 /// `s.at(i)` — like the index, but negative counts from the end.
 extern "C" fn at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
-        let Some(units) = units_of(context, this) else {
+        let Some(length) = super::length_of(context, this) else {
             return nothing(context);
         };
         let asked = Value(index).numeric().unwrap_or(0.0);
         let at = if asked < 0.0 {
-            units.len() as f64 + asked
+            length as f64 + asked
         } else {
             asked
         };
         // Out of range is `undefined` here and the empty string for `charAt`.
         // Not a nicety: `at` was added to the language precisely because the
         // older method could not say "there is nothing there".
-        if at < 0.0 || at >= units.len() as f64 {
+        if at < 0.0 || at >= length as f64 {
             return nothing(context);
         }
-        answer(context, &units[at as usize..at as usize + 1])
+        match super::indexed(context, this, at as usize) {
+            Some(unit) => answer(context, &[unit]),
+            None => nothing(context),
+        }
     })
 }
 

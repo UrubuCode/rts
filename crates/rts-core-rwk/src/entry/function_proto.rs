@@ -171,3 +171,25 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     }
     Value(super::class_support::prototype(context, "Function")?).as_slot()
 }
+
+/// The function currently running, as a value.
+///
+/// What a NAMED FUNCTION EXPRESSION resolves its own name to. `const f =
+/// function fact(n) { … fact(n - 1) … }` binds `fact` for the body and nowhere
+/// else, and the value is the function itself rather than the outer `f` — which
+/// may be reassigned, or may be a property, or may not exist at all.
+///
+/// It reads the same stack a bound function reads to know which binding it is,
+/// and for the same reason: a compiled function's environment slot holds what it
+/// CLOSES OVER, which for one defined at the top level is nothing. The call is
+/// where the identity is, so the call is where it is recorded.
+///
+/// `undefined` when nothing is running, which compiled code cannot reach — the
+/// emitter puts this at the top of a body, and a body runs because it was called.
+#[rtse::entry]
+pub fn running_function() -> u64 {
+    with_current(|context| match current_callee(context) {
+        0 => super::objects::undefined_of(context),
+        callee => callee,
+    })
+}

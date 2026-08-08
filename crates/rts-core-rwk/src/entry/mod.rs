@@ -106,6 +106,7 @@ pub use modules::{
     write_bytes,
     text_of, undefined_in, undefined_value, with_runtime,
 };
+pub use function_proto::running_function;
 pub use objects::{get_property, object_new, object_spread, set_property};
 pub use promise::{drain_microtasks, promise_await, promise_new, promise_settle, settled};
 pub use operators::{

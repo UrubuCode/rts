@@ -59,6 +59,7 @@ use super::functions::{
 use super::objects::{
     GET_PROPERTY_ENTRY, OBJECT_NEW_ENTRY, OBJECT_SPREAD_ENTRY, SET_PROPERTY_ENTRY,
 };
+use super::function_proto::RUNNING_FUNCTION_ENTRY;
 use super::throw::{TAKE_THROWN_ENTRY, THROWN_ENTRY};
 use super::operators::LOOSE_EQUALS_ENTRY;
 use super::operators::{
@@ -383,6 +384,9 @@ pub enum CoreEntry {
 
     /// The value in flight, clearing it.
     TakeThrown = 58,
+
+    /// [`super::running_function`].
+    RunningFunction = 61,
 }
 
 /// How many entry points exist.
@@ -390,7 +394,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 61;
+pub const CORE_ENTRY_COUNT: usize = 62;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -456,6 +460,7 @@ impl CoreEntry {
         CoreEntry::TakeThrown,
         CoreEntry::ObjectSpread,
         CoreEntry::KeyNumber,
+        CoreEntry::RunningFunction,
     ];
 
     /// The number a call site holds.
@@ -489,6 +494,7 @@ impl CoreEntry {
             CoreEntry::ClosureNew => CLOSURE_NEW_ENTRY,
             CoreEntry::Thrown => THROWN_ENTRY,
             CoreEntry::TakeThrown => TAKE_THROWN_ENTRY,
+            CoreEntry::RunningFunction => RUNNING_FUNCTION_ENTRY,
             CoreEntry::ObjectSpread => OBJECT_SPREAD_ENTRY,
             CoreEntry::KeyNumber => KEY_NUMBER_ENTRY,
             CoreEntry::Call => CALL_ENTRY,

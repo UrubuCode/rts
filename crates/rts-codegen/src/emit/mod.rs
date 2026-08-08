@@ -496,6 +496,9 @@ pub fn emit_program_with_exports(
         false,
         None,
         None,
+        // Neither a module body nor a program body is a function expression, so
+        // neither has a name of its own to bind.
+        None,
         imports,
         specifier,
         publications,
@@ -600,6 +603,9 @@ fn emit_unit(
         body,
         false,
         None,
+        None,
+        // Neither a module body nor a program body is a function expression, so
+        // neither has a name of its own to bind.
         None,
         imports,
         specifier,

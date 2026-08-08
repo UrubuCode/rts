@@ -46,6 +46,17 @@ impl Error {
     /// what `err.name` answers.
     const name: &str = "Error";
 
+    /// What `err.message` answers when the constructor was given nothing.
+    ///
+    /// The specification does not store `undefined` for `new Error()` — it omits
+    /// the own property entirely, so the read reaches the prototype and finds
+    /// the empty string. Without this it fell off the chain and answered
+    /// `undefined`, which prints as the word wherever a message is shown.
+    ///
+    /// Stated on `Error` alone: every other class in this file extends it and
+    /// inherits the same default rather than restating it seven times.
+    const message: &str = "";
+
     /// `new Error(message)`.
     #[construct]
     fn build(this: u64, message: u64) -> u64 {

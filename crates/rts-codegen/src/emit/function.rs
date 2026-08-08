@@ -250,6 +250,11 @@ fn emit_function(
         function.captures_this,
         rest,
         late_this,
+        // A function EXPRESSION binds its own name for its own body; a
+        // declaration binds it outside too, and binding it inside as well is
+        // what the language says and is harmless. Passed here rather than
+        // decided inside, because only this level has the tree.
+        function.name,
         &[],
         // A nested function is not a module: it has no specifier and nothing to
         // publish. Passing the enclosing module's would make every closure
@@ -338,6 +343,7 @@ pub(super) fn emit_body(
     captures_this: bool,
     rest: Option<Name>,
     late_this: Option<Name>,
+    self_name: Option<Name>,
     imports: &[crate::syntax::Import],
     module: Option<&str>,
     publications: &[super::module::Publication],
@@ -361,6 +367,18 @@ pub(super) fn emit_body(
     // at entry and an ARROW inside reads the enclosing function's. Without it in
     // the candidate list the arrow finds nothing reachable — which is exactly
     // what happened, and the identical fault the import line above records.
+    // A NAMED FUNCTION EXPRESSION binds its own name for its own body. Added as
+    // a capture candidate for the same reason a parameter is: a nested function
+    // may read it, and a name nothing lists as a candidate is declared as a
+    // plain local that no closure can reach.
+    //
+    // Only when the body mentions it, so the ordinary function pays nothing —
+    // the binding costs a call, and a function that never names itself has no
+    // use for one.
+    let self_name = self_name.filter(|name| capture::mentions(body, *name));
+    if let Some(name) = self_name {
+        candidates.push(name);
+    }
     let named_arguments = ctx.names.intern("arguments");
     let binds_arguments = !captures_this && capture::mentions(body, named_arguments);
     if binds_arguments {
@@ -443,6 +461,7 @@ pub(super) fn emit_body(
         builds_environment,
         rest,
         late_this,
+        self_name,
         imports,
         module,
         publications,
@@ -470,6 +489,7 @@ fn emit_body_into(
     builds_environment: bool,
     rest: Option<Name>,
     late_this: Option<Name>,
+    self_name: Option<Name>,
     imports: &[crate::syntax::Import],
     module: Option<&str>,
     publications: &[super::module::Publication],
@@ -519,6 +539,21 @@ fn emit_body_into(
         scope.bind_this_late(name);
     }
 
+    // A named function expression binds its OWN name, BEFORE the parameters.
+    //
+    // The order is the semantics and it is easy to get backwards: the language
+    // puts the function's name in a scope that ENCLOSES the parameter scope, so
+    // `function f(f) { return f; }` answers the parameter. Declared after them,
+    // it overwrote the parameter instead — `shadow(7)` answered the function.
+    //
+    // The value is the function currently running rather than anything visible
+    // here: `const g = function f() { … f() … }` must reach the function itself,
+    // not `g`, which may be reassigned and may not exist.
+    if let Some(name) = self_name {
+        let running = expr::call(&mut builder, ctx, RuntimeOp::RunningFunction, &[])?[0];
+        binding::declare(&mut builder, &mut scope, ctx, name, running)?;
+    }
+
     // The first four come from the convention's slots, which is the whole of the
     // common case and costs nothing.
     for (position, name) in parameters.iter().take(ARGUMENT_SLOTS).enumerate() {
@@ -549,6 +584,7 @@ fn emit_body_into(
             binding::declare(&mut builder, &mut scope, ctx, *name, value)?;
         }
     }
+
 
     // Before the first statement, and after the parameters: an import is a
     // declaration in this scope, so it is bound where a declaration would be.
