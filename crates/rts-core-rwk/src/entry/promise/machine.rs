@@ -154,10 +154,27 @@ pub fn promise_await(promise: u64) -> u64 {
         // is not on every target. So the waiting is the host's, handed down the
         // same way the evaluator is.
         match super::super::loops::pump_sources() {
-            // Nothing outstanding and nothing settled it: no future event can,
-            // because there is no future event. `await new Promise(() => {})`
-            // is the shape that reaches this.
+            // Nothing OUTSTANDING — which is not the same as nothing having
+            // happened. Pumping DELIVERS: a source fires the callbacks that came
+            // due while it was being asked, so the very turn that empties the
+            // timer table is the turn that ran the `resolve` this `await` is
+            // waiting for. Reading the empty answer as "no future event can
+            // settle it" reported that as a deadlock.
+            //
+            // That is exactly what `await new Promise(r => setTimeout(r, 5))`
+            // does — the standard way to wait — and it ended the program with
+            // "this promise cannot settle" while the promise had, in fact, just
+            // settled. So the answer is checked before it is believed, the same
+            // way it already is after `drain_microtasks` above; the callback may
+            // also have queued a reaction, so that is drained first.
             None => {
+                super::drain_microtasks();
+                if with_current(|context| outcome_of(context, promise).is_some()) {
+                    continue;
+                }
+                // Now it is a real deadlock: nothing is outstanding, nothing was
+                // delivered, and nothing is queued. `await new Promise(() => {})`
+                // is the shape that reaches this.
                 stall(promise);
                 return super::super::undefined_value();
             }

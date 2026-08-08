@@ -3920,3 +3920,39 @@ fn random_stays_in_the_unit_interval_and_moves() {
     );
     assert_eq!(tags::decode_double(held), 1.0);
 }
+
+/// `await` over a promise only a timer can settle.
+///
+/// `await new Promise(r => setTimeout(r, n))` — the standard way to wait —
+/// reported "this promise cannot settle" and ended the program. Two causes, and
+/// only the second is interesting.
+///
+/// The runtime holds a hook for letting time pass, because `std::thread::sleep`
+/// is not on every target; nothing installed it, so `rest_for` always answered
+/// "no waiter". The host slept in its own loop between turns, which hid it: a
+/// timer fired once the body was over, so timers looked like they worked.
+///
+/// The second is the real one. Pumping the loop DELIVERS — the turn that empties
+/// the timer table is the turn that ran the callback — so "nothing outstanding"
+/// was being read as "nothing can settle it" one instant after the thing had
+/// settled. The answer is now re-checked before it is believed.
+#[test]
+fn awaiting_a_timer_finishes_rather_than_reporting_a_deadlock() {
+    let waited = run("await new Promise(function (r) { setTimeout(r, 1); }); return 5;");
+    assert_eq!(tags::decode_double(waited), 5.0);
+
+    // Through an async function, which is the shape a program actually writes.
+    let through = run(
+        "async function go() { await new Promise(function (r) { setTimeout(r, 1); }); return 7; } \
+         return await go();",
+    );
+    assert_eq!(tags::decode_double(through), 7.0);
+
+    // The value crosses the wait, so this is not "it stopped erroring".
+    let carried = run(
+        "let seen = 0; \
+         await new Promise(function (r) { setTimeout(function () { seen = 3; r(0); }, 1); }); \
+         return seen;",
+    );
+    assert_eq!(tags::decode_double(carried), 3.0);
+}

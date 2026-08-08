@@ -278,6 +278,18 @@ fn run_region(
     // DOWN because they cannot reach up — this crate depends on them, so the
     // other direction is a cycle. See `entry::declare_evaluator`.
     rts_core_rwk::entry::declare_evaluator(&mut context, evaluate_source);
+    // The other capability that has to come down rather than up: letting time
+    // pass. `rts-core-rwk`'s membership rule is availability and
+    // `std::thread::sleep` is not on every target, so the runtime holds a hook
+    // and this crate fills it — exactly as it does for compiling source.
+    //
+    // Nothing installed it, and the loop below hid that: the HOST slept between
+    // turns, so a timer fired once the body had finished. What could not work
+    // was `await` — `promise_await` asks `rest_for`, found no waiter, and
+    // reported a promise only time could settle as a deadlock. So
+    // `await new Promise(r => setTimeout(r, 5))`, the standard way to wait,
+    // ended the program with "this promise cannot settle".
+    rts_core_rwk::entry::declare_rest(&mut context, |wait| std::thread::sleep(wait));
     rts_std_rwk::install(&mut context);
     rts_node_rwk::install(&mut context);
     #[cfg(feature = "ui")]
