@@ -3896,3 +3896,27 @@ fn a_subclass_field_is_initialised_after_the_base_has_made_the_object() {
     let base = run("class F { f = 1; constructor() { this.g = this.f + 1; } } return new F().g;");
     assert_eq!(tags::decode_double(base), 2.0);
 }
+
+/// `Math.random` answers a double in `[0, 1)` and advances.
+///
+/// It was absent entirely, so `Math.random()` read `undefined` and every
+/// expression built on it — the usual `Math.floor(Math.random() * n)` — answered
+/// `NaN`. What is pinned here is what the language actually promises: the range,
+/// and that consecutive draws differ. The specification says
+/// "implementation-dependent" and guarantees nothing about the sequence, so a
+/// test demanding particular values would be pinning this implementation rather
+/// than the language.
+#[test]
+fn random_stays_in_the_unit_interval_and_moves() {
+    let held = run(
+        "let ok = true; let moved = false; let prev = -1; \
+         for (let i = 0; i < 500; i++) { \
+           let r = Math.random(); \
+           if (r < 0 || r >= 1) { ok = false; } \
+           if (r !== prev) { moved = true; } \
+           prev = r; \
+         } \
+         return ok && moved ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(held), 1.0);
+}

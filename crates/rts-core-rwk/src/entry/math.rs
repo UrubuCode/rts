@@ -126,6 +126,42 @@ impl Math {
         if x.is_nan() || x == 0.0 { x } else { x.signum() }
     }
 
+    /// `Math.random()` — a double in `[0, 1)`.
+    ///
+    /// # Why a generator written here rather than a dependency
+    ///
+    /// This crate has no source of randomness and adding one is a dependency on
+    /// every target it must run on, wasm included. `Math.random` is specified as
+    /// "implementation-dependent, chosen pseudo-randomly with approximately
+    /// uniform distribution" and is explicitly NOT cryptographic — the language
+    /// has `crypto.getRandomValues` for that, which is a different surface with
+    /// a different guarantee. So a small generator satisfies the whole contract,
+    /// and pretending otherwise by reaching for a CSPRNG would state a promise
+    /// this member does not make.
+    ///
+    /// xorshift64*, seeded once per thread from the clock. Per THREAD rather
+    /// than per process, so two workers do not walk the same sequence in step —
+    /// which is what a shared static would produce and what a program spawning
+    /// workers to sample would silently get wrong.
+    ///
+    /// The 53 bits are taken from the TOP of the word. The low bits of an
+    /// xorshift have the weakest distribution, so `(x % 2^53) / 2^53` — the
+    /// obvious spelling — is the one that shows structure.
+    fn random() -> f64 {
+        RANDOM.with(|state| {
+            let mut word = state.get();
+            if word == 0 {
+                word = seed();
+            }
+            word ^= word << 13;
+            word ^= word >> 7;
+            word ^= word << 17;
+            state.set(word);
+            let scrambled = word.wrapping_mul(0x2545_f491_4f6c_dd1d);
+            (scrambled >> 11) as f64 / (1u64 << 53) as f64
+        })
+    }
+
     /// `Math.sqrt(x)`.
     fn sqrt(x: f64) -> f64 {
         x.sqrt()
@@ -271,4 +307,33 @@ impl Math {
     fn min(a: u64, b: u64) -> f64 {
         folded(a, b, f64::INFINITY, |x, y| if x < y { x } else { y })
     }
+}
+
+thread_local! {
+    /// The generator's state, per thread. Zero means "not seeded yet", which is
+    /// also the one state xorshift cannot leave — so the check that seeds it is
+    /// the same check that keeps it out of the fixed point.
+    static RANDOM: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// A starting word, from the clock and this thread's identity.
+///
+/// Neither alone is enough: the clock alone gives two threads started in the
+/// same nanosecond the same stream, and the thread id alone repeats exactly
+/// across runs. Mixed, they differ in both directions — which is all
+/// `Math.random` promises.
+fn seed() -> u64 {
+    let since = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|held| held.as_nanos() as u64)
+        .unwrap_or(0x9e37_79b9_7f4a_7c15);
+    let thread = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        std::thread::current().id().hash(&mut hasher);
+        hasher.finish()
+    };
+    // Never zero: that is xorshift's fixed point, and a seed landing on it would
+    // make every draw the same number forever.
+    (since ^ thread.rotate_left(32)) | 1
 }
