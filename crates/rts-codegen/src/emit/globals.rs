@@ -155,6 +155,12 @@ const PROVIDED: &[&str] = &[
     "Event",
     "EventTarget",
     "CustomEvent",
+    // Installed by `rts-std-rwk`'s `globals/timing.rs`, and absent from this
+    // list until now — so a program writing it with no import was refused at
+    // compile time for a name that had a value all along. The two sets are
+    // deliberately separate, which is what let them drift; that module's doc
+    // names this list as the piece its caller has to add.
+    "queueMicrotask",
 ];
 
 /// Whether a name resolves against the global object.

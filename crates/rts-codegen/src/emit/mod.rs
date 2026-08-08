@@ -427,12 +427,20 @@ pub fn emit_module_as(
             crate::syntax::ModuleItem::Import(import) => imports.push(import.clone()),
             crate::syntax::ModuleItem::Stmt(statement) => body.push(statement.clone()),
             crate::syntax::ModuleItem::Export(export) => {
-                if specifier.is_none() {
-                    return Err(module::refuse(
-                        "an export in a module the host did not resolve to a specifier",
-                    ));
+                // Lowered either way, PUBLISHED only when there is a specifier
+                // to publish under. This used to refuse outright, and refusing
+                // was too strong: an export is a declaration plus a publication,
+                // and a module nobody imports still has to run its declarations.
+                //
+                // Nothing is invented — there is no name, so nothing is
+                // published, and a program that tries to import this module
+                // fails at ITS import, which is where that failure belongs. That
+                // is what the old comment was protecting and it still holds.
+                let mut published = Vec::new();
+                module::lower_export(export, &mut body, &mut published, ctx)?;
+                if specifier.is_some() {
+                    publications.extend(published);
                 }
-                module::lower_export(export, &mut body, &mut publications, ctx)?;
             }
         }
     }
