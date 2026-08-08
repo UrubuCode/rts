@@ -3870,3 +3870,29 @@ fn a_number_method_does_not_convert_its_own_receiver() {
     // been narrowed with it.
     holds("return Number({ valueOf() { return 5; } }) === 5;");
 }
+
+/// A derived class runs its field initialisers, and runs them after `super()`.
+///
+/// They were prepended to the constructor head, where a derived class has no
+/// `this` yet — it lives in an environment slot only the `super()` call writes —
+/// so every field of every subclass was assigned onto whatever that slot held
+/// before and lost. `class B extends A { b = 2 }` answered `undefined`.
+#[test]
+fn a_subclass_field_is_initialised_after_the_base_has_made_the_object() {
+    let inherited = run("class A { x = 10; } class B extends A { w = 30; } let b = new B(); return b.x + b.w;");
+    assert_eq!(tags::decode_double(inherited), 40.0);
+
+    // The ORDER is the point, not merely that they run: an initialiser may read
+    // a property the base constructor set, which is only there after `super()`.
+    let ordered = run(
+        "class C { constructor(n) { this.n = n; } } \
+         class E extends C { e = this.n * 2; constructor() { super(4); } } \
+         return new E().e;",
+    );
+    assert_eq!(tags::decode_double(ordered), 8.0);
+
+    // A base class keeps the head placement, where its own constructor body can
+    // already read what the initialisers wrote.
+    let base = run("class F { f = 1; constructor() { this.g = this.f + 1; } } return new F().g;");
+    assert_eq!(tags::decode_double(base), 2.0);
+}

@@ -460,9 +460,46 @@ fn with_fields(
             construct: "a class constructor written as an expression body",
         });
     };
-    prologue.extend(body.iter().cloned());
+    // AFTER `super()`, when there is one. In a derived constructor `this` does
+    // not exist until the base has made the object — this engine holds it in an
+    // environment slot that only `emit_super_call` writes — so an initialiser
+    // placed at the head assigned onto whatever that slot held before, and every
+    // field of every subclass was lost. `class B extends A { b = 2 }` answered
+    // `undefined` for `b`.
+    //
+    // Placing them after is also what the specification says, so the divergence
+    // the comment above named is gone rather than moved: a derived field
+    // initialiser that reads a property the parent constructor set now reads it
+    // at the right time.
+    //
+    // The FIRST `super()` and not the last: a constructor may call it inside a
+    // branch, and the language requires exactly one to run. Splitting after the
+    // first statement-level call is what the common shape needs, and a
+    // conditional `super()` keeps the old head placement rather than being
+    // silently misplaced — named here because it is a real program this still
+    // gets wrong.
+    let at = body.iter().position(|statement| {
+        matches!(
+            &statement.kind,
+            StmtKind::Expr(Expr {
+                kind: ExprKind::SuperCall { .. },
+                ..
+            })
+        )
+    });
     let mut with = function.clone();
-    with.body = FunctionBody::Block(prologue);
+    with.body = FunctionBody::Block(match at {
+        Some(at) => {
+            let mut spliced: Vec<Stmt> = body[..=at].to_vec();
+            spliced.extend(prologue);
+            spliced.extend(body[at + 1..].iter().cloned());
+            spliced
+        }
+        None => {
+            prologue.extend(body.iter().cloned());
+            prologue
+        }
+    });
     Ok(with)
 }
 
