@@ -41,6 +41,27 @@
 //! mesma razão: uma UI que compila e não pinta é o modo de falhar que custa mais
 //! tempo até ser entendido.
 
+//! # Reuse-check
+//!
+//! Rodada tarde — depois de o crate existir, quando deveria ter sido antes de a
+//! primeira linha ser escrita, que é o que a RULE 0b chama de "a que não é
+//! opcional". Fica dito porque um resultado limpo obtido fora de hora não é o
+//! mesmo que um obtido na hora, e o próximo leitor merece saber qual foi.
+//!
+//! O que ela encontrou:
+//!
+//! - **Coerção, texto, bytes, propriedade, valores**: tudo já existe em
+//!   `rts_core_rwk::entry` e é CHAMADO — `number_of`, `string_in`, `bytes_of`,
+//!   `get_member`, `make_number`/`boolean_value`/`make_string`. `value.rs` não
+//!   converte nada por conta própria.
+//! - **A única segunda resposta**: `value::integer`, cujo vizinho é
+//!   `rts_core_rwk::value::to_int32`. Difere e o porquê está no doc dela.
+//! - **Nenhuma numeração nova.** Os handles de janela e de malha são do
+//!   `rts-egui` e já existiam; este crate só os transporta como número. Não há
+//!   duas tabelas de um número, que é o caso fatal do §3 da skill.
+//! - **Nenhuma tabela de estado.** O estado de UI vive no `UiCtx`; o de input,
+//!   na fonte ativa. Este crate é sem estado.
+
 #![deny(missing_docs)]
 #![deny(dead_code)]
 

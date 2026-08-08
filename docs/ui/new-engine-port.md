@@ -162,10 +162,28 @@ runs on a secondary one. There is an escape hatch
 (`EventLoopBuilderExtWindows::any_thread`) and taking it would mean defeating a
 compatibility warning in order to call this a test.
 
-Measured on Windows with a dx12 backend: 600 frames in 11.8 s — about 51 fps
-against a 60 Hz vsync, in a **debug** build, which is not a performance claim
-about anything (`perf-claim`); it is the evidence that frames were actually
-presented rather than skipped.
+### The number that was here, and why it is gone
+
+This said "600 frames in 11.8 s — about 51 fps against a 60 Hz vsync, in a debug
+build", labelled as evidence rather than a performance claim. The label did not
+save it. `perf-claim` is unambiguous — *"never benchmark a debug build; a debug
+number is not a number"* — and quoting a rate invites the reading the disclaimer
+denies.
+
+It is worse than that: **no frame rate measured through vsync measures this
+engine at all.** With `PresentMode::Fifo` the monitor sets the pace, so the
+number would be about the display in a release build too. There is no profile
+that makes it a performance claim; there is only a profile that makes it look
+like one.
+
+What the run actually establishes is liveness, and that needs no rate: the
+program opened a window, the loop ran to its own end, 600 frames were presented,
+and the process exited 0. Run it and look — that is what the example is for.
+
+A real comparison against the old engine is a different experiment and has not
+been run: same loop, same k draws per frame, **release**, vsync off, time per
+frame on both engines. Until someone runs it, nothing here says the new engine
+is faster or slower at drawing.
 
 ---
 
