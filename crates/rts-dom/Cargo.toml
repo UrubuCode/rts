@@ -17,5 +17,12 @@ license.workspace = true
 # wasm-safe (sem I/O, sem threads de plataforma).
 
 [dependencies]
-rts-engine = { path = "../rts-engine" }
-rtse = { package = "rts-macro", path = "../rts-macro" }
+rts-engine = { path = "../rts-engine", optional = true }
+rtse = { package = "rts-macro", path = "../rts-macro", optional = true }
+
+# Ver a nota igual em rts-render/rts-input: a ABI do motor ANTIGO é uma feature.
+# Sem ela sobram a árvore, o parser, o estilo e o LAYOUT — que é a maior parte
+# deste crate e não conhece motor nenhum.
+[features]
+default = ["old-engine"]
+old-engine = ["dep:rts-engine", "dep:rtse"]

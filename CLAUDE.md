@@ -22,7 +22,7 @@ not background reading, and the rules in it are binding for changes inside it.
 | `crates/rts-codegen/` | its `README.md` (10 rules) + `PLAN.md` |
 | `crates/rts-core-rwk/` | its `README.md` (8 rules) + `PLAN.md` |
 | `crates/rts-host-rwk/` | its `README.md` (6 rules) + `PLAN.md` |
-| `crates/rts-egui/`, DOM, render, input | `docs/ui/html-engine/` + `docs/ui/egui-crate.md` |
+| `crates/rts-egui/`, DOM, render, input | `docs/ui/html-engine/` + `docs/ui/egui-crate.md`; for the NEW engine's side of it, `docs/ui/new-engine-port.md` |
 | anything else | this file, and `docs/README.md` for where things live |
 
 If a change requires breaking a rule, **change the rule first, with the reason,
@@ -225,6 +225,8 @@ crates/
   rts-core-rwk/      the runtime: values, heap, objects, coercion, entry points
   rts-host-rwk/      where the three meet, and where a program runs
   rts-macro-rwk/     #[rtse::entry] — declares one, derives its shape
+  rts-std-rwk/       the `rts:` surface, and the globals
+  rts-ui-rwk/        `rts:egui` + `rts:input`, where a target has a screen
   rts-codegen-new/   the engine that currently runs `rts`. Being replaced.
 
   rts-abi/           the ABI contract, dependency-free, at the bottom

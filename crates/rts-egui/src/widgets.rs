@@ -12,16 +12,11 @@
 //! (sem latência) fica para uma fase seguinte, quando o lifetime do `egui::Ui`
 //! for resolvido (provavelmente com o Modelo B / callback de frame).
 
-use rts_engine::abi::str_abi;
-
 use crate::ctx::{self, WidgetCmd};
 
 /// Emite um label de texto no frame ativo (enfileira).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_LABEL(h: u64, text_ptr: *const u8, text_len: i64) {
-    let text = unsafe { str_abi::from_abi(text_ptr, text_len) }
-        .unwrap_or("")
-        .to_string();
+pub fn label(h: u64, text: &str) {
+    let text = text.to_string();
     ctx::with_ctx(h, |c| {
         if c.frame_active {
             c.cmds.push(WidgetCmd::Label(text));
@@ -31,11 +26,8 @@ pub extern "C" fn __RTS_FN_NS_EGUI_LABEL(h: u64, text_ptr: *const u8, text_len: 
 
 /// Emite um botão (enfileira). Retorna 1 se foi clicado no frame ANTERIOR, 0 se
 /// não — ou 0 fora de um frame / handle inválido.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_BUTTON(h: u64, label_ptr: *const u8, label_len: i64) -> i64 {
-    let label = unsafe { str_abi::from_abi(label_ptr, label_len) }
-        .unwrap_or("")
-        .to_string();
+pub fn button(h: u64, label: &str) -> i64 {
+    let label = label.to_string();
     ctx::with_ctx(h, |c| {
         if !c.frame_active {
             return 0;
@@ -55,8 +47,7 @@ pub extern "C" fn __RTS_FN_NS_EGUI_BUTTON(h: u64, label_ptr: *const u8, label_le
 
 /// Emite um slider (enfileira). Retorna o valor (possivelmente arrastado) do
 /// frame ANTERIOR; no primeiro frame retorna o `value` passado.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_SLIDER(h: u64, value: f64, min: f64, max: f64) -> f64 {
+pub fn slider(h: u64, value: f64, min: f64, max: f64) -> f64 {
     ctx::with_ctx(h, |c| {
         if !c.frame_active {
             return value;
@@ -75,8 +66,7 @@ pub extern "C" fn __RTS_FN_NS_EGUI_SLIDER(h: u64, value: f64, min: f64, max: f64
 /// um comando na fila — o layout real é feito na drenagem do `endFrame`, que
 /// abre um `ui.horizontal(...)` ao encontrar este comando. Como label/button,
 /// não retorna nada e não mexe nos cursores de resultado.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_HORIZONTAL_BEGIN(h: u64) {
+pub fn horizontal_begin(h: u64) {
     ctx::with_ctx(h, |c| {
         if c.frame_active {
             c.cmds.push(WidgetCmd::HorizontalBegin);
@@ -87,8 +77,7 @@ pub extern "C" fn __RTS_FN_NS_EGUI_HORIZONTAL_BEGIN(h: u64) {
 /// Fecha o escopo horizontal aberto pelo `horizontalBegin` mais recente
 /// (enfileira). Volta a empilhar verticalmente. Igual ao `horizontalBegin`:
 /// só empilha o comando; a drenagem do `endFrame` fecha o `ui.horizontal(...)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_HORIZONTAL_END(h: u64) {
+pub fn horizontal_end(h: u64) {
     ctx::with_ctx(h, |c| {
         if c.frame_active {
             c.cmds.push(WidgetCmd::HorizontalEnd);
@@ -101,12 +90,10 @@ pub extern "C" fn __RTS_FN_NS_EGUI_HORIZONTAL_END(h: u64) {
 /// O render percorre essa árvore no `endFrame` (`frame::render_dom`). Suporta
 /// `h1`/`h2`/`h3`, `p`/`div`, `b`/`strong`, `i`/`em`, tags desconhecidas
 /// (transparentes) e texto solto.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_HTML(h: u64, ptr: *const u8, len: i64) {
-    // Hash sobre o `&str` da ABI — SEM alocar. O `.to_string()` (parse) só
-    // acontece DENTRO do `if` que de fato re-parseia; no caso comum (loop chamando
+pub fn html(h: u64, html: &str) {
+    // Hash sobre o `&str` — SEM alocar. O `.to_string()` (parse) só acontece
+    // DENTRO do `if` que de fato re-parseia; no caso comum (loop chamando
     // `html()` com a mesma string todo frame) o caminho é hash + compare, zero alloc.
-    let html = unsafe { str_abi::from_abi(ptr, len) }.unwrap_or("");
     let hash = html_hash(html);
     ctx::with_ctx(h, |c| {
         if c.frame_active {
@@ -130,8 +117,7 @@ pub extern "C" fn __RTS_FN_NS_EGUI_HTML(h: u64, ptr: *const u8, len: i64) {
 /// o lê e desenha. É o caminho headless-puro (vs `html`, que parseia uma string e
 /// guarda o próprio DOM): o DOM vive 100% no rts-dom; o egui é um consumidor
 /// trocável. Só enfileira o marcador; o render lê o store no `endFrame`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_RENDER(h: u64, dom_handle: u64) {
+pub fn render(h: u64, dom_handle: u64) {
     ctx::with_ctx(h, |c| {
         if c.frame_active {
             c.cmds.push(WidgetCmd::HtmlHandle(dom_handle));
@@ -154,16 +140,7 @@ fn html_hash(s: &str) -> u64 {
 /// `display` 0=vertical 1=wrap 2=horizontal 3=grid; `indent` recuo em pontos (ou
 /// tamanho de fonte quando `flags` tem HEADING); `prefix` 0=none 1=bullet
 /// 2=number; `flags` bitmask MONO=1|PRESERVE_WS=2|HEADING=4. Independe de janela.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_DEFINE_BLOCK(
-    tag_ptr: *const u8,
-    tag_len: i64,
-    display: i64,
-    indent: f64,
-    prefix: i64,
-    flags: i64,
-) {
-    let tag = unsafe { str_abi::from_abi(tag_ptr, tag_len) }.unwrap_or("");
+pub fn define_block(tag: &str, display: i64, indent: f64, prefix: i64, flags: i64) {
     if tag.is_empty() {
         return;
     }
@@ -183,14 +160,7 @@ pub extern "C" fn __RTS_FN_NS_EGUI_DEFINE_BLOCK(
 /// nome-CSS→índice, o Rust nunca casa string CSS. `val`: cor/bg = `u32` RGBA
 /// (`0xRRGGBBAA`); font_size = pontos. Acumula por tag (slots diferentes somam).
 /// Independe de janela (igual `defineBlock`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_DEFINE_STYLE(
-    tag_ptr: *const u8,
-    tag_len: i64,
-    slot: i64,
-    val: i64,
-) {
-    let tag = unsafe { str_abi::from_abi(tag_ptr, tag_len) }.unwrap_or("");
+pub fn define_style(tag: &str, slot: i64, val: i64) {
     if tag.is_empty() {
         return;
     }
@@ -206,9 +176,7 @@ const NODE_NONE: i64 = -1;
 
 /// `querySelector`: primeiro nó que casa com um seletor simples (`tag`, `#id`,
 /// `.classe`) no DOM retido da janela. Retorna o `NodeId` (`i64` ≥ 0) ou `-1`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_QUERY_SELECTOR(h: u64, sel_ptr: *const u8, sel_len: i64) -> i64 {
-    let sel = unsafe { str_abi::from_abi(sel_ptr, sel_len) }.unwrap_or("");
+pub fn query_selector(h: u64, sel: &str) -> i64 {
     ctx::with_ctx(h, |c| match &c.dom {
         Some(dom) => dom.query(sel).map(|id| id.to_abi()).unwrap_or(NODE_NONE),
         None => NODE_NONE,
@@ -218,10 +186,9 @@ pub extern "C" fn __RTS_FN_NS_EGUI_QUERY_SELECTOR(h: u64, sel_ptr: *const u8, se
 
 /// `element.textContent = txt`: substitui o conteúdo do nó por um texto. `id` é o
 /// `NodeId` VERSIONADO (i64) — um id de árvore velha é validado-fora pelo `gen`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_SET_TEXT(h: u64, id: i64, ptr: *const u8, len: i64) {
+pub fn set_text(h: u64, id: i64, txt: &str) {
     let Some(node) = crate::dom::NodeId::from_abi(id) else { return };
-    let txt = unsafe { str_abi::from_abi(ptr, len) }.unwrap_or("").to_string();
+    let txt = txt.to_string();
     ctx::with_ctx(h, |c| {
         if let Some(dom) = c.dom.as_mut() {
             dom.set_text(node, &txt);
@@ -230,18 +197,10 @@ pub extern "C" fn __RTS_FN_NS_EGUI_SET_TEXT(h: u64, id: i64, ptr: *const u8, len
 }
 
 /// `element.setAttribute(name, value)`. `id` = `NodeId` versionado (i64).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_SET_ATTR(
-    h: u64,
-    id: i64,
-    name_ptr: *const u8,
-    name_len: i64,
-    val_ptr: *const u8,
-    val_len: i64,
-) {
+pub fn set_attr(h: u64, id: i64, name: &str, val: &str) {
     let Some(node) = crate::dom::NodeId::from_abi(id) else { return };
-    let name = unsafe { str_abi::from_abi(name_ptr, name_len) }.unwrap_or("").to_string();
-    let val = unsafe { str_abi::from_abi(val_ptr, val_len) }.unwrap_or("").to_string();
+    let name = name.to_string();
+    let val = val.to_string();
     ctx::with_ctx(h, |c| {
         if let Some(dom) = c.dom.as_mut() {
             dom.set_attr(node, &name, &val);
@@ -251,9 +210,8 @@ pub extern "C" fn __RTS_FN_NS_EGUI_SET_ATTR(
 
 /// `document.createElement(tag)`: cria um elemento solto; retorna seu `NodeId`
 /// versionado (`i64` ≥ 0), ou `-1` se não houver DOM na janela.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_CREATE_ELEMENT(h: u64, tag_ptr: *const u8, tag_len: i64) -> i64 {
-    let tag = unsafe { str_abi::from_abi(tag_ptr, tag_len) }.unwrap_or("").to_string();
+pub fn create_element(h: u64, tag: &str) -> i64 {
+    let tag = tag.to_string();
     ctx::with_ctx(h, |c| match c.dom.as_mut() {
         Some(dom) => dom.create_element(&tag).to_abi(),
         None => NODE_NONE,
@@ -263,8 +221,7 @@ pub extern "C" fn __RTS_FN_NS_EGUI_CREATE_ELEMENT(h: u64, tag_ptr: *const u8, ta
 
 /// `parent.appendChild(child)`: move `child` para o fim dos filhos de `parent`.
 /// `parent`/`child` = `NodeId` versionados (i64).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_APPEND_CHILD(h: u64, parent: i64, child: i64) {
+pub fn append_child(h: u64, parent: i64, child: i64) {
     let (Some(parent), Some(child)) =
         (crate::dom::NodeId::from_abi(parent), crate::dom::NodeId::from_abi(child))
     else {
@@ -278,8 +235,7 @@ pub extern "C" fn __RTS_FN_NS_EGUI_APPEND_CHILD(h: u64, parent: i64, child: i64)
 }
 
 /// `element.remove()`: desliga o nó do pai. `id` = `NodeId` versionado (i64).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_REMOVE_NODE(h: u64, id: i64) {
+pub fn remove_node(h: u64, id: i64) {
     let Some(node) = crate::dom::NodeId::from_abi(id) else { return };
     ctx::with_ctx(h, |c| {
         if let Some(dom) = c.dom.as_mut() {
@@ -292,9 +248,7 @@ pub extern "C" fn __RTS_FN_NS_EGUI_REMOVE_NODE(h: u64, id: i64) {
 /// dinâmico: `flags` é o bitmask BOLD=8|ITALIC=16|MONO=1. Uma tag inline só liga
 /// bits de estilo e desce nos filhos (transparente). Mantém o Rust sem nome de
 /// tag. Independe de janela. Ver `crate::block`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_DEFINE_INLINE(tag_ptr: *const u8, tag_len: i64, flags: i64) {
-    let tag = unsafe { str_abi::from_abi(tag_ptr, tag_len) }.unwrap_or("");
+pub fn define_inline(tag: &str, flags: i64) {
     if tag.is_empty() {
         return;
     }
@@ -307,8 +261,7 @@ pub extern "C" fn __RTS_FN_NS_EGUI_DEFINE_INLINE(tag_ptr: *const u8, tag_len: i6
 ///
 /// Não retorna a string (a ABI proíbe `StrPtr` de retorno e o egui não acessa o
 /// pool de strings GC); imprimir no stderr é o caminho direto e sem dependências.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_DOM_DUMP(h: u64) {
+pub fn dom_dump(h: u64) {
     ctx::with_ctx(h, |c| match &c.dom {
         Some(dom) => eprint!("{}", dom.dump()),
         None => eprintln!("(sem DOM: nenhum html() chamado nesta janela ainda)"),

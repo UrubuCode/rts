@@ -483,13 +483,7 @@ fn paint_list(ui: &mut egui::Ui, list: &DisplayList, offset_y: f32) {
                 // pinta no rect (escalando). O decode/download já aconteceram no .ts.
                 let need = (*img_w as usize) * (*img_h as usize) * 4;
                 let rgba: Option<Vec<u8>> =
-                    rts_engine::heap::handles::with_entry(*pixels_handle, |e| match e {
-                        Some(rts_engine::heap::handles::Entry::Buffer(b)) => {
-                            let start = *pixels_off as usize;
-                            (b.len() >= start + need).then(|| b[start..start + need].to_vec())
-                        }
-                        _ => None,
-                    });
+                    crate::pixels::fetch(*pixels_handle, u64::from(*pixels_off), need);
                 if let Some(bytes) = rgba {
                     let ci = egui::ColorImage::from_rgba_unmultiplied(
                         [*img_w as usize, *img_h as usize],

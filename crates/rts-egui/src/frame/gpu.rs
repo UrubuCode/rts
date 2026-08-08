@@ -132,7 +132,7 @@ thread_local! {
 /// Calling this from the CLI before it exits drops the device in ordinary
 /// program context, where the driver is fully loaded and the teardown is the one
 /// it expects. Idempotent, and a no-op when no GPU was ever created.
-pub(crate) fn shutdown_shared_gpu() {
+pub fn shutdown_shared_gpu() {
     SHARED_GPU.with(|cell| {
         if let Ok(mut b) = cell.try_borrow_mut() {
             let _ = b.take();

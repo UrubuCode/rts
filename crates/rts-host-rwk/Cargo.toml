@@ -29,3 +29,41 @@ rts-cranelift = { path = "../rts-cranelift" }
 rts-core-rwk = { path = "../rts-core-rwk" }
 rts-std-rwk = { path = "../rts-std-rwk" }
 rts-node-rwk = { path = "../rts-node-rwk" }
+# A UI: `rts:egui` e `rts:input`. Opcional porque uma janela é uma questão de
+# DISPONIBILIDADE — não existe em wasm nem num build headless — e um alvo sem
+# ela não deve carregar wgpu/winit no grafo para descobrir isso.
+rts-ui-rwk = { path = "../rts-ui-rwk", optional = true }
+
+[features]
+# `ui` está FORA do default, e a razão é um débito do motor antigo em vez de uma
+# decisão sobre a UI.
+#
+# `rts-natives` deixa dois símbolos indefinidos (`__RTS_FN_GL_FUNCTION_CALL`,
+# `__RTS_FN_GL_RANGE_ERROR_NEW`) que só o binário daquele motor resolve, então
+# todo test binary que o linke falha — 18 deles já falham na `main`, incluindo os
+# de `rts-egui`, `rts-dom`, `rts-render` e `rts-input`.
+#
+# Num build de workspace o cargo UNIFICA features por pacote: `rts-runtime` pede
+# `rts-egui/old-engine`, logo `rts-egui` tem essa feature em qualquer alvo do
+# mesmo build — e um host que dependesse dele por default arrastaria
+# `rts-natives` para os próprios testes. Foi medido: `cargo build --workspace
+# --tests` passava de 18 alvos quebrados para 27, e os nove novos eram os testes
+# DESTE crate, que passam quando construídos sozinhos.
+#
+# Então a UI entra por opção enquanto aquele débito existir. `ui_surface` e o
+# exemplo `janela` a exigem (`required-features`), então nada some em silêncio:
+#
+#     cargo test -p rts-host-rwk --features ui
+default = []
+ui = ["dep:rts-ui-rwk"]
+
+# Os dois alvos que só existem com a UI. Sem isto um `cargo test -p rts-host-rwk`
+# tentaria compilá-los sem o crate e falharia por nome não resolvido, que é uma
+# mensagem sobre a causa errada.
+[[test]]
+name = "ui_surface"
+required-features = ["ui"]
+
+[[example]]
+name = "janela"
+required-features = ["ui"]

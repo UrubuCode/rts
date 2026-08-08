@@ -5008,6 +5008,7 @@ dependencies = [
  "rts-cranelift",
  "rts-node-rwk",
  "rts-std-rwk",
+ "rts-ui-rwk",
 ]
 
 [[package]]
@@ -5260,6 +5261,15 @@ dependencies = [
  "quote",
  "rts-abi",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "rts-ui-rwk"
+version = "0.1.0"
+dependencies = [
+ "rts-core-rwk",
+ "rts-egui",
+ "rts-input",
 ]
 
 [[package]]
