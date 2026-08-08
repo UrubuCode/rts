@@ -29,19 +29,31 @@ fn with_scene<R: Copy>(win: u64, f: impl FnOnce(&mut Scene3D, &wgpu::Device) -> 
 
 /// Sobe uma mesh (verts interleaved pos+normal+uv = 8 f32/vértice; índices u32)
 /// pra VRAM. Retorna o id da mesh (0 se a janela não é wgpu).
-pub fn mesh_upload(
-    win: u64,
-    vptr: u64,
-    vcount: i64,
-    iptr: u64,
-    icount: i64,
-) -> u64 {
+/// # Segurança
+///
+/// `vptr`/`iptr` são endereços crus que o chamador promete apontarem para
+/// `vcount*8` `f32` e `icount` `u32` vivos. É a forma que a ABI do motor antigo
+/// tem; um chamador que possa passar fatias deve preferir [`upload_mesh`], que
+/// não promete nada.
+pub unsafe fn mesh_upload(win: u64, vptr: u64, vcount: i64, iptr: u64, icount: i64) -> u64 {
     if vptr == 0 || iptr == 0 || vcount <= 0 || icount <= 0 {
         return 0;
     }
     let verts = unsafe { std::slice::from_raw_parts(vptr as *const f32, (vcount * 8) as usize) };
     let inds = unsafe { std::slice::from_raw_parts(iptr as *const u32, icount as usize) };
-    with_scene(win, |s, dev| s.upload_mesh(dev, verts, inds), 0)
+    upload_mesh(win, verts, inds)
+}
+
+/// Sobe uma mesh a partir de fatias — a forma sem promessa nenhuma.
+///
+/// Existe porque o motor NOVO entrega os dados como uma view tipada, cujos bytes
+/// são copiados na fronteira: não há endereço para o chamador acertar, e o
+/// coletor pode mover a célula sem que isto veja. Ver `rts-ui-rwk::value::bytes`.
+pub fn upload_mesh(win: u64, verts: &[f32], indices: &[u32]) -> u64 {
+    if verts.is_empty() || indices.is_empty() {
+        return 0;
+    }
+    with_scene(win, |s, dev| s.upload_mesh(dev, verts, indices), 0)
 }
 
 /// Libera uma mesh da VRAM.
@@ -220,12 +232,29 @@ pub fn draw_water(win: u64, mesh: u64, gbuf: u64, count: i64, scale: f64) -> i64
 /// Sobe uma imagem RGBA8 (`ptr` → w*h*4 bytes, sRGB) pra VRAM e devolve um id de
 /// textura (>=2) usável em `drawMesh(..., tex=id)`. Fluxo típico: `fs` lê o arquivo,
 /// `imgdec.decode` devolve RGBA + w/h, e isto sobe pra GPU. 0 se inválido/não-wgpu.
-pub fn texture_upload(win: u64, ptr: u64, w: i64, h: i64) -> u64 {
+/// # Segurança
+///
+/// `ptr` aponta para `w*h*4` bytes vivos — a promessa que a ABI antiga exige.
+/// [`upload_texture`] é a forma que não exige nenhuma.
+pub unsafe fn texture_upload(win: u64, ptr: u64, w: i64, h: i64) -> u64 {
     if ptr == 0 || w <= 0 || h <= 0 {
         return 0;
     }
+    let rgba = unsafe {
+        std::slice::from_raw_parts(ptr as *const u8, (w as usize) * (h as usize) * 4)
+    };
+    upload_texture(win, rgba, w, h)
+}
+
+/// Sobe uma imagem RGBA8 a partir de uma fatia. Ver [`upload_mesh`].
+pub fn upload_texture(win: u64, rgba: &[u8], w: i64, h: i64) -> u64 {
+    if w <= 0 || h <= 0 {
+        return 0;
+    }
     let (w, h) = (w as u32, h as u32);
-    let rgba = unsafe { std::slice::from_raw_parts(ptr as *const u8, (w as usize) * (h as usize) * 4) };
+    if rgba.len() < (w as usize) * (h as usize) * 4 {
+        return 0;
+    }
     with_ctx(win, |c| {
         if let Backend::Wgpu(r) = &mut c.backend {
             if r.scene.is_none() {

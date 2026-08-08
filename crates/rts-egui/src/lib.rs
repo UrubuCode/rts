@@ -58,6 +58,9 @@ pub(crate) use rts_dom as dom;
 pub(crate) use rts_dom::block;
 pub(crate) use rts_dom::style;
 
+// A API pura, num só lugar: é assim que um motor a alcança (ver o doc acima).
 pub use app::*;
+pub use canvas::*;
 pub use frame::*;
+pub use scene_api::*;
 pub use widgets::*;

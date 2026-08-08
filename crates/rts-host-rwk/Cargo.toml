@@ -29,3 +29,12 @@ rts-cranelift = { path = "../rts-cranelift" }
 rts-core-rwk = { path = "../rts-core-rwk" }
 rts-std-rwk = { path = "../rts-std-rwk" }
 rts-node-rwk = { path = "../rts-node-rwk" }
+# A UI: `rts:egui` e `rts:input`. Opcional porque uma janela é uma questão de
+# DISPONIBILIDADE — não existe em wasm nem num build headless — e um alvo sem
+# ela não deve carregar wgpu/winit no grafo para descobrir isso.
+rts-ui-rwk = { path = "../rts-ui-rwk", optional = true }
+
+[features]
+default = ["ui"]
+# `rts:egui` e `rts:input`. Ver a nota no dep.
+ui = ["dep:rts-ui-rwk"]

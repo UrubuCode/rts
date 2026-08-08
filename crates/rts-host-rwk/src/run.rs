@@ -280,6 +280,8 @@ fn run_region(
     rts_core_rwk::entry::declare_evaluator(&mut context, evaluate_source);
     rts_std_rwk::install(&mut context);
     rts_node_rwk::install(&mut context);
+    #[cfg(feature = "ui")]
+    rts_ui_rwk::install(&mut context);
     // The modules a program may import. Registered by the HOST rather than by
     // the runtime, because which of them exist is a fact about the environment
     // the program is given — and `rts-std-rwk` is where anything needing an
