@@ -112,10 +112,28 @@ the same, and the difference stays where it is real.
 
 | absent | why |
 |---|---|
-| `rts:gpu` (compute) | a compute buffer **is** an `Entry::Buffer` in the old engine's `HandleTable`. Porting it is choosing where those bytes live in the new one — not writing a shell |
-| `egui.drawWater` | its only consumer is a `rts:gpu` buffer handle |
+| `rts:gpu` (compute) | the shell is not written yet. **Not** a blocker — see the correction below |
+| `egui.drawWater` | its only consumer is `crate::compute`, which is behind the same feature |
 | `rts:dom`, `render.*` | the tree, parser and layout engine are 18 000 engine-free lines in `rts-dom`; the port is the same shell this crate is, for that surface |
 | `egui.render(win, dom)` | without the DOM namespace there is no handle to pass, so it would be a function that always draws nothing |
+
+### A correction, kept rather than quietly fixed
+
+This table first said that `rts:gpu` was blocked because "a compute buffer **is**
+an `Entry::Buffer` in the old engine's `HandleTable`", so porting it meant
+deciding where those bytes live in the new engine.
+
+**That was false**, and it came from reasoning about the module instead of
+reading it. The `wgpu::Buffer` lives in a `HashMap<u64, wgpu::Buffer>` inside
+`compute` itself. What crosses from the old engine is only the program-side byte
+buffer — and `rts-core-rwk` already answers that in all three directions:
+`bytes_of`, `write_bytes` and `make_bytes` over a typed view, which is exactly
+what `meshUpload` in this very port already uses.
+
+So `rts:gpu` is the same shell as everything else here. What it actually needs:
+the five-argument calls (`writeAt`) take an options object like the rest,
+`Entry::Buffer` reads become `bytes_of`, the read-back becomes `write_bytes`,
+and `adapterName` becomes `make_string`. Work not done, not a wall.
 
 Each absence fails at the `import` line, which is where it should hurt.
 `rts-std-rwk` once refused to register a façade `rts:egui` for exactly this
