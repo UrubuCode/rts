@@ -272,6 +272,31 @@ impl Body<'_> {
             })
             .collect();
 
+        // The results get the same save/restore discipline as the operands
+        // above, and for a sharper reason. They used to be REMOVED after the
+        // copy, unconditionally — which is right when the copy is the only
+        // thing that ever defined them, and wrong the moment the original
+        // block was already lowered: `self.values` is shared, so removing a
+        // result deleted the ORIGINAL block's binding for the same `ValueId`.
+        //
+        // A later block dominated by that original then read a value that was
+        // no longer in the map, and the lowering panicked with `no entry found
+        // for key`. It needed a cleanup piece spanning more than one block —
+        // which a global read gives, because `console` is a call and `.log` is
+        // a guard plus a cache — so a value defined in the piece's entry was
+        // still live at its exit. A local call produced nothing that outlived
+        // its own block and never reached it.
+        //
+        // Restoring rather than removing makes a copy invisible to the map,
+        // which is the property that makes copying sound at all. Simply not
+        // removing would be worse than the panic: the copy's values would leak
+        // into later blocks that its defining block does not dominate, and that
+        // is a miscompilation rather than a crash.
+        let restored: Vec<_> = results
+            .iter()
+            .map(|&result| (result, self.values.get(&result).copied()))
+            .collect();
+
         let outcome = self.lower_inst(builder, id, inst, results);
 
         for &result in results {
@@ -285,8 +310,11 @@ impl Body<'_> {
                 None => self.values.remove(&value),
             };
         }
-        for &result in results {
-            self.values.remove(&result);
+        for (result, previous) in restored {
+            match previous {
+                Some(previous) => self.values.insert(result, previous),
+                None => self.values.remove(&result),
+            };
         }
         outcome
     }

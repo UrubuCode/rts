@@ -54,7 +54,7 @@ use rts_cranelift::unwind::{Handler, Tag};
 
 use super::stmt::emit_stmt;
 use super::{Ctx, EmitResult, Scope};
-use crate::syntax::{Catch, Expr, ExprKind, Property, Stmt};
+use crate::syntax::{Catch, Expr, Stmt};
 
 /// What a JavaScript `throw` is tagged with.
 ///
@@ -89,18 +89,6 @@ pub fn emit_try(
     catch: Option<&Catch>,
     finally: Option<&[Stmt]>,
 ) -> EmitResult<bool> {
-    // A cleanup and a call in the same protected span crash the lowering; see
-    // `calls_something`. Refused rather than left to crash, and narrower than
-    // the refusal this replaced — a `try` with no `finally` compiles with calls
-    // in it, which is the case the corpus is full of.
-    if finally.is_some()
-        && let Some(reason) = calls_something(body).or_else(|| {
-            catch.and_then(|catch| calls_something(&catch.body))
-        })
-    {
-        return super::expr::gap(reason);
-    }
-
     // Both outside every region, and for opposite reasons. A cleanup inside its
     // own region would run itself; the continuation inside it would run the
     // cleanup a second time on the way out.
@@ -265,154 +253,5 @@ fn bind_caught(
         // nothing, which would make `catch ({ message })` a `message` that is
         // always `undefined`.
         _ => super::expr::gap("a destructuring `catch` binding").map(|_: bool| ()),
-    }
-}
-/// Whether a protected span contains a call.
-///
-/// # What this still refuses, and why it is narrower than it was
-///
-/// It used to refuse every `try` whose body called anything. A throw can cross a
-/// frame now, so that is gone — EXCEPT where the region has a cleanup.
-///
-/// The check `expr::call` emits after every operation creates blocks, and a
-/// throw raised from one of them unwinds through the cleanup chain. That
-/// combination makes the lowering read a value it has not lowered yet — `no
-/// entry found for key`, a panic inside the compiler rather than a refusal.
-///
-/// # What is known about it, so the next attempt starts further along
-///
-/// Narrowed with a probe that prints the missing value and what defines it:
-///
-/// - `try { g(); } finally { g(); }` over a LOCAL function compiles and runs.
-///   The ingredient is a GLOBAL read — `console.log` — in either arm.
-/// - the missing value is defined by an ordinary `Call` in an early block, and
-///   is read while a later position is being lowered. So a cleanup COPY is
-///   reading a value defined outside itself — which is exactly what
-///   `lower/cleanup.rs`'s own doc names as the thing making a copy sound: "it
-///   still reads only values it defines itself".
-/// - `emit_try` creates the cleanup block BEFORE the body, so it carries a lower
-///   id and is lowered earlier than the block defining what it reads.
-///
-/// That reframes it as a violation of the cleanup contract rather than a fault
-/// in the throw check, which is only what exposed it. Whoever picks it up should
-/// look at what a cleanup's copy is allowed to reference.
-///
-/// Refused meanwhile, because a compiler that crashes is worse than one that
-/// says no — and this one was found by a probe over the corpus rather than by a
-/// test, after it had already been committed.
-fn calls_something(body: &[Stmt]) -> Option<&'static str> {
-    let mut found = false;
-    for statement in body {
-        walk_stmt(statement, &mut found);
-    }
-    found.then_some("a call inside a `try` that has a `finally`")
-}
-
-/// Routed through [`super::capture::walk_stmt`] for the structural part.
-///
-/// A function or a class written here is not one called here — its body is
-/// reached only through a call, which this walk finds where the call is made
-/// — so `Function`/`Class` stop the walk, matching what the same children do
-/// in `capture.rs`'s own traversals.
-fn walk_stmt(statement: &Stmt, found: &mut bool) {
-    if *found {
-        return;
-    }
-    super::capture::walk_stmt(statement, &mut |child| match child {
-        super::capture::StmtChild::Stmt(inner) => walk_stmt(inner, found),
-        super::capture::StmtChild::Expr(inner) => walk_expr(inner, found),
-        super::capture::StmtChild::Binding(binding) => {
-            if let Some(value) = &binding.value {
-                walk_expr(value, found);
-            }
-        }
-        super::capture::StmtChild::Catch(catch) => {
-            catch.body.iter().for_each(|inner| walk_stmt(inner, found));
-        }
-        super::capture::StmtChild::Function(_) | super::capture::StmtChild::Class(_) => {}
-    });
-}
-
-fn walk_expr(expression: &Expr, found: &mut bool) {
-    if *found {
-        return;
-    }
-    match &expression.kind {
-        ExprKind::Call { .. }
-        | ExprKind::New { .. }
-        | ExprKind::SuperCall { .. }
-        | ExprKind::TaggedTemplate { .. }
-        | ExprKind::ImportCall { .. } => *found = true,
-
-        ExprKind::Binary { left, right, .. } | ExprKind::Logical { left, right, .. } => {
-            walk_expr(left, found);
-            walk_expr(right, found);
-        }
-        ExprKind::Unary { operand, .. } => walk_expr(operand, found),
-        ExprKind::Update { target, .. } => walk_expr(target, found),
-        ExprKind::Await(inner) | ExprKind::Chain(inner) => walk_expr(inner, found),
-        ExprKind::Yield { value, .. } => {
-            if let Some(value) = value {
-                walk_expr(value, found);
-            }
-        }
-        ExprKind::Member { object, .. } => walk_expr(object, found),
-        ExprKind::Index { object, index, .. } => {
-            walk_expr(object, found);
-            walk_expr(index, found);
-        }
-        ExprKind::Template { expressions, .. } => {
-            expressions.iter().for_each(|e| walk_expr(e, found));
-        }
-        ExprKind::Object { properties } => {
-            for property in properties {
-                match property {
-                    Property::Value { value, .. } => walk_expr(value, found),
-                    Property::Spread(value) | Property::Prototype(value) => walk_expr(value, found),
-                    // A method written here is not one called here.
-                    Property::Method { .. } | Property::Getter { .. } | Property::Setter { .. } => {
-                    }
-                }
-            }
-        }
-        ExprKind::Array { elements } => {
-            for element in elements.iter().flatten() {
-                match element {
-                    crate::syntax::Spreadable::Single(value)
-                    | crate::syntax::Spreadable::Spread(value) => walk_expr(value, found),
-                }
-            }
-        }
-        ExprKind::Assign { target, value, .. } => {
-            if let crate::syntax::AssignTarget::Place(place) = target {
-                walk_expr(place, found);
-            }
-            walk_expr(value, found);
-        }
-        ExprKind::Sequence { operands } => operands.iter().for_each(|e| walk_expr(e, found)),
-        ExprKind::Conditional {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            walk_expr(condition, found);
-            walk_expr(then_branch, found);
-            walk_expr(else_branch, found);
-        }
-        ExprKind::Asserted { value, .. } => walk_expr(value, found),
-        ExprKind::SuperMember { property } => {
-            if let crate::syntax::PropertyKey::Computed(key) = &**property {
-                walk_expr(key, found);
-            }
-        }
-
-        ExprKind::Literal(_)
-        | ExprKind::Ident(_)
-        | ExprKind::This
-        | ExprKind::NewTarget
-        | ExprKind::ImportMeta
-        | ExprKind::PrivateName(_)
-        | ExprKind::Function(_)
-        | ExprKind::Class(_) => {}
     }
 }
