@@ -202,17 +202,20 @@ pub fn set_indexed(object: u64, key: u64, value: u64) -> u64 {
             // = 1` leaves length 3. Holes are `undefined` here rather than a
             // distinct absent-ness, which is a stated gap: `0 in [,1]` is
             // false and this cannot say so.
+            //
+            // Filled by the resize itself. It used to resize with `0` and then
+            // scan the WHOLE vector rewriting every element equal to `0` into
+            // `undefined` — and `0` is the bit pattern of `+0.0`, a genuine
+            // double. So `a[0] = 0; a[2] = 1;` turned `a[0]` into `undefined`:
+            // a stored value destroyed by a later write somewhere else, which
+            // is the worst shape a wrong answer takes. There is no scan now.
             if at >= elements.len() {
-                elements.resize(at + 1, 0);
+                let wanted = at + 1;
                 let absent = undefined_of(context);
                 let elements = context
                     .elements_at_mut(slot)
                     .expect("the array was just found");
-                for hole in elements.iter_mut() {
-                    if *hole == 0 {
-                        *hole = absent;
-                    }
-                }
+                elements.resize(wanted, absent);
             }
             let elements = context
                 .elements_at_mut(slot)
@@ -268,6 +271,21 @@ pub fn has_property(key: u64, object: u64) -> bool {
         let Some(slot) = Value(object).as_slot() else {
             return false;
         };
+        // An array element is own storage that no shape records, so the index
+        // question is asked BEFORE the key is turned into text —
+        // `ToPropertyKey` would turn `0` into `"0"` and lose it.
+        //
+        // It was not asked at all, and nothing below it can answer: `1 in
+        // [1, 2, 3]` was false while `[1, 2, 3].hasOwnProperty(1)` was true.
+        // Two spellings of one question disagreeing is the shape of defect this
+        // file's own doc says the split between them must never produce, and
+        // the answer was already written in `object_proto.rs` — this is the
+        // same test, not a second one.
+        if let Some(at) = super::array::as_index(context, Value(key))
+            && let Some(elements) = context.elements_at(slot)
+        {
+            return at < elements.len();
+        }
         let Some(key) = property_key(context, Value(key)) else {
             return false;
         };
