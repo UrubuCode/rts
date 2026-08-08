@@ -145,6 +145,16 @@ pub fn set_property(object: u64, key: i64, value: u64) -> u64 {
 /// call that silently resolves to one instead is a compile error whose message
 /// points at the wrong thing.
 pub(super) fn put(context: &mut Context, slot: u32, key: Key, value: u64) {
+    // `a.length = 1` TRUNCATES, and `a.length = 3` grows with absent elements.
+    // Writing the number alone left the array disagreeing with itself: `length`
+    // answered 1 while `a[1]` still answered what was stored there, which is two
+    // readable facts about one array that cannot both be true.
+    //
+    // Here rather than in the two write paths above, because `a.length = 1` and
+    // `a["length"] = 1` are one operation and this is where they meet. The
+    // elements are resized DIRECTLY rather than through `array::set_length`,
+    // which would come back through this function.
+    reconcile_length(context, slot, key, value);
     let Some(machine) = machine_key(key) else {
         return;
     };
@@ -561,4 +571,45 @@ pub fn object_spread(target: u64, source: u64) -> u64 {
         super::computed::set_indexed(target, key, value);
     }
     target
+}
+
+/// Makes an array's elements agree with a `length` a program just wrote.
+///
+/// # Why only an array, and only this key
+///
+/// Because `length` is an ordinary property on everything else — `{length: 3}`
+/// is an object with a number on it and nothing to reconcile. What makes an
+/// array different is that it has a second store the property is supposed to
+/// describe, and a `length` written without touching it is a description that
+/// stopped being true.
+///
+/// # What a grown array holds
+///
+/// `undefined`, the same as the gap `a[9] = 1` leaves. The language says both
+/// are HOLES — absent rather than present-and-undefined — and this engine cannot
+/// yet say that, which `set_indexed` already records as a stated gap. Growing
+/// with `undefined` keeps the two spellings agreeing with each other, which is
+/// the part that is in reach.
+fn reconcile_length(context: &mut Context, slot: u32, key: Key, value: u64) {
+    if key != super::computed::length_key(context) {
+        return;
+    }
+    let Some(wanted) = Value(value).numeric() else {
+        return;
+    };
+    // A negative or fractional length is a `RangeError` in the language, which
+    // this engine cannot raise where a handler could catch it. Left alone
+    // rather than rounded: writing some other number would be answering a
+    // question the program got wrong.
+    if wanted < 0.0 || wanted.fract() != 0.0 {
+        return;
+    }
+    let wanted = wanted as usize;
+    let absent = undefined_of(context);
+    let Some(elements) = context.elements_at_mut(slot) else {
+        return;
+    };
+    if elements.len() != wanted {
+        elements.resize(wanted, absent);
+    }
 }

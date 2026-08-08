@@ -112,10 +112,27 @@ pub fn cache_resolve(object: u64, key: i64, cache: i64) -> i64 {
 #[rtse::entry("rts_cache_resolve_store")]
 pub fn cache_resolve_store(object: u64, key: i64, cache: i64) -> i64 {
     let refused = with_current(|context| {
-        u32::try_from(key)
-            .ok()
-            .and_then(|number| context.keys.key(number))
-            .is_some_and(|key| super::integrity::refuses_key_write(context, object as u32, key))
+        let Some(key) = u32::try_from(key).ok().and_then(|number| context.keys.key(number))
+        else {
+            return false;
+        };
+        if super::integrity::refuses_key_write(context, object as u32, key) {
+            return true;
+        }
+        // An ARRAY's `length` is refused too, and not because writing it is
+        // forbidden — because it is not a plain store. `a.length = 1` truncates
+        // the elements, so the write has to reach the slow path where
+        // `objects::put` can reconcile them. Cached, it stored the number and
+        // left the array disagreeing with itself: `length` answered 1 while
+        // `a[1]` still answered what was there.
+        //
+        // Only an array pays. Everything else keeps `length` as the ordinary
+        // cacheable property it is.
+        let length = match super::computed::length_key(context) {
+            crate::object::Key::Name(named) => named,
+            crate::object::Key::Index(_) => return false,
+        };
+        key == length && context.elements_at(object as u32).is_some()
     });
     if refused {
         return -1;
