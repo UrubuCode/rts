@@ -711,15 +711,44 @@ fn class_parts(cx: &mut Cx, class: &swc::Class) -> Result<Class> {
 fn constructor_member(cx: &mut Cx, constructor: &swc::Constructor) -> Result<Method> {
     let mut declared = Vec::new();
     let mut rest = None;
+    // The names a parameter property declares, in the order written — which is
+    // the order they are assigned, and therefore the order two of them writing
+    // the same field resolve in.
+    let mut assigned: Vec<crate::names::Name> = Vec::new();
 
     for parameter in &constructor.params {
         let pattern = match parameter {
             swc::ParamOrTsParamProp::Param(param) => &param.pat,
+            // `constructor(private x: number)` declares a field as a side
+            // effect of a parameter. It IS a parameter and an assignment, and
+            // that is what it becomes: the parameter is declared like any other
+            // and `this.x = x` is prepended to the body.
+            //
+            // A desugaring here rather than a class element in the tree, for the
+            // reason the enum above gives: the rule is settled before anything
+            // runs, and a node would carry it into the emitter to be decided a
+            // second time.
             swc::ParamOrTsParamProp::TsParamProp(property) => {
-                // `constructor(private x: number)` declares a field as a side
-                // effect of a parameter. Refused rather than approximated: it
-                // adds a class element the tree would not show.
-                return unsupported("a parameter property", position(property.span));
+                match &property.param {
+                    swc::TsParamPropParam::Ident(ident) => {
+                        assigned.push(cx.names.intern(ident.id.sym.as_ref()));
+                        &swc::Pat::Ident(ident.clone())
+                    }
+                    // `private x = 1` — the default belongs to the parameter,
+                    // and the assignment reads whatever the parameter ended up
+                    // holding, so the two compose without either knowing about
+                    // the other.
+                    swc::TsParamPropParam::Assign(assign) => {
+                        let swc::Pat::Ident(ident) = &*assign.left else {
+                            return unsupported(
+                                "a parameter property that destructures",
+                                position(property.span),
+                            );
+                        };
+                        assigned.push(cx.names.intern(ident.id.sym.as_ref()));
+                        &swc::Pat::Assign(assign.clone())
+                    }
+                }
             }
         };
         if let swc::Pat::Rest(spread) = pattern {
@@ -729,7 +758,28 @@ fn constructor_member(cx: &mut Cx, constructor: &swc::Constructor) -> Result<Met
         declared.push(parameter_of(cx, pattern)?);
     }
 
-    let (directives, body) = block_body(cx, constructor.body.as_ref())?;
+    let (directives, mut body) = block_body(cx, constructor.body.as_ref())?;
+    if !assigned.is_empty() {
+        let at = position(constructor.span);
+        let writes: Vec<Stmt> = assigned
+            .into_iter()
+            .map(|name| field_assignment(name, at))
+            .collect();
+        // AFTER a leading `super(...)` and not before it. In a derived class
+        // `this` does not exist until `super()` answers one, so an assignment
+        // ahead of it would write into nothing — and TypeScript places them
+        // exactly here for that reason. With no `super()` there is nothing to
+        // follow, so they go first.
+        // A constructor always has a block body — a concise one is not legal —
+        // so anything else here is a defect rather than a program.
+        if let FunctionBody::Block(statements) = &mut body {
+            let after = match statements.first() {
+                Some(first) if is_super_call(first) => 1,
+                _ => 0,
+            };
+            statements.splice(after..after, writes);
+        }
+    }
 
     Ok(Method {
         key: ClassKey::Public(property_key(cx, &constructor.key)?),
@@ -888,3 +938,44 @@ fn enum_declaration(cx: &mut Cx, declaration: &swc::TsEnumDecl) -> Result<Stmt> 
     })
 }
 
+
+/// `this.name = name;`, for a parameter property.
+fn field_assignment(name: crate::names::Name, at: rts_cranelift::fault::Position) -> Stmt {
+    Stmt {
+        kind: StmtKind::Expr(Expr {
+            kind: ExprKind::Assign {
+                target: crate::syntax::AssignTarget::Place(Box::new(Expr {
+                    kind: ExprKind::Member {
+                        object: Box::new(Expr {
+                            kind: ExprKind::This,
+                            at,
+                        }),
+                        property: name,
+                        optional: false,
+                    },
+                    at,
+                })),
+                value: Box::new(Expr {
+                    kind: ExprKind::Ident(name),
+                    at,
+                }),
+                op: crate::syntax::AssignOp::Plain,
+            },
+            at,
+        }),
+        at,
+    }
+}
+
+/// Whether a statement is a bare `super(...)` call.
+///
+/// Read from the tree rather than from a flag on the constructor, because what
+/// decides where a parameter property is assigned is whether the body STARTS
+/// with one — a derived class whose author put a statement first is a program
+/// TypeScript itself rejects, so there is no third case to get wrong.
+fn is_super_call(statement: &Stmt) -> bool {
+    let StmtKind::Expr(expr) = &statement.kind else {
+        return false;
+    };
+    matches!(expr.kind, ExprKind::SuperCall { .. })
+}
