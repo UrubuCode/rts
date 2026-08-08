@@ -8,8 +8,11 @@
 //! superfície: o especificador resolve, o nome existe, é chamável, e a chamada
 //! atravessa a fronteira sem derrubar o processo.
 //!
-//! Isso não é prova de que pinta. A prova de que pinta é rodar um programa numa
-//! máquina com tela, e ela é de quem tem uma.
+//! Isso não é prova de que pinta. A prova de que pinta é `examples/janela.rs`, e
+//! ela não pode viver aqui por uma razão de plataforma e não de gosto: o winit
+//! entra em pânico ao criar o event loop fora da thread PRINCIPAL, e um `#[test]`
+//! do cargo roda numa secundária. Um teste ignorado que abortasse o processo
+//! quando alguém o rodasse seria pior que nenhum.
 //!
 //! # Por que pelo `rts:test` e não por um `return`
 //!

@@ -73,6 +73,26 @@ pub fn install(context: &mut Context) {
     entry::declare_module(context, "rts:input", entry_points);
 }
 
+/// Solta os recursos de GPU enquanto o processo ainda está inteiro.
+///
+/// # Por que isto não pode ficar para o destrutor do thread-local
+///
+/// No Windows o destrutor de um `thread_local` roda a partir do callback de TLS
+/// durante o `LdrShutdownProcess` — isto é, ENQUANTO as DLLs do driver estão
+/// sendo descarregadas. Destruir um `wgpu::Device` nesse momento faz o driver
+/// D3D12 da AMD dar `__fastfail` (`0xC0000409`) depois de uma execução limpa e
+/// já totalmente impressa, sem mensagem nenhuma.
+///
+/// O `rts-egui` já sabia disso e tinha o `shutdown_shared_gpu` para o CLI antigo
+/// chamar. O motor novo precisa do mesmo, e por isto é o HOST que chama e não o
+/// programa: um programa que esquecesse a linha morreria na saída, e ele não tem
+/// como saber que essa linha existe.
+///
+/// Idempotente, e no-op quando nenhuma GPU foi criada.
+pub fn shutdown() {
+    rts_egui::shutdown_shared_gpu();
+}
+
 /// `rts:egui`, montado das três metades da superfície.
 ///
 /// Um objeto só, e não três: um programa escreve `egui.beginFrame` e

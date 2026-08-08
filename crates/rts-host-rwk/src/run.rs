@@ -349,6 +349,11 @@ fn run_region(
         let described = rts_core_rwk::entry::described(value);
         (value, described)
     });
+    // Depois do programa e antes de qualquer destrutor: um `wgpu::Device` solto
+    // pelo destrutor de thread-local morre durante o descarregamento das DLLs do
+    // driver. Ver `rts_ui_rwk::shutdown`. No-op quando nenhuma janela foi aberta.
+    #[cfg(feature = "ui")]
+    rts_ui_rwk::shutdown();
     Outcome {
         value,
         resolves: context.resolves,
