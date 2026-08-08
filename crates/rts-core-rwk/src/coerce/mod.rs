@@ -100,6 +100,7 @@ pub fn add(
     right: Value,
     as_string: impl Fn(Value) -> Option<Str>,
     stringify: impl Fn(Value) -> Option<Str>,
+    numeric: impl Fn(Value) -> Option<f64>,
 ) -> Option<Sum> {
     let (left_string, right_string) = (as_string(left), as_string(right));
 
@@ -121,7 +122,17 @@ pub fn add(
         return Some(Sum::Text(left_text.concat(&right_text)));
     }
 
-    Some(Sum::Number(left.numeric()? + right.numeric()?))
+    // `ToNumber` and not "is this already a number". They are two questions and
+    // this asked the wrong one: `Value::numeric` answers `None` for a boolean
+    // and for `null`, so `true + 1` and `null + 1` fell through the `?` and the
+    // caller reported them as `NaN`.
+    //
+    // `ToNumber(true)` is 1, `ToNumber(false)` and `ToNumber(null)` are +0, and
+    // only `undefined` is NaN. Every other operator was already right, which is
+    // what made this invisible: `true - 1` answered 0 while `true + 1` answered
+    // NaN, and `total = total + (x > 2)` — counting a predicate — silently
+    // poisoned the whole accumulator.
+    Some(Sum::Number(numeric(left)? + numeric(right)?))
 }
 
 /// What `+` produced.
@@ -252,9 +263,46 @@ mod tests {
         let as_string = strings(vec![(left.bits(), ""), (right.bits(), "[object Object]")]);
 
         assert_eq!(
-            add(left, right, &as_string, &as_string),
+            add(left, right, &as_string, &as_string, &numeric),
             Some(Sum::Text(Str::from_str("[object Object]"))),
             "[] + {{}} concatenates, though neither operand is a string"
+        );
+    }
+
+    /// `ToNumber` as the entry layer supplies it, which is NOT `Value::numeric`.
+    ///
+    /// `numeric` answers "is this already a number" and refuses a boolean. `add`
+    /// used to ask that question, so `true + 1` fell through its `?` and the
+    /// caller reported `NaN`.
+    fn numeric(value: Value) -> Option<f64> {
+        value
+            .numeric()
+            .or_else(|| value.as_bool().map(|yes| if yes { 1.0 } else { 0.0 }))
+    }
+
+    #[test]
+    fn a_boolean_operand_converts_rather_than_refusing() {
+        let none = strings(vec![]);
+        assert_eq!(
+            add(
+                Value::from_bool(true),
+                Value::from_i32(1),
+                &none,
+                &none,
+                &numeric
+            ),
+            Some(Sum::Number(2.0)),
+            "ToNumber(true) is 1; counting a predicate must not answer NaN"
+        );
+        assert_eq!(
+            add(
+                Value::from_bool(false),
+                Value::from_i32(1),
+                &none,
+                &none,
+                &numeric
+            ),
+            Some(Sum::Number(1.0))
         );
     }
 
@@ -262,11 +310,11 @@ mod tests {
     fn add_on_two_numbers_is_arithmetic() {
         let none = strings(vec![]);
         assert_eq!(
-            add(Value::from_i32(2), Value::from_i32(3), &none, &none),
+            add(Value::from_i32(2), Value::from_i32(3), &none, &none, &numeric),
             Some(Sum::Number(5.0))
         );
         assert_eq!(
-            add(Value::from_f64(0.1), Value::from_f64(0.2), &none, &none),
+            add(Value::from_f64(0.1), Value::from_f64(0.2), &none, &none, &numeric),
             Some(Sum::Number(0.1 + 0.2))
         );
     }
@@ -288,7 +336,7 @@ mod tests {
         // twice made every `string + number` a contract violation reported as
         // `NaN`.
         assert_eq!(
-            add(text, Value::from_i32(1), &as_string, &stringify),
+            add(text, Value::from_i32(1), &as_string, &stringify, &numeric),
             Some(Sum::Text(Str::from_str("n=1")))
         );
     }
@@ -301,7 +349,7 @@ mod tests {
         let stringify = |value: Value| value.numeric().map(number_to_string);
         let none = strings(vec![]);
         assert_eq!(
-            add(Value::from_i32(1), Value::from_i32(2), &none, &stringify),
+            add(Value::from_i32(1), Value::from_i32(2), &none, &stringify, &numeric),
             Some(Sum::Number(3.0))
         );
     }

@@ -58,7 +58,10 @@ pub fn add(left: u64, right: u64) -> u64 {
         // `"12"`.
         let stringify = |value: Value| super::text::to_text(context, value);
 
-        match add_primitives(Value(left), Value(right), text_of, stringify) {
+        let singletons = context.singletons;
+        let numeric = move |value: Value| crate::value::to_number(value, singletons);
+
+        match add_primitives(Value(left), Value(right), text_of, stringify, numeric) {
             Some(Sum::Number(number)) => Value::from_f64(number).bits(),
             Some(Sum::Text(text)) => context.intern_value(text).bits(),
             // Neither a number nor a string: the caller handed over something
