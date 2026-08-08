@@ -36,8 +36,6 @@ use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowId};
 
-use rts_engine::abi::str_abi;
-
 use crate::ctx::{self, UiCtx};
 use crate::frame::{Backend, RenderState};
 
@@ -250,17 +248,8 @@ fn make_egui(window: &Window) -> (egui::Context, egui_winit::State) {
 /// Abre uma janela + backend de render sobre o EventLoop GLOBAL (criado lazy na
 /// 1ª chamada, reusado nas seguintes). Retorna um handle `UiCtx` opaco (0 em
 /// falha). `backend` é ignorado no P1 (sempre wgpu).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_OPEN_WINDOW(
-    title_ptr: *const u8,
-    title_len: i64,
-    w: i64,
-    h: i64,
-    config: i64,
-) -> u64 {
-    let title = unsafe { str_abi::from_abi(title_ptr, title_len) }
-        .unwrap_or("rts-egui")
-        .to_string();
+pub fn open_window(title: &str, w: i64, h: i64, config: i64) -> u64 {
+    let title = title.to_string();
     let width = w.clamp(1, i64::from(u32::MAX)) as u32;
     let height = h.clamp(1, i64::from(u32::MAX)) as u32;
     // `config` is a bitfield: bit0 high_perf, bit1 mem_performance, bit2
@@ -346,8 +335,7 @@ pub extern "C" fn __RTS_FN_NS_EGUI_OPEN_WINDOW(
 /// `on==0` solta e mostra o cursor. Windows não implementa
 /// `CursorGrabMode::Locked` (winit) — `Confined` + raw deltas é o padrão de
 /// jogos; tenta `Locked` primeiro para os SOs que suportam.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_MOUSE_LOCK(h: u64, on: i64) {
+pub fn mouse_lock(h: u64, on: i64) {
     use winit::window::CursorGrabMode;
     ctx::with_ctx(h, |c| {
         if on != 0 {
@@ -434,8 +422,7 @@ impl ApplicationHandler for Pumper {
 /// pump processa os eventos de TODAS as janelas (roteados por `WindowId`). O
 /// parâmetro `h` é mantido por compatibilidade da ABI, mas o pump é global: só
 /// validamos que o handle existe (handle inválido → "sair"). Retorna 0=continuar.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_PUMP(h: u64) -> i64 {
+pub fn pump(h: u64) -> i64 {
     // Handle precisa existir (o TS chama pump(h) por janela).
     if ctx::with_ctx(h, |_| ()).is_none() {
         return 1; // handle inexistente → "sair".
@@ -451,8 +438,7 @@ pub extern "C" fn __RTS_FN_NS_EGUI_PUMP(h: u64) -> i64 {
 }
 
 /// 1 enquanto a janela não foi fechada; 0 caso contrário (ou handle inválido).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_IS_OPEN(h: u64) -> i64 {
+pub fn is_open(h: u64) -> i64 {
     ctx::with_ctx(h, |c| if c.open { 1 } else { 0 }).unwrap_or(0)
 }
 
@@ -466,16 +452,14 @@ thread_local! {
 /// Define a posição INICIAL (pixels físicos do desktop) da PRÓXIMA janela criada
 /// por `openWindow`. Chame ANTES de `openWindow` para a janela já nascer no
 /// monitor desejado (mais confiável que `moveWindow` depois).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_SET_NEXT_POS(x: i64, y: i64) {
+pub fn set_next_pos(x: i64, y: i64) {
     NEXT_POS.with(|p| *p.borrow_mut() = Some((x as i32, y as i32)));
 }
 
 /// Move a janela para a posição ABSOLUTA `(x, y)` na área de trabalho virtual
 /// (em pixels físicos do desktop multi-monitor). Permite ao TS escolher o
 /// monitor (ex.: x >= largura-do-primário → tela secundária).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_MOVE_WINDOW(h: u64, x: i64, y: i64) {
+pub fn move_window(h: u64, x: i64, y: i64) {
     ctx::with_ctx(h, |c| {
         c.window
             .set_outer_position(winit::dpi::PhysicalPosition::new(x as i32, y as i32));
@@ -484,7 +468,6 @@ pub extern "C" fn __RTS_FN_NS_EGUI_MOVE_WINDOW(h: u64, x: i64, y: i64) {
 
 /// Destrói a janela e libera o `UiCtx`. NÃO destrói o EventLoop global (winit não
 /// permite recriá-lo; ele fica vivo mesmo após a última janela fechar).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_CLOSE(h: u64) {
+pub fn close(h: u64) {
     ctx::remove(h);
 }

@@ -13,17 +13,17 @@ license.workspace = true
 # do TS; o handle u64 é só uma chave opaca.
 
 [dependencies]
-rts-engine = { path = "../rts-engine" }
+rts-engine = { path = "../rts-engine", optional = true }
 # DOM retido: o egui CONSOME o tipo `Dom` do crate `rts-dom` (parser + árvore +
 # NodeId) e só adiciona o RENDER. O DOM não vive mais aqui.
-rts-dom = { path = "../rts-dom" }
+rts-dom = { path = "../rts-dom", default-features = false }
 # Interface de render abstrata: o egui IMPLEMENTA o trait `Renderer` e se registra
 # como backend ativo. O DOM/layout fala `render.*`, nunca `egui.*`.
-rts-render = { path = "../rts-render" }
+rts-render = { path = "../rts-render", default-features = false }
 # Interface de input abstrata (crate irmão de render): o egui também IMPLEMENTA o
 # trait `InputSource` (captura mouse/teclado/etc via winit) e se registra. O app
 # fala `input.*`, nunca `egui.*`.
-rts-input = { path = "../rts-input" }
+rts-input = { path = "../rts-input", default-features = false }
 
 # egui/egui-winit SEM default-features: cortamos accesskit (a11y, traz toda uma
 # árvore), serde, etc. — não usamos no PoC.
@@ -103,7 +103,10 @@ winit = { version = "0.30", default-features = false, features = [
 [features]
 # default liga o backend wgpu + dx12 (Windows). macOS/Linux: trocar gpu-dx12 por
 # gpu-metal/gpu-vulkan no consumidor (rts-runtime) por cfg de plataforma.
-default = ["wgpu-backend", "gpu-dx12"]
+default = ["wgpu-backend", "gpu-dx12", "old-engine"]
+# A ABI do motor ANTIGO (símbolos de linker + namespace `egui`/`gpu`) e os crates
+# vizinhos na versão que a expõe. Ver o doc de `src/abi.rs`.
+old-engine = ["dep:rts-engine", "rts-dom/old-engine", "rts-render/old-engine", "rts-input/old-engine"]
 # wgpu-backend liga o dep wgpu/egui-wgpu. O backend de GPU concreto é escolhido
 # pelas features de plataforma abaixo (o build ativa a do SO corrente).
 wgpu-backend = ["dep:egui-wgpu", "dep:wgpu"]

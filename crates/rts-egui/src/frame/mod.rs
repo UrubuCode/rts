@@ -30,8 +30,7 @@ fn rgba32(c: u32) -> egui::Color32 {
 
 /// Abre um pass do egui: pega o input acumulado e zera a fila de widgets do
 /// frame. Os widgets-folha entre aqui e `endFrame` apenas enfileiram em `cmds`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_BEGIN_FRAME(h: u64) {
+pub fn begin_frame(h: u64) {
     ctx::with_ctx(h, |c| {
         if c.frame_active {
             return; // beginFrame duplo sem endFrame — ignora.
@@ -74,8 +73,7 @@ pub extern "C" fn __RTS_FN_NS_EGUI_BEGIN_FRAME(h: u64) {
 /// 4. adquire o frame da surface, grava o render pass (clear escuro + egui) e
 ///    apresenta;
 /// 5. libera as textures marcadas como free.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_END_FRAME(h: u64) {
+pub fn end_frame(h: u64) {
     ctx::with_ctx(h, |c| {
         if !c.frame_active {
             return;
@@ -200,12 +198,12 @@ fn finish_frame(c: &mut crate::ctx::UiCtx, cmds: Vec<WidgetCmd>) {
 /// (lê o back buffer via `glReadPixels`); no wgpu é no-op com aviso (a janela
 /// wgpu já é confirmada visualmente). O PPM serve p/ asserir que o frame não está
 /// em branco — que o texto/widgets realmente pintaram.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_SNAPSHOT(h: u64, path_ptr: *const u8, path_len: i64) {
-    let path = match unsafe { rts_engine::abi::str_abi::from_abi(path_ptr, path_len) } {
-        Some(p) if !p.is_empty() => p.to_string(),
-        _ => return,
-    };
+pub fn snapshot(h: u64, path: &str) {
+    if path.is_empty() {
+        return;
+    }
+    #[cfg_attr(not(feature = "glow-backend"), allow(unused_variables))]
+    let path = path.to_string();
     ctx::with_ctx(h, |c| match &mut c.backend {
         #[cfg(feature = "glow-backend")]
         Backend::Glow(g) => g.request_snapshot(path),
@@ -220,8 +218,7 @@ pub extern "C" fn __RTS_FN_NS_EGUI_SNAPSHOT(h: u64, path_ptr: *const u8, path_le
 /// quem desliga assume o throttle (ou o burn de CPU/GPU); o default do motor
 /// segue Fifo e o kill-gate segue protegendo o default. Reconfigura a surface
 /// na hora; o resize preserva (muta `config.present_mode`).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_SET_VSYNC(h: u64, on: i64) {
+pub fn set_vsync(h: u64, on: i64) {
     ctx::with_ctx(h, |c| {
         if let Backend::Wgpu(r) = &mut c.backend {
             let mode = if on != 0 {

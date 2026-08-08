@@ -18,7 +18,7 @@ pub struct EguiRenderer;
 
 impl Renderer for EguiRenderer {
     fn begin_frame(&self, target: u64) {
-        crate::frame::__RTS_FN_NS_EGUI_BEGIN_FRAME(target);
+        crate::frame::begin_frame(target);
     }
 
     fn rect(
@@ -96,7 +96,7 @@ impl Renderer for EguiRenderer {
     }
 
     fn end_frame(&self, target: u64) {
-        crate::frame::__RTS_FN_NS_EGUI_END_FRAME(target);
+        crate::frame::end_frame(target);
     }
 }
 

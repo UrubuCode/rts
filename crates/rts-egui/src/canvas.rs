@@ -10,15 +10,12 @@
 //!
 //! Ver `docs/ui/dom-in-ts.md`.
 
-use rts_engine::abi::str_abi;
-
 use crate::ctx::{self, WidgetCmd};
 
 /// `drawRect(h, x, y, w, h_, fill, strokeW, stroke, radius)` — retângulo
 /// preenchido + borda opcional, em coords absolutas. Cores `0xRRGGBBAA`.
-#[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
-pub extern "C" fn __RTS_FN_NS_EGUI_DRAW_RECT(
+pub fn draw_rect(
     h: u64,
     x: f64,
     y: f64,
@@ -47,18 +44,9 @@ pub extern "C" fn __RTS_FN_NS_EGUI_DRAW_RECT(
 
 /// `drawText(h, x, y, text, color, size, flags)` — texto numa posição absoluta.
 /// `flags` bitmask 1=bold 2=italic 4=mono. Cor `0xRRGGBBAA`.
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_DRAW_TEXT(
-    h: u64,
-    x: f64,
-    y: f64,
-    text_ptr: *const u8,
-    text_len: i64,
-    color: i64,
-    size: f64,
-    flags: i64,
-) {
-    let text = unsafe { str_abi::from_abi(text_ptr, text_len) }.unwrap_or("").to_string();
+#[allow(clippy::too_many_arguments)]
+pub fn draw_text(h: u64, x: f64, y: f64, text: &str, color: i64, size: f64, flags: i64) {
+    let text = text.to_string();
     ctx::with_ctx(h, |c| {
         if c.frame_active {
             c.cmds.push(WidgetCmd::DrawText {
@@ -74,9 +62,8 @@ pub extern "C" fn __RTS_FN_NS_EGUI_DRAW_TEXT(
 }
 
 /// `drawLine(h, x1, y1, x2, y2, w, color)` — linha em coords absolutas.
-#[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
-pub extern "C" fn __RTS_FN_NS_EGUI_DRAW_LINE(
+pub fn draw_line(
     h: u64,
     x1: f64,
     y1: f64,
@@ -103,15 +90,7 @@ pub extern "C" fn __RTS_FN_NS_EGUI_DRAW_LINE(
 /// medida com a fonte real do egui. É o que o TS chama para calcular layout
 /// (quebra de linha, largura de caixa). SÍNCRONO. Retorna `-1.0` (bits) se a
 /// janela não existe. Independe de `frame_active` (o TS mede antes de pintar).
-#[unsafe(no_mangle)]
-pub extern "C" fn __RTS_FN_NS_EGUI_MEASURE_TEXT(
-    h: u64,
-    text_ptr: *const u8,
-    text_len: i64,
-    size: f64,
-    bold: i64,
-) -> f64 {
-    let text = unsafe { str_abi::from_abi(text_ptr, text_len) }.unwrap_or("");
+pub fn measure_text(h: u64, text: &str, size: f64, bold: i64) -> f64 {
     let _ = (h, bold);
     // PoC: medição APROXIMADA (largura média de glifo ≈ 0.52·size para a fonte
     // proporcional padrão; mono ≈ 0.60·size). A medição EXATA usa o atlas de
