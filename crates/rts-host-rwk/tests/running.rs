@@ -3853,3 +3853,20 @@ fn stringify_asks_the_value_how_it_wants_to_be_written() {
     // Inherited rather than own, which is how `Date` provides one.
     holds("return JSON.stringify(new Date(0)) === \"\\\"1970-01-01T00:00:00.000Z\\\"\";");
 }
+
+/// A `Number.prototype` method reads its receiver rather than converting it.
+///
+/// `thisNumberValue` is a read: the receiver of `(5).toFixed(1)` already IS the
+/// number, and the specification never runs `valueOf` to find out. Sharing the
+/// argument spelling of `ToNumber` made `valueOf` convert its own receiver — by
+/// looking up `valueOf` and calling it — which recursed until the stack ran out
+/// in four suite files.
+#[test]
+fn a_number_method_does_not_convert_its_own_receiver() {
+    holds("return (5).valueOf() === 5 && (2.5).toFixed(0) === \"3\";");
+    holds("return (255).toString(16) === \"ff\" && (1.5).toPrecision(2) === \"1.5\";");
+
+    // The argument side still converts, which is the half that must not have
+    // been narrowed with it.
+    holds("return Number({ valueOf() { return 5; } }) === 5;");
+}

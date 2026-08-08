@@ -87,7 +87,7 @@ impl Number {
     /// paths here rather than one loop with a special case.
     fn to_string(this: u64, radix: u64) -> u64 {
         let base = radix_of(radix);
-        let number = super::class_support::to_number(this);
+        let number = super::class_support::this_number(this);
         with_current(|context| {
             let text = match base {
                 0 | 10 => crate::coerce::number_to_string(number),
@@ -103,7 +103,7 @@ impl Number {
 
     /// `n.valueOf()` — the number itself.
     fn value_of(this: u64) -> f64 {
-        super::class_support::to_number(this)
+        super::class_support::this_number(this)
     }
 
     /// `n.toFixed(digits)`.
@@ -112,7 +112,7 @@ impl Number {
     /// what Rust's own `{:.*}` does not: `{:.0}` of `2.5` is `2`, because Rust
     /// formats to nearest-even. `(2.5).toFixed(0)` is `"3"`.
     fn to_fixed(this: u64, digits: f64) -> u64 {
-        let number = super::class_support::to_number(this);
+        let number = super::class_support::this_number(this);
         let places = match digits.is_nan() {
             true => 0,
             false => digits.trunc().clamp(0.0, 100.0) as usize,
@@ -135,7 +135,7 @@ impl Number {
     /// is `"1.2e+1"` and `(12).toExponential(0)` is `"1e+1"`. So it arrives as
     /// the value it was passed rather than as an `f64`.
     fn to_exponential(this: u64, digits: u64) -> u64 {
-        let number = super::class_support::to_number(this);
+        let number = super::class_support::this_number(this);
         let places = places_of(digits);
         with_current(|context| {
             let text = Str::from_str(&format::exponential(number, places));
@@ -148,7 +148,7 @@ impl Number {
     /// With no argument it is `toString`, which the specification states and
     /// which is not the same as one significant digit.
     fn to_precision(this: u64, digits: u64) -> u64 {
-        let number = super::class_support::to_number(this);
+        let number = super::class_support::this_number(this);
         // Asked BEFORE the borrow: `places_of` takes one of its own, and
         // nesting them aborts the process rather than failing a test — the trap
         // `radix_of` records paying for once already.
@@ -176,7 +176,7 @@ impl Number {
     /// program running under another. `"1,234"` is a claim about the reader, not
     /// about the number.
     fn to_locale_string(this: u64) -> u64 {
-        let number = super::class_support::to_number(this);
+        let number = super::class_support::this_number(this);
         with_current(|context| {
             context.intern_value(crate::coerce::number_to_string(number)).bits()
         })

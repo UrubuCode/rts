@@ -123,8 +123,29 @@ pub(in crate::entry) fn constants(context: &mut Context, cell: u32, constants: &
 ///
 /// `NaN` remains for what genuinely does not convert: an object whose two
 /// methods both answer objects, and a symbol.
+///
+/// **For an ARGUMENT, never for a receiver.** [`this_number`] is the receiver's
+/// spelling, and the difference is not a nicety: `Number.prototype.valueOf` is
+/// reached through this if it uses the wrong one, and converting its receiver
+/// looks up `valueOf` and calls it — itself. That recursed until the stack ran
+/// out, in four suite files, the moment this learned to convert.
 pub(in crate::entry) fn to_number(value: u64) -> f64 {
     let value = super::primitive::to_primitive(value, crate::coerce::Hint::Number);
+    with_current(|context| super::operators::as_number(context, Value(value)).unwrap_or(f64::NAN))
+}
+
+/// The number a `Number.prototype` method's receiver already IS.
+///
+/// `thisNumberValue`, which is a read rather than a conversion: the receiver of
+/// `(5).toFixed(1)` is the primitive itself, and the specification requires it to
+/// be one — it never runs `valueOf` to find out. That is the whole reason this
+/// exists beside [`to_number`], and the reason is mechanical rather than
+/// pedantic: `valueOf`'s own body would be the thing the conversion called.
+///
+/// A string receiver still reads as its numeric text, which is what `as_number`
+/// answers and what the old shared spelling did — narrowing that too would be a
+/// second change hiding inside a fix.
+pub(in crate::entry) fn this_number(value: u64) -> f64 {
     with_current(|context| super::operators::as_number(context, Value(value)).unwrap_or(f64::NAN))
 }
 
