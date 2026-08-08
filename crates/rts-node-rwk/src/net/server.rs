@@ -88,8 +88,15 @@ extern "C" fn listen(_e: u64, this: u64, a: u64, b: u64, c: u64, _d: u64) -> u64
         return this;
     }
     let port = super::common::number_arg(a).unwrap_or(0.0) as u16;
-    let host = entry::text_of(b).unwrap_or_else(|| "0.0.0.0".to_owned());
-    let callback = if entry::text_of(b).is_some() { c } else { b };
+    // Asked with the type TEST and not with `ToString`. `text_of` converts, so
+    // it answers `Some("undefined")` for an argument that was never passed —
+    // which made `listen(port)` bind to a host literally named "undefined", fail
+    // to resolve, and emit an `'error'` nothing handled. It also made the
+    // overload test below always take the `(port, host, callback)` branch, so
+    // `listen(port, callback)` lost its callback.
+    let named = entry::with_runtime(|context| entry::string_in(context, b));
+    let host = named.clone().unwrap_or_else(|| "0.0.0.0".to_owned());
+    let callback = if named.is_some() { c } else { b };
     if callback != absent {
         let once_fn = entry::with_runtime(|context| entry::get_member(context, this, "once"));
         if once_fn != absent {

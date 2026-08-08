@@ -161,7 +161,19 @@ extern "C" fn bind(_e: u64, this: u64, a: u64, b: u64, c: u64, _d: u64) -> u64 {
     registry::pump();
     let absent = entry::undefined_value();
     let (port, address, callback) = entry::with_runtime(|context| match entry::number_of(a) {
-        Some(port) => (port as u16, entry::text_in(context, b).unwrap_or_default(), c),
+        // `string_in` and not `text_in`: the second is `ToString`, so an ABSENT
+        // address arrived as the literal host name `"undefined"`, went to the
+        // resolver, and came back as WSAHOST_NOT_FOUND — an `'error'` event
+        // nothing handled, which ended the program. `bind(0)` is the common
+        // spelling and it could not work.
+        //
+        // `modules::string_in` says so in its own doc: a coercion that can be
+        // mistaken for a test will be.
+        Some(port) => (
+            port as u16,
+            entry::string_in(context, b).unwrap_or_default(),
+            c,
+        ),
         None => {
             let port = option_num(context, a, "port").unwrap_or(0.0) as u16;
             let address = option_text(context, a, "address").unwrap_or_default();
@@ -531,7 +543,11 @@ fn option_value(context: &mut Context, options: u64, name: &str) -> u64 {
 
 fn option_text(context: &mut Context, options: u64, name: &str) -> Option<String> {
     let value = option_value(context, options, name);
-    entry::text_in(context, value)
+    // `string_in`, which TESTS, rather than `text_in`, which converts: an option
+    // the caller left out is `undefined`, and converting that answers the literal
+    // text "undefined". That is what sent `bind(0)` to the resolver looking for a
+    // host by that name.
+    entry::string_in(context, value)
 }
 
 fn option_num(context: &mut Context, options: u64, name: &str) -> Option<f64> {

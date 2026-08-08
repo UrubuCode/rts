@@ -103,7 +103,11 @@ pub(super) fn option_text(context: &mut Context, options: u64, name: &str) -> Op
         return None;
     }
     let value = entry::get_member(context, options, name);
-    entry::text_in(context, value)
+    // The type TEST, not `ToString`. An option the caller left out reads as
+    // `undefined`, and converting that answers the literal text `"undefined"` —
+    // so `bind({ port: 0 })` bound to a host by that name, failed to resolve, and
+    // emitted an `'error'` nothing handled. `None` is what an absent option is.
+    entry::string_in(context, value)
 }
 
 /// A numeric option, read from a context already in hand.

@@ -125,9 +125,18 @@ pub(super) extern "C" fn connect(_e: u64, this: u64, a: u64, b: u64, c: u64, _d:
     let absent = entry::undefined_value();
     let (port, host, listener) = match super::common::number_arg(a) {
         Some(port) => {
-            let host = entry::text_of(b);
+            // The type test, not `ToString`. `text_of` converts, so an absent
+            // second argument answered `Some("undefined")` — `connect(port)`
+            // then looked up a host by that name, failed to resolve, and emitted
+            // an `'error'` nothing handled. The overload test below inherited the
+            // same wrong answer, so `connect(port, listener)` lost its listener.
+            let host = entry::with_runtime(|context| entry::string_in(context, b));
             let listener = if host.is_some() { c } else { b };
-            (port as u16, host.unwrap_or_else(|| "localhost".to_owned()), listener)
+            (
+                port as u16,
+                host.unwrap_or_else(|| "localhost".to_owned()),
+                listener,
+            )
         }
         None => {
             let (port, host) = entry::with_runtime(|context| {
