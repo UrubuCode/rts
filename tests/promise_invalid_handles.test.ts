@@ -1,52 +1,72 @@
 import { describe, test, expect } from "rts:test";
-import { promise } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
   __rtsCapturedOutput += value + "\n";
 }
 
-// 1. Operacoes em handle 0 — comportamento defensivo.
-print("state_0=" + promise.state(0));         // -1
-print("wait_0=" + promise.wait(0));           // 0
-print("try_value_0=" + promise.try_value(0)); // 0
-print("resolve_0=" + promise.resolve(0, 99)); // 0 (no-op)
-print("reject_0=" + promise.reject(0, 1));    // 0
+// Este ficheiro pinava o comportamento defensivo do namespace `rts`, onde uma
+// Promise era um inteiro: `state(0)` = -1, `wait(0)` = 0, `resolve(0, x)` = 0.
+// A superficie que fica nao tem handles, logo nao existe handle invalido a
+// defender — nao ha assercao equivalente para "0 nao e' Promise". O que essas
+// linhas mediam DE FACTO, e que o padrao promete e continua sendo verificado
+// aqui, e' o que sobra quando se tira o handle:
+//   - `await` sobre nao-thenable devolve o proprio valor (era `wait(456)`=456);
+//   - esperar a mesma Promise duas vezes da' o mesmo valor;
+//   - o primeiro settle vence e os seguintes sao no-op.
+// Cada linha diz qual das antigas substitui.
 
-// 2. Handle aleatorio invalido (gen 0).
-print("state_garbage=" + promise.state(123));    // -1
-// `wait` de um valor que nao e' Promise viva = o proprio valor (semantica JS de
-// `await` sobre nao-thenable; async fns rodam sincrono no motor novo).
-print("wait_garbage=" + promise.wait(456));      // 456
+let st: i64 = 0;
+let val: any = 0;
+async function settle(p: any): i64 {
+  st = 0;
+  val = 0;
+  await p.then((v: any) => { st = 1; val = v; return v; })
+         .catch((e: any) => { st = 2; val = e; return e; });
+  return st;
+}
 
-// 3. Handle valido apos free conceitual — wait em Promise nao reaproveitavel.
-const p = promise.new_resolved(42);
-print("p_state=" + promise.state(p));
-print("p_wait=" + promise.wait(p));
-// Wait de novo e' OK (multiplas chamadas no mesmo handle resolvido).
-print("p_wait_again=" + promise.wait(p));
+// (era state_0 / wait_0 / try_value_0 / resolve_0 / reject_0)
+// Sem handles, 0 e' apenas um valor: Promise.resolve(0) e' fulfilled com 0, e
+// nao ha resolve/reject a aplicar de fora sobre ele.
+await settle(Promise.resolve(0));
+print("zero_state=" + st);
+print("zero_value=" + val);
 
-// 4. resolve em Promise ja' resolved retorna 0.
-const r = promise.new_resolved(1);
-print("re_resolve=" + promise.resolve(r, 99));  // 0
-print("r_value=" + promise.try_value(r));       // 1 (valor original)
+// (era wait_garbage=456) `await` sobre nao-thenable = o proprio valor. Esta
+// e' literalmente a mesma garantia, agora escrita na superficie padrao.
+print("await_non_thenable=" + (await 456));
 
-// 5. reject em Promise ja' rejected retorna 0.
-const rj = promise.new_rejected(7);
-print("re_reject=" + promise.reject(rj, 99));   // 0
-print("rj_value=" + promise.try_value(rj));     // 7 (valor original)
+// (era p_state / p_wait / p_wait_again) Esperar duas vezes e' estavel.
+const p = Promise.resolve(42);
+await settle(p);
+print("p_state=" + st);
+print("p_wait=" + (await p));
+print("p_wait_again=" + (await p));
 
-// 6. Estados intermediarios — resolve seguido de outro pra confirmar idempotencia.
-const idem = promise.new_pending();
-print("first=" + promise.resolve(idem, 1));     // 1
-print("second=" + promise.resolve(idem, 2));    // 0 (no-op)
-print("third=" + promise.reject(idem, 3));      // 0 (no-op)
-print("idem_value=" + promise.wait(idem));     // 1
+// (era re_resolve=0 / r_value=1) Segundo resolve nao substitui o valor.
+const r = new Promise((res: any, rej: any) => { res(1); res(99); });
+await settle(r);
+print("r_state=" + st);
+print("r_value=" + val);
+
+// (era re_reject=0 / rj_value=7) Segundo reject nao substitui a razao.
+const rj = new Promise((res: any, rej: any) => { rej(7); rej(99); });
+await settle(rj);
+print("rj_state=" + st);
+print("rj_value=" + val);
+
+// (era first=1 / second=0 / third=0 / idem_value=1) resolve, resolve, reject:
+// so' o primeiro tem efeito — fulfilled com 1.
+const idem = new Promise((res: any, rej: any) => { res(1); res(2); rej(3); });
+await settle(idem);
+print("idem_state=" + st);
+print("idem_value=" + val);
 
 describe("promise invalid handles + edge cases", () => {
   test("matches expected stdout", () => {
     expect(__rtsCapturedOutput).toBe(
-      "state_0=-1\nwait_0=0\ntry_value_0=0\nresolve_0=0\nreject_0=0\nstate_garbage=-1\nwait_garbage=456\np_state=1\np_wait=42\np_wait_again=42\nre_resolve=0\nr_value=1\nre_reject=0\nrj_value=7\nfirst=1\nsecond=0\nthird=0\nidem_value=1\n"
+      "zero_state=1\nzero_value=0\nawait_non_thenable=456\np_state=1\np_wait=42\np_wait_again=42\nr_state=1\nr_value=1\nrj_state=2\nrj_value=7\nidem_state=1\nidem_value=1\n"
     );
   });
 });

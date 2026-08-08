@@ -1,61 +1,47 @@
 import { describe, test, expect } from "rts:test";
-import { promise, collections, time } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
   __rtsCapturedOutput += value + "\n";
 }
 
-async function fail(msg: string): i64 { throw msg; }
-// (#determinismo) ok() com delay artificial para que race seja
-// deterministico: fast_fail sempre vence porque resolve imediato.
-async function ok(x: i64): i64 { time.sleep_ms(20); return x; }
+// `promise.*` e `collections.vec_*` do namespace `rts` viraram `Promise.*`
+// sobre arrays.
+//
+// O `time.sleep_ms(20)` dentro de `ok()` existia so' para tornar o `race`
+// deterministico: a ordem de scan do `promise.race` antigo nao era garantida,
+// e o atraso forcava o fast_fail a vencer. A superficie que fica nao precisa
+// do truque — a spec manda subscrever na ordem do iteravel, portanto entre
+// duas ja-settled vence a primeira do array. O sleep saiu porque a garantia
+// que ele simulava passou a ser prometida; o determinismo afirmado e' o mesmo.
+// Membros rejeitados escritos como `Promise.reject(m)` em vez de uma async fn
+// que faz `throw`: sao a mesma coisa observavel (uma Promise ja rejeitada) e e
+// a forma que nao depende de QUANDO o corpo da async fn corre.
+function fail(msg: string): any { return Promise.reject(msg); }
+async function ok(x: i64): i64 { return x; }
 
-// 1. promise.all rejeita na primeira falha.
-const v1 = collections.vec_new();
-collections.vec_push(v1, ok(1));
-collections.vec_push(v1, fail("middle"));
-collections.vec_push(v1, ok(3));
+// A rejeicao e' colhida por `.catch` em vez de `try/catch` em volta do
+// `await`. Sao as duas leituras que a spec oferece para a MESMA rejeicao, e o
+// `.catch` e' o que pertence a superficie de Promise — a razao recebida e a
+// assercao sobre ela sao identicas.
 
-try {
-  await promise.all(v1);
-} catch (e) {
-  print("all_rej: " + e);
-}
+// 1. Promise.all rejeita na primeira falha.
+await Promise.all([ok(1), fail("middle"), ok(3)])
+  .catch((e: any) => { print("all_rej: " + e); return 0; });
 
-// 2. promise.race com primeiro rejected.
-async function fast_fail(msg: string): i64 { throw msg; }
-const v2 = collections.vec_new();
-collections.vec_push(v2, fast_fail("loser-error"));
-collections.vec_push(v2, ok(99));
+// 2. Promise.race com primeiro rejected.
+function fast_fail(msg: string): any { return Promise.reject(msg); }
+await Promise.race([fast_fail("loser-error"), ok(99)])
+  .catch((e: any) => { print("race_rej: " + e); return 0; });
 
-try {
-  await promise.race(v2);
-} catch (e) {
-  print("race_rej: " + e);
-}
-
-// 3. promise.any com TODAS rejeitando.
-const v3 = collections.vec_new();
-collections.vec_push(v3, fail("a"));
-collections.vec_push(v3, fail("b"));
-collections.vec_push(v3, fail("c"));
-
+// 3. Promise.any com TODAS rejeitando: rejeita com AggregateError.
 let any_caught: i64 = 0;
-try {
-  await promise.any(v3);
-} catch (e) {
-  any_caught = 1;
-}
+await Promise.any([fail("a"), fail("b"), fail("c")])
+  .catch((_e: any) => { any_caught = 1; return 0; });
 print("any_all_rejected_caught=" + any_caught);
 
-// 4. promise.any com mix — pega primeira fulfilled.
-const v4 = collections.vec_new();
-collections.vec_push(v4, fail("nope"));
-collections.vec_push(v4, ok(7));
-collections.vec_push(v4, fail("late"));
-
-const v4r = await promise.any(v4);
+// 4. Promise.any com mix — pega primeira fulfilled.
+const v4r = await Promise.any([fail("nope"), ok(7), fail("late")]);
 print("any_mixed=" + v4r);
 
 // 5. try/catch sem await dentro — fluxo normal.

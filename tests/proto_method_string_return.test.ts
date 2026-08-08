@@ -1,5 +1,4 @@
 import { describe, test, expect } from "rts:test";
-import { collections } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -10,7 +9,9 @@ function print(value: string): void {
 // agora aparece corretamente em template literal via TPL_COERCE_AUTO.
 
 function Box(): void {
-  collections.map_set(this as any, "n", 7);
+  // era collections.map_set(this, "n", 7): o modelo velho tratava a
+  // instancia como Map. Atribuicao direta e' o que JS faz — own prop.
+  (this as any).n = 7;
 }
 Box.prototype.greet = function(): string { return "hello"; };
 Box.prototype.farewell = function(): string { return "bye"; };

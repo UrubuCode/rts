@@ -1,5 +1,4 @@
 import { describe, test, expect } from "rts:test";
-import { promise } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -50,7 +49,7 @@ while (n > 0) {
 print("loop_iters=" + iters);
 
 // 8. await de Promise pre-resolvida.
-const p = promise.new_resolved(777);
+const p = Promise.resolve(777);
 print("pre_resolved=" + (await p));
 
 // 10. await em array literal.

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { io, hint } from "rts";
+import { hint } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {

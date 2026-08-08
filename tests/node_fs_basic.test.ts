@@ -11,7 +11,9 @@
 // ask for text and is fully supported.
 
 import { describe, test, expect } from "rts:test";
-import { env } from "rts";
+// `env.get_var` do namespace `rts` virou `process.env` de node:process — a
+// mesma leitura de variavel de ambiente, na superficie que fica.
+import process from "node:process";
 import {
     readFileSync,
     writeFileSync,
@@ -19,7 +21,7 @@ import {
     appendFileSync,
 } from "node:fs";
 
-const tmp = env.get_var("TEMP") || "/tmp";
+const tmp = process.env.TEMP || "/tmp";
 
 const path = tmp + "/rts_node_fs_test.txt";
 writeFileSync(path, "hello from rts");

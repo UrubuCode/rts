@@ -1,23 +1,23 @@
 import { describe, test, expect } from "rts:test";
-import { promise } from "rts";
 
 let out: string = "";
 function print(v: string): void { out += v + "\n"; }
 
 // Promise.resolve() sem args — antes dava "too few arguments" warning.
-// Equivalente a Promise.resolve(undefined).
+// Equivalente a Promise.resolve(undefined). `p_handle=(p !== 0)` era a leitura
+// do handle inteiro do namespace `rts`; sem handles, o que a superficie que
+// fica garante e' que se obtem uma Promise cumprida com `undefined`.
 const p = Promise.resolve();
-print("p_handle=" + (p !== 0));
+print("p_value=" + (await p));
 
-// Comparar com Promise.resolve(42)
+// Comparar com Promise.resolve(42) — `promise.wait` virou `await`.
 const q = Promise.resolve(42);
-const qv = promise.wait(q as unknown as number);
-print("q_wait=" + qv);
+print("q_wait=" + (await q));
 
 describe("Promise.resolve() no args (#285)", () => {
   test("matches expected stdout", () =>
     expect(out).toBe(
-      "p_handle=true\n" +
+      "p_value=undefined\n" +
       "q_wait=42\n"
     )
   );

@@ -1,19 +1,19 @@
 import { describe, test, expect } from "rts:test";
-import { io, regex } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
   __rtsCapturedOutput += value + "\n";
 }
 
-// Regex replace + replace_all.
+// replace_all / replace, agora sobre RegExp. O padrao passou a existir
+// em duas formas porque em JS "todas as ocorrencias" e' a flag g do
+// padrao, nao um metodo separado: /foo/g para o replace_all, /foo/ para
+// o replace de uma so' ocorrencia.
 
-const foo = /foo/;
-const h1 = regex.replace_all(foo, "foo bar foo baz", "X");
+const h1 = "foo bar foo baz".replace(/foo/g, "X");
 print(h1); // X bar X baz
-const h2 = regex.replace(foo, "foo and foo", "Y");
+const h2 = "foo and foo".replace(/foo/, "Y");
 print(h2); // Y and foo
-regex.free(foo);
 
 describe("fixture:regex_replace", () => {
   test("matches expected stdout", () => {

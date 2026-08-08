@@ -1,22 +1,25 @@
 import { describe, test, expect } from "rts:test";
-import { process, fs } from "rts";
+import { existsSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 
 const SOURCE_ABSTRACT_CLASS_NO_NEW_ERR = "// ERRO esperado: classe abstract não pode ser instanciada via new.\nabstract class Shape {\n    abstract area(): number;\n}\n\nconst s = new Shape();\n";
 
 function resolveRtsExe(): string {
-  if (fs.exists("target/debug/rts.exe") === 1) return "target/debug/rts.exe";
-  if (fs.exists("target/release/rts.exe") === 1) return "target/release/rts.exe";
-  if (fs.exists("target/debug/rts") === 1) return "target/debug/rts";
-  if (fs.exists("target/release/rts") === 1) return "target/release/rts";
+  // `fs.exists` answered 1/0; `existsSync` answers a boolean — same question.
+  if (existsSync("target/debug/rts.exe")) return "target/debug/rts.exe";
+  if (existsSync("target/release/rts.exe")) return "target/release/rts.exe";
+  if (existsSync("target/debug/rts")) return "target/debug/rts";
+  if (existsSync("target/release/rts")) return "target/release/rts";
   return "rts";
 }
 
 describe("fixture:abstract_class_no_new_err", () => {
   test("fails with non-zero exit code", () => {
-    fs.write("tests/__tmp_abstract_class_no_new_err.ts", SOURCE_ABSTRACT_CLASS_NO_NEW_ERR);
+    writeFileSync("tests/__tmp_abstract_class_no_new_err.ts", SOURCE_ABSTRACT_CLASS_NO_NEW_ERR);
     const exe = resolveRtsExe();
-    const child = process.spawn(exe, "run\ntests/__tmp_abstract_class_no_new_err.ts");
-    const code = process.wait(child);
+    // `process.spawn(exe, "run\npath")` + `process.wait` collapse into one
+    // `spawnSync` with a real argv; `.status` is the exit code `wait` returned.
+    const code = spawnSync(exe, ["run", "tests/__tmp_abstract_class_no_new_err.ts"]).status;
     const failed = code != 0;
     expect(failed ? "1" : "0").toBe("1");
   });

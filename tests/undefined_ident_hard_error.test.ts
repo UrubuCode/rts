@@ -4,18 +4,18 @@
 // o codegen antes acharia ident sem destino e segfault'aria.
 
 import { describe, test, expect } from "rts:test";
-import { io, math } from "rts";
 
 // 1. Idents validos resolvem normalmente (regressao pos-fix #383)
-const x = math.PI;
-const y = math.sqrt(16);
+const x = Math.PI;
+const y = Math.sqrt(16);
 
 // 2. User fn declarada chama bem
 function userFn(a: i64): i64 { return a * 2; }
 const ufn = userFn(7);
 
-// 3. Builtin namespace dispatch funciona
-const sq = math.pow(3, 2);
+// 3. Builtin namespace dispatch funciona — era math.pow do namespace rts;
+// Math e o global padrao, mesma funcao e mesmo resultado.
+const sq = Math.pow(3, 2);
 
 // 4. Class method dispatch funciona
 class Box {
@@ -32,10 +32,10 @@ const s = "hello";
 const upper = s.toUpperCase();
 
 describe("undefined_ident_hard_error_smoke", () => {
-    test("math constants", () => expect(x).toBe(3.141592653589793));
-    test("math.sqrt", () => expect(y).toBe(4));
+    test("Math constants", () => expect(x).toBe(3.141592653589793));
+    test("Math.sqrt", () => expect(y).toBe(4));
     test("user fn call", () => expect(ufn).toBe(14));
-    test("math.pow", () => expect(sq).toBe(9));
+    test("Math.pow", () => expect(sq).toBe(9));
     test("class method", () => expect(sumBoxes).toBe(30));
     test("string method", () => expect(upper).toBe("HELLO"));
 });

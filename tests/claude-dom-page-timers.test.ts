@@ -1,6 +1,12 @@
 import { describe, test, expect } from "rts:test";
 import dom from "rts:dom";
-import { time } from "rts";
+
+// `time.sleep_ms(n)` → `await new Promise(r => setTimeout(r, n))`, a espera da
+// superfície padrão. Uma espera ocupada não serviria: o ponto do arquivo é que
+// o tempo passa SEM que o programa dirija o relógio.
+function sleep(ms: number): Promise<void> {
+  return new Promise(r => setTimeout(r, ms));
+}
 
 // Timers de página (`setTimeout`/`setInterval` chamados por um `<script>`)
 // disparam via a FILA POR DOCUMENTO em Rust (`DomTimers`), bombeada pelo frame
@@ -37,14 +43,14 @@ const tick = dom.querySelector(d, "#tick");
 const aposScript = dom.getText(d, alvo);
 
 // Sem pump, nada dispara — mesmo dormindo além do prazo.
-time.sleep_ms(120);
+await sleep(120);
 const semPump = dom.getText(d, alvo);
 
 // Simula o loop de frames por ~1s.
 let frames = 0;
 while (frames < 60) {
   pumpTimerCallbacks(doc);
-  time.sleep_ms(16);
+  await sleep(16);
   frames = frames + 1;
 }
 const aposPump = dom.getText(d, alvo);
@@ -57,7 +63,7 @@ const d2: i64 = dom.parseHtml("<html><body><p id='x'>0</p>"
 const doc2 = new Document(d2);
 runScripts(doc2);
 let f2 = 0;
-while (f2 < 10) { pumpTimerCallbacks(doc2); time.sleep_ms(16); f2 = f2 + 1; }
+while (f2 < 10) { pumpTimerCallbacks(doc2); await sleep(16); f2 = f2 + 1; }
 const cancelado = dom.getText(d2, dom.querySelector(d2, "#x"));
 
 describe("timers de página via pumpTimerCallbacks", () => {

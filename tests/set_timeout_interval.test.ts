@@ -2,6 +2,10 @@
 // clearTimeout/clearInterval/clearImmediate.
 
 import { describe, test, expect } from "rts:test";
+// time.now_ms() ja virou Date.now() (mesmo inteiro em ms). time.sleep_ms
+// continua: e' uma pausa SINCRONA que drena o loop, e o unico par padrao
+// — `await new Promise(r => setTimeout(r, n))` — hoje nao settla neste
+// motor ("this promise cannot settle"), o que mataria o ficheiro inteiro.
 import { time } from "rts";
 
 // 1. setTimeout dispara apos delay
@@ -25,8 +29,8 @@ const fired2_end = fired2;
 // caminho feliz sai em ~45ms.
 let count3 = 0;
 const h3 = setInterval(() => { count3 = count3 + 1; }, 15);
-const t3 = time.now_ms();
-while (count3 < 3 && time.now_ms() - t3 < 2000) {
+const t3 = Date.now();
+while (count3 < 3 && Date.now() - t3 < 2000) {
   time.sleep_ms(15);
 }
 clearInterval(h3);

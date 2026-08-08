@@ -54,9 +54,9 @@ const x: f64 = NaN;
 const tag: string = (x === x) ? "ordered" : "NaN";
 print(tag);  // NaN
 
-// 8. NaN no Math
-import { math } from "rts";
-print(`${math.sqrt(-1)}`);  // NaN
+// 8. NaN no Math — `math.sqrt` do namespace `rts` era o mesmo IEEE-754 que
+// `Math.sqrt`, que e' a superficie padrao e a que fica.
+print(`${Math.sqrt(-1)}`);  // NaN
 
 describe("nan_infinity", () => {
   test("globals + IEEE-754 propagation", () =>

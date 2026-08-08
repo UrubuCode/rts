@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { time } from "rts";
+
 
 // O pré-passo que adapta o JS de página ao subset do motor foi movido de `.ts`
 // para RUST (`scriptscan.rs`). Este teste é o CONTRATO dessa troca: o scanner
@@ -82,12 +82,12 @@ while (g < 4000) {
   g = g + 1;
 }
 const tamGrande = grande.length;
-const t0 = time.now_ms();
+const t0 = Date.now();
 const normGrande = __normalizeScript(grande);
-const msNorm = time.now_ms() - t0;
-const t1 = time.now_ms();
+const msNorm = Date.now() - t0;
+const t1 = Date.now();
 __scanImplicitGlobals(normGrande);
-const msScan = time.now_ms() - t1;
+const msScan = Date.now() - t1;
 
 // ── qualificação: `nome` → `__G.nome` nas ocorrências LIVRES ───────────────
 // Moveu-se para Rust por um motivo diferente do custo: o laço `.ts` PERDIA

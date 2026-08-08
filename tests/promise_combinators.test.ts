@@ -1,54 +1,39 @@
 import { describe, test, expect } from "rts:test";
-import { promise, collections } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
   __rtsCapturedOutput += value + "\n";
 }
 
-// 1. promise.all — todas resolvidas
-const v1 = collections.vec_new();
-collections.vec_push(v1, promise.new_resolved(10));
-collections.vec_push(v1, promise.new_resolved(20));
-collections.vec_push(v1, promise.new_resolved(30));
-const r1 = await promise.all(v1);
-print("all_len=" + collections.vec_len(r1));
-print("all[0]=" + collections.vec_get(r1, 0));
-print("all[1]=" + collections.vec_get(r1, 1));
-print("all[2]=" + collections.vec_get(r1, 2));
+// `promise.*` e `collections.vec_*` do namespace `rts` viraram a superficie que
+// fica: `Promise.all/race/any/allSettled` sobre arrays JS.
 
-// 2. promise.all com vetor vazio — resolve imediato com vec vazio
-const v2 = collections.vec_new();
-const r2 = await promise.all(v2);
-print("all_empty=" + collections.vec_len(r2));
+// 1. Promise.all — todas resolvidas
+const v1 = [Promise.resolve(10), Promise.resolve(20), Promise.resolve(30)];
+const r1: any = await Promise.all(v1);
+print("all_len=" + r1.length);
+print("all[0]=" + r1[0]);
+print("all[1]=" + r1[1]);
+print("all[2]=" + r1[2]);
 
-// 3. promise.race — pega o primeiro settled (resolved).
-// Com promises ja-resolvidas, a ordem de scan determina vencedor.
-// Em macOS arm64 (CI) a ordem pode inverter. Normaliza para 7 quando
-// retorna 7 ou 8 — test deterministico cross-platform.
-const v3 = collections.vec_new();
-collections.vec_push(v3, promise.new_resolved(7));
-collections.vec_push(v3, promise.new_resolved(8));
-const r3raw = await promise.race(v3);
-const r3 = (r3raw == 7 || r3raw == 8) ? 7 : r3raw;
+// 2. Promise.all com array vazio — resolve imediato com array vazio
+const r2: any = await Promise.all([]);
+print("all_empty=" + r2.length);
+
+// 3. Promise.race — pega a primeira a settled. A normalizacao antiga (aceitar
+// 7 ou 8) existia porque a ordem de scan do `promise.race` do namespace `rts`
+// variava por plataforma. A superficie que fica NAO tem essa liberdade: a spec
+// manda subscrever na ordem do iteravel, e com duas ja-resolvidas o vencedor e'
+// deterministicamente a primeira. Assercao apertada, nao afrouxada.
+const r3 = await Promise.race([Promise.resolve(7), Promise.resolve(8)]);
 print("race=" + r3);
 
-// 4. promise.any — primeiro fulfill (pula rejeitadas)
-const v4 = collections.vec_new();
-collections.vec_push(v4, promise.new_rejected(99));
-collections.vec_push(v4, promise.new_resolved(42));
-collections.vec_push(v4, promise.new_resolved(13));
-const r4 = await promise.any(v4);
+// 4. Promise.any — primeiro fulfill (pula rejeitadas)
+const r4 = await Promise.any([Promise.reject(99), Promise.resolve(42), Promise.resolve(13)]);
 print("any=" + r4);  // 42 (primeira fulfilled)
 
-// 5. promise.all_settled — retorna array de objetos JS-spec SHAPED
-// ({ status, value } | { status, reason }) — lidos como propriedades JS
-// (o dicionário legacy Entry::Map foi removido; as linhas são objetos reais).
-const v5 = collections.vec_new();
-collections.vec_push(v5, promise.new_resolved(5));
-collections.vec_push(v5, promise.new_rejected(7));
-collections.vec_push(v5, promise.new_resolved(11));
-const r5: any = await promise.all_settled(v5);
+// 5. Promise.allSettled — array de objetos {status, value} | {status, reason}.
+const r5: any = await Promise.allSettled([Promise.resolve(5), Promise.reject(7), Promise.resolve(11)]);
 print("settled_len=" + r5.length);
 print("settled[0].value=" + r5[0].value);   // 5
 print("settled[1].reason=" + r5[1].reason); // 7

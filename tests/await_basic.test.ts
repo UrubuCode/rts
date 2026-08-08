@@ -1,5 +1,4 @@
 import { describe, test, expect } from "rts:test";
-import { promise } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -23,7 +22,7 @@ const v2 = await double(21);
 print("v2=" + v2);
 
 // Cenario 3: await de Promise explicita.
-const p = promise.new_resolved(99);
+const p = Promise.resolve(99);
 const v3 = await p;
 print("v3=" + v3);
 

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { fs } from "rts";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 
 // `Storage` (Web Storage API) em RUST, persistindo como PICKLE.
 //
@@ -24,8 +24,12 @@ import { fs } from "rts";
 // Pré-computado no top-level (regra do projeto: método dentro de test() pode
 // perder handle pro GC).
 
+// `fs.*` (superfície antiga) → `node:fs`. `is_dir` + `create_dir_all` viram
+// `mkdirSync(recursive)`, que já é idempotente; `remove_file` vira `rmSync`;
+// `write` vira `writeFileSync`. `exists` responde BOOLEAN agora, não 1/0 — a
+// asserção de "o arquivo foi criado" segue abaixo, com `true` no lugar de `1`.
 const BASE = "target/tmp-claude-storage";
-if (!fs.is_dir(BASE)) { fs.create_dir_all(BASE); }
+mkdirSync(BASE, { recursive: true });
 
 // ── 1. API em memória (sem persistTo) ───────────────────────────────────────
 const mem = new Storage();
@@ -56,12 +60,12 @@ const aposClear = mut.length;
 
 // ── 3. PERSISTE entre "execuções" (dois Storage, mesmo arquivo) ────────────
 const P1 = BASE + "/basico.pickle";
-if (fs.exists(P1)) { fs.remove_file(P1); }
+if (existsSync(P1)) { rmSync(P1); }
 const escreve = new Storage();
 escreve.persistTo(P1);
 escreve.setItem("user", "ana");
 escreve.setItem("visitas", "3");
-const arquivoCriado = fs.exists(P1);
+const arquivoCriado = existsSync(P1);
 // outra instância, mesmo arquivo: é o que uma segunda execução veria
 const le = new Storage();
 le.persistTo(P1);
@@ -72,7 +76,7 @@ const leOrdem = le.key(0);
 
 // ── 4. valor HOSTIL — o que um formato de texto quebraria ──────────────────
 const P2 = BASE + "/hostil.pickle";
-if (fs.exists(P2)) { fs.remove_file(P2); }
+if (existsSync(P2)) { rmSync(P2); }
 const hostil = "linha1\nlinha2=x\ty|z\r\nfim";
 const gravaHostil = new Storage();
 gravaHostil.persistTo(P2);
@@ -83,7 +87,7 @@ const voltouHostil = leHostil.getItem("bruto");
 
 // ── 5. remove/clear TAMBÉM persistem ───────────────────────────────────────
 const P3 = BASE + "/mutacao.pickle";
-if (fs.exists(P3)) { fs.remove_file(P3); }
+if (existsSync(P3)) { rmSync(P3); }
 const m1 = new Storage();
 m1.persistTo(P3);
 m1.setItem("a", "1");
@@ -100,7 +104,7 @@ const persistidoAposClear = m3.length;
 
 // ── 6. arquivo CORROMPIDO não derruba — storage segue utilizável ───────────
 const P4 = BASE + "/corrompido.pickle";
-fs.write(P4, "isto nao e um pickle valido {{{");
+writeFileSync(P4, "isto nao e um pickle valido {{{");
 const corrompido = new Storage();
 corrompido.persistTo(P4);
 const corrompidoLen = corrompido.length;
@@ -109,7 +113,7 @@ const corrompidoUsavel = corrompido.getItem("novo");
 
 // ── 7. arquivo INEXISTENTE é só um storage vazio ───────────────────────────
 const P5 = BASE + "/nao-existe-ainda.pickle";
-if (fs.exists(P5)) { fs.remove_file(P5); }
+if (existsSync(P5)) { rmSync(P5); }
 const novo = new Storage();
 novo.persistTo(P5);
 const novoLen = novo.length;
@@ -139,7 +143,9 @@ describe("Storage (Web Storage API) em Rust", () => {
 
 describe("Storage — persistência via pickle", () => {
   test("sobrevive entre execuções", () => {
-    expect(arquivoCriado).toBe(1);
+    // era `toBe(1)`: `fs.exists` devolvia 1/0, `existsSync` devolve boolean.
+    // Mesma pergunta ("o arquivo passou a existir?"), mesma força.
+    expect(arquivoCriado).toBe(true);
     expect(leUser).toBe("ana");
     expect(leVisitas).toBe("3");
     expect(leLen).toBe(2);

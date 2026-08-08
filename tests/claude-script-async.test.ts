@@ -22,25 +22,24 @@ const doc = parseDocument(html);
 const ran = runScripts(doc);
 
 // 2. valores corretos fim-a-fim (mesma maquinaria do script): int e double
-//    resolvidos via promise.wait (síncrono-observável no top-level; um gcell
+//    resolvidos via `await` de topo (síncrono-observável no top-level; um gcell
 //    escrito de dentro do async não serve — o corpo roda em worker e o gcell é
 //    thread_local).
-import { promise } from "rts";
 async function intAsync(): i64 { return 8; }
-const vInt = promise.wait(intAsync());
+const vInt = await intAsync();
 async function somaAsync(): f64 {
   const b = 1.5;
   return b + 8.0; // 9.5 — se a word do double fosse re-adivinhada, viraria lixo
 }
-// promise.wait é a superfície CRUA legada (trunca double); o double correto se
-// verifica com o await do MOTOR (que reboxa a word) — devolvendo a comparação
-// como int pela superfície crua.
+// A comparação continua sendo feita DENTRO do async e devolvida como int: era
+// assim porque `promise.wait` truncava double, e fica assim porque o que o
+// teste pina é o valor visto pelo `await` interno, não o transporte externo.
 async function checaDouble(): i64 {
   const b = await somaAsync();
   if (b === 9.5) return 1;
   return 0;
 }
-const vSoma = promise.wait(checaDouble());
+const vSoma = await checaDouble();
 
 describe("async no <script> + valores corretos (#207 fatia 2)", () => {
   test("script com async function compila e roda", () => {

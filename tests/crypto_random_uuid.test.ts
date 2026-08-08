@@ -1,11 +1,15 @@
-// crypto.random_uuid + node:crypto.randomUUID — UUID v4 RFC 4122.
+// node:crypto.randomUUID — UUID v4 RFC 4122.
+//
+// A metade `rts.crypto.random_uuid` foi reescrita para `randomUUID`: as duas
+// eram a MESMA primitiva por duas portas, e só a do `node:` fica. As asserções
+// continuam todas — agora as quatro chamadas vêm da porta que permanece, então
+// os dois grupos de tamanho checam a mesma superfície de propósito.
 
 import { describe, test, expect } from "rts:test";
-import { crypto } from "rts";
 import { randomUUID } from "node:crypto";
 
-const u1: string = crypto.random_uuid();
-const u2: string = crypto.random_uuid();
+const u1: string = randomUUID();
+const u2: string = randomUUID();
 const u3: string = randomUUID();
 const u4: string = randomUUID();
 
@@ -33,7 +37,7 @@ const variant_ok =
     variant_char === "b";
 
 describe("crypto_random_uuid", () => {
-    test("rts.crypto.random_uuid length 36", () => expect(len1).toBe(36));
+    test("randomUUID length 36", () => expect(len1).toBe(36));
     test("node:crypto.randomUUID length 36", () => expect(len3).toBe(36));
     test("CSPRNG: consecutive calls differ", () =>
         expect(distinct).toBe(true));

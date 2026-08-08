@@ -1,4 +1,8 @@
 import { describe, test, expect } from "rts:test";
+// time.sleep_ms fica: e' uma pausa SINCRONA que drena o loop, e o unico
+// par padrao — `await new Promise(r => setTimeout(r, n))` — hoje nao
+// settla neste motor ("this promise cannot settle"), o que apagaria a
+// ordem que este ficheiro existe para fixar.
 import { time } from "rts";
 
 // Regression (cross-runtime #207 timer ordering): setTimeout(0) e setImmediate

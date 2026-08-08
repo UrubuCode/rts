@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { events } from "rts";
+import { EventEmitter } from "node:events";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -12,21 +12,22 @@ function onTick(): void {
   print(`tick:${counter}`);
 }
 
-const e = events.emitter_new();
-print(`count0=${events.listener_count(e, "tick")}`);
+// Os mesmos passos sobre o `EventEmitter` do `node:events`: `emitter_new` vira
+// `new`, `listener_count` vira `listenerCount`, `emit0` vira `emit` sem
+// argumentos, e `emitter_free` some (o emitter é coletado, não tem handle).
+const e = new EventEmitter();
+print(`count0=${e.listenerCount("tick")}`);
 
-events.on(e, "tick", onTick);
-print(`count1=${events.listener_count(e, "tick")}`);
+e.on("tick", onTick);
+print(`count1=${e.listenerCount("tick")}`);
 
-events.emit0(e, "tick");
-events.emit0(e, "tick");
+e.emit("tick");
+e.emit("tick");
 
 print(`final_counter=${counter}`);
 
-events.remove_all_listeners(e, "tick");
-print(`after_remove=${events.listener_count(e, "tick")}`);
-
-events.emitter_free(e);
+e.removeAllListeners("tick");
+print(`after_remove=${e.listenerCount("tick")}`);
 
 describe("events_namespace", () => {
   test("emit dispatches and listener_count tracks", () => {

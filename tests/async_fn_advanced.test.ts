@@ -1,5 +1,10 @@
 import { describe, test, expect } from "rts:test";
-import { promise, time, atomic } from "rts";
+
+// `time.now_ms()` → `Date.now()` (mesmo relógio, milissegundos inteiros) e
+// `time.sleep_ms(n)` → `await new Promise(r => setTimeout(r, n))`, que é a
+// única espera REAL da superfície padrão — uma espera ocupada não cede, e a
+// afirmação deste arquivo é justamente sobre CONCORRÊNCIA.
+// `promise` e `atomic` eram importados sem uso.
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
@@ -54,21 +59,30 @@ print("sumTo(10)=" + (await sumTo(10)));   // 55
 print("sumTo(100)=" + (await sumTo(100))); // 5050
 
 // 5. Multiplas async chamadas paralelas — confirma execucao concorrente.
-async function delayed(ms: i64): i64 {
-  time.sleep_ms(ms);
+async function delayed(ms: number): Promise<number> {
+  await new Promise(r => setTimeout(r, ms));
   return ms;
 }
 
-const t0 = time.now_ms();
-const pa = delayed(50);
-const pb = delayed(50);
-const pc = delayed(50);
+const t0 = Date.now();
 // Espera pelos 3. Se executassem em serie seria 150ms+.
 // Em paralelo deveria ficar perto de 50ms.
-const va = await pa;
-const vb = await pb;
-const vc = await pc;
-const elapsed = time.now_ms() - t0;
+let va = 0; let vb = 0; let vc = 0;
+let elapsed = 999999;
+try {
+  const pa = delayed(50);
+  const pb = delayed(50);
+  const pc = delayed(50);
+  va = await pa;
+  vb = await pb;
+  vc = await pc;
+  elapsed = Date.now() - t0;
+} catch (e) {
+  // Nada e' silenciado aqui: se o timer nunca dispara, `parallel_sum` e
+  // `was_parallel` abaixo saem errados e o teste FALHA — que e' o relato
+  // honesto de "esta espera nao roda". O try/catch existe so' para que o
+  // arquivo continue reportando os outros nove casos em vez de abortar.
+}
 print("parallel_sum=" + (va + vb + vc));   // 150
 // 3 awaits paralelos de 50ms. Threshold mantido relaxado para CI
 // macOS arm64 (overhead de tokio runtime + spawn_blocking pode

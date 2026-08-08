@@ -1,58 +1,60 @@
 import { describe, test, expect } from "rts:test";
-import { promise } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
   __rtsCapturedOutput += value + "\n";
 }
 
+// `promise.then(p, f)` virou `p.then(f)`; `promise.create(f, args)` — que
+// corria `f(...args)` dentro de uma Promise — virou a forma padrao de erguer
+// uma chamada sincrona para uma Promise: uma async fn que a executa. Os valores
+// afirmados sao os mesmos; o que se testa continua a ser que o callback pode
+// ser uma fn de utilizador, um `bind` ou um `new Function`.
+
 function double(x: i64): i64 { return x * 2; }
 function inc(x: i64): i64 { return x + 1; }
 
-// 1. promise.then com user fn ident — sempre funcionou
-const p1 = promise.new_resolved(21);
-print("then_userfn=" + (await promise.then(p1, double)));
+// 1. then com user fn ident
+print("then_userfn=" + (await Promise.resolve(21).then(double)));
 
-// 2. promise.then com handle Function via bind — era SIGSEGV, fix #359-followup
+// 2. then com handle Function via bind — era SIGSEGV, fix #359-followup
 const incBound = inc.bind(0);
-const p2 = promise.new_resolved(10);
-print("then_bound=" + (await promise.then(p2, incBound)));
+print("then_bound=" + (await Promise.resolve(10).then(incBound)));
 
-// 3. promise.then com new Function dinamica
+// 3. then com new Function dinamica
 const triple = new Function("x", "return x * 3;");
-const p3 = promise.new_resolved(7);
-print("then_dyn=" + (await promise.then(p3, triple)));
+print("then_dyn=" + (await Promise.resolve(7).then(triple)));
 
-// 4. promise.create — entrypoint Promise-centric (drysius design)
-const pc1 = promise.create(double, [50]);
-print("create_userfn=" + (await pc1));
+// 4. erguer chamada de user fn para Promise
+async function callDouble(x: i64): i64 { return double(x); }
+print("create_userfn=" + (await callDouble(50)));
 
-// 5. promise.create com new Function
+// 5. o mesmo com new Function
 const sq = new Function("x", "return x * x;");
-const pc2 = promise.create(sq, [9]);
-print("create_dyn=" + (await pc2));
+async function callSq(x: i64): i64 { return sq(x); }
+print("create_dyn=" + (await callSq(9)));
 
-// 6. promise.create + rejection via throw
+// 6. rejection via throw dentro da chamada erguida
 function fails(x: i64): i64 {
     if (x > 0) throw 999;
     return x;
 }
+async function callFails(x: i64): i64 { return fails(x); }
 let caught: i64 = -1;
 try {
-    const pf = promise.create(fails, [5]);
-    await pf;
+    await callFails(5);
 } catch (e) {
     caught = 1;
 }
 print("create_throw=" + caught);
 
-// 7. promise.create sem args (fn de aridade 0)
+// 7. fn de aridade 0
 function noargs(): i64 { return 777; }
-const pc3 = promise.create(noargs, 0);
-print("create_noargs=" + (await pc3));
+async function callNoargs(): i64 { return noargs(); }
+print("create_noargs=" + (await callNoargs()));
 
 describe("promise + function (#359 followup)", () => {
-  test("then aceita handle Function + promise.create entrypoint", () => {
+  test("then aceita user fn, bind e new Function; chamada erguida a Promise", () => {
     expect(__rtsCapturedOutput).toBe(
       "then_userfn=42\nthen_bound=11\nthen_dyn=21\ncreate_userfn=100\ncreate_dyn=81\ncreate_throw=1\ncreate_noargs=777\n"
     );

@@ -1,19 +1,21 @@
 import { describe, test, expect } from "rts:test";
-import { io, regex } from "rts";
 
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
   __rtsCapturedOutput += value + "\n";
 }
 
-// Regex find_at + match_count.
+// Indice do primeiro match + numero de matches, agora sobre RegExp.
+// regex.find_at -> String.prototype.search (mesmo indice, -1 se ausente);
+// regex.match_count -> match(/.../g).length, que exige a flag g porque
+// sem ela match() devolve so' o primeiro. regex.free nao tem par: RegExp
+// e' coletado, nao possui handle a liberar.
 
-const word = /[0-9]+/;
-const idx = regex.find_at(word, "abc 123 def 456");
-const cnt = regex.match_count(word, "abc 123 def 456");
+const subject = "abc 123 def 456";
+const idx = subject.search(/[0-9]+/);
+const cnt = (subject.match(/[0-9]+/g) || []).length;
 print(`${idx}`); // 4
 print(`${cnt}`); // 2
-regex.free(word);
 
 describe("fixture:regex_find_at", () => {
   test("matches expected stdout", () => {

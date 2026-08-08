@@ -1,16 +1,18 @@
-// Streaming SHA-256 — the low-level `rts.crypto` handle surface AND the
-// `node:crypto` object surface, checked against each other and against the
-// official vectors.
+// Streaming SHA-256 against the official vectors, on the `node:crypto` object
+// surface.
 //
-// The `node:crypto` half used to import flat `hashUpdate`/`hashDigestHex`/
-// `hashDigestBase64` helpers from the pre-`node:` era. Those no longer exist —
-// `createHash` now returns a real Hash OBJECT with `.update()`/`.digest()` — so
-// the file bailed at import. Rewritten onto the real API; the `rts.crypto`
-// handle half is unchanged, and the point of the file (both surfaces agree on
-// the same digest) is preserved.
+// The file used to check the low-level `rts.crypto` handle surface against
+// `node:crypto`, digest for digest. `rts.crypto` is going away, so both halves
+// now go through `createHash` — every vector assertion is kept, but the
+// "two surfaces agree" claim is gone, because there is only one surface left.
+//
+// One assertion changed meaning rather than spelling: `hash_new("md5")` used to
+// mean "unsupported algorithm — invalid handle, digest length -1". `md5` is a
+// perfectly ordinary algorithm to Node, so that case now pins Node's md5
+// digest, and the "algorithm we do not know" case is pinned separately, on the
+// name `nosuchalg`, with Node's real behaviour: `createHash` THROWS.
 
 import { describe, test, expect } from "rts:test";
-import { crypto } from "rts";
 import { createHash } from "node:crypto";
 
 // Official vector: sha256("hello world")
@@ -20,31 +22,40 @@ const KNOWN_B64 = "uU0nuZNNPgilLlLX2n2r+sSE7+N6U4DukIj3rOLvzek=";
 const KNOWN_EMPTY =
     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
+// Official vector: md5("hello world") — was the "unknown algorithm" case.
+const KNOWN_MD5 = "5eb63bbbe01eeed093cb22bb8f5acdc3";
+
 // 1. One-shot via a single update
-const h1 = crypto.hash_new("sha256");
-crypto.hash_update_str(h1, "hello world");
-const hex1 = crypto.hash_digest_hex(h1);
+const h1 = createHash("sha256");
+h1.update("hello world");
+const hex1 = h1.digest("hex");
 
 // 2. Incremental across three updates — must equal the one-shot
-const h2 = crypto.hash_new("sha256");
-crypto.hash_update_str(h2, "hello");
-crypto.hash_update_str(h2, " ");
-crypto.hash_update_str(h2, "world");
-const hex2 = crypto.hash_digest_hex(h2);
+const h2 = createHash("sha256");
+h2.update("hello");
+h2.update(" ");
+h2.update("world");
+const hex2 = h2.digest("hex");
 
 // 3. Empty input
-const h3 = crypto.hash_new("sha256");
-const hex3 = crypto.hash_digest_hex(h3);
+const h3 = createHash("sha256");
+const hex3 = h3.digest("hex");
 
 // 4. Base64 digest
-const h4 = crypto.hash_new("sha256");
-crypto.hash_update_str(h4, "hello world");
-const b64 = crypto.hash_digest_base64(h4);
+const h4 = createHash("sha256");
+h4.update("hello world");
+const b64 = h4.digest("base64");
 
-// 5. An unknown algorithm yields an invalid handle (digest reads back empty)
-const hBad = crypto.hash_new("md5");
-const hBad_digest = crypto.hash_digest_hex(hBad);
-const hBad_empty: i64 = hBad_digest.length;
+// 5. `md5` is a supported algorithm here, not an unknown one — so it is pinned
+//    to its real digest. The unknown-algorithm case moved to `nosuchalg`, where
+//    Node's contract is a THROW from `createHash`, not a sentinel value.
+const md5hex = createHash("md5").update("hello world").digest("hex");
+let unknownThrew = false;
+try {
+  createHash("nosuchalg").update("x").digest("hex");
+} catch (e) {
+  unknownThrew = true;
+}
 
 // 6. node:crypto hex — the object surface over the same primitive
 const hex6 = createHash("sha256").update("hello world").digest("hex");
@@ -67,12 +78,14 @@ describe("crypto_streaming_hash", () => {
     test("sha256(empty) hex", () => expect(hex3).toBe(KNOWN_EMPTY));
     test("sha256(hello world) base64 is 44 chars", () =>
         expect(b64.length).toBe(44));
-    test("unknown alg digest returns invalid (length -1)", () =>
-        expect(hBad_empty).toBe(-1));
+    test("md5 is supported and matches its official vector", () =>
+        expect(md5hex).toBe(KNOWN_MD5));
+    test("an unknown algorithm throws", () =>
+        expect(unknownThrew).toBe(true));
     test("node:crypto createHash hex matches", () =>
         expect(hex6).toBe(KNOWN_HEX));
     test("node:crypto createHash base64 known", () =>
         expect(b64_7).toBe(KNOWN_B64));
-    test("node:crypto incremental matches the handle API", () =>
+    test("chained .update() matches the stepwise form", () =>
         expect(hex8).toBe(hex1));
 });

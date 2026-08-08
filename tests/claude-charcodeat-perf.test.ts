@@ -1,5 +1,5 @@
 import { describe, test, expect } from "rts:test";
-import { time } from "rts";
+
 
 // `charCodeAt` tem de ser O(1) por chamada, não O(n) sobre a string.
 //
@@ -26,18 +26,18 @@ while (g < 10000) { grande = grande + "abcdefghij"; g = g + 1; }
 const nGrande = grande.length;
 
 // baseline: laço aritmético do mesmo tamanho, sem tocar em string
-let tBase = time.now_ms();
+let tBase = Date.now();
 let soma = 0;
 let b = 0;
 while (b < nGrande) { soma = soma + b; b = b + 1; }
-const msBase = time.now_ms() - tBase;
+const msBase = Date.now() - tBase;
 
 // o mesmo laço, lendo cada caractere
-let tLeitura = time.now_ms();
+let tLeitura = Date.now();
 let acc = 0;
 let i = 0;
 while (i < nGrande) { acc = acc + grande.charCodeAt(i); i = i + 1; }
-const msLeitura = time.now_ms() - tLeitura;
+const msLeitura = Date.now() - tLeitura;
 
 // ── semântica UTF-16: tem de bater com o Node ──────────────────────────────
 const ascii = "abc";
