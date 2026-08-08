@@ -54,12 +54,17 @@ check("set-time", moved.getTime() === 1000);
 
 check("to-json", new Date(0).toJSON() === "1970-01-01T00:00:00.000Z");
 
-// TWO stated divergences meeting, pinned so that fixing either is a visible
-// change rather than a surprise. `JSON.stringify` does not consult `toJSON`,
-// and the time value is a real property rather than an internal slot — so a
-// date serialises as an object holding that property, where a real engine
-// produces the ISO string.
-check("json-shows-the-divergence", JSON.stringify(new Date(0)) === "{\"__dateValue\":0}");
+// This pinned TWO stated divergences meeting: `JSON.stringify` did not consult
+// `toJSON`, and the time value is a real property rather than an internal slot,
+// so a date serialised as an object holding that property. The first is fixed —
+// the hook runs — and the second no longer shows, because `toJSON` answers
+// before the walk ever reaches the properties.
+//
+// The property divergence is still real and still visible: `Object.keys` on a
+// date lists it, where a real engine lists nothing. Pinned there instead, so
+// fixing it stays a visible change.
+check("json-runs-to-json", JSON.stringify(new Date(0)) === "\"1970-01-01T00:00:00.000Z\"");
+check("time-is-a-property-divergence", Object.keys(new Date(0)).length === 1);
 check("time-value-is-visible", Object.keys(new Date(0)).length === 1);
 
 return failed;

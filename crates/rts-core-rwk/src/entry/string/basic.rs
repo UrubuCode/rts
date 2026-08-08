@@ -113,53 +113,98 @@ extern "C" fn index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3
     })
 }
 
-/// `s.lastIndexOf(t)` — where it last occurs, or -1.
-extern "C" fn last_index_of(_e: u64, this: u64, search: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+/// `s.lastIndexOf(t, from)` — where it last occurs at or before `from`, or -1.
+///
+/// # Why this scans backwards rather than forwards keeping the last hit
+///
+/// It used to walk forwards with `from = at + 1` until `find` answered `None`,
+/// and against an EMPTY needle that never happens: `find` answers `Some(from)`
+/// for every position, so `from` grew without bound and the program hung — at
+/// full CPU, printing nothing. `"abc".lastIndexOf("")` is `3` in the language,
+/// and it was the one input that made this loop forever.
+///
+/// Backwards has no such case: the range is bounded before the search starts,
+/// so an empty needle matches at `start` immediately and every other needle
+/// stops at the first hit, which is the last one.
+extern "C" fn last_index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
         let (Some(units), Some(needle)) = (units_of(context, this), arg_units(context, search))
         else {
             return nothing(context);
         };
-        let mut found = None;
-        let mut from = 0;
-        while let Some(at) = find(&units, &needle, from) {
-            found = Some(at);
-            from = at + 1;
-        }
+        // `undefined` and `NaN` both mean +infinity here, which is the whole
+        // string — and that is NOT the same rule `indexOf` has, where an absent
+        // position means 0. The asymmetry is the specification's: one searches
+        // forwards from a lower bound, the other backwards from an upper one.
+        let limit = match Value(from).numeric() {
+            Some(number) if !number.is_nan() => relative(number.max(0.0), units.len()),
+            _ => units.len(),
+        };
+        // The last position a match could START at: past `len - needle.len()`
+        // there is not enough string left for one.
+        let last = match units.len().checked_sub(needle.len()) {
+            Some(last) => last.min(limit),
+            None => return Value::from_f64(-1.0).bits(),
+        };
+        let found = (0..=last)
+            .rev()
+            .find(|&at| units[at..at + needle.len()] == needle[..]);
         Value::from_f64(found.map_or(-1.0, |at| at as f64)).bits()
     })
 }
 
-/// `s.includes(t)`.
-extern "C" fn includes(_e: u64, this: u64, search: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+/// `s.includes(t, from)`.
+///
+/// The position was accepted and discarded, so `"abc".includes("a", 1)` was
+/// `true` — an answer that is wrong in the direction a search is trusted in.
+extern "C" fn includes(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
         let (Some(units), Some(needle)) = (units_of(context, this), arg_units(context, search))
         else {
             return nothing(context);
         };
-        Value::from_bool(find(&units, &needle, 0).is_some()).bits()
+        let start = relative(Value(from).numeric().unwrap_or(0.0).max(0.0), units.len());
+        Value::from_bool(find(&units, &needle, start).is_some()).bits()
     })
 }
 
-/// `s.startsWith(t)`.
-extern "C" fn starts_with(_e: u64, this: u64, search: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+/// `s.startsWith(t, from)` — whether `t` is there AT `from`.
+///
+/// Not "somewhere at or after `from`": the position moves where the comparison
+/// happens, it does not start a search. Discarding it made
+/// `"abc".startsWith("b", 1)` answer false, which is the opposite error to the
+/// one `includes` had — both directions, from one dropped argument.
+extern "C" fn starts_with(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
         let (Some(units), Some(needle)) = (units_of(context, this), arg_units(context, search))
         else {
             return nothing(context);
         };
-        Value::from_bool(units.starts_with(&needle)).bits()
+        let start = relative(Value(from).numeric().unwrap_or(0.0).max(0.0), units.len());
+        Value::from_bool(units[start..].starts_with(&needle)).bits()
     })
 }
 
-/// `s.endsWith(t)`.
-extern "C" fn ends_with(_e: u64, this: u64, search: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+/// `s.endsWith(t, end)` — whether `t` ends the string considered to END at
+/// `end`.
+///
+/// The position is an END rather than a start, which is why this cannot share
+/// the clamp with `startsWith` above: `"abc".endsWith("b", 2)` is true, because
+/// the string considered is `"ab"`. It was discarded, so that answered false.
+extern "C" fn ends_with(_e: u64, this: u64, search: u64, end: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
         let (Some(units), Some(needle)) = (units_of(context, this), arg_units(context, search))
         else {
             return nothing(context);
         };
-        Value::from_bool(units.ends_with(&needle)).bits()
+        let end = match Value(end).numeric() {
+            Some(number) if !number.is_nan() => relative(number.max(0.0), units.len()),
+            // Absent means the whole string, not zero — the opposite default to
+            // `includes`, and for the same reason `lastIndexOf` differs from
+            // `indexOf`: this one measures from the far end.
+            _ => units.len(),
+        };
+        Value::from_bool(units[..end].ends_with(&needle)).bits()
     })
 }
 

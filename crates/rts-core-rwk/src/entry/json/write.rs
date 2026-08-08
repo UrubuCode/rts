@@ -122,6 +122,7 @@ impl Writer {
     /// in the three places one can occur — `null` in an array, a skipped member
     /// in an object, and `undefined` from `stringify` itself.
     pub(super) fn write(&mut self, value: u64, depth: usize) -> bool {
+        let value = to_json_of(value);
         match with_current(|context| shape_of(context, value)) {
             Shape::Absent => return false,
             Shape::Null => self.ascii("null"),
@@ -227,10 +228,15 @@ impl Writer {
 
     /// Whether this cell may be descended into.
     ///
-    /// False for one already on the path, which is a cycle, and for one past
-    /// the depth limit. Both answer `null` at the call site; the module
-    /// documentation records that the specification throws for the first and
-    /// why this cannot yet.
+    /// False for one already on the path, which is a cycle, and for one past the
+    /// depth limit. Both answer `null` at the call site.
+    ///
+    /// The specification throws for the first, and the machinery to do it now
+    /// exists — a throw leaves one frame. It is still not done here, and the
+    /// reason has moved: a raise from inside a native is only safe once the
+    /// natives that call user code check for one. They do not, so a throw raised
+    /// here would be left in flight and re-raised at an unrelated call site
+    /// later. `null` remains the least wrong answer until that discipline lands.
     fn enter(&mut self, cell: u32, depth: usize) -> bool {
         if depth >= super::DEPTH || self.open.contains(&cell) {
             return false;
@@ -295,4 +301,51 @@ impl Writer {
         }
         self.out.push(b'"' as u16);
     }
+}
+
+/// The value a `toJSON` hook answers, or the value itself.
+///
+/// # Why the walk can afford this
+///
+/// The module header used to say this was "a feature with a design" waiting for
+/// a caller, and named its cost: every descent probes for the method, releases,
+/// calls, and restarts classification on whatever came back. That cost is real
+/// and it is paid here — but the caller arrived, and it is correctness rather
+/// than a feature. `JSON.stringify(new Date())` and every object with a `toJSON`
+/// serialised as `{}`, which is well-formed JSON that lost the value.
+///
+/// The infinite-walk worry it also named does not happen, and NOT for the reason
+/// that first looks right. The hook runs BEFORE the cell is pushed onto the
+/// cycle path, so a hook answering the object it hangs off is not seen as a
+/// cycle — the walk simply continues into that object once, finds the hook is a
+/// function and skips it, and writes `{}`. It terminates. It also does not match
+/// the language, which recurses until the stack runs out. Measured by running
+/// it, not reasoned about: the first version of this comment claimed the cycle
+/// stack caught it, and it does not.
+///
+/// A primitive is answered before anything is read, so the common member — a
+/// number, a string — costs one borrow and no lookup.
+fn to_json_of(value: u64) -> u64 {
+    let key = with_current(|context| {
+        match super::super::primitive::is_object_in(context, value) {
+            true => Some(context.intern_value(Str::from_str("toJSON")).bits()),
+            false => None,
+        }
+    });
+    let Some(key) = key else {
+        return value;
+    };
+    // Through the ordinary read, so an inherited `toJSON` is found — which is
+    // how `Date` provides one — and so an accessor spelling of it runs.
+    let hook = super::super::computed::get_indexed(value, key);
+    if !with_current(|context| super::super::modules::is_callable_in(context, hook)) {
+        return value;
+    }
+    // The key is the argument the specification passes, and it is not available
+    // here: `write` is reached from three places and only one of them has a key.
+    // `undefined` is what a hook that ignores it sees anyway, and a hook that
+    // reads it would branch on the wrong thing — a named divergence rather than
+    // a threaded argument this walk has no way to supply for an array element.
+    let absent = with_current(|context| super::super::objects::undefined_of(context));
+    super::super::functions::call(hook, value, absent, absent, absent, absent)
 }

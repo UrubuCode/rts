@@ -253,35 +253,55 @@ extern "C" fn includes(_e: u64, this: u64, search: u64, _a1: u64, _a2: u64, _a3:
 /// this does not simply convert every element: `[1, null, 2].join()` is `"1,,2"`
 /// and a straightforward `ToString` would produce `"1,null,2"`.
 ///
-/// The divergence, named: an element that is an object joins as empty too, where
-/// the language runs its `toString`. That is a call, and this is inside a borrow
-/// — the same boundary every conversion in this crate stops at.
+/// An element that is an object joins as its `toString`, which is what the
+/// language does and what the note here used to name as a divergence: it joined
+/// as EMPTY, so `[1, [2, 3]].join("-")` answered `"1-"` and the nested data
+/// simply vanished. The reason given was that a conversion is a call and this
+/// was inside a borrow — true of the shape it had, and the shape is what
+/// changed: the elements are copied out first and every conversion runs with no
+/// borrow held.
+///
+/// A cyclic array still recurses. Named rather than guarded, because the guard
+/// belongs with the one `JSON.stringify` keeps and there is one place for it.
 extern "C" fn join(_e: u64, this: u64, separator: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    with_current(|context| {
-        let Some((_, elements)) = staged(context, this) else {
-            return undefined_of(context);
+    // Everything the walk needs, taken in one borrow that ends here. The
+    // elements are a snapshot on purpose: an element's `toString` can reach the
+    // array and change it, and a walk reading through would then be indexing a
+    // vector that moved underneath it.
+    // The separator converts too, and before the borrow like the elements do.
+    // `undefined` passes through unchanged, so the absent case below still sees
+    // what it expects.
+    let separator = super::primitive::to_primitive(separator, crate::coerce::Hint::String);
+    let staged = with_current(|context| {
+        let (_, elements) = staged(context, this)?;
+        let between = match absent(context, separator) {
+            true => Str::from_str(","),
+            false => super::text::to_text(context, Value(separator))?,
         };
-        let between = if absent(context, separator) {
-            Str::from_str(",")
-        } else {
-            match super::text::to_text(context, Value(separator)) {
-                Some(text) => text,
-                None => return undefined_of(context),
+        Some((
+            between.to_rust().unwrap_or_default(),
+            elements,
+            [undefined_of(context), null_of(context)],
+        ))
+    });
+    let Some((between, elements, empty)) = staged else {
+        return with_current(|context| undefined_of(context));
+    };
+
+    let parts: Vec<String> = elements
+        .iter()
+        .map(|held| {
+            if empty.contains(held) {
+                return String::new();
             }
-        };
-        let between = between.to_rust().unwrap_or_default();
-        let empty = [undefined_of(context), null_of(context)];
-        let parts: Vec<String> = elements
-            .iter()
-            .map(|held| {
-                if empty.contains(held) {
-                    return String::new();
-                }
-                super::text::to_text(context, Value(*held))
-                    .and_then(|text| text.to_rust())
-                    .unwrap_or_default()
-            })
-            .collect();
+            let held = super::primitive::to_primitive(*held, crate::coerce::Hint::String);
+            with_current(|context| super::text::to_text(context, Value(held)))
+                .and_then(|text| text.to_rust())
+                .unwrap_or_default()
+        })
+        .collect();
+
+    with_current(|context| {
         context
             .intern_value(Str::from_str(&parts.join(&between)))
             .bits()

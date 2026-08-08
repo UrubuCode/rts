@@ -3776,3 +3776,80 @@ fn an_object_operand_is_converted_by_its_own_method() {
     );
     assert_eq!(tags::decode_double(order), 1.0);
 }
+
+/// `lastIndexOf` with an empty needle answered by hanging.
+///
+/// It walked forwards keeping the last hit, advancing past each match — and
+/// `find` answers `Some` at every position for an empty needle, so the walk
+/// never ended. `"abc".lastIndexOf("")` is `3`; it was an infinite loop at full
+/// CPU that printed nothing. Searching backwards has no such case, because the
+/// range is bounded before the search starts.
+#[test]
+fn searching_backwards_terminates_on_the_needle_that_matches_everywhere() {
+    assert_eq!(tags::decode_double(run("return \"abc\".lastIndexOf(\"\");")), 3.0);
+    assert_eq!(tags::decode_double(run("return \"\".lastIndexOf(\"\");")), 0.0);
+
+    // The ordinary answers the rewrite must not have moved.
+    holds("return \"abcabc\".lastIndexOf(\"a\") === 3 && \"abcabc\".lastIndexOf(\"bc\") === 4;");
+    holds("return \"abc\".lastIndexOf(\"z\") === -1 && \"ab\".lastIndexOf(\"abcd\") === -1;");
+
+    // The position, which this reads as an upper bound — the opposite of what
+    // `indexOf` does with its own second argument.
+    holds("return \"abcabc\".lastIndexOf(\"a\", 2) === 0;");
+}
+
+/// The three position arguments that were accepted and discarded.
+///
+/// `includes`, `startsWith` and `endsWith` all answered the one-argument answer,
+/// so the errors ran in both directions: `"abc".includes("c", 5)` was true and
+/// `"abc".startsWith("b", 1)` was false. `indexOf` honoured its `fromIndex`
+/// correctly, which is what kept the inconsistency invisible.
+#[test]
+fn a_search_position_moves_where_the_comparison_happens() {
+    holds("return \"abc\".includes(\"a\", 1) === false && \"abc\".includes(\"c\", 5) === false;");
+    holds("return \"abc\".includes(\"c\", 1) === true && \"abc\".includes(\"a\") === true;");
+
+    // A start, not a search: `startsWith` compares AT the position.
+    holds("return \"abc\".startsWith(\"a\", 1) === false && \"abc\".startsWith(\"b\", 1) === true;");
+
+    // An end, not a start — which is why this one cannot share the clamp.
+    holds("return \"abc\".endsWith(\"c\", 2) === false && \"abc\".endsWith(\"b\", 2) === true;");
+    holds("return \"abc\".endsWith(\"c\") === true;");
+}
+
+/// `join` converts an element that is an object, rather than dropping it.
+///
+/// Every non-primitive element joined as the empty string, so
+/// `[1, [2, 3]].join("-")` answered `"1-"` and the nested data vanished with no
+/// trace. The conversion is a call, which is why the elements are copied out of
+/// the borrow before any of them runs.
+#[test]
+fn joining_runs_each_elements_own_conversion() {
+    holds("return String([1, [2, 3]]) === \"1,2,3\";");
+    holds("return [1, [2, 3]].join(\"-\") === \"1-2,3\";");
+    holds("return [[1, 2], [3, 4]].toString() === \"1,2,3,4\";");
+    holds("return String([{}]) === \"[object Object]\";");
+    holds("let o = { toString() { return \"T\"; } }; return [o].join(\",\") === \"T\";");
+
+    // The separator converts too, and the flat cases must not have moved.
+    holds("return [1, 2].join({ toString() { return \"+\"; } }) === \"1+2\";");
+    holds("return String([1, 2, 3]) === \"1,2,3\" && String([null, undefined, 1]) === \",,1\";");
+}
+
+/// `JSON.stringify` runs a value's own `toJSON`.
+///
+/// It ignored the hook, so every object that defines one — `Date` included —
+/// serialised as `{}`. Well-formed JSON that lost the value, which nothing
+/// downstream could detect.
+#[test]
+fn stringify_asks_the_value_how_it_wants_to_be_written() {
+    holds("return JSON.stringify({ toJSON() { return 5; } }) === \"5\";");
+
+    // Nested and inside an array, the two positions the walk reaches a value
+    // from other than the root.
+    holds("return JSON.stringify({ a: { toJSON() { return \"z\"; } } }) === \"{\\\"a\\\":\\\"z\\\"}\";");
+    holds("return JSON.stringify([{ toJSON() { return 1; } }]) === \"[1]\";");
+
+    // Inherited rather than own, which is how `Date` provides one.
+    holds("return JSON.stringify(new Date(0)) === \"\\\"1970-01-01T00:00:00.000Z\\\"\";");
+}
