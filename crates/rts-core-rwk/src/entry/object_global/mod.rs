@@ -356,26 +356,33 @@ fn held(array: u64) -> Option<Vec<u64>> {
     })
 }
 
-/// `Object.assign(target, source)` — copies the own keys across.
+/// `Object.assign(target, ...sources)` — copies the own keys across.
 ///
-/// One source rather than any number, because the arity a call carries is four
-/// and the receiver takes one of them. A call with more is refused at the site
-/// rather than losing its arguments here.
-extern "C" fn assign(_e: u64, _this: u64, target: u64, source: u64, _a2: u64, _a3: u64) -> u64 {
-    let names = super::array::own_keys(source);
-    let found = with_current(|context| {
-        let cell = Value(names).as_slot()?;
-        Some(context.elements_at(cell)?.clone())
-    });
-    let Some(found) = found else {
-        return target;
-    };
-    for name in found {
-        // Through the ordinary paths on both sides, so a getter on the source
-        // runs and a setter on the target runs — which is what `assign` does
-        // and what a slot-to-slot copy would have skipped.
-        let value = super::computed::get_indexed(source, name);
-        super::computed::set_indexed(target, name, value);
+/// Three sources rather than any number, because the arity a call carries is
+/// four and the receiver takes one of them. It used to read ONE and the comment
+/// beside it claimed a call with more was "refused at the site"; it was not —
+/// `Object.assign({}, a, b)` silently dropped `b`, which is the failure mode a
+/// merge must not have, because the result looks like a merge.
+///
+/// Beyond three the arguments genuinely are not here, and that stays a gap
+/// rather than a quiet loss: it needs the gathered-arguments path, which is a
+/// change to how a native is called and not to this function.
+extern "C" fn assign(_e: u64, _this: u64, target: u64, source: u64, a2: u64, a3: u64) -> u64 {
+    for source in [source, a2, a3] {
+        // An absent argument arrives as `undefined`, and `undefined` has no own
+        // keys — so the same skip serves both the spec's rule (a null or
+        // undefined source contributes nothing) and the missing-argument case,
+        // without this having to know which it is looking at.
+        let Some(found) = held(super::array::own_keys(source)) else {
+            continue;
+        };
+        for name in found {
+            // Through the ordinary paths on both sides, so a getter on the
+            // source runs and a setter on the target runs — which is what
+            // `assign` does and what a slot-to-slot copy would have skipped.
+            let value = super::computed::get_indexed(source, name);
+            super::computed::set_indexed(target, name, value);
+        }
     }
     target
 }

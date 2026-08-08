@@ -2947,6 +2947,16 @@ fn assign_copies_through_the_ordinary_property_paths() {
     // — and would have found nothing, an accessor not being in the layout.
     let through_a_getter = run("let t = {}; Object.assign(t, { get a() { return 4; } }); return t.a;");
     assert_eq!(tags::decode_double(through_a_getter), 4.0);
+
+    // Every source, not the first. It read one and dropped the rest silently,
+    // which is the failure a merge must not have: the result still looks like a
+    // merge, so nothing downstream reports the missing keys.
+    let merged = run("let t = Object.assign({}, { a: 1 }, { b: 2 }, { c: 3 }); return t.a + t.b + t.c;");
+    assert_eq!(tags::decode_double(merged), 6.0);
+
+    // Order is left to right, so a later source overwrites an earlier one.
+    let overwritten = run("let t = Object.assign({}, { a: 1 }, { a: 9 }); return t.a;");
+    assert_eq!(tags::decode_double(overwritten), 9.0);
 }
 
 #[test]
