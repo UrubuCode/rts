@@ -138,3 +138,39 @@ test("um campo ausente não vira NaN", function () {
     );
     assert_eq!(failed, Vec::<String>::new());
 }
+
+#[test]
+fn rts_gpu_resolve_e_seus_membros_sao_chamaveis() {
+    // Só `typeof`, e a limitação é medida e não suposta: chamar QUALQUER membro
+    // cria o device wgpu, e criar o device numa thread secundária — que é onde
+    // um `#[test]` do cargo roda — não retorna. Ficou dez minutos parado antes
+    // de eu matá-lo. O mesmo muro do winit em `examples/janela.rs`, por um
+    // caminho diferente.
+    //
+    // Quem exercita o compute de verdade é `examples/gpu.rs`, na thread
+    // principal: sobe 1024 u32, roda um kernel que os dobra, lê de volta e
+    // confere. Aqui fica o que quebra num porte de superfície e não precisa de
+    // device: o especificador resolve e os nomes existem.
+    let failed = failures(
+        r#"
+import { test, expect } from "rts:test";
+import * as gpu from "rts:gpu";
+
+test("a superfície inteira é chamável", function () {
+    expect(typeof gpu.available).toBe("function");
+    expect(typeof gpu.shader).toBe("function");
+    expect(typeof gpu.buffer).toBe("function");
+    expect(typeof gpu.write).toBe("function");
+    expect(typeof gpu.writeAt).toBe("function");
+    expect(typeof gpu.bindBuffer).toBe("function");
+    expect(typeof gpu.dispatch).toBe("function");
+    expect(typeof gpu.read).toBe("function");
+    expect(typeof gpu.readBegin).toBe("function");
+    expect(typeof gpu.readPoll).toBe("function");
+    expect(typeof gpu.bufferFree).toBe("function");
+    expect(typeof gpu.adapterName).toBe("function");
+});
+        "#,
+    );
+    assert_eq!(failed, Vec::<String>::new());
+}

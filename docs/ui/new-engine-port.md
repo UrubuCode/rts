@@ -112,28 +112,41 @@ the same, and the difference stays where it is real.
 
 | absent | why |
 |---|---|
-| `rts:gpu` (compute) | the shell is not written yet. **Not** a blocker — see the correction below |
-| `egui.drawWater` | its only consumer is `crate::compute`, which is behind the same feature |
 | `rts:dom`, `render.*` | the tree, parser and layout engine are 18 000 engine-free lines in `rts-dom`; the port is the same shell this crate is, for that surface |
 | `egui.render(win, dom)` | without the DOM namespace there is no handle to pass, so it would be a function that always draws nothing |
 
-### A correction, kept rather than quietly fixed
+### `rts:gpu` was on this list, wrongly, and is now ported
 
-This table first said that `rts:gpu` was blocked because "a compute buffer **is**
-an `Entry::Buffer` in the old engine's `HandleTable`", so porting it meant
-deciding where those bytes live in the new engine.
+The table said it was blocked because "a compute buffer **is** an `Entry::Buffer`
+in the old engine's `HandleTable`", so porting it meant deciding where those
+bytes live in the new engine.
 
 **That was false**, and it came from reasoning about the module instead of
 reading it. The `wgpu::Buffer` lives in a `HashMap<u64, wgpu::Buffer>` inside
-`compute` itself. What crosses from the old engine is only the program-side byte
-buffer — and `rts-core-rwk` already answers that in all three directions:
-`bytes_of`, `write_bytes` and `make_bytes` over a typed view, which is exactly
-what `meshUpload` in this very port already uses.
+`compute` itself. What crossed from the old engine was only the program-side
+byte buffer — which `bytes_of`/`write_bytes`/`make_bytes` already answer.
 
-So `rts:gpu` is the same shell as everything else here. What it actually needs:
-the five-argument calls (`writeAt`) take an options object like the rest,
-`Entry::Buffer` reads become `bytes_of`, the read-back becomes `write_bytes`,
-and `adapterName` becomes `make_string`. Work not done, not a wall.
+So it was the same shell as everything else, and it is written. `crate::compute`
+now takes and returns `&[u8]`/`Vec<u8>`, because where the bytes come FROM is the
+engine's question and there are two of them; each shell answers its own. Three
+things changed in the surface, all of them the same reasons as above:
+
+- `writeAt(gbuf, { data, srcOff, dstOff, bytes })` — five parameters do not fit
+  in four slots.
+- `read(gbuf, bytes)` answers a `Uint8Array` instead of writing into a
+  destination the caller supplied. The old signature needed the destination
+  because it had no way to hand back a buffer.
+- `readPoll(ticket)` answers `null` (in flight) / `false` (failed) / the bytes,
+  instead of `0` / `-1` / a count. That integer with three meanings made a caller
+  writing `if (n)` treat FAILURE as success, because `-1` is truthy.
+
+`egui.drawWater` came back with it — its only obstacle was `compute` being behind
+the feature.
+
+Verified by running: `cargo run -p rts-host-rwk --example gpu` uploads 1024
+`u32`, runs a kernel that doubles them, reads back and checks every element. On
+an RTX 2080 Ti: zero mismatches. And the old engine's own suite still passes —
+`rts.exe test tests/gpu_compute.test.ts`, 5/5.
 
 Each absence fails at the `import` line, which is where it should hurt.
 `rts-std-rwk` once refused to register a façade `rts:egui` for exactly this

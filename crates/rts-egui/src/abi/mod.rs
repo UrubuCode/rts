@@ -22,6 +22,10 @@ use rts_engine::abi::str_abi;
 mod register;
 pub use register::register;
 
+// `rts:gpu` é um namespace próprio no motor antigo, com registro próprio — a
+// facade o alcança como `ns::gpu::register`.
+pub mod gpu;
+
 /// O texto que um par ponteiro+comprimento nomeia, vazio quando não nomeia um.
 ///
 /// # Segurança

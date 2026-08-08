@@ -26,9 +26,10 @@
 //!
 //! # O que NÃO está aqui, e não por esquecimento
 //!
-//! **`rts:gpu`** — os buffers de compute SÃO handles do `HandleTable` do motor
-//! antigo. Portá-los é decidir onde aqueles bytes vivem no novo, não escrever
-//! uma casca. `drawWater`, seu único consumidor, fica junto.
+//! `rts:gpu` ESTAVA nesta lista, com a justificativa de que um buffer de compute
+//! seria um handle do motor antigo. Era falso — o `wgpu::Buffer` vive num
+//! `HashMap` do próprio `compute`, e o que atravessava era só o buffer de bytes
+//! do programa, que `bytes_of`/`write_bytes` já respondem. Está portado.
 //!
 //! **`rts:dom` e `render.*`** — a árvore, o parser e o motor de layout são 18 mil
 //! linhas no `rts-dom`, e nenhuma delas conhece motor: o porte é a mesma casca
@@ -66,6 +67,7 @@
 #![deny(dead_code)]
 
 pub mod draw;
+pub mod gpu;
 pub mod input;
 pub mod scene;
 pub mod value;
@@ -92,6 +94,9 @@ pub fn install(context: &mut Context) {
 
     let entry_points = entry::make_namespace(context, input::MEMBERS);
     entry::declare_module(context, "rts:input", entry_points);
+
+    let compute = entry::make_namespace(context, gpu::MEMBERS);
+    entry::declare_module(context, "rts:gpu", compute);
 }
 
 /// Solta os recursos de GPU enquanto o processo ainda está inteiro.
@@ -109,9 +114,18 @@ pub fn install(context: &mut Context) {
 /// programa: um programa que esquecesse a linha morreria na saída, e ele não tem
 /// como saber que essa linha existe.
 ///
+/// # A ordem importa
+///
+/// `compute::shutdown` solta pipelines, buffers e stagings E a cópia que aquele
+/// contexto tem dos handles do device, e só então o device compartilhado. Chamar
+/// direto o `shutdown_shared_gpu` deixava o contexto de compute vivo com uma
+/// referência ao device, então o drop dele acontecia depois — no destrutor de
+/// thread-local, que é exatamente o momento que isto existe para evitar. Foi
+/// visto: o `examples/gpu` computava certo, imprimia tudo e morria na saída.
+///
 /// Idempotente, e no-op quando nenhuma GPU foi criada.
 pub fn shutdown() {
-    rts_egui::shutdown_shared_gpu();
+    rts_egui::compute::shutdown();
 }
 
 /// `rts:egui`, montado das três metades da superfície.
