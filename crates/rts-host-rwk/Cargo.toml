@@ -67,3 +67,7 @@ required-features = ["ui"]
 [[example]]
 name = "janela"
 required-features = ["ui"]
+
+[[example]]
+name = "gpu"
+required-features = ["ui"]

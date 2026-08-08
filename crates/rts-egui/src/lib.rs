@@ -43,16 +43,8 @@ pub mod render_backend;
 mod widgets;
 mod scene_api;
 // `rts:gpu` — compute WGSL sobre o MESMO device compartilhado do render.
-//
-// Atrás de `old-engine` porque a casca do motor novo ainda não foi escrita, e
-// NÃO por impedimento. Uma nota anterior aqui dizia que um buffer de compute
-// "É um handle do HandleTable" e que portá-lo era decidir onde aqueles bytes
-// vivem no motor novo. Era falsa, e saiu de raciocinar sobre o módulo em vez de
-// lê-lo: o `wgpu::Buffer` vive num `HashMap<u64, wgpu::Buffer>` do próprio
-// `compute`, e o que vem do motor antigo é só o buffer de BYTES do programa
-// (`Entry::Buffer(Vec<u8>)`) — que o `rts-core-rwk` já responde, nos três
-// sentidos, com `bytes_of`/`write_bytes`/`make_bytes` sobre uma view tipada.
-#[cfg(feature = "old-engine")]
+// Lógica pura, como o resto do crate: a casca do motor antigo é `abi::gpu`, a do
+// novo é `rts-ui-rwk`. Este módulo sobe e baixa bytes e não sabe de onde vêm.
 pub mod compute;
 
 // O DOM (árvore + parser + NodeId) E o ESTADO de estilo vivem no crate `rts-dom`;
