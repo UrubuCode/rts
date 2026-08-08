@@ -89,7 +89,7 @@ pub use loops::{Pending, Rest, Source, declare_loop_source, declare_rest, pump_s
 pub use bitwise::{
     bit_and, bit_not, bit_or, bit_xor, exponent, shift_left, shift_right, shift_right_unsigned,
 };
-pub use computed::{delete_property, get_indexed, has_property, set_indexed};
+pub use computed::{delete_property, get_indexed, has_property, key_number, set_indexed};
 pub use functions::{
     call_with_args, construct_with_args, rest_arguments,
     ARGUMENT_SLOTS, call, closure_new, construct, instance_of, mark_derived, super_construct,

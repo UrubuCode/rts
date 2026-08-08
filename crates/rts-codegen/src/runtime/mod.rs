@@ -202,6 +202,13 @@ pub enum RuntimeOp {
     /// fact.
     ObjectSpread,
 
+    /// The key number a value resolves to.
+    ///
+    /// What a computed accessor name needs: `define_getter` takes the key the
+    /// compiler resolved, and `{ get [e]() {} }` has a value instead. Resolving
+    /// it here lets the pair that already exists take it from there.
+    KeyNumber,
+
     /// Whether a throw is in flight, as `1` or `0`.
     ///
     /// A call and not an instruction because the answer is global mutable state:
@@ -517,6 +524,7 @@ impl RuntimeOp {
         RuntimeOp::SetProperty,
         RuntimeOp::ClosureNew,
         RuntimeOp::ObjectSpread,
+        RuntimeOp::KeyNumber,
         RuntimeOp::Thrown,
         RuntimeOp::TakeThrown,
         RuntimeOp::StringConst,
@@ -587,6 +595,7 @@ impl RuntimeOp {
             RuntimeOp::SetProperty => "__rts_set_property",
             RuntimeOp::ClosureNew => "__rts_closure_new",
             RuntimeOp::ObjectSpread => "__rts_object_spread",
+            RuntimeOp::KeyNumber => "__rts_key_number",
             RuntimeOp::Thrown => "__rts_thrown",
             RuntimeOp::TakeThrown => "__rts_take_thrown",
             RuntimeOp::StringConst => "__rts_string_const",
@@ -662,6 +671,9 @@ impl RuntimeOp {
             // collector a pointer into the text segment to trace.
             RuntimeOp::ClosureNew => (vec![Repr::I64, UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::ObjectSpread => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
+            // A key number is an `I64` and not a value: it is what the compiler
+            // resolves a name to, and every accessor entry point takes one.
+            RuntimeOp::KeyNumber => (vec![UNPROVEN], vec![Repr::I64]),
             // `I64` and not a boolean: a Rust `bool` is one byte and reading it
             // as a word takes the callee's leftover bits.
             RuntimeOp::Thrown => (vec![], vec![Repr::I64]),

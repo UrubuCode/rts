@@ -21,7 +21,7 @@
 
 use rts_cranelift::ir::{FuncBuilder, ValueId};
 
-use super::expr::{call, emit_expr, gap, tagged};
+use super::expr::{call, emit_expr, tagged};
 use super::property::key_constant;
 use super::{Ctx, EmitResult, Scope};
 use crate::names::Name;
@@ -88,12 +88,17 @@ pub(super) fn emit_object(
             // the compiler resolved, and a value would need a second entry
             // point that interns one.
             Property::Getter { key, function } | Property::Setter { key, function } => {
-                let PropertyKey::Named(name) = key else {
-                    return gap("a computed accessor name in an object literal");
-                };
                 let closure = super::function::emit_closure(builder, scope, ctx, function)?;
                 let is_getter = matches!(property, Property::Getter { .. });
-                define_accessor(builder, ctx, object, *name, closure, is_getter)?;
+                match key {
+                    PropertyKey::Named(name) => {
+                        define_accessor(builder, ctx, object, *name, closure, is_getter)?;
+                    }
+                    PropertyKey::Computed(expr) => {
+                        let key = super::expr::emit_expr(builder, scope, ctx, expr)?;
+                        define_computed_accessor(builder, ctx, object, key, closure, is_getter)?;
+                    }
+                }
                 continue;
             }
             // `{ ...source }` — the source's own enumerable properties, copied
@@ -134,4 +139,36 @@ pub(super) fn emit_object(
         }
     }
     Ok(object)
+}
+
+/// The same, for an accessor whose key is an expression.
+///
+/// `{ get [e]() {} }` and `class C { get [e]() {} }` were both refused, and the
+/// reason given was that the definition takes the key the COMPILER resolved
+/// while a computed one has a value. That is still true — what changed is that
+/// the value can be resolved: `__rts_key_number` answers the number, and the
+/// pair that already exists takes it from there.
+///
+/// So there is one way to define an accessor and not two, which is what a second
+/// entry point taking a value would have made.
+pub(super) fn define_computed_accessor(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    object: ValueId,
+    key: ValueId,
+    function: ValueId,
+    is_getter: bool,
+) -> EmitResult<ValueId> {
+    // The key arrives as a VALUE the caller already produced, because a class
+    // body evaluates every computed key once before installing anything —
+    // re-emitting the expression here would evaluate it a second time, and a key
+    // written `[next()]` would advance twice.
+    let key = tagged(builder, key);
+    let key = call(builder, ctx, RuntimeOp::KeyNumber, &[key])?[0];
+    let function = tagged(builder, function);
+    let op = match is_getter {
+        true => RuntimeOp::DefineGetter,
+        false => RuntimeOp::DefineSetter,
+    };
+    Ok(call(builder, ctx, op, &[object, key, function])?[0])
 }

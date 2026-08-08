@@ -224,13 +224,26 @@ pub(super) fn emit_class(
                     MethodKind::Normal => {
                         write_member(builder, ctx, target, &method.key, computed[index], closure)?;
                     }
-                    MethodKind::Getter => {
-                        let name = accessor_name(&method.key)?;
-                        super::object::define_accessor(builder, ctx, target, name, closure, true)?;
-                    }
-                    MethodKind::Setter => {
-                        let name = accessor_name(&method.key)?;
-                        super::object::define_accessor(builder, ctx, target, name, closure, false)?;
+                    MethodKind::Getter | MethodKind::Setter => {
+                        let is_getter = matches!(method.kind, MethodKind::Getter);
+                        match accessor_name(&method.key) {
+                            Some(name) => {
+                                super::object::define_accessor(
+                                    builder, ctx, target, name, closure, is_getter,
+                                )?;
+                            }
+                            // A computed key, already evaluated once above and
+                            // held in `computed` — the same value `write_member`
+                            // uses for an ordinary method with a computed name.
+                            None => {
+                                let key = computed[index].ok_or(EmitError::Unsupported {
+                                    construct: "a computed accessor name with no evaluated key",
+                                })?;
+                                super::object::define_computed_accessor(
+                                    builder, ctx, target, key, closure, is_getter,
+                                )?;
+                            }
+                        }
                     }
                 }
             }
@@ -615,13 +628,13 @@ pub(super) fn emit_super_call(
 /// have would be a second answer to "how is an accessor key spelled", so a
 /// computed accessor name is refused here for the same reason, not a
 /// coincidentally similar one.
-fn accessor_name(key: &ClassKey) -> EmitResult<Name> {
+fn accessor_name(key: &ClassKey) -> Option<Name> {
     match key {
-        ClassKey::Public(PropertyKey::Named(name)) => Ok(*name),
-        ClassKey::Private(name) => Ok(*name),
-        ClassKey::Public(PropertyKey::Computed(_)) => Err(EmitError::Unsupported {
-            construct: "a computed accessor name in a class body",
-        }),
+        ClassKey::Public(PropertyKey::Named(name)) => Some(*name),
+        ClassKey::Private(name) => Some(*name),
+        // `None` means the key is an expression, which the caller resolves
+        // through `__rts_key_number` from the value it already evaluated.
+        ClassKey::Public(PropertyKey::Computed(_)) => None,
     }
 }
 
@@ -635,14 +648,12 @@ fn accessor_name(key: &ClassKey) -> EmitResult<Name> {
 /// computed method or field name, a static block — is emitted by the loop in
 /// [`emit_class`], and refusing it up front as well would be the duplicated
 /// rule 3 warns about.
-fn refuse_what_is_not_built(class: &Class) -> EmitResult<()> {
-    for element in &class.body {
-        if let ClassElement::Method(method) = element {
-            if method.kind != MethodKind::Normal {
-                accessor_name(&method.key)?;
-            }
-        }
-    }
+fn refuse_what_is_not_built(_class: &Class) -> EmitResult<()> {
+    // Nothing left to refuse up front. It held one entry — a computed accessor
+    // name — and that is emitted now, from the key the loop in [`emit_class`]
+    // already evaluates. The function stays because the next gap of this shape
+    // has somewhere to go, and because deleting it would move the question of
+    // where an early refusal belongs.
     Ok(())
 }
 

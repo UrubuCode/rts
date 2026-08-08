@@ -2738,10 +2738,13 @@ fn what_a_class_still_cannot_express_is_refused_by_name() {
     //   through the generic binary-operator path in `expr.rs`, which is a
     //   file this lowering's own module does not own and a gap outside its
     //   present scope to close.
-    for (source, expected) in [
-        ("class A { get [\"a\"]() { return 1; } }", "computed accessor"),
-        ("class A { #x = 1; has() { return #x in this; } }", "private name"),
-    ] {
+    // A computed ACCESSOR name was on this list and came off. It was refused
+    // because `DefineGetter`/`DefineSetter` take the key the compiler resolved
+    // as a constant — still true — and what changed is that a VALUE can now be
+    // resolved to one, through `__rts_key_number`. There is still exactly one
+    // way to define an accessor, which is what the refusal was protecting.
+    for (source, expected) in [("class A { #x = 1; has() { return #x in this; } }", "private name")]
+    {
         let error = compile(source).expect_err("refused");
         let text = format!("{error:?}");
         assert!(text.contains(expected), "{source} gave {text}");

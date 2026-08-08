@@ -30,6 +30,33 @@ use crate::value::Value;
 ///
 /// `None` means the key was an object, whose `ToPropertyKey` runs a `toString`
 /// — user code an entry point cannot call.
+/// The key number a value resolves to, for a caller that has the value and
+/// needs the number.
+///
+/// # Why this exists rather than a second pair of accessor entry points
+///
+/// `define_getter`/`define_setter` take the key the COMPILER resolved, as a
+/// number — which is right, and is why a computed accessor name was refused in
+/// both a class body and an object literal: there was no way to turn `{ get [e]()
+/// {} }`'s key into one. Two more entry points taking a value would have been a
+/// second way to define an accessor, differing from the first in one argument.
+///
+/// This is the missing step instead: resolve the key here, then use the pair
+/// that already exists. `-1` for a value that cannot be a key at all, which the
+/// caller turns back into doing nothing rather than into key zero.
+#[rtse::entry]
+pub fn key_number(key: u64) -> i64 {
+    with_current(|context| match property_key(context, Value(key)) {
+        Some(Key::Name(named)) => named.index() as i64,
+        // An accessor whose key is an array INDEX — `get [0]() {}`. It has no
+        // shape key, because an index is an element position rather than a
+        // property slot, and `define_accessor` takes the latter. Refused here
+        // rather than mapped onto some number, which would define an accessor
+        // under a property nobody named.
+        Some(Key::Index(_)) | None => -1,
+    })
+}
+
 fn property_key(context: &mut Context, key: Value) -> Option<Key> {
     // A symbol is its own key rather than one derived from text, and it is
     // asked first because `ToString` of a symbol is a `TypeError` in the

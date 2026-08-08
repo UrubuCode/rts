@@ -47,7 +47,8 @@ use super::bitwise::{
 };
 use super::chain::{GET_PROTOTYPE_ENTRY, SET_PROTOTYPE_ENTRY};
 use super::computed::{
-    DELETE_PROPERTY_ENTRY, GET_INDEXED_ENTRY, HAS_PROPERTY_ENTRY, SET_INDEXED_ENTRY,
+    DELETE_PROPERTY_ENTRY, GET_INDEXED_ENTRY, HAS_PROPERTY_ENTRY, KEY_NUMBER_ENTRY,
+    SET_INDEXED_ENTRY,
 };
 use super::functions::{
     CALL_ENTRY, CALL_WITH_ARGS_ENTRY, CLOSURE_NEW_ENTRY, CONSTRUCT_ENTRY,
@@ -371,6 +372,9 @@ pub enum CoreEntry {
     /// Copies a source object's own enumerable properties onto a target.
     ObjectSpread = 59,
 
+    /// The key number a value resolves to.
+    KeyNumber = 60,
+
     /// Whether a throw is in flight.
     ///
     /// Numbered after everything that existed, because a number is never reused
@@ -386,7 +390,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 60;
+pub const CORE_ENTRY_COUNT: usize = 61;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -451,6 +455,7 @@ impl CoreEntry {
         CoreEntry::Thrown,
         CoreEntry::TakeThrown,
         CoreEntry::ObjectSpread,
+        CoreEntry::KeyNumber,
     ];
 
     /// The number a call site holds.
@@ -485,6 +490,7 @@ impl CoreEntry {
             CoreEntry::Thrown => THROWN_ENTRY,
             CoreEntry::TakeThrown => TAKE_THROWN_ENTRY,
             CoreEntry::ObjectSpread => OBJECT_SPREAD_ENTRY,
+            CoreEntry::KeyNumber => KEY_NUMBER_ENTRY,
             CoreEntry::Call => CALL_ENTRY,
             CoreEntry::StringConst => STRING_CONST_ENTRY,
             CoreEntry::TypeOf => TYPE_OF_ENTRY,
