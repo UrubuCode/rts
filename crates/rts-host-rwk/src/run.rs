@@ -80,6 +80,11 @@ pub struct Compiled {
     /// Keyed by code address, which is fixed when the program is placed — so it
     /// is computed once, there, and seeded into every context that runs it.
     frames: Vec<rts_core_rwk::entry::FrameShape>,
+    /// What each compiled function is called, by the address it was placed at.
+    ///
+    /// For a stack trace. Computed once, where the addresses become known, and
+    /// seeded into every context that runs the program.
+    function_names: Vec<(u64, String)>,
     /// The text the last run's answer had, read while its heap still existed.
     described: Option<String>,
     /// The text of every string literal the compilation collected.
@@ -134,6 +139,7 @@ impl Compiled {
             &self.literals,
             &self.templates,
             &self.frames,
+            &self.function_names,
             region,
         );
         self.regions[0] = Some(outcome.region);
@@ -184,6 +190,7 @@ impl Compiled {
         let literals = &self.literals;
         let templates = &self.templates;
         let frames = &self.frames;
+        let function_names = &self.function_names;
 
         let finished: Vec<(u64, rts_core_rwk::heap::Region)> = std::thread::scope(|scope| {
             let handles: Vec<_> = taken
@@ -193,7 +200,7 @@ impl Compiled {
                         let outcome =
                             run_region(
                                 entry, &[], nothing, singletons, kinds, keys, literals,
-                                templates, frames, region,
+                                templates, frames, function_names, region,
                             );
                         (outcome.value, outcome.region)
                     })
@@ -264,6 +271,8 @@ fn run_region(
     // literals and for the same reason: the numbers were fixed when the program
     // was placed, and this context did not exist then.
     frames: &[rts_core_rwk::entry::FrameShape],
+    // What each compiled function is called, for a stack trace to name a frame.
+    function_names: &[(u64, String)],
     region: rts_core_rwk::heap::Region,
 ) -> Outcome {
     let mut context = rts_core_rwk::entry::Context::over(singletons, kinds, region);
@@ -282,6 +291,7 @@ fn run_region(
     // to be cleared.
     rts_core_rwk::entry::declare_templates(&mut context, templates);
     rts_core_rwk::entry::declare_frames(&mut context, frames.to_vec());
+    rts_core_rwk::entry::declare_function_names(&mut context, function_names.to_vec());
     // Before the context is installed, and every namespace here is built from
     // the `context` it is HANDED. A module reaching the ambient one instead
     // would be asking for a borrow this call already holds, which is a panic in
@@ -768,6 +778,19 @@ fn assemble(
     // runtime holds about a compiled function. A body that was rewritten and
     // then not placed would leave a wrapper handing over an address nothing
     // describes, which the runtime answers `undefined` for rather than guessing.
+
+    // The same trick for what a stack trace prints: a name per code address,
+    // which is the only handle the runtime has on a compiled function. The
+    // compiler collected the names while emitting, because that is the one place
+    // that has both the identifier and the tree it came from.
+    let function_names: Vec<(u64, String)> = emitted
+        .function_names
+        .iter()
+        .filter_map(|(id, name)| {
+            let at = placed.address_of(*id)?;
+            Some((at as u64, name.clone()))
+        })
+        .collect();
     let frames: Vec<rts_core_rwk::entry::FrameShape> = frames
         .into_iter()
         .filter_map(|(id, shape)| {
@@ -804,6 +827,7 @@ fn assemble(
         table,
         resolves: 0,
         frames,
+        function_names,
         described: None,
         literals: emitted.literals,
         templates: emitted.templates,

@@ -200,13 +200,33 @@ fn written(this: u64, message: u64, class: &'static str) -> u64 {
         let Some(cell) = receiver(context, this, class) else {
             return undefined_of(context);
         };
+        let mut described = String::new();
         if message != undefined_of(context)
             && let Some(text) = super::text::to_text(context, Value(message))
         {
+            described = text.to_rust().unwrap_or_default();
             let value = context.intern_value(text).bits();
             let key = context.well_known("message");
             super::objects::put(context, cell, key, value);
         }
+
+        // `.stack`, captured HERE — where the error is CONSTRUCTED, not where it
+        // is thrown. That is what every engine does and the difference matters:
+        // `const e = new Error("x"); … ; throw e;` names the line that made it,
+        // which is the one a reader is looking for.
+        //
+        // The header line is `Name: message`, then a frame per line, which is
+        // what Node and Bun print and what a program that splits on `\n    at `
+        // expects.
+        let header = match described.is_empty() {
+            true => class.to_owned(),
+            false => format!("{class}: {described}"),
+        };
+        let stack = format!("{header}{}", super::throw::stack_text(context));
+        let value = context.intern_value(crate::text::Str::from_str(&stack)).bits();
+        let key = context.well_known("stack");
+        super::objects::put(context, cell, key, value);
+
         Value::from_slot(cell).bits()
     })
 }

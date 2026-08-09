@@ -268,6 +268,13 @@ fn emit_function(
     // refused every `await` with `UndeclaredSuspension` until this line existed.
     let mut emitted = emitted;
     emitted.signature.may_suspend = function.is_async || function.is_generator;
+    // The name, for a stack trace. Recorded here rather than derived later:
+    // this is the one place that has both the identifier and the tree it came
+    // from, and a name recovered from anywhere else would be a second answer.
+    if let Some(name) = function.name {
+        let text = ctx.names.text(name).to_owned();
+        ctx.function_names.push((id, text));
+    }
     ctx.pending.push((id, emitted));
     if function.is_generator {
         // The body is not called here and is not called by the caller either:

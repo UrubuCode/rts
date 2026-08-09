@@ -4544,3 +4544,52 @@ fn the_bare_rts_specifier_answers_integer_arithmetic() {
     assert_eq!(reported.len(), 5, "the fixture registers five tests");
     assert!(failed.is_empty(), "{failed:?}");
 }
+
+/// An error carries where it was made, in the `at …` form Node and Bun print.
+///
+/// This engine reported `Error: boom` and nothing else, so a failure said what
+/// happened and never where. The frames come from the stack `functions::invoke`
+/// already keeps — the one a bound function reads to know which binding it is —
+/// rather than from a second record that would drift the first time either
+/// forgot to pop.
+#[test]
+fn an_error_says_where_it_came_from() {
+    let traced = run(
+        "function inner() { throw new Error('boom'); } \
+         function middle() { inner(); } \
+         function outer() { middle(); } \
+         let seen = ''; \
+         try { outer(); } catch (e) { seen = e.stack; } \
+         return seen.indexOf('at inner') >= 0 && seen.indexOf('at outer') >= 0 ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(traced), 1.0);
+
+    // Innermost first, which is the order every engine prints and the order a
+    // reader scans.
+    let ordered = run(
+        "function inner() { throw new Error('boom'); } \
+         function outer() { inner(); } \
+         let seen = ''; \
+         try { outer(); } catch (e) { seen = e.stack; } \
+         return seen.indexOf('at inner') < seen.indexOf('at outer') ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(ordered), 1.0);
+
+    // The header is `Name: message`, so the first line still says what happened.
+    let headed = run(
+        "let seen = ''; \
+         try { throw new TypeError('wrong'); } catch (e) { seen = e.stack; } \
+         return seen.indexOf('TypeError: wrong') === 0 ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(headed), 1.0);
+
+    // Captured where the error is CONSTRUCTED, not where it is thrown — which
+    // is what every engine does, and what makes a stored-then-thrown error name
+    // the line that made it.
+    let constructed = run(
+        "function made() { return new Error('later'); } \
+         const e = made(); \
+         return e.stack.indexOf('at made') >= 0 ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(constructed), 1.0);
+}

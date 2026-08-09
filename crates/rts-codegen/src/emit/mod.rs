@@ -172,6 +172,12 @@ pub struct Program {
     /// list is how the host learns which functions to put through it without
     /// re-deriving the answer from a signature flag that async also sets.
     pub generators: Vec<FuncId>,
+    /// What each function is CALLED, for a stack trace to name it.
+    ///
+    /// Only the ones that have a name: an arrow assigned to nothing has none,
+    /// and inventing one would put a label in a trace that the program cannot
+    /// be searched for.
+    pub function_names: Vec<(FuncId, String)>,
     /// Which of them is the program's entry.
     pub entry: FuncId,
     /// The text of every string literal, indexed by the number the code holds.
@@ -254,6 +260,8 @@ pub struct Ctx<'a> {
     /// which would mean every expression emitter answering a list nearly all of
     /// them would leave empty.
     pending: Vec<(FuncId, Function)>,
+    /// The name of each function that has one, collected while emitting.
+    function_names: Vec<(FuncId, String)>,
     /// Which of the emitted functions are generator bodies.
     ///
     /// Collected while emitting rather than derived afterwards: `may_suspend` is
@@ -326,6 +334,7 @@ impl<'a> Ctx<'a> {
             types,
             pending: Vec::new(),
             generators: Vec::new(),
+            function_names: Vec::new(),
             literals: Vec::new(),
             templates: Vec::new(),
             numeric: Numeric::default(),
@@ -533,6 +542,7 @@ fn finish(entry: FuncId, ctx: &mut Ctx) -> Program {
     Program {
         functions: std::mem::take(&mut ctx.pending),
         generators: std::mem::take(&mut ctx.generators),
+        function_names: std::mem::take(&mut ctx.function_names),
         entry,
         literals: std::mem::take(&mut ctx.literals),
         templates: std::mem::take(&mut ctx.templates),

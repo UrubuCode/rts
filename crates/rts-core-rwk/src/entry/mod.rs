@@ -135,7 +135,7 @@ pub use clone::deep_copy;
 pub use current::with_context;
 pub(crate) use current::with_current;
 pub use table::{CORE_ENTRY_COUNT, CoreEntry};
-pub use throw::{pending, take_thrown, throw, thrown};
+pub use throw::{declare_function_names, pending, take_thrown, throw, thrown};
 
 use rts_cranelift::shape::{KeyRegistry, ShapeTree};
 
@@ -303,6 +303,12 @@ pub struct Context {
     /// Filled by the host before the program runs, keyed by code address — the
     /// one thing this crate holds about a compiled function.
     frames: Vec<generator::FrameShape>,
+    /// What each compiled function is called, by its code address.
+    ///
+    /// For a stack trace to name a frame. Keyed by ADDRESS because that is what
+    /// a callable holds, and filled by the host after placement for the reason
+    /// `frames` is: the addresses do not exist until then.
+    function_names: Vec<(u64, String)>,
     regexes: Aside<regex::Regexp>,
     /// What every regular expression inherits from, once one exists.
     ///
@@ -554,6 +560,7 @@ impl Context {
             generators: Aside::in_region(bits),
             yielded: None,
             frames: Vec::new(),
+            function_names: Vec::new(),
             buffer_of: Aside::in_region(bits),
             views: Aside::in_region(bits),
             regexes: Aside::in_region(bits),
@@ -617,6 +624,7 @@ impl Context {
             generators: Aside::new(),
             yielded: None,
             frames: Vec::new(),
+            function_names: Vec::new(),
             regexes: Aside::new(),
             regexp_prototype: None,
             classes: Vec::new(),

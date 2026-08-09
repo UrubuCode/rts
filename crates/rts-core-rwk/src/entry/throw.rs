@@ -31,7 +31,7 @@
 //! [`record`]: the second value replaces the first, which is what JavaScript
 //! says a `finally` that throws does to the exception it was unwinding.
 
-use super::with_current;
+use super::{Context, with_current};
 
 /// Records a thrown value that no handler in the throwing function caught.
 ///
@@ -106,6 +106,19 @@ pub fn pending() -> Option<(i64, String)> {
         // `"Error: boom"` from a read rather than from a call — the difference
         // between a message that names the fault and one that says "an object".
         let value = crate::value::Value(payload);
+        // `.stack` first, because it already carries the header AND the frames:
+        // reporting `Error: boom` where the value knows it came through `inner`,
+        // `middle` and `outer` throws away the half a reader needs. A data read,
+        // like everything else here — the property was written when the error
+        // was constructed.
+        let traced = value.as_slot().and_then(|cell| {
+            let key = context.well_known("stack");
+            let found = super::objects::read_property(context, cell, key)?;
+            super::text::to_text(context, found)?.to_rust()
+        });
+        if let Some(traced) = traced {
+            return Some((tag, traced));
+        }
         let described = super::text::to_text(context, value)
             .and_then(|text| text.to_rust())
             .or_else(|| super::error::joined(context, value.as_slot()?));
@@ -199,4 +212,57 @@ pub(in crate::entry) fn type_error(message: &str) {
     let absent = with_current(|context| super::objects::undefined_of(context));
     let error = super::functions::construct(constructor, text, absent, absent, absent);
     with_current(|context| context.thrown = Some((JS_THROW, error)));
+}
+
+/// What each compiled function is called, by its code address.
+///
+/// Seeded by the host once the program is placed, for the reason the frame
+/// shapes are: an address is not a number anybody holds until then. Only
+/// functions that HAVE a name are here — an arrow assigned to nothing has none,
+/// and inventing one would put a label in a trace that a program cannot be
+/// searched for.
+pub fn declare_function_names(context: &mut Context, names: Vec<(u64, String)>) {
+    context.function_names = names;
+}
+
+/// The call stack, in the shape Node and Bun print it.
+///
+/// ```text
+///     at inner
+///     at outer
+/// ```
+///
+/// # Where the stack comes from
+///
+/// `functions::invoke` already pushes the callable it is about to jump to, so
+/// that a bound function can know which binding it is. That list IS the stack —
+/// innermost last — and this reads it rather than keeping a second one, which
+/// would be two records of one fact that disagree the first time either forgets
+/// to pop.
+///
+/// # What it does not say yet, and why it is still worth having
+///
+/// A LINE. The machine records a source position per instruction and the code
+/// generator carries it, but nothing maps an address back to one at run time —
+/// that is `rts_cranelift::observe`'s question and its own piece of work. A
+/// trace that names the functions is what turns "something threw" into "this
+/// path threw", which is the difference the report exists for.
+///
+/// A native has no name here, so it does not appear: what a program can act on
+/// is its own frames.
+pub(in crate::entry) fn stack_text(context: &Context) -> String {
+    let mut lines = String::new();
+    for callee in context.callees.iter().rev() {
+        let Some(cell) = crate::value::Value(*callee).as_slot() else {
+            continue;
+        };
+        let Some((code, _)) = context.callable_at(cell) else {
+            continue;
+        };
+        if let Some((_, name)) = context.function_names.iter().find(|(at, _)| *at == code) {
+            lines.push_str("\n    at ");
+            lines.push_str(name);
+        }
+    }
+    lines
 }
