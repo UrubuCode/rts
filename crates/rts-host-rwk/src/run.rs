@@ -75,6 +75,11 @@ pub struct Compiled {
     /// number of reads when none of them did — which is what tells a cache that
     /// works from one that is a slower way of calling.
     resolves: u64,
+    /// What a parked frame looks like, per generator body this program holds.
+    ///
+    /// Keyed by code address, which is fixed when the program is placed — so it
+    /// is computed once, there, and seeded into every context that runs it.
+    frames: Vec<rts_core_rwk::entry::FrameShape>,
     /// The text the last run's answer had, read while its heap still existed.
     described: Option<String>,
     /// The text of every string literal the compilation collected.
@@ -128,6 +133,7 @@ impl Compiled {
             &self.keys,
             &self.literals,
             &self.templates,
+            &self.frames,
             region,
         );
         self.regions[0] = Some(outcome.region);
@@ -177,6 +183,7 @@ impl Compiled {
         let keys = &self.keys;
         let literals = &self.literals;
         let templates = &self.templates;
+        let frames = &self.frames;
 
         let finished: Vec<(u64, rts_core_rwk::heap::Region)> = std::thread::scope(|scope| {
             let handles: Vec<_> = taken
@@ -186,7 +193,7 @@ impl Compiled {
                         let outcome =
                             run_region(
                                 entry, &[], nothing, singletons, kinds, keys, literals,
-                                templates, region,
+                                templates, frames, region,
                             );
                         (outcome.value, outcome.region)
                     })
@@ -253,6 +260,10 @@ fn run_region(
     keys: &[String],
     literals: &[String],
     templates: &[Vec<u32>],
+    // What a parked frame looks like, per generator body. Seeded like the
+    // literals and for the same reason: the numbers were fixed when the program
+    // was placed, and this context did not exist then.
+    frames: &[rts_core_rwk::entry::FrameShape],
     region: rts_core_rwk::heap::Region,
 ) -> Outcome {
     let mut context = rts_core_rwk::entry::Context::over(singletons, kinds, region);
@@ -270,6 +281,7 @@ fn run_region(
     // that table, so seeding these first would record numbers into a table about
     // to be cleared.
     rts_core_rwk::entry::declare_templates(&mut context, templates);
+    rts_core_rwk::entry::declare_frames(&mut context, frames.to_vec());
     // Before the context is installed, and every namespace here is built from
     // the `context` it is HANDED. A module reaching the ambient one instead
     // would be asking for a borrow this call already holds, which is a panic in
@@ -567,6 +579,47 @@ fn assemble(
     names: Names,
 ) -> Result<Compiled, HostError> {
     let script = emitted.entry;
+    let mut emitted = emitted;
+    let mut funcs = funcs;
+    let mut types = types;
+
+    // Every generator body, rewritten into the form that can be parked and
+    // picked up again. This is the host's half of `docs/engine/generators.md`
+    // and it happens HERE, between emission and placement, for one reason: the
+    // frame is an aggregate that does not exist until the rewrite runs, and this
+    // is the layer that holds the type registry it is declared in.
+    //
+    // The identifier is kept and its shape corrected. A second identifier for
+    // the rewritten form would leave the wrapper's `FuncAddr` pointing at the
+    // body that still contains the suspension — a function nothing can enter.
+    let mut frames: Vec<(rts_cranelift::ir::FuncId, rts_core_rwk::entry::FrameShape)> = Vec::new();
+    for id in std::mem::take(&mut emitted.generators) {
+        let Some((_, body)) = emitted.functions.iter_mut().find(|(this, _)| *this == id) else {
+            continue;
+        };
+        let resumable = rts_cranelift::frame::resumable_form(body, &mut types)
+            .map_err(|error| HostError::Malformed(format!("{error:?}")))?;
+        funcs
+            .redeclare(id, resumable.func.signature.clone())
+            .ok_or_else(|| HostError::Malformed("a generator body nothing declared".to_owned()))?;
+        let layout = rts_cranelift::mem::ObjectLayout::of(resumable.layout.ty, &types);
+        frames.push((
+            id,
+            rts_core_rwk::entry::FrameShape {
+                // Filled once the program is placed: an address is not a number
+                // anybody holds until then.
+                code: 0,
+                ty: resumable.layout.ty.index() as u32,
+                size: layout.size,
+                slots: layout.field_offsets.len() as u32,
+                label_field: resumable.layout.label_field,
+                resumed_field: resumable.layout.resumed_field,
+                param_fields: resumable.layout.param_fields.clone(),
+                return_field: resumable.layout.return_fields.first().copied(),
+            },
+        ));
+        *body = resumable.func;
+    }
 
 
     // Every runtime operation the program actually asked for, and only those.
@@ -711,6 +764,21 @@ fn assemble(
 
     let placed = unsafe { place_in_memory(&placing, &outside, &funcs, &types, Some(bases))? };
 
+    // Now the addresses exist, so the shapes can be keyed by the one thing the
+    // runtime holds about a compiled function. A body that was rewritten and
+    // then not placed would leave a wrapper handing over an address nothing
+    // describes, which the runtime answers `undefined` for rather than guessing.
+    let frames: Vec<rts_core_rwk::entry::FrameShape> = frames
+        .into_iter()
+        .filter_map(|(id, shape)| {
+            let at = placed.address_of(id)?;
+            Some(rts_core_rwk::entry::FrameShape {
+                code: at as u64,
+                ..shape
+            })
+        })
+        .collect();
+
     let address = placed
         .address_of(script)
         .expect("the script was placed with a body");
@@ -735,6 +803,7 @@ fn assemble(
         regions: owned.drain(..).map(Some).collect(),
         table,
         resolves: 0,
+        frames,
         described: None,
         literals: emitted.literals,
         templates: emitted.templates,

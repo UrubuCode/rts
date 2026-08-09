@@ -246,6 +246,24 @@ impl<'a> Rewrite<'a> {
 
     /// Rewrites one instruction's operands into the rewritten function's values.
     fn rewrite_inst(&mut self, block: BlockId, inst: &Inst) -> Inst {
+        // A constant is named by its position in the function's own pool, and
+        // the rewritten function has a different pool — this one already holds
+        // the labels and the finished flags the rewrite itself declared. Cloning
+        // the instruction alone carried the source's NUMBER into a pool where it
+        // names something else, so a body yielding the double `1` reached the
+        // machine as the label `1`, and the widening emitted for a double was
+        // applied to an integer. The verifier caught it; nothing before this
+        // could, because the transform's own tests never used a constant from
+        // the source.
+        if let Inst::Const(id) = inst {
+            let decl = self
+                .source
+                .constant(*id)
+                .expect("a constant belongs to the function that names it")
+                .clone();
+            return Inst::Const(self.out.push_const(decl));
+        }
+
         let mut rewritten = inst.clone();
         let operands = inst.operands();
         let replacements: Vec<_> = operands

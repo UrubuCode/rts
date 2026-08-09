@@ -164,6 +164,13 @@ pub struct Program {
     /// travel together — a list of bodies alone would need the ids re-derived,
     /// and re-deriving them is how the wrong body gets placed under a name.
     pub functions: Vec<(FuncId, Function)>,
+    /// Which of them are generator bodies, to be rewritten before placement.
+    ///
+    /// The rewrite belongs to whoever holds the type registry — the frame is an
+    /// aggregate that does not exist until it runs — and that is the host. This
+    /// list is how the host learns which functions to put through it without
+    /// re-deriving the answer from a signature flag that async also sets.
+    pub generators: Vec<FuncId>,
     /// Which of them is the program's entry.
     pub entry: FuncId,
     /// The text of every string literal, indexed by the number the code holds.
@@ -246,6 +253,12 @@ pub struct Ctx<'a> {
     /// which would mean every expression emitter answering a list nearly all of
     /// them would leave empty.
     pending: Vec<(FuncId, Function)>,
+    /// Which of the emitted functions are generator bodies.
+    ///
+    /// Collected while emitting rather than derived afterwards: `may_suspend` is
+    /// set by an async body too, so a later pass over the signatures could not
+    /// tell the two apart.
+    generators: Vec<FuncId>,
     /// The text of every string literal this compilation contains, in the order
     /// it first appeared.
     ///
@@ -311,6 +324,7 @@ impl<'a> Ctx<'a> {
             names,
             types,
             pending: Vec::new(),
+            generators: Vec::new(),
             literals: Vec::new(),
             templates: Vec::new(),
             numeric: Numeric::default(),
@@ -517,6 +531,7 @@ pub fn emit_program_with_exports(
 fn finish(entry: FuncId, ctx: &mut Ctx) -> Program {
     Program {
         functions: std::mem::take(&mut ctx.pending),
+        generators: std::mem::take(&mut ctx.generators),
         entry,
         literals: std::mem::take(&mut ctx.literals),
         templates: std::mem::take(&mut ctx.templates),

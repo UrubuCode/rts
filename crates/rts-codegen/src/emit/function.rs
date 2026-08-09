@@ -49,7 +49,7 @@
 
 use rts_cranelift::ir::{FuncBuilder, FuncId, Function as MachineFunction, Signature, ValueId};
 
-use super::{Ctx, EmitError, EmitResult, Loops, Scope, UNPROVEN};
+use super::{Ctx, EmitResult, Loops, Scope, UNPROVEN};
 use super::{binding, capture, expr};
 use crate::names::Name;
 use crate::runtime::{ARGUMENT_SLOTS, RuntimeOp};
@@ -173,11 +173,11 @@ fn emit_function(
     // to tell which of the two it was — the corpus turned out to hold 52 async
     // functions across 15 files and 203 generators across 34, which is not the
     // split the merged number suggested.
-    if function.is_generator {
-        return Err(EmitError::Unsupported {
-            construct: "a generator",
-        });
-    }
+    // A generator is no longer refused here. What is still refused is `yield*`,
+    // and it is refused where it is emitted rather than by a pre-pass over the
+    // body: it forwards `next`, `throw` and `return` to an inner iterator, which
+    // is a loop over the iteration protocol rather than a suspension. See
+    // `expr::yielded`.
     let (parameters, mut prologue) = bind_parameters(ctx, function);
     // A rest parameter that destructures is the same desugaring as a parameter
     // that does: bind the vector to a name, then unpack it with an ordinary
@@ -239,7 +239,7 @@ fn emit_function(
     // signature claiming a capability the function does not use would be a claim
     // nothing checked.
     let mut shape = signature();
-    shape.may_suspend = function.is_async;
+    shape.may_suspend = function.is_async || function.is_generator;
     let sig = ctx.funcs.declare_signature(shape);
     let id = ctx.funcs.declare_function(sig);
     let emitted = emit_body(
@@ -267,12 +267,65 @@ fn emit_function(
     // the registry copy alone never reached the thing the verifier reads. It
     // refused every `await` with `UndeclaredSuspension` until this line existed.
     let mut emitted = emitted;
-    emitted.signature.may_suspend = function.is_async;
+    emitted.signature.may_suspend = function.is_async || function.is_generator;
     ctx.pending.push((id, emitted));
+    if function.is_generator {
+        // The body is not called here and is not called by the caller either:
+        // the wrapper hands its ADDRESS to the runtime, which parks a frame
+        // against it. `ctx.generators` is what tells the host to put this
+        // function through `resumable_form` before placing it.
+        ctx.generators.push(id);
+        return wrap_generator(ctx, id);
+    }
     match function.is_async {
         false => Ok(id),
         true => Ok(wrap_async(ctx, id)),
     }
+}
+
+/// Wraps a generator's body so that calling it answers a generator object.
+///
+/// # Why a wrapper, and not a flag the call site reads
+///
+/// Calling a generator function must not run its body, and the tempting fix is
+/// to mark the closure and have the runtime's `invoke` check the mark before
+/// every jump. That puts a branch on the path of every ordinary call in the
+/// program to express something that is true at ONE site: the definition.
+///
+/// So the definition is where it is expressed. The wrapper is an ordinary
+/// function under the ordinary convention — the closure, the call and the caller
+/// are all unchanged — and what it does instead of calling the body is hand its
+/// ADDRESS to the runtime, which parks a frame against it. This is the shape
+/// [`wrap_async`] already uses, for the same reason: what differs about these
+/// functions is what the caller receives.
+///
+/// The body's arguments are passed on and written into the frame there, because
+/// a resumed body is entered afresh with nothing in the registers it had.
+fn wrap_generator(ctx: &mut Ctx, inner: FuncId) -> EmitResult<FuncId> {
+    let sig = ctx.funcs.declare_signature(signature());
+    let id = ctx.funcs.declare_function(sig);
+    let mut func = MachineFunction::new(signature());
+    let entry = func.entry;
+    let arguments: Vec<ValueId> = func
+        .block(entry)
+        .expect("a function always has its entry block")
+        .params
+        .clone();
+    let types = rts_cranelift::types::TypeRegistry::new();
+    let mut builder = FuncBuilder::new(&mut func, &types, entry);
+
+    // The address of the body as it will be PLACED, which is the rewritten form
+    // — the host redeclares this identifier once the rewrite has told it the
+    // frame's shape. Taking the address here rather than after is what lets the
+    // wrapper be emitted in one pass with everything else.
+    let code = builder.func_addr(ctx.funcs, inner)?;
+    let mut operands = Vec::with_capacity(1 + arguments.len());
+    operands.push(code);
+    operands.extend(arguments);
+    let made = expr::call(&mut builder, ctx, RuntimeOp::GeneratorNew, &operands)?[0];
+    builder.ret(&[made]);
+    ctx.pending.push((id, func));
+    Ok(id)
 }
 
 /// Wraps an async function's body so that calling it answers a promise.

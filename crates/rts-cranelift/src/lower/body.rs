@@ -93,7 +93,18 @@ impl<'a> Body<'a> {
         body.create_blocks(builder);
         body.bind_entry_params(builder);
 
-        for (id, _) in func.blocks() {
+        // In an order where a definition is lowered before its uses, which is
+        // reachability from the entry and NOT the order the blocks were created
+        // in. Those two agree for anything a front end emits in one pass, and
+        // they stop agreeing the moment a pass rewrites control flow: the frame
+        // transform continues a split block in a block created after every block
+        // the original body already had, so a use in one of those was lowered
+        // before the definition it names and `self.values` had no entry for it.
+        //
+        // A block nothing reaches is lowered last rather than skipped. Dropping
+        // it would make this pass decide what the program contains, which is a
+        // decision no lowering gets to make; the code generator removes it.
+        for id in reachable_first(func) {
             body.lower_block(builder, id)?;
         }
         builder.seal_all_blocks();
@@ -852,4 +863,40 @@ pub(super) fn trap_code(code: TrapCode) -> cranelift_codegen::ir::TrapCode {
         TrapCode::OutOfBounds => Cl::HEAP_OUT_OF_BOUNDS,
         TrapCode::DivideByZero => Cl::INTEGER_DIVISION_BY_ZERO,
     }
+}
+
+/// Every block, reachable ones in an order where a definition precedes its uses.
+///
+/// Reverse post-order over the successor graph, which is what "a definition
+/// dominates its uses" means as a traversal: a block is emitted only after every
+/// path into it has been. Unreachable blocks follow, in the order they were
+/// created, so that this answers EVERY block and the caller does not have to
+/// decide what to do about the ones nothing jumps to.
+fn reachable_first(func: &Function) -> Vec<BlockId> {
+    let mut order = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    // An explicit stack rather than recursion: a deeply nested body would be a
+    // stack overflow in the compiler, which is the one failure a compiler must
+    // not have.
+    let mut stack = vec![(func.entry, false)];
+    while let Some((id, expanded)) = stack.pop() {
+        if expanded {
+            order.push(id);
+            continue;
+        }
+        if !seen.insert(id) {
+            continue;
+        }
+        stack.push((id, true));
+        if let Some(block) = func.block(id)
+            && let Some(terminator) = &block.terminator
+        {
+            for successor in terminator.successors() {
+                stack.push((successor, false));
+            }
+        }
+    }
+    order.reverse();
+    order.extend(func.blocks().map(|(id, _)| id).filter(|id| !seen.contains(id)));
+    order
 }

@@ -817,7 +817,12 @@ fn what_a_function_still_cannot_do_is_refused_by_name() {
     // constructor already used, pointed at a second case.
     for source in [
         "function f(a) { return a; } return f();",
-        "function* f() { yield 1; } return f();",
+        // A generator came off this list: the body is emitted with a suspension,
+        // the host rewrites it into the resumable form, and the runtime holds
+        // the parked frame. What is left of it is `yield*`, which is a loop over
+        // the iteration protocol rather than a suspension — it forwards `next`,
+        // `throw` and `return` to an inner iterator.
+        "function* f() { yield* [1]; } return f();",
     ] {
         // The first one is legal and emits — a missing argument is padded — so
         // it is here as the control: if this loop ever passes for it, the
@@ -3955,4 +3960,76 @@ fn awaiting_a_timer_finishes_rather_than_reporting_a_deadlock() {
          return seen;",
     );
     assert_eq!(tags::decode_double(carried), 3.0);
+}
+
+/// A generator parks its frame between answers, and picks it back up.
+///
+/// The machine's half of this — `frame::resumable_form` — was built and tested
+/// long before anything called it. What runs here is the other three: the
+/// language emits a body that may park plus a wrapper that makes an object, the
+/// host rewrites that body before placing it, and the runtime holds the frame.
+///
+/// `function*` was the largest single refusal in the suite (38 files), and it is
+/// no longer one.
+#[test]
+fn a_generator_answers_its_values_one_at_a_time() {
+    let counted = run(
+        "function* counter() { yield 1; yield 2; return 3; } \
+         const g = counter(); \
+         let sum = 0; \
+         sum = sum + g.next().value; \
+         sum = sum + g.next().value; \
+         sum = sum + g.next().value; \
+         return sum;",
+    );
+    assert_eq!(
+        tags::decode_double(counted),
+        6.0,
+        "each entry answers where the last one left off"
+    );
+
+    // `done` is what separates a generator from a function answering values.
+    let finished = run(
+        "function* one() { yield 1; } \
+         const g = one(); \
+         g.next(); \
+         return g.next().done ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(finished), 1.0);
+}
+
+/// What a resumption delivers is what the `yield` evaluates to.
+///
+/// This is the half a state-machine desugaring gets wrong quietly: the value
+/// travels INTO the parked frame, and it is the suspension's own result rather
+/// than anything the call that produced it answered.
+#[test]
+fn what_next_is_given_is_what_the_yield_produced() {
+    let echoed = run(
+        "function* echo(a) { const x = yield a; const y = yield 0; return x + y; } \
+         const g = echo(10); \
+         g.next(); \
+         g.next(5); \
+         return g.next(7).value;",
+    );
+    assert_eq!(tags::decode_double(echoed), 12.0);
+}
+
+/// A generator IS an iterator, so `for`-`of` and spread reach it.
+///
+/// `Symbol.iterator` answering the generator itself is installed beside the
+/// class rather than declared in it — the attribute names a member with a
+/// string, and that key is a symbol.
+#[test]
+fn a_generator_is_what_the_iteration_protocol_asks_for() {
+    let totalled = run(
+        "function* three() { yield 1; yield 2; yield 3; } \
+         let total = 0; \
+         for (const n of three()) { total = total + n; } \
+         return total;",
+    );
+    assert_eq!(tags::decode_double(totalled), 6.0);
+
+    let spread = run("function* two() { yield 4; yield 5; } return [...two()].length;");
+    assert_eq!(tags::decode_double(spread), 2.0);
 }

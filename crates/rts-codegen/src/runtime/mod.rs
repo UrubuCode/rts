@@ -195,6 +195,23 @@ pub enum RuntimeOp {
     /// relocation the destination fills in.
     ClosureNew,
 
+    /// The generator object a call to a generator function answers.
+    ///
+    /// Takes the address of the REWRITTEN body and the call's own arguments, and
+    /// makes the object without running anything. An entry point because it
+    /// allocates the frame and the object; a call rather than a flag on
+    /// `ClosureNew` because what differs is what the CALLER receives, which is
+    /// the same reason an async function is wrapped rather than marked.
+    GeneratorNew,
+
+    /// What `yield x` produced, left where whoever resumed will read it.
+    ///
+    /// Half of `yield`: this hands the value over, and `Inst::Suspend` beside it
+    /// parks the frame. There is deliberately no instruction carrying a value —
+    /// teaching the machine what a generator produces would put a language fact
+    /// in the layer defined by having none.
+    GeneratorYield,
+
     /// Copies a source object's own enumerable properties onto a target.
     ///
     /// What `{ ...source }` is. A call because it walks a shape the compiler
@@ -537,6 +554,8 @@ impl RuntimeOp {
         RuntimeOp::GetProperty,
         RuntimeOp::SetProperty,
         RuntimeOp::ClosureNew,
+        RuntimeOp::GeneratorNew,
+        RuntimeOp::GeneratorYield,
         RuntimeOp::ObjectSpread,
         RuntimeOp::KeyNumber,
         RuntimeOp::Thrown,
@@ -609,6 +628,8 @@ impl RuntimeOp {
             RuntimeOp::GetProperty => "__rts_get_property",
             RuntimeOp::SetProperty => "__rts_set_property",
             RuntimeOp::ClosureNew => "__rts_closure_new",
+            RuntimeOp::GeneratorNew => "__rts_generator_new",
+            RuntimeOp::GeneratorYield => "__rts_generator_yield",
             RuntimeOp::ObjectSpread => "__rts_object_spread",
             RuntimeOp::KeyNumber => "__rts_key_number",
             RuntimeOp::Thrown => "__rts_thrown",
@@ -686,6 +707,20 @@ impl RuntimeOp {
             // address, nothing collects it, and widening it would hand the
             // collector a pointer into the text segment to trace.
             RuntimeOp::ClosureNew => (vec![Repr::I64, UNPROVEN], vec![UNPROVEN]),
+            // The code address, then the convention's own parameters: the
+            // environment, the receiver and one slot per argument. They are
+            // written into the frame rather than passed, because a resumed body
+            // is entered afresh with nothing in the registers it had.
+            RuntimeOp::GeneratorNew => (
+                std::iter::once(Repr::I64)
+                    .chain(std::iter::repeat_n(UNPROVEN, 2 + ARGUMENT_SLOTS))
+                    .collect(),
+                vec![UNPROVEN],
+            ),
+            // Answers what it was given, so the emitter can use it as an
+            // expression — NOT what the yield evaluates to, which comes out of
+            // the suspension beside it.
+            RuntimeOp::GeneratorYield => (vec![UNPROVEN], vec![UNPROVEN]),
             RuntimeOp::ObjectSpread => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
             // A key number is an `I64` and not a value: it is what the compiler
             // resolves a name to, and every accessor entry point takes one.

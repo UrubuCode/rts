@@ -89,6 +89,29 @@ impl FuncRegistry {
         id
     }
 
+    /// Gives an already-declared function a different shape.
+    ///
+    /// One caller, and it is the reason this exists: a function that may park its
+    /// frame is REWRITTEN by [`crate::frame::resumable_form`] into one that takes
+    /// the frame and answers whether it finished, and the frame's type does not
+    /// exist until that rewrite has run. Everything that named the function before
+    /// then — an address taken, a call emitted — named it under the shape it was
+    /// declared with.
+    ///
+    /// The alternative was a second identifier for the rewritten form, which
+    /// leaves every earlier `FuncAddr` pointing at the form that cannot run: the
+    /// original body still contains the suspension the rewrite removed. One
+    /// identifier whose shape is corrected is the honest spelling of "this is the
+    /// same function, in the form that can be entered".
+    ///
+    /// `None` for an unknown function, which is a client mixing registries rather
+    /// than a condition to handle.
+    pub fn redeclare(&mut self, id: FuncId, signature: Signature) -> Option<()> {
+        let sig = self.declare_signature(signature);
+        self.functions.get_mut(id.index())?.sig = sig;
+        Some(())
+    }
+
     /// A declared signature.
     pub fn signature(&self, id: SigId) -> Option<&Signature> {
         self.signatures.get(id.index())

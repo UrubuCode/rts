@@ -57,6 +57,7 @@ mod date;
 mod error;
 mod function_proto;
 mod functions;
+mod generator;
 mod global;
 mod global_fns;
 mod integrity;
@@ -95,6 +96,7 @@ pub use functions::{
     call_with_args, construct_with_args, rest_arguments,
     ARGUMENT_SLOTS, call, closure_new, construct, instance_of, mark_derived, super_construct,
 };
+pub use generator::{FrameShape, declare_frames, generator_new, generator_yield};
 pub use global::{global_get, global_set};
 pub use iterate::{array_append, array_append_all, iterate};
 pub use modules::{
@@ -268,6 +270,23 @@ pub struct Context {
     /// view at a time.
     views: Aside<buffers::View>,
     collections: Aside<collections::Table>,
+    /// Which generator each cell is, and how to re-enter it.
+    ///
+    /// Beside the cell for the reason `collections` is: a generator object's own
+    /// slots stay ordinary properties, so hanging a field on one costs nothing
+    /// and takes nothing from the runtime.
+    generators: Aside<generator::State>,
+    /// What the running generator's last `yield` produced.
+    ///
+    /// One slot rather than a stack, because it is written and immediately
+    /// taken: whoever resumed reads it the instant the call returns. See
+    /// `generator.rs` for why a stack is the thing that would drift.
+    yielded: Option<u64>,
+    /// What a parked frame looks like, per compiled generator body.
+    ///
+    /// Filled by the host before the program runs, keyed by code address — the
+    /// one thing this crate holds about a compiled function.
+    frames: Vec<generator::FrameShape>,
     regexes: Aside<regex::Regexp>,
     /// What every regular expression inherits from, once one exists.
     ///
@@ -514,6 +533,9 @@ impl Context {
             spill_of: Aside::in_region(bits),
             bound: Aside::in_region(bits),
             collections: Aside::in_region(bits),
+            generators: Aside::in_region(bits),
+            yielded: None,
+            frames: Vec::new(),
             buffer_of: Aside::in_region(bits),
             views: Aside::in_region(bits),
             regexes: Aside::in_region(bits),
@@ -572,6 +594,9 @@ impl Context {
             buffer_of: Aside::new(),
             views: Aside::new(),
             collections: Aside::new(),
+            generators: Aside::new(),
+            yielded: None,
+            frames: Vec::new(),
             regexes: Aside::new(),
             regexp_prototype: None,
             classes: Vec::new(),

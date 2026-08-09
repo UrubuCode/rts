@@ -243,7 +243,31 @@ pub fn emit_expr(
             let promise = as_value(builder, produced);
             Ok(builder.await_(promise))
         }
-        ExprKind::Yield { .. } => gap("`yield`"),
+        // Two operations, not one. The call hands the value over; the suspension
+        // parks the frame, and its RESULT is what the next resumption delivers —
+        // which is what `const x = yield 1` reads. There is deliberately no
+        // instruction carrying a value: the machine's suspension is generic, and
+        // teaching it what a generator produces would put a language fact in the
+        // layer that is defined by having none.
+        //
+        // `yield*` is refused here rather than by a pre-pass over the body: it
+        // forwards `next`, `throw` and `return` to an inner iterator and yields
+        // whatever that yields, so it is a loop over the iteration protocol and
+        // not a single suspension.
+        ExprKind::Yield { value, delegate } => match delegate {
+            true => gap("`yield*`"),
+            false => {
+                let produced = match value {
+                    Some(value) => {
+                        let produced = emit_expr(builder, scope, ctx, value)?;
+                        as_value(builder, produced)
+                    }
+                    None => undefined(builder, ctx),
+                };
+                call(builder, ctx, RuntimeOp::GeneratorYield, &[produced])?;
+                Ok(builder.suspend())
+            }
+        },
         ExprKind::Template { parts, expressions } => {
             super::template::emit_template(builder, scope, ctx, parts, expressions)
         }
