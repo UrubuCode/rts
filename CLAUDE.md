@@ -88,24 +88,41 @@ family, `Math`, `JSON`, `Map`, `Set`, `Promise`, `Date`, `Symbol`, plus what
 
 `crates/rts-host-rwk/tests/running.rs` is what says so — every test in it runs
 the program rather than inspecting it — and the number is measured rather than
-claimed. **2026-08-08, after generators and `yield*`: 564 of the 818 `*.test.ts`
-files pass and 759 compile** — 535 and 723 before them, the same day.
+claimed. **2026-08-08: 577 of the 818 `*.test.ts` files pass and 767 compile** —
+535 and 723 at the start of that day, through generators, `yield*`, `Proxy`,
+native iterators and `export *`.
 `crates/rts-host-rwk/examples/suite_run.rs` produced it, one process per file,
 because an uncaught exception and an endless loop each take the process with
 them and a single-process harness would report whatever it reached first as the
-score. One file of the 818 produced no line at all and is counted in neither
-column; the run reports 564 ok, 184 fail, 59 refused and 10 that died or hung.
-Five of those failures and one of those deaths are files that used to be
-REFUSED: a file that now compiles and fails is progress that moves a number in
-the wrong-looking direction, and saying so is the difference between a
-measurement and a headline.
+score. It compiles a file with a relative import as a GRAPH, which it did not
+until that day: measuring those on their own bound every import to nothing and
+reported an instrument's limit as the engine's — 14 assertions in one file.
+
+Read the columns together rather than the first alone. Over that day several
+files moved from REFUSED to failing: a file that starts compiling and then
+fails an assertion has made progress while moving a number in the direction
+that looks like regression, and one that stops being refused is not one that
+passes.
 
 **Generators run, `yield*` included.** They were the largest single gap — 38
 files — and nothing is left of that entry. What `yield*` does not do is forward
 `next`, `throw` and `return` to the inner iterator, which is the same limit
 `for`-`of` has and is held in one place for that reason;
-`docs/engine/generators.md` is the design and says which of it was taken. The
-largest gap now is that **a native cannot yet raise a
+`docs/engine/generators.md` is the design and says which of it was taken.
+
+**`Proxy` answers through its handler** — `get`, `set`, `has`,
+`deleteProperty`, `ownKeys`, `getPrototypeOf`, `setPrototypeOf`, `apply`,
+`construct`, `defineProperty`, `getOwnPropertyDescriptor` — and nothing in the
+compiled fast path changed to allow it: a cached access encodes an OWN slot and
+a proxy has none, so every access to one already missed to the entry point.
+Absent are `revocable` and `preventExtensions`.
+
+**`values()`, `keys()` and `entries()` answer an iterator**, with the ES2025
+helpers on it. They answered the materialised array, so `.next()` did not
+exist; the list is still built eagerly, which `entry/list_iterator.rs` states
+as the thing a lazy form replaces rather than joins.
+
+The largest gap now is that **a native cannot yet raise a
 catchable error**, which is what a dozen `node:` tests assert; `crates/rts-core-rwk/README.md` says
 what that needs and why the two obvious call sites were reverted before commit.
 
