@@ -207,11 +207,6 @@ pub fn draw_mesh(
 /// `gbuf` do rts:gpu — zero readback, zero FFI por partícula, 1 draw call.
 /// `scale` = raio de desenho. 1 ok, 0 = buffer/janela inválidos.
 ///
-/// Só existe com `old-engine`: `gbuf` é um handle do `rts:gpu`, cujos buffers
-/// vivem no `HandleTable` do motor antigo. Sem ele não há de onde ler as
-/// instâncias — e devolver 0 caladamente seria uma água que não aparece sem
-/// dizer por quê.
-#[cfg(feature = "old-engine")]
 pub fn draw_water(win: u64, mesh: u64, gbuf: u64, count: i64, scale: f64) -> i64 {
     if count <= 0 {
         return 0;

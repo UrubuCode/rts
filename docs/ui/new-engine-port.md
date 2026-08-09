@@ -112,10 +112,41 @@ the same, and the difference stays where it is real.
 
 | absent | why |
 |---|---|
-| `rts:gpu` (compute) | a compute buffer **is** an `Entry::Buffer` in the old engine's `HandleTable`. Porting it is choosing where those bytes live in the new one — not writing a shell |
-| `egui.drawWater` | its only consumer is a `rts:gpu` buffer handle |
 | `rts:dom`, `render.*` | the tree, parser and layout engine are 18 000 engine-free lines in `rts-dom`; the port is the same shell this crate is, for that surface |
 | `egui.render(win, dom)` | without the DOM namespace there is no handle to pass, so it would be a function that always draws nothing |
+
+### `rts:gpu` was on this list, wrongly, and is now ported
+
+The table said it was blocked because "a compute buffer **is** an `Entry::Buffer`
+in the old engine's `HandleTable`", so porting it meant deciding where those
+bytes live in the new engine.
+
+**That was false**, and it came from reasoning about the module instead of
+reading it. The `wgpu::Buffer` lives in a `HashMap<u64, wgpu::Buffer>` inside
+`compute` itself. What crossed from the old engine was only the program-side
+byte buffer — which `bytes_of`/`write_bytes`/`make_bytes` already answer.
+
+So it was the same shell as everything else, and it is written. `crate::compute`
+now takes and returns `&[u8]`/`Vec<u8>`, because where the bytes come FROM is the
+engine's question and there are two of them; each shell answers its own. Three
+things changed in the surface, all of them the same reasons as above:
+
+- `writeAt(gbuf, { data, srcOff, dstOff, bytes })` — five parameters do not fit
+  in four slots.
+- `read(gbuf, bytes)` answers a `Uint8Array` instead of writing into a
+  destination the caller supplied. The old signature needed the destination
+  because it had no way to hand back a buffer.
+- `readPoll(ticket)` answers `null` (in flight) / `false` (failed) / the bytes,
+  instead of `0` / `-1` / a count. That integer with three meanings made a caller
+  writing `if (n)` treat FAILURE as success, because `-1` is truthy.
+
+`egui.drawWater` came back with it — its only obstacle was `compute` being behind
+the feature.
+
+Verified by running: `cargo run -p rts-host-rwk --example gpu` uploads 1024
+`u32`, runs a kernel that doubles them, reads back and checks every element. On
+an RTX 2080 Ti: zero mismatches. And the old engine's own suite still passes —
+`rts.exe test tests/gpu_compute.test.ts`, 5/5.
 
 Each absence fails at the `import` line, which is where it should hurt.
 `rts-std-rwk` once refused to register a façade `rts:egui` for exactly this
@@ -144,10 +175,28 @@ runs on a secondary one. There is an escape hatch
 (`EventLoopBuilderExtWindows::any_thread`) and taking it would mean defeating a
 compatibility warning in order to call this a test.
 
-Measured on Windows with a dx12 backend: 600 frames in 11.8 s — about 51 fps
-against a 60 Hz vsync, in a **debug** build, which is not a performance claim
-about anything (`perf-claim`); it is the evidence that frames were actually
-presented rather than skipped.
+### The number that was here, and why it is gone
+
+This said "600 frames in 11.8 s — about 51 fps against a 60 Hz vsync, in a debug
+build", labelled as evidence rather than a performance claim. The label did not
+save it. `perf-claim` is unambiguous — *"never benchmark a debug build; a debug
+number is not a number"* — and quoting a rate invites the reading the disclaimer
+denies.
+
+It is worse than that: **no frame rate measured through vsync measures this
+engine at all.** With `PresentMode::Fifo` the monitor sets the pace, so the
+number would be about the display in a release build too. There is no profile
+that makes it a performance claim; there is only a profile that makes it look
+like one.
+
+What the run actually establishes is liveness, and that needs no rate: the
+program opened a window, the loop ran to its own end, 600 frames were presented,
+and the process exited 0. Run it and look — that is what the example is for.
+
+A real comparison against the old engine is a different experiment and has not
+been run: same loop, same k draws per frame, **release**, vsync off, time per
+frame on both engines. Until someone runs it, nothing here says the new engine
+is faster or slower at drawing.
 
 ---
 

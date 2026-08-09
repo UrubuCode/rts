@@ -26,9 +26,10 @@
 //!
 //! # O que NÃO está aqui, e não por esquecimento
 //!
-//! **`rts:gpu`** — os buffers de compute SÃO handles do `HandleTable` do motor
-//! antigo. Portá-los é decidir onde aqueles bytes vivem no novo, não escrever
-//! uma casca. `drawWater`, seu único consumidor, fica junto.
+//! `rts:gpu` ESTAVA nesta lista, com a justificativa de que um buffer de compute
+//! seria um handle do motor antigo. Era falso — o `wgpu::Buffer` vive num
+//! `HashMap` do próprio `compute`, e o que atravessava era só o buffer de bytes
+//! do programa, que `bytes_of`/`write_bytes` já respondem. Está portado.
 //!
 //! **`rts:dom` e `render.*`** — a árvore, o parser e o motor de layout são 18 mil
 //! linhas no `rts-dom`, e nenhuma delas conhece motor: o porte é a mesma casca
@@ -41,10 +42,32 @@
 //! mesma razão: uma UI que compila e não pinta é o modo de falhar que custa mais
 //! tempo até ser entendido.
 
+//! # Reuse-check
+//!
+//! Rodada tarde — depois de o crate existir, quando deveria ter sido antes de a
+//! primeira linha ser escrita, que é o que a RULE 0b chama de "a que não é
+//! opcional". Fica dito porque um resultado limpo obtido fora de hora não é o
+//! mesmo que um obtido na hora, e o próximo leitor merece saber qual foi.
+//!
+//! O que ela encontrou:
+//!
+//! - **Coerção, texto, bytes, propriedade, valores**: tudo já existe em
+//!   `rts_core_rwk::entry` e é CHAMADO — `number_of`, `string_in`, `bytes_of`,
+//!   `get_member`, `make_number`/`boolean_value`/`make_string`. `value.rs` não
+//!   converte nada por conta própria.
+//! - **A única segunda resposta**: `value::integer`, cujo vizinho é
+//!   `rts_core_rwk::value::to_int32`. Difere e o porquê está no doc dela.
+//! - **Nenhuma numeração nova.** Os handles de janela e de malha são do
+//!   `rts-egui` e já existiam; este crate só os transporta como número. Não há
+//!   duas tabelas de um número, que é o caso fatal do §3 da skill.
+//! - **Nenhuma tabela de estado.** O estado de UI vive no `UiCtx`; o de input,
+//!   na fonte ativa. Este crate é sem estado.
+
 #![deny(missing_docs)]
 #![deny(dead_code)]
 
 pub mod draw;
+pub mod gpu;
 pub mod input;
 pub mod scene;
 pub mod value;
@@ -71,6 +94,9 @@ pub fn install(context: &mut Context) {
 
     let entry_points = entry::make_namespace(context, input::MEMBERS);
     entry::declare_module(context, "rts:input", entry_points);
+
+    let compute = entry::make_namespace(context, gpu::MEMBERS);
+    entry::declare_module(context, "rts:gpu", compute);
 }
 
 /// Solta os recursos de GPU enquanto o processo ainda está inteiro.
@@ -88,9 +114,18 @@ pub fn install(context: &mut Context) {
 /// programa: um programa que esquecesse a linha morreria na saída, e ele não tem
 /// como saber que essa linha existe.
 ///
+/// # A ordem importa
+///
+/// `compute::shutdown` solta pipelines, buffers e stagings E a cópia que aquele
+/// contexto tem dos handles do device, e só então o device compartilhado. Chamar
+/// direto o `shutdown_shared_gpu` deixava o contexto de compute vivo com uma
+/// referência ao device, então o drop dele acontecia depois — no destrutor de
+/// thread-local, que é exatamente o momento que isto existe para evitar. Foi
+/// visto: o `examples/gpu` computava certo, imprimia tudo e morria na saída.
+///
 /// Idempotente, e no-op quando nenhuma GPU foi criada.
 pub fn shutdown() {
-    rts_egui::shutdown_shared_gpu();
+    rts_egui::compute::shutdown();
 }
 
 /// `rts:egui`, montado das três metades da superfície.

@@ -49,6 +49,20 @@ pub fn number(value: u64, default: f64) -> f64 {
 }
 
 /// O mesmo, truncado — cores, flags e contagens cruzam como `i64`.
+///
+/// # Reuse-check: o mais próximo é `rts_core_rwk::value::to_int32`, e não serve
+///
+/// Aquela é a aritmética de OPERADOR BITWISE: reduz módulo 2^32 e reinterpreta,
+/// porque é isso que `x | 0` faz. Aqui o valor é uma largura, uma contagem ou
+/// uma fase de tecla, e envolver transformaria um número absurdamente grande num
+/// negativo plausível — que é pior do que o absurdo, porque um `-1` de largura
+/// parece um código de erro.
+///
+/// Para as cores as duas coincidem: o consumidor faz `as u32`, e `to_int32` de
+/// `0xFFFFFFFF` dá `-1`, cujo padrão de bits É `0xFFFFFFFF`.
+///
+/// Isto trunca em vez de envolver, deliberadamente, e é o comportamento que a
+/// ABI antiga já tinha ao declarar o parâmetro como `I64`.
 pub fn integer(value: u64, default: i64) -> i64 {
     number(value, default as f64) as i64
 }

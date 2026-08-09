@@ -20,6 +20,14 @@
 //! atravessa a fronteira. Isto aqui responde a pergunta que nenhum deles
 //! responde — se pinta — e por isso desenha algo reconhecível em vez de um frame
 //! vazio: se a janela abrir preta, o loop rodou e o desenho não chegou.
+//!
+//! # Isto não mede nada
+//!
+//! Não tire uma taxa daqui. O `PresentMode` default é `Fifo`, então quem dita o
+//! ritmo é o monitor — um número de frames por segundo medido através do vsync
+//! é sobre o vsync, em release tanto quanto em debug. Uma comparação de verdade
+//! contra o motor antigo é outro experimento: mesmo laço, mesmas k chamadas por
+//! frame, release, vsync desligado, tempo POR frame nos dois. Ver `perf-claim`.
 
 fn main() {
     let source = r#"
