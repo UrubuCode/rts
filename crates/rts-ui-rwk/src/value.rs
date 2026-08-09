@@ -28,11 +28,24 @@
 //!
 //! # Por que um campo ausente vale o default e não é um erro
 //!
-//! Porque a alternativa é uma janela que não abre e não diz por quê. Este motor
-//! ainda não lança — `entry/throw.rs` explica que um throw sem handler no
-//! chamador termina o programa — então um argumento faltando só poderia virar
-//! silêncio ou um valor. Um valor, documentado por chamada, é o que deixa
-//! `drawRect(w, { x, y, w, h })` funcionar sem repetir borda e raio.
+//! Este parágrafo dizia "este motor ainda não lança", e **deixou de ser
+//! verdade** enquanto o porte era escrito: `af0c5a03` fez com que um nativo
+//! possa levantar um erro capturável, sob a regra 8 do
+//! `crates/rts-core-rwk/README.md` — todo nativo que chama código de usuário
+//! pergunta se ele deixou um throw pendente antes de olhar a resposta.
+//!
+//! O que continua verdade é mais estreito e é uma LACUNA, não uma propriedade:
+//! `throw::type_error` é `pub(in crate::entry)`, então a fábrica de erro não
+//! está na superfície de host. O que um host alcança é `entry::throw(tag,
+//! payload)`, que exige construir o valor do erro por fora. Enquanto for assim,
+//! um argumento faltando aqui só pode virar silêncio ou um valor.
+//!
+//! **E um valor é o que se quer nesta superfície de qualquer modo.** `drawRect(w,
+//! { x, y, w, h })` deve funcionar sem repetir borda e raio; o default é a API,
+//! não o contorno da lacuna. O que a lacuna de fato custa é o caso oposto — um
+//! `drawMesh(w, "texto")` desenha na origem em vez de dizer que o argumento está
+//! errado. Esse é o dia de expor a fábrica, e é um pedido ao `rts-core-rwk` do
+//! mesmo formato que os outros oito pares que a `modules.rs` já registra.
 
 use rts_core_rwk::entry;
 
