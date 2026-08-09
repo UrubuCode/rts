@@ -212,6 +212,21 @@ pub(super) fn emit_class(
     // neither is a separate compiled function the way an instance method is.
     inner.set_this(constructor, false);
 
+    // The class's own NAME, bound inside its body. The specification gives a
+    // class body a binding for the name it declares, and it is what
+    // `static { Config.VERSION = "1.0.0" }` reads — the most common way a static
+    // block is written, and the only way an ordinary program writes it.
+    //
+    // Without this the name resolved to whatever the enclosing scope had, which
+    // for a declaration is a binding not written until the class expression
+    // finishes: `Config` read `undefined` inside the block, the assignment went
+    // to a property of nothing, and the block ran to completion having done
+    // nothing. It was invisible until a native could throw — `Config.describe()`
+    // then answered `undefined` and calling it became a `TypeError`.
+    if let Some(name) = class.name {
+        binding::declare(builder, &mut inner, ctx, name, constructor)?;
+    }
+
     for (index, element) in class.body.iter().enumerate() {
         match element {
             ClassElement::Method(method) if !method.is_constructor(&ctx.names) => {

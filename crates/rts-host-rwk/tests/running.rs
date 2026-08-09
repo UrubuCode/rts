@@ -4480,3 +4480,34 @@ fn a_handler_that_throws_rejects_the_promise_it_derived() {
     );
     assert_eq!(tags::decode_double(replaced), 1.0);
 }
+
+/// A class body binds the class's own name, which its static block reads.
+///
+/// `static { Config.VERSION = "1.0.0" }` is how a static block is written, and
+/// the name resolved to `undefined` inside one: for a declaration the outer
+/// binding is not written until the class expression finishes. The block ran to
+/// completion having assigned a property of nothing, which was invisible until
+/// a native could throw — the method it was supposed to set then answered
+/// `undefined`, and calling it became a `TypeError`.
+#[test]
+fn a_static_block_can_name_the_class_it_is_in() {
+    let assigned = run(
+        "class Config { static V; static { Config.V = 7; } } return Config.V;",
+    );
+    assert_eq!(tags::decode_double(assigned), 7.0);
+
+    // Through a static field the block mutates rather than replaces, which is
+    // the other shape a real program writes.
+    let appended = run(
+        "class R { static items = []; static { R.items.push(1); R.items.push(2); } } \
+         return R.items.length;",
+    );
+    assert_eq!(tags::decode_double(appended), 2.0);
+
+    // A static METHOD naming the class, which is the same binding seen from a
+    // function rather than from the body.
+    let called = run(
+        "class Q { static V = 1; static bump() { return Q.V + 1; } } return Q.bump();",
+    );
+    assert_eq!(tags::decode_double(called), 2.0);
+}
