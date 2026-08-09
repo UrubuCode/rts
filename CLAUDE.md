@@ -88,18 +88,24 @@ family, `Math`, `JSON`, `Map`, `Set`, `Promise`, `Date`, `Symbol`, plus what
 
 `crates/rts-host-rwk/tests/running.rs` is what says so — every test in it runs
 the program rather than inspecting it — and the number is measured rather than
-claimed. **2026-08-08, after generators: 551 of the 818 `*.test.ts` files pass
-and 740 compile** — 535 and 723 before them, the same day.
+claimed. **2026-08-08, after generators and `yield*`: 564 of the 818 `*.test.ts`
+files pass and 759 compile** — 535 and 723 before them, the same day.
 `crates/rts-host-rwk/examples/suite_run.rs` produced it, one process per file,
 because an uncaught exception and an endless loop each take the process with
 them and a single-process harness would report whatever it reached first as the
 score. One file of the 818 produced no line at all and is counted in neither
-column; the run reports 551 ok, 179 fail, 78 refused and 9 that died or hung.
+column; the run reports 564 ok, 184 fail, 59 refused and 10 that died or hung.
+Five of those failures and one of those deaths are files that used to be
+REFUSED: a file that now compiles and fails is progress that moves a number in
+the wrong-looking direction, and saying so is the difference between a
+measurement and a headline.
 
-**Generators run.** They were the largest single gap — 38 files — and what is
-left of that entry is `yield*` in 9, which is a loop over the iteration protocol
-rather than a suspension. `docs/engine/generators.md` is the design and says
-which of it was taken; the largest gap now is that **a native cannot yet raise a
+**Generators run, `yield*` included.** They were the largest single gap — 38
+files — and nothing is left of that entry. What `yield*` does not do is forward
+`next`, `throw` and `return` to the inner iterator, which is the same limit
+`for`-`of` has and is held in one place for that reason;
+`docs/engine/generators.md` is the design and says which of it was taken. The
+largest gap now is that **a native cannot yet raise a
 catchable error**, which is what a dozen `node:` tests assert; `crates/rts-core-rwk/README.md` says
 what that needs and why the two obvious call sites were reverted before commit.
 
