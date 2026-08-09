@@ -86,3 +86,7 @@ RTS_UNIFIED_FOUNDATION.md
 DRAIN_MOTOR.md
 /.rts-webcache
 .rts-webcache/
+
+# Artefato que a suíte de node:fs/promises deixa ao rodar — entrou num commit
+# uma vez por ser criado no diretório de trabalho em vez de num temporário.
+__fs_promises_import_tmp/
