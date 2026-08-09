@@ -30,13 +30,29 @@
 //! receiver must be unreachable from JavaScript for the same reason a callable's
 //! code address is: a program that could write them would choose what the next
 //! call jumps to, and with what `this`.
+//!
+//! # Why `new Function(…)` is not here, and what it needs
+//!
+//! It answers an ordinary object today, so `new Function("x", "return x")` makes
+//! something that is not callable — four suite files die on exactly that, and
+//! the diagnostic now says `object is not a function` rather than nothing.
+//!
+//! It was written against the evaluator the host installs for `node:vm` and
+//! REVERTED, because that seam cannot answer this one: `evaluate_source` refuses
+//! to hand back a REFERENCE, and a function is one. The reason is not a
+//! restriction to lift here — a reference belongs to the region that made it,
+//! `compile` makes a region per program, and a function compiled by a second
+//! program cannot be called by the first. `compile_graph` is the shape that
+//! solves it for modules by emitting everything into ONE compilation, and
+//! `new Function` needs the same thing at run time.
 
 use super::{Context, with_current};
 use crate::value::Value;
-
 /// `Function`.
+
 #[rtse::class("Function")]
 impl Function {
+
     /// `f.call(thisArg, a, b, c)`.
     ///
     /// Three arguments rather than four, because the receiver takes one of the

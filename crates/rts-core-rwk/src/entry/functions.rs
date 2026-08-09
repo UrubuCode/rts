@@ -244,7 +244,14 @@ fn invoke(callee: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         // every native that calls user code learned to ask whether a throw was
         // left behind — raising before that turned one silent wrong answer into
         // a hang, which is why the two changes are one change.
-        super::throw::type_error("value is not a function");
+        // The KIND is in the message, because "not a function" alone does not
+        // say which mistake it was: a method this engine does not have reads
+        // `undefined`, and a name shadowed by data reads whatever the data is.
+        // The two need different fixes and the diagnostic is what tells them
+        // apart — 91 files died on this line before it said which.
+        let kind = super::text::described(super::text::type_of(callee))
+            .unwrap_or_else(|| "a value".to_owned());
+        super::throw::type_error(&format!("{kind} is not a function"));
         return with_current(|context| undefined_of(context));
     };
 
