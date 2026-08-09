@@ -88,9 +88,9 @@ family, `Math`, `JSON`, `Map`, `Set`, `Promise`, `Date`, `Symbol`, plus what
 
 `crates/rts-host-rwk/tests/running.rs` is what says so — every test in it runs
 the program rather than inspecting it — and the number is measured rather than
-claimed. **2026-08-08: 577 of the 818 `*.test.ts` files pass and 767 compile** —
-535 and 723 at the start of that day, through generators, `yield*`, `Proxy`,
-native iterators and `export *`.
+claimed. **2026-08-09: 581 of the 818 `*.test.ts` files pass and 767 compile** —
+535 and 723 at the start of 08-08, through generators, `yield*`, `Proxy`, native
+iterators, `export *`, a catchable throw and the bare `rts` specifier.
 `crates/rts-host-rwk/examples/suite_run.rs` produced it, one process per file,
 because an uncaught exception and an endless loop each take the process with
 them and a single-process harness would report whatever it reached first as the
@@ -98,11 +98,20 @@ score. It compiles a file with a relative import as a GRAPH, which it did not
 until that day: measuring those on their own bound every import to nothing and
 reported an instrument's limit as the engine's — 14 assertions in one file.
 
-Read the columns together rather than the first alone. Over that day several
-files moved from REFUSED to failing: a file that starts compiling and then
-fails an assertion has made progress while moving a number in the direction
-that looks like regression, and one that stops being refused is not one that
-passes.
+Read the columns together rather than the first alone. The run reports 581 ok,
+97 fail, 51 refused and 88 that died or hung, and files moved BETWEEN those
+columns for reasons that are progress: one that starts compiling and then fails
+an assertion has moved a number in the direction that looks like regression.
+
+**The death column is what letting a native THROW did**, and it is the one to
+read first. It was 10. An operation this engine does not have used to answer
+`undefined`, be called, and let the program carry on failing assertions; it is
+now an uncaught `TypeError`, which ends the process exactly as it would in Node.
+83 of those files call `rts:ptr`, `rts:atomic`, `rts:gc` and the rest of what the
+old engine provided — so the throw did not break them, it stopped them hiding.
+Two real bugs surfaced that way within an hour: a class body not binding its own
+name, so every `static { … }` block assigned a property of nothing, and
+`new Function` answering something uncallable.
 
 **Generators run, `yield*` included.** They were the largest single gap — 38
 files — and nothing is left of that entry. What `yield*` does not do is forward
@@ -122,9 +131,17 @@ helpers on it. They answered the materialised array, so `.next()` did not
 exist; the list is still built eagerly, which `entry/list_iterator.rs` states
 as the thing a lazy form replaces rather than joins.
 
-The largest gap now is that **a native cannot yet raise a
-catchable error**, which is what a dozen `node:` tests assert; `crates/rts-core-rwk/README.md` says
-what that needs and why the two obvious call sites were reverted before commit.
+**A native can raise a catchable error now**, and the discipline that had to
+come first is rule 8 of `crates/rts-core-rwk/README.md`: a native that calls user
+code asks whether the callee left a throw behind before it looks at the answer.
+Raising without it turned one silent wrong answer into a hang, which is why the
+first attempt was reverted before commit.
+
+The largest gap now is the **`rts:` surface the old engine provided** — `ptr`,
+`mem`, `alloc`, `ffi`, `atomic`, `sync`, `trace`, `thread`, `io`, `buffer`,
+`net`, `fs`, `process`. The bare `rts` specifier exists and carries `num`,
+`math`, `hint`, `time` and `gc`; the rest is what 83 files die on, and it is
+what stands between this engine and replacing the old one.
 
 **This is the direction for all new work.** `crates/rts-codegen-new` is the
 engine that currently runs `rts run` / `compile` / `test`, and it is being
