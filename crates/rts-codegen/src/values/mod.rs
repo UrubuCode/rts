@@ -72,6 +72,7 @@ impl Singleton {
 pub struct ValueModel {
     undefined: SingletonId,
     null: SingletonId,
+    hole: SingletonId,
     symbol: ValueKind,
     bigint: ValueKind,
 }
@@ -79,9 +80,23 @@ pub struct ValueModel {
 impl ValueModel {
     /// Tells the machine what values this language has.
     pub fn declare(tags: &mut TagRegistry) -> Self {
+        // Um a mais que os valores da linguagem: o BURACO.
+        //
+        // Ele não está em `Singleton` de propósito — aquele enum é "os valores
+        // que JavaScript tem exatamente um de", e um buraco não é um valor, é a
+        // AUSÊNCIA de um. Nenhum programa jamais o observa: toda leitura de
+        // elemento o converte em `undefined`, e o que o distingue é só quem
+        // pergunta se a posição EXISTE (`in`, `hasOwnProperty`, `Object.keys`,
+        // e os métodos que a especificação manda pular).
+        //
+        // Por que ainda assim é a linguagem quem o numera: o espaço de
+        // singleton é do cliente (`tags::TagRegistry` diz isso), então um
+        // número escolhido pelo runtime poderia colidir com um que a linguagem
+        // declarasse depois. Um padrão de bits inventado seria pior — já houve
+        // um `0` usado como sentinela aqui que destruiu `+0.0` armazenado.
         let declared = tags
-            .declare_singletons(Singleton::ALL.len() as u32)
-            .expect("two singletons fit in any payload this encoding could have");
+            .declare_singletons(Singleton::ALL.len() as u32 + 1)
+            .expect("three singletons fit in any payload this encoding could have");
         // Two of the four tags the machine leaves to a client. Both are
         // JavaScript **primitives**, and that is the reason they are kinds
         // rather than references: `typeof` has to answer from the word alone,
@@ -101,9 +116,20 @@ impl ValueModel {
         Self {
             undefined: declared[0],
             null: declared[1],
+            // O último, depois dos que `Singleton::ALL` nomeia.
+            hole: declared[Singleton::ALL.len()],
             symbol,
             bigint,
         }
+    }
+
+    /// O marcador de posição AUSENTE num array.
+    ///
+    /// Ver a nota em [`ValueModel::declare`]: não é um valor da linguagem, e um
+    /// programa nunca o vê. O runtime precisa dele para responder `0 in [,1]`
+    /// com `false` enquanto `[,1][0]` responde `undefined`.
+    pub fn hole(&self) -> SingletonId {
+        self.hole
     }
 
     /// The encoding of a singleton.

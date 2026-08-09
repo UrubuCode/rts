@@ -517,8 +517,11 @@ fn a_construct_still_missing_is_refused_by_name_rather_than_approximated() {
     //
     // This test has named `typeof`, a string literal, `~` and `==` in turn, and
     // each moved on when it landed. What it pins is the shape of the refusal.
+    // `[1, , 2]` esteve nesta lista e saiu quando o runtime ganhou um marcador
+    // de posição ausente. O que entrou no lugar é o mesmo buraco ao lado de um
+    // SPREAD, que o caminho do vetor de argumentos não sabe pular.
     for source in [
-        "return [1, , 2];",
+        "return [...[1], , 2];",
         "class A {} class B extends A { constructor() { super(1, 2, 3, 4, 5); } } return new B();",
         "let o = {}; let x = 1; return delete x;",
     ] {
@@ -1577,15 +1580,26 @@ fn an_array_can_be_walked_by_a_loop() {
 }
 
 #[test]
-fn a_hole_is_refused_rather_than_written_as_undefined() {
-    // `[,1]` has no element zero, and `0 in [,1]` is false where
-    // `[undefined,1]` answers true. This runtime cannot tell the two apart, so
-    // the hole is a named gap rather than an array that is quietly the wrong
-    // one.
-    let error = compile("return [,1];").expect_err("a hole is a gap");
-    assert!(
-        format!("{error:?}").contains("Unsupported"),
-        "expected a named refusal, got {error:?}"
+fn a_hole_is_absent_rather_than_an_undefined_that_was_stored() {
+    // This test used to assert the opposite — that `[,1]` was REFUSED, because
+    // writing the hole as `undefined` would make `0 in [,1]` answer true when
+    // the language says false. The refusal was right for as long as the runtime
+    // had no way to say "absent"; it has one now, so the assertion is the
+    // behaviour rather than the gap.
+    //
+    // The pair is the whole point: same length, same read, different `in`.
+    assert_eq!(tags::decode_double(run("return [,1].length;")), 2.0);
+    assert_eq!(tags::decode_double(run("return [,1][1];")), 1.0);
+    assert_eq!(tags::decode_double(run("return [,1][0] === undefined ? 1 : 0;")), 1.0);
+    assert_eq!(
+        tags::decode_double(run("return (0 in [,1]) ? 1 : 0;")),
+        0.0,
+        "a hole does not exist"
+    );
+    assert_eq!(
+        tags::decode_double(run("return (0 in [undefined,1]) ? 1 : 0;")),
+        1.0,
+        "an undefined that was STORED does exist — this is the pair the marker buys"
     );
 }
 

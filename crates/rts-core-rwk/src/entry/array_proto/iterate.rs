@@ -51,11 +51,25 @@ pub(super) const NATIVES: &[(&str, Native)] = &[
 ];
 
 /// `a.forEach(f)` — answers `undefined`.
+/// Se esta posição deve ser PULADA por um método de iteração.
+///
+/// `forEach`, `map`, `filter`, `some`, `every` e `reduce` não visitam posições
+/// ausentes — a especificação os define sobre as chaves que EXISTEM, não sobre
+/// o intervalo `0..length`. `find`/`findIndex`/`findLast` são a exceção
+/// deliberada e visitam com `undefined`; por isso `sought` converte em vez de
+/// saltar.
+fn vazia(held: u64) -> bool {
+    super::super::with_current(|context| super::super::array::is_hole(context, held))
+}
+
 extern "C" fn for_each(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     let Some(elements) = elements_of(this) else {
         return nothing();
     };
     for (index, element) in elements.iter().enumerate() {
+        if vazia(*element) {
+            continue;
+        }
         // A callback that throws stops the walk.
         if visit(callback, this, *element, index).is_none() {
             break;
@@ -71,6 +85,14 @@ extern "C" fn map(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: u6
     };
     let mut produced = Vec::new();
     for (index, element) in elements.iter().enumerate() {
+        // `map` PRESERVA o buraco na posição correspondente em vez de o pular:
+        // o resultado tem o mesmo comprimento e a mesma esparsidade, e a
+        // callback não é chamada. Empilhar `undefined` aqui daria o comprimento
+        // certo e a esparsidade errada.
+        if vazia(*element) {
+            produced.push(*element);
+            continue;
+        }
         match visit(callback, this, *element, index) {
             Some(answered) => produced.push(answered),
             // The array built so far is what comes back, and the compiled call
@@ -91,6 +113,10 @@ extern "C" fn filter(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3:
     };
     let mut kept = Vec::new();
     for (index, element) in elements.iter().enumerate() {
+        // `filter` DESCARTA buracos: o resultado é denso.
+        if vazia(*element) {
+            continue;
+        }
         match visit(callback, this, *element, index) {
             Some(answered) if truthy(answered) => kept.push(*element),
             Some(_) => {}
@@ -234,8 +260,16 @@ fn visit(callback: u64, array: u64, element: u64, index: usize) -> Option<u64> {
 fn sought(this: u64, callback: u64) -> Option<(u64, usize)> {
     let elements = elements_of(this)?;
     for (index, element) in elements.iter().enumerate() {
-        match visit(callback, this, *element, index) {
-            Some(answered) if truthy(answered) => return Some((*element, index)),
+        // `find`/`findIndex` NÃO pulam buracos — a especificação manda visitar
+        // a posição com `undefined`, ao contrário de `forEach`/`map`/`filter`.
+        // Então aqui o buraco é convertido em vez de saltado, e o valor
+        // devolvido é o convertido: este é o quarto ponto que entrega o word
+        // direto ao programa.
+        let visivel = super::super::with_current(|context| {
+            super::super::array::visible(context, *element)
+        });
+        match visit(callback, this, visivel, index) {
+            Some(answered) if truthy(answered) => return Some((visivel, index)),
             Some(_) => {}
             None => return None,
         }

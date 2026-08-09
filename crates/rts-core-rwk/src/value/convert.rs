@@ -21,6 +21,17 @@ pub struct Singletons {
     pub undefined: u32,
     /// The one that reads as `+0`.
     pub null: u32,
+    /// A posição AUSENTE de um array — o que `[1, , 3]` tem no índice 1.
+    ///
+    /// Não é um valor da linguagem e nenhum programa o observa: toda leitura de
+    /// elemento o converte em `undefined`. Ele existe para que quem pergunta se
+    /// a posição EXISTE possa responder — `0 in [,1]` é falso e
+    /// `0 in [undefined,1]` é verdadeiro, e sem um marcador os dois seriam a
+    /// mesma coisa.
+    ///
+    /// Numerado pela linguagem junto dos outros dois, e não escolhido aqui, pela
+    /// razão que [`Singletons`] inteira documenta: o espaço é do cliente.
+    pub hole: u32,
 }
 
 /// Which tag the language gave each kind it declared for itself.
@@ -145,10 +156,7 @@ mod tests {
 
     use super::*;
 
-    const S: Singletons = Singletons {
-        undefined: 0,
-        null: 1,
-    };
+    const S: Singletons = Singletons { undefined: 0, null: 1, hole: 2 };
 
     fn never_empty(_: Value) -> bool {
         false

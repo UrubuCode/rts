@@ -36,9 +36,47 @@ use crate::value::Value;
 #[rtse::entry]
 pub fn array_new(length: i64) -> u64 {
     with_current(|context| {
-        let absent = undefined_of(context);
-        built_in(context, vec![absent; length.max(0) as usize])
+        // BURACOS, não `undefined`: `new Array(3)` tem três posições AUSENTES,
+        // e `0 in new Array(3)` é falso. O emissor também passa por aqui ao
+        // montar um literal, e ali as posições escritas sobrescrevem o buraco —
+        // as não escritas são justamente as que devem continuar ausentes.
+        let vazio = hole_of(context);
+        built_in(context, vec![vazio; length.max(0) as usize])
     })
+}
+
+/// O marcador de posição ausente. Ver [`crate::value::Singletons::hole`].
+pub(in crate::entry) fn hole_of(context: &Context) -> u64 {
+    rts_cranelift::tags::encode(
+        rts_cranelift::tags::TAG_SINGLETON,
+        u64::from(context.singletons.hole),
+    )
+}
+
+/// Se este word é o marcador de ausência.
+///
+/// Toda LEITURA de elemento passa por aqui e devolve `undefined` no lugar; quem
+/// pergunta se a posição existe (`in`, `hasOwnProperty`, `Object.keys`) usa isto
+/// para responder que não.
+pub(in crate::entry) fn is_hole(context: &Context, held: u64) -> bool {
+    held == hole_of(context)
+}
+
+/// O que uma leitura de elemento deve entregar: o valor, ou `undefined` quando
+/// a posição está ausente.
+///
+/// # Por que uma função e não um `if` em cada site
+///
+/// Porque são sessenta sites, e o que vaza se um deles esquecer é um word que
+/// não corresponde a nenhum valor de JavaScript — um `typeof` respondendo algo
+/// impossível, ou um `===` verdadeiro entre dois buracos. Um ponto de passagem
+/// é o que torna a omissão visível na revisão.
+pub(in crate::entry) fn visible(context: &Context, held: u64) -> u64 {
+    if is_hole(context, held) {
+        undefined_of(context)
+    } else {
+        held
+    }
 }
 
 /// The same, from a context already in hand and with its elements.
@@ -196,8 +234,15 @@ pub(in crate::entry) fn key_texts(
         // not 0 and 1. A loop that compared `k === 0` would find nothing, and
         // that is the language rather than a quirk of this implementation.
         if let Some(elements) = context.elements_at(slot) {
-            let count = elements.len();
-            for index in 0..count {
+            // Um BURACO não tem chave. `Object.keys([,1])` é `["1"]`, e daqui
+            // saem também `for-in`, `Object.values/entries`, `Object.assign`,
+            // `structuredClone` e o `JSON.stringify` de objeto — todos corretos
+            // por causa deste `continue`.
+            let ausentes: Vec<bool> = elements.iter().map(|&h| is_hole(context, h)).collect();
+            for (index, vazio) in ausentes.iter().enumerate() {
+                if *vazio {
+                    continue;
+                }
                 keys.push(crate::coerce::number_to_string(index as f64));
             }
         }

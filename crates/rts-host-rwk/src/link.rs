@@ -75,6 +75,7 @@ pub fn singletons_for(model: &ValueModel) -> Singletons {
     Singletons {
         undefined: model.singleton(Singleton::Undefined).number(),
         null: model.singleton(Singleton::Null).number(),
+        hole: model.hole().number(),
     }
 }
 

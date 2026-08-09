@@ -162,10 +162,13 @@ pub fn get_indexed(object: u64, key: u64) -> u64 {
             && let Some(elements) = context.elements_at(slot)
         {
             // Past the end is absent, not an error: `[1,2][9]` is `undefined`.
-            let answer = elements
-                .get(at)
-                .copied()
-                .unwrap_or_else(|| undefined_of(context));
+            // E um BURACO lido também é `undefined` — `[,1][0]` responde
+            // `undefined` mesmo com a posição ausente. É `in` que os separa.
+            let held = elements.get(at).copied();
+            let answer = match held {
+                Some(held) => super::array::visible(context, held),
+                None => undefined_of(context),
+            };
             return super::accessor::Found::Value(answer);
         }
         // A typed array's element, which is a byte range rather than a slot in
@@ -241,7 +244,9 @@ pub fn set_indexed(object: u64, key: u64, value: u64) -> u64 {
             let cresceu = at >= elements.len();
             if cresceu {
                 let wanted = at + 1;
-                let absent = undefined_of(context);
+                // As posições que o salto pula são BURACOS, não `undefined`
+                // armazenados: `const a = []; a[2] = 1` deixa `0 in a` falso.
+                let absent = super::array::hole_of(context);
                 let elements = context
                     .elements_at_mut(slot)
                     .expect("the array was just found");
@@ -328,7 +333,11 @@ pub fn has_property(key: u64, object: u64) -> bool {
         if let Some(at) = super::array::as_index(context, Value(key))
             && let Some(elements) = context.elements_at(slot)
         {
-            return at < elements.len();
+            // Estar dentro do comprimento não basta: um BURACO ocupa índice e
+            // não existe. `0 in [,1]` é falso; `0 in [undefined,1]` é verdadeiro.
+            return elements
+                .get(at)
+                .is_some_and(|&held| !super::array::is_hole(context, held));
         }
         let Some(key) = property_key(context, Value(key)) else {
             return false;

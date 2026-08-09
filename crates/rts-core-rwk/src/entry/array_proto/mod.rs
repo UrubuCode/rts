@@ -179,7 +179,11 @@ extern "C" fn pop(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) ->
         // An empty array answers `undefined` and stays empty. Not a special
         // case: the length is written back either way, so a `pop` on an empty
         // array cannot leave the property saying -1.
+        // `visible`: um buraco no fim sai como `undefined`, não como o
+        // marcador — este é um dos quatro pontos que devolvem o word CRU ao
+        // programa sem passar por `get_indexed`.
         let taken = elements.pop().unwrap_or_else(|| undefined_of(context));
+        let taken = super::array::visible(context, taken);
         store(context, cell, elements);
         taken
     })
@@ -194,7 +198,7 @@ extern "C" fn shift(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) 
         if elements.is_empty() {
             return undefined_of(context);
         }
-        let taken = elements.remove(0);
+        let taken = super::array::visible(context, elements.remove(0));
         store(context, cell, elements);
         taken
     })
@@ -246,7 +250,12 @@ extern "C" fn includes(_e: u64, this: u64, search: u64, _a1: u64, _a2: u64, _a3:
             return Value::from_bool(false).bits();
         };
         let found = elements.iter().any(|held| {
-            crate::value::same_value_zero(Value(*held), Value(search), |a, b| {
+            // `includes` é o método que ACHA um buraco: `[,1].includes(undefined)`
+            // é `true`, porque ele percorre `0..length` em vez das chaves que
+            // existem. É o oposto de `indexOf`, que pula — e a diferença entre
+            // os dois é justamente esta linha.
+            let held = super::array::visible(context, *held);
+            crate::value::same_value_zero(Value(held), Value(search), |a, b| {
                 context.same_text(a, b)
             })
         });
