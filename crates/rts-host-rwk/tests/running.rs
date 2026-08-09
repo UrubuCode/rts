@@ -817,12 +817,11 @@ fn what_a_function_still_cannot_do_is_refused_by_name() {
     // constructor already used, pointed at a second case.
     for source in [
         "function f(a) { return a; } return f();",
-        // A generator came off this list: the body is emitted with a suspension,
-        // the host rewrites it into the resumable form, and the runtime holds
-        // the parked frame. What is left of it is `yield*`, which is a loop over
-        // the iteration protocol rather than a suspension — it forwards `next`,
-        // `throw` and `return` to an inner iterator.
-        "function* f() { yield* [1]; } return f();",
+        // A generator came off this list, and then `yield*` came off it too: the
+        // first is a suspension the host rewrites the body for, the second a
+        // loop whose body is one. What is left here is `for await`, which needs
+        // the async iteration protocol rather than either.
+        "async function f(xs) { for await (const x of xs) { return x; } } return 1;",
     ] {
         // The first one is legal and emits — a missing argument is padded — so
         // it is here as the control: if this loop ever passes for it, the
@@ -4032,4 +4031,41 @@ fn a_generator_is_what_the_iteration_protocol_asks_for() {
 
     let spread = run("function* two() { yield 4; yield 5; } return [...two()].length;");
     assert_eq!(tags::decode_double(spread), 2.0);
+}
+
+/// `yield*` produces what another iterable produces.
+///
+/// A loop whose body is an ordinary `yield`, not a suspension of its own —
+/// which is why it was refused separately after `yield` worked. What it does
+/// NOT do is forward `next`, `throw` and `return` to the inner iterator; see
+/// `emit/delegate.rs`, where the limit is the same one `for`-`of` has.
+#[test]
+fn delegating_yields_each_of_the_inner_values() {
+    let summed = run(
+        "function* inner() { yield 1; yield 2; } \
+         function* outer() { yield* inner(); yield 3; } \
+         let total = 0; \
+         for (const n of outer()) { total = total + n; } \
+         return total;",
+    );
+    assert_eq!(tags::decode_double(summed), 6.0);
+
+    // An array is an iterable like any other, and the commonest thing written.
+    let over_an_array = run(
+        "function* g() { yield* [4, 5]; } \
+         let total = 0; \
+         for (const n of g()) { total = total + n; } \
+         return total;",
+    );
+    assert_eq!(tags::decode_double(over_an_array), 9.0);
+
+    // Order, which a loop that yielded before stepping would still pass the
+    // sums above with.
+    let ordered = run(
+        "function* g() { yield* [1, 2]; } \
+         const seen = []; \
+         for (const n of g()) { seen.push(n); } \
+         return seen[0] * 10 + seen[1];",
+    );
+    assert_eq!(tags::decode_double(ordered), 12.0);
 }

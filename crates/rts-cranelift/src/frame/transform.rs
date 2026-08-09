@@ -115,6 +115,17 @@ impl<'a> Rewrite<'a> {
         });
         let frame = out.block(out.entry).expect("entry exists").params[0];
 
+        // A cache site is numbered per function, exactly as a constant is, and
+        // the rewritten function starts with none — so an instruction naming
+        // site 0 named a site the new function had never declared, and the
+        // verifier refused it as `UnknownCache`. Declaring as many as the source
+        // had keeps every number meaning what it meant; the sites are empty at
+        // run time either way, since what they remember is filled in by running.
+        let mut out = out;
+        for _ in 0..source.cache_count() {
+            out.push_cache();
+        }
+
         Self {
             source,
             plan,

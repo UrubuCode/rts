@@ -255,7 +255,12 @@ pub fn emit_expr(
         // whatever that yields, so it is a loop over the iteration protocol and
         // not a single suspension.
         ExprKind::Yield { value, delegate } => match delegate {
-            true => gap("`yield*`"),
+            true => match value {
+                Some(subject) => super::delegate::emit_delegated(builder, scope, ctx, subject),
+                // `yield*` with no operand does not parse, so nothing reaches
+                // this — named rather than left to panic if something ever can.
+                None => gap("`yield*` with nothing to delegate to"),
+            },
             false => {
                 let produced = match value {
                     Some(value) => {
