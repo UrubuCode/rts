@@ -96,7 +96,20 @@ pub extern "C" fn __RTS_FN_NS_GPU_DISPATCH(pipe: U64, gx: I64, gy: I64, gz: I64)
 #[unsafe(no_mangle)]
 pub extern "C" fn __RTS_FN_NS_GPU_READ(gbuf: U64, dst: U64, bytes: I64) -> I64 {
     match compute::read(gbuf, bytes) {
-        Some(data) => sink(dst, &data),
+        Some(data) => {
+            let escritos = sink(dst, &data);
+            if escritos < 0 {
+                // A leitura da GPU funcionou e o DESTINO não é um buffer. Dito
+                // aqui porque o chamador recebe o mesmo `-1` nos dois casos e
+                // não tem como saber qual foi — e um deles significa que um
+                // handle de buffer deixou de resolver no meio da execução.
+                eprintln!(
+                    "[rts:gpu] leitura ok ({} bytes) mas o destino {dst} nao e um buffer",
+                    data.len()
+                );
+            }
+            escritos
+        }
         None => -1,
     }
 }

@@ -84,7 +84,8 @@ extern "C" fn at(_e: u64, this: u64, index: u64, _a1: u64, _a2: u64, _a3: u64) -
         if at < 0.0 || at >= elements.len() as f64 {
             return undefined_of(context);
         }
-        elements[at as usize]
+        // Ponto de saída direta, como `pop`/`shift`: `[,1].at(0)` é `undefined`.
+        super::super::array::visible(context, elements[at as usize])
     })
 }
 

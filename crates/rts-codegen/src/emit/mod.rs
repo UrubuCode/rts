@@ -763,20 +763,22 @@ mod tests {
     #[test]
     fn a_gap_is_named_rather_than_counted() {
         // This has named `f()`, an array literal, `new`, a class, a class
-        // getter and a spread argument in turn, and each moved on when it
-        // landed. A hole is what is still missing — `[,1]` has no element zero,
-        // and `0 in [,1]` is false where `0 in [undefined,1]` is true, so a
-        // hole cannot be written as `undefined` without changing the answer.
+        // getter, a spread argument and a HOLE in turn, and each moved on when
+        // it landed. The hole was the longest-standing of them: it waited for
+        // the runtime to grow a marker for an absent position, because writing
+        // it as `undefined` would have made `0 in [,1]` answer true.
+        //
+        // What is still missing is a spread BESIDE a hole — `[...a, , 1]` — for
+        // which the argument-vector path has no way to say "skip this one".
         // The name in the refusal is the point, so the test follows it rather
         // than being deleted with the gap it happened to name.
-        let error = emit_source("let a = [1, , 2];").expect_err("a hole is not emitted");
+        let error = emit_source("let a = [...[1], , 2];").expect_err("a spread beside a hole is not emitted");
         assert_eq!(
             error,
             EmitError::Unsupported {
-                construct: "a hole in an array literal"
+                construct: "a hole beside a spread in an array literal"
             },
-            "the name is the deliverable — a gap reported as `Unsupported` with \
-             no word in it is indistinguishable from any other gap"
+            "the name is the deliverable — a gap reported as `Unsupported` with              no word in it is indistinguishable from any other gap"
         );
     }
 

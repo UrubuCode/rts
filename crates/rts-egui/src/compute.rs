@@ -304,6 +304,22 @@ pub fn read(gbuf: u64, bytes: i64) -> Option<Vec<u8>> {
         };
         let n = (bytes as u64).min(buf.size());
         let dev = &c.gpu.device;
+        // ERROR SCOPE em volta da cópia, e é a correção de um silêncio.
+        //
+        // Um erro de validação aqui — e o alinhamento de `copy_buffer_to_buffer`
+        // é uma fonte real dele — descarta o comando SEM avisar ninguém. O
+        // staging fica então NÃO INICIALIZADO, o `map_async` tem sucesso porque
+        // o buffer existe e é mapeável, e o chamador recebe os bytes que a
+        // memória tinha: `0xFF…`, que como `f32` é **NaN**.
+        //
+        // Foi exatamente isso que apareceu no `castelo_gpu_demo`: 346 corpos
+        // viravam NaN no mesmo frame, com o campo `slp` junto — e `slp` é
+        // gravado pelo kernel como `10.0` na própria quarentena de NaN, então o
+        // kernel não podia tê-lo produzido. Só a leitura podia.
+        //
+        // `shader` e `dispatch` já tinham escopo; a leitura não, e era a única
+        // das três que podia falhar entregando um valor em vez de nada.
+        let scope = dev.push_error_scope(wgpu::ErrorFilter::Validation);
         // Staging MAP_READ: storage buffer não é mapeável direto.
         let staging = dev.create_buffer(&wgpu::BufferDescriptor {
             label: Some("rts:gpu readback"),
@@ -315,16 +331,42 @@ pub fn read(gbuf: u64, bytes: i64) -> Option<Vec<u8>> {
             label: Some("rts:gpu read"),
         });
         enc.copy_buffer_to_buffer(buf, 0, &staging, 0, n);
-        c.gpu.queue.submit([enc.finish()]);
+        // O índice DESTA cópia. Esperar por ele, e não pela fila inteira, é a
+        // correção: com uma janela aberta o render submete a cada frame, então
+        // "a fila ficou ociosa" é uma condição que pode não valer nunca — e o
+        // que se precisa saber é só se ESTA cópia terminou.
+        let copia = c.gpu.queue.submit([enc.finish()]);
+        if let Some(error) = pollster::block_on(scope.pop()) {
+            eprintln!("[rts:gpu] leitura invalida ({n} bytes): {error}");
+            return None;
+        }
         let slice = staging.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
-        let _ = dev.poll(wgpu::PollType::wait_indefinitely());
+        // O resultado do poll era DESCARTADO com `let _ =`, e é aí que a falha
+        // ficava muda: um poll que não completa deixa o staging sem os bytes da
+        // cópia, o `map_async` responde Ok porque o buffer existe e é mapeável,
+        // e o chamador recebe a memória não inicializada do staging — `0xFF…`,
+        // que como `f32` é NaN.
+        //
+        // Foi medido no `castelo_gpu_demo`: 348 corpos viravam NaN de uma vez,
+        // e reler o MESMO buffer no MESMO frame devolvia os valores corretos.
+        // O buffer na GPU estava íntegro; era esta leitura que mentia.
+        if let Err(erro) = dev.poll(wgpu::PollType::Wait {
+            submission_index: Some(copia),
+            timeout: None,
+        }) {
+            eprintln!("[rts:gpu] leitura abandonada: a copia nao completou ({erro:?})");
+            return None;
+        }
         match rx.recv() {
             Ok(Ok(())) => {}
-            _ => return None,
+            outro => {
+                eprintln!("[rts:gpu] leitura abandonada: mapeamento falhou ({outro:?})");
+                return None;
+            }
         }
         let out = slice.get_mapped_range().to_vec();
         staging.unmap();

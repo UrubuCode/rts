@@ -41,13 +41,43 @@ where
 // ── Membros do namespace `buffer` (extern "C" + builder, sem macro) ──────────
 
 /// Allocates a zero-initialised byte buffer of `size` bytes.
+///
+/// # Why the handle is PINNED, and the bug that made it necessary
+///
+/// A handle from here is given to the program as a `number`. Stored in a
+/// module-level binding it is boxed as a **double** (`fcvt_from_sint` +
+/// `emit_box_double`), and the collector's conservative scanner reads a word as
+/// a handle only when the generation field matches — a double never does. So a
+/// live buffer has **no root** and the sweep frees it.
+///
+/// That is invisible until the program crosses `GC_LIVE_FLOOR` (500 000 live
+/// handles), because below it the periodic collector never runs. After it, the
+/// buffer is gone: `buffer.read_f32` answers NaN and a `gpu.read` into it
+/// refuses with `-1`.
+///
+/// Measured in `rts-game`'s `castelo_gpu_demo`: 346 bodies turned to NaN at
+/// once, always after the same number of accumulated calls (~166 000 — not
+/// after a time, and with process memory flat). `RTS_GC_DISABLE=1` made it stop
+/// entirely, which is what named the collector.
+///
+/// **Pinning is the contract this namespace already advertises.** `rts:buffer`
+/// is explicit memory: it has `alloc` and it has `free`. A buffer that outlives
+/// its last mention is the caller's business, and leaking one is honest — being
+/// collected while in use is not, because it corrupts data silently.
+///
+/// The alternative, teaching the scanner to read a double as a handle, was
+/// rejected: any double whose bits happen to look like a live handle would
+/// become a root, which trades a silent free for a silent leak of arbitrary
+/// objects.
 #[rtse::abi("__RTS_FN_NS_BUFFER_ALLOC")]
 pub fn __RTS_FN_NS_BUFFER_ALLOC(size: I64) -> Handle {
     if size < 0 {
         return 0;
     }
     let buf = vec![0u8; size as usize];
-    alloc_entry(Entry::Buffer(buf))
+    let handle = alloc_entry(Entry::Buffer(buf));
+    rts_engine::heap::handles::pin_handle(handle);
+    handle
 }
 
 /// Alias for alloc — Rust Vec::new already zeroes.
@@ -59,6 +89,9 @@ pub fn __RTS_FN_NS_BUFFER_ALLOC_ZEROED(size: I64) -> Handle {
 /// Releases the buffer handle. Subsequent reads/writes are no-ops.
 #[rtse::abi("__RTS_FN_NS_BUFFER_FREE")]
 pub fn __RTS_FN_NS_BUFFER_FREE(handle: U64) {
+    // Despina antes de liberar: o pin é o que mantém o buffer vivo enquanto o
+    // programa o usa, e este é o ponto em que o programa diz que terminou.
+    rts_engine::heap::handles::unpin_handle(handle);
     free_handle(handle);
 }
 

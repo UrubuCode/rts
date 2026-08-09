@@ -385,10 +385,7 @@ mod tests {
     use crate::value::Singletons;
 
     fn hosted<T>(body: impl FnOnce() -> T) -> T {
-        let singletons = Singletons {
-            undefined: 0,
-            null: 1,
-        };
+        let singletons = Singletons { undefined: 0, null: 1, hole: 2 };
         let mut context = Context::new(singletons, crate::value::Kinds::in_declaration_order());
         // The keys a test names have to have been issued, exactly as a host
         // issues the ones a program names. A registry that minted nothing

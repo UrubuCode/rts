@@ -69,9 +69,15 @@ egui.drawMesh(win, { mesh, x: 0, y: 0, z: 0, color: 0xFF00FFFF });
 
 **The rule: up to four, positional; more than that, one options object in the
 second position.** A surface mixing both conventions at random would be worse
-than either. A missing field takes a documented default, because this engine
-does not throw yet — `entry/throw.rs` says why — so the alternative to a default
-is silence.
+than either. A missing field takes a documented default. The first version of this said the
+reason was that the engine cannot throw; that stopped being true while this port
+was being written (`af0c5a03` — a native can now raise a catchable error, under
+rule 8 of `rts-core-rwk/README.md`). What remains is narrower and is a **gap**
+rather than a property: `throw::type_error` is `pub(in crate::entry)`, so the
+error factory is not on the host surface. Until it is, a missing argument here
+can only become silence or a value — and a value is what this surface wants
+anyway, since `drawRect(w, { x, y, w, h })` should work without restating border
+and radius.
 
 Rejected: widening the convention, or exposing the rest vector to hosts. Both
 change the engine to accommodate one surface, and the thirteen-positional call

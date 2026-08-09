@@ -741,8 +741,35 @@ impl Scene3D {
             });
             self.inst_cap = cap;
         }
+        // ── AGRUPAMENTO POR (malha, textura) — o que torna o draw instanciado ──
+        //
+        // Antes, cada objeto era um draw call com `0..1` instância: 350 objetos
+        // custavam 350 draws no pass principal e outros 350 no de sombra. Medido
+        // no `castelo_gpu_demo`: desligar a sombra (que só remove os 350 draws
+        // do depth, com um shader que nem calcula iluminação) levava de 81 para
+        // 115 fps — ou seja ~10 µs de CPU POR DRAW CALL, que é overhead puro.
+        //
+        // As instâncias já estavam todas num buffer; o que faltava era ordená-lo
+        // por grupo e pedir `0..n` em vez de `0..1`. Um castelo de um tipo de
+        // bloco vira UM draw.
+        //
+        // O agrupamento é por (malha, textura) porque a textura é um bind group
+        // por draw — dois objetos com texturas diferentes não podem entrar na
+        // mesma chamada. Na prática quase tudo usa a textura default.
+        let mut ordem: Vec<usize> = (0..self.draws.len()).collect();
+        ordem.sort_by_key(|&i| (self.draws[i].0, self.draws[i].5));
+        // Faixas contíguas de mesma (malha, textura): cada uma vira um draw.
+        let mut grupos: Vec<(u64, u64, u32, u32)> = Vec::new(); // (malha, tex, inicio, n)
+        for (posicao, &i) in ordem.iter().enumerate() {
+            let chave = (self.draws[i].0, self.draws[i].5);
+            match grupos.last_mut() {
+                Some(g) if (g.0, g.1) == chave => g.3 += 1,
+                _ => grupos.push((chave.0, chave.1, posicao as u32, 1)),
+            }
+        }
         let mut inst: Vec<f32> = Vec::with_capacity(self.draws.len() * 24);
-        for (_m, model, color, emissive, tex_flag, _tid) in &self.draws {
+        for &i in &ordem {
+            let (_m, model, color, emissive, tex_flag, _tid) = &self.draws[i];
             inst.extend_from_slice(model);
             inst.extend_from_slice(color);
             inst.push(*emissive);
@@ -774,13 +801,19 @@ impl Scene3D {
             });
             sp.set_pipeline(&self.shadow_pipeline);
             sp.set_bind_group(0, &self.cam_bg, &[]);
-            for (i, (mesh_id, _model, _color, _emiss, _tf, _tid)) in self.draws.iter().enumerate() {
-                if let Some(m) = self.meshes.get(mesh_id) {
-                    let off = (i as u64) * 96;
+            // O pass de sombra não lê textura, então poderia agrupar só por
+            // malha — mas reusa os MESMOS grupos de propósito: um segundo
+            // critério de agrupamento seria uma segunda ordenação do buffer de
+            // instâncias, e as duas teriam de concordar sobre qual instância
+            // está em qual posição.
+            for &(mesh_id, _tid, inicio, n) in &grupos {
+                if let Some(m) = self.meshes.get(&mesh_id) {
+                    let off = (inicio as u64) * 96;
+                    let bytes = (n as u64) * 96;
                     sp.set_vertex_buffer(0, m.vbuf.slice(..));
-                    sp.set_vertex_buffer(1, self.inst_buf.slice(off..off + 96));
+                    sp.set_vertex_buffer(1, self.inst_buf.slice(off..off + bytes));
                     sp.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
-                    sp.draw_indexed(0..m.icount, 0, 0..1);
+                    sp.draw_indexed(0..m.icount, 0, 0..n);
                 }
             }
         }
@@ -826,15 +859,16 @@ impl Scene3D {
         // a textura do objeto (tex_id>=2) ou a 1×1 branca default.
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(2, &self.default_tex_bg, &[]);
-        for (i, (mesh_id, _model, _color, _emiss, _tf, tid)) in self.draws.iter().enumerate() {
-            if let Some(m) = self.meshes.get(mesh_id) {
-                let tex_bg = self.textures.get(tid).unwrap_or(&self.default_tex_bg);
+        for &(mesh_id, tid, inicio, n) in &grupos {
+            if let Some(m) = self.meshes.get(&mesh_id) {
+                let tex_bg = self.textures.get(&tid).unwrap_or(&self.default_tex_bg);
                 pass.set_bind_group(2, tex_bg, &[]);
-                let off = (i as u64) * 96;
+                let off = (inicio as u64) * 96;
+                let bytes = (n as u64) * 96;
                 pass.set_vertex_buffer(0, m.vbuf.slice(..));
-                pass.set_vertex_buffer(1, self.inst_buf.slice(off..off + 96));
+                pass.set_vertex_buffer(1, self.inst_buf.slice(off..off + bytes));
                 pass.set_index_buffer(m.ibuf.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..m.icount, 0, 0..1);
+                pass.draw_indexed(0..m.icount, 0, 0..n);
             }
         }
         // 3. ÁGUA INSTANCIADA: 1 draw call por fila; instâncias direto do

@@ -235,10 +235,7 @@ mod tests {
     use rts_cranelift::tags;
 
     fn singletons() -> Singletons {
-        Singletons {
-            undefined: 0,
-            null: 1,
-        }
+        Singletons { undefined: 0, null: 1, hole: 2 }
     }
 
     /// Runs a body with a context installed, as a compiled program would.

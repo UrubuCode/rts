@@ -9,10 +9,7 @@ use super::*;
 use crate::value::Value;
 
 fn singletons() -> Singletons {
-    Singletons {
-        undefined: 0,
-        null: 1,
-    }
+    Singletons { undefined: 0, null: 1, hole: 2 }
 }
 
 fn fresh() -> Context {

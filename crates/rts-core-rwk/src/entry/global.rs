@@ -174,10 +174,7 @@ mod tests {
 
     /// A context installed for the duration, with keys already issued.
     fn hosted<T>(body: impl FnOnce() -> T) -> T {
-        let singletons = Singletons {
-            undefined: 0,
-            null: 1,
-        };
+        let singletons = Singletons { undefined: 0, null: 1, hole: 2 };
         let context = Context::new(singletons, crate::value::Kinds::in_declaration_order());
         with_context(context, body).1
     }
