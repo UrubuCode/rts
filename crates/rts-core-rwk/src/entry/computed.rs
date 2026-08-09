@@ -123,7 +123,18 @@ pub fn get_indexed(object: u64, key: u64) -> u64 {
     // other, and a trap that answered one of them and not the other would be
     // two spellings of one operation disagreeing — the failure this file exists
     // to keep out.
-    if let Some(named) = with_current(|context| property_key(context, Value(key)))
+    // A pergunta ao proxy vem DEPOIS de saber que há um proxy, e não antes.
+    //
+    // Resolver a chave de um índice numérico é `ToPropertyKey`: formatar o
+    // double como texto (`format!("{:e}")` mais duas alocações), depois internar
+    // a string. Isso rodava em TODO acesso indexado — e o resultado era jogado
+    // fora, porque o caminho de elemento logo abaixo volta a tratar o índice
+    // como número (`array::as_index`).
+    //
+    // Um proxy continua sendo consultado exatamente como antes; o que mudou é
+    // que quem não é proxy não paga mais a conversão.
+    if super::proxy::is_proxy(object)
+        && let Some(named) = with_current(|context| property_key(context, Value(key)))
         && let Some(answered) = super::proxy::get(object, named)
     {
         return answered;
@@ -200,7 +211,10 @@ pub fn get_indexed(object: u64, key: u64) -> u64 {
 /// the borrow ends.
 #[rtse::entry]
 pub fn set_indexed(object: u64, key: u64, value: u64) -> u64 {
-    if let Some(named) = with_current(|context| property_key(context, Value(key)))
+    // Ver a nota em [`get_indexed`]: a conversão da chave só acontece quando há
+    // um proxy para perguntar.
+    if super::proxy::is_proxy(object)
+        && let Some(named) = with_current(|context| property_key(context, Value(key)))
         && let Some(answered) = super::proxy::set(object, named, value)
     {
         return answered;
@@ -224,7 +238,8 @@ pub fn set_indexed(object: u64, key: u64, value: u64) -> u64 {
             // double. So `a[0] = 0; a[2] = 1;` turned `a[0]` into `undefined`:
             // a stored value destroyed by a later write somewhere else, which
             // is the worst shape a wrong answer takes. There is no scan now.
-            if at >= elements.len() {
+            let cresceu = at >= elements.len();
+            if cresceu {
                 let wanted = at + 1;
                 let absent = undefined_of(context);
                 let elements = context
@@ -236,11 +251,18 @@ pub fn set_indexed(object: u64, key: u64, value: u64) -> u64 {
                 .elements_at_mut(slot)
                 .expect("the array was just found");
             elements[at] = value;
-            // `length` is a property both paths read, so growing has to write it
-            // — compiled code reads the stored one and never asks the runtime
-            // for a hit.
-            let count = elements.len();
-            super::array::set_length(context, slot, count);
+            // `length` é uma propriedade que os dois caminhos leem, então
+            // CRESCER tem de escrevê-la — código compilado lê a armazenada e
+            // nunca pergunta ao runtime num acerto.
+            //
+            // Só ao crescer. Escrevê-la em toda atribuição era trabalho morto no
+            // laço mais comum que existe (`a[i] = v` dentro de um `for`): o
+            // comprimento não mudou, e a escrita ainda assim resolvia a chave e
+            // percorria a shape.
+            if cresceu {
+                let count = elements.len();
+                super::array::set_length(context, slot, count);
+            }
             return None;
         }
         // A typed array's element. Answering true means the write landed in the
