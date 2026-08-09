@@ -88,7 +88,7 @@ family, `Math`, `JSON`, `Map`, `Set`, `Promise`, `Date`, `Symbol`, plus what
 
 `crates/rts-host-rwk/tests/running.rs` is what says so — every test in it runs
 the program rather than inspecting it — and the number is measured rather than
-claimed. **2026-08-09: 599 of the 797 `*.test.ts` files pass** — 535 of 818 at
+claimed. **2026-08-09: 626 of the 797 `*.test.ts` files pass** — 535 of 818 at
 the start of 08-08, through generators, `yield*`, `Proxy`, native iterators,
 `export *`, a catchable throw, the bare `rts` specifier, stack traces, variadic
 natives and wrapper objects.
@@ -104,32 +104,39 @@ score. It compiles a file with a relative import as a GRAPH, which it did not
 until that day: measuring those on their own bound every import to nothing and
 reported an instrument's limit as the engine's — 14 assertions in one file.
 
-Read the columns together rather than the first alone. The run reports 596 ok,
-76 fail, 51 refused and 73 that died or hung, and files moved BETWEEN those
-columns for reasons that are progress: one that starts compiling and then fails
-an assertion has moved a number in the direction that looks like regression.
+Read the columns together rather than the first alone, and read files that move
+BETWEEN them as what they are: one that starts compiling and then fails an
+assertion has moved a number in the direction that looks like regression.
 
-**The number that says how far this still is: the OLD engine passes 779 of the
-same 797.** Both measured the same day over the same corpus, one process per
-file (`scripts/measure_engines.sh`). **194 files pass only on the old engine and
-14 only on the new** — removing `rts-codegen-new` today would cost those 194, so
-it stays until the gap closes. The rulers differ in one stated way: `rts test`
-also compares stdout against a fixture where one exists, which `suite_run` never
+**The number that says how far this still is: the OLD engine passes 777 of the
+same 797** — 779 until two fixtures asserting a `super` JavaScript does not have
+were corrected, which the old engine passed by implementing `super` wrongly.
+Both engines are measured over the same corpus by `scripts/measure_engines.sh`,
+one process per file. **167 files pass only on the old engine and 16 only on the
+new**, so removing `rts-codegen-new` today would cost those 167 and it stays
+until the gap closes. The rulers differ in one stated way: `rts test` also
+compares stdout against a fixture where one exists, which `suite_run` never
 sees; both require "ran and nothing failed", which is what makes the counts
 comparable at all.
 
-**The gap has no single cause, and its shape is the work list.** Of the 194:
+**The gap has no single cause, and its shape is the work list.** As triaged at
+194 files (08-09, before this round took 27 of them):
 
 | n | the new engine answers | reading |
 |---|---|---|
 | 93 | compiles, runs, FAILS an assertion | a wrong answer, not a missing feature |
-| 64 | `TypeError: undefined is not a function` | un-triageable until the message names the callee |
-| 11 | `Unbound("x")`, `Unbound("v")`, `Unbound("R")` … | ordinary LOCAL names — scope/hoisting, not a missing library |
+| 64 | `TypeError: undefined is not a function` | was un-triageable; the message now names the callee |
+| 11 | `Unbound("x")`, `Unbound("v")`, `Unbound("R")` … | ordinary LOCAL names — scope, not a missing library |
 | 22 | a missing global, `rts:`/DOM surface, a hang | mostly decisions already taken elsewhere |
 
-That the third row names locals rather than globals is what makes it worth
-listing separately: a missing `WeakRef` is a library gap, but a missing `x` is
-the emitter losing a binding.
+The third row is worth listing apart because a missing `WeakRef` is a library gap
+while a missing `x` is the emitter losing a binding — those eleven were five
+causes, the largest being that `var` was never distinguished from `let`.
+
+**Naming the callee is what made the second row workable, and its answer was
+"there is no single cause".** Once `atomic.*` and the unnamed optional-chain
+sites are set aside, those 64 files spread over ~50 distinct missing operations,
+mostly one file each. Expect volume, not a switch.
 
 **The death column is what letting a native THROW did**, and it is the one to
 read first. It was 10. An operation this engine does not have used to answer
@@ -395,11 +402,26 @@ rules that keep them from becoming a pile again.
 ```bash
 $env:RUST_BACKTRACE = "full"          # always — the crash handler needs it
 
-cargo run -- run file.ts              # JIT
+cargo run -- run file.ts              # JIT — the OLD engine. See below.
 target/release/rts.exe compile -p file.ts out   # AOT
 target/release/rts.exe ir file.ts     # Cranelift IR, no execution
 target/release/rts.exe test tests/one.test.ts   # a single file
 ```
+
+**Every command in that block runs the OLD engine.** `rts` still enters through
+`rts-codegen-new`, so a change to `rts-codegen`/`rts-cranelift`/`rts-core-rwk`
+verified with `cargo run -- run` was verified against the engine it did not
+touch. This cost an agent a whole verification pass this session — it measured
+the old engine, believed the numbers, and had to redo the work. To run a program
+on the NEW engine:
+
+```bash
+cargo run -q -p rts-host-rwk --example run_fixture file.ts   # one program
+cargo run -q -p rts-host-rwk --example suite_run tests/x.test.ts   # one test
+```
+
+`run_fixture` and `suite_run` are one process per file on purpose: an uncaught
+exception and an endless loop each take the process with them.
 
 **AOT needs a two-step build.** `cargo build -p rts-runtime` before building
 `rts`: Cargo emits a `staticlib` only for a package built as a direct target, and
