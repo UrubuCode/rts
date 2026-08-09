@@ -44,7 +44,7 @@
 mod civil;
 mod parse;
 
-use civil::{Parts, clip, from_year_month, iso_text, parts_of};
+use civil::{Parts, clip, from_year_month, iso_text, parts_of, utc_string};
 use parse::parse_iso;
 
 use super::objects::{read_property, undefined_of};
@@ -162,6 +162,58 @@ impl Date {
     /// `date.setTime(ms)`, answering the value it stored.
     fn set_time(this: u64, ms: f64) -> f64 {
         let stored = clip(ms);
+        with_current(|context| {
+            if let Some(cell) = Value(this).as_slot() {
+                store(context, cell, stored);
+            }
+        });
+        stored
+    }
+
+    /// `date.setFullYear(year, month?, date?)`.
+    ///
+    /// An invalid receiver does not refuse the call — the specification reads
+    /// `t` as `+0` first — so `new Date(NaN).setFullYear(2020)` answers a real
+    /// date rather than propagating the `NaN` forever, which is the one place
+    /// this method's behaviour surprises next to every getter in this file.
+    /// `month` and `date` fall back to the CURRENT date's fields when the
+    /// caller left them out, which is why they are asked for by comparing
+    /// against `absent` rather than by declaring `f64` and letting a missing
+    /// argument coerce to `NaN` — that would silently roll the date to an
+    /// invalid one instead of keeping the field unchanged.
+    #[js("setFullYear")]
+    fn set_full_year(this: u64, year: u64, month: u64, date: u64) -> f64 {
+        let ms = time_of(this);
+        let existing = parts_of(ms).unwrap_or(parts_of(0.0).expect("epoch has parts"));
+        let absent = with_current(|context| undefined_of(context));
+
+        let year = super::class_support::to_number(year);
+        let month = match month == absent {
+            true => existing.month as f64,
+            false => super::class_support::to_number(month),
+        };
+        let date = match date == absent {
+            true => existing.day as f64,
+            false => super::class_support::to_number(date),
+        };
+
+        let stored = if !year.is_finite() || !month.is_finite() || !date.is_finite() {
+            f64::NAN
+        } else {
+            let time_within_day = if ms.is_nan() {
+                0.0
+            } else {
+                ms - (ms / civil::MS_PER_DAY).floor() * civil::MS_PER_DAY
+            };
+            let months = year.trunc() as i64 * 12 + month.trunc() as i64;
+            let days = civil::days_from_civil(
+                months.div_euclid(12),
+                months.rem_euclid(12) + 1,
+                date.trunc() as i64,
+            );
+            clip(days as f64 * civil::MS_PER_DAY + time_within_day)
+        };
+
         with_current(|context| {
             if let Some(cell) = Value(this).as_slot() {
                 store(context, cell, stored);
@@ -303,6 +355,15 @@ impl Date {
     /// which the human-readable form is not required to.
     fn to_string(this: u64) -> u64 {
         text_value(iso_text(time_of(this)))
+    }
+
+    /// `date.toUTCString()` — the RFC 7231 form, e.g.
+    /// `"Thu, 01 Jan 1970 00:00:00 GMT"`. Node and every other engine answer
+    /// exactly this text for a UTC date, which is what every date here is —
+    /// see the module documentation.
+    #[js("toUTCString")]
+    fn to_utc_string(this: u64) -> u64 {
+        text_value(utc_string(time_of(this)))
     }
 }
 

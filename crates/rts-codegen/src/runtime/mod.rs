@@ -483,6 +483,15 @@ pub enum RuntimeOp {
     /// the same kind of cell.
     MarkDerived,
 
+    /// Records that a callable is a class constructor, and must be reached
+    /// through `new`.
+    ///
+    /// Whether a callable came from a `class` declaration is syntax, which
+    /// this crate knows and the runtime cannot see: an ordinary function and
+    /// a class constructor are the same kind of cell otherwise, and the
+    /// language throws a `TypeError` for the one called plainly.
+    MarkClassConstructor,
+
     /// Calling with more arguments than the convention carries.
     ///
     /// The arguments go in an ordinary array and the runtime holds it for the
@@ -602,6 +611,7 @@ impl RuntimeOp {
         RuntimeOp::DefineSetter,
         RuntimeOp::SuperConstruct,
         RuntimeOp::MarkDerived,
+        RuntimeOp::MarkClassConstructor,
         RuntimeOp::CallWithArgs,
         RuntimeOp::RestArguments,
         RuntimeOp::ConstructWithArgs,
@@ -679,6 +689,7 @@ impl RuntimeOp {
             RuntimeOp::DefineSetter => "__rts_define_setter",
             RuntimeOp::SuperConstruct => "__rts_super_construct",
             RuntimeOp::MarkDerived => "__rts_mark_derived",
+            RuntimeOp::MarkClassConstructor => "__rts_mark_class_constructor",
             RuntimeOp::CallWithArgs => "__rts_call_with_args",
             RuntimeOp::RestArguments => "__rts_rest_arguments",
             RuntimeOp::ConstructWithArgs => "__rts_construct_with_args",
@@ -800,6 +811,7 @@ impl RuntimeOp {
             // Answers the object, so a lowering can define several in a row.
             RuntimeOp::SuperConstruct => (vec![UNPROVEN; 1 + ARGUMENT_SLOTS], vec![UNPROVEN]),
             RuntimeOp::MarkDerived => (vec![UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::MarkClassConstructor => (vec![UNPROVEN], vec![UNPROVEN]),
             // The callee, the receiver, and the arguments as one array.
             RuntimeOp::CallWithArgs => (vec![UNPROVEN; 3], vec![UNPROVEN]),
             // The callee and the arguments — no receiver, because `new` makes

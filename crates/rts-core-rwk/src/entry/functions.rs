@@ -117,6 +117,10 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
 /// correctly until the machine grows one.
 #[rtse::entry]
 pub fn call_with_args(callee: u64, this: u64, arguments: u64) -> u64 {
+    if is_bare_class_constructor_call(callee) {
+        super::throw::type_error("Class constructor cannot be invoked without 'new'");
+        return with_current(|context| undefined_of(context));
+    }
     let first = with_current(|context| {
         let absent = undefined_of(context);
         let mut first = [absent; ARGUMENT_SLOTS];
@@ -194,6 +198,13 @@ pub fn rest_arguments(from: i64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
 /// otherwise be a jump to an arbitrary address.
 #[rtse::entry]
 pub fn call(callee: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    // A class constructor called without `new` is a `TypeError`, checked
+    // before anything else so `1()` and `ClassCtor()` do not share a path
+    // that decides this AFTER the jump.
+    if is_bare_class_constructor_call(callee) {
+        super::throw::type_error("Class constructor cannot be invoked without 'new'");
+        return with_current(|context| undefined_of(context));
+    }
     // Read what is needed, then LET GO of the context before jumping.
     //
     // Not a tidiness: `with_current` holds a `RefCell` borrow for as long as its
@@ -510,6 +521,33 @@ pub fn mark_derived(callee: u64) -> u64 {
             context.mark_derived(cell);
         }
         callee
+    })
+}
+
+/// Records that a callable is a class constructor.
+///
+/// Written by the class lowering at definition time, for the same reason
+/// [`mark_derived`] is: whether a callable came from a `class` declaration is
+/// syntax the compiler knows and the runtime cannot see.
+#[rtse::entry]
+pub fn mark_class_constructor(callee: u64) -> u64 {
+    with_current(|context| {
+        if let Some(cell) = Value(callee).as_slot() {
+            context.mark_class_constructor(cell);
+        }
+        callee
+    })
+}
+
+/// Whether a callee is a class constructor being reached some way other than
+/// `new` — the one case [`call`] and [`call_with_args`] must refuse rather
+/// than run.
+fn is_bare_class_constructor_call(callee: u64) -> bool {
+    with_current(|context| {
+        let Some(cell) = Value(callee).as_slot() else {
+            return false;
+        };
+        context.is_class_constructor(cell)
     })
 }
 

@@ -88,9 +88,10 @@ family, `Math`, `JSON`, `Map`, `Set`, `Promise`, `Date`, `Symbol`, plus what
 
 `crates/rts-host-rwk/tests/running.rs` is what says so — every test in it runs
 the program rather than inspecting it — and the number is measured rather than
-claimed. **2026-08-09: 575 of the 797 `*.test.ts` files pass** — 535 of 818 at
+claimed. **2026-08-09: 596 of the 797 `*.test.ts` files pass** — 535 of 818 at
 the start of 08-08, through generators, `yield*`, `Proxy`, native iterators,
-`export *`, a catchable throw, the bare `rts` specifier and stack traces.
+`export *`, a catchable throw, the bare `rts` specifier, stack traces, variadic
+natives and wrapper objects.
 
 The DENOMINATOR changed that day and both halves are stated because of it: 21
 files were removed for testing surfaces this engine will not have in that shape
@@ -103,8 +104,8 @@ score. It compiles a file with a relative import as a GRAPH, which it did not
 until that day: measuring those on their own bound every import to nothing and
 reported an instrument's limit as the engine's — 14 assertions in one file.
 
-Read the columns together rather than the first alone. The run reports 575 ok,
-95 fail, 51 refused and 75 that died or hung, and files moved BETWEEN those
+Read the columns together rather than the first alone. The run reports 596 ok,
+76 fail, 51 refused and 73 that died or hung, and files moved BETWEEN those
 columns for reasons that are progress: one that starts compiling and then fails
 an assertion has moved a number in the direction that looks like regression.
 

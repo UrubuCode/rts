@@ -10,9 +10,14 @@
 //! [`super::objects::get_property`] therefore starts the lookup on this
 //! prototype directly when the receiver is a double or a boolean, and calls
 //! whatever it finds with the primitive as the receiver. That is why every
-//! member here reads its own `this` through `ToNumber` rather than expecting an
-//! object: there is no wrapper, and building one would make
-//! `(5).valueOf() === 5` depend on unwrapping it again.
+//! member here reads its own `this` through [`receiver_number`] rather than
+//! expecting an object: the receiver is a bare double far more often than it is
+//! a wrapper, and no wrapper is ever made to satisfy a read.
+//!
+//! A wrapper the PROGRAM made — `new Number(5)` — is the other receiver, and it
+//! answers the primitive it recorded when it was constructed. Both come out of
+//! `receiver_number`, which is the point: a method that unwrapped for itself is
+//! a method that would eventually forget to.
 //!
 //! # Why `Number.isNaN` does not coerce and `Number(x)` does
 //!
@@ -62,22 +67,31 @@ impl Number {
 
     /// `Number(x)` — the numeric value of an argument.
     ///
-    /// `new Number(x)` answers the plain object `construct` made, because a
-    /// primitive is not an object and a constructor returning one does not win.
-    /// The same stated divergence `String` has, and the less wrong of the two:
-    /// a wrapper that compared equal to a primitive everywhere except where it
-    /// did not is the kind of wrong that is hard to find.
+    /// `new Number(x)` answers the object `construct` made, because a primitive
+    /// is not an object and a constructor returning one does not win. That
+    /// object now REMEMBERS the number — `[[NumberData]]`, recorded beside the
+    /// cell — which is what every method below reads.
+    ///
+    /// This used to be a stated divergence: the object was made and the number
+    /// thrown away, on the argument that a wrapper comparing equal to a
+    /// primitive everywhere except where it did not is hard to find. The
+    /// argument was against an *implicit* wrapper and does not apply here — the
+    /// program wrote `new`. What the divergence actually bought was
+    /// `new Number(5).valueOf()` answering `NaN`, in fifteen suite assertions.
     #[construct]
     fn convert(this: u64, value: u64) -> u64 {
-        let _ = this;
         let absent = with_current(|context| undefined_of(context));
-        match value == absent {
+        let number = match value == absent {
             // `Number()` is `0`, not `NaN`. The argument being left out is not
             // the same as `undefined` being passed, and this is the one place
             // the difference is visible.
-            true => Value::from_f64(0.0).bits(),
-            false => Value::from_f64(super::class_support::to_number(value)).bits(),
-        }
+            true => 0.0,
+            // Outside any borrow, because it may run a `valueOf`.
+            false => super::class_support::to_number(value),
+        };
+        let bits = Value::from_f64(number).bits();
+        with_current(|context| super::primitive_proto::wrap(context, this, bits));
+        bits
     }
 
     /// `n.toString(radix)`.
@@ -87,7 +101,7 @@ impl Number {
     /// paths here rather than one loop with a special case.
     fn to_string(this: u64, radix: u64) -> u64 {
         let base = radix_of(radix);
-        let number = super::class_support::this_number(this);
+        let number = receiver_number(this);
         with_current(|context| {
             let text = match base {
                 0 | 10 => crate::coerce::number_to_string(number),
@@ -103,7 +117,7 @@ impl Number {
 
     /// `n.valueOf()` — the number itself.
     fn value_of(this: u64) -> f64 {
-        super::class_support::this_number(this)
+        receiver_number(this)
     }
 
     /// `n.toFixed(digits)`.
@@ -112,7 +126,7 @@ impl Number {
     /// what Rust's own `{:.*}` does not: `{:.0}` of `2.5` is `2`, because Rust
     /// formats to nearest-even. `(2.5).toFixed(0)` is `"3"`.
     fn to_fixed(this: u64, digits: f64) -> u64 {
-        let number = super::class_support::this_number(this);
+        let number = receiver_number(this);
         let places = match digits.is_nan() {
             true => 0,
             false => digits.trunc().clamp(0.0, 100.0) as usize,
@@ -135,7 +149,7 @@ impl Number {
     /// is `"1.2e+1"` and `(12).toExponential(0)` is `"1e+1"`. So it arrives as
     /// the value it was passed rather than as an `f64`.
     fn to_exponential(this: u64, digits: u64) -> u64 {
-        let number = super::class_support::this_number(this);
+        let number = receiver_number(this);
         let places = places_of(digits);
         with_current(|context| {
             let text = Str::from_str(&format::exponential(number, places));
@@ -148,7 +162,7 @@ impl Number {
     /// With no argument it is `toString`, which the specification states and
     /// which is not the same as one significant digit.
     fn to_precision(this: u64, digits: u64) -> u64 {
-        let number = super::class_support::this_number(this);
+        let number = receiver_number(this);
         // Asked BEFORE the borrow: `places_of` takes one of its own, and
         // nesting them aborts the process rather than failing a test — the trap
         // `radix_of` records paying for once already.
@@ -176,7 +190,7 @@ impl Number {
     /// program running under another. `"1,234"` is a claim about the reader, not
     /// about the number.
     fn to_locale_string(this: u64) -> u64 {
-        let number = super::class_support::this_number(this);
+        let number = receiver_number(this);
         with_current(|context| {
             context.intern_value(crate::coerce::number_to_string(number)).bits()
         })
@@ -238,12 +252,16 @@ impl Number {
 impl Boolean {
     /// `Boolean(x)` — `ToBoolean` of an argument.
     ///
-    /// `new Boolean(x)` answers the object, for the reason [`Number::convert`]
-    /// records.
+    /// `new Boolean(x)` answers the object, which remembers the flag for the
+    /// reason [`Number::convert`] records — and the wrapper is where the flag
+    /// mattered most: an object is truthy, so `new Boolean(false)` read as
+    /// `true` in every one of the eight assertions that asked.
     #[construct]
     fn convert(this: u64, value: u64) -> bool {
-        let _ = this;
-        super::class_support::to_boolean(value)
+        let flag = super::class_support::to_boolean(value);
+        let bits = Value::from_bool(flag).bits();
+        with_current(|context| super::primitive_proto::wrap(context, this, bits));
+        flag
     }
 
     /// `b.toString()` — `"true"` or `"false"`.
@@ -252,7 +270,7 @@ impl Boolean {
     /// boolean here. Without it `true.toString()` was `undefined`, which is a
     /// method a program can see is missing rather than one it never looks for.
     fn to_string(this: u64) -> u64 {
-        let text = match super::class_support::to_boolean(this) {
+        let text = match receiver_boolean(this) {
             true => "true",
             false => "false",
         };
@@ -261,8 +279,32 @@ impl Boolean {
 
     /// `b.valueOf()`.
     fn value_of(this: u64) -> bool {
-        super::class_support::to_boolean(this)
+        receiver_boolean(this)
     }
+}
+
+/// The number a `Number.prototype` method's receiver IS.
+///
+/// `thisNumberValue`, in the two spellings a receiver has: the primitive
+/// itself, or the wrapper object holding it. Never a conversion of an arbitrary
+/// object — `class_support::this_number` records why, and the reason is
+/// mechanical: converting a receiver looks up `valueOf` and calls it, which is
+/// the very body this feeds, and that recursed until the stack ran out.
+///
+/// The unwrap is here rather than inside `this_number` because `this_number` is
+/// also what `String.prototype`'s numeric receivers go through, and widening it
+/// would make one function answer for two `[[Data]]` slots.
+fn receiver_number(this: u64) -> f64 {
+    super::class_support::this_number(super::primitive_proto::unwrapped(this))
+}
+
+/// The flag a `Boolean.prototype` method's receiver IS.
+///
+/// `thisBooleanValue`, and the unwrap is the whole method: an object is truthy,
+/// so `new Boolean(false).valueOf()` was `true` without it — a wrong answer that
+/// looks exactly like a right one.
+fn receiver_boolean(this: u64) -> bool {
+    super::class_support::to_boolean(super::primitive_proto::unwrapped(this))
 }
 
 /// A number written in a base other than ten.
@@ -326,7 +368,18 @@ fn fixed(number: f64, places: usize) -> String {
     let rounded = scaled.round();
     let value = rounded / scale;
     match places {
-        0 => format!("{}", value.trunc() as i64),
+        // `as i64` has no negative zero, so `(-0.4).toFixed(0)` — whose rounded
+        // value is `-0.0` — would lose its sign through the cast and answer
+        // `"0"` where the language answers `"-0"`. Caught before the cast
+        // rather than patched after, because a cast that already discarded the
+        // sign has nothing left to restore it from.
+        0 => {
+            let truncated = value.trunc();
+            match truncated == 0.0 && truncated.is_sign_negative() {
+                true => "-0".to_owned(),
+                false => format!("{}", truncated as i64),
+            }
+        }
         _ => format!("{value:.places$}"),
     }
 }

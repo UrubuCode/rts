@@ -145,10 +145,11 @@ fn delete_de_um_elemento_deixa_um_buraco() {
 }
 
 #[test]
-fn math_clz32_e_imul_existem_e_respeitam_os_32_bits() {
-    // Os dois únicos métodos padrão que faltavam entre os que a suíte usa. O que
-    // eles pinam é a aritmética de 32 bits, onde a implementação óbvia erra:
-    // `as u32` em Rust SATURA, e `clz32(2**32)` responderia 0 em vez de 32.
+fn math_clz32_e_imul_respeitam_os_32_bits() {
+    // Estes dois chegaram pela `main` enquanto eu media, e o teste ficou porque
+    // a implementação não vinha com um que ROD ASSE — o que ele pina é a
+    // aritmética de 32 bits, onde a versão óbvia erra: `as u32` em Rust SATURA,
+    // e `clz32(2**32)` responderia 0 em vez de 32.
     assert_eq!(numero("return Math.clz32(1);"), 31.0);
     assert_eq!(numero("return Math.clz32(0);"), 32.0);
     assert_eq!(numero("return Math.clz32(4294967296);"), 32.0, "2**32 envolve para 0");

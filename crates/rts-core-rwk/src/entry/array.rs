@@ -229,6 +229,19 @@ pub(in crate::entry) fn key_texts(
             return Vec::new();
         };
 
+        // A primitive string is a heap `Reference` like an object, and until
+        // this branch existed it fell straight through to `region.type_of`,
+        // which answers `None` for it — so `Object.keys("ab")` answered `[]`
+        // rather than the per-character indices the language says a string
+        // has. Answered here and returned immediately: a string has no shape
+        // and no accessors, so there is nothing further in this function for
+        // it to reach.
+        if let Some(text) = context.text_at(slot) {
+            return (0..text.units().count())
+                .map(|index| crate::coerce::number_to_string(index as f64))
+                .collect();
+        }
+
         let mut keys: Vec<Str> = Vec::new();
         // Elements first, as strings: `for (k in [1,2])` yields "0" and "1",
         // not 0 and 1. A loop that compared `k === 0` would find nothing, and

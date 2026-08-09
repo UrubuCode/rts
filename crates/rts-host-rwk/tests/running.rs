@@ -3562,7 +3562,14 @@ fn json_round_trips_what_it_can_represent() {
     holds("return JSON.parse(\"{\\\"a\\\":[1,2]}\").a[1] === 2;");
     holds("return JSON.parse(\"\\\"\\u0041\\\"\") === \"A\";");
     holds("return JSON.parse(\"-1.5e2\") === -150;");
-    holds("return JSON.parse(\"[\") === undefined;");
+    // Um texto inválido LANÇA, e o `catch` vê. Esta linha pedia `undefined` —
+    // o que `parse` respondia antes de ganhar um throw que sai de um quadro —
+    // e ficou para trás quando o comportamento mudou; a asserção agora é o
+    // comportamento, e o que ela pina é que o erro é CAPTURÁVEL em vez de
+    // terminar o processo.
+    holds(
+        "try { JSON.parse(\"[\"); return false; }          catch (e) { return e instanceof SyntaxError; }"
+    );
 
     // A key that spells an index reaches the same property either spelling
     // finds, which is what routing the parse through the interner buys.

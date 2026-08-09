@@ -131,10 +131,18 @@ pub(super) extern "C" fn random_uuid(_e: u64, _this: u64, _a0: u64, _a1: u64, _a
 /// (`ERR_CRYPTO_TIMING_SAFE_EQUAL_LENGTH`, §4) — this module cannot throw,
 /// so a length mismatch answers `false` instead, a named divergence rather
 /// than a silent one.
+///
+/// Both sides go through [`util::binary_bytes`], not `entry::bytes_of`. That
+/// answers only for a value that OWNS bytes, so two DIFFERENT strings both
+/// read as empty and compared EQUAL — a security predicate answering true for
+/// unequal inputs, which is the worst direction this particular function can
+/// be wrong in. Node itself refuses a string here rather than coercing it;
+/// coercing is the divergence, and it is the one that cannot report a false
+/// match.
 pub(super) extern "C" fn timing_safe_equal(_e: u64, _this: u64, a: u64, b: u64, _a2: u64, _a3: u64) -> u64 {
     entry::with_runtime(|context| {
-        let left = entry::bytes_of(context, a).unwrap_or_default();
-        let right = entry::bytes_of(context, b).unwrap_or_default();
+        let left = util::binary_bytes(context, a);
+        let right = util::binary_bytes(context, b);
         if left.len() != right.len() {
             return entry::boolean_value(false);
         }

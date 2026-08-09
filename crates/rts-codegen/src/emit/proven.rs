@@ -455,16 +455,29 @@ fn check_expr(
     }
 }
 
-/// Whether an operator's result is a number whatever its operands are.
+/// Whether an operator's result is a number whatever its operands are, AND
+/// whether the emitter keeps that number in its proven machine representation
+/// rather than boxing it.
 ///
 /// `+` is absent, and that absence is the whole subtlety: it is the one
-/// arithmetic-looking operator that can produce a string. Every other one
-/// converts both operands to numbers and has no second answer.
+/// arithmetic-looking operator that can produce a string. `%` is also absent,
+/// for a narrower reason that this pass has to agree with `emit::expr` about:
+/// `crates/rts-cranelift`'s `NumOp` has no remainder instruction (nothing
+/// under `%`, `-`, `*`, `/` in `crates/rts-cranelift/src/lower/body.rs`), so
+/// `proven_binary` in `emit/expr.rs` never proves a `%` result — it is always
+/// a boxed runtime call, even when both operands are proven doubles. Claiming
+/// here that a local reassigned through `%` "keeps its machine representation"
+/// (see `stored` in `emit/expr.rs`) was a rule stated twice that disagreed:
+/// this pass proved `i` numeric across `i = i % 7`, `stored` trusted that proof
+/// and skipped widening, and the value it left unwidened was `Repr::Tagged` —
+/// which a loop back edge then tried to pass into a header block parameter
+/// typed `Repr::F64` from the entry edge, and
+/// `rts_cranelift::ir::builder::BuildError::ImplicitNarrowing` is exactly the
+/// verifier this crate promises will refuse it. `%` on numbers is still always
+/// a number — that fact just cannot be spent as a proven representation until
+/// something here also narrows a boxed remainder back to `F64` with a guard.
 fn arithmetic(op: BinaryOp) -> bool {
-    matches!(
-        op,
-        BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem
-    )
+    matches!(op, BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div)
 }
 
 /// Whether an expression certainly produces a number.
@@ -505,7 +518,19 @@ fn is_numeric(expr: &Expr, known: &Numeric) -> bool {
         },
 
         ExprKind::Unary { op, operand } => match op {
-            UnaryOp::Negate | UnaryOp::Plus => is_numeric(operand, known),
+            // `+x` is `x * 1`, through `emit_binary`'s `Mul` — which IS in
+            // `proven_binary`, so a proven `F64` operand keeps its
+            // representation. `-x` is not: `emit_unary`'s `UnaryOp::Negate`
+            // always calls `RuntimeOp::Negate` and always returns
+            // `Repr::Tagged`, deliberately, because `x * -1` is wrong for a
+            // bigint. There is no proven fast path here for it to fall back
+            // on, unlike `%` above — so claiming this arm proved a name
+            // reassigned through `-x` is the same false claim `arithmetic`
+            // made about `%`, and `sign = -sign` in a loop hit it exactly the
+            // same way: `stored` trusted the proof, skipped widening a
+            // `Repr::Tagged` value, and the back edge failed
+            // `ImplicitNarrowing` against the header's `Repr::F64` parameter.
+            UnaryOp::Plus => is_numeric(operand, known),
             _ => false,
         },
 

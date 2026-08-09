@@ -23,10 +23,16 @@ use crate::value::{Kind, Value};
 
 /// What a value is, as far as JSON is concerned.
 ///
-/// Five kinds and an absence, where the language has more: a symbol, a
-/// `BigInt` and a wrapper object each have their own rule and none of them
-/// exists in this engine yet. When one does it arrives here as a variant, which
-/// is why this is an enum rather than a chain of tests at the call site.
+/// Five kinds and an absence, where the language has more: a symbol and a
+/// `BigInt` each have their own rule and neither exists in this engine yet.
+/// When one does it arrives here as a variant, which is why this is an enum
+/// rather than a chain of tests at the call site.
+///
+/// A wrapper object is NOT one of them, and deliberately: the specification
+/// says `SerializeJSONProperty` replaces `new Number(5)` by its
+/// `[[NumberData]]` before it classifies anything, so it arrives here already
+/// as `Number(5.0)`. A variant would be a second place deciding what a wrapper
+/// serialises as, and the first place is where `valueOf` reads it from.
 enum Shape {
     Null,
     Bool(bool),
@@ -42,7 +48,13 @@ enum Shape {
 
 /// What a value is, answered inside the caller's borrow and carried out of it.
 fn shape_of(context: &Context, value: u64) -> Shape {
-    let value = Value(value);
+    // The wrapper's primitive, before anything else is asked. Without it a
+    // `new Number(5)` reached `Shape::Object` and serialised as `{}` — the
+    // object has no own properties, so the output was well-formed JSON that had
+    // silently dropped the value. `Object(5)` is the same object by another
+    // spelling and needs the same substitution, which is why this is here rather
+    // than in the `Number` class.
+    let value = Value(super::super::primitive_proto::unwrap(context, value));
     if let Some(number) = value.numeric() {
         return Shape::Number(number);
     }
@@ -121,8 +133,14 @@ impl Writer {
     /// the caller decides what an absence means, and it means different things
     /// in the three places one can occur — `null` in an array, a skipped member
     /// in an object, and `undefined` from `stringify` itself.
-    pub(super) fn write(&mut self, value: u64, depth: usize) -> bool {
-        let value = to_json_of(value);
+    ///
+    /// `key` is the property key `toJSON` is passed, per the specification —
+    /// the empty string at the root, the element's index in an array, the
+    /// member's name in an object. It is a value rather than a `&Str` because
+    /// that is what a call's argument is, and the empty-string root case has
+    /// no `Str` lying around to borrow.
+    pub(super) fn write(&mut self, value: u64, key: u64, depth: usize) -> bool {
+        let value = to_json_of(value, key);
         match with_current(|context| shape_of(context, value)) {
             Shape::Absent => return false,
             Shape::Null => self.ascii("null"),
@@ -157,11 +175,18 @@ impl Writer {
                 self.ascii(",");
             }
             self.newline(depth + 1);
+            // The key `toJSON` sees for an array member is its index, ToString'd
+            // — `[9].toJSON` is called with `"0"`, never with the number 9.
+            let key = with_current(|context| {
+                context
+                    .intern_value(crate::coerce::number_to_string(at as f64))
+                    .bits()
+            });
             // A hole, an `undefined` and a function are each `null` here, where
             // in an object they are skipped. The asymmetry is the language's
             // and it has a reason: an array's members are addressed by
             // position, so dropping one renumbers every one after it.
-            if !self.write(*element, depth + 1) {
+            if !self.write(*element, key, depth + 1) {
                 self.ascii("null");
             }
         }
@@ -217,7 +242,10 @@ impl Writer {
             if !self.indent.is_empty() {
                 self.ascii(" ");
             }
-            self.write(held, depth + 1);
+            // `name` is already the string key, straight from `own_keys` — see
+            // its comment above — so this is the same value `toJSON` must see,
+            // with no second conversion to disagree with the first.
+            self.write(held, name, depth + 1);
         }
         if written {
             self.newline(depth);
@@ -325,27 +353,29 @@ impl Writer {
 ///
 /// A primitive is answered before anything is read, so the common member — a
 /// number, a string — costs one borrow and no lookup.
-fn to_json_of(value: u64) -> u64 {
-    let key = with_current(|context| {
+///
+/// `key` is the property key `toJSON` is called with — see [`Writer::write`]
+/// for where each of the three callers gets theirs. It used to be `undefined`
+/// unconditionally, because `write` is reached from three places and only one
+/// had a key in hand; now all three do, so the hook sees what the
+/// specification says it sees rather than a value that happened to be at hand
+/// at the one call site that had one.
+fn to_json_of(value: u64, key: u64) -> u64 {
+    let name = with_current(|context| {
         match super::super::primitive::is_object_in(context, value) {
             true => Some(context.intern_value(Str::from_str("toJSON")).bits()),
             false => None,
         }
     });
-    let Some(key) = key else {
+    let Some(name) = name else {
         return value;
     };
     // Through the ordinary read, so an inherited `toJSON` is found — which is
     // how `Date` provides one — and so an accessor spelling of it runs.
-    let hook = super::super::computed::get_indexed(value, key);
+    let hook = super::super::computed::get_indexed(value, name);
     if !with_current(|context| super::super::modules::is_callable_in(context, hook)) {
         return value;
     }
-    // The key is the argument the specification passes, and it is not available
-    // here: `write` is reached from three places and only one of them has a key.
-    // `undefined` is what a hook that ignores it sees anyway, and a hook that
-    // reads it would branch on the wrong thing — a named divergence rather than
-    // a threaded argument this walk has no way to supply for an array element.
     let absent = with_current(|context| super::super::objects::undefined_of(context));
-    super::super::functions::call(hook, value, absent, absent, absent, absent)
+    super::super::functions::call(hook, value, key, absent, absent, absent)
 }

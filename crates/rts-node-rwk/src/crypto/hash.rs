@@ -100,10 +100,17 @@ extern "C" fn digest(_e: u64, this: u64, encoding: u64, _a1: u64, _a2: u64, _a3:
     })
 }
 
-/// `crypto.hash(algorithm, data, outputEncoding?)` — one-shot, no `Hash`
-/// object, per §2.2. `'buffer'` and an absent third argument both mean "raw
-/// bytes" — [`util::digest_output`] already treats an unrecognized encoding
-/// name as no-encoding, which covers `'buffer'` without a separate branch.
+/// `crypto.hash(algorithm, data, outputEncoding = 'hex')` — one-shot, no
+/// `Hash` object, per §2.2.
+///
+/// The default is `'hex'` and not raw bytes, which is where this differs from
+/// [`digest`]: `hash.digest()` with no argument answers a `Buffer`, and
+/// `crypto.hash` with no third argument answers a hex STRING. Node documents
+/// the asymmetry and it is not a typo — reading them as one default made
+/// `crypto.hash("sha256", "abc")` answer a `Buffer` that compared unequal to
+/// every hex digest beside it. `'buffer'` is how a caller asks for the bytes,
+/// which [`util::digest_output`] already covers by treating an unrecognized
+/// encoding name as no-encoding.
 pub(super) extern "C" fn hash_oneshot(
     _e: u64,
     _this: u64,
@@ -122,8 +129,8 @@ pub(super) extern "C" fn hash_oneshot(
         let bytes = util::binary_bytes(context, data);
         state.update(&bytes);
         let digest = state.finalize();
-        let encoding = util::text(context, output_encoding);
-        util::digest_output(context, &digest, encoding.as_deref())
+        let encoding = util::text(context, output_encoding).unwrap_or_else(|| "hex".to_owned());
+        util::digest_output(context, &digest, Some(&encoding))
     })
 }
 

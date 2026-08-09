@@ -32,8 +32,11 @@
 //! stale and the loop over it is short. Every mutation here goes through
 //! [`store`] for exactly that reason.
 
+mod arguments;
 pub(super) mod iterate;
 mod more;
+
+pub(in crate::entry) use arguments::arguments_at;
 
 use super::objects::undefined_of;
 use super::string::{absent, relative};
@@ -123,7 +126,7 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
 /// because a constructor returning an object wins — so nothing here has to know
 /// whether it was called with `new`.
 extern "C" fn make(_e: u64, _this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
-    let given = with_current(|context| args(context, [a0, a1, a2, a3]));
+    let given = with_current(|context| arguments_at(context, 0, [a0, a1, a2, a3]));
     if given.len() == 1
         && let Some(count) = Value(given[0]).numeric()
         && (0.0..4_294_967_295.0).contains(&count)
@@ -152,14 +155,14 @@ extern "C" fn is_array(_e: u64, _this: u64, value: u64, _a1: u64, _a2: u64, _a3:
 ///
 /// The method that exists because `Array(3)` does not mean what it looks like.
 extern "C" fn of(_e: u64, _this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
-    let given = with_current(|context| args(context, [a0, a1, a2, a3]));
+    let given = with_current(|context| arguments_at(context, 0, [a0, a1, a2, a3]));
     built(given)
 }
 
 /// `a.push(…)` — answers the new length.
 extern "C" fn push(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     with_current(|context| {
-        let more = args(context, [a0, a1, a2, a3]);
+        let more = arguments_at(context, 0, [a0, a1, a2, a3]);
         let Some((cell, mut elements)) = staged(context, this) else {
             return undefined_of(context);
         };
@@ -207,7 +210,7 @@ extern "C" fn shift(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) 
 /// `a.unshift(…)` — answers the new length.
 extern "C" fn unshift(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     with_current(|context| {
-        let more = args(context, [a0, a1, a2, a3]);
+        let more = arguments_at(context, 0, [a0, a1, a2, a3]);
         let Some((cell, elements)) = staged(context, this) else {
             return undefined_of(context);
         };
@@ -222,26 +225,50 @@ extern "C" fn unshift(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) ->
     })
 }
 
-/// `a.indexOf(x)` — where `x` first is, or -1.
+/// `a.indexOf(x, from)` — where `x` first is at or after `from`, or -1.
 ///
 /// Strict equality, which is what the language says and why this is not
 /// `includes` with a different answer: `[NaN].indexOf(NaN)` is -1 and
 /// `[NaN].includes(NaN)` is true. One shared implementation would have to pick
 /// one of those, and either choice is wrong half the time.
-extern "C" fn index_of(_e: u64, this: u64, search: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+extern "C" fn index_of(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
         let Some((_, elements)) = staged(context, this) else {
             return undefined_of(context);
         };
-        let at = elements.iter().position(|held| {
-            crate::value::strict_equals(Value(*held), Value(search), |a, b| context.same_text(a, b))
-        });
+        let start = forward_from(context, from, elements.len());
+        // The position is relative to what was skipped, so it is offset back
+        // before it is answered. Without that `a.indexOf(x, 2)` reports where the
+        // element is in the TAIL — a number that looks like an index and is one,
+        // of a different array.
+        let at = elements
+            .iter()
+            .skip(start)
+            .position(|held| {
+                crate::value::strict_equals(Value(*held), Value(search), |a, b| {
+                    context.same_text(a, b)
+                })
+            })
+            .map(|at| at + start);
         Value::from_f64(at.map_or(-1.0, |at| at as f64)).bits()
     })
 }
 
-/// `a.includes(x)` — `SameValueZero`, so `NaN` finds itself.
-extern "C" fn includes(_e: u64, this: u64, search: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+/// Where a forward search starts, given the second argument.
+///
+/// Absent is zero and not `ToNumber(undefined)`, which is `NaN` — the difference
+/// between searching the whole array and searching none of it. Negative counts
+/// from the end, which is `relative`'s whole job and why this is not a clamp
+/// written here.
+fn forward_from(context: &Context, from: u64, count: usize) -> usize {
+    match absent(context, from) {
+        true => 0,
+        false => relative(Value(from).numeric().unwrap_or(0.0), count),
+    }
+}
+
+/// `a.includes(x, from)` — `SameValueZero`, so `NaN` finds itself.
+extern "C" fn includes(_e: u64, this: u64, search: u64, from: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
         let Some((_, elements)) = staged(context, this) else {
             // False rather than `undefined`, because a predicate that answered a
@@ -249,11 +276,16 @@ extern "C" fn includes(_e: u64, this: u64, search: u64, _a1: u64, _a2: u64, _a3:
             // the same branch as one that found nothing — and look right.
             return Value::from_bool(false).bits();
         };
-        let found = elements.iter().any(|held| {
+        let start = forward_from(context, from, elements.len());
+        let found = elements.iter().skip(start).any(|held| {
             // `includes` é o método que ACHA um buraco: `[,1].includes(undefined)`
             // é `true`, porque ele percorre `0..length` em vez das chaves que
             // existem. É o oposto de `indexOf`, que pula — e a diferença entre
             // os dois é justamente esta linha.
+            //
+            // O `skip(start)` e o buraco são perguntas independentes: onde a
+            // busca COMEÇA e o que ela VÊ. `[,1].includes(undefined, 1)` é
+            // `false` porque começa depois do buraco, não porque não o vê.
             let held = super::array::visible(context, *held);
             crate::value::same_value_zero(Value(held), Value(search), |a, b| {
                 context.same_text(a, b)
@@ -355,7 +387,7 @@ extern "C" fn slice(_e: u64, this: u64, from: u64, to: u64, _a2: u64, _a3: u64) 
 extern "C" fn concat(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     let joined = with_current(|context| {
         let (_, mut elements) = staged(context, this)?;
-        for value in args(context, [a0, a1, a2, a3]) {
+        for value in arguments_at(context, 0, [a0, a1, a2, a3]) {
             match Value(value)
                 .as_slot()
                 .and_then(|cell| context.elements_at(cell))
@@ -449,21 +481,6 @@ pub(super) fn built(values: Vec<u64>) -> u64 {
         }
         array
     })
-}
-
-/// The arguments a call actually carried.
-///
-/// Trailing `undefined` is dropped, because the convention pads missing
-/// arguments with it and a native cannot tell padding from an argument a program
-/// wrote. The divergence, named: `a.push(undefined)` pushes nothing. It is the
-/// price of the fixed arity, and it disappears with the argument vector
-/// `super::functions::ARGUMENT_SLOTS` describes rather than with more code here.
-fn args(context: &Context, given: [u64; 4]) -> Vec<u64> {
-    let mut given = given.to_vec();
-    while given.last().is_some_and(|last| absent(context, *last)) {
-        given.pop();
-    }
-    given
 }
 
 /// The encoded `null`, which `join` treats as the empty string.

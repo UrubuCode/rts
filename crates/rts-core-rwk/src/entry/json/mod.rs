@@ -46,16 +46,19 @@
 //! compact form silently — a wrong answer to a call people really write, where
 //! the other two answer a right one that ignored a request.
 //!
-//! # Where this answers instead of throwing
+//! # Where this still answers instead of throwing
 //!
 //! A cycle is a `TypeError` in the specification and bad JSON is a
-//! `SyntaxError`. Neither is thrown here: a throw needs a protected region to
-//! land in, and the entry layer has none — an `extern "C"` frame cannot unwind,
-//! so "throw" today means abort. A cycle therefore writes `null` at the point
-//! it closes, and a parse error answers `undefined`. Both are visible to the
-//! program and neither kills it, which is the least wrong of the answers
-//! available. When regions exist, these are two `throw_js_error` calls and
-//! nothing else about the module changes.
+//! `SyntaxError`. Only the second is thrown here now — `parse` calls no user
+//! code, so rule 8's discipline (`crates/rts-core-rwk/README.md`) is satisfied
+//! trivially and `throw::syntax_error` is reachable from an entry point that
+//! never held a borrow across it. The cycle case is different: `write` calls
+//! BACK into user code (getters, `toJSON`) while `self.open` is live, and a
+//! raise there would need every one of those call sites to check for a throw
+//! before continuing the walk, which they do not yet. So a cycle still writes
+//! `null` at the point it closes, and that is the narrower, still-true gap —
+//! not "a throw needs a protected region", which stopped being true the day a
+//! throw learned to leave one frame.
 
 mod read;
 mod write;
@@ -92,7 +95,12 @@ impl Json {
     fn stringify(value: u64, replacer: u64, space: u64) -> u64 {
         let _ = replacer;
         let mut writer = write::Writer::new(write::indent_of(space));
-        match writer.write(value, 0) {
+        // The root's key is the empty string — the specification calls
+        // `SerializeJSONProperty` with a synthetic holder `{"": value}`, which is
+        // what makes `{ toJSON(key) { return key } }` answer `""` when it is the
+        // whole argument to `stringify` rather than a member of something.
+        let root_key = with_current(|context| context.intern_value(Str::from_str("")).bits());
+        match writer.write(value, root_key, 0) {
             true => {
                 let units = writer.finish();
                 with_current(|context| context.intern_value(Str::from_utf16(&units)).bits())
@@ -118,7 +126,16 @@ impl Json {
         };
         match read::parse_units(&units) {
             Some(node) => materialise(&node),
-            None => with_current(|context| undefined_of(context)),
+            None => {
+                // A `SyntaxError` a `catch` can see. This used to answer
+                // `undefined` — the module header's stated gap from before a
+                // native could raise at all — but that ground moved once rule 8's
+                // discipline landed (see `throw.rs`): `parse` calls no user code,
+                // so there is nothing to check first, and the reason to hold back
+                // (a throw needing a protected region) no longer applies.
+                super::throw::syntax_error("Unexpected token in JSON");
+                with_current(|context| undefined_of(context))
+            }
         }
     }
 }

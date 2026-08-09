@@ -53,7 +53,7 @@ use super::computed::{
 use super::functions::{
     CALL_ENTRY, CALL_WITH_ARGS_ENTRY, CLOSURE_NEW_ENTRY, CONSTRUCT_ENTRY,
     CONSTRUCT_WITH_ARGS_ENTRY, INSTANCE_OF_ENTRY,
-    MARK_DERIVED_ENTRY, REST_ARGUMENTS_ENTRY,
+    MARK_CLASS_CONSTRUCTOR_ENTRY, MARK_DERIVED_ENTRY, REST_ARGUMENTS_ENTRY,
     SUPER_CONSTRUCT_ENTRY,
 };
 use super::objects::{
@@ -398,6 +398,13 @@ pub enum CoreEntry {
 
     /// [`super::module_publish_all`].
     ModulePublishAll = 64,
+
+    /// Records that a callable is a class constructor, reachable only through
+    /// `new`.
+    ///
+    /// Here for the reason [`CoreEntry::MarkDerived`] is: it writes state
+    /// beside the cell.
+    MarkClassConstructor = 65,
 }
 
 /// How many entry points exist.
@@ -405,7 +412,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 65;
+pub const CORE_ENTRY_COUNT: usize = 66;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -475,6 +482,7 @@ impl CoreEntry {
         CoreEntry::GeneratorNew,
         CoreEntry::GeneratorYield,
         CoreEntry::ModulePublishAll,
+        CoreEntry::MarkClassConstructor,
     ];
 
     /// The number a call site holds.
@@ -549,6 +557,7 @@ impl CoreEntry {
             CoreEntry::DefineSetter => DEFINE_SETTER_ENTRY,
             CoreEntry::SuperConstruct => SUPER_CONSTRUCT_ENTRY,
             CoreEntry::MarkDerived => MARK_DERIVED_ENTRY,
+            CoreEntry::MarkClassConstructor => MARK_CLASS_CONSTRUCTOR_ENTRY,
             CoreEntry::CallWithArgs => CALL_WITH_ARGS_ENTRY,
             CoreEntry::RestArguments => REST_ARGUMENTS_ENTRY,
             CoreEntry::ConstructWithArgs => CONSTRUCT_WITH_ARGS_ENTRY,

@@ -279,11 +279,32 @@ impl<'a> Rewrite<'a> {
         // Say where to come back to, then say that this did not finish.
         let label_value = self.constant(current, Repr::I64, u64::from(label.0) + 1);
         self.store_field(current, self.layout.label_field, label_value);
-        let unfinished = self.constant(current, Repr::Bool, 0);
+
+        // The `Return` that PARKS goes in a block of its own, outside every
+        // protected region, and the suspension jumps to it.
+        //
+        // Because lowering runs a region's cleanups on any `Return` inside it —
+        // "leaving a region normally owes the same cleanup as leaving it by
+        // throwing", which is right for a return and wrong for this one. Parking
+        // is not leaving: the frame comes back to the very next instruction. With
+        // the `Return` left in the region, a `try { yield 1; yield 2; } finally
+        // { … }` ran its `finally` THREE times — once per yield and once on the
+        // way out — which is what `claude-generator-variavel-externa` measured.
+        let parking = self.out.push_block();
         self.out
-            .set_terminator(current, Terminator::Return(vec![unfinished]));
+            .set_terminator(current, Terminator::Jump(BlockCall::to(parking)));
+        let unfinished = self.constant(parking, Repr::Bool, 0);
+        self.out
+            .set_terminator(parking, Terminator::Return(vec![unfinished]));
 
         let resumed = self.out.push_block();
+        // Resuming lands back INSIDE whatever the suspension was inside. The
+        // block was created without a region, so the statements after a `yield`
+        // in a `try` were outside the `try` they were written in — the same bug
+        // from the other end, and invisible until something threw there.
+        if let Some(region) = self.out.region_of(current) {
+            self.out.set_block_region(resumed, region);
+        }
         self.resume_targets.insert(label, resumed);
 
         // Whoever resumes leaves the value in the frame; the frame reads it.
