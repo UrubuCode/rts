@@ -70,6 +70,9 @@ examples/music_test.wav
 *.pdb
 /tmp_*/
 /bench-output/
+# scratch directories a node:fs test writes beside the corpus and then reads back
+__fs*
+__rts_*
 
 # AOT compile artifacts
 *.obj
