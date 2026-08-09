@@ -43,6 +43,12 @@ pub(super) extern "C" fn sort(
         return nothing();
     };
     let ordered = ordered(elements, comparator);
+    // A comparator that threw leaves an order it never decided. Writing it back
+    // would make a failed sort permanent — the array reordered by a comparison
+    // that stopped answering — so the receiver is left as it was.
+    if super::super::super::throw::in_flight() {
+        return this;
+    }
     with_current(|context| {
         if let Some(cell) = Value(this).as_slot() {
             store(context, cell, ordered);
@@ -170,6 +176,12 @@ fn precedes(comparator: u64, a: u64, b: u64) -> bool {
     let receiver = nothing();
     // Outside every borrow: this is the call the two-stage shape exists for.
     let answered = functions::call(comparator, receiver, a, b, receiver, receiver);
+    // A comparator that threw answers `undefined`, whose `ToNumber` is `NaN`,
+    // which reads as "equal" here — so the merge finishes rather than hanging,
+    // in an order decided partly by a comparator that stopped running. That is
+    // inside what the specification permits for an inconsistent comparator,
+    // and it is why the throw is caught one level up instead: `ordered`'s
+    // callers do not STORE a result they got while unwinding.
     !(super::super::super::class_support::to_number(answered) > 0.0)
 }
 

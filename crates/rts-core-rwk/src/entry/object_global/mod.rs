@@ -338,7 +338,12 @@ extern "C" fn group_by(_e: u64, _this: u64, items: u64, callback: u64, _a2: u64,
     for (at, element) in elements.into_iter().enumerate() {
         let index = Value::from_f64(at as f64).bits();
         // No borrow held: the callback is user code.
-        let key = super::collections::invoke(callback, absent, element, index, absent);
+        // A throw stops the grouping: the object built so far is what the
+        // caller gets, and the compiled site above re-raises.
+        let Some(key) = super::collections::invoke(callback, absent, element, index, absent)
+        else {
+            break;
+        };
         // The group is read back off the object rather than accumulated in a
         // Rust map, for the reason `Map::group_by` states from the other side:
         // what makes two keys one group is the key space, and the object is the

@@ -320,7 +320,28 @@ pub(super) fn append(array: u64, value: u64) -> u64 {
 /// `extern "C"` frame cannot unwind — so the process aborts rather than failing
 /// a test. Every caller of this collects what it needs first, drops the borrow,
 /// and re-takes one to store the answer.
-pub(super) fn invoke(callback: u64, receiver: u64, a0: u64, a1: u64, a2: u64) -> u64 {
+/// # Why the answer is an `Option`
+///
+/// Because a callback can THROW, and a throw leaves `call` answering
+/// `undefined` — a value, which a caller carries on with. Every loop here would
+/// then keep running the callback over the remaining elements, producing effects
+/// the language says never happen.
+///
+/// So the absence is in the type. `None` means a throw is in flight and this
+/// native is not the one handling it: stop, answer, and let the compiled call
+/// site that started this ask the same question and re-raise. A caller that
+/// wants the old behaviour has to write `unwrap_or` and be seen doing it.
+pub(super) fn invoke(
+    callback: u64,
+    receiver: u64,
+    a0: u64,
+    a1: u64,
+    a2: u64,
+) -> Option<u64> {
     let absent = undefined();
-    super::functions::call(callback, receiver, a0, a1, a2, absent)
+    let answered = super::functions::call(callback, receiver, a0, a1, a2, absent);
+    match super::throw::in_flight() {
+        true => None,
+        false => Some(answered),
+    }
 }

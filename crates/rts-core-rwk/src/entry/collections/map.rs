@@ -116,7 +116,11 @@ impl Map {
     /// `extern "C"` frame cannot unwind — so the process aborts.
     fn for_each(this: u64, callback: u64, this_arg: u64) -> u64 {
         for (key, value) in super::entries_of(this) {
-            super::invoke(callback, this_arg, value, key, this);
+            // A callback that throws stops the walk. Running it over the rest
+            // produces effects the language says never happen.
+            if super::invoke(callback, this_arg, value, key, this).is_none() {
+                break;
+            }
         }
         super::undefined()
     }
@@ -166,7 +170,9 @@ impl Map {
         for (index, item) in values.into_iter().enumerate() {
             let at = Value::from_f64(index as f64).bits();
             // No borrow held: the callback is user code.
-            let key = super::invoke(callback, absent, item, at, absent);
+            let Some(key) = super::invoke(callback, absent, item, at, absent) else {
+                break;
+            };
             let bucket = with_current(|context| {
                 context
                     .table_at(cell)

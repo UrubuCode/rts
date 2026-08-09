@@ -53,6 +53,17 @@ fn perform(step: Step) {
             derived,
         } => {
             let produced = functions::call(callee, absent, argument, absent, absent, absent);
+            // A handler that THREW rejects the derived promise with what it
+            // threw. Without this it was RESOLVED with `undefined` — the value
+            // `call` answers when it did not run — so `.catch()` after a
+            // throwing `.then()` never fired and a failed chain reported
+            // success. That is the specification inverted, and it is one of the
+            // reasons the runtime was not allowed to raise until these checks
+            // existed.
+            if let Some(thrown) = super::super::throw::caught() {
+                with_current(|context| state::reject(context, derived, thrown));
+                return;
+            }
             // Through `resolve` rather than a fulfilment: a handler answering a
             // promise makes the derived one adopt it, which is what
             // `p.then(() => q)` means and the reason a `then` chain flattens.
@@ -70,6 +81,13 @@ fn perform(step: Step) {
             value,
         } => {
             functions::call(callback, absent, absent, absent, absent, absent);
+            // A `finally` that throws REPLACES the settlement it was passing
+            // through, which is what the language says a `finally` does to the
+            // value it was unwinding.
+            if let Some(thrown) = super::super::throw::caught() {
+                with_current(|context| state::reject(context, derived, thrown));
+                return;
+            }
             // The original settlement, not the callback's answer. That is the
             // whole difference between `finally` and `then(f, f)`.
             with_current(|context| settle_through(context, derived, settlement, value));

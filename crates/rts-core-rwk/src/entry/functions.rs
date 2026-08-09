@@ -239,6 +239,12 @@ fn invoke(callee: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         if let Some(answered) = super::proxy::apply(callee, this, [a0, a1, a2, a3]) {
             return answered;
         }
+        // Calling something that is not a function is a `TypeError`, and the
+        // program can now catch it. This answered `undefined` silently until
+        // every native that calls user code learned to ask whether a throw was
+        // left behind — raising before that turned one silent wrong answer into
+        // a hang, which is why the two changes are one change.
+        super::throw::type_error("value is not a function");
         return with_current(|context| undefined_of(context));
     };
 

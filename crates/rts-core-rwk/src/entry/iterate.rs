@@ -134,14 +134,42 @@ fn protocol(value: u64) -> Option<Vec<u64>> {
     }
     let absent = with_current(|context| super::objects::undefined_of(context));
     let iterator = super::functions::call(method, value, absent, absent, absent, absent);
+    // Every call from here on is USER CODE, so every one of them is followed by
+    // the question this file used not to ask. A throw leaves `invoke` answering
+    // `undefined`, and `undefined` is a value: without asking, `done` reads
+    // `undefined`, which is never true, and this loop fills a vector until the
+    // process dies. That is not hypothetical — `{ [Symbol.iterator]() { return
+    // { next: 3 } } }` spread into an array is what found it, as a test that
+    // hung for over an hour instead of passing in 0.05 s.
+    //
+    // Answering `None` propagates: the throw stays in flight, the entry point
+    // above returns, and the compiled call site that started this asks the same
+    // question and re-raises. Nothing here handles anything.
+    if super::throw::in_flight() {
+        return None;
+    }
     let next = member(iterator, "next");
     if !callable(next) {
+        // An object that answered `Symbol.iterator` and then handed back
+        // something without a callable `next` is not an iterable, and saying so
+        // is a `TypeError` rather than an empty result. This is the one place
+        // here that RAISES rather than propagating: the failure is this
+        // function's own finding, not a callee's.
+        //
+        // Only after `Symbol.iterator` answered. A value with no such method at
+        // all is answered elsewhere — a string and an array reach this file by
+        // other paths — so raising on the way past would refuse things that
+        // iterate perfectly well.
+        super::throw::type_error("the value is not iterable: its iterator has no next()");
         return None;
     }
 
     let mut produced = Vec::new();
     loop {
         let step = super::functions::call(next, iterator, absent, absent, absent, absent);
+        if super::throw::in_flight() {
+            return None;
+        }
         // `done` is read before `value`, which is the order the specification
         // states — an iterator whose `done` getter has a side effect observes
         // it first, and the other order is a difference nothing would notice

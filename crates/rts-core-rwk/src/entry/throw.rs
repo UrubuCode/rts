@@ -112,3 +112,91 @@ pub fn pending() -> Option<(i64, String)> {
         Some((tag, described.unwrap_or_else(|| "an object".to_owned())))
     })
 }
+
+/// Whether a throw is in flight, without taking it.
+///
+/// # Who this is for, and why it is not [`thrown`]
+///
+/// [`thrown`] is an entry point: compiled code calls it after every operation
+/// that can raise, and it answers an `i64` because that is what crosses the ABI.
+/// This is the RUNTIME's own spelling, for a native that called back into user
+/// code and has to decide what to do with the answer.
+///
+/// It does not clear, because a native that sees one is propagating rather than
+/// handling: it returns early and the check above it sees the same throw. A
+/// native that CLEARS one has decided it is the handler, and that is
+/// [`caught`].
+///
+/// # The rule this exists to make writable
+///
+/// **A native that calls user code must ask whether the callee left a throw
+/// behind before it looks at the answer.** Without it the answer is `undefined`
+/// — what `invoke` returns when it did not run — and `undefined` is a value, so
+/// the native carries on. That is how `[...b]` with a throwing `next` became an
+/// endless loop filling a vector: `done` read `undefined`, which is never true.
+pub(in crate::entry) fn in_flight() -> bool {
+    with_current(|context| context.thrown.is_some())
+}
+
+/// The value in flight, taken, for a native that is handling it.
+///
+/// `None` when nothing was thrown, which is the ordinary path. Taking is what
+/// separates this from [`in_flight`]: whoever calls this has decided the throw
+/// stops here, and leaving it set would make the next check see a throw that
+/// nobody is unwinding any more.
+
+pub(in crate::entry) fn caught() -> Option<u64> {
+    with_current(|context| context.thrown.take().map(|(_, payload)| payload))
+}
+
+/// The tag a JavaScript throw carries.
+///
+/// One value, and it is `rts-codegen`'s `protect::JS_THROW` seen from this side.
+/// The machine compares tags for equality and does not interpret them, so what
+/// matters is that a throw the RUNTIME raises carries the same number a throw
+/// the PROGRAM raises does — otherwise a `catch` written in the program would
+/// not match a `TypeError` this crate produced, and the mismatch would look like
+/// a handler that mysteriously does not run.
+///
+/// It is stated here rather than shared because the two crates are not allowed
+/// to depend on each other in that direction: this is the runtime and that is
+/// the language. What keeps them in step is that both are one line, both name
+/// the other, and `crates/rts-host-rwk` asserts the pair — the same shape as
+/// every other agreement across this boundary.
+const JS_THROW: i64 = 1;
+
+/// Raises a `TypeError` a `catch` in the program can see.
+///
+/// # Why a native may do this at all now
+///
+/// It could not before, and the reason was not the raising: it was that no
+/// native ASKED. `invoke` answers `undefined` for a call that threw, `undefined`
+/// is a value, and every native that called user code carried on with it — a
+/// spread over a throwing iterator became an endless loop, and a `.then` handler
+/// that threw fulfilled its derived promise. Those checks exist now, which is
+/// what makes this safe to reach for rather than a trap.
+///
+/// The message is built with the program's own `TypeError`, so `e instanceof
+/// TypeError` holds and `e.message` reads what was passed. A second error shape
+/// invented here would be an object that fails both.
+pub(in crate::entry) fn type_error(message: &str) {
+    let made = with_current(|context| {
+        // Registered on demand, because every class here is: a program that
+        // never writes `TypeError` never builds one. The runtime raising is
+        // exactly such a program — the class is reached without the name ever
+        // appearing — so asking `class_support` alone answered `None` and the
+        // throw was silently dropped. It looked like `try`/`catch` not working.
+        let constructor = match super::class_support::made(context, "TypeError") {
+            Some(constructor) => constructor,
+            None => super::error::provided("TypeError")?(context),
+        };
+        let text = context.intern_value(crate::text::Str::from_str(message)).bits();
+        Some((constructor, text))
+    });
+    let Some((constructor, text)) = made else {
+        return;
+    };
+    let absent = with_current(|context| super::objects::undefined_of(context));
+    let error = super::functions::construct(constructor, text, absent, absent, absent);
+    with_current(|context| context.thrown = Some((JS_THROW, error)));
+}

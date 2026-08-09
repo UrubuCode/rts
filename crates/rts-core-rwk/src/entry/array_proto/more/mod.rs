@@ -373,6 +373,11 @@ extern "C" fn reduce_right(
             Value::from_f64(index as f64).bits(),
             this,
         );
+        // Stops on a throw, for the reason `reduce` states: the next pass would
+        // fold `undefined` into the accumulator.
+        if super::super::throw::in_flight() {
+            break;
+        }
     }
     carried
 }

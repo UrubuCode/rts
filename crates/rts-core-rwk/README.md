@@ -115,7 +115,32 @@ says it correctly. What the code cannot say is what was rejected and for what
 reason. UTF-8 was rejected for strings; the reason is in the module, and it is
 the point of the module's first page.
 
-### 8. No dead code
+### 8. A native that calls user code asks whether it threw
+
+Before looking at the answer. `functions::call` answers `undefined` for a call
+that did not run, and `undefined` is a VALUE — so a native that carries on
+produces effects the language says never happen, or never stops: a spread over
+an iterator whose `next` threw filled a vector until the process died, because
+`done` read `undefined` and `undefined` is never true.
+
+`throw::in_flight()` asks without clearing, for a native that PROPAGATES: it
+returns early and the compiled call site above re-raises. `throw::caught()`
+takes, for the one native that HANDLES — the promise drain, where a handler that
+threw rejects the derived promise instead of resolving it.
+
+Where the question is unavoidable, the type asks it: `collections::invoke` and
+`array_proto::iterate::visit` answer `Option<u64>`, so a caller has to decide
+rather than inherit the wrong answer.
+
+Exempt, and it is worth saying why so it does not read as an oversight:
+`function_proto.rs` and `reflect.rs` are pure forwarders whose caller is
+compiled code, which already checks.
+
+This rule is why a native may raise at all. Raising without it turns one silent
+wrong answer into a hang, which is what happened the first time it was tried —
+and why the raise and the checks are one change rather than two.
+
+### 9. No dead code
 
 `#![deny(dead_code)]` is on. A structure with no producer is a gap, not a
 feature. One function was written and deleted before its first commit for exactly
@@ -152,16 +177,15 @@ regions), `Symbol.toPrimitive` (additive on the above), and a collector — the
 heap is a region that fills, and `entry/alloc.rs` says so rather than handing
 back a cell somebody else owns.
 
-**A native still cannot raise a catchable error**, and that is now a gap with a
-known shape rather than an unexplored one. The machinery exists — a throw leaves
-one frame and every compiled call site asks — but `context.thrown` is read in
-five places, all in `entry/throw.rs` and the two operations the compiler emits.
-No native checks it. So a throw raised inside a native that was called by another
-native is left in flight and re-raised somewhere unrelated, and `entry/iterate.rs`
-loops until `done` is true, which a throwing `next` never makes it. Two callers
-were written, measured, and reverted before commit for exactly that. The
-discipline comes first: a native that calls user code must ask whether the callee
-left a throw behind before it looks at the answer.
+**A native can raise a catchable error**, and the discipline that had to come
+first is rule 8. `throw::type_error` builds the program's own `TypeError`, so
+`e instanceof TypeError` holds; two sites raise today — calling something that is
+not a function, and an object whose `Symbol.iterator` answers something with no
+callable `next`.
+
+This was tried once and reverted before commit, and the reason is worth keeping:
+raising while no native ASKED turned one silent wrong answer into a hang. The
+checks and the raises are one change.
 
 ---
 

@@ -56,7 +56,10 @@ extern "C" fn for_each(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a
         return nothing();
     };
     for (index, element) in elements.iter().enumerate() {
-        visit(callback, this, *element, index);
+        // A callback that throws stops the walk.
+        if visit(callback, this, *element, index).is_none() {
+            break;
+        }
     }
     nothing()
 }
@@ -66,11 +69,15 @@ extern "C" fn map(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: u6
     let Some(elements) = elements_of(this) else {
         return nothing();
     };
-    let produced: Vec<u64> = elements
-        .iter()
-        .enumerate()
-        .map(|(index, element)| visit(callback, this, *element, index))
-        .collect();
+    let mut produced = Vec::new();
+    for (index, element) in elements.iter().enumerate() {
+        match visit(callback, this, *element, index) {
+            Some(answered) => produced.push(answered),
+            // The array built so far is what comes back, and the compiled call
+            // site re-raises: nothing here handles the throw.
+            None => break,
+        }
+    }
     // Built after the loop, not grown during it. `built` allocates through
     // `array_new`, which takes the context — so an array grown inside the loop
     // would be one borrow taken between two calls into user code.
@@ -84,8 +91,10 @@ extern "C" fn filter(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3:
     };
     let mut kept = Vec::new();
     for (index, element) in elements.iter().enumerate() {
-        if truthy(visit(callback, this, *element, index)) {
-            kept.push(*element);
+        match visit(callback, this, *element, index) {
+            Some(answered) if truthy(answered) => kept.push(*element),
+            Some(_) => {}
+            None => break,
         }
     }
     built(kept)
@@ -128,8 +137,11 @@ extern "C" fn every(_e: u64, this: u64, callback: u64, _a1: u64, _a2: u64, _a3: 
         return Value::from_bool(false).bits();
     };
     for (index, element) in elements.iter().enumerate() {
-        if !truthy(visit(callback, this, *element, index)) {
-            return Value::from_bool(false).bits();
+        match visit(callback, this, *element, index) {
+            Some(answered) if truthy(answered) => {}
+            // A throw and a false answer both stop the scan; only the false
+            // one means the predicate said no.
+            _ => return Value::from_bool(false).bits(),
         }
     }
     Value::from_bool(true).bits()
@@ -169,6 +181,12 @@ extern "C" fn reduce(_e: u64, this: u64, callback: u64, initial: u64, _a2: u64, 
             Value::from_f64(index as f64).bits(),
             array,
         );
+        // A callback that threw leaves `call` answering `undefined`, and the
+        // next pass would fold that into the accumulator. What comes back is
+        // what had been folded before the throw; the compiled site re-raises.
+        if super::super::throw::in_flight() {
+            break;
+        }
     }
     carried
 }
@@ -187,14 +205,26 @@ fn elements_of(this: u64) -> Option<Vec<u64>> {
 /// — with `undefined` as the receiver. Written once because seven methods make
 /// exactly this call, and seven copies is where one of them would pass the index
 /// and the element the wrong way round.
-fn visit(callback: u64, array: u64, element: u64, index: usize) -> u64 {
+///
+/// # Why the answer is an `Option`
+///
+/// `None` means the callback THREW. A throw leaves `call` answering `undefined`,
+/// which is a value — so without this every one of those seven would keep
+/// calling the callback over the remaining elements, producing effects the
+/// language says never happen. The absence is in the type so that a caller has
+/// to decide rather than inherit the wrong answer.
+fn visit(callback: u64, array: u64, element: u64, index: usize) -> Option<u64> {
     let (receiver, at) = with_current(|context| {
         (
             undefined_of(context),
             Value::from_f64(index as f64).bits(),
         )
     });
-    functions::call(callback, receiver, element, at, array, receiver)
+    let answered = functions::call(callback, receiver, element, at, array, receiver);
+    match super::super::throw::in_flight() {
+        true => None,
+        false => Some(answered),
+    }
 }
 
 /// The first element a predicate accepted, and where it was.
@@ -204,8 +234,10 @@ fn visit(callback: u64, array: u64, element: u64, index: usize) -> u64 {
 fn sought(this: u64, callback: u64) -> Option<(u64, usize)> {
     let elements = elements_of(this)?;
     for (index, element) in elements.iter().enumerate() {
-        if truthy(visit(callback, this, *element, index)) {
-            return Some((*element, index));
+        match visit(callback, this, *element, index) {
+            Some(answered) if truthy(answered) => return Some((*element, index)),
+            Some(_) => {}
+            None => return None,
         }
     }
     None

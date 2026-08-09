@@ -106,7 +106,10 @@ impl Set {
     /// a callback reaching the runtime under a held borrow aborts the process.
     fn for_each(this: u64, callback: u64, this_arg: u64) -> u64 {
         for (value, _) in super::entries_of(this) {
-            super::invoke(callback, this_arg, value, value, this);
+            // Stops on a throw, for the reason `Map.forEach` states.
+            if super::invoke(callback, this_arg, value, value, this).is_none() {
+                break;
+            }
         }
         super::undefined()
     }

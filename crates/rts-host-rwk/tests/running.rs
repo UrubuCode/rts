@@ -752,20 +752,22 @@ fn a_function_is_a_value_that_is_only_equal_to_itself() {
 }
 
 #[test]
-fn calling_something_that_is_not_a_function_does_not_jump_to_it() {
+fn calling_something_that_is_not_a_function_throws_rather_than_jumping() {
     // The reason calling is a runtime operation rather than the machine's
-    // indirect call. `1()` must throw a TypeError, throwing needs protected
-    // regions, and nothing emits those — so the runtime answers `undefined`
-    // instead. That is a stated gap and it is not the point of this test.
+    // indirect call: the program must not jump through whatever the value
+    // spelled. That was the whole assertion while the answer was `undefined`.
     //
-    // The point is what does NOT happen: the program must not jump through
-    // whatever the value spelled. It running at all is the assertion.
-    let mut compiled = compile("let n = 1; return n();").expect("compiles");
-    let produced = compiled.run();
-    assert_eq!(
-        produced,
-        compiled.model().singleton(Singleton::Undefined).word()
+    // It is a `TypeError` now, and one a handler in the program sees — which
+    // needed something bigger than the raise itself: every native that calls
+    // user code had to learn to ask whether the callee left a throw behind.
+    // Raising before that turned one silent wrong answer into a hang.
+    let caught = run(
+        "let kind = 'none'; \
+         try { let n = 1; n(); } \
+         catch (e) { kind = e instanceof TypeError ? 'TypeError' : 'other'; } \
+         return kind === 'TypeError' ? 1 : 0;",
     );
+    assert_eq!(tags::decode_double(caught), 1.0);
 }
 
 #[test]
@@ -4402,4 +4404,79 @@ fn a_star_export_forwards_what_the_other_module_has() {
         "1 and 3 through `export *`, and 1 through `export * as ns` — the last \
          of which forwarded a name called `*` and answered undefined: {failed:?}"
     );
+}
+
+/// A native that calls user code asks whether the callee left a throw behind.
+///
+/// The rule the runtime could not raise without. `invoke` answers `undefined`
+/// for a call that threw, `undefined` is a value, and a native that carries on
+/// with it produces effects the language says never happen — or, in the case
+/// this test's second half pins, never stops.
+#[test]
+fn a_throw_from_a_callback_stops_the_native_that_called_it() {
+    // A spread over an iterator whose `next` throws. This filled a vector until
+    // the process died: `done` read `undefined`, which is never true. It hung a
+    // test for over an hour instead of passing in 0.05 s.
+    let propagated = run(
+        "const g = { [Symbol.iterator]() { return { next() { throw new Error('inner'); } }; } }; \
+         let seen = 'none'; \
+         try { [...g]; } catch (e) { seen = e.message; } \
+         return seen === 'inner' ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(propagated), 1.0);
+
+    // An iterator protocol that is not one at all: `Symbol.iterator` answered,
+    // and what it gave back has no callable `next`.
+    let refused = run(
+        "const b = { [Symbol.iterator]() { return { next: 3 }; } }; \
+         let kind = 'none'; \
+         try { [...b]; } catch (e) { kind = e instanceof TypeError ? 'TypeError' : 'other'; } \
+         return kind === 'TypeError' ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(refused), 1.0);
+
+    // `forEach` stops rather than running the callback over the rest.
+    let stopped = run(
+        "let ran = 0; \
+         try { [1, 2, 3].forEach(x => { ran = ran + 1; if (x === 2) throw new Error('stop'); }); } \
+         catch (e) {} \
+         return ran;",
+    );
+    assert_eq!(tags::decode_double(stopped), 2.0);
+
+    // And `map` answers what it had, rather than folding `undefined` in.
+    let mapped = run(
+        "let ran = 0; \
+         try { [1, 2, 3].map(x => { ran = ran + 1; if (x === 2) throw new Error('stop'); return x; }); } \
+         catch (e) {} \
+         return ran;",
+    );
+    assert_eq!(tags::decode_double(mapped), 2.0);
+}
+
+/// A `.then` handler that throws REJECTS the derived promise.
+///
+/// It resolved it with `undefined` — so `.catch()` after a throwing `.then()`
+/// never fired and a failed chain reported success. The specification inverted,
+/// and the reason the runtime was not allowed to raise until the checks existed.
+#[test]
+fn a_handler_that_throws_rejects_the_promise_it_derived() {
+    let rejected = run(
+        "let seen = 'none'; \
+         await Promise.resolve(1) \
+             .then(function () { throw new Error('boom'); }) \
+             .catch(function (e) { seen = e.message; }); \
+         return seen === 'boom' ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(rejected), 1.0);
+
+    // A `finally` that throws replaces the settlement it was passing through.
+    let replaced = run(
+        "let seen = 'none'; \
+         await Promise.resolve(1) \
+             .finally(function () { throw new Error('from finally'); }) \
+             .catch(function (e) { seen = e.message; }); \
+         return seen === 'from finally' ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(replaced), 1.0);
 }
