@@ -118,6 +118,28 @@ impl Math {
         x.trunc()
     }
 
+    /// `Math.clz32(x)` — zeros à esquerda na representação de 32 bits.
+    ///
+    /// O operando passa por `ToUint32`, e é aí que mora a única sutileza: um
+    /// `as u32` em Rust SATURA, então `Math.clz32(2**32)` responderia 0 em vez
+    /// de 32. `to_int32` já faz o módulo correto — o mesmo que os operadores
+    /// bitwise usam —, e reinterpretar o resultado como `u32` dá o `ToUint32`
+    /// que a especificação pede sem uma segunda conversão escrita aqui.
+    fn clz32(x: f64) -> f64 {
+        f64::from(crate::value::to_int32(x).cast_unsigned().leading_zeros())
+    }
+
+    /// `Math.imul(a, b)` — a multiplicação de 32 bits com sinal do C.
+    ///
+    /// Existe justamente porque `a * b` em JavaScript é um double: `imul` é o
+    /// produto que TRANSBORDA, e é o que um programa portado de C ou de asm.js
+    /// espera. `wrapping_mul` é a operação, não um atalho — saturar aqui seria
+    /// a resposta errada para exatamente os casos em que a função é chamada.
+    fn imul(a: f64, b: f64) -> f64 {
+        let produto = crate::value::to_int32(a).wrapping_mul(crate::value::to_int32(b));
+        f64::from(produto)
+    }
+
     /// `Math.sign(x)`.
     ///
     /// Not `f64::signum`, which answers `1` for `+0` and `-1` for `-0` where the

@@ -79,11 +79,10 @@ fn main() {
 /// Reduz a mensagem ao NOME da construção, para que o agrupamento junte os
 /// arquivos que esbarram na mesma coisa em vez de listar 82 mensagens únicas.
 fn resumir(bruto: &str) -> String {
-    if let Some(inicio) = bruto.find("construct: ") {
-        let resto = &bruto[inicio + 11..];
+    if let Some(inicio) = bruto.find("construct: \"") {
+        let resto = &bruto[inicio + 12..];
         if let Some(fim) = resto.find('"') {
-            let dentro = &resto[1..fim.max(1)];
-            return format!("construção não suportada: {dentro}");
+            return format!("construção: {}", &resto[..fim]);
         }
     }
     if bruto.contains("UnboundName") {

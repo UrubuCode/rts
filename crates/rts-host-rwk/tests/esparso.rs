@@ -117,3 +117,45 @@ fn os_pontos_que_devolvem_o_valor_cru_nao_vazam_o_marcador() {
     assert_eq!(numero("return typeof [,1].at(0) === 'undefined' ? 1 : 0;"), 1.0);
     assert_eq!(numero("return typeof [,1][0] === 'undefined' ? 1 : 0;"), 1.0);
 }
+
+#[test]
+fn delete_de_um_elemento_deixa_um_buraco() {
+    // Isto NÃO era uma recusa: `delete a[0]` compilava, percorria o caminho de
+    // shape, não achava o índice ali (um elemento não está na shape) e
+    // respondia `true` sem apagar nada. Um `delete` que diz ter apagado e não
+    // apagou é a forma de erro que este projeto persegue em toda parte.
+    //
+    // É o único caminho que cria um buraco num array que já existe — os outros
+    // dois (o literal e o crescimento por índice) o criam ao nascer.
+    assert_eq!(numero("const a=[1,2]; return (delete a[0]) ? 1 : 0;"), 1.0);
+    assert_eq!(numero("const a=[1,2]; delete a[0]; return (0 in a) ? 1 : 0;"), 0.0);
+    assert_eq!(numero("const a=[1,2]; delete a[0]; return a.length;"), 2.0, "delete não encolhe");
+    assert_eq!(numero("const a=[1,2]; delete a[0]; return a[0] === undefined ? 1 : 0;"), 1.0);
+    assert_eq!(numero("const a=[1,2]; delete a[0]; return a[1];"), 2.0, "o vizinho fica");
+    assert_eq!(numero("const a=[1,2]; delete a[0]; return Object.keys(a).length;"), 1.0);
+    assert_eq!(
+        numero("const a=[1,2]; delete a[0]; let n=0; a.forEach(function(){n=n+1;}); return n;"),
+        1.0
+    );
+    // Além do fim não há o que remover, e `delete` responde `true` por não
+    // existir — a mesma leitura que o caminho de propriedade faz.
+    assert_eq!(numero("const a=[1]; return (delete a[9]) ? 1 : 0;"), 1.0);
+    // E o caminho de propriedade continua intacto.
+    assert_eq!(numero("const o={x:1}; delete o.x; return ('x' in o) ? 1 : 0;"), 0.0);
+}
+
+#[test]
+fn math_clz32_e_imul_existem_e_respeitam_os_32_bits() {
+    // Os dois únicos métodos padrão que faltavam entre os que a suíte usa. O que
+    // eles pinam é a aritmética de 32 bits, onde a implementação óbvia erra:
+    // `as u32` em Rust SATURA, e `clz32(2**32)` responderia 0 em vez de 32.
+    assert_eq!(numero("return Math.clz32(1);"), 31.0);
+    assert_eq!(numero("return Math.clz32(0);"), 32.0);
+    assert_eq!(numero("return Math.clz32(4294967296);"), 32.0, "2**32 envolve para 0");
+    assert_eq!(numero("return Math.clz32(-1);"), 0.0);
+    // `imul` existe justamente porque `a * b` é um double: este é o produto que
+    // TRANSBORDA, e é o que um programa portado de C espera.
+    assert_eq!(numero("return Math.imul(3,4);"), 12.0);
+    assert_eq!(numero("return Math.imul(65535,65535);"), -131071.0);
+    assert_eq!(numero("return Math.imul(2147483648,2);"), 0.0);
+}

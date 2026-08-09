@@ -394,6 +394,29 @@ pub fn delete_property(object: u64, key: u64) -> bool {
         let Some(slot) = Value(object).as_slot() else {
             return true;
         };
+        // UM ELEMENTO DE ARRAY, antes de resolver a chave como nome.
+        //
+        // Isto estava faltando e não era uma recusa: `delete a[0]` percorria o
+        // caminho de shape, não achava o índice ali (um elemento não está na
+        // shape — `PLAN` E6e diz por quê) e respondia `true` sem apagar coisa
+        // alguma. Um `delete` que diz ter apagado e não apagou é a forma de erro
+        // que este projeto persegue em toda parte.
+        //
+        // Apagar é escrever o marcador de ausência: `delete a[0]` deixa um
+        // BURACO — `a.length` não muda, `a[0]` lê `undefined` e `0 in a` passa a
+        // ser falso. É o único caminho que cria um buraco num array que já
+        // existe; os outros dois (o literal e o crescimento) o criam ao nascer.
+        if let Some(at) = super::array::as_index(context, Value(key)) {
+            let vazio = super::array::hole_of(context);
+            if let Some(elements) = context.elements_at_mut(slot) {
+                // Além do fim não há o que remover, e `delete` responde `true`
+                // por não existir — a mesma leitura que o caminho de shape faz.
+                if at < elements.len() {
+                    elements[at] = vazio;
+                }
+                return true;
+            }
+        }
         let Some(key) = property_key(context, Value(key)) else {
             return true;
         };
