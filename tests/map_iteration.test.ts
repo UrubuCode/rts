@@ -11,15 +11,15 @@ m.set("c", 3);
 out += m.size + "\n";
 
 // .keys() — armazenar em var pra evitar chained call ainda nao otimizado
-const ks = m.keys();
+const ks = [...m.keys()];
 out += ks.join(",") + "\n";
 
 // .values()
-const vs = m.values();
+const vs = [...m.values()];
 out += vs.join(",") + "\n";
 
 // .entries() — Vec de Vec[k_handle, v]
-const entries = m.entries();
+const entries = [...m.entries()];
 out += entries.length + "\n";
 
 // for-of destructure (#210 + #222)

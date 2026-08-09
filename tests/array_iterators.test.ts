@@ -4,16 +4,17 @@ let out = "";
 
 const arr = [10, 20, 30];
 
-// (#208) values() — Vec eager copia
-const vs = arr.values();
+// (#208) `values()` responde um ITERADOR, como em Node — o array continua a
+// uma espalhadela de distancia, e e assim que se escreve.
+const vs = [...arr.values()];
 out += vs.join(",") + "\n";   // 10,20,30
 
 // keys() — indices
-const ks = arr.keys();
+const ks = [...arr.keys()];
 out += ks.join(",") + "\n";   // 0,1,2
 
 // entries() — pares [idx, value]
-const entries = arr.entries();
+const entries = [...arr.entries()];
 out += entries.length + "\n"; // 3
 
 // for-of destructuring em entries (sinergia com PR #494)
