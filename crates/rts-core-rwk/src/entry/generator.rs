@@ -210,7 +210,7 @@ fn abandon(this: u64, value: u64) -> u64 {
         {
             state.done = true;
         }
-        step(context, value, true)
+        result(context, value, true)
     })
 }
 
@@ -238,7 +238,7 @@ fn resume(cell: u32, sent: u64) -> u64 {
     let Some(state) = entered else {
         return with_current(|context| {
             let absent = super::objects::undefined_of(context);
-            step(context, absent, true)
+            result(context, absent, true)
         });
     };
 
@@ -272,12 +272,16 @@ fn resume(cell: u32, sent: u64) -> u64 {
         if finished && let Some(state) = context.generators.get_mut(cell) {
             state.done = true;
         }
-        step(context, produced, finished)
+        result(context, produced, finished)
     })
 }
 
 /// The `{ value, done }` an iterator answers with.
-fn step(context: &mut Context, value: u64, done: bool) -> u64 {
+///
+/// Shared with `super::list_iterator`, which answers the same shape: two
+/// spellings of one object is how the two would come to disagree about whether
+/// an exhausted iterator carries `undefined` or nothing at all.
+pub(in crate::entry) fn result(context: &mut Context, value: u64, done: bool) -> u64 {
     let Some(cell) = made(context) else {
         return super::objects::undefined_of(context);
     };

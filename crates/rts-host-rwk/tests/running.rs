@@ -3602,7 +3602,7 @@ fn a_map_keeps_insertion_order_and_same_value_zero_keys() {
     holds("let m = new Map(); m.set(\"b\", 1); m.set(\"a\", 2); m.set(\"c\", 3); let s = \"\"; m.forEach(function (v, k) { s = s + k; }); return s === \"bac\";");
 
     // A delete preserves it, which is the case a swap-with-last gets wrong.
-    holds("let m = new Map(); m.set(\"a\", 1); m.set(\"b\", 2); m.set(\"c\", 3); m.delete(\"b\"); return m.keys()[1] === \"c\";");
+    holds("let m = new Map(); m.set(\"a\", 1); m.set(\"b\", 2); m.set(\"c\", 3); m.delete(\"b\"); return [...m.keys()][1] === \"c\";");
 
     // SameValueZero: `NaN` is a usable key, where `===` would never find it.
     holds("let m = new Map(); m.set(0 / 0, 7); return m.get(0 / 0) === 7;");
@@ -3618,7 +3618,7 @@ fn a_map_keeps_insertion_order_and_same_value_zero_keys() {
 fn a_set_holds_each_member_once_and_answers_the_es2025_operations() {
     holds("let s = new Set(); s.add(1); s.add(1); return s.size === 1;");
     holds("let s = new Set([1, 2, 3]); return s.has(2) && !s.has(9);");
-    holds("let s = new Set([1, 2]); s.delete(1); return s.size === 1 && s.values()[0] === 2;");
+    holds("let s = new Set([1, 2]); s.delete(1); return s.size === 1 && [...s.values()][0] === 2;");
     holds("let s = new Set([1, 2]); s.clear(); return s.size === 0;");
 
     holds("let a = new Set([1, 2]); let b = new Set([2, 3]); return a.union(b).size === 3;");
@@ -4275,4 +4275,48 @@ fn a_trap_answers_the_computed_spelling_too() {
          return Reflect.defineProperty(p, 'x', { value: 1 }) ? 1 : 0;",
     );
     assert_eq!(tags::decode_double(refused), 0.0);
+}
+
+/// `values()`, `keys()` and `entries()` answer an ITERATOR.
+///
+/// They answered the materialised array, which is why `for`-`of` over one
+/// worked and `.next()` did not exist at all. The array is still one spread
+/// away, which is how it is written in JavaScript — and `.length` on the
+/// iterator is now `undefined`, exactly as it is in every other engine.
+#[test]
+fn the_three_iteration_methods_answer_something_with_next() {
+    let stepped = run(
+        "const it = [1, 2].values(); \
+         const first = it.next().value; \
+         const second = it.next().value; \
+         const done = it.next().done ? 1 : 0; \
+         return first * 100 + second * 10 + done;",
+    );
+    assert_eq!(tags::decode_double(stepped), 121.0);
+
+    // An exhausted iterator stays exhausted rather than wrapping around.
+    let twice_past_the_end = run(
+        "const it = [1].values(); it.next(); it.next(); \
+         return it.next().done ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(twice_past_the_end), 1.0);
+
+    // A collection's three, which walk the same lists they always did.
+    let mapped = run(
+        "const m = new Map([['k', 9]]); \
+         return m.values().next().value;",
+    );
+    assert_eq!(tags::decode_double(mapped), 9.0);
+
+    let setted = run("const s = new Set([5, 6]); return s.keys().next().value;");
+    assert_eq!(tags::decode_double(setted), 5.0);
+
+    // The iterator is iterable, which is what `for`-`of` and spread need — and
+    // what keeps every program that used the old array answer working.
+    let spread = run("return [...[1, 2, 3].values()].length;");
+    assert_eq!(tags::decode_double(spread), 3.0);
+
+    // `Symbol.iterator` on an array IS `values`, rather than a second walk.
+    let by_symbol = run("const it = [4, 5][Symbol.iterator](); return it.next().value;");
+    assert_eq!(tags::decode_double(by_symbol), 4.0);
 }

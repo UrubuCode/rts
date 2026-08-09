@@ -70,9 +70,9 @@ check("is-array", Array.isArray([]) && !Array.isArray({}));
 check("of", Array.of(1, 2).length === 2);
 check("from-array", Array.from([1, 2]).length === 2);
 check("from-string", Array.from("ab").length === 2);
-check("keys", a.keys().length === 3);
-check("values", a.values()[0] === 1);
-check("entries", a.entries()[0][1] === 1);
+check("keys", [...a.keys()].length === 3);
+check("values", [...a.values()][0] === 1);
+check("entries", [...a.entries()][0][1] === 1);
 
 // `for-in` over an array yields string keys and must not visit `length`.
 let keys = 0;

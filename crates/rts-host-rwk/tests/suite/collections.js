@@ -24,13 +24,13 @@ ordered.set("c", 3);
 let seen = "";
 ordered.forEach(function (v, key) { seen = seen + key; });
 check("order", seen === "bac");
-check("keys-order", ordered.keys().join(",") === "b,a,c");
-check("values-order", ordered.values().join(",") === "1,2,3");
-check("entries", ordered.entries()[0][0] === "b");
+check("keys-order", [...ordered.keys()].join(",") === "b,a,c");
+check("values-order", [...ordered.values()].join(",") === "1,2,3");
+check("entries", [...ordered.entries()][0][0] === "b");
 
 // A delete preserves it, which is what a swap-with-last gets wrong.
 ordered.delete("a");
-check("order-after-delete", ordered.keys().join(",") === "b,c");
+check("order-after-delete", [...ordered.keys()].join(",") === "b,c");
 
 // SameValueZero: `NaN` is a usable key where `===` would never find it, and
 // `+0` and `-0` are one key.
@@ -59,7 +59,7 @@ check("set-dedupes", new Set([1, 1, 1]).size === 1);
 check("set-has", s.has(2));
 check("set-add", (function () { s.add(4); return s.size === 4; })());
 check("set-delete", s.delete(4) && s.size === 3);
-check("set-values", s.values().join(",") === "1,2,3");
+check("set-values", [...s.values()].join(",") === "1,2,3");
 
 let visited = 0;
 s.forEach(function (v) { visited = visited + v; });

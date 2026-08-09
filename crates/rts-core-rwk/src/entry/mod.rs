@@ -63,6 +63,7 @@ mod global_fns;
 mod integrity;
 mod iterate;
 mod json;
+pub(in crate::entry) mod list_iterator;
 mod loops;
 mod math;
 mod native;
@@ -216,6 +217,12 @@ pub struct Context {
     /// so every access to it misses the compiled cache and reaches the entry
     /// point where the traps are.
     proxies: Aside<(u64, u64)>,
+    /// Where an iterator is: the list it walks, and the index it is on.
+    ///
+    /// Beside the cell like every other per-object fact, and holding the LIST
+    /// rather than a copy of it — `values()` already built one, and a second
+    /// would be a second answer to what the iterator is walking.
+    cursors: Aside<(u64, u32)>,
     /// Where a cell's properties past the seventh live.
     ///
     /// A cell holds seven inline slots, and an object with more used to lose
@@ -539,6 +546,7 @@ impl Context {
             prototypes: Aside::in_region(bits),
             callables: Aside::in_region(bits),
             proxies: Aside::in_region(bits),
+            cursors: Aside::in_region(bits),
             spill_of: Aside::in_region(bits),
             bound: Aside::in_region(bits),
             collections: Aside::in_region(bits),
@@ -590,6 +598,7 @@ impl Context {
             text_type,
             callables: Aside::new(),
             proxies: Aside::new(),
+            cursors: Aside::new(),
             prototypes: Aside::new(),
             array_elements: Aside::new(),
             accessors: Aside::new(),

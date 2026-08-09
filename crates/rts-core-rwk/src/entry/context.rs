@@ -84,6 +84,16 @@ impl Context {
         self.callables.copied(cell)
     }
 
+    /// The list an iterator walks, and how far it has gone.
+    pub(super) fn cursor_at(&self, cell: u32) -> Option<(u64, u32)> {
+        self.cursors.copied(cell)
+    }
+
+    /// Positions an iterator over a list.
+    pub(super) fn set_cursor(&mut self, cell: u32, listed: u64, at: u32) {
+        self.cursors.set(cell, (listed, at));
+    }
+
     /// What a proxy stands for: its target and its handler.
     pub(super) fn proxy_at(&self, cell: u32) -> Option<(u64, u64)> {
         self.proxies.copied(cell)

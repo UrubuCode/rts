@@ -123,22 +123,24 @@ impl Map {
 
     /// `m.keys()` — an array, for the reason the module documentation gives.
     fn keys(this: u64) -> u64 {
-        super::array_of(super::entries_of(this).into_iter().map(|(key, _)| key).collect())
+        crate::entry::list_iterator::over(super::array_of(
+            super::entries_of(this).into_iter().map(|(key, _)| key).collect(),
+        ))
     }
 
     /// `m.values()`.
     fn values(this: u64) -> u64 {
-        super::array_of(
+        crate::entry::list_iterator::over(super::array_of(
             super::entries_of(this)
                 .into_iter()
                 .map(|(_, value)| value)
                 .collect(),
-        )
+        ))
     }
 
     /// `m.entries()` — an array of `[key, value]` arrays.
     fn entries(this: u64) -> u64 {
-        super::pairs_array(super::entries_of(this))
+        crate::entry::list_iterator::over(super::pairs_array(super::entries_of(this)))
     }
 
     /// `Map.groupBy(items, cb)` — ES2024.

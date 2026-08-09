@@ -82,6 +82,13 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
     super::native::install(context, cell, NATIVES);
     super::native::install(context, cell, iterate::NATIVES);
     super::native::install(context, cell, more::NATIVES);
+    // `Symbol.iterator`, which those three lists cannot carry: a native is named
+    // by a string there and this key is a symbol. It IS `values` — the same
+    // function, not a second one, because `[...a]` and `a.values()` walking an
+    // array differently is the failure that would be found last.
+    let key = context.well_known(&format!("{}iterator", super::symbol::PREFIX));
+    let values = super::native::callable(context, more::values);
+    super::objects::put(context, cell, key, values);
     Some(cell)
 }
 

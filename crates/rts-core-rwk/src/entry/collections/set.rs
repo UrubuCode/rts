@@ -113,17 +113,17 @@ impl Set {
 
     /// `s.values()` — an array, for the reason the module documentation gives.
     fn values(this: u64) -> u64 {
-        super::array_of(members(this))
+        crate::entry::list_iterator::over(super::array_of(members(this)))
     }
 
     /// `s.keys()` — the same as `values`, which is what a set's keys are.
     fn keys(this: u64) -> u64 {
-        super::array_of(members(this))
+        crate::entry::list_iterator::over(super::array_of(members(this)))
     }
 
     /// `s.entries()` — `[v, v]` pairs, for the same parity with `Map`.
     fn entries(this: u64) -> u64 {
-        super::pairs_array(super::entries_of(this))
+        crate::entry::list_iterator::over(super::pairs_array(super::entries_of(this)))
     }
 
     /// `s.union(other)`.

@@ -70,8 +70,13 @@ const viaTake = take([1, 2, 3, 4].values(), 3).join(",");
 const arrayComumNext = ([1, 2] as any).next;
 const forOfValues = [...[1, 2].values()].join(",");
 const forOfKeys = [...[7, 8].keys()].join(",");
-const joinDeValues = [1, 2, 3].values().join("-");
-const lengthDeValues = [1, 2, 3].values().length;
+// `values()` responde um ITERADOR, como em Node: `.join` e `.length` nao
+// existem nele. Estas duas assercoes afirmavam a extensao do motor antigo,
+// que devolvia o array materializado — o que quebrava `.next()`, que e o que
+// este ficheiro existe para fixar. O array continua a um espalhamento de
+// distancia, e e assim que se escreve em JS.
+const joinDeValues = [...[1, 2, 3].values()].join("-");
+const lengthDeValues = typeof ([1, 2, 3] as any).values().length;
 
 let somaForOf = 0;
 for (const v of [1, 2, 3].values()) { somaForOf = somaForOf + v; }
@@ -166,11 +171,11 @@ describe("não-regressões: array comum e consumo por iterável", () => {
     expect(paresOk).toBe("0:9 1:8 ");
   });
 
-  test("values() continua respondendo a métodos de array (.join)", () => {
+  test("o array de values() continua a uma espalhadela de distancia", () => {
     expect(joinDeValues).toBe("1-2-3");
   });
 
-  test("values() continua respondendo a .length", () => {
-    expect(lengthDeValues).toBe(3);
+  test("um iterador nao tem .length, como em Node", () => {
+    expect(lengthDeValues).toBe("undefined");
   });
 });
