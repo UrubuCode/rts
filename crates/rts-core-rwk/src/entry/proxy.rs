@@ -388,3 +388,45 @@ pub(super) fn set_prototype_verdict(object: u64, prototype: u64) -> Option<bool>
         }
     })
 }
+
+/// The keys `Object.keys` reports for a proxy: its own keys, filtered.
+///
+/// `Reflect.ownKeys` answers what the trap said and nothing else, and
+/// `Object.keys` answers only the ENUMERABLE ones — so it asks
+/// `[[GetOwnProperty]]` per key, which on a proxy is the
+/// `getOwnPropertyDescriptor` trap or a forward to the target. A key the trap
+/// invented that the target does not have has no descriptor, so it is not
+/// enumerable, so it is dropped: `ownKeys: () => ["only"]` over `{a, b}` gives
+/// `Object.keys` an empty list, which is what every other engine answers.
+///
+/// This is the one place the two spellings of enumeration legitimately differ,
+/// and the difference is the filter rather than a second walk.
+pub(super) fn enumerable_keys(object: u64) -> Option<u64> {
+    let listed = own_keys(object)?;
+    let keys: Vec<u64> = with_current(|context| {
+        match Value(listed).as_slot().and_then(|cell| context.elements_at(cell)) {
+            Some(elements) => elements.to_vec(),
+            None => Vec::new(),
+        }
+    });
+
+    let mut kept = Vec::with_capacity(keys.len());
+    for key in keys {
+        // Through the public spelling, so a proxy whose target is a proxy is
+        // asked again — the forwarding every absent trap does.
+        let described = super::object_global::describe_of(object, key);
+        let enumerable = with_current(|context| {
+            let named = context.well_known("enumerable");
+            Value(described)
+                .as_slot()
+                .and_then(|cell| super::objects::read_property(context, cell, named))
+                .map(|found| found.bits())
+        });
+        if let Some(enumerable) = enumerable
+            && super::primitives::to_boolean(enumerable)
+        {
+            kept.push(key);
+        }
+    }
+    Some(super::modules::make_array(kept))
+}

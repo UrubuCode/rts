@@ -233,6 +233,23 @@ extern "C" fn get_own_property_descriptors(
 /// One caller: a proxy whose handler does not trap the question and forwards it
 /// to its target. Answers `undefined` for a key the object does not have, which
 /// is the same distinction the public spelling makes.
+/// The descriptor for a key, asking a proxy's handler first.
+///
+/// The spelling every caller outside this module wants: `Reflect`, and the
+/// enumerability filter `Object.keys` applies to a proxy. Separate from
+/// [`describe_own`] because that one is what FORWARDING reaches — a handler
+/// without the trap asks the target, and asking through this would ask the
+/// proxy again.
+pub(in crate::entry) fn describe_of(object: u64, name: u64) -> u64 {
+    if let Some(named) =
+        with_current(|context| super::super::computed::property_key(context, Value(name)))
+        && let Some(answered) = super::super::proxy::describe(object, named)
+    {
+        return answered;
+    }
+    describe_own(object, name)
+}
+
 pub(in crate::entry) fn describe_own(object: u64, name: u64) -> u64 {
     match descriptor(object, name) {
         Some(made) => made,

@@ -163,7 +163,15 @@ pub fn own_keys(object: u64) -> u64 {
 /// function with a flag rather than two walks: they differ in a single `if`,
 /// and the ordering, the symbol rule and the accessor pass are the same rules
 /// — which this crate keeps refusing to state twice.
-pub(super) fn own_names(object: u64) -> u64 {
+pub(in crate::entry) fn own_names(object: u64) -> u64 {
+    // A proxy answers both spellings the same way — its handler's `ownKeys` IS
+    // `[[OwnPropertyKeys]]`, and the enumerable/every distinction is applied by
+    // the caller rather than by the trap. Asking here as well as in `own_keys`
+    // is what stopped `Reflect.ownKeys` over a proxy from answering the empty
+    // list, which is what a cell with no properties of its own really has.
+    if let Some(answered) = super::proxy::own_keys(object) {
+        return answered;
+    }
     keys_of(object, false)
 }
 

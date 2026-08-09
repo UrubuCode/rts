@@ -62,7 +62,12 @@ impl Reflect {
     /// disagree about order — which is the property array-index-first ordering
     /// exists to guarantee.
     fn own_keys(target: u64) -> u64 {
-        super::array::own_keys(target)
+        // EVERY own key, not the enumerable ones: `Reflect.ownKeys` is
+        // `[[OwnPropertyKeys]]`, and `Object.keys` is the filtered spelling.
+        // Answering the filtered list here made a property defined with
+        // `{ value: 1 }` — which is not enumerable — invisible to the operation
+        // whose whole job is to see everything.
+        super::array::own_names(target)
     }
 
     /// `Reflect.getPrototypeOf(target)`.
@@ -101,7 +106,9 @@ impl Reflect {
     /// `false` says and what distinguishes this from `Object.defineProperty` —
     /// that one answers the object.
     fn define_property(target: u64, key: u64, descriptor: u64) -> bool {
-        if let Some(named) = with_current(|context| super::computed::property_key(context, crate::value::Value(key)))
+        if let Some(named) = with_current(|context| {
+            super::computed::property_key(context, crate::value::Value(key))
+        })
             && let Some(answered) = super::proxy::define(target, named, descriptor)
         {
             return answered;
@@ -116,12 +123,7 @@ impl Reflect {
     /// the limits of — and a proxy handler's own answer when it traps the
     /// question, since that one is whatever the handler returns.
     fn get_own_property_descriptor(target: u64, key: u64) -> u64 {
-        if let Some(named) = with_current(|context| super::computed::property_key(context, crate::value::Value(key)))
-            && let Some(answered) = super::proxy::describe(target, named)
-        {
-            return answered;
-        }
-        super::object_global::describe_own(target, key)
+        super::object_global::describe_of(target, key)
     }
 
     /// `Reflect.isExtensible(target)`.

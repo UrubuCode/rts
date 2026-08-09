@@ -4210,9 +4210,20 @@ fn a_proxy_can_be_called_and_constructed() {
 fn a_proxy_answers_for_its_keys_and_its_prototype() {
     let listed = run(
         "const p = new Proxy({}, { ownKeys(t) { return ['a', 'b', 'c']; } }); \
-         return Object.keys(p).length;",
+         return Reflect.ownKeys(p).length;",
     );
     assert_eq!(tags::decode_double(listed), 3.0);
+
+    // `Object.keys` is NOT that list: it asks for each key's descriptor to keep
+    // only the enumerable ones, and a key the trap invented that the target
+    // does not have has no descriptor. Three keys in, none out — which is what
+    // every other engine answers and what this test exists to keep true, since
+    // the obvious implementation returns three.
+    let filtered = run(
+        "const p = new Proxy({ a: 1 }, { ownKeys(t) { return ['x', 'y']; } }); \
+         return Object.keys(p).length;",
+    );
+    assert_eq!(tags::decode_double(filtered), 0.0);
 
     // No trap: the target's own keys, which is what forwarding means — the
     // proxy itself has never had any.

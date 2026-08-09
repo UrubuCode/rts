@@ -25,7 +25,7 @@
 //! a per-property flag word, which is a change to what a shape IS.
 
 mod describe;
-pub(in crate::entry) use describe::describe_own;
+pub(in crate::entry) use describe::{describe_of, describe_own};
 
 use super::native::Native;
 use super::objects::undefined_of;
@@ -99,6 +99,12 @@ extern "C" fn make(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) 
 /// already answers that question for the loop, so this is the same call rather
 /// than a second enumeration that would drift from it.
 extern "C" fn keys(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    // A proxy's keys are filtered by their descriptors, which `Reflect.ownKeys`
+    // does not do — see `super::proxy::enumerable_keys` for why that difference
+    // is the specification's and not an inconsistency.
+    if let Some(answered) = super::proxy::enumerable_keys(object) {
+        return answered;
+    }
     super::array::own_keys(object)
 }
 
