@@ -88,7 +88,7 @@ family, `Math`, `JSON`, `Map`, `Set`, `Promise`, `Date`, `Symbol`, plus what
 
 `crates/rts-host-rwk/tests/running.rs` is what says so — every test in it runs
 the program rather than inspecting it — and the number is measured rather than
-claimed. **2026-08-09: 596 of the 797 `*.test.ts` files pass** — 535 of 818 at
+claimed. **2026-08-09: 599 of the 797 `*.test.ts` files pass** — 535 of 818 at
 the start of 08-08, through generators, `yield*`, `Proxy`, native iterators,
 `export *`, a catchable throw, the bare `rts` specifier, stack traces, variadic
 natives and wrapper objects.
@@ -108,6 +108,28 @@ Read the columns together rather than the first alone. The run reports 596 ok,
 76 fail, 51 refused and 73 that died or hung, and files moved BETWEEN those
 columns for reasons that are progress: one that starts compiling and then fails
 an assertion has moved a number in the direction that looks like regression.
+
+**The number that says how far this still is: the OLD engine passes 779 of the
+same 797.** Both measured the same day over the same corpus, one process per
+file (`scripts/measure_engines.sh`). **194 files pass only on the old engine and
+14 only on the new** — removing `rts-codegen-new` today would cost those 194, so
+it stays until the gap closes. The rulers differ in one stated way: `rts test`
+also compares stdout against a fixture where one exists, which `suite_run` never
+sees; both require "ran and nothing failed", which is what makes the counts
+comparable at all.
+
+**The gap has no single cause, and its shape is the work list.** Of the 194:
+
+| n | the new engine answers | reading |
+|---|---|---|
+| 93 | compiles, runs, FAILS an assertion | a wrong answer, not a missing feature |
+| 64 | `TypeError: undefined is not a function` | un-triageable until the message names the callee |
+| 11 | `Unbound("x")`, `Unbound("v")`, `Unbound("R")` … | ordinary LOCAL names — scope/hoisting, not a missing library |
+| 22 | a missing global, `rts:`/DOM surface, a hang | mostly decisions already taken elsewhere |
+
+That the third row names locals rather than globals is what makes it worth
+listing separately: a missing `WeakRef` is a library gap, but a missing `x` is
+the emitter losing a binding.
 
 **The death column is what letting a native THROW did**, and it is the one to
 read first. It was 10. An operation this engine does not have used to answer
@@ -211,10 +233,32 @@ Before merge:
 
 ```bash
 cargo build --release
-cargo test --release --lib
+cargo test --release --lib -p <each crate you touched>   # NAME them — see below
 target/release/rts.exe test          # if the change touches runtime/codegen/GC
 bash scripts/read_before_commit.sh   # if the change touches the engine
 ```
+
+**`cargo test --release --lib` with no `-p` is not a gate.** At the workspace
+root it tests the root `rts` package alone and answers `0 passed; 0 failed` —
+green, and measuring nothing. It stood here bare and passed as a check for as
+long as nobody read the count. Naming the four crates of a codegen change
+answers 367 tests instead. This is the honesty floor's "verify the input, not
+just the output" applied to our own gate.
+
+**A suite number is compared PER FILE, never net.** `+3` is equally consistent
+with three gained and with five gained against two lost, and only one of those
+is shippable. The cheap way to know:
+
+```bash
+git stash push -u                                     # measure the baseline
+cargo build --release -p rts-host-rwk --example suite_run
+for f in tests/*.test.ts; do ... done > /tmp/base.txt  # one process per file
+git stash pop
+# rebuild, re-run into /tmp/now.txt, then:
+comm -23 <(grep '^ok ' /tmp/base.txt | awk '{print $2}' | sort) \
+         <(grep '^ok ' /tmp/now.txt  | awk '{print $2}' | sort)   # LOST
+```
+An empty LOST list is the claim "no regression"; the net number never was.
 
 A regression is acceptable when it is intentional or a necessary trade **and**
 documented in the commit with the reason. "It broke and I don't know why" is
