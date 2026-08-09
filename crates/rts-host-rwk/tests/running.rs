@@ -4359,3 +4359,47 @@ fn an_iterator_carries_the_helpers_a_program_expects() {
     );
     assert_eq!(tags::decode_double(consumed), 1.0);
 }
+
+/// `export *` and `export * as ns` both forward what another module exports.
+///
+/// Written against the graph rather than a single file, because that is what
+/// they are about. `compile` alone cannot see a second module at all.
+#[test]
+fn a_star_export_forwards_what_the_other_module_has() {
+    use std::io::Write;
+
+    let dir = std::env::temp_dir().join("rts_star_export");
+    std::fs::create_dir_all(&dir).expect("a directory to write fixtures in");
+    let write = |name: &str, source: &str| {
+        let path = dir.join(name);
+        let mut file = std::fs::File::create(&path).expect("a fixture file");
+        file.write_all(source.as_bytes()).expect("written");
+        path
+    };
+
+    write("star_inner.ts", "export function one() { return 1; }\nexport const three = 3;\n");
+    write("star_all.ts", "export * from \"./star_inner\";\n");
+    write("star_ns.ts", "export * as inner from \"./star_inner\";\n");
+    // Asserted from INSIDE the program, through `rts:test`, because a module
+    // answers nothing to its host: its last expression is not its value. This
+    // is the shape `suite_run` uses for every file in the suite.
+    let entry = write(
+        "star_entry.ts",
+        "import { test, expect } from \"rts:test\";\n\
+         import { one, three } from \"./star_all\";\n\
+         import { inner } from \"./star_ns\";\n\
+         test(\"forwarded\", () => expect(one() + three + inner.one()).toBe(5));\n",
+    );
+
+    rts_std_rwk::test::reset();
+    let mut program = rts_host_rwk::compile_graph(&entry).expect("the graph compiles");
+    program.run();
+    let reported = rts_std_rwk::test::record();
+    let failed: Vec<String> = reported.iter().filter_map(|one| one.failure.clone()).collect();
+    assert_eq!(reported.len(), 1, "the fixture registers one test");
+    assert!(
+        failed.is_empty(),
+        "1 and 3 through `export *`, and 1 through `export * as ns` — the last \
+         of which forwarded a name called `*` and answered undefined: {failed:?}"
+    );
+}

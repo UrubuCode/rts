@@ -212,6 +212,13 @@ pub enum RuntimeOp {
     /// in the layer defined by having none.
     GeneratorYield,
 
+    /// `export * from "m"` — every name another module exports, published here.
+    ///
+    /// A call rather than a list the compiler emits, because the compiler does
+    /// not know the list: what `m` exports is decided by `m`'s body, which has
+    /// already run by the time this does.
+    ModulePublishAll,
+
     /// Copies a source object's own enumerable properties onto a target.
     ///
     /// What `{ ...source }` is. A call because it walks a shape the compiler
@@ -556,6 +563,7 @@ impl RuntimeOp {
         RuntimeOp::ClosureNew,
         RuntimeOp::GeneratorNew,
         RuntimeOp::GeneratorYield,
+        RuntimeOp::ModulePublishAll,
         RuntimeOp::ObjectSpread,
         RuntimeOp::KeyNumber,
         RuntimeOp::Thrown,
@@ -630,6 +638,7 @@ impl RuntimeOp {
             RuntimeOp::ClosureNew => "__rts_closure_new",
             RuntimeOp::GeneratorNew => "__rts_generator_new",
             RuntimeOp::GeneratorYield => "__rts_generator_yield",
+            RuntimeOp::ModulePublishAll => "__rts_module_publish_all",
             RuntimeOp::ObjectSpread => "__rts_object_spread",
             RuntimeOp::KeyNumber => "__rts_key_number",
             RuntimeOp::Thrown => "__rts_thrown",
@@ -721,6 +730,9 @@ impl RuntimeOp {
             // expression — NOT what the yield evaluates to, which comes out of
             // the suspension beside it.
             RuntimeOp::GeneratorYield => (vec![UNPROVEN], vec![UNPROVEN]),
+            // Two literal indices: this module's specifier and the one it is
+            // re-exporting from. Neither is a value.
+            RuntimeOp::ModulePublishAll => (vec![Repr::I64, Repr::I64], vec![UNPROVEN]),
             RuntimeOp::ObjectSpread => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
             // A key number is an `I64` and not a value: it is what the compiler
             // resolves a name to, and every accessor entry point takes one.

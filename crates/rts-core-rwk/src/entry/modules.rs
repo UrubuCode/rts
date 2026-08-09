@@ -781,3 +781,80 @@ pub fn forget_module(context: &mut Context, specifier: &str) -> bool {
     context.modules.retain(|(name, _)| name != specifier);
     context.modules.len() != before
 }
+
+/// `export * from "m"` — every name `m` exports, published here too.
+///
+/// # Why this is one operation and not a list the compiler emits
+///
+/// Because the compiler does not know the list. `m`'s exports are decided by
+/// `m`'s own body, which has already run by the time this does — the graph is
+/// ordered dependencies-first — so the names exist as properties of a namespace
+/// and nowhere else at compile time. A version that published nothing was what
+/// the refusal this replaces was protecting against.
+///
+/// `default` is deliberately skipped: `export *` does not forward it, which is
+/// the one rule that distinguishes it from copying the namespace wholesale.
+#[rtse::entry]
+pub fn module_publish_all(specifier: i64, from: i64) -> u64 {
+    let source = module_namespace(from);
+    let names = super::array::own_keys(source);
+
+    // Read, then write — the keys come out of one borrow and the publication
+    // takes another, because `module_publish` interns and interning allocates.
+    let pairs = with_current(|context| {
+        let mut pairs: Vec<(crate::object::Key, u64)> = Vec::new();
+        let Some(cell) = Value(names).as_slot() else {
+            return pairs;
+        };
+        let Some(listed) = context.elements_at(cell).cloned() else {
+            return pairs;
+        };
+        for name in listed {
+            let Some(key) = super::computed::property_key(context, Value(name)) else {
+                continue;
+            };
+            if let crate::object::Key::Name(named) = key
+                && context
+                    .interner
+                    .text(named)
+                    .and_then(Str::to_rust)
+                    .is_some_and(|text| text == "default")
+            {
+                continue;
+            }
+            if let Some(source) = Value(source).as_slot()
+                && let Some(value) = super::objects::read_property(context, source, key)
+            {
+                pairs.push((key, value.bits()));
+            }
+        }
+        pairs
+    });
+
+    with_current(|context| {
+        let Some(text) = context
+            .literals
+            .get(specifier as usize)
+            .copied()
+            .and_then(|held| Value(held).as_slot())
+            .and_then(|cell| context.text_at(cell))
+            .and_then(Str::to_rust)
+        else {
+            return;
+        };
+        let namespace = match context.module_at(&text) {
+            Some(namespace) => namespace,
+            None => {
+                let made = make_object(context);
+                context.modules.push((text, made));
+                made
+            }
+        };
+        if let Some(cell) = Value(namespace).as_slot() {
+            for (key, value) in pairs {
+                super::objects::put(context, cell, key, value);
+            }
+        }
+    });
+    source
+}

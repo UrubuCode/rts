@@ -102,6 +102,7 @@ pub use generator::{FrameShape, declare_frames, generator_new, generator_yield};
 pub use global::{global_get, global_set};
 pub use iterate::{array_append, array_append_all, iterate};
 pub use modules::{
+    module_publish_all,
     Provided, boolean_value, buffer_class, canonical_encoding, decode_base64, decode_bytes, declare_global,
     declare_module, encode_base64, encode_text, get_member, make_array, make_array_in, make_callable,
     make_bigint, make_buffer, make_namespace, make_number, make_object, make_string,

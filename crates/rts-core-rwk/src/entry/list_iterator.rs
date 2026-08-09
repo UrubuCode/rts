@@ -21,7 +21,7 @@
 //! it is a million-element copy. The lazy form is where that goes, and this is
 //! the thing it will replace rather than something it will sit beside.
 
-use super::{Context, with_current};
+use super::with_current;
 use crate::value::Value;
 
 /// An iterator over a list that has already been built.

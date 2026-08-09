@@ -140,6 +140,15 @@ pub enum PublicationSource {
         /// Which module.
         specifier: String,
     },
+    /// `export * from "m"` — every name it exports, under those same names.
+    ///
+    /// No `exported` name of its own, which is why it is its own variant rather
+    /// than a `Namespace` with a blank: what it publishes is a SET, decided by
+    /// the other module at run time.
+    All {
+        /// Which module.
+        specifier: String,
+    },
 }
 
 /// Writes this module's exports into the table an `import` reads.
@@ -170,6 +179,15 @@ pub fn emit_publications(
     let own = ctx.literal(module);
     let own = number(builder, u64::from(own));
     for publication in publications {
+        // The one publication that names no export: it copies a set. Emitted
+        // here and skipped below, because everything after this reads
+        // `publication.exported` as the key to publish under.
+        if let PublicationSource::All { specifier } = &publication.source {
+            let from = ctx.literal(specifier);
+            let from = number(builder, u64::from(from));
+            super::expr::call(builder, ctx, RuntimeOp::ModulePublishAll, &[own, from])?;
+            continue;
+        }
         let value = match &publication.source {
             PublicationSource::Local(local) => super::binding::read(builder, scope, ctx, *local)?,
             PublicationSource::Reexport { specifier, name } => {
@@ -184,6 +202,9 @@ pub fn emit_publications(
                 let from = number(builder, u64::from(from));
                 super::expr::call(builder, ctx, RuntimeOp::ModuleNamespace, &[from])?[0]
             }
+            // Handled above, where it is emitted: it publishes a set rather
+            // than a value, so there is nothing for this match to produce.
+            PublicationSource::All { .. } => continue,
         };
         let interned = ctx.names.intern(&publication.exported);
         let key = number(builder, u64::from(ctx.key_of(interned)));
@@ -261,12 +282,26 @@ pub fn lower_export(
                 // module never sees the name. That is the specification's own
                 // distinction and it is why this is a separate source rather
                 // than a synthesised import.
+                //
+                // `export * as ns from "m"` arrives HERE rather than as
+                // `ExportKind::All` — the parser gives it a specifier whose
+                // local name is `"*"` — and forwarding it by that name asked
+                // `m` for an export called `*`, which no module has. It
+                // published `undefined` under a key that was really there, so
+                // `Object.keys` showed the name and reading it answered
+                // nothing: the shape of wrongness that looks like it works.
+                let source = match specifier.local.as_str() {
+                    "*" => PublicationSource::Namespace {
+                        specifier: from.clone(),
+                    },
+                    name => PublicationSource::Reexport {
+                        specifier: from.clone(),
+                        name: name.to_owned(),
+                    },
+                };
                 publications.push(Publication {
                     exported: specifier.exported.clone(),
-                    source: PublicationSource::Reexport {
-                        specifier: from.clone(),
-                        name: specifier.local.clone(),
-                    },
+                    source,
                 });
             }
         }
@@ -317,15 +352,25 @@ pub fn lower_export(
                 specifier: source.clone(),
             },
         }),
-        ExportKind::All { alias: None, .. } => {
-            // `export * from "m"` needs every name `m` exports, which means
-            // enumerating a namespace at run time and re-publishing each. That
-            // is a real operation and it does not exist yet; a version that
-            // published nothing would compile a module whose exports are
-            // silently missing, which is exactly what refusing exports outright
-            // was protecting against.
-            return Err(refuse("`export * from` without `as`"));
-        }
+        // `export * from "m"` publishes every name `m` exports, which is a SET
+        // the compiler cannot know: `m`'s body decides it and has already run by
+        // the time this does, since the graph is ordered dependencies-first.
+        // So it is one call — `ModulePublishAll` — rather than a list emitted
+        // here. It was refused until that operation existed, because a version
+        // publishing nothing compiles a module whose exports are silently
+        // missing.
+        ExportKind::All {
+            source,
+            alias: None,
+            ..
+        } => publications.push(Publication {
+            // Not a name. What this publishes is decided at run time, and the
+            // emitter reads the SOURCE to know that.
+            exported: String::new(),
+            source: PublicationSource::All {
+                specifier: source.clone(),
+            },
+        }),
     }
     Ok(())
 }

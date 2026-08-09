@@ -61,6 +61,7 @@ use super::objects::{
 };
 use super::function_proto::RUNNING_FUNCTION_ENTRY;
 use super::generator::{GENERATOR_NEW_ENTRY, GENERATOR_YIELD_ENTRY};
+use super::modules::MODULE_PUBLISH_ALL_ENTRY;
 use super::throw::{TAKE_THROWN_ENTRY, THROWN_ENTRY};
 use super::operators::LOOSE_EQUALS_ENTRY;
 use super::operators::{
@@ -394,6 +395,9 @@ pub enum CoreEntry {
 
     /// [`super::generator_yield`].
     GeneratorYield = 63,
+
+    /// [`super::module_publish_all`].
+    ModulePublishAll = 64,
 }
 
 /// How many entry points exist.
@@ -401,7 +405,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 64;
+pub const CORE_ENTRY_COUNT: usize = 65;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -470,6 +474,7 @@ impl CoreEntry {
         CoreEntry::RunningFunction,
         CoreEntry::GeneratorNew,
         CoreEntry::GeneratorYield,
+        CoreEntry::ModulePublishAll,
     ];
 
     /// The number a call site holds.
@@ -506,6 +511,7 @@ impl CoreEntry {
             CoreEntry::RunningFunction => RUNNING_FUNCTION_ENTRY,
             CoreEntry::GeneratorNew => GENERATOR_NEW_ENTRY,
             CoreEntry::GeneratorYield => GENERATOR_YIELD_ENTRY,
+            CoreEntry::ModulePublishAll => MODULE_PUBLISH_ALL_ENTRY,
             CoreEntry::ObjectSpread => OBJECT_SPREAD_ENTRY,
             CoreEntry::KeyNumber => KEY_NUMBER_ENTRY,
             CoreEntry::Call => CALL_ENTRY,
@@ -634,8 +640,16 @@ mod tests {
         // The membership rule's whole job. If this ever fails, the question is
         // not whether to raise the number — it is which of the new entries is
         // arithmetic wearing a call.
+        //
+        // Asked and answered once, at 64. The three that crossed it are
+        // `GeneratorNew` (allocates a frame), `GeneratorYield` (writes context
+        // state) and `ModulePublishAll` (walks one namespace and writes
+        // another) — every one of them touches the heap or global mutable
+        // state, so none is arithmetic and the ceiling was what had to move.
+        // It moved ONCE and by a little: the next entry to cross it has to
+        // answer this question again rather than inherit the answer.
         assert!(
-            CORE_ENTRY_COUNT <= 64,
+            CORE_ENTRY_COUNT <= 72,
             "an explicitly numbered list stops being the right mechanism when \
              nobody can read it"
         );

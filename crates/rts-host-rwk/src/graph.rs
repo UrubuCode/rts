@@ -24,10 +24,18 @@
 //! runs, and a loader that tried to find `node:fs` on disk would shadow the real
 //! one with whatever happened to be there.
 //!
-//! An extension is not guessed. `./x` is `./x`, and `./x.ts` is `./x.ts`; a
-//! resolver that tried `.ts`, then `.js`, then `/index.ts` picks a file the
-//! program did not name, and which one it picked is invisible until two of them
-//! exist.
+//! An extension is not GUESSED, and this rule changed once with its reason. It
+//! used to be absolute — `./x` is `./x` — because a resolver that tried `.ts`,
+//! then `.js`, then `/index.ts` picks a file the program did not name, and
+//! which one it picked is invisible until two of them exist.
+//!
+//! What is here now is narrower and keeps that property: `./x` is tried, and if
+//! nothing is there, `./x.ts` — one candidate, not a cascade. Two files can
+//! never both match, so there is nothing invisible to pick between. It exists
+//! because that is how TypeScript is written: every relative import in this
+//! repository's own suite omits the extension, and refusing them measured as an
+//! engine that cannot compile modules rather than as a resolver that will not
+//! look.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -61,7 +69,20 @@ fn is_relative(specifier: &str) -> bool {
 /// The path a relative specifier names, from the file that wrote it.
 fn resolve(from: &Path, specifier: &str) -> PathBuf {
     let base = from.parent().unwrap_or(Path::new("."));
-    let joined = base.join(specifier);
+    let named = base.join(specifier);
+    // What the program wrote, and then the one candidate: `./x` before `./x.ts`.
+    // Written this way round so a file that genuinely has no extension still
+    // wins over a `.ts` beside it — the program named that one.
+    let joined = match named.exists() {
+        true => named,
+        false => {
+            let with_ts = base.join(format!("{specifier}.ts"));
+            match with_ts.exists() {
+                true => with_ts,
+                false => named,
+            }
+        }
+    };
     // Canonicalised so that `./a.ts` and `../dir/a.ts` are the SAME module. Two
     // spellings of one file compiled twice would run its side effects twice and
     // give it two namespaces, and `import { x } from` each would answer two
