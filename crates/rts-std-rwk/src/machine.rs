@@ -1,4 +1,4 @@
-//! `rts`'s `time` and `gc` — the clock, and what the heap has handed out.
+//! `rts`'s `time` — the clock.
 //!
 //! # Why `time` is here and not in the runtime
 //!
@@ -20,35 +20,28 @@
 //! files in the suite call it and because a blocking sleep is a real thing to
 //! want; it is not the better spelling.
 //!
-//! # `gc.live_count` counts cells, and `gc.collect` collects nothing
+//! # Why there is no `gc` here
 //!
-//! There is no collector. `live_count` answers how many cells the region has
-//! handed out, which is what it can say truthfully — that number only ever goes
-//! up, and a program watching it fall is watching for something this engine does
-//! not do yet. `collect` answers that count rather than pretending to have freed
-//! anything: a function that reported a number of reclaimed objects would be
-//! inventing one.
+//! It was written and removed the same day. `live_count` and `collect` can each
+//! be answered truthfully — cells handed out, and that same count, since nothing
+//! is collected — but the owner's decision is that this engine does not offer a
+//! `gc` surface at all: the old one had it, the programs that used it allocated
+//! in order to watch it, and a namespace kept alive for that is a surface to
+//! keep in agreement for no reader. The tests that called it were removed with
+//! it, so nothing here is a structure without a producer.
 
 use rts_core_rwk::entry::{self, Context, Provided};
 
-/// The two namespaces.
+/// The clock.
 pub fn install(context: &mut Context, surface: u64) {
     let clock = entry::make_namespace(context, TIME);
     entry::put_member(context, surface, "time", clock);
-    let heap = entry::make_namespace(context, GC);
-    entry::put_member(context, surface, "gc", heap);
 }
 
 /// `time` — the wall clock, in milliseconds.
 const TIME: &[(&str, Provided)] = &[
     ("now_ms", now_ms),
     ("sleep_ms", sleep_ms),
-];
-
-/// `gc` — what the heap has handed out.
-const GC: &[(&str, Provided)] = &[
-    ("live_count", live_count),
-    ("collect", collect),
 ];
 
 /// `time.now_ms()` — milliseconds since the epoch, as a whole number.
@@ -80,12 +73,3 @@ extern "C" fn sleep_ms(_e: u64, _this: u64, a: u64, _a1: u64, _a2: u64, _a3: u64
     entry::undefined_value()
 }
 
-/// `gc.live_count()` — cells handed out by the region.
-extern "C" fn live_count(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    entry::with_runtime(|context| entry::make_number(f64::from(context.region.used())))
-}
-
-/// `gc.collect()` — the same count, because nothing is collected.
-extern "C" fn collect(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    live_count(0, 0, 0, 0, 0, 0)
-}
