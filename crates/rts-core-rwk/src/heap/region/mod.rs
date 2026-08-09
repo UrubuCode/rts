@@ -90,6 +90,8 @@
 //! answers absent rather than reading the wrong memory — which is a refusal, not
 //! protection. A program that arranges to share anyway is protected by nothing.
 
+mod span;
+
 use rts_cranelift::mem::{HeaderLayout, SLOT_BYTES};
 
 /// How many inline slots a cell holds.

@@ -58,6 +58,51 @@ fn parks_holding_its_parameter() -> Function {
     func
 }
 
+/// Places a rewritten function against `region`'s addressing and hands back
+/// something callable.
+///
+/// The handle owning the pages is leaked: dropping it unmaps the code, and the
+/// address is what the caller is about to run.
+fn compile_alone(
+    name: &'static str,
+    resumable: &rts_cranelift::frame::Resumable,
+    types: &TypeRegistry,
+    region: &Region,
+) -> extern "C" fn(i64) -> i64 {
+    let mut funcs = FuncRegistry::new();
+    let shape = funcs.declare_signature(resumable.func.signature.clone());
+    let id = funcs.declare_function(shape);
+    let outside: Vec<(&str, *const u8)> = vec![
+        (RtEntry::Alloc.symbol(), unreachable_entry as *const u8),
+        (RtEntry::WriteBarrier.symbol(), ignored_barrier as *const u8),
+    ];
+    let bases = RegionBases::single(RegionBase::Immediate(region.base()), region.stride());
+
+    // SAFETY: both addresses are functions in this binary, alive for the whole
+    // process, with the signatures the machine declares for those entries.
+    let placed = unsafe {
+        place_in_memory(
+            &[Placing {
+                id,
+                name,
+                visibility: Visibility::Exported,
+                body: Some(&resumable.func),
+            }],
+            &outside,
+            &funcs,
+            types,
+            Some(bases),
+        )
+    }
+    .expect("a rewritten function has nothing left that cannot be emitted");
+
+    let address = placed.address_of(id).expect("placed with a body");
+    Box::leak(Box::new(placed));
+    // SAFETY: `resumable_form` states this shape — one reference in, finished?
+    // out — and it is the shape that was just placed.
+    unsafe { std::mem::transmute(address) }
+}
+
 #[test]
 fn a_frame_that_fits_a_cell_is_addressed_identically_by_both_sides() {
     let mut types = TypeRegistry::new();
@@ -84,37 +129,7 @@ fn a_frame_that_fits_a_cell_is_addressed_identically_by_both_sides() {
         .set_field(frame, resumable.layout.label_field, 0)
         .expect("the label has a slot");
 
-    let mut funcs = FuncRegistry::new();
-    let shape = funcs.declare_signature(resumable.func.signature.clone());
-    let id = funcs.declare_function(shape);
-    let outside: Vec<(&str, *const u8)> = vec![
-        (RtEntry::Alloc.symbol(), unreachable_entry as *const u8),
-        (RtEntry::WriteBarrier.symbol(), ignored_barrier as *const u8),
-    ];
-    let bases = RegionBases::single(RegionBase::Immediate(region.base()), region.stride());
-
-    // SAFETY: both addresses are functions in this binary, alive for the whole
-    // process, with the signatures the machine declares for those entries.
-    let placed = unsafe {
-        place_in_memory(
-            &[Placing {
-                id,
-                name: "frame_in_a_cell",
-                visibility: Visibility::Exported,
-                body: Some(&resumable.func),
-            }],
-            &outside,
-            &funcs,
-            &types,
-            Some(bases),
-        )
-    }
-    .expect("a rewritten function has nothing left that cannot be emitted");
-
-    let address = placed.address_of(id).expect("placed with a body");
-    // SAFETY: `resumable_form` states this shape — one reference in, finished?
-    // out — and it is the shape that was just placed.
-    let run: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(address) };
+    let run = compile_alone("frame_in_a_cell", &resumable, &types, &region);
 
     // The reference the region handed out, unchanged: compiled code turns it
     // into an address with the same base and stride the region reported.
@@ -156,7 +171,7 @@ fn a_word_wide_frame_puts_its_field_n_in_slot_n() {
 }
 
 #[test]
-fn a_frame_wider_than_a_cell_is_refused_rather_than_truncated() {
+fn a_frame_wider_than_a_cell_lives_in_consecutive_ones() {
     let mut types = TypeRegistry::new();
     // Six parameters and a return: with the label and the resumed slot, that is
     // nine words, and a cell holds seven. Six is not a large generator.
@@ -188,5 +203,31 @@ fn a_frame_wider_than_a_cell_is_refused_rather_than_truncated() {
     assert_eq!(
         INLINE_SLOTS, 7,
         "the ceiling this test is about is the cell's slot count"
+    );
+
+    // Where it lives instead: consecutive cells, addressed by the same base and
+    // stride as everything else. Nothing about the addressing changes, which is
+    // why the rewritten function below is compiled exactly as the small one was.
+    let frame = region
+        .alloc_spanning(layout.size, resumable.layout.ty.index() as u32)
+        .expect("consecutive cells");
+    let slots = layout.field_offsets.len() as u32;
+    region
+        .set_spanning_field(frame, resumable.layout.param_fields[0], slots, 7)
+        .expect("its own field");
+
+    let run = compile_alone("frame_across_cells", &resumable, &types, &region);
+
+    assert_eq!(run(i64::from(frame)), 0, "it parked");
+    assert_eq!(
+        region.spanning_field(frame, resumable.layout.label_field, slots),
+        Some(1)
+    );
+    assert_eq!(run(i64::from(frame)), 1, "entered again, it finished");
+    assert_eq!(
+        region.spanning_field(frame, resumable.layout.return_fields[0], slots),
+        Some(7),
+        "a frame wider than a cell reads and writes the words it owns, and the \
+         cells it spans are addressed by the arithmetic one cell costs"
     );
 }
