@@ -61,6 +61,7 @@
 #![deny(dead_code)]
 
 pub mod console;
+pub mod machine;
 pub mod numbers;
 pub mod globals;
 pub mod runtime;
@@ -89,6 +90,7 @@ pub fn install(context: &mut Context) {
     // absent rather than approximated.
     let surface = rts_core_rwk::entry::make_namespace(context, &[]);
     numbers::install(context, surface);
+    machine::install(context, surface);
     rts_core_rwk::entry::declare_module(context, "rts", surface);
 
     // Not modules: a program writes `console.log` and `new TextEncoder()` with
