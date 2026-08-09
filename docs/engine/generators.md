@@ -1,9 +1,16 @@
 # Generators, and where each half of one lives
 
-A decision, not a plan: the shape below is what the pieces already in the tree
-force, and writing it down is what stops the next attempt from re-deriving it —
-or, worse, from building a second suspension mechanism beside the one that is
-already tested.
+**Built. A program that yields runs**, and the suite went from 535 to 551 of 818
+the day it landed. What follows is the design as it was decided, with the two
+places the built thing differs from it marked — kept rather than rewritten,
+because the reasoning is what a later change needs, and a document that only
+describes the current code cannot say what was rejected.
+
+Two defects surfaced while wiring it, both older than the work and both in the
+machine: the frame rewrite carried a constant's NUMBER into a pool where it named
+the resume label, and lowering walked blocks in creation order rather than by
+dominance — which agree until a pass rewrites control flow, which is exactly what
+this one does.
 
 ## What already exists, and is not called by anything
 
@@ -48,24 +55,36 @@ The host then registers, for that function's code address, the frame's type and
 the three field offsets. Keyed by ADDRESS rather than by name or index, because
 that is the one thing the runtime already holds about a compiled function.
 
-**The runtime** (`rts-core-rwk`). A generator object holds the frame cell and
+**The runtime** (`rts-core-rwk`), in `entry/generator.rs`. A generator object holds the frame cell and
 whether it is finished. `next(v)` writes `v` into `resumed_field`, calls the code
 with the frame's address, reads the finished flag, and answers `{ value, done }`.
-`yield` reaches the generator currently being resumed through a stack in
-`Context`, the same shape `functions::invoke` already uses to record which
-callable is running.
+A second difference from what this proposed: `yield` was to reach the generator
+being resumed through a STACK in `Context`, the shape `functions::invoke` uses
+for callees. It is **one slot**. The value is written by `GeneratorYield` and
+taken by whoever resumed the instant the call returns, so a generator advanced
+from inside another's body has already had its own taken — the nesting is a stack
+because the calls are. A stack would hold the same value for longer and would
+need a discipline to stay in step with control flow a `throw` can leave.
 
-## The one decision that is not obvious
+## The one decision that is not obvious, and what was built instead
 
 **A call does not need to know it is calling a generator.** Calling a generator
 function must not run the body — it must make an object — and the tempting fix is
 a flag threaded from the language through `ClosureNew` to the call site.
 
-It is not needed. `functions::invoke` already resolves a closure's code address
-before jumping, and the host has registered exactly those addresses. So `invoke`
-asks the generator table first: a hit makes the object, a miss jumps as it always
-did. The language emits an ordinary closure, the call site emits an ordinary
-call, and the fact that lives in one place is registered in one place.
+This document proposed asking a table in `functions::invoke`, which already
+resolves a closure's code address before jumping: a hit makes the object, a miss
+jumps as it always did. **That is not what was built, and the reason is where the
+cost lands.** The table is consulted before EVERY call in the program, so every
+ordinary call pays a lookup for a fact that is true at one site — the definition.
+
+What was built is a **wrapper**, the shape `wrap_async` already uses for the same
+reason: `function*` emits its body plus an ordinary function that hands the
+body's ADDRESS to `GeneratorNew` and answers the object. The closure, the call
+and the caller are unchanged, `invoke` is untouched, and the fact lives at the
+one site where it is true. The table that remains is the frame's SHAPE by code
+address, which the runtime needs regardless — it cannot allocate a frame without
+knowing how big it is.
 
 ## Where the frame lives — answered by running one
 

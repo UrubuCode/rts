@@ -88,16 +88,19 @@ family, `Math`, `JSON`, `Map`, `Set`, `Promise`, `Date`, `Symbol`, plus what
 
 `crates/rts-host-rwk/tests/running.rs` is what says so — every test in it runs
 the program rather than inspecting it — and the number is measured rather than
-claimed. **2026-08-08: 535 of the 818 files in `tests/` pass, and 723 compile.**
+claimed. **2026-08-08, after generators: 551 of the 818 `*.test.ts` files pass
+and 740 compile** — 535 and 723 before them, the same day.
 `crates/rts-host-rwk/examples/suite_run.rs` produced it, one process per file,
 because an uncaught exception and an endless loop each take the process with
 them and a single-process harness would report whatever it reached first as the
-score.
+score. One file of the 818 produced no line at all and is counted in neither
+column; the run reports 551 ok, 179 fail, 78 refused and 9 that died or hung.
 
-The largest single gap is **generators**: 38 files, and the machine's half of it
-is already built and tested (`rts_cranelift::frame::resumable_form`) with nothing
-calling it. The second is that **a native cannot yet raise a catchable error**,
-which is what a dozen `node:` tests assert; `crates/rts-core-rwk/README.md` says
+**Generators run.** They were the largest single gap — 38 files — and what is
+left of that entry is `yield*` in 9, which is a loop over the iteration protocol
+rather than a suspension. `docs/engine/generators.md` is the design and says
+which of it was taken; the largest gap now is that **a native cannot yet raise a
+catchable error**, which is what a dozen `node:` tests assert; `crates/rts-core-rwk/README.md` says
 what that needs and why the two obvious call sites were reverted before commit.
 
 **This is the direction for all new work.** `crates/rts-codegen-new` is the
