@@ -61,6 +61,7 @@
 #![deny(dead_code)]
 
 pub mod console;
+pub mod numbers;
 pub mod globals;
 pub mod runtime;
 pub mod test;
@@ -78,6 +79,17 @@ pub fn install(context: &mut Context) {
 
     let modules = runtime::namespace(context);
     rts_core_rwk::entry::declare_module(context, "rts:runtime", modules);
+
+    // The BARE `rts` specifier, which 33 files in the suite import and which
+    // this engine did not register at all — so every one of them bound nothing
+    // and died on the first call the moment a native could throw. What it
+    // carries is what can be answered exactly: 64-bit integer arithmetic, and
+    // the two namespaces beside it that are about the machine rather than about
+    // JavaScript. What it does NOT carry is named in `numbers.rs`, and stays
+    // absent rather than approximated.
+    let surface = rts_core_rwk::entry::make_namespace(context, &[]);
+    numbers::install(context, surface);
+    rts_core_rwk::entry::declare_module(context, "rts", surface);
 
     // Not modules: a program writes `console.log` and `new TextEncoder()` with
     // no import line, so both have to be reachable by name.

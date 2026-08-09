@@ -4511,3 +4511,36 @@ fn a_static_block_can_name_the_class_it_is_in() {
     );
     assert_eq!(tags::decode_double(called), 2.0);
 }
+
+/// `import { num } from "rts"` — the bare specifier, and 64-bit arithmetic.
+///
+/// The specifier was not registered at all, so 33 files in the suite bound
+/// nothing from it and died on their first call once a native could throw.
+#[test]
+fn the_bare_rts_specifier_answers_integer_arithmetic() {
+    // Through a fixture rather than `run`, because an `import` is a MODULE item:
+    // `run` compiles a script, and `import()` as an expression is its own gap.
+    use std::io::Write;
+    let dir = std::env::temp_dir().join("rts_bare_surface");
+    std::fs::create_dir_all(&dir).expect("a directory to write a fixture in");
+    let path = dir.join("surface.ts");
+    let mut file = std::fs::File::create(&path).expect("a fixture file");
+    file.write_all(
+        b"import { test, expect } from \"rts:test\";\n\
+          import { num, math, hint } from \"rts\";\n\
+          test(\"wrapping\", () => expect(num.wrapping_sub(0, 1)).toBe(-1));\n\
+          test(\"checked refuses\", () => expect(num.checked_div(100, 0)).toBe(undefined));\n\
+          test(\"bits\", () => expect(num.count_ones(255)).toBe(8));\n\
+          test(\"integer abs\", () => expect(math.abs_i64(-13)).toBe(13));\n\
+          test(\"a hint answers its argument\", () => expect(hint.black_box_i64(42)).toBe(42));\n",
+    )
+    .expect("written");
+
+    rts_std_rwk::test::reset();
+    let mut program = rts_host_rwk::compile_graph(&path).expect("the fixture compiles");
+    program.run();
+    let reported = rts_std_rwk::test::record();
+    let failed: Vec<String> = reported.iter().filter_map(|one| one.failure.clone()).collect();
+    assert_eq!(reported.len(), 5, "the fixture registers five tests");
+    assert!(failed.is_empty(), "{failed:?}");
+}
