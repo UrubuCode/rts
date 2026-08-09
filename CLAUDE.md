@@ -88,9 +88,14 @@ family, `Math`, `JSON`, `Map`, `Set`, `Promise`, `Date`, `Symbol`, plus what
 
 `crates/rts-host-rwk/tests/running.rs` is what says so — every test in it runs
 the program rather than inspecting it — and the number is measured rather than
-claimed. **2026-08-09: 581 of the 818 `*.test.ts` files pass and 767 compile** —
-535 and 723 at the start of 08-08, through generators, `yield*`, `Proxy`, native
-iterators, `export *`, a catchable throw and the bare `rts` specifier.
+claimed. **2026-08-09: 575 of the 797 `*.test.ts` files pass** — 535 of 818 at
+the start of 08-08, through generators, `yield*`, `Proxy`, native iterators,
+`export *`, a catchable throw, the bare `rts` specifier and stack traces.
+
+The DENOMINATOR changed that day and both halves are stated because of it: 21
+files were removed for testing surfaces this engine will not have in that shape
+(`gc`, `ptr`, `mem`, `alloc`, `ffi`, `trace`), and SIX of them were passing. So
+the count fell by six while the share rose, and neither number alone says that.
 `crates/rts-host-rwk/examples/suite_run.rs` produced it, one process per file,
 because an uncaught exception and an endless loop each take the process with
 them and a single-process harness would report whatever it reached first as the
@@ -98,8 +103,8 @@ score. It compiles a file with a relative import as a GRAPH, which it did not
 until that day: measuring those on their own bound every import to nothing and
 reported an instrument's limit as the engine's — 14 assertions in one file.
 
-Read the columns together rather than the first alone. The run reports 581 ok,
-97 fail, 51 refused and 88 that died or hung, and files moved BETWEEN those
+Read the columns together rather than the first alone. The run reports 575 ok,
+95 fail, 51 refused and 75 that died or hung, and files moved BETWEEN those
 columns for reasons that are progress: one that starts compiling and then fails
 an assertion has moved a number in the direction that looks like regression.
 
@@ -137,11 +142,18 @@ code asks whether the callee left a throw behind before it looks at the answer.
 Raising without it turned one silent wrong answer into a hang, which is why the
 first attempt was reverted before commit.
 
-The largest gap now is the **`rts:` surface the old engine provided** — `ptr`,
-`mem`, `alloc`, `ffi`, `atomic`, `sync`, `trace`, `thread`, `io`, `buffer`,
-`net`, `fs`, `process`. The bare `rts` specifier exists and carries `num`,
-`math`, `hint`, `time` and `gc`; the rest is what 83 files die on, and it is
-what stands between this engine and replacing the old one.
+**An error says where it came from**, in the `at …` form Node and Bun print,
+from the call stack `functions::invoke` already keeps. `.stack` is captured
+where the error is CONSTRUCTED. No line numbers yet — the machine records a
+source position per instruction and nothing maps an address back to one at run
+time, which is `rts_cranelift::observe`'s question.
+
+The largest gap now is the **`rts:` surface the old engine provided** that this
+one keeps: `atomic`, `sync`, `thread`, `io`, `buffer`, `net`, `fs`, `process`.
+The bare `rts` specifier exists and carries `num`, `math`, `hint` and `time`.
+`ptr`, `mem`, `alloc`, `ffi` and `trace` are NOT on that list — they return in
+another shape or not at all, and their tests were removed rather than left
+pinning an interface nothing will implement.
 
 **This is the direction for all new work.** `crates/rts-codegen-new` is the
 engine that currently runs `rts run` / `compile` / `test`, and it is being
