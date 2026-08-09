@@ -254,4 +254,21 @@ pub fn install(context: &mut Context) {
     let promises = rts_core_rwk::entry::get_member(context, files, "promises");
     rts_core_rwk::entry::declare_module(context, "node:fs/promises", promises);
     rts_core_rwk::entry::declare_module(context, "fs/promises", promises);
+
+    // `node:path/posix` and `node:path/win32` are their own specifiers too, and
+    // they resolve to the objects `path` already carries under those names — the
+    // SAME objects, for the reason one comment up: two would be two answers to
+    // what `path.posix === (await import("node:path/posix")).default` compares.
+    //
+    // Two files in the suite import them this way, and every assertion in both
+    // read `undefined`, which is what an unresolved specifier leaves behind.
+    let paths = rts_core_rwk::entry::module_at_name(context, "node:path");
+    {
+        let posix = rts_core_rwk::entry::get_member(context, paths, "posix");
+        rts_core_rwk::entry::declare_module(context, "node:path/posix", posix);
+        rts_core_rwk::entry::declare_module(context, "path/posix", posix);
+        let win32 = rts_core_rwk::entry::get_member(context, paths, "win32");
+        rts_core_rwk::entry::declare_module(context, "node:path/win32", win32);
+        rts_core_rwk::entry::declare_module(context, "path/win32", win32);
+    }
 }

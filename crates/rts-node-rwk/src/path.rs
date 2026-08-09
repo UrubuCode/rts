@@ -22,11 +22,17 @@
 //!
 //! # Not implemented, by name
 //!
-//! `matchesGlob` — a glob-to-`RegExp` compiler needs a way to construct a
-//! `RegExp` value, and `rts_core_rwk::entry::modules` (the API this crate is
-//! restricted to) exposes no such constructor. Refused rather than
-//! approximated with a hand-rolled matcher that would silently diverge from
-//! `RegExp` semantics.
+//! `matchesGlob` is now here, and this note used to say why it was not: a
+//! glob-to-`RegExp` compiler needs a way to construct a `RegExp`, which the API
+//! this crate is restricted to does not expose. That reasoning is what changed
+//! rather than the API — translating a glob into a pattern means escaping every
+//! metacharacter a path may legally contain, and a list that misses one is a
+//! pattern matching something it must not. Matching directly has no such list.
+//!
+//! What it covers is `*` (within a segment), `**` (across separators) and `?`.
+//! Brace expansion and character classes are NOT covered, and a pattern using
+//! them answers false — the same answer a genuinely non-matching pattern gives,
+//! which is why the gap is named here rather than left to be discovered.
 //!
 //! `win32`'s UNC-path root/`toNamespacedPath` handling covers the common
 //! `\\server\share\...` shape only — Node's own long-path edge cases
@@ -55,6 +61,7 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("parse", parse_posix),
         ("format", format_posix),
         ("toNamespacedPath", to_namespaced_posix),
+        ("matchesGlob", matches_glob_entry),
     ];
     let namespace = rts_core_rwk::entry::make_namespace(context, members);
     let separator = rts_core_rwk::entry::make_string(context, "/");
@@ -86,6 +93,7 @@ fn flavor_namespace(context: &mut Context, sep: char) -> u64 {
             ("parse", parse_win32),
             ("format", format_win32),
             ("toNamespacedPath", to_namespaced_win32),
+            ("matchesGlob", matches_glob_entry),
         ]
     } else {
         &[
@@ -100,6 +108,7 @@ fn flavor_namespace(context: &mut Context, sep: char) -> u64 {
             ("parse", parse_posix),
             ("format", format_posix),
             ("toNamespacedPath", to_namespaced_posix),
+            ("matchesGlob", matches_glob_entry),
         ]
     };
     let namespace = rts_core_rwk::entry::make_namespace(context, members);
@@ -362,11 +371,74 @@ fn normalize_g(path: &str, sep: char) -> String {
         }
     }
     let joined = out.join(&sep.to_string());
-    match (rooted, joined.is_empty()) {
+    let normalized = match (rooted, joined.is_empty()) {
         (true, _) => format!("{root}{joined}"),
         (false, true) => ".".to_owned(),
         (false, false) => joined,
+    };
+    // A trailing separator is KEPT, because it is the difference between naming
+    // a directory and naming a thing: `normalize("C:\\temp\\foo\\")` answers a
+    // path that still ends in one, and Node's own tests assert it. Not added
+    // where there was none, and not added to a bare root — `"/"` already ends in
+    // one and `"."` never had one.
+    let trailed = path.ends_with(['/', '\\']) && !normalized.ends_with(sep) && normalized != ".";
+    match trailed {
+        true => format!("{normalized}{sep}"),
+        false => normalized,
     }
+}
+
+/// `path.matchesGlob(path, pattern)` — whether a path matches a glob.
+///
+/// The three wildcards a path glob has, and nothing else: `*` matches within one
+/// segment, `**` matches across separators, and `?` matches one character.
+/// Brace expansion and character classes are NOT here, and that is a named gap
+/// rather than a silent one — a pattern using them answers false, which is the
+/// same answer a pattern that genuinely does not match gives, so this comment is
+/// where a reader finds out.
+///
+/// Written as a matcher rather than by compiling to the regular expression
+/// engine this crate already links: the translation has to escape every
+/// metacharacter a path may legally contain, and getting that list wrong is a
+/// pattern that matches something it should not.
+fn matches_glob(path: &str, pattern: &str) -> bool {
+    fn matches(path: &[u8], pattern: &[u8]) -> bool {
+        match (path.first(), pattern.first()) {
+            (None, None) => true,
+            // A trailing `**` matches nothing left as well as something.
+            (None, Some(_)) => pattern == b"**" || pattern == b"*",
+            (Some(_), None) => false,
+            (Some(&here), Some(b'*')) => {
+                let across = pattern.starts_with(b"**");
+                let rest = match across {
+                    true => &pattern[2..],
+                    false => &pattern[1..],
+                };
+                // Consume nothing, or one character and try again — the second
+                // only while the star is allowed to cross what it is looking at.
+                matches(path, rest)
+                    || ((across || here != b'/') && matches(&path[1..], pattern))
+            }
+            (Some(&here), Some(b'?')) if here != b'/' => matches(&path[1..], &pattern[1..]),
+            (Some(&here), Some(&want)) if here == want => matches(&path[1..], &pattern[1..]),
+            _ => false,
+        }
+    }
+    matches(path.as_bytes(), pattern.as_bytes())
+}
+
+/// `path.matchesGlob(path, pattern)`.
+extern "C" fn matches_glob_entry(
+    _e: u64,
+    _this: u64,
+    path: u64,
+    pattern: u64,
+    _a2: u64,
+    _a3: u64,
+) -> u64 {
+    let path = rts_core_rwk::entry::text_of(path).unwrap_or_default();
+    let pattern = rts_core_rwk::entry::text_of(pattern).unwrap_or_default();
+    rts_core_rwk::entry::boolean_value(matches_glob(&path, &pattern))
 }
 
 /// `path.join`'s core: filter empties, join on `sep`, normalize.
@@ -398,7 +470,7 @@ fn resolve_g(parts: &[String], sep: char) -> String {
             false => format!("{part}{sep}{out}"),
         };
         if absolute(part) {
-            return normalize_g(&out, sep);
+            return without_trailing(&normalize_g(&out, sep), sep);
         }
     }
     let here = std::env::current_dir()
@@ -411,7 +483,20 @@ fn resolve_g(parts: &[String], sep: char) -> String {
         true => here,
         false => format!("{here}{sep}{out}"),
     };
-    normalize_g(&joined, sep)
+    without_trailing(&normalize_g(&joined, sep), sep)
+}
+
+/// A path with its trailing separator removed, unless that separator is all of it.
+///
+/// `resolve` DROPS one where `normalize` keeps it: `resolve("/foo", "/tmp/f/")`
+/// is `"/tmp/f"`. The two differ on purpose — one answers "what does this path
+/// mean" and the other "what is the absolute path of this thing" — and a root
+/// keeps its separator because there it is the whole path.
+fn without_trailing(path: &str, sep: char) -> String {
+    match path.len() > 1 && path.ends_with(sep) {
+        true => path[..path.len() - 1].to_owned(),
+        false => path.to_owned(),
+    }
 }
 
 /// `path.relative`'s core: both sides resolved, then diffed component-wise.
