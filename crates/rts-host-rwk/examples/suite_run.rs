@@ -58,7 +58,23 @@ fn measure() {
     };
 
     rts_std_rwk::test::reset();
-    let mut program = match rts_host_rwk::compile(&source) {
+    // A file that imports another is compiled as a GRAPH, and one that does not
+    // is compiled on its own. Measuring everything with the single-file path
+    // reported a file whose imports bound nothing as a file that ran and failed
+    // every assertion — 14 of them in `module_imports.test.ts` alone, which is
+    // about this measurement rather than about the engine.
+    //
+    // A relative specifier is the test: `node:` and `rts:` are resolved by the
+    // runtime, and only `./` and `../` name another file the loader has to read.
+    let imports_a_file = source.contains("from \"./")
+        || source.contains("from \"../")
+        || source.contains("from './")
+        || source.contains("from '../");
+    let compiled = match imports_a_file {
+        true => rts_host_rwk::compile_graph(&path),
+        false => rts_host_rwk::compile(&source),
+    };
+    let mut program = match compiled {
         Ok(program) => program,
         Err(error) => {
             // One line, so a driver reading line-by-line is never confused by a

@@ -4320,3 +4320,42 @@ fn the_three_iteration_methods_answer_something_with_next() {
     let by_symbol = run("const it = [4, 5][Symbol.iterator](); return it.next().value;");
     assert_eq!(tags::decode_double(by_symbol), 4.0);
 }
+
+/// The ES2025 iterator helpers, on what `values()` and friends answer.
+///
+/// `arr.entries().map(f)` is what a program written for Node reaches for, and
+/// it answers another ITERATOR — so `.toArray()` is how an array comes back and
+/// `.join()` on the helper's result is a mistake there as much as here.
+#[test]
+fn an_iterator_carries_the_helpers_a_program_expects() {
+    let mapped = run("return [1, 2, 3].values().map(x => x * 2).toArray().join(',') === '2,4,6' ? 1 : 0;");
+    assert_eq!(tags::decode_double(mapped), 1.0);
+
+    let filtered =
+        run("return [1, 2, 3, 4].values().filter(x => x > 2).toArray().length;");
+    assert_eq!(tags::decode_double(filtered), 2.0);
+
+    let sliced = run("return [1, 2, 3].values().take(2).toArray().join('') === '12' ? 1 : 0;");
+    assert_eq!(tags::decode_double(sliced), 1.0);
+
+    let dropped = run("return [1, 2, 3].values().drop(1).toArray().join('') === '23' ? 1 : 0;");
+    assert_eq!(tags::decode_double(dropped), 1.0);
+
+    let folded = run("return [1, 2, 3].values().reduce((a, b) => a + b, 0);");
+    assert_eq!(tags::decode_double(folded), 6.0);
+
+    let found = run("return [1, 2, 3].values().find(x => x > 1);");
+    assert_eq!(tags::decode_double(found), 2.0);
+
+    let flattened = run("return [1, 2].values().flatMap(x => [x, x]).toArray().length;");
+    assert_eq!(tags::decode_double(flattened), 4.0);
+
+    // A helper CONSUMES the iterator it was called on, which is what stops two
+    // `take(1)` calls from both answering the first element.
+    let consumed = run(
+        "const it = [1, 2, 3].values(); \
+         it.take(1).toArray(); \
+         return it.next().done ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(consumed), 1.0);
+}
