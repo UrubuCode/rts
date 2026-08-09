@@ -4167,3 +4167,62 @@ fn a_proxy_over_a_proxy_reaches_the_innermost_handler() {
     );
     assert_eq!(tags::decode_double(chained), 100.0);
 }
+
+/// A proxy is callable and constructible through its handler.
+///
+/// It has no code address of its own and must not: an address is the one thing
+/// a program may never choose. So a call to a proxy arrives where the jump did
+/// not happen, rather than at a check every ordinary call would pay for.
+#[test]
+fn a_proxy_can_be_called_and_constructed() {
+    let applied = run(
+        "const p = new Proxy(function () {}, { apply(t, self, args) { return 42; } }); \
+         return p();",
+    );
+    assert_eq!(tags::decode_double(applied), 42.0);
+
+    // The arguments reach the trap as an array, which is what the trap's
+    // signature says and what a forwarding handler passes on.
+    let with_arguments = run(
+        "const p = new Proxy(function () {}, { apply(t, self, args) { return args[0] + args[1]; } }); \
+         return p(3, 4);",
+    );
+    assert_eq!(tags::decode_double(with_arguments), 7.0);
+
+    // No trap: the call goes to the target.
+    let forwarded = run(
+        "function target(a) { return a * 2; } \
+         const p = new Proxy(target, {}); \
+         return p(21);",
+    );
+    assert_eq!(tags::decode_double(forwarded), 42.0);
+
+    let built = run(
+        "class Thing { constructor() { this.n = 1; } } \
+         const p = new Proxy(Thing, { construct(t, args) { return { n: 9 }; } }); \
+         return new p().n;",
+    );
+    assert_eq!(tags::decode_double(built), 9.0);
+}
+
+/// `Object.keys` and the prototype accessors go through their traps.
+#[test]
+fn a_proxy_answers_for_its_keys_and_its_prototype() {
+    let listed = run(
+        "const p = new Proxy({}, { ownKeys(t) { return ['a', 'b', 'c']; } }); \
+         return Object.keys(p).length;",
+    );
+    assert_eq!(tags::decode_double(listed), 3.0);
+
+    // No trap: the target's own keys, which is what forwarding means — the
+    // proxy itself has never had any.
+    let forwarded = run("const p = new Proxy({ x: 1, y: 2 }, {}); return Object.keys(p).length;");
+    assert_eq!(tags::decode_double(forwarded), 2.0);
+
+    let inherited = run(
+        "const proto = { tag: 7 }; \
+         const p = new Proxy({}, { getPrototypeOf(t) { return proto; } }); \
+         return Object.getPrototypeOf(p).tag;",
+    );
+    assert_eq!(tags::decode_double(inherited), 7.0);
+}

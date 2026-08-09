@@ -211,3 +211,117 @@ fn forwarded_read(target: u64, key: Key) -> u64 {
         None => with_current(|context| super::objects::undefined_of(context)),
     }
 }
+
+/// A trap that takes only the target, looked up without a live borrow.
+///
+/// `get`/`set`/`has`/`delete` all name a property and this family does not, so
+/// they share [`trap_for`]'s lookup without its `property`. Kept separate rather
+/// than passing a placeholder key: a placeholder is a value a later reader has
+/// to know is meaningless.
+fn plain_trap(object: u64, name: &str) -> Option<(Option<u64>, u64)> {
+    with_current(|context| {
+        let cell = Value(object).as_slot()?;
+        let (target, handler) = context.proxy_at(cell)?;
+        let callee = Value(handler).as_slot().and_then(|handler| {
+            let named = context.well_known(name);
+            super::objects::read_property(context, handler, named)
+                .map(|found| found.bits())
+                .filter(|&found| Value(found).as_slot().is_some())
+        });
+        Some((callee, target))
+    })
+}
+
+/// `handler.ownKeys(target)`, or the target's own keys.
+///
+/// What `Object.keys`, `for`-`in` and spread all reach. The forwarding case is
+/// the target's own keys and not the proxy's, which have never existed: a proxy
+/// cell holds no properties at all.
+pub(super) fn own_keys(object: u64) -> Option<u64> {
+    let (callee, target) = plain_trap(object, "ownKeys")?;
+    Some(match callee {
+        Some(callee) => {
+            let absent = with_current(|context| super::objects::undefined_of(context));
+            super::functions::call(callee, object, target, absent, absent, absent)
+        }
+        None => super::array::own_keys(target),
+    })
+}
+
+/// `handler.getPrototypeOf(target)`, or the target's prototype.
+pub(super) fn prototype_of(object: u64) -> Option<u64> {
+    let (callee, target) = plain_trap(object, "getPrototypeOf")?;
+    Some(match callee {
+        Some(callee) => {
+            let absent = with_current(|context| super::objects::undefined_of(context));
+            super::functions::call(callee, object, target, absent, absent, absent)
+        }
+        None => super::chain::get_prototype(target),
+    })
+}
+
+/// `handler.setPrototypeOf(target, proto)`, or a write to the target's.
+pub(super) fn set_prototype_of(object: u64, prototype: u64) -> Option<u64> {
+    let (callee, target) = plain_trap(object, "setPrototypeOf")?;
+    match callee {
+        Some(callee) => {
+            let absent = with_current(|context| super::objects::undefined_of(context));
+            super::functions::call(callee, object, target, prototype, absent, absent);
+        }
+        None => {
+            super::chain::set_prototype(target, prototype);
+        }
+    }
+    // The proxy, because `Object.setPrototypeOf` answers what it was given and
+    // the caller wrote the proxy.
+    Some(object)
+}
+
+/// `handler.apply(target, thisArg, args)`, or a call to the target.
+///
+/// A proxy is not callable in the sense `resolve` means — it has no code
+/// address, and it must not: the address is what a program cannot be allowed to
+/// choose. So calling one arrives here, at the point `invoke` finds nothing to
+/// jump to, rather than at a check before every jump.
+///
+/// The arguments reach the trap as an ARRAY, which is what the specification
+/// hands it. Four of them, the convention's own count, and a call written with
+/// more already reaches `call_with_args`.
+pub(super) fn apply(object: u64, this: u64, arguments: [u64; 4]) -> Option<u64> {
+    let (callee, target) = plain_trap(object, "apply")?;
+    Some(match callee {
+        Some(callee) => {
+            let listed = super::modules::make_array(arguments.to_vec());
+            let absent = with_current(|context| super::objects::undefined_of(context));
+            super::functions::call(callee, object, target, this, listed, absent)
+        }
+        // The target may be a proxy of its own, and `call` is what asks that
+        // question again — this is the forwarding every absent trap does.
+        None => super::functions::call(
+            target,
+            this,
+            arguments[0],
+            arguments[1],
+            arguments[2],
+            arguments[3],
+        ),
+    })
+}
+
+/// `handler.construct(target, args, newTarget)`, or `new` on the target.
+pub(super) fn construct(object: u64, arguments: [u64; 4]) -> Option<u64> {
+    let (callee, target) = plain_trap(object, "construct")?;
+    Some(match callee {
+        Some(callee) => {
+            let listed = super::modules::make_array(arguments.to_vec());
+            super::functions::call(callee, object, target, listed, object, object)
+        }
+        None => super::functions::construct(
+            target,
+            arguments[0],
+            arguments[1],
+            arguments[2],
+            arguments[3],
+        ),
+    })
+}

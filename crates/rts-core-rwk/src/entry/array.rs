@@ -148,6 +148,12 @@ pub(super) fn as_index(context: &Context, key: Value) -> Option<usize> {
 /// operation here has.
 #[rtse::entry]
 pub fn own_keys(object: u64) -> u64 {
+    // A proxy answers by running its handler, and it has no own keys of its
+    // own to walk — see `super::proxy` for why the interception is here rather
+    // than in anything the compiled site does.
+    if let Some(answered) = super::proxy::own_keys(object) {
+        return answered;
+    }
     keys_of(object, true)
 }
 

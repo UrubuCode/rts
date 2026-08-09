@@ -28,6 +28,9 @@ use crate::value::Value;
 /// `class X extends null {}` indistinguishable from a plain object.
 #[rtse::entry]
 pub fn get_prototype(object: u64) -> u64 {
+    if let Some(answered) = super::proxy::prototype_of(object) {
+        return answered;
+    }
     with_current(|context| {
         let Some(cell) = Value(object).as_slot() else {
             return undefined_of(context);
@@ -55,6 +58,9 @@ pub fn get_prototype(object: u64) -> u64 {
 /// is what a class definition does three times in a row.
 #[rtse::entry]
 pub fn set_prototype(object: u64, prototype: u64) -> u64 {
+    if let Some(answered) = super::proxy::set_prototype_of(object, prototype) {
+        return answered;
+    }
     with_current(|context| {
         if let Some(cell) = Value(object).as_slot() {
             context.set_prototype(cell, prototype);

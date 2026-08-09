@@ -232,6 +232,13 @@ fn invoke(callee: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
 
     let Some((code, environment)) = found else {
         with_current(|context| context.callees.pop());
+        // A proxy has no code address — it must not have one, since an address
+        // is the one thing a program may never choose — so calling one arrives
+        // HERE, where the jump did not happen, rather than at a check before
+        // every jump that every ordinary call would pay for.
+        if let Some(answered) = super::proxy::apply(callee, this, [a0, a1, a2, a3]) {
+            return answered;
+        }
         return with_current(|context| undefined_of(context));
     };
 
@@ -334,6 +341,9 @@ fn construct_inner(callee: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     });
 
     let Some(derived) = derived else {
+        if let Some(answered) = super::proxy::construct(callee, [a0, a1, a2, a3]) {
+            return answered;
+        }
         // Not callable. `new 1` is a `TypeError`, and throwing needs protected
         // regions — the same stated gap calling has.
         return with_current(|context| undefined_of(context));
