@@ -67,9 +67,10 @@ asks the generator table first: a hit makes the object, a miss jumps as it alway
 did. The language emits an ordinary closure, the call site emits an ordinary
 call, and the fact that lives in one place is registered in one place.
 
-## The open question, and why it is written here rather than guessed at
+## Where the frame lives — answered by running one
 
-**Where the frame lives, and how its address reaches the rewritten function.**
+**The question was: does the rewrite's byte-offset addressing describe the same
+memory the runtime's cells do?**
 
 The rewritten function takes `Repr::Ref(RefKind::Aggregate(ty))` and reaches its
 fields by BYTE OFFSET, through `ObjectLayout::field_offset` and the addressing
@@ -84,10 +85,35 @@ than assumed: whether a frame can be an ordinary cell whose slots line up with
 the aggregate's fields, or whether it needs its own region.
 
 Getting that wrong is not a compile error. It is a generator that runs and reads
-the wrong words, which is the exact shape of defect this engine's rules exist to
-prevent — so it is the first thing to answer, with a test that RUNS a rewritten
-function against a runtime-allocated frame, before the other three pieces are
-built on top of it.
+the wrong words — so it was answered first, by
+`crates/rts-host-rwk/tests/generator_frame.rs`, which RUNS a rewritten function
+against a frame the runtime's own heap handed out, under the addressing
+`compile_for` builds rather than one shaped to suit a test.
+
+The answer, in three parts:
+
+- **A frame that fits a cell needs nothing new.** The region's reference is the
+  argument unchanged, and field N is slot N.
+- **That correspondence holds only because every field is a machine word.** The
+  type registry packs by natural alignment, so a frame holding a narrower spill
+  would put field N somewhere other than slot N, and the runtime would have to
+  read by byte offset. A test pins this rather than leaving it implied.
+- **A frame wider than a cell lives in the cells after it.**
+  `Region::alloc_spanning` takes consecutive cells and answers the first one's
+  reference; `spanning_field` / `set_spanning_field` are the runtime's side,
+  bounded by the caller's layout. Nothing about the addressing changes — a
+  region's cells are consecutive words of one allocation, so an object crossing
+  a boundary is still contiguous and `base + reference × stride` still reaches
+  it. Both the allocation and the access stay O(1) and cost the two instructions
+  one cell costs.
+
+Six parameters and a return is nine words against a cell's seven, so this is not
+an exotic case. `Region::alloc` still refuses an oversized object: a caller that
+spans has to say so, and everything else keeps the property that one reference is
+one cell. The rejected alternatives were a region of its own — not expressible,
+since a compiled program has ONE addressing and therefore one stride — and an
+out-of-line spill like the property overflow, which the rewrite cannot use
+because it reaches its fields by byte offset from the frame's address.
 
 ## What this costs that a state-machine desugaring would not
 
