@@ -75,6 +75,15 @@ pub fn object_new() -> u64 {
 /// shape `own_keys` and `exec` have, for the same reason.
 #[rtse::entry]
 pub fn get_property(object: u64, key: i64) -> u64 {
+    // A proxy answers by running user code, so it is asked BEFORE any borrow
+    // that a lookup would take — the trap may call straight back in here.
+    // `None` means this is an ordinary object, which is every object in a
+    // program that never wrote `new Proxy`.
+    if let Some(key) = with_current(|context| key_of(context, key))
+        && let Some(answered) = super::proxy::get(object, key)
+    {
+        return answered;
+    }
     let found = with_current(|context| {
         let Some(key) = key_of(context, key) else {
             return super::accessor::Found::Value(undefined_of(context));
@@ -113,6 +122,11 @@ pub fn get_property(object: u64, key: i64) -> u64 {
 /// after the borrow ends.
 #[rtse::entry]
 pub fn set_property(object: u64, key: i64, value: u64) -> u64 {
+    if let Some(key) = with_current(|context| key_of(context, key))
+        && let Some(answered) = super::proxy::set(object, key, value)
+    {
+        return answered;
+    }
     let setter = with_current(|context| {
         let Some(slot) = Value(object).as_slot() else {
             // A write to a non-object is a silent no-op in sloppy mode and a

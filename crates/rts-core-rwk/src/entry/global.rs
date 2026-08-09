@@ -96,6 +96,7 @@ pub fn global_get(key: i64) -> u64 {
             "JSON" => super::json::register_json(context),
             "Date" => super::date::register_date(context),
             "Generator" => super::generator::register(context),
+        "Proxy" => super::proxy::register_proxy(context),
         "Map" => super::collections::register_map(context),
             "Set" => super::collections::register_set(context),
             "Buffer" => super::buffer::register_buffer(context),

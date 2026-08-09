@@ -4090,3 +4090,80 @@ fn a_generator_can_park_inside_a_protected_region() {
     );
     assert_eq!(tags::decode_double(past_a_cleanup), 2.0);
 }
+
+/// A `Proxy` answers reads and writes through its handler.
+///
+/// Nothing in the compiled fast path changed to make this work, and that is the
+/// design rather than a coincidence: a cached access encodes an OWN slot, a
+/// proxy has no own properties, so every access to one misses to the entry
+/// point where the traps live. A program with no proxy in it pays nothing.
+#[test]
+fn a_proxy_answers_through_its_handler() {
+    let trapped = run(
+        "const p = new Proxy({}, { get(t, k) { return 42; } }); return p.anything;",
+    );
+    assert_eq!(tags::decode_double(trapped), 42.0);
+
+    // The property reaches the trap as a string, which is the one place a key
+    // has to travel back out of the number the compiler resolved it to.
+    let named = run(
+        "let seen = ''; \
+         const p = new Proxy({}, { get(t, k) { seen = k; return 1; } }); \
+         p.chosen; \
+         return seen === 'chosen' ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(named), 1.0);
+
+    // A write goes to the trap, and the assignment still evaluates to the value.
+    let written = run(
+        "let stored = 0; \
+         const p = new Proxy({}, { set(t, k, v) { stored = v; return true; } }); \
+         const answered = (p.x = 7); \
+         return stored * 10 + answered;",
+    );
+    assert_eq!(tags::decode_double(written), 77.0);
+
+    let asked = run(
+        "const p = new Proxy({}, { has(t, k) { return k === 'yes'; } }); \
+         return ('yes' in p) && !('no' in p) ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(asked), 1.0);
+}
+
+/// A handler without the trap forwards to the target.
+///
+/// Which is what makes a partial handler useful rather than a hole: the
+/// specification's default for every trap is the operation on the target.
+#[test]
+fn a_handler_without_the_trap_falls_through_to_the_target() {
+    let read = run("const p = new Proxy({ a: 5 }, {}); return p.a;");
+    assert_eq!(tags::decode_double(read), 5.0);
+
+    let written = run(
+        "const target = { a: 1 }; \
+         const p = new Proxy(target, {}); \
+         p.a = 9; \
+         return target.a;",
+    );
+    assert_eq!(tags::decode_double(written), 9.0);
+
+    let present = run("const p = new Proxy({ a: 1 }, {}); return 'a' in p ? 1 : 0;");
+    assert_eq!(tags::decode_double(present), 1.0);
+}
+
+/// A proxy whose target is a proxy reaches the inner handler.
+///
+/// `new Proxy(new Proxy(x, inner), {})` is what a wrapper around a wrapper is,
+/// and the forwarding an absent trap does has to be the whole operation rather
+/// than a shape read — otherwise the inner handler is skipped and the read
+/// answers `undefined`, which is what a chain of three reported.
+#[test]
+fn a_proxy_over_a_proxy_reaches_the_innermost_handler() {
+    let chained = run(
+        "const inner = new Proxy({}, { get(t, k) { return 100; } }); \
+         const middle = new Proxy(inner, {}); \
+         const outer = new Proxy(middle, {}); \
+         return outer.anything;",
+    );
+    assert_eq!(tags::decode_double(chained), 100.0);
+}

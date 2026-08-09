@@ -86,6 +86,7 @@ const PROVIDED: &[&str] = &[
     "Number",
     "Object",
     "Promise",
+    "Proxy",
     "RangeError",
     "ReferenceError",
     "Reflect",

@@ -267,6 +267,13 @@ pub fn set_indexed(object: u64, key: u64, value: u64) -> u64 {
 /// same reason: throwing needs protected regions and nothing emits those.
 #[rtse::entry]
 pub fn has_property(key: u64, object: u64) -> bool {
+    // Before the borrow, for the reason `get_property` states: a trap is user
+    // code and may call back in here.
+    if let Some(named) = with_current(|context| property_key(context, Value(key)))
+        && let Some(answered) = super::proxy::has(object, named)
+    {
+        return answered;
+    }
     with_current(|context| {
         let Some(slot) = Value(object).as_slot() else {
             return false;
@@ -332,6 +339,11 @@ pub(super) fn length_key(context: &mut Context) -> Key {
 /// out of the old contents.
 #[rtse::entry]
 pub fn delete_property(object: u64, key: u64) -> bool {
+    if let Some(named) = with_current(|context| property_key(context, Value(key)))
+        && let Some(answered) = super::proxy::delete(object, named)
+    {
+        return answered;
+    }
     with_current(|context| {
         let Some(slot) = Value(object).as_slot() else {
             return true;

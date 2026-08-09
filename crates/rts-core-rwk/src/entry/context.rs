@@ -84,6 +84,16 @@ impl Context {
         self.callables.copied(cell)
     }
 
+    /// What a proxy stands for: its target and its handler.
+    pub(super) fn proxy_at(&self, cell: u32) -> Option<(u64, u64)> {
+        self.proxies.copied(cell)
+    }
+
+    /// Records what a proxy stands for.
+    pub(super) fn set_proxy(&mut self, cell: u32, target: u64, handler: u64) {
+        self.proxies.set(cell, (target, handler));
+    }
+
     /// What a cell inherits from, if anything.
     pub(super) fn prototype_at(&self, cell: u32) -> Option<u64> {
         self.prototypes.copied(cell)

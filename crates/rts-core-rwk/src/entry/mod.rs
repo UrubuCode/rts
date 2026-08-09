@@ -76,6 +76,7 @@ mod primitive;
 mod primitive_proto;
 mod primitives;
 mod promise;
+mod proxy;
 mod reflect;
 mod regex;
 pub(super) mod string;
@@ -208,6 +209,13 @@ pub struct Context {
     /// no-op. Recording it beside the cell gives both, and is the third use of
     /// this pattern after arrays and the property spill.
     callables: Aside<(u64, u64)>,
+    /// A proxy's target and handler.
+    ///
+    /// Beside the cell like everything else about one, and the reason it is not
+    /// IN the cell is the point of the design: a proxy has no own properties,
+    /// so every access to it misses the compiled cache and reaches the entry
+    /// point where the traps are.
+    proxies: Aside<(u64, u64)>,
     /// Where a cell's properties past the seventh live.
     ///
     /// A cell holds seven inline slots, and an object with more used to lose
@@ -530,6 +538,7 @@ impl Context {
             promises: promise::Machine::in_region(region.index()),
             prototypes: Aside::in_region(bits),
             callables: Aside::in_region(bits),
+            proxies: Aside::in_region(bits),
             spill_of: Aside::in_region(bits),
             bound: Aside::in_region(bits),
             collections: Aside::in_region(bits),
@@ -580,6 +589,7 @@ impl Context {
             shape_of_type: Vec::new(),
             text_type,
             callables: Aside::new(),
+            proxies: Aside::new(),
             prototypes: Aside::new(),
             array_elements: Aside::new(),
             accessors: Aside::new(),
