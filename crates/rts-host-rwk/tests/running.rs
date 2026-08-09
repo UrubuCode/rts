@@ -4069,3 +4069,24 @@ fn delegating_yields_each_of_the_inner_values() {
     );
     assert_eq!(tags::decode_double(ordered), 12.0);
 }
+
+/// A generator parks inside a `try`, and a `finally` around one is still a
+/// cleanup after the rewrite.
+///
+/// The rewrite builds a NEW function and copies instructions into it, so
+/// everything a function owns beside its blocks has to be carried across. The
+/// protected regions were the fourth such thing to be missing, and the shape of
+/// the failure is worth pinning: the cleanup block belonged to no region, so its
+/// own terminator was refused as being outside a cleanup.
+#[test]
+fn a_generator_can_park_inside_a_protected_region() {
+    let caught = run(
+        "function* g() { try { yield 1; } catch (e) { yield 2; } } \n         return g().next().value;",
+    );
+    assert_eq!(tags::decode_double(caught), 1.0);
+
+    let past_a_cleanup = run(
+        "function* g() { try { yield 1; } finally { } yield 2; } \n         const it = g(); \n         it.next(); \n         return it.next().value;",
+    );
+    assert_eq!(tags::decode_double(past_a_cleanup), 2.0);
+}

@@ -42,6 +42,7 @@ use crate::ir::{
     ValueId,
 };
 use crate::repr::{RefKind, Repr};
+use crate::unwind::{Handler, RegionId};
 use crate::types::TypeRegistry;
 
 /// A function rewritten so that it can be parked and picked back up.
@@ -140,6 +141,7 @@ impl<'a> Rewrite<'a> {
 
     fn run(mut self) -> Result<Resumable, TransformError> {
         self.create_blocks();
+        self.copy_regions();
         self.rewrite_blocks()?;
         self.emit_dispatch();
 
@@ -171,6 +173,45 @@ impl<'a> Rewrite<'a> {
                 }
             }
             self.blocks.insert(id, block);
+        }
+    }
+
+    /// Carries the protected regions across, and puts each block back in its own.
+    ///
+    /// The fourth thing a `Function` owns beside its blocks, after its constant
+    /// pool, its cache sites and the order they are read in. Without it a body
+    /// with a `finally` in it produced a cleanup block that belonged to no
+    /// region, so its `CleanupEnd` was refused as `CleanupEndOutsideCleanup` —
+    /// a rewritten function that only the rewriter believed in.
+    ///
+    /// A region is declared in source order, so a parent is declared before its
+    /// children here exactly as it was there, and the identifiers line up
+    /// one-to-one. What is remapped is every BLOCK a region names: a handler's
+    /// entry and the cleanup.
+    fn copy_regions(&mut self) {
+        for index in 0..self.source.regions.len() {
+            let id = RegionId(index as u32);
+            let region = self
+                .source
+                .regions
+                .get(id)
+                .expect("index below the count is a declared region");
+            let handlers = region
+                .handlers
+                .iter()
+                .map(|handler| Handler {
+                    tag: handler.tag,
+                    block: self.blocks[&handler.block],
+                })
+                .collect();
+            let cleanup = region.cleanup.map(|block| self.blocks[&block]);
+            self.out.regions.declare(region.parent, handlers, cleanup);
+        }
+
+        for (id, _) in self.source.blocks() {
+            if let Some(region) = self.source.region_of(id) {
+                self.out.set_block_region(self.blocks[&id], region);
+            }
         }
     }
 
