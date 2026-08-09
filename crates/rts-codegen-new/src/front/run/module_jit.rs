@@ -240,6 +240,10 @@ pub(crate) fn populate_module(
     // Never-written module globals: their reads hoist to each function's entry
     // instead of an extern GCELL_GET per access (see `funcval::immutable_gcells`).
     let immutable_gcells = super::funcval::immutable_gcells(funcs, main, gcells);
+    // Quais globais de módulo são provadamente arrays — ver
+    // `funcval::module_global_shapes`. Sem isto, `arr[i]` sobre um global cai no
+    // caminho dinâmico (260 ns contra 20 ns, medido).
+    let gcell_arrays = super::funcval::module_global_shapes(main, gcells);
     // PROGRAM-WIDE prototype-assignment gate. `__rtsadp_class_proto_init` defers
     // its [[Prototype]] chain link to the FIRST `new` on purpose, so a
     // `F.prototype = Object.create(Base.prototype)` executed beforehand survives.
@@ -459,6 +463,7 @@ pub(crate) fn populate_module(
             captures,
             cells,
             gcells,
+            &gcell_arrays,
             &immutable_gcells,
             gcell_classes,
             &globalthis_class_refs,
@@ -485,6 +490,7 @@ pub(crate) fn populate_module(
         captures,
         cells,
         gcells,
+        &gcell_arrays,
         &immutable_gcells,
         gcell_classes,
         &globalthis_class_refs,

@@ -1235,13 +1235,29 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
     ) -> FrontResult<(Value, HeapShape)> {
         match &object.kind {
             HirExprKind::Ident(name) => {
-                let Some(&shape) = self.local_shapes.get(name) else {
-                    return unsupported!(
-                        "property/index access on `{name}` whose shape is not statically \
-                         proven (param/return/reassigned — a later increment)"
-                    );
-                };
-                Ok((self.load_local_word(name), shape))
+                if let Some(&shape) = self.local_shapes.get(name) {
+                    return Ok((self.load_local_word(name), shape));
+                }
+                // Um GLOBAL DE MÓDULO que a fonte provou ser array. A prova vem
+                // de `funcval::module_global_shapes`; sem ela o acesso caía no
+                // caminho dinâmico, que encaixota o índice como double e faz o
+                // runtime farejar o tipo do receptor — 260 ns contra 20 ns do
+                // `VEC_GET`, medido em release sobre 100 mil acessos.
+                //
+                // A prova é sobre a FORMA e não sobre o conteúdo, então um
+                // `push` posterior não a invalida. Para uma célula MUTÁVEL o
+                // word é recarregado a cada acesso por `emit_gcell_get`, que é o
+                // que mantém isto correto se o binding for reatribuído.
+                if self.gcell_arrays.contains(name)
+                    && let Some(id) = self.gcell_id(name)
+                {
+                    let cell = self.emit_gcell_get(module, id)?;
+                    return Ok((cell.v, HeapShape::Array));
+                }
+                unsupported!(
+                    "property/index access on `{name}` whose shape is not statically \
+                     proven (param/return/reassigned — a later increment)"
+                )
             }
             HirExprKind::Member {
                 object: inner,
