@@ -360,6 +360,11 @@ pub(crate) struct Lowerer<'a, 'b, 'c> {
     /// by its id, NOT a Cranelift Variable — checked AFTER `self.local` so a
     /// same-named param/local in the current function still shadows it.
     pub gcells: &'c HashMap<String, u32>,
+    /// Os globais de módulo cuja FORMA a fonte provou ser um array
+    /// (`funcval::module_global_shapes`). Sem isto um `arr[i]` sobre um binding
+    /// de módulo não tem forma provada e cai no caminho dinâmico — 260 ns por
+    /// acesso contra 20 ns do `VEC_GET`, medido em release.
+    pub gcell_arrays: &'c std::collections::HashSet<String>,
     /// The gcell ids that are NEVER written after their top-level initializer
     /// (`funcval::immutable_gcells`) — a module `const` promoted to a cell only
     /// because some function READS it. Their value is fixed once `__rts_startup`
@@ -538,6 +543,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
         classes: &'c super::class::ClassTable,
         captures: &'c HashMap<String, Vec<String>>,
         gcells: &'c HashMap<String, u32>,
+        gcell_arrays: &'c std::collections::HashSet<String>,
         immutable_gcells: &'c std::collections::HashSet<u32>,
         gcell_classes: &'c HashMap<String, String>,
         globalthis_class_refs: &'c HashMap<String, String>,
@@ -584,6 +590,7 @@ impl<'a, 'b, 'c> Lowerer<'a, 'b, 'c> {
             ids,
             captures,
             gcells,
+            gcell_arrays,
             immutable_gcells,
             gcell_cache: HashMap::new(),
             class_proto_cache: HashMap::new(),

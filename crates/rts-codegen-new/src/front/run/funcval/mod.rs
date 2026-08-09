@@ -107,6 +107,47 @@ fn diag_skipped_capture(
     );
 }
 
+/// A FORMA de cada global de módulo que a fonte declarou como array.
+///
+/// # Por que isto existe
+///
+/// `resolve_heap_receiver` só emite o acesso RÁPIDO (`VEC_GET`, índice `i64`
+/// cru) quando a forma do receptor está provada. Um parâmetro tipado prova a
+/// sua pela anotação; um binding de MÓDULO não provava nada, porque a tabela de
+/// gcells é `nome → id` e o tipo não viajava junto. Sem prova, todo `arr[i]`
+/// caía no caminho dinâmico, que encaixota o índice como double e faz o runtime
+/// farejar o tipo do receptor.
+///
+/// Medido em release, 100 mil acessos: **260 ns** pelo caminho dinâmico contra
+/// **20 ns** pelo `VEC_GET`. Num laço quente real — o mixer de áudio do
+/// rts-game, 57 600 acessos por frame — a diferença era 15 ms de frame, ou seja
+/// a queda de 75 para 35 fps que aparecia sempre que um som tocava.
+///
+/// A prova é sobre a FORMA do receptor, não sobre o conteúdo: `arr.push(x)`
+/// muda os elementos e o word continua apontando para um array.
+pub fn module_global_shapes(main: &HirFunc, gcells: &HashMap<String, u32>) -> HashSet<String> {
+    let mut shaped = HashSet::new();
+    for s in &main.body {
+        let (name, ty, init) = match s {
+            HirStmt::Let { name, ty, init, .. } => (name, ty, init.as_ref()),
+            HirStmt::Const { name, ty, init, .. } => (name, ty, Some(init)),
+            _ => continue,
+        };
+        if !gcells.contains_key(name) {
+            continue;
+        }
+        // A anotação, quando existe; senão o inicializador, quando é um literal
+        // de array. Nada mais — um `Ident` opaco continua sem prova, que é o
+        // conservadorismo que esta análise precisa manter.
+        let declarado = matches!(ty, HirType::Array(_));
+        let literal = matches!(init.map(|e| &e.kind), Some(HirExprKind::Array(_)));
+        if declarado || literal {
+            shaped.insert(name.clone());
+        }
+    }
+    shaped
+}
+
 pub fn module_globals(
     funcs: &[HirFunc],
     main: &HirFunc,
