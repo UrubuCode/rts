@@ -408,6 +408,19 @@ pub enum RuntimeOp {
     /// put a real argument vector in.
     Call,
 
+    /// Records the source spelling of the callee about to be called, by its
+    /// literal index, so a call that turns out not to be a function can name
+    /// what was written instead of only what kind of value it found.
+    ///
+    /// A call site is the only place that still knows the spelling — `Call`
+    /// itself receives a bare value with no memory of `obj.foo` versus `foo`
+    /// — so this is emitted immediately before the jump, after every argument
+    /// has been evaluated, and the runtime clears what it recorded as soon as
+    /// it is read. Not folded into `Call`'s own arguments: `Call`'s arity is
+    /// fixed at four argument slots already spoken for, and a fifth slot here
+    /// would exist on every call to serve the one that fails.
+    SetCallName,
+
     /// `/pattern/flags` — a new regular expression.
     ///
     /// # Why the text and not a number naming a compiled pattern
@@ -549,6 +562,21 @@ pub enum RuntimeOp {
     /// operation the language refuses, and every negative bigint literal was
     /// `NaN`.
     Negate,
+
+    /// `super.x` — the lookup starts above the home object, but the receiver
+    /// an inherited getter runs with is `this`, not the object the getter was
+    /// found on.
+    ///
+    /// Not `GetProperty` with a different first argument: that entry point
+    /// uses its one object argument for both the walk and the getter's
+    /// receiver, which is exactly the two facts the specification keeps
+    /// apart for `super`. An entry point because the lookup walks the heap.
+    GetSuperProperty,
+
+    /// `super.x = v` — the mirror of [`RuntimeOp::GetSuperProperty`]: the
+    /// setter search starts above the home object, and runs, if found, with
+    /// `this` as its receiver.
+    SetSuperProperty,
 }
 
 impl RuntimeOp {
@@ -602,6 +630,7 @@ impl RuntimeOp {
         RuntimeOp::Construct,
         RuntimeOp::InstanceOf,
         RuntimeOp::Call,
+        RuntimeOp::SetCallName,
         RuntimeOp::RegexNew,
         RuntimeOp::GlobalGet,
         RuntimeOp::GetPrototype,
@@ -620,6 +649,8 @@ impl RuntimeOp {
         RuntimeOp::ArrayAppendAll,
         RuntimeOp::BigIntNew,
         RuntimeOp::Negate,
+        RuntimeOp::GetSuperProperty,
+        RuntimeOp::SetSuperProperty,
     ];
 
     /// The linker name the runtime must define.
@@ -678,6 +709,7 @@ impl RuntimeOp {
             RuntimeOp::Construct => "__rts_construct",
             RuntimeOp::InstanceOf => "__rts_instance_of",
             RuntimeOp::Call => "__rts_call",
+            RuntimeOp::SetCallName => "__rts_set_call_name",
             RuntimeOp::RegexNew => "__rts_regex_new",
             RuntimeOp::BigIntNew => "__rts_bigint_new",
             RuntimeOp::Negate => "__rts_negate",
@@ -696,6 +728,8 @@ impl RuntimeOp {
             RuntimeOp::Iterate => "__rts_iterate",
             RuntimeOp::ArrayAppend => "__rts_array_append",
             RuntimeOp::ArrayAppendAll => "__rts_array_append_all",
+            RuntimeOp::GetSuperProperty => "__rts_get_super_property",
+            RuntimeOp::SetSuperProperty => "__rts_set_super_property",
         }
     }
 
@@ -791,6 +825,10 @@ impl RuntimeOp {
             // Callee, receiver, then one slot per argument. Every one a value,
             // because a caller cannot know what it is handing over.
             RuntimeOp::Call => (vec![UNPROVEN; 2 + ARGUMENT_SLOTS], vec![UNPROVEN]),
+            // A literal index the compiler resolved, like `GlobalGet` — the
+            // runtime already holds the text at that position, so no text
+            // crosses here either.
+            RuntimeOp::SetCallName => (vec![Repr::I64], vec![UNPROVEN]),
             // The pattern and the flags, as strings — which is what makes this
             // one operation serve both the literal and the constructor.
             RuntimeOp::RegexNew => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
@@ -829,6 +867,16 @@ impl RuntimeOp {
             }
             RuntimeOp::DefineGetter | RuntimeOp::DefineSetter => {
                 (vec![UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN])
+            }
+            // The receiver (`this`), the object the walk starts above, and the
+            // key the compiler resolved. Two objects because `super` keeps
+            // them apart: the one the getter runs against is not the one the
+            // lookup starts at.
+            RuntimeOp::GetSuperProperty => (vec![UNPROVEN, UNPROVEN, Repr::I64], vec![UNPROVEN]),
+            // The same two objects, plus the value. Answers the value, because
+            // an assignment is an expression.
+            RuntimeOp::SetSuperProperty => {
+                (vec![UNPROVEN, UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN])
             }
         };
         Signature {

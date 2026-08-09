@@ -277,17 +277,36 @@ fn emit_for_inner(
     label: Option<Name>,
 ) -> EmitResult<bool> {
     match init {
-        Some(ForInit::Declare { bindings, .. }) => {
+        Some(ForInit::Declare { kind, bindings }) => {
+            // `var i` in `for (var i = 0; …)` was already hoisted to the
+            // function's own scope by `function::hoist_vars` — this loop
+            // header does not own it the way `for (let i = …)` owns `i`, so
+            // reaching this line WRITES the hoisted binding rather than
+            // introducing a new one in the header's layer, which is what kept
+            // `i` alive only until `scope.leave()` at the loop's own exit.
+            let is_var = *kind == crate::syntax::BindingKind::Var;
             for binding in bindings {
-                let value = match &binding.value {
-                    Some(expr) => super::expr::emit_expr(builder, scope, ctx, expr)?,
-                    None => super::expr::undefined(builder, ctx),
+                let Some(expr) = &binding.value else {
+                    if is_var {
+                        // `for (var i; …)` — nothing to write; the hoisted
+                        // `undefined` (or whatever an earlier `var i` already
+                        // set) stands.
+                        continue;
+                    }
+                    let value = super::expr::undefined(builder, ctx);
+                    super::destructure::declare(builder, scope, ctx, &binding.target, value, body.at)?;
+                    continue;
                 };
+                let value = super::expr::emit_expr(builder, scope, ctx, expr)?;
                 // `Pattern::Name` and a destructuring header both go through
-                // one lowering now — `destructure::declare` is the fast path
-                // for the plain case too, since a name is the leaf that
-                // introduces itself.
-                super::destructure::declare(builder, scope, ctx, &binding.target, value, body.at)?;
+                // one lowering now — `destructure::declare`/`assign` is the
+                // fast path for the plain case too, since a name is the leaf
+                // that introduces (or writes) itself.
+                if is_var {
+                    super::destructure::assign(builder, scope, ctx, &binding.target, value, body.at)?;
+                } else {
+                    super::destructure::declare(builder, scope, ctx, &binding.target, value, body.at)?;
+                }
             }
         }
         Some(ForInit::Expr(expr)) => {

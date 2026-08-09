@@ -36,7 +36,7 @@ use crate::value::Value;
 /// Takes the context rather than borrowing one, because every caller is already
 /// inside `with_current` and a second borrow is the re-entry this folder's split
 /// exists to make impossible.
-pub(in crate::entry) fn arguments_at(context: &Context, from: usize, given: [u64; 4]) -> Vec<u64> {
+pub fn arguments_at(context: &Context, from: usize, given: [u64; 4]) -> Vec<u64> {
     let spilled = context
         .pending_arguments
         .last()

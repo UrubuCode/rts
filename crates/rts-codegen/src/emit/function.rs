@@ -53,7 +53,9 @@ use super::{Ctx, EmitResult, Loops, Scope, UNPROVEN};
 use super::{binding, capture, expr};
 use crate::names::Name;
 use crate::runtime::{ARGUMENT_SLOTS, RuntimeOp};
-use crate::syntax::{Expr, ExprKind, Function, FunctionBody, Stmt, StmtKind};
+use crate::syntax::{
+    BindingKind, Expr, ExprKind, ForEachTarget, ForInit, Function, FunctionBody, Stmt, StmtKind,
+};
 
 /// Which entry-block parameter is the environment.
 pub const ENVIRONMENT_PARAM: usize = 0;
@@ -414,6 +416,15 @@ pub(super) fn emit_body(
     // nothing reachable, and every `describe(… test(…) …)` in the corpus reported
     // `test` as a name nothing introduces.
     let mut candidates = parameters.to_vec();
+    // `...rest` is bound the same way a parameter is — directly, at entry,
+    // never through a statement `declared_by_statement` would see — so a
+    // closure reading it needs the same listing a parameter gets. Absent
+    // here, `values` in `strings.reduce((acc, s, i) => …values[i]…)` inside
+    // a function declared `(...values)` was a mention nothing counted as
+    // captured, and the arrow found no slot for it: `Unbound("values")`.
+    if let Some(name) = rest {
+        candidates.push(name);
+    }
     for import in imports {
         for binding in &import.bindings {
             candidates.push(match binding {
@@ -704,6 +715,12 @@ fn emit_body_into(
         }
     }
 
+    // Every `var` in the whole body, wherever it is written, exists as
+    // `undefined` from here — before the function-declaration hoist below,
+    // which is per-block rather than whole-body, and before the first
+    // statement, which is what makes reading one before its own `var` line
+    // answer `undefined` instead of refusing to compile.
+    hoist_vars(&mut builder, &mut scope, ctx, body)?;
     hoist(&mut builder, &mut scope, ctx, body)?;
 
     let mut loops = Loops::default();
@@ -738,6 +755,156 @@ fn emit_body_into(
             None => expr::undefined(&mut builder, ctx),
         };
         builder.ret(&[answer]);
+    }
+    Ok(())
+}
+
+/// Every name a `var` introduces anywhere in a function body.
+///
+/// # Why this is a second traversal rather than `capture`'s shared one
+///
+/// `var` reaches the enclosing FUNCTION, through a block, an `if`, a loop, a
+/// `try`, a `switch`, a label and `with` — but not through a nested function or
+/// class, which owns its own `var` scope. `capture::walk_stmt`'s own doc says
+/// why it cannot answer this alone: it deliberately drops the `BindingKind` off
+/// a `Declare`'s bindings and is silent about a `for`-each target, because its
+/// two existing callers want different things from both — and a third caller
+/// wanting a third thing is not a reason to grow the shared shape, it is
+/// `sloppy.rs`'s reason for its own copy, restated.
+///
+/// # Why declaration order does not matter here
+///
+/// Unlike [`Pattern::bound_names`], which orders initialisers for their side
+/// effects, this just needs the *set* of spellings that must exist as
+/// `undefined` before the first statement runs — so duplicates across two
+/// `var x` in different blocks collapse for free at the call site, which
+/// declares each name once.
+fn collect_vars(body: &[Stmt], into: &mut Vec<Name>) {
+    for statement in body {
+        collect_vars_stmt(statement, into);
+    }
+}
+
+/// One statement's contribution to [`collect_vars`].
+fn collect_vars_stmt(statement: &Stmt, into: &mut Vec<Name>) {
+    match &statement.kind {
+        StmtKind::Declare {
+            kind: BindingKind::Var,
+            bindings,
+        } => {
+            for binding in bindings {
+                binding.target.bound_names(into);
+            }
+        }
+        StmtKind::Declare { .. } => {}
+        StmtKind::Block(body) => collect_vars(body, into),
+        StmtKind::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            collect_vars_stmt(then_branch, into);
+            if let Some(otherwise) = else_branch {
+                collect_vars_stmt(otherwise, into);
+            }
+        }
+        StmtKind::While { body, .. } | StmtKind::DoWhile { body, .. } => {
+            collect_vars_stmt(body, into)
+        }
+        StmtKind::For { init, body, .. } => {
+            if let Some(ForInit::Declare {
+                kind: BindingKind::Var,
+                bindings,
+            }) = init
+            {
+                for binding in bindings {
+                    binding.target.bound_names(into);
+                }
+            }
+            collect_vars_stmt(body, into);
+        }
+        StmtKind::ForEach { target, body, .. } => {
+            if let ForEachTarget::Declare {
+                kind: BindingKind::Var,
+                target,
+            } = target
+            {
+                target.bound_names(into);
+            }
+            collect_vars_stmt(body, into);
+        }
+        StmtKind::Labelled { body, .. } | StmtKind::With { body, .. } => {
+            collect_vars_stmt(body, into)
+        }
+        StmtKind::Switch { clauses, .. } => {
+            for clause in clauses {
+                for inner in &clause.body {
+                    collect_vars_stmt(inner, into);
+                }
+            }
+        }
+        StmtKind::Try {
+            body,
+            catch,
+            finally,
+        } => {
+            for inner in body {
+                collect_vars_stmt(inner, into);
+            }
+            if let Some(catch) = catch {
+                for inner in &catch.body {
+                    collect_vars_stmt(inner, into);
+                }
+            }
+            if let Some(finally) = finally {
+                for inner in finally {
+                    collect_vars_stmt(inner, into);
+                }
+            }
+        }
+        // A function or class declaration owns its own `var` scope; `Function`
+        // is hoisted separately, by `hoist`, and neither introduces a name into
+        // THIS function's. Every other kind — `Expr`, `Return`, `Break`,
+        // `Continue`, `Throw`, `Debugger`, `Empty`, `Using` (its binding always
+        // behaves as `const`) — introduces no `var`.
+        _ => {}
+    }
+}
+
+/// Declares every `var` in the body as `undefined`, before anything runs.
+///
+/// # Why this and [`hoist`] are not one function
+///
+/// A `var` is hoisted ONCE, to the function's own top layer, over the WHOLE
+/// body — reading `x` before `var x = 5` anywhere in the function answers
+/// `undefined`, not a compile-time refusal. A function declaration is hoisted
+/// PER BLOCK, so a nested one can be mutually recursive with a sibling — see
+/// `hoist`'s own doc. Folding the two into one traversal would have to carry
+/// both rules through one walk, which is the rule-stated-twice failure rule 3
+/// warns about, just moved one level down.
+///
+/// Declared directly into the current (function) layer, which is why this must
+/// run before [`Scope::enter`] is called for anything — a `var` inside a block
+/// still has to land outside it.
+pub fn hoist_vars(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    body: &[Stmt],
+) -> EmitResult<()> {
+    let mut names = Vec::new();
+    collect_vars(body, &mut names);
+    for name in names {
+        // A name declared twice — `var x; var x;`, or one in each of two
+        // sibling blocks — collapses here: `Scope::declare` pushes an entry
+        // every time it is called, and a second `undefined` for the same
+        // spelling would shadow the first in the SAME layer, which is a
+        // different bug from the one this function fixes. Checking first is
+        // cheap on a per-function list.
+        if scope.lookup(name).is_none() {
+            let value = expr::undefined(builder, ctx);
+            binding::declare(builder, scope, ctx, name, value)?;
+        }
     }
     Ok(())
 }

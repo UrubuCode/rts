@@ -29,7 +29,8 @@
 //! cannot have a problem, since its parameters exist whether or not anything
 //! was passed.
 
-use rts_cranelift::ir::{FuncBuilder, ValueId};
+use rts_cranelift::ir::{ConstDecl, FuncBuilder, ScalarBits, ValueId};
+use rts_cranelift::repr::Repr;
 
 use super::expr::{self, emit_expr};
 use super::{Ctx, EmitError, EmitResult, Scope};
@@ -47,7 +48,34 @@ pub fn emit_call(
     // The receiver and the callee, in the order the language evaluates them:
     // the member expression first, then the arguments.
     let (receiver, function) = callee_and_receiver(builder, scope, ctx, callee)?;
-    emit_call_with(builder, scope, ctx, function, receiver, arguments)
+    let name = callee_spelling(ctx, callee);
+    emit_call_with_name(builder, scope, ctx, function, receiver, arguments, name)
+}
+
+/// What a `TypeError` should call the callee, from how it was spelled.
+///
+/// Only the spellings the language can put a name to: `f` and `o.f`, which
+/// between them are most of the 64 files a bare "is not a function" left
+/// untriaged. `o[k]()`, `super.f()` and a callee that is itself an expression
+/// answer `None` — there is no single right spelling for "the fourth element
+/// of an array" — and the caller falls back to what the value's KIND was.
+fn callee_spelling(ctx: &mut Ctx, callee: &Expr) -> Option<u32> {
+    let text = match &callee.kind {
+        ExprKind::Member {
+            object, property, ..
+        } => {
+            let base = match &object.kind {
+                ExprKind::Ident(name) => ctx.names.text(*name).to_owned(),
+                // V8's own placeholder for a receiver with no single
+                // spelling — `getObj().foo()` reads `getObj(...)`.
+                _ => "(intermediate value)".to_owned(),
+            };
+            format!("{base}.{}", ctx.names.text(*property))
+        }
+        ExprKind::Ident(name) => ctx.names.text(*name).to_owned(),
+        _ => return None,
+    };
+    Some(ctx.literal(&text))
 }
 
 /// What a call site calls, and what it calls it ON.
@@ -145,6 +173,24 @@ pub fn emit_call_with(
     receiver: ValueId,
     arguments: &[Spreadable],
 ) -> EmitResult<ValueId> {
+    emit_call_with_name(builder, scope, ctx, function, receiver, arguments, None)
+}
+
+/// The same, with the callee's source spelling for a "not a function" message.
+///
+/// Split from [`emit_call_with`] rather than adding a parameter there, because
+/// `super(…)` and an optional call reach `emit_call_with` with no member
+/// expression behind them at all — there is nothing to name, and callers that
+/// have nothing to say should not be made to pass `None` explicitly.
+fn emit_call_with_name(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    function: ValueId,
+    receiver: ValueId,
+    arguments: &[Spreadable],
+    name: Option<u32>,
+) -> EmitResult<ValueId> {
     // Past what the convention carries, the arguments go in an array and the
     // runtime holds it for the activation. The common call is unchanged and
     // allocates nothing — which is the whole reason this is a second operation
@@ -154,6 +200,7 @@ pub fn emit_call_with(
     // argument may become none or nine.
     if arguments.len() > ARGUMENT_SLOTS || has_spread(arguments) {
         let vector = emit_argument_vector(builder, scope, ctx, arguments)?;
+        emit_set_call_name(builder, ctx, name)?;
         return Ok(expr::call(
             builder,
             ctx,
@@ -171,7 +218,25 @@ pub fn emit_call_with(
         };
         values.push(emit_expr(builder, scope, ctx, value)?);
     }
+    emit_set_call_name(builder, ctx, name)?;
     issue(builder, ctx, function, receiver, &values)
+}
+
+/// Records the callee's spelling for the call about to be issued, if it has
+/// one — emitted last, after every argument, so an argument that calls
+/// something of its own cannot overwrite what this call site just recorded
+/// for itself. See `RuntimeOp::SetCallName`.
+fn emit_set_call_name(builder: &mut FuncBuilder, ctx: &mut Ctx, name: Option<u32>) -> EmitResult<()> {
+    let Some(literal) = name else {
+        return Ok(());
+    };
+    let id = builder.declare_const(ConstDecl::Scalar {
+        repr: Repr::I64,
+        bits: ScalarBits(u64::from(literal)),
+    });
+    let id = builder.use_const(id);
+    expr::call(builder, ctx, RuntimeOp::SetCallName, &[id])?;
+    Ok(())
 }
 
 /// Emits a call whose arguments are already values.

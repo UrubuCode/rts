@@ -44,7 +44,10 @@
 mod civil;
 mod parse;
 
-use civil::{Parts, clip, from_year_month, iso_text, parts_of, utc_string};
+use civil::{
+    Parts, clip, date_string, from_parts, from_year_month, iso_text, locale_string,
+    locale_time_string, parts_of, time_string, utc_string,
+};
 use parse::parse_iso;
 
 use super::objects::{read_property, undefined_of};
@@ -161,13 +164,7 @@ impl Date {
 
     /// `date.setTime(ms)`, answering the value it stored.
     fn set_time(this: u64, ms: f64) -> f64 {
-        let stored = clip(ms);
-        with_current(|context| {
-            if let Some(cell) = Value(this).as_slot() {
-                store(context, cell, stored);
-            }
-        });
-        stored
+        commit(this, clip(ms))
     }
 
     /// `date.setFullYear(year, month?, date?)`.
@@ -220,6 +217,88 @@ impl Date {
             }
         });
         stored
+    }
+
+    /// `date.setMonth(month, date?)` — zero-based, as `getMonth` answers it.
+    ///
+    /// `date` falls back to the current day of the month exactly as
+    /// `setFullYear`'s does, for the same reason: a caller passing one
+    /// argument must not have the other roll to the epoch's.
+    #[js("setMonth")]
+    fn set_month(this: u64, month: u64, date: u64) -> f64 {
+        let existing = fields_of(this);
+        let absent = with_current(|context| undefined_of(context));
+        let month = super::class_support::to_number(month);
+        let date = optional(date, absent, existing.day as f64);
+        commit(this, from_parts(
+            existing.year as f64, month, date,
+            existing.hour as f64, existing.minute as f64, existing.second as f64, existing.milli as f64,
+        ))
+    }
+
+    /// `date.setDate(date)` — the day of the month, one-based.
+    #[js("setDate")]
+    fn set_date(this: u64, date: u64) -> f64 {
+        let existing = fields_of(this);
+        let date = super::class_support::to_number(date);
+        commit(this, from_parts(
+            existing.year as f64, existing.month as f64, date,
+            existing.hour as f64, existing.minute as f64, existing.second as f64, existing.milli as f64,
+        ))
+    }
+
+    /// `date.setHours(hour, minute?, second?)`.
+    ///
+    /// Stops at three of the specification's four trailing arguments for the
+    /// reason the constructor stops at two: a fourth has no slot to arrive in.
+    #[js("setHours")]
+    fn set_hours(this: u64, hour: u64, minute: u64, second: u64) -> f64 {
+        let existing = fields_of(this);
+        let absent = with_current(|context| undefined_of(context));
+        let hour = super::class_support::to_number(hour);
+        let minute = optional(minute, absent, existing.minute as f64);
+        let second = optional(second, absent, existing.second as f64);
+        commit(this, from_parts(
+            existing.year as f64, existing.month as f64, existing.day as f64,
+            hour, minute, second, existing.milli as f64,
+        ))
+    }
+
+    /// `date.setMinutes(minute, second?)`.
+    #[js("setMinutes")]
+    fn set_minutes(this: u64, minute: u64, second: u64) -> f64 {
+        let existing = fields_of(this);
+        let absent = with_current(|context| undefined_of(context));
+        let minute = super::class_support::to_number(minute);
+        let second = optional(second, absent, existing.second as f64);
+        commit(this, from_parts(
+            existing.year as f64, existing.month as f64, existing.day as f64,
+            existing.hour as f64, minute, second, existing.milli as f64,
+        ))
+    }
+
+    /// `date.setSeconds(second, ms?)`.
+    #[js("setSeconds")]
+    fn set_seconds(this: u64, second: u64, milli: u64) -> f64 {
+        let existing = fields_of(this);
+        let absent = with_current(|context| undefined_of(context));
+        let second = super::class_support::to_number(second);
+        let milli = optional(milli, absent, existing.milli as f64);
+        commit(this, from_parts(
+            existing.year as f64, existing.month as f64, existing.day as f64,
+            existing.hour as f64, existing.minute as f64, second, milli,
+        ))
+    }
+
+    /// `date.setMilliseconds(ms)`.
+    #[js("setMilliseconds")]
+    fn set_milliseconds(this: u64, milli: u64) -> f64 {
+        let existing = fields_of(this);
+        let milli = super::class_support::to_number(milli);
+        commit(this, from_parts(
+            existing.year as f64, existing.month as f64, existing.day as f64,
+            existing.hour as f64, existing.minute as f64, existing.second as f64, milli,
+        ))
     }
 
     /// `date.getFullYear()`.
@@ -365,6 +444,38 @@ impl Date {
     fn to_utc_string(this: u64) -> u64 {
         text_value(utc_string(time_of(this)))
     }
+
+    /// `date.toDateString()` — `"Thu Jan 01 1970"`.
+    #[js("toDateString")]
+    fn to_date_string(this: u64) -> u64 {
+        text_value(date_string(time_of(this)))
+    }
+
+    /// `date.toTimeString()` — `"00:00:00.000Z"`. See [`civil::time_string`]
+    /// for why this is not the `GMT+offset (name)` form a real engine answers.
+    #[js("toTimeString")]
+    fn to_time_string(this: u64) -> u64 {
+        text_value(time_string(time_of(this)))
+    }
+
+    /// `date.toLocaleDateString()` — the same text as `toDateString`, absent a
+    /// locale database to format against. See `civil::locale_string`.
+    #[js("toLocaleDateString")]
+    fn to_locale_date_string(this: u64) -> u64 {
+        text_value(date_string(time_of(this)))
+    }
+
+    /// `date.toLocaleTimeString()` — `"00:00:00"`, with no locale database.
+    #[js("toLocaleTimeString")]
+    fn to_locale_time_string(this: u64) -> u64 {
+        text_value(locale_time_string(time_of(this)))
+    }
+
+    /// `date.toLocaleString()` — `"01/01/1970, 00:00:00"`.
+    #[js("toLocaleString")]
+    fn to_locale_string(this: u64) -> u64 {
+        text_value(locale_string(time_of(this)))
+    }
 }
 
 /// The clock. The one line a wasm target has to supply — see the module doc.
@@ -412,6 +523,38 @@ fn time_of(this: u64) -> f64 {
 /// One calendar field of a receiver, `NaN` when the date is invalid.
 fn field(this: u64, pick: fn(&Parts) -> f64) -> f64 {
     parts_of(time_of(this)).as_ref().map_or(f64::NAN, pick)
+}
+
+/// Every field of a receiver, falling back to the epoch's when the date is
+/// invalid — the same fallback [`set_full_year`] already makes, so a setter
+/// on an invalid date answers a real one instead of propagating `NaN` forever.
+fn fields_of(this: u64) -> Parts {
+    parts_of(time_of(this)).unwrap_or(parts_of(0.0).expect("epoch has parts"))
+}
+
+/// An argument a setter treats as "leave this field alone" when absent.
+///
+/// The comparison every trailing setter argument needs — `setMonth`'s `date`,
+/// `setHours`' `minute` and `second` — pulled out once rather than repeated at
+/// each call site, which is how [`set_full_year`] wrote it before there were
+/// six more setters making the same comparison.
+fn optional(value: u64, absent: u64, current: f64) -> f64 {
+    match value == absent {
+        true => current,
+        false => super::class_support::to_number(value),
+    }
+}
+
+/// Stores a computed time value onto the receiver and answers it — what every
+/// setter in this file does with its result, pulled out once rather than
+/// repeated at each call site.
+fn commit(this: u64, ms: f64) -> f64 {
+    with_current(|context| {
+        if let Some(cell) = Value(this).as_slot() {
+            store(context, cell, ms);
+        }
+    });
+    ms
 }
 
 /// A `String` value holding text that was produced outside any borrow.

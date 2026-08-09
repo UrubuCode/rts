@@ -89,6 +89,7 @@ mod uri;
 // The operators are defined in their own module and named from here, because a
 // caller wants "the entry points" in one place rather than a module tree.
 pub use array::{array_new, own_keys};
+pub use array_proto::arguments_at;
 pub use loops::{Pending, Rest, Source, declare_loop_source, declare_rest, pump_sources};
 pub use bitwise::{
     bit_and, bit_not, bit_or, bit_xor, exponent, shift_left, shift_right, shift_right_unsigned,
@@ -97,7 +98,7 @@ pub use computed::{delete_property, get_indexed, has_property, key_number, set_i
 pub use functions::{
     call_with_args, construct_with_args, rest_arguments,
     ARGUMENT_SLOTS, call, closure_new, construct, instance_of, mark_class_constructor,
-    mark_derived, super_construct,
+    mark_derived, set_call_name, super_construct,
 };
 pub use generator::{FrameShape, declare_frames, generator_new, generator_yield};
 pub use global::{global_get, global_set};
@@ -113,7 +114,10 @@ pub use modules::{
     text_of, undefined_in, undefined_value, with_runtime,
 };
 pub use function_proto::running_function;
-pub use objects::{get_property, object_new, object_spread, set_property};
+pub use objects::{
+    get_property, get_super_property, object_new, object_spread, set_property,
+    set_super_property,
+};
 pub use promise::{drain_microtasks, promise_await, promise_new, promise_settle, settled};
 pub use operators::{
     divide, greater, greater_equal, less, less_equal, loose_equals, multiply, remainder, subtract,
@@ -269,6 +273,15 @@ pub struct Context {
     /// nothing: a bound function's one way to know WHICH binding is running is
     /// the call that reached it.
     callees: Vec<u64>,
+    /// The literal index of the callee about to be called, as its source
+    /// spelled it — `obj.foo` or `foo` — set by the call site immediately
+    /// before the jump and taken (not merely read) by [`functions::invoke`]
+    /// on entry, so it cannot leak into a nested call this one goes on to
+    /// make.
+    ///
+    /// `None` for a callee `emit/call.rs` did not name — a computed callee
+    /// such as `(a || b)()`, where no single spelling is right.
+    pending_call_name: Option<u64>,
     /// The bytes every `ArrayBuffer` owns.
     ///
     /// A `Slab` for the reason `arrays` is one: a cell is sixty-four fixed
@@ -647,6 +660,7 @@ impl Context {
             new_targets: Vec::new(),
             bound: Aside::new(),
             callees: Vec::new(),
+            pending_call_name: None,
             buffers: Slab::new(),
             buffer_of: Aside::new(),
             views: Aside::new(),

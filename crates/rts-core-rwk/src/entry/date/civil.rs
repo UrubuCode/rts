@@ -144,6 +144,91 @@ const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS: [&str; 12] =
     ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+/// A time value from every field a setter can touch, civil year through
+/// millisecond.
+///
+/// The same construction [`from_year_month`] does for two fields, widened to
+/// seven: a month outside `0..12` or a day outside the month rolls forward or
+/// back rather than being refused, because that is what every setter this
+/// crate has already committed to does (`setFullYear`, `from_year_month`) and
+/// a seventh setter disagreeing would be the one place `new Date(y, 12)` and
+/// `d.setMonth(12)` meant different things.
+pub(super) fn from_parts(
+    year: f64,
+    month: f64,
+    day: f64,
+    hour: f64,
+    minute: f64,
+    second: f64,
+    milli: f64,
+) -> f64 {
+    if ![year, month, day, hour, minute, second, milli]
+        .iter()
+        .all(|field| field.is_finite())
+    {
+        return f64::NAN;
+    }
+    let months = year.trunc() as i64 * 12 + month.trunc() as i64;
+    let days = days_from_civil(months.div_euclid(12), months.rem_euclid(12) + 1, day.trunc() as i64);
+    let time_within_day = hour.trunc() * 3_600_000.0
+        + minute.trunc() * 60_000.0
+        + second.trunc() * 1_000.0
+        + milli.trunc();
+    clip(days as f64 * MS_PER_DAY + time_within_day)
+}
+
+/// `"Thu Jan 01 1970"` — the date-only half of [`utc_string`]'s fields, in the
+/// order `toDateString` prints them.
+pub(super) fn date_string(ms: f64) -> String {
+    let Some(parts) = parts_of(ms) else {
+        return "Invalid Date".to_owned();
+    };
+    format!(
+        "{} {} {:02} {:04}",
+        WEEKDAYS[parts.weekday as usize], MONTHS[parts.month as usize], parts.day, parts.year
+    )
+}
+
+/// `"00:00:00.000Z"` — the time-only half, in the form `toTimeString` answers
+/// here. See the module documentation for why there is no timezone name.
+pub(super) fn time_string(ms: f64) -> String {
+    let Some(parts) = parts_of(ms) else {
+        return "Invalid Date".to_owned();
+    };
+    format!("{:02}:{:02}:{:02}.{:03}Z", parts.hour, parts.minute, parts.second, parts.milli)
+}
+
+/// `"00:00:00"` — `toLocaleTimeString` with no locale database behind it, so
+/// this is the 24-hour form rather than a guess at one operating system's
+/// default. See [`locale_string`] for why this shape and not `am`/`pm`.
+pub(super) fn locale_time_string(ms: f64) -> String {
+    let Some(parts) = parts_of(ms) else {
+        return "Invalid Date".to_owned();
+    };
+    format!("{:02}:{:02}:{:02}", parts.hour, parts.minute, parts.second)
+}
+
+/// `"01/01/1970, 00:00:00"` — `toLocaleString` with no locale database.
+///
+/// `DD/MM/YYYY` rather than ISO order: this crate has no locale to consult, so
+/// there is no "correct" order to pick, and this is the one already pinned by
+/// `date_to_json.test.ts` (#220, #1202) — chosen there to match Bun/Node under
+/// a Windows host's default locale, which is what this workspace runs on.
+pub(super) fn locale_string(ms: f64) -> String {
+    let Some(parts) = parts_of(ms) else {
+        return "Invalid Date".to_owned();
+    };
+    format!(
+        "{:02}/{:02}/{:04}, {:02}:{:02}:{:02}",
+        parts.month + 1,
+        parts.day,
+        parts.year,
+        parts.hour,
+        parts.minute,
+        parts.second
+    )
+}
+
 /// `"Thu, 01 Jan 1970 00:00:00 GMT"` — the RFC 7231 form `toUTCString` answers.
 ///
 /// Always `GMT`, never an offset: [`super`]'s module documentation is why —

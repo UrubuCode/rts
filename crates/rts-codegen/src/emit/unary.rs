@@ -106,8 +106,18 @@ pub fn emit_unary(
             // a program asks whether something exists, and refusing it would
             // refuse the question itself.
             let value = match &operand.kind {
+                // `NaN`, `Infinity` and `undefined` are unbound as far as
+                // `scope` is concerned — they are the emitter's own constants,
+                // not a declared binding — so this arm must offer them the
+                // same way `binding::read` does before falling to the global
+                // object. Skipping straight to `force_read` answered
+                // `typeof NaN` from a property named `"NaN"` that no global
+                // object holds, i.e. `undefined`.
                 ExprKind::Ident(name) if scope.lookup(*name).is_none() => {
-                    super::globals::force_read(builder, ctx, *name)?
+                    match super::binding::predefined(builder, ctx, *name) {
+                        Some(value) => value,
+                        None => super::globals::force_read(builder, ctx, *name)?,
+                    }
                 }
                 _ => emit_expr(builder, scope, ctx, operand)?,
             };

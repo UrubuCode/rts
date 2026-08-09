@@ -23,16 +23,24 @@ fn os_bytes(len: usize) -> Vec<u8> {
     // `getrandom` 0.4 — vetted in `docs/reference/node/crates.md` §4.1:
     // "getrandom | 0.4 | MIT/Apache | randomBytes/randomFillSync/
     // getRandomValues". A draw that fails (exhausted OS entropy source) is
-    // left as all-zero bytes — this module cannot throw, and Node's own
-    // failure mode here is treated as unreachable on a sane host.
+    // left as all-zero bytes rather than raised — Node's own failure mode
+    // here is treated as unreachable on a sane host, and this is a fallback
+    // for an unreachable case rather than a validation the caller can hit.
     let _ = getrandom::fill(&mut out);
     out
 }
 
 /// `crypto.randomBytes(size)` — answers a `Uint8Array` (see `hash.rs`'s
 /// module doc for why not a `Buffer` instance). A negative or non-finite
-/// `size` answers zero bytes rather than throwing.
+/// `size` raises a catchable error, matching Node's `ERR_OUT_OF_RANGE` in
+/// spirit (see `throw_type_error`'s doc for why the class raised here is
+/// `TypeError` rather than `RangeError`).
 pub(super) extern "C" fn random_bytes(_e: u64, _this: u64, size: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let negative = entry::with_runtime(|context| util::integer(context, size).map(|value| value < 0).unwrap_or(false));
+    if negative {
+        entry::throw_type_error("The value of \"size\" is out of range. It must be >= 0.");
+        return entry::undefined_value();
+    }
     entry::with_runtime(|context| {
         let len = util::integer(context, size).filter(|value| *value >= 0).unwrap_or(0) as usize;
         let bytes = os_bytes(len);
@@ -78,16 +86,24 @@ pub(super) extern "C" fn get_random_values(_e: u64, _this: u64, typed_array: u64
 
 /// `crypto.randomInt(minOrMax, max?)` — unbiased via rejection sampling
 /// (Node's own requirement, §4: "RTS must not naively `% range`, which is
-/// biased"). One argument means `min = 0`. `max <= min` answers `min`
-/// rather than throwing `ERR_OUT_OF_RANGE`.
+/// biased"). One argument means `min = 0`. `max <= min` raises a catchable
+/// error (`ERR_OUT_OF_RANGE` in Node; here a `TypeError` — see `throw_type_error`'s
+/// doc for why that is the only class this crate can raise with).
 pub(super) extern "C" fn random_int(_e: u64, _this: u64, min_or_max: u64, max: u64, _a2: u64, _a3: u64) -> u64 {
+    let bad = entry::with_runtime(|context| {
+        let absent = entry::undefined_in(context);
+        let a = util::integer(context, min_or_max).unwrap_or(0);
+        let (min, max) = if max == absent { (0, a) } else { (a, util::integer(context, max).unwrap_or(a)) };
+        if max <= min { Some(()) } else { None }
+    });
+    if bad.is_some() {
+        entry::throw_type_error("The value of \"max\" is out of range. It must be greater than the value of \"min\".");
+        return entry::undefined_value();
+    }
     entry::with_runtime(|context| {
         let absent = entry::undefined_in(context);
         let a = util::integer(context, min_or_max).unwrap_or(0);
         let (min, max) = if max == absent { (0, a) } else { (a, util::integer(context, max).unwrap_or(a)) };
-        if max <= min {
-            return entry::make_number(min as f64);
-        }
         let range = (max - min) as u64;
         // Rejection sampling: draw `u64`s, discard the ones that would bias
         // the modulo toward the low end, exactly as §4 requires.
@@ -128,9 +144,8 @@ pub(super) extern "C" fn random_uuid(_e: u64, _this: u64, _a0: u64, _a1: u64, _a
 }
 
 /// `crypto.timingSafeEqual(a, b)`. Node throws on a length mismatch
-/// (`ERR_CRYPTO_TIMING_SAFE_EQUAL_LENGTH`, §4) — this module cannot throw,
-/// so a length mismatch answers `false` instead, a named divergence rather
-/// than a silent one.
+/// (`ERR_CRYPTO_TIMING_SAFE_EQUAL_LENGTH`, §4); this raises a catchable
+/// `TypeError` for the same case, per `throw_type_error`'s doc.
 ///
 /// Both sides go through [`util::binary_bytes`], not `entry::bytes_of`. That
 /// answers only for a value that OWNS bytes, so two DIFFERENT strings both
@@ -140,12 +155,18 @@ pub(super) extern "C" fn random_uuid(_e: u64, _this: u64, _a0: u64, _a1: u64, _a
 /// coercing is the divergence, and it is the one that cannot report a false
 /// match.
 pub(super) extern "C" fn timing_safe_equal(_e: u64, _this: u64, a: u64, b: u64, _a2: u64, _a3: u64) -> u64 {
+    let mismatched = entry::with_runtime(|context| {
+        let left = util::binary_bytes(context, a);
+        let right = util::binary_bytes(context, b);
+        left.len() != right.len()
+    });
+    if mismatched {
+        entry::throw_type_error("Input buffers must have the same byte length");
+        return entry::undefined_value();
+    }
     entry::with_runtime(|context| {
         let left = util::binary_bytes(context, a);
         let right = util::binary_bytes(context, b);
-        if left.len() != right.len() {
-            return entry::boolean_value(false);
-        }
         let mut diff = 0u8;
         for (l, r) in left.iter().zip(right.iter()) {
             diff |= l ^ r;

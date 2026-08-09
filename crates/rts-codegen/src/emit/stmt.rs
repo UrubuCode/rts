@@ -57,29 +57,62 @@ pub fn emit_stmt(
             Ok(true)
         }
 
-        StmtKind::Declare { bindings, .. } => {
+        StmtKind::Declare { kind, bindings } => {
+            // `var` was already bound to `undefined`, function-wide, by
+            // `function::hoist_vars` before the first statement ran — so
+            // reaching the line it is written on is a WRITE to a binding that
+            // exists, never an introduction. `let`/`const` introduce here,
+            // which is the moment their own scope is entered.
+            let is_var = *kind == crate::syntax::BindingKind::Var;
             for binding in bindings {
                 let Pattern::Name(name) = &binding.target else {
                     // A destructuring declaration. Nothing here is a
                     // flattening candidate — `escape.rs` only ever makes one
                     // of a `Pattern::Name` target — so there is no fast path
                     // to try before falling to the general lowering.
-                    let value = match &binding.value {
-                        Some(expr) => emit_expr(builder, scope, ctx, expr)?,
-                        // A pattern with nothing to destructure is a syntax
-                        // error the checker owns, not a case this reaches.
-                        None => undefined(builder, ctx),
+                    let Some(expr) = &binding.value else {
+                        // `var {..} = ..;` with no initialiser is not
+                        // grammatical — a destructuring declaration requires
+                        // one — so this is `let`/`const`'s case only, and the
+                        // checker owns rejecting `const` here (PLAN.md L10).
+                        continue;
                     };
-                    super::destructure::declare(
-                        builder,
-                        scope,
-                        ctx,
-                        &binding.target,
-                        value,
-                        statement.at,
-                    )?;
+                    let value = emit_expr(builder, scope, ctx, expr)?;
+                    if is_var {
+                        super::destructure::assign(
+                            builder,
+                            scope,
+                            ctx,
+                            &binding.target,
+                            value,
+                            statement.at,
+                        )?;
+                    } else {
+                        super::destructure::declare(
+                            builder,
+                            scope,
+                            ctx,
+                            &binding.target,
+                            value,
+                            statement.at,
+                        )?;
+                    }
                     continue;
                 };
+                if is_var {
+                    // `var x;` with no initialiser stores nothing: the value
+                    // hoisting put there — `undefined`, or whatever an
+                    // earlier `var x = ...` on another line already wrote —
+                    // stays exactly as it was. Re-storing `undefined`
+                    // unconditionally would be wrong for `var x = 5; var x;`,
+                    // which must still read `5`.
+                    let Some(expr) = &binding.value else {
+                        continue;
+                    };
+                    let produced = emit_expr(builder, scope, ctx, expr)?;
+                    super::binding::write(builder, scope, ctx, *name, produced)?;
+                    continue;
+                }
                 // An object literal whose local provably never leaves this
                 // function is not built: each property becomes a binding of its
                 // own, in source order, and the allocation and its two calls per
@@ -99,10 +132,8 @@ pub fn emit_stmt(
                         let produced = emit_expr(builder, scope, ctx, expr)?;
                         stored(builder, ctx, *name, produced)
                     }
-                    // `let x;` is `undefined`. `const x;` is a syntax error and
-                    // `var x;` is hoisted, and neither of those is decided here
-                    // — the first is an early error and the second is a rule
-                    // about where the declaration goes, not what it stores.
+                    // `let x;` is `undefined`. `const x;` is a syntax error,
+                    // which is the checker's to refuse (PLAN.md L10).
                     None => undefined(builder, ctx),
                 };
                 super::binding::declare(builder, scope, ctx, *name, value)?;

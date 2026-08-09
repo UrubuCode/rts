@@ -759,6 +759,27 @@ fn emit_assign(
         return super::property::emit_write(builder, ctx, receiver, *property, assigned);
     }
 
+    // `super.x = v`. There was no arm here at all before this — the tree
+    // could hold `SuperMember` as an assignment target and `emit_assign`
+    // refused it by name regardless. The setter search and the receiver are
+    // two different objects, the same way the read is — see
+    // `class::emit_super_member_write`.
+    if let ExprKind::SuperMember { property } = &place.kind {
+        let assigned = match op {
+            AssignOp::Plain => emit_expr(builder, scope, ctx, value)?,
+            AssignOp::Compound(binary) => {
+                let current = super::class::emit_super_member(builder, scope, ctx, property)?;
+                let operand = emit_expr(builder, scope, ctx, value)?;
+                emit_binary(builder, ctx, binary, current, operand)?
+            }
+            // The same reason the property case refuses it: when the left
+            // side decides, the specification performs no write at all,
+            // which a setter observes.
+            AssignOp::Logical(_) => return gap("`&&=`, `||=` or `??=` on `super.x`"),
+        };
+        return super::class::emit_super_member_write(builder, scope, ctx, property, assigned);
+    }
+
     // `o[e] = v`, where the key is computed. The receiver and the key are
     // evaluated before the value, which is the order the specification gives —
     // `a()[b()] = c()` runs `a`, then `b`, then `c`.

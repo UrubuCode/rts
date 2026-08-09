@@ -49,19 +49,18 @@
 //!
 //! # Not implemented, by name
 //!
-//! `ERR_UNKNOWN_ENCODING` — `new StringDecoder('utf-9')` does not throw. A
-//! native here cannot raise a CATCHABLE JS exception: `entry::throw` ends the
-//! process (its own module doc says why — a handler one frame up needs
-//! unwinding the machine cannot do yet), and killing the program where Node
-//! throws a catchable `TypeError` is the bigger wrong. An unrecognized name
-//! normalizes to `utf8`, the stand-in `node:buffer`'s `atob` already uses.
+//! `ERR_UNKNOWN_ENCODING` as its own class — `new StringDecoder('utf-9')` now
+//! throws (`entry::throw_type_error`, per rule 8 of `rts-core-rwk`'s README),
+//! but the class raised is `TypeError` rather than Node's own; that is the
+//! only raise this crate can reach publicly (see `throw_type_error`'s doc).
 //!
 //! An argument to `write`/`end` that is neither a string nor a view over bytes
-//! (a number, a plain object, an array) decodes as NO bytes and answers `""`.
-//! Node throws `ERR_INVALID_ARG_TYPE`; that throw is unavailable for the reason
-//! above, and coercing such a value to text would be a fabricated answer —
-//! `write(42)` returning `"42"` is the coercion-as-type-test defect this crate
-//! refuses. Doing nothing and saying so is the honest remainder.
+//! (a number, a plain object, an array) still decodes as NO bytes and answers
+//! `""` rather than raising `ERR_INVALID_ARG_TYPE` — coercing such a value to
+//! text would be a fabricated answer, `write(42)` returning `"42"` is the
+//! coercion-as-type-test defect this crate refuses, and this pass's reported
+//! sites did not name this one. Doing nothing and saying so is the honest
+//! remainder for now.
 //!
 //! Disposal — there is no `FinalizationRegistry` this crate can drive from
 //! Rust, so a decoder's table entry outlives the JS object that named it, the
@@ -143,15 +142,20 @@ fn normalize(name: &str) -> Option<(Encoding, &'static str)> {
 /// `new StringDecoder(encoding?)` — also works called plainly, same
 /// `is_object`-on-`this` pattern `events::make_emitter` uses.
 extern "C" fn construct(_e: u64, this: u64, encoding_arg: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    entry::with_runtime(|context| {
+    let raw = entry::with_runtime(|context| {
         // `string_in`, not `text_of`: this asks WHAT the argument is. Node
         // accepts a string or nothing and rejects everything else, so a value
         // that is not a string must not be stringified into a name the alias
         // table might then recognize.
-        let raw = entry::string_in(context, encoding_arg).unwrap_or_default();
-        // An unrecognized name falls back to `utf8` — see the module doc for
-        // why this cannot be the `ERR_UNKNOWN_ENCODING` throw Node raises.
-        let (encoding, canonical) = normalize(&raw).unwrap_or((Encoding::Utf8, "utf8"));
+        entry::string_in(context, encoding_arg).unwrap_or_default()
+    });
+    // An unrecognized name raises — see the module doc for why the class is
+    // `TypeError` rather than Node's own `ERR_UNKNOWN_ENCODING`.
+    let Some((encoding, canonical)) = normalize(&raw) else {
+        entry::throw_type_error(&format!("Unknown encoding: {raw}"));
+        return entry::undefined_value();
+    };
+    entry::with_runtime(|context| {
         let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
         with_table(|table| {
             table.insert(id, Decoder { encoding, pending: Vec::new() });

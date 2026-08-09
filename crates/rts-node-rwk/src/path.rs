@@ -120,24 +120,27 @@ fn flavor_namespace(context: &mut Context, sep: char) -> u64 {
     namespace
 }
 
-/// `path.join(a, b, c, d)` — four, because the convention carries four slots.
+/// `path.join(a, b, ...)` — past four, the compiler's spilled vector.
 ///
-/// A call with more is refused at the site rather than losing its arguments
-/// here, which is the same trade `Object.assign` and `Function.prototype.call`
-/// already make.
+/// The doc here used to claim a fifth argument was "refused at the site
+/// rather than losing its arguments here" — it was not refused, it was
+/// silently dropped: `path.join('a','b','c','d','e')` answered a path built
+/// from the first four only. `arguments_variadic` reads the same spilled
+/// vector `String.fromCharCode` and `Math.max` do, the way `rts-core-rwk`'s
+/// `arguments_at` states it once for every native past the four slots.
 extern "C" fn join_posix(_e: u64, _this: u64, a: u64, b: u64, c: u64, d: u64) -> u64 {
-    string(&join_g(&args(a, b, c, d), '/'))
+    string(&join_g(&arguments_variadic(a, b, c, d), '/'))
 }
 extern "C" fn join_win32(_e: u64, _this: u64, a: u64, b: u64, c: u64, d: u64) -> u64 {
-    string(&join_g(&args(a, b, c, d), '\\'))
+    string(&join_g(&arguments_variadic(a, b, c, d), '\\'))
 }
 
-/// `path.resolve(a, b, c, d)` — right to left until something is absolute.
+/// `path.resolve(a, b, ...)` — right to left until something is absolute.
 extern "C" fn resolve_posix(_e: u64, _this: u64, a: u64, b: u64, c: u64, d: u64) -> u64 {
-    string(&resolve_g(&args(a, b, c, d), '/'))
+    string(&resolve_g(&arguments_variadic(a, b, c, d), '/'))
 }
 extern "C" fn resolve_win32(_e: u64, _this: u64, a: u64, b: u64, c: u64, d: u64) -> u64 {
-    string(&resolve_g(&args(a, b, c, d), '\\'))
+    string(&resolve_g(&arguments_variadic(a, b, c, d), '\\'))
 }
 
 /// `path.normalize(p)`.
@@ -553,9 +556,18 @@ fn compose_format(
     }
 }
 
-/// The four argument slots, as present text, in order.
-fn args(a: u64, b: u64, c: u64, d: u64) -> Vec<String> {
-    [a, b, c, d].into_iter().filter_map(text).collect()
+/// The call's arguments, as present text, in order — past four the
+/// compiler's spilled vector rather than the four convention slots alone.
+///
+/// `rts_core_rwk::entry::arguments_at` is the one place that reads the
+/// spilled vector back; this crate is a caller of it rather than a second
+/// copy, the same way `Math.max` and `a.push` already are inside
+/// `rts-core-rwk` itself.
+fn arguments_variadic(a: u64, b: u64, c: u64, d: u64) -> Vec<String> {
+    rts_core_rwk::entry::with_runtime(|context| rts_core_rwk::entry::arguments_at(context, 0, [a, b, c, d]))
+        .into_iter()
+        .filter_map(text)
+        .collect()
 }
 
 /// An argument as text.

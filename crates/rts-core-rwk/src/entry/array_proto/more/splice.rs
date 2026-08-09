@@ -48,16 +48,19 @@ pub(super) extern "C" fn splice(_e: u64, this: u64, start: u64, count: u64, x: u
     }
 }
 
-/// `a.toSpliced(start, count, x)` — a copy, where `splice` mutates.
+/// `a.toSpliced(start, count, ...items)` — a copy, where `splice` mutates.
 ///
-/// One insertion rather than the two `splice` takes: this answers the new array,
-/// so the receiver does not need a slot and the fourth is spent on the value.
+/// The insertions past the two controls read the spilled vector the same way
+/// `Math.max` and `a.push` do, rather than the fourth slot alone: that slot held
+/// only the first inserted item, so `[1,2,3].toSpliced(1, 0, 'a', 'b')` answered
+/// `[1,'a',2,3]` — the second insertion was never read back, not merely
+/// truncated.
 ///
 /// The receiver is left alone, which is the whole distinction — and the reason
 /// this is not `splice` on a copy: `splice` writes `length` back through
 /// `store`, and doing that to a copy is the version that works until someone
 /// passes the same array twice.
-pub(super) extern "C" fn to_spliced(_e: u64, this: u64, start: u64, count: u64, x: u64, _a3: u64) -> u64 {
+pub(super) extern "C" fn to_spliced(_e: u64, this: u64, start: u64, count: u64, x: u64, a3: u64) -> u64 {
     let spliced = with_current(|context| {
         let (_, mut elements) = staged(context, this)?;
         let from = relative(Value(start).numeric().unwrap_or(0.0), elements.len());
@@ -70,9 +73,8 @@ pub(super) extern "C" fn to_spliced(_e: u64, this: u64, start: u64, count: u64, 
             Value(count).numeric().unwrap_or(0.0).clamp(0.0, left) as usize
         };
         elements.drain(from..from + taken);
-        if !absent(context, x) {
-            elements.insert(from, x);
-        }
+        let inserted = super::super::arguments_at(context, 2, [start, count, x, a3]);
+        elements.splice(from..from, inserted);
         Some(elements)
     });
     match spliced {

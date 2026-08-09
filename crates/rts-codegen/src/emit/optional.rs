@@ -86,6 +86,15 @@ fn walk(
             property,
             optional,
         } => {
+            // The same redirect `expr.rs`'s plain `Member` arm takes: an object
+            // the escape analysis replaced has no object to read `object` FROM
+            // at all — reading it as a receiver here is exactly the bug this
+            // guards, since a flattened local was never declared under its own
+            // name. `field_of` already refuses when `optional` is set, so this
+            // costs nothing on the ordinary optional-chain path.
+            if let Some(field) = super::escape::field_of(ctx, object, *property, *optional) {
+                return super::binding::read(builder, scope, ctx, field);
+            }
             let receiver = walk(builder, scope, ctx, join, object)?;
             let receiver = maybe_short_circuit(builder, ctx, join, receiver, *optional)?;
             super::property::emit_read(builder, ctx, receiver, *property)
@@ -145,6 +154,16 @@ fn walk_callee(
             property,
             optional,
         } => {
+            // Same redirect as `walk`'s own `Member` arm. A method call still
+            // kills the candidate in `escape.rs`'s own scan (the receiver
+            // escapes as `this`), so this is defensive rather than reachable
+            // today — but it is the same fact stated once rather than assumed
+            // twice, which is what a second Member-reading site owes.
+            if let Some(field) = super::escape::field_of(ctx, object, *property, *optional) {
+                let value = super::binding::read(builder, scope, ctx, field)?;
+                let undefined = expr::undefined(builder, ctx);
+                return Ok((undefined, value));
+            }
             let receiver = walk(builder, scope, ctx, join, object)?;
             let receiver = maybe_short_circuit(builder, ctx, join, receiver, *optional)?;
             let function = super::property::emit_read(builder, ctx, receiver, *property)?;

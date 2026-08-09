@@ -22,13 +22,21 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// than one repeated.
 static FAILURES: AtomicU64 = AtomicU64::new(0);
 
-/// The stderr line and counter bump every failing assertion produces.
+/// The stderr line, counter bump, and catchable raise every failing
+/// assertion produces.
 ///
-/// This is the whole of what a failure does here — see the module doc for why
-/// there is no throw to reach for.
+/// The stderr line and counter predate the raise and stay: a harness scanning
+/// the log, or a person reading the run, still gets the operator and both
+/// values even when the raise is caught and swallowed by the caller. The
+/// raise itself is `entry::throw_type_error` — `TypeError` rather than Node's
+/// own `AssertionError`, since that is the only class this crate can raise
+/// with publicly; see its doc in `rts-core-rwk` for why. Must be called
+/// OUTSIDE any `with_runtime` borrow — raising opens its own — which every
+/// caller in `checks.rs` already satisfies (see this module's doc).
 pub(super) fn report_failure(operator: &str, detail: &str) {
     let count = FAILURES.fetch_add(1, Ordering::Relaxed) + 1;
     eprintln!("AssertionError [{operator}] #{count}: {detail}");
+    entry::throw_type_error(detail);
 }
 
 /// The failure text: the caller's `message` when there is one, else the

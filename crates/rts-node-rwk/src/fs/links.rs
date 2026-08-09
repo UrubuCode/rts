@@ -6,14 +6,20 @@ use super::{string, text};
 
 /// `fs.accessSync(path, mode?)`.
 ///
-/// Node throws on a failed check and answers `undefined` on success; this
-/// module cannot throw, so it answers `undefined` in BOTH cases — there is
-/// nothing else to give back, and a caller checking access before an
-/// operation has no signal here (the same gap `writeFileSync` etc. already
-/// state). `mode` (F_OK/R_OK/W_OK/X_OK) is read but only existence is
-/// actually checked: distinguishing execute/write/read bits per-platform
-/// with no throw to carry the distinction back is not worth the native call.
-pub(super) extern "C" fn access_sync(_e: u64, _this: u64, _path: u64, _mode: u64, _a2: u64, _a3: u64) -> u64 {
+/// Node throws (`ENOENT`) on a failed check and answers `undefined` on
+/// success; this now raises a catchable error for the failure case too
+/// (`entry::throw_type_error`, per rule 8 of `rts-core-rwk`'s README — the
+/// class raised is `TypeError` rather than Node's own `Error` with `code:
+/// 'ENOENT'`, since `throw_type_error` is the only raise this crate can
+/// reach publicly). `mode` (F_OK/R_OK/W_OK/X_OK) is read but only existence
+/// is actually checked: distinguishing execute/write/read bits per-platform
+/// with no way to carry the distinction into the message is not worth the
+/// native call.
+pub(super) extern "C" fn access_sync(_e: u64, _this: u64, path: u64, _mode: u64, _a2: u64, _a3: u64) -> u64 {
+    let exists = text(path).is_some_and(|path| std::path::Path::new(&path).exists());
+    if !exists {
+        rts_core_rwk::entry::throw_type_error("ENOENT: no such file or directory, access");
+    }
     rts_core_rwk::entry::undefined_value()
 }
 

@@ -36,7 +36,7 @@ mod arguments;
 pub(super) mod iterate;
 mod more;
 
-pub(in crate::entry) use arguments::arguments_at;
+pub use arguments::arguments_at;
 
 use super::objects::undefined_of;
 use super::string::{absent, relative};

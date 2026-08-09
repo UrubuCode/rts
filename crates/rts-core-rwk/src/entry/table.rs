@@ -54,10 +54,11 @@ use super::functions::{
     CALL_ENTRY, CALL_WITH_ARGS_ENTRY, CLOSURE_NEW_ENTRY, CONSTRUCT_ENTRY,
     CONSTRUCT_WITH_ARGS_ENTRY, INSTANCE_OF_ENTRY,
     MARK_CLASS_CONSTRUCTOR_ENTRY, MARK_DERIVED_ENTRY, REST_ARGUMENTS_ENTRY,
-    SUPER_CONSTRUCT_ENTRY,
+    SET_CALL_NAME_ENTRY, SUPER_CONSTRUCT_ENTRY,
 };
 use super::objects::{
-    GET_PROPERTY_ENTRY, OBJECT_NEW_ENTRY, OBJECT_SPREAD_ENTRY, SET_PROPERTY_ENTRY,
+    GET_PROPERTY_ENTRY, GET_SUPER_PROPERTY_ENTRY, OBJECT_NEW_ENTRY, OBJECT_SPREAD_ENTRY,
+    SET_PROPERTY_ENTRY, SET_SUPER_PROPERTY_ENTRY,
 };
 use super::function_proto::RUNNING_FUNCTION_ENTRY;
 use super::generator::{GENERATOR_NEW_ENTRY, GENERATOR_YIELD_ENTRY};
@@ -405,6 +406,15 @@ pub enum CoreEntry {
     /// Here for the reason [`CoreEntry::MarkDerived`] is: it writes state
     /// beside the cell.
     MarkClassConstructor = 65,
+
+    /// [`super::set_call_name`].
+    SetCallName = 66,
+
+    /// [`super::get_super_property`].
+    GetSuperProperty = 67,
+
+    /// [`super::set_super_property`].
+    SetSuperProperty = 68,
 }
 
 /// How many entry points exist.
@@ -412,7 +422,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 66;
+pub const CORE_ENTRY_COUNT: usize = 69;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -483,6 +493,9 @@ impl CoreEntry {
         CoreEntry::GeneratorYield,
         CoreEntry::ModulePublishAll,
         CoreEntry::MarkClassConstructor,
+        CoreEntry::SetCallName,
+        CoreEntry::GetSuperProperty,
+        CoreEntry::SetSuperProperty,
     ];
 
     /// The number a call site holds.
@@ -558,6 +571,9 @@ impl CoreEntry {
             CoreEntry::SuperConstruct => SUPER_CONSTRUCT_ENTRY,
             CoreEntry::MarkDerived => MARK_DERIVED_ENTRY,
             CoreEntry::MarkClassConstructor => MARK_CLASS_CONSTRUCTOR_ENTRY,
+            CoreEntry::SetCallName => SET_CALL_NAME_ENTRY,
+            CoreEntry::GetSuperProperty => GET_SUPER_PROPERTY_ENTRY,
+            CoreEntry::SetSuperProperty => SET_SUPER_PROPERTY_ENTRY,
             CoreEntry::CallWithArgs => CALL_WITH_ARGS_ENTRY,
             CoreEntry::RestArguments => REST_ARGUMENTS_ENTRY,
             CoreEntry::ConstructWithArgs => CONSTRUCT_WITH_ARGS_ENTRY,

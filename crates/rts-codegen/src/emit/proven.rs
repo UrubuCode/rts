@@ -165,9 +165,32 @@ pub(super) fn analyse(body: &[Stmt], flattened: &Flattened) -> Numeric {
 }
 
 /// Every local declared with an initialiser, as a candidate.
+///
+/// # Why `var` never becomes one
+///
+/// The rule this pass proves a local numeric BY is "its initialiser is
+/// numeric and every assignment to it is numeric" — and a hoisted `var`'s
+/// real initialiser, the one `function::hoist_vars` actually runs, is
+/// `undefined`, at every reachable point before the line it is written on.
+/// `var q = 5;` inside an `if` with no `else` is the plain case: the merge
+/// this analysis never sees has an edge where `q` is still that `undefined`,
+/// Tagged, and an edge where it is the `5` this pass saw and proved `F64` —
+/// two representations meeting at one block parameter, which is exactly the
+/// `ImplicitNarrowing` the verifier is right to refuse. A `try`, a `switch`
+/// case or a loop body that assigns a `var` is the same join with a
+/// different shape around it, not a different bug.
+///
+/// So a `var`'s explicit initialiser is not evidence this pass can use at
+/// all — rule 5: what cannot be proven becomes generic, visibly, and a
+/// `Tagged` store for a proven-looking value is what "generic" costs here.
+/// `escape.rs` excludes `var` from its own optimisation for the same reason,
+/// one door down (`kind.is_block_scoped()`).
 fn collect_candidates(statement: &Stmt, flattened: &Flattened, into: &mut Numeric) {
     match &statement.kind {
-        StmtKind::Declare { bindings, .. } => {
+        StmtKind::Declare { kind, bindings } => {
+            if !kind.is_block_scoped() {
+                return;
+            }
             for binding in bindings {
                 if let (Pattern::Name(name), Some(_)) = (&binding.target, &binding.value) {
                     match flattened.properties(*name) {
@@ -202,7 +225,20 @@ fn collect_candidates(statement: &Stmt, flattened: &Flattened, into: &mut Numeri
             collect_candidates(body, flattened, into)
         }
         StmtKind::For { init, body, .. } => {
-            if let Some(ForInit::Declare { bindings, .. }) = init {
+            // `for (var i = 0; …)` is the same hazard as the module doc's
+            // `if`: `i` is `undefined` at function entry and only becomes
+            // `0` at this line, so a read reachable WITHOUT passing through
+            // here first would meet a `Tagged` edge here otherwise proved
+            // `F64`. `for (let i = …)` has no such edge — the header owns
+            // `i` and nothing before it could read one — which is what
+            // `is_block_scoped` is checked for here too.
+            let declares_var = matches!(
+                init,
+                Some(ForInit::Declare { kind, .. }) if !kind.is_block_scoped()
+            );
+            if let Some(ForInit::Declare { bindings, .. }) = init
+                && !declares_var
+            {
                 for binding in bindings {
                     if let (Pattern::Name(name), Some(_)) = (&binding.target, &binding.value) {
                         // Never a replaced object: `escape::collect` only makes

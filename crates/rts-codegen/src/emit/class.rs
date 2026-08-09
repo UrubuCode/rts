@@ -163,19 +163,28 @@ pub(super) fn emit_class(
             .enumerate()
             .any(|(index, element)| computed[index].is_some() && element.runs_per_instance());
 
-    let mut inner = class_scope(builder, scope, ctx, parent, needs_environment)?;
+    // A computed instance field's key value, one per element position that
+    // needs it — read again inside the constructor, which is why it has to be
+    // both WRITTEN into the environment `class_scope` makes and RECORDED in
+    // the `Scope` it returns. Writing it and stopping there was the bug: the
+    // constructor's own `Scope::for_function` seeds its environment bindings
+    // from `inner.reachable()`, and a name only ever `property::emit_write`'d
+    // — never `declare`d as captured — is invisible to that call. The
+    // constructor's synthetic `Expr::Ident("__rts_key0")` read what the value
+    // WAS at, correctly, and found no binding that said so.
+    let computed_fields: Vec<(Name, ValueId)> = class
+        .body
+        .iter()
+        .enumerate()
+        .filter_map(|(index, element)| {
+            let (Some(value), true) = (computed[index], element.runs_per_instance()) else {
+                return None;
+            };
+            Some((ctx.names.intern(&computed_key_name(index)), value))
+        })
+        .collect();
 
-    for (index, element) in class.body.iter().enumerate() {
-        let (Some(value), true) = (computed[index], element.runs_per_instance()) else {
-            continue;
-        };
-        // `class_scope` already made an environment whenever any instance
-        // field's key is computed, so this is always present here.
-        if let Some(environment) = inner.environment() {
-            let held = ctx.names.intern(&computed_key_name(index));
-            super::property::emit_write(builder, ctx, environment, held, value)?;
-        }
-    }
+    let mut inner = class_scope(builder, scope, ctx, parent, needs_environment, &computed_fields)?;
 
     let constructor = emit_constructor(builder, &mut inner, ctx, class, &computed)?;
 
@@ -609,8 +618,13 @@ fn class_scope(
     ctx: &mut Ctx,
     parent: Option<ValueId>,
     needs_environment: bool,
+    computed_fields: &[(Name, ValueId)],
 ) -> EmitResult<Scope> {
     if parent.is_none() && !needs_environment {
+        // `computed_fields` is always empty here: `needs_environment` is `true`
+        // whenever any element of it exists (`emit_class`'s own computation),
+        // so this branch never drops one on the floor.
+        debug_assert!(computed_fields.is_empty());
         // Not a copy of the enclosing scope: methods are emitted against it, and
         // `Scope` is not `Clone`. Rebuilt from what it can reach, which is
         // exactly what a nested function sees.
@@ -639,6 +653,16 @@ fn class_scope(
         held.insert(super_name);
     }
 
+    // Every computed instance field's key value, written into the SAME
+    // environment and recorded in the SAME `held` set as `__rts_home` and
+    // `__rts_super` above — which is what makes it reachable through
+    // `Scope::reachable` when the constructor's own scope is built, instead of
+    // being a write nothing downstream knows to look for.
+    for &(name, value) in computed_fields {
+        super::property::emit_write(builder, ctx, environment, name, value)?;
+        held.insert(name);
+    }
+
     // One link further out for everything the enclosing scope could reach,
     // because this environment sits between it and the methods.
     let reachable: Vec<(Name, u32)> = scope
@@ -649,25 +673,115 @@ fn class_scope(
     Ok(Scope::for_function(Some(environment), held, &reachable))
 }
 
-/// `super.x` — read from above the home object, with `this` as the receiver.
+/// `super.x` — the LOOKUP starts above the home object, but the receiver an
+/// inherited accessor runs with is `this`, not the object the search found it
+/// on.
+///
+/// # The bug this replaced
+///
+/// The previous version passed `above` — the parent's `prototype` — as both
+/// the search root and the receiver, through the ordinary named-property path
+/// (`super::property::emit_read`), which has only one object argument and
+/// uses it for both. Two consequences, and they are not the same failure:
+///
+/// - An inherited **accessor** ran with the wrong `this`. `super.x` inside a
+///   subclass method, where the base class declares `get x() { return
+///   this.something; }`, read `this.something` off the PARENT'S PROTOTYPE
+///   rather than off the actual instance — a plausible-looking wrong answer
+///   rather than a crash, because the prototype is an object too.
+/// - A plain field is never found through `super` at all, which is not a bug
+///   to fix here: `this.x = 7` in a constructor makes `x` an OWN property of
+///   the INSTANCE, never of the base class's `prototype`, and the walk
+///   starts above the home object and never redirects to the receiver's own
+///   properties. Verified against Node rather than assumed — `super.x` for a
+///   plain inherited field answers `undefined` there too.
+///
+/// [`crate::runtime::RuntimeOp::GetSuperProperty`] is the fix: it takes the
+/// receiver and the search root as two separate arguments, the way the
+/// specification's `OrdinaryGet(O, P, Receiver)` keeps them apart.
 pub(super) fn emit_super_member(
     builder: &mut FuncBuilder,
     scope: &mut Scope,
     ctx: &mut Ctx,
     property: &PropertyKey,
 ) -> EmitResult<ValueId> {
-    let PropertyKey::Named(name) = property else {
+    let (above, receiver) = super_lookup_root_and_receiver(builder, scope, ctx, property)?;
+    let key = super::property::key_constant(builder, ctx, name_of(property)?);
+    Ok(expr::call(
+        builder,
+        ctx,
+        RuntimeOp::GetSuperProperty,
+        &[receiver, above, key],
+    )?[0])
+}
+
+/// `super.x = v` — the setter search starts above the home object; an
+/// unintercepted write lands on `this`, the same place `this.x = v` would put
+/// it, and not on the object the search started at.
+///
+/// There was no assignment-target arm for `SuperMember` at all before this:
+/// `super.x = v` was refused by name at compile time.
+pub(super) fn emit_super_member_write(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    property: &PropertyKey,
+    value: ValueId,
+) -> EmitResult<ValueId> {
+    let (above, receiver) = super_lookup_root_and_receiver(builder, scope, ctx, property)?;
+    let key = super::property::key_constant(builder, ctx, name_of(property)?);
+    let value = expr::tagged(builder, value);
+    Ok(expr::call(
+        builder,
+        ctx,
+        RuntimeOp::SetSuperProperty,
+        &[receiver, above, key, value],
+    )?[0])
+}
+
+/// The two objects a `super` property access needs, kept apart: where the
+/// search starts, and which object an accessor call (or, for a write with no
+/// setter, an ordinary property write) runs against.
+fn super_lookup_root_and_receiver(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    property: &PropertyKey,
+) -> EmitResult<(ValueId, ValueId)> {
+    if !matches!(property, PropertyKey::Named(_)) {
         return Err(EmitError::Unsupported {
             construct: "a computed `super[e]`",
         });
-    };
+    }
     let home = ctx.names.intern(HOME);
     let home = binding::read(builder, scope, ctx, home)?;
     // Above the home object, not on it. `super.m()` inside `m` must not find
     // `m` again, which is the whole reason the home object exists rather than
-    // the read starting at `this`.
+    // the search starting at `this`.
     let above = expr::call(builder, ctx, RuntimeOp::GetPrototype, &[home])?[0];
-    super::property::emit_read(builder, ctx, above, *name)
+    // `this`, read the ordinary way — a derived constructor's late binding is
+    // irrelevant here, because `super.x` inside a class body is always
+    // written inside a method, never inside the constructor before `super()`
+    // has answered an instance.
+    let receiver = match scope.this_value() {
+        Some(receiver) => receiver,
+        None => {
+            return Err(EmitError::Unsupported {
+                construct: "`super.x` outside a method with a receiver",
+            });
+        }
+    };
+    Ok((above, receiver))
+}
+
+/// The one property-key shape a `super` access supports today.
+fn name_of(property: &PropertyKey) -> EmitResult<crate::names::Name> {
+    match property {
+        PropertyKey::Named(name) => Ok(*name),
+        _ => Err(EmitError::Unsupported {
+            construct: "a computed `super[e]`",
+        }),
+    }
 }
 
 /// `super(...)` — the parent constructor, run against the object that exists.

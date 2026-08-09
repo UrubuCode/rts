@@ -191,7 +191,7 @@ pub fn outer_link(ctx: &mut Ctx) -> Name {
 ///
 /// `typeof undeclared` therefore still fails, and that is the honest state: it
 /// needs the global object, not this.
-fn predefined(builder: &mut FuncBuilder, ctx: &mut Ctx, name: Name) -> Option<ValueId> {
+pub(super) fn predefined(builder: &mut FuncBuilder, ctx: &mut Ctx, name: Name) -> Option<ValueId> {
     match ctx.names.text(name) {
         "undefined" => Some(expr::undefined(builder, ctx)),
         // Proven doubles, like any other number literal — so `NaN + 1` takes

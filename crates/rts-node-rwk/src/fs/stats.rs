@@ -82,25 +82,33 @@ predicate!(is_character_device, super::dirent::TYPE_CHAR);
 predicate!(is_fifo, super::dirent::TYPE_FIFO);
 predicate!(is_socket, super::dirent::TYPE_SOCKET);
 
-/// `fs.statSync(path)`. `undefined` on failure. Follows a symlink at the
-/// final component, matching Node.
+/// `fs.statSync(path)`. Raises a catchable error on failure (Node throws
+/// `ENOENT`; this raises `entry::throw_type_error`, per rule 8 of
+/// `rts-core-rwk`'s README — see that function's doc for why the class is
+/// `TypeError` rather than Node's own). Follows a symlink at the final
+/// component, matching Node.
 pub(super) extern "C" fn stat_sync(_e: u64, _this: u64, path: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     let Some(path) = super::text(path) else {
+        entry::throw_type_error("ENOENT: no such file or directory, stat");
         return entry::undefined_value();
     };
     let Ok(metadata) = std::fs::metadata(&path) else {
+        entry::throw_type_error(&format!("ENOENT: no such file or directory, stat '{path}'"));
         return entry::undefined_value();
     };
     build(&metadata)
 }
 
 /// `fs.lstatSync(path)` — identical to `statSync` except it does not follow a
-/// symlink at the final path component (reports the link itself).
+/// symlink at the final path component (reports the link itself). Same raise
+/// on failure.
 pub(super) extern "C" fn lstat_sync(_e: u64, _this: u64, path: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     let Some(path) = super::text(path) else {
+        entry::throw_type_error("ENOENT: no such file or directory, lstat");
         return entry::undefined_value();
     };
     let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+        entry::throw_type_error(&format!("ENOENT: no such file or directory, lstat '{path}'"));
         return entry::undefined_value();
     };
     build(&metadata)

@@ -171,8 +171,13 @@ extern "C" fn value_of(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u6
 /// rejected out-of-range numbers would throw where the language wraps.
 extern "C" fn from_char_code(_e: u64, _this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     with_current(|context| {
+        // Past four the compiler spilled the rest into a vector the runtime
+        // holds; `arguments_at` is the one place that reads it back. Folding
+        // over `carried`'s four slots alone answered `"Hell"` for
+        // `String.fromCharCode(72,101,108,108,111)` — the fifth argument was
+        // never read, not merely truncated by `ToUint16`.
         let mut units = Vec::new();
-        for given in carried(context, [a0, a1, a2, a3]) {
+        for given in super::super::array_proto::arguments_at(context, 0, [a0, a1, a2, a3]) {
             units.push(as_unit(context, given));
         }
         answer(context, &units)
@@ -188,7 +193,9 @@ extern "C" fn from_char_code(_e: u64, _this: u64, a0: u64, a1: u64, a2: u64, a3:
 extern "C" fn from_code_point(_e: u64, _this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     with_current(|context| {
         let mut units = Vec::new();
-        for given in carried(context, [a0, a1, a2, a3]) {
+        // Same fix as `from_char_code`: past four, read the spilled vector
+        // rather than the four convention slots alone.
+        for given in super::super::array_proto::arguments_at(context, 0, [a0, a1, a2, a3]) {
             let number = super::super::operators::as_number(context, Value(given))
                 .unwrap_or(f64::NAN);
             // A code point that is not a whole number in range is a `RangeError`.
@@ -266,21 +273,6 @@ fn trimmed(this: u64, at_start: bool, at_end: bool) -> u64 {
 /// here rather than fixed here because this change may not edit that file.
 fn white_space(character: char) -> bool {
     character.is_whitespace() || character == '\u{feff}'
-}
-
-/// The arguments a call actually carried.
-///
-/// Trailing `undefined` is dropped, because the convention pads missing
-/// arguments with it and a native cannot tell padding from an argument a program
-/// wrote. The divergence, named: `String.fromCharCode(undefined)` is the empty
-/// string rather than `"\0"`. The same price the array methods pay, and it
-/// disappears with the argument vector rather than with more code here.
-fn carried(context: &super::Context, given: [u64; 4]) -> Vec<u64> {
-    let mut given = given.to_vec();
-    while given.last().is_some_and(|last| absent(context, *last)) {
-        given.pop();
-    }
-    given
 }
 
 /// One argument as a code unit, the way `ToUint16` produces one.

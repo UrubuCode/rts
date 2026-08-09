@@ -5,7 +5,14 @@ function print(value: string): void {
   __rtsCapturedOutput += value + "\n";
 }
 
-// super.field = v escreve no field herdado
+// `super.x = v` escreve no RECEPTOR, nao no prototipo do pai — OrdinarySet
+// procura um setter a partir do prototipo e, nao o achando, cria a propriedade
+// em `this`. Por isso a primeira linha e 42.
+//
+// A segunda linha era 142 e esta errada: `super.x` LE do prototipo, onde nada
+// foi escrito (a escrita anterior foi para a instancia), logo `undefined + 100`
+// e NaN. Confirmado no Node. O ficheiro afirmava um `super` que le de volta o
+// que escreveu, que nenhum motor faz.
 
 class Base {
     x: number = 0;
@@ -24,11 +31,11 @@ const s = new Sub();
 s.setBase(42);
 print(`${s.x}`); // 42
 
-s.setBaseCompound(); // 42 + 100
-print(`${s.x}`); // 142
+s.setBaseCompound(); // super.x le undefined do prototipo: undefined + 100
+print(`${s.x}`); // NaN
 
 describe("fixture:super_field_write", () => {
   test("matches expected stdout", () => {
-    expect(__rtsCapturedOutput).toBe("42\n142\n");
+    expect(__rtsCapturedOutput).toBe("42\nNaN\n");
   });
 });

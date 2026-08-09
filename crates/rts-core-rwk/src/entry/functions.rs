@@ -232,13 +232,18 @@ pub fn call(callee: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
 /// this activation reads, and `call`'s marker on top of it would hide that
 /// vector from the one callee it was made for.
 fn invoke(callee: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
-    let found = with_current(|context| {
+    let (found, name) = with_current(|context| {
         // Which callable is about to run, recorded before the jump. A compiled
         // function never asks; a native does, because it closes over nothing —
         // so a bound function's only way to know WHICH binding it is comes from
         // here. See [`super::function_proto`].
         context.callees.push(callee);
-        resolve(context, callee)
+        // Taken, not merely read: this activation's own callee may itself
+        // fail to be a function only ONCE, and taking it here means a nested
+        // call this one goes on to make starts with nothing set, rather than
+        // inheriting the name written for an outer call that never used it.
+        let name = context.pending_call_name.take();
+        (resolve(context, callee), name)
     });
 
     let Some((code, environment)) = found else {
@@ -255,14 +260,23 @@ fn invoke(callee: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         // every native that calls user code learned to ask whether a throw was
         // left behind — raising before that turned one silent wrong answer into
         // a hang, which is why the two changes are one change.
-        // The KIND is in the message, because "not a function" alone does not
-        // say which mistake it was: a method this engine does not have reads
-        // `undefined`, and a name shadowed by data reads whatever the data is.
-        // The two need different fixes and the diagnostic is what tells them
-        // apart — 91 files died on this line before it said which.
-        let kind = super::text::described(super::text::type_of(callee))
-            .unwrap_or_else(|| "a value".to_owned());
-        super::throw::type_error(&format!("{kind} is not a function"));
+        // Named where a name is known — `obj.foo is not a function`, as Node
+        // reports it — and falling back to the KIND where it is not: a
+        // computed callee such as `(a || b)()` has no single spelling, and
+        // "not a function" alone does not say which mistake it was either —
+        // a method this engine does not have reads `undefined`, and a name
+        // shadowed by data reads whatever the data is. 91 files died on this
+        // line before it said which, and a name beats a kind where both are
+        // available because it says WHERE to look, not just what was found.
+        let message = match name.and_then(|value| super::text::described(value)) {
+            Some(name) => format!("{name} is not a function"),
+            None => {
+                let kind = super::text::described(super::text::type_of(callee))
+                    .unwrap_or_else(|| "a value".to_owned());
+                format!("{kind} is not a function")
+            }
+        };
+        super::throw::type_error(&message);
         return with_current(|context| undefined_of(context));
     };
 
@@ -277,6 +291,22 @@ fn invoke(callee: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     let produced = entry(environment, this, a0, a1, a2, a3);
     with_current(|context| context.callees.pop());
     produced
+}
+
+/// Records how the callee about to be called was spelled, by the literal
+/// index `rts-codegen` resolved for its text — `"obj.foo"` or `"foo"`.
+///
+/// Emitted immediately before the jump, once every argument is already
+/// evaluated, so evaluating an argument that itself calls something cannot
+/// overwrite what this call site recorded for itself. [`invoke`] takes what
+/// is here rather than reading it, which is what keeps a nested call from
+/// inheriting a name it never set.
+#[rtse::entry]
+pub fn set_call_name(literal: i64) -> u64 {
+    with_current(|context| {
+        context.pending_call_name = context.literals.get(literal as usize).copied();
+        undefined_of(context)
+    })
 }
 
 /// The code and environment of a value, when it is genuinely a callable.

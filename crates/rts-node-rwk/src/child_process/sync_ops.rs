@@ -4,17 +4,21 @@
 //! do (see [`crate::fs`]'s module doc for the same argument made about
 //! `readFileSync` vs `readFile`).
 //!
-//! # `execSync`/`execFileSync` do not throw
+//! # `execSync`/`execFileSync` throw on a non-zero exit, a signal, or a spawn
+//! failure
 //!
-//! Node throws on a non-zero exit, a signal, or `maxBuffer` exceeded. A
-//! native entry point in this crate cannot throw across the call boundary —
-//! [`rts_core_rwk::entry::modules`] exposes no such operation, the same gap
-//! [`crate::fs`]'s module doc states for its own `Sync` members. So both
-//! answer `undefined` in every one of those cases instead of throwing,
-//! rather than fabricating a `false`-shaped success. `spawnSync` never had
-//! this problem: Node's own `spawnSync` already reports failure through its
-//! returned object's `status`/`signal`/`error` fields rather than a throw,
-//! so it is unchanged here.
+//! Node throws on a non-zero exit, a signal, or `maxBuffer` exceeded, and
+//! this now does too — `entry::throw_type_error`, per rule 8 of
+//! `rts-core-rwk`'s README (see that crate's `entry::throw` for why raising
+//! is safe here: the runtime asks whether a call threw before trusting its
+//! answer, which is what makes raising from a native like this one safe to
+//! reach for rather than a hang). The error class is `TypeError` rather than
+//! Node's own (an `Error` carrying `status`/`signal`/`stdout`/`stderr`) —
+//! `throw_type_error` is the only raise this crate can reach publicly; see
+//! its doc in `rts-core-rwk`. `spawnSync` never had this problem: Node's own
+//! `spawnSync` already reports failure through its returned object's
+//! `status`/`signal`/`error` fields rather than a throw, so it is unchanged
+//! here.
 //!
 //! # Shell injection — read before calling `execSync` with untrusted input
 //!
@@ -96,15 +100,31 @@ fn input_bytes(value: u64) -> Option<Vec<u8>> {
     })
 }
 
-/// `stdout` (or `undefined`) — the return value of `execSync`/`execFileSync`.
-/// A failed spawn, a non-zero exit, a signal, or `maxBuffer` exceeded all
-/// answer `undefined` rather than throwing; see the module doc.
+/// `stdout` — the return value of `execSync`/`execFileSync`. A failed spawn,
+/// a non-zero exit, a signal, or `maxBuffer` exceeded all raise a catchable
+/// error instead; see the module doc.
 fn stdout_or_undefined(capture: &Capture, options: u64) -> u64 {
     let clean = capture.error.is_none() && capture.signal.is_none() && capture.status == Some(0);
     if !clean {
+        let message = failure_message(capture);
+        entry::throw_type_error(&message);
         return entry::undefined_value();
     }
     entry::with_runtime(|context| encoded(context, &capture.stdout, options))
+}
+
+/// The text a raised error carries for an unclean [`Capture`] — Node's own
+/// message shape (`Command failed: <program> <args>`) when there is exit
+/// information, or the spawn error's own text when there is none.
+fn failure_message(capture: &Capture) -> String {
+    if let Some((message, _)) = &capture.error {
+        return message.clone();
+    }
+    if let Some(signal) = &capture.signal {
+        return format!("Command failed with signal {signal}");
+    }
+    let status = capture.status.map(|code| code.to_string()).unwrap_or_else(|| "unknown".to_owned());
+    format!("Command failed with exit code {status}")
 }
 
 /// Bytes as a `Buffer` (the default) or as text under `options.encoding`.

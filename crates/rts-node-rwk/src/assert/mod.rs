@@ -1,41 +1,34 @@
-//! `node:assert` — synchronous invariant checks, without an exception to carry
-//! the failure.
+//! `node:assert` — synchronous invariant checks.
 //!
-//! # The one fact that shapes this whole module
+//! # A failed assertion now raises a catchable error
 //!
-//! **A native here cannot throw an error a program catches.**
+//! It used to be that no native here could throw an error a program catches.
+//! [`rts_core_rwk::entry::throw`]'s own module doc has the history: finding a
+//! handler one frame up used to mean unwinding the native stack, which needed
+//! an exception table this repository did not have; a throw is recorded now
+//! and every compiled call site checks, so a value no handler in the
+//! throwing function caught leaves that one frame and a `try` above it sees
+//! it.
 //!
-//! The REASON changed, and the fact did not. It used to be that
-//! [`rts_core_rwk::entry::throw`] ended the program: a value no handler in the
-//! throwing function caught had nowhere to go, because finding a handler one
-//! frame up meant unwinding the native stack. That is no longer true — a throw
-//! is recorded and every compiled call site checks, and
-//! `crates/rts-core-rwk/src/entry/throw.rs` now carries a `type_error` the
-//! runtime itself raises with, catchable by an ordinary `try`/`catch`.
-//!
-//! What blocks this crate is **visibility**, not mechanism. `type_error` is
-//! `pub(in crate::entry)`, and the only public spelling, `entry::throw(tag,
-//! payload)`, takes the handler tag `JS_THROW` — a private constant this crate
-//! cannot name, and writing the number by hand would be a second source of an
-//! agreement `rts-host-rwk` exists to assert. There is also no public way to
-//! reach the program's `TypeError`/`AssertionError` constructor to build the
-//! payload. `rts-std-rwk`'s `globals/events/abort.rs` records the same finding
-//! from the other side.
-//!
-//! So this module still cannot throw, and everything below still follows from
-//! it — but the fix is now one reexport rather than a campaign.
+//! What blocked THIS crate was narrower — **visibility**, not mechanism —
+//! and it is fixed: `rts_core_rwk::entry::throw_type_error(message)` is
+//! public, raises the program's own `TypeError` (so `e instanceof TypeError`
+//! holds), and is what [`values::report_failure`] calls. It is not Node's own
+//! `AssertionError`: reaching the `AssertionError`/named-error constructors
+//! this module builds (`assertion_error` below) from inside a raise would
+//! need a public spelling this crate does not have either, so what a program
+//! catches here has the operator and both values in `.message` but not
+//! Node's `name`/`code`/`actual`/`expected` shape. `rts-std-rwk`'s
+//! `globals/events/abort.rs` records the same visibility finding from the
+//! other side.
 //!
 //! Everything below follows from that. A failed assertion prints
-//! `AssertionError [operator] #n: <detail>` to **stderr** and increments a
-//! process-wide counter, both from [`values::report_failure`]. **What a program
-//! sees**: the assertion function returns `undefined` and the caller's next
-//! statement still runs — this module cannot stop it — but the stderr line
-//! names the operator and renders both values, which is what a harness
-//! capturing stderr, or a person reading the run, has to go on. A passing
-//! assertion is silent, exactly as real `assert` is. Ending the process instead
-//! was the alternative and it lost: it is right only for the uncaught case, and
-//! it would make a test file that asserts one failing thing report nothing
-//! about the fifty assertions after it.
+//! `AssertionError [operator] #n: <detail>` to **stderr**, increments a
+//! process-wide counter, and raises — all three from
+//! [`values::report_failure`]. **What a program sees**: the assertion
+//! function does not return; the raise unwinds to the nearest `try`/`catch`,
+//! or ends the program if there is none, exactly as real `assert` does. A
+//! passing assertion is silent, exactly as real `assert` is.
 //!
 //! # What the reuse search found
 //!

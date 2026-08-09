@@ -10,16 +10,20 @@
 //! actually lives, keyed the same generation-free way `fs/fd.rs`/`fs/dir.rs`
 //! key an open file / a directory cursor.
 //!
-//! # `digest()` is single-use without a throw
+//! # `digest()` is single-use, and still answers `undefined` on reuse
 //!
 //! Real Node throws `ERR_CRYPTO_INVALID_STATE` on a second `digest()` call.
-//! This module cannot throw (see `assert.rs`'s module doc for why no native
-//! entry point here can). [`digest`] removes the table entry on the first
-//! call — a naive "read the state" would need a placeholder, and a stale
-//! placeholder answering an EMPTY digest a second time would look like a
-//! real (wrong) answer running silently, which this repository's rule
+//! This module can raise now (`entry::throw_type_error`, per rule 8 of
+//! `rts-core-rwk`'s README), but the second call is left answering
+//! `undefined` rather than raising: [`digest`] removes the table entry on the
+//! first call — a naive "read the state" would need a placeholder, and a
+//! stale placeholder answering an EMPTY digest a second time would look like
+//! a real (wrong) answer running silently, which this repository's rule
 //! against a paper-over refuses. Answering `undefined` instead names the
-//! call as having nothing left to consume.
+//! call as having nothing left to consume; raising a class Node does not use
+//! here (`TypeError` rather than the state error) was judged the noisier of
+//! two honest divergences and left as a follow-up rather than folded into
+//! this pass.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -41,18 +45,23 @@ fn with_table<T>(body: impl FnOnce(&mut HashMap<u64, HashState>) -> T) -> T {
 
 const METHODS: &[(&str, Provided)] = &[("update", update), ("digest", digest)];
 
-/// `crypto.createHash(algorithm)`. `undefined` for a name [`NAMES`] does not
-/// list — see this crate's `crypto.md` mirror for which nine.
+/// `crypto.createHash(algorithm)`. A catchable error for a name [`NAMES`]
+/// does not list, matching Node's `ERR_CRYPTO_UNSUPPORTED_OPERATION` in
+/// spirit (see this crate's `crypto.md` mirror for which nine are listed;
+/// `throw_type_error`'s doc says why the class raised here is `TypeError`).
 pub(super) extern "C" fn create_hash(_e: u64, _this: u64, algorithm: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    entry::with_runtime(|context| {
-        let Some(name) = util::text(context, algorithm) else {
-            return entry::undefined_in(context);
-        };
-        let Some(state) = HashState::new(&name) else {
-            return entry::undefined_in(context);
-        };
-        build(context, state)
-    })
+    let built = entry::with_runtime(|context| {
+        let name = util::text(context, algorithm)?;
+        let state = HashState::new(&name)?;
+        Some(build(context, state))
+    });
+    match built {
+        Some(instance) => instance,
+        None => {
+            entry::throw_type_error("Digest method not supported");
+            entry::undefined_value()
+        }
+    }
 }
 
 fn build(context: &mut Context, state: HashState) -> u64 {
@@ -119,19 +128,22 @@ pub(super) extern "C" fn hash_oneshot(
     output_encoding: u64,
     _a3: u64,
 ) -> u64 {
-    entry::with_runtime(|context| {
-        let Some(name) = util::text(context, algorithm) else {
-            return entry::undefined_in(context);
-        };
-        let Some(mut state) = HashState::new(&name) else {
-            return entry::undefined_in(context);
-        };
+    let outcome = entry::with_runtime(|context| {
+        let name = util::text(context, algorithm)?;
+        let mut state = HashState::new(&name)?;
         let bytes = util::binary_bytes(context, data);
         state.update(&bytes);
         let digest = state.finalize();
         let encoding = util::text(context, output_encoding).unwrap_or_else(|| "hex".to_owned());
-        util::digest_output(context, &digest, Some(&encoding))
-    })
+        Some(util::digest_output(context, &digest, Some(&encoding)))
+    });
+    match outcome {
+        Some(value) => value,
+        None => {
+            entry::throw_type_error("Digest method not supported");
+            entry::undefined_value()
+        }
+    }
 }
 
 /// `crypto.getHashes()` — exactly [`NAMES`], nothing OpenSSL would also list

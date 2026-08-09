@@ -148,6 +148,88 @@ pub fn set_property(object: u64, key: i64, value: u64) -> u64 {
     value
 }
 
+/// `super.x` — resolved above the home object, called against the receiver.
+///
+/// # Why this is not [`get_property`] with a different first argument
+///
+/// `get_property` has one object argument and uses it for two things that
+/// `super` keeps apart: which cell the walk starts at, and which object an
+/// inherited getter is called with. Passing the home object's prototype as
+/// both would run an inherited getter with the WRONG receiver — `this` inside
+/// it would be the prototype, not the instance the method was called on. And
+/// passing `this` as both would find the method's OWN definition again,
+/// which is the whole reason `super.m()` does not recurse into itself.
+///
+/// # Why a plain field set in the constructor answers `undefined`
+///
+/// `this.x = 7` in a base constructor makes `x` an OWN property of the
+/// instance, never of the base class's `prototype`. The walk here starts
+/// ABOVE the home object — at the parent's `prototype` — and never redirects
+/// back down to the receiver's own properties; only a call to an accessor
+/// getter is handed the receiver. So a plain inherited field is invisible to
+/// `super.x` and `this.x` finds it instead. That is not a gap in this
+/// entry point: it is what the specification's `OrdinaryGet` does, verified
+/// against Node before trusting the intuition that `super` "sees" a field.
+#[rtse::entry]
+pub fn get_super_property(receiver: u64, start: u64, key: i64) -> u64 {
+    let found = with_current(|context| {
+        let Some(key) = key_of(context, key) else {
+            return super::accessor::Found::Value(undefined_of(context));
+        };
+        let Some(slot) = Value(start).as_slot() else {
+            return super::accessor::Found::Value(undefined_of(context));
+        };
+        super::accessor::resolve(context, slot, key)
+    });
+    match found {
+        super::accessor::Found::Value(value) => value,
+        // The receiver the read was written against, not the object the
+        // getter was found on — the same rule [`get_property`] states, kept
+        // here because `super` is the one caller for which those two are
+        // never the same value.
+        super::accessor::Found::Getter(getter) => {
+            let undefined = with_current(|context| undefined_of(context));
+            super::functions::call(getter, receiver, undefined, undefined, undefined, undefined)
+        }
+        super::accessor::Found::Absent => with_current(|context| undefined_of(context)),
+    }
+}
+
+/// `super.x = v` — a setter above the home object runs against the receiver;
+/// otherwise the write lands on the receiver itself.
+///
+/// # Why an unintercepted write goes to the receiver, not to `start`
+///
+/// The specification's `OrdinarySet` does not write to wherever the search
+/// stopped: once no setter is found anywhere from `start` upward, the value
+/// is written as an ORDINARY own property of the receiver — the same place
+/// `this.x = v` would put it. Writing it onto `start` instead would mutate
+/// the shared prototype object every instance inherits from, which is not
+/// what `super.x = v` does in Node, and would make a plain `super.x = v` in
+/// one base's method poison every subclass's instances at once.
+#[rtse::entry]
+pub fn set_super_property(receiver: u64, start: u64, key: i64, value: u64) -> u64 {
+    let setter = with_current(|context| {
+        let Some(start_slot) = Value(start).as_slot() else {
+            return None;
+        };
+        let key = key_of(context, key)?;
+        if let Some(setter) = super::accessor::setter_for(context, start_slot, key) {
+            return Some(setter);
+        }
+        let Some(receiver_slot) = Value(receiver).as_slot() else {
+            return None;
+        };
+        put(context, receiver_slot, key, value);
+        None
+    });
+    if let Some(setter) = setter {
+        let undefined = with_current(|context| undefined_of(context));
+        super::functions::call(setter, receiver, value, undefined, undefined, undefined);
+    }
+    value
+}
+
 /// Puts a value at a key, taking the shape transition if the object does not
 /// have that property yet.
 ///

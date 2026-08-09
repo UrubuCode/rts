@@ -110,15 +110,26 @@ impl ObjectPrototype {
         owns(this, key)
     }
 
-    /// `o.toString()` — `"[object Object]"`.
+    /// `o.toString()` — `"[object " + tag + "]"`, the specification's own
+    /// dispatch on what `this` IS rather than a fixed string.
     ///
-    /// The tag is fixed. `Symbol.toStringTag` is what makes it anything else and
-    /// there are no symbols in this engine yet, so there is no property to read;
-    /// the class-based spellings the specification lists before it (`Array`,
-    /// `Function`, `Error`, …) are reached by those prototypes' own `toString`,
-    /// which shadows this one.
-    fn to_string() -> u64 {
-        with_current(|context| context.intern_value(Str::from_str("[object Object]")).bits())
+    /// It answered `"[object Object]"` unconditionally, so
+    /// `Object.prototype.toString.call([1,2])` — the idiom a real program uses
+    /// to ask "what is this, really" past a `toString` an intervening
+    /// prototype may have overridden — was wrong for everything but a plain
+    /// object.
+    ///
+    /// `Symbol.toStringTag` is not read: there are no symbols in this engine
+    /// yet, so there is no property a class could have put one on, and the
+    /// fallback the specification defines for its absence is exactly the
+    /// per-kind table below.
+    fn to_string(this: u64) -> u64 {
+        with_current(|context| {
+            let tag = object_tag(context, this);
+            context
+                .intern_value(Str::from_str(&format!("[object {tag}]")))
+                .bits()
+        })
     }
 
     /// `o.valueOf()` — the receiver, unchanged.
@@ -176,6 +187,95 @@ pub(super) fn prototype_of(context: &mut Context) -> Option<u32> {
         register_object_prototype(context);
     }
     Value(super::class_support::prototype(context, "Object.prototype")?).as_slot()
+}
+
+/// What `Object.prototype.toString` answers between `[object ` and `]`.
+///
+/// The specification's own table, read off what `this` already tells the
+/// runtime rather than a class name nothing here stores: an array is
+/// answered by the side table [`super::array_proto`] keys on, a callable by
+/// the one [`super::function_proto`] keys on, a boxed primitive by the table
+/// the wrapper-object work put beside the cell, and `Date` by the property
+/// its own module already uses in place of an internal slot — see
+/// [`super::date`]'s module documentation for why that property exists.
+fn object_tag(context: &mut Context, this: u64) -> &'static str {
+    if this == Value::from_singleton(context.singletons.undefined).bits() {
+        return "Undefined";
+    }
+    if this == Value::from_singleton(context.singletons.null).bits() {
+        return "Null";
+    }
+    if Value(this)
+        .as_slot()
+        .is_some_and(|cell| context.elements_at(cell).is_some())
+    {
+        return "Array";
+    }
+    if Value(this)
+        .as_slot()
+        .is_some_and(|cell| context.callable_at(cell).is_some())
+    {
+        return "Function";
+    }
+    if Value(this).as_bool().is_some() {
+        return "Boolean";
+    }
+    if Value(this).numeric().is_some() {
+        return "Number";
+    }
+    let Some(cell) = Value(this).as_slot() else {
+        return "Object";
+    };
+    if context.text_at(cell).is_some() {
+        return "String";
+    }
+    if context.regexp_at(cell).is_some() {
+        return "RegExp";
+    }
+    let time_key = Key::Name(
+        context
+            .interner
+            .intern(&Str::from_str(super::date::TIME), &mut context.keys),
+    );
+    if super::objects::own_property(context, cell, time_key).is_some() {
+        return "Date";
+    }
+    if extends_class(context, cell, "Error") {
+        return "Error";
+    }
+    if let Some(boxed) = context.boxed_at(cell) {
+        if Value(boxed).as_bool().is_some() {
+            return "Boolean";
+        }
+        if Value(boxed).numeric().is_some() {
+            return "Number";
+        }
+        return "String";
+    }
+    "Object"
+}
+
+/// Whether `cell`'s prototype chain — including itself — reaches the
+/// prototype a registered class recorded under `name`.
+///
+/// Written for `Error`: `new TypeError()`'s own link is `TypeError.prototype`,
+/// whose link is `Error.prototype`, and the specification tags every one of
+/// its subclasses `"Error"` rather than by the subclass's own name.
+fn extends_class(context: &mut Context, mut cell: u32, name: &str) -> bool {
+    let Some(target) = super::class_support::prototype(context, name).and_then(|value| Value(value).as_slot())
+    else {
+        return false;
+    };
+    for _ in 0..super::objects::CHAIN_LIMIT {
+        if cell == target {
+            return true;
+        }
+        let Some(next) = super::objects::inherited_from(context, cell) else {
+            return false;
+        };
+        cell = next;
+    }
+    false
 }
 
 /// Whether a cell has a key of its own, in every storage a cell has one in.

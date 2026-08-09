@@ -137,6 +137,11 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
             rts_core_rwk::entry::call as extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64
                 as *const u8
         }),
+        // The argument is which literal, exactly as `StringConst`'s is: an
+        // `i64` index into the table the run seeds, not the text itself.
+        RuntimeOp::SetCallName => (CoreEntry::SetCallName, {
+            rts_core_rwk::entry::set_call_name as extern "C" fn(i64) -> u64 as *const u8
+        }),
         // The argument is which literal, not the text: an `i64` index into the
         // table the run seeds. Writing the cast out is what makes a change to
         // that decision a type error here.
@@ -220,6 +225,14 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         }),
         RuntimeOp::Negate => (CoreEntry::Negate, {
             rts_core_rwk::entry::negate as extern "C" fn(u64) -> u64 as *const u8
+        }),
+        RuntimeOp::GetSuperProperty => (CoreEntry::GetSuperProperty, {
+            rts_core_rwk::entry::get_super_property
+                as extern "C" fn(u64, u64, i64) -> u64 as *const u8
+        }),
+        RuntimeOp::SetSuperProperty => (CoreEntry::SetSuperProperty, {
+            rts_core_rwk::entry::set_super_property
+                as extern "C" fn(u64, u64, i64, u64) -> u64 as *const u8
         }),
         RuntimeOp::GetPrototype => (CoreEntry::GetPrototype, {
             rts_core_rwk::entry::get_prototype as extern "C" fn(u64) -> u64 as *const u8
