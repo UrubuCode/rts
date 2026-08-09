@@ -144,10 +144,7 @@ mod tests {
 
     /// A context over a region of a four-region heap.
     fn hosted<T>(region: u32, body: impl FnOnce() -> T) -> (Context, T) {
-        let singletons = Singletons {
-            undefined: 0,
-            null: 1,
-        };
+        let singletons = Singletons { undefined: 0, null: 1, hole: 2 };
         let heap = crate::heap::Region::sharded(64, region, 2);
         let context = Context::over(singletons, Kinds::in_declaration_order(), heap);
         with_context(context, body)

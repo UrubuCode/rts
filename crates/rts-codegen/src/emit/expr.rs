@@ -1107,8 +1107,19 @@ fn emit_array(
     let array = call(builder, ctx, RuntimeOp::ArrayNew, &[length])?[0];
 
     for (position, element) in elements.iter().enumerate() {
-        let Some(crate::syntax::Spreadable::Single(value)) = element else {
-            return gap("a hole in an array literal");
+        // UM BURACO É UMA POSIÇÃO QUE NÃO SE ESCREVE.
+        //
+        // `ArrayNew` preenche com o marcador de ausência, então pular a escrita
+        // deixa a posição genuinamente AUSENTE — `[,1][0]` responde `undefined`
+        // e `0 in [,1]` responde falso, que são respostas diferentes e agora o
+        // motor as distingue.
+        //
+        // Este literal era recusado por nome exatamente porque escrevê-lo como
+        // `undefined` mudaria a segunda resposta. O que destravou não foi mudar
+        // de ideia sobre isso — foi o runtime passar a ter um marcador.
+        let Some(element) = element else { continue };
+        let crate::syntax::Spreadable::Single(value) = element else {
+            return gap("a spread in an array literal beside a hole");
         };
         let value = emit_expr(builder, scope, ctx, value)?;
         let value = tagged(builder, value);

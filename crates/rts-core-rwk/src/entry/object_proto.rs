@@ -194,7 +194,12 @@ fn owns(this: u64, key: u64) -> bool {
         if let Some(at) = super::array::as_index(context, Value(key))
             && let Some(elements) = context.elements_at(cell)
         {
-            return at < elements.len();
+            // O par exato do teste em `computed.rs` — o comentário lá diz que os
+            // dois têm de responder o mesmo, e um buraco não é uma propriedade
+            // própria.
+            return elements
+                .get(at)
+                .is_some_and(|&held| !super::array::is_hole(context, held));
         }
         let Some(key) = own_key(context, key) else {
             return false;
