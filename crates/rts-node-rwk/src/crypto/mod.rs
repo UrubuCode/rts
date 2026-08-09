@@ -58,9 +58,16 @@
 //!   cb)`, `pbkdf2`, `scrypt`, `hkdf`, …) — needs the shared tokio runtime
 //!   §5.7 flags as living in `rts-std`, which this crate must not depend on.
 //! - **`hash.copy()`**, `HashOptions.outputLength` (SHAKE only, and SHAKE
-//!   itself is not implemented — see `digest_algo.rs`), `crypto.constants`,
+//!   itself is not implemented — see `digest_algo.rs`),
 //!   `crypto.fips`/`getFips`/`setFips`, `setEngine`, `secureHeapUsed` — none
 //!   scoped by the task brief.
+//! - **The OpenSSL half of `crypto.constants`** — `SSL_OP_*`,
+//!   `defaultCoreCipherList`, `defaultCipherList`, `POINT_CONVERSION_*`,
+//!   `ENGINE_METHOD_*`. Those describe a TLS/engine surface this crate does
+//!   not link, so a value for one would name a switch nothing here reads.
+//!   [`constants`] carries the RSA padding and PSS salt-length numbers only:
+//!   those are protocol constants a program compares against, not handles into
+//!   a library. `node:constants`'s own copy is that module's, not this one's.
 
 mod digest_algo;
 mod hash;
@@ -89,7 +96,43 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("hkdfSync", kdf::hkdf_sync),
         ("getCiphers", get_ciphers),
     ];
-    entry::make_namespace(context, members)
+    let namespace = entry::make_namespace(context, members);
+    let constants = constants(context);
+    entry::put_member(context, namespace, "constants", constants);
+    namespace
+}
+
+/// `crypto.constants` — the RSA padding and PSS salt-length numbers.
+///
+/// # Why these exist without the ciphers that use them
+///
+/// They are the argument a program WRITES: `padding:
+/// constants.RSA_PKCS1_OAEP_PADDING` is typed against this object long before
+/// the call that consumes it, and reading `undefined` there makes the mistake
+/// surface as `NaN` inside an unrelated function rather than at the name. The
+/// numbers are OpenSSL's `rsa.h` values, which is why they can be stated
+/// without linking it — they are wire-level constants, not handles.
+///
+/// See this module's "Not implemented" note for the rest of Node's own
+/// `constants` object and why an OpenSSL option flag is not stated here.
+fn constants(context: &mut Context) -> u64 {
+    let object = entry::make_object(context);
+    let values: &[(&str, f64)] = &[
+        ("RSA_PKCS1_PADDING", 1.0),
+        ("RSA_NO_PADDING", 3.0),
+        ("RSA_PKCS1_OAEP_PADDING", 4.0),
+        ("RSA_X931_PADDING", 5.0),
+        ("RSA_PKCS1_PSS_PADDING", 6.0),
+        // `-1` means "as long as the digest", `-2` "as long as possible".
+        ("RSA_PSS_SALTLEN_DIGEST", -1.0),
+        ("RSA_PSS_SALTLEN_MAX_SIGN", -2.0),
+        ("RSA_PSS_SALTLEN_AUTO", -2.0),
+    ];
+    for (name, value) in values {
+        let number = entry::make_number(*value);
+        entry::put_member(context, object, name, number);
+    }
+    object
 }
 
 /// `crypto.getCiphers()` — always `[]`; see this module's "Not implemented"

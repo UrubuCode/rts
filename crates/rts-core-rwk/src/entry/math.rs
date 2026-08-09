@@ -37,26 +37,33 @@
 
 use std::f64::consts;
 
-use super::objects::undefined_of;
 use super::with_current;
 
-/// The two-argument fold `max` and `min` are, over arguments that may be absent.
+/// Every argument a variadic member was called with.
+///
+/// `Math.max(1, 5, 3, 8, 2)` is a program people write, and a member reading only
+/// the four slots the convention carries answers 5 — a plausible number, which is
+/// the expensive kind of wrong. The compiler already puts the rest in a vector the
+/// runtime holds; [`super::array_proto::arguments_at`] is what reads it back, and
+/// it records why it does that rather than calling `rest_arguments`.
+///
+/// The borrow is taken and given back HERE, before the first coercion, because
+/// `to_number` takes one of its own. Nesting them is a panic on the re-entry,
+/// which is the trap this whole authoring layer exists to make structural.
+fn given(a0: u64, a1: u64, a2: u64, a3: u64) -> Vec<u64> {
+    with_current(|context| super::array_proto::arguments_at(context, 0, [a0, a1, a2, a3]))
+}
+
+/// The fold `max` and `min` are, over however many arguments arrived.
 ///
 /// The identity is what the language folds from — `-Infinity` for `max`,
 /// `Infinity` for `min` — so a call with no arguments answers it, and one with
 /// a single argument answers that argument rather than a comparison against
 /// zero.
-fn folded(a: u64, b: u64, identity: f64, better: fn(f64, f64) -> f64) -> f64 {
-    // The borrow is taken and given back before the first coercion, because
-    // `to_number` takes one of its own. Nesting them is a panic on the re-entry,
-    // which is the trap this whole authoring layer exists to make structural.
-    let absent = with_current(|context| undefined_of(context));
+fn folded(values: &[u64], identity: f64, better: fn(f64, f64) -> f64) -> f64 {
     let mut answer = identity;
-    for value in [a, b] {
-        if value == absent {
-            continue;
-        }
-        let number = super::class_support::to_number(value);
+    for value in values {
+        let number = super::class_support::to_number(*value);
         if number.is_nan() {
             return f64::NAN;
         }
@@ -116,6 +123,27 @@ impl Math {
     /// `Math.trunc(x)`.
     fn trunc(x: f64) -> f64 {
         x.trunc()
+    }
+
+    /// `Math.clz32(x)` — leading zero bits of the value as a 32-bit integer.
+    ///
+    /// The conversion is `ToUint32`, which is what makes `clz32(-1)` zero rather
+    /// than an error: the language defines this over the 32-bit view of a double,
+    /// and `as u32` on a negative or fractional one is not that view. `NaN` and
+    /// infinity convert to zero, whose 32-bit form has all 32 bits clear.
+    fn clz32(x: f64) -> f64 {
+        f64::from(to_uint32(x).leading_zeros())
+    }
+
+    /// `Math.imul(a, b)` — the 32-bit integer product, wrapping.
+    ///
+    /// SIGNED, and that is the whole point of it: `imul(0xffffffff, 5)` is `-5`,
+    /// where a double multiply answers 21474836475. The operands convert through
+    /// `ToUint32` and the product is read back as `i32`, which is `ToInt32` of
+    /// the wrapped result.
+    fn imul(a: f64, b: f64) -> f64 {
+        let product = to_uint32(a).wrapping_mul(to_uint32(b));
+        f64::from(product as i32)
     }
 
     /// `Math.sign(x)`.
@@ -267,13 +295,18 @@ impl Math {
         x.atanh()
     }
 
-    /// `Math.hypot(x, y)`.
+    /// `Math.hypot(…)` — the square root of the sum of the squares.
     ///
-    /// Two arguments rather than any number, because a call carries four slots
-    /// and a variadic member would have to read the argument vector — which is
-    /// the same trade every other built-in here makes, named where it is paid.
-    fn hypot(x: f64, y: f64) -> f64 {
-        x.hypot(y)
+    /// Folded with `f64::hypot` rather than summing squares and taking a root,
+    /// which is not the same function: the obvious spelling overflows to
+    /// `Infinity` for arguments whose squares do not fit a double, and
+    /// `Math.hypot(1e200, 1e200)` is a finite number. `hypot` scales, so the fold
+    /// keeps that property at every step.
+    ///
+    /// Zero is the identity, which is also the answer the language gives for no
+    /// arguments at all.
+    fn hypot(a: u64, b: u64, c: u64, d: u64) -> f64 {
+        folded(&given(a, b, c, d), 0.0, f64::hypot)
     }
 
     /// `Math.pow(base, exponent)`.
@@ -286,7 +319,7 @@ impl Math {
         x as f32 as f64
     }
 
-    /// `Math.max(a, b)`, either of which may be left out.
+    /// `Math.max(…)`, over however many arguments arrived.
     ///
     /// Two things the obvious spelling gets wrong, and both are silent.
     ///
@@ -298,14 +331,19 @@ impl Math {
     /// declaring two `f64` parameters would coerce a missing argument to `NaN`
     /// and answer `NaN` for `Math.max(1)`, which is a wrong answer to a call
     /// programs really write. That is why these two take the values as they
-    /// arrived rather than coerced.
-    fn max(a: u64, b: u64) -> f64 {
-        folded(a, b, f64::NEG_INFINITY, |x, y| if x > y { x } else { y })
+    /// arrived rather than coerced: `given` drops the padding, so an argument
+    /// that was never written is never coerced.
+    fn max(a: u64, b: u64, c: u64, d: u64) -> f64 {
+        folded(&given(a, b, c, d), f64::NEG_INFINITY, |x, y| {
+            if x > y { x } else { y }
+        })
     }
 
-    /// `Math.min(a, b)`, with the same two rules as [`Math::max`].
-    fn min(a: u64, b: u64) -> f64 {
-        folded(a, b, f64::INFINITY, |x, y| if x < y { x } else { y })
+    /// `Math.min(…)`, with the same two rules as [`Math::max`].
+    fn min(a: u64, b: u64, c: u64, d: u64) -> f64 {
+        folded(&given(a, b, c, d), f64::INFINITY, |x, y| {
+            if x < y { x } else { y }
+        })
     }
 }
 
@@ -336,4 +374,19 @@ fn seed() -> u64 {
     // Never zero: that is xorshift's fixed point, and a seed landing on it would
     // make every draw the same number forever.
     (since ^ thread.rotate_left(32)) | 1
+}
+
+/// `ToUint32`, which is what the two bitwise members of `Math` are defined over.
+///
+/// Not `as u32`. That saturates a negative double to zero and an out-of-range one
+/// to the maximum, where the language wraps modulo 2^32 — so `Math.imul(-1, 1)`
+/// would answer 0 instead of -1, and every hash function written with it would
+/// quietly produce different numbers than everywhere else.
+fn to_uint32(value: f64) -> u32 {
+    if !value.is_finite() || value == 0.0 {
+        return 0;
+    }
+    let truncated = value.trunc();
+    let wrapped = truncated.rem_euclid(4_294_967_296.0);
+    wrapped as u32
 }

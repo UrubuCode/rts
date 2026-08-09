@@ -13,13 +13,20 @@
 //! value it was given, and `toFixed` reads its own `this` through `ToNumber`
 //! rather than expecting an object.
 //!
-//! # Why no wrapper object is made
+//! # Why no wrapper object is made *implicitly*
 //!
-//! Because a wrapper is observable and this is not. `new Number(5)` making an
-//! object is the language's own decision and a separate one; a wrapper built
-//! *implicitly* to answer `(5).toFixed(2)` would have to be unwrapped again for
+//! Because a wrapper is observable and this is not. A wrapper built implicitly
+//! to answer `(5).toFixed(2)` would have to be unwrapped again for
 //! `(5).valueOf() === 5`, and every place that forgot would compare an object
 //! against a primitive.
+//!
+//! `new Number(5)` is the other case, and it is the language's own decision
+//! rather than this file's: the program asked for an object. What that object
+//! needs is the primitive it stands for — `[[NumberData]]` in the specification
+//! — and [`wrap`] and [`unwrap`] are the two ends of it. This file owns them
+//! because it already owns "which primitive does this receiver behave as", and
+//! a second answer to that question is what would let `valueOf` and
+//! `JSON.stringify` disagree about the same object.
 //!
 //! # Why the dispatch is here rather than in `objects`
 //!
@@ -68,6 +75,47 @@ fn registered(
         register(context);
     }
     Value(super::class_support::prototype(context, name)?).as_slot()
+}
+
+/// Records the primitive a freshly constructed wrapper stands for.
+///
+/// # Why the test is "a `new` is in progress" and not the receiver's class
+///
+/// Because `class Money extends Number {}` reaches here with `Money` on the
+/// target stack, and a check against `Number` itself would leave the subclass
+/// instance holding nothing — the exact wrong answer this closes, moved one
+/// level down the chain.
+///
+/// The receiver being a cell is the other half: `Number(5)` called plainly gets
+/// `undefined` as its receiver, so the conversion form cannot record anything.
+/// What that leaves uncovered is `Number.call(o, 5)` written INSIDE some other
+/// constructor, which would mark `o`. Named rather than solved: the calling
+/// convention carries no "was this a construct" bit, and inventing one for a
+/// spelling no program uses would be a machine change bought by nothing.
+pub(in crate::entry) fn wrap(context: &mut Context, this: u64, primitive: u64) {
+    if context.new_targets.is_empty() {
+        return;
+    }
+    if let Some(cell) = Value(this).as_slot() {
+        context.set_boxed(cell, primitive);
+    }
+}
+
+/// The primitive a value stands for — itself, unless it is a wrapper object.
+///
+/// This is `thisNumberValue`/`thisBooleanValue`/`thisStringValue` written once:
+/// each of them reads the same slot and differs only in what it does when the
+/// slot is absent, which is the caller's decision rather than this one's.
+pub(in crate::entry) fn unwrap(context: &Context, value: u64) -> u64 {
+    match Value(value).as_slot().and_then(|cell| context.boxed_at(cell)) {
+        Some(primitive) => primitive,
+        None => value,
+    }
+}
+
+/// The same, taking its own borrow, for a native that holds none.
+pub(in crate::entry) fn unwrapped(value: u64) -> u64 {
+    super::with_current(|context| unwrap(context, value))
 }
 
 /// A property a primitive answers itself, before any prototype is consulted.

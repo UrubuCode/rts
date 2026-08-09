@@ -124,6 +124,16 @@ impl Context {
         self.derived.set(cell, true);
     }
 
+    /// The primitive a wrapper object stands for, if it is one.
+    pub(super) fn boxed_at(&self, cell: u32) -> Option<u64> {
+        self.boxed.copied(cell)
+    }
+
+    /// Records that a cell wraps a primitive.
+    pub(super) fn set_boxed(&mut self, cell: u32, primitive: u64) {
+        self.boxed.set(cell, primitive);
+    }
+
     /// Records that a cell calls this code with this environment.
     pub(super) fn mark_callable(&mut self, cell: u32, code: u64, environment: u64) {
         self.callables.set(cell, (code, environment));

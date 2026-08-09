@@ -4,14 +4,26 @@
 //! # The one fact that shapes this whole module
 //!
 //! **A native here cannot throw an error a program catches.**
-//! [`rts_core_rwk::entry::throw`] exists, and it is not a throw: its own doc
-//! says a value no handler in the *throwing function* catches ends the program,
-//! because finding a handler one frame up needs an exception table and a
-//! personality routine that do not exist yet. A native called from a program
-//! has no handler of its own at all, so `throw` from here is
-//! `std::process::exit(1)` — not something a `try`/`catch`, a test runner, or
-//! `assert.throws` could ever observe. `url/mod.rs` records the same finding
-//! for the same surface.
+//!
+//! The REASON changed, and the fact did not. It used to be that
+//! [`rts_core_rwk::entry::throw`] ended the program: a value no handler in the
+//! throwing function caught had nowhere to go, because finding a handler one
+//! frame up meant unwinding the native stack. That is no longer true — a throw
+//! is recorded and every compiled call site checks, and
+//! `crates/rts-core-rwk/src/entry/throw.rs` now carries a `type_error` the
+//! runtime itself raises with, catchable by an ordinary `try`/`catch`.
+//!
+//! What blocks this crate is **visibility**, not mechanism. `type_error` is
+//! `pub(in crate::entry)`, and the only public spelling, `entry::throw(tag,
+//! payload)`, takes the handler tag `JS_THROW` — a private constant this crate
+//! cannot name, and writing the number by hand would be a second source of an
+//! agreement `rts-host-rwk` exists to assert. There is also no public way to
+//! reach the program's `TypeError`/`AssertionError` constructor to build the
+//! payload. `rts-std-rwk`'s `globals/events/abort.rs` records the same finding
+//! from the other side.
+//!
+//! So this module still cannot throw, and everything below still follows from
+//! it — but the fix is now one reexport rather than a campaign.
 //!
 //! Everything below follows from that. A failed assertion prints
 //! `AssertionError [operator] #n: <detail>` to **stderr** and increments a

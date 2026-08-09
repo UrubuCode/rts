@@ -23,10 +23,16 @@ use crate::value::{Kind, Value};
 
 /// What a value is, as far as JSON is concerned.
 ///
-/// Five kinds and an absence, where the language has more: a symbol, a
-/// `BigInt` and a wrapper object each have their own rule and none of them
-/// exists in this engine yet. When one does it arrives here as a variant, which
-/// is why this is an enum rather than a chain of tests at the call site.
+/// Five kinds and an absence, where the language has more: a symbol and a
+/// `BigInt` each have their own rule and neither exists in this engine yet.
+/// When one does it arrives here as a variant, which is why this is an enum
+/// rather than a chain of tests at the call site.
+///
+/// A wrapper object is NOT one of them, and deliberately: the specification
+/// says `SerializeJSONProperty` replaces `new Number(5)` by its
+/// `[[NumberData]]` before it classifies anything, so it arrives here already
+/// as `Number(5.0)`. A variant would be a second place deciding what a wrapper
+/// serialises as, and the first place is where `valueOf` reads it from.
 enum Shape {
     Null,
     Bool(bool),
@@ -42,7 +48,13 @@ enum Shape {
 
 /// What a value is, answered inside the caller's borrow and carried out of it.
 fn shape_of(context: &Context, value: u64) -> Shape {
-    let value = Value(value);
+    // The wrapper's primitive, before anything else is asked. Without it a
+    // `new Number(5)` reached `Shape::Object` and serialised as `{}` — the
+    // object has no own properties, so the output was well-formed JSON that had
+    // silently dropped the value. `Object(5)` is the same object by another
+    // spelling and needs the same substitution, which is why this is here rather
+    // than in the `Number` class.
+    let value = Value(super::super::primitive_proto::unwrap(context, value));
     if let Some(number) = value.numeric() {
         return Shape::Number(number);
     }

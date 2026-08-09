@@ -192,6 +192,22 @@ const JS_THROW: i64 = 1;
 /// The message is built with the program's own `TypeError`, so `e instanceof
 /// TypeError` holds and `e.message` reads what was passed. A second error shape
 /// invented here would be an object that fails both.
+/// Raises a `TypeError` a `catch` in the program can see, from a HOST crate.
+///
+/// `rts-node-rwk` needs this: `assert.ok(0)`, `Buffer.alloc(-1)` and
+/// `execSync` of a failing command all have to throw, and every one of them
+/// answered a value instead — the tests for them assert `threw === true` and
+/// were reading `false`.
+///
+/// Public where `type_error` is not, and the difference is the argument: this
+/// takes a MESSAGE and nothing else. A caller outside this crate cannot name the
+/// throw tag or build the error object, which is what keeps the two agreements
+/// this file owns — which number a `catch` matches, and what an error IS — from
+/// leaking into a crate that would then have a second answer to either.
+pub fn throw_type_error(message: &str) {
+    type_error(message);
+}
+
 pub(in crate::entry) fn type_error(message: &str) {
     let made = with_current(|context| {
         // Registered on demand, because every class here is: a program that

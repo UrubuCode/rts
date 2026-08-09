@@ -53,18 +53,39 @@ use crate::value::Value;
 #[rtse::class("Function")]
 impl Function {
 
-    /// `f.call(thisArg, a, b, c)`.
+    /// `f.call(thisArg, …)` — any number of arguments.
     ///
-    /// Three arguments rather than four, because the receiver takes one of the
-    /// convention's slots. A call with more is refused at the site rather than
-    /// losing its arguments here — the same trade `Object.assign` makes, and
-    /// `apply` is what a program with an unknown number reaches for.
+    /// # Why the receiver being an argument is the whole difficulty
+    ///
+    /// The convention carries four values and the receiver spends one of them, so
+    /// this method saw three where the caller wrote four: `f.call(o, 1, 2, 3, 4)`
+    /// ran `f` with a `4` that had silently become `undefined`. It was not a
+    /// refusal at the call site — the site sees five arguments to `call`, which
+    /// is one too many for the slots, so it already spills them into the vector
+    /// the runtime holds. Nothing read it.
+    ///
+    /// So this reads it, and the split below is not an optimisation: `built`
+    /// allocates a region cell and nothing collects one, so a `.call` in a loop
+    /// that took the vector path unconditionally would exhaust the region. Four
+    /// or fewer goes straight through, allocating nothing, exactly as before.
     fn call(this: u64, receiver: u64, a: u64, b: u64, c: u64) -> u64 {
-        // Straight through, with no borrow held: the callee is user code, and
-        // its first act may be to call the runtime. `super::functions::call`
-        // takes and gives back its own.
-        let absent = with_current(|context| super::objects::undefined_of(context));
-        super::functions::call(this, receiver, a, b, c, absent)
+        let (arguments, absent) = with_current(|context| {
+            (
+                super::array_proto::arguments_at(context, 1, [receiver, a, b, c]),
+                super::objects::undefined_of(context),
+            )
+        });
+        if arguments.len() > super::functions::ARGUMENT_SLOTS {
+            // `built` takes the context itself, so it is reached with no borrow
+            // held — and so is the call, whose callee is user code.
+            let vector = super::array_proto::built(arguments);
+            return super::functions::call_with_args(this, receiver, vector);
+        }
+        let mut slots = [absent; super::functions::ARGUMENT_SLOTS];
+        for (slot, value) in slots.iter_mut().zip(arguments) {
+            *slot = value;
+        }
+        super::functions::call(this, receiver, slots[0], slots[1], slots[2], slots[3])
     }
 
     /// `f.apply(thisArg, args)`.
@@ -76,13 +97,17 @@ impl Function {
         super::functions::call_with_args(this, receiver, arguments)
     }
 
-    /// `f.bind(thisArg, a, b, c)` — a new function with the receiver fixed.
+    /// `f.bind(thisArg, …)` — a new function with the receiver fixed.
     ///
     /// The partial arguments come first at every later call, which is what makes
-    /// `f.bind(null, 1)(2)` the same as `f(1, 2)`. Three of them, because the
-    /// receiver takes one of the convention's four slots.
+    /// `f.bind(null, 1)(2)` the same as `f(1, 2)`. Any number of them, read the
+    /// way [`Function::call`] reads its own — a binding that quietly dropped its
+    /// fourth partial argument would produce the wrong call at every later use of
+    /// the bound function rather than at the `bind`.
     fn bind(this: u64, receiver: u64, a: u64, b: u64, c: u64) -> u64 {
-        bound(this, receiver, [a, b, c])
+        let partial =
+            with_current(|context| super::array_proto::arguments_at(context, 1, [receiver, a, b, c]));
+        bound(this, receiver, partial)
     }
 }
 
@@ -108,17 +133,12 @@ impl Context {
 
 /// The bound function itself.
 ///
-/// Trailing absent arguments are dropped rather than remembered, so
+/// The partial list arrives with the convention's padding already dropped, so
 /// `f.bind(null)` prepends nothing — otherwise every bound function would push
 /// three `undefined`s in front of the caller's arguments and no bound call would
 /// ever line up.
-fn bound(target: u64, receiver: u64, partial: [u64; 3]) -> u64 {
+fn bound(target: u64, receiver: u64, partial: Vec<u64>) -> u64 {
     let made = with_current(|context| {
-        let absent = super::objects::undefined_of(context);
-        let mut partial = partial.to_vec();
-        while partial.last() == Some(&absent) {
-            partial.pop();
-        }
         let made = super::native::callable(context, forward);
         if let Some(cell) = Value(made).as_slot() {
             context.bound.set(cell, Bound {
@@ -145,7 +165,10 @@ extern "C" fn forward(_e: u64, _this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -
         let cell = Value(current_callee(context)).as_slot()?;
         let held = context.bound_at(cell)?;
         let mut arguments = held.partial.clone();
-        arguments.extend([a0, a1, a2, a3]);
+        // What the CALLER passed, not the four slots: a bound function reached
+        // with five arguments has them in the vector, and reading the slots would
+        // drop the fifth after `bind` was careful to keep its own.
+        arguments.extend(super::array_proto::arguments_at(context, 0, [a0, a1, a2, a3]));
         Some((held.target, held.receiver, arguments))
     });
     let Some((target, receiver, arguments)) = plan else {

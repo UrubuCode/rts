@@ -135,7 +135,7 @@ pub use clone::deep_copy;
 pub use current::with_context;
 pub(crate) use current::with_current;
 pub use table::{CORE_ENTRY_COUNT, CoreEntry};
-pub use throw::{declare_function_names, pending, take_thrown, throw, thrown};
+pub use throw::{declare_function_names, pending, take_thrown, throw, throw_type_error, thrown};
 
 use rts_cranelift::shape::{KeyRegistry, ShapeTree};
 
@@ -403,6 +403,21 @@ pub struct Context {
     /// constructor and a plain function are the same kind of cell. Written at
     /// class definition time, read by `construct`.
     derived: Aside<bool>,
+    /// The primitive a wrapper object stands for.
+    ///
+    /// `new Number(5)` is an object whose `[[NumberData]]` is `5`, and the
+    /// language reads that slot from `valueOf`, `toString`, `ToPrimitive` and
+    /// `JSON.stringify`. Nothing held it, so all four asked the object and got
+    /// `NaN`, `"NaN"` or `{}` — wrong answers that ran.
+    ///
+    /// Beside the cell rather than as a property, and the difference is
+    /// observable: `Object.getOwnPropertyNames(new Number(5))` is empty, so a
+    /// hidden key would have to be filtered out of every enumeration — a rule
+    /// stated once here against one stated in each of them. It is also why the
+    /// three data slots share one table: `[[NumberData]]`, `[[BooleanData]]` and
+    /// `[[StringData]]` are never both present on one object, and the value's
+    /// own tag already says which it is.
+    boxed: Aside<u64>,
     /// The class each `new` in progress actually named.
     ///
     /// A stack because construction nests, and a stack rather than an argument
@@ -566,6 +581,7 @@ impl Context {
             regexes: Aside::in_region(bits),
             accessors: Aside::in_region(bits),
             derived: Aside::in_region(bits),
+            boxed: Aside::in_region(bits),
             integrity: Aside::in_region(bits),
             attributes: Aside::in_region(bits),
             array_elements: Aside::in_region(bits),
@@ -611,6 +627,7 @@ impl Context {
             array_elements: Aside::new(),
             accessors: Aside::new(),
             derived: Aside::new(),
+            boxed: Aside::new(),
             integrity: Aside::new(),
             attributes: Aside::new(),
             pending_arguments: Vec::new(),
