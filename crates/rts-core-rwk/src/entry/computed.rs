@@ -57,7 +57,7 @@ pub fn key_number(key: u64) -> i64 {
     })
 }
 
-fn property_key(context: &mut Context, key: Value) -> Option<Key> {
+pub(super) fn property_key(context: &mut Context, key: Value) -> Option<Key> {
     // A symbol is its own key rather than one derived from text, and it is
     // asked first because `ToString` of a symbol is a `TypeError` in the
     // language — converting it here would give `o[Symbol.iterator]` a key the
@@ -118,6 +118,16 @@ pub(super) fn primitive_found(
 /// context.
 #[rtse::entry]
 pub fn get_indexed(object: u64, key: u64) -> u64 {
+    // The computed spelling of the read `get_property` performs, and a proxy
+    // has to be asked by BOTH: `o.x` reaches one and `Reflect.get(o, "x")` the
+    // other, and a trap that answered one of them and not the other would be
+    // two spellings of one operation disagreeing — the failure this file exists
+    // to keep out.
+    if let Some(named) = with_current(|context| property_key(context, Value(key)))
+        && let Some(answered) = super::proxy::get(object, named)
+    {
+        return answered;
+    }
     let found = with_current(|context| {
         let Some(slot) = Value(object).as_slot() else {
             // A number, a boolean, a symbol or a bigint — none of which has a
@@ -190,6 +200,11 @@ pub fn get_indexed(object: u64, key: u64) -> u64 {
 /// the borrow ends.
 #[rtse::entry]
 pub fn set_indexed(object: u64, key: u64, value: u64) -> u64 {
+    if let Some(named) = with_current(|context| property_key(context, Value(key)))
+        && let Some(answered) = super::proxy::set(object, named, value)
+    {
+        return answered;
+    }
     let setter = with_current(|context| {
         let Some(slot) = Value(object).as_slot() else {
             return None;

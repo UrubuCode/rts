@@ -25,6 +25,7 @@
 //! a per-property flag word, which is a change to what a shape IS.
 
 mod describe;
+pub(in crate::entry) use describe::describe_own;
 
 use super::native::Native;
 use super::objects::undefined_of;
@@ -172,7 +173,7 @@ extern "C" fn define_property(
 /// Its own function because `Object.create` and `Object.defineProperties` are
 /// this in a loop, and a second reading of what a descriptor means is where one
 /// of the three learns that `{}` defines `undefined` and the others do not.
-pub(super) fn define(object: u64, name: u64, descriptor: u64) {
+pub(in crate::entry) fn define(object: u64, name: u64, descriptor: u64) {
     let read = |field: &str| {
         let key = with_current(|context| context.intern_value(Str::from_str(field)).bits());
         super::computed::get_indexed(descriptor, key)

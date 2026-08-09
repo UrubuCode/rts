@@ -325,3 +325,66 @@ pub(super) fn construct(object: u64, arguments: [u64; 4]) -> Option<u64> {
         ),
     })
 }
+
+/// `handler.defineProperty(target, prop, descriptor)`, or a define on the target.
+///
+/// Answers whether it was accepted, which is what `Reflect.defineProperty`
+/// reports and what a trap returning `false` means. The forwarding case answers
+/// true whenever it reached an object, the same thing `Reflect.set` can
+/// establish and for the same reason: a refusal would be a non-configurable
+/// property, and that is recorded per object rather than per key.
+pub(super) fn define(object: u64, key: Key, descriptor: u64) -> Option<bool> {
+    let trap = trap_for(object, "defineProperty", key)?;
+    Some(match trap.callee {
+        Some(callee) => {
+            let answered = super::functions::call(
+                callee,
+                object,
+                trap.target,
+                trap.property,
+                descriptor,
+                descriptor,
+            );
+            super::primitives::to_boolean(answered)
+        }
+        None => {
+            super::object_global::define(trap.target, trap.property, descriptor);
+            Value(trap.target).as_slot().is_some()
+        }
+    })
+}
+
+/// `handler.getOwnPropertyDescriptor(target, prop)`, or the target's own.
+pub(super) fn describe(object: u64, key: Key) -> Option<u64> {
+    let trap = trap_for(object, "getOwnPropertyDescriptor", key)?;
+    Some(match trap.callee {
+        Some(callee) => {
+            let absent = with_current(|context| super::objects::undefined_of(context));
+            super::functions::call(callee, object, trap.target, trap.property, absent, absent)
+        }
+        None => super::object_global::describe_own(trap.target, trap.property),
+    })
+}
+
+/// Whether a `setPrototypeOf` was accepted, for the caller that reports it.
+///
+/// Beside [`set_prototype_of`] rather than replacing it, because the two answer
+/// different questions to different callers: `Object.setPrototypeOf` answers the
+/// object it was given, and `Reflect.setPrototypeOf` answers whether it worked.
+/// A handler that returns `false` is a refusal, and reporting success because
+/// the call reached an object would be inventing the answer.
+pub(super) fn set_prototype_verdict(object: u64, prototype: u64) -> Option<bool> {
+    let (callee, target) = plain_trap(object, "setPrototypeOf")?;
+    Some(match callee {
+        Some(callee) => {
+            let absent = with_current(|context| super::objects::undefined_of(context));
+            let answered =
+                super::functions::call(callee, object, target, prototype, absent, absent);
+            super::primitives::to_boolean(answered)
+        }
+        None => {
+            super::chain::set_prototype(target, prototype);
+            Value(target).as_slot().is_some()
+        }
+    })
+}

@@ -25,6 +25,8 @@
 //! target stack carries one class per construction and taking a different
 //! prototype from a fourth value is a capability, not a wrapper.
 
+use super::with_current;
+
 
 /// `Reflect`.
 #[rtse::class("Reflect", namespace)]
@@ -70,6 +72,12 @@ impl Reflect {
 
     /// `Reflect.setPrototypeOf(target, prototype)`.
     fn set_prototype_of(target: u64, prototype: u64) -> bool {
+        // A proxy answers with its handler's own verdict: a `setPrototypeOf`
+        // trap returning `false` is a refusal, and reporting `true` because the
+        // call reached an object would be this function inventing the answer.
+        if let Some(answered) = super::proxy::set_prototype_verdict(target, prototype) {
+            return answered;
+        }
         super::chain::set_prototype(target, prototype);
         crate::value::Value(target).as_slot().is_some()
     }
@@ -85,6 +93,35 @@ impl Reflect {
     /// `Reflect.construct(target, argumentList)`.
     fn construct(target: u64, arguments: u64) -> u64 {
         super::functions::construct_with_args(target, arguments)
+    }
+
+    /// `Reflect.defineProperty(target, key, descriptor)`.
+    ///
+    /// Answers whether it was accepted, which is what a proxy handler returning
+    /// `false` says and what distinguishes this from `Object.defineProperty` —
+    /// that one answers the object.
+    fn define_property(target: u64, key: u64, descriptor: u64) -> bool {
+        if let Some(named) = with_current(|context| super::computed::property_key(context, crate::value::Value(key)))
+            && let Some(answered) = super::proxy::define(target, named, descriptor)
+        {
+            return answered;
+        }
+        super::object_global::define(target, key, descriptor);
+        crate::value::Value(target).as_slot().is_some()
+    }
+
+    /// `Reflect.getOwnPropertyDescriptor(target, key)`.
+    ///
+    /// The descriptor this engine can state, which `super::object_global` says
+    /// the limits of — and a proxy handler's own answer when it traps the
+    /// question, since that one is whatever the handler returns.
+    fn get_own_property_descriptor(target: u64, key: u64) -> u64 {
+        if let Some(named) = with_current(|context| super::computed::property_key(context, crate::value::Value(key)))
+            && let Some(answered) = super::proxy::describe(target, named)
+        {
+            return answered;
+        }
+        super::object_global::describe_own(target, key)
     }
 
     /// `Reflect.isExtensible(target)`.

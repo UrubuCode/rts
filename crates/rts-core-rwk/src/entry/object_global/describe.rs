@@ -228,6 +228,18 @@ extern "C" fn get_own_property_descriptors(
 /// An accessor answers `{get, set}` and a slot answers `{value, writable}`,
 /// which is the distinction the language draws — and the only one this engine
 /// can draw, since the three flags are not recorded.
+/// The descriptor an object has for a key, for a caller outside this module.
+///
+/// One caller: a proxy whose handler does not trap the question and forwards it
+/// to its target. Answers `undefined` for a key the object does not have, which
+/// is the same distinction the public spelling makes.
+pub(in crate::entry) fn describe_own(object: u64, name: u64) -> u64 {
+    match descriptor(object, name) {
+        Some(made) => made,
+        None => with_current(|context| undefined_of(context)),
+    }
+}
+
 fn descriptor(object: u64, name: u64) -> Option<u64> {
     let found = with_current(|context| {
         let cell = Value(object).as_slot()?;

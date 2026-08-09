@@ -4226,3 +4226,42 @@ fn a_proxy_answers_for_its_keys_and_its_prototype() {
     );
     assert_eq!(tags::decode_double(inherited), 7.0);
 }
+
+/// A trap answers the named read and the computed one alike.
+///
+/// `o.x` reaches `get_property` and `Reflect.get(o, "x")` reaches
+/// `get_indexed` — two spellings of one operation, and a proxy asked by only
+/// one of them is those two disagreeing. It was exactly that for a while: every
+/// handler written as `get: (t, k) => …` and read through `Reflect` answered
+/// `undefined` while the same handler read as `p.x` answered correctly.
+#[test]
+fn a_trap_answers_the_computed_spelling_too() {
+    let read = run(
+        "const p = new Proxy({ name: 'alice' }, { get: (t, k) => 0 }); \
+         return Reflect.get(p, 'name');",
+    );
+    assert_eq!(tags::decode_double(read), 0.0);
+
+    let written = run(
+        "let stored = 0; \
+         const p = new Proxy({}, { set: (t, k, v) => { stored = v; return true; } }); \
+         Reflect.set(p, 'x', 5); \
+         return stored;",
+    );
+    assert_eq!(tags::decode_double(written), 5.0);
+
+    // And a descriptor, which is the trap `Reflect` had no member for at all.
+    let described = run(
+        "const p = new Proxy({}, { getOwnPropertyDescriptor: (t, k) => ({ value: 42 }) }); \
+         return Reflect.getOwnPropertyDescriptor(p, 'x').value;",
+    );
+    assert_eq!(tags::decode_double(described), 42.0);
+
+    // A handler that refuses reports the refusal, rather than the truth that
+    // the call reached an object.
+    let refused = run(
+        "const p = new Proxy({}, { defineProperty: (t, k, d) => false }); \
+         return Reflect.defineProperty(p, 'x', { value: 1 }) ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(refused), 0.0);
+}
