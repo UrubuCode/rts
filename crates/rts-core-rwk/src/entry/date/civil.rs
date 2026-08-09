@@ -138,6 +138,34 @@ pub(super) fn iso_text(ms: f64) -> String {
     )
 }
 
+/// The names Node's `toUTCString`/`toDateString`/`toString` write, in the
+/// three-letter form the format shares between weekday and month.
+const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS: [&str; 12] =
+    ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/// `"Thu, 01 Jan 1970 00:00:00 GMT"` — the RFC 7231 form `toUTCString` answers.
+///
+/// Always `GMT`, never an offset: [`super`]'s module documentation is why —
+/// this runtime's local time *is* UTC, so the field is naming that rather than
+/// claiming a conversion happened. `"Invalid Date"` for a time value with no
+/// parts, matching [`iso_text`].
+pub(super) fn utc_string(ms: f64) -> String {
+    let Some(parts) = parts_of(ms) else {
+        return "Invalid Date".to_owned();
+    };
+    format!(
+        "{}, {:02} {} {:04} {:02}:{:02}:{:02} GMT",
+        WEEKDAYS[parts.weekday as usize],
+        parts.day,
+        MONTHS[(parts.month) as usize],
+        parts.year,
+        parts.hour,
+        parts.minute,
+        parts.second
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,6 +206,12 @@ mod tests {
     fn the_epoch_is_a_thursday() {
         assert_eq!(days_from_civil(1970, 1, 1), 0);
         assert_eq!(parts_of(0.0).expect("zero is finite").weekday, 4);
+    }
+
+    /// The epoch in the RFC 7231 form, the one every reader recognises.
+    #[test]
+    fn the_epoch_prints_as_a_thursday_in_gmt() {
+        assert_eq!(utc_string(0.0), "Thu, 01 Jan 1970 00:00:00 GMT");
     }
 
     /// A month outside the year rolls it, in both directions.

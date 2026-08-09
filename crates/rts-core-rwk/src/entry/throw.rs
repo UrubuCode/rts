@@ -209,15 +209,42 @@ pub fn throw_type_error(message: &str) {
 }
 
 pub(in crate::entry) fn type_error(message: &str) {
+    named_error("TypeError", message);
+}
+
+/// Raises a `RangeError` a `catch` in the program can see.
+///
+/// Same construction as [`type_error`], for the argument-range checks that
+/// live outside `functions.rs` — `"x".repeat(-1)` and the like.
+pub(in crate::entry) fn range_error(message: &str) {
+    named_error("RangeError", message);
+}
+
+/// Raises a `SyntaxError` a `catch` in the program can see.
+///
+/// Same construction as [`type_error`], for `JSON.parse` of text that is not
+/// JSON — the one place in this crate that is malformed *input* rather than a
+/// misused value.
+pub(in crate::entry) fn syntax_error(message: &str) {
+    named_error("SyntaxError", message);
+}
+
+/// Builds and raises `new <name>(message)`, shared by every named-error site.
+///
+/// One function rather than one copy per class, because the three differ only
+/// in which constructor they look up — repeating the borrow, the registration
+/// fallback and the `thrown` write per class is the kind of duplication rule 3
+/// of this crate's README warns turns into three answers that drift.
+fn named_error(name: &str, message: &str) {
     let made = with_current(|context| {
         // Registered on demand, because every class here is: a program that
         // never writes `TypeError` never builds one. The runtime raising is
         // exactly such a program — the class is reached without the name ever
         // appearing — so asking `class_support` alone answered `None` and the
         // throw was silently dropped. It looked like `try`/`catch` not working.
-        let constructor = match super::class_support::made(context, "TypeError") {
+        let constructor = match super::class_support::made(context, name) {
             Some(constructor) => constructor,
-            None => super::error::provided("TypeError")?(context),
+            None => super::error::provided(name)?(context),
         };
         let text = context.intern_value(crate::text::Str::from_str(message)).bits();
         Some((constructor, text))

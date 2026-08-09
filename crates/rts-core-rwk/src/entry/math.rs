@@ -54,6 +54,39 @@ fn given(a0: u64, a1: u64, a2: u64, a3: u64) -> Vec<u64> {
     with_current(|context| super::array_proto::arguments_at(context, 0, [a0, a1, a2, a3]))
 }
 
+/// The comparison [`Math::max`] folds with.
+///
+/// Not `if x > y { x } else { y }` on its own: `-0.0 > 0.0` is `false` in IEEE
+/// 754, so that comparison alone answers whichever operand arrived second for
+/// a tie between the two zeros — `Math.max(-0, 0)` and `Math.max(0, -0)` would
+/// disagree, and the language does not. The zero case is broken out and
+/// answers `+0` regardless of which side it came from.
+fn max2(x: f64, y: f64) -> f64 {
+    if x > y {
+        x
+    } else if y > x {
+        y
+    } else if x == 0.0 && y == 0.0 {
+        if x.is_sign_positive() { x } else { y }
+    } else {
+        y
+    }
+}
+
+/// The comparison [`Math::min`] folds with. See [`max2`] for why the zero case
+/// is separate; here it answers `-0` regardless of which side it came from.
+fn min2(x: f64, y: f64) -> f64 {
+    if x < y {
+        x
+    } else if y < x {
+        y
+    } else if x == 0.0 && y == 0.0 {
+        if x.is_sign_negative() { x } else { y }
+    } else {
+        y
+    }
+}
+
 /// The fold `max` and `min` are, over however many arguments arrived.
 ///
 /// The identity is what the language folds from — `-Infinity` for `max`,
@@ -109,15 +142,30 @@ impl Math {
 
     /// `Math.round(x)`.
     ///
-    /// **Not** `f64::round`, which rounds a half away from zero. JavaScript
-    /// rounds a half *up*, so `Math.round(-0.5)` is `-0` and not `-1` — the one
-    /// place this function differs from the obvious call, and the one that
-    /// passes every test written with positive numbers.
+    /// **Not** `(x + 0.5).floor()`, which looks like "half up" and is wrong
+    /// twice over. First the sign: `-0.5 + 0.5` is `+0.0`, so `floor` answers
+    /// `+0` where the language requires `-0` — the specification carves that
+    /// case out explicitly (`x < 0` and `x >= -0.5` answers `-0`) rather than
+    /// leaving it to the arithmetic. Second the rounding itself: adding `0.5`
+    /// is not exact for every double, so `0.49999999999999994 + 0.5` **rounds
+    /// up to `1.0`** in double arithmetic even though the true sum is below it,
+    /// and `floor` then answers `1` where the language answers `0`. Working from
+    /// `floor(x)` and the fractional remainder avoids that addition entirely.
     fn round(x: f64) -> f64 {
-        if x.is_nan() || x.is_infinite() {
+        if x.is_nan() || x.is_infinite() || x == 0.0 {
             return x;
         }
-        (x + 0.5).floor()
+        if x > 0.0 && x < 0.5 {
+            return 0.0;
+        }
+        if x < 0.0 && x >= -0.5 {
+            return -0.0;
+        }
+        let floor = x.floor();
+        let fraction = x - floor;
+        // A tie rounds toward +Infinity, which `< 0.5` (not `<=`) gives: a
+        // fraction of exactly 0.5 falls through to `floor + 1.0`.
+        if fraction < 0.5 { floor } else { floor + 1.0 }
     }
 
     /// `Math.trunc(x)`.
@@ -334,16 +382,12 @@ impl Math {
     /// arrived rather than coerced: `given` drops the padding, so an argument
     /// that was never written is never coerced.
     fn max(a: u64, b: u64, c: u64, d: u64) -> f64 {
-        folded(&given(a, b, c, d), f64::NEG_INFINITY, |x, y| {
-            if x > y { x } else { y }
-        })
+        folded(&given(a, b, c, d), f64::NEG_INFINITY, max2)
     }
 
     /// `Math.min(…)`, with the same two rules as [`Math::max`].
     fn min(a: u64, b: u64, c: u64, d: u64) -> f64 {
-        folded(&given(a, b, c, d), f64::INFINITY, |x, y| {
-            if x < y { x } else { y }
-        })
+        folded(&given(a, b, c, d), f64::INFINITY, min2)
     }
 }
 

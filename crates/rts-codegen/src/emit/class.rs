@@ -179,12 +179,38 @@ pub(super) fn emit_class(
 
     let constructor = emit_constructor(builder, &mut inner, ctx, class, &computed)?;
 
+    // Every class constructor, derived or not, is refused when reached any
+    // way other than `new` — the language throws a `TypeError` for
+    // `ClassName()`, where an ordinary function called plainly just runs. The
+    // fact is syntactic (this IS a class) and the runtime cannot see it any
+    // other way, which is the same shape `MarkDerived` already answers for
+    // `extends`.
+    expr::call(builder, ctx, RuntimeOp::MarkClassConstructor, &[constructor])?;
+
     // `ClosureNew` already made a `prototype` object, because a function that
     // could not be constructed with would be a different kind of function. So
     // this reads what exists rather than making a second one — two would be the
     // classic bug where methods land on an object no instance inherits from.
     let prototype_name = ctx.names.intern("prototype");
     let prototype = super::property::emit_read(builder, ctx, constructor, prototype_name)?;
+
+    // `instance.constructor` and `C.prototype.constructor` both read this —
+    // the link back that lets a program discover which class made a value,
+    // and the one `ClosureNew` cannot make for an ordinary function because it
+    // has no class name to write.
+    let constructor_key = ctx.names.intern("constructor");
+    super::property::emit_write(builder, ctx, prototype, constructor_key, constructor)?;
+
+    // `C.name` — the class's own name, as the language spells it. Only for a
+    // NAMED class: an anonymous `class {}` used as an expression has no
+    // identifier here to read, and inferring one from an enclosing binding
+    // (`const X = class {}`) is a distinct feature this does not attempt.
+    if let Some(name) = class.name {
+        let text = ctx.names.text(name).to_owned();
+        let name_value = expr::string_literal(builder, ctx, &text)?;
+        let name_key = ctx.names.intern("name");
+        super::property::emit_write(builder, ctx, constructor, name_key, name_value)?;
+    }
 
     if let Some(parent) = parent {
         let parent_prototype = super::property::emit_read(builder, ctx, parent, prototype_name)?;

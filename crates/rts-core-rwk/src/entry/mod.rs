@@ -96,7 +96,8 @@ pub use bitwise::{
 pub use computed::{delete_property, get_indexed, has_property, key_number, set_indexed};
 pub use functions::{
     call_with_args, construct_with_args, rest_arguments,
-    ARGUMENT_SLOTS, call, closure_new, construct, instance_of, mark_derived, super_construct,
+    ARGUMENT_SLOTS, call, closure_new, construct, instance_of, mark_class_constructor,
+    mark_derived, super_construct,
 };
 pub use generator::{FrameShape, declare_frames, generator_new, generator_yield};
 pub use global::{global_get, global_set};
@@ -403,6 +404,16 @@ pub struct Context {
     /// constructor and a plain function are the same kind of cell. Written at
     /// class definition time, read by `construct`.
     derived: Aside<bool>,
+    /// Which callables are class constructors, and so must be reached through
+    /// `new`.
+    ///
+    /// The same shape as `derived` and for the same reason: whether a
+    /// callable came from a `class` declaration is syntax the compiler knows
+    /// and this crate cannot see, because an ordinary function and a class
+    /// constructor are the same kind of cell otherwise. Written at class
+    /// definition time, read by `call` and `call_with_args` — never by
+    /// `construct`, which is the one path that is allowed to reach one.
+    class_constructors: Aside<bool>,
     /// The primitive a wrapper object stands for.
     ///
     /// `new Number(5)` is an object whose `[[NumberData]]` is `5`, and the
@@ -581,6 +592,7 @@ impl Context {
             regexes: Aside::in_region(bits),
             accessors: Aside::in_region(bits),
             derived: Aside::in_region(bits),
+            class_constructors: Aside::in_region(bits),
             boxed: Aside::in_region(bits),
             integrity: Aside::in_region(bits),
             attributes: Aside::in_region(bits),
@@ -627,6 +639,7 @@ impl Context {
             array_elements: Aside::new(),
             accessors: Aside::new(),
             derived: Aside::new(),
+            class_constructors: Aside::new(),
             boxed: Aside::new(),
             integrity: Aside::new(),
             attributes: Aside::new(),

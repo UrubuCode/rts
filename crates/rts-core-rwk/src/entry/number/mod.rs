@@ -368,7 +368,18 @@ fn fixed(number: f64, places: usize) -> String {
     let rounded = scaled.round();
     let value = rounded / scale;
     match places {
-        0 => format!("{}", value.trunc() as i64),
+        // `as i64` has no negative zero, so `(-0.4).toFixed(0)` — whose rounded
+        // value is `-0.0` — would lose its sign through the cast and answer
+        // `"0"` where the language answers `"-0"`. Caught before the cast
+        // rather than patched after, because a cast that already discarded the
+        // sign has nothing left to restore it from.
+        0 => {
+            let truncated = value.trunc();
+            match truncated == 0.0 && truncated.is_sign_negative() {
+                true => "-0".to_owned(),
+                false => format!("{}", truncated as i64),
+            }
+        }
         _ => format!("{value:.places$}"),
     }
 }

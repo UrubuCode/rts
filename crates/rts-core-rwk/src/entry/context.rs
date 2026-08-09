@@ -124,6 +124,17 @@ impl Context {
         self.derived.set(cell, true);
     }
 
+    /// Whether a callable is a class constructor, and so may only be reached
+    /// through `new`.
+    pub(super) fn is_class_constructor(&self, cell: u32) -> bool {
+        self.class_constructors.copied(cell).unwrap_or(false)
+    }
+
+    /// Records that it is.
+    pub(super) fn mark_class_constructor(&mut self, cell: u32) {
+        self.class_constructors.set(cell, true);
+    }
+
     /// The primitive a wrapper object stands for, if it is one.
     pub(super) fn boxed_at(&self, cell: u32) -> Option<u64> {
         self.boxed.copied(cell)

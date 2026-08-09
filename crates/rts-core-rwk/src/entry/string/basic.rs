@@ -303,16 +303,28 @@ extern "C" fn trim(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -
 
 /// `s.repeat(n)`.
 extern "C" fn repeat(_e: u64, this: u64, count: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let asked = Value(count).numeric().unwrap_or(0.0);
+    // A negative count, or one that never terminates, is a `RangeError` —
+    // raising is possible now that rule 8's discipline is in place (`repeat`
+    // calls no user code, so there is nothing to check first). Raised OUTSIDE
+    // the borrow below: `range_error` takes the context's own `RefCell`
+    // borrow to build the error object, and taking it a second time while the
+    // first is still held is the nested borrow this crate's whole entry layer
+    // is arranged to make unreachable — an `extern "C"` frame cannot unwind
+    // the panic that follows, so it aborted the process instead of throwing.
+    if asked < 0.0 || asked.is_infinite() {
+        super::super::throw::range_error("Invalid count value");
+        return with_current(|context| nothing(context));
+    }
     with_current(|context| {
         let Some(units) = units_of(context, this) else {
             return nothing(context);
         };
-        let asked = Value(count).numeric().unwrap_or(0.0);
-        // A negative or absurd count is a `RangeError`. Answering the empty
-        // string is the stated gap every operation here has while throwing
-        // cannot find a handler — and it is bounded, where multiplying by a
-        // number a program chose would let a script exhaust memory.
-        if !(0.0..=4096.0).contains(&asked) {
+        // An absurdly large but finite count is still bounded rather than
+        // thrown for: the specification has no upper bound, but multiplying by
+        // a number a program chose would let a script exhaust memory, and that
+        // is a stated gap this change does not close.
+        if asked > 4096.0 {
             return answer(context, &[]);
         }
         let mut out = Vec::with_capacity(units.len() * asked as usize);

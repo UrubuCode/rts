@@ -253,6 +253,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::MarkDerived => (CoreEntry::MarkDerived, {
             rts_core_rwk::entry::mark_derived as extern "C" fn(u64) -> u64 as *const u8
         }),
+        RuntimeOp::MarkClassConstructor => (CoreEntry::MarkClassConstructor, {
+            rts_core_rwk::entry::mark_class_constructor as extern "C" fn(u64) -> u64 as *const u8
+        }),
         RuntimeOp::DefineGetter => (CoreEntry::DefineGetter, {
             rts_core_rwk::entry::define_getter as extern "C" fn(u64, i64, u64) -> u64 as *const u8
         }),
