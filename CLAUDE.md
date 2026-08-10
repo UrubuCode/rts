@@ -88,10 +88,17 @@ family, `Math`, `JSON`, `Map`, `Set`, `Promise`, `Date`, `Symbol`, plus what
 
 `crates/rts-host/tests/running.rs` is what says so — every test in it runs
 the program rather than inspecting it — and the number is measured rather than
-claimed. **2026-08-09: 626 of the 797 `*.test.ts` files pass** — 535 of 818 at
-the start of 08-08, through generators, `yield*`, `Proxy`, native iterators,
-`export *`, a catchable throw, the bare `rts` specifier, stack traces, variadic
-natives and wrapper objects.
+claimed. **2026-08-10: 756 of the 799 `*.test.ts` files pass** — 626 of 797 on
+08-09 and 535 of 818 at the start of 08-08, through generators, `yield*`,
+`Proxy`, native iterators, `export *`, a catchable throw, the bare `rts`
+specifier, stack traces, variadic natives and wrapper objects.
+
+The 08-10 figure was measured by the same `suite_run`, one process per file, on
+the same corpus plus the two files that day's own work added — which is why the
+denominator moved by two and is stated rather than smoothed over. The line above
+said 626 of 797 for a day in which the number had already moved; a measured
+number that is not re-measured becomes a claim, which is the thing this
+paragraph exists to refuse.
 
 The DENOMINATOR changed that day and both halves are stated because of it: 21
 files were removed for testing surfaces this engine will not have in that shape
