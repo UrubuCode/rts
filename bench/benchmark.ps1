@@ -14,6 +14,16 @@ if (-not (Test-Path $RtsExe)) {
   throw "RTS binary not found at $RtsExe - rode 'cargo build --release' antes."
 }
 
+# O AOT do motor novo liga contra o archive de `rts-runtime-rwk`, e o cargo so
+# emite um staticlib para um pacote construido como alvo DIRETO — ou seja, um
+# `cargo build --release` da raiz nao o produz. Falhar aqui, com o comando, em vez
+# de deixar cada `rts compile` falhar em sequencia e o script reportar treze
+# benches "SKIPPED" por uma causa que nao esta em nenhum dos logs.
+$RuntimeArchive = "target\release\rts_runtime_rwk.lib"
+if (-not (Test-Path $RuntimeArchive)) {
+  throw "AOT runtime archive nao encontrado em $RuntimeArchive - rode 'cargo build --release -p rts-runtime-rwk' antes."
+}
+
 # -------------------------------------------------------------------
 # Helpers
 # -------------------------------------------------------------------
@@ -68,9 +78,19 @@ $Benches = @(
   @{ id = "simple";               rts = "bench\rts_simple.ts";               js = "bench\bun_simple.ts";                  jsRunners = @("bun","node","deno") }
   @{ id = "monte_carlo";          rts = "bench\monte_carlo_pi.ts";           js = "bench\monte_carlo_pi.js";              jsRunners = @("bun","node","deno") }
   @{ id = "monte_carlo_jsrand";   rts = "bench\monte_carlo_pi.ts";           js = "bench\monte_carlo_pi_native_rand.js";  jsRunners = @("bun","node","deno") }
-  @{ id = "pi_bigfloat";          rts = "bench\pi_bigfloat.ts";              js = "bench\pi_bigfloat.js";                 jsRunners = @("bun","node","deno") }
-  @{ id = "monte_carlo_threaded"; rts = "bench\monte_carlo_pi_threaded.ts";  js = "bench\monte_carlo_pi_threaded_bun.ts"; jsRunners = @("bun") }
   @{ id = "pi_machin";            rts = "bench\pi_machin.ts";                js = "";                                     jsRunners = @() }
+  # RTS-only, and each measures something a wrong answer would hide rather than a
+  # rate: `objbench` allocates three million objects, which is what the collector
+  # exists for; `objbench_noalloc` is the same loop without allocating, so the
+  # difference between them is the allocation; `field_access` reads two fields
+  # from classes of 2, 5, 10 and 20 so a cost that GROWS with the field count
+  # would show; `string_index` doubles its input four times, so a quadratic
+  # access shows as a quadrupling.
+  @{ id = "objbench";             rts = "bench\objbench.ts";                 js = "";                                     jsRunners = @() }
+  @{ id = "objbench_methods";     rts = "bench\objbench_methods.ts";         js = "";                                     jsRunners = @() }
+  @{ id = "objbench_noalloc";     rts = "bench\objbench_noalloc.ts";         js = "";                                     jsRunners = @() }
+  @{ id = "field_access";         rts = "bench\field_access.ts";             js = "";                                     jsRunners = @() }
+  @{ id = "string_index";         rts = "bench\string_index.ts";             js = "";                                     jsRunners = @() }
 )
 
 # -------------------------------------------------------------------
