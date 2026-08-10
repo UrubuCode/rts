@@ -14,7 +14,7 @@ pub mod test_cmd;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail};
 
 use crate::compile_options::{CompilationProfile, CompileOptions, FrontendMode};
 use crate::diagnostics::reporter;
@@ -42,6 +42,102 @@ pub(crate) fn runtime_archive() -> Result<PathBuf> {
              `rts::cli::set_runtime_archive_resolver(rts::rt_artifacts)` before dispatch"
         ),
     }
+}
+
+/// Locates the `rts-runtime-rwk` staticlib `rts compile` links the NEW engine's
+/// AOT objects against.
+///
+/// # Why this is not [`runtime_archive`]'s embed-and-decompress mechanism
+///
+/// That one exists to make a shipped `rts` binary self-contained: the old
+/// engine's archive is baked into the executable at build time so a user never
+/// runs a second build step. Reproducing that here — a `build.rs` step that
+/// compresses a staticlib into `OUT_DIR` and decompresses it into
+/// `~/.rts/artifacts` — is real engineering with no new decision to justify it,
+/// and this crate's own rule (CLAUDE.md's iteration-speed rule) is to spend that
+/// kind of time only where it earns something a cheaper mechanism cannot. A
+/// path lookup with a LOUD staleness check earns the same correctness for a
+/// fraction of the cost, and is what this is.
+///
+/// # The staleness check
+///
+/// Cargo happily links a `target/debug/rts_runtime_rwk.lib` that predates the
+/// last edit to `rts-core-rwk`, `rts-std-rwk` or `rts-node-rwk` — nothing
+/// rebuilds it just because `rts` itself was rebuilt, since it is not on this
+/// binary's own dependency graph (that would make every `rts` invocation
+/// rebuild a staticlib nothing but `rts compile` needs). So this compares the
+/// archive's mtime against every `.rs` file in the three source trees and
+/// refuses to link a stale one — the failure CLAUDE.md's "regress explicitly"
+/// rule asks for: loud, and naming what to run, rather than a binary that links
+/// and then answers a question the source no longer asks.
+pub(crate) fn runtime_archive_rwk() -> Result<PathBuf> {
+    if let Ok(path) = std::env::var("RTS_RUNTIME_RWK_ARCHIVE") {
+        return Ok(PathBuf::from(path));
+    }
+    let workspace = std::env::current_dir().unwrap_or_default();
+    let candidates = ["release", "debug"].map(|profile| {
+        workspace
+            .join("target")
+            .join(profile)
+            .join("rts_runtime_rwk.lib")
+    });
+    let archive = candidates
+        .into_iter()
+        .find(|path| path.is_file())
+        .ok_or_else(|| {
+            anyhow!(
+                "no `rts_runtime_rwk.lib` under target/{{debug,release}} — build it first: \
+                 `cargo build -p rts-runtime-rwk` (or `--release`). `rts compile` links the \
+                 new engine's AOT objects against it and there is no embedded fallback."
+            )
+        })?;
+
+    let archive_mtime = std::fs::metadata(&archive)
+        .and_then(|meta| meta.modified())
+        .with_context(|| format!("stat {}", archive.display()))?;
+
+    for crate_name in ["rts-core-rwk", "rts-std-rwk", "rts-node-rwk", "rts-runtime-rwk"] {
+        let source_dir = workspace.join("crates").join(crate_name).join("src");
+        if let Some(stale) = newer_rust_file(&source_dir, archive_mtime)? {
+            bail!(
+                "'{}' is newer than {} — rebuild the AOT runtime archive: \
+                 `cargo build -p rts-runtime-rwk` (or `--release` to match), then re-run \
+                 `rts compile`. Cargo will not do this for you: the archive is not on \
+                 `rts`'s own dependency graph.",
+                stale.display(),
+                archive.display()
+            );
+        }
+    }
+    Ok(archive)
+}
+
+/// The first `.rs` file under `dir` (recursively) newer than `than`, if any.
+fn newer_rust_file(dir: &std::path::Path, than: std::time::SystemTime) -> Result<Option<PathBuf>> {
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(current) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&current) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+                continue;
+            }
+            if let Ok(meta) = entry.metadata() {
+                if let Ok(modified) = meta.modified() {
+                    if modified > than {
+                        return Ok(Some(path));
+                    }
+                }
+            }
+        }
+    }
+    Ok(None)
 }
 
 #[derive(Debug, Clone, Copy)]

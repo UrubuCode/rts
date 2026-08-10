@@ -3,7 +3,7 @@
 use rts_codegen::emit::{Ctx, emit_program};
 use rts_codegen::names::Names;
 use rts_codegen::parse::{parse_module, parse_script};
-use rts_codegen::runtime::RuntimeCalls;
+use rts_codegen::runtime::{RuntimeCalls, RuntimeOp};
 use rts_codegen::syntax::{FunctionBody, ModuleItem, StmtKind};
 use rts_codegen::values::ValueModel;
 use rts_cranelift::ir::FuncRegistry;
@@ -438,6 +438,41 @@ pub fn compile(source: &str) -> Result<Compiled, HostError> {
 ///
 /// When `regions` is not a power of two. A selector is a mask.
 pub fn compile_for(source: &str, regions: u32) -> Result<Compiled, HostError> {
+    let front = front_end(source)?;
+    assemble(
+        front.emitted,
+        &[],
+        regions,
+        front.model,
+        front.funcs,
+        front.types,
+        front.calls,
+        front.names,
+    )
+}
+
+/// Everything [`compile_for`] and [`crate::object::compile_to_object`] share:
+/// source text parsed and emitted into one program, with nothing yet decided
+/// about where it will be placed.
+///
+/// # Why this is its own function
+///
+/// Placement is the one thing that differs between a JIT run and an AOT object
+/// — rule 4 of this crate's `README.md`, "both destinations, or neither" — and
+/// everything above that line was, before this change, copy-pasted the moment a
+/// second destination existed. A parser change or a new syntax form would then
+/// have to be applied twice and would drift the moment it was not.
+pub(crate) struct FrontEnd {
+    pub emitted: rts_codegen::emit::Program,
+    pub model: ValueModel,
+    pub funcs: FuncRegistry,
+    pub types: TypeRegistry,
+    pub calls: RuntimeCalls,
+    pub names: Names,
+}
+
+/// Parses and emits source text into one program. See [`FrontEnd`].
+pub(crate) fn front_end(source: &str) -> Result<FrontEnd, HostError> {
     let mut names = Names::default();
     // A file that imports is compiled as a MODULE, and one that does not is
     // wrapped in a function as before. The distinction is not cosmetic: an
@@ -561,16 +596,14 @@ pub fn compile_for(source: &str, regions: u32) -> Result<Compiled, HostError> {
             function.signature.may_suspend = true;
         }
     }
-    assemble(
+    Ok(FrontEnd {
         emitted,
-        &[],
-        regions,
         model,
         funcs,
         types,
         calls,
         names,
-    )
+    })
 }
 
 /// Places a finished compilation and hands back something that can run it.
@@ -582,17 +615,36 @@ pub fn compile_for(source: &str, regions: u32) -> Result<Compiled, HostError> {
 /// against — and none of it changes when a program is several files instead of
 /// one. The two callers differ only in what they emitted and which entries run
 /// before the last, so that is all they pass.
-#[allow(clippy::too_many_arguments)]
-fn assemble(
+/// What emission produced, rewritten and checked into the shape either
+/// destination places — the part of `assemble` that is not about MACHINE CODE
+/// and so must not become two copies the day an object path exists.
+///
+/// # What is deliberately absent
+///
+/// [`Prepared::frames`] carries a `code: 0` for every entry, same as the old
+/// single-function `assemble` did — an address is not a number anybody holds
+/// until placement decides it, and placement is the one thing that differs
+/// between the two destinations.
+pub(crate) struct Prepared {
+    pub emitted: rts_codegen::emit::Program,
+    pub funcs: FuncRegistry,
+    pub types: TypeRegistry,
+    pub script: rts_cranelift::ir::FuncId,
+    pub frames: Vec<(rts_cranelift::ir::FuncId, rts_core_rwk::entry::FrameShape)>,
+    pub expected: Vec<(RuntimeOp, rts_cranelift::ir::FuncId)>,
+    pub names_for_placing: Vec<String>,
+}
+
+/// Rewrites every generator body, collects the runtime operations this program
+/// actually calls (checked against what the runtime defines), names every
+/// function for placement, and verifies every body — all of it destination
+/// agnostic. See [`Prepared`].
+pub(crate) fn prepare(
     emitted: rts_codegen::emit::Program,
-    dependency_ids: &[rts_cranelift::ir::FuncId],
-    regions: u32,
-    model: ValueModel,
     funcs: FuncRegistry,
     types: TypeRegistry,
     calls: RuntimeCalls,
-    names: Names,
-) -> Result<Compiled, HostError> {
+) -> Result<Prepared, HostError> {
     let script = emitted.entry;
     let mut emitted = emitted;
     let mut funcs = funcs;
@@ -621,8 +673,6 @@ fn assemble(
         frames.push((
             id,
             rts_core_rwk::entry::FrameShape {
-                // Filled once the program is placed: an address is not a number
-                // anybody holds until then.
                 code: 0,
                 ty: resumable.layout.ty.index() as u32,
                 size: layout.size,
@@ -635,7 +685,6 @@ fn assemble(
         ));
         *body = resumable.func;
     }
-
 
     // Every runtime operation the program actually asked for, and only those.
     // A compilation that never concatenates carries no reference to the string
@@ -651,23 +700,10 @@ fn assemble(
         expected.push((op, id));
     }
 
-    let mut placing: Vec<Placing<'_>> = expected
-        .iter()
-        .map(|(op, id)| Placing {
-            id: *id,
-            name: op.symbol(),
-            visibility: Visibility::Expected,
-            body: None,
-        })
-        .collect();
     // A name per function, because placement addresses by one. Only the script
     // needs a *meaningful* name — it is what the host looks up afterwards —
     // and the rest are numbered, because a JavaScript function need not have a
-    // name and two that do may share it. The id is what a call site holds;
-    // these strings exist for the placement surface and for a backtrace.
-    //
-    // Held in their own vector because `Placing` borrows them, and a name built
-    // inside the loop that fills `placing` would not outlive it.
+    // name and two that do may share it.
     let names_for_placing: Vec<String> = emitted
         .functions
         .iter()
@@ -677,6 +713,62 @@ fn assemble(
             } else {
                 format!("__rts_fn_{}", id.index())
             }
+        })
+        .collect();
+
+    // Asked before anything is placed, and it earns its line immediately: the
+    // first program that returned `1 === 1` handed back a machine boolean where
+    // its signature declared a tagged value, and went straight to the code
+    // generator because nothing here had asked.
+    //
+    // Every function, not just the entry. A nested one is exactly as able to
+    // be malformed, and it is the one a reader is least likely to look at.
+    for (_, body) in &emitted.functions {
+        let complaints = rts_cranelift::verify::verify(body, &types, &funcs);
+        if !complaints.is_empty() {
+            return Err(HostError::Malformed(format!("{complaints:?}")));
+        }
+    }
+
+    Ok(Prepared {
+        emitted,
+        funcs,
+        types,
+        script,
+        frames,
+        expected,
+        names_for_placing,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn assemble(
+    emitted: rts_codegen::emit::Program,
+    dependency_ids: &[rts_cranelift::ir::FuncId],
+    regions: u32,
+    model: ValueModel,
+    funcs: FuncRegistry,
+    types: TypeRegistry,
+    calls: RuntimeCalls,
+    names: Names,
+) -> Result<Compiled, HostError> {
+    let Prepared {
+        emitted,
+        funcs,
+        types,
+        script,
+        frames,
+        expected,
+        names_for_placing,
+    } = prepare(emitted, funcs, types, calls)?;
+
+    let mut placing: Vec<Placing<'_>> = expected
+        .iter()
+        .map(|(op, id)| Placing {
+            id: *id,
+            name: op.symbol(),
+            visibility: Visibility::Expected,
+            body: None,
         })
         .collect();
     for ((id, body), name) in emitted.functions.iter().zip(&names_for_placing) {
@@ -721,23 +813,6 @@ fn assemble(
             entry.symbol()
         );
         outside.push((entry.symbol(), address));
-    }
-
-    // Asked before anything is placed, and it earns its line immediately: the
-    // first program that returned `1 === 1` handed back a machine boolean where
-    // its signature declared a tagged value, and went straight to the code
-    // generator because nothing here had asked.
-    //
-    // The verifier had the check all along. Skipping it made the machine's
-    // answer to "is this well formed" unavailable at the one moment it was
-    // about to matter.
-    // Every function, not just the entry. A nested one is exactly as able to
-    // be malformed, and it is the one a reader is least likely to look at.
-    for (_, body) in &emitted.functions {
-        let complaints = rts_cranelift::verify::verify(body, &types, &funcs);
-        if !complaints.is_empty() {
-            return Err(HostError::Malformed(format!("{complaints:?}")));
-        }
     }
 
     // SAFETY: every address comes from `address_of`, which returns the runtime's

@@ -38,6 +38,7 @@
 mod entries;
 pub mod graph;
 mod link;
+pub mod object;
 mod run;
 mod stack;
 

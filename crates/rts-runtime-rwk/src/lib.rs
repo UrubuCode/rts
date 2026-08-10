@@ -27,6 +27,8 @@
 //! So the three crates are TOUCHED here, and the touch is checked by
 //! `dumpbin`/`nm` rather than trusted.
 
+pub mod aot;
+
 /// Reaches each dependency so its symbols reach the archive.
 ///
 /// Called by nothing. It exists to be a use of all three crates from this crate's
