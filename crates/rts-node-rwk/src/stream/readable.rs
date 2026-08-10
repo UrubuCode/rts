@@ -30,6 +30,10 @@ pub(super) const METHODS: &[(&str, Provided)] = &[
     ("destroy", destroy),
     ("on", on),
     ("addListener", on),
+    ("once", once),
+    // `for await (const chunk of readable)`. `"@@asyncIterator"` is the wire
+    // spelling of `[Symbol.asyncIterator]` — see `flowing.rs`'s module doc.
+    ("@@asyncIterator", super::flowing::async_iterator),
 ];
 
 /// `readable.on(eventName, listener)` / `.addListener(...)` — registers
@@ -45,13 +49,29 @@ pub(super) const METHODS: &[(&str, Provided)] = &[
 /// promote (`r.on('data', cb)` alone flows a stream with no `.resume()`
 /// call), so that was a real bug wearing a documented-limitation's clothes.
 extern "C" fn on(_e: u64, this: u64, event: u64, listener: u64, _c: u64, _d: u64) -> u64 {
-    let emitter_on = entry::with_runtime(|context| {
+    register_listener(this, event, listener, "on")
+}
+
+/// `readable.once(eventName, listener)` — promotes for the same reason [`on`]
+/// does, and it has to be overridden separately: `events.rs`'s `once` appends
+/// to the listener table directly rather than routing through `this.on`, so a
+/// `Readable` inheriting it unchanged left `readable.once('data', …)` paused
+/// forever while `readable.on('data', …)` flowed. Real Node's `once` DOES go
+/// through the overridden `on`, so both promote there.
+extern "C" fn once(_e: u64, this: u64, event: u64, listener: u64, _c: u64, _d: u64) -> u64 {
+    register_listener(this, event, listener, "once")
+}
+
+/// Registers through `EventEmitter.prototype.<method>`, then promotes to
+/// flowing mode when the event registered for is `'data'`.
+fn register_listener(this: u64, event: u64, listener: u64, method: &str) -> u64 {
+    let registrar = entry::with_runtime(|context| {
         let emitter_prototype = entry::make_prototype(context, "EventEmitter", &[]);
-        entry::get_member(context, emitter_prototype, "on")
+        entry::get_member(context, emitter_prototype, method)
     });
     let absent = entry::undefined_value();
-    if emitter_on != absent {
-        entry::call(emitter_on, this, event, listener, absent, absent);
+    if registrar != absent {
+        entry::call(registrar, this, event, listener, absent, absent);
     }
     if entry::text_of(event).as_deref() == Some("data") {
         resume(0, this, 0, 0, 0, 0);
@@ -139,8 +159,12 @@ extern "C" fn push(_e: u64, this: u64, chunk: u64, _encoding: u64, _c: u64, _d: 
     let null = entry::null_value();
     if chunk == null {
         set_bool_ctx(this, "__ended__", true);
+        // A parked `next()` is told at once — it is already waiting, so there
+        // is nothing to defer for it. The `'end'` EVENT is still scheduled
+        // rather than emitted here; see `flowing.rs`'s module doc.
+        super::flowing::end_waiter(this);
         if get_num(this, "readableLength") <= 0.0 {
-            finish_end(this);
+            super::flowing::schedule_end(this);
         }
         return entry::boolean_value(false);
     }
@@ -150,6 +174,12 @@ extern "C" fn push(_e: u64, this: u64, chunk: u64, _encoding: u64, _c: u64, _d: 
         return entry::boolean_value(false);
     }
     let chunk = apply_encoding(this, chunk);
+    // A reader parked on `[Symbol.asyncIterator]` takes precedence over the
+    // buffer: it is only ever parked with the buffer empty, so handing the
+    // chunk straight over costs one settle instead of a store and a shift.
+    if super::flowing::deliver_to_waiter(this, chunk) {
+        return entry::boolean_value(true);
+    }
     let flowing = get_value(this, "readableFlowing") == entry::boolean_value(true);
     let buffered = get_num(this, "readableLength");
     if flowing && buffered <= 0.0 {
@@ -171,24 +201,52 @@ extern "C" fn push(_e: u64, this: u64, chunk: u64, _encoding: u64, _c: u64, _d: 
 /// `push()` is one indivisible unit here, never split or concatenated to
 /// satisfy `size`.
 extern "C" fn read(_e: u64, this: u64, _size: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    let mut buf = get_array(this, "__buf__");
-    if buf.is_empty() {
+    // Calling `read()` at all is consumption, even when it answers `null`: a
+    // consumer that asks an ended stream for a chunk has reached EOF, and that
+    // is one of the three things `flowing::is_consumed` gates `'end'` on.
+    super::flowing::mark_consumed(this);
+    let Some(chunk) = shift_chunk(this) else {
         if get_bool(this, "__ended__") {
-            finish_end(this);
+            super::flowing::schedule_end(this);
         }
         return entry::null_value();
+    };
+    set_bool_ctx(this, "readableDidRead", true);
+    if get_num(this, "readableLength") <= 0.0 && get_bool(this, "__ended__") {
+        super::flowing::schedule_end(this);
+    }
+    chunk
+}
+
+/// Removes and answers the oldest buffered chunk, keeping `readableLength` in
+/// step — the one place the internal buffer is shortened, so `read()`,
+/// [`drain_all`] and the async iterator cannot disagree about its length.
+pub(super) fn shift_chunk(this: u64) -> Option<u64> {
+    let mut buf = get_array(this, "__buf__");
+    if buf.is_empty() {
+        return None;
     }
     let chunk = buf.remove(0);
     let remaining = get_num(this, "readableLength") - size_of(this, chunk);
     entry::with_runtime(|context| {
-        set_array(context, this, "__buf__", buf.clone());
+        set_array(context, this, "__buf__", buf);
         set_num(context, this, "readableLength", remaining.max(0.0));
     });
-    set_bool_ctx(this, "readableDidRead", true);
-    if buf.is_empty() && get_bool(this, "__ended__") {
-        finish_end(this);
+    Some(chunk)
+}
+
+/// Calls `this._read(highWaterMark)` if there is one — how a pull-based
+/// implementation is asked to produce. Looked up through the prototype chain,
+/// which is what makes a subclass's `_read` and an `options.read` the same
+/// mechanism (see this file's own module doc).
+pub(super) fn prod_read(this: u64) {
+    let absent = entry::undefined_value();
+    let read_hook = entry::with_runtime(|context| entry::get_member(context, this, "_read"));
+    if read_hook == absent {
+        return;
     }
-    chunk
+    let size = entry::make_number(get_num(this, "readableHighWaterMark"));
+    entry::call(read_hook, this, size, absent, absent, absent);
 }
 
 /// Delivers one chunk in flowing mode: the `'data'` event, then a direct
@@ -214,25 +272,22 @@ fn deliver_data(this: u64, chunk: u64) {
 /// Drains the whole backlog into `'data'`/pipes, oldest first, then ends if
 /// `push(null)` already arrived.
 fn drain_all(this: u64) {
-    loop {
-        let mut buf = get_array(this, "__buf__");
-        if buf.is_empty() || get_value(this, "readableFlowing") != entry::boolean_value(true) {
-            break;
-        }
-        let chunk = buf.remove(0);
-        let remaining = get_num(this, "readableLength") - size_of(this, chunk);
-        entry::with_runtime(|context| {
-            set_array(context, this, "__buf__", buf);
-            set_num(context, this, "readableLength", remaining.max(0.0));
-        });
+    while get_value(this, "readableFlowing") == entry::boolean_value(true) {
+        let Some(chunk) = shift_chunk(this) else { break };
         deliver_data(this, chunk);
     }
-    if get_array(this, "__buf__").is_empty() && get_bool(this, "__ended__") {
-        finish_end(this);
+    if get_num(this, "readableLength") <= 0.0 && get_bool(this, "__ended__") {
+        super::flowing::schedule_end(this);
     }
 }
 
-fn finish_end(this: u64) {
+/// Emits `'end'` and forwards it to every piped destination.
+///
+/// Called ONLY from `flowing::pump`, never inline: a synchronous `'end'` is
+/// emitted before the `.on('end', …)` of a chained call exists, which is the
+/// whole reason `flowing.rs` exists — read its module doc before calling this
+/// from anywhere else.
+pub(super) fn finish_end_now(this: u64) {
     if get_bool(this, "readableEnded") {
         return;
     }
@@ -318,6 +373,7 @@ extern "C" fn pause(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u
 
 /// `readable.resume()`.
 extern "C" fn resume(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    super::flowing::mark_consumed(this);
     let was_flowing = get_value(this, "readableFlowing") == entry::boolean_value(true);
     set_value_ctx(this, "readableFlowing", entry::boolean_value(true));
     if !was_flowing {

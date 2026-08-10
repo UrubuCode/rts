@@ -93,6 +93,68 @@ const bpW: any = new Writable({
 bpW.write(1);
 const bpOk = bpW.write(2);
 
+// ---- once('data') also promotes to flowing ---------------------------------
+// It has to be overridden separately from on(): EventEmitter.once appends to
+// the listener table directly instead of routing through the overridden on().
+const onceOut: any[] = [];
+const r3: any = new Readable({ objectMode: true, read: () => {} });
+r3.once("data", (c: any) => { onceOut.push(c); });
+r3.push("only");
+r3.push("second");
+r3.push(null);
+
+// ---- .on('data').on('end') chained -----------------------------------------
+// The pattern deferred 'end' delivery exists for: the 'end' listener is
+// attached AFTER the flow has already started and drained, and must still run.
+// Emitting 'end' inside the .on('data', …) call skips it entirely.
+let chainedEnd = false;
+const chainedOut: any[] = [];
+const r4: any = new Readable({ objectMode: true, read: () => {} });
+r4.push("x");
+r4.push(null);
+r4.on("data", (c: any) => { chainedOut.push(c); }).on("end", () => { chainedEnd = true; });
+
+// ---- for await over a Readable ---------------------------------------------
+// Buffered chunks answer already-fulfilled promises, so this whole iteration
+// finishes without a loop turn.
+const iterOut: any[] = [];
+let iterDone = false;
+const r5: any = new Readable({ objectMode: true, read: () => {} });
+r5.push(1); r5.push(2); r5.push(3); r5.push(null);
+async function drainBuffered() {
+  for await (const c of r5) { iterOut.push(c); }
+  iterDone = true;
+}
+drainBuffered();
+
+// ---- for await over a chunk that has not arrived yet -----------------------
+// The parked path: next() answers a pending promise, and the push from a timer
+// callback settles it. The timer is what keeps the loop turning.
+const lateOut: any[] = [];
+let lateDone = false;
+const r6: any = new Readable({ objectMode: true, read: () => {} });
+setTimeout(() => { r6.push("late"); r6.push(null); }, 1);
+async function drainLate() {
+  for await (const c of r6) { lateOut.push(c); }
+  lateDone = true;
+}
+drainLate();
+
+// `break` out of a `for await` over a Readable is pinned by
+// `tests/for_await_break_return.test.ts` instead of here, and the reason is
+// which layer owns the defect: this engine's emitter does not call the
+// iterator's `return()` on `break` AT ALL — measured over a plain object with
+// a `[Symbol.asyncIterator]`, no stream in sight. Asserting it here would turn
+// a green `node:stream` file red for something no change to `node:stream`
+// could fix.
+
+// Every assertion below runs one loop turn later, because that is when Node
+// delivers 'end' too — see `crates/rts-node-rwk/src/stream/flowing.rs`. It used
+// to assert `end1`/`pipeDone` synchronously, which passed only because this
+// engine emitted 'end' inside the call that started the flow; real Node fails
+// those same two lines. `suite_run` reads the record after the host's loop has
+// drained, so a test registered from here is still counted.
+setTimeout(() => {
 describe("node:stream", () => {
   test("Readable push/read/flow", () => {
     expect(readOut.length).toBe(2);
@@ -140,4 +202,26 @@ describe("node:stream", () => {
     expect(getDefaultHighWaterMark(false)).toBe(16384);
     expect(isWritable(new PassThrough())).toBe(true);
   });
+  test("once('data') promotes to flowing", () => {
+    expect(onceOut.length).toBe(1);
+    expect(onceOut[0]).toBe("only");
+  });
+  test("'end' reaches a listener attached after the flow started", () => {
+    expect(chainedOut.length).toBe(1);
+    expect(chainedOut[0]).toBe("x");
+    expect(chainedEnd).toBe(true);
+    expect(r4.readableEnded).toBe(true);
+  });
+  test("for await over buffered chunks", () => {
+    expect(iterDone).toBe(true);
+    expect(iterOut.length).toBe(3);
+    expect(iterOut[0]).toBe(1);
+    expect(iterOut[2]).toBe(3);
+  });
+  test("for await waits for a chunk pushed later", () => {
+    expect(lateDone).toBe(true);
+    expect(lateOut.length).toBe(1);
+    expect(lateOut[0]).toBe("late");
+  });
 });
+}, 5);

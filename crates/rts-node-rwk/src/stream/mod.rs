@@ -6,7 +6,15 @@
 //! chained onto the REAL `EventEmitter` prototype `crate::events` builds
 //! (see its module doc), against `docs/reference/node/stream.md`.
 //!
-//! # WHEN a `'data'` event fires
+//! # WHEN a `'data'` event fires, and when `'end'` does
+//!
+//! **They differ, and `flowing.rs`'s module doc is where that is decided** —
+//! `'data'` is synchronous, `'end'` is delivered from a loop source. The short
+//! version: emitting `'end'` inside the `.on('data', …)` call that started the
+//! flow runs it before the `.on('end', …)` on the next line exists, so the
+//! universal `readable.on('data', …).on('end', …)` spelling silently loses its
+//! completion handler. `'end'` also never fires for a stream nobody consumed.
+//! The rest of this section is about `'data'` and is unchanged.
 //!
 //! Synchronously, inside whatever call caused it — there is no event loop
 //! this crate can post to (the same limit `fs/watch.rs`'s doc names).
@@ -63,14 +71,20 @@
 //! `setDefaultHighWaterMark`, `Readable.fromWeb`/`toWeb`,
 //! `Writable.fromWeb`/`toWeb`, `Duplex.from`/`fromWeb`/`toWeb`, `.wrap()`,
 //! `.compose()`, the whole async-iteration helper family
-//! (`map`/`filter`/`forEach`/`toArray`/`reduce`/…), `Symbol.asyncIterator`/
-//! `Symbol.asyncDispose` (both need a `Promise` a native can construct and
-//! drive, the same gap `events.rs`'s doc names for `events.on`/`once`),
-//! `_writev`, `unshift`, `wrap`. `pipeline`/`finished` are capped at four
+//! (`map`/`filter`/`forEach`/`toArray`/`reduce`/…), `Symbol.asyncDispose`,
+//! `_writev`, `unshift`, `wrap`.
+//!
+//! `Symbol.asyncIterator` used to be on that list, refused for want of "a
+//! `Promise` a native can construct and drive". That was stale rather than
+//! wrong-headed — `entry::promise_new`/`promise_settle` are exported — and
+//! `flowing.rs` implements it. The refusal is written down rather than deleted,
+//! because a "cannot" that outlives its cause is how a feature stays unwritten
+//! for reasons that stopped being true. `pipeline`/`finished` are capped at four
 //! call slots total — see `util.rs`'s own doc.
 
 mod common;
 mod duplex;
+mod flowing;
 mod readable;
 mod util;
 mod writable;
@@ -79,6 +93,11 @@ use rts_core_rwk::entry::{self, Context, Provided};
 
 /// The namespace `node:stream` is.
 pub fn namespace(context: &mut Context) -> u64 {
+    // What delivers a deferred `'end'` and wakes a parked `for await`. Declared
+    // here with the context already in hand, and again lazily by `flowing.rs`
+    // for the streams `fs`/`net`/`http` build without this namespace ever being
+    // constructed; `declare_loop_source` is idempotent by name.
+    flowing::declare(context);
     let stream_prototype = common::chained_prototype(context, "EventEmitter", "Stream", &[]);
     let stream_ctor = entry::make_callable(context, stream_construct);
     entry::put_member(context, stream_ctor, "prototype", stream_prototype);
