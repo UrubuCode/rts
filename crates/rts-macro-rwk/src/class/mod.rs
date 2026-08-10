@@ -191,7 +191,7 @@ fn namespace_body(
         // interning allocates — the reason `string::prototype_of` records its
         // cell first, and the reason that version recursed until the region ran
         // out when it did not.
-        crate::entry::class_support::record(context, #name, object, object);
+        crate::entry::class_support::record(context, #name, object, object, Some("rts-core-rwk::class"));
         crate::entry::native::install(context, cell, #natives);
         crate::entry::class_support::constants(context, cell, #constants);
         object
@@ -271,7 +271,7 @@ fn class_body(
         // Before installing anything, for the reason the namespace body states:
         // installing interns, interning allocates, and an allocation can reach
         // back here.
-        crate::entry::class_support::record(context, #name, callable, prototype);
+        crate::entry::class_support::record(context, #name, callable, prototype, Some("rts-core-rwk::class"));
 
         if let Some(cell) = crate::value::Value(callable).as_slot() {
             crate::entry::native::install(context, cell, #statics);

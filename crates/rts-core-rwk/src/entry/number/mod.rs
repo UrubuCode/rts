@@ -356,31 +356,76 @@ fn in_radix(number: f64, base: u32) -> String {
 
 /// A number to a fixed number of decimal places, rounding half away from zero.
 ///
-/// Written rather than delegated to `format!("{:.*}")`, which rounds to nearest
-/// **even**: `format!("{:.0}", 2.5)` is `"2"` and `(2.5).toFixed(0)` is `"3"`.
-/// That difference is invisible in every test whose values are not exactly half.
+/// Written over the *exact* decimal expansion rather than a scale-then-round
+/// (`number * 10^places`, then `f64::round`), which is lossy in the
+/// multiplication itself: `2.55_f64` is `2.549999999999999822…`, but
+/// `2.55 * 10.0` rounds *up* to exactly `25.5` in f64, so a scaled round sees a
+/// tie that the real value never had and answers `"2.6"` where the spec (and
+/// Node) answer `"2.5"`. `format!("{:.N}")` on an `f64` is exact for any `N` —
+/// the standard library's fixed-precision float formatter computes the true
+/// decimal digits via big-integer arithmetic — so asking for far more digits
+/// than `places` and rounding the resulting *string* half-away-from-zero
+/// (ties round up, matching the spec's "pick the larger n") never sees a
+/// multiplication-introduced tie.
 fn fixed(number: f64, places: usize) -> String {
-    let scale = 10f64.powi(places as i32);
-    let scaled = number * scale;
-    // `f64::round` is half-away-from-zero, which is the rule here — the one
-    // place in this crate where it is the right function rather than the wrong
-    // one. `Math.round` wanted half-UP and had to be written out.
-    let rounded = scaled.round();
-    let value = rounded / scale;
-    match places {
-        // `as i64` has no negative zero, so `(-0.4).toFixed(0)` — whose rounded
-        // value is `-0.0` — would lose its sign through the cast and answer
-        // `"0"` where the language answers `"-0"`. Caught before the cast
-        // rather than patched after, because a cast that already discarded the
-        // sign has nothing left to restore it from.
-        0 => {
-            let truncated = value.trunc();
-            match truncated == 0.0 && truncated.is_sign_negative() {
-                true => "-0".to_owned(),
-                false => format!("{}", truncated as i64),
+    let negative = number.is_sign_negative();
+    let magnitude = number.abs();
+    // f64's exact decimal expansion terminates within a few dozen digits for
+    // any value with a non-degenerate binary fraction; 60 digits of margin
+    // beyond `places` is enough to see whether the first dropped digit is a
+    // genuine tie or just close to one.
+    let exact = format!("{:.*}", places + 60, magnitude);
+    let rounded = round_decimal_string(&exact, places);
+    match negative {
+        true => format!("-{rounded}"),
+        false => rounded,
+    }
+}
+
+/// Rounds a `"123.456789…"` string to `places` fractional digits,
+/// half-away-from-zero (i.e. ties round up), on the digits themselves — so it
+/// never re-introduces the floating-point rounding `fixed` exists to avoid.
+fn round_decimal_string(digits: &str, places: usize) -> String {
+    let (int_part, frac_part) = digits.split_once('.').unwrap_or((digits, ""));
+    let mut int_digits: Vec<u8> = int_part.bytes().collect();
+    let frac_bytes = frac_part.as_bytes();
+    let round_up = frac_bytes.get(places).is_some_and(|&d| d >= b'5');
+    let mut frac_digits: Vec<u8> = frac_bytes[..places.min(frac_bytes.len())].to_vec();
+    frac_digits.resize(places, b'0');
+    if round_up {
+        let mut carry = true;
+        for d in frac_digits.iter_mut().rev() {
+            if !carry {
+                break;
+            }
+            match *d {
+                b'9' => *d = b'0',
+                _ => {
+                    *d += 1;
+                    carry = false;
+                }
             }
         }
-        _ => format!("{value:.places$}"),
+        for d in int_digits.iter_mut().rev() {
+            if !carry {
+                break;
+            }
+            match *d {
+                b'9' => *d = b'0',
+                _ => {
+                    *d += 1;
+                    carry = false;
+                }
+            }
+        }
+        if carry {
+            int_digits.insert(0, b'1');
+        }
+    }
+    let int_str = String::from_utf8(int_digits).unwrap();
+    match places {
+        0 => int_str,
+        _ => format!("{int_str}.{}", String::from_utf8(frac_digits).unwrap()),
     }
 }
 

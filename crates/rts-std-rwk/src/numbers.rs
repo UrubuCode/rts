@@ -131,18 +131,24 @@ unary!(abs_i64, |a| a.wrapping_abs());
 binary!(add, |a, b| a.wrapping_add(b));
 binary!(mul, |a, b| a.wrapping_mul(b));
 
-/// The four that answer `undefined` where the operation does not fit.
+/// The four that signal "does not fit" with `i64::MIN` rather than `undefined`.
 ///
-/// `undefined` and not a wrapped value: the whole point of a checked operation
-/// is that it can say no, and answering the wrapped one would make the check
-/// indistinguishable from `wrapping_add`.
+/// **Not `undefined`.** That was tried and is a different, worse answer: this
+/// engine has no true 64-bit integer — `i64::MIN` widens to the `f64`
+/// `-9223372036854776000` the way every other whole number here does — and
+/// `undefined` is a VALUE a caller doing arithmetic with the result silently
+/// carries forward (`undefined + 1` is `NaN`, not a signal). `i64::MIN` is the
+/// sentinel the documented convention names: the one value none of these four
+/// operations can ever produce as a genuine answer (`checked_add` overflowing
+/// TO `i64::MIN` is itself reported as `None` here, same as every other
+/// overflow), so a caller checking for it is checking for something real.
 macro_rules! checked {
     ($name:ident, $body:expr) => {
         extern "C" fn $name(_e: u64, _this: u64, a: u64, b: u64, _a2: u64, _a3: u64) -> u64 {
             let operation: fn(i64, i64) -> Option<i64> = $body;
             match operation(whole(a), whole(b)) {
                 Some(found) => answered(found),
-                None => entry::undefined_value(),
+                None => answered(i64::MIN),
             }
         }
     };

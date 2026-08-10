@@ -54,7 +54,7 @@ use super::functions::{
     CALL_ENTRY, CALL_WITH_ARGS_ENTRY, CLOSURE_NEW_ENTRY, CONSTRUCT_ENTRY,
     CONSTRUCT_WITH_ARGS_ENTRY, INSTANCE_OF_ENTRY,
     MARK_CLASS_CONSTRUCTOR_ENTRY, MARK_DERIVED_ENTRY, REST_ARGUMENTS_ENTRY,
-    SET_CALL_NAME_ENTRY, SUPER_CONSTRUCT_ENTRY,
+    SET_CALL_NAME_ENTRY, SUPER_CONSTRUCT_ENTRY, SUPER_CONSTRUCT_WITH_ARGS_ENTRY,
 };
 use super::objects::{
     GET_PROPERTY_ENTRY, GET_SUPER_PROPERTY_ENTRY, OBJECT_NEW_ENTRY, OBJECT_SPREAD_ENTRY,
@@ -415,6 +415,14 @@ pub enum CoreEntry {
 
     /// [`super::set_super_property`].
     SetSuperProperty = 68,
+
+    /// `super(...args)`, or `super(…)` with more than four arguments — the
+    /// parent constructor, over an arbitrary-length vector.
+    ///
+    /// Not `ConstructWithArgs`: that entry SETS `new.target`, and `super()`
+    /// must not. Vector-shaped like it, `new.target`-inert like
+    /// [`CoreEntry::SuperConstruct`] — nothing already numbered was both.
+    SuperConstructWithArgs = 69,
 }
 
 /// How many entry points exist.
@@ -422,7 +430,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 69;
+pub const CORE_ENTRY_COUNT: usize = 70;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -496,6 +504,7 @@ impl CoreEntry {
         CoreEntry::SetCallName,
         CoreEntry::GetSuperProperty,
         CoreEntry::SetSuperProperty,
+        CoreEntry::SuperConstructWithArgs,
     ];
 
     /// The number a call site holds.
@@ -580,6 +589,7 @@ impl CoreEntry {
             CoreEntry::Iterate => ITERATE_ENTRY,
             CoreEntry::ArrayAppend => ARRAY_APPEND_ENTRY,
             CoreEntry::ArrayAppendAll => ARRAY_APPEND_ALL_ENTRY,
+            CoreEntry::SuperConstructWithArgs => SUPER_CONSTRUCT_WITH_ARGS_ENTRY,
         }
     }
 

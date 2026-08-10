@@ -108,17 +108,53 @@ pub(super) fn provided(name: &str) -> Option<super::native::Native> {
     }
 }
 
-/// `structuredClone(value)`.
+/// `structuredClone(value, options)`.
 ///
-/// `options` is not declared. Its only member is `transfer`, a list of objects
-/// to move rather than copy, and there is nothing here to move — a transferable
-/// is an `ArrayBuffer` or a port, none of which this runtime has. Declaring and
-/// ignoring it would accept a call whose whole purpose was the thing ignored.
-extern "C" fn structured_clone(_e: u64, _t: u64, value: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+/// `options.transfer` is a list of `ArrayBuffer`s the source gives up rather
+/// than copies. This engine has exactly one transferable kind — an
+/// `ArrayBuffer`; a port is not something it has — so the list is read for
+/// that one case: each listed buffer's clone still comes from the same
+/// byte-copying walk every buffer goes through, and afterwards the ORIGINAL is
+/// detached — its own bytes truncated to nothing and `byteLength` set to `0` —
+/// which is what makes a transferred buffer's copy independent (the language's
+/// requirement) rather than a second reference to bytes it no longer owns.
+extern "C" fn structured_clone(_e: u64, _t: u64, value: u64, options: u64, _a2: u64, _a3: u64) -> u64 {
     let mut graph = Graph::default();
     let root = walk(&mut graph, value, 0);
     let made = materialise(&graph);
-    resolve(root, &made)
+    let result = resolve(root, &made);
+    detach_transferred(options);
+    result
+}
+
+/// Zeroes every `ArrayBuffer` named in `options.transfer`, if any.
+///
+/// Read and applied AFTER the clone is fully materialised: a buffer transfers
+/// itself (`transfer: [buffer]` cloning `buffer`), and detaching it first would
+/// have the walk copy zero bytes instead of the ones the clone is supposed to
+/// carry away.
+fn detach_transferred(options: u64) {
+    let transfer_name = with_current(|context| context.intern_value(Str::from_str("transfer")).bits());
+    let list = super::computed::get_indexed(options, transfer_name);
+    let Some(cells) = with_current(|context| {
+        Value(list)
+            .as_slot()
+            .and_then(|cell| context.elements_at(cell).cloned())
+    }) else {
+        return;
+    };
+    with_current(|context| {
+        for held in cells {
+            let Some(cell) = Value(held).as_slot() else {
+                continue;
+            };
+            if let Some(bytes) = context.bytes_at_mut(cell) {
+                bytes.clear();
+            }
+            let key = context.well_known("byteLength");
+            super::objects::put(context, cell, key, Value::from_f64(0.0).bits());
+        }
+    });
 }
 
 /// A value in the arena: either a copy of something with no structure, or the
@@ -146,6 +182,11 @@ enum Node {
     Set(Vec<Slot>),
     /// The time value, which is all a `Date` is.
     Date(f64),
+    /// An `ArrayBuffer`'s raw bytes, copied — the source and the clone never
+    /// share a store, so a write through one is invisible to the other, which
+    /// is what the specification's "cloned, not shared" actually means for a
+    /// buffer with no members to walk.
+    Buffer(Vec<u8>),
 }
 
 /// The arena, and which original cell each node stands for.
@@ -197,6 +238,10 @@ enum Shape {
     Map(u32),
     Set(u32),
     Date(u32, f64),
+    /// An `ArrayBuffer`, recognised by owning a byte store — see
+    /// [`super::buffers`], the one thing here that reaches into another
+    /// module's storage rather than reading properties like everything else.
+    Buffer(u32),
     /// A function or a symbol — see the module documentation.
     Uncloneable,
 }
@@ -226,6 +271,12 @@ fn shape_of(context: &mut Context, value: u64) -> Shape {
     // caller with the other non-cell values.
     if context.callable_at(cell).is_some() {
         return Shape::Uncloneable;
+    }
+    // An `ArrayBuffer` owns a byte store directly rather than through any
+    // property a walk would find — checked before `Date`'s property probe and
+    // the element/plain-object fallback, none of which know what a buffer is.
+    if context.bytes_at(cell).is_some() {
+        return Shape::Buffer(cell);
     }
     if context.table_at(cell).is_some() {
         // Which of the two it is comes from the prototype the class
@@ -278,6 +329,19 @@ fn walk(graph: &mut Graph, value: u64, depth: usize) -> Slot {
             }
             let at = graph.reserve(cell);
             graph.nodes[at] = Node::Date(ms);
+            return Slot::At(at);
+        }
+        Shape::Buffer(cell) => {
+            // Same reasoning as `Date`: no children to walk, registered so a
+            // buffer referenced twice in one structure clones once.
+            if let Some(at) = graph.found(cell) {
+                return Slot::At(at);
+            }
+            let at = graph.reserve(cell);
+            let bytes = with_current(|context| {
+                context.bytes_at(cell).cloned().unwrap_or_default()
+            });
+            graph.nodes[at] = Node::Buffer(bytes);
             return Slot::At(at);
         }
     };
@@ -378,6 +442,18 @@ fn empty(node: &Node) -> u64 {
         // A `Date` is complete at this point: its whole state is the number,
         // and it has no members to fill in a second pass.
         Node::Date(ms) => with_current(|context| dated(context, *ms)),
+        // Also complete here: the bytes are already copied, so there is
+        // nothing left for `fill` to do — `super::buffers::new_buffer` makes
+        // the store and the prototype together.
+        Node::Buffer(bytes) => with_current(|context| match super::buffers::new_buffer(context, bytes.len()) {
+            Some(cell) => {
+                if let Some(destination) = context.bytes_at_mut(cell) {
+                    destination.copy_from_slice(bytes);
+                }
+                Value::from_slot(cell).bits()
+            }
+            None => undefined_of(context),
+        }),
     }
 }
 
@@ -447,7 +523,7 @@ fn fill(node: &Node, value: u64, made: &[u64]) {
             }
             super::collections::restore_sized(context, cell, table);
         }),
-        Node::Date(_) => {}
+        Node::Date(_) | Node::Buffer(_) => {}
     }
 }
 

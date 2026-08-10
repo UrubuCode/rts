@@ -19,7 +19,10 @@ use super::registry;
 const METHODS: &[(&str, Provided)] = &[("close", close)];
 
 fn prototype(context: &mut entry::Context) -> u64 {
-    super::common::chained_prototype(context, "Server", "TLSServer", METHODS)
+    // `"net.Server"`, not `"Server"` — `net::server`'s prototype doc explains
+    // why the bare name is reserved for HTTP's `Server` and would otherwise
+    // hand a TLS server HTTP's method table.
+    super::common::chained_prototype(context, "net.Server", "TLSServer", METHODS)
 }
 
 /// `tls.createServer(options?[, secureConnectionListener])`.

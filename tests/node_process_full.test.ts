@@ -1,4 +1,10 @@
 // node:process — flat synchronous surface.
+// NOTA: `pid`, `platform`, `arch`, `version(s)`, `argv`, `execPath`, `title`,
+// `env`, `http.METHODS` e `module.builtinModules` sao PROPRIEDADES no Node, nao
+// funcoes — `typeof process.pid` e `number`. Este ficheiro chamava-as com `()`,
+// herdado do motor antigo que fizera tudo funcao; num Node real isso lanca
+// "pid is not a function". O motor novo escolheu a convencao certa e a fixture
+// e que estava errada. Verificado a correr node.
 import { describe, test, expect } from "rts:test";
 import {
     cwd,
@@ -28,13 +34,13 @@ const cuOk = cu.user >= 0 && cu.system >= 0;
 const theCwd = cwd();
 const theCwdOk = theCwd.length > 0;
 
-const plat = platform();
+const plat = platform;
 const platOk = plat === "win32" || plat === "linux" || plat === "darwin";
 
-const a = arch();
+const a = arch;
 const archOk = a === "x64" || a === "arm64" || a === "ia32";
 
-const thePid = pid();
+const thePid = pid;
 const pidOk = thePid > 0;
 
 const up = uptime();
@@ -46,28 +52,28 @@ const hrOk = hr.length === 2 && hr[0] >= 0 && hr[1] >= 0;
 const hrDiff = hrtime(hr);
 const hrDiffOk = hrDiff.length === 2;
 
-const v = version();
+const v = version;
 const vOk = v.indexOf("v") === 0;
 
-const vs = versions();
+const vs = versions;
 const vsOk = typeof vs.node === "string";
 
-const av = argv();
+const av = argv;
 const avOk = av.length >= 1;
 
-const av0 = argv0();
+const av0 = argv0;
 const av0Ok = av0.length > 0;
 
-const ep = execPath();
+const ep = execPath;
 const epOk = ep.length > 0;
 
-const t = title();
+const t = title;
 const tOk = t.length > 0;
 
 const res = getActiveResourcesInfo();
 const resOk = res.length === 0;
 
-const e = env();
+const e = env;
 const eOk = typeof e === "object";
 
 describe("node:process", () => {

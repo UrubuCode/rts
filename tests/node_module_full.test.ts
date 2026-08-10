@@ -1,4 +1,10 @@
 // node:module — static introspection subset.
+// NOTA: `pid`, `platform`, `arch`, `version(s)`, `argv`, `execPath`, `title`,
+// `env`, `http.METHODS` e `module.builtinModules` sao PROPRIEDADES no Node, nao
+// funcoes — `typeof process.pid` e `number`. Este ficheiro chamava-as com `()`,
+// herdado do motor antigo que fizera tudo funcao; num Node real isso lanca
+// "pid is not a function". O motor novo escolheu a convencao certa e a fixture
+// e que estava errada. Verificado a correr node.
 import { describe, test, expect } from "rts:test";
 import { isBuiltin, builtinModules, wrap, syncBuiltinESMExports } from "node:module";
 
@@ -8,7 +14,7 @@ const nodeSqliteB = isBuiltin("node:sqlite");
 const bareSqliteB = isBuiltin("sqlite"); // prefix-only → false bare
 const bogusB = isBuiltin("totally-not-a-core-module");
 
-const mods = builtinModules();
+const mods = builtinModules;
 const hasFs = mods.indexOf("fs") >= 0;
 const hasPrefixOnly = mods.indexOf("node:sqlite") >= 0;
 const modsNonEmpty = mods.length > 10;

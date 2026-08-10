@@ -41,6 +41,12 @@ pub(super) struct Registered {
     pub(super) made: u64,
     /// What instances inherit from — the object itself, for a namespace.
     pub(super) prototype: u64,
+    /// Where the OWNING registration — the one that installed real members,
+    /// not an empty-list chain-read — called from. `Location::caller().file()`
+    /// rather than the full location: two call sites in the same file are the
+    /// same owner asking twice (`url::class.rs` registers `"URL"` five times),
+    /// which is the idempotent case this must not flag.
+    pub(super) owner: Option<&'static str>,
 }
 
 /// What a class registered as, if it has been registered.
@@ -72,12 +78,24 @@ pub(in crate::entry) fn record(
     name: &'static str,
     made: u64,
     prototype: u64,
+    owner: Option<&'static str>,
 ) {
     context.classes.push(Registered {
         name,
         made,
         prototype,
+        owner,
     });
+}
+
+/// The owning file of an already-registered name, if it was registered with
+/// real (non-empty) members rather than only ever chain-read.
+pub(in crate::entry) fn owner(context: &Context, name: &str) -> Option<&'static str> {
+    context
+        .classes
+        .iter()
+        .find(|entry| entry.name == name)
+        .and_then(|entry| entry.owner)
 }
 
 /// A constant a class declares, in the two spellings a property can hold

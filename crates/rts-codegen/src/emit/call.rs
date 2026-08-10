@@ -371,23 +371,20 @@ fn emit_construction(
     op: RuntimeOp,
 ) -> EmitResult<ValueId> {
     // Past what the convention carries, the same trade the call side makes.
-    // `super()` is deliberately excluded: it must not establish a new
-    // `new.target`, and a vector operation that did would put the object on the
-    // wrong prototype — so forwarding more than four through `super()` is a
-    // named gap rather than a silently different answer.
+    // `super()` cannot use `ConstructWithArgs`: that operation SETS
+    // `new.target`, and `super()` must not — the object the whole chain builds
+    // has to keep inheriting from the prototype of the class `new` actually
+    // named, however many arguments this `super()` spreads.
+    // `RuntimeOp::SuperConstructWithArgs` is the vector-shaped, `new.target`
+    // inert counterpart, for exactly this case.
     if arguments.len() > ARGUMENT_SLOTS || has_spread(arguments) {
-        if op == RuntimeOp::SuperConstruct {
-            return Err(EmitError::Unsupported {
-                construct: "`super()` with more than four arguments or a spread",
-            });
-        }
         let vector = emit_argument_vector(builder, scope, ctx, arguments)?;
-        return Ok(expr::call(
-            builder,
-            ctx,
-            RuntimeOp::ConstructWithArgs,
-            &[function, vector],
-        )?[0]);
+        let vector_op = if op == RuntimeOp::SuperConstruct {
+            RuntimeOp::SuperConstructWithArgs
+        } else {
+            RuntimeOp::ConstructWithArgs
+        };
+        return Ok(expr::call(builder, ctx, vector_op, &[function, vector])?[0]);
     }
 
     let mut passed = Vec::with_capacity(1 + ARGUMENT_SLOTS);

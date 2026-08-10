@@ -345,16 +345,42 @@ impl Math {
 
     /// `Math.hypot(…)` — the square root of the sum of the squares.
     ///
-    /// Folded with `f64::hypot` rather than summing squares and taking a root,
-    /// which is not the same function: the obvious spelling overflows to
-    /// `Infinity` for arguments whose squares do not fit a double, and
-    /// `Math.hypot(1e200, 1e200)` is a finite number. `hypot` scales, so the fold
-    /// keeps that property at every step.
+    /// Not folded pairwise with `f64::hypot`, which was tried and is not the
+    /// same function over three or more arguments: folding computes
+    /// `hypot(hypot(a, b), c)`, an extra rounding step `hypot(a, b, c)` never
+    /// takes, so it can be off by a ULP from the value the specification's
+    /// single sum-of-squares defines. It also gets the NaN/Infinity precedence
+    /// backwards through the fold order: **the specification checks every
+    /// argument for `+Infinity`/`-Infinity` FIRST and answers `Infinity`
+    /// regardless of a `NaN` elsewhere in the list** —
+    /// `Math.hypot(Infinity, NaN)` is `Infinity` — but a left-to-right fold
+    /// that meets the `NaN` before the `Infinity` returns `NaN` from
+    /// [`folded`]'s early-out and never looks further.
+    ///
+    /// So this scans for infinity and NaN up front, in that order, and only
+    /// then sums: scaled by the largest magnitude, the same technique
+    /// `f64::hypot` itself uses internally, so a lone pair still answers what
+    /// `f64::hypot` would and `Math.hypot(1e200, 1e200)` stays finite.
     ///
     /// Zero is the identity, which is also the answer the language gives for no
     /// arguments at all.
     fn hypot(a: u64, b: u64, c: u64, d: u64) -> f64 {
-        folded(&given(a, b, c, d), 0.0, f64::hypot)
+        let numbers: Vec<f64> = given(a, b, c, d)
+            .into_iter()
+            .map(super::class_support::to_number)
+            .collect();
+        if numbers.iter().any(|n| n.is_infinite()) {
+            return f64::INFINITY;
+        }
+        if numbers.iter().any(|n| n.is_nan()) {
+            return f64::NAN;
+        }
+        let largest = numbers.iter().fold(0.0f64, |acc, n| acc.max(n.abs()));
+        if largest == 0.0 {
+            return 0.0;
+        }
+        let sum_of_scaled_squares: f64 = numbers.iter().map(|n| (n / largest).powi(2)).sum();
+        largest * sum_of_scaled_squares.sqrt()
     }
 
     /// `Math.pow(base, exponent)`.

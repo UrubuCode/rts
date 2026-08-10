@@ -256,6 +256,10 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::ConstructWithArgs => (CoreEntry::ConstructWithArgs, {
             rts_core_rwk::entry::construct_with_args as extern "C" fn(u64, u64) -> u64 as *const u8
         }),
+        RuntimeOp::SuperConstructWithArgs => (CoreEntry::SuperConstructWithArgs, {
+            rts_core_rwk::entry::super_construct_with_args
+                as extern "C" fn(u64, u64) -> u64 as *const u8
+        }),
         RuntimeOp::CallWithArgs => (CoreEntry::CallWithArgs, {
             rts_core_rwk::entry::call_with_args as extern "C" fn(u64, u64, u64) -> u64 as *const u8
         }),

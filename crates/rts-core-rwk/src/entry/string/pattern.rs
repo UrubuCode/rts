@@ -57,7 +57,7 @@ enum Sought {
 /// `s.search(re)` — where the first match is, or -1.
 extern "C" fn search(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
-        let Some((subject, sought)) = staged(context, this, pattern) else {
+        let Some((subject, sought)) = staged_as_regex(context, this, pattern, false) else {
             return nothing(context);
         };
         let found = scan(context, &subject, &sought, false);
@@ -75,7 +75,7 @@ extern "C" fn search(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: 
 /// no groups at all.
 extern "C" fn match_(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     let collected = with_current(|context| {
-        let (subject, sought) = staged(context, this, pattern)?;
+        let (subject, sought) = staged_as_regex(context, this, pattern, false)?;
         let global = match sought {
             Sought::Pattern(cell) => context.regexp_at(cell)?.is_global(),
             Sought::Text(_) => false,
@@ -130,7 +130,7 @@ extern "C" fn match_(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: 
 /// looked at.
 extern "C" fn match_all(_e: u64, this: u64, pattern: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     let collected = with_current(|context| {
-        let (subject, sought) = staged(context, this, pattern)?;
+        let (subject, sought) = staged_as_regex(context, this, pattern, true)?;
         let found = scan(context, &subject, &sought, true);
         let each: Vec<(Vec<Option<String>>, usize)> = found
             .iter()
@@ -303,6 +303,31 @@ extern "C" fn split(_e: u64, this: u64, separator: u64, limit: u64, _a2: u64, _a
 fn staged(context: &super::Context, this: u64, pattern: u64) -> Option<(String, Sought)> {
     let subject = text_of(context, this)?.to_rust()?;
     Some((subject, pattern_of(context, pattern)?))
+}
+
+/// The receiver's text and what to look for in it, for `search`/`match`/
+/// `matchAll` — where a plain string names a *pattern* rather than literal
+/// text.
+///
+/// The specification treats these three methods' string argument as
+/// `RegExp(searchValue)` (`matchAll` as `RegExp(searchValue, "g")`): a real
+/// `RegExp` is used as-is, and any other value — including an ordinary string
+/// — is compiled as a regular expression source. `"Hello".search("[Hh]ello")`
+/// matches at 0 because `"[Hh]ello"` is a bracket class, not four literal
+/// characters `[`, `H`, `h`, `]`. `replace`/`replaceAll`/`split` do not go
+/// through this: the specification has those treat a plain string literally.
+fn staged_as_regex(context: &mut super::Context, this: u64, pattern: u64, force_global: bool) -> Option<(String, Sought)> {
+    let subject = text_of(context, this)?.to_rust()?;
+    let sought = match pattern_of(context, pattern)? {
+        Sought::Pattern(cell) => Sought::Pattern(cell),
+        Sought::Text(source) => {
+            let letters = if force_global { "g" } else { "" };
+            let object = super::super::regex::make(context, &source, letters);
+            let cell = Value(object).as_slot()?;
+            Sought::Pattern(cell)
+        }
+    };
+    Some((subject, sought))
 }
 
 /// A pattern, however it was spelled.

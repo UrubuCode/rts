@@ -33,7 +33,16 @@ const METHODS: &[(&str, Provided)] = &[
 ];
 
 pub(super) fn prototype(context: &mut entry::Context) -> u64 {
-    super::common::chained_prototype(context, "EventEmitter", "Server", METHODS)
+    // Registered as `"net.Server"`, not the bare `"Server"` the JS-visible
+    // class is named: `http::server` registers its OWN, differently-shaped
+    // `Server` prototype under the bare name too, and `make_prototype` is
+    // idempotent BY NAME — whichever module's `namespace()` ran first (install
+    // order puts `http` before `net`) won the name, and `net.Server` instances
+    // got HTTP's method table (`listen`/`close`/`closeAllConnections`/
+    // `closeIdleConnections`/`setTimeout`) instead of their own
+    // (`address`/`getConnections`/…), so `server.address()` read "not a
+    // function". `tls::server`'s parent name changed with it, below.
+    super::common::chained_prototype(context, "EventEmitter", "net.Server", METHODS)
 }
 
 /// `new net.Server(options?, connectionListener?)` — also the body of

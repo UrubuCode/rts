@@ -526,6 +526,20 @@ pub enum RuntimeOp {
     /// `Construct` is: it makes the receiver rather than taking one.
     ConstructWithArgs,
 
+    /// `super(...args)`, or `super(…)` with more than four arguments — the
+    /// parent constructor, over an arbitrary-length vector, producing the
+    /// object.
+    ///
+    /// Its own operation rather than routing through `ConstructWithArgs`,
+    /// because that one SETS `new.target` and `super()` must not: the object
+    /// the whole chain builds has to keep inheriting from the prototype of the
+    /// class `new` actually named, however many arguments `super()` spreads.
+    /// And its own operation rather than padding `SuperConstruct`'s four
+    /// slots, because a spread's count is not known while compiling. Vector
+    /// shaped like `ConstructWithArgs`, `new.target`-inert like
+    /// `SuperConstruct` — nothing already in the runtime is both.
+    SuperConstructWithArgs,
+
     /// The elements of an iterable, as an array.
     ///
     /// `for-of` becomes the indexed loop `for-in` already reduces to, which is
@@ -644,6 +658,7 @@ impl RuntimeOp {
         RuntimeOp::CallWithArgs,
         RuntimeOp::RestArguments,
         RuntimeOp::ConstructWithArgs,
+        RuntimeOp::SuperConstructWithArgs,
         RuntimeOp::Iterate,
         RuntimeOp::ArrayAppend,
         RuntimeOp::ArrayAppendAll,
@@ -725,6 +740,7 @@ impl RuntimeOp {
             RuntimeOp::CallWithArgs => "__rts_call_with_args",
             RuntimeOp::RestArguments => "__rts_rest_arguments",
             RuntimeOp::ConstructWithArgs => "__rts_construct_with_args",
+            RuntimeOp::SuperConstructWithArgs => "__rts_super_construct_with_args",
             RuntimeOp::Iterate => "__rts_iterate",
             RuntimeOp::ArrayAppend => "__rts_array_append",
             RuntimeOp::ArrayAppendAll => "__rts_array_append_all",
@@ -855,6 +871,10 @@ impl RuntimeOp {
             // The callee and the arguments — no receiver, because `new` makes
             // the one the callee gets.
             RuntimeOp::ConstructWithArgs => (vec![UNPROVEN; 2], vec![UNPROVEN]),
+            // The parent and the arguments as one array — no receiver and no
+            // `new.target` write, which is the whole reason this is not
+            // `ConstructWithArgs`.
+            RuntimeOp::SuperConstructWithArgs => (vec![UNPROVEN; 2], vec![UNPROVEN]),
             RuntimeOp::Iterate => (vec![UNPROVEN], vec![UNPROVEN]),
             // Both answer the array, so a lowering can chain one spread after
             // another without holding it in a local.

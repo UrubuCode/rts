@@ -64,6 +64,7 @@ mod destructure;
 mod escape;
 mod expr;
 mod fold;
+mod for_await;
 mod foreach;
 mod function;
 mod globals;

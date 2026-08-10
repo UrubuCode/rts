@@ -432,6 +432,16 @@ fn construct_inner(callee: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
 /// class `new` named, which is what the target stack carries.
 #[rtse::entry]
 pub fn super_construct(parent: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    super_construct_inner(parent, a0, a1, a2, a3)
+}
+
+/// The body [`super_construct`] and [`super_construct_with_args`] share.
+///
+/// Split out so the vector-shaped form does not restate what "produce the
+/// object without pushing a `new.target`" means — a second copy of that is
+/// where the two would come to disagree about which prototype `super()`
+/// builds against.
+fn super_construct_inner(parent: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     let derived = with_current(|context| {
         let cell = Value(parent).as_slot()?;
         context.callable_at(cell)?;
@@ -458,6 +468,36 @@ pub fn super_construct(parent: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     } else {
         this
     }
+}
+
+/// `super(...args)`, or `super(…)` with more than four arguments — the parent
+/// constructor, over an arbitrary-length vector, producing the object.
+///
+/// Vector-shaped like [`construct_with_args`], `new.target`-inert like
+/// [`super_construct`]: nothing already here was both, which is why this
+/// exists rather than routing through `construct_with_args` — that one PUSHES
+/// a `new.target`, and `super()` must never establish one of its own. The
+/// vector is pushed onto `pending_arguments` for the same reason
+/// `construct_with_args` pushes it: a rest parameter inside the parent
+/// constructor must see THIS vector, not an outer call's.
+#[rtse::entry]
+pub fn super_construct_with_args(parent: u64, arguments: u64) -> u64 {
+    let first = with_current(|context| {
+        let absent = undefined_of(context);
+        let mut first = [absent; ARGUMENT_SLOTS];
+        if let Some(cell) = Value(arguments).as_slot()
+            && let Some(elements) = context.elements_at(cell)
+        {
+            for (slot, value) in first.iter_mut().zip(elements.iter()) {
+                *slot = *value;
+            }
+        }
+        context.pending_arguments.push(arguments);
+        first
+    });
+    let produced = super_construct_inner(parent, first[0], first[1], first[2], first[3]);
+    with_current(|context| context.pending_arguments.pop());
+    produced
 }
 
 /// `new f(…)` with more arguments than the convention carries.

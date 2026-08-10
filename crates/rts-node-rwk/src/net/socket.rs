@@ -54,6 +54,11 @@ const METHODS: &[(&str, Provided)] = &[
     ("setTimeout", set_timeout),
     ("setNoDelay", set_no_delay),
     ("setKeepAlive", set_keep_alive),
+    // No event-loop keep-alive accounting exists to hook (the same gap
+    // `net::server`'s own `ref`/`unref` name) — accepted and return `this`
+    // for chaining, with no OS or scheduling effect.
+    ("ref", noop_self),
+    ("unref", noop_self),
 ];
 
 pub(super) fn prototype(context: &mut entry::Context) -> u64 {
@@ -358,5 +363,9 @@ extern "C" fn set_keep_alive(_e: u64, this: u64, enable: u64, initial_delay: u64
         super::common::set_bool(context, this, "__keepAlive__", flag);
         super::common::set_num(context, this, "__keepAliveInitialDelay__", delay);
     });
+    this
+}
+
+extern "C" fn noop_self(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     this
 }

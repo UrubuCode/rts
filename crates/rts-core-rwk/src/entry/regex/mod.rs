@@ -59,6 +59,12 @@ use crate::value::Value;
 pub(super) struct Regexp {
     engine: Engine,
     flags: Flags,
+    /// The text `source`/`flags` answer — kept beside the compiled engine
+    /// (rather than read back off the object's own `source`/`flags`
+    /// properties, which a program can overwrite) so `new RegExp(existing)`
+    /// always copies what the ORIGINAL pattern was compiled from.
+    source: String,
+    letters: String,
 }
 
 /// `/pattern/flags` — a new regular expression object.
@@ -120,6 +126,8 @@ pub(super) fn make(context: &mut Context, source: &str, letters: &str) -> u64 {
         context.regexes.set(cell, Regexp {
             engine,
             flags: parsed,
+            source: source.to_owned(),
+            letters: letters.to_owned(),
         });
         Value::from_slot(cell).bits()
     }
@@ -137,7 +145,15 @@ fn text_of(context: &Context, value: u64) -> Option<String> {
 /// is in the layout never asks the runtime at all, so a value only the slow path
 /// knows about is one the fast path disagrees with the moment it starts working.
 fn describe(context: &mut Context, cell: u32, source: &str, letters: &str, flags: Flags) {
-    let source_value = context.intern_value(Str::from_str(source)).bits();
+    // `RegExp.prototype.source` answers `"(?:)"` for the pattern that matches
+    // everywhere and matches nothing when written back into a literal —
+    // `new RegExp("").source` is `""`, and `/${re.source}/` would then be `//`,
+    // an empty *comment* rather than an empty pattern. `(?:)` round-trips.
+    let printed_source = match source.is_empty() {
+        true => "(?:)",
+        false => source,
+    };
+    let source_value = context.intern_value(Str::from_str(printed_source)).bits();
     let flags_value = context.intern_value(Str::from_str(letters)).bits();
     let written: [(&str, u64); 6] = [
         ("source", source_value),
@@ -223,5 +239,16 @@ impl Regexp {
     /// them.
     pub(super) fn is_global(&self) -> bool {
         self.flags.global
+    }
+
+    /// The text this pattern was compiled from — what `new RegExp(existing)`
+    /// copies.
+    pub(super) fn source(&self) -> &str {
+        &self.source
+    }
+
+    /// The flag letters this pattern was compiled with.
+    pub(super) fn flags(&self) -> &str {
+        &self.letters
     }
 }

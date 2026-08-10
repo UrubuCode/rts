@@ -37,16 +37,23 @@ pub fn get_prototype(object: u64) -> u64 {
         };
         match context.prototype_at(cell) {
             Some(found) => found,
-            // A string, which inherits from the shared prototype without a link
-            // of its own. Answered here rather than left absent so that
-            // `super.x` inside a method on a string reaches the same object the
-            // ordinary chain walk would.
-            None => match context.text_at(cell).is_some() {
-                true => match super::string::prototype_of(context) {
-                    Some(prototype) => Value::from_slot(prototype).bits(),
-                    None => undefined_of(context),
-                },
-                false => undefined_of(context),
+            // No link of its own — the same question a property miss asks,
+            // which `objects::inherited_from` already answers for every kind
+            // of cell (callable, text, array, plain object) including the
+            // `Object.prototype`-is-root termination. Answering `undefined`
+            // here unconditionally, as this used to, was a second and
+            // disagreeing answer to that question: it substituted nothing for
+            // a no-extends class's `.prototype` (which never runs
+            // `set_prototype`) where property lookup already walked it to
+            // `Object.prototype`, and a chain read with
+            // `Object.getPrototypeOf` dead-ended one turn short of where a
+            // property read on the same object would have found it.
+            None => match super::objects::inherited_from(context, cell) {
+                Some(proto_cell) => Value::from_slot(proto_cell).bits(),
+                // `inherited_from` also answers `None` for the cell that IS
+                // the root — `Object.prototype`'s own chain ends here, which
+                // is `null`, not "no link recorded".
+                None => Value::from_singleton(context.singletons.null).bits(),
             },
         }
     })

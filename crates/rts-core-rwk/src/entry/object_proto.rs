@@ -8,8 +8,10 @@
 //! declaring one here would make a **second** `Object` callable, and the global
 //! name would read whichever registration ran first. The namespace flavour makes
 //! exactly one object, installs the members on it, and records it as its own
-//! prototype, which is the shape this needs: an object other things inherit
-//! from, with no constructor of its own.
+//! prototype — the shape this needs: an object other things inherit from, whose
+//! `constructor` property is wired from the other side, in
+//! [`super::object_global::constructor`], once `Object` itself exists to point
+//! it at.
 //!
 //! The registry name is therefore `"Object.prototype"` and not `"Object"` —
 //! deliberately a string no `#[rtse::class]` can declare, so the day `Object`
@@ -95,19 +97,48 @@ impl ObjectPrototype {
 
     /// `o.propertyIsEnumerable(k)`.
     ///
-    /// The same answer as `hasOwnProperty`, and that is a decision rather than
-    /// an oversight. The two differ only in the `enumerable` flag, which is one
-    /// of the four descriptor fields the shape tree does not record — the gap
-    /// [`super::object_global`] names for `Object.defineProperty` and
-    /// [`super::reflect`] names for `getOwnPropertyDescriptor`.
-    ///
-    /// Every property this engine can create is enumerable, because nothing can
-    /// make one otherwise. So answering own-ness is *true* about every object
-    /// that exists here, while answering a guessed `false` would be false about
-    /// all of them — and a program filtering with this would silently drop
-    /// properties it should have kept.
+    /// Own-ness first — an inherited or absent key is `false` before the
+    /// `enumerable` flag is even asked about, same as `hasOwnProperty` — and
+    /// then the flag [`super::integrity`] tracks: **not** every own property is
+    /// enumerable. `set_length` marks an array's `"length"` non-enumerable at
+    /// the one place it is written, and `Object.defineProperty` can mark any
+    /// property so, both recorded in the same side table `owns` never
+    /// consults. Answering plain own-ness here — as this used to — made
+    /// `[1,2,3].propertyIsEnumerable("length")` answer `true`, which is `for-in`
+    /// and `Object.keys` disagreeing with the one method whose entire job is to
+    /// ask them the question directly.
     fn property_is_enumerable(this: u64, key: u64) -> bool {
-        owns(this, key)
+        with_current(|context| {
+            let Some(cell) = Value(this).as_slot() else {
+                return false;
+            };
+            // An array element: own storage with no shape key, and this engine
+            // never marks one non-enumerable, so presence is the whole answer.
+            if let Some(at) = super::array::as_index(context, Value(key))
+                && let Some(elements) = context.elements_at(cell)
+            {
+                return elements
+                    .get(at)
+                    .is_some_and(|&held| !super::array::is_hole(context, held));
+            }
+            let Some(key) = own_key(context, key) else {
+                return false;
+            };
+            if super::objects::own_property(context, cell, key).is_some() {
+                return match key {
+                    Key::Name(machine) => super::integrity::enumerable(context, cell, machine),
+                    // A symbol key has no attribute table entry today, so it
+                    // carries the default every property starts with.
+                    _ => true,
+                };
+            }
+            let Key::Name(machine) = key else {
+                return false;
+            };
+            // An accessor `Object.defineProperty` installed: not in the shape,
+            // so `own_property` missed it, but it is still an own key.
+            context.accessor_at(cell, machine.index() as u32).is_some()
+        })
     }
 
     /// `o.toString()` — `"[object " + tag + "]"`, the specification's own

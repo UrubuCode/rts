@@ -100,7 +100,18 @@ pub fn namespace(context: &mut Context) -> u64 {
 
 fn prototype(context: &mut Context) -> u64 {
     let parent = entry::make_prototype(context, "EventEmitter", &[]);
-    let made = entry::make_prototype(context, "Socket", METHODS);
+    // Registered as `"dgram.Socket"`, not the bare `"Socket"`: `net::socket`
+    // registers its OWN, differently-shaped TCP `Socket` prototype under that
+    // same bare name, and `make_prototype` is idempotent BY NAME — whichever
+    // module's `namespace()` ran first won it. Install order puts `dgram`
+    // before `net`, so every `net.Socket` instance was getting `dgram`'s UDP
+    // method table (`bind`/`send`/…, no `connect`/`setTimeout`/`setNoDelay`),
+    // which read as `sock.setTimeout is not a function`. The property name
+    // programs see (`dgram.Socket`, `new dgram.Socket()`... actually just
+    // `Socket` off the `dgram` namespace object) is unaffected — that comes
+    // from the `put_member(namespace, "Socket", ctor)` below, a different key
+    // space from this prototype registry.
+    let made = entry::make_prototype(context, "dgram.Socket", METHODS);
     entry::set_prototype_in(context, made, parent);
     made
 }

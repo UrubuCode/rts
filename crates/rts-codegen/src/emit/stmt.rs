@@ -235,7 +235,9 @@ pub fn emit_stmt(
                 None,
                 crate::runtime::RuntimeOp::Iterate,
             ),
-            crate::syntax::ForEachSource::AwaitOf => super::expr::gap("`for await`"),
+            crate::syntax::ForEachSource::AwaitOf => super::for_await::emit_for_await(
+                builder, scope, ctx, loops, target, subject, body, None,
+            ),
         },
         StmtKind::Switch {
             discriminant,
@@ -452,12 +454,22 @@ fn emit_labelled(
         } => {
             // A label reaches both spellings, and which sequence is walked is
             // the only difference between them.
+            if *source == crate::syntax::ForEachSource::AwaitOf {
+                return super::for_await::emit_for_await(
+                    builder,
+                    scope,
+                    ctx,
+                    loops,
+                    target,
+                    subject,
+                    inner,
+                    Some(label),
+                );
+            }
             let over = match source {
                 crate::syntax::ForEachSource::In => crate::runtime::RuntimeOp::OwnKeys,
                 crate::syntax::ForEachSource::Of => crate::runtime::RuntimeOp::Iterate,
-                crate::syntax::ForEachSource::AwaitOf => {
-                    return super::expr::gap("a labelled `for await`");
-                }
+                crate::syntax::ForEachSource::AwaitOf => unreachable!("handled above"),
             };
             super::foreach::emit_for_each(
                 builder,

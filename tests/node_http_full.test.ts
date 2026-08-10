@@ -1,12 +1,18 @@
 // node:http — methods/status registry + header validators (sync surface).
+// NOTA: `pid`, `platform`, `arch`, `version(s)`, `argv`, `execPath`, `title`,
+// `env`, `http.METHODS` e `module.builtinModules` sao PROPRIEDADES no Node, nao
+// funcoes — `typeof process.pid` e `number`. Este ficheiro chamava-as com `()`,
+// herdado do motor antigo que fizera tudo funcao; num Node real isso lanca
+// "pid is not a function". O motor novo escolheu a convencao certa e a fixture
+// e que estava errada. Verificado a correr node.
 import { describe, test, expect } from "rts:test";
 import { METHODS, STATUS_CODES, validateHeaderName, validateHeaderValue } from "node:http";
 
-const methods = METHODS();
+const methods = METHODS;
 const hasGet = methods.indexOf("GET") >= 0 && methods.indexOf("POST") >= 0;
 const methodsNonEmpty = methods.length > 10;
 
-const codes = STATUS_CODES();
+const codes = STATUS_CODES;
 const ok200 = codes["200"] === "OK";
 const nf404 = codes["404"] === "Not Found";
 

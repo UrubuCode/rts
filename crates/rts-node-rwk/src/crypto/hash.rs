@@ -43,7 +43,7 @@ fn with_table<T>(body: impl FnOnce(&mut HashMap<u64, HashState>) -> T) -> T {
     body(table)
 }
 
-const METHODS: &[(&str, Provided)] = &[("update", update), ("digest", digest)];
+const METHODS: &[(&str, Provided)] = &[("update", update), ("digest", digest), ("copy", copy)];
 
 /// `crypto.createHash(algorithm)`. A catchable error for a name [`NAMES`]
 /// does not list, matching Node's `ERR_CRYPTO_UNSUPPORTED_OPERATION` in
@@ -89,6 +89,25 @@ extern "C" fn update(_e: u64, this: u64, data: u64, input_encoding: u64, _a2: u6
             }
         });
         this
+    })
+}
+
+/// `hash.copy()` — a new `Hash` with the same algorithm and the same bytes
+/// fed so far, independent of `this` from that point on (Node's use case is
+/// taking a checkpoint mid-stream, then diverging). `HashState` derives
+/// `Clone` for exactly this; the table entry `this` points at is duplicated
+/// under a fresh id rather than shared, so `update()` on the copy never
+/// touches the original's state.
+extern "C" fn copy(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    entry::with_runtime(|context| {
+        let Some(id) = util::hidden_number(context, this, "__hashId") else {
+            return entry::undefined_in(context);
+        };
+        let cloned = with_table(|table| table.get(&id).cloned());
+        match cloned {
+            Some(state) => build(context, state),
+            None => entry::undefined_in(context),
+        }
     })
 }
 

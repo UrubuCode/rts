@@ -35,18 +35,24 @@ use crate::text::Str;
 use crate::value::Value;
 
 /// What `Object` holds, apart from the five in [`describe`].
-const STATICS: &[(&str, Native)] = &[
-    ("keys", keys),
-    ("values", values),
-    ("entries", entries),
-    ("fromEntries", from_entries),
-    ("hasOwn", has_own),
-    ("is", is),
-    ("getPrototypeOf", get_prototype_of),
-    ("setPrototypeOf", set_prototype_of),
-    ("defineProperty", define_property),
-    ("assign", assign),
-    ("groupBy", group_by),
+///
+/// With arity: these are read as values often enough — `Object.assign` forwarded
+/// into a reduce, `Object.keys` passed to `.map` — that `.length` has to be
+/// right rather than merely present, and installed through
+/// [`super::native::install_with_arity`] rather than [`super::native::install`]
+/// for exactly that reason.
+const STATICS: &[(&str, Native, u32)] = &[
+    ("keys", keys, 1),
+    ("values", values, 1),
+    ("entries", entries, 1),
+    ("fromEntries", from_entries, 1),
+    ("hasOwn", has_own, 2),
+    ("is", is, 2),
+    ("getPrototypeOf", get_prototype_of, 1),
+    ("setPrototypeOf", set_prototype_of, 2),
+    ("defineProperty", define_property, 3),
+    ("assign", assign, 2),
+    ("groupBy", group_by, 2),
 ];
 
 /// `Object` itself, as the value the name reads.
@@ -55,7 +61,13 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
     let Some(cell) = Value(callable).as_slot() else {
         return callable;
     };
-    super::native::install(context, cell, STATICS);
+    // `Object.name` and `.prototype.constructor.name` both read this — the
+    // constructor itself is a single `native::callable`, not something
+    // `install`'s per-entry naming reaches.
+    let name_key = context.well_known("name");
+    let name_value = context.intern_value(Str::from_str("Object")).bits();
+    super::objects::put(context, cell, name_key, name_value);
+    super::native::install_with_arity(context, cell, STATICS);
     super::native::install(context, cell, describe::STATICS);
     // A `prototype` property like any constructor's, so `Object.prototype.m = f`
     // has somewhere to land — and so `instanceof Object` has something to
@@ -67,30 +79,81 @@ pub(super) fn constructor(context: &mut Context) -> u64 {
         let key = context.well_known("prototype");
         let value = Value::from_slot(prototype).bits();
         super::objects::put(context, cell, key, value);
+        // The other half of the same link: `Object.prototype.constructor`
+        // answers `Object` — a real property the specification requires
+        // (`class Tag extends Object {}` and every plain object's `.constructor`
+        // read it), not something `Object.prototype`'s own module can leave
+        // absent as "no constructor of its own": it has one, this is it.
+        let constructor_key = context.well_known("constructor");
+        super::objects::put(context, prototype, constructor_key, callable);
     }
     callable
 }
 
-/// `Object()` and `new Object()` — a new empty object.
+/// `Object()` and `new Object()` — a new empty object; `Object(x)` — `x`
+/// unchanged if it is already an object, otherwise a boxed wrapper.
 ///
-/// The argument form (`Object(5)`, which wraps) is not built: there are no
-/// wrapper objects here, and answering the primitive unchanged would be a
-/// different function wearing the same name.
-extern "C" fn make(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let fresh = super::objects::object_new();
+/// This used to answer an empty object for every argument, documented as "no
+/// wrapper objects here" — true when it was written, and stale the day
+/// `new Number`/`new String`/`new Boolean` started boxing for real (see
+/// [`super::primitive_proto::wrap`]). `Object(5)` is the ODD constructor call
+/// here: the specification boxes a primitive even though the call has no
+/// `new` in it, where `Number(5)` deliberately does not — so this cannot go
+/// through `wrap`, which is guarded by `new_targets` being non-empty
+/// precisely to keep the two apart. It builds the wrapper by hand instead.
+extern "C" fn make(_e: u64, _this: u64, a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
-        // `class Tag extends Object { own() {} }` has to reach `Tag.prototype`,
-        // which means the object this makes inherits from the class `new`
-        // named rather than from nothing.
-        if let Some(cell) = Value(fresh).as_slot() {
-            let absent = undefined_of(context);
-            let prototype = super::functions::prototype_for_new(context, absent);
-            if prototype != absent {
-                context.set_prototype(cell, prototype);
-            }
+        let absent = undefined_of(context);
+        let is_nullish = a0 == absent
+            || a0 == Value::from_singleton(context.singletons.undefined).bits()
+            || a0 == Value::from_singleton(context.singletons.null).bits();
+        if is_nullish {
+            return empty_object(context);
         }
-        fresh
+        // A string cell wraps around `String.prototype` — its own case,
+        // because a string is a heap cell here (unlike a number or a
+        // boolean) and `primitive_proto::prototype_of` does not classify one;
+        // [`super::string::prototype_of`] is where that link already lives.
+        let string_prototype = Value(a0).as_slot().filter(|&cell| context.text_at(cell).is_some());
+        // Already an object (including an array or a callable): `ToObject`
+        // answers it unchanged, not a copy.
+        if Value(a0).as_slot().is_some() && string_prototype.is_none() {
+            return a0;
+        }
+        // A primitive — a number, a boolean, or a string cell — becomes a
+        // wrapper around it, the same `[[…Data]]` slot `new Number`/
+        // `new String`/`new Boolean` record.
+        let found = match string_prototype {
+            Some(_) => super::string::prototype_of(context),
+            None => super::primitive_proto::prototype_of(context, Value(a0)),
+        };
+        let Some(prototype) = found else {
+            return empty_object(context);
+        };
+        let Some(cell) = super::native::plain(context) else {
+            return empty_object(context);
+        };
+        context.set_prototype(cell, Value::from_slot(prototype).bits());
+        context.set_boxed(cell, a0);
+        Value::from_slot(cell).bits()
     })
+}
+
+/// A new empty object, inheriting from whatever `new` named — or
+/// `Object.prototype`, for the ordinary call with no `new` in sight.
+fn empty_object(context: &mut Context) -> u64 {
+    let fresh = super::objects::object_new();
+    // `class Tag extends Object { own() {} }` has to reach `Tag.prototype`,
+    // which means the object this makes inherits from the class `new`
+    // named rather than from nothing.
+    if let Some(cell) = Value(fresh).as_slot() {
+        let absent = undefined_of(context);
+        let prototype = super::functions::prototype_for_new(context, absent);
+        if prototype != absent {
+            context.set_prototype(cell, prototype);
+        }
+    }
+    fresh
 }
 
 /// `Object.keys(o)` — the own enumerable keys, as an array of strings.

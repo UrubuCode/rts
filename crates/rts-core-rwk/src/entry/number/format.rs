@@ -69,18 +69,60 @@ pub(super) fn precision(number: f64, digits: usize) -> String {
 ///
 /// Both together, because rounding decides the second: see the module
 /// documentation for the carry that makes taking the exponent first wrong.
+///
+/// Built over the exact decimal expansion rather than `magnitude * 10^scale`
+/// then `f64::round` — the same lossy-multiplication trap `super::fixed`
+/// documents: `9.95_f64` is `9.94999999999999928…`, but scaling by 10 and
+/// rounding can land exactly on a tie the real value never had, answering
+/// `"10"` where the spec (and Node) answer `"9.9"`. `format!("{:.N}")` is
+/// exact for any `N`, so the significant digits are read off that string and
+/// rounded half-away-from-zero on the digits themselves.
 fn carried(magnitude: f64, places: usize) -> (String, i32) {
-    let mut exponent = magnitude.abs().log10().floor() as i32;
-    let scale = 10f64.powi(places as i32 - exponent);
-    // Half away from zero, which is `f64::round` — the rule the specification
-    // states and the one Rust's formatter does not follow.
-    let mut significant = (magnitude * scale).round();
-    let ceiling = 10f64.powi(places as i32 + 1);
-    if significant >= ceiling {
-        significant /= 10.0;
-        exponent += 1;
+    let significant_count = places + 1;
+    // 80 digits after the point is far more than any f64's exact decimal
+    // expansion needs to disambiguate a rounding decision at a realistic
+    // `places` — see `fixed`'s equivalent margin.
+    let exact = format!("{:.80}", magnitude);
+    let (int_part, frac_part) = exact.split_once('.').unwrap_or((exact.as_str(), ""));
+    let int_len = int_part.len() as i32;
+    let mut digits: Vec<u8> = int_part.bytes().chain(frac_part.bytes()).collect();
+    let first_nonzero = digits.iter().position(|&d| d != b'0').unwrap_or(0);
+    let mut exponent = int_len - 1 - first_nonzero as i32;
+
+    let take = significant_count + 1;
+    let mut sig: Vec<u8> = digits.split_off(first_nonzero).into_iter().take(take).collect();
+    sig.resize(take, b'0');
+    let round_up = sig[significant_count] >= b'5';
+    sig.truncate(significant_count);
+    if round_up {
+        let mut carry = true;
+        for d in sig.iter_mut().rev() {
+            if !carry {
+                break;
+            }
+            match *d {
+                b'9' => *d = b'0',
+                _ => {
+                    *d += 1;
+                    carry = false;
+                }
+            }
+        }
+        if carry {
+            // Every digit was `9`: the carry pushed a new leading `1` in,
+            // which shifts every kept digit one place right and raises the
+            // exponent — `9.99` rounded to one place is `10.0`, i.e. `1.0e+1`.
+            sig.insert(0, b'1');
+            sig.pop();
+            exponent += 1;
+        }
     }
-    (with_places(significant / 10f64.powi(places as i32), places), exponent)
+    let digit_str = String::from_utf8(sig).unwrap();
+    let mantissa = match places {
+        0 => digit_str,
+        _ => format!("{}.{}", &digit_str[..1], &digit_str[1..]),
+    };
+    (mantissa, exponent)
 }
 
 /// A mantissa written with exactly this many places after the point.

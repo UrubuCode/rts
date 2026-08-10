@@ -57,10 +57,10 @@ impl Error {
     /// inherits the same default rather than restating it seven times.
     const message: &str = "";
 
-    /// `new Error(message)`.
+    /// `new Error(message, options)` — `options.cause`, ES2022.
     #[construct]
-    fn build(this: u64, message: u64) -> u64 {
-        written(this, message, "Error")
+    fn build(this: u64, message: u64, options: u64) -> u64 {
+        written_with_cause(this, message, options, "Error")
     }
 
     /// `err.toString()` — `"Error: boom"`, or just the name without a message.
@@ -229,6 +229,26 @@ fn written(this: u64, message: u64, class: &'static str) -> u64 {
 
         Value::from_slot(cell).bits()
     })
+}
+
+/// [`written`], plus the ES2022 options bag's `cause`.
+///
+/// `Error(m, { cause })` (called with or without `new`) sets `.cause` from the
+/// bag's own `cause` property — `Error(m, {})` leaves it unset rather than
+/// writing `undefined`, which is why this checks for the property's presence
+/// rather than reading it unconditionally.
+fn written_with_cause(this: u64, message: u64, options: u64, class: &'static str) -> u64 {
+    let made = written(this, message, class);
+    with_current(|context| {
+        let (Some(instance), Some(bag)) = (Value(made).as_slot(), Value(options).as_slot()) else {
+            return;
+        };
+        let key = context.well_known("cause");
+        if let Some(cause) = super::objects::own_property(context, bag, key) {
+            super::objects::put(context, instance, key, cause.0);
+        }
+    });
+    made
 }
 
 /// The object to write onto: the one `new` made, or one made here.

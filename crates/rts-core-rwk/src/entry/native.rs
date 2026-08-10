@@ -27,6 +27,7 @@
 
 use super::Context;
 use super::objects::undefined_of;
+use crate::text::Str;
 use crate::value::Value;
 
 /// The shape a compiled function has, which a Rust one can also have.
@@ -54,8 +55,50 @@ pub(super) fn callable(context: &mut Context, code: Native) -> u64 {
 pub(in crate::entry) fn install(context: &mut Context, cell: u32, natives: &[(&str, Native)]) {
     for (name, code) in natives {
         let method = callable(context, *code);
+        name_of(context, method, name);
         let key = context.well_known(name);
         super::objects::put(context, cell, key, method);
+    }
+}
+
+/// Like [`install`], for a list whose entries also declare `.length` — the
+/// spec's arity, which the specification requires on every named function.
+///
+/// A second list shape rather than a length on every one of this crate's
+/// dozens of `NATIVES` tables: most of those are called through property
+/// access on their receiver and a program almost never reads the function
+/// value itself, so most callers pay nothing. This one exists because
+/// `Object.assign`, `Object.keys` and friends ARE read as values — a program
+/// forwards them, wraps them, or introspects them — and the specification
+/// pins an exact arity for each.
+pub(in crate::entry) fn install_with_arity(context: &mut Context, cell: u32, natives: &[(&str, Native, u32)]) {
+    for (name, code, arity) in natives {
+        let method = callable(context, *code);
+        name_of(context, method, name);
+        length_of(context, method, *arity);
+        let key = context.well_known(name);
+        super::objects::put(context, cell, key, method);
+    }
+}
+
+/// Writes `.name` on a callable — a real property, per the specification's own
+/// `SetFunctionName`, so `fn.name` reads the same whether `fn` is a built-in or
+/// a declared one.
+fn name_of(context: &mut Context, callable: u64, name: &str) {
+    if let Some(cell) = Value(callable).as_slot() {
+        let key = context.well_known("name");
+        let value = context.intern_value(Str::from_str(name)).bits();
+        super::objects::put(context, cell, key, value);
+    }
+}
+
+/// Writes `.length` on a callable — the parameter count the specification's
+/// `SetFunctionLength` puts there before a body ever runs.
+fn length_of(context: &mut Context, callable: u64, arity: u32) {
+    if let Some(cell) = Value(callable).as_slot() {
+        let key = context.well_known("length");
+        let value = Value::from_f64(f64::from(arity)).bits();
+        super::objects::put(context, cell, key, value);
     }
 }
 

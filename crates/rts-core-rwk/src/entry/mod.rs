@@ -101,7 +101,7 @@ pub use computed::{delete_property, get_indexed, has_property, key_number, set_i
 pub use functions::{
     call_with_args, construct_with_args, rest_arguments,
     ARGUMENT_SLOTS, call, closure_new, construct, instance_of, mark_class_constructor,
-    mark_derived, set_call_name, super_construct,
+    mark_derived, set_call_name, super_construct, super_construct_with_args,
 };
 pub use generator::{FrameShape, declare_frames, generator_new, generator_yield};
 pub use global::{global_get, global_set};

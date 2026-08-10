@@ -102,6 +102,13 @@ pub fn install(context: &mut Context) {
     // emitter in the program silently lost its methods. The comment above is
     // load-bearing and this is the proof.
     let inspecting = inspector::namespace(context);
+    // Built once and named twice, the same reason `files` is: `node:sys` is
+    // Node's own deprecated alias of `node:util` (`require('sys') ===
+    // require('util')`), not a second module, so a program importing either
+    // reaches the identical object rather than a second `format`/
+    // `isDeepStrictEqual` this crate would have to keep in step with the
+    // first.
+    let util_namespace = util::namespace(context);
     let modules = [
         ("assert", assert::namespace(context)),
         ("async_hooks", async_hooks::namespace(context)),
@@ -138,7 +145,8 @@ pub fn install(context: &mut Context) {
         ("trace_events", trace_events::namespace(context)),
         ("tty", tty::namespace(context)),
         ("url", url::namespace(context)),
-        ("util", util::namespace(context)),
+        ("util", util_namespace),
+        ("sys", util_namespace),
         ("v8", v8::namespace(context)),
         ("vm", vm::namespace(context)),
         ("wasi", wasi::namespace(context)),

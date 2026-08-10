@@ -689,13 +689,22 @@ pub(super) fn assigned_in_stmt(statement: &Stmt, into: &mut Vec<Name>) {
 /// is what carries it.
 fn assigned_in_expr(expr: &Expr, into: &mut Vec<Name>) {
     match &expr.kind {
-        ExprKind::Assign { target, .. } => {
-            if let AssignTarget::Place(place) = target
-                && let ExprKind::Ident(name) = &place.kind
-            {
-                into.push(*name);
+        ExprKind::Assign { target, .. } => match target {
+            AssignTarget::Place(place) => {
+                if let ExprKind::Ident(name) = &place.kind {
+                    into.push(*name);
+                }
             }
-        }
+            // A destructuring assignment writes names too, and this arm did not
+            // exist. Nothing noticed while `for (x of xs)` over an EXISTING
+            // binding was refused; the day that was allowed, the desugaring
+            // started emitting `x = ks[i]` as a pattern assignment, this
+            // collector did not see `x`, the loop carried no position for it,
+            // and the writes were thrown away at the back edge. `for (p of
+            // ["a","b"]) {}` then left `p` at its old value — a WRONG ANSWER
+            // where the refusal had been, which is the worse direction.
+            AssignTarget::Pattern(pattern) => pattern.bound_names(into),
+        },
         ExprKind::Update { target, .. } => {
             if let ExprKind::Ident(name) = &target.kind {
                 into.push(*name);

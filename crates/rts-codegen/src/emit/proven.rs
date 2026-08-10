@@ -390,14 +390,33 @@ fn keep_only_numeric(
             ..
         } => {
             check_expr(subject, flattened, known, surviving);
-            // A `for-in` target holds a STRING, so a name it writes to is not
-            // numeric however it was declared.
-            if let crate::syntax::ForEachTarget::Declare {
-                target: Pattern::Name(name),
-                ..
-            } = target
-            {
-                surviving.names.remove(name);
+            // Whatever this loop writes per pass, it writes an ELEMENT or a KEY
+            // — Tagged, because nothing here proves the shape of the subject —
+            // so every name the target writes loses the proof, whichever of the
+            // two spellings it is.
+            //
+            // `Declare` alone used to be enough, and only because `for (x of xs)`
+            // over an EXISTING binding was refused by the emitter. The day that
+            // was allowed, `let q = 0; for (q of [1, 2]) {}` stayed proved `F64`
+            // while carrying a Tagged element, and the verifier refused the
+            // loop's block parameter. That is the FOURTH time this pass has
+            // claimed a representation nothing produces — after `%`, unary `-`,
+            // and a hoisted `var` — and all four were one shape: a way of
+            // writing a name that the walk did not recognise as a write.
+            //
+            // The whole pattern is walked, not just `Pattern::Name`: `for ([a, b]
+            // of pairs)` writes two names and neither is numeric either.
+            let written = match target {
+                crate::syntax::ForEachTarget::Declare { target, .. } => Some(target),
+                crate::syntax::ForEachTarget::Assign(target) => Some(target),
+                _ => None,
+            };
+            if let Some(pattern) = written {
+                let mut names = Vec::new();
+                pattern.bound_names(&mut names);
+                for name in names {
+                    surviving.names.remove(&name);
+                }
             }
             keep_only_numeric(body, flattened, known, surviving);
         }
@@ -431,6 +450,24 @@ fn check_expr(
                 };
                 if !numeric {
                     surviving.names.remove(name);
+                }
+            }
+            // A DESTRUCTURING assignment writes names too, and nothing here saw
+            // it. What arrives through a pattern is an element or a property —
+            // `Tagged`, always, since nothing proves the shape of what is being
+            // taken apart — so every name it writes loses the proof.
+            //
+            // This is the fourth time this pass has claimed a representation
+            // that nothing produces (after `%`, unary `-`, and a hoisted `var`),
+            // and it surfaced the same way each time: the verifier refusing a
+            // block parameter, here for `let q = 0; for (q of [1, 2]) {}`. The
+            // for-of desugaring writes `q` through a pattern, so `q` stayed
+            // proved F64 while carrying a Tagged element.
+            if let AssignTarget::Pattern(pattern) = target {
+                let mut written = Vec::new();
+                pattern.bound_names(&mut written);
+                for name in written {
+                    surviving.names.remove(&name);
                 }
             }
             // `o.k = v` on a replaced object is a store to that binding, and it

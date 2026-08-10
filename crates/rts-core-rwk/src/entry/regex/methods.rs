@@ -49,6 +49,24 @@ pub(super) extern "C" fn construct(
     _a3: u64,
 ) -> u64 {
     with_current(|context| {
+        // `new RegExp(existingRegExp)` copies `source`/`flags` from the
+        // original rather than `ToString`-ing it: `String(/ab+c/)` is the
+        // literal text `"/ab+c/"`, slashes included, and compiling *that*
+        // would build a pattern that matches the four characters "ab+c"
+        // between literal slashes — not a copy of the original at all. An
+        // explicit second argument still overrides the copied flags, which is
+        // what the specification says and what `new RegExp(/a/i, "g")` needs.
+        if let Some(cell) = Value(pattern).as_slot()
+            && let Some(original) = context.regexp_at(cell)
+        {
+            let source = original.source().to_owned();
+            let inherited = original.flags().to_owned();
+            let letters = match text_of(context, flags) {
+                Some(explicit) => explicit,
+                None => inherited,
+            };
+            return super::make(context, &source, &letters);
+        }
         let Some(source) = text_of(context, pattern) else {
             // A pattern that is not a string. `new RegExp(1)` runs `ToString`
             // on it, and `ToString` of an object calls user code an entry point

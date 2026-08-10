@@ -123,13 +123,54 @@ extern "C" fn locale_compare(_e: u64, this: u64, other: u64, _a1: u64, _a2: u64,
         else {
             return nothing(context);
         };
-        let order = match units.cmp(&against) {
+        let order = match ascii_locale_order(&units, &against) {
             std::cmp::Ordering::Less => -1.0,
             std::cmp::Ordering::Equal => 0.0,
             std::cmp::Ordering::Greater => 1.0,
         };
         Value::from_f64(order).bits()
     })
+}
+
+/// Case-insensitive primary order, ASCII case as the tiebreak — the one piece
+/// of collation this crate's plain-code-unit order does not need a table for.
+///
+/// Two strings that differ only in ASCII case are not equal under a real
+/// collation, and the direction is the opposite of code-unit order:
+/// `"a".localeCompare("A")` is `-1` in Node/ICU (lowercase sorts first),
+/// where `'a'` (0x61) is numerically *greater* than `'A'` (0x41). So this
+/// compares case-folded units first, and only when a whole prefix folds equal
+/// does it fall back to the first position that differed by case — inverted,
+/// so the lowercase side wins.
+fn ascii_locale_order(a: &[u16], b: &[u16]) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let fold = |unit: u16| -> u16 {
+        match u8::try_from(unit) {
+            Ok(byte) if byte.is_ascii_uppercase() => u16::from(byte.to_ascii_lowercase()),
+            _ => unit,
+        }
+    };
+    let mut case_tiebreak: Option<Ordering> = None;
+    for (&x, &y) in a.iter().zip(b.iter()) {
+        let (fx, fy) = (fold(x), fold(y));
+        if fx != fy {
+            return fx.cmp(&fy);
+        }
+        if case_tiebreak.is_none() && x != y {
+            // Same letter, different case. `x` is the one that is not the
+            // fold's own value exactly when it was uppercase.
+            case_tiebreak = Some(match x == fx {
+                // `x` was already lowercase (folding did nothing to it) and
+                // `y` was uppercase: lowercase sorts first.
+                true => Ordering::Less,
+                false => Ordering::Greater,
+            });
+        }
+    }
+    match a.len().cmp(&b.len()) {
+        Ordering::Equal => case_tiebreak.unwrap_or(Ordering::Equal),
+        by_length => by_length,
+    }
 }
 
 /// `s.normalize(form)` — the receiver, unchanged.
