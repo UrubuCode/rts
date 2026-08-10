@@ -222,6 +222,16 @@ impl BigInt {
         self.negative
     }
 
+    /// How many bits the magnitude occupies; zero for zero.
+    ///
+    /// Exposed for the callers that have to REFUSE an operation before running
+    /// it: `1n << 2n**40n` and `2n ** 2n**40n` are each one line of arithmetic
+    /// and a terabyte of digits, and a size that has to be checked after the
+    /// allocation is a size nothing checks.
+    pub fn bit_len(&self) -> usize {
+        arith::mag_bit_len(&self.digits)
+    }
+
     /// Numeric order.
     ///
     /// Delegates to [`Ord`] rather than the other way round, so the two can

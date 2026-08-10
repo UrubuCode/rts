@@ -44,7 +44,12 @@ impl BigInt {
         if !self.negative {
             return Self::from_parts(false, shifted);
         }
-        let lost = (0..amount as usize).any(|index| mag_bit(&self.digits, index));
+        // Scanning to `amount` would be right and would also be a four-billion
+        // step loop for a count the caller is allowed to pass: `-1n >> 2n**40n`
+        // is `-1n`, and every bit at or above the width is already zero, so the
+        // scan stops at the width rather than at the count.
+        let scan = (amount as usize).min(mag_bit_len(&self.digits));
+        let lost = (0..scan).any(|index| mag_bit(&self.digits, index));
         if lost {
             Self::from_parts(true, shifted).sub(&BigInt::from_i64(1))
         } else {
@@ -198,6 +203,17 @@ mod tests {
         assert_eq!(big("-8").shr(1), big("-4"), "and exact division does not round");
         assert_eq!(big("-8").shr(2), big("-2"));
         assert_eq!(big("-9").shr(2), big("-3"));
+    }
+
+    #[test]
+    fn shifting_right_by_an_enormous_count_finishes() {
+        // The count is a bigint, so a program may pass one that no loop can
+        // walk. Answering `-1n` here takes a step per bit of the OPERAND, not
+        // per unit of the count — without that, this test does not fail, it
+        // never returns.
+        assert_eq!(big("-1").shr(u32::MAX), big("-1"));
+        assert_eq!(big("-12345678901234567890").shr(u32::MAX), big("-1"));
+        assert_eq!(big("12345678901234567890").shr(u32::MAX), BigInt::zero());
     }
 
     #[test]

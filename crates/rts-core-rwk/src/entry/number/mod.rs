@@ -86,8 +86,15 @@ impl Number {
             // the same as `undefined` being passed, and this is the one place
             // the difference is visible.
             true => 0.0,
-            // Outside any borrow, because it may run a `valueOf`.
-            false => super::class_support::to_number(value),
+            // A bigint is the one argument `ToNumber` refuses and `Number(x)`
+            // accepts: `1n + 1` is a `TypeError` and `Number(1n)` is `1`. So it
+            // is answered here rather than in the shared conversion, which every
+            // arithmetic operator also reaches.
+            false => match with_current(|context| super::bigint_class::as_f64(context, value)) {
+                Some(number) => number,
+                // Outside any borrow, because it may run a `valueOf`.
+                None => super::class_support::to_number(value),
+            },
         };
         let bits = Value::from_f64(number).bits();
         with_current(|context| super::primitive_proto::wrap(context, this, bits));

@@ -67,16 +67,19 @@ fn shift_by(value: f64) -> u32 {
 /// `a & b`.
 #[rtse::entry]
 pub fn bit_and(left: u64, right: u64) -> u64 {
-    with_current(|context| {
+    // Asked in a borrow of its own: a refused count becomes a `RangeError`,
+    // and building that error borrows the context again, so `settled` has to
+    // run after this borrow has ended.
         // A bigint has no thirty-two-bit truncation: `&` on two of them is
         // over the whole two's-complement value, which is what makes
         // `-1n & 3n` answer `3n` where `-1 & 3` also does and `(2n**40n) & 1n`
         // would not survive `ToInt32`.
-        if let Some(answer) =
-            super::bigint_class::binary(context, super::bigint_class::Op::BitAnd, left, right)
-        {
-            return answer;
-        }
+    if let Some(outcome) = with_current(|context| {
+        super::bigint_class::binary(context, super::bigint_class::Op::BitAnd, left, right)
+    }) {
+        return super::bigint_class::settled(outcome);
+    }
+    with_current(|context| {
         let (a, b) = operands(context, Value(left), Value(right));
         Value::from_f64(f64::from(to_int32(a) & to_int32(b))).bits()
     })
@@ -85,12 +88,15 @@ pub fn bit_and(left: u64, right: u64) -> u64 {
 /// `a | b`.
 #[rtse::entry]
 pub fn bit_or(left: u64, right: u64) -> u64 {
+    // Asked in a borrow of its own: a refused count becomes a `RangeError`,
+    // and building that error borrows the context again, so `settled` has to
+    // run after this borrow has ended.
+    if let Some(outcome) = with_current(|context| {
+        super::bigint_class::binary(context, super::bigint_class::Op::BitOr, left, right)
+    }) {
+        return super::bigint_class::settled(outcome);
+    }
     with_current(|context| {
-        if let Some(answer) =
-            super::bigint_class::binary(context, super::bigint_class::Op::BitOr, left, right)
-        {
-            return answer;
-        }
         let (a, b) = operands(context, Value(left), Value(right));
         Value::from_f64(f64::from(to_int32(a) | to_int32(b))).bits()
     })
@@ -99,12 +105,15 @@ pub fn bit_or(left: u64, right: u64) -> u64 {
 /// `a ^ b`.
 #[rtse::entry]
 pub fn bit_xor(left: u64, right: u64) -> u64 {
+    // Asked in a borrow of its own: a refused count becomes a `RangeError`,
+    // and building that error borrows the context again, so `settled` has to
+    // run after this borrow has ended.
+    if let Some(outcome) = with_current(|context| {
+        super::bigint_class::binary(context, super::bigint_class::Op::BitXor, left, right)
+    }) {
+        return super::bigint_class::settled(outcome);
+    }
     with_current(|context| {
-        if let Some(answer) =
-            super::bigint_class::binary(context, super::bigint_class::Op::BitXor, left, right)
-        {
-            return answer;
-        }
         let (a, b) = operands(context, Value(left), Value(right));
         Value::from_f64(f64::from(to_int32(a) ^ to_int32(b))).bits()
     })
@@ -118,6 +127,13 @@ pub fn bit_xor(left: u64, right: u64) -> u64 {
 #[rtse::entry]
 pub fn bit_not(value: u64) -> u64 {
     with_current(|context| {
+        // `~1n` is `-2n` over the whole value, not over thirty-two bits. Unary,
+        // so it cannot go through `binary` — the pattern is the same and the
+        // one-operand shape is not.
+        if let Some(held) = super::bigints::digits_of(context, value).map(crate::bigint::BigInt::bit_not)
+        {
+            return context.bigint_value(held);
+        }
         let (a, _) = operands(context, Value(value), Value(value));
         Value::from_f64(f64::from(!to_int32(a))).bits()
     })
@@ -126,6 +142,18 @@ pub fn bit_not(value: u64) -> u64 {
 /// `a << b`.
 #[rtse::entry]
 pub fn shift_left(left: u64, right: u64) -> u64 {
+    // Asked in a borrow of its own: a refused count becomes a `RangeError`,
+    // and building that error borrows the context again, so `settled` has to
+    // run after this borrow has ended.
+        // A bigint shift has no width and no thirty-two-bit mask: `1n << 64n` is
+        // the number, where `1 << 64` is `1`. Asked before the conversion for
+        // the reason `&` states — reaching `ToInt32` at all is already the wrong
+        // operation.
+    if let Some(outcome) = with_current(|context| {
+        super::bigint_class::binary(context, super::bigint_class::Op::Shl, left, right)
+    }) {
+        return super::bigint_class::settled(outcome);
+    }
     with_current(|context| {
         let (a, b) = operands(context, Value(left), Value(right));
         // `wrapping_shl` because the count is already masked to 0..=31, so
@@ -139,6 +167,14 @@ pub fn shift_left(left: u64, right: u64) -> u64 {
 /// `a >> b` — the sign-propagating shift.
 #[rtse::entry]
 pub fn shift_right(left: u64, right: u64) -> u64 {
+    // Asked in a borrow of its own: a refused count becomes a `RangeError`,
+    // and building that error borrows the context again, so `settled` has to
+    // run after this borrow has ended.
+    if let Some(outcome) = with_current(|context| {
+        super::bigint_class::binary(context, super::bigint_class::Op::Shr, left, right)
+    }) {
+        return super::bigint_class::settled(outcome);
+    }
     with_current(|context| {
         let (a, b) = operands(context, Value(left), Value(right));
         Value::from_f64(f64::from(to_int32(a).wrapping_shr(shift_by(b)))).bits()
@@ -173,6 +209,14 @@ pub fn shift_right_unsigned(left: u64, right: u64) -> u64 {
 /// finds later — the answer is a plausible number rather than a crash.
 #[rtse::entry]
 pub fn exponent(left: u64, right: u64) -> u64 {
+    // Asked in a borrow of its own: a refused count becomes a `RangeError`,
+    // and building that error borrows the context again, so `settled` has to
+    // run after this borrow has ended.
+    if let Some(outcome) = with_current(|context| {
+        super::bigint_class::binary(context, super::bigint_class::Op::Pow, left, right)
+    }) {
+        return super::bigint_class::settled(outcome);
+    }
     with_current(|context| {
         let (base, power) = operands(context, Value(left), Value(right));
         let answer = if power.is_infinite() && base.abs() == 1.0 {
