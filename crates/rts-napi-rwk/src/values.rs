@@ -235,6 +235,10 @@ fn kind_of(word: u64) -> napi_valuetype {
     if word == rts_core::entry::null_value() {
         return napi_valuetype::napi_null;
     }
+    // The ABI has a word for this and the language does not — see `crate::wrap`.
+    if crate::wrap::is_external(word) {
+        return napi_valuetype::napi_external;
+    }
     let named = rts_core::entry::type_of(word);
     match rts_core::entry::text_of(named).as_deref() {
         Some("undefined") => napi_valuetype::napi_undefined,

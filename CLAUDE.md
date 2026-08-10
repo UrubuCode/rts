@@ -382,7 +382,7 @@ crates/
   rts-egui/ rts-dom/ rts-render/ rts-input/   the UI engine, engine-agnostic
   rts-linker/        native link            rts-cli/  the CLI
 
-  rts-napi-rwk/      N-API here. P1-P4: handles, values, objects, calls, refs
+  rts-napi-rwk/      N-API here. P1-P5: values, objects, calls, refs, wraps
   rts-napi/          the same ABI on the DELETED engine. Not built, not a
                      member, kept to be read. Goes away when -rwk catches up.
 ```

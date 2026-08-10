@@ -114,6 +114,7 @@ impl Env {
 pub unsafe fn destroy(env: napi_env) {
     crate::functions::forget(env);
     crate::references::forget(env);
+    crate::wrap::forget(env);
     // SAFETY: the caller's contract.
     drop(unsafe { Env::from_raw(env) });
 }

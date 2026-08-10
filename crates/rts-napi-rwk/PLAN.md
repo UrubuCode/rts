@@ -79,16 +79,38 @@ target strongly and says so. Wiring it is language-visible — `deref()` would
 start answering `undefined` — so it belongs in a change whose suite run is about
 that.
 
-## P5 — wrapping native state
+## P5 — wrapping native state (DONE)
 
-`napi_wrap`, `napi_unwrap`, `napi_create_external`. Needs a raw pointer beside a
-cell; `rts-core`'s `Aside<T>` is the established shape and the reason this is
-not P2.
+`napi_wrap`, `napi_unwrap`, `napi_remove_wrap`, `napi_create_external`,
+`napi_get_value_external`.
+
+The pointer lives in `rts_core::entry::foreign` — one word in an `Aside`, which
+is how that crate already says "state beside a cell" eighteen times over. The
+engine being replaced used a heap-entry kind (`Entry::NapiExternal`); this heap
+has cells and shapes and no variant to add, which is why the mechanism differs
+rather than being ported. A property was the other alternative and is wrong
+twice: visible to the program, and it would have to hold a value.
+
+The finalizer runs on `napi_remove_wrap` and on `env::destroy`, and **not when
+the object is collected** — that is P6, and it is a collector change rather than
+anything this phase could have done. What IS guaranteed is narrower and stated
+where an addon author reads it: the pointer never outlives the object, so it can
+never be read against a cell that has become something else.
+
+`napi_typeof` answers `napi_external` by asking this module, because the ABI
+distinguishes an external from an object and the language does not. The record
+is keyed by a WATCH rather than a cell number, for the reason P4 built watches:
+a cell is reused, and a stale entry would report somebody else's object as an
+external.
 
 ## P6 — finalizers
 
-Nothing runs when a cell is freed today. This is a collector change first and a
-crate change second, and it is where P5's pointers stop leaking.
+Nothing runs when a cell is freed today, and that is now the ONLY missing
+trigger: P5 wired the other two. A collector change first and a crate change
+second — the sweep knows a cell is dying and tells nobody, and the same hook is
+what `FinalizationRegistry` waits on. `entry::weak` is half of it already: it
+learns of a death at exactly the right moment, and what it does with that today
+is clear a word rather than call anything.
 
 ## P7 — async work and threadsafe functions
 

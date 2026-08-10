@@ -165,6 +165,9 @@ fn release(context: &mut Context, cell: u32) {
     context.derived.remove(cell);
     context.class_constructors.remove(cell);
     context.boxed.remove(cell);
+    // The word a client attached. Dropped with the cell and nothing is called —
+    // `super::foreign` says so where an addon author will read it.
+    context.foreign.remove(cell);
 
     context.region.free(cell);
 }

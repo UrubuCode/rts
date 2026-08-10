@@ -58,6 +58,7 @@ pub mod declared;
 mod date;
 mod error;
 pub mod external;
+mod foreign;
 mod function_proto;
 mod functions;
 mod generator;
@@ -141,6 +142,7 @@ pub use accessor::{define_getter, define_setter};
 pub use alloc::alloc;
 pub use external::{held_current, hold_current, release_current};
 pub use weak::{forget_current as weak_forget, peek_current as weak_peek, watch_current as weak_watch};
+pub use foreign::{attach_current as foreign_attach, attached_current as foreign_attached, detach_current as foreign_detach};
 pub use barrier::write_barrier;
 pub use cache::{cache_resolve, cache_resolve_store};
 pub use chain::{get_prototype, set_prototype};
@@ -450,6 +452,12 @@ pub struct Context {
     /// `[[StringData]]` are never both present on one object, and the value's
     /// own tag already says which it is.
     boxed: Aside<u64>,
+    /// One word a client keeps beside an object, opaque here.
+    ///
+    /// Not a reference: nothing marks it and nothing follows it. See
+    /// [`foreign`], which says what it is for and what happens when the
+    /// object dies.
+    foreign: Aside<usize>,
     /// The class each `new` in progress actually named.
     ///
     /// A stack because construction nests, and a stack rather than an argument
@@ -656,6 +664,7 @@ impl Context {
             derived: Aside::in_region(bits),
             class_constructors: Aside::in_region(bits),
             boxed: Aside::in_region(bits),
+            foreign: Aside::in_region(bits),
             integrity: Aside::in_region(bits),
             attributes: Aside::in_region(bits),
             array_elements: Aside::in_region(bits),
@@ -703,6 +712,7 @@ impl Context {
             derived: Aside::new(),
             class_constructors: Aside::new(),
             boxed: Aside::new(),
+            foreign: Aside::new(),
             integrity: Aside::new(),
             attributes: Aside::new(),
             pending_arguments: Vec::new(),
