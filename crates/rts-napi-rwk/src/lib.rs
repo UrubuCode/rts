@@ -39,6 +39,12 @@
 //!
 //! P8b: the export table — every symbol handed to the linker.
 //!
+//! P7f: the rest of the value surface — integer widths, the four coercions,
+//! `===`, and `globalThis`.
+//!
+//! P7f: the rest of the value surface — integer widths, the four coercions,
+//! `===`, and `globalThis`.
+//!
 //! P8c: the loader — mapping a `.node` and finding its entry point.
 //!
 //! Everything else in the ABI is absent rather than stubbed; an absent symbol
@@ -68,6 +74,7 @@ pub mod abi;
 pub mod async_work;
 pub mod buffers;
 pub mod class;
+pub mod convert;
 pub mod env;
 pub mod errors;
 pub mod exported;

@@ -273,6 +273,25 @@ to find one it does not, and then check that `open` refuses it by name — "it i
 a shared library, but not an addon", which is the message a user pointing
 `require` at the wrong file needs.
 
+## P7f — the rest of the value surface (DONE)
+
+`napi_create_uint32`/`int64`, `napi_get_value_int32`/`uint32`/`int64`, the four
+coercions, `napi_strict_equals`, `napi_get_global`.
+
+Every one is the language's own operator, called: `ToInt32` is `x | 0`,
+`Number(x)` is `x - 0`, `String(x)` is `"" + x`. None is reimplemented, and the
+tests are the reason — `Number("0x10")` is 16, `ToInt32` of 2^31 is negative,
+`ToUint32` of -1 is `u32::MAX`, and a hand-rolled version gets at least one of
+those wrong on the first try.
+
+`napi_get_value_int64` is written out rather than left to `as i64`, because the
+ABI's three cases and Rust's cast disagree: NaN and the infinities are zero, out
+of range clamps, the rest truncates toward zero.
+
+Asking a string for an `int32` is REFUSED rather than coerced. The ABI has
+`napi_coerce_to_number` for that, and answering 0 would hide an addon's type
+error.
+
 ## P8d — a third-party addon
 
 What is left is the measurement, not the code: building a real `.node` against

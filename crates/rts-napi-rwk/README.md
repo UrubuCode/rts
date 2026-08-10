@@ -105,7 +105,8 @@ module-resolution change in the host rather than anything here.
 
 ## What is absent now
 
-BigInt and Date conversions, a typed array's ELEMENT TYPE and offset, the
+BigInt and Date conversions, symbols, `napi_get_value_string_latin1`/`utf16`,
+a typed array's ELEMENT TYPE and offset, the
 property ATTRIBUTES
 (`writable`/`enumerable`/`configurable`, which are read and ignored, and say so),
 and the module registration a real `.node` enters through (P8).
