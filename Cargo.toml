@@ -58,6 +58,11 @@ rts-linker = { path = "crates/rts-linker" }
 # as a DIRECT target of the build, and being unreferenced (or merely a
 # dependency-of-a-dependency) does not count.
 rts-runtime = { path = "crates/rts-runtime" }
+# Linked so the `napi_*` symbols are IN the binary — a `.node` resolves them
+# out of the host process by name. Present is not the same as EXPORTED, which
+# needs linker arguments this build does not pass yet; `crates/rts-napi-rwk/
+# PLAN.md` P8b has the order and the reason for it.
+rts-napi-rwk = { path = "crates/rts-napi-rwk" }
 rts-cli = { path = "crates/rts-cli" }
 anyhow = "1.0"
 backtrace = "0.3"

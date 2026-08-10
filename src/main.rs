@@ -1,6 +1,13 @@
 fn main() {
     rts::crash::install();
 
+    // Keeps the `napi_*` symbols in the binary, and it takes a real reference
+    // to do it: an rlib nothing touches is one the linker never opens. Measured
+    // rather than assumed — with the crate merely listed as a dependency, and
+    // then merely named from `rts`'s own lib, `napi_create_double` was absent
+    // from the executable both times. See `rts::napi_symbols`.
+    std::hint::black_box(rts::napi_symbols());
+
     // Hand the CLI the bin-owned runtime-archive resolver so `rts compile` (AOT)
     // can locate the embedded `<host>.a` to link against (the archive + its
     // on-demand materialization live in this bin crate, which the CLI can't reach).

@@ -66,6 +66,7 @@ pub mod buffers;
 pub mod class;
 pub mod env;
 pub mod errors;
+pub mod exported;
 pub mod functions;
 pub mod handles;
 pub mod module;

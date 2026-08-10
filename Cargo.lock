@@ -4008,6 +4008,7 @@ dependencies = [
  "backtrace",
  "rts-cli",
  "rts-linker",
+ "rts-napi-rwk",
  "rts-runtime",
  "sha2 0.10.9",
  "zstd",

@@ -215,9 +215,20 @@ The older path records and does not run. A static constructor fires before a
 `Context` exists, so evaluating there would reach a thread-local runtime the
 host has not installed — an abort, not an error.
 
-## P8b — opening a `.node`
+## P8b — the export table (PART DONE)
 
-What is left, and it is a change to the BUILD rather than to this crate.
+Done: the crate is linked into `rts`, every entry point is in one list
+(`src/exported.rs`), and the symbols are in the binary. Each of those three took
+a measurement rather than an assumption — with the crate merely listed as a
+dependency the linker never opened the rlib, and naming it from `rts`'s own lib
+was not enough either; the BIN has to take the reference. `napi_create_double`
+was absent from the executable until it did.
+
+A test walks `src/` and fails if an entry point is missing from the list, which
+is what keeps the export arguments complete once they exist: a symbol absent
+there is one an addon fails to resolve, with a name and no explanation.
+
+Left, and it is a change to the BUILD rather than to this crate:
 
 An addon resolves `napi_create_double` and its hundred siblings **out of the
 host process**, by name, at load time. That works when the process exports
@@ -225,12 +236,16 @@ them: `-rdynamic` on ELF, an export table entry on COFF, `-exported_symbols_list
 on Mach-O. This binary exports none of them, and `rts-napi-rwk` is not even
 linked into it.
 
-So the order is: link the crate into `rts`, export the symbols (the old
-`rts-napi` has the list — `napi_symbols.list`, 157 names, and that file is the
-reason to keep reading it), then `dlopen`/`LoadLibrary` and look for
-`napi_register_module_v1`. Doing the last one first produces a loader that opens
-a file and dies on the first undefined symbol, which reads as a bug in the
-addon.
+The remaining order is: pass the export arguments (`/EXPORT:` per name on COFF,
+`--export-dynamic` on ELF, `-exported_symbols_list` on Mach-O), built from
+`exported::NAMES` by the root `build.rs`; then `dlopen`/`LoadLibrary` and look
+for `napi_register_module_v1`. Doing the last one first produces a loader that
+opens a file and dies on the first undefined symbol, which reads as a bug in the
+addon rather than in us.
+
+The old `rts-napi` lists 157 names against this crate's 70, and the difference
+is the surface still missing rather than a disagreement — another reason to keep
+that tree readable until this one catches up.
 
 Until a third-party addon runs, this crate's honest status stays "the tests
 pass".

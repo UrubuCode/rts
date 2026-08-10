@@ -23,3 +23,24 @@ pub(crate) mod runtime_objects;
 pub fn rt_artifacts() -> anyhow::Result<std::path::PathBuf> {
     runtime_objects::ensure_artifacts()
 }
+
+/// Every `napi_*` symbol this binary carries, by name.
+///
+/// # Why the bin names this at all
+///
+/// To make the linker keep them. A `#[unsafe(no_mangle)]` function inside a
+/// DEPENDENCY is unreferenced from here, and an rlib nothing touches is an rlib
+/// the linker never opens — measured, not assumed: with the crate merely listed
+/// as a dependency, `napi_create_double` did not appear in the binary at all.
+/// Reading this list is a reference to the module that holds the keep-alive
+/// table, which pulls the rest in behind it.
+///
+/// It is also what the export arguments will be built from when P8b lands, so
+/// the same list serves both and there is no second one to drift.
+///
+/// Present is NOT exported: a `.node` looks these up in the process's export
+/// table, and this build passes no `/EXPORT:` or `--export-dynamic`. See
+/// `crates/rts-napi-rwk/PLAN.md`.
+pub fn napi_symbols() -> &'static [&'static str] {
+    rts_napi_rwk::exported::NAMES
+}
