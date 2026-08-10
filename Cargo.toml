@@ -47,6 +47,17 @@ path = "src/main.rs"
 # there is no feature to forward to — a flag that enables nothing is worse than
 # an absent one, which is the rule `CLAUDE.md` states for `sync`.
 
+# A janela, repassada pela CLI ao host — o último elo da cadeia.
+#
+# `rts-host` tinha a feature e nada entre ela e o binário a repassava, então
+# `rts run jogo.ts` importava `rts:egui` com zero membros: a superfície estava
+# construída e não havia como pedir por ela. Ainda fora do default, pela mesma
+# razão de disponibilidade que ela documenta.
+#
+#     cargo run --features ui -- run jogo.ts
+[features]
+ui = ["rts-cli/ui"]
+
 [dependencies]
 rts-linker = { path = "crates/rts-linker" }
 # `rts-runtime` was on nobody's Cargo.toml — not even transitively — so a
