@@ -1,6 +1,12 @@
-//! `rts compile` — AOT native build on the NEW engine.
+//! `rts compile` — AOT native build on the `rts-codegen-new` engine.
 //!
-//! The new engine shares its whole front-end + lowering between JIT and AOT
+//! NOT part of the `rts run`/`rts test` cutover, and deliberately deferred:
+//! the owner has held AOT back until `rts test` reaches 90% on the
+//! `rts-host-rwk` engine, because it additionally needs an object-emission
+//! path in that host AND a runtime archive that does not exist yet for it (no
+//! `-rwk` crate is built as a `staticlib`).
+//!
+//! The `rts-codegen-new` engine shares its whole front-end + lowering between JIT and AOT
 //! (design doc pilar 5); only the Cranelift `Module` backend differs. This
 //! command drives the AOT half: it lowers the program into an `ObjectModule`
 //! (with a synthesized `main` entry) and writes the resulting relocatable object

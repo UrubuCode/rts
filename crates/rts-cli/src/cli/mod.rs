@@ -7,6 +7,7 @@ pub mod emit_types;
 pub mod init;
 pub mod install;
 pub mod ir;
+pub mod new_engine;
 pub mod run;
 pub mod test_cmd;
 

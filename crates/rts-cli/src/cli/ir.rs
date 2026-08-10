@@ -1,7 +1,11 @@
-//! `rts ir` — dump the NEW engine's per-function Cranelift IR to stderr, without
-//! executing the program. Accepts a `.ts`/`.js` file path or an inline source
-//! snippet (`rts ir "let x = 1 + 2; console.log(x)"`), mirroring `eval`'s
-//! no-disk-imports behavior for snippets.
+//! `rts ir` — dump the `rts-codegen-new` engine's per-function Cranelift IR to
+//! stderr, without executing the program. Accepts a `.ts`/`.js` file path or an
+//! inline source snippet (`rts ir "let x = 1 + 2; console.log(x)"`), mirroring
+//! `eval`'s no-disk-imports behavior for snippets.
+//!
+//! NOT part of the `rts run`/`rts test` cutover: this stays a remaining
+//! `rts-codegen-new` entry point. It has no equivalent on the `rts-host-rwk`
+//! engine (no IR-dump path there yet).
 
 use std::path::PathBuf;
 

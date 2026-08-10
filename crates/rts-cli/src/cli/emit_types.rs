@@ -1,8 +1,11 @@
-//! `rts emit-types` — generate `rts.d.ts` from the live engine Registry (classes
-//! + `rts:`/`node:` modules + globals), using each `Member.ts_signature` plus the
-//! `///` doc comments the `#[rtse::class]` macro captures. Revived on the new
-//! engine (was stubbed at the P5 cutover; the catalog now lives in the Registry,
-//! iterated deterministically by `rts_codegen_new::emit_dts`).
+//! `rts emit-types` — generate `rts.d.ts` from the live `rts-codegen-new`
+//! Registry (classes + `rts:`/`node:` modules + globals), using each
+//! `Member.ts_signature` plus the `///` doc comments the `#[rtse::class]`
+//! macro captures.
+//!
+//! NOT part of the `rts run`/`rts test` cutover: stays a remaining
+//! `rts-codegen-new` entry point — the `rts-host-rwk` engine has no `.d.ts`
+//! export path yet.
 
 use anyhow::{Context, Result};
 

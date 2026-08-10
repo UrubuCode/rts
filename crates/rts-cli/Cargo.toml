@@ -9,6 +9,10 @@ rts-engine = { path = "../rts-engine" }
 rts-ast = { path = "../rts-ast" }
 rts-parser = { path = "../rts-parser" }
 rts-codegen-new = { path = "../rts-codegen-new" }
+# The NEW engine (`rts run` / `rts test` cutover). `rts compile`/`rts ir`/
+# `rts emit-types` stay on rts-codegen-new — see comments at those commands.
+rts-host-rwk = { path = "../rts-host-rwk" }
+rts-std-rwk = { path = "../rts-std-rwk" }
 rts-linker = { path = "../rts-linker" }
 rts-runtime = { path = "../rts-runtime" }
 rts-diagnostics = { path = "../rts-diagnostics" }

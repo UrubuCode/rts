@@ -27,10 +27,15 @@ pub fn command(input: Option<String>, _options: CompileOptions) -> Result<()> {
         }
     }
 
-    // Cutover: execute through the NEW engine. `run_path` resolves the relative-
-    // import graph from the entry, lowers HIR→Cranelift (single path) and runs it
-    // in-memory (JIT). Builtins (`rts:*`) resolve via the new engine's registry.
-    rts_codegen_new::front::run::run_path(&input_path)
+    // Cutover: execute through the NEW engine (`rts-host-rwk` over
+    // `rts-cranelift` + `rts-core-rwk`). `new_engine::run_path` resolves the
+    // relative-import graph from the entry (compiling as a GRAPH when one is
+    // found — see its module doc), lowers to Cranelift and runs it in-memory
+    // (JIT), on a thread with the stack budget the emitter needs. An uncaught
+    // exception inside the program is reported and ends the process from
+    // inside `Compiled::run` itself (see `rts-host-rwk::run`), the same way a
+    // real runtime ends on one — it is not swallowed here.
+    crate::cli::new_engine::run_path(&input_path)
         .map_err(|e| anyhow!("{e}"))
         .with_context(|| format!("run of {} failed", input_path.display()))?;
     Ok(())
@@ -58,6 +63,9 @@ pub fn eval_command(input: Option<String>, _options: CompileOptions) -> Result<(
             buf
         }
     };
+    // NOT cut over: out of scope for the `rts run`/`rts test` cutover (not
+    // asked for, and untouched here) — still the OLD engine
+    // (`rts-codegen-new`).
     rts_codegen_new::front::run::run_source(&source)
         .map_err(|e| anyhow!("{e}"))
         .context("eval falhou")?;

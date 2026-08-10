@@ -1,17 +1,30 @@
 //! `rts test [path]` — discover and run `.test.ts` / `.spec.ts` files.
 //!
-//! Each test file is compiled and executed via Cranelift JIT with the full
-//! module graph resolved (supports `import { describe, test } from "rts:test"`).
-//! The Rust-side test runner in `namespaces::test::runner` tracks pass/fail
-//! counts and prints ANSI output; this command resets state between files,
-//! auto-prints per-file summaries, and exits non-zero if any tests failed.
+//! Cut over to the NEW engine (`rts-host-rwk`, over `rts-cranelift` +
+//! `rts-core-rwk`): each test file is compiled and executed through
+//! `crate::cli::new_engine::run_path`, with the full module graph resolved
+//! where one exists (`import { describe, test } from "rts:test"`, or a
+//! relative import). Pass/fail is tracked by `rts_std_rwk::test`
+//! (`reset()`/`record()`), read here after each run.
+//!
+//! **What is NOT preserved across the cutover:** the old engine's `rts test`
+//! additionally compared stdout against a fixture, in `tests/fixtures/*.out`
+//! — that mechanism belongs to `codegen_fixtures`, a separate Rust
+//! integration test over a different, much smaller corpus, and was never
+//! reachable from this command. `rts_std_rwk::test`'s own module doc names
+//! the actual, narrower divergence from a real test harness: a failed
+//! `expect(...)` records and the test body keeps running, rather than
+//! throwing and stopping it. Nothing here compared full stdout against a
+//! golden file for the `tests/*.test.ts` corpus either engine measures, so
+//! there is nothing to lose on that front. See the report for how this claim
+//! was checked.
+//!
+//! This command resets state between files, auto-prints per-file summaries,
+//! and exits non-zero if any tests failed.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-
-use crate::compile_options::CompileOptions;
-use crate::namespaces::test as runner;
 
 pub fn command(path: Option<String>) -> Result<()> {
     let root = match path {
@@ -461,41 +474,76 @@ fn run_single_in_process(file: &Path, root: &Path) -> Result<()> {
     let label = relative_label(file, root);
     eprintln!("\n{}", dim(&label));
 
-    runner::reset_runner();
-    crate::namespaces::gc::error::__rtsn_error_clear();
-    crate::namespaces::gc::stack::reset_stack_depth();
-    // Drain the engine's process-global tables before compiling the next file.
-    // This is the quiescent top-level boundary `reset_codegen_state` documents:
-    // the previous file's program has finished (its objects are dead) and the next
-    // has not compiled, so clearing the shape registry + side-tables is safe and
-    // bounds their growth across a whole multi-file suite run.
-    rts_codegen_new::state::reset_codegen_state();
-
-    // Cutover: run the test file through the NEW engine (resolves the import graph
-    // + the `rts:test` prelude, executes via JIT). The Rust-side runner tracks
-    // pass/fail and prints the summary below.
-    let run_result = rts_codegen_new::front::run::run_path(file).map_err(|e| anyhow::anyhow!("{e}"));
-
-    runner::__rtsm_test_core_print_summary();
-
-    let file_failed = runner::runner_failed();
+    // Cutover: run the test file through the NEW engine (`rts-host-rwk`,
+    // resolving the import graph where one exists). No cross-file reset is
+    // needed here the way the old engine's `run_single_in_process` needed
+    // one: this function runs exactly ONCE per process — the multi-file case
+    // above spawns `rts test <file>` as a child per file (#314), so there is
+    // no "next file" for this process to leave a clean slate for.
+    //
+    // `record()` MUST run inside `after` — i.e. on the SAME thread the
+    // program actually ran on. `rts_std_rwk::test`'s record is
+    // `thread_local!`, and the run happens on a freshly spawned 64 MB-stack
+    // thread (see `new_engine`'s module doc): reading the record back on
+    // THIS (the caller's) thread after `run_path` returns would always see
+    // an empty one. This was caught by running a hand-written test file
+    // with two `test(...)` calls in it and seeing "0 tests passed".
+    //
+    // No explicit `reset()` is needed first: the thread is brand new, so its
+    // copy of the thread-local record starts empty on its own — unlike
+    // `suite_run.rs`, which resets because it is free to run more than one
+    // program per process (its `main` loop is driven per file externally,
+    // but nothing stops a future caller from reusing the process). This
+    // function's process is used for exactly one file (#314's subprocess
+    // isolation, or a bare `rts test <file>`), so there is no earlier run's
+    // record to clear.
+    let (run_result, reported) = crate::cli::new_engine::run_path_and(file, |run_result| {
+        (run_result, rts_std_rwk::test::record())
+    });
+    print_summary(&reported);
+    let file_failed = reported.iter().filter(|one| one.failure.is_some()).count();
 
     if run_result.is_err() || file_failed > 0 {
         if let Err(ref e) = run_result {
-            let use_color = crate::diagnostics::reporter::stderr_supports_color();
-            let engine = crate::diagnostics::reporter::global_engine();
-            let msg = if engine.has_errors() {
-                engine.render_all(use_color)
-            } else {
-                crate::diagnostics::reporter::format_anyhow_error(e, use_color)
-            };
-            for line in msg.lines() {
-                eprintln!("  {line}");
-            }
+            eprintln!("  {e}");
         }
         std::process::exit(1);
     }
     Ok(())
+}
+
+/// Prints the same pass/fail summary shape the old engine's
+/// `test_core::print_summary` printed, from an `rts_std_rwk::test::record()`
+/// list — so the parent's `parse_summary_counts` (which scrapes stderr for
+/// "N test(s) passed"/"N test(s) failed") keeps working unchanged across the
+/// cutover, and so does a human reading either engine's output.
+fn print_summary(reported: &[rts_std_rwk::test::Reported]) {
+    let failed: Vec<&rts_std_rwk::test::Reported> =
+        reported.iter().filter(|one| one.failure.is_some()).collect();
+    let passed = reported.len() - failed.len();
+    let total = reported.len();
+
+    eprintln!("{}", dim(&"─".repeat(40)));
+    for one in &failed {
+        eprintln!("  {} {}", red("✗"), one.name);
+        if let Some(ref why) = one.failure {
+            eprintln!("    {why}");
+        }
+    }
+    if failed.is_empty() {
+        eprintln!(" {} {}", green("✓"), green(&format!("{total} test{} passed", plural(total))));
+    } else {
+        eprintln!(" {} {}", red("✗"), red(&format!("{} test{} failed", failed.len(), plural(failed.len()))));
+        if passed > 0 {
+            eprintln!(" {} {}", green("✓"), green(&format!("{passed} test{} passed", plural(passed))));
+        }
+        eprintln!(" {} {total} total", dim("·"));
+    }
+    eprintln!();
+}
+
+fn plural(n: usize) -> &'static str {
+    if n == 1 { "" } else { "s" }
 }
 
 /// Re-imprime output do child suprimindo a primeira linha em branco e
