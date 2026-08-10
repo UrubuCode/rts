@@ -203,8 +203,34 @@ not say which element type a view has (nothing exports it, and guessing
 cell has no window of its own — observable as `x instanceof ArrayBuffer` being
 false, and named in the module rather than hidden.
 
-## P8 — loading a real `.node`
+## P8a — registration (DONE)
 
-`napi_module_register`, the export table, and the first third-party addon that
-runs. This is the phase that replaces every claim above with a measurement, and
-until it happens, this crate's status is "the tests pass".
+`napi_module_register`, the `napi_module` record, and running a registrar to
+produce its exports. Both shapes an addon uses are handled and both are tested:
+hanging properties on the object it was given, and answering something else
+entirely (a function, a class), which using the given object regardless would
+silently discard.
+
+The older path records and does not run. A static constructor fires before a
+`Context` exists, so evaluating there would reach a thread-local runtime the
+host has not installed — an abort, not an error.
+
+## P8b — opening a `.node`
+
+What is left, and it is a change to the BUILD rather than to this crate.
+
+An addon resolves `napi_create_double` and its hundred siblings **out of the
+host process**, by name, at load time. That works when the process exports
+them: `-rdynamic` on ELF, an export table entry on COFF, `-exported_symbols_list`
+on Mach-O. This binary exports none of them, and `rts-napi-rwk` is not even
+linked into it.
+
+So the order is: link the crate into `rts`, export the symbols (the old
+`rts-napi` has the list — `napi_symbols.list`, 157 names, and that file is the
+reason to keep reading it), then `dlopen`/`LoadLibrary` and look for
+`napi_register_module_v1`. Doing the last one first produces a loader that opens
+a file and dies on the first undefined symbol, which reads as a bug in the
+addon.
+
+Until a third-party addon runs, this crate's honest status stays "the tests
+pass".

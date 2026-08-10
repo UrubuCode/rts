@@ -35,6 +35,8 @@
 //!
 //! P7e: buffers — bytes an addon writes in place, through a real pointer.
 //!
+//! P8a: registration — an addon saying what it exports.
+//!
 //! Everything else in the ABI is absent rather than stubbed; an absent symbol
 //! fails to link loudly, which is the answer an addon can act on.
 //!
@@ -66,6 +68,7 @@ pub mod env;
 pub mod errors;
 pub mod functions;
 pub mod handles;
+pub mod module;
 pub mod objects;
 pub mod references;
 pub mod threadsafe;

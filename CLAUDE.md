@@ -382,7 +382,8 @@ crates/
   rts-egui/ rts-dom/ rts-render/ rts-input/   the UI engine, engine-agnostic
   rts-linker/        native link            rts-cli/  the CLI
 
-  rts-napi-rwk/      N-API here. P1-P7 in, errors too; P8 (a real .node) is left
+  rts-napi-rwk/      N-API here. P1-P8a in; opening a real .node needs the
+                     export table, which is a build change (its PLAN.md)
   rts-napi/          the same ABI on the DELETED engine. Not built, not a
                      member, kept to be read. Goes away when -rwk catches up.
 ```
