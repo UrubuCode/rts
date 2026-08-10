@@ -357,6 +357,38 @@ pub fn bytes_of(context: &Context, value: u64) -> Option<Vec<u8>> {
     Some(super::buffers::window(context, &view)?.to_vec())
 }
 
+/// The address of a typed array's bytes, and how many there are.
+///
+/// # Why a raw pointer, when [`bytes_of`] deliberately copies
+///
+/// Because one caller cannot use a copy. N-API's `napi_get_buffer_info` hands
+/// an addon a pointer it READS AND WRITES — a compression addon fills it in
+/// place — and a copy handed over there is a buffer the program never sees
+/// written to. That is not a slower answer, it is a wrong one.
+///
+/// # What keeps it valid, which is narrower than it looks
+///
+/// Each buffer's bytes are their own `Vec`, so the ADDRESS does not move when
+/// another buffer is allocated: growing the table moves the `Vec` headers, not
+/// what they point at. What frees the bytes is the buffer itself being
+/// collected.
+///
+/// So the contract is Node's own: the pointer is valid while the buffer is
+/// alive, and a caller keeping it across a turn must also keep the buffer alive
+/// — with [`super::external`], which is what an addon's `napi_ref` is built on.
+///
+/// # Safety
+///
+/// The pointer aliases the runtime's own storage. Writing through it while the
+/// runtime holds a borrow of the same buffer is a data race in the ordinary
+/// Rust sense, so a caller writes between calls rather than during one.
+pub fn bytes_pointer(context: &mut Context, value: u64) -> Option<(*mut u8, usize)> {
+    let view = super::buffers::view_of(context, value)?;
+    let window = super::buffers::window_mut(context, &view)?;
+    let length = window.len();
+    Some((window.as_mut_ptr(), length))
+}
+
 /// Writes bytes into a typed array's window, and answers how many landed.
 ///
 /// Short of the window is a partial write rather than a refusal, which is what

@@ -33,6 +33,8 @@
 //!
 //! P7d: classes — `napi_define_class`, property descriptors, `new`.
 //!
+//! P7e: buffers — bytes an addon writes in place, through a real pointer.
+//!
 //! Everything else in the ABI is absent rather than stubbed; an absent symbol
 //! fails to link loudly, which is the answer an addon can act on.
 //!
@@ -58,6 +60,7 @@
 
 pub mod abi;
 pub mod async_work;
+pub mod buffers;
 pub mod class;
 pub mod env;
 pub mod errors;

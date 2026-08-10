@@ -180,6 +180,29 @@ answered `undefined` by name and its real value by key. Both doors go through
 `get_indexed` now, which is what P2's own module doc had claimed all along, and
 a test pins it.
 
+## P7e — buffers (DONE)
+
+`napi_create_buffer`, `create_buffer_copy`, `get_buffer_info`, `is_buffer`,
+`is_typedarray`, `get_typedarray_info`, `create_arraybuffer`.
+
+The phase is about one thing: the pointer has to be REAL. `rts-core`'s
+`bytes_of` copies deliberately, and a compression addon handed a copy fills a
+temporary the program never sees — not a slower answer, a wrong one. So
+`bytes_pointer` was added there, and its contract is Node's own: valid while
+the buffer is alive, which means an addon keeping it across a turn must keep a
+`napi_ref` too.
+
+That the address survives other allocations is measured, not assumed — each
+buffer's bytes are their own `Vec`, so growing the table moves headers and not
+bytes, and a test writes, allocates sixty-four more buffers, and reads back.
+
+Two honest refusals rather than plausible answers: `get_typedarray_info` will
+not say which element type a view has (nothing exports it, and guessing
+`uint8_array` makes an addon read a `Float64Array` eight times too far), and
+`create_arraybuffer` answers a `Uint8Array` because this engine's `ArrayBuffer`
+cell has no window of its own — observable as `x instanceof ArrayBuffer` being
+false, and named in the module rather than hidden.
+
 ## P8 — loading a real `.node`
 
 `napi_module_register`, the export table, and the first third-party addon that

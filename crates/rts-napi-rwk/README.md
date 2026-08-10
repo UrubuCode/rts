@@ -91,7 +91,8 @@ JAVASCRIPT on two threads — is untouched and still true.
 
 ## What is absent now
 
-BigInt and Date conversions, buffers and typed arrays, the property ATTRIBUTES
+BigInt and Date conversions, a typed array's ELEMENT TYPE and offset, the
+property ATTRIBUTES
 (`writable`/`enumerable`/`configurable`, which are read and ignored, and say so),
 and the module registration a real `.node` enters through (P8).
 
