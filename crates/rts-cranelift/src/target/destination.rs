@@ -64,7 +64,11 @@ pub fn executable_memory_calling(symbols: &[(&str, *const u8)]) -> Result<JITMod
 /// Building a name-to-address map for this path would be solving a problem it
 /// does not have.
 pub fn object_file(name: &str) -> Result<ObjectModule, TargetError> {
-    let isa = host_isa()?;
+    // Addressed as this platform's loader requires, which is NOT the same answer
+    // the in-memory destination gives — see `target::isa_with`. Code placed in
+    // this process stays where it was relocated; code in an object file is
+    // linked into an image the loader may put anywhere.
+    let isa = super::isa_with(super::object_addressing())?;
     let builder = ObjectBuilder::new(isa, name, cranelift_module::default_libcall_names())
         .map_err(|error| TargetError::Module(ModuleError::Backend(error.into())))?;
     Ok(ObjectModule::new(builder))

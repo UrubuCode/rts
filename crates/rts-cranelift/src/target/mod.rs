@@ -781,12 +781,62 @@ impl Placements {
 /// Exposed because both destinations need one and neither should have to know
 /// how to ask for it.
 pub fn host_isa() -> Result<OwnedTargetIsa, TargetError> {
+    isa_with(Addressing::Absolute)
+}
+
+/// Whether compiled code may name an address directly.
+///
+/// Not a preference: it is a question about where the code will END UP, and the
+/// two destinations answer it differently. Code placed in this process's own
+/// memory is at the address it was relocated to and stays there. Code written
+/// to an object file is linked into an executable the loader may place anywhere.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Addressing {
+    /// An address baked into the instruction stream.
+    Absolute,
+    /// Every address reached relative to the program counter.
+    ///
+    /// What a position-independent executable requires, and on some platforms
+    /// the only thing they will load at all.
+    Independent,
+}
+
+/// The architecture this process runs on, addressed the way a destination needs.
+///
+/// # Why the object file does not simply use [`host_isa`]
+///
+/// It did, and on macOS the result linked and then died with `Bus error: 10` the
+/// moment it ran. Absolute addressing inside a position-independent executable
+/// is a set of relocations the loader slides out from under the code: the
+/// instruction holds the address the linker computed, the image is loaded
+/// somewhere else, and the first access lands nowhere. Apple's arm64 target does
+/// not offer the alternative — a PIE is the only thing the loader accepts — so
+/// this is not a preference there either.
+///
+/// # Why every platform does not just get it
+///
+/// Because one of them was measured to break under it. `is_pic` on the COFF
+/// target overflowed the stack during compilation (recorded when the AOT path
+/// was first built), and Windows and ELF both link and run correctly today with
+/// absolute addressing. Turning it on for them would be trading a working
+/// destination for a symmetry nothing asked for; the platform that needs it gets
+/// it, and this comment says which and why.
+///
+/// **This was not verified on a Mac.** No macOS machine was available; what is
+/// verified is the failure it addresses — `rts compile bench/pi_machin.ts` then
+/// `./smoke_aot` on the `macos-latest` runner, exit 138. The same job is what
+/// confirms or refutes the fix.
+pub fn isa_with(addressing: Addressing) -> Result<OwnedTargetIsa, TargetError> {
     let mut flags = cranelift_codegen::settings::builder();
     // Frame pointers are what makes a stack walkable, and a stack walk is how
     // the collector finds a frame with no descriptor. Turning them off would
     // save a register and cost the fallback that makes the migration possible.
     cranelift_codegen::settings::Configurable::set(&mut flags, "preserve_frame_pointers", "true")
         .expect("a real setting");
+    if addressing == Addressing::Independent {
+        cranelift_codegen::settings::Configurable::set(&mut flags, "is_pic", "true")
+            .expect("a real setting");
+    }
 
     let flags = cranelift_codegen::settings::Flags::new(flags);
     let builder = cranelift_native::builder()
@@ -794,6 +844,19 @@ pub fn host_isa() -> Result<OwnedTargetIsa, TargetError> {
     builder
         .finish(flags)
         .map_err(|error| TargetError::Module(ModuleError::Backend(anyhow_from(error.to_string()))))
+}
+
+/// What an object file for THIS host has to be addressed as.
+///
+/// A fact about the platform's loader, so it is decided here rather than by
+/// whoever asks for an object file — a caller that could choose would eventually
+/// choose wrong on one platform and nowhere else, which is the failure that has
+/// already happened once.
+pub fn object_addressing() -> Addressing {
+    match cfg!(target_vendor = "apple") {
+        true => Addressing::Independent,
+        false => Addressing::Absolute,
+    }
 }
 
 /// Wraps a message the code generator gave us as an error it can carry.
