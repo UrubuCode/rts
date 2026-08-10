@@ -1663,12 +1663,20 @@ fn a_local_shadows_a_predefined_global() {
 #[test]
 fn an_undeclared_name_is_still_the_programs_error() {
     // Reading one is a `ReferenceError`, not `undefined`. Answering `undefined`
-    // would turn every typo into a program that runs, which is why only the
-    // three constants are readable and the rest is refused.
-    let error = compile("return nowhere;").expect_err("`nowhere` is undeclared");
-    assert!(
-        format!("{error:?}").contains("Unbound"),
-        "expected the program to be wrong rather than a gap, got {error:?}"
+    // would turn every typo into a program that runs, and that is the property
+    // this test exists for.
+    //
+    // It used to assert a COMPILE-time refusal, which was stricter than the
+    // language: the error belongs where the read happens, so a program whose
+    // dead branch mentions a name it never reads is legal and used to be
+    // rejected outright. It compiles now and raises where the language raises,
+    // catchable — so the assertion moved from "refused" to "throws", which is
+    // what it was protecting all along.
+    let caught = run("try { return nowhere; } catch (e) { return e instanceof ReferenceError; }");
+    assert_eq!(
+        caught,
+        rts_core_rwk::value::Value::from_bool(true).bits(),
+        "reading an undeclared name must raise a catchable ReferenceError"
     );
 }
 
@@ -2464,10 +2472,11 @@ fn the_provided_name_is_one_object_however_often_it_is_read() {
 #[test]
 fn a_name_nothing_provides_is_still_the_programs_error() {
     // The provided set is not a global object, and this is the difference that
-    // matters: a typo does not become `undefined`. Removing this assertion is
-    // how the refusal would quietly stop applying.
-    let error = compile("return Elephant;").expect_err("refused");
-    assert!(format!("{error:?}").contains("Unbound"), "{error:?}");
+    // matters: a typo does not become `undefined`. It is now a `ReferenceError`
+    // at the read rather than a refusal at compile time — the language's own
+    // answer — and this asserts the part that matters rather than the mechanism.
+    let caught = run("try { return Elephant; } catch (e) { return e instanceof ReferenceError; }");
+    assert_eq!(caught, rts_core_rwk::value::Value::from_bool(true).bits());
 }
 
 #[test]
@@ -2814,12 +2823,14 @@ fn globalthis_is_the_object_the_globals_are_on() {
     let back = run("globalThis.other = 5; return globalThis.other;");
     assert_eq!(tags::decode_double(back), 5.0);
 
-    // But the bare name is NOT readable, and that is the compile-time refusal
-    // being consistent rather than a separate limitation: a name is readable
-    // when the language provides it or the program assigns it by name, and
-    // `globalThis.other = 5` is neither. Reading it is what a typo looks like.
-    let bare = compile("globalThis.other = 5; return other;").expect_err("refused");
-    assert!(format!("{bare:?}").contains("Unbound"), "{bare:?}");
+    // And a name written through `globalThis` IS readable bare afterwards, which
+    // is what the language does — `globalThis.other = 5` creates the global
+    // `other`. This asserted the opposite, because the emitter's scan did not
+    // recognise a write through `globalThis` as creating a name and refused the
+    // read. A page-loader pattern that publishes and reads purely through
+    // `globalThis` was legal JavaScript this engine would not compile.
+    let through_global = run("globalThis.other = 5; return other;");
+    assert_eq!(through_global, rts_core_rwk::value::Value::from_f64(5.0).bits());
 
     let itself = run("return globalThis === globalThis;");
     assert_eq!(tags::payload_of(itself), tags::BOOL_TRUE);
@@ -2838,13 +2849,25 @@ fn typeof_of_an_undeclared_name_answers_rather_than_failing() {
 }
 
 #[test]
-fn reading_a_name_nothing_declares_or_creates_is_still_refused() {
-    // Stricter than the language, which throws a `ReferenceError` this engine
-    // cannot raise where a handler could catch it. Wrong only for a program
-    // that meant to catch that error — where answering `undefined` would be
-    // wrong for every program with a typo in it.
-    let error = compile("return neverMentionedAgain;").expect_err("refused");
-    assert!(format!("{error:?}").contains("Unbound"), "{error:?}");
+fn reading_a_name_nothing_declares_or_creates_raises_where_the_read_is() {
+    // This said "stricter than the language, which throws a `ReferenceError`
+    // this engine cannot raise where a handler could catch it". It can now, so
+    // the divergence the comment described is closed and the test asserts the
+    // language instead of the limitation.
+    //
+    // The reason the strictness had to go rather than being kept as a nicety:
+    // the error belongs to the READ, so a program that never reaches the read is
+    // legal. A UMD bundle mentioning `exports` in a branch it does not take was
+    // refused whole, and that is a real program, not a typo.
+    let caught =
+        run("try { return neverMentionedAgain; } catch (e) { return e instanceof ReferenceError; }");
+    assert_eq!(caught, rts_core_rwk::value::Value::from_bool(true).bits());
+
+    // The typo case the strictness was protecting is still protected — it is a
+    // thrown error rather than `undefined`, which is what would have made every
+    // misspelling a program that runs.
+    let not_undefined = run("try { return alsoNeverMentioned; } catch (e) { return 1; }");
+    assert_eq!(not_undefined, rts_core_rwk::value::Value::from_f64(1.0).bits());
 }
 
 #[test]

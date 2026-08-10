@@ -16,9 +16,9 @@
 //! on whatever thread called it. A chunk pushed while paused is buffered and
 //! delivered later, still synchronously, from inside whichever call flips
 //! the stream to flowing (`.resume()`, `.pipe()`, or attaching the first
-//! `'data'` listener promotes an emitter, though — named precisely — THIS
-//! module only promotes on `.pipe()`/`.resume()`, not merely on
-//! `.on('data', …)`; see [`readable`]'s own doc for the buffered-unit
+//! `'data'` listener — all three promote, matching real Node; `readable.rs`'s
+//! own `on` doc says why this one used to be a documented gap that was
+//! actually a bug, and [`readable`]'s own doc for the buffered-unit
 //! simplification `read()` makes at the same time). **What a program
 //! observes**: `readable.push(chunk)` and the corresponding `'data'`
 //! listener run back-to-back, never interleaved with anything else queued —

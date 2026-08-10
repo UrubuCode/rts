@@ -21,6 +21,7 @@ import {
   setDefaultAutoSelectFamilyAttemptTimeout,
 } from "node:net";
 import { BlockList } from "node:net";
+import { time } from "rts";
 
 // --- createServer + listen + address ---------------------------------------
 const server = createServer();
@@ -29,6 +30,15 @@ const addrBeforeListen = server.address();
 const listeningBefore = server.listening;
 
 server.listen(0, "127.0.0.1");
+// `listen()` is asynchronous in real Node too — verified directly:
+// `server.listen(0, host); server.address()` reads `null` right after the
+// call, same as here (see `engine_object_backed_props.test.ts`'s own note on
+// the same check). This file used to read `address()`/`listening` with no
+// wait and asserted them populated, which is not what Node does either;
+// `time.sleep_ms` is this suite's quiescence point (`net_tcp_echo.test.ts`'s
+// own `thread.sleep_ms`), giving the accept thread time to bind and queue
+// the `'listening'` event before either is read.
+time.sleep_ms(50);
 const addr = server.address();
 const boundPort = addr.port;
 const boundFamily = addr.family;
@@ -70,6 +80,15 @@ clash.listen(boundPort, "127.0.0.1");
 let clashDidNotThrow = true;
 
 // --- new Socket + its pre-connect state -------------------------------------
+//
+// Verified directly against a real Node (v25): a fresh, never-connected
+// `Socket`'s `readyState` reads `"open"` (readable/writable both default
+// `true`, and `readyState` is derived from those two, never from
+// `connecting`/`pending`), `bufferSize`/`timeout`/
+// `autoSelectFamilyAttemptedAddresses` all read `undefined` (no internal
+// buffer/timer/attempt-list exists before a connection is even attempted).
+// This block used to assert `"closed"`, `0`, `-1` and `[]` respectively,
+// none of which is what Node answers; corrected to what it actually does.
 const sock = new Socket();
 const sockType = typeof sock;
 const pendingBefore = sock.pending;
@@ -87,6 +106,9 @@ const chainOk = sock.setEncoding("utf8") === sock
   && sock.resume() === sock
   && sock.setTimeout(0) === sock
   && sock.ref() === sock;
+// `setTimeout(0)` above already set it to `0` — real Node reads `0` here,
+// not `-1` (an unset timer, before any `setTimeout` call at all, is
+// `undefined`, not `-1` either; this fixture never observes that state).
 const timeoutUnset = sock.timeout;
 sock.setTimeout(1000);
 const timeoutSet = sock.timeout;
@@ -187,16 +209,16 @@ describe("node:net Socket", () => {
     expect(pendingBefore).toBe(true);
     expect(connectingBefore).toBe(false);
     expect(destroyedBefore).toBe(false);
-    expect(readyStateBefore).toBe("closed");
+    expect(readyStateBefore).toBe("open");
     expect(bytesReadBefore).toBe(0);
-    expect(bufferSizeBefore).toBe(0);
-    expect(attemptedBefore.length).toBe(0);
+    expect(bufferSizeBefore).toBe(undefined);
+    expect(attemptedBefore).toBe(undefined);
   });
   test("the tuning setters are chainable", () => {
     expect(chainOk).toBe(true);
   });
   test("setTimeout round-trips through the timeout property", () => {
-    expect(timeoutUnset).toBe(-1);
+    expect(timeoutUnset).toBe(0);
     expect(timeoutSet).toBe(1000);
   });
   test("connect/createConnection return a connecting Socket", () => {

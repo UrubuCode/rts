@@ -74,17 +74,32 @@ pub(super) extern "C" fn pbkdf2_sync(_e: u64, _this: u64, password: u64, salt: u
     entry::with_runtime(|context| entry::make_buffer(context, &out))
 }
 
-/// `crypto.scryptSync(password, salt, keylen)` — Node's default cost
-/// parameters (`N = 16384, r = 8, p = 1`); the `options` object (fourth
-/// Node argument, including non-default `N`/`r`/`p`) is not read, for the
-/// same four-argument-max reason [`pbkdf2_sync`] states.
-pub(super) extern "C" fn scrypt_sync(_e: u64, _this: u64, password: u64, salt: u64, keylen: u64, _a3: u64) -> u64 {
+/// `crypto.scryptSync(password, salt, keylen[, options])` — Node's default
+/// cost parameters (`N = 16384, r = 8, p = 1`), overridden by `options.N`/
+/// `options.r`/`options.p` when the fourth argument carries them.
+///
+/// `options` lands in `a3` directly — it IS Node's fourth argument, and the
+/// calling convention's four slots cover it, unlike `pbkdf2Sync`/`hkdfSync`'s
+/// five-argument Node signatures. A non-object fourth argument (absent,
+/// `undefined`, or anything else with no `N`/`r`/`p` properties) answers
+/// `None` from `entry::number_of` on each read, so the defaults apply exactly
+/// as they did with no options object.
+///
+/// This used to ignore `a3` entirely (see doc history) — every non-default
+/// call answered a key that opened nothing derived by real Node's cost
+/// parameters, which ran, returned a `Buffer`, and did not say it was wrong.
+pub(super) extern "C" fn scrypt_sync(_e: u64, _this: u64, password: u64, salt: u64, keylen: u64, a3: u64) -> u64 {
     entry::with_runtime(|context| {
         let password = util::binary_bytes(context, password);
         let salt = util::binary_bytes(context, salt);
         let len = util::integer(context, keylen).unwrap_or(0).max(0) as usize;
+        let log_n = entry::number_of(entry::get_member(context, a3, "N"))
+            .map(|n| n.max(1.0).log2().round() as u8)
+            .unwrap_or(14);
+        let r = entry::number_of(entry::get_member(context, a3, "r")).unwrap_or(8.0).max(1.0) as u32;
+        let p = entry::number_of(entry::get_member(context, a3, "p")).unwrap_or(1.0).max(1.0) as u32;
         let mut out = vec![0u8; len];
-        let Ok(params) = scrypt::Params::new(14, 8, 1) else {
+        let Ok(params) = scrypt::Params::new(log_n, r, p) else {
             return entry::make_buffer(context, &out);
         };
         let _ = scrypt::scrypt(&password, &salt, &params, &mut out);

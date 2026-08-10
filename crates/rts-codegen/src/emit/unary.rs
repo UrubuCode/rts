@@ -88,16 +88,9 @@ pub fn emit_unary(
             let value = emit_expr(builder, scope, ctx, operand)?;
             Ok(expr::call(builder, ctx, RuntimeOp::BitNot, &[value])?[0])
         }
-        // Answers a string, and a string is a heap value this module cannot
-        // yet materialise.
         // Answers a string, which the runtime makes — and which of the eight
         // words it is depends on a cell's header rather than on the tag, since
         // a function and an object are both references.
-        //
-        // `typeof` on an *unbound name* is the one read in the language that
-        // does not throw, and that is not implemented: an unbound name is
-        // refused before this is reached, because there is no global object for
-        // it to be absent from.
         UnaryOp::TypeOf => {
             // The one read in the language that does not throw for a name
             // nothing declared, because it takes a REFERENCE rather than a

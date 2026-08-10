@@ -66,8 +66,20 @@ pub(super) fn prototype(context: &mut entry::Context) -> u64 {
 }
 
 /// `new net.Socket(options?)`.
-pub(super) extern "C" fn construct(_e: u64, this: u64, _options: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+///
+/// `options.fd` — adopting an already-open file descriptor — is not
+/// implemented (no `TcpStream::from_raw_fd`/socket-duplication wiring here),
+/// so it is refused by name, Node's own `ERR_INVALID_ARG_VALUE` shape.
+pub(super) extern "C" fn construct(_e: u64, this: u64, options: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     registry::pump();
+    let absent = entry::undefined_value();
+    if options != absent {
+        let fd = entry::with_runtime(|context| entry::get_member(context, options, "fd"));
+        if fd != absent {
+            entry::throw_type_error("ERR_INVALID_ARG_VALUE: The property 'options.fd' is not implemented");
+            return absent;
+        }
+    }
     entry::with_runtime(|context| {
         let prototype = prototype(context);
         let instance = super::common::self_or_new(context, this, prototype);
@@ -115,6 +127,15 @@ fn init(context: &mut entry::Context, instance: u64) {
     set_bool(context, instance, "pending", true);
     set_num(context, instance, "bytesRead", 0.0);
     set_num(context, instance, "bytesWritten", 0.0);
+    // `readyState` — a plain data property here (no accessor machinery
+    // reachable from this crate; see `url/mod.rs`'s own doc for the same
+    // wall), so it is the value real Node's `readable && writable` rule
+    // gives for the state every fresh `Socket` actually starts in: `"open"`,
+    // not `"closed"` — verified directly against Node, which does not flip
+    // it to `"closed"` until BOTH halves end, and a never-connected socket
+    // has ended neither.
+    let ready_state = entry::make_string(context, "open");
+    set_value(context, instance, "readyState", ready_state);
     set_num(context, instance, "timeout", 0.0);
     let write_fn = entry::make_callable(context, write_hook);
     set_value(context, instance, "_write", write_fn);
@@ -128,7 +149,28 @@ fn init(context: &mut entry::Context, instance: u64) {
 pub(super) extern "C" fn connect(_e: u64, this: u64, a: u64, b: u64, c: u64, _d: u64) -> u64 {
     registry::pump();
     let absent = entry::undefined_value();
+    // `connect("localhost")` — a lone non-numeric, non-object first
+    // argument — is Node's `ERR_MISSING_ARGS`: the overload set is
+    // `(port[, host][, cb])` or `(options[, cb])`, and a bare string is
+    // neither (there is no port to default it into). Checked before the
+    // overload split below, which used to fold this into the SAME branch as
+    // an options object with no `port` (defaulting to `0` and returning
+    // silently) — a `TypeError` Node actually raises, answered as a no-op.
+    let is_plain_string = entry::text_of(a).is_some() && super::common::number_arg(a).is_none();
+    if is_plain_string {
+        entry::throw_type_error(
+            "ERR_MISSING_ARGS: The \"options\" or \"port\" argument must be specified",
+        );
+        return this;
+    }
     let (port, host, listener) = match super::common::number_arg(a) {
+        Some(port) if port > 65535.0 || port < 0.0 => {
+            entry::throw_type_error(&format!(
+                "ERR_SOCKET_BAD_PORT: Port should be >= 0 and < 65536. Received {}.",
+                port as i64
+            ));
+            return this;
+        }
         Some(port) => {
             // The type test, not `ToString`. `text_of` converts, so an absent
             // second argument answered `Some("undefined")` — `connect(port)`

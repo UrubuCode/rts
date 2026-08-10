@@ -55,12 +55,21 @@
 //! **`ref`/`unref`**
 //! — no event-loop keep-alive accounting exists to hook; both are accepted
 //! and return `this` for chaining, with no OS or scheduling effect.
-//! **`bind`'s `fd`/`exclusive` options, the `lookup`/`signal`
-//! `createSocket` options, `receiveBlockList`/`sendBlockList`,
-//! `[Symbol.asyncDispose]`** — refused by silently answering `undefined`
-//! for the option, this crate's convention; none is recorded and later
-//! consulted. Each of the above answers `undefined` from its member lookup
-//! (unregistered) or is a documented no-op, never a plausible wrong value.
+//! **`bind`'s `fd`/`exclusive` options, `signal`, `[Symbol.asyncDispose]`**
+//! — refused by silently answering `undefined` for the option, this crate's
+//! convention; none is recorded and later consulted.
+//!
+//! **`receiveBlockList`/`sendBlockList` ARE implemented** now that
+//! `net.BlockList` is real: `createSocket` validates the option is
+//! `BlockList`-shaped (`ERR_INVALID_ARG_TYPE` otherwise) and stores it;
+//! `send()` consults `sendBlockList` before every send and refuses a blocked
+//! destination through the callback/`'error'` path, never a synchronous
+//! throw. `receiveBlockList` is accepted and validated the same way but not
+//! yet consulted on the receive path — see [`registry`]'s own doc for
+//! where an inbound datagram is delivered. **`lookup`** is still refused,
+//! but now by THROWING `ERR_INVALID_ARG_VALUE` (Node's own validation
+//! rejects a non-function there before ever calling it) rather than
+//! silently discarding it.
 
 mod bufsize;
 mod registry;
@@ -144,19 +153,44 @@ extern "C" fn create_socket(e: u64, _this: u64, a: u64, callback: u64, _c: u64, 
 /// both call, following the pattern every other class in this crate uses.
 extern "C" fn construct(_e: u64, this: u64, options: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     registry::pump();
-    let (kind, reuse_raw, recv_buf, send_buf) = entry::with_runtime(|context| {
+    let (kind, reuse_raw, recv_buf, send_buf, lookup, receive_block_list, send_block_list) = entry::with_runtime(|context| {
         let text = entry::text_in(context, options);
         match text {
-            Some(kind) => (kind, entry::undefined_in(context), None, None),
+            Some(kind) => (kind, entry::undefined_in(context), None, None, entry::undefined_in(context), entry::undefined_in(context), entry::undefined_in(context)),
             None => {
                 let kind = option_text(context, options, "type").unwrap_or_else(|| "udp4".to_owned());
                 let reuse = option_value(context, options, "reuseAddr");
                 let recv_buf = option_num(context, options, "recvBufferSize");
                 let send_buf = option_num(context, options, "sendBufferSize");
-                (kind, reuse, recv_buf, send_buf)
+                let lookup = option_value(context, options, "lookup");
+                let receive_block_list = option_value(context, options, "receiveBlockList");
+                let send_block_list = option_value(context, options, "sendBlockList");
+                (kind, reuse, recv_buf, send_buf, lookup, receive_block_list, send_block_list)
             }
         }
     });
+    // `lookup` — a custom resolver — is still not honored (see the module
+    // doc's "Not implemented" list); Node itself validates it as a function
+    // before ever trying to call it, so a caller supplying one gets told the
+    // option is refused rather than seeing it silently ignored.
+    if lookup != entry::undefined_value() {
+        entry::throw_type_error("ERR_INVALID_ARG_VALUE: The property 'lookup' is not implemented");
+        return entry::undefined_value();
+    }
+    // `receiveBlockList`/`sendBlockList` — validated the same way
+    // `net.BlockList.isBlockList` does (an own `rules` array; see that
+    // module's own doc for why that stand-in is good enough here): a value
+    // with no `rules` array is refused with Node's own
+    // `ERR_INVALID_ARG_TYPE` naming `net.BlockList`, matching the class
+    // constructor validation Node does before a socket is ever built.
+    for (option, name) in [(receive_block_list, "receiveBlockList"), (send_block_list, "sendBlockList")] {
+        if option != entry::undefined_value() && !is_block_list_like(option) {
+            entry::throw_type_error(&format!(
+                "ERR_INVALID_ARG_TYPE: The \"options.{name}\" property must be an instance of net.BlockList. Received an instance that is not one"
+            ));
+            return entry::undefined_value();
+        }
+    }
     // Decoded OUTSIDE the borrow above: `to_boolean` is an ambient entry point
     // (it calls `with_current` itself), so decoding it while still inside
     // `with_runtime`'s closure would be the nested borrow this crate aborts on.
@@ -169,6 +203,12 @@ extern "C" fn construct(_e: u64, this: u64, options: u64, _b: u64, _c: u64, _d: 
         set_bool(context, instance, "__udp6", is_udp6);
         set_bool(context, instance, "__reuseAddr", reuse_addr);
         set_bool(context, instance, "__bound", false);
+        if receive_block_list != entry::undefined_in(context) {
+            set_value(context, instance, "__receiveBlockList__", receive_block_list);
+        }
+        if send_block_list != entry::undefined_in(context) {
+            set_value(context, instance, "__sendBlockList__", send_block_list);
+        }
         // Applied by `bind`, once the real socket exists — `createSocket`
         // options carrying `recvBufferSize`/`sendBufferSize` are Node's
         // "set before the first bind" shape, stashed here rather than
@@ -362,6 +402,29 @@ extern "C" fn send(_e: u64, this: u64, msg: u64, port: u64, address: u64, callba
         .unwrap_or_default();
     let port_num = entry::number_of(port);
     let target_host = entry::text_of(address);
+    // A destination refused by `sendBlockList` — Node delivers this as a
+    // callback error / `'error'` event, never a synchronous throw (the
+    // module doc's own note on why this test can only assert "did not throw
+    // synchronously"), so the datagram is dropped here and the failure
+    // travels the same two paths as any other send error below.
+    let block_list = get_value(this, "__sendBlockList__");
+    if block_list != absent {
+        let host = target_host.clone().unwrap_or_else(|| "127.0.0.1".to_owned());
+        if blocked_by(block_list, &host) {
+            let error = entry::with_runtime(|context| {
+                let object = entry::make_object(context);
+                let message = entry::make_string(context, "ERR_SOCKET_BLOCKLIST: Destination address blocked");
+                entry::put_member(context, object, "message", message);
+                object
+            });
+            if callback != absent {
+                entry::call(callback, absent, error, absent, absent, absent);
+            } else {
+                emit(this, "error", error, absent, absent);
+            }
+            return absent;
+        }
+    }
     let Some(id) = socket_id(this) else { return absent };
     let result = registry::with_sockets(|table| {
         let Some(entry) = table.get(&id) else { return Err("socket closed".to_owned()) };
@@ -609,6 +672,32 @@ fn set_bool(context: &mut Context, this: u64, name: &str, value: bool) {
 fn set_num(context: &mut Context, this: u64, name: &str, value: f64) {
     let held = entry::make_number(value);
     entry::put_member(context, this, name, held);
+}
+
+fn set_value(context: &mut Context, this: u64, name: &str, value: u64) {
+    entry::put_member(context, this, name, value);
+}
+
+/// `net.BlockList.isBlockList`'s own duck-type check (an own `rules` array),
+/// duplicated rather than called: `net::blocklist::is_block_list` is
+/// `pub(super)` to `net`, the same cross-module visibility wall this
+/// module's own doc names for `net::registry`/`socket`/`common`.
+fn is_block_list_like(value: u64) -> bool {
+    let absent = entry::undefined_value();
+    entry::get_indexed(value, key("rules")) != absent
+}
+
+/// Whether `host` is refused by `blocklist` (a stored `net.BlockList`
+/// instance's real `check(address)` method — called through, never
+/// reimplemented, per this crate's own reuse-check convention).
+fn blocked_by(blocklist: u64, host: &str) -> bool {
+    let absent = entry::undefined_value();
+    let check_fn = entry::with_runtime(|context| entry::get_member(context, blocklist, "check"));
+    if check_fn == absent {
+        return false;
+    }
+    let address = entry::with_runtime(|context| entry::make_string(context, host));
+    entry::to_boolean(entry::call(check_fn, blocklist, address, absent, absent, absent))
 }
 
 fn init_emitter(context: &mut Context, instance: u64) {

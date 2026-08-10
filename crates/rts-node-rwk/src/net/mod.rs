@@ -87,11 +87,18 @@ pub fn namespace(context: &mut entry::Context) -> u64 {
         ("isIPv4", ip::is_ipv4),
         ("isIPv6", ip::is_ipv6),
         ("getDefaultAutoSelectFamily", get_default_auto_select_family),
-        ("setDefaultAutoSelectFamily", no_op),
+        ("setDefaultAutoSelectFamily", set_default_auto_select_family),
         ("getDefaultAutoSelectFamilyAttemptTimeout", get_default_auto_select_family_timeout),
-        ("setDefaultAutoSelectFamilyAttemptTimeout", no_op),
+        ("setDefaultAutoSelectFamilyAttemptTimeout", set_default_auto_select_family_timeout),
     ];
     let namespace = entry::make_namespace(context, members);
+    // `net.SOMAXCONN` — the default backlog Node's own `lib/net.js` falls
+    // back to when `listen()` is not given one. Node reads this from libuv's
+    // `SOMAXCONN`, which is platform-defined (511 on the platforms Node ships
+    // for; some historically use 128). Either is "a positive backlog max",
+    // which is all a portable value here can promise without asking the OS.
+    let somaxconn = entry::make_number(511.0);
+    entry::put_member(context, namespace, "SOMAXCONN", somaxconn);
 
     let socket_ctor = class_ctor(context, socket::construct, socket::prototype);
     let server_ctor = class_ctor(context, server::construct, server::prototype);
@@ -133,17 +140,41 @@ extern "C" fn create_server(e: u64, _this: u64, a: u64, b: u64, c: u64, d: u64) 
     server::construct(e, 0, a, b, c, d)
 }
 
+/// Process-wide `autoSelectFamily` state — Happy Eyeballs itself is not
+/// implemented (see the module doc), but the on/off FLAG and the attempt-
+/// timeout NUMBER are just settings a program round-trips through these four
+/// functions, with no socket behavior behind them to build. Node's own
+/// default is `true` (since 18.13/20 made it the default); this used to
+/// answer a hardcoded `false`, which is not Node's default and, worse, could
+/// never be changed — `setDefaultAutoSelectFamily` was a no-op, so a program
+/// that turned it off and read it back still saw the flag it just cleared.
+static AUTO_SELECT_FAMILY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+/// Node's own default (`lib/net.js`), and the floor `setDefaultAutoSelectFamilyAttemptTimeout` clamps up to.
+const AUTO_SELECT_FAMILY_TIMEOUT_DEFAULT: u32 = 250;
+const AUTO_SELECT_FAMILY_TIMEOUT_FLOOR: u32 = 10;
+static AUTO_SELECT_FAMILY_TIMEOUT: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(AUTO_SELECT_FAMILY_TIMEOUT_DEFAULT);
+
 extern "C" fn get_default_auto_select_family(_e: u64, _this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    entry::boolean_value(false)
+    entry::boolean_value(AUTO_SELECT_FAMILY.load(std::sync::atomic::Ordering::SeqCst))
+}
+
+extern "C" fn set_default_auto_select_family(_e: u64, _this: u64, value: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    AUTO_SELECT_FAMILY.store(entry::to_boolean(value), std::sync::atomic::Ordering::SeqCst);
+    entry::undefined_value()
 }
 
 extern "C" fn get_default_auto_select_family_timeout(_e: u64, _this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    entry::make_number(250.0)
+    entry::make_number(AUTO_SELECT_FAMILY_TIMEOUT.load(std::sync::atomic::Ordering::SeqCst) as f64)
 }
 
-/// `setDefaultAutoSelectFamily`/`setDefaultAutoSelectFamilyAttemptTimeout` —
-/// accepted and discarded: Happy Eyeballs itself is not implemented (see the
-/// module doc), so there is nothing for either setter to configure.
-extern "C" fn no_op(_e: u64, _this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+/// Clamps up to `AUTO_SELECT_FAMILY_TIMEOUT_FLOOR` — Node's own
+/// `validateInt32` + explicit floor in `lib/net.js`, which this used to skip
+/// entirely (the setter was a no-op, so no value, in or out of range, ever
+/// took effect).
+extern "C" fn set_default_auto_select_family_timeout(_e: u64, _this: u64, value: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    let millis = entry::number_of(value).unwrap_or(AUTO_SELECT_FAMILY_TIMEOUT_DEFAULT as f64).max(0.0) as u32;
+    AUTO_SELECT_FAMILY_TIMEOUT.store(millis.max(AUTO_SELECT_FAMILY_TIMEOUT_FLOOR), std::sync::atomic::Ordering::SeqCst);
     entry::undefined_value()
 }
+

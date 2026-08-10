@@ -7,16 +7,25 @@
 //! emitter cannot produce it, and a call is what reaches the one the runtime
 //! made. The number that crosses is the key the compiler already resolved.
 //!
-//! # The one thing kept stricter than the language
+//! # A name neither provided here nor assigned anywhere
 //!
-//! A name that is neither provided here nor assigned anywhere in the program is
-//! [`super::EmitError::UnboundName`] rather than a read answering `undefined`.
-//! The language throws a `ReferenceError` there, which this engine cannot raise
-//! where a handler could catch it — so the choice is between a refusal that is
-//! wrong for a program meaning to CATCH that error and an `undefined` that is
-//! wrong for every program with a typo in it. `typeof` is exempt, as the
-//! specification exempts it, and that exemption is implemented rather than
-//! approximated.
+//! Used to be [`super::EmitError::UnboundName`] unconditionally — refused before
+//! the program ran at all, which was **stricter than the language**: JavaScript
+//! throws a catchable `ReferenceError` only when such a read actually executes,
+//! and a name mentioned only on a dead branch, or reached only through
+//! `globalThis` rather than a bare declaration, compiled to nothing under the
+//! old rule even though the language runs it. [`unbound_read`] is the runtime
+//! side of the real rule now: a name the scope walk, [`super::binding::
+//! predefined`] and [`resolves`] all failed to place reaches it, and it always
+//! raises. `typeof` is exempt, as the specification exempts it, and that
+//! exemption is implemented rather than approximated — see `emit::unary`.
+//!
+//! This does not cost the compile-time catch a typo'd LOCAL used to get: a name
+//! any of those three could place — a declared binding, one of the three
+//! emitter constants, a provided or sloppily-created global — never reaches
+//! [`unbound_read`] at all. What reaches it is exactly the set the language
+//! itself calls unbound, which is why raising there is the correct answer and
+//! not a widened one.
 //!
 //! # Why the list lives in this crate
 //!
@@ -227,6 +236,40 @@ pub(super) fn force_read(
     // position in this list would be a second numbering for the same names.
     let key = key_constant(builder, ctx, name);
     Ok(call(builder, ctx, RuntimeOp::GlobalGet, &[key])?[0])
+}
+
+/// Emits a read of a name the compiler could not place anywhere at all.
+///
+/// # Why this is not [`EmitError::UnboundName`] any more
+///
+/// It used to be, unconditionally, and the comment at the top of this module
+/// called that **stricter than the language** on purpose: the read the
+/// specification gives this name is a `ReferenceError`, catchable, raised only
+/// when the read actually runs — and answering that at COMPILE time refuses a
+/// program whose read is on a path never taken (a dead UMD branch checking
+/// `typeof exports`) or whose name reaches the reader only through
+/// `globalThis`, never through a declaration this crate's scope analysis can
+/// see.
+///
+/// # Why this does not cost the typo the compile-time catch bought
+///
+/// Nothing about *when* a name resolves changed — only what happens once it
+/// does not. `binding::read` still asks the scope, then [`predefined`], then
+/// [`resolves`] (`PROVIDED` plus every sloppy write `sloppy::created` found)
+/// before reaching here, and every one of those is exactly what decided the
+/// compile-time refusal before. A name a program *could* have meant as a local
+/// was never unbound by any of those tests to begin with — a declared `let`,
+/// a parameter, a hoisted `function`, all resolve in the scope walk and never
+/// reach this. What reaches here is a name none of that machinery placed
+/// anywhere, which is the language's own definition of "reading this throws",
+/// not a heuristic guess at which typo the author meant.
+pub(super) fn unbound_read(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    name: Name,
+) -> EmitResult<ValueId> {
+    let key = key_constant(builder, ctx, name);
+    Ok(call(builder, ctx, RuntimeOp::UnboundGlobalGet, &[key])?[0])
 }
 
 /// Emits a write, creating the global.

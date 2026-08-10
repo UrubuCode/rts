@@ -70,7 +70,7 @@ use super::operators::{
     REMAINDER_ENTRY, SUBTRACT_ENTRY,
 };
 use super::primitives::{ADD_ENTRY, NUMBER_TO_STRING_ENTRY, STRICT_EQUALS_ENTRY, TO_BOOLEAN_ENTRY};
-use super::global::{GLOBAL_GET_ENTRY, GLOBAL_SET_ENTRY};
+use super::global::{GLOBAL_GET_ENTRY, GLOBAL_GET_UNBOUND_ENTRY, GLOBAL_SET_ENTRY};
 use super::iterate::{ARRAY_APPEND_ALL_ENTRY, ARRAY_APPEND_ENTRY, ITERATE_ENTRY};
 use super::bigint_class::{BIGINT_NEW_ENTRY, NEGATE_ENTRY};
 use super::regex::REGEX_NEW_ENTRY;
@@ -423,6 +423,14 @@ pub enum CoreEntry {
     /// must not. Vector-shaped like it, `new.target`-inert like
     /// [`CoreEntry::SuperConstruct`] — nothing already numbered was both.
     SuperConstructWithArgs = 69,
+
+    /// A read of a name proved, while compiling, to be neither declared,
+    /// provided, nor created by a sloppy write.
+    ///
+    /// Here because it raises the pending throw [`super::throw::
+    /// reference_error`] holds, which is global mutable state — the same
+    /// reason [`CoreEntry::GlobalGet`] and [`CoreEntry::GlobalSet`] are.
+    GlobalGetUnbound = 70,
 }
 
 /// How many entry points exist.
@@ -430,7 +438,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 70;
+pub const CORE_ENTRY_COUNT: usize = 71;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -505,6 +513,7 @@ impl CoreEntry {
         CoreEntry::GetSuperProperty,
         CoreEntry::SetSuperProperty,
         CoreEntry::SuperConstructWithArgs,
+        CoreEntry::GlobalGetUnbound,
     ];
 
     /// The number a call site holds.
@@ -572,6 +581,7 @@ impl CoreEntry {
             CoreEntry::ModuleNamespace => MODULE_NAMESPACE_ENTRY,
             CoreEntry::ModulePublish => MODULE_PUBLISH_ENTRY,
             CoreEntry::GlobalGet => GLOBAL_GET_ENTRY,
+            CoreEntry::GlobalGetUnbound => GLOBAL_GET_UNBOUND_ENTRY,
             CoreEntry::GetPrototype => GET_PROTOTYPE_ENTRY,
             CoreEntry::SetPrototype => SET_PROTOTYPE_ENTRY,
             CoreEntry::GlobalSet => GLOBAL_SET_ENTRY,

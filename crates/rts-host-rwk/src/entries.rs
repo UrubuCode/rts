@@ -285,6 +285,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::GlobalGet => (CoreEntry::GlobalGet, {
             rts_core_rwk::entry::global_get as extern "C" fn(i64) -> u64 as *const u8
         }),
+        RuntimeOp::UnboundGlobalGet => (CoreEntry::GlobalGetUnbound, {
+            rts_core_rwk::entry::global_get_unbound as extern "C" fn(i64) -> u64 as *const u8
+        }),
     }
 }
 

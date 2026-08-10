@@ -200,6 +200,12 @@ fn pump_servers() {
                             entry.local_addr = Some(local);
                         }
                     });
+                    // The JS-visible `server.listening` data property — this
+                    // used to only flip the Rust-side `ServerEntry::listening`
+                    // flag, which nothing reads back through the JS surface,
+                    // so a program checking `server.listening` after the
+                    // `'listening'` event still saw the constructor's `false`.
+                    entry::with_runtime(|context| super::common::set_bool(context, instance, "listening", true));
                     super::common::emit(instance, "listening", absent, absent, absent);
                 }
                 ServerEvent::ListenFailed(message) => {

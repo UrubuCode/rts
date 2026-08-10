@@ -591,6 +591,22 @@ pub enum RuntimeOp {
     /// setter search starts above the home object, and runs, if found, with
     /// `this` as its receiver.
     SetSuperProperty,
+
+    /// A read of a name proved, while compiling, to be neither declared,
+    /// provided, nor created by a sloppy write.
+    ///
+    /// Not `GlobalGet` with a flag: that operation answers `undefined` for a
+    /// name it personally lacks, because the compiler already decided the NAME
+    /// belongs to the language — `RegExp` unbuilt is this host's gap, not the
+    /// program's mistake. This is for the name the compiler could not place
+    /// anywhere at all, which the language answers with a `ReferenceError` —
+    /// so unlike every other entry point, calling this always raises; the
+    /// tagged value it hands back is never read.
+    ///
+    /// An entry point because raising is writing to the one pending-throw slot
+    /// this crate's own `check_for_throw` reads right after, which is global
+    /// mutable state.
+    UnboundGlobalGet,
 }
 
 impl RuntimeOp {
@@ -666,6 +682,7 @@ impl RuntimeOp {
         RuntimeOp::Negate,
         RuntimeOp::GetSuperProperty,
         RuntimeOp::SetSuperProperty,
+        RuntimeOp::UnboundGlobalGet,
     ];
 
     /// The linker name the runtime must define.
@@ -746,6 +763,7 @@ impl RuntimeOp {
             RuntimeOp::ArrayAppendAll => "__rts_array_append_all",
             RuntimeOp::GetSuperProperty => "__rts_get_super_property",
             RuntimeOp::SetSuperProperty => "__rts_set_super_property",
+            RuntimeOp::UnboundGlobalGet => "__rts_global_get_unbound",
         }
     }
 
@@ -898,6 +916,9 @@ impl RuntimeOp {
             RuntimeOp::SetSuperProperty => {
                 (vec![UNPROVEN, UNPROVEN, Repr::I64, UNPROVEN], vec![UNPROVEN])
             }
+            // A key the compiler resolved, like `GlobalGet` — and for the same
+            // reason: both sides hold the same number, so no text crosses.
+            RuntimeOp::UnboundGlobalGet => (vec![Repr::I64], vec![UNPROVEN]),
         };
         Signature {
             params,

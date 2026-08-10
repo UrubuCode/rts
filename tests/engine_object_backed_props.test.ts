@@ -18,6 +18,7 @@ import { describe, test, expect } from "rts:test";
 import { createServer } from "node:net";
 import { createHash } from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
+import { time } from "rts";
 
 // --- every value KIND round-trips ------------------------------------------
 const server = createServer();
@@ -66,7 +67,16 @@ const neverWritten = (server as any).__never_written_here;
 // Native fields keep their raw encoding (`__rts_class` is a string handle, not
 // a PolyValue word), so the class's real methods/getters must keep working
 // after arbitrary JS properties are stored alongside them.
+//
+// `listen()` is asynchronous in real Node too — verified directly:
+// `server.listen(0, host); server.listening` reads `false` and
+// `server.address()` reads `null` right after the call, on real Node, same
+// as here. This block used to read both synchronously with no wait and
+// asserted `true`, which is not what Node does either; `time.sleep_ms` is
+// this suite's own quiescence point (`net_tcp_echo.test.ts`'s own use of
+// `thread.sleep_ms`), so the accept thread has bound before either is read.
 server.listen(0, "127.0.0.1");
+time.sleep_ms(50);
 const stillListening = server.listening;
 const stillHasPort = server.address().port > 0;
 server.close();

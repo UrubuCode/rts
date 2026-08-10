@@ -104,7 +104,7 @@ pub use functions::{
     mark_derived, set_call_name, super_construct, super_construct_with_args,
 };
 pub use generator::{FrameShape, declare_frames, generator_new, generator_yield};
-pub use global::{global_get, global_set};
+pub use global::{global_get, global_get_unbound, global_set};
 pub use iterate::{array_append, array_append_all, iterate};
 pub use modules::{
     module_publish_all,

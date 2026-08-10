@@ -158,6 +158,52 @@ pub fn global_set(key: i64, value: u64) -> u64 {
     })
 }
 
+/// A read of a name the compiler proved is neither declared, provided, nor
+/// created by a sloppy-mode write — reached only for that case, unconditionally.
+///
+/// # Why this exists beside [`global_get`]
+///
+/// `global_get` answers `undefined` for a name it does not personally supply,
+/// and that answer is right there: the compiler decided the NAME is one a
+/// program may read (it is in `PROVIDED`), and which of those this host actually
+/// built is this crate's question, not the program's mistake. This entry is for
+/// the opposite case — `rts-codegen`'s `globals.rs` could not find the name
+/// anywhere, in any scope, in `PROVIDED`, or among the names a sloppy write
+/// creates — so at THIS call the answer is not "this host lacks it", it is "the
+/// language says reading this throws". `ReferenceError`, not `undefined`, is
+/// what Node and Bun answer for the same program.
+///
+/// # Why it always throws rather than checking the holder first
+///
+/// Because the compiler already checked every way a name could resolve before
+/// emitting this call at all — see `rts-codegen::emit::binding::read`. Checking
+/// again here would be asking the same question this crate cannot answer better
+/// than the one that already asked it, and would let a name a sloppy write
+/// *had not run yet* answer `undefined` instead of the same `ReferenceError`
+/// Node gives a script that reads before the assignment runs.
+#[rtse::entry]
+pub fn global_get_unbound(key: i64) -> u64 {
+    // Collected and the borrow dropped before raising: `reference_error` opens
+    // its own `with_current`, and a second one nested inside this closure's
+    // would be a re-entrant borrow of the same context — the abort this
+    // crate's rule 8 exists to keep out of an `extern "C"` frame.
+    let text = with_current(|context| {
+        let name = u32::try_from(key).ok().and_then(|number| context.keys.key(number));
+        name.and_then(|name| context.interner.text(name))
+            .and_then(|text| text.to_rust())
+    });
+    let message = match text {
+        Some(text) => format!("{text} is not defined"),
+        None => "is not defined".to_owned(),
+    };
+    super::throw::reference_error(&message);
+    with_current(|context| undefined_of(&*context))
+    // The `undefined` above is never actually observed: `reference_error` set
+    // the pending throw, and every call site this crosses
+    // (`rts-codegen::emit::expr::call`) checks for one immediately after the
+    // call and re-raises before the value is used.
+}
+
 /// The object the provided names are properties of, made once.
 pub(in crate::entry) fn holder(context: &mut Context) -> Option<u32> {
     if let Some(made) = context.globals {

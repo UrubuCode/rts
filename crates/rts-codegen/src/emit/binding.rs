@@ -60,13 +60,20 @@ pub fn read(
             super::property::emit_read(builder, ctx, environment, name)
         }
         // Nothing declared it. A few names are still readable — three the
-        // emitter produces itself and a few the runtime holds — and the rest is
-        // the program being wrong. See [`predefined`] and [`super::globals`].
+        // emitter produces itself and a few the runtime holds — and what is
+        // left is a name the scope walk, [`predefined`] and [`super::globals::
+        // resolves`] all failed to place. That is not a program being wrong:
+        // it is `ReferenceError`, raised at the moment this read actually
+        // runs rather than refused before the program does anything at all —
+        // see [`super::globals::unbound_read`] for why the compile-time
+        // refusal this used to be would have been WRONG for a read on a path
+        // never taken, and for why every name this crate could have proven a
+        // typo still fails right here at compile time.
         None => match predefined(builder, ctx, name) {
             Some(value) => Ok(value),
             None => match super::globals::read(builder, ctx, name) {
                 Some(answered) => answered,
-                None => Err(EmitError::UnboundName(name)),
+                None => super::globals::unbound_read(builder, ctx, name),
             },
         },
     }

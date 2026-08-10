@@ -199,6 +199,18 @@ fn constants_table(context: &mut Context) -> u64 {
         ("BROTLI_MAX_NPOSTFIX", 3.0),
         ("BROTLI_DECODER_PARAM_DISABLE_RING_BUFFER_REALLOCATION", 0.0),
         ("BROTLI_DECODER_PARAM_LARGE_WINDOW", 1.0),
+        // Format constants — `zlib.constants.<FORMAT>`, the argument to
+        // `zlib.createDeflate`/`createGzip`/etc.'s underlying dispatch and to
+        // `ZLIB_VERNUM`. Node's `deps/zlib`/`lib/zlib.js` numbering.
+        ("DEFLATE", 1.0),
+        ("INFLATE", 2.0),
+        ("GZIP", 3.0),
+        ("GUNZIP", 4.0),
+        ("DEFLATERAW", 5.0),
+        ("INFLATERAW", 6.0),
+        ("UNZIP", 7.0),
+        ("BROTLI_DECODE", 8.0),
+        ("BROTLI_ENCODE", 9.0),
     ];
     for (name, value) in entries {
         let held = entry::make_number(*value);

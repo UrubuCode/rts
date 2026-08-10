@@ -20,15 +20,28 @@
 //! === querystring.parse` holds here for the reason it holds in real Node:
 //! it is one function with two names.
 //!
+//! # `options`
+//!
+//! `parse(str, sep?, eq?, options?)` and `stringify(obj, sep?, eq?, options?)`
+//! are both exactly four Node arguments, which is this calling convention's
+//! own slot count — `options` lands in the fourth ABI slot directly, no
+//! [`rts_core_rwk::entry::rest_arguments`] needed. `options.maxKeys` truncates
+//! `parse`'s result to that many keys in insertion order (`0` or absent means
+//! unlimited, Node's own meaning); `options.decodeURIComponent`/
+//! `.encodeURIComponent`, when callable, replace this module's own percent
+//! codec for that one call, invoked through [`rts_core_rwk::entry::call`].
+//! Rule 8 of `rts-core-rwk`'s README asks a native calling user code to check
+//! whether the callee threw before trusting the answer; the check itself
+//! (`entry::throw::in_flight`) is `pub(in crate::entry)`, not reachable from
+//! this crate, so this module cannot satisfy that rule and does not pretend
+//! to — the same gap `async_hooks::local`/`resource.rs` and
+//! `child_process::spawn_async` already carry for every callback they invoke
+//! through the same function. A throwing callback here answers `undefined`,
+//! which flows through the codec unchecked, same as those sites.
+//!
 //! # Not implemented, by name
 //!
-//! The `options` parameter on every function — `maxKeys`, and the
-//! `decodeURIComponent`/`encodeURIComponent` overrides. Reading a caller-
-//! supplied function out of an options object and calling it per key/value is
-//! reachable with what this crate has, but it was not built for this pass;
-//! `parse`/`decode` always use this module's own decoder, `stringify`/
-//! `encode` always use its own encoder, and `maxKeys` never truncates
-//! (real Node's default 1000-key cap is not enforced). The result object from
+//! The result object from
 //! `parse`/`decode` is an **ordinary** object, not the null-prototype one
 //! real Node returns — nothing in the value API this crate was given builds
 //! an object with no prototype, so a key named `__proto__` lands as an own
@@ -54,14 +67,19 @@ pub fn namespace(context: &mut Context) -> u64 {
     rts_core_rwk::entry::make_namespace(context, members)
 }
 
-/// `querystring.parse(str, sep?, eq?)` / `.decode(...)`.
-extern "C" fn parse(_e: u64, _this: u64, text: u64, sep: u64, eq: u64, _d: u64) -> u64 {
+/// `querystring.parse(str, sep?, eq?, options?)` / `.decode(...)`.
+extern "C" fn parse(_e: u64, _this: u64, text: u64, sep: u64, eq: u64, options: u64) -> u64 {
     let Some(text) = argument_text(text) else {
         return rts_core_rwk::entry::with_runtime(rts_core_rwk::entry::make_object);
     };
     let sep = argument_text(sep).unwrap_or_else(|| "&".to_owned());
     let eq = argument_text(eq).unwrap_or_else(|| "=".to_owned());
-    let grouped = parse_pairs(&text, &sep, &eq);
+    let decoder = option_callback(options, "decodeURIComponent");
+    let max_keys = option_max_keys(options);
+    let mut grouped = parse_pairs(&text, &sep, &eq, decoder);
+    if let Some(max_keys) = max_keys {
+        grouped.truncate(max_keys);
+    }
     rts_core_rwk::entry::with_runtime(|context| {
         let result = rts_core_rwk::entry::make_object(context);
         for (key, values) in grouped {
@@ -78,10 +96,11 @@ extern "C" fn parse(_e: u64, _this: u64, text: u64, sep: u64, eq: u64, _d: u64) 
     })
 }
 
-/// `querystring.stringify(obj, sep?, eq?)` / `.encode(...)`.
-extern "C" fn stringify(_e: u64, _this: u64, object: u64, sep: u64, eq: u64, _d: u64) -> u64 {
+/// `querystring.stringify(obj, sep?, eq?, options?)` / `.encode(...)`.
+extern "C" fn stringify(_e: u64, _this: u64, object: u64, sep: u64, eq: u64, options: u64) -> u64 {
     let sep = argument_text(sep).unwrap_or_else(|| "&".to_owned());
     let eq = argument_text(eq).unwrap_or_else(|| "=".to_owned());
+    let encoder = option_callback(options, "encodeURIComponent");
     let absent = rts_core_rwk::entry::undefined_value();
     if object == absent {
         return rts_core_rwk::entry::with_runtime(|context| rts_core_rwk::entry::make_string(context, ""));
@@ -94,11 +113,53 @@ extern "C" fn stringify(_e: u64, _this: u64, object: u64, sep: u64, eq: u64, _d:
         };
         let value = rts_core_rwk::entry::get_indexed(object, key);
         for text in stringify_value(value) {
-            pairs.push(format!("{}{eq}{}", percent_encode(&name), percent_encode(&text)));
+            pairs.push(format!("{}{eq}{}", encode_with(&name, encoder), encode_with(&text, encoder)));
         }
     }
     let joined = pairs.join(&sep);
     rts_core_rwk::entry::with_runtime(|context| rts_core_rwk::entry::make_string(context, &joined))
+}
+
+/// `options.<name>` when it is callable, `None` otherwise (including an
+/// absent `options` — the fourth argument's own "no options" value).
+fn option_callback(options: u64, name: &str) -> Option<u64> {
+    let absent = rts_core_rwk::entry::undefined_value();
+    if options == absent {
+        return None;
+    }
+    let value = rts_core_rwk::entry::get_indexed(options, rts_core_rwk::entry::with_runtime(|context| rts_core_rwk::entry::make_string(context, name)));
+    let callable = rts_core_rwk::entry::with_runtime(|context| rts_core_rwk::entry::is_callable_in(context, value));
+    callable.then_some(value)
+}
+
+/// `options.maxKeys` as a truncation count — `None` for "unlimited", which is
+/// both Node's `0` and an absent/non-numeric option (this module enforces no
+/// cap by default, so an option this crate cannot read is the same as one
+/// that was not given, never a silent different default).
+fn option_max_keys(options: u64) -> Option<usize> {
+    let absent = rts_core_rwk::entry::undefined_value();
+    if options == absent {
+        return None;
+    }
+    let value = rts_core_rwk::entry::get_indexed(options, rts_core_rwk::entry::with_runtime(|context| rts_core_rwk::entry::make_string(context, "maxKeys")));
+    let count = rts_core_rwk::entry::number_of(value)?;
+    if count <= 0.0 { None } else { Some(count as usize) }
+}
+
+/// A caller-supplied `decodeURIComponent`, called with one string argument;
+/// see the module doc for why this cannot check whether it threw.
+fn call_codec(callback: u64, text: &str) -> String {
+    let absent = rts_core_rwk::entry::undefined_value();
+    let argument = rts_core_rwk::entry::with_runtime(|context| rts_core_rwk::entry::make_string(context, text));
+    let result = rts_core_rwk::entry::call(callback, absent, argument, absent, absent, absent);
+    rts_core_rwk::entry::text_of(result).unwrap_or_default()
+}
+
+fn encode_with(text: &str, encoder: Option<u64>) -> String {
+    match encoder {
+        Some(callback) => call_codec(callback, text),
+        None => percent_encode(text),
+    }
 }
 
 /// `querystring.escape(str)`.
@@ -139,18 +200,22 @@ fn stringify_value(value: u64) -> Vec<String> {
 
 /// Splits a query string into `key -> values`, first-seen order, repeated
 /// keys accumulating into more than one value.
-fn parse_pairs(text: &str, sep: &str, eq: &str) -> Vec<(String, Vec<String>)> {
+fn parse_pairs(text: &str, sep: &str, eq: &str, decoder: Option<u64>) -> Vec<(String, Vec<String>)> {
     let mut grouped: Vec<(String, Vec<String>)> = Vec::new();
     if text.is_empty() {
         return grouped;
     }
+    let decode = |raw: &str| match decoder {
+        Some(callback) => call_codec(callback, raw),
+        None => percent_decode(raw),
+    };
     for pair in split_literal(text, sep) {
         let (raw_key, raw_value) = match pair.find(eq) {
             Some(at) => (&pair[..at], &pair[at + eq.len()..]),
             None => (pair, ""),
         };
-        let key = percent_decode(raw_key);
-        let value = percent_decode(raw_value);
+        let key = decode(raw_key);
+        let value = decode(raw_value);
         match grouped.iter_mut().find(|(existing, _)| *existing == key) {
             Some((_, values)) => values.push(value),
             None => grouped.push((key, vec![value])),

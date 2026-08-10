@@ -65,25 +65,95 @@ fn type_arg(value: u64) -> &'static str {
     }
 }
 
+/// An argument as an address string — a plain string, OR a `SocketAddress`
+/// instance read off its own `address` property, matching Node's own
+/// `string | SocketAddress` union for every `BlockList` add method. This used
+/// to be `entry::text_of` alone, which does not fall through to a property
+/// read, so a `SocketAddress` argument answered `None` where Node reads its
+/// `.address`.
+fn address_text(value: u64) -> Option<String> {
+    if let Some(text) = entry::text_of(value) {
+        return Some(text);
+    }
+    let absent = entry::undefined_value();
+    let field = entry::get_indexed(value, super::common::key("address"));
+    if field == absent {
+        return None;
+    }
+    entry::text_of(field)
+}
+
+/// `ERR_INVALID_ADDRESS` — real Node raises a plain `Error` (not a
+/// `TypeError`) with this code; `entry::throw_type_error` is the only raise
+/// this crate can reach publicly (rule 8's own exemption list does not cover
+/// a second error class), so the class here diverges from Node's while the
+/// code/message text — what every test in this file actually checks — does
+/// not.
+fn invalid_address() {
+    entry::throw_type_error("ERR_INVALID_ADDRESS: Invalid socket address");
+}
+
 extern "C" fn add_address(_e: u64, this: u64, address: u64, kind: u64, _c: u64, _d: u64) -> u64 {
-    let Some(address) = entry::text_of(address) else { return entry::undefined_value() };
-    push_rule(this, format!("Address: {} {address}", type_arg(kind)));
+    let Some(address) = address_text(address) else {
+        invalid_address();
+        return entry::undefined_value();
+    };
+    let family = type_arg(kind);
+    let is_v6 = address.parse::<std::net::Ipv6Addr>().is_ok();
+    let is_v4 = address.parse::<std::net::Ipv4Addr>().is_ok();
+    if (family == "IPv4" && !is_v4) || (family == "IPv6" && !is_v6) {
+        invalid_address();
+        return entry::undefined_value();
+    }
+    push_rule(this, format!("Address: {family} {address}"));
     entry::undefined_value()
 }
 
 /// `blockList.addRange(start, end, type?)`. Four call slots total once the
 /// receiver takes one — `type` reads from the last, matching the ceiling
 /// this task's brief states.
+///
+/// `ERR_INVALID_ARG_VALUE` when `start` sorts after `end` — Node's own
+/// `TypeError` for this one, which `throw_type_error` reaches exactly, no
+/// class divergence needed.
 extern "C" fn add_range(_e: u64, this: u64, start: u64, end: u64, kind: u64, _d: u64) -> u64 {
-    let Some(start) = entry::text_of(start) else { return entry::undefined_value() };
-    let Some(end) = entry::text_of(end) else { return entry::undefined_value() };
+    let (Some(start), Some(end)) = (address_text(start), address_text(end)) else {
+        invalid_address();
+        return entry::undefined_value();
+    };
+    let (Ok(s), Ok(e)) = (start.parse::<IpAddr>(), end.parse::<IpAddr>()) else {
+        invalid_address();
+        return entry::undefined_value();
+    };
+    let inverted = match (s, e) {
+        (IpAddr::V4(s), IpAddr::V4(e)) => u32::from(s) > u32::from(e),
+        (IpAddr::V6(s), IpAddr::V6(e)) => u128::from(s) > u128::from(e),
+        _ => false,
+    };
+    if inverted {
+        entry::throw_type_error(&format!(
+            "ERR_INVALID_ARG_VALUE: The argument 'start' must come before end. Received {start}"
+        ));
+        return entry::undefined_value();
+    }
     push_rule(this, format!("Range: {} {start}-{end}", type_arg(kind)));
     entry::undefined_value()
 }
 
 extern "C" fn add_subnet(_e: u64, this: u64, net: u64, prefix: u64, kind: u64, _d: u64) -> u64 {
-    let Some(net) = entry::text_of(net) else { return entry::undefined_value() };
+    let Some(net) = address_text(net) else {
+        invalid_address();
+        return entry::undefined_value();
+    };
     let Some(prefix) = entry::number_of(prefix) else { return entry::undefined_value() };
+    let max = if type_arg(kind) == "IPv6" { 128 } else { 32 };
+    if !(0.0..=max as f64).contains(&prefix) {
+        entry::throw_type_error(&format!(
+            "ERR_OUT_OF_RANGE: The value of \"prefix\" is out of range. It must be >= 0 && <= {max}. Received {}",
+            prefix as i64
+        ));
+        return entry::undefined_value();
+    }
     push_rule(this, format!("Subnet: {} {net}/{}", type_arg(kind), prefix as u32));
     entry::undefined_value()
 }
@@ -126,6 +196,22 @@ fn subnet_contains(net: IpAddr, prefix: u32, candidate: IpAddr) -> bool {
     }
 }
 
+/// `candidate`, and — when it is an IPv4-MAPPED IPv6 address (`::ffff:a.b.c.d`)
+/// — the plain IPv4 form beside it, matching Node's own cross-family rule
+/// (`src/node_sockaddr.cc`'s `Rule::Match`, this module's own doc names it):
+/// an IPv4 rule covers the IPv4-mapped IPv6 shape of the same address. This
+/// used to compare `candidate` against a rule of the SAME family only, so a
+/// `::ffff:1.2.3.4` candidate never matched an IPv4 rule for `1.2.3.4`.
+fn candidate_forms(candidate: IpAddr) -> Vec<IpAddr> {
+    match candidate {
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => vec![candidate, IpAddr::V4(v4)],
+            None => vec![candidate],
+        },
+        IpAddr::V4(_) => vec![candidate],
+    }
+}
+
 fn matches(rule: &Rule, candidate: IpAddr) -> bool {
     match rule {
         Rule::Address(address) => *address == candidate,
@@ -139,10 +225,12 @@ fn matches(rule: &Rule, candidate: IpAddr) -> bool {
 }
 
 extern "C" fn check(_e: u64, this: u64, address: u64, _kind: u64, _c: u64, _d: u64) -> u64 {
-    let Some(address) = entry::text_of(address) else { return entry::boolean_value(false) };
+    let Some(address) = address_text(address) else { return entry::boolean_value(false) };
     let Ok(candidate) = address.parse::<IpAddr>() else { return entry::boolean_value(false) };
+    let forms = candidate_forms(candidate);
     let rules = super::common::get_value(this, "rules");
-    let held = collect(rules).into_iter().filter_map(entry::text_of).filter_map(|text| parse_rule(&text)).any(|rule| matches(&rule, candidate));
+    let parsed_rules: Vec<Rule> = collect(rules).into_iter().filter_map(entry::text_of).filter_map(|text| parse_rule(&text)).collect();
+    let held = parsed_rules.iter().any(|rule| forms.iter().any(|form| matches(rule, *form)));
     entry::boolean_value(held)
 }
 

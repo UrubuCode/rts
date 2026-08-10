@@ -134,8 +134,13 @@ pub(super) extern "C" fn format(_e: u64, _this: u64, value: u64, options: u64, _
         let protocol = entry::text_in(context, protocol).unwrap_or_default();
         let slashes_raw = entry::get_member(context, value, "slashes");
         let slashes = entry::to_boolean_in(context, slashes_raw);
+        // `string_in`, not `text_in`: the latter is `ToString`, and an ABSENT
+        // `auth` property (`undefined`) coerced to the four-character string
+        // `"undefined"` rather than "no auth" — so every object without one
+        // printed a literal `undefined@` in front of the host. Node's own
+        // legacy formatter only emits `auth@` when `auth` is a real string.
         let auth_raw = entry::get_member(context, value, "auth");
-        let auth = entry::text_in(context, auth_raw);
+        let auth = entry::string_in(context, auth_raw);
         let host_raw = entry::get_member(context, value, "host");
         let host = entry::text_in(context, host_raw);
         let pathname_raw = entry::get_member(context, value, "pathname");

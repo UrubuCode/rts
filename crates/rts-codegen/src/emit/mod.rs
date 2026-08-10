@@ -511,7 +511,8 @@ pub fn emit_program_with_exports(
     // Which names this program creates by assigning to them, before any of it
     // is emitted — a body that reads one may be emitted before the assignment
     // that creates it is reached.
-    ctx.globals = sloppy::created(body);
+    let global_this = ctx.names.intern("globalThis");
+    ctx.globals = sloppy::created(body, global_this);
 
     let nothing = Scope::new();
     let mut emitted = function::emit_body(
@@ -630,7 +631,8 @@ fn emit_unit(
 ) -> EmitResult<FuncId> {
     let sig = ctx.funcs.declare_signature(function::signature());
     let entry = ctx.funcs.declare_function(sig);
-    ctx.globals = sloppy::created(body);
+    let global_this = ctx.names.intern("globalThis");
+    ctx.globals = sloppy::created(body, global_this);
     let nothing = Scope::new();
     let mut emitted = function::emit_body(
         ctx,
@@ -797,13 +799,13 @@ mod tests {
     }
 
     #[test]
-    fn using_a_name_nothing_introduced_is_the_programs_error_not_a_gap() {
-        let error = emit_source("x + 1").expect_err("`x` is not bound");
-        assert!(
-            matches!(error, EmitError::UnboundName(_)),
-            "must not be `Unsupported`: the construct IS emitted, and the \
-             program is the thing that is wrong. Got {error:?}"
-        );
+    fn using_a_name_nothing_introduced_emits_a_runtime_reference_error() {
+        // `x` is bound nowhere the scope walk, `predefined` or `globals::
+        // resolves` can see, which used to be `EmitError::UnboundName` —
+        // refused before the program ran at all. The language's own answer is
+        // a catchable `ReferenceError`, raised only when this read actually
+        // executes, so this now emits: see `emit::globals::unbound_read`.
+        emit_source("x + 1").expect("emits a call that raises at run time");
     }
 
     /// How many values are merged through block parameters.
@@ -1046,12 +1048,13 @@ mod tests {
 
     #[test]
     fn a_for_header_owns_a_scope_that_does_not_survive_the_loop() {
-        // `i` is not in scope after the loop, so using it there is the
-        // program's error rather than a gap.
+        // `i` is not in scope after the loop. JavaScript itself does not
+        // refuse that while parsing — a bare read of a name nothing declares
+        // is a `ReferenceError` raised when the read runs, and this is one:
+        // real Node agrees, since nothing here is a `let` shadowing anything.
         emit_body_of("for (let i = 0; i; i = 1) { }").expect("emits");
-        let error =
-            emit_body_of("for (let i = 0; i; i = 1) { } return i;").expect_err("`i` is gone");
-        assert!(matches!(error, EmitError::UnboundName(_)), "got {error:?}");
+        emit_body_of("for (let i = 0; i; i = 1) { } return i;")
+            .expect("emits a call that raises `i is not defined` at run time");
     }
 
     #[test]

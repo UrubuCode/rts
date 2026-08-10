@@ -229,6 +229,20 @@ pub(in crate::entry) fn syntax_error(message: &str) {
     named_error("SyntaxError", message);
 }
 
+/// Raises a `ReferenceError` a `catch` in the program can see.
+///
+/// Same construction as [`type_error`], for the one read the language itself
+/// says throws: a name nothing declares and nothing provides. `rts-codegen`
+/// decides, while compiling, which names those are — everything a scope binds,
+/// everything [`super::global`]'s `PROVIDED` list or a sloppy-mode write
+/// installs — and reaches this only for a name it could prove is neither. That
+/// is what keeps a typo compiled against a name that IS one of those two sets
+/// looking exactly as it did before: nothing about this reaches a name a scope
+/// could have meant, only the ones no scope offers at all.
+pub(in crate::entry) fn reference_error(message: &str) {
+    named_error("ReferenceError", message);
+}
+
 /// Builds and raises `new <name>(message)`, shared by every named-error site.
 ///
 /// One function rather than one copy per class, because the three differ only

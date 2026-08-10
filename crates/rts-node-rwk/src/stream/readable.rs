@@ -28,7 +28,36 @@ pub(super) const METHODS: &[(&str, Provided)] = &[
     ("isPaused", is_paused),
     ("setEncoding", set_encoding),
     ("destroy", destroy),
+    ("on", on),
+    ("addListener", on),
 ];
+
+/// `readable.on(eventName, listener)` / `.addListener(...)` — registers
+/// through the real `EventEmitter.prototype.on` (fetched by name; see
+/// `entry::make_prototype`'s own idempotent-by-name contract — an empty
+/// method list for an already-built name, the same call `chained_prototype`
+/// already makes), then promotes to flowing mode on the FIRST `'data'`
+/// listener.
+///
+/// This used to be missing: the module doc claimed attaching a `'data'`
+/// listener never promotes a `Readable` — only `.pipe()`/`.resume()` did —
+/// stated as a deliberate divergence. Checked against a real Node: it does
+/// promote (`r.on('data', cb)` alone flows a stream with no `.resume()`
+/// call), so that was a real bug wearing a documented-limitation's clothes.
+extern "C" fn on(_e: u64, this: u64, event: u64, listener: u64, _c: u64, _d: u64) -> u64 {
+    let emitter_on = entry::with_runtime(|context| {
+        let emitter_prototype = entry::make_prototype(context, "EventEmitter", &[]);
+        entry::get_member(context, emitter_prototype, "on")
+    });
+    let absent = entry::undefined_value();
+    if emitter_on != absent {
+        entry::call(emitter_on, this, event, listener, absent, absent);
+    }
+    if entry::text_of(event).as_deref() == Some("data") {
+        resume(0, this, 0, 0, 0, 0);
+    }
+    this
+}
 
 /// Builds the class object `stream.Readable` is, with its own prototype
 /// chained onto `Stream`/`EventEmitter` — see `mod.rs::namespace`.

@@ -5,8 +5,17 @@ import { openSync, writeSync, readSync, fstatSync, closeSync, ftruncateSync, unl
 const F = "__rts_fs_fd_test.bin";
 
 // write "hello" via a write fd.
+//
+// `writeSync`'s `buffer` argument must be a `Buffer`/`TypedArray`/`DataView`
+// in real Node — verified against it directly: a plain `number[]` throws
+// `TypeError [ERR_INVALID_ARG_TYPE]: The "buffer" argument must be of type
+// string or an instance of Buffer, TypedArray, or DataView. Received an
+// instance of Array`. This fixture used to pass a plain array and asserted
+// the write/read succeeded, which is not what Node does with that input;
+// corrected to pass a real `Buffer`, the same fix applied to `readSync`'s
+// destination below.
 const wfd = openSync(F, "w");
-const src = [104, 101, 108, 108, 111]; // "hello"
+const src = Buffer.from([104, 101, 108, 108, 111]); // "hello"
 const written = writeSync(wfd, src, 0, 5, 0);
 closeSync(wfd);
 const wroteOk = written === 5;
@@ -17,7 +26,7 @@ const st = fstatSync(rfd);
 const fstatOk = st.isFile() === true && st.size === 5;
 
 // read 5 bytes into a buffer.
-const buf = [0, 0, 0, 0, 0];
+const buf = Buffer.alloc(5);
 const nread = readSync(rfd, buf, 0, 5, 0);
 const readOk = nread === 5 && buf[0] === 104 && buf[4] === 111;
 closeSync(rfd);

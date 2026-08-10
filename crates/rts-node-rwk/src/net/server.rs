@@ -54,7 +54,31 @@ pub(super) extern "C" fn construct(_e: u64, this: u64, a: u64, b: u64, _c: u64, 
     // `(options, connectionListener)` by whether the first argument is
     // callable, the same test `stream::writable::end` uses for its own
     // positional-overload collapse.
-    let (listener,) = if is_callable(a) { (a,) } else { (b,) };
+    let (options, listener) = if is_callable(a) { (absent, a) } else { (a, b) };
+    if options != absent {
+        // `path` — the Unix-socket/named-pipe IPC form. Never implemented
+        // (only the TCP `(port, host?, callback?)` overload `listen` reads),
+        // so Node's own option is now refused by name rather than silently
+        // accepted and then ignored the first time `.listen()` is called.
+        let path = entry::with_runtime(|context| entry::get_member(context, options, "path"));
+        if path != absent {
+            entry::throw_type_error("ERR_INVALID_ARG_VALUE: The 'options.path' argument is not implemented");
+            return absent;
+        }
+        // `blockList` — validated the same way `net.BlockList.isBlockList`
+        // does; see `dgram/mod.rs`'s identical check for
+        // `sendBlockList`/`receiveBlockList` (this crate's own duplicate of
+        // that duck-type test, `net::blocklist::is_block_list` being
+        // `pub(super)` to a module this file is already inside — reached
+        // directly here instead).
+        let block_list = entry::with_runtime(|context| entry::get_member(context, options, "blockList"));
+        if block_list != absent && entry::get_indexed(block_list, super::common::key("rules")) == absent {
+            entry::throw_type_error(
+                "ERR_INVALID_ARG_TYPE: The \"options.blockList\" property must be an instance of net.BlockList. Received an instance that is not one",
+            );
+            return absent;
+        }
+    }
     let instance = entry::with_runtime(|context| {
         let prototype = prototype(context);
         let instance = super::common::self_or_new(context, this, prototype);
@@ -91,9 +115,16 @@ extern "C" fn listen(_e: u64, this: u64, a: u64, b: u64, c: u64, _d: u64) -> u64
     registry::pump();
     let absent = entry::undefined_value();
     if server_id(this).is_some() {
-        // Already listening (or listening once, per this crate's no-throw
-        // convention) — `ERR_SERVER_ALREADY_LISTEN` in real Node, refused
-        // silently here rather than thrown.
+        // Already listening (or listening once) — real Node's
+        // `ERR_SERVER_ALREADY_LISTEN`, an `Error` (not a `TypeError`);
+        // `entry::throw_type_error` is the only raise this crate can reach
+        // publicly (rule 8's exemption list does not cover a second error
+        // class), so the class diverges while the code/message text — what
+        // this file's own test checks — does not. This used to refuse
+        // silently, matching this crate's no-throw convention for gaps it
+        // cannot report; a second `listen()` is not a gap, it is a real
+        // Node error this crate CAN report, just under the wrong class.
+        entry::throw_type_error("ERR_SERVER_ALREADY_LISTEN: Listen method has been called more than once without closing.");
         return this;
     }
     let port = super::common::number_arg(a).unwrap_or(0.0) as u16;
@@ -205,16 +236,34 @@ extern "C" fn close(_e: u64, this: u64, callback: u64, _b: u64, _c: u64, _d: u64
     this
 }
 
-/// `server.address()` — `null` before `'listening'`/after `close()`.
+/// `server.address()` — `null` before `'listening'`/after `close()`, else
+/// `{ port, family, address }`. `port`/`family` used to be missing entirely —
+/// only the combined `"host:port"` string landed under `address`, so
+/// `server.address().port` read `undefined` for every caller, including this
+/// module's own doc comments elsewhere describing the shape it should be.
 extern "C" fn address(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     registry::pump();
     let Some(id) = server_id(this) else { return entry::null_value() };
-    let local = registry::with_servers(|table| table.get(&id).and_then(|e| e.local_addr.clone()));
+    // `null` after `close()` — this used to keep answering the last-known
+    // address forever, because `close()` flips `ServerEntry::closed` (which
+    // stops delivering EVENTS) but this read never checked it, so a closed
+    // server's `address()` looked identical to a listening one.
+    let local = registry::with_servers(|table| table.get(&id).filter(|e| !e.closed).and_then(|e| e.local_addr.clone()));
     let Some(local) = local else { return entry::null_value() };
+    let parsed: Option<std::net::SocketAddr> = local.parse().ok();
+    let (host, port, family) = match parsed {
+        Some(std::net::SocketAddr::V4(v4)) => (v4.ip().to_string(), v4.port(), "IPv4"),
+        Some(std::net::SocketAddr::V6(v6)) => (v6.ip().to_string(), v6.port(), "IPv6"),
+        None => (local.clone(), 0, "IPv4"),
+    };
     entry::with_runtime(|context| {
         let object = entry::make_object(context);
-        let address_v = entry::make_string(context, &local);
+        let address_v = entry::make_string(context, &host);
+        let port_v = entry::make_number(port as f64);
+        let family_v = entry::make_string(context, family);
         entry::put_member(context, object, "address", address_v);
+        entry::put_member(context, object, "port", port_v);
+        entry::put_member(context, object, "family", family_v);
         object
     })
 }
