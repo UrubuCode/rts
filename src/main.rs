@@ -21,21 +21,22 @@ fn main() {
     // reproduced for any run that had synchronized the device even once.
     //
     // No-op when no GPU was ever created, so every other command pays nothing.
-    rts_runtime::namespaces::gpu::shutdown();
+    //
+    // Called by `rts-host-rwk` at the end of every run now (`rts_ui_rwk::
+    // shutdown`), which is where the device's lifetime actually ends. This
+    // reached the OLD runtime's copy of the same thing and was deleted with it —
+    // a second shutdown from the bin would either be a no-op or a race to drop
+    // the same device.
 
     std::process::exit(match status {
         Ok(()) => 0,
         Err(e) => {
-            let use_color = rts::diagnostics::reporter::stderr_supports_color();
-            let engine = rts::diagnostics::reporter::global_engine();
-            if engine.has_errors() {
-                eprint!("{}", engine.render_all(use_color));
-            } else {
-                eprint!(
-                    "{}",
-                    rts::diagnostics::reporter::format_anyhow_error(&e, use_color)
-                );
-            }
+            // One branch now. The other read a process-global diagnostic engine
+            // that nothing had emitted into since the old engine's parser was
+            // deleted, so `has_errors()` was a constant `false` — a dead branch
+            // whose presence said errors could arrive two ways.
+            let use_color = rts::errors::stderr_supports_color();
+            eprint!("{}", rts::errors::format_anyhow_error(&e, use_color));
             1
         }
     });

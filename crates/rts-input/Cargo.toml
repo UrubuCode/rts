@@ -16,13 +16,9 @@ license.workspace = true
 # Depende SÓ de rts-engine (p/ a ABI/Engine). Sem egui — é o ponto neutro.
 
 [dependencies]
-rts-engine = { path = "../rts-engine", optional = true }
-rtse = { package = "rts-macro", path = "../rts-macro", optional = true }
 
 # A ABI do motor ANTIGO é uma feature, não um fato do crate. Ligada por default
 # para que o motor antigo siga compilando sem mudar nada; o motor NOVO consome
 # este crate com `default-features = false`, e o que sobra é a lógica pura — sem
 # `rts-engine`, e portanto sem alcançar `rts-abi`, que é a interface em remoção.
 [features]
-default = ["old-engine"]
-old-engine = ["dep:rts-engine", "dep:rtse"]

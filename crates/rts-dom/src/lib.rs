@@ -19,14 +19,6 @@
 //! `u64` (extern "C") através de [`register`]; a camada ergonômica
 //! (`Document`/`Element`) é TS. Depende só de `rts-engine`.
 
-#[cfg(feature = "old-engine")]
-pub mod scriptscan;
-#[cfg(feature = "old-engine")]
-pub mod scriptscope;
-#[cfg(feature = "old-engine")]
-pub mod timerscope;
-#[cfg(feature = "old-engine")]
-pub mod abi;
 mod dom;
 mod html;
 /// Estado de ESTILO (egui-free): `ComputedStyle`, slots opacos, parse do `style=""`
@@ -60,8 +52,6 @@ pub mod scrollbar;
 
 pub use dom::{parse_html_to_dom, Attr, Dom, Node, NodeId, NodeIdx, NodeKind};
 
-#[cfg(feature = "old-engine")]
-pub use abi::register;
 
 /// Prelude `.ts` da FACHADA DOM ergonômica (`document` global + `Element`, com a
 /// API/nomes do browser) sobre os primitivos do namespace `rts:dom`. Incluído via

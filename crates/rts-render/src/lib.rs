@@ -14,10 +14,6 @@
 
 use std::cell::RefCell;
 
-#[cfg(feature = "old-engine")]
-pub mod abi;
-#[cfg(feature = "old-engine")]
-pub use abi::register;
 
 /// Prelude `.ts` da fachada ERGONÔMICA `rts:canvas` — UI imediata (Canvas com
 /// rect/text/button) sobre as interfaces abstratas `render.*` (este crate) e

@@ -5,9 +5,6 @@ edition = "2024"
 license.workspace = true
 
 [dependencies]
-rts-engine = { path = "../rts-engine" }
-rts-ast = { path = "../rts-ast" }
-rts-parser = { path = "../rts-parser" }
 # The engine. Every command runs through it: `run`, `eval`, `test`, `compile`,
 # `ir`, and `emit-types` — which is what let `rts-codegen-new` be deleted.
 rts-host-rwk = { path = "../rts-host-rwk" }
@@ -17,8 +14,6 @@ rts-host-rwk = { path = "../rts-host-rwk" }
 rts-core-rwk = { path = "../rts-core-rwk" }
 rts-std-rwk = { path = "../rts-std-rwk" }
 rts-linker = { path = "../rts-linker" }
-rts-runtime = { path = "../rts-runtime" }
-rts-diagnostics = { path = "../rts-diagnostics" }
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

@@ -1,25 +1,11 @@
 [workspace]
 members = [
     ".",
-    "crates/rts-ast",
-    "crates/rts-diagnostics",
-    "crates/rts-abi",
-    "crates/rts-natives",
-    "crates/rts-engine",
-    "crates/rts-node",
-    "crates/rts-primitives",
-    "crates/rts-shared",
-    "crates/rts-std",
-    "crates/rts-parser",
-    "crates/rts-hir",
     "crates/rts-linker",
-    "crates/rts-runtime",
-    "crates/rts-napi",
     "crates/rts-dom",
     "crates/rts-input",
     "crates/rts-render",
     "crates/rts-egui",
-    "crates/rts-macro",
     "crates/rts-macro-rwk",
     "crates/rts-cranelift",
     "crates/rts-codegen",
@@ -29,9 +15,7 @@ members = [
     "crates/rts-node-rwk",
     "crates/rts-host-rwk",
     "crates/rts-runtime-rwk",
-    "crates/rts-symbol-baker",
     "crates/rts-cli",
-    "crates/rts-value-probe",
 ]
 resolver = "2"
 
@@ -57,18 +41,14 @@ crate-type = ["rlib"]
 name = "rts"
 path = "src/main.rs"
 
-[features]
-# Backend ASIO (Windows, baixa latência) no namespace `asio_audio`.
-# Build com: cargo build --release --features asio
-# Requer ASIO SDK da Steinberg + LLVM (LIBCLANG_PATH) + driver ASIO instalado.
-asio = ["rts-runtime/asio"]
+# The `asio` feature (low-latency Windows audio, `asio_audio`) went with
+# `rts-runtime`: it forwarded to that crate's own feature, and the namespace it
+# enabled was the old runtime's. Nothing in this engine provides audio yet, so
+# there is no feature to forward to — a flag that enables nothing is worse than
+# an absent one, which is the rule `CLAUDE.md` states for `sync`.
 
 [dependencies]
-rts-ast = { path = "crates/rts-ast" }
-rts-diagnostics = { path = "crates/rts-diagnostics" }
-rts-parser = { path = "crates/rts-parser" }
 rts-linker = { path = "crates/rts-linker" }
-rts-runtime = { path = "crates/rts-runtime" }
 # `rts-runtime-rwk` was on nobody's Cargo.toml — not even transitively — so a
 # plain `cargo build` never produced `rts_runtime_rwk.lib`/`librts_runtime_rwk.a`
 # and `rts compile` (new engine AOT) could not work from a fresh checkout.
@@ -80,51 +60,11 @@ rts-runtime-rwk = { path = "crates/rts-runtime-rwk" }
 rts-cli = { path = "crates/rts-cli" }
 anyhow = "1.0"
 backtrace = "0.3"
-object = { version = "0.39", default-features = false, features = ["write", "read", "std", "coff", "elf", "macho", "pe"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-ureq = { version = "2.12", default-features = true }
-cranelift-codegen = "0.131"
-cranelift-frontend = "0.131"
-cranelift-jit = "0.131"
-cranelift-module = "0.131"
-cranelift-native = "0.131"
-cranelift-object = "0.131"
-rayon = "1.10"
 sha2 = "0.10"
-flate2 = "1.1"
-tar = "0.4"
-target-lexicon = "0.13"
-colored = "2.1"
-console = "0.15"
-indicatif = "0.18"
-xwin = "0.9"
-swc_common = "21.0.1"
-swc_ecma_ast = "23.0.0"
-swc_ecma_parser = "39.0.0"
-slotmap = "1"
-rustc-hash = "1.1"
-notify = "6.1"
-regex = "1"
-rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
-webpki-roots = "1"
-indexmap = "2.14.0"
-actix-web = { version = "4", default-features = false, features = ["macros"] }
-actix-rt = "2"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 zstd = "0.13.3"
 
 [build-dependencies]
 sha2 = "0.10"
-regex = "1"
-rayon = "1.10"
-rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
-webpki-roots = "1"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-indexmap = "2.14.0"
-actix-web = { version = "4", default-features = false, features = ["macros"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 zstd = "0.13.3"
 
 # ── DEV PROFILE: tuned for ITERATION, per the ITERATION SPEED mandatory rule ──
@@ -177,12 +117,6 @@ opt-level = 3
 opt-level = 3
 [profile.release.package.rts-core-rwk]
 opt-level = 3
-[profile.release.package.rts-parser]
-opt-level = 3
-[profile.release.package.rts-hir]
-opt-level = 3
-[profile.release.package.rts-engine]
-opt-level = 3
 [profile.release.package.cranelift-codegen]
 opt-level = 3
 [profile.release.package.cranelift-frontend]
@@ -200,24 +134,7 @@ opt-level = 3
 [profile.release.package.swc_ecma_ast]
 opt-level = 3
 
-# The RUNTIME layer is opt-3 for a different reason: this is the code the
-# COMPILED PROGRAM calls at run time (string ops, collections, math, the value
-# model's trampolines). Building it for size taxes the user's program, not the
-# compiler — and "faster than Bun by default" is measured on exactly that path.
-[profile.release.package.rts-primitives]
-opt-level = 3
-[profile.release.package.rts-shared]
-opt-level = 3
-[profile.release.package.rts-std]
-opt-level = 3
-[profile.release.package.rts-runtime]
-opt-level = 3
 
-# The probe replicates the runtime's trampolines, so it must be built the way the
-# runtime is (opt-3) — at the default `z` its copies would be slower than the
-# originals and every "the lock costs X" number would be inflated.
-[profile.release.package.rts-value-probe]
-opt-level = 3
 
 # Em DEBUG, não gerar debug symbols das DEPENDÊNCIAS (só do nosso código).
 # Symbols de wgpu/naga/egui sozinhos incham a staticlib AOT de ~163MB para

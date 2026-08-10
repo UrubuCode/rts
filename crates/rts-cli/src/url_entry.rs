@@ -9,10 +9,10 @@
 //!
 //! HTTP goes through the SAME stack as the global `fetch()` (ureq), and every
 //! request identifies with the same browser-style User-Agent
-//! (`Rts v<version>` / `Rts development` — `rts_runtime::fetch_user_agent`).
+//! (`Rts v<version>` / `Rts development`).
 //!
 //! Relative specifiers resolve with the SAME candidate list as the disk
-//! resolver (`rts-codegen-new/front/modules/resolve.rs`): explicit extension
+//! resolver (`rts-host-rwk`'s `graph::resolve`): explicit extension
 //! as-is; otherwise `x.ts, x.rts, x.js, x/index.ts, x/index.rts, x/index.js`
 //! probed in order (first HTTP 200 wins). Builtins (`rts:*`, `node:*`) and
 //! bare npm specifiers are left untouched for the engine to handle.
@@ -22,7 +22,6 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow, bail};
 
-use rts_ast::ast::Item;
 
 /// `true` when the CLI input names an http(s) URL instead of a local file.
 pub fn is_url(input: &str) -> bool {
@@ -85,20 +84,13 @@ fn mirror_root() -> Result<PathBuf> {
 /// specifiers (`./`, `../`), in source order. Builtins/bare specifiers are the
 /// engine's job later, on the mirrored files.
 fn relative_imports(text: &str, url: &UrlParts) -> Result<Vec<String>> {
-    let program = rts_parser::parse_source(text)
-        .map_err(|e| anyhow!("parse of {} failed: {e}", url.to_url()))?;
-    let mut specs = Vec::new();
-    for item in &program.items {
-        let from = match item {
-            Item::Import(decl) => &decl.from,
-            Item::ExportNamespace(d) => &d.from,
-            _ => continue,
-        };
-        if from.starts_with("./") || from.starts_with("../") {
-            specs.push(from.clone());
-        }
-    }
-    Ok(specs)
+    // The ENGINE's parser, not a second one. This walked the old engine's AST
+    // and so answered a slightly different question from the compiler that
+    // would run the mirrored files — a specifier one accepted and the other
+    // refused was a download that succeeded into a program that would not
+    // compile, reported at the wrong end.
+    rts_host_rwk::graph::relative_imports(text)
+        .map_err(|e| anyhow!("parse of {} failed: {e}", url.to_url()))
 }
 
 /// Resolve a relative `spec` against the importing module's URL, probing the
@@ -144,11 +136,24 @@ fn resolve_remote(from: &UrlParts, spec: &str) -> Result<(UrlParts, String)> {
     )
 }
 
+/// What this fetch identifies itself as.
+///
+/// It came from `rts-std`'s `default_user_agent`, which went with the old
+/// runtime. Six lines rather than a dependency edge to keep them: nothing else
+/// in this engine sends a request from the CLI, so a shared definition would
+/// have exactly one caller.
+fn user_agent() -> &'static str {
+    match cfg!(debug_assertions) {
+        true => "Rts development",
+        false => concat!("Rts v", env!("CARGO_PKG_VERSION")),
+    }
+}
+
 /// GET `url` with the shared RTS User-Agent. `Ok(None)` on 404 (candidate
 /// probing), error on any other failure.
 fn fetch_text(url: &str) -> Result<Option<String>> {
     let resp = ureq::get(url)
-        .set("User-Agent", rts_runtime::fetch_user_agent())
+        .set("User-Agent", user_agent())
         .call();
     match resp {
         Ok(r) => Ok(Some(

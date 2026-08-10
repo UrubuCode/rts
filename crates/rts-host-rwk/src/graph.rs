@@ -66,6 +66,42 @@ fn is_relative(specifier: &str) -> bool {
     specifier.starts_with("./") || specifier.starts_with("../")
 }
 
+/// The files one module names, in source order, ignoring everything the host
+/// provides by name (`node:`, `rts`, a bare specifier).
+///
+/// Public because a second caller reads a module before it is on disk: `rts run
+/// https://…` mirrors a program and its imports into a temp directory, and it
+/// has to know what to fetch next. That caller used to parse with the OLD
+/// engine's parser and walk the OLD engine's AST, which answered a slightly
+/// different question — a specifier this engine would refuse could be mirrored
+/// happily, and vice versa. One answer, from the parser that will compile it.
+///
+/// The tree is thrown away: this wants the specifiers and nothing else, and a
+/// `Name` is an index into a table this parse owns and no other compilation
+/// issued.
+pub fn relative_imports(source: &str) -> Result<Vec<String>, String> {
+    let mut scratch = Names::default();
+    let parsed = parse_module(source, &mut scratch).map_err(|error| format!("{error:?}"))?;
+    let mut found = Vec::new();
+    for item in &parsed.body {
+        let specifier = match item {
+            ModuleItem::Import(import) => import.source.clone(),
+            ModuleItem::Export(export) => match &export.kind {
+                rts_codegen::syntax::ExportKind::Named {
+                    source: Some(from), ..
+                } => from.clone(),
+                rts_codegen::syntax::ExportKind::All { source, .. } => source.clone(),
+                _ => continue,
+            },
+            ModuleItem::Stmt(_) => continue,
+        };
+        if is_relative(&specifier) {
+            found.push(specifier);
+        }
+    }
+    Ok(found)
+}
+
 /// The path a relative specifier names, from the file that wrote it.
 fn resolve(from: &Path, specifier: &str) -> PathBuf {
     let base = from.parent().unwrap_or(Path::new("."));
@@ -143,24 +179,9 @@ fn visit(
     // Parsed with a `Names` of its own, and thrown away: this pass wants the
     // import specifiers and nothing else. The real parse happens against the
     // `Names` the whole compilation shares.
-    let mut scratch = Names::default();
-    let parsed = parse_module(&source, &mut scratch)
-        .map_err(|error| HostError::Parse(format!("{}: {error:?}", path.display())))?;
-    for item in &parsed.body {
-        let specifier = match item {
-            ModuleItem::Import(import) => import.source.clone(),
-            ModuleItem::Export(export) => match &export.kind {
-                rts_codegen::syntax::ExportKind::Named {
-                    source: Some(from), ..
-                } => from.clone(),
-                rts_codegen::syntax::ExportKind::All { source, .. } => source.clone(),
-                _ => continue,
-            },
-            ModuleItem::Stmt(_) => continue,
-        };
-        if !is_relative(&specifier) {
-            continue;
-        }
+    for specifier in relative_imports(&source)
+        .map_err(|error| HostError::Parse(format!("{}: {error}", path.display())))?
+    {
         visit(&resolve(path, &specifier), ordered, state)?;
     }
 

@@ -111,9 +111,10 @@ assertion has moved a number in the direction that looks like regression.
 **The number that says how far this still is: the OLD engine passes 777 of the
 same 797** — 779 until two fixtures asserting a `super` JavaScript does not have
 were corrected, which the old engine passed by implementing `super` wrongly.
-Both engines were measured over the same corpus by `scripts/measure_engines.sh`,
-one process per file. **167 files passed only on the old engine and 16 only on
-the new.**
+Both engines were measured over the same corpus by `scripts/measure_engines.sh`
+— deleted with the second engine, since a script that runs two things can run
+neither when one is gone — one process per file. **167 files passed only on the
+old engine and 16 only on the new.**
 
 Read that as a work list and not as a loss: `rts-codegen-new` was DELETED on
 2026-08-10, and deleting it cost none of those 167. It had stopped running
@@ -304,46 +305,29 @@ never acceptable. Silent regression is what turns a green suite into a lie.
 
 ## MANDATORY: one source, generated views
 
-A runtime symbol is declared by an attribute and never written by hand, in both
-engines. The attribute derives the ABI signature from the Rust signature, so
-drift between the two is unrepresentable rather than merely discouraged.
-
-**Which attribute depends on which engine**, and a crate says so in one line of
-its manifest because cargo renames a dependency:
+A runtime symbol is declared by an attribute and never written by hand. The
+attribute derives the ABI signature from the Rust signature, so drift between
+the two is unrepresentable rather than merely discouraged. One attribute now —
+`rts-macro-rwk`, spelled `rtse` in a manifest:
 
 ```toml
-rtse = { package = "rts-macro-rwk", path = "../rts-macro-rwk" }   # new
-rtse = { package = "rts-macro",     path = "../rts-macro" }       # old
+rtse = { package = "rts-macro-rwk", path = "../rts-macro-rwk" }
 ```
 
-They are separate because `rts-macro` depends on `rts-abi`, which is what
-`rts_cranelift::abi` replaced — so a new-engine crate reaching for the old
-attribute reached, through its build graph, for the interface being removed.
+There were two, and the second (`rts-macro`, over `rts-abi`) went with the old
+engine on 2026-08-10. So did `rts-symbol-baker` and its two rendered tables:
+`generated/symbol_table.rs`, read by the engine that no longer exists, and
+`generated/entries.rs`, which this file used to say the new engine read and
+which **nothing ever read** — written as the intent and left standing as though
+it were the state. There is no baker to run before a commit any more.
 
-The rest of this section is the OLD engine's, and stays binding there.
-
-`rts-symbol-baker` renders that one declaration set twice:
-
-| artefact | addressing | read by |
-|---|---|---|
-| `generated/symbol_table.rs` | by name | the current engine |
-| `generated/entries.rs` | by index, with `TABLE_HASH` | **nobody, yet** |
-
-That second row said "the new engine" and it was **not true**: no crate reads
-`generated/entries.rs`, `TABLE_HASH` and `ENTRY_COUNT` appear nowhere outside the
-baker, and the baker does not scan `rts-core-rwk`, `rts-cranelift` or
-`rts-codegen` at all. It was written as the intent and read as the state.
-
-The intent is still right and `docs/engine/authoring-natives.md` is where it now
-lives, with what the new engine actually needs — which is not a table of symbol
-names, because a native there is a function pointer beside a cell rather than
-something a linker resolves. A built-in class is declared there with
-`#[rtse::class]`, which derives the wrappers, the install lists and the
-registration from one `impl` block.
+The new engine needs no table of symbol names, which is why: a native here is a
+function pointer beside a cell, not something a linker resolves.
+`#[rtse::class]` derives the wrappers, the install lists, the registration, AND
+the TypeScript declaration `rts emit-types` prints — four views, one `impl`
+block. `docs/engine/authoring-natives.md` is how to write one.
 
 **Never hand-write a symbol name, a signature row, or a class-metadata row.**
-After adding or renaming, run `cargo run -p rts-symbol-baker` and commit the
-artefacts; `-- --check` must be clean.
 
 One permanent exception: `rts-napi`'s 157 `napi_*` declarations. They are a
 foreign C ABI whose names *are* the interface — a compiled `.node` addon links
@@ -376,31 +360,51 @@ the new engine's rules, not this one with a path changed.
 
 ## Repository map
 
+Sixteen crates, and every one of them is on the path a program takes. Fifteen
+were deleted on 2026-08-10 — the whole old runtime and its tooling — so a name
+that is not here does not exist, and `git log --diff-filter=D` is where it went.
+
 ```
 crates/
   rts-cranelift/     the machine: IR, repr, GC contract, frames, calls, unwind
   rts-codegen/       the language: JS/TS tree, parser bridge, emit, type pass
   rts-core-rwk/      the runtime: values, heap, objects, coercion, entry points
   rts-host-rwk/      where the three meet, and where a program runs
-  rts-macro-rwk/     #[rtse::entry] — declares one, derives its shape
+  rts-macro-rwk/     #[rtse::entry] / #[rtse::class] — declare one, derive it
   rts-std-rwk/       the `rts:` surface, and the globals
+  rts-node-rwk/      the `node:` surface
   rts-ui-rwk/        `rts:egui` + `rts:input`, where a target has a screen
+  rts-runtime-rwk/   the AOT staticlib the compiled program links against
 
-  rts-abi/           the ABI contract, dependency-free, at the bottom
-  rts-macro/         #[rtse::*] — the only place a symbol is declared
-  rts-symbol-baker/  renders the declarations: by name, and by index
-
-  rts-engine/        heap, GC, registry
-  rts-primitives/    primordial classes        ┐ today's layering splits on
-  rts-shared/        universal non-primordial  │ PERMISSION, which index linkage
-  rts-std/           backend: io, net, tokio   │ makes unnecessary. The split
-  rts-runtime/       facade + AOT staticlib    │ that stays is by AVAILABILITY —
-  rts-natives/       machine-level natives     ┘ what a target has. architecture.md
-
-  rts-parser/        SWC → the old AST      rts-ast/  rts-hir/  rts-diagnostics/
-  rts-node/          Node builtins          rts-napi/ N-API
-  rts-egui/ rts-dom/ rts-render/ rts-input/ the UI engine
+  rts-egui/ rts-dom/ rts-render/ rts-input/   the UI engine, engine-agnostic
   rts-linker/        native link            rts-cli/  the CLI
+
+  rts-napi/          N-API. NOT BUILT and not a member — it names the deleted
+                     runtime's handle table. Its README says what porting costs.
+```
+
+**What went, and the one thing it cost.** `rts-engine`, `rts-primitives`,
+`rts-shared`, `rts-std`, `rts-runtime`, `rts-natives`, `rts-abi`, `rts-macro`,
+`rts-symbol-baker`, `rts-parser`, `rts-ast`, `rts-hir`, `rts-node`,
+`rts-value-probe` and `rts-diagnostics` — the old runtime, the old ABI, the old
+symbol table, the old front end and the old diagnostics. Nothing on the new
+engine's path named any of them, which is why the deletion is mechanical rather
+than a port. The exception is `rts-napi`, which named two directly and is
+therefore not built until someone ports it.
+
+`rts-diagnostics` is worth its own line because it looked alive. 733 lines of
+rich diagnostics — codes, spans, notes, a snippet renderer, a process-global
+engine — with **zero producers**: `emit()` was called from nowhere outside the
+crate once the old parser went, so `has_errors()` was a constant `false` and the
+branch reading it in `main` was unreachable. What replaces it is
+`rts-cli::errors`, which is the `anyhow`-chain formatter that was doing all the
+printing already. When a span comes back it will come from
+`rts_cranelift::fault::Position`, and the renderer belongs beside that.
+
+The four UI crates stay because they were never the old engine's: `rts-egui`,
+`rts-dom`, `rts-render` and `rts-input` each had an `old-engine` feature holding
+their ABI surface, and that feature is what was deleted. `rts-ui-rwk` consumes
+them through their plain Rust API and always did.
 
 docs/
   engine/     how the compiler works and why      guides/  how to do a thing
@@ -465,10 +469,13 @@ cargo run -q -p rts-host-rwk --example suite_run tests/x.test.ts   # one test
 `run_fixture` and `suite_run` are one process per file on purpose: an uncaught
 exception and an endless loop each take the process with them.
 
-**AOT needs a two-step build.** `cargo build -p rts-runtime` before building
-`rts`: Cargo emits a `staticlib` only for a package built as a direct target, and
-being a dependency is not the same thing. Skipping it leaves a stale archive and
-`rts compile` dies in the linker. JIT is unaffected.
+**AOT links `rts-runtime-rwk`, and it is a direct dependency of the `rts` bin
+for that reason** — Cargo emits a `staticlib` only for a package built as a
+direct target, and being a dependency-of-a-dependency does not count. So an
+ordinary `cargo build` produces it. `cargo build -p rts-runtime-rwk` is still
+what to run after editing `rts-core-rwk`/`rts-std-rwk`/`rts-node-rwk`: nothing
+rebuilds the archive because `rts` was rebuilt, and `rts compile` refuses a
+stale one by name rather than linking it.
 
 When a test fails, run that file alone before the suite — it avoids timeout and
 noise. `rts ir` diagnoses the rest: an unknown namespace member is a missing

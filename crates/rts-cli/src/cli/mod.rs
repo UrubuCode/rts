@@ -1,6 +1,5 @@
 //! Command-line entry point.
 
-pub mod apis;
 pub mod clean;
 pub mod compile;
 pub mod emit_types;
@@ -16,8 +15,7 @@ use std::sync::OnceLock;
 
 use anyhow::{Context, Result, anyhow, bail};
 
-use crate::compile_options::{CompilationProfile, CompileOptions, FrontendMode};
-use crate::diagnostics::reporter;
+use crate::compile_options::{CompilationProfile, CompileOptions};
 use crate::linker::WindowsSubsystem;
 
 /// Resolver for the embedded AOT archive (`rts-runtime-rwk`). The archive and
@@ -150,7 +148,6 @@ fn newer_rust_file(dir: &std::path::Path, than: std::time::SystemTime) -> Result
 struct CliFlags {
     profile: CompilationProfile,
     debug: bool,
-    frontend_mode: FrontendMode,
     windows_subsystem: Option<WindowsSubsystem>,
     all_namespaces: bool,
 }
@@ -160,7 +157,6 @@ impl Default for CliFlags {
         Self {
             profile: CompilationProfile::Development,
             debug: false,
-            frontend_mode: FrontendMode::Native,
             windows_subsystem: None,
             all_namespaces: false,
         }
@@ -172,7 +168,6 @@ impl CliFlags {
         CompileOptions {
             profile: self.profile,
             debug: self.debug,
-            frontend_mode: self.frontend_mode,
             emit_module_progress: false,
             all_namespaces: self.all_namespaces,
         }
@@ -210,7 +205,6 @@ where
     }
     let (flags, positional) = parse_flags(raw)?;
 
-    reporter::reset_global_engine();
 
     if positional.is_empty() {
         print_help(&bin_name);
@@ -229,7 +223,6 @@ where
             positional.get(1).cloned(),
             flags.as_compile_options(),
         ),
-        "apis" | "api" => apis::command(),
         "init" => init::command(positional.get(1).cloned()),
         "clean" => clean::command(),
         "test" => test_cmd::command(positional.get(1).cloned()),
@@ -267,8 +260,6 @@ fn parse_flags(raw: Vec<String>) -> Result<(CliFlags, Vec<String>)> {
             "--development" | "-d" => flags.profile = CompilationProfile::Development,
             "--production" | "-p" => flags.profile = CompilationProfile::Production,
             "--dump-statistics" | "-ds" | "-sd" => flags.debug = true,
-            "--native" => flags.frontend_mode = FrontendMode::Native,
-            "--compat" => flags.frontend_mode = FrontendMode::Compat,
             "--all-namespaces" => flags.all_namespaces = true,
             "--windows-subsystem" => {
                 let value = raw
@@ -318,7 +309,6 @@ fn print_help(bin_name: &str) {
     println!("Usage:");
     println!("  {bin_name} compile <input.ts> [output.o]");
     println!("  {bin_name} run <input.ts>");
-    println!("  {bin_name} apis");
     println!("  {bin_name} init [name]");
     println!("  {bin_name} clean");
     println!("  {bin_name} test [path]");

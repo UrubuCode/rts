@@ -1,9 +1,12 @@
 pub mod cli {
     pub use rts_cli::cli::*;
 }
-pub mod diagnostics;
 pub mod registers {
     pub use rts_cli::registers::*;
+}
+
+pub mod errors {
+    pub use rts_cli::errors::*;
 }
 
 pub mod crash;

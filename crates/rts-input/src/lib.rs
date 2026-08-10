@@ -27,10 +27,6 @@
 
 use std::cell::RefCell;
 
-#[cfg(feature = "old-engine")]
-pub mod abi;
-#[cfg(feature = "old-engine")]
-pub use abi::register_input;
 
 /// O contrato de ENTRADA: o backend CAPTA o input cru (tem a janela; o SO entrega
 /// a ele) e o reporta SEM interpretar. Modelo POLLING — o DOM/layout/app pergunta

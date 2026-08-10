@@ -23,10 +23,6 @@
 //! tem a ABI antiga?") e não de permissão.
 
 // A ABI do motor ANTIGO — símbolos de linker e a tabela do namespace.
-#[cfg(feature = "old-engine")]
-pub mod abi;
-#[cfg(feature = "old-engine")]
-pub use abi::register;
 
 // De onde vêm os bytes de uma imagem: perguntado ao host, nunca sabido aqui.
 pub mod pixels;
