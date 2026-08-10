@@ -215,7 +215,7 @@ The older path records and does not run. A static constructor fires before a
 `Context` exists, so evaluating there would reach a thread-local runtime the
 host has not installed — an abort, not an error.
 
-## P8b — the export table (PART DONE)
+## P8b — the export table (DONE)
 
 Done: the crate is linked into `rts`, every entry point is in one list
 (`src/exported.rs`), and the symbols are in the binary. Each of those three took
@@ -236,12 +236,20 @@ them: `-rdynamic` on ELF, an export table entry on COFF, `-exported_symbols_list
 on Mach-O. This binary exports none of them, and `rts-napi-rwk` is not even
 linked into it.
 
-The remaining order is: pass the export arguments (`/EXPORT:` per name on COFF,
-`--export-dynamic` on ELF, `-exported_symbols_list` on Mach-O), built from
-`exported::NAMES` by the root `build.rs`; then `dlopen`/`LoadLibrary` and look
-for `napi_register_module_v1`. Doing the last one first produces a loader that
-opens a file and dies on the first undefined symbol, which reads as a bug in the
-addon rather than in us.
+The export arguments are passed now, by the root `build.rs`, which parses the
+same list rather than restating it: `/EXPORT:` per name on COFF,
+`--export-dynamic` on ELF, a generated `-exported_symbols_list` on Mach-O.
+MEASURED on Windows — the linker produces `rts.exp` and `rts.lib`, 22 KB and
+36 KB, and both contain the names. Neither existed before the arguments.
+
+The other two platforms are written and not verified, and the asymmetry is the
+same one the AOT position-independence fix carries: what is verified is that the
+argument reaches the linker, because the same `build.rs` emits all three.
+
+What is left is P8c: `dlopen`/`LoadLibrary`, and looking for
+`napi_register_module_v1`. It is last on purpose — done before the export table
+it would have produced a loader that opens a file and dies on the first
+undefined symbol, which reads as a bug in the addon rather than in us.
 
 The old `rts-napi` lists 157 names against this crate's 70, and the difference
 is the surface still missing rather than a disagreement — another reason to keep

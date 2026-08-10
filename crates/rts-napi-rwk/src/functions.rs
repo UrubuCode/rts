@@ -201,7 +201,10 @@ fn given_count(words: &[u64], undefined: u64) -> usize {
 pub fn callable_word(env: napi_env, cb: napi_callback, data: *mut c_void) -> u64 {
     let slot = register(cb, data, env.0);
     let environment = rts_core::entry::make_number(slot as f64);
-    rts_core::entry::closure_new(trampoline as usize as i64, environment)
+    // Through a pointer rather than straight to an integer: casting a function
+    // item to `usize` is what `function_casts_as_integer` warns about, and the
+    // two-step spelling is the one that says "this is an address".
+    rts_core::entry::closure_new(trampoline as *const () as usize as i64, environment)
 }
 
 /// `napi_create_function` — a JS callable whose body is the addon's.

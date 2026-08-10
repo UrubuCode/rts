@@ -26,6 +26,8 @@ fn main() {
     // compile` links the new engine's archive — so it went with the engine.
     embed_runtime_archive(&out, &profile_dir);
 
+    export_napi_symbols();
+
     println!("cargo:rerun-if-changed=build.rs");
 }
 /// Embeds the AOT runtime archive (`rts-runtime`, over `rts-core` +
@@ -141,4 +143,76 @@ fn strip_bitcode_from_archive(archive: &Path) {
     // Windows (COFF): lld-link ignores .llvmbc/.llvmcmd in COFF archives.
     #[allow(unreachable_code)]
     let _ = (archive, Command::new("true"));
+}
+
+/// Hands the linker every `napi_*` name, so an addon can resolve them.
+///
+/// # Why a `.node` needs this
+///
+/// A native addon is a shared library with UNDEFINED references to
+/// `napi_create_double` and its siblings. It resolves them against the process
+/// that loads it, which only works if that process exports them. Being in the
+/// binary is not enough and was already measured not to be: the names have to
+/// be in its export table.
+///
+/// # One list, two readers
+///
+/// The list lives in `crates/rts-napi-rwk/src/exported.rs`, as the arguments of
+/// one macro invocation, and that file is the single source. This parses it
+/// rather than restating it — a second list here is precisely the drift
+/// `CLAUDE.md` spends a section on, and the failure it produces is an addon
+/// that loads on one platform and not another.
+///
+/// The crate's own test walks its `src/` and fails when an entry point is
+/// missing from that list, so the list cannot fall behind the code, and this
+/// cannot fall behind the list.
+fn export_napi_symbols() {
+    let source = "crates/rts-napi-rwk/src/exported.rs";
+    println!("cargo:rerun-if-changed={source}");
+    let Ok(text) = std::fs::read_to_string(source) else {
+        // Not fatal: a checkout without the crate still builds a working `rts`,
+        // it just cannot load an addon. Failing here would turn a missing
+        // optional feature into a broken build.
+        println!("cargo:warning=no {source}; this `rts` will not load a .node");
+        return;
+    };
+    let names: Vec<String> = text
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim().strip_suffix(',')?;
+            let (_, name) = line.split_once("::")?;
+            name.starts_with("napi_")
+                .then(|| name.to_owned())
+                .filter(|name| name.chars().all(|c| c.is_alphanumeric() || c == '_'))
+        })
+        .collect();
+    if names.is_empty() {
+        println!("cargo:warning=parsed no symbols out of {source}");
+        return;
+    }
+
+    let target = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    match (target.as_str(), env.as_str()) {
+        // COFF exports one name at a time, and there is no decoration to add:
+        // an `extern "C"` symbol on x86-64 Windows is its own name.
+        (_, "msvc") => {
+            for name in &names {
+                println!("cargo:rustc-link-arg-bins=/EXPORT:{name}");
+            }
+        }
+        // Mach-O takes a file, and wants the leading underscore its ABI adds.
+        ("macos" | "ios", _) => {
+            let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+            let list = out.join("napi_exports.txt");
+            let body: String = names.iter().map(|name| format!("_{name}\n")).collect();
+            std::fs::write(&list, body).unwrap_or_else(|e| panic!("write {}: {e}", list.display()));
+            println!("cargo:rustc-link-arg-bins=-Wl,-exported_symbols_list,{}", list.display());
+        }
+        // ELF: one flag for all of them. Broader than the other two — it
+        // exports every dynamic symbol, not only these — and that is what
+        // Node's own `-rdynamic` does, for the same reason.
+        _ => println!("cargo:rustc-link-arg-bins=-Wl,--export-dynamic"),
+    }
+    println!("cargo:warning=exporting {} napi_* symbols", names.len());
 }

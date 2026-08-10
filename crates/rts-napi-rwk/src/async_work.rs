@@ -277,7 +277,8 @@ pub unsafe extern "C" fn napi_delete_async_work(
         // thing available — leaking one record beats freeing memory a worker is
         // reading.
         true => {
-            Box::into_raw(held);
+            // Deliberately leaked back: see above.
+            let _ = Box::into_raw(held);
             napi_invalid_arg
         }
         false => napi_ok,

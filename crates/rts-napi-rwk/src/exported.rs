@@ -12,9 +12,10 @@
 //!
 //! **Exporting them.** An addon resolves them by name at load time, out of the
 //! host process, which needs each name handed to the linker — `/EXPORT:` on
-//! COFF, `--export-dynamic` on ELF. That is a change to the BUILD and is not
-//! done here; [`NAMES`] is what it will read, so there is one list rather than
-//! a second one in a build script that drifts.
+//! COFF, `--export-dynamic` on ELF. The root `build.rs` does that, and it
+//! PARSES this file rather than restating it: one list, two readers, because a
+//! second list in a build script drifts and produces an addon that loads on one
+//! platform and not another.
 //!
 //! # The rule this does NOT break
 //!
@@ -26,9 +27,9 @@
 //!
 //! # What is still missing to load an addon
 //!
-//! The export table, and `PLAN.md`'s P8b says what that involves and in which
-//! order. A list nothing exports is not a loader; it is the half of one that
-//! can be checked.
+//! Opening one. The symbols are exported (measured: the linker emits an export
+//! library naming them, and did not before), and what remains is
+//! `dlopen`/`LoadLibrary` plus finding `napi_register_module_v1` — P8c.
 
 /// One address in [`KEEP`].
 ///
