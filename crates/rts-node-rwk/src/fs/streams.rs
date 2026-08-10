@@ -142,7 +142,7 @@ pub(super) extern "C" fn create_write_stream(_e: u64, _this: u64, path: u64, opt
     });
     let instance = entry::construct(writable_ctor, write_options, absent, absent, absent);
     entry::with_runtime(|context| {
-        let write_stream_prototype = chained(context, "Writable", "WriteStream", &[]);
+        let write_stream_prototype = chained(context, "Writable", "fs.WriteStream", &[]);
         entry::set_prototype_in(context, instance, write_stream_prototype);
         let id_value = entry::make_number(id as f64);
         entry::put_member(context, instance, "__streamId", id_value);
@@ -243,7 +243,7 @@ pub(super) extern "C" fn create_read_stream(_e: u64, _this: u64, path: u64, _opt
     let readable_ctor = entry::with_runtime(|context| stream_member(context, "Readable"));
     let instance = entry::construct(readable_ctor, absent, absent, absent, absent);
     entry::with_runtime(|context| {
-        let read_stream_prototype = chained(context, "Readable", "ReadStream", READ_STREAM_METHODS);
+        let read_stream_prototype = chained(context, "Readable", "fs.ReadStream", READ_STREAM_METHODS);
         entry::set_prototype_in(context, instance, read_stream_prototype);
         let path_value = entry::make_string(context, &path_text);
         entry::put_member(context, instance, "path", path_value);
@@ -280,11 +280,15 @@ extern "C" fn read_stream_construct(_e: u64, _this: u64, _a: u64, _b: u64, _c: u
 /// every time they run — always well after `install` has finished, so
 /// `"Writable"`/`"Readable"` are the real, already-built ones by then.
 pub(super) fn constructors(context: &mut Context) -> [(&'static str, u64); 2] {
-    let write_stream_prototype = entry::make_prototype(context, "WriteStream", &[]);
+    // "fs.WriteStream"/"fs.ReadStream" rather than the bare names: `node:tty`
+    // registers ITS OWN `"WriteStream"`/`"ReadStream"` under those same bare
+    // names, with a different method table, and `make_prototype` is idempotent
+    // by name — see its doc comment for the collision this otherwise is.
+    let write_stream_prototype = entry::make_prototype(context, "fs.WriteStream", &[]);
     let write_stream_ctor = entry::make_callable(context, write_stream_construct);
     entry::put_member(context, write_stream_ctor, "prototype", write_stream_prototype);
 
-    let read_stream_prototype = entry::make_prototype(context, "ReadStream", READ_STREAM_METHODS);
+    let read_stream_prototype = entry::make_prototype(context, "fs.ReadStream", READ_STREAM_METHODS);
     let read_stream_ctor = entry::make_callable(context, read_stream_construct);
     entry::put_member(context, read_stream_ctor, "prototype", read_stream_prototype);
 

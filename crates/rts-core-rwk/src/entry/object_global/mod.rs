@@ -142,7 +142,12 @@ extern "C" fn make(_e: u64, _this: u64, a0: u64, _a1: u64, _a2: u64, _a3: u64) -
 /// A new empty object, inheriting from whatever `new` named — or
 /// `Object.prototype`, for the ordinary call with no `new` in sight.
 fn empty_object(context: &mut Context) -> u64 {
-    let fresh = super::objects::object_new();
+    // `objects::object_new()` enters `with_current` itself; every caller of
+    // `empty_object` already holds that borrow (this function takes
+    // `&mut Context` rather than opening its own), so calling the entry point
+    // here would re-enter the `RefCell` and abort. `object_new_in` is the same
+    // allocation without the second borrow.
+    let fresh = super::objects::object_new_in(context);
     // `class Tag extends Object { own() {} }` has to reach `Tag.prototype`,
     // which means the object this makes inherits from the class `new`
     // named rather than from nothing.

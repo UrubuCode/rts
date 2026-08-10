@@ -104,11 +104,15 @@ fn a_program_naming_an_operation_the_runtime_lacks_is_refused_by_name() {
     // still missing rather than being deleted with the gap it happened to name.
     //
     // Nothing is left in its original category: no operator the language spells
-    // reaches a runtime operation that does not exist. So it names `for await`,
-    // which needs a suspended frame — the operation nothing emits and nothing
-    // in this crate can stand in for.
-    let error = compile("async function f(a) { for await (let v of a) { } }")
-        .expect_err("`for await` needs a suspended frame");
+    // reaches a runtime operation that does not exist. It named `for await`
+    // next, and that moved on too — it desugars to the protocol's loop over the
+    // suspension that already worked. What it names now is the one form of it
+    // still refused: writing an EXISTING binding, held back because the
+    // write-back lost the value at the loop's back edge and a loop that runs
+    // while quietly leaving the name behind is worse than one that will not
+    // compile.
+    let error = compile("async function f(a) { let v; for await (v of a) { } }")
+        .expect_err("`for await` over an existing binding is still refused");
     assert!(
         format!("{error:?}").contains("Unsupported"),
         "expected a named refusal, got {error:?}"
@@ -520,9 +524,11 @@ fn a_construct_still_missing_is_refused_by_name_rather_than_approximated() {
     // `[1, , 2]` esteve nesta lista e saiu quando o runtime ganhou um marcador
     // de posição ausente. O que entrou no lugar é o mesmo buraco ao lado de um
     // SPREAD, que o caminho do vetor de argumentos não sabe pular.
+    // `super()` past four arguments saiu desta lista quando ganhou uma entrada
+    // com forma de vetor que NAO define `new.target` — a razao pela qual nao
+    // podia simplesmente reutilizar a que ja existia.
     for source in [
         "return [...[1], , 2];",
-        "class A {} class B extends A { constructor() { super(1, 2, 3, 4, 5); } } return new B();",
         "let o = {}; let x = 1; return delete x;",
     ] {
         let error = compile(source).expect_err("still a gap");
@@ -783,19 +789,18 @@ fn the_limits_of_the_fixed_arity_are_refused_by_name() {
     compile("function f(a, b, c, d, e) { return e; } return f(1, 2, 3, 4, 5);")
         .expect("a fifth parameter is read from the vector");
 
-    // `super()` is the one left, and it is a different path: it does not go
-    // through `CallWithArgs`, so there is no vector for a fifth argument to be
-    // in. Refused rather than truncated — an argument that silently vanished
-    // would be a wrong program that runs.
-    for source in
-        ["class A {} class B extends A { constructor() { super(1, 2, 3, 4, 5); } } return new B();"]
-    {
-        let error = compile(source).expect_err("past the fixed arity");
-        assert!(
-            format!("{error:?}").contains("Unsupported"),
-            "expected a named refusal for `{source}`, got {error:?}"
-        );
-    }
+    // `super()` was the one left, and it is no longer refused either. It could
+    // not simply borrow `CallWithArgs`: that entry point sets `new.target`, and
+    // `super()` must not — routing it there would have corrupted `new.target`
+    // in every subclass that spreads, silently. It got an entry of its own that
+    // is vector-shaped without setting one.
+    //
+    // This test asserted the refusal, and the refusal is gone. Narrowed to what
+    // it was really protecting rather than deleted: that going past four
+    // arguments RUNS and ANSWERS, because the failure it was written against
+    // was an argument vanishing without a word.
+    compile("class A {} class B extends A { constructor() { super(1, 2, 3, 4, 5); } } return new B();")
+        .expect("`super()` past the fixed arity goes through the vector entry");
 }
 
 #[test]
@@ -822,11 +827,17 @@ fn what_a_function_still_cannot_do_is_refused_by_name() {
     // constructor already used, pointed at a second case.
     for source in [
         "function f(a) { return a; } return f();",
-        // A generator came off this list, and then `yield*` came off it too: the
-        // first is a suspension the host rewrites the body for, the second a
-        // loop whose body is one. What is left here is `for await`, which needs
-        // the async iteration protocol rather than either.
-        "async function f(xs) { for await (const x of xs) { return x; } } return 1;",
+        // A generator came off this list, then `yield*`, and now `for await`
+        // over a FRESH binding — it desugars to the loop the protocol describes
+        // and awaits each `next()`, reusing the suspension that already worked
+        // rather than growing a second loop shape.
+        //
+        // What is left is `for await` writing an EXISTING binding. That is
+        // refused on purpose and not for want of the protocol: the write-back
+        // for an assign target was losing the value at the loop's back edge, and
+        // a loop that runs and quietly leaves the name behind is worse than one
+        // that will not compile.
+        "async function f(xs) { let x; for await (x of xs) { return x; } } return 1;",
     ] {
         // The first one is legal and emits — a missing argument is padded — so
         // it is here as the control: if this loop ever passes for it, the
@@ -4550,7 +4561,7 @@ fn the_bare_rts_specifier_answers_integer_arithmetic() {
         b"import { test, expect } from \"rts:test\";\n\
           import { num, math, hint } from \"rts\";\n\
           test(\"wrapping\", () => expect(num.wrapping_sub(0, 1)).toBe(-1));\n\
-          test(\"checked refuses\", () => expect(num.checked_div(100, 0)).toBe(undefined));\n\
+          test(\"checked refuses\", () => expect(num.checked_div(100, 0)).toBe(-9223372036854775808));\n\
           test(\"bits\", () => expect(num.count_ones(255)).toBe(8));\n\
           test(\"integer abs\", () => expect(math.abs_i64(-13)).toBe(13));\n\
           test(\"a hint answers its argument\", () => expect(hint.black_box_i64(42)).toBe(42));\n",
@@ -4613,4 +4624,19 @@ fn an_error_says_where_it_came_from() {
          return e.stack.indexOf('at made') >= 0 ? 1 : 0;",
     );
     assert_eq!(tags::decode_double(constructed), 1.0);
+}
+
+#[test]
+fn proven_dot_rs_try_catch_bug_class_a_var_reassigned_inside_try_is_not_wrongly_proved_numeric() {
+    // The fifth hole found by construction (see `emit/proven.rs`'s module doc
+    // on `keep_only_numeric`): `StmtKind::Try` had no arm in `proven.rs` at
+    // all, so an assignment inside a `try` body was invisible to the pass
+    // that decides whether a local keeps its proven `F64` representation.
+    // Before the fix this failed to compile with `ImplicitNarrowing` (or
+    // worse, ran with a mismatched representation) because `x` stayed
+    // "proved numeric" straight through `x = "a"`.
+    let produced = run(
+        "let x = 1; try { x = \"a\"; } catch (e) {} return typeof x === \"string\" ? 1 : 0;",
+    );
+    assert_eq!(tags::decode_double(produced), 1.0);
 }

@@ -64,12 +64,12 @@
 
 use std::collections::HashSet;
 
+use super::capture::{self, Child, StmtChild};
 use super::escape::Flattened;
 use crate::names::Name;
 use crate::syntax::{
-    AssignOp, AssignTarget, BinaryOp, Expr, ExprKind, ForInit, Literal, Pattern, Property,
-    PropertyKey, Stmt, StmtKind,
-    UnaryOp,
+    AssignOp, AssignTarget, Binding, BinaryOp, Expr, ExprKind, ForEachTarget, ForInit, Literal,
+    Pattern, Property, PropertyKey, Stmt, StmtKind, UnaryOp,
 };
 
 /// The locals a function body only ever puts numbers in.
@@ -208,23 +208,7 @@ fn collect_candidates(statement: &Stmt, flattened: &Flattened, into: &mut Numeri
                 }
             }
         }
-        StmtKind::Block(body) => body
-            .iter()
-            .for_each(|inner| collect_candidates(inner, flattened, into)),
-        StmtKind::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            collect_candidates(then_branch, flattened, into);
-            if let Some(otherwise) = else_branch {
-                collect_candidates(otherwise, flattened, into);
-            }
-        }
-        StmtKind::While { body, .. } | StmtKind::DoWhile { body, .. } => {
-            collect_candidates(body, flattened, into)
-        }
-        StmtKind::For { init, body, .. } => {
+        StmtKind::For { init, .. } => {
             // `for (var i = 0; …)` is the same hazard as the module doc's
             // `if`: `i` is `undefined` at function entry and only becomes
             // `0` at this line, so a read reachable WITHOUT passing through
@@ -248,27 +232,70 @@ fn collect_candidates(statement: &Stmt, flattened: &Flattened, into: &mut Numeri
                     }
                 }
             }
-            collect_candidates(body, flattened, into);
         }
-        StmtKind::Labelled { body, .. } => collect_candidates(body, flattened, into),
-        StmtKind::Switch { clauses, .. } => {
-            for clause in clauses {
-                for inner in &clause.body {
-                    collect_candidates(inner, flattened, into);
-                }
-            }
-        }
-        StmtKind::ForEach { body, .. } => {
-            // The target is deliberately NOT a candidate: what it holds is a
-            // key, and `for-in` yields strings even for array indices. Adding
-            // it would claim a representation the loop never produces.
-            collect_candidates(body, flattened, into);
-        }
+        // A resource is never a candidate — see the module doc's reasoning
+        // about `var`, applied one door over: what a `using` binds is not a
+        // plain local this pass proves across every write, whatever the
+        // initialiser looks like.
+        StmtKind::Using { .. } => {}
+        // The target is deliberately NOT a candidate, whichever of the three
+        // spellings it is written with: what arrives is an element or a key,
+        // never something this pass proved the shape of.
+        StmtKind::ForEach { .. } => {}
         _ => {}
     }
+    // Every remaining candidate-bearing shape is a nested STATEMENT — a
+    // declaration cannot hide inside an expression — so only `StmtChild::
+    // Stmt` and a `catch` clause's body matter here. Routed through
+    // `capture::walk_stmt`, the one place this tree's shape is described
+    // exhaustively, rather than a second match repeating it: that match is
+    // what used to end `_ => {}`, which is how `StmtKind::Try` came to be
+    // invisible to this whole pass — see `keep_only_numeric`'s doc for what
+    // that cost.
+    capture::walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => collect_candidates(inner, flattened, into),
+        StmtChild::Catch(catch) => {
+            for inner in &catch.body {
+                collect_candidates(inner, flattened, into);
+            }
+        }
+        StmtChild::Expr(_)
+        | StmtChild::Binding(_)
+        | StmtChild::Function(_)
+        | StmtChild::Class(_) => {}
+    });
 }
 
 /// Removes any candidate this statement puts something non-numeric into.
+///
+/// # The FIFTH time, and why this is no longer a hand-written traversal
+///
+/// This pass has now claimed a representation nothing produces four times in
+/// one session — `%` (no remainder instruction), unary `-` (always a runtime
+/// call), a hoisted `var` (a real `undefined` edge this pass never saw), and
+/// `for (q of xs)` writing an EXISTING binding through a pattern this walk did
+/// not know was a write. All four were the same shape: a way of writing a
+/// name that a hand-maintained `match` had no arm for, ending in `_ => {}`.
+///
+/// A fifth was found by construction rather than by a crash: `StmtKind::Try`
+/// had no arm at all, in this function OR in `collect_candidates`. Nothing
+/// here ever looked inside a `try`, `catch` or `finally` body — so
+/// `let x = 1; try { x = "s"; } catch {} return x + 1;` kept `x` proved `F64`
+/// straight through an assignment this pass never visited, for the same
+/// reason `for`-each did: an arm that exists for the shapes it was written
+/// against and is silent about the rest.
+///
+/// The fix is not a sixth arm. `capture::walk_stmt` and `capture::walk_expr`
+/// already describe this tree's shape exhaustively — no wildcard, everything
+/// enumerated by name — because `capture.rs` was fixed for exactly this
+/// failure mode before ([`StmtKind::Try`] missing from ITS OWN walk, once).
+/// Recursion here is delegated to that one description instead of a second,
+/// independently-maintained copy: a `StmtKind` or `ExprKind` variant added
+/// anywhere now has exactly one match to update, and the compiler refuses to
+/// build `capture.rs` until it is exhaustive there. What stays HERE, matched
+/// by name, is only the part `capture`'s generic children cannot carry — a
+/// declaration's `BindingKind`, which decides whether an initialiser is
+/// evidence at all.
 fn keep_only_numeric(
     statement: &Stmt,
     flattened: &Flattened,
@@ -278,149 +305,149 @@ fn keep_only_numeric(
     match &statement.kind {
         StmtKind::Declare { bindings, .. } => {
             for binding in bindings {
-                let Pattern::Name(name) = &binding.target else {
-                    continue;
-                };
-                // A replaced object is proved key by key against its literal's
-                // own values, which is the same rule one level down: the
-                // initialiser of `«o.a»` is what the literal wrote at `a`.
-                if flattened.properties(*name).is_some()
-                    && let Some(Expr {
-                        kind: ExprKind::Object { properties },
-                        ..
-                    }) = &binding.value
-                {
-                    for property in properties {
-                        if let Property::Value {
-                            key: PropertyKey::Named(key),
-                            value,
-                            ..
-                        } = property
-                            && !is_numeric(value, known)
-                        {
-                            surviving.fields.remove(&(*name, *key));
-                        }
-                    }
-                    continue;
-                }
-                let numeric = binding
-                    .value
-                    .as_ref()
-                    .is_some_and(|value| is_numeric(value, known));
-                if !numeric {
-                    surviving.names.remove(name);
-                }
+                binding_written(binding, flattened, known, surviving);
             }
-        }
-        StmtKind::Expr(expr) | StmtKind::Return(Some(expr)) | StmtKind::Throw(expr) => {
-            check_expr(expr, flattened, known, surviving)
-        }
-        StmtKind::Block(body) => body
-            .iter()
-            .for_each(|inner| keep_only_numeric(inner, flattened, known, surviving)),
-        StmtKind::If {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            check_expr(condition, flattened, known, surviving);
-            keep_only_numeric(then_branch, flattened, known, surviving);
-            if let Some(otherwise) = else_branch {
-                keep_only_numeric(otherwise, flattened, known, surviving);
-            }
-        }
-        StmtKind::While { condition, body } => {
-            check_expr(condition, flattened, known, surviving);
-            keep_only_numeric(body, flattened, known, surviving);
-        }
-        StmtKind::DoWhile { body, condition } => {
-            keep_only_numeric(body, flattened, known, surviving);
-            check_expr(condition, flattened, known, surviving);
         }
         StmtKind::For {
-            init,
-            test,
-            update,
-            body,
-        } => {
-            match init {
-                Some(ForInit::Declare { bindings, .. }) => {
-                    for binding in bindings {
-                        if let Pattern::Name(name) = &binding.target {
-                            let numeric = binding
-                                .value
-                                .as_ref()
-                                .is_some_and(|value| is_numeric(value, known));
-                            if !numeric {
-                                surviving.names.remove(name);
-                            }
-                        }
-                    }
-                }
-                Some(ForInit::Expr(expr)) => check_expr(expr, flattened, known, surviving),
-                None => {}
-            }
-            if let Some(test) = test {
-                check_expr(test, flattened, known, surviving);
-            }
-            if let Some(update) = update {
-                check_expr(update, flattened, known, surviving);
-            }
-            keep_only_numeric(body, flattened, known, surviving);
-        }
-        StmtKind::Labelled { body, .. } => keep_only_numeric(body, flattened, known, surviving),
-        StmtKind::Switch {
-            discriminant,
-            clauses,
-        } => {
-            check_expr(discriminant, flattened, known, surviving);
-            for clause in clauses {
-                if let Some(test) = &clause.test {
-                    check_expr(test, flattened, known, surviving);
-                }
-                for inner in &clause.body {
-                    keep_only_numeric(inner, flattened, known, surviving);
-                }
-            }
-        }
-        StmtKind::ForEach {
-            target,
-            subject,
-            body,
+            init: Some(ForInit::Declare { bindings, .. }),
             ..
         } => {
-            check_expr(subject, flattened, known, surviving);
-            // Whatever this loop writes per pass, it writes an ELEMENT or a KEY
-            // — Tagged, because nothing here proves the shape of the subject —
-            // so every name the target writes loses the proof, whichever of the
-            // two spellings it is.
-            //
-            // `Declare` alone used to be enough, and only because `for (x of xs)`
-            // over an EXISTING binding was refused by the emitter. The day that
-            // was allowed, `let q = 0; for (q of [1, 2]) {}` stayed proved `F64`
-            // while carrying a Tagged element, and the verifier refused the
-            // loop's block parameter. That is the FOURTH time this pass has
-            // claimed a representation nothing produces — after `%`, unary `-`,
-            // and a hoisted `var` — and all four were one shape: a way of
-            // writing a name that the walk did not recognise as a write.
-            //
-            // The whole pattern is walked, not just `Pattern::Name`: `for ([a, b]
-            // of pairs)` writes two names and neither is numeric either.
-            let written = match target {
-                crate::syntax::ForEachTarget::Declare { target, .. } => Some(target),
-                crate::syntax::ForEachTarget::Assign(target) => Some(target),
-                _ => None,
-            };
-            if let Some(pattern) = written {
-                let mut names = Vec::new();
-                pattern.bound_names(&mut names);
-                for name in names {
+            for binding in bindings {
+                if let Some(value) = &binding.value {
+                    check_expr(value, flattened, known, surviving);
+                }
+                if let Pattern::Name(name) = &binding.target {
+                    let numeric = binding
+                        .value
+                        .as_ref()
+                        .is_some_and(|value| is_numeric(value, known));
+                    if !numeric {
+                        surviving.names.remove(name);
+                    }
+                }
+            }
+        }
+        // A resource is Tagged, always — and the reason this strips rather
+        // than merely skips: `Names` interns by TEXT, not by scope (see
+        // `crate::names`), so a `using x` nested inside a block and an
+        // outer, proved-numeric `x` are ONE `Name` as far as this whole pass
+        // can tell. Not stripping here would let the outer proof survive
+        // through a binding that shares its spelling by accident.
+        StmtKind::Using { bindings, .. } => {
+            for binding in bindings {
+                let mut written = Vec::new();
+                binding.target.bound_names(&mut written);
+                for name in written {
+                    surviving.names.remove(&name);
+                }
+                if let Some(value) = &binding.value {
+                    check_expr(value, flattened, known, surviving);
+                }
+            }
+        }
+        // Whatever this loop writes per pass, it writes an ELEMENT or a KEY
+        // — Tagged, because nothing here proves the shape of the subject —
+        // so every name the target writes loses the proof, whichever of the
+        // three spellings it is. `Dispose` was the fifth-and-a-half gap:
+        // added the same day as `Declare`/`Assign` above, by the same
+        // construction rather than by a program that hit it.
+        StmtKind::ForEach { target, .. } => {
+            let mut written = Vec::new();
+            match target {
+                ForEachTarget::Declare { target, .. } | ForEachTarget::Assign(target) => {
+                    target.bound_names(&mut written);
+                }
+                ForEachTarget::Dispose { target, .. } => written.push(*target),
+            }
+            for name in written {
+                surviving.names.remove(&name);
+            }
+        }
+        // A `catch` binds a fresh name to whatever was thrown — never a
+        // number this pass can trust — and the same shadow-by-text hazard
+        // `using` has applies here too.
+        StmtKind::Try { catch: Some(catch), .. } => {
+            if let Some(binding) = &catch.binding {
+                let mut written = Vec::new();
+                binding.bound_names(&mut written);
+                for name in written {
                     surviving.names.remove(&name);
                 }
             }
-            keep_only_numeric(body, flattened, known, surviving);
         }
         _ => {}
+    }
+    capture::walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => keep_only_numeric(inner, flattened, known, surviving),
+        StmtChild::Expr(inner) => check_expr(inner, flattened, known, surviving),
+        // `Binding` is only ever produced for `Declare`, a `for`'s own
+        // declaration, and `Using` — the three already matched above, with
+        // the `BindingKind` context this generic child does not carry. A
+        // second visit here would be idempotent, not wrong, but there is
+        // nothing left for it to do.
+        StmtChild::Binding(_) => {}
+        StmtChild::Catch(catch) => {
+            for inner in &catch.body {
+                keep_only_numeric(inner, flattened, known, surviving);
+            }
+        }
+        // A nested function or class body is its own scope, proved
+        // separately when IT is emitted (`function.rs` calls `analyse`
+        // again for it) — see the module doc on what this pass deliberately
+        // does not try to prove.
+        StmtChild::Function(_) | StmtChild::Class(_) => {}
+    });
+}
+
+/// Removes a declared name's candidacy when its own initialiser is not
+/// numeric. Shared between an ordinary `let`/`const`/`var` and — once this
+/// crate proves a numeric `for`-header binding worth sharing too — anywhere
+/// else a plain [`Binding`] decides a name's proof the same way.
+fn binding_written(binding: &Binding, flattened: &Flattened, known: &Numeric, surviving: &mut Numeric) {
+    // The initialiser is visited for its OWN sake before anything below asks
+    // whether it looks numeric: `is_numeric` only ever ANSWERS a question, it
+    // never strips a proof, so a nested assignment inside one —
+    // `let a = [x = g()];`, `let s = \`${x = g()}\`;` — was invisible until
+    // this call existed. Found the same way as the rest of this file's
+    // holes: by asking whether every writing FORM reaches `check_expr`, not
+    // by a program that hit it.
+    if let Some(value) = &binding.value {
+        check_expr(value, flattened, known, surviving);
+    }
+    let Pattern::Name(name) = &binding.target else {
+        // A destructuring declaration's names are never candidates in the
+        // first place — `collect_candidates` only adds `Pattern::Name` — so
+        // there is nothing here to strip either.
+        return;
+    };
+    // A replaced object is proved key by key against its literal's own
+    // values, which is the same rule one level down: the initialiser of
+    // `«o.a»` is what the literal wrote at `a`.
+    if flattened.properties(*name).is_some()
+        && let Some(Expr {
+            kind: ExprKind::Object { properties },
+            ..
+        }) = &binding.value
+    {
+        for property in properties {
+            if let Property::Value {
+                key: PropertyKey::Named(key),
+                value,
+                ..
+            } = property
+                && !is_numeric(value, known)
+            {
+                surviving.fields.remove(&(*name, *key));
+            }
+        }
+        return;
+    }
+    let numeric = binding
+        .value
+        .as_ref()
+        .is_some_and(|value| is_numeric(value, known));
+    if !numeric {
+        surviving.names.remove(name);
     }
 }
 
@@ -507,25 +534,25 @@ fn check_expr(
                 surviving.names.remove(name);
             }
         }
-        ExprKind::Binary { left, right, .. } | ExprKind::Logical { left, right, .. } => {
-            check_expr(left, flattened, known, surviving);
-            check_expr(right, flattened, known, surviving);
-        }
-        ExprKind::Unary { operand, .. } => check_expr(operand, flattened, known, surviving),
-        ExprKind::Sequence { operands } => operands
-            .iter()
-            .for_each(|one| check_expr(one, flattened, known, surviving)),
-        ExprKind::Conditional {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            check_expr(condition, flattened, known, surviving);
-            check_expr(then_branch, flattened, known, surviving);
-            check_expr(else_branch, flattened, known, surviving);
-        }
         _ => {}
     }
+    // Everything else that can hide an assignment is a nested EXPRESSION —
+    // a call argument, a `new` argument, a template substitution, an array
+    // element, an object property's value, a computed key, the object or
+    // index of `a[e]`, the operand of `await`/`yield`, either side of `?:`
+    // — and each of those was invisible here before this delegated to
+    // `capture::walk_expr`. `f(x = "s")`, `[y = "s"]`, `` `${z = "s"}` ``,
+    // `o[k = "s"]` were all unreachable to a hand-written match that only
+    // recursed into `Binary`/`Logical`/`Unary`/`Sequence`/`Conditional` — an
+    // assignment nested inside any of the rest was never invalidated,
+    // which is a wider version of the same bug class this file is named
+    // after: a way of WRITING that a walk did not know was a write, one
+    // level further out than the four that were found by a crash.
+    capture::walk_expr(expr, &mut |child| match child {
+        Child::Expr(inner) => check_expr(inner, flattened, known, surviving),
+        // Its own scope, proved separately when it is emitted.
+        Child::Function(_) | Child::Class(_) => {}
+    });
 }
 
 /// Whether an operator's result is a number whatever its operands are, AND
@@ -748,5 +775,88 @@ mod tests {
         // Not a limitation to fix later by guessing. A caller can pass anything,
         // and the evidence for what it passes is not in this function.
         assert!(proved("x = 1;").is_empty());
+    }
+
+    // The bug class: a way of writing a name that the walk did not recognise
+    // as a write. Each test below pins one writing-form the earlier,
+    // hand-maintained `match` in `keep_only_numeric`/`check_expr` had no arm
+    // for, and each would have stayed "proved" before this file started
+    // delegating recursion to `capture::walk_stmt`/`walk_expr`.
+
+    #[test]
+    fn an_assignment_inside_a_try_body_is_not_invisible_to_the_pass() {
+        // `StmtKind::Try` had no arm at all in `keep_only_numeric`, so this
+        // assignment was never visited and `x` stayed "proved" straight
+        // through it.
+        assert!(proved("let x = 1; try { x = f(); } catch (e) {}").is_empty());
+    }
+
+    #[test]
+    fn an_assignment_inside_a_catch_body_is_not_invisible_to_the_pass() {
+        assert!(proved("let x = 1; try {} catch (e) { x = f(); }").is_empty());
+    }
+
+    #[test]
+    fn an_assignment_inside_a_finally_body_is_not_invisible_to_the_pass() {
+        assert!(proved("let x = 1; try {} finally { x = f(); }").is_empty());
+    }
+
+    #[test]
+    fn a_catch_binding_does_not_keep_an_outer_proof_alive_under_the_same_spelling() {
+        // `Names` interns by TEXT, not by scope, so a `catch (x)` and an
+        // outer numeric `x` are one `Name` to this whole pass. Written this
+        // way because the emitter does not accept a caught value being used
+        // as a number, so the hazard is the SHADOW, not the catch value's
+        // own (non-)numeric-ness.
+        assert!(proved("let x = 1; try { f(); } catch (x) {}").is_empty());
+    }
+
+    #[test]
+    fn a_name_assigned_only_inside_a_call_argument_is_not_invisible_to_the_pass() {
+        // Before this pass delegated to `capture::walk_expr`, `check_expr`
+        // only recursed into `Binary`/`Logical`/`Unary`/`Sequence`/
+        // `Conditional` — an assignment nested inside a call's arguments,
+        // `new`'s arguments, an array element, an object property, or a
+        // template substitution was invisible to it.
+        assert!(proved("let x = 1; f(x = g());").is_empty());
+    }
+
+    #[test]
+    fn a_name_assigned_only_inside_an_array_literal_is_not_invisible_to_the_pass() {
+        assert!(proved("let x = 1; let a = [x = g()];").is_empty());
+    }
+
+    #[test]
+    fn a_name_assigned_only_inside_a_template_substitution_is_not_invisible_to_the_pass() {
+        assert!(proved("let x = 1; let s = `${x = g()}`;").is_empty());
+    }
+
+    #[test]
+    fn a_name_assigned_only_inside_a_computed_member_index_is_not_invisible_to_the_pass() {
+        assert!(proved("let x = 1; a[x = g()] = 1;").is_empty());
+    }
+
+    #[test]
+    fn a_for_each_dispose_target_does_not_keep_an_outer_proof_alive_under_the_same_spelling() {
+        // `for (using x of xs)` — the fifth-and-a-half gap: `Declare` and
+        // `Assign` were handled, `Dispose` was not, and all three share the
+        // same hazard the catch-binding test above pins.
+        assert!(proved("let x = 1; for (using x of y) {}").is_empty());
+    }
+
+    #[test]
+    fn a_using_binding_does_not_keep_an_outer_proof_alive_under_the_same_spelling() {
+        assert!(proved("let x = 1; { using x = f(); }").is_empty());
+    }
+
+    #[test]
+    fn an_ordinary_numeric_loop_stays_proved_after_the_rewrite() {
+        // The regression this whole change must not cause: a plain counter
+        // loop, with none of the constructs above anywhere near it, still
+        // gets its instruction rather than a runtime call.
+        assert_eq!(
+            proved("let i = 0; while (i < 10) { i = i + 1; }"),
+            ["i"]
+        );
     }
 }

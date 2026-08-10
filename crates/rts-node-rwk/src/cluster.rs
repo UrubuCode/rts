@@ -121,7 +121,13 @@ pub fn namespace(context: &mut entry::Context) -> u64 {
     // it in `spawn_async::spawn`.
     let event_emitter = entry::make_prototype(context, "EventEmitter", &[]);
     entry::set_prototype_in(context, namespace, event_emitter);
-    entry::make_prototype(context, "Worker", WORKER_METHODS);
+    // "cluster.Worker" rather than "Worker": `node:worker_threads` registers a
+    // DIFFERENT class under that bare name (a real thread's handle, with its
+    // own method table), and `make_prototype` is idempotent by name — a bare
+    // "Worker" here would hand cluster's methods to worker_threads instances or
+    // the reverse, depending only on install order. See `make_prototype`'s doc
+    // for the collision this would otherwise be.
+    entry::make_prototype(context, "cluster.Worker", WORKER_METHODS);
 
     let primary = entry::boolean_value(is_primary());
     entry::put_member(context, namespace, "isPrimary", primary);
@@ -238,7 +244,7 @@ extern "C" fn fork(_e: u64, namespace: u64, _env: u64, _a1: u64, _a2: u64, _a3: 
 
     let instance = entry::with_runtime(|context| {
         let event_emitter = entry::make_prototype(context, "EventEmitter", &[]);
-        let prototype = entry::make_prototype(context, "Worker", WORKER_METHODS);
+        let prototype = entry::make_prototype(context, "cluster.Worker", WORKER_METHODS);
         entry::set_prototype_in(context, prototype, event_emitter);
         let instance = entry::make_instance(context, prototype);
         let id_value = entry::make_number(id as f64);

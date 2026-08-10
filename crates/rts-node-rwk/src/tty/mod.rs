@@ -74,10 +74,14 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("WriteStream", make_write_stream),
     ];
     let namespace = entry::make_namespace(context, members);
-    let read_prototype = entry::make_prototype(context, "ReadStream", READ_STREAM_METHODS);
+    // "tty.ReadStream"/"tty.WriteStream" rather than the bare names: `node:fs`
+    // registers ITS OWN `"ReadStream"`/`"WriteStream"` under those same bare
+    // names, with a different method table, and `make_prototype` is idempotent
+    // by name — see its doc comment for the collision this otherwise is.
+    let read_prototype = entry::make_prototype(context, "tty.ReadStream", READ_STREAM_METHODS);
     let read_ctor = entry::get_member(context, namespace, "ReadStream");
     entry::put_member(context, read_ctor, "prototype", read_prototype);
-    let write_prototype = entry::make_prototype(context, "WriteStream", WRITE_STREAM_METHODS);
+    let write_prototype = entry::make_prototype(context, "tty.WriteStream", WRITE_STREAM_METHODS);
     let write_ctor = entry::get_member(context, namespace, "WriteStream");
     entry::put_member(context, write_ctor, "prototype", write_prototype);
     namespace
@@ -115,7 +119,7 @@ const READ_STREAM_METHODS: &[(&str, Provided)] = &[("setRawMode", set_raw_mode)]
 /// `isTTY` is a class constant, not a live `isatty(fd)` re-check, even here).
 extern "C" fn make_read_stream(_e: u64, this: u64, fd: u64, _options: u64, _a2: u64, _a3: u64) -> u64 {
     entry::with_runtime(|context| {
-        let prototype = entry::make_prototype(context, "ReadStream", READ_STREAM_METHODS);
+        let prototype = entry::make_prototype(context, "tty.ReadStream", READ_STREAM_METHODS);
         let instance = match entry::is_object(context, this) {
             true => this,
             false => entry::make_instance(context, prototype),
@@ -166,7 +170,7 @@ extern "C" fn make_write_stream(_e: u64, this: u64, fd: u64, _a1: u64, _a2: u64,
     // number already in hand.
     let size = descriptor(fd).and_then(platform::window_size);
     entry::with_runtime(|context| {
-        let prototype = entry::make_prototype(context, "WriteStream", WRITE_STREAM_METHODS);
+        let prototype = entry::make_prototype(context, "tty.WriteStream", WRITE_STREAM_METHODS);
         let instance = match entry::is_object(context, this) {
             true => this,
             false => entry::make_instance(context, prototype),

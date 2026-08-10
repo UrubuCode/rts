@@ -398,6 +398,21 @@ pub fn make_bytes(context: &mut Context, source: &[u8]) -> u64 {
     super::buffers::typed::made(context, view)
 }
 
+/// Names registered from more than one file ON PURPOSE, exempted from
+/// [`make_prototype`]'s collision panic, and each is self-healing rather than
+/// a race: `"Performance"` (`rts-node-rwk`'s `perf_hooks::namespace` and
+/// `rts-std-rwk`'s `timing::install`) and `"ChildProcess"`
+/// (`child_process::mod`'s namespace builder and `spawn_async`'s own
+/// construction) both call `make_prototype` and then reinstall their own
+/// full member list onto the returned cell regardless of which caller minted
+/// it — see `perf_hooks::mod::namespace`'s comment, which states the
+/// idempotence explicitly. That is a different shape from the bug class the
+/// panic exists for: those two callers never TRUST the returned prototype to
+/// already have the members they need, so a wrong table never survives to be
+/// read. Listed here rather than inferred, because "does the caller reinstall
+/// afterwards" is not something this function can observe.
+const SHARED_BY_DESIGN: &[&str] = &["Performance", "ChildProcess"];
+
 /// A prototype a host's instances inherit from, made once and named.
 ///
 /// # What this is, and what `#[rtse::class]` is
@@ -417,15 +432,63 @@ pub fn make_bytes(context: &mut Context, source: &[u8]) -> u64 {
 /// built-in is answered rather than shadowed — and recorded BEFORE the members
 /// are installed, because installing interns names and interning allocates,
 /// which is the recursion `string::prototype_of` paid for once.
+///
+/// # Idempotent by name, but a COLLISION between two owners panics
+///
+/// The idiom this crate uses on purpose is a "chain-read": ask for a name with
+/// an EMPTY `members` slice to get the parent object back (`"EventEmitter"`,
+/// `"Readable"`), never intending to define it. That case must stay silent —
+/// it is how a dozen modules link an instance onto an `EventEmitter` another
+/// module owns.
+///
+/// What must NOT stay silent is two DIFFERENT owners each calling this with a
+/// real, non-empty `members` table under the same name — that is not a chain,
+/// it is two classes that picked the same name, and by-name idempotence used
+/// to hand the second one the first one's method table with no signal at all:
+/// `fs` and `stream` both defining `"Writable"`, `http` and `net` both defining
+/// `"Server"`, `dgram` and `net` both defining `"Socket"` each shipped this way
+/// and were only found by reading output, one module wide at a time.
+///
+/// So: the first call that installs real members records its caller's file as
+/// the name's owner. A later call that ALSO installs real members and comes
+/// from a different file panics naming both files and the name — this can only
+/// fire from a programming error inside this engine (a native module reusing a
+/// name), never from anything a JS program's input can select, since which
+/// native modules exist and what they register is fixed at compile time, not
+/// read from a script. The trade taken is a crash rather than a silent wrong
+/// method table, because the wrong table is the harder bug to ever notice.
+/// [`SHARED_BY_DESIGN`] lists the two names that share by design instead.
+#[track_caller]
 pub fn make_prototype(context: &mut Context, name: &'static str, members: &[(&str, Provided)]) -> u64 {
+    // `Location::caller()` is read HERE, directly in the `#[track_caller]`
+    // body, and threaded through as a value — read lazily inside the
+    // `.then(...)` closure below, it reports the closure's OWN definition
+    // site (this file) instead of the propagated call site, which is exactly
+    // the false collision this mechanism must not report.
+    let caller = std::panic::Location::caller().file();
+    let owning = !members.is_empty() && !SHARED_BY_DESIGN.contains(&name);
     if let Some(made) = super::class_support::prototype(context, name) {
+        if owning {
+            if let Some(existing) = super::class_support::owner(context, name) {
+                if existing != caller {
+                    panic!(
+                        "make_prototype(\"{name}\") collision: already owned by {existing}, \
+                         also claimed by {caller} — two modules registered different method \
+                         tables under one prototype name; rename one (e.g. \"module.{name}\") \
+                         or, if the sharing is deliberate and self-healing, add it to \
+                         SHARED_BY_DESIGN with the same reasoning as its existing entries"
+                    );
+                }
+            }
+        }
         return made;
     }
     let Some(cell) = super::native::plain(context) else {
         return undefined_of(context);
     };
     let object = Value::from_slot(cell).bits();
-    super::class_support::record(context, name, object, object);
+    let owner = owning.then_some(caller);
+    super::class_support::record(context, name, object, object, owner);
     super::native::install(context, cell, members);
     object
 }

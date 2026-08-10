@@ -88,7 +88,11 @@ pub fn namespace(context: &mut Context) -> u64 {
     let namespace = entry::make_namespace(context, members);
     entry::declare_loop_source(context, "node:worker_threads", source);
 
-    let prototype = entry::make_prototype(context, "Worker", WORKER_METHODS);
+    // "worker_threads.Worker" rather than "Worker": `node:cluster` registers a
+    // DIFFERENT class under that bare name (a forked OS process's handle, with
+    // its own method table) — see the collision note on `cluster::namespace`
+    // and on `make_prototype` itself.
+    let prototype = entry::make_prototype(context, "worker_threads.Worker", WORKER_METHODS);
     let constructor = entry::make_callable(context, worker_ctor);
     entry::put_member(context, constructor, "prototype", prototype);
     entry::put_member(context, namespace, "Worker", constructor);
@@ -157,7 +161,7 @@ extern "C" fn worker_ctor(_e: u64, this: u64, source: u64, options: u64, _c: u64
     // dropped: starting a thread is not the risk, but `registry::start` takes
     // the evaluator off this thread's context, which is a second borrow.
     let (instance, text, evaluated, name, data) = entry::with_runtime(|context| {
-        let prototype = entry::make_prototype(context, "Worker", WORKER_METHODS);
+        let prototype = entry::make_prototype(context, "worker_threads.Worker", WORKER_METHODS);
         let instance = match entry::is_object(context, this) {
             true => this,
             false => entry::make_instance(context, prototype),

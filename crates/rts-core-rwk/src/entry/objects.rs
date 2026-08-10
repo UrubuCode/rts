@@ -41,15 +41,23 @@ use rts_cranelift::shape::Key as ShapeKey;
 /// than wrong-looking.
 #[rtse::entry]
 pub fn object_new() -> u64 {
-    with_current(|context| {
-        // The empty layout, which every object that gains its first property
-        // transitions out of — which is what makes two objects built the same
-        // way share a shape.
-        let shape = context.shapes.root();
-        let ty = context.layout_of(shape).index() as u32;
-        let cell = super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
-        Value::from_slot(cell).bits()
-    })
+    with_current(object_new_in)
+}
+
+/// The body [`object_new`] wraps in `with_current`, taken directly by a
+/// caller that already holds the borrow — [`super::object_global::empty_object`]
+/// is one, and calling [`object_new`] from inside its own `with_current`
+/// closure re-enters the `RefCell` and aborts the process rather than
+/// panicking catchably (the entry point crosses an `extern "C"` boundary,
+/// where an unwind is not allowed).
+pub(super) fn object_new_in(context: &mut Context) -> u64 {
+    // The empty layout, which every object that gains its first property
+    // transitions out of — which is what makes two objects built the same
+    // way share a shape.
+    let shape = context.shapes.root();
+    let ty = context.layout_of(shape).index() as u32;
+    let cell = super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
+    Value::from_slot(cell).bits()
 }
 
 /// `object.name`, the name given as its key number.
