@@ -151,6 +151,16 @@ pub unsafe fn exports_of(env: napi_env, name: &str) -> Option<u64> {
     unsafe { run(env, register) }
 }
 
+/// The name of the module registered most recently.
+///
+/// What [`crate::loader`] reads after mapping a library: an older addon
+/// registers from a static constructor while it is being MAPPED, so the loader
+/// learns its name by watching this list grow rather than by asking the library
+/// anything — there is nothing to ask, which is why that path exists at all.
+pub fn last_registered() -> Option<String> {
+    PENDING.with_borrow(|pending| pending.last().map(|module| module.name.clone()))
+}
+
 /// How many modules have registered and not yet been asked for.
 ///
 /// For a host deciding whether a library it loaded registered anything at all —

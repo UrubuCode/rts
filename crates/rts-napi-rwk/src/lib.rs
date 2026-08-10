@@ -37,6 +37,10 @@
 //!
 //! P8a: registration — an addon saying what it exports.
 //!
+//! P8b: the export table — every symbol handed to the linker.
+//!
+//! P8c: the loader — mapping a `.node` and finding its entry point.
+//!
 //! Everything else in the ABI is absent rather than stubbed; an absent symbol
 //! fails to link loudly, which is the answer an addon can act on.
 //!
@@ -69,6 +73,7 @@ pub mod errors;
 pub mod exported;
 pub mod functions;
 pub mod handles;
+pub mod loader;
 pub mod module;
 pub mod objects;
 pub mod references;

@@ -246,10 +246,39 @@ The other two platforms are written and not verified, and the asymmetry is the
 same one the AOT position-independence fix carries: what is verified is that the
 argument reaches the linker, because the same `build.rs` emits all three.
 
-What is left is P8c: `dlopen`/`LoadLibrary`, and looking for
-`napi_register_module_v1`. It is last on purpose — done before the export table
-it would have produced a loader that opens a file and dies on the first
-undefined symbol, which reads as a bug in the addon rather than in us.
+## P8c — opening a `.node` (DONE)
+
+`loader::open` maps the file and finds how to ask it for its exports:
+`LoadLibraryW`/`GetProcAddress` on Windows, `dlopen`/`dlsym` elsewhere.
+
+Both entry points, in the order the platform forces. A modern addon exports
+`napi_register_module_v1` and is found by name; an older one calls
+`napi_module_register` from a static constructor, which runs while the library
+is being MAPPED — before this code sees anything — so the loader watches the
+registration list grow across the map instead of asking the library a question
+it cannot answer.
+
+`RTLD_NOW`, deliberately: every undefined symbol resolved before anything runs,
+so an addon missing one fails where the path is still in hand to name. Lazily,
+the same failure arrives inside somebody's callback with no context.
+
+Nothing is ever unloaded — no `dlclose`, no `FreeLibrary`. The addon's code
+stays reachable from every value it produced: a callable's code address, a
+finalizer, a threadsafe function's callback. Unmapping turns each into a jump
+into nothing. Node does not unload addons either, for the same reason.
+
+Measured against a real library, because this repository has no `.node` to
+build: the tests map `kernel32.dll` (or `libc`), find a symbol it exports, fail
+to find one it does not, and then check that `open` refuses it by name — "it is
+a shared library, but not an addon", which is the message a user pointing
+`require` at the wrong file needs.
+
+## P8d — a third-party addon
+
+What is left is the measurement, not the code: building a real `.node` against
+Node's headers and loading it. Every piece it needs is in and tested apart, and
+none of that is the same as one addon working — the crate's status stays "the
+tests pass" until an addon runs, and this line is what says so.
 
 The old `rts-napi` lists 157 names against this crate's 70, and the difference
 is the surface still missing rather than a disagreement — another reason to keep

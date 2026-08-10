@@ -27,9 +27,10 @@
 //!
 //! # What is still missing to load an addon
 //!
-//! Opening one. The symbols are exported (measured: the linker emits an export
-//! library naming them, and did not before), and what remains is
-//! `dlopen`/`LoadLibrary` plus finding `napi_register_module_v1` — P8c.
+//! Nothing, in this crate. The symbols are exported (measured: the linker emits
+//! an export library naming them, and did not before) and `crate::loader` maps
+//! a file and finds its entry point. What is left is a real `.node` to point it
+//! at — P8d, which is a measurement rather than code.
 
 /// One address in [`KEEP`].
 ///

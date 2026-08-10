@@ -382,8 +382,8 @@ crates/
   rts-egui/ rts-dom/ rts-render/ rts-input/   the UI engine, engine-agnostic
   rts-linker/        native link            rts-cli/  the CLI
 
-  rts-napi-rwk/      N-API here. P1-P8b in — 70 symbols exported from the
-                     binary; opening a .node is what is left (its PLAN.md)
+  rts-napi-rwk/      N-API here. P1-P8c in — 70 symbols exported, and a loader
+                     that maps a .node. No addon has run yet (its PLAN.md)
   rts-napi/          the same ABI on the DELETED engine. Not built, not a
                      member, kept to be read. Goes away when -rwk catches up.
 ```

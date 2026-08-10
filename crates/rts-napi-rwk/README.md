@@ -89,6 +89,20 @@ its line where this engine needs one, so what crosses a thread is the addon's
 own pointer and nothing else. `CLAUDE.md`'s `thread` entry — about running
 JAVASCRIPT on two threads — is untouched and still true.
 
+## How to load one
+
+```rust
+// SAFETY: mapping arbitrary native code, which is what `require` of a `.node`
+// has always meant.
+let addon = unsafe { rts_napi_rwk::loader::open(path) }?;
+let env = rts_napi_rwk::Env::new().into_raw();
+// SAFETY: the environment outlives the addon, which is never unloaded.
+let exports = unsafe { addon.exports(env) };
+```
+
+Nothing calls this yet: `rts` has no `require("./x.node")`, and wiring one is a
+module-resolution change in the host rather than anything here.
+
 ## What is absent now
 
 BigInt and Date conversions, a typed array's ELEMENT TYPE and offset, the
