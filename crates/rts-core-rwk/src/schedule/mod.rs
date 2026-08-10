@@ -94,6 +94,15 @@ impl Settlements {
         self.values.get(promise.index()).copied().flatten()
     }
 
+    /// Every settled value, as raw words.
+    ///
+    /// For the collector's roots (phase 2b): a settled value is reachable only
+    /// through this table until something reads it — nothing else on the
+    /// language side points at a promise's settlement.
+    pub fn root_words(&self) -> impl Iterator<Item = u64> + '_ {
+        self.values.iter().flatten().map(|value| value.bits())
+    }
+
     /// Note that something is now waiting on a promise.
     ///
     /// Called when a handler attaches, whether the promise had already settled

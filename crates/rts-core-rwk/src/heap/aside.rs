@@ -129,6 +129,29 @@ impl<T> Aside<T> {
         }
         self.entries[cell] = Some(value);
     }
+
+    /// Detaches whatever was attached to a cell, and answers what it was.
+    ///
+    /// # Why this exists
+    ///
+    /// A cell that `Region::free` gives back is empty of language content but
+    /// not of THIS: a callable's environment, an array's elements, an overflow
+    /// property or a prototype can still be sitting here, keyed by the cell
+    /// index the region is about to hand to a stranger. Without this call, the
+    /// stranger's `get` would answer the previous occupant's data — a wrong
+    /// object that looks like a right one, which is the failure this crate's
+    /// rules keep naming. So a cell's death must clear every `Aside` keyed by
+    /// it, and this is the one place that knows how.
+    ///
+    /// A reference past the table's current reach is already answering `None`
+    /// from every read, so there is nothing to remove and nothing is grown to
+    /// hold it — growing here would allocate for a cell that never had an
+    /// entry, only to immediately hold `None` where it already held one for
+    /// free.
+    pub fn remove(&mut self, reference: u32) -> Option<T> {
+        let cell = self.cell_of(reference);
+        self.entries.get_mut(cell)?.take()
+    }
 }
 
 impl<T: Copy> Aside<T> {
@@ -199,5 +222,38 @@ mod tests {
         aside.set(0, 0);
         assert_eq!(aside.copied(0), Some(0));
         assert_eq!(aside.copied(1), None);
+    }
+
+    #[test]
+    fn removing_answers_what_was_there_and_leaves_the_cell_empty() {
+        let mut aside: Aside<u64> = Aside::new();
+        aside.set(5, 42);
+        assert_eq!(aside.remove(5), Some(42));
+        assert_eq!(aside.copied(5), None, "a subsequent get answers None");
+        assert_eq!(aside.remove(5), None, "nothing left to take");
+    }
+
+    #[test]
+    fn removing_does_not_disturb_a_neighbouring_cell() {
+        let mut aside: Aside<u64> = Aside::new();
+        aside.set(4, 1);
+        aside.set(5, 2);
+        aside.set(6, 3);
+        assert_eq!(aside.remove(5), Some(2));
+        assert_eq!(aside.copied(4), Some(1));
+        assert_eq!(aside.copied(6), Some(3));
+    }
+
+    #[test]
+    fn removing_past_the_tables_reach_grows_nothing() {
+        let mut aside: Aside<u64> = Aside::new();
+        aside.set(0, 1);
+        let reach_before = aside.reach();
+        assert_eq!(aside.remove(50), None);
+        assert_eq!(
+            aside.reach(),
+            reach_before,
+            "nothing was ever there, so nothing is allocated to record that"
+        );
     }
 }

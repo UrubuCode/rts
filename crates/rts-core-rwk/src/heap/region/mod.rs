@@ -134,7 +134,46 @@ pub struct Region {
     /// what keeps every reference in a single-region program bit-for-bit what it
     /// was before this encoding existed.
     selector_bits: u32,
+    /// The head of the free list, threaded through freed cells themselves.
+    ///
+    /// A cell index, not a reference — the same reasoning as [`Region::next`]:
+    /// this is bookkeeping internal to one region, so it stays in the region's
+    /// own numbering rather than in the encoding the compiler reads. `None` when
+    /// nothing has been freed yet, or everything freed has been handed back out.
+    free_head: Option<u32>,
+    /// Which cell indices are the TRAILING cells of a spanning allocation.
+    ///
+    /// `span::alloc_spanning`'s own documentation says a collector "will need to
+    /// know" which cells these are — this crate now has one, and this is that
+    /// fact. A trailing cell has no header of its own: its word 0 is zero, which
+    /// is indistinguishable by content alone from a real object of type 0 (the
+    /// text type is declared first, so it IS type 0). Without this, a sweep
+    /// walking every index would mistake a live generator frame's own field for
+    /// an abandoned ordinary cell and write a free-list link into the middle of
+    /// it — corrupting a frame that is still running. [`Self::live_refs`] is the
+    /// one reader.
+    spanned_interior: Vec<bool>,
 }
+
+/// The header value a freed cell carries.
+///
+/// `Region::alloc` writes a real `TypeId` into the header, and `TypeId`s are
+/// minted from zero by `rts_cranelift::types::TypeRegistry` — a registry would
+/// have to declare four billion aggregates before one collided with this. That
+/// margin is what makes reading the header safe as the free/live discriminant:
+/// no side bitmap is kept for "is this cell alive", because the header a live
+/// cell already carries answers that question for free — literally, since the
+/// alternative is a second table exactly the size of `next`.
+const FREE_MARKER: u64 = u64::MAX;
+
+/// The value stored in a freed cell's first slot when no cell follows it in the
+/// free list.
+///
+/// Not `0`, because `0` is cell `0` — a real cell, and the free list's first
+/// entry precisely when the very first allocation is freed. `u64::MAX` is safe
+/// for the same reason [`FREE_MARKER`] is: a region's capacity is a `u32`, so no
+/// real cell index reaches it.
+const NO_NEXT: u64 = u64::MAX;
 
 impl Region {
     /// A region with room for `cells` objects.
@@ -165,6 +204,8 @@ impl Region {
             capacity: cells,
             index,
             selector_bits,
+            free_head: None,
+            spanned_interior: vec![false; cells as usize],
         }
     }
 
@@ -252,8 +293,43 @@ impl Region {
     /// `None` when the region is full or the object does not fit a cell —
     /// refused rather than truncated, because an object missing its last field
     /// is a wrong answer that looks like a right one.
+    ///
+    /// # Why the free list is asked first
+    ///
+    /// LIFO: the most recently freed cell is the one handed back. It is also the
+    /// one most likely still in cache, and there is no other reason to prefer
+    /// one free cell over another — a fixed-size cell cannot fragment, so
+    /// nothing is lost by taking whichever is cheapest to reach.
     pub fn alloc(&mut self, size: u32, ty: u32) -> Option<u32> {
-        if size > STRIDE || self.next >= self.capacity {
+        if size > STRIDE {
+            return None;
+        }
+
+        if let Some(index) = self.free_head {
+            let reference = self.compose(index)?;
+            let at = self.word_of(index);
+
+            // The link lived in the first slot; read it before it is
+            // overwritten with the new object's field.
+            let next = self.words[at + 1];
+            self.free_head = if next == NO_NEXT {
+                None
+            } else {
+                Some(next as u32)
+            };
+
+            self.words[at] = u64::from(ty);
+            // Every slot, including the one that carried the link, is zeroed:
+            // a cell reused without this would hand its new owner the previous
+            // occupant's last field, which is exactly the silently wrong object
+            // this crate's rule 7 keeps naming as the thing to avoid.
+            for slot in 0..INLINE_SLOTS as usize {
+                self.words[at + 1 + slot] = 0;
+            }
+            return Some(reference);
+        }
+
+        if self.next >= self.capacity {
             return None;
         }
         let index = self.next;
@@ -266,10 +342,56 @@ impl Region {
         let at = self.word_of(index);
         self.words[at] = u64::from(ty);
 
-        // The fields are zeroed by construction and stay that way: a cell handed
-        // out twice would otherwise carry the previous object's values, and
-        // there is no collector yet to have made that impossible.
+        // The fields are zeroed by construction for a cell that has never been
+        // handed out before. A cell coming back through the free list is zeroed
+        // above instead, at reuse — not here, and not on `free`, so the cost is
+        // paid exactly once per occupant rather than once per lifecycle event.
         Some(reference)
+    }
+
+    /// Gives a cell back, so a later `alloc` may hand it out again.
+    ///
+    /// # Double free, and why it is a hard refusal rather than a debug assertion
+    ///
+    /// A double free here means two owners believe they hold the same cell —
+    /// the next `alloc` splices it into the free list a second time, corrupting
+    /// the list into a cycle, and a subsequent allocation hands out a cell that
+    /// is simultaneously still considered live elsewhere. That is silent memory
+    /// corruption, not a slow path, so it is checked unconditionally — the same
+    /// choice `Slab::free` already makes by folding a double free into "changes
+    /// nothing" — rather than compiled out of a release build the way
+    /// `debug_assert!` would be. The check is one header read, already paid to
+    /// find where the cell's data lives, so paying it in release costs nothing
+    /// extra.
+    ///
+    /// Freeing a reference that was never allocated is refused the same way:
+    /// the cell index is at or past `next`, which no `alloc` has ever returned.
+    ///
+    /// Returns whether the cell was actually freed.
+    pub fn free(&mut self, reference: u32) -> bool {
+        let Some(index) = self.decompose(reference) else {
+            return false;
+        };
+        if index >= self.next {
+            return false; // never allocated
+        }
+
+        let at = self.word_of(index);
+        if self.words[at] == FREE_MARKER {
+            return false; // already free
+        }
+
+        // Thread this cell onto the free list, through its own first slot —
+        // the slot costs nothing extra because the cell's fields are dead the
+        // moment it is freed.
+        let link = match self.free_head {
+            Some(next) => u64::from(next),
+            None => NO_NEXT,
+        };
+        self.words[at] = FREE_MARKER;
+        self.words[at + 1] = link;
+        self.free_head = Some(index);
+        true
     }
 
     /// Reads a field of a cell, for a runtime that needs to look at one.
@@ -323,6 +445,35 @@ impl Region {
     /// Which word a cell starts at.
     fn word_of(&self, index: u32) -> usize {
         (index as usize) * (STRIDE as usize / SLOT_BYTES as usize)
+    }
+
+    /// Records that `index` is a trailing cell of a spanning allocation, not an
+    /// object of its own. Called only by [`Self::alloc_spanning`].
+    pub(super) fn mark_spanned_interior(&mut self, index: u32) {
+        if let Some(flag) = self.spanned_interior.get_mut(index as usize) {
+            *flag = true;
+        }
+    }
+
+    /// Whether `index` is the trailing part of another object's spanning
+    /// allocation — see the field's own documentation.
+    fn is_spanned_interior(&self, index: u32) -> bool {
+        self.spanned_interior.get(index as usize).copied().unwrap_or(false)
+    }
+
+    /// Every cell that is an object's own — the composed reference a value
+    /// naming it would carry.
+    ///
+    /// What a sweep walks. Skips a spanning allocation's trailing cells (see
+    /// [`Self::is_spanned_interior`]) and anything already on the free list —
+    /// both are cells this method's caller must never treat as an independent
+    /// object.
+    pub fn live_refs(&self) -> Vec<u32> {
+        (0..self.next)
+            .filter(|&index| !self.is_spanned_interior(index))
+            .filter(|&index| self.words[self.word_of(index)] != FREE_MARKER)
+            .filter_map(|index| self.compose(index))
+            .collect()
     }
 }
 
@@ -405,5 +556,111 @@ mod tests {
         assert_eq!(region.selector_bits(), 0);
         assert_eq!(region.alloc(16, 1), Some(0));
         assert_eq!(region.alloc(16, 1), Some(1));
+    }
+
+    #[test]
+    fn a_freed_cell_is_handed_out_by_the_next_alloc() {
+        let mut region = Region::with_capacity(2);
+        let a = region.alloc(16, 1).expect("fits");
+        assert!(region.free(a));
+        let b = region.alloc(16, 2).expect("the freed cell is reused");
+        assert_eq!(a, b, "same cell, new occupant");
+        assert_eq!(region.type_of(b), Some(2));
+    }
+
+    #[test]
+    fn the_free_list_hands_cells_back_in_reverse_order_of_freeing() {
+        // LIFO: the most recently freed cell is the most likely still in
+        // cache, and nothing else distinguishes one free cell from another.
+        let mut region = Region::with_capacity(3);
+        let a = region.alloc(16, 1).expect("fits");
+        let b = region.alloc(16, 1).expect("fits");
+        let c = region.alloc(16, 1).expect("fits");
+        assert!(region.free(a));
+        assert!(region.free(b));
+        assert!(region.free(c));
+
+        assert_eq!(region.alloc(16, 9), Some(c));
+        assert_eq!(region.alloc(16, 9), Some(b));
+        assert_eq!(region.alloc(16, 9), Some(a));
+    }
+
+    #[test]
+    fn the_free_list_survives_interleaved_alloc_and_free() {
+        let mut region = Region::with_capacity(4);
+        let a = region.alloc(16, 1).expect("fits");
+        let b = region.alloc(16, 1).expect("fits");
+        assert!(region.free(a));
+        let c = region.alloc(16, 2).expect("reuses a");
+        assert_eq!(a, c);
+        assert!(region.free(b));
+        let d = region.alloc(16, 3).expect("reuses b");
+        assert_eq!(b, d);
+        // The region never grew past two cells, even though four allocations
+        // happened, because both reuses came from the free list.
+        assert_eq!(region.used(), 2);
+    }
+
+    #[test]
+    fn a_filled_region_fully_freed_can_be_filled_again() {
+        let mut region = Region::with_capacity(3);
+        let cells: Vec<u32> = (0..3)
+            .map(|i| region.alloc(16, i).expect("fits"))
+            .collect();
+        assert_eq!(region.alloc(16, 99), None, "full");
+
+        for &cell in &cells {
+            assert!(region.free(cell));
+        }
+
+        let refilled: Vec<u32> = (0..3)
+            .map(|i| region.alloc(16, 100 + i).expect("the region is empty again"))
+            .collect();
+        let mut sorted = refilled.clone();
+        sorted.sort_unstable();
+        let mut expected = cells.clone();
+        expected.sort_unstable();
+        assert_eq!(sorted, expected, "the same three cells, no more, no fewer");
+        assert_eq!(region.alloc(16, 200), None, "full again");
+    }
+
+    #[test]
+    fn freeing_a_cell_twice_is_refused() {
+        let mut region = Region::with_capacity(2);
+        let a = region.alloc(16, 1).expect("fits");
+        assert!(region.free(a));
+        assert!(
+            !region.free(a),
+            "a second free must not corrupt the list into a cycle"
+        );
+
+        // The list is still sound: exactly one alloc reuses the cell, not two
+        // in a row, which is what a corrupted cycle would produce.
+        let b = region.alloc(16, 2).expect("fits");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn freeing_a_cell_never_allocated_is_refused() {
+        let mut region = Region::with_capacity(4);
+        region.alloc(16, 1).expect("fits");
+        // Cell 3 was never handed out by `alloc`.
+        assert!(!region.free(3));
+    }
+
+    #[test]
+    fn a_reused_cell_does_not_carry_the_previous_occupants_fields() {
+        let mut region = Region::with_capacity(1);
+        let a = region.alloc(16, 1).expect("fits");
+        region.set_field(a, 0, 0xDEAD).expect("slot exists");
+        assert!(region.free(a));
+
+        let b = region.alloc(16, 2).expect("reused");
+        assert_eq!(b, a);
+        assert_eq!(
+            region.field(b, 0),
+            Some(0),
+            "a stale field would be a wrong object that looks like a right one"
+        );
     }
 }

@@ -202,13 +202,7 @@ impl Context {
         let slot = self.cells.insert(text).slot();
         let size = crate::heap::STRIDE;
         let ty = self.text_type.index() as u32;
-        let Some(cell) = self.region.alloc(size, ty) else {
-            // A panic here aborts the process from inside an `extern "C"`
-            // frame, with a message about a `Region` rather than about a heap.
-            // The same condition, reported the same way as every other
-            // allocation.
-            super::alloc::heap_exhausted(self);
-        };
+        let cell = super::alloc::alloc_or_die(self, size, ty);
         self.region
             .set_field(cell, 0, u64::from(slot.0))
             .expect("a string cell has a first slot");

@@ -44,6 +44,7 @@ mod buffer;
 mod cache;
 mod chain;
 mod class_support;
+mod collect_cycle;
 mod context;
 mod clone;
 mod buffers;
@@ -80,10 +81,12 @@ mod promise;
 mod proxy;
 mod reflect;
 mod regex;
+pub mod roots;
 pub(super) mod string;
 mod symbol;
 mod text;
 mod throw;
+pub mod trace;
 mod uri;
 
 // The operators are defined in their own module and named from here, because a
@@ -555,6 +558,19 @@ pub struct Context {
     /// hands tags out by number and a second language on it would number its
     /// own differently.
     pub kinds: crate::value::Kinds,
+    /// The top of this thread's stack, as the host's own OS call told it.
+    ///
+    /// A fact this crate cannot obtain itself — rule 1 says anything needing an
+    /// operating system goes to `rts-host`, and `rts-core-rwk` must build for
+    /// wasm, where the call does not exist. `None` until a host installs it,
+    /// the same shape [`Self::evaluator`] and [`Self::rest`] already are: a
+    /// capability that can only arrive from above.
+    ///
+    /// `alloc`'s collection trigger reads this and, when it is absent, does NOT
+    /// scan the stack at all rather than scanning a wrong or partial range — a
+    /// collection that cannot see every root must not run one, because it would
+    /// free a live object rather than merely fail to reclaim one.
+    pub stack_high: Option<usize>,
 }
 
 impl Context {
@@ -692,6 +708,7 @@ impl Context {
             templates: Vec::new(),
             singletons,
             kinds,
+            stack_high: None,
         }
     }
 

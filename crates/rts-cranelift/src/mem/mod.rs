@@ -21,6 +21,23 @@
 //! *provided* allocation is compacting; against scattered blocks the same design
 //! measured several times worse, from cache behaviour alone.
 //!
+//! **That paragraph is true of an INDIRECT table and was read as though it were
+//! true of the region.** It is not, and the difference decides what a collector
+//! here can be. `Slab<T>` is indirect: a handle names a row, the row holds the
+//! thing, and moving the thing rewrites one row. [`Addressing`] is direct:
+//! `address = base + cell * stride`, so a cell's index IS its location. Moving a
+//! cell in the region therefore changes every reference to it — the opposite of
+//! free — and additionally re-keys the eighteen `Aside` tables in
+//! `rts-core-rwk`, which are keyed by that index.
+//!
+//! So the first collector for the region is **non-moving**, and the compacting
+//! requirement below is deferred rather than met. The reason it survives at all
+//! is that a region cell is FIXED SIZE — one header word and seven slots — so a
+//! free list over cells cannot fragment, which is the one thing compaction would
+//! have been for. What compaction still buys is locality, which is what the
+//! measurement above actually measured; that trade is taken knowingly and is the
+//! thing to re-measure before anyone calls the result final.
+//!
 //! And the alternative is not hypothetical. A production engine that puts raw
 //! addresses in the same encoding needs per-platform heuristics to tell an
 //! address from a payload, and those heuristics are tied by its own comments to

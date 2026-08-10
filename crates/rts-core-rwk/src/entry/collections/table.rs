@@ -71,6 +71,20 @@ impl Table {
         self.keys.iter().copied().zip(self.values.iter().copied()).collect()
     }
 
+    /// Every value this table holds, keys and values both, for the tracer.
+    ///
+    /// `WeakMap`/`WeakSet` hold their keys STRONGLY today — [`super::weak`]
+    /// says so in its own documentation — so tracing every entry the same way
+    /// `Map`/`Set` are traced is correct for what this table currently *is*,
+    /// not an oversight of what its name promises. Tracing a key weakly needs
+    /// the `(slot, generation)` mechanism `PLAN.md` phase C1 describes; doing
+    /// it here without that would free a key still reachable through the
+    /// collection.
+    pub(in crate::entry) fn trace(&self, out: &mut Vec<u64>) {
+        out.extend_from_slice(&self.keys);
+        out.extend_from_slice(&self.values);
+    }
+
     /// The value a key holds, if the key is present.
     pub(super) fn get(&self, context: &Context, key: u64) -> Option<u64> {
         Some(self.values[self.slot(context, key)?])

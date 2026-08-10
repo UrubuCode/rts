@@ -75,25 +75,20 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
         // cell, where nothing a program can write reaches it.
         let shape = context.shapes.root();
         let ty = context.layout_of(shape).index() as u32;
-        match context.region.alloc(crate::heap::STRIDE, ty) {
-            Some(cell) => {
-                context.mark_callable(cell, code as u64, environment);
-                // Every function gets a `prototype` object, because `new`
-                // reads one and a function that could not be constructed with
-                // would be a different kind of function. Made here rather than
-                // on demand: `F.prototype.m = …` before any `new F()` is the
-                // ordinary way to write a method, so it has to exist first.
-                let shape = context.shapes.root();
-                let ty = context.layout_of(shape).index() as u32;
-                if let Some(prototype) = context.region.alloc(crate::heap::STRIDE, ty) {
-                    let key = prototype_key(context);
-                    super::objects::put(context, cell, key, Value::from_slot(prototype).bits());
-                }
-                Value::from_slot(cell).bits()
-            }
-            // The region is full — see [`super::alloc::heap_exhausted`].
-            None => super::alloc::heap_exhausted(context),
+        let cell = super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
+        context.mark_callable(cell, code as u64, environment);
+        // Every function gets a `prototype` object, because `new` reads one
+        // and a function that could not be constructed with would be a
+        // different kind of function. Made here rather than on demand:
+        // `F.prototype.m = …` before any `new F()` is the ordinary way to
+        // write a method, so it has to exist first.
+        let shape = context.shapes.root();
+        let ty = context.layout_of(shape).index() as u32;
+        if let Some(prototype) = super::alloc::alloc_after_collecting(context, crate::heap::STRIDE, ty) {
+            let key = prototype_key(context);
+            super::objects::put(context, cell, key, Value::from_slot(prototype).bits());
         }
+        Value::from_slot(cell).bits()
     })
 }
 
@@ -507,7 +502,7 @@ fn allocate_for_target(callee: u64) -> Option<u64> {
 
         let shape = context.shapes.root();
         let ty = context.layout_of(shape).index() as u32;
-        let fresh = context.region.alloc(crate::heap::STRIDE, ty)?;
+        let fresh = super::alloc::alloc_after_collecting(context, crate::heap::STRIDE, ty)?;
         context.set_prototype(fresh, prototype.bits());
         Some(Value::from_slot(fresh).bits())
     })

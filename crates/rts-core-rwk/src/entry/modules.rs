@@ -291,10 +291,8 @@ pub fn make_number(value: f64) -> u64 {
 pub fn make_object(context: &mut Context) -> u64 {
     let shape = context.shapes.root();
     let ty = context.layout_of(shape).index() as u32;
-    match context.region.alloc(crate::heap::STRIDE, ty) {
-        Some(cell) => Value::from_slot(cell).bits(),
-        None => super::alloc::heap_exhausted(context),
-    }
+    let cell = super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
+    Value::from_slot(cell).bits()
 }
 
 /// An array holding these, from a context already in hand.

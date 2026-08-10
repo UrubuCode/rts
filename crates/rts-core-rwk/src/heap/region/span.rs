@@ -63,6 +63,14 @@ impl Region {
         let at = self.word_of(index);
         self.words[at] = u64::from(ty);
 
+        // Every cell after the first has no header of its own — a sweep must
+        // not mistake one for an abandoned ordinary object. See
+        // `Region::spanned_interior`'s own documentation for what reading one
+        // as an object would do to a live frame.
+        for offset in 1..cells {
+            self.mark_spanned_interior(index + offset);
+        }
+
         Some(reference)
     }
 

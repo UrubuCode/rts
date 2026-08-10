@@ -14,9 +14,17 @@
 pub enum Addressing {
     /// One contiguous region: the address is a base plus a scaled index.
     ///
-    /// Two instructions. This is what regional placement buys, and the reason
-    /// the collector is compacting by requirement rather than by preference: the
-    /// arithmetic is only valid while a region's objects are contiguous.
+    /// Two instructions. This is what regional placement buys.
+    ///
+    /// This said the arithmetic "is only valid while a region's objects are
+    /// contiguous", which conflated two different things. `base + index *
+    /// stride` is CORRECT for any index inside the region, holes included —
+    /// a cell is fixed size, so a freed one leaves a gap the arithmetic reaches
+    /// exactly as it reached the live cell before it. What contiguity buys is
+    /// LOCALITY, which is what the number in [`super`] measured. A non-moving
+    /// collector that reuses freed cells is therefore sound here and pays in
+    /// cache behaviour, not in correctness — and stating it the old way made a
+    /// performance trade read as a soundness requirement.
     Single {
         /// Where the region starts.
         base: RegionBase,

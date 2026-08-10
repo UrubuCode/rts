@@ -47,13 +47,8 @@ pub fn object_new() -> u64 {
         // way share a shape.
         let shape = context.shapes.root();
         let ty = context.layout_of(shape).index() as u32;
-        match context.region.alloc(crate::heap::STRIDE, ty) {
-            Some(cell) => Value::from_slot(cell).bits(),
-            // The region is full. Said out loud rather than answered as a
-            // value — see [`super::alloc::heap_exhausted`] for why `undefined`
-            // here was a wrong answer that looked like a right one.
-            None => super::alloc::heap_exhausted(context),
-        }
+        let cell = super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
+        Value::from_slot(cell).bits()
     })
 }
 

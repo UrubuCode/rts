@@ -40,15 +40,10 @@ pub(in crate::entry) type Native = extern "C" fn(u64, u64, u64, u64, u64, u64) -
 pub(super) fn callable(context: &mut Context, code: Native) -> u64 {
     let shape = context.shapes.root();
     let ty = context.layout_of(shape).index() as u32;
-    match context.region.alloc(crate::heap::STRIDE, ty) {
-        Some(cell) => {
-            let environment = undefined_of(context);
-            context.mark_callable(cell, code as usize as u64, environment);
-            Value::from_slot(cell).bits()
-        }
-        // The region is full — see [`super::alloc::heap_exhausted`].
-        None => super::alloc::heap_exhausted(context),
-    }
+    let cell = super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
+    let environment = undefined_of(context);
+    context.mark_callable(cell, code as usize as u64, environment);
+    Value::from_slot(cell).bits()
 }
 
 /// Hangs a set of them on an object, by name.
@@ -68,5 +63,5 @@ pub(in crate::entry) fn install(context: &mut Context, cell: u32, natives: &[(&s
 pub(in crate::entry) fn plain(context: &mut Context) -> Option<u32> {
     let shape = context.shapes.root();
     let ty = context.layout_of(shape).index() as u32;
-    context.region.alloc(crate::heap::STRIDE, ty)
+    super::alloc::alloc_after_collecting(context, crate::heap::STRIDE, ty)
 }

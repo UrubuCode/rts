@@ -34,6 +34,23 @@
 //! constructor, which every field of `Context` calls, and it is worth making
 //! when a thread-per-region run is more than a test.
 
+//! # Phase 1: reclaiming a cell, and what is deliberately not here
+//!
+//! [`Region::free`] and [`Aside::remove`] are the two primitives a collector
+//! needs: give a cell back to the free list, and clear whatever side table
+//! still names it. Nothing here calls them together.
+//!
+//! A "sweep a cell" helper that walks every `Aside` a `Context` owns and calls
+//! `remove` on each was considered and refused. `heap` does not know how many
+//! side tables exist, what they are keyed by beyond a cell reference, or in
+//! what order clearing them is safe — that is `Context`'s inventory, in
+//! `entry/mod.rs`, and it is the crate's own rule 2 (ask what already answers
+//! this) pointing the other way: a registration point built here ahead of a
+//! caller is a guess at a shape `entry`'s eighteen tables have not been asked
+//! to fit yet. Phase 2, which wires an actual collection cycle, is where that
+//! caller exists and where the real shape of "sweep a cell" will be visible
+//! rather than guessed.
+
 mod aside;
 mod region;
 mod slab;

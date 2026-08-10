@@ -276,6 +276,11 @@ fn run_region(
     region: rts_core_rwk::heap::Region,
 ) -> Outcome {
     let mut context = rts_core_rwk::entry::Context::over(singletons, kinds, region);
+    // What lets `alloc`'s collection trigger scan this thread's stack at all —
+    // see `crate::stack`'s own documentation for why the call lives here and
+    // not in `rts-core-rwk`, and for what happens on a platform it cannot
+    // answer for honestly.
+    crate::stack::install(&mut context);
     // The second agreement, alongside the singleton numbering: a property name
     // is resolved while compiling and crosses as a number, so this registry must
     // have issued that number or every property reads as absent. Seeded rather

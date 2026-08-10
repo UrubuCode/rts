@@ -69,6 +69,32 @@ pub(super) struct State {
     done: bool,
 }
 
+impl State {
+    /// The frame's own cell reference.
+    ///
+    /// For the tracer: the frame is a SPANNING allocation, with no seven-slot
+    /// header `Region::field` could read, so it has to be walked and kept
+    /// alive through this rather than through the ordinary per-cell path.
+    pub(in crate::entry) fn frame_cell(&self) -> u32 {
+        self.frame
+    }
+
+    /// Every value the parked frame holds, field by field.
+    ///
+    /// Walked through `Region::spanning_field`, because a frame's fields
+    /// continue past a cell boundary and the ordinary accessor refuses past
+    /// the seventh. Every field is offered to the caller rather than filtered
+    /// here: a frame's layout mixes locals that are references with ones that
+    /// are not, and only `Value::kind` can tell them apart.
+    pub(in crate::entry) fn trace(&self, region: &crate::heap::Region, out: &mut Vec<u64>) {
+        for slot in 0..self.shape.slots {
+            if let Some(word) = region.spanning_field(self.frame, slot, self.shape.slots) {
+                out.push(word);
+            }
+        }
+    }
+}
+
 /// Records what the host knows about every compiled generator body.
 ///
 /// Called once per program, before it runs, for the same reason

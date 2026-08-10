@@ -89,15 +89,10 @@ pub(in crate::entry) fn built_in(context: &mut Context, elements: Vec<u64>) -> u
     let store = context.arrays.insert(elements).slot();
     let shape = context.shapes.root();
     let ty = context.layout_of(shape).index() as u32;
-    match context.region.alloc(crate::heap::STRIDE, ty) {
-        Some(cell) => {
-            context.mark_array(cell, store);
-            set_length(context, cell, count);
-            Value::from_slot(cell).bits()
-        }
-        // The region is full — see [`super::alloc::heap_exhausted`].
-        None => super::alloc::heap_exhausted(context),
-    }
+    let cell = super::alloc::alloc_or_die(context, crate::heap::STRIDE, ty);
+    context.mark_array(cell, store);
+    set_length(context, cell, count);
+    Value::from_slot(cell).bits()
 }
 
 impl Context {

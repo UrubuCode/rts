@@ -124,6 +124,28 @@ pub(super) struct Bound {
     partial: Vec<u64>,
 }
 
+impl Bound {
+    /// Every value this holds that the tracer must follow: the target, the
+    /// receiver, and the partial arguments — never the target's code address,
+    /// which is not here to begin with, only the object that names it.
+    pub(in crate::entry) fn trace(&self, out: &mut Vec<u64>) {
+        out.push(self.target);
+        out.push(self.receiver);
+        out.extend_from_slice(&self.partial);
+    }
+
+    /// For the tracer's own tests, which need one without going through
+    /// `f.bind(…)` and the cell it allocates along the way.
+    #[cfg(test)]
+    pub(in crate::entry) fn for_test(target: u64, receiver: u64, partial: Vec<u64>) -> Self {
+        Bound {
+            target,
+            receiver,
+            partial,
+        }
+    }
+}
+
 impl Context {
     /// What a cell is bound to, if it is a bound function.
     pub(super) fn bound_at(&self, cell: u32) -> Option<&Bound> {

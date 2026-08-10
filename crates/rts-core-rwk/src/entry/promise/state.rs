@@ -167,6 +167,42 @@ impl Machine {
         self.groups.len() - 1
     }
 
+    /// Every value the machine holds that nothing outside it points at.
+    ///
+    /// For the collector's roots (phase 2b): a settled value lives only in
+    /// [`Settlements`] until a reaction reads it, and a reaction's callback,
+    /// its captured thenable and a combinator's collected elements live only
+    /// here until the reaction runs. None of that is reachable from a cell —
+    /// see the module doc for why the machine's own tables are the only path
+    /// to them.
+    pub(in crate::entry) fn root_words(&self) -> Vec<u64> {
+        let mut out: Vec<u64> = self.settlements.root_words().collect();
+        for reaction in self.reactions.iter().flatten() {
+            match reaction.handler {
+                Handler::Js {
+                    on_fulfilled,
+                    on_rejected,
+                    ..
+                } => {
+                    out.push(on_fulfilled);
+                    out.push(on_rejected);
+                }
+                Handler::Finally { callback, .. } => out.push(callback),
+                Handler::Thenable {
+                    thenable, then_fn, ..
+                } => {
+                    out.push(thenable);
+                    out.push(then_fn);
+                }
+                Handler::Member { .. } => {}
+            }
+        }
+        for group in &self.groups {
+            out.extend_from_slice(&group.values);
+        }
+        out
+    }
+
     /// Every rejection nothing ever waited on, with what it rejected with.
     ///
     /// Drained rather than read, so a rejection is reported once: the turn
