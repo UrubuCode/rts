@@ -575,6 +575,19 @@ fn block_body(
 }
 
 /// The declared parameters, and the rest parameter pulled out of the list.
+///
+/// A leading `this` is dropped, because TypeScript's `function f(this: T, x: U)`
+/// declares the type of the RECEIVER and not a first argument. Keeping it shifted
+/// every real parameter one slot along, and the damage was quiet: `f.call(o, 1)`
+/// bound `this` to `1` and `x` to nothing, so `this.a + x` answered `NaN` instead
+/// of the sum — a wrong number from a function whose body reads correctly. It was
+/// mistaken for a `bind` defect first, because `bind` is where it was noticed.
+///
+/// Only the first one, and only spelled `this`: the language reserves the word,
+/// so no JavaScript program can declare a parameter by that name and there is
+/// nothing else this can swallow. Dropped in this function rather than at the
+/// three call sites — a function, an arrow and a method all arrive here, and the
+/// arrow is exactly the one that cannot have a receiver parameter at all.
 fn parameters<'a>(
     cx: &mut Cx,
     params: impl Iterator<Item = &'a swc::Pat>,
@@ -582,7 +595,10 @@ fn parameters<'a>(
     let mut declared = Vec::new();
     let mut rest = None;
 
-    for parameter in params {
+    for (position, parameter) in params.enumerate() {
+        if position == 0 && is_receiver_annotation(parameter) {
+            continue;
+        }
         if let swc::Pat::Rest(spread) = parameter {
             rest = Some(binding(cx, &spread.arg)?);
             continue;
@@ -591,6 +607,12 @@ fn parameters<'a>(
     }
 
     Ok((declared, rest))
+}
+
+/// Whether this parameter is TypeScript's `this` annotation rather than an
+/// argument.
+fn is_receiver_annotation(parameter: &swc::Pat) -> bool {
+    matches!(parameter, swc::Pat::Ident(ident) if &*ident.id.sym == "this")
 }
 
 /// What a pattern's annotation claimed, if it carried one.
