@@ -1,0 +1,34 @@
+[package]
+name = "rts-runtime-rwk"
+version = "0.1.0"
+edition = "2024"
+
+# rlib: nothing needs it yet, and it costs nothing to keep the crate usable from
+#   Rust — the AOT half is what this exists for.
+# staticlib: cargo bundles the WHOLE transitive closure of this package, plus
+#   every `export_name` symbol `#[rtse::entry]` minted in it, into one archive
+#   that the AOT linker pulls in.
+#
+# # Why ONE facade and not a staticlib per crate
+#
+# Because an archive carries its dependencies. Three archives over
+# `rts-core-rwk`, `rts-std-rwk` and `rts-node-rwk` would each carry their own
+# copy of everything they share, and the linker would then have to pick between
+# duplicates of the same symbol from different rlib variants. That is not a
+# hypothetical: `rts-runtime/Cargo.toml` records that its staticlib replaced "the
+# fragile hand-rolled rustc invocation in build.rs that could not reliably
+# disambiguate duplicate dependency rlib variants on CI", and
+# `rts-egui/Cargo.toml` records the size half of the same fact — "a staticlib de
+# 1GB era METADE duplicação".
+#
+# One facade also means one link line. N archives is N orderings to get right.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# The three crates an AOT-compiled program calls into. `rts-core-rwk` alone is
+# not enough: a program that reaches a global or a `node:` module calls symbols
+# those two install, and a linker cannot resolve what no archive carries.
+rts-core-rwk = { path = "../rts-core-rwk" }
+rts-std-rwk = { path = "../rts-std-rwk" }
+rts-node-rwk = { path = "../rts-node-rwk" }
