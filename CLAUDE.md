@@ -111,10 +111,19 @@ assertion has moved a number in the direction that looks like regression.
 **The number that says how far this still is: the OLD engine passes 777 of the
 same 797** — 779 until two fixtures asserting a `super` JavaScript does not have
 were corrected, which the old engine passed by implementing `super` wrongly.
-Both engines are measured over the same corpus by `scripts/measure_engines.sh`,
-one process per file. **167 files pass only on the old engine and 16 only on the
-new**, so removing `rts-codegen-new` today would cost those 167 and it stays
-until the gap closes. The rulers differ in one stated way: `rts test` also
+Both engines were measured over the same corpus by `scripts/measure_engines.sh`,
+one process per file. **167 files passed only on the old engine and 16 only on
+the new.**
+
+Read that as a work list and not as a loss: `rts-codegen-new` was DELETED on
+2026-08-10, and deleting it cost none of those 167. It had stopped running
+anything at the cutover — `run`, `test` and `compile` had already moved — so
+what the crate still held was `ir`, `eval` and `emit-types`, and each of those
+was rebuilt on this engine first. The 167 are what this engine does not do yet,
+which was true the day before as well; what changed is that there is no longer a
+second engine that could be measured instead of fixed.
+
+The rulers differ in one stated way: `rts test` also
 compares stdout against a fixture where one exists, which `suite_run` never
 sees; both require "ran and nothing failed", which is what makes the counts
 comparable at all.
@@ -204,11 +213,12 @@ The rule this leaves: **a surface that cannot do what its name means does not
 ship.** An absent name fails loudly at the call; a hollow one fails in
 production.
 
-**This is the direction for all new work.** `crates/rts-codegen-new` is the
-engine that currently runs `rts run` / `compile` / `test`, and it is being
-replaced rather than extended. Its own doctrine (the primordial-vs-registry rule,
-symbols by name) remains binding *for changes inside it* and is not the model for
-anything new.
+**This is the direction for all new work, and now the only one.**
+`crates/rts-codegen-new` was deleted on 2026-08-10, once `ir`, `eval` and
+`emit-types` — everything still entering through it — had been rebuilt here.
+Its doctrine (the primordial-vs-registry rule, symbols by name) went with it and
+is not the model for anything: where a document still describes it, that
+document is describing a crate that does not exist.
 
 ---
 
@@ -375,7 +385,6 @@ crates/
   rts-macro-rwk/     #[rtse::entry] — declares one, derives its shape
   rts-std-rwk/       the `rts:` surface, and the globals
   rts-ui-rwk/        `rts:egui` + `rts:input`, where a target has a screen
-  rts-codegen-new/   the engine that currently runs `rts`. Being replaced.
 
   rts-abi/           the ABI contract, dependency-free, at the bottom
   rts-macro/         #[rtse::*] — the only place a symbol is declared
@@ -442,8 +451,8 @@ answer differently from the same source saved to a file.
 
 `rts ir` prints `rts_cranelift::ir` — this engine's own representation, with a
 callee legend at the top — and NOT Cranelift's `.clif`, which only exists inside
-`lower/` after every decision this engine makes has been taken. `rts-codegen-new`
-now has exactly one caller left, `rts emit-types`.
+`lower/` after every decision this engine makes has been taken. `rts emit-types`
+answers from `#[rtse::class]`, which is what let `rts-codegen-new` be deleted.
 
 The two examples remain the way to run one program with nothing of the CLI in
 the way:
