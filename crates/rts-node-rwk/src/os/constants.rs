@@ -74,7 +74,7 @@ static LIBUV: &[(&str, i32)] = &[("UV_UDP_REUSEADDR", 4)];
 /// omits it; `21` is the CRT's published `signal.h` number, which is what Node
 /// reports and what `GenerateConsoleCtrlEvent` delivers.
 #[cfg(windows)]
-static SIGNALS: &[(&str, i32)] = &[
+pub(crate) static SIGNALS: &[(&str, i32)] = &[
     ("SIGINT", libc::SIGINT),
     ("SIGILL", libc::SIGILL),
     ("SIGFPE", libc::SIGFPE),
@@ -91,7 +91,7 @@ static SIGNALS: &[(&str, i32)] = &[
 /// not exist on both Linux and Darwin, and a key present on one platform with
 /// another's number is exactly the fabrication this file refuses.
 #[cfg(not(windows))]
-static SIGNALS: &[(&str, i32)] = &[
+pub(crate) static SIGNALS: &[(&str, i32)] = &[
     ("SIGHUP", libc::SIGHUP),
     ("SIGINT", libc::SIGINT),
     ("SIGQUIT", libc::SIGQUIT),
@@ -132,10 +132,10 @@ static SIGNALS: &[(&str, i32)] = &[
 /// `dlopen(3)` flags. Empty on Windows, which is parity: there is no
 /// `dlopen(3)` there and Node's object is empty too.
 #[cfg(windows)]
-static DLOPEN: &[(&str, i32)] = &[];
+pub(crate) static DLOPEN: &[(&str, i32)] = &[];
 
 #[cfg(not(windows))]
-static DLOPEN: &[(&str, i32)] = &[
+pub(crate) static DLOPEN: &[(&str, i32)] = &[
     ("RTLD_LAZY", libc::RTLD_LAZY),
     ("RTLD_NOW", libc::RTLD_NOW),
     ("RTLD_GLOBAL", libc::RTLD_GLOBAL),
@@ -149,7 +149,7 @@ static DLOPEN: &[(&str, i32)] = &[
 /// `EDQUOT`, `EMULTIHOP` and `ESTALE` are absent: the CRT has no such values,
 /// and Node does not report them on Windows either.
 #[cfg(windows)]
-static ERRNO: &[(&str, i32)] = &[
+pub(crate) static ERRNO: &[(&str, i32)] = &[
     ("E2BIG", libc::E2BIG),
     ("EACCES", libc::EACCES),
     ("EADDRINUSE", libc::EADDRINUSE),
@@ -235,7 +235,7 @@ static ERRNO: &[(&str, i32)] = &[
 /// name on every Unix `libc` binds, and a key with the wrong number is worse
 /// than an absent one.
 #[cfg(not(windows))]
-static ERRNO: &[(&str, i32)] = &[
+pub(crate) static ERRNO: &[(&str, i32)] = &[
     ("E2BIG", libc::E2BIG),
     ("EACCES", libc::EACCES),
     ("EADDRINUSE", libc::EADDRINUSE),
@@ -326,7 +326,7 @@ static ERRNO: &[(&str, i32)] = &[
 /// `winerror.h` publishes. A fixed ABI: a compiled program links against these
 /// numbers, so they cannot drift the way a platform `errno` can.
 #[cfg(windows)]
-static WINSOCK: &[(&str, i32)] = &[
+pub(crate) static WINSOCK: &[(&str, i32)] = &[
     ("WSAEINTR", 10004),
     ("WSAEBADF", 10009),
     ("WSAEACCES", 10013),

@@ -69,11 +69,14 @@ and, per trait 1, it fails silently.
 ### 3. An unregistered specifier is indistinguishable from an empty one
 
 ```
-import * as t from "node:timers/promises";  → 0 keys, exit 0
+import * as t from "node:stream/web";        → 0 keys, exit 0
 import * as b from "node:totally_bogus_xyz"; → 0 keys, exit 0
 ```
 
-Module resolution never fails. Thirteen real Node specifiers are absent (table
+(The example was `node:timers/promises` when this was measured; that one is
+registered now, and the trait it demonstrates is unchanged.)
+
+Module resolution never fails. Eleven real Node specifiers are absent (table
 at the end) and every one of them imports "successfully" into a namespace with
 no members.
 
@@ -348,17 +351,30 @@ loopback produced no `stream`, no `response`, no `error` — silence.
 
 ## Specifiers
 
-47 of 60 Node 22 specifiers are registered. Per trait 3, the 13 absent ones do
+49 of 60 Node 22 specifiers are registered. Per trait 3, the 11 absent ones do
 not fail to import — they yield an empty namespace, exactly like a nonexistent
 module.
 
 **Absent:** `assert/strict`, `constants`, `dns/promises`, `quic`,
 `readline/promises`, `sea`, `stream/consumers`, `stream/promises`, `stream/web`,
-`sys`, `test/reporters`, `timers/promises`, `util/types`.
+`test/reporters`, `util/types`.
 
-Of these, `timers/promises`, `stream/web`, `stream/promises`,
-`stream/consumers`, `util/types` and `dns/promises` are idiomatic in modern Node
-code and cost the most.
+**`node:timers/promises` landed on 2026-08-10** — `setTimeout`, `setImmediate`,
+`setInterval` (as an async iterable), `scheduler.wait` and `scheduler.yield`,
+each honouring `options.signal`. `tests/node_timers_promises.test.ts` is what
+says so: 8 assertions, run. It shares `node:timers`' own queue rather than
+owning a second one, so `setTimeout(cb, 5)` and `await setTimeout(5)` have one
+order; `crates/rts-node-rwk/src/timers/promises.rs` states the two divergences
+(an abort is noticed on the next turn of the loop, not at the call, and an
+interval's tick is scheduled per `next()`).
+
+`sys` was listed absent here and is registered — it is `node:util` under its
+deprecated name, and `lib.rs` names the same object twice on purpose. The row
+was wrong rather than the code.
+
+Of what is left, `stream/web`, `stream/promises`, `stream/consumers`,
+`util/types` and `dns/promises` are idiomatic in modern Node code and cost the
+most.
 
 `node:inspector/promises` is registered but resolves to the callback namespace,
 so it is present in name only.

@@ -39,6 +39,7 @@ pub mod diagnostics_channel;
 pub mod dns;
 pub mod cluster;
 pub mod console;
+pub mod constants;
 pub mod crypto;
 pub mod dgram;
 pub mod domain;
@@ -116,6 +117,11 @@ pub fn install(context: &mut Context) {
         ("child_process", child_process::namespace(context)),
         ("cluster", cluster::namespace(context)),
         ("console", console::namespace(context)),
+        // A flattened VIEW of `os.constants`, `fs.constants` and the RSA half
+        // of `crypto.constants` — the tables themselves stay where they are, so
+        // no number is defined twice. Node deprecated this module and the
+        // ecosystem still imports it.
+        ("constants", constants::namespace(context)),
         ("crypto", crypto::namespace(context)),
         ("dgram", dgram::namespace(context)),
         ("domain", domain::namespace(context)),
@@ -240,6 +246,14 @@ pub fn install(context: &mut Context) {
     // names itself too, which the loop above cannot do for it.
     let mut provided: Vec<&str> = modules.iter().map(|(name, _)| *name).collect();
     provided.push("module");
+    // `isBuiltin("timers/promises")` is true in Node, and this list is the only
+    // thing that answers it. It is named here rather than at the point the
+    // specifier is registered below because `node:module` is built before that
+    // — and a second list, kept in step by hand, is exactly how `isBuiltin`
+    // comes to disagree with what an import finds.
+    provided.push("timers/promises");
+    provided.push("assert/strict");
+    provided.push("dns/promises");
     let modules_module = module::namespace(context, &provided);
     rts_core_rwk::entry::declare_module(context, "node:module", modules_module);
     rts_core_rwk::entry::declare_module(context, "module", modules_module);
@@ -262,6 +276,38 @@ pub fn install(context: &mut Context) {
     let promises = rts_core_rwk::entry::get_member(context, files, "promises");
     rts_core_rwk::entry::declare_module(context, "node:fs/promises", promises);
     rts_core_rwk::entry::declare_module(context, "fs/promises", promises);
+
+    // `node:timers/promises` is a module of its OWN, and this is the one place
+    // in this function where that is true of a `x/y` specifier: it exports
+    // different functions from `node:timers` rather than an object `timers`
+    // already carries. So it is built here rather than read out of a namespace —
+    // and it shares the parent's timer table, which is what makes
+    // `setTimeout(cb, 5)` and `await setTimeout(5)` one order instead of two.
+    let timing = timers::promises::namespace(context);
+    rts_core_rwk::entry::declare_module(context, "node:timers/promises", timing);
+    rts_core_rwk::entry::declare_module(context, "timers/promises", timing);
+
+    // `node:assert/strict` and `node:dns/promises` were listed as ABSENT
+    // specifiers while the objects they name had been built all along —
+    // `assert.strict` and `dns.promises` are members of the namespaces just
+    // registered. So the gap was three lines of registration each, not a module,
+    // and a program importing either got the empty namespace an unregistered
+    // specifier leaves behind while `assert.strict.equal` worked perfectly one
+    // property read away.
+    //
+    // Read out rather than rebuilt, for the reason `fs/promises` states one
+    // comment down: a second `assert.strict` would make
+    // `(await import("node:assert/strict")).equal === assert.strict.equal`
+    // false, and `dns.promises` carries the `ADDRCONFIG`/`V4MAPPED`/`ALL`
+    // numbers that `dns::namespace` put on THAT object.
+    let assertions = rts_core_rwk::entry::module_at_name(context, "node:assert");
+    let strict = rts_core_rwk::entry::get_member(context, assertions, "strict");
+    rts_core_rwk::entry::declare_module(context, "node:assert/strict", strict);
+    rts_core_rwk::entry::declare_module(context, "assert/strict", strict);
+    let names = rts_core_rwk::entry::module_at_name(context, "node:dns");
+    let resolving = rts_core_rwk::entry::get_member(context, names, "promises");
+    rts_core_rwk::entry::declare_module(context, "node:dns/promises", resolving);
+    rts_core_rwk::entry::declare_module(context, "dns/promises", resolving);
 
     // `node:path/posix` and `node:path/win32` are their own specifiers too, and
     // they resolve to the objects `path` already carries under those names — the

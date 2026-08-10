@@ -27,7 +27,8 @@ fn build(context: &mut Context) -> u64 {
     object
 }
 
-const ENTRIES: &[(&str, i64)] = &[
+/// The whole table, `pub(crate)` because `node:constants` spreads it flat.
+pub(crate) const ENTRIES: &[(&str, i64)] = &[
     ("F_OK", 0),
     ("R_OK", 4),
     ("W_OK", 2),

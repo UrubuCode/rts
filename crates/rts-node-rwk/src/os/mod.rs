@@ -82,7 +82,10 @@
 //!   `uname -m`; on POSIX it is the real `utsname.machine`. An emulated or
 //!   translated Windows host would report the target RTS was built for.
 
-mod constants;
+// `pub(crate)` for one reader: `node:constants` is the deprecated FLAT view of
+// these same tables, and it reads them here rather than keeping a second copy
+// of the errno numbers. See `crate::constants`.
+pub(crate) mod constants;
 mod cpus;
 pub(crate) mod machine;
 mod netif;

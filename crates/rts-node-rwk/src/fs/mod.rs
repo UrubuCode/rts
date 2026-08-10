@@ -114,7 +114,10 @@
 mod basic;
 mod bytes;
 mod callbacks;
-mod constants;
+// `pub(crate)` for one reader beyond this module: `node:constants` spreads this
+// same table flat, and reads it here rather than restating the open flags. See
+// `crate::constants`.
+pub(crate) mod constants;
 mod dir;
 mod dirent;
 mod dirs;

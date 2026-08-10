@@ -60,13 +60,24 @@
 //! down to for cross-thread use; a program calling `clearTimeout(id)` with
 //! the returned value works unchanged.
 //!
+//! # `timers/promises` is [`promises`], and the paragraph refusing it was stale
+//!
+//! It said every member of that module "needs to construct a fresh `Promise`
+//! from Rust, and this crate's entry surface has no `Promise` constructor".
+//! `entry::promise_new` and `entry::promise_settle` are exported — they are the
+//! runtime half of what the machine lowers `await` onto — so the capability was
+//! there and the refusal was a note nobody re-read. It is written down rather
+//! than quietly deleted, because a "cannot" that outlives its cause is how a
+//! module stays unwritten for reasons that stopped being true.
+//!
+//! What makes the two halves ONE queue rather than two: a promise-shaped timer
+//! is a [`Deliver::Settle`] in this same table, so [`pump`] and [`source`] fire
+//! it, and the host's waiting — the thing that makes `await sleep(10)` finish —
+//! costs nothing extra to reach.
+//!
 //! # Not implemented, by name
 //!
-//! `timers/promises` (`setTimeout`/`setImmediate`/`setInterval`/
-//! `scheduler.wait`/`scheduler.yield`) — every one of them needs to construct
-//! a fresh `Promise` from Rust, and this crate's entry surface has no
-//! `Promise` constructor (the same gap `events.rs`'s module doc names for
-//! `events.on`/`events.once`). `.ref()`/`.unref()`/`.hasRef()`/`.refresh()`/
+//! `.ref()`/`.unref()`/`.hasRef()`/`.refresh()`/
 //! `[Symbol.dispose]`/`[Symbol.toPrimitive]` — no `Timeout`/`Immediate`
 //! object exists to hang them on (see above). Trailing `...args` forwarding
 //! beyond one value — this module's four-slot calling convention leaves one
@@ -81,14 +92,41 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+pub mod promises;
+
+/// What a due timer DOES, which is the one thing the callback and the promise
+/// forms do not share.
+///
+/// A second table for [`promises`] was the alternative, and it is the shape this
+/// crate's own rules call a duplicate: it would need its own deadline ordering,
+/// its own `pump`, and its own [`source`] registration, so a program mixing
+/// `setTimeout(cb, 5)` with `await sleep(5)` would have two queues disagreeing
+/// about which fires first. One table with two deliveries has one order.
+enum Deliver {
+    /// A JavaScript function, called with one argument.
+    Call { callback: u64, arg: u64 },
+    /// A promise, fulfilled with a value when the deadline arrives — or
+    /// REJECTED before it, if `signal` is one a program aborted.
+    ///
+    /// `signal` is `Option` rather than the `undefined` value because the two
+    /// are asked at different moments: whether a signal was passed is decided
+    /// once, at scheduling time, and comparing against `undefined_value()` on
+    /// every pump would take the runtime borrow to answer a question Rust
+    /// already knows.
+    Settle {
+        promise: u64,
+        value: u64,
+        signal: Option<u64>,
+    },
+}
+
 /// One pending timer. `period` is what distinguishes the three JS-visible
 /// kinds: `Some` is a `setInterval`, `None` with a future deadline is a
 /// `setTimeout`, `None` with a due-now deadline is a `setImmediate` — no
 /// separate tag is kept because nothing here ever needs to ask "which kind is
 /// this" independent of those two fields.
 struct Timer {
-    callback: u64,
-    arg: u64,
+    deliver: Deliver,
     deadline: Instant,
     period: Option<Duration>,
 }
@@ -135,8 +173,9 @@ fn with_timers<T>(body: impl FnOnce(&mut HashMap<u64, Timer>) -> T) -> T {
 /// panic on a borrow this function still holds — which in an `extern "C"` frame
 /// is an abort.
 pub fn pump() {
+    reject_aborted();
     let now = Instant::now();
-    let due: Vec<(u64, u64, u64)> = with_timers(|table| {
+    let due: Vec<Deliver> = with_timers(|table| {
         let mut ready: Vec<u64> = table
             .iter()
             .filter(|(_, timer)| timer.deadline <= now)
@@ -147,7 +186,18 @@ pub fn pump() {
             .into_iter()
             .filter_map(|id| {
                 let timer = table.get_mut(&id)?;
-                let fire = (id, timer.callback, timer.arg);
+                let fire = match timer.deliver {
+                    Deliver::Call { callback, arg } => Deliver::Call { callback, arg },
+                    Deliver::Settle {
+                        promise,
+                        value,
+                        signal,
+                    } => Deliver::Settle {
+                        promise,
+                        value,
+                        signal,
+                    },
+                };
                 match timer.period {
                     Some(period) => timer.deadline = now + period,
                     None => {
@@ -159,8 +209,71 @@ pub fn pump() {
             .collect()
     });
     let absent = entry::undefined_value();
-    for (_id, callback, arg) in due {
-        entry::call(callback, absent, arg, absent, absent, absent);
+    for fire in due {
+        match fire {
+            Deliver::Call { callback, arg } => {
+                entry::call(callback, absent, arg, absent, absent, absent);
+            }
+            // Fulfilment, not rejection: the `0` is the `rejected` flag, an
+            // `i64` because that is what the lowering passes and what
+            // `promise_settle` documents. An abort has already been dealt with
+            // by `reject_aborted` above, so a timer that reaches its deadline
+            // here is one nothing cancelled.
+            Deliver::Settle { promise, value, .. } => entry::promise_settle(promise, value, 0),
+        }
+    }
+}
+
+/// Rejects every promise-shaped timer whose `AbortSignal` has fired.
+///
+/// # Why this is polled and not delivered
+///
+/// Because an abort has no way to reach this module. `AbortSignal` lives in
+/// `rts-std-rwk` and records the abort as two ordinary properties — `aborted`
+/// and `reason` — with no registry a host crate could subscribe to. The
+/// alternative was to add one, which is a mechanism in another crate for one
+/// caller; polling reads the property this module can already reach.
+///
+/// **What the divergence costs, stated:** Node rejects at the moment
+/// `controller.abort()` returns. This rejects on the next turn of the loop —
+/// the next call into any timer native, or the next `pump_sources` an `await`
+/// drives. For a program that aborts and then awaits, the two are
+/// indistinguishable; for one that aborts and inspects the promise in the same
+/// synchronous run of statements, they are not.
+///
+/// The price is one property read per outstanding promise-timer per pump, and
+/// only for the ones that were given a signal.
+fn reject_aborted() {
+    let watched: Vec<(u64, u64, u64)> = with_timers(|table| {
+        table
+            .iter()
+            .filter_map(|(&id, timer)| match timer.deliver {
+                Deliver::Settle {
+                    promise,
+                    signal: Some(signal),
+                    ..
+                } => Some((id, promise, signal)),
+                _ => None,
+            })
+            .collect()
+    });
+    if watched.is_empty() {
+        return;
+    }
+    // Read every signal inside ONE borrow, settle outside it: `promise_settle`
+    // takes the borrow itself, so doing both at once aborts the process.
+    let aborted: Vec<(u64, u64, u64)> = entry::with_runtime(|context| {
+        let mut fired = Vec::new();
+        for (id, promise, signal) in watched {
+            if entry::get_member(context, signal, "aborted") == entry::boolean_value(true) {
+                fired.push((id, promise, entry::get_member(context, signal, "reason")));
+            }
+        }
+        fired
+    });
+    for (id, promise, reason) in aborted {
+        forget(id);
+        entry::promise_settle(promise, reason, 1);
     }
 }
 
@@ -221,11 +334,7 @@ extern "C" fn set_immediate(_e: u64, _this: u64, callback: u64, arg: u64, _a2: u
     if !PRESENT(callback) {
         return entry::undefined_value();
     }
-    let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
-    with_timers(|table| {
-        table.insert(id, Timer { callback, arg, deadline: Instant::now(), period: None });
-    });
-    entry::make_number(id as f64)
+    entry::make_number(register(Deliver::Call { callback, arg }, Instant::now(), None) as f64)
 }
 
 /// `clearImmediate(id)`.
@@ -239,12 +348,31 @@ fn schedule(callback: u64, arg: u64, delay_ms: u64, period: Option<Duration>) ->
     if !PRESENT(callback) {
         return entry::undefined_value();
     }
-    let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
     let deadline = Instant::now() + Duration::from_millis(delay_ms);
-    with_timers(|table| {
-        table.insert(id, Timer { callback, arg, deadline, period });
-    });
+    let id = register(Deliver::Call { callback, arg }, deadline, period);
     entry::make_number(id as f64)
+}
+
+/// Puts one timer in this thread's table and answers its RAW id.
+///
+/// Raw — a `u64` key, not the JS number `schedule` hands a program — because
+/// [`promises`] never shows an id to a program: it holds one to cancel with, and
+/// coercing it out to a number value and back again would be two conversions
+/// around a value nothing else reads.
+fn register(deliver: Deliver, deadline: Instant, period: Option<Duration>) -> u64 {
+    let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
+    with_timers(|table| {
+        table.insert(id, Timer { deliver, deadline, period });
+    });
+    id
+}
+
+/// Removes a timer by its raw id — the half of [`cancel`] that has a number
+/// already, and what [`promises`] cancels an outstanding tick with.
+fn forget(id: u64) {
+    with_timers(|table| {
+        table.remove(&id);
+    });
 }
 
 /// Removes a timer by its numeric id — a no-op for an unknown/foreign/
@@ -253,10 +381,7 @@ fn cancel(id: u64) {
     let Some(number) = entry::number_of(id) else {
         return;
     };
-    let key = number as u64;
-    with_timers(|table| {
-        table.remove(&key);
-    });
+    forget(number as u64);
 }
 
 
