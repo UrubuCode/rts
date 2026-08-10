@@ -465,6 +465,27 @@ pub(super) fn emit_body(
         candidates.push(held_this);
     }
     let mut captured = capture::captured(body, &candidates);
+    // A name this module PUBLISHES is read by the publication, which is emitted
+    // after the body and is not a statement the body's own walks can see. So it
+    // is forced in here, exactly as `rest` and the imports are one screen up and
+    // for the identical reason: a mention the analysis cannot find is still a
+    // read.
+    //
+    // What it costs to leave out: the escape analysis flattens `const x = { a:
+    // 1 }` into plain locals when nothing makes the object escape, and a
+    // publication was nothing. So `export default { n: 1 }` dissolved the object,
+    // left `@@default` bound to nowhere, and the publication read it as a GLOBAL
+    // — the module died with `ReferenceError: @@default is not defined`, and an
+    // importer saw `cannot resolve module`, naming the wrong problem entirely.
+    //
+    // Only a literal with no method reached it: one containing a function is not
+    // flattenable, which is why every shim in a certain project's `compat/`
+    // directory worked and the one written as `{ createAppAt }` did not.
+    for publication in publications {
+        if let super::module::PublicationSource::Local(name) = &publication.source {
+            captured.insert(*name);
+        }
+    }
     // FORCED into the environment rather than left to the analysis. The arrow
     // reads it through `Scope::late_this`, not through an `Ident`, so nothing
     // the walk can see mentions the name — and a captured set derived from

@@ -42,6 +42,52 @@ pub fn draw_rect(
     });
 }
 
+/// `drawImage(h, x, y, w, h, pixels, img_w, img_h)` — pinta pixels RGBA8 num
+/// retângulo.
+///
+/// # Por que uma FATIA e não um ponteiro
+///
+/// O `RenderBackend::image` deste mesmo crate recebe `*const u8` e faz um
+/// `from_raw_parts` — o que serve àquele trait, cujo chamador é código Rust que
+/// segura os bytes vivos. Esta é a porta para um PROGRAMA, e a regra ali é outra:
+/// o coletor move células, então um endereço que o programa calculou pode não ser
+/// mais o buffer quando chegar aqui. É a mesma razão que fez `meshUpload` receber
+/// views tipadas em vez de ponteiro e tamanho.
+///
+/// A textura é EFÊMERA — carregada por frame e descartada pelo egui no fim, com
+/// nome único por posição na fila para não pegar cache velho. Isso torna cada
+/// frame independente e é o que uma miniatura de asset precisa; uma imagem
+/// pintada todo frame paga o upload todo frame, e é o custo a medir antes de
+/// alguém desenhar um vídeo com isto.
+pub fn draw_image(h: u64, x: f64, y: f64, w: f64, h_: f64, pixels: &[u8], img_w: i64, img_h: i64) {
+    let width = img_w.max(0) as usize;
+    let height = img_h.max(0) as usize;
+    // Um tamanho que não bate com os bytes é um pedido impossível, e o
+    // `from_rgba_unmultiplied` do egui entra em pânico nele. Recusar em silêncio
+    // é o certo: a alternativa é derrubar o processo do programa por um preview.
+    if width == 0 || height == 0 || pixels.len() < width * height * 4 {
+        return;
+    }
+    let image = egui::ColorImage::from_rgba_unmultiplied([width, height], &pixels[..width * height * 4]);
+    ctx::with_ctx(h, |c| {
+        if !c.frame_active {
+            return;
+        }
+        let tex = c.egui_ctx.load_texture(
+            format!("__rts_img_{}", c.cmds.len()),
+            image,
+            egui::TextureOptions::LINEAR,
+        );
+        c.cmds.push(WidgetCmd::DrawImage {
+            x: x as f32,
+            y: y as f32,
+            w: w as f32,
+            h: h_ as f32,
+            tex,
+        });
+    });
+}
+
 /// `drawText(h, x, y, text, color, size, flags)` — texto numa posição absoluta.
 /// `flags` bitmask 1=bold 2=italic 4=mono. Cor `0xRRGGBBAA`.
 #[allow(clippy::too_many_arguments)]

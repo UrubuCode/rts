@@ -129,6 +129,18 @@ pub fn bytes(value: u64) -> Option<Vec<u8>> {
     entry::with_runtime(|context| entry::bytes_of(context, value))
 }
 
+/// Os bytes de um MEMBRO de um objeto de opções.
+///
+/// [`bytes`] recebe a view diretamente, que serve a `meshUpload(win, verts, idx)`
+/// — onde ela é um argumento posicional. `drawImage` a recebe dentro do objeto de
+/// opções, junto dos números, e `options` só sabe ler números. Ler o membro e
+/// então pedir seus bytes é o que falta, e fica aqui em vez de no chamador para
+/// que exista UMA resposta a "os bytes de uma view", como o doc de [`bytes`] diz.
+pub fn member_bytes(object: u64, name: &str) -> Option<Vec<u8>> {
+    let held = entry::with_runtime(|context| entry::get_member(context, object, name));
+    bytes(held)
+}
+
 /// `undefined`, para um nativo que não responde nada.
 pub fn nothing() -> u64 {
     entry::undefined_value()
