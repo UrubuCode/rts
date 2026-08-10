@@ -1,7 +1,7 @@
 // Bench de INDEXAÇÃO DE STRING — o custo que define se um parser escrito em TS
 // (JSON, tokenizador, CSV) é linear ou quadrático.
 //
-//   rts.exe run bench/string_index.ts
+//   target/release/examples/run_fixture.exe bench/string_index.ts
 //
 // Cada caso dobra o tamanho da entrada. Se o tempo QUADRUPLICAR de um caso para
 // o seguinte, a operação é O(n) por acesso e o laço virou O(n²). Se apenas
@@ -10,8 +10,6 @@
 // Contexto: `s[i]`, `charAt`, `charCodeAt`, `substring`, `slice` e `.length`
 // faziam `encode_utf16().collect()` da string INTEIRA a cada chamada. Varrer
 // 98 K caracteres levava 20,7 s e um `JSON.parse` de 98 KB levava 42 s.
-import io from "rts:io";
-
 function mkAscii(n: number): string {
   // dobra o tamanho a cada passo (log2(n) concatenações, não n)
   let s = "0123456789abcdef";
@@ -53,7 +51,7 @@ function sliceMany(s: string, count: number): number {
   return total;
 }
 
-io.print("== indexação de string (dobrar o tamanho deve DOBRAR o tempo) ==");
+console.log("== indexação de string (dobrar o tamanho deve DOBRAR o tempo) ==");
 let size = 16384;
 let step = 0;
 while (step < 3) {
@@ -61,12 +59,12 @@ while (step < 3) {
   const a = scanCharCode(s);
   const b = scanIndex(s);
   const c = sliceMany(s, 4000);
-  io.print("  n=" + s.length + " charCodeAt=" + a + " index=" + b + " slices=" + c);
+  console.log("  n=" + s.length + " charCodeAt=" + a + " index=" + b + " slices=" + c);
   size = size * 2;
   step = step + 1;
 }
 
-io.print("== JSON.parse (o consumidor real dessas operações) ==");
+console.log("== JSON.parse (o consumidor real dessas operações) ==");
 {
   let obj = "{\"a\":1,\"b\":\"texto\",\"c\":[1,2,3]}";
   let arr = "[" + obj;
@@ -74,8 +72,8 @@ io.print("== JSON.parse (o consumidor real dessas operações) ==");
   while (k < 999) { arr = arr + "," + obj; k = k + 1; }
   arr = arr + "]";
   const parsed = JSON.parse(arr);
-  io.print("  parseou " + parsed.length + " objetos de " + arr.length + " chars");
+  console.log("  parseou " + parsed.length + " objetos de " + arr.length + " chars");
   const back = JSON.stringify(parsed);
-  io.print("  stringify devolveu " + back.length + " chars");
+  console.log("  stringify devolveu " + back.length + " chars");
 }
-io.print("== fim ==");
+console.log("== fim ==");

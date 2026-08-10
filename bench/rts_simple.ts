@@ -1,24 +1,22 @@
-import { bool, i32, io, str } from "rts";
+const LCG_MOD: number = 2147483647;
+const LIMB_BASE: number = 1000000;
 
-const LCG_MOD: i32 = 2147483647;
-const LIMB_BASE: i32 = 1000000;
+let limb2: number = 0;
+let limb1: number = 0;
+let limb0: number = 1;
 
-let limb2: i32 = 0;
-let limb1: i32 = 0;
-let limb0: i32 = 1;
+let arithmetic_score: number = 0;
+let prime_score: number = 0;
+let bigint_like_score: number = 0;
+let final_score: number = 0;
 
-let arithmetic_score: i32 = 0;
-let prime_score: i32 = 0;
-let bigint_like_score: i32 = 0;
-let final_score: i32 = 0;
-
-function emit(message: str): void {
-    io.print(message);
+function emit(message: string): void {
+    console.log(message);
 }
 
-function arithmetic_stress(rounds: i32): void {
-    let acc: i32 = 123456;
-    let i: i32 = 0;
+function arithmetic_stress(rounds: number): void {
+    let acc: number = 123456;
+    let i: number = 0;
 
     while (i < rounds) {
         acc = (acc * 1664525 + 1013904223) % LCG_MOD;
@@ -41,13 +39,13 @@ function arithmetic_stress(rounds: i32): void {
     arithmetic_score = acc;
 }
 
-function count_primes(limit: i32): void {
-    let count: i32 = 0;
-    let n: i32 = 2;
+function count_primes(limit: number): void {
+    let count: number = 0;
+    let n: number = 2;
 
     while (n <= limit) {
-        let d: i32 = 2;
-        let prime: bool = true;
+        let d: number = 2;
+        let prime: boolean = true;
 
         while ((d * d) <= n) {
             if ((n % d) === 0) {
@@ -67,19 +65,19 @@ function count_primes(limit: i32): void {
     prime_score = count;
 }
 
-function bigint_like_stress(rounds: i32): void {
-    let i: i32 = 0;
-    let checksum: i32 = 0;
-    let mul: i32 = 0;
-    let add: i32 = 0;
-    let v0: i32 = 0;
-    let n0: i32 = 0;
-    let c0: i32 = 0;
-    let v1: i32 = 0;
-    let n1: i32 = 0;
-    let c1: i32 = 0;
-    let v2: i32 = 0;
-    let n2: i32 = 0;
+function bigint_like_stress(rounds: number): void {
+    let i: number = 0;
+    let checksum: number = 0;
+    let mul: number = 0;
+    let add: number = 0;
+    let v0: number = 0;
+    let n0: number = 0;
+    let c0: number = 0;
+    let v1: number = 0;
+    let n1: number = 0;
+    let c1: number = 0;
+    let v2: number = 0;
+    let n2: number = 0;
 
     if (rounds > 0) {
         do {
@@ -110,9 +108,9 @@ function bigint_like_stress(rounds: i32): void {
 }
 
 function mix_scores(): void {
-    const mix_a: i32 = arithmetic_score + prime_score;
-    const mix_b: i32 = bigint_like_score + limb0 + limb1 + limb2;
-    const mode: i32 = (limb0 + limb1 + limb2) % 3;
+    const mix_a: number = arithmetic_score + prime_score;
+    const mix_b: number = bigint_like_score + limb0 + limb1 + limb2;
+    const mode: number = (limb0 + limb1 + limb2) % 3;
 
     switch (mode) {
         case 0:
