@@ -24,6 +24,33 @@
 use super::with_current;
 use crate::value::Value;
 
+/// `Iterator` — the ES2025 helper base, as a namespace carrying `from`.
+///
+/// Not a class with a `prototype` every iterator inherits: this engine's
+/// iterators (`ListIterator`, the generator wrapper) each carry their own
+/// helper methods rather than reaching one shared prototype, which
+/// `ListIterator`'s own doc already states as the shape. `Iterator.from(x)`
+/// is the one static real Node/the spec put directly on the constructor, and
+/// it is what a program reaches for to turn a plain iterable into something
+/// with `.map`/`.take`/`.toArray` on it — exactly what `over` already builds.
+#[rtse::class("Iterator", namespace)]
+impl Iterator {
+    /// `Iterator.from(iterable)` — an iterator over `iterable`'s elements,
+    /// with the ES2025 helpers on it.
+    ///
+    /// Spec `Iterator.from` also accepts an iterator-*like* object (something
+    /// with a bare `next()` and no `Symbol.iterator`) and answers it wrapped
+    /// rather than copied. That half is not built: [`super::iterate::iterate`]
+    /// is this engine's one answer to "what does iterable mean", and it already
+    /// materialises everything it walks — an array, a string, a `Map`/`Set`, or
+    /// an object declaring `Symbol.iterator` — so `from` reuses exactly that
+    /// rather than adding a second notion of "iterable-ish" beside it.
+    fn from(iterable: u64) -> u64 {
+        let array = super::iterate::iterate(iterable);
+        over(array)
+    }
+}
+
 /// An iterator over a list that has already been built.
 #[rtse::class("ListIterator")]
 impl ListIterator {

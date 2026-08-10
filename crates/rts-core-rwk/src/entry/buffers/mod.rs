@@ -79,13 +79,17 @@
 //! reaches the same bytes.
 
 mod array_buffer;
+pub(in crate::entry) mod atomics;
 mod data_view;
 pub(in crate::entry) mod element;
+mod shared_array_buffer;
 pub(in crate::entry) mod typed;
 mod typed_classes;
 
 pub(in crate::entry) use array_buffer::register_array_buffer;
+pub(in crate::entry) use atomics::register_atomics;
 pub(in crate::entry) use data_view::register_data_view;
+pub(in crate::entry) use shared_array_buffer::register_shared_array_buffer;
 // The eight wrappers rather than the eight names `#[rtse::class]` derives: each
 // also installs `BYTES_PER_ELEMENT` on the constructor, which is a property the
 // language puts on both halves and the attribute can only put on one.

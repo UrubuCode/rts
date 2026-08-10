@@ -17,7 +17,10 @@
 use super::{Context, with_current};
 use crate::coerce::{Sum, add as add_primitives, number_to_string as print_number};
 use crate::text::Str;
-use crate::value::{Value, strict_equals as values_strict_equals, to_boolean as values_to_boolean};
+use crate::value::{
+    Value, same_value as values_same_value, strict_equals as values_strict_equals,
+    to_boolean as values_to_boolean,
+};
 
 /// `a + b`, on values already reduced to primitives.
 ///
@@ -111,6 +114,22 @@ pub fn strict_equals(left: u64, right: u64) -> bool {
             return true;
         }
         values_strict_equals(Value(left), Value(right), |a, b| context.same_text(a, b))
+    })
+}
+
+/// `Object.is(a, b)` — `SameValue`, which `===` is not: it separates `+0` from
+/// `-0` and treats `NaN` as equal to itself. Jest's `expect(x).toBe(y)` is this,
+/// not `===` — the harness in `rts-std-rwk` called the wrong one.
+#[rtse::entry]
+pub fn same_value(left: u64, right: u64) -> bool {
+    with_current(|context| {
+        // As in `strict_equals`: a bigint compares by its digits, and SameValue
+        // agrees with `===` on bigints (neither separates `1n` from a second
+        // `1n` computed elsewhere), so the same check applies first.
+        if super::bigints::same(context, left, right) {
+            return true;
+        }
+        values_same_value(Value(left), Value(right), |a, b| context.same_text(a, b))
     })
 }
 

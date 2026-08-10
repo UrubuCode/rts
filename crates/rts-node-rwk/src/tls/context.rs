@@ -46,6 +46,7 @@ pub(super) fn members() -> &'static [(&'static str, Provided)] {
         ("createSecureContext", create_secure_context),
         ("checkServerIdentity", check_server_identity),
         ("getCiphers", get_ciphers),
+        ("getCurves", get_curves),
         ("getCACertificates", get_ca_certificates),
     ]
 }
@@ -156,6 +157,19 @@ extern "C" fn check_server_identity(_e: u64, _this: u64, hostname: u64, cert: u6
 extern "C" fn get_ciphers(_e: u64, _this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     entry::with_runtime(|context| {
         let values = super::provider::cipher_names().iter().map(|name| entry::make_string(context, name)).collect();
+        entry::make_array_in(context, values)
+    })
+}
+
+/// `tls.getCurves()` — the key-exchange groups [`super::provider`] actually
+/// wires (`kx_groups: vec![&X25519, &SECP256R1]`), named the way OpenSSL
+/// (and so Node) names them: `x25519`, `prime256v1` for P-256. Real Node
+/// lists dozens more OpenSSL knows about; this crate answers only the ones a
+/// handshake here can actually complete with, which is the same "no
+/// fabricated capability" rule [`get_ca_certificates`] states.
+extern "C" fn get_curves(_e: u64, _this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    entry::with_runtime(|context| {
+        let values = ["x25519", "prime256v1"].iter().map(|name| entry::make_string(context, name)).collect();
         entry::make_array_in(context, values)
     })
 }

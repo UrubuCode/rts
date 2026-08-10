@@ -157,14 +157,29 @@ extern "C" fn get(_e: u64, _this: u64, a: u64, b: u64, c: u64, _d: u64) -> u64 {
     client::build_request(a, options, callback, true)
 }
 
+/// `http.validateHeaderName(name[, label])` — Node THROWS
+/// `ERR_INVALID_HTTP_TOKEN` on an invalid name rather than answering `false`;
+/// this crate's only public raise is `throw_type_error` (rule 8,
+/// `rts-core-rwk`'s README), so the class is `TypeError` rather than Node's
+/// own, named here rather than silently substituted. On a valid name this
+/// still answers `undefined` — Node's own success return — never `true`.
 extern "C" fn validate_header_name(_e: u64, _this: u64, name: u64, _label: u64, _c: u64, _d: u64) -> u64 {
     let valid = entry::text_of(name).is_some_and(|text| parser::valid_header_name(&text));
-    entry::boolean_value(valid)
+    if !valid {
+        entry::throw_type_error("Header name must be a valid HTTP token");
+    }
+    entry::undefined_value()
 }
 
+/// `http.validateHeaderValue(name, value)` — throws
+/// `ERR_INVALID_CHAR`/`ERR_HTTP_INVALID_HEADER_VALUE` on an invalid value,
+/// same reasoning as [`validate_header_name`].
 extern "C" fn validate_header_value(_e: u64, _this: u64, _name: u64, value: u64, _c: u64, _d: u64) -> u64 {
     let valid = entry::text_of(value).is_some_and(|text| parser::valid_header_value(&text));
-    entry::boolean_value(valid)
+    if !valid {
+        entry::throw_type_error("Invalid character in header content");
+    }
+    entry::undefined_value()
 }
 
 extern "C" fn no_op(_e: u64, _this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {

@@ -125,7 +125,7 @@ pub use promise::{drain_microtasks, promise_await, promise_new, promise_settle, 
 pub use operators::{
     divide, greater, greater_equal, less, less_equal, loose_equals, multiply, remainder, subtract,
 };
-pub use primitives::{add, number_to_string, strict_equals, to_boolean, to_boolean_in};
+pub use primitives::{add, number_to_string, same_value, strict_equals, to_boolean, to_boolean_in};
 pub use bigint_class::{bigint_new, negate};
 pub use regex::regex_new;
 pub use text::{

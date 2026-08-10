@@ -84,7 +84,7 @@
 
 mod constants;
 mod cpus;
-mod machine;
+pub(crate) mod machine;
 mod netif;
 mod user;
 

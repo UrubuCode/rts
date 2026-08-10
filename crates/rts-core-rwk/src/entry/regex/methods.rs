@@ -49,6 +49,22 @@ pub(super) extern "C" fn construct(
     _a3: u64,
 ) -> u64 {
     with_current(|context| {
+        // `RegExp(re)` called WITHOUT `new`, with no explicit `flags`, answers
+        // the SAME object — `context.new_targets` is how `wrap` above answers
+        // the identical "was this a construct" question for `Number`/`Boolean`/
+        // `String`, and it separates this from `new RegExp(re)`, which always
+        // copies. `flags === undefined` and not merely absent, matching the
+        // specification's own test (`NewTarget is undefined and flags is
+        // undefined`); an explicit `undefined` argument reads the same as
+        // omitting it here because `text_of` cannot tell them apart either, and
+        // the two cases already share the copy path below.
+        if context.new_targets.is_empty()
+            && let Some(cell) = Value(pattern).as_slot()
+            && context.regexp_at(cell).is_some()
+            && text_of(context, flags).is_none()
+        {
+            return pattern;
+        }
         // `new RegExp(existingRegExp)` copies `source`/`flags` from the
         // original rather than `ToString`-ing it: `String(/ab+c/)` is the
         // literal text `"/ab+c/"`, slashes included, and compiling *that*

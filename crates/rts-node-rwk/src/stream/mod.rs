@@ -59,8 +59,8 @@
 //! `stream/web` (WHATWG `ReadableStream`/`WritableStream`/`TransformStream`
 //! — a separate, already-ambient ArrayBuffer-backed API this crate does not
 //! reach from here), `stream/promises`, `stream/consumers`, `compose`,
-//! `duplexPair`, `isErrored`/`isReadable`/`isWritable`, `addAbortSignal`,
-//! `get/setDefaultHighWaterMark`, `Readable.fromWeb`/`toWeb`,
+//! `isErrored`/`isReadable`, `addAbortSignal`,
+//! `setDefaultHighWaterMark`, `Readable.fromWeb`/`toWeb`,
 //! `Writable.fromWeb`/`toWeb`, `Duplex.from`/`fromWeb`/`toWeb`, `.wrap()`,
 //! `.compose()`, the whole async-iteration helper family
 //! (`map`/`filter`/`forEach`/`toArray`/`reduce`/…), `Symbol.asyncIterator`/
@@ -92,7 +92,13 @@ pub fn namespace(context: &mut Context) -> u64 {
     let transform_ctor = class_ctor(context, duplex::transform_construct, duplex::transform_prototype);
     let pass_through_ctor = class_ctor(context, duplex::pass_through_construct, duplex::pass_through_prototype);
 
-    let members: &[(&str, Provided)] = &[("pipeline", util::pipeline), ("finished", util::finished)];
+    let members: &[(&str, Provided)] = &[
+        ("pipeline", util::pipeline),
+        ("finished", util::finished),
+        ("duplexPair", duplex::duplex_pair),
+        ("getDefaultHighWaterMark", util::get_default_high_water_mark),
+        ("isWritable", util::is_writable),
+    ];
     let namespace = entry::make_namespace(context, members);
     entry::put_member(context, namespace, "Stream", stream_ctor);
     entry::put_member(context, namespace, "Readable", readable_ctor);

@@ -52,11 +52,13 @@ mod map;
 mod set;
 mod table;
 mod weak;
+mod weakref;
 
 pub(in crate::entry) use map::register_map;
 pub(in crate::entry) use set::register_set;
 pub(in crate::entry) use table::Table;
 pub(in crate::entry) use weak::{register_weak_map, register_weak_set};
+pub(in crate::entry) use weakref::register_weak_ref;
 
 use super::objects::undefined_of;
 use super::{Context, with_current};

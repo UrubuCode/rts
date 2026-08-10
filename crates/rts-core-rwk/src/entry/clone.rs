@@ -486,9 +486,19 @@ fn fill(node: &Node, value: u64, made: &[u64]) {
         Node::Array(slots) => {
             let elements: Vec<u64> = slots.iter().map(|slot| resolve(*slot, made)).collect();
             with_current(|context| {
+                // `length` is an ordinary property (`array::set_length`'s own
+                // doc comment says so), not something a reader derives from the
+                // element vector — so writing the elements alone leaves it at
+                // whatever `array_new(0)` wrote, which is 0, while the elements
+                // sit there populated. Every other reader of a cloned array
+                // (`.length`, `for`-`of`, `JSON.stringify`) goes through the
+                // property, not the vector, so this was answering 0 for a
+                // visibly non-empty array.
+                let count = elements.len();
                 if let Some(held) = context.elements_at_mut(cell) {
                     *held = elements;
                 }
+                super::array::set_length(context, cell, count);
             });
         }
         Node::Object(members) => with_current(|context| {

@@ -81,6 +81,22 @@ fn walk(
     expr: &Expr,
 ) -> EmitResult<ValueId> {
     match &expr.kind {
+        // The parser wraps EVERY optional link in its own `OptChainExpr`, not
+        // only the outermost one: `o?.foo()` parses with `o?.foo` as a nested
+        // `Chain` sitting in the `Call`'s `callee` position, `Call` itself
+        // unmarked. Without this arm that nested `Chain` fell to the
+        // catch-all below, which calls [`emit_expr`] — the top-level entry
+        // that starts a **second**, unrelated join. That is the actual bug
+        // behind all four dying files: `walk_callee`'s Member/Index arms
+        // never matched (the callee was `Chain`, not `Member`), so a present
+        // method's receiver was lost to `undefined` and read through the
+        // generic path instead; and for a null receiver, the inner chain
+        // correctly answered `undefined` — but the OUTER `Call`, seeing
+        // `optional: false` on itself, went ahead and called it anyway,
+        // turning "the whole chain is undefined" into a `TypeError`.
+        // Unwrapping here instead reuses the SAME join, so a link's
+        // short-circuit reaches all the way out and the receiver survives.
+        ExprKind::Chain(inner) => walk(builder, scope, ctx, join, inner),
         ExprKind::Member {
             object,
             property,
@@ -124,7 +140,20 @@ fn walk(
         } => {
             let (receiver, function) = walk_callee(builder, scope, ctx, join, callee)?;
             let function = maybe_short_circuit(builder, ctx, join, function, *optional)?;
-            super::call::emit_call_with(builder, scope, ctx, function, receiver, arguments)
+            // Same "not a function" naming a plain call gets, from the same
+            // spelling rule (`call.rs::callee_spelling`) — this was the one
+            // remaining source of the bare `undefined is not a function`
+            // message, since this path used to reach the callee/receiver
+            // pair with nothing to name it. Unwrapped past `Chain` first, for
+            // the same reason `walk`/`walk_callee` do: `o?.foo()`'s callee is
+            // `Chain(Member(o, foo))`, and `callee_spelling` only knows
+            // `Member` and `Ident`.
+            let spelled = match &callee.kind {
+                ExprKind::Chain(inner) => inner.as_ref(),
+                _ => callee,
+            };
+            let name = super::call::callee_spelling(ctx, spelled);
+            super::call::emit_call_with_name(builder, scope, ctx, function, receiver, arguments, name)
         }
         _ => emit_expr(builder, scope, ctx, expr),
     }
@@ -149,6 +178,11 @@ fn walk_callee(
     callee: &Expr,
 ) -> EmitResult<(ValueId, ValueId)> {
     let pair = match &callee.kind {
+        // See `walk`'s own `Chain` arm: `o?.foo()` hands this function a
+        // `callee` whose kind is `Chain`, wrapping the `Member` that actually
+        // carries the `?.`. Recursing keeps the receiver rather than losing it
+        // to the catch-all's `undefined`.
+        ExprKind::Chain(inner) => walk_callee(builder, scope, ctx, join, inner)?,
         ExprKind::Member {
             object,
             property,

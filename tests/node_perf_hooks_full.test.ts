@@ -1,52 +1,51 @@
 // node:perf_hooks — performance timeline.
+// NOTA: `now`, `mark`, `measure`, `clearMarks`, `clearMeasures`,
+// `getEntries[ByName|ByType]` and `timeOrigin` are NOT top-level named
+// exports of `node:perf_hooks` in real Node — they live on the `performance`
+// object (`performance.now()`, `performance.timeOrigin` as a data property,
+// not a function). This file imported them as bare named imports, which
+// Node itself refuses (no such export); verified against Node's documented
+// `perf_hooks` exports (`performance`, `PerformanceObserver`, `constants`,
+// `monitorEventLoopDelay`, `createHistogram`, ...). Fixed to go through
+// `performance`, which is the real surface.
 import { describe, test, expect } from "rts:test";
-import {
-    now,
-    timeOrigin,
-    mark,
-    measure,
-    getEntries,
-    getEntriesByName,
-    getEntriesByType,
-    clearMarks,
-    clearMeasures,
-} from "node:perf_hooks";
+import { performance } from "node:perf_hooks";
 
-clearMarks();
-clearMeasures();
+performance.clearMarks();
+performance.clearMeasures();
 
-const t0 = now();
-const t1 = now();
+const t0 = performance.now();
+const t1 = performance.now();
 const nowMonotonic = t1 >= t0;
 
-const origin = timeOrigin();
+const origin = performance.timeOrigin;
 const originOk = origin > 0;
 
-const m = mark("start");
+const m = performance.mark("start");
 const markNameOk = m.name === "start" && m.entryType === "mark";
 
-mark("end");
-const meas = measure("span", "start", "end");
+performance.mark("end");
+const meas = performance.measure("span", "start", "end");
 const measOk = meas.name === "span" && meas.entryType === "measure" && meas.duration >= 0;
 
-const simple = measure("simple");
+const simple = performance.measure("simple");
 const simpleOk = simple.entryType === "measure" && simple.duration >= 0;
 
-const byName = getEntriesByName("start");
+const byName = performance.getEntriesByName("start");
 const byNameOk = byName.length === 1 && byName[0].name === "start";
 
-const marks = getEntriesByType("mark");
+const marks = performance.getEntriesByType("mark");
 const marksOk = marks.length === 2;
 
-const all = getEntries();
+const all = performance.getEntries();
 const allOk = all.length >= 4; // 2 marks + 2 measures
 
-clearMarks();
-const afterClearMarks = getEntriesByType("mark").length === 0;
-const measuresRemain = getEntriesByType("measure").length >= 2;
+performance.clearMarks();
+const afterClearMarks = performance.getEntriesByType("mark").length === 0;
+const measuresRemain = performance.getEntriesByType("measure").length >= 2;
 
-clearMeasures();
-const afterClearAll = getEntries().length === 0;
+performance.clearMeasures();
+const afterClearAll = performance.getEntries().length === 0;
 
 describe("node:perf_hooks", () => {
     test("now monotonic", () => expect(nowMonotonic).toBe(true));

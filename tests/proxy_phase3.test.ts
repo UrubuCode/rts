@@ -5,20 +5,25 @@ import { describe, test, expect } from "rts:test";
 
 // 1. setPrototypeOf trap: retorna true sem efeito real.
 const t1: any = {};
+const t1OriginalProto = Object.getPrototypeOf(t1);
 const p1: any = new Proxy(t1, {
     setPrototypeOf: (_t: any, _proto: any) => true
 });
 const newProto = { kind: "fake" };
 const sp1 = Reflect.setPrototypeOf(p1, newProto);
-// target nao foi modificado pelo trap (que so' retornou true)
-const t1HasProto = Reflect.has(t1, "__proto__");
+// target nao foi modificado pelo trap (que so' retornou true).
+// `Reflect.has(t1, "__proto__")` NAO serve pra isto: "__proto__" e' um
+// accessor HERDADO de Object.prototype, entao "__proto__" in {} e' SEMPRE
+// true em Node (verificado), nao importa o que o trap fez — checar por ele
+// so' testaria se o accessor existe, nunca se o target mudou de proto.
+const t1ProtoUnchanged = Object.getPrototypeOf(t1) === t1OriginalProto;
 
-// 2. setPrototypeOf forward — escreve __proto__ no target
+// 2. setPrototypeOf forward — muda o [[Prototype]] real do target
 const t2: any = {};
 const p2: any = new Proxy(t2, {});
 const realProto = { kind: "real" };
 const sp2 = Reflect.setPrototypeOf(p2, realProto);
-const t2HasProto = Reflect.has(t2, "__proto__");
+const t2ProtoIsReal = Object.getPrototypeOf(t2) === realProto;
 // E getPrototypeOf sobre proxy le o proto
 const readProto = Reflect.getPrototypeOf(p2);
 const readHasKind = Reflect.has(readProto, "kind");
@@ -103,10 +108,10 @@ describe("proxy_phase3", () => {
     // setPrototypeOf
     test("setProto trap returns true", () => expect(sp1).toBe(true));
     test("setProto trap doesn't write target", () =>
-        expect(t1HasProto).toBe(false));
+        expect(t1ProtoUnchanged).toBe(true));
     test("setProto forward returns true", () => expect(sp2).toBe(true));
     test("setProto forward writes target", () =>
-        expect(t2HasProto).toBe(true));
+        expect(t2ProtoIsReal).toBe(true));
     test("setProto + getProto reads via proxy", () =>
         expect(readHasKind).toBe(true));
     test("setProto trap rejects (returns false)", () =>

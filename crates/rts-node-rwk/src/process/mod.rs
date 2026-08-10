@@ -24,9 +24,14 @@
 //!   exists now and did not when this module's predecessor refused
 //!   `hrtime.bigint` for its absence. That refusal is withdrawn and the member
 //!   is implemented.
-//! - *"process memory / cpu accounting"* — nothing on the host surface reports
-//!   heap occupancy, and no machine-layer probe is reachable from here. See the
-//!   refusal list.
+//! - *"process memory / cpu accounting"* — `memoryUsage`, `cpuUsage`,
+//!   `resourceUsage` and `kill` are now real, cross-platform (POSIX
+//!   `getrusage`/`kill`, Windows `GetProcessTimes`/`K32GetProcessMemoryInfo`/
+//!   `OpenProcess`+`TerminateProcess`, raw `extern "system"` declarations,
+//!   `clock.rs`/`lifecycle.rs`). What is still absent is the V8-heap
+//!   breakdown `memoryUsage` also reports (`heapTotal`/`heapUsed`/`external`/
+//!   `arrayBuffers`): nothing on the host surface tracks a separate JS-heap
+//!   byte count, so those fields are `0` rather than fabricated.
 //!
 //! # Property vs function
 //!
@@ -72,12 +77,9 @@
 //! # Not implemented, by name
 //!
 //! **Needs a host capability that does not exist** (reported, not worked
-//! around): `memoryUsage`, `memoryUsage.rss`, `resourceUsage`,
-//! `threadCpuUsage`, `availableMemory`, `constrainedMemory` — Node's fields are
-//! GC-heap accounting (`heapUsed`/`heapTotal`/`external`/`arrayBuffers`) plus
-//! OS RSS, and `rts_core_rwk::entry` exposes no heap-occupancy read at all; an
-//! object of zeroes is the fabricated answer this repository refuses.
-//! `exitCode` is settable and IS honoured by [`lifecycle::exit`], but a program
+//! around): `threadCpuUsage`, `availableMemory`, `constrainedMemory` — the
+//! GC-heap fields of `memoryUsage` (see the reuse-check note above for what
+//! IS real now). `exitCode` is settable and IS honoured by [`lifecycle::exit`], but a program
 //! that sets it and simply *ends* exits 0 — the host has no
 //! end-of-program hook a module can ask to consult it.
 //! `'beforeExit'`, `'uncaughtException'`, `'uncaughtExceptionMonitor'`,
@@ -111,10 +113,11 @@
 //! consults them, and `emitWarning` honouring flags nobody else does would be
 //! half a mechanism).
 //!
-//! **POSIX-only, absent on Windows rather than fabricated**: `ppid`, `kill`,
-//! `umask`, `getuid`, `geteuid`, `getgid`, `getegid`, `cpuUsage`. Each is a
-//! `libc` call with no Windows equivalent reachable without a new dependency,
-//! and Node itself refuses most of them there.
+//! **POSIX-only, absent on Windows rather than fabricated**: `ppid`,
+//! `umask`, `getuid`, `geteuid`, `getgid`, `getegid`. Each is a `libc` call
+//! with no Windows equivalent reachable without a new dependency, and Node
+//! itself refuses most of them there. (`kill` and `cpuUsage` used to be on
+//! this list; both are cross-platform now — see the reuse-check note.)
 
 mod clock;
 mod info;
@@ -151,19 +154,26 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("uptime", clock::uptime),
         ("getBuiltinModule", info::get_builtin_module),
         ("loadEnvFile", info::load_env_file),
+        // Cross-platform (POSIX `getrusage`/`kill`, Windows `GetProcessTimes`/
+        // `K32GetProcessMemoryInfo`/`OpenProcess`+`TerminateProcess` — see
+        // `clock.rs` and `lifecycle.rs::kill`'s Windows forms).
+        ("kill", lifecycle::kill as Provided),
+        ("cpuUsage", clock::cpu_usage),
+        ("memoryUsage", clock::memory_usage),
+        ("resourceUsage", clock::resource_usage),
+        ("availableMemory", clock::available_memory),
+        ("constrainedMemory", clock::constrained_memory),
     ];
     // Absent, not stubbed: see the module doc's POSIX paragraph. A member that
     // exists and answers nothing reads as "implemented and broken"; an absent
     // one reads as what it is.
     #[cfg(unix)]
     members.extend_from_slice(&[
-        ("kill", lifecycle::kill as Provided),
         ("umask", lifecycle::umask),
         ("getuid", lifecycle::getuid),
         ("geteuid", lifecycle::geteuid),
         ("getgid", lifecycle::getgid),
         ("getegid", lifecycle::getegid),
-        ("cpuUsage", clock::cpu_usage),
     ]);
     let namespace = rts_core_rwk::entry::make_namespace(context, &members);
     PROCESS.with(|held| held.set(namespace));

@@ -105,6 +105,10 @@ const PROVIDED: &[&str] = &[
     "URIError",
     "WeakMap",
     "WeakSet",
+    "WeakRef",
+    "SharedArrayBuffer",
+    "Atomics",
+    "Iterator",
     "globalThis",
     // The rest of this list is in no ECMA-262 section, and belongs here for the
     // reason `console`'s own sentence gives: a program writes them with no
@@ -124,9 +128,16 @@ const PROVIDED: &[&str] = &[
     // makes the compile-rate measurement count a file that cannot work. This
     // repository's honesty floor names that exact failure — a number measured
     // against a corpus quietly smaller than claimed. `fetch`, `Blob`, `require`,
-    // `Proxy`, `SharedArrayBuffer`, `WeakRef`, `FinalizationRegistry`,
-    // `Atomics`, `eval` and `Intl` are all reached by the suite and are all
-    // ABSENT here for that reason, until something supplies them. `Error` is
+    // `FinalizationRegistry`, `eval` and `Intl` are all reached by the suite and
+    // are all ABSENT here for that reason, until something supplies them.
+    // `SharedArrayBuffer`, `WeakRef`, `Atomics`, `EventEmitter`, `Iterator` and
+    // `Storage` joined the list below once `rts-core-rwk`/`rts-std-rwk` grew real
+    // values for them — `Atomics` single-threaded and honest about it,
+    // `SharedArrayBuffer` with nothing to share WITH for the same reason,
+    // `WeakRef.deref()` never yet answering `undefined` because nothing
+    // collects the target, and `Storage.persistTo` writing this engine's own
+    // length-prefixed record rather than the old engine's pickle format. Every
+    // one of those four qualifications lives in the module that implements it. `Error` is
     // above rather than here because the runtime's error family answers for
     // itself, and `AggregateError` joined that family in the change that added
     // it — the list follows the value, never the other way round. The WHATWG
@@ -159,6 +170,8 @@ const PROVIDED: &[&str] = &[
     "Event",
     "EventTarget",
     "CustomEvent",
+    "EventEmitter",
+    "Storage",
     // Installed by `rts-std-rwk`'s `globals/timing.rs`, and absent from this
     // list until now — so a program writing it with no import was refused at
     // compile time for a name that had a value all along. The two sets are

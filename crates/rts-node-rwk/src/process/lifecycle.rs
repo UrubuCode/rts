@@ -271,7 +271,7 @@ fn warning_options(options: u64, code: u64) -> (String, Option<String>, Option<S
     })
 }
 
-/// `process.kill(pid[, signal])` — POSIX only.
+/// `process.kill(pid[, signal])`.
 ///
 /// Despite the name this SENDS a signal: the default is `SIGTERM`, and signal
 /// `0` is the standard existence-and-permission check. Node throws `ESRCH`/
@@ -301,6 +301,53 @@ pub(super) extern "C" fn kill(
         eprintln!("rts: process.kill: {}", std::io::Error::last_os_error());
     }
     entry::boolean_value(answered == 0)
+}
+
+/// Windows form of [`kill`]. Windows has no signal delivery — `OpenProcess`
+/// with `PROCESS_QUERY_INFORMATION` is the existence/permission check signal
+/// `0` asks for, and any non-zero signal (`SIGTERM` included: there is
+/// nothing softer to ask a Windows process for) terminates via
+/// `TerminateProcess`, the same substitution Node's own `libuv` backend
+/// makes on this platform.
+#[cfg(windows)]
+pub(super) extern "C" fn kill(
+    _e: u64,
+    _this: u64,
+    pid: u64,
+    signal: u64,
+    _a2: u64,
+    _a3: u64,
+) -> u64 {
+    let Some(target) = entry::number_of(pid) else {
+        eprintln!("rts: process.kill: expected a numeric pid");
+        return entry::boolean_value(false);
+    };
+    let absent = entry::undefined_value();
+    // `0` is the explicit existence check; an absent argument defaults to
+    // `SIGTERM`, which this platform has no softer analogue for.
+    let is_probe = signal != absent && entry::number_of(signal) == Some(0.0);
+    unsafe extern "system" {
+        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> isize;
+        fn TerminateProcess(handle: isize, exit_code: u32) -> i32;
+        fn CloseHandle(handle: isize) -> i32;
+    }
+    const PROCESS_TERMINATE: u32 = 0x0001;
+    const PROCESS_QUERY_INFORMATION: u32 = 0x0400;
+    let access = if is_probe { PROCESS_QUERY_INFORMATION } else { PROCESS_TERMINATE };
+    // SAFETY: three Win32 calls over a `HANDLE` this function opens and
+    // closes itself; no pointer beyond the handle value crosses the FFI
+    // boundary.
+    let answered = unsafe {
+        let handle = OpenProcess(access, 0, target as u32);
+        if handle == 0 {
+            eprintln!("rts: process.kill: {}", std::io::Error::last_os_error());
+            return entry::boolean_value(false);
+        }
+        let ok = if is_probe { 1 } else { TerminateProcess(handle, 1) };
+        CloseHandle(handle);
+        ok != 0
+    };
+    entry::boolean_value(answered)
 }
 
 /// A signal argument as a number: absent is `SIGTERM`, a number is itself, a

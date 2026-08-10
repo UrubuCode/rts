@@ -47,9 +47,12 @@
 //! reason. **`setMulticastTTL`** on a `udp6` socket — `std` has no
 //! `IPV6_MULTICAST_HOPS` setter (only `set_multicast_ttl_v4` exists); a
 //! `udp4` socket's call is implemented. **`get/setSendBufferSize`,
-//! `get/setRecvBufferSize`, `getSendQueueSize`, `getSendQueueCount`** — no
-//! `std` accessor for socket buffer sizes, and the queue counters are a
-//! libuv-internal concept with no OS source of truth here. **`ref`/`unref`**
+//! `get/setRecvBufferSize`** — implemented via [`bufsize`], a hand-rolled
+//! `setsockopt`/`getsockopt(SO_RCVBUF/SO_SNDBUF)` (see that module's own
+//! reuse-check for why `socket2` is not pulled in for this). **`
+//! getSendQueueSize`, `getSendQueueCount`** — still absent: the queue
+//! counters are a libuv-internal concept with no OS source of truth here.
+//! **`ref`/`unref`**
 //! — no event-loop keep-alive accounting exists to hook; both are accepted
 //! and return `this` for chaining, with no OS or scheduling effect.
 //! **`bind`'s `fd`/`exclusive` options, the `lookup`/`signal`
@@ -59,6 +62,7 @@
 //! consulted. Each of the above answers `undefined` from its member lookup
 //! (unregistered) or is a documented no-op, never a plausible wrong value.
 
+mod bufsize;
 mod registry;
 
 use rts_core_rwk::entry::{self, Context, Provided};
@@ -80,6 +84,10 @@ const METHODS: &[(&str, Provided)] = &[
     ("setMulticastLoopback", set_multicast_loopback),
     ("addMembership", add_membership),
     ("dropMembership", drop_membership),
+    ("getRecvBufferSize", get_recv_buffer_size),
+    ("setRecvBufferSize", set_recv_buffer_size),
+    ("getSendBufferSize", get_send_buffer_size),
+    ("setSendBufferSize", set_send_buffer_size),
     ("ref", ref_unref),
     ("unref", ref_unref),
 ];
@@ -136,14 +144,16 @@ extern "C" fn create_socket(e: u64, _this: u64, a: u64, callback: u64, _c: u64, 
 /// both call, following the pattern every other class in this crate uses.
 extern "C" fn construct(_e: u64, this: u64, options: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     registry::pump();
-    let (kind, reuse_raw) = entry::with_runtime(|context| {
+    let (kind, reuse_raw, recv_buf, send_buf) = entry::with_runtime(|context| {
         let text = entry::text_in(context, options);
         match text {
-            Some(kind) => (kind, entry::undefined_in(context)),
+            Some(kind) => (kind, entry::undefined_in(context), None, None),
             None => {
                 let kind = option_text(context, options, "type").unwrap_or_else(|| "udp4".to_owned());
                 let reuse = option_value(context, options, "reuseAddr");
-                (kind, reuse)
+                let recv_buf = option_num(context, options, "recvBufferSize");
+                let send_buf = option_num(context, options, "sendBufferSize");
+                (kind, reuse, recv_buf, send_buf)
             }
         }
     });
@@ -159,6 +169,16 @@ extern "C" fn construct(_e: u64, this: u64, options: u64, _b: u64, _c: u64, _d: 
         set_bool(context, instance, "__udp6", is_udp6);
         set_bool(context, instance, "__reuseAddr", reuse_addr);
         set_bool(context, instance, "__bound", false);
+        // Applied by `bind`, once the real socket exists — `createSocket`
+        // options carrying `recvBufferSize`/`sendBufferSize` are Node's
+        // "set before the first bind" shape, stashed here rather than
+        // applied now because there is no socket yet to apply them to.
+        if let Some(size) = recv_buf {
+            set_num(context, instance, "__wantRecvBuf", size);
+        }
+        if let Some(size) = send_buf {
+            set_num(context, instance, "__wantSendBuf", size);
+        }
         instance
     })
 }
@@ -221,6 +241,22 @@ extern "C" fn bind(_e: u64, this: u64, a: u64, b: u64, c: u64, _d: u64) -> u64 {
             });
             if let Some(reader) = reader {
                 registry::spawn_reader(id, reader);
+            }
+            let (want_recv, want_send) = (
+                entry::number_of(get_value(this, "__wantRecvBuf")),
+                entry::number_of(get_value(this, "__wantSendBuf")),
+            );
+            if want_recv.is_some() || want_send.is_some() {
+                registry::with_sockets(|table| {
+                    if let Some(socket) = table.get(&id).and_then(|entry| entry.socket.as_ref()) {
+                        if let Some(size) = want_recv {
+                            bufsize::set(socket, bufsize::Which::Recv, size as i32);
+                        }
+                        if let Some(size) = want_send {
+                            bufsize::set(socket, bufsize::Which::Send, size as i32);
+                        }
+                    }
+                });
             }
         }
         Err(error) => {
@@ -462,6 +498,50 @@ fn membership(this: u64, group: u64, iface: u64, join: bool) {
             let interface = entry::text_of(iface).and_then(|text| text.parse().ok()).unwrap_or(std::net::Ipv4Addr::UNSPECIFIED);
             if join { socket.join_multicast_v4(&group, &interface) } else { socket.leave_multicast_v4(&group, &interface) }
         }
+    });
+}
+
+/// `socket.getRecvBufferSize()` — the real `SO_RCVBUF`, read back from the OS
+/// (which commonly reports more than was ever set — its own bookkeeping, not
+/// a bug here). `undefined` on an unbound socket or a failed syscall, Node's
+/// own answer for "no socket to ask".
+extern "C" fn get_recv_buffer_size(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    buffer_size_of(this, bufsize::Which::Recv)
+}
+
+/// `socket.setRecvBufferSize(size)`.
+extern "C" fn set_recv_buffer_size(_e: u64, this: u64, size: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    set_buffer_size(this, bufsize::Which::Recv, size);
+    entry::undefined_value()
+}
+
+/// `socket.getSendBufferSize()`.
+extern "C" fn get_send_buffer_size(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    buffer_size_of(this, bufsize::Which::Send)
+}
+
+/// `socket.setSendBufferSize(size)`.
+extern "C" fn set_send_buffer_size(_e: u64, this: u64, size: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    set_buffer_size(this, bufsize::Which::Send, size);
+    entry::undefined_value()
+}
+
+fn buffer_size_of(this: u64, which: bufsize::Which) -> u64 {
+    let Some(id) = socket_id(this) else { return entry::undefined_value() };
+    let read = registry::with_sockets(|table| {
+        table.get(&id).and_then(|entry| entry.socket.as_ref()).and_then(|socket| bufsize::get(socket, which))
+    });
+    match read {
+        Some(size) => entry::make_number(f64::from(size)),
+        None => entry::undefined_value(),
+    }
+}
+
+fn set_buffer_size(this: u64, which: bufsize::Which, size: u64) {
+    let Some(size) = entry::number_of(size) else { return };
+    with_socket(this, |socket| {
+        bufsize::set(socket, which, size as i32);
+        Ok(())
     });
 }
 

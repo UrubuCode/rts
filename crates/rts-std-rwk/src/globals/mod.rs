@@ -24,8 +24,10 @@
 //! added there without a value here turns a refusal at compile time into an
 //! `undefined` at run time.
 
+pub mod emitter;
 pub mod events;
 pub mod output;
+pub mod storage;
 pub mod text;
 pub mod timing;
 
@@ -37,4 +39,6 @@ pub fn install(context: &mut Context) {
     text::install(context);
     events::install(context);
     timing::install(context);
+    emitter::install(context);
+    storage::install(context);
 }

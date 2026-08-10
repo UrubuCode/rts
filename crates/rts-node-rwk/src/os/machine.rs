@@ -156,7 +156,7 @@ pub(super) fn hostname() -> Option<String> {
 
 /// `(total, free)` physical memory in bytes.
 #[cfg(windows)]
-pub(super) fn memory() -> Option<(f64, f64)> {
+pub(crate) fn memory() -> Option<(f64, f64)> {
     let mut status = MemoryStatusEx {
         length: std::mem::size_of::<MemoryStatusEx>() as u32,
         ..MemoryStatusEx::default()
@@ -172,7 +172,7 @@ pub(super) fn memory() -> Option<(f64, f64)> {
 /// `MemFree` excludes reclaimable page cache and so understates it by gigabytes
 /// on an ordinary machine.
 #[cfg(target_os = "linux")]
-pub(super) fn memory() -> Option<(f64, f64)> {
+pub(crate) fn memory() -> Option<(f64, f64)> {
     let text = std::fs::read_to_string("/proc/meminfo").ok()?;
     let field = |key: &str| -> Option<f64> {
         let line = text.lines().find(|line| line.starts_with(key))?;
@@ -187,7 +187,7 @@ pub(super) fn memory() -> Option<(f64, f64)> {
 /// `None`, which the caller answers as `0`, rather than a number that looks
 /// measured and is not — see the module doc's refusal list.
 #[cfg(all(not(windows), not(target_os = "linux")))]
-pub(super) fn memory() -> Option<(f64, f64)> {
+pub(crate) fn memory() -> Option<(f64, f64)> {
     None
 }
 

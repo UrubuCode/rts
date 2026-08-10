@@ -59,7 +59,7 @@ pub fn emit_call(
 /// untriaged. `o[k]()`, `super.f()` and a callee that is itself an expression
 /// answer `None` — there is no single right spelling for "the fourth element
 /// of an array" — and the caller falls back to what the value's KIND was.
-fn callee_spelling(ctx: &mut Ctx, callee: &Expr) -> Option<u32> {
+pub(super) fn callee_spelling(ctx: &mut Ctx, callee: &Expr) -> Option<u32> {
     let text = match &callee.kind {
         ExprKind::Member {
             object, property, ..
@@ -158,31 +158,18 @@ pub(super) fn callee_and_receiver(
     Ok(pair)
 }
 
-/// Emits a call whose callee and receiver are already values.
+/// Emits a call whose callee and receiver are already values, with the
+/// callee's source spelling for a "not a function" message where one exists.
 ///
-/// Split out for `super(…)`, which has both and no member expression to derive
-/// them from: the callee comes from the class environment and the receiver is
-/// the `this` the constructor was handed. Everything after that — the arity
-/// check, the order, the padding — is the same rule, and a second copy of it is
-/// where a `super` call would come to pad differently from a method call.
-pub fn emit_call_with(
-    builder: &mut FuncBuilder,
-    scope: &mut Scope,
-    ctx: &mut Ctx,
-    function: ValueId,
-    receiver: ValueId,
-    arguments: &[Spreadable],
-) -> EmitResult<ValueId> {
-    emit_call_with_name(builder, scope, ctx, function, receiver, arguments, None)
-}
-
-/// The same, with the callee's source spelling for a "not a function" message.
-///
-/// Split from [`emit_call_with`] rather than adding a parameter there, because
-/// `super(…)` and an optional call reach `emit_call_with` with no member
-/// expression behind them at all — there is nothing to name, and callers that
-/// have nothing to say should not be made to pass `None` explicitly.
-fn emit_call_with_name(
+/// Split out for `super(…)` and for `optional.rs`'s `walk`, neither of which
+/// has a member expression to hand [`emit_call`] — `super(…)`'s callee comes
+/// from the class environment and has nothing to name, so it passes `None`;
+/// `walk` has the member/index expression the chain wraps, so it passes
+/// [`callee_spelling`]'s answer for it. Everything after that — the arity
+/// check, the order, the padding — is the same rule, and a second copy of it
+/// is where either caller would come to pad, or name, differently from a
+/// plain method call.
+pub(super) fn emit_call_with_name(
     builder: &mut FuncBuilder,
     scope: &mut Scope,
     ctx: &mut Ctx,
@@ -241,7 +228,7 @@ fn emit_set_call_name(builder: &mut FuncBuilder, ctx: &mut Ctx, name: Option<u32
 
 /// Emits a call whose arguments are already values.
 ///
-/// # Why this exists beside [`emit_call_with`]
+/// # Why this exists beside [`emit_call_with_name`]
 ///
 /// A tagged template's first argument is not written in the program — it is the
 /// strings object, built by the emitter — so there is no expression to hand the

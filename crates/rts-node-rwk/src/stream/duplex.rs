@@ -73,6 +73,64 @@ extern "C" fn duplex_destroy(e: u64, this: u64, error: u64, b: u64, c: u64, d: u
     this
 }
 
+// ------------------------------------------------------------ duplexPair --
+
+/// `stream.duplexPair([options])` — two `Duplex` instances cross-wired: a
+/// write to one arrives as `'data'` on the other, and ending one ends the
+/// other's readable side. Node's own use is testing a protocol against
+/// itself without a real socket, so no options are read beyond what
+/// [`duplex_construct`] already understands (`objectMode`, `highWaterMark`).
+///
+/// Each half's `_write` is overridden to push straight onto its PEER instead
+/// of buffering locally, and the peer is reached through an own property
+/// (`__peer__`) rather than a closure — the same "no closures across an
+/// `extern "C"` boundary" limit [`transform_write_hook`] works around with
+/// [`TRANSFORM_PENDING`], except here the peer handle is stable for the
+/// life of both instances, so a stashed property is simpler than a stack.
+pub(super) extern "C" fn duplex_pair(_e: u64, _this: u64, options: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    let absent = entry::undefined_value();
+    let a = duplex_construct(0, absent, options, absent, absent, absent);
+    let b = duplex_construct(0, absent, options, absent, absent, absent);
+    entry::with_runtime(|context| {
+        let write_hook = entry::make_callable(context, pair_write);
+        let final_hook = entry::make_callable(context, pair_final);
+        for (instance, peer) in [(a, b), (b, a)] {
+            set_value(context, instance, "__peer__", peer);
+            set_value(context, instance, "_write", write_hook);
+            set_value(context, instance, "_final", final_hook);
+        }
+        entry::make_array_in(context, vec![a, b])
+    })
+}
+
+/// Installed as `_write` on each half of a [`duplex_pair`]: pushes the chunk
+/// onto the PEER's readable side instead of this instance's own buffer.
+extern "C" fn pair_write(_e: u64, this: u64, chunk: u64, _encoding: u64, callback: u64, _d: u64) -> u64 {
+    let absent = entry::undefined_value();
+    let peer = get_value(this, "__peer__");
+    if peer != absent {
+        let push_fn = entry::with_runtime(|context| entry::get_member(context, peer, "push"));
+        entry::call(push_fn, peer, chunk, absent, absent, absent);
+    }
+    entry::call(callback, absent, absent, absent, absent, absent);
+    absent
+}
+
+/// Installed as `_final` on each half of a [`duplex_pair`]: signals EOF
+/// (`push(null)`) on the PEER's readable side, matching Node's "ending one
+/// side ends the other's read" contract.
+extern "C" fn pair_final(_e: u64, this: u64, callback: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    let absent = entry::undefined_value();
+    let peer = get_value(this, "__peer__");
+    if peer != absent {
+        let push_fn = entry::with_runtime(|context| entry::get_member(context, peer, "push"));
+        let null = entry::null_value();
+        entry::call(push_fn, peer, null, absent, absent, absent);
+    }
+    entry::call(callback, absent, absent, absent, absent, absent);
+    absent
+}
+
 // --------------------------------------------------------------- Transform --
 
 thread_local! {

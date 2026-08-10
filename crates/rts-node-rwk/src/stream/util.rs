@@ -129,3 +129,23 @@ extern "C" fn relay_error(_e: u64, this: u64, error: u64, _b: u64, _c: u64, _d: 
 
 const RELAY_OK: Provided = relay_ok;
 const RELAY_ERROR: Provided = relay_error;
+
+/// `stream.getDefaultHighWaterMark(objectMode)` — Node's own fixed defaults
+/// (16 entries in object mode, 16 KiB of bytes otherwise), which is also
+/// what every class in this module already falls back to when no
+/// `options.highWaterMark` is given (`readable.rs`/`writable.rs`'s own
+/// `init`) — this is that same constant, exposed as the function Node ships.
+pub(super) extern "C" fn get_default_high_water_mark(_e: u64, _this: u64, object_mode: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    let value = if entry::to_boolean(object_mode) { 16.0 } else { 16384.0 };
+    entry::make_number(value)
+}
+
+/// `stream.isWritable(stream)` — the writable half of Node's `is*` family
+/// (`isReadable`/`isErrored` are not implemented; see the module doc). Reads
+/// the same `writable` data property every class here keeps in sync
+/// (`common.rs`'s convention), rather than a duck-typed method probe: a
+/// plain object with a `write` method is not a stream, and Node's own check
+/// is the internal state flag, not a shape test.
+pub(super) extern "C" fn is_writable(_e: u64, _this: u64, stream: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    entry::boolean_value(get_bool(stream, "writable"))
+}

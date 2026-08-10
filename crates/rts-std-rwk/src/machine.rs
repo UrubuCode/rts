@@ -9,16 +9,22 @@
 //!
 //! # What `sleep_ms` costs, said rather than hidden
 //!
-//! It blocks the thread. There is no other honest reading of a SYNCHRONOUS
-//! sleep: a program that writes `time.sleep_ms(50)` outside an `async` function
-//! is asking for the next statement not to run for 50 ms, and nothing else can
-//! deliver that. What it therefore does NOT do is let timers fire — a
-//! `setTimeout` due during the sleep runs after it, not inside it.
+//! It blocks the thread — there is no other honest reading of a SYNCHRONOUS
+//! sleep — but it does not block the LOOP: a program calling it outside `await`
+//! has no other way to let a `setTimeout` due during the pause fire, and the
+//! suite's own fixtures (`set_timeout_interval.test.ts`) are written against
+//! that contract. So the wait is sliced rather than handed to one
+//! `std::thread::sleep`, and between slices `entry::pump_sources` delivers
+//! whatever timer source is due and `entry::drain_microtasks` runs whatever
+//! that queued — the same two steps `rts-host-rwk`'s own loop performs between
+//! statements. What still does NOT happen is a callback running *inside* this
+//! native's own call frame from a nested borrow — each slice pumps between
+//! iterations, on this native's own stack, with no borrow held across it, same
+//! as the host loop.
 //!
-//! `await new Promise(r => setTimeout(r, n))` is the form that keeps the loop
-//! turning, and it is what a program should reach for. This exists because 14
-//! files in the suite call it and because a blocking sleep is a real thing to
-//! want; it is not the better spelling.
+//! `await new Promise(r => setTimeout(r, n))` is the async-native form and nothing
+//! here replaces it; this exists because 14 files in the suite call the
+//! synchronous one and a blocking-but-loop-turning wait is a real thing to want.
 //!
 //! # Why there is no `gc` here
 //!
@@ -59,16 +65,43 @@ extern "C" fn now_ms(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64
     entry::make_number(since)
 }
 
-/// `time.sleep_ms(n)` — blocks for `n` milliseconds.
+/// `time.sleep_ms(n)` — blocks for `n` milliseconds, pumping the loop as it
+/// goes.
 ///
-/// See the module note: this stops the thread, so nothing else runs during it.
+/// See the module note: the thread stops between slices, but a timer due
+/// during the wait still fires and its reactions still run, on this frame.
 extern "C" fn sleep_ms(_e: u64, _this: u64, a: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     let millis = entry::number_of(a).unwrap_or(0.0);
     // A negative or absent argument sleeps for nothing rather than saturating
     // into a very long wait, which is what `as u64` on a negative double would
     // produce and the worst possible reading of a typo.
     if millis > 0.0 {
-        std::thread::sleep(std::time::Duration::from_millis(millis as u64));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(millis as u64);
+        // A short slice: fine-grained enough that a 10ms setTimeout still fires
+        // inside a 50ms sleep instead of only at its very end, and coarse enough
+        // not to spend the wait on scheduling overhead.
+        const SLICE: std::time::Duration = std::time::Duration::from_millis(5);
+        loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            std::thread::sleep(remaining.min(SLICE));
+            // Deliver whatever timer is now due, then run whatever that queued —
+            // the same pair of steps between two statements of a program, so a
+            // callback firing here sees the same world one firing at top level
+            // would.
+            entry::drain_microtasks();
+            entry::pump_sources();
+            entry::drain_microtasks();
+        }
+    } else {
+        // Even a zero/negative sleep still yields the loop one turn: a program
+        // that calls `sleep_ms(0)` as a "let everything pending run" idiom
+        // (several fixtures do) should see that, not nothing.
+        entry::drain_microtasks();
+        entry::pump_sources();
+        entry::drain_microtasks();
     }
     entry::undefined_value()
 }

@@ -15,6 +15,7 @@
 
 use super::super::buffers::element::Kind;
 use super::super::buffers::{View, as_count, optional_number, range, view_of, window, window_mut};
+use super::super::modules::undefined_value;
 use super::super::objects::undefined_of;
 use super::super::{Context, native, with_current};
 use super::codec;
@@ -107,7 +108,20 @@ fn pattern_of(context: &Context, value: u64, encoding: &str) -> Vec<u8> {
 // ---------------------------------------------------------------------------
 
 /// `Buffer.alloc(size, fill?, encoding?)`.
+///
+/// A negative `size` throws `RangeError` — Node's own answer — rather than
+/// going through [`as_count`]'s zero-clamp. `as_count` clamping is right for an
+/// offset or a length that can legitimately end up past the end of something and
+/// mean "nothing left"; a negative *allocation size* is not that, it is a
+/// program telling itself it wants -1 bytes, and answering an empty buffer
+/// let it believe that worked. `.length` silently reading 0 instead of the
+/// error a caller may be checking for (`node_buffer_allocneg.test.ts` does) is
+/// the wrong-answer-over-throw case rule 8's neighbourhood exists to avoid.
 pub(in crate::entry) fn alloc(size: f64, fill: u64, encoding: u64) -> u64 {
+    if size.is_finite() && size < 0.0 {
+        super::super::throw::range_error("The value is out of range. It must be >= 0.");
+        return undefined_value();
+    }
     with_current(|context| {
         let length = as_count(size);
         let absent = undefined_of(context);
@@ -123,7 +137,13 @@ pub(in crate::entry) fn alloc(size: f64, fill: u64, encoding: u64) -> u64 {
 }
 
 /// `Buffer.allocUnsafe(size)` — zero-filled here (see the module doc).
+///
+/// Same negative-size refusal as [`alloc`], for the same reason.
 pub(in crate::entry) fn alloc_unsafe(size: f64) -> u64 {
+    if size.is_finite() && size < 0.0 {
+        super::super::throw::range_error("The value is out of range. It must be >= 0.");
+        return undefined_value();
+    }
     with_current(|context| made(context, &vec![0u8; as_count(size)]))
 }
 

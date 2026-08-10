@@ -166,6 +166,7 @@ pub fn namespace(context: &mut Context, implemented: &[&str]) -> u64 {
         ("isBuiltin", is_builtin),
         ("findPackageJSON", packages::find_package_json),
         ("createRequire", require::create_require),
+        ("wrap", wrap),
         ("register", refused),
         ("registerHooks", refused),
         ("stripTypeScriptTypes", refused),

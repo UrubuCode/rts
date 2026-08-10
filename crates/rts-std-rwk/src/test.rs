@@ -134,13 +134,20 @@ const RECEIVED: &str = "__rts_received";
 
 /// `expect(a).toBe(b)`.
 ///
+/// Jest's `toBe` is `Object.is`, not `===`: `expect(0/0).toBe(NaN)` passes and
+/// `expect(-0).toBe(0)` fails in the real harness, which `===` gets backwards on
+/// both. `rts_core_rwk::entry::same_value` is `SameValue` for exactly that
+/// reason — this used to call `strict_equals` and silently graded both cases
+/// the wrong way.
+///
 /// `toEqual` is installed as the same function. They differ in the language's
 /// harness — one is identity and one is deep equality — and a deep comparison
 /// that ran on identity would report passes it did not earn, so the two share
-/// the strict answer and the divergence is named here rather than guessed at.
+/// the same-value answer and the divergence is named here rather than guessed
+/// at.
 extern "C" fn to_be(_e: u64, this: u64, expected: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     let received = received_of(this);
-    let held = rts_core_rwk::entry::strict_equals(received, expected);
+    let held = rts_core_rwk::entry::same_value(received, expected);
     settle(held, received, expected)
 }
 
