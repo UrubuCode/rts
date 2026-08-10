@@ -50,6 +50,25 @@ pub struct Settlements {
     /// unhandled rejections are rare, so scanning a handful beats routing
     /// around a constraint that exists on purpose.
     unnoticed: Vec<PromiseId>,
+    /// Promises an `await` is parked on RIGHT NOW.
+    ///
+    /// # Why a second list and not `noticed` before the fact
+    ///
+    /// Because [`noticed`](Self::noticed) removes, and a promise that has not
+    /// settled yet is not in `unnoticed` to be removed from — so marking it
+    /// early did nothing and the later [`record`](Self::record) put it straight
+    /// back. An `await` is the one waiter the scheduler cannot see: a `.then`
+    /// attaches a continuation and shows up in `Delivery`, while an awaiting
+    /// frame POLLS, so `had_waiters` is false for it however long it has been
+    /// waiting.
+    ///
+    /// Without this, `try { await p } catch` printed "unhandled promise
+    /// rejection" for a rejection it went on to catch correctly — whenever the
+    /// rejection arrived from the loop rather than being there already. Only a
+    /// rejection settled by a timer or a socket reached it, which is why it
+    /// survived: nothing rejected a promise from a loop source until
+    /// `node:timers/promises` gave `AbortSignal` a way to.
+    awaited: Vec<PromiseId>,
 }
 
 impl Settlements {
@@ -84,9 +103,39 @@ impl Settlements {
         }
         self.values[index] = Some(value);
 
-        if settlement == Settlement::Rejected && !had_waiters {
+        let awaited = self
+            .awaited
+            .iter()
+            .any(|waiting| waiting.index() == index);
+        if settlement == Settlement::Rejected && !had_waiters && !awaited {
             self.unnoticed.push(promise);
         }
+    }
+
+    /// Note that an `await` is parked on a promise, before it settles.
+    ///
+    /// Idempotent: an awaiting frame polls in a loop and would otherwise grow
+    /// this list once per turn it spends waiting.
+    pub fn awaiting(&mut self, promise: PromiseId) {
+        if !self
+            .awaited
+            .iter()
+            .any(|waiting| waiting.index() == promise.index())
+        {
+            self.awaited.push(promise);
+        }
+    }
+
+    /// Note that an `await` has finished with a promise.
+    ///
+    /// Paired with [`awaiting`](Self::awaiting) rather than left behind: the
+    /// list is what makes a rejection somebody's problem, and a promise nothing
+    /// is parked on any more must not go on suppressing a report for a SECOND
+    /// rejection — which `await` cannot cause, but `Promise` reuse of an index
+    /// after collection could.
+    pub fn awaited(&mut self, promise: PromiseId) {
+        self.awaited
+            .retain(|waiting| waiting.index() != promise.index());
     }
 
     /// What a promise settled with, if it has.

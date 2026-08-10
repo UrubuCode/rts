@@ -144,6 +144,22 @@ impl Machine {
         self.settlements.noticed(id);
     }
 
+    /// An `await` has parked on a promise that has NOT settled yet.
+    ///
+    /// [`notice`](Self::notice) is the same statement made after the fact, and
+    /// it cannot cover this case: a rejection that arrives while the frame is
+    /// parked is recorded with no waiters — an awaiting frame polls, so the
+    /// scheduler never sees one — and becomes a candidate the instant before
+    /// the poll that reads it.
+    pub(super) fn awaiting(&mut self, id: PromiseId) {
+        self.settlements.awaiting(id);
+    }
+
+    /// An `await` has stopped waiting on one.
+    pub(super) fn awaited(&mut self, id: PromiseId) {
+        self.settlements.awaited(id);
+    }
+
     /// Records a reaction and answers the identifier it waits under.
     fn record(&mut self, reaction: Reaction) -> ContinuationId {
         let id = ContinuationId(self.reactions.len() as u32);

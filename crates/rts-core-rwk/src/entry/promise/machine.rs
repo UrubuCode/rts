@@ -123,14 +123,30 @@ pub fn promise_await(promise: u64) -> u64 {
     // named in the module doc: recognising one means calling user code from an
     // entry point, which is the borrow rule, and it needs the reaction machinery
     // rather than this lookup.
-    if with_current(|context| id_of(context, promise).is_none()) {
+    // Said BEFORE the loop, and this is the part `notice` inside the loop cannot
+    // do: from here on something is waiting on this promise, so a rejection that
+    // arrives while the frame is parked is somebody's problem. The poll that
+    // reads it comes one drain too late to say so — `try { await p } catch`
+    // printed "unhandled promise rejection" for a rejection it then caught,
+    // whenever the rejection came from a timer or a socket rather than being
+    // there already.
+    let parked = with_current(|context| {
+        let id = id_of(context, promise)?;
+        context.promises.awaiting(id);
+        Some(id)
+    });
+    let Some(parked) = parked else {
         return promise;
-    }
+    };
+    let finish = |value: u64| {
+        with_current(|context| context.promises.awaited(parked));
+        value
+    };
     loop {
         if let Some((settlement, value)) =
             with_current(|context| outcome_of_and_notice(context, promise))
         {
-            return match settlement {
+            return finish(match settlement {
                 Settlement::Fulfilled => value,
                 // A rejection crossing an `await` is a throw, which is what the
                 // language says. It used to be uncatchable — `throw` ended the
@@ -141,7 +157,7 @@ pub fn promise_await(promise: u64) -> u64 {
                     super::super::throw(0, value);
                     value
                 }
-            };
+            });
         }
         // Reactions first: the commonest promise is one another reaction
         // settles, and that costs nothing but a queue walk.
@@ -178,7 +194,7 @@ pub fn promise_await(promise: u64) -> u64 {
                 // delivered, and nothing is queued. `await new Promise(() => {})`
                 // is the shape that reaches this.
                 stall(promise);
-                return super::super::undefined_value();
+                return finish(super::super::undefined_value());
             }
             Some(wait) => match super::super::loops::rest_for(wait) {
                 true => continue,
@@ -187,7 +203,7 @@ pub fn promise_await(promise: u64) -> u64 {
                 // can settle. Said out loud rather than spun on.
                 false => {
                     stall(promise);
-                    return super::super::undefined_value();
+                    return finish(super::super::undefined_value());
                 }
             },
         }
