@@ -46,18 +46,14 @@
 //! Each of these answers `undefined` — a value a program can test — rather than
 //! a plausible wrong one.
 //!
-//! ## Needs a promise that is pending when it is answered
-//!
-//! **`promisify`**, and with it `promisify.custom`. `entry::settled` makes an
-//! ALREADY-settled promise; nothing on the host surface makes a pending one
-//! with a resolver, so a promise that settles when a callback fires later
-//! cannot be built. `callbackify` needs no such thing — it reads a promise it
-//! was given rather than making one — and is implemented in `wrap.rs`.
-//!
-//! The wrapper problem that used to refuse four more members here is SOLVED and
-//! the claim it rested on was wrong: `entry::closure_new` gives a native a
-//! captured environment, so `deprecate`, `debuglog`, `debug` and `callbackify`
-//! all work. See `wrap.rs`.
+//! Two claims that used to stand here were both stale rather than wrong-headed,
+//! and both are gone. `entry::closure_new` gives a native a captured
+//! environment, so a wrapper CAN remember what it wraps — `deprecate`,
+//! `debuglog`, `debug` and `callbackify` all work, in `wrap.rs`. And
+//! `entry::promise_new`/`entry::promise_settle` mint a PENDING promise and settle
+//! it later, so **`promisify` works too** — `promisify.rs`, which states its own
+//! divergences and why the reference document's multi-value tupling was
+//! rejected.
 //!
 //! ## Needs a brand the host surface does not expose
 //!
@@ -119,10 +115,14 @@
 //!   uncoloured, always one line, and never truncated by string length.
 //!   `depth: null` is walked to 64 levels, not infinitely — see `inspect.rs`.
 //! - **`inspect.custom` / `inspect.defaultOptions` / `promisify.custom`.**
-//!   Absent. The first and third need a `Symbol` no native can mint; the second
-//!   would be a mutable object nothing consults, which is the silent no-op this
-//!   crate refuses. `inspect.colors` and `inspect.styles` ARE present, because
-//!   they are data and correct as data.
+//!   Absent AS VALUES. The first and third need a `Symbol` no native can mint;
+//!   the second would be a mutable object nothing consults, which is the silent
+//!   no-op this crate refuses. `inspect.colors` and `inspect.styles` ARE present,
+//!   because they are data and correct as data. `promisify.custom` differs from
+//!   the other two in one way that matters: the HOOK is honoured under its other
+//!   documented spelling, `fn[Symbol.for('nodejs.util.promisify.custom')]`, and
+//!   `promisify.rs` says what single host accessor would let the name answer the
+//!   symbol itself.
 //! - **A cycle prints `[Circular]`**, not Node's numbered `<ref *1>` /
 //!   `[Circular *1]` back-references.
 //! - **`format`'s argument count.** Four ABI slots hold the pattern and three
@@ -167,6 +167,7 @@ mod args;
 mod equal;
 mod inspect;
 mod legacy;
+mod promisify;
 mod signals;
 mod style;
 mod types;
@@ -192,6 +193,7 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("convertProcessSignalToExitCode", signals::convert_signal),
         ("deprecate", wrap::deprecate),
         ("callbackify", wrap::callbackify),
+        ("promisify", promisify::promisify),
         ("debuglog", wrap::debuglog),
         // The CURRENT `util.debug` is an alias of `debuglog`, not the removed
         // DEP0028 single-string printer that shares its name — the reference
