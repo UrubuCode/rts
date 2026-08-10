@@ -24,6 +24,9 @@
 //! P6: finalizers — run by the collector, at the next drain rather than during
 //! the sweep.
 //!
+//! P7a: async work — `execute` on a worker thread, `complete` back on the
+//! JavaScript thread.
+//!
 //! Everything else in the ABI is absent rather than stubbed; an absent symbol
 //! fails to link loudly, which is the answer an addon can act on.
 //!
@@ -48,6 +51,7 @@
 #![deny(dead_code)]
 
 pub mod abi;
+pub mod async_work;
 pub mod env;
 pub mod functions;
 pub mod handles;
