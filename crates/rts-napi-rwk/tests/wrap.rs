@@ -264,3 +264,71 @@ fn destroying_the_environment_runs_a_wrap_s_finalizer() {
         assert_eq!(unsafe { FINALIZED }, pointer as usize);
     });
 }
+
+#[test]
+fn the_collector_runs_a_wrap_s_finalizer_at_the_next_drain() {
+    // The third trigger, end to end: a real cycle frees the object, the sweep
+    // QUEUES rather than calling, and the drain calls. Assembled here rather
+    // than trusted from `rts-core`'s two halves, because the piece between them
+    // is this crate's — the trampoline that recovers an environment from the
+    // two words a registration carries.
+    in_a_program(|| {
+        // SAFETY: single-threaded test.
+        unsafe { FINALIZED = 0 };
+        let raw = Env::new().into_raw();
+        let mut owned = 4242u64;
+        let pointer = (&mut owned as *mut u64).cast::<c_void>();
+
+        {
+            // A scope of its own, so the only root on the object is the handle —
+            // and closing it takes that away.
+            // SAFETY: the pointer came from `into_raw` and is live.
+            let scoped = unsafe { handles::env_of(raw) }.expect("a live env");
+            scoped.open();
+        }
+        let mut object = handles::none();
+        // SAFETY: live env, local out-parameter.
+        unsafe { objects::napi_create_object(raw, &mut object) };
+        // SAFETY: a handle from the open scope.
+        unsafe {
+            wrap::napi_wrap(
+                raw,
+                object,
+                pointer,
+                Some(note_finalized),
+                core::ptr::null_mut(),
+                core::ptr::null_mut::<napi_ref>(),
+            )
+        };
+        {
+            // SAFETY: as above.
+            let scoped = unsafe { handles::env_of(raw) }.expect("a live env");
+            assert!(scoped.close(), "the last root on the object");
+        }
+
+        // A zeroed buffer as the stack range, for the reason `rts-core`'s own
+        // collector tests give: this thread's real stack holds words that can
+        // decode as a reference to the cell just allocated, which is sound
+        // (conservative retention) but makes the assertion flaky.
+        let buffer = [0u64; 4];
+        let low = buffer.as_ptr() as usize;
+        rts_core::entry::with_runtime(|context| {
+            context.stack_high = Some(low + core::mem::size_of_val(&buffer));
+        });
+        rts_core::entry::collect_now(low);
+
+        // SAFETY: single-threaded test.
+        assert_eq!(
+            unsafe { FINALIZED },
+            0,
+            "the sweep must not call a finalizer — it holds the borrow"
+        );
+        assert_eq!(rts_core::entry::drain_finalizers(), 1, "and the drain does");
+        // SAFETY: single-threaded test.
+        assert_eq!(unsafe { FINALIZED }, pointer as usize);
+
+        // SAFETY: from `into_raw`, destroyed once — and the finalizer must NOT
+        // run a second time, which is what the wrap being gone already says.
+        unsafe { env::destroy(raw) };
+    });
+}

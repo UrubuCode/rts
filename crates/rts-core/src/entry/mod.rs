@@ -58,6 +58,7 @@ pub mod declared;
 mod date;
 mod error;
 pub mod external;
+mod finalize;
 mod foreign;
 mod function_proto;
 mod functions;
@@ -143,6 +144,10 @@ pub use alloc::alloc;
 pub use external::{held_current, hold_current, release_current};
 pub use weak::{forget_current as weak_forget, peek_current as weak_peek, watch_current as weak_watch};
 pub use foreign::{attach_current as foreign_attach, attached_current as foreign_attached, detach_current as foreign_detach};
+pub use finalize::{
+    OnDeath, Pending as OnDeathCall, cancel as cancel_on_death, collect_now,
+    drain as drain_finalizers, on_death,
+};
 pub use barrier::write_barrier;
 pub use cache::{cache_resolve, cache_resolve_store};
 pub use chain::{get_prototype, set_prototype};
@@ -458,6 +463,15 @@ pub struct Context {
     /// [`foreign`], which says what it is for and what happens when the
     /// object dies.
     foreign: Aside<usize>,
+    /// Registrations waiting for their object to be collected.
+    ///
+    /// Not an `Aside`: a cell may have several, and what is looked up is the
+    /// set on a DYING cell rather than the one on a live one. See [`finalize`].
+    pub deaths: Vec<(u32, u32, finalize::Pending)>,
+    /// The next identifier [`finalize::on_death`] hands out. Never reused.
+    pub next_death: u32,
+    /// What the sweep queued and the next drain will call.
+    pub dying: Vec<finalize::Pending>,
     /// The class each `new` in progress actually named.
     ///
     /// A stack because construction nests, and a stack rather than an argument
@@ -665,6 +679,9 @@ impl Context {
             class_constructors: Aside::in_region(bits),
             boxed: Aside::in_region(bits),
             foreign: Aside::in_region(bits),
+            deaths: Vec::new(),
+            next_death: 1,
+            dying: Vec::new(),
             integrity: Aside::in_region(bits),
             attributes: Aside::in_region(bits),
             array_elements: Aside::in_region(bits),
@@ -713,6 +730,9 @@ impl Context {
             class_constructors: Aside::new(),
             boxed: Aside::new(),
             foreign: Aside::new(),
+            deaths: Vec::new(),
+            next_death: 1,
+            dying: Vec::new(),
             integrity: Aside::new(),
             attributes: Aside::new(),
             pending_arguments: Vec::new(),

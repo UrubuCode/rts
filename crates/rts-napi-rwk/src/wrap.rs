@@ -14,16 +14,21 @@
 //!
 //! # Where the finalizer lives, and when it runs
 //!
-//! Here, not in the runtime, and it runs on `napi_remove_wrap` or when the
-//! environment is destroyed — **not when the object is collected**. That last
-//! one is P6 and it is a collector change: the sweep frees a cell and tells
-//! nobody. Recording it here rather than in a comment nobody reads: an addon
-//! whose object is collected without either of the two triggers above leaks
-//! whatever the finalizer would have freed.
+//! Here, not in the runtime, and it has three triggers: `napi_remove_wrap`,
+//! `env::destroy`, and — since P6 — the collector, through
+//! `rts_core::entry::finalize`. Exactly one of them fires for a given wrap:
+//! the first two withdraw the death registration, and the third IS it.
 //!
-//! What is NOT wrong, and is worth separating from that: the pointer never
-//! outlives the object. `entry::foreign` is cleared by the same sweep, so a
-//! wrap can never be read against a cell that has become something else.
+//! The collector's is not immediate and must not be. The sweep runs with the
+//! runtime's borrow held and a finalizer calls out; so the sweep queues and the
+//! next drain calls, which is what Node does and for the same reason. An addon
+//! must not assume a finalizer has run just because its object is unreachable —
+//! and a program that ends before the next drain runs none of them, which is
+//! what every JavaScript engine says about finalizers.
+//!
+//! Separate from all of that, and stronger: the pointer never outlives the
+//! object. `entry::foreign` is cleared by the same sweep, so a wrap can never be
+//! read against a cell that has become something else.
 //!
 //! # Why `napi_typeof` needs this module
 //!
@@ -51,20 +56,58 @@ struct Wrapped {
     /// The watch that says whether the object is still alive, and which one it
     /// was. See the module doc: a bare cell number would be reused.
     watch: u32,
+    /// The registration that runs [`on_collected`] when the object dies.
+    ///
+    /// Withdrawn when a wrap goes away by either of the other two routes, so
+    /// the addon's finalizer runs exactly once however the wrap ends.
+    death: Option<u32>,
     /// Whether `napi_create_external` made the object, rather than the program.
     external: bool,
     /// Which environment attached it.
     owner: *mut c_void,
 }
 
-thread_local! {
-    /// Every wrap on this thread.
-    static WRAPS: RefCell<Vec<Wrapped>> = const { RefCell::new(Vec::new()) };
+/// What the collector calls, through `rts_core::entry::finalize`.
+///
+/// The runtime knows nothing about an environment, so identity travels in the
+/// two words a registration carries — the same trick the callable trampoline
+/// uses, and for the same reason. `data` is the slot in [`WRAPS`]; `hint` is
+/// the pointer the addon wrapped, read before the object was freed because it
+/// cannot be read afterwards.
+extern "C" fn on_collected(slot: usize, data: usize) {
+    let wrapped = WRAPS.with_borrow_mut(|wraps| match wraps.get_mut(slot) {
+        Some(entry) => entry.take(),
+        None => None,
+    });
+    let Some(wrapped) = wrapped else {
+        return;
+    };
+    // Its own death is what brought us here, so the registration is spent —
+    // cancelling it would be cancelling nothing.
+    let owner = napi_env(wrapped.owner);
+    finish(owner, wrapped, data as *mut c_void, false);
 }
 
-/// Runs a wrap's finalizer, if it has one, and forgets it.
-fn finish(env: napi_env, wrapped: Wrapped, data: *mut c_void) {
+thread_local! {
+    /// Every wrap on this thread, by slot.
+    ///
+    /// Holes rather than a compacting list, because the slot number is what a
+    /// death registration carries — see [`on_collected`]. Removing by shifting
+    /// would renumber registrations already lodged with the collector.
+    static WRAPS: RefCell<Vec<Option<Wrapped>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Runs a wrap's finalizer, if it has one, and gives up what it was holding.
+///
+/// `withdraw` is false only when the collector is what brought us here: the
+/// registration has already fired and cancelling it would cancel nothing.
+fn finish(env: napi_env, wrapped: Wrapped, data: *mut c_void, withdraw: bool) {
     rts_core::entry::weak_forget(wrapped.watch);
+    if withdraw && let Some(death) = wrapped.death {
+        rts_core::entry::with_runtime(|context| {
+            rts_core::entry::cancel_on_death(context, death)
+        });
+    }
     let Some(finalize) = wrapped.finalize else {
         return;
     };
@@ -80,7 +123,7 @@ fn finish(env: napi_env, wrapped: Wrapped, data: *mut c_void) {
 /// distinguishes an external from an object and the language does not.
 pub fn is_external(value: u64) -> bool {
     WRAPS.with_borrow(|wraps| {
-        wraps.iter().any(|wrapped| {
+        wraps.iter().flatten().any(|wrapped| {
             wrapped.external
                 && rts_core::entry::weak_peek(wrapped.watch).flatten() == Some(value)
         })
@@ -89,19 +132,18 @@ pub fn is_external(value: u64) -> bool {
 
 /// Runs and forgets every wrap an environment made.
 ///
-/// One of the two triggers a finalizer has today — see the module doc for the
-/// third one, which is P6's.
+/// The second of a finalizer's three triggers; the others are
+/// `napi_remove_wrap` and the collector.
 pub fn forget(owner: napi_env) {
     let mine: Vec<Wrapped> = WRAPS.with_borrow_mut(|wraps| {
         let mut mine = Vec::new();
-        let mut theirs = Vec::new();
-        for wrapped in wraps.drain(..) {
-            match wrapped.owner == owner.0 {
-                true => mine.push(wrapped),
-                false => theirs.push(wrapped),
+        for slot in wraps.iter_mut() {
+            if slot.as_ref().is_some_and(|wrapped| wrapped.owner == owner.0)
+                && let Some(wrapped) = slot.take()
+            {
+                mine.push(wrapped);
             }
         }
-        *wraps = theirs;
         mine
     });
     for wrapped in mine {
@@ -112,7 +154,7 @@ pub fn forget(owner: napi_env) {
             .flatten()
             .and_then(rts_core::entry::foreign_attached)
             .unwrap_or(0);
-        finish(owner, wrapped, data as *mut c_void);
+        finish(owner, wrapped, data as *mut c_void, true);
     }
 }
 
@@ -159,14 +201,45 @@ fn wrap_word(
         return napi_status::napi_invalid_arg;
     }
     rts_core::entry::foreign_attach(word, data as usize);
-    WRAPS.with_borrow_mut(|wraps| {
-        wraps.push(Wrapped {
+    let slot = WRAPS.with_borrow_mut(|wraps| {
+        let wrapped = Wrapped {
             finalize,
             hint,
             watch,
+            death: None,
             external,
             owner: env.0,
-        })
+        };
+        match wraps.iter().position(Option::is_none) {
+            Some(free) => {
+                wraps[free] = Some(wrapped);
+                free
+            }
+            None => {
+                wraps.push(Some(wrapped));
+                wraps.len() - 1
+            }
+        }
+    });
+    // The third trigger: the collector. Registered with the slot and the
+    // pointer, because the runtime carries two words and knows what neither of
+    // them means — and because the pointer cannot be read after the object it
+    // was attached to is gone.
+    let death = rts_core::entry::with_runtime(|context| {
+        rts_core::entry::on_death(
+            context,
+            word,
+            rts_core::entry::OnDeathCall {
+                code: on_collected,
+                data: slot,
+                hint: data as usize,
+            },
+        )
+    });
+    WRAPS.with_borrow_mut(|wraps| {
+        if let Some(Some(wrapped)) = wraps.get_mut(slot) {
+            wrapped.death = death;
+        }
     });
     napi_ok
 }
@@ -219,13 +292,15 @@ pub unsafe extern "C" fn napi_remove_wrap(
         return napi_status::napi_invalid_arg;
     };
     let wrapped = WRAPS.with_borrow_mut(|wraps| {
-        let at = wraps.iter().position(|wrapped| {
-            rts_core::entry::weak_peek(wrapped.watch).flatten() == Some(word)
+        let at = wraps.iter().position(|slot| {
+            slot.as_ref().is_some_and(|wrapped| {
+                rts_core::entry::weak_peek(wrapped.watch).flatten() == Some(word)
+            })
         })?;
-        Some(wraps.remove(at))
+        wraps[at].take()
     });
     if let Some(wrapped) = wrapped {
-        finish(env, wrapped, data as *mut c_void);
+        finish(env, wrapped, data as *mut c_void, true);
     }
     if !result.is_null() {
         // SAFETY: the caller's contract.

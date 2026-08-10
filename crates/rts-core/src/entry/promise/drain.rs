@@ -41,6 +41,11 @@ pub fn drain_microtasks() {
         perform(step);
     }
     report();
+    // Where a finalizer runs, and the reason it runs HERE: this is the one
+    // point every host in this repository already pumps, so neither of them had
+    // to be taught anything. `super::super::finalize` explains why the sweep
+    // cannot call them itself.
+    super::super::finalize::drain();
 }
 
 /// Does what a prepared step says, with no borrow held while user code runs.

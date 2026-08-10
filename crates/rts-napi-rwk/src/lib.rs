@@ -21,6 +21,9 @@
 //!
 //! P5: an addon's own pointer behind a JavaScript object, and externals.
 //!
+//! P6: finalizers — run by the collector, at the next drain rather than during
+//! the sweep.
+//!
 //! Everything else in the ABI is absent rather than stubbed; an absent symbol
 //! fails to link loudly, which is the answer an addon can act on.
 //!

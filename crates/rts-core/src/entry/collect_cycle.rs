@@ -168,6 +168,10 @@ fn release(context: &mut Context, cell: u32) {
     // The word a client attached. Dropped with the cell and nothing is called —
     // `super::foreign` says so where an addon author will read it.
     context.foreign.remove(cell);
+    // Whatever asked to be told about this death, moved to the run queue. NOT
+    // called: this runs with the borrow held, and a finalizer calls out. See
+    // `super::finalize`.
+    super::finalize::queue_freed(context, cell);
 
     context.region.free(cell);
 }
@@ -302,6 +306,41 @@ mod tests {
             collect_over_empty_stack(&mut context),
             1,
             "a watch is not a root"
+        );
+    }
+
+    #[test]
+    fn a_collection_queues_a_finalizer_and_does_not_call_it() {
+        // The separation `entry::finalize` exists for. Calling from here would
+        // be calling out with the borrow held, which this crate aborts on — so
+        // the assertion is deliberately about the QUEUE rather than about the
+        // callback having run.
+        extern "C" fn never(_: usize, _: usize) {
+            unreachable!("the sweep must not call a finalizer");
+        }
+
+        let mut context = empty_context();
+        let doomed = plain(&mut context);
+        super::super::finalize::on_death(
+            &mut context,
+            Value::from_slot(doomed).bits(),
+            super::super::finalize::Pending {
+                code: never,
+                data: 0,
+                hint: 0,
+            },
+        )
+        .expect("a cell is registrable");
+
+        assert_eq!(collect_over_empty_stack(&mut context), 1);
+        assert_eq!(
+            context.dying.len(),
+            1,
+            "queued for the next drain, not called during the sweep"
+        );
+        assert!(
+            context.deaths.is_empty(),
+            "and no longer waiting — a death happens once"
         );
     }
 

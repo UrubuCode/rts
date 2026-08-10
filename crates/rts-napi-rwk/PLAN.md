@@ -103,14 +103,27 @@ is keyed by a WATCH rather than a cell number, for the reason P4 built watches:
 a cell is reused, and a stale entry would report somebody else's object as an
 external.
 
-## P6 — finalizers
+## P6 — finalizers (DONE)
 
-Nothing runs when a cell is freed today, and that is now the ONLY missing
-trigger: P5 wired the other two. A collector change first and a crate change
-second — the sweep knows a cell is dying and tells nobody, and the same hook is
-what `FinalizationRegistry` waits on. `entry::weak` is half of it already: it
-learns of a death at exactly the right moment, and what it does with that today
-is clear a word rather than call anything.
+The collector tells someone now. `rts_core::entry::finalize` takes a
+registration — a C function pointer and two words, so the runtime never learns
+what an environment is — and the sweep moves it to a queue as it frees the cell.
+
+**The sweep does not call it, and that is the design rather than a limitation.**
+It runs with the runtime's borrow held; a finalizer calls out by definition. So
+the queue drains where microtasks do, which is the one point every host in this
+repository already pumps — neither `rts-host` nor `rts-runtime` had to be taught
+anything.
+
+A wrap now has three triggers and exactly one fires: `napi_remove_wrap` and
+`env::destroy` withdraw the registration, the collector IS it.
+
+Still true and stated where an addon author reads it: a finalizer is not a
+destructor. It runs at the next drain after the collection, never during it, and
+a program that ends first runs none.
+
+Second client, not wired here: `FinalizationRegistry`, which waits on this same
+hook and on `WeakRef` being made weak first.
 
 ## P7 — async work and threadsafe functions
 
