@@ -80,8 +80,14 @@ pub fn subtract(left: u64, right: u64) -> u64 {
         crate::coerce::Hint::Number,
     );
     with_current(|context| {
-        if let Some(answer) = super::bigint_class::binary(context, Op::Sub, left, right) {
-            return answer;
+        // `settled` inside the borrow is safe for THIS op and not in general:
+        // only `<<`, `>>` and `**` refuse, and they ask in a borrow of their own
+        // for that reason (see `bitwise.rs`). The one that would break this is
+        // division by zero — it answers `undefined` today where the language
+        // throws, and making it raise means moving these five calls out of the
+        // borrow first. Raising in place aborts; it does not fail.
+        if let Some(outcome) = super::bigint_class::binary(context, Op::Sub, left, right) {
+            return super::bigint_class::settled(outcome);
         }
         let (a, b) = operands(context, Value(left), Value(right));
         Value::from_f64(a - b).bits()
@@ -98,8 +104,8 @@ pub fn multiply(left: u64, right: u64) -> u64 {
         crate::coerce::Hint::Number,
     );
     with_current(|context| {
-        if let Some(answer) = super::bigint_class::binary(context, Op::Mul, left, right) {
-            return answer;
+        if let Some(outcome) = super::bigint_class::binary(context, Op::Mul, left, right) {
+            return super::bigint_class::settled(outcome);
         }
         let (a, b) = operands(context, Value(left), Value(right));
         Value::from_f64(a * b).bits()
@@ -120,8 +126,8 @@ pub fn divide(left: u64, right: u64) -> u64 {
         crate::coerce::Hint::Number,
     );
     with_current(|context| {
-        if let Some(answer) = super::bigint_class::binary(context, Op::Div, left, right) {
-            return answer;
+        if let Some(outcome) = super::bigint_class::binary(context, Op::Div, left, right) {
+            return super::bigint_class::settled(outcome);
         }
         let (a, b) = operands(context, Value(left), Value(right));
         Value::from_f64(a / b).bits()
@@ -144,8 +150,8 @@ pub fn remainder(left: u64, right: u64) -> u64 {
         crate::coerce::Hint::Number,
     );
     with_current(|context| {
-        if let Some(answer) = super::bigint_class::binary(context, Op::Rem, left, right) {
-            return answer;
+        if let Some(outcome) = super::bigint_class::binary(context, Op::Rem, left, right) {
+            return super::bigint_class::settled(outcome);
         }
         let (a, b) = operands(context, Value(left), Value(right));
         Value::from_f64(a % b).bits()
@@ -181,8 +187,10 @@ fn compare(op: Relational, left: u64, right: u64) -> bool {
             Relational::Greater => Relation::Greater,
             Relational::GreaterEqual => Relation::GreaterEqual,
         };
-        if let Some(answer) = super::bigint_class::binary(context, Op::Compare(want), left, right) {
-            return Value(answer).as_bool().unwrap_or(false);
+        if let Some(outcome) = super::bigint_class::binary(context, Op::Compare(want), left, right) {
+            return Value(super::bigint_class::settled(outcome))
+                .as_bool()
+                .unwrap_or(false);
         }
 
         let text_of = |value: Value| {

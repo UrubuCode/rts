@@ -63,10 +63,10 @@ pub fn add(left: u64, right: u64) -> u64 {
         };
         if !is_text(left)
             && !is_text(right)
-            && let Some(answer) =
+            && let Some(outcome) =
                 super::bigint_class::binary(context, super::bigint_class::Op::Add, left, right)
         {
-            return answer;
+            return super::bigint_class::settled(outcome);
         }
         let text_of = |value: Value| {
             value

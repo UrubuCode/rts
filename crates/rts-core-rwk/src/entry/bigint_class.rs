@@ -12,11 +12,21 @@
 //! recognised before conversion, which is what the operator entry points now do:
 //! ask this module first, and fall through only when neither side is one.
 //!
-//! # What a mixed operation answers, since it cannot throw
+//! # What a mixed operation answers, and why it is still not a throw
 //!
-//! `NaN`, and that is a stated divergence rather than a choice: `entry/throw.rs`
-//! ends the program, so a `TypeError` here would kill a program over one
-//! expression. `NaN` is what the operation would have produced if the bigint had
+//! `NaN`, and the reason recorded here used to be that raising was impossible —
+//! that `entry/throw.rs` ended the program. **That is no longer true**: a native
+//! raises a catchable error, and the shift refusals below do it, so a program
+//! catches `1n << 2n**40n` and carries on.
+//!
+//! So this is now a CHOICE and not a limit, and it is the smaller of two: the
+//! `TypeError` belongs on every mixed operation at once — `+`, `-`, `*`, `/`,
+//! `%` and the comparisons — because raising it on the three that happen to have
+//! been touched would leave one language rule with two answers depending on the
+//! operator. That change also has to move those call sites out of their
+//! borrows first, for the reason [`settled`] states.
+//!
+//! Until then `NaN` is what the operation would have produced if the bigint had
 //! converted and failed, so it is the least surprising wrong answer available.
 //!
 //! **`===` is the exception and it is exact.** `1n === 1` is false and `1n === 1n`
@@ -184,7 +194,20 @@ pub fn bigint_new(digits: u64) -> u64 {
 /// `None` means neither side is one, and the caller carries on with the numeric
 /// path — which is what keeps every operation that has nothing to do with
 /// bigints paying one comparison rather than a conversion.
-pub(super) fn binary(context: &mut Context, op: Op, left: u64, right: u64) -> Option<u64> {
+///
+/// The inner `Err` is a refusal that has to become a `RangeError`, and it is
+/// carried OUT rather than raised here: this runs holding the context's
+/// `RefCell`, and `throw::range_error` builds the error object through that same
+/// cell. Raising in place is not a worse style, it is an abort — the first
+/// attempt panicked `RefCell already borrowed` inside `_rts_shift_left`, which
+/// cannot unwind. [`settled`] is where the caller turns it into a throw, after
+/// the borrow has ended.
+pub(super) fn binary(
+    context: &mut Context,
+    op: Op,
+    left: u64,
+    right: u64,
+) -> Option<Result<u64, Refused>> {
     let held = |value: u64| super::bigints::digits_of(context, value).cloned();
     let (a, b) = (held(left), held(right));
     if a.is_none() && b.is_none() {
@@ -207,12 +230,12 @@ pub(super) fn binary(context: &mut Context, op: Op, left: u64, right: u64) -> Op
                 // A fraction, a `NaN` or an infinity: no bigint says the same
                 // thing, and every relational operator answers false for an
                 // unordered pair — which is what `NaN` already produces.
-                _ => return Some(Value::from_bool(false).bits()),
+                _ => return Some(Ok(Value::from_bool(false).bits())),
             }
         }
         // Arithmetic with one side only. The language refuses to coerce, and
         // this cannot throw.
-        _ => return Some(Value::from_f64(f64::NAN).bits()),
+        _ => return Some(Ok(Value::from_f64(f64::NAN).bits())),
     };
 
     let produced = match op {
@@ -222,22 +245,142 @@ pub(super) fn binary(context: &mut Context, op: Op, left: u64, right: u64) -> Op
         // Division by zero is a `RangeError`; `undefined` is the stated answer.
         Op::Div => match a.div(&b) {
             Some(held) => held,
-            None => return Some(undefined_of(context)),
+            None => return Some(Ok(undefined_of(context))),
         },
         Op::Rem => match a.rem(&b) {
             Some(held) => held,
-            None => return Some(undefined_of(context)),
+            None => return Some(Ok(undefined_of(context))),
         },
         Op::BitAnd => a.bit_and(&b),
         Op::BitOr => a.bit_or(&b),
         Op::BitXor => a.bit_xor(&b),
+        // A shift and an exponent take their right operand as a COUNT rather
+        // than as a second operand, which is why they cannot go through the
+        // pairwise helpers above. A refused count RAISES, unlike the divisions
+        // above: the count is the whole reason a result can be too large to
+        // build, and answering `undefined` there hands the program a value for
+        // a request the machine could not honour. `throw::range_error` is what
+        // `buffer::alloc` already does with a negative size, for that reason.
+        Op::Shl => match shifted(&a, &b, true) {
+            Ok(held) => held,
+            Err(why) => return Some(Err(why)),
+        },
+        Op::Shr => match shifted(&a, &b, false) {
+            Ok(held) => held,
+            Err(why) => return Some(Err(why)),
+        },
+        Op::Pow => match raised(&a, &b) {
+            Ok(held) => held,
+            Err(why) => return Some(Err(why)),
+        },
         // A comparison answers a boolean rather than a bigint, so it leaves
         // before the value is stored.
         Op::Compare(want) => {
-            return Some(Value::from_bool(want.holds(a.cmp(&b))).bits());
+            return Some(Ok(Value::from_bool(want.holds(a.cmp(&b))).bits()));
         }
     };
-    Some(context.bigint_value(produced))
+    Some(Ok(context.bigint_value(produced)))
+}
+
+/// How large a result these operations will build before refusing.
+///
+/// A gigabit, which is what V8 answers `RangeError: Maximum BigInt size
+/// exceeded` past — matched rather than invented so that a program that works
+/// in Node does not meet a different wall here. There has to be one: the
+/// operand of `<<` and of `**` is a COUNT, so `1n << 2n**40n` asks for a
+/// terabyte of digits from an expression that fits on one line.
+const MAX_BITS: u64 = 1 << 30;
+
+/// Why a count was refused — the text the `RangeError` carries.
+///
+/// The two reasons are told apart rather than merged into one message because a
+/// program meets them for opposite mistakes: `2n ** -1n` is a sign error and
+/// `1n << 2n**40n` is a size the machine cannot hold, and "out of range" for
+/// both would tell the reader neither.
+type Refused = &'static str;
+
+/// V8's wording for each, so a message a user searches for finds the same page.
+const TOO_LARGE: Refused = "Maximum BigInt size exceeded";
+const NEGATIVE_EXPONENT: Refused = "Exponent must be non-negative";
+
+/// Turns what [`binary`] carried out into a value, raising if it refused.
+///
+/// **Call this outside `with_current`.** Building the error object borrows the
+/// context, and doing that while `binary`'s borrow is still live aborts the
+/// process rather than failing — the panic cannot unwind through the entry
+/// point. The signature keeps no `Context`, which is what makes the rule hard to
+/// break by accident.
+///
+/// The value answered on a refusal is never read: the compiled call site
+/// re-raises what `throw::range_error` recorded. It exists because the entry
+/// point returns `u64`.
+///
+/// `operators.rs` and `primitives.rs` do call this inside a borrow, and that is
+/// sound only because `+`, `-`, `*`, `/`, `%` and the comparisons cannot refuse
+/// — division by zero answers `undefined` rather than raising. Making that one
+/// throw means moving those calls out of their borrows in the same change.
+pub(super) fn settled(outcome: Result<u64, Refused>) -> u64 {
+    match outcome {
+        Ok(value) => value,
+        Err(why) => {
+            super::throw::range_error(why);
+            super::modules::undefined_value()
+        }
+    }
+}
+
+/// `a << b` and `a >> b`, which differ in a direction and share everything else.
+///
+/// A negative count reverses the direction — that is the language's definition
+/// rather than a convenience — so both spellings reach both shifts and the
+/// decision is made once.
+fn shifted(value: &BigInt, amount: &BigInt, left: bool) -> Result<BigInt, Refused> {
+    let toward_left = left != amount.is_negative();
+    let magnitude = amount.as_i64().map(i64::unsigned_abs);
+    if !toward_left {
+        // A right shift only ever loses bits, so a count past the width and a
+        // count of the width answer the same thing — which is what lets a count
+        // too large to name saturate instead of being refused.
+        let by = magnitude.and_then(|m| u32::try_from(m).ok()).unwrap_or(u32::MAX);
+        return Ok(value.shr(by));
+    }
+    // A left count too large to even NAME is already too large to build, so the
+    // two ways of being too big answer the same refusal.
+    let bits = magnitude
+        .and_then(|m| u32::try_from(m).ok())
+        .ok_or(TOO_LARGE)?;
+    match value.bit_len() as u64 + u64::from(bits) <= MAX_BITS {
+        true => Ok(value.shl(bits)),
+        false => Err(TOO_LARGE),
+    }
+}
+
+/// `a ** b`.
+///
+/// A negative exponent is a `RangeError` in the language, which is the same
+/// shape [`BigInt::pow`]'s unsigned parameter already states.
+fn raised(value: &BigInt, exponent: &BigInt) -> Result<BigInt, Refused> {
+    let count = exponent.as_i64().ok_or(TOO_LARGE)?;
+    if count < 0 {
+        return Err(NEGATIVE_EXPONENT);
+    }
+    let power = u32::try_from(count).map_err(|_| TOO_LARGE)?;
+    // Checked before the multiplying starts: the size is known from the operand
+    // and the count, and a check after the fact is a check that never runs.
+    match (value.bit_len() as u64).saturating_mul(u64::from(power)) <= MAX_BITS {
+        true => Ok(value.pow(power)),
+        false => Err(TOO_LARGE),
+    }
+}
+
+/// The double a bigint stands for, when the caller is allowed to ask.
+///
+/// `Number(1n)` is `1` and `1n + 1` is a `TypeError`, so this is deliberately
+/// NOT part of [`super::operators::as_number`]: putting it there would make
+/// every arithmetic operator coerce a bigint silently, which is the one thing
+/// the type exists to prevent.
+pub(super) fn as_f64(context: &Context, value: u64) -> Option<f64> {
+    super::bigints::digits_of(context, value).map(BigInt::to_f64)
 }
 
 /// `-x` where `x` is a bigint.
@@ -282,6 +425,12 @@ pub(super) enum Op {
     BitOr,
     /// `^`
     BitXor,
+    /// `<<`
+    Shl,
+    /// `>>`
+    Shr,
+    /// `**`
+    Pow,
     /// One of the four relational operators.
     Compare(Relation),
 }
