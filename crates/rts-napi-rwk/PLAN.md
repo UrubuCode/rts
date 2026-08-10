@@ -133,6 +133,30 @@ records that as an architecture rather than a gap, and this phase is what would
 change that decision. It stays last so nothing before it is written against an
 assumption it makes.
 
+## P7c — errors (DONE)
+
+`napi_throw`, `throw_error`/`type_error`/`range_error`, `create_error` and its
+two siblings, `is_exception_pending`, `get_and_clear_last_exception`,
+`is_error`.
+
+A throw goes into the runtime's ONE slot — the same one a compiled `throw`
+writes and a compiled call site checks — so an exception an addon raises is
+caught by a `try` in the program, and one the program raised is visible to the
+addon. Nothing is duplicated.
+
+The engine grew two public functions for it: `throw_value`, which takes the
+value and supplies the tag itself (which number a `catch` matches stays the
+runtime's secret), and `make_named_error`, which builds one of the language's
+own error classes. `named_error` — the runtime's own raise — now goes through
+the second rather than beside it, because a second copy of "how an error is
+built" is how one of them comes to register the class on demand and the other
+not. That was a real bug once.
+
+`napi_is_error` asks `value instanceof Error`, through the same global lookup
+and the same operator a program uses. The first version looked for a `message`
+property and a test now pins why that is wrong: a plain object with a `message`
+is not an Error.
+
 ## P8 — loading a real `.node`
 
 `napi_module_register`, the export table, and the first third-party addon that

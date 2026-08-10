@@ -208,6 +208,56 @@ pub fn throw_type_error(message: &str) {
     type_error(message);
 }
 
+/// Raises a value a `catch` in the program can see, whatever the value is.
+///
+/// # Why this is public where the tag is not
+///
+/// [`throw_type_error`]'s doc says a caller outside this crate cannot name the
+/// throw tag or build the error object, and that stays true: this takes the
+/// VALUE and supplies the tag itself. The two agreements this file owns —
+/// which number a `catch` matches, and what an error IS — do not move.
+///
+/// It exists because `throw new Error(…)` is not the only throw a language has.
+/// `napi_throw` hands over whatever the addon built, which may be a string, a
+/// number, or an object with no `Error` anywhere in it, and JavaScript is
+/// emphatic that all three are throwable.
+pub fn throw_value(value: u64) {
+    with_current(|context| context.thrown = Some((JS_THROW, value)));
+}
+
+/// Builds one of the language's own error objects, without throwing it.
+///
+/// `None` for a name this engine does not provide, which is the honest answer
+/// rather than a plain object wearing the name: an addon asking for a
+/// `SystemError` should learn that it did not get one, not receive something
+/// that fails `instanceof`.
+///
+/// The construction is [`named_error`]'s, extracted rather than copied — the
+/// two would otherwise disagree about whether the class is registered on demand,
+/// which was already a bug once (the throw was silently dropped and it looked
+/// like `try`/`catch` not working).
+pub fn make_named_error(name: &str, message: &str) -> Option<u64> {
+    let made = with_current(|context| {
+        let constructor = match super::class_support::made(context, name) {
+            Some(constructor) => constructor,
+            None => super::error::provided(name)?(context),
+        };
+        let text = context
+            .intern_value(crate::text::Str::from_str(message))
+            .bits();
+        Some((constructor, text))
+    })?;
+    let (constructor, text) = made;
+    let absent = with_current(|context| super::objects::undefined_of(context));
+    Some(super::functions::construct(
+        constructor,
+        text,
+        absent,
+        absent,
+        absent,
+    ))
+}
+
 pub(in crate::entry) fn type_error(message: &str) {
     named_error("TypeError", message);
 }
@@ -250,25 +300,15 @@ pub(in crate::entry) fn reference_error(message: &str) {
 /// fallback and the `thrown` write per class is the kind of duplication rule 3
 /// of this crate's README warns turns into three answers that drift.
 fn named_error(name: &str, message: &str) {
-    let made = with_current(|context| {
-        // Registered on demand, because every class here is: a program that
-        // never writes `TypeError` never builds one. The runtime raising is
-        // exactly such a program — the class is reached without the name ever
-        // appearing — so asking `class_support` alone answered `None` and the
-        // throw was silently dropped. It looked like `try`/`catch` not working.
-        let constructor = match super::class_support::made(context, name) {
-            Some(constructor) => constructor,
-            None => super::error::provided(name)?(context),
-        };
-        let text = context.intern_value(crate::text::Str::from_str(message)).bits();
-        Some((constructor, text))
-    });
-    let Some((constructor, text)) = made else {
-        return;
-    };
-    let absent = with_current(|context| super::objects::undefined_of(context));
-    let error = super::functions::construct(constructor, text, absent, absent, absent);
-    with_current(|context| context.thrown = Some((JS_THROW, error)));
+    // Through `make_named_error` rather than beside it. The two differ only in
+    // whether the result is thrown, and a second copy of "how an error is
+    // built" is how one of them comes to register the class on demand and the
+    // other not — which was a real bug once: the class was never registered,
+    // the throw was silently dropped, and it looked like `try`/`catch` not
+    // working.
+    if let Some(error) = make_named_error(name, message) {
+        throw_value(error);
+    }
 }
 
 /// What each compiled function is called, by its code address.

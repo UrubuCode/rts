@@ -155,7 +155,10 @@ pub use clone::deep_copy;
 pub use current::with_context;
 pub(crate) use current::with_current;
 pub use table::{CORE_ENTRY_COUNT, CoreEntry};
-pub use throw::{declare_function_names, pending, take_thrown, throw, throw_type_error, thrown};
+pub use throw::{
+    declare_function_names, make_named_error, pending, take_thrown, throw, throw_type_error,
+    throw_value, thrown,
+};
 
 use rts_cranelift::shape::{KeyRegistry, ShapeTree};
 

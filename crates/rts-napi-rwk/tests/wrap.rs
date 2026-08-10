@@ -9,7 +9,14 @@ use rts_napi_rwk::abi::{napi_env, napi_ref};
 use rts_napi_rwk::{Env, env, handles, napi_status, napi_valuetype, objects, values, wrap};
 
 /// Set by [`note_finalized`] so a test can see that it ran.
-static mut FINALIZED: usize = 0;
+///
+/// Thread-local, not a `static`: cargo runs the tests of one binary on several
+/// threads, and two of these register finalizers with different pointers. A
+/// shared cell made them read each other's — which failed as a mismatch of two
+/// plausible addresses, the least readable kind of flake.
+thread_local! {
+    static FINALIZED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
 
 /// A finalizer that records the pointer it was handed.
 ///
@@ -17,8 +24,7 @@ static mut FINALIZED: usize = 0;
 ///
 /// Called by this crate with the two pointers the test registered.
 unsafe extern "C" fn note_finalized(_env: napi_env, data: *mut c_void, _hint: *mut c_void) {
-    // SAFETY: single-threaded test, written and read between calls.
-    unsafe { FINALIZED = data as usize };
+    FINALIZED.set(data as usize);
 }
 
 #[test]
@@ -134,8 +140,7 @@ fn wrapping_a_number_is_object_expected() {
 #[test]
 fn removing_a_wrap_runs_the_finalizer_and_hands_the_pointer_back() {
     in_a_program(|| {
-        // SAFETY: single-threaded test.
-        unsafe { FINALIZED = 0 };
+        FINALIZED.set(0);
         let raw = Env::new().into_raw();
         let mut object = handles::none();
         // SAFETY: live env.
@@ -159,8 +164,7 @@ fn removing_a_wrap_runs_the_finalizer_and_hands_the_pointer_back() {
         let status = unsafe { wrap::napi_remove_wrap(raw, object, &mut read) };
         assert_eq!(status, napi_status::napi_ok);
         assert_eq!(read, pointer);
-        // SAFETY: single-threaded test.
-        assert_eq!(unsafe { FINALIZED }, pointer as usize, "the finalizer ran");
+        assert_eq!(FINALIZED.get(), pointer as usize, "the finalizer ran");
 
         // And the wrap is gone, so unwrapping now fails rather than answering a
         // pointer the addon has taken back.
@@ -239,8 +243,7 @@ fn destroying_the_environment_runs_a_wrap_s_finalizer() {
     // The other trigger. An addon that unloads without removing its wraps is
     // the common case, and P6 — the collector telling anyone — is the third.
     in_a_program(|| {
-        // SAFETY: single-threaded test.
-        unsafe { FINALIZED = 0 };
+        FINALIZED.set(0);
         let raw = Env::new().into_raw();
         let mut object = handles::none();
         // SAFETY: live env.
@@ -260,8 +263,7 @@ fn destroying_the_environment_runs_a_wrap_s_finalizer() {
         };
         // SAFETY: from `into_raw`, destroyed once.
         unsafe { env::destroy(raw) };
-        // SAFETY: single-threaded test.
-        assert_eq!(unsafe { FINALIZED }, pointer as usize);
+        assert_eq!(FINALIZED.get(), pointer as usize);
     });
 }
 
@@ -273,8 +275,7 @@ fn the_collector_runs_a_wrap_s_finalizer_at_the_next_drain() {
     // is this crate's — the trampoline that recovers an environment from the
     // two words a registration carries.
     in_a_program(|| {
-        // SAFETY: single-threaded test.
-        unsafe { FINALIZED = 0 };
+        FINALIZED.set(0);
         let raw = Env::new().into_raw();
         let mut owned = 4242u64;
         let pointer = (&mut owned as *mut u64).cast::<c_void>();
@@ -317,15 +318,13 @@ fn the_collector_runs_a_wrap_s_finalizer_at_the_next_drain() {
         });
         rts_core::entry::collect_now(low);
 
-        // SAFETY: single-threaded test.
         assert_eq!(
-            unsafe { FINALIZED },
+            FINALIZED.get(),
             0,
             "the sweep must not call a finalizer — it holds the borrow"
         );
         assert_eq!(rts_core::entry::drain_finalizers(), 1, "and the drain does");
-        // SAFETY: single-threaded test.
-        assert_eq!(unsafe { FINALIZED }, pointer as usize);
+        assert_eq!(FINALIZED.get(), pointer as usize);
 
         // SAFETY: from `into_raw`, destroyed once — and the finalizer must NOT
         // run a second time, which is what the wrap being gone already says.

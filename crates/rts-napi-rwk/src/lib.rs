@@ -29,6 +29,8 @@
 //!
 //! P7b: threadsafe functions — any thread asks, the JavaScript thread calls.
 //!
+//! P7c: errors — throwing a value, building one, and asking what is pending.
+//!
 //! Everything else in the ABI is absent rather than stubbed; an absent symbol
 //! fails to link loudly, which is the answer an addon can act on.
 //!
@@ -55,6 +57,7 @@
 pub mod abi;
 pub mod async_work;
 pub mod env;
+pub mod errors;
 pub mod functions;
 pub mod handles;
 pub mod objects;
