@@ -57,6 +57,7 @@ mod current;
 pub mod declared;
 mod date;
 mod error;
+pub mod external;
 mod function_proto;
 mod functions;
 mod generator;
@@ -137,6 +138,7 @@ mod table;
 
 pub use accessor::{define_getter, define_setter};
 pub use alloc::alloc;
+pub use external::{held_current, hold_current, release_current};
 pub use barrier::write_barrier;
 pub use cache::{cache_resolve, cache_resolve_store};
 pub use chain::{get_prototype, set_prototype};
@@ -514,6 +516,26 @@ pub struct Context {
     /// the number the code carries is a position in this list, which is the
     /// same shape as the key and singleton numberings.
     pub literals: Vec<u64>,
+    /// Values something OUTSIDE the heap is holding, and the collector must
+    /// therefore keep.
+    ///
+    /// The stack scan already covers a value a Rust frame holds in a local. It
+    /// covers nothing a native put on the HEAP — a `Vec` a foreign library owns,
+    /// a slot an addon keeps across calls — because a conservative scan reads
+    /// the stack and the stack alone. That is the gap this closes, and it is
+    /// what an N-API `napi_ref` is: a value a `.node` addon holds after the call
+    /// that produced it has returned.
+    ///
+    /// A `Vec` of `(u32, u64)` rather than a map: what holds one of these holds
+    /// a handful, and the identifier has to survive removals without shifting
+    /// (a caller keeps it), so it is minted rather than positional. See
+    /// [`external`].
+    pub external: Vec<(u32, u64)>,
+    /// The next identifier [`external::hold`] hands out.
+    ///
+    /// Never reused, so a released identifier presented again is refused rather
+    /// than answering whatever took its place.
+    pub next_external: u32,
     /// The namespace object each specifier the host provided names.
     ///
     /// A list rather than a map: a host provides a handful. See [`modules`] for
@@ -701,6 +723,8 @@ impl Context {
             // never reaches the table, and one that does gets it from the
             // compilation that produced the code.
             literals: Vec::new(),
+            external: Vec::new(),
+            next_external: 1,
             modules: Vec::new(),
             evaluator: None,
             loop_sources: Vec::new(),

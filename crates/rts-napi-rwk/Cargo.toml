@@ -1,0 +1,13 @@
+[package]
+name = "rts-napi-rwk"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+# The suffix is back, for the reason it existed the first time and for no other:
+# `rts-napi` still stands beside this as the reference being read from, cargo
+# will not have two crates under one name, and a phase is finished when the old
+# code is GONE. It goes away with `rts-napi`. See README.md.
+
+[dependencies]
+rts-core = { path = "../rts-core" }

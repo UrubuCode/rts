@@ -382,9 +382,18 @@ crates/
   rts-egui/ rts-dom/ rts-render/ rts-input/   the UI engine, engine-agnostic
   rts-linker/        native link            rts-cli/  the CLI
 
-  rts-napi/          N-API. NOT BUILT and not a member — it names the deleted
-                     runtime's handle table. Its README says what porting costs.
+  rts-napi-rwk/      N-API, on this engine. P1 in: handle scopes and values
+  rts-napi/          the same ABI on the DELETED engine. Not built, not a
+                     member, kept to be read. Goes away when -rwk catches up.
 ```
+
+The suffix is back, on purpose and on one crate. It means what it always meant:
+two crates answer one question, cargo will not have two of a name, and **a phase
+is finished when the old code is gone** rather than when the new code exists.
+`crates/rts-napi-rwk/README.md` says why that one is a rewrite rather than a
+port — its 6422 lines are written against a tagged-enum heap this engine does
+not have — and `PLAN.md` there has the eight phases and which engine gap each
+one is waiting on.
 
 **What went, and the one thing it cost.** `rts-engine`, `rts-primitives`,
 `rts-shared`, `rts-std`, `rts-runtime`, `rts-natives`, `rts-abi`, `rts-macro`,

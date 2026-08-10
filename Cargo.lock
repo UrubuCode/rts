@@ -4135,6 +4135,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-napi-rwk"
+version = "0.1.0"
+dependencies = [
+ "rts-core",
+]
+
+[[package]]
 name = "rts-node"
 version = "0.1.0"
 dependencies = [

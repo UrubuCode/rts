@@ -173,9 +173,16 @@ wired at `+`, the four relational operators, `==`, `String()`, `Number()` and
 `join`.
 
 What is still deliberately absent: the write barrier's runtime side (waits for
-regions), `Symbol.toPrimitive` (additive on the above), and a collector — the
-heap is a region that fills, and `entry/alloc.rs` says so rather than handing
-back a cell somebody else owns.
+regions) and `Symbol.toPrimitive` (additive on the above).
+
+**A collector is no longer among them**, and this paragraph said it was: `collect/`
+marks and sweeps, `entry/collect_cycle.rs` runs a cycle from `entry/alloc.rs`
+when the region fills, and `entry/roots.rs` answers what is live — the context's
+own fields, a conservative scan of the machine stack, and (since `rts-napi-rwk`
+needed one) what something outside the heap is holding, in `entry/external.rs`.
+What is NOT there is precision: `rts_cranelift::gc::describe_frames` is finished
+and has no caller, so a compiled frame cannot be asked which of its slots are
+live and the stack half stays conservative.
 
 **A native can raise a catchable error**, and the discipline that had to come
 first is rule 8. `throw::type_error` builds the program's own `TypeError`, so
@@ -189,11 +196,13 @@ checks and the raises are one change.
 
 ---
 
-## The `-rwk` suffix
+## The `-rwk` suffix, and where it went
 
-Temporary. This replaces `rts-primitives` and the portable half of `rts-shared`,
-neither of which can be removed while references to them remain, and cargo will
-not have two crates with one name.
+This crate was `rts-core-rwk` while `rts-primitives` and the portable half of
+`rts-shared` still existed and cargo would not have two crates under one name.
+The rule the suffix encoded was: **a phase is not finished because the new code
+exists — it is finished when the old code is gone.**
 
-A phase is not finished because the new code exists — it is finished when the old
-code is gone, and until then the suffix says which is which.
+Both were deleted on 2026-08-10 and the suffix came off, everywhere, in the same
+change. It is worth keeping the rule written down because it is being used
+again: `rts-napi-rwk` carries it today, beside the `rts-napi` it replaces.

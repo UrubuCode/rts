@@ -235,6 +235,32 @@ mod tests {
     }
 
     #[test]
+    fn a_value_held_from_outside_the_heap_survives_and_stops_when_released() {
+        // The whole reason `entry::external` exists. Nothing on this thread's
+        // stack names the cell — the buffer above is zeroed — and no `Context`
+        // field points at it, so before that module the collector was RIGHT to
+        // free it, and an N-API addon holding it would have been left with a
+        // handle to a reused cell.
+        let mut context = empty_context();
+        let kept = plain(&mut context);
+        let held = super::super::external::hold(&mut context, Value::from_slot(kept).bits());
+
+        assert_eq!(collect_over_empty_stack(&mut context), 0, "nothing to free");
+        assert!(
+            context.region.live_refs().contains(&kept),
+            "an externally held value is a root"
+        );
+
+        super::super::external::release(&mut context, held);
+        assert_eq!(
+            collect_over_empty_stack(&mut context),
+            1,
+            "released, and now nothing names it"
+        );
+        assert!(!context.region.live_refs().contains(&kept));
+    }
+
+    #[test]
     fn a_freed_text_cells_slab_slot_is_reclaimed() {
         let mut context = empty_context();
         let text = context.intern_value(crate::text::Str::from_str("gone"));

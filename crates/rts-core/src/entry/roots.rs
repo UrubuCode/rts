@@ -131,6 +131,10 @@ pub fn context_roots(context: &Context) -> Vec<Slot> {
     words.extend_from_slice(&context.pending_arguments);
     words.extend_from_slice(&context.new_targets);
     words.extend_from_slice(&context.literals);
+    // What a native kept after its call returned. The stack scan cannot see
+    // these: they live in the holder's own memory, not on a frame. See
+    // `super::external`.
+    words.extend(context.external.iter().map(|(_, value)| *value));
     words.extend(context.yielded);
     words.extend(context.thrown.map(|(_, payload)| payload));
     words.extend(

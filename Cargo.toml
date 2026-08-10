@@ -15,6 +15,7 @@ members = [
     "crates/rts-node",
     "crates/rts-host",
     "crates/rts-runtime",
+    "crates/rts-napi-rwk",
     "crates/rts-cli",
 ]
 resolver = "2"
