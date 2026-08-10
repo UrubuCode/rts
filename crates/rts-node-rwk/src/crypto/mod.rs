@@ -1,6 +1,6 @@
 //! `node:crypto` — over `docs/reference/node/crypto.md`, scoped to hashing,
-//! HMAC, CSPRNG randomness and the three synchronous KDFs (§2.2's own
-//! grouping: "Hashing / MAC", "Randomness", "Key derivation").
+//! HMAC, CSPRNG randomness and the three KDFs in both their spellings (§2.2's
+//! own grouping: "Hashing / MAC", "Randomness", "Key derivation").
 //!
 //! # `Hash`/`Hmac`: one shared prototype, native state in a table
 //!
@@ -54,9 +54,13 @@
 //!   re-entry" limit `fs/mod.rs`'s module doc states blocks it here too.
 //! - **`argon2`/`argon2Sync`** — experimental in Node itself (§2.2's own
 //!   tag); deferred per "immature-goes-last".
-//! - **Callback/async forms of every function above** (`randomBytes(size,
-//!   cb)`, `pbkdf2`, `scrypt`, `hkdf`, …) — needs the shared tokio runtime
-//!   §5.7 flags as living in `rts-std`, which this crate must not depend on.
+//! - **`randomBytes(size, cb)` and the other callback forms outside `kdf`** —
+//!   the offload gap `random.rs`'s doc states. `pbkdf2`, `scrypt` and `hkdf` are
+//!   NO LONGER on this list: they exist, they derive synchronously and they
+//!   deliver on the next pump of the event loop through a loop source, which is
+//!   real deferral without the tokio runtime §5.7 puts in `rts-std`. What they
+//!   do not get is Node's thread pool — see `kdf/deferred.rs` for what that
+//!   costs and why offering them anyway is the better trade.
 //! - **`hash.copy()`**, `HashOptions.outputLength` (SHAKE only, and SHAKE
 //!   itself is not implemented — see `digest_algo.rs`),
 //!   `crypto.fips`/`getFips`/`setFips`, `setEngine`, `secureHeapUsed` — none
@@ -67,7 +71,9 @@
 //!   not link, so a value for one would name a switch nothing here reads.
 //!   [`constants`] carries the RSA padding and PSS salt-length numbers only:
 //!   those are protocol constants a program compares against, not handles into
-//!   a library. `node:constants`'s own copy is that module's, not this one's.
+//!   a library. [`CONSTANTS`] is the table itself, lifted out of [`constants`]
+//!   so that Node's deprecated flattened `constants` module can spread THIS
+//!   list rather than keep a second copy of the same eight numbers.
 
 mod digest_algo;
 mod hash;
@@ -91,14 +97,20 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("randomUUID", random::random_uuid),
         ("getRandomValues", random::get_random_values),
         ("timingSafeEqual", random::timing_safe_equal),
-        ("pbkdf2Sync", kdf::pbkdf2_sync),
-        ("scryptSync", kdf::scrypt_sync),
-        ("hkdfSync", kdf::hkdf_sync),
         ("getCiphers", get_ciphers),
     ];
-    let namespace = entry::make_namespace(context, members);
+    // The six KDF members come from [`kdf::MEMBERS`] rather than being listed
+    // here. `pbkdf2`/`pbkdf2Sync` are two spellings of one agreement, and this
+    // list is where a fix could land in one spelling and not the other.
+    let all: Vec<(&str, Provided)> = members.iter().chain(kdf::MEMBERS.iter()).copied().collect();
+    let namespace = entry::make_namespace(context, &all);
     let constants = constants(context);
     entry::put_member(context, namespace, "constants", constants);
+    // The callback forms derive synchronously and DELIVER on the next pump of
+    // the event loop, which needs a loop source. Declared here, at install time
+    // — `entry::declare_loop_source`'s doc says why not by the host — and
+    // idempotent by name, so a second `namespace` call does not pump twice.
+    kdf::declare(context);
     namespace
 }
 
@@ -117,23 +129,29 @@ pub fn namespace(context: &mut Context) -> u64 {
 /// `constants` object and why an OpenSSL option flag is not stated here.
 fn constants(context: &mut Context) -> u64 {
     let object = entry::make_object(context);
-    let values: &[(&str, f64)] = &[
-        ("RSA_PKCS1_PADDING", 1.0),
-        ("RSA_NO_PADDING", 3.0),
-        ("RSA_PKCS1_OAEP_PADDING", 4.0),
-        ("RSA_X931_PADDING", 5.0),
-        ("RSA_PKCS1_PSS_PADDING", 6.0),
-        // `-1` means "as long as the digest", `-2` "as long as possible".
-        ("RSA_PSS_SALTLEN_DIGEST", -1.0),
-        ("RSA_PSS_SALTLEN_MAX_SIGN", -2.0),
-        ("RSA_PSS_SALTLEN_AUTO", -2.0),
-    ];
-    for (name, value) in values {
+    for (name, value) in CONSTANTS {
         let number = entry::make_number(*value);
         entry::put_member(context, object, name, number);
     }
     object
 }
+
+/// The numbers [`constants`] is built from, lifted out of it for one reason:
+/// Node's deprecated `constants` module spreads `crypto.constants` flat beside
+/// `fs`'s and `os`'s, and a second list of RSA padding numbers written there
+/// is the duplication this crate's reuse rule exists to refuse. Lifting the
+/// table costs nothing and removes the option of typing them twice.
+pub(crate) static CONSTANTS: &[(&str, f64)] = &[
+    ("RSA_PKCS1_PADDING", 1.0),
+    ("RSA_NO_PADDING", 3.0),
+    ("RSA_PKCS1_OAEP_PADDING", 4.0),
+    ("RSA_X931_PADDING", 5.0),
+    ("RSA_PKCS1_PSS_PADDING", 6.0),
+    // `-1` means "as long as the digest", `-2` "as long as possible".
+    ("RSA_PSS_SALTLEN_DIGEST", -1.0),
+    ("RSA_PSS_SALTLEN_MAX_SIGN", -2.0),
+    ("RSA_PSS_SALTLEN_AUTO", -2.0),
+];
 
 /// `crypto.getCiphers()` — always `[]`; see this module's "Not implemented"
 /// note. Answering an empty list rather than `undefined` matches Node's own
