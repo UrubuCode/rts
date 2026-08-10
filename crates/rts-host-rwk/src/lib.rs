@@ -35,6 +35,7 @@
 
 #![deny(missing_docs)]
 
+pub mod describe;
 mod entries;
 pub mod graph;
 mod link;

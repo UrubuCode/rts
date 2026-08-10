@@ -63,10 +63,11 @@ pub fn eval_command(input: Option<String>, _options: CompileOptions) -> Result<(
             buf
         }
     };
-    // NOT cut over: out of scope for the `rts run`/`rts test` cutover (not
-    // asked for, and untouched here) — still the OLD engine
-    // (`rts-codegen-new`).
-    rts_codegen_new::front::run::run_source(&source)
+    // The NEW engine, like `rts run`. It was the old one until now, so the same
+    // snippet could answer differently depending on whether it was typed at
+    // `-e` or saved to a file first — which is the worst shape a difference
+    // between two engines can take, because nothing in the command says it.
+    crate::cli::new_engine::run_source(&source)
         .map_err(|e| anyhow!("{e}"))
         .context("eval falhou")?;
     Ok(())

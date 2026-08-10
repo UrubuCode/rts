@@ -187,7 +187,7 @@ src/
   types/    aggregate layout — the single source of field offsets
   tags/     the generic value encoding and its registry
   ir/       the representation clients build: entities, instructions,
-            constants, functions, the builder
+            constants, functions, the builder, and the text a person reads it as
   gc/       the collector's contract: liveness, safepoints, roots, barriers
   unwind/   protected regions, cleanup chains, handler search
   frame/    suspension: the frame record, and the rewrite that produces it

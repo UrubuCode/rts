@@ -982,6 +982,33 @@ fn evaluate_source(source: &str) -> Option<u64> {
 /// finishes ([`rts_codegen::emit`]'s `emit_publications`). So by the time a
 /// module's body starts, every namespace it imports from has been written.
 pub fn compile_graph(entry: &std::path::Path) -> Result<Compiled, HostError> {
+    let (front, entries) = front_end_graph(entry)?;
+    assemble(
+        front.emitted,
+        &entries,
+        1,
+        front.model,
+        front.funcs,
+        front.types,
+        front.calls,
+        front.names,
+    )
+}
+
+/// Everything [`compile_graph`] does before placement: the graph loaded, every
+/// file parsed against ONE name table, and all of them emitted into one program.
+///
+/// Split out for the same reason [`front_end`] was — a second caller that needs
+/// the program without running it. Here that caller is [`crate::describe`],
+/// which prints the IR and places nothing; before the split it would have had to
+/// copy the parse-and-rewrite loop, and a copy of that loop is a copy of the
+/// specifier rewriting, which is the part that decides what an import means.
+///
+/// The returned list is the module initialisers to run before the entry, with
+/// the entry itself removed — it is what `assemble` is handed as `before`.
+pub(crate) fn front_end_graph(
+    entry: &std::path::Path,
+) -> Result<(FrontEnd, Vec<rts_cranelift::ir::FuncId>), HostError> {
     let loaded = crate::graph::load(entry)?;
     let mut names = Names::default();
 
@@ -1033,5 +1060,15 @@ pub fn compile_graph(entry: &std::path::Path) -> Result<Compiled, HostError> {
     let mut entries = emitted.entries;
 
     entries.pop();
-    assemble(emitted.program, &entries, 1, model, funcs, types, calls, names)
+    Ok((
+        FrontEnd {
+            emitted: emitted.program,
+            model,
+            funcs,
+            types,
+            calls,
+            names,
+        },
+        entries,
+    ))
 }

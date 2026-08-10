@@ -224,6 +224,7 @@ While working:
 cargo check -p <crate>              # does it compile — the default loop
 cargo test -p <crate> <filter>      # only the area you touched
 cargo run -- run file.ts            # execute without a release build
+cargo run -- ir file.ts             # read what was emitted, without running it
 ```
 
 Never `cargo build --release` and never the full suite while iterating. Never
@@ -421,18 +422,28 @@ rules that keep them from becoming a pile again.
 ```bash
 $env:RUST_BACKTRACE = "full"          # always — the crash handler needs it
 
-cargo run -- run file.ts              # JIT — the OLD engine. See below.
+cargo run -- run file.ts              # JIT — the NEW engine
+cargo run -- -e "console.log(1)"      # inline source, same engine
+cargo run -- ir file.ts               # the new engine's IR, no execution
 target/release/rts.exe compile -p file.ts out   # AOT
-target/release/rts.exe ir file.ts     # Cranelift IR, no execution
 target/release/rts.exe test tests/one.test.ts   # a single file
 ```
 
-**Every command in that block runs the OLD engine.** `rts` still enters through
-`rts-codegen-new`, so a change to `rts-codegen`/`rts-cranelift`/`rts-core-rwk`
-verified with `cargo run -- run` was verified against the engine it did not
-touch. This cost an agent a whole verification pass this session — it measured
-the old engine, believed the numbers, and had to redo the work. To run a program
-on the NEW engine:
+**Every command in that block now runs the NEW engine**, and the sentence that
+used to be here said the opposite — truthfully, at the time. `run`, `test` and
+`compile` cut over first; `ir` and `eval`/`-e` were the two left behind, and
+being left behind was worse for them than for anything else: `rts ir` printed
+the OLD engine's Cranelift IR, so the one command whose entire job is to show
+what was emitted was showing a different compiler's output, and `-e` could
+answer differently from the same source saved to a file.
+
+`rts ir` prints `rts_cranelift::ir` — this engine's own representation, with a
+callee legend at the top — and NOT Cranelift's `.clif`, which only exists inside
+`lower/` after every decision this engine makes has been taken. `rts-codegen-new`
+now has exactly one caller left, `rts emit-types`.
+
+The two examples remain the way to run one program with nothing of the CLI in
+the way:
 
 ```bash
 cargo run -q -p rts-host-rwk --example run_fixture file.ts   # one program

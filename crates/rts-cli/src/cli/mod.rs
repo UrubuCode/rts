@@ -224,10 +224,21 @@ where
     // parse_flags nao rejeite o ponto inicial `-` do source (snippet TS
     // nao deveria comecar com `-` mas o flag parser nao distingue).
     // Alternativa: dispatcher dedicado pra eval ANTES de parse_flags.
-    if raw.first().map(|s| s.as_str()) == Some("-e")
-        || raw.first().map(|s| s.as_str()) == Some("--eval")
-    {
-        let source = raw.get(1).cloned();
+    // `rts run -e "…"` is the same request as `rts -e "…"`, and is what a user
+    // coming from `node -e` / `bun -e` writes first. Recognised HERE, beside the
+    // bare form, because both have to be caught before `parse_flags` sees the
+    // snippet — it rejects a leading `-`, and the whole reason this block exists
+    // is that it cannot tell a flag from source text.
+    let eval_at = match raw.first().map(|s| s.as_str()) {
+        Some("-e") | Some("--eval") => Some(0),
+        Some("run") | Some("eval") => match raw.get(1).map(|s| s.as_str()) {
+            Some("-e") | Some("--eval") => Some(1),
+            _ => None,
+        },
+        _ => None,
+    };
+    if let Some(at) = eval_at {
+        let source = raw.get(at + 1).cloned();
         return run::eval_command(source, CompileOptions::default());
     }
     let (flags, positional) = parse_flags(raw)?;

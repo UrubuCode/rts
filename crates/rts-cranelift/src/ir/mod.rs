@@ -23,6 +23,7 @@ pub mod entity;
 pub mod func;
 pub mod funcs;
 pub mod inst;
+pub mod text;
 
 pub use builder::{BuildError, BuildResult, FuncBuilder};
 pub use consts::{ConstDecl, ScalarBits, SymbolRef};

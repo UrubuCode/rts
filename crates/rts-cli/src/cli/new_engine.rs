@@ -1,9 +1,8 @@
 //! The shared way `rts run` and `rts test` reach the NEW engine
 //! (`rts-host-rwk` + `rts-cranelift` + `rts-core-rwk`), after the cutover.
 //!
-//! `rts compile`, `rts ir` and `rts emit-types` do NOT use this module — they
-//! stay on `rts-codegen-new` (see the comment at each of those commands) until
-//! AOT gets an object-emission path and a runtime archive in the new engine.
+//! `rts emit-types` does NOT use this module — it stays on `rts-codegen-new`,
+//! which is the last thing that does (see the comment at that command).
 //!
 //! This is deliberately a thin restatement of
 //! `crates/rts-host-rwk/examples/suite_run.rs` and `run_fixture.rs`, which are
@@ -66,6 +65,52 @@ pub fn run_path_and<T: Send + 'static>(
         })
         .expect("a thread to run the new engine on");
     handle.join().expect("the run thread not to panic")
+}
+
+/// Compiles and runs source text through the new engine, on the same thread
+/// budget [`run_path`] uses.
+///
+/// No graph: text has no directory, so a relative import has nothing to be
+/// relative TO. That is why this is a separate function rather than a flag on
+/// `run_path` — a caller cannot ask for something the input cannot answer.
+pub fn run_source(source: &str) -> Result<(), String> {
+    on_a_deep_thread(source.to_owned(), |source| {
+        let mut program = rts_host_rwk::compile(&source).map_err(|e| format!("{e:?}"))?;
+        program.run();
+        Ok(())
+    })
+}
+
+/// The IR of a program, as text, without running it. See
+/// [`rts_host_rwk::describe`].
+///
+/// On the deep thread for the same reason the run is: emission is what recurses
+/// with the shape of the expression, and a dump emits everything a run does.
+pub fn describe_path(path: &Path) -> Result<String, String> {
+    let path = path.to_path_buf();
+    on_a_deep_thread(path, |path| {
+        rts_host_rwk::describe::describe_path(&path).map_err(|e| format!("{e:?}"))
+    })
+}
+
+/// The IR of source text, as text. See [`run_source`] for why text and a path
+/// are two functions.
+pub fn describe_source(source: &str) -> Result<String, String> {
+    on_a_deep_thread(source.to_owned(), |source| {
+        rts_host_rwk::describe::describe_source(&source).map_err(|e| format!("{e:?}"))
+    })
+}
+
+fn on_a_deep_thread<I: Send + 'static, T: Send + 'static>(
+    input: I,
+    work: impl FnOnce(I) -> T + Send + 'static,
+) -> T {
+    std::thread::Builder::new()
+        .stack_size(STACK)
+        .spawn(move || work(input))
+        .expect("a thread to run the new engine on")
+        .join()
+        .expect("the engine thread not to panic")
 }
 
 fn run_path_inner(path: &Path) -> Result<(), String> {
