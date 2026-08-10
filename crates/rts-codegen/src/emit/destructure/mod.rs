@@ -20,7 +20,7 @@
 //! declared directly into the caller's current scope too, exactly beside the
 //! names it computes for.
 //!
-//! What keeps that safe is [`depth`]: every temporary's name is suffixed with
+//! What keeps that safe is `depth`: every temporary's name is suffixed with
 //! how many pattern levels deep it was made at, so a nested pattern's own
 //! `__rts_destructure_arr_1` cannot overwrite its parent's
 //! `__rts_destructure_arr_0` while the parent still needs it — which it does,
@@ -33,11 +33,9 @@
 //!
 //! # What each shape reads through
 //!
-//! An array pattern **iterates**. [`crate::runtime::RuntimeOp::Iterate`]
-//! materialises the source as an array once — which is why `const [a] = new
-//! Set([1])` works, and why a hole still consumes a slot: the whole sequence
-//! was already walked before any element here is read. An object pattern
-//! **reads properties**, by name or by a computed key evaluated once, with no
+//! An array pattern **iterates** — see [`array`]'s module doc for how, and for
+//! the bug that doc is written around. An object pattern **reads
+//! properties**, by name or by a computed key evaluated once, with no
 //! iterator and no length to consult.
 //!
 //! # The default, precisely
@@ -48,6 +46,8 @@
 //! "maybe evaluate this", the same reason `??` and `&&` live in `choice.rs`
 //! rather than being folded into an arithmetic instruction.
 
+mod array;
+
 use rts_cranelift::fault::Position;
 use rts_cranelift::ir::{FuncBuilder, ValueId};
 
@@ -56,11 +56,13 @@ use super::{Ctx, EmitResult, Scope, UNPROVEN};
 use crate::names::Name;
 use crate::runtime::RuntimeOp;
 use crate::syntax::{
-    ArrayPattern, AssignOp, AssignTarget, BinaryOp, Binding as SyntaxBinding, BindingKind, Expr,
-    ExprKind, ForInit, Literal, LogicalOp, ObjectPattern, Pattern, PropertyKey, Spreadable, Stmt,
-    StmtKind, UnaryOp, UpdateOp, UpdatePosition,
+    AssignOp, AssignTarget, BinaryOp, Binding as SyntaxBinding, BindingKind, Expr, ExprKind,
+    ForInit, Literal, LogicalOp, ObjectPattern, Pattern, PropertyKey, Stmt, StmtKind, UpdateOp,
+    UpdatePosition,
 };
 use crate::values::Singleton;
+
+use array::array_pattern;
 
 /// Binds every name a **binding** pattern introduces, from a value the caller
 /// evaluated exactly once.
@@ -193,85 +195,6 @@ fn assign_target(
     super::expr::emit_expr(builder, scope, ctx, &assign)?;
     scope.leave();
     Ok(())
-}
-
-/// `[a, b = 1, ...rest] = source` / `let [a, b = 1, ...rest] = source`.
-fn array_pattern(
-    builder: &mut FuncBuilder,
-    scope: &mut Scope,
-    ctx: &mut Ctx,
-    pattern: &ArrayPattern,
-    source: ValueId,
-    at: Position,
-    depth: u32,
-    role: Role,
-) -> EmitResult<()> {
-    // Iteration, not indexing — `const [a] = new Set([1])` has no index to
-    // read. `Iterate` walks the whole sequence once and materialises it as an
-    // array, so every element below is an ordinary index read into something
-    // that already exists, and a hole still consumed a step by having been
-    // materialised at all.
-    let materialized = super::expr::call(builder, ctx, RuntimeOp::Iterate, &[source])?[0];
-    let arr = ctx.names.intern(&format!("__rts_destructure_arr_{depth}"));
-    super::binding::declare(builder, scope, ctx, arr, materialized)?;
-
-    for (position, element) in pattern.elements.iter().enumerate() {
-        // A hole binds nothing. It already took its step above.
-        let Some(element) = element else { continue };
-        let read = index_expr(ident(arr, at), number(position as f64, at), at);
-        let raw = super::expr::emit_expr(builder, scope, ctx, &read)?;
-        let value = apply_default(builder, scope, ctx, raw, element.default.as_ref())?;
-        place(builder, scope, ctx, &element.pattern, value, at, depth + 1, role)?;
-    }
-
-    if let Some(rest) = &pattern.rest {
-        // `elements` holds a hole at the rest's own position too — the parser
-        // maps `...tail` in `[head, ...tail]` to `None` there, the same
-        // representation an ordinary hole gets, rather than shortening the
-        // vector by one. So the count of slots the rest starts *after* is one
-        // less than `elements.len()` whenever a rest is present at all — the
-        // rest is always last, so it is always that one hole.
-        let start = pattern.elements.len() - 1;
-        let gathered = array_rest(builder, scope, ctx, arr, start, at)?;
-        place(builder, scope, ctx, rest, gathered, at, depth + 1, role)?;
-    }
-
-    Ok(())
-}
-
-/// `...rest` of an array pattern: everything `Iterate` produced from `start`
-/// on, as a fresh array.
-///
-/// # Why `.slice`, and not a hand-written copying loop
-///
-/// `ArrayNew` sizes its store once, at the length it is given — it is not a
-/// growable vector, which is why `call.rs`'s own argument-vector builder grows
-/// through `ArrayAppend` rather than through `SetIndexed` past the end. A
-/// counted loop writing `rest[i] = arr[start + i]` into an `ArrayNew(0)` would
-/// be writing past a store sized for nothing, silently, for every index —
-/// which was tried here first and read back an empty array on every fixture
-/// that named a rest element. `Array.prototype.slice` already exists, is
-/// already exercised (`arrays.js`'s own `slice` case), and is the correct
-/// answer to "everything from this index on" without this module deciding how
-/// an array grows a second time.
-fn array_rest(
-    builder: &mut FuncBuilder,
-    scope: &mut Scope,
-    ctx: &mut Ctx,
-    arr: Name,
-    start: usize,
-    at: Position,
-) -> EmitResult<ValueId> {
-    let slice = ctx.names.intern("slice");
-    let call = Expr {
-        kind: ExprKind::Call {
-            callee: Box::new(member_expr(ident(arr, at), slice, at)),
-            arguments: vec![Spreadable::Single(number(start as f64, at))],
-            optional: false,
-        },
-        at,
-    };
-    super::expr::emit_expr(builder, scope, ctx, &call)
 }
 
 /// `{ a, b: c = 1, ...rest } = source` / `let { a, b: c = 1, ...rest } = source`.
@@ -432,7 +355,7 @@ fn object_rest(
         Some(condition) => {
             let not_named = Expr {
                 kind: ExprKind::Unary {
-                    op: UnaryOp::Not,
+                    op: crate::syntax::UnaryOp::Not,
                     operand: Box::new(condition),
                 },
                 at,
