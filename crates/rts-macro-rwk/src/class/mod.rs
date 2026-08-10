@@ -49,7 +49,7 @@ use quote::{format_ident, quote};
 use syn::spanned::Spanned;
 use syn::{ImplItem, ItemImpl, Pat, Path, Type};
 
-use member::{Member, Role, constant_row};
+use member::{Member, Role, constant_row, constant_type_row, doc_of};
 use options::{Flavour, parse_options};
 
 /// Expand `#[rtse::class]`.
@@ -70,12 +70,14 @@ pub fn expand(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
     let mut static_constants = Vec::new();
     let mut construct = None;
     let mut emitted = Vec::new();
+    let mut type_rows = Vec::new();
 
     for item in &block.items {
         match item {
             ImplItem::Fn(function) => {
                 let member = Member::read(function, &prefix)?;
                 emitted.push(member.expand(function));
+                type_rows.push(member.type_row());
                 let row = member.row();
                 match (member.role, options.flavour) {
                     (Role::Construct, Flavour::Namespace) => {
@@ -90,10 +92,13 @@ pub fn expand(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
                     (Role::Member, _) => members.push(row),
                 }
             }
-            ImplItem::Const(constant) => match constant_row(constant)? {
-                (row, true) => static_constants.push(row),
-                (row, false) => constants.push(row),
-            },
+            ImplItem::Const(constant) => {
+                type_rows.push(constant_type_row(constant)?);
+                match constant_row(constant)? {
+                    (row, true) => static_constants.push(row),
+                    (row, false) => constants.push(row),
+                }
+            }
             other => {
                 return Err(syn::Error::new(
                     other.span(),
@@ -151,9 +156,48 @@ pub fn expand(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
     };
 
     let doc = format!("Installs `{name}`, once, and answers the value the name reads.");
+    let types_name = format_ident!("{}_TYPES", prefix.to_uppercase());
+    let types_doc = format!("What a program calling `{name}` writes. See `entry::declared`.");
+    let class_doc = doc_of(&block.attrs);
+    let namespace = options.flavour == Flavour::Namespace;
+    // The parent as a JavaScript NAME, derived from the path `extends` names.
+    // The option carries a function because a name could not be checked in the
+    // same edit (see `options.rs`), and the two spellings meet here: a register
+    // function is `register_<prefix>` and a prefix is the snake case of the Rust
+    // type, so undoing both recovers the type ident — `register_type_error` →
+    // `TypeError`, `uint8_array` → `Uint8Array`.
+    //
+    // That is a derivation and derivations are wrong eventually, so it is not
+    // trusted: `entry::declared` prints an `extends` only when the derived name
+    // is itself a class this engine declares, and drops it otherwise. A missing
+    // `extends` in a `.d.ts` under-describes; a wrong one names a type that does
+    // not exist and refuses to compile.
+    let extends = match options.extends.as_ref().and_then(|path| path.segments.last()) {
+        Some(segment) => {
+            let parent = pascal_of(
+                segment
+                    .ident
+                    .to_string()
+                    .strip_prefix("register_")
+                    .unwrap_or(&segment.ident.to_string()),
+            );
+            quote!(Some(#parent))
+        }
+        None => quote!(None),
+    };
 
     Ok(quote! {
         #(#emitted)*
+
+        #[doc = #types_doc]
+        pub(in crate::entry) const #types_name: crate::entry::declared::Class =
+            crate::entry::declared::Class {
+                name: #name,
+                doc: #class_doc,
+                namespace: #namespace,
+                extends: #extends,
+                members: &[#(#type_rows),*],
+            };
 
         /// What the prototype holds — or, for a namespace, the object itself.
         const #natives: &[(&str, crate::entry::native::Native)] = &[#(#members),*];
@@ -324,6 +368,26 @@ fn snake_of(name: &str) -> String {
             out.push('_');
         }
         out.extend(character.to_lowercase());
+    }
+    out
+}
+
+/// `type_error` → `TypeError`: the Rust type ident a prefix was made from.
+///
+/// The inverse of [`snake_of`] on the cases it is used for, and only those.
+fn pascal_of(name: &str) -> String {
+    let mut out = String::new();
+    let mut upper = true;
+    for character in name.chars() {
+        if character == '_' {
+            upper = true;
+            continue;
+        }
+        match upper {
+            true => out.extend(character.to_uppercase()),
+            false => out.push(character),
+        }
+        upper = false;
     }
     out
 }

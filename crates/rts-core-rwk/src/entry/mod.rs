@@ -54,6 +54,7 @@ mod computed;
 #[path = "context_tests.rs"]
 mod context_tests;
 mod current;
+pub mod declared;
 mod date;
 mod error;
 mod function_proto;

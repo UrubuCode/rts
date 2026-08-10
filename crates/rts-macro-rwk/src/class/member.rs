@@ -8,7 +8,7 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::spanned::Spanned;
-use syn::{FnArg, ImplItemConst, ImplItemFn, ReturnType};
+use syn::{FnArg, ImplItemConst, ImplItemFn, Pat, ReturnType};
 
 use super::{camel_of, is_named, spelled};
 
@@ -30,6 +30,10 @@ pub(super) struct Member {
     /// The `extern "C"` wrapper's Rust name.
     pub(super) wrapper: syn::Ident,
     pub(super) role: Role,
+    /// What a program calling it writes, derived from the Rust signature.
+    pub(super) ts: String,
+    /// The `///` comments above it, as written.
+    pub(super) doc: String,
 }
 
 impl Member {
@@ -48,10 +52,29 @@ impl Member {
             }
         }
 
+        let ts = ts_signature(&js, function);
         Ok(Member {
             js,
             wrapper: format_ident!("__{prefix}_{}", function.sig.ident),
             role,
+            ts,
+            doc: doc_of(&function.attrs),
+        })
+    }
+
+    /// The row the declared-type list holds: what to write, and what it means.
+    pub(super) fn type_row(&self) -> TokenStream {
+        let ts = &self.ts;
+        let doc = &self.doc;
+        let role = match self.role {
+            Role::Member => quote!(crate::entry::declared::Role::Prototype),
+            Role::Static => quote!(crate::entry::declared::Role::Static),
+            Role::Construct => quote!(crate::entry::declared::Role::Construct),
+        };
+        quote!(crate::entry::declared::Member {
+            signature: #ts,
+            doc: #doc,
+            role: #role,
         })
     }
 
@@ -196,6 +219,122 @@ impl Member {
             }
         }
     }
+}
+
+/// What a program writes to call this member, derived from the Rust one.
+///
+/// # Why it is derived rather than declared
+///
+/// The alternative is an attribute carrying the TypeScript text — and that is a
+/// second statement of the same function, sitting one line above the first, with
+/// nothing keeping them in agreement. The repository's own rule is that a
+/// declaration is written once and the views are generated from it; an
+/// annotation that says `push(x: number): number` over a body taking `u64`
+/// would be the first thing to go stale, and stale is worse than imprecise
+/// because a reader cannot tell.
+///
+/// # What is lost, and why that is the honest answer
+///
+/// `u64` is the value exactly as it arrived, so it becomes `any`. It is the
+/// only spelling available: the coercion the wrapper performs is where a
+/// narrower type would come from, and for `u64` there is none — the member
+/// itself decides what it accepts. Saying `string` there would be a claim this
+/// layer cannot check, and a `.d.ts` that promises a type the runtime does not
+/// enforce is worse than one that admits `any`.
+///
+/// `f64` becomes `number` and `bool` becomes `boolean`, both exactly true: the
+/// wrapper runs `ToNumber`/`ToBoolean` before the body sees the argument, so
+/// every value IS one by the time it arrives.
+fn ts_signature(js: &str, function: &ImplItemFn) -> String {
+    let mut params = Vec::new();
+    for (position, argument) in function.sig.inputs.iter().enumerate() {
+        let FnArg::Typed(typed) = argument else {
+            continue;
+        };
+        // The receiver is not an argument. A `.d.ts` writes `this` only where it
+        // constrains the receiver, and nothing here does.
+        if position == 0 && is_named(&typed.pat, "this") {
+            continue;
+        }
+        let name = match &*typed.pat {
+            Pat::Ident(ident) => camel_of(&ident.ident.to_string()),
+            // A pattern rather than a name binds nothing a caller could be told
+            // about, so the position is what identifies it.
+            _ => format!("arg{position}"),
+        };
+        params.push(format!("{name}: {}", ts_type(&typed.ty)));
+    }
+    let returns = match &function.sig.output {
+        ReturnType::Default => "void".to_owned(),
+        ReturnType::Type(_, ty) => ts_type(ty),
+    };
+    format!("{js}({}): {returns}", params.join(", "))
+}
+
+/// The three types a member can spell, as TypeScript spells them.
+///
+/// Anything else is not reachable: `Member::expand` refuses it with a message
+/// naming the three, so this cannot be asked about a type that compiled.
+fn ts_type(ty: &syn::Type) -> String {
+    match spelled(ty).as_str() {
+        "f64" => "number".to_owned(),
+        "bool" => "boolean".to_owned(),
+        _ => "any".to_owned(),
+    }
+}
+
+/// The `///` comments above an item, joined, with the leading space dropped.
+///
+/// Kept as the author wrote it, including the backticked JavaScript spelling
+/// most of them open with — that line is frequently more precise than the
+/// derived signature (it names what a `u64` actually accepts), and the two
+/// beside each other is the point.
+pub(super) fn doc_of(attrs: &[syn::Attribute]) -> String {
+    let mut lines = Vec::new();
+    for attribute in attrs {
+        if !attribute.path().is_ident("doc") {
+            continue;
+        }
+        let syn::Meta::NameValue(pair) = &attribute.meta else {
+            continue;
+        };
+        let syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(text),
+            ..
+        }) = &pair.value
+        else {
+            continue;
+        };
+        lines.push(text.value().trim_start().to_owned());
+    }
+    lines.join("\n")
+}
+
+/// The same constant as the row the declared-type list holds.
+///
+/// A property rather than a call, so it is spelled without parentheses. Its type
+/// follows the same rule the install does: an `f64` is a `number` and a
+/// `&'static str` is a `string`, and there is no third case.
+pub(super) fn constant_type_row(constant: &ImplItemConst) -> syn::Result<TokenStream> {
+    let name = constant.ident.to_string();
+    let ts = match spelled(&constant.ty).as_str() {
+        "f64" => format!("{name}: number"),
+        _ => format!("{name}: string"),
+    };
+    let doc = doc_of(&constant.attrs);
+    let role = match constant
+        .attrs
+        .iter()
+        .any(|attribute| attribute.path().is_ident("stat"))
+    {
+        true => quote!(crate::entry::declared::Role::StaticConstant),
+        false => quote!(crate::entry::declared::Role::Constant),
+    };
+    Ok(quote!(crate::entry::declared::Member {
+        signature: #ts,
+        doc: #doc,
+        role: #role,
+    }))
 }
 
 /// A `const NAME: … = …` as the pair the install list holds, and where it goes.

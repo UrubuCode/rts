@@ -63,21 +63,19 @@ pub fn command(project_name_arg: Option<String>) -> Result<()> {
     Ok(())
 }
 
-/// Emits a minimal `rts.d.ts` from the registered ABI SPECS.
+/// Emits `rts.d.ts`: the primitive aliases a project imports from `"rts"`, plus
+/// what the engine declares.
 ///
-/// Replaces the legacy split/flat generator while codegen is being rebuilt.
-/// The file is a single `declare module "rts"` with one nested namespace per
-/// registered SPEC plus the primitive type aliases expected by user code.
+/// The second half used to be a promise — "returns once `rts emit-types` is
+/// re-implemented on the new engine's registry" — and this is that. Both halves
+/// come from one call, so a fresh project and `rts emit-types` cannot disagree.
 fn emit_rts_dts(path: &Path) -> Result<()> {
-    // Cutover: the per-namespace SPECS catalog lived in the old engine (deleted).
-    // Emit a minimal `declare module "rts"` with the primitive type aliases; the
-    // full namespace surface returns once `rts emit-types` is re-implemented on the
-    // new engine's registry.
     let mut out = String::from("declare module \"rts\" {\n");
     out.push_str(
         "  export type i8 = number;\n  export type u8 = number;\n  export type i16 = number;\n  export type u16 = number;\n  export type i32 = number;\n  export type u32 = number;\n  export type i64 = number;\n  export type u64 = number;\n  export type isize = number;\n  export type usize = number;\n  export type f32 = number;\n  export type f64 = number;\n  export type bool = boolean;\n  export type str = string;\n",
     );
-    out.push_str("}\n");
+    out.push_str("}\n\n");
+    out.push_str(&rts_core_rwk::entry::declared::render());
     std::fs::write(path, out).with_context(|| format!("failed to write {}", path.display()))?;
     Ok(())
 }

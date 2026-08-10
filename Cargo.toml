@@ -21,7 +21,6 @@ members = [
     "crates/rts-egui",
     "crates/rts-macro",
     "crates/rts-macro-rwk",
-    "crates/rts-codegen-new",
     "crates/rts-cranelift",
     "crates/rts-codegen",
     "crates/rts-core-rwk",
@@ -131,9 +130,9 @@ zstd = "0.13.3"
 # ── DEV PROFILE: tuned for ITERATION, per the ITERATION SPEED mandatory rule ──
 #
 # MEASURED on this workspace (incremental rebuild after touching one file in
-# rts-codegen-new, Windows/MSVC):
+# rts-codegen, Windows/MSVC):
 #
-#   cargo check -p rts-codegen-new .................. 1.8 s   <- the default loop
+#   cargo check -p rts-codegen ...................... 1.8 s   <- the default loop
 #   cargo build -p rts-cli, debug = 2 (stock) ....... 39.2 s
 #   cargo build -p rts-cli, debug = 0 ............... see below
 #
@@ -167,7 +166,16 @@ strip = "symbols"
 #
 # Bare process startup (`rts --version`) is unchanged at ~78 ms either way, so
 # this is not trading load time for run time — it is pure compile-path speed.
-[profile.release.package.rts-codegen-new]
+# The numbers above were measured against `rts-codegen-new`, which was the
+# compile path when they were taken and has since been deleted. The three crates
+# below are what a `rts run` now goes through, and they are listed for the same
+# REASON — they run on every invocation — but the -22% is not re-measured and is
+# not claimed for them.
+[profile.release.package.rts-codegen]
+opt-level = 3
+[profile.release.package.rts-cranelift]
+opt-level = 3
+[profile.release.package.rts-core-rwk]
 opt-level = 3
 [profile.release.package.rts-parser]
 opt-level = 3

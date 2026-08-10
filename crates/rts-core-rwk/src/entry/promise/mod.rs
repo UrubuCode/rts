@@ -76,7 +76,7 @@ mod group;
 mod react;
 mod state;
 
-pub(in crate::entry) use class::register_promise;
+pub(in crate::entry) use class::{PROMISE_TYPES, register_promise};
 pub use drain::drain_microtasks;
 pub use machine::{promise_await, promise_new, promise_settle};
 pub(in crate::entry) use state::Machine;

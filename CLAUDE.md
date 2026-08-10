@@ -262,7 +262,6 @@ Before merge:
 cargo build --release
 cargo test --release --lib -p <each crate you touched>   # NAME them — see below
 target/release/rts.exe test          # if the change touches runtime/codegen/GC
-bash scripts/read_before_commit.sh   # if the change touches the engine
 ```
 
 **`cargo test --release --lib` with no `-p` is not a gate.** At the workspace
@@ -349,15 +348,19 @@ Ceilings: **codegen ≤ 1000**, **engine ≤ 700**, **everything else ≤ 500**.
 that would pass its ceiling is split into a folder of cohesive modules. New code
 lands in a small focused module, never appended to something already oversized.
 
-For any commit touching `crates/rts-codegen-new/`, run the gate and read all of
-its output:
+**The commit gate is gone with the crate it gated.**
+`scripts/read_before_commit.sh` checked `crates/rts-codegen-new/`: its
+primordial-vs-registry doctrine, its 1000-line ceiling, its symbol-table
+artefacts. All three are that crate's, and CLAUDE.md said so — the doctrine was
+binding *for changes inside it* and was never the model for anything new. With
+the crate deleted the script pointed at a directory that does not exist, so it
+was deleted rather than repointed: aiming it at the new engine would have
+applied the wrong ceiling and the wrong doctrine while looking like a check.
 
-```bash
-bash scripts/read_before_commit.sh              # full
-bash scripts/read_before_commit.sh --no-build   # static only, while iterating
-```
-
-HARD failures never ship. REVIEW lists must only shrink.
+What replaces it is per-crate and already binding: the ceilings above, each
+crate's README, and the release gate in the section before this one. If a
+mechanical gate for the new engine is wanted, it is a new script written against
+the new engine's rules, not this one with a path changed.
 
 ---
 

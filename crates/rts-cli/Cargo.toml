@@ -8,10 +8,13 @@ license.workspace = true
 rts-engine = { path = "../rts-engine" }
 rts-ast = { path = "../rts-ast" }
 rts-parser = { path = "../rts-parser" }
-rts-codegen-new = { path = "../rts-codegen-new" }
-# The NEW engine (`rts run` / `rts test` cutover). `rts compile`/`rts ir`/
-# `rts emit-types` stay on rts-codegen-new — see comments at those commands.
+# The engine. Every command runs through it: `run`, `eval`, `test`, `compile`,
+# `ir`, and `emit-types` — which is what let `rts-codegen-new` be deleted.
 rts-host-rwk = { path = "../rts-host-rwk" }
+# Named directly for `rts emit-types` alone: the declared type surface is a fact
+# about the runtime, and reaching it through the host would make the host
+# re-export something it has no other reason to know about.
+rts-core-rwk = { path = "../rts-core-rwk" }
 rts-std-rwk = { path = "../rts-std-rwk" }
 rts-linker = { path = "../rts-linker" }
 rts-runtime = { path = "../rts-runtime" }

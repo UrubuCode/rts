@@ -86,7 +86,13 @@ mod shared_array_buffer;
 pub(in crate::entry) mod typed;
 mod typed_classes;
 
-pub(in crate::entry) use array_buffer::register_array_buffer;
+// The declared-type consts travel with the registrations, for the same reason:
+// `entry::declared` names one class per line and cannot reach into a private
+// submodule to find it.
+pub(in crate::entry) use array_buffer::{ARRAY_BUFFER_TYPES, register_array_buffer};
+pub(in crate::entry) use atomics::ATOMICS_TYPES;
+pub(in crate::entry) use data_view::DATA_VIEW_TYPES;
+pub(in crate::entry) use shared_array_buffer::SHARED_ARRAY_BUFFER_TYPES;
 pub(in crate::entry) use atomics::register_atomics;
 pub(in crate::entry) use data_view::register_data_view;
 pub(in crate::entry) use shared_array_buffer::register_shared_array_buffer;

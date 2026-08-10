@@ -21,7 +21,7 @@
 //! caller already knows.
 
 use crate::link::HostError;
-use crate::run::{FrontEnd, front_end, front_end_graph};
+use crate::run::{FrontEnd, front_end};
 
 /// The IR of one source text, as text.
 pub fn describe_source(source: &str) -> Result<String, HostError> {
@@ -35,7 +35,7 @@ pub fn describe_source(source: &str) -> Result<String, HostError> {
 /// call to something with no body — which reads as a missing feature and is not
 /// one. `suite_run` learned the same lesson the expensive way (see `CLAUDE.md`).
 pub fn describe_path(entry: &std::path::Path) -> Result<String, HostError> {
-    let (front, _) = front_end_graph(entry)?;
+    let (front, _) = crate::graph::front_end(entry)?;
     Ok(render(&front))
 }
 

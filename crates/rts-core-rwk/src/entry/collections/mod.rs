@@ -54,7 +54,11 @@ mod table;
 mod weak;
 mod weakref;
 
-pub(in crate::entry) use map::register_map;
+// The declared-type consts travel with the registrations — see `buffers/mod.rs`.
+pub(in crate::entry) use map::{MAP_TYPES, register_map};
+pub(in crate::entry) use set::SET_TYPES;
+pub(in crate::entry) use weak::{WEAK_MAP_TYPES, WEAK_SET_TYPES};
+pub(in crate::entry) use weakref::WEAK_REF_TYPES;
 pub(in crate::entry) use set::register_set;
 pub(in crate::entry) use table::Table;
 pub(in crate::entry) use weak::{register_weak_map, register_weak_set};

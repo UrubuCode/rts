@@ -211,3 +211,84 @@ pub fn rewrite(items: &mut [ModuleItem], from: &Path) {
         }
     }
 }
+
+/// Everything `compile_graph` does before placement: the graph loaded, every
+/// file parsed against ONE name table, and all of them emitted into one program.
+///
+/// # Why it lives beside the loader rather than beside the compile
+///
+/// Two callers need it — `run::compile_graph`, which places it, and
+/// [`crate::describe`], which prints it — so it could not stay inside either.
+/// It landed here because everything it does is about the GRAPH: the load, the
+/// specifier rewriting, and the one name table all the files are parsed
+/// against. `run.rs` is also over this crate's 500-line ceiling (rule 6) and
+/// adding to it was the wrong direction.
+///
+/// The returned list is the module initialisers to run before the entry, with
+/// the entry itself removed — it is what `assemble` is handed as `before`.
+pub(crate) fn front_end(
+    entry: &Path,
+) -> Result<(crate::run::FrontEnd, Vec<rts_cranelift::ir::FuncId>), HostError> {
+    let loaded = load(entry)?;
+    let mut names = Names::default();
+
+    // Parsed HERE, against the `Names` the whole compilation shares — the walk
+    // that found the graph parsed each file too, with a table of its own, and
+    // threw the trees away. A `Name` is an index, so a tree from that walk would
+    // name locals by numbers this compilation never issued.
+    let mut parsed = Vec::with_capacity(loaded.len());
+    for file in &loaded {
+        let mut program = parse_module(&file.source, &mut names)
+            .map_err(|error| HostError::Parse(format!("{}: {error:?}", file.specifier)))?;
+        // Every relative specifier becomes the path the loader resolved it to,
+        // on BOTH sides: the import that reads and the re-export that forwards.
+        // The runtime's table is a string comparison, and `./x` means different
+        // files in two directories.
+        rewrite(&mut program.body, &file.path);
+        parsed.push(program);
+    }
+
+    let mut tags = rts_cranelift::tags::TagRegistry::new();
+    let model = rts_codegen::values::ValueModel::declare(&mut tags);
+    let types = rts_cranelift::types::TypeRegistry::new();
+    let mut funcs = rts_cranelift::ir::FuncRegistry::new();
+    let mut calls = rts_codegen::runtime::RuntimeCalls::new();
+    let mut keys = rts_cranelift::shape::KeyRegistry::new();
+
+    let units: Vec<rts_codegen::emit::Unit<'_>> = loaded
+        .iter()
+        .zip(&parsed)
+        .map(|(file, program)| rts_codegen::emit::Unit {
+            specifier: file.specifier.clone(),
+            items: &program.body,
+        })
+        .collect();
+
+    let emitted = {
+        let mut ctx = rts_codegen::emit::Ctx::new(
+            &model, &mut funcs, &mut calls, &mut keys, &mut names, &types,
+        );
+        match rts_codegen::emit::emit_modules(&units, &mut ctx) {
+            Err(rts_codegen::emit::EmitError::UnboundName(name)) => {
+                return Err(HostError::Unbound(ctx.names.text(name).to_owned()));
+            }
+            other => other?,
+        }
+    };
+    // The last unit is the entry — the file the caller named — and everything
+    // before it is a dependency the loader ordered.
+    let mut entries = emitted.entries;
+
+    entries.pop();
+    Ok((
+        crate::run::FrontEnd {
+            emitted: emitted.program,
+            model,
+            funcs,
+            types,
+            calls,
+            names,
+        },
+        entries,
+    ))
+}
