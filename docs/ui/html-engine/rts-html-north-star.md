@@ -141,8 +141,10 @@ lie.
 
 ### 0.3) Project doctrine (PRIMORDIAL-vs-Registry)
 
-HTML/CSS **have no native syntax** in JS/TS → `rts-codegen-new` **NEVER**
-names them. The engine lives in Rust as a **render primitive** exposed by a
+HTML/CSS **have no native syntax** in JS/TS → the compiler **NEVER** names them.
+(The rule was written against `rts-codegen-new`'s primordial-vs-Registry
+doctrine; that crate was deleted on 2026-08-10 and the conclusion survives it —
+`rts-codegen` knows the language and no library.) The engine lives in Rust as a **render primitive** exposed by a
 `NamespaceMember` in `abi::SPECS` (`egui.html`, same as `io.print`). The
 high-level logic (building the string, reacting to events) is TS. The codegen
 engine only resolves a generic namespace call — the same boundary as `io`/`fs`/`ui`.

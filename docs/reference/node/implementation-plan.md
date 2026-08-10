@@ -125,7 +125,7 @@ Then: both `rts-std` and `rts-node` consume async from `rts-engine`. Verify
 - Add `rts-node` to `rts-runtime/Cargo.toml` + `pub use rts_node::…` in
   `rts-runtime/src/namespaces/mod.rs`.
 - Add `node_*` register rows in
-  `rts-codegen-new/src/front/run/registry_build.rs`; drop the interim
+  `rts-codegen-new/src/front/run/registry_build.rs` (a DELETED tree — see this directory's `README.md`); drop the interim
   `register_node_util` alias once node:util is real.
 - Confirm the JIT harvest (`registry::all_jit_symbols()` / `adapter_symbols`)
   picks up `__RTS_FN_NODE_*`.
@@ -222,7 +222,6 @@ rts-std for now.
 
 Each PR (foundation or module):
 ```bash
-bash scripts/read_before_commit.sh          # engine gate (if touching rts-codegen-new)
 cargo build --release -p rts-runtime         # rebuild AOT staticlib (moved symbols)
 cargo build --release
 cargo test --release --lib

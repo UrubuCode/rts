@@ -142,7 +142,9 @@ impossibility is different, and simpler:
 **What CAN stay in TS:**
 - The iteration structure — the `while`, the exit test, the sequence of calls.
   It runs at top-level, on the main thread (the JIT calls `__rts_startup` synchronously, directly, without
-  spawn — `crates/rts-codegen-new/src/front/run/module_jit.rs`).
+  spawn). The pointer here used to be
+  `crates/rts-codegen-new/src/front/run/module_jit.rs`, a tree deleted on
+  2026-08-10; the equivalent is `rts-host-rwk`'s `run`.
 - The stop condition (a `bool`/`i64` returned by a primitive).
 - The application logic over the widgets' returns (app state in TS variables).
 
@@ -233,8 +235,11 @@ crates/
 > is already a folder of cohesive submodules for that reason.
 
 - `rts-egui` depends on `rts-engine` (ABI/Engine, registration) — **not** on
-  `rts-codegen-new` (doctrine: engine doesn't name non-primordials; `ui` resolves via
-  the Registry).
+  the compiler. The reason given here was `rts-codegen-new`'s doctrine (the
+  engine names no non-primordial; `ui` resolves via the Registry); that crate
+  and its doctrine were deleted on 2026-08-10, and the dependency edge is still
+  the right one for the ordinary reason — a UI crate has no business naming a
+  compiler.
 - `rts-runtime` re-exports `rts-egui` (as it already does with `napi`) behind a
   `ui` feature (default on for desktop; off on wasm).
 - The linker (`rts-linker`) removes the FLTK refs (X11/Pango/etc. libs) and links the

@@ -1,6 +1,8 @@
 # N-API — Implementation plan (living tracking doc)
 
-> **State on the cutover branch (`feat/rts-codegen-new`, 2026-06-19):** the
+> **State as of 2026-06-19, on what was then the cutover branch** (the engine it
+> names, `rts-codegen-new`, was deleted on 2026-08-10 — see
+> `docs/reference/node/README.md`): the
 > `crates/rts-napi/` crate (159 N-API fns) was PORTED to the new-engine branch — the
 > engine layer (`rts-engine`: `Entry::ArrayBuffer`/`BigInt`/`NapiExternal` +
 > stable ptr + finalizer queue `drain_pending_napi_finalizers`) is present,

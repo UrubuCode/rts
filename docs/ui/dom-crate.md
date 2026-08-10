@@ -49,7 +49,9 @@ PRIMORDIAL doctrine (the DOM is non-primordial; the engine only knows primitives
 Same pattern as `egui`:
 
 - `rts-runtime`: dep + `pub use rts_dom as dom;` (`namespaces/mod.rs`).
-- `rts-codegen-new/registry_build.rs`: one row in the `REGISTER` table
+- `rts-codegen-new/registry_build.rs` (**deleted 2026-08-10** with its crate;
+  what replaces it is `#[rtse::class]` in `rts-core-rwk` — see
+  `docs/reference/node/README.md`): one row in the `REGISTER` table
   (`Register { label: "dom", run: ns::dom::register, … }`). The front NEVER writes
   `"dom"` in control flow; it is data in the table.
 - The real `fn_ptr`s in the `Member`s are harvested and installed in the JIT by

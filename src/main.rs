@@ -4,7 +4,6 @@ fn main() {
     // Hand the CLI the bin-owned runtime-archive resolver so `rts compile` (AOT)
     // can locate the embedded `<host>.a` to link against (the archive + its
     // on-demand materialization live in this bin crate, which the CLI can't reach).
-    rts::cli::set_runtime_archive_resolver(rts::rt_artifacts);
     rts::cli::set_runtime_archive_resolver_rwk(rts::rt_artifacts_rwk);
 
 

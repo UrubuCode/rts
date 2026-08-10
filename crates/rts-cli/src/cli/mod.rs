@@ -20,26 +20,17 @@ use crate::compile_options::{CompilationProfile, CompileOptions, FrontendMode};
 use crate::diagnostics::reporter;
 use crate::linker::WindowsSubsystem;
 
-/// Resolver for the AOT runtime-support archive (`<host-triple>.a`). The embedded
-/// archive + its on-demand materialization live in the `rts` BIN crate
-/// (`runtime_objects.rs`), which the CLI cannot reach upward. The bin installs its
-/// `rt_artifacts` here at startup so `rts compile` can locate the archive to link.
-static ARCHIVE_RESOLVER: OnceLock<fn() -> Result<PathBuf>> = OnceLock::new();
-
-/// Same idea as [`ARCHIVE_RESOLVER`], for the NEW engine's embedded AOT archive
-/// (`rts-runtime-rwk`). Installed by the bin's `main` alongside the old one;
+/// Resolver for the embedded AOT archive (`rts-runtime-rwk`). The archive and
+/// its on-demand materialization live in the `rts` BIN crate
+/// (`runtime_objects.rs`), which the CLI cannot reach upward, so the bin
+/// installs its `rt_artifacts_rwk` here at startup.
+///
 /// [`runtime_archive_rwk`] falls back to it only when no fresh `target/` build
 /// exists, so a dev who just rebuilt `rts-runtime-rwk` gets their own archive
 /// rather than a possibly-stale embedded one.
 static ARCHIVE_RESOLVER_RWK: OnceLock<fn() -> Result<PathBuf>> = OnceLock::new();
 
-/// Install the runtime-archive resolver. Called once by the bin's `main` before
-/// `dispatch`. No-op if already set.
-pub fn set_runtime_archive_resolver(f: fn() -> Result<PathBuf>) {
-    let _ = ARCHIVE_RESOLVER.set(f);
-}
-
-/// Install the NEW engine's embedded-archive resolver (`rts::rt_artifacts_rwk`).
+/// Install the embedded-archive resolver (`rts::rt_artifacts_rwk`).
 /// No-op if already set. A CLI invoked without calling this still works for
 /// `rts compile` as long as a fresh `target/{debug,release}/rts_runtime_rwk.lib`
 /// exists — this only supplies the fallback for a binary run from elsewhere.
@@ -47,32 +38,8 @@ pub fn set_runtime_archive_resolver_rwk(f: fn() -> Result<PathBuf>) {
     let _ = ARCHIVE_RESOLVER_RWK.set(f);
 }
 
-/// Resolve the runtime-support archive path. Errors if the bin never installed a
-/// resolver (e.g. the CLI invoked as a library without `set_runtime_archive_resolver`).
-pub(crate) fn runtime_archive() -> Result<PathBuf> {
-    match ARCHIVE_RESOLVER.get() {
-        Some(f) => f(),
-        None => bail!(
-            "runtime archive resolver not installed — the `rts` bin must call \
-             `rts::cli::set_runtime_archive_resolver(rts::rt_artifacts)` before dispatch"
-        ),
-    }
-}
-
-/// Locates the `rts-runtime-rwk` staticlib `rts compile` links the NEW engine's
-/// AOT objects against.
-///
-/// # Why this is not [`runtime_archive`]'s embed-and-decompress mechanism
-///
-/// That one exists to make a shipped `rts` binary self-contained: the old
-/// engine's archive is baked into the executable at build time so a user never
-/// runs a second build step. Reproducing that here — a `build.rs` step that
-/// compresses a staticlib into `OUT_DIR` and decompresses it into
-/// `~/.rts/artifacts` — is real engineering with no new decision to justify it,
-/// and this crate's own rule (CLAUDE.md's iteration-speed rule) is to spend that
-/// kind of time only where it earns something a cheaper mechanism cannot. A
-/// path lookup with a LOUD staleness check earns the same correctness for a
-/// fraction of the cost, and is what this is.
+/// Locates the `rts-runtime-rwk` staticlib `rts compile` links the AOT objects
+/// against.
 ///
 /// # `target/` is preferred, the embedded copy is the fallback
 ///

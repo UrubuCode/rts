@@ -242,7 +242,9 @@ pub trait TextMeasurer {
 
 Thus `rts-html` is testable in isolation (with a mock measurer) and could, in the future, have another paint backend. Each phase is a folder (`dom/`, `css/`, `style/`, `layout/`, `paint/`) with `mod.rs` + submodules, respecting the project's 500-line/file ceiling.
 
-On the PRIMORDIAL-vs-Registry doctrine: HTML/CSS **have no native syntax** in JS/TS, therefore they CANNOT be named in `rts-codegen-new`. They live in Rust as **render primitives** exposed via ABI namespace (`egui.html` is a `NamespaceMember` in `SPECS`, just like `io.print`). The high-level logic (assembling the HTML string, reacting to events) is TS. The codegen engine never mentions "html" — it only resolves a generic namespace call. None of this crosses the codegen: it is the same boundary as `io`/`fs`/`ui`.
+On the PRIMORDIAL-vs-Registry doctrine: HTML/CSS **have no native syntax** in JS/TS, therefore they CANNOT be named in the compiler (the doctrine was
+`rts-codegen-new`'s, and that crate was deleted on 2026-08-10; `rts-codegen`
+knows the language and no library, which says the same thing). They live in Rust as **render primitives** exposed via ABI namespace (`egui.html` is a `NamespaceMember` in `SPECS`, just like `io.print`). The high-level logic (assembling the HTML string, reacting to events) is TS. The codegen engine never mentions "html" — it only resolves a generic namespace call. None of this crosses the codegen: it is the same boundary as `io`/`fs`/`ui`.
 
 ---
 

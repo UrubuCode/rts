@@ -115,7 +115,8 @@ safety net (if F4 slips, nothing regresses).
 - **Usable:** everything that runs today keeps running + sound base for caches/events.
 - **Delivers:** (a) **version NodeId** `{idx, gen}` (invariant 2); (b) hash of the
   HTML string in the `UiCtx`; (c) **split of `frame.rs`** (already > 500 lines — the
-  `read_before_commit.sh` gate fires) into `frame/render_block.rs` /
+  500-line ceiling in `CLAUDE.md`; the `read_before_commit.sh` gate that used to
+  catch it was deleted with the crate it checked) into `frame/render_block.rs` /
   `render_inline.rs` / `painter.rs`; (d) egui-free `style.rs` with OWN types
   (`u32 RGBA`, `Dimension{Auto,Px,Percent}`) — **never** `Color32`/`FontId`/`Vec2`
   (otherwise the anti-`rts-html` argument falls and the separation becomes a lie); (e) **3
@@ -318,8 +319,8 @@ fails if rich-WRAP still falls into `horizontal_wrapped` after F4).
 Mechanisms that fail the build/test if an invariant is violated — we don't trust
 manual discipline:
 
-- **F0:** `frame.rs` split (the `read_before_commit.sh` gate already fires at > 500
-  lines — use that as the split's kill-gate).
+- **F0:** `frame.rs` split (over the 500-line ceiling in `CLAUDE.md`; no script
+  enforces it any more, so the split is the reviewer's job).
 - **F4:** a test that fails if the rich-WRAP branch still falls into `horizontal_wrapped`
   after F4 (the coexistence has to die where it should).
 - **F4 pre-spike:** the baseline-matching is proven in a screenshot fixture before

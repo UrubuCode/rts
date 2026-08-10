@@ -1,204 +1,47 @@
-use std::io::Read;
-use std::path::{Path, PathBuf};
+//! The AOT runtime archive `rts compile` links against, embedded in this binary
+//! and materialized under `~/.rts/` on demand.
+//!
+//! # What used to be here
+//!
+//! Two archives. The old engine's `rts-runtime` staticlib was embedded beside
+//! this one, extracted to `~/.rts/artifacts/`, and reachable through
+//! `rts::rt_artifacts` / `rts-cli`'s `runtime_archive` — none of which anything
+//! called after `rts compile` moved to the new engine. It was ~18 MB of the
+//! shipped binary and a `build.rs` step compressing ~99 MB at level 19 on every
+//! build that touched the runtime, for a path with no callers.
+//!
+//! The cross-target machinery went with it: a prebuilt-directory lookup, a
+//! download URL and two environment variables, all reachable only from the old
+//! engine's `ensure_artifacts_for_target`. Nothing here asks for a cross-target
+//! archive yet, and re-deriving that machinery when something does is cheaper
+//! than keeping a copy nothing exercises.
+
+use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 
-/// zstd-compressed combined Rust staticlib for all runtime namespaces
-/// (gc + io + fs + …) for the **host** target. Compiled + compressed at build
-/// time; decompressed to `~/.rts/artifacts/<host-triple>.a` on demand. Keeps the
-/// shipped `rts` binary small (~99MB raw -> ~18MB embedded).
-static RUNTIME_ARCHIVE_ZST: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/runtime_support.a.zst"));
-
-/// sha256 (hex) of the *decompressed* archive, computed by `build.rs`.
-/// The sentinel `PLACEHOLDER` means the rts-runtime staticlib was not available
-/// at compile time (AOT will bail with a clear message; JIT is unaffected).
-static RUNTIME_ARCHIVE_SHA: &str =
-    include_str!(concat!(env!("OUT_DIR"), "/runtime_support.sha256"));
-
-/// Target triple the embedded archive was compiled for (the build host). Emitted
-/// by `build.rs` from Cargo's `TARGET`. Cross targets are NOT embedded — they are
-/// resolved from prebuilt per-target archives (see `ensure_cross_artifact`).
+/// Target triple the embedded archive was compiled for (the build host).
+///
+/// Emitted by `build.rs` from Cargo's `TARGET`. Cross targets are not embedded.
 const HOST_TARGET: &str = env!("RTS_HOST_TARGET");
 
-/// Same idea as [`RUNTIME_ARCHIVE_ZST`]/[`RUNTIME_ARCHIVE_SHA`], for the NEW
-/// engine's AOT runtime archive (`rts-runtime-rwk`, over `rts-core-rwk` +
-/// `rts-std-rwk` + `rts-node-rwk`). Kept as separate statics/paths rather than
-/// generalizing into one embed-and-extract routine parameterized by name: the
-/// two archives have different staleness semantics (see `runtime_archive_rwk`
-/// in `rts-cli`, which still prefers a fresh `target/` build over this embedded
-/// copy — a dev convenience the old-engine path does not offer), so sharing the
-/// mechanism would have hidden that difference behind a shared abstraction.
+/// The new engine's AOT runtime archive (`rts-runtime-rwk`, over `rts-core-rwk`
+/// + `rts-std-rwk` + `rts-node-rwk`), zstd-compressed at build time.
 static RUNTIME_ARCHIVE_RWK_ZST: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/runtime_support_rwk.a.zst"));
 
-/// sha256 (hex) of the decompressed new-engine archive, or `PLACEHOLDER` if
+/// sha256 (hex) of the decompressed archive, or `PLACEHOLDER` if
 /// `rts-runtime-rwk` had no staticlib built at compile time.
+///
+/// The hash is what makes re-extraction conditional: an `rts` rebuilt with a new
+/// runtime writes a new archive, and one that was not rebuilt reads the file
+/// already on disk.
 static RUNTIME_ARCHIVE_RWK_SHA: &str =
     include_str!(concat!(env!("OUT_DIR"), "/runtime_support_rwk.sha256"));
 
-/// Directory of prebuilt per-target archives (`<dir>/<triple>.a`). Set by users
-/// who cross-compile and ship their own runtime archives.
-const RUNTIME_OBJECTS_DIR_ENV: &str = "RTS_RUNTIME_OBJECTS_DIR";
-
-/// Optional URL template for downloading a prebuilt archive on demand. The
-/// `{target}` placeholder is replaced with the triple. CI publishes per-target
-/// archives that this can point at.
-const RUNTIME_ARCHIVE_URL_ENV: &str = "RTS_RUNTIME_ARCHIVE_URL";
-
-/// Returns the runtime archive for the **host** target (the common case).
-pub(crate) fn ensure_artifacts() -> Result<PathBuf> {
-    ensure_artifacts_for_target(HOST_TARGET)
-}
-
-/// Returns `~/.rts/artifacts/<target>.a`, materializing it on demand.
-///
-/// - **host target**: decompress the archive embedded in this `rts` binary.
-/// - **cross target**: locate a prebuilt `<target>.a` (env dir, then a
-///   `runtime-objects/` folder next to the executable, then an optional download
-///   URL), because a single `rts` binary only embeds its host archive.
-///
-/// This is a global user-level cache shared by all projects; re-materialization
-/// of the host archive only happens when `rts` itself is rebuilt with a new
-/// runtime (detected via the embedded sha256).
-pub(crate) fn ensure_artifacts_for_target(target: &str) -> Result<PathBuf> {
-    let target = target.trim();
-    if target.is_empty() {
-        bail!("empty target triple for runtime artifacts");
-    }
-
-    let path = artifact_path(target)?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("create artifacts dir {}", parent.display()))?;
-    }
-
-    if target == HOST_TARGET {
-        ensure_host_artifact(&path)
-    } else {
-        ensure_cross_artifact(target, &path)
-    }
-}
-
-/// Host path: decompress the embedded archive when the on-disk file is missing or
-/// differs from the embedded one (sha256 compare).
-fn ensure_host_artifact(path: &Path) -> Result<PathBuf> {
-    let expected = RUNTIME_ARCHIVE_SHA.trim();
-    if expected == "PLACEHOLDER" {
-        bail!(
-            "runtime archive is a placeholder — it was not built when `rts` was \
-             compiled. AOT (`rts compile`) needs the full runtime staticlib. \
-             Build it with `cargo build -p rts-runtime` (matching the profile), \
-             then rebuild `rts`. JIT (`rts run`) does not require this."
-        );
-    }
-
-    let up_to_date = if path.is_file() {
-        let on_disk = std::fs::read(path).with_context(|| format!("read {}", path.display()))?;
-        sha256_hex(&on_disk) == expected
-    } else {
-        false
-    };
-
-    if !up_to_date {
-        let bytes = decompress(RUNTIME_ARCHIVE_ZST)?;
-        std::fs::write(path, &bytes).with_context(|| format!("write {}", path.display()))?;
-    }
-
-    Ok(path.to_path_buf())
-}
-
-/// Cross path: a single `rts` binary only embeds its host archive, so a prebuilt
-/// `<target>.a` must be provided externally.
-fn ensure_cross_artifact(target: &str, path: &Path) -> Result<PathBuf> {
-    if path.is_file() {
-        return Ok(path.to_path_buf());
-    }
-
-    if let Some(src) = locate_prebuilt(target)? {
-        std::fs::copy(&src, path)
-            .with_context(|| format!("copy {} -> {}", src.display(), path.display()))?;
-        return Ok(path.to_path_buf());
-    }
-
-    if let Some(template) = std::env::var(RUNTIME_ARCHIVE_URL_ENV)
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-    {
-        let url = template.replace("{target}", target);
-        let bytes = download_url_bytes(&url)?;
-        std::fs::write(path, &bytes).with_context(|| format!("write {}", path.display()))?;
-        return Ok(path.to_path_buf());
-    }
-
-    bail!(
-        "no prebuilt runtime archive for cross target '{target}'. This `rts` only \
-         embeds the host archive ('{HOST_TARGET}'). Provide a `<target>.a` via \
-         ${RUNTIME_OBJECTS_DIR_ENV}, a `runtime-objects/{target}.a` next to the \
-         `rts` executable, or set ${RUNTIME_ARCHIVE_URL_ENV} (with a {{target}} \
-         placeholder). Per-target archives are published by CI \
-         (cargo build -p rts-runtime --target {target})."
-    )
-}
-
-/// Looks for a prebuilt `<target>.a` in the env-configured directory, then in a
-/// `runtime-objects/` folder next to the running executable.
-fn locate_prebuilt(target: &str) -> Result<Option<PathBuf>> {
-    let file = format!("{target}.a");
-
-    if let Some(dir) = std::env::var(RUNTIME_OBJECTS_DIR_ENV)
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-    {
-        let candidate = PathBuf::from(dir).join(&file);
-        if candidate.is_file() {
-            return Ok(Some(candidate));
-        }
-    }
-
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let candidate = dir.join("runtime-objects").join(&file);
-            if candidate.is_file() {
-                return Ok(Some(candidate));
-            }
-        }
-    }
-
-    Ok(None)
-}
-
-fn download_url_bytes(url: &str) -> Result<Vec<u8>> {
-    let response = ureq::get(url)
-        .call()
-        .with_context(|| format!("download runtime archive from {url}"))?;
-    let mut bytes = Vec::new();
-    response
-        .into_reader()
-        .read_to_end(&mut bytes)
-        .with_context(|| format!("read runtime archive body from {url}"))?;
-    Ok(bytes)
-}
-
-fn decompress(zst: &[u8]) -> Result<Vec<u8>> {
-    zstd::decode_all(zst).context("decompress embedded runtime archive")
-}
-
-fn artifact_path(target: &str) -> Result<PathBuf> {
-    Ok(crate::registers::rts_home()?
-        .join("artifacts")
-        .join(format!("{target}.a")))
-}
-
-/// Returns the NEW engine's runtime archive for the host target, materializing
-/// it on demand from the embedded copy.
-///
-/// Only the host case exists here — unlike the old engine, nothing yet asks for
-/// a cross-target new-engine archive, so `ensure_cross_artifact`'s download/
-/// prebuilt-dir machinery is not duplicated until something needs it.
+/// Returns the runtime archive for the host target, materializing it on demand
+/// from the embedded copy.
 pub(crate) fn ensure_artifacts_rwk() -> Result<PathBuf> {
     let path = artifact_path_rwk(HOST_TARGET)?;
     if let Some(parent) = path.parent() {
@@ -223,17 +66,20 @@ pub(crate) fn ensure_artifacts_rwk() -> Result<PathBuf> {
     };
 
     if !up_to_date {
-        let bytes = decompress(RUNTIME_ARCHIVE_RWK_ZST)?;
+        let bytes =
+            zstd::decode_all(RUNTIME_ARCHIVE_RWK_ZST).context("decompress runtime archive")?;
         std::fs::write(&path, &bytes).with_context(|| format!("write {}", path.display()))?;
     }
 
     Ok(path)
 }
 
-/// `~/.rts/artifacts-rwk/<target>.a` — a directory distinct from the old
-/// engine's `~/.rts/artifacts/<target>.a` so extracting one archive can never
-/// silently overwrite, or be shadowed by, the other. Both engines' AOT paths
-/// can then have a materialized archive on disk at once.
+/// `~/.rts/artifacts-rwk/<target>.a`.
+///
+/// The `-rwk` suffix outlived the directory it was distinguishing itself from —
+/// the old engine's `~/.rts/artifacts/` is no longer written by anything. Kept
+/// because an installed `rts` already extracted into this path, and renaming it
+/// would leave every existing installation with a stale archive it never reads.
 fn artifact_path_rwk(target: &str) -> Result<PathBuf> {
     Ok(crate::registers::rts_home()?
         .join("artifacts-rwk")

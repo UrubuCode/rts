@@ -262,7 +262,14 @@ fn ts_signature(js: &str, function: &ImplItemFn) -> String {
             // about, so the position is what identifies it.
             _ => format!("arg{position}"),
         };
-        params.push(format!("{name}: {}", ts_type(&typed.ty)));
+        // Every parameter is OPTIONAL, and that is what the call actually
+        // permits rather than a convenience. A compiled call carries four
+        // argument slots; an omitted one arrives as `undefined` and the member
+        // decides what that means — `Buffer.alloc(8)` runs, and so does
+        // `big.toString()`. Declaring them required refuses both at the type
+        // checker while the runtime accepts them, which is the one kind of
+        // wrongness a `.d.ts` cannot be forgiven for: it stops correct programs.
+        params.push(format!("{name}?: {}", ts_type(&typed.ty)));
     }
     let returns = match &function.sig.output {
         ReturnType::Default => "void".to_owned(),
