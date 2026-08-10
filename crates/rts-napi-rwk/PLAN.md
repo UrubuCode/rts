@@ -20,11 +20,20 @@ The engine piece it needed — a root the collector can see that is not on a fra
 `collect_cycle::a_value_held_from_outside_the_heap_survives_and_stops_when_released`
 is what says it works.
 
-## P2 — objects and properties
+## P2 — objects and properties (DONE)
 
-`napi_create_object`, `get`/`set`/`has`/`delete_property`, named and indexed,
-`napi_get_property_names`. All of it is `rts-core`'s `objects`/`computed`
-surface; nothing new is needed underneath.
+`napi_create_object`, `get`/`set`/`has`/`delete_property` by key and by name,
+`napi_get_property_names`, the array surface (`create_array`,
+`create_array_with_length`, `is_array`, `get_array_length`, `get`/`set_element`)
+and `napi_get_value_string_utf8`, which is here rather than with the other value
+reads because it is the one that writes into memory the ADDON owns.
+
+It needed nothing new underneath, which was the prediction and is worth
+recording as kept: every one of them forwards to `rts-core`'s `computed` or
+`modules` surface. Two decisions are pinned by tests rather than by comment — a
+missing property is `napi_ok` with `undefined` (the language's answer and the
+ABI's are the same one), and a truncated string stops at a CHARACTER boundary,
+never mid-sequence.
 
 ## P3 — functions, both directions
 
