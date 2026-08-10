@@ -139,7 +139,7 @@ pub fn context_roots(context: &Context) -> Vec<Slot> {
             .iter()
             .filter_map(|(_, strings)| *strings),
     );
-    words.extend(context.modules.iter().map(|(_, namespace)| *namespace));
+    words.extend(context.modules.iter().map(|held| held.namespace));
     words.extend(
         context
             .classes
