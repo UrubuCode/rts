@@ -74,14 +74,26 @@ Same rule the host has. `napi_get_property` asks `rts-core` what a property is;
 it does not walk a prototype chain of its own. Where this crate seems to need a
 semantic, the semantic belongs one layer down.
 
-## What is absent, and what it is waiting on
+## What this table used to say, and what happened to it
 
-| absent | needs |
-|---|---|
-| `napi_wrap` / external values | a place to keep a raw pointer beside a cell — `rts-core`'s `Aside<T>` is the shape |
-| finalizers | somewhere to run them: the collector frees a cell today and tells nobody |
-| threadsafe functions | a second thread that can reach a `Context`, which this engine does not have (`CLAUDE.md`'s `thread` entry says why) |
-| async work | the above, plus a queue the host's loop drains |
+Four rows, each naming an engine gap: a pointer beside a cell, somewhere to run
+finalizers, a thread that can reach a `Context`, a queue the loop drains. All
+four are now in — the first two as capabilities added to `rts-core`
+(`entry::foreign`, `entry::finalize`), the last two by reading the ABI properly.
 
-Each is a gap in the ENGINE, not a missing switch here, and each is listed in
-`PLAN.md` with the phase that closes it.
+The threading row was the interesting one, because it was **wrong**. It said
+threadsafe functions needed "a second thread that can reach a `Context`". They
+do not: `napi_call_threadsafe_function` takes no `napi_value` and returns none,
+and an `execute` callback may not call `napi_*` at all. The ABI already draws
+its line where this engine needs one, so what crosses a thread is the addon's
+own pointer and nothing else. `CLAUDE.md`'s `thread` entry — about running
+JAVASCRIPT on two threads — is untouched and still true.
+
+## What is absent now
+
+`napi_define_class` and the property-descriptor surface, `napi_new_instance`,
+BigInt and Date conversions, buffers and typed arrays, `napi_throw` and the
+error surface, and the module registration a real `.node` enters through (P8).
+
+None of them is waiting on the engine. They are volume, and `PLAN.md` says
+which phase each belongs to.

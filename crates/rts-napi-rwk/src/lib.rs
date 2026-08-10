@@ -27,6 +27,8 @@
 //! P7a: async work — `execute` on a worker thread, `complete` back on the
 //! JavaScript thread.
 //!
+//! P7b: threadsafe functions — any thread asks, the JavaScript thread calls.
+//!
 //! Everything else in the ABI is absent rather than stubbed; an absent symbol
 //! fails to link loudly, which is the answer an addon can act on.
 //!
@@ -57,6 +59,7 @@ pub mod functions;
 pub mod handles;
 pub mod objects;
 pub mod references;
+pub mod threadsafe;
 pub mod values;
 pub mod wrap;
 
