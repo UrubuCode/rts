@@ -497,8 +497,29 @@ fn allocate_for_target(callee: u64) -> Option<u64> {
     with_current(|context| {
         let target = context.new_targets.last().copied().unwrap_or(callee);
         let cell = Value(target).as_slot().or_else(|| Value(callee).as_slot())?;
+        // A `.bind()`-produced function has no OWN `prototype` — the language
+        // never gives one a property by that name — so reading it here used
+        // to answer `None` and `allocate_for_target` answered `None` right
+        // behind it: `new boundFn()` and `Reflect.construct(boundFn, [])`
+        // both silently produced `undefined` instead of delegating to the
+        // function underneath. `[[Construct]]` on a bound function is defined
+        // as `[[Construct]]` on its TARGET, so the prototype it allocates
+        // against is the target's — walked through, because a bound function
+        // may itself bind another one.
+        let mut resolved = cell;
+        loop {
+            let key = prototype_key(context);
+            if super::objects::read_property(context, resolved, key).is_some() {
+                break;
+            }
+            let Some(next) = context.bound_at(resolved).and_then(|bound| Value(bound.target).as_slot())
+            else {
+                break;
+            };
+            resolved = next;
+        }
         let key = prototype_key(context);
-        let prototype = super::objects::read_property(context, cell, key)?;
+        let prototype = super::objects::read_property(context, resolved, key)?;
 
         let shape = context.shapes.root();
         let ty = context.layout_of(shape).index() as u32;

@@ -658,6 +658,18 @@ pub fn object_spread(target: u64, source: u64) -> u64 {
         let value = super::computed::get_indexed(source, key);
         super::computed::set_indexed(target, key, value);
     }
+    // The same gap `Object.assign` had, for the same reason: `key_texts` is
+    // the string enumeration and a symbol has no string spelling for it to
+    // report, so `{ ...withSym }` used to answer an object with every key but
+    // the symbol one.
+    let symbols = with_current(|context| super::array::symbol_keyed(context, source));
+    for (key, value) in symbols {
+        with_current(|context| {
+            if let Some(cell) = Value(target).as_slot() {
+                put(context, cell, key, value);
+            }
+        });
+    }
     target
 }
 

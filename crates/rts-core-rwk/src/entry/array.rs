@@ -232,9 +232,20 @@ pub(in crate::entry) fn key_texts(
         // and no accessors, so there is nothing further in this function for
         // it to reach.
         if let Some(text) = context.text_at(slot) {
-            return (0..text.units().count())
+            let mut keys: Vec<Str> = (0..text.units().count())
                 .map(|index| crate::coerce::number_to_string(index as f64))
                 .collect();
+            // `"length"` too, but only for `getOwnPropertyNames`: a boxed
+            // string has an own, non-enumerable `length`, the same as an
+            // array's, and `Object.keys`/`for`-`in` are right to skip it —
+            // `getOwnPropertyNames` is not, and used to stop at the indices,
+            // so `new String("hi")`'s own names answered `["0","1"]` and
+            // never the one every other own-name walk here already gives an
+            // array.
+            if !enumerable_only {
+                keys.push(Str::from_str("length"));
+            }
+            return keys;
         }
 
         let mut keys: Vec<Str> = Vec::new();
@@ -308,6 +319,64 @@ pub(in crate::entry) fn key_texts(
         }
         ordered(keys)
     }
+}
+
+/// The symbol-keyed enumerable own properties `key_texts` deliberately drops.
+///
+/// `Object.keys`/`for`-`in` are right to skip a symbol key — it has no string
+/// spelling for either to report — but `Object.assign` and object-spread copy
+/// **every** enumerable own property, symbols included, and used to answer an
+/// object merge that silently dropped a `[sym]: v` entry. That is data loss
+/// dressed as success, the shape this crate's honesty rules single out as
+/// worse than a refusal.
+///
+/// Answered as `(machine key, value)` rather than routed back through a JS
+/// value and `get_indexed`: a symbol has no value this engine can name outside
+/// its own key encoding (see [`super::symbol`]), so reading the value directly
+/// off the shape is the only path there is.
+pub(in crate::entry) fn symbol_keyed(context: &mut Context, object: u64) -> Vec<(crate::object::Key, u64)> {
+    symbol_keyed_with(context, object, true)
+}
+
+/// The same walk, every own symbol key rather than only the enumerable ones —
+/// what `Object.getOwnPropertySymbols` needs, for the reason
+/// `getOwnPropertyNames` differs from `Object.keys`: enumerability is a filter
+/// on top of ownership, not part of what "has this key" means.
+pub(in crate::entry) fn symbol_keyed_with(
+    context: &mut Context,
+    object: u64,
+    enumerable_only: bool,
+) -> Vec<(crate::object::Key, u64)> {
+    let Some(slot) = Value(object).as_slot() else {
+        return Vec::new();
+    };
+    let Some(ty) = context.region.type_of(slot) else {
+        return Vec::new();
+    };
+    let Some(shape) = context.shape_of(ty) else {
+        return Vec::new();
+    };
+    let keys: Vec<rts_cranelift::shape::Key> = context
+        .shapes
+        .properties(shape)
+        .into_iter()
+        .filter(|(key, _)| !enumerable_only || super::integrity::enumerable(context, slot, *key))
+        .filter(|(key, _)| {
+            context
+                .interner
+                .text(*key)
+                .and_then(|text| text.to_rust())
+                .as_deref()
+                .is_some_and(super::symbol::is_symbol_key)
+        })
+        .map(|(key, _)| key)
+        .collect();
+    keys.into_iter()
+        .filter_map(|key| {
+            let value = super::objects::read_property(context, slot, crate::object::Key::Name(key))?;
+            Some((crate::object::Key::Name(key), value.bits()))
+        })
+        .collect()
 }
 
 /// The shared walk.

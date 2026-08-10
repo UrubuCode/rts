@@ -113,6 +113,30 @@ macro_rules! declare {
                 fn fill(this: u64, value: u64, begin: u64, end: u64) -> u64 {
                     typed::fill(this, value, begin, end)
                 }
+
+                /// `t.includes(search, from)`.
+                fn includes(this: u64, search: u64, from: u64) -> bool {
+                    typed::includes(this, search, from)
+                }
+
+                /// `t.values()`. `for`-`of` and spread reach a typed array's
+                /// elements directly — `iterate::iterate` knows a view — so
+                /// no `[Symbol.iterator]` member is installed here; only this
+                /// named method, which the elder engine's tests reach through
+                /// `[...t.values()]`.
+                fn values(this: u64) -> u64 {
+                    typed::values(this)
+                }
+
+                /// `t.keys()`.
+                fn keys(this: u64) -> u64 {
+                    typed::keys(this)
+                }
+
+                /// `t.entries()`.
+                fn entries(this: u64) -> u64 {
+                    typed::entries(this)
+                }
             }
 
             #[doc = concat!("Installs `", $js, "`, and its constructor's `BYTES_PER_ELEMENT`.")]

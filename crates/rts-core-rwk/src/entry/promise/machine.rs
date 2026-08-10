@@ -127,7 +127,9 @@ pub fn promise_await(promise: u64) -> u64 {
         return promise;
     }
     loop {
-        if let Some((settlement, value)) = with_current(|context| outcome_of(context, promise)) {
+        if let Some((settlement, value)) =
+            with_current(|context| outcome_of_and_notice(context, promise))
+        {
             return match settlement {
                 Settlement::Fulfilled => value,
                 // A rejection crossing an `await` is a throw, which is what the
@@ -214,4 +216,19 @@ fn id_of(context: &Context, value: u64) -> Option<rts_cranelift::sched::PromiseI
 fn outcome_of(context: &Context, value: u64) -> Option<(Settlement, u64)> {
     let id = id_of(context, value)?;
     context.promises.outcome(id)
+}
+
+/// The same, and marks the settlement as looked at.
+///
+/// [`promise_await`]'s own poll — the branch that actually answers — is the
+/// only caller: the ones that only ask "has it settled yet, so I know whether
+/// to keep polling" must not mark it noticed on a `None`, and the immutable
+/// `outcome_of` above stays the right tool for that.
+fn outcome_of_and_notice(context: &mut Context, value: u64) -> Option<(Settlement, u64)> {
+    let id = id_of(context, value)?;
+    let outcome = context.promises.outcome(id);
+    if outcome.is_some() {
+        context.promises.notice(id);
+    }
+    outcome
 }

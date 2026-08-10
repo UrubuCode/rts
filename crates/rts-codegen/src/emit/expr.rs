@@ -238,10 +238,19 @@ pub fn emit_expr(
         // drains until the promise settles, so this frame keeps the machine
         // rather than yielding to its caller. That divergence is stated in
         // `rts-core-rwk`'s `promise/machine.rs`, which is the half that does it.
+        // A rejected promise raises through the in-flight throw INSIDE
+        // `promise_await` (`rts-core-rwk`), the same mechanism a native uses
+        // under rule 8 — but that native is reached by a raw machine call
+        // `rts-cranelift` emits for `Inst::Await`, never through this crate's
+        // `call` helper, so nothing asked afterward. `raise_if_thrown` is the
+        // same branch-and-reraise `check_for_throw` gives every `RuntimeOp`
+        // call, applied here explicitly because this is not one.
         ExprKind::Await(inner) => {
             let produced = emit_expr(builder, scope, ctx, inner)?;
             let promise = as_value(builder, produced);
-            Ok(builder.await_(promise))
+            let awaited = builder.await_(promise);
+            raise_if_thrown(builder, ctx)?;
+            Ok(awaited)
         }
         // Two operations, not one. The call hands the value over; the suspension
         // parks the frame, and its RESULT is what the next resumption delivers —
@@ -421,9 +430,31 @@ pub(super) fn call(
 /// per operation, it has not been measured, and this repository's rule is that a
 /// performance claim is a measurement or nothing.
 fn check_for_throw(builder: &mut FuncBuilder, ctx: &mut Ctx, op: RuntimeOp) -> EmitResult<()> {
+    if matches!(op, RuntimeOp::Thrown | RuntimeOp::TakeThrown) {
+        return Ok(());
+    }
+    raise_if_thrown(builder, ctx)
+}
+
+/// The branch-and-reraise `check_for_throw` performs, without the guard that is
+/// specific to a `RuntimeOp` call site.
+///
+/// # Why `Inst::Await` needs this directly
+///
+/// `await` does not lower through [`call`] — `rts-cranelift` lowers
+/// `Inst::Await` straight to `RtEntry::PromiseAwait`, a machine-level call this
+/// layer never sees as a `RuntimeOp`. `promise_await` (`rts-core-rwk`,
+/// `entry/promise/machine.rs`) already raises through the in-flight throw when
+/// the awaited promise rejected — its own doc says a `try` around an `await`
+/// "reaches this one like any other call site", which was only true if
+/// something here asked. Nothing did: `ExprKind::Await` produced the value and
+/// moved on, so the rejection stayed flagged and unread until whatever ran next
+/// happened to ask — usually nothing did before the top level, which is why it
+/// surfaced as an unhandled rejection instead of a caught one.
+pub(super) fn raise_if_thrown(builder: &mut FuncBuilder, ctx: &mut Ctx) -> EmitResult<()> {
     // Not inside a cleanup: its block has a shape the machine checks, and a
     // branch breaks it. See `Ctx::in_cleanup` for what that costs.
-    if ctx.in_cleanup || matches!(op, RuntimeOp::Thrown | RuntimeOp::TakeThrown) {
+    if ctx.in_cleanup {
         return Ok(());
     }
     let asked = ctx.calls.declare(ctx.funcs, RuntimeOp::Thrown);
@@ -749,11 +780,23 @@ fn emit_assign(
             }
             // Not the same as `o.x = o.x && v`. When the left side decides,
             // the specification performs no write at all — which is observable
-            // through a setter, and through a property on a frozen object.
-            // Emitting the write anyway would be correct for plain data and
-            // wrong for exactly the objects the operator was added for.
-            AssignOp::Logical(_) => {
-                return gap("`&&=`, `||=` or `??=` on a property");
+            // through a setter, and through a property on a frozen object. So
+            // the write below sits *inside* the branch that ran, through
+            // `emit_logical_write`, rather than after it unconditionally.
+            AssignOp::Logical(logical) => {
+                let current = super::property::emit_read(builder, ctx, receiver, *property)?;
+                let property = *property;
+                return super::choice::emit_logical_write(
+                    builder,
+                    scope,
+                    ctx,
+                    logical,
+                    current,
+                    value,
+                    |builder, _scope, ctx, new_value| {
+                        super::property::emit_write(builder, ctx, receiver, property, new_value)
+                    },
+                );
             }
         };
         return super::property::emit_write(builder, ctx, receiver, *property, assigned);
@@ -797,7 +840,20 @@ fn emit_assign(
                     let operand = emit_expr(builder, scope, ctx, value)?;
                     emit_binary(builder, ctx, binary, current, operand)?
                 }
-                AssignOp::Logical(_) => return gap("`&&=`, `||=` or `??=` on a property"),
+                AssignOp::Logical(logical) => {
+                    let current = super::property::emit_read(builder, ctx, receiver, name)?;
+                    return super::choice::emit_logical_write(
+                        builder,
+                        scope,
+                        ctx,
+                        logical,
+                        current,
+                        value,
+                        |builder, _scope, ctx, new_value| {
+                            super::property::emit_write(builder, ctx, receiver, name, new_value)
+                        },
+                    );
+                }
             };
             return super::property::emit_write(builder, ctx, receiver, name, assigned);
         }
@@ -809,10 +865,28 @@ fn emit_assign(
                 let operand = emit_expr(builder, scope, ctx, value)?;
                 emit_binary(builder, ctx, binary, current, operand)?
             }
-            // The same reason the named case refuses it: when the left side
-            // decides, the specification performs no write, which a setter
-            // observes.
-            AssignOp::Logical(_) => return gap("`&&=`, `||=` or `??=` on a property"),
+            // The same as the named case: when the left side decides, the
+            // specification performs no write, which a setter observes.
+            AssignOp::Logical(logical) => {
+                let current = call(builder, ctx, RuntimeOp::GetIndexed, &[receiver, key])?[0];
+                return super::choice::emit_logical_write(
+                    builder,
+                    scope,
+                    ctx,
+                    logical,
+                    current,
+                    value,
+                    |builder, _scope, ctx, new_value| {
+                        let new_value = tagged(builder, new_value);
+                        Ok(call(
+                            builder,
+                            ctx,
+                            RuntimeOp::SetIndexed,
+                            &[receiver, key, new_value],
+                        )?[0])
+                    },
+                );
+            }
         };
         let assigned = tagged(builder, assigned);
         return Ok(call(

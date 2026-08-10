@@ -117,7 +117,7 @@ impl Function {
 /// a program able to write either would be choosing what the next call jumps to.
 pub(super) struct Bound {
     /// The function the bound one calls.
-    target: u64,
+    pub(super) target: u64,
     /// The receiver it calls it with, whatever the caller passes.
     receiver: u64,
     /// The arguments that come before the caller's.

@@ -98,6 +98,10 @@ pub struct Cx<'a> {
     pub names: &'a mut Names,
     /// Which language this is.
     pub goal: Goal,
+    /// Every namespace name a `var N;` has already been emitted for, so a
+    /// second `namespace N { … }` block in the same file merges into the first
+    /// object instead of shadowing it with a second hoisted declaration.
+    pub(crate) declared_namespaces: std::collections::HashSet<crate::names::Name>,
 }
 
 impl Cx<'_> {
@@ -176,7 +180,11 @@ pub fn parse_as(source: &str, goal: Goal, dialect: Dialect, names: &mut Names) -
     for syntax in candidates {
         match parse_with(source, *syntax) {
             Ok(program) => {
-                let mut cx = Cx { names, goal };
+                let mut cx = Cx {
+                    names,
+                    goal,
+                    declared_namespaces: std::collections::HashSet::new(),
+                };
                 let tree = item::program(&mut cx, &program, goal)?;
                 // An early error is a *syntax* error: a program with one is
                 // refused before any of it runs. So it is reported here, on the
@@ -226,7 +234,12 @@ fn strip_shebang(source: &str) -> &str {
 fn ts_syntax() -> Syntax {
     Syntax::Typescript(TsSyntax {
         tsx: false,
-        decorators: false,
+        // Only the grammar position — `@expr` before a class, method, property
+        // or parameter — is SWC's concern; it hands the decorator expressions
+        // back either way and takes no side on legacy `experimentalDecorators`
+        // versus the TC39 form. Deciding between those two is `emit/`'s job,
+        // and is where it is decided — see `emit/decorator.rs`.
+        decorators: true,
         dts: false,
         no_early_errors: false,
         disallow_ambiguous_jsx_like: false,

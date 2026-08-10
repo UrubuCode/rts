@@ -164,6 +164,31 @@ pub fn emit_logical_from(
     decided: ValueId,
     right: &Expr,
 ) -> EmitResult<ValueId> {
+    emit_logical_write(builder, scope, ctx, op, decided, right, |_, _, _, value| {
+        Ok(value)
+    })
+}
+
+/// The same short-circuit as [`emit_logical_from`], with a write performed
+/// only on the path that evaluated the right side.
+///
+/// What `obj.x ||= v` needs and a plain local does not: when the left side
+/// already decided, the specification performs **no write at all** — not a
+/// write of the value the left side held. That is observable through a
+/// setter and through a frozen object, so the write has to sit inside the
+/// branch that ran, rather than after the merge where both paths reach it.
+/// `write` receives the newly evaluated right-hand value and answers what the
+/// expression produced, which lets the property-write entry point (whatever
+/// it is for the target in hand) report back the value actually stored.
+pub fn emit_logical_write(
+    builder: &mut FuncBuilder,
+    scope: &mut Scope,
+    ctx: &mut Ctx,
+    op: LogicalOp,
+    decided: ValueId,
+    right: &Expr,
+    write: impl FnOnce(&mut FuncBuilder, &mut Scope, &mut Ctx, ValueId) -> EmitResult<ValueId>,
+) -> EmitResult<ValueId> {
     let before = scope.snapshot();
 
     let evaluate = builder.create_block();
@@ -184,10 +209,11 @@ pub fn emit_logical_from(
 
     builder.switch_to(evaluate);
     let value = emit_expr(builder, scope, ctx, right)?;
+    let written = write(builder, scope, ctx, value)?;
     let evaluated = Path {
         exit: builder.current(),
         bindings: scope.snapshot(),
-        value,
+        value: written,
     };
 
     scope.restore(&before);

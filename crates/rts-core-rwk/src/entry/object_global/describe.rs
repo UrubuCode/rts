@@ -45,6 +45,7 @@ pub(super) const STATICS: &[(&str, Native)] = &[
     ("getOwnPropertyNames", get_own_property_names),
     ("getOwnPropertyDescriptor", get_own_property_descriptor),
     ("getOwnPropertyDescriptors", get_own_property_descriptors),
+    ("getOwnPropertySymbols", get_own_property_symbols),
     ("defineProperties", define_properties),
     ("freeze", freeze),
     ("seal", seal),
@@ -201,6 +202,33 @@ extern "C" fn get_own_property_descriptor(
     }
 }
 
+/// `Object.getOwnPropertySymbols(o)`.
+///
+/// Was missing entirely — every symbol key an object holds was reachable
+/// from JavaScript, through `sym in obj` and `obj[sym]`, but there was no
+/// way to ENUMERATE them, which is what this answers: the array `for (const
+/// s of Object.getOwnPropertySymbols(o))` walks.
+extern "C" fn get_own_property_symbols(
+    _e: u64,
+    _this: u64,
+    object: u64,
+    _a1: u64,
+    _a2: u64,
+    _a3: u64,
+) -> u64 {
+    let symbols = with_current(|context| {
+        super::super::array::symbol_keyed_with(context, object, false)
+            .into_iter()
+            .filter_map(|(key, _)| match key {
+                Key::Name(named) => context.interner.text(named).and_then(|text| text.to_rust()),
+                Key::Index(_) => None,
+            })
+            .filter_map(|text| super::super::symbol::value_of_key_text(context, &text))
+            .collect::<Vec<u64>>()
+    });
+    super::super::array_proto::built(symbols)
+}
+
 /// `Object.getOwnPropertyDescriptors(o)` — one object holding all of them.
 extern "C" fn get_own_property_descriptors(
     _e: u64,
@@ -211,7 +239,13 @@ extern "C" fn get_own_property_descriptors(
     _a3: u64,
 ) -> u64 {
     let made = super::super::objects::object_new();
-    let names = super::super::array::own_keys(object);
+    // Every own key, `own_names` rather than `own_keys`: a property made
+    // non-enumerable through `defineProperty` is exactly the one this walk
+    // must not skip — the ENTIRE reason to call `getOwnPropertyDescriptors`
+    // over `Object.keys` is to see what the enumerable filter hides. Using
+    // the enumerable list here made such a property vanish from its own
+    // descriptor object rather than report `enumerable: false` on it.
+    let names = super::super::array::own_names(object);
     let Some(names) = elements(names) else {
         return made;
     };

@@ -272,6 +272,37 @@ pub(in crate::entry) fn fill(this: u64, value: u64, begin: u64, end: u64) -> u64
     })
 }
 
+/// Every element of a view, as the JS values they read as — the same answer
+/// [`element_at`] gives one at a time, gathered for whoever walks the whole
+/// view: `for`-`of`, `.values()`/`.keys()`/`.entries()`, `.includes()`.
+///
+/// `None` only for "not a view". An empty view answers `Some(vec![])`, which
+/// keeps a caller from having to tell "no view" and "zero elements" apart.
+pub(in crate::entry) fn elements(context: &mut Context, view: &View) -> Vec<u64> {
+    let kind = view.kind;
+    let size = kind.size();
+    let Some(bytes) = super::window(context, view) else {
+        return Vec::new();
+    };
+    // Read the words out first: a bigint element's conversion allocates,
+    // which needs the borrow this slice is holding to end first.
+    let words: Vec<Option<u64>> = (0..view.count())
+        .map(|at| match kind.is_bigint() {
+            true => super::element::word_at(bytes, at * size, kind, true),
+            false => super::element::read(bytes, at * size, kind, true)
+                .map(|number| Value::from_f64(number).bits()),
+        })
+        .collect();
+    words
+        .into_iter()
+        .map(|word| match (kind.is_bigint(), word) {
+            (true, Some(word)) => super::bigint_value(context, word, kind),
+            (_, Some(value)) => value,
+            (_, None) => Value::from_f64(0.0).bits(),
+        })
+        .collect()
+}
+
 /// An index within a view, or `None` for one outside it.
 fn resolve(view: &View, index: f64, negatives: bool) -> Option<usize> {
     if !index.is_finite() {
@@ -350,6 +381,82 @@ fn words_of(context: &Context, source: u64, kind: Kind) -> Vec<u64> {
 /// `BigInt64Array` full of zeros is what a program sees either way.
 fn word_of(context: &Context, value: u64, kind: Kind) -> u64 {
     super::element_word(context, value, kind).unwrap_or(0)
+}
+
+/// `t.includes(search, from)` — strict equality, like `Array.prototype`'s,
+/// except `NaN` matches itself here as it does there for `includes` (unlike
+/// `indexOf`).
+pub(in crate::entry) fn includes(this: u64, search: u64, from: u64) -> bool {
+    let from = super::optional_number(from);
+    with_current(|context| {
+        let Some(view) = super::view_of(context, this) else {
+            return false;
+        };
+        let values = elements(context, &view);
+        let start = match from {
+            Some(asked) if asked < 0.0 => {
+                (values.len() as f64 + asked).max(0.0) as usize
+            }
+            Some(asked) => asked as usize,
+            None => 0,
+        };
+        values
+            .get(start..)
+            .unwrap_or_default()
+            .iter()
+            .any(|held| crate::value::same_value_zero(Value(*held), Value(search), |a, b| context.same_text(a, b)))
+    })
+}
+
+/// `t.values()` — an iterator over the elements.
+///
+/// # Why the borrow ends before `over`
+///
+/// `list_iterator::over` takes its own [`with_current`] borrow to build the
+/// iterator object, and this function's own borrow — taken to read the
+/// view's bytes — has to be gone before that call or the second `RefCell`
+/// borrow aborts the process: a `with_current` inside a `with_current` is
+/// exactly the shape rule 8's neighbouring rule (the crate doc's borrow
+/// discipline) forbids, and there is no unwinding across this boundary to
+/// turn the mistake into a panic that could be caught.
+pub(in crate::entry) fn values(this: u64) -> u64 {
+    let Some(elements) = with_current(|context| {
+        super::view_of(context, this).map(|view| elements(context, &view))
+    }) else {
+        return with_current(|context| undefined_of(context));
+    };
+    let listed = with_current(|context| crate::entry::array::built_in(context, elements));
+    crate::entry::list_iterator::over(listed)
+}
+
+/// `t.keys()` — an iterator over the indices.
+pub(in crate::entry) fn keys(this: u64) -> u64 {
+    let Some(count) = with_current(|context| super::view_of(context, this).map(|view| view.count())) else {
+        return with_current(|context| undefined_of(context));
+    };
+    let indices = (0..count).map(|at| Value::from_f64(at as f64).bits()).collect();
+    let listed = with_current(|context| crate::entry::array::built_in(context, indices));
+    crate::entry::list_iterator::over(listed)
+}
+
+/// `t.entries()` — an iterator over `[index, element]` pairs.
+pub(in crate::entry) fn entries(this: u64) -> u64 {
+    let Some(values) = with_current(|context| {
+        super::view_of(context, this).map(|view| elements(context, &view))
+    }) else {
+        return with_current(|context| undefined_of(context));
+    };
+    let pairs: Vec<u64> = values
+        .into_iter()
+        .enumerate()
+        .map(|(index, value)| {
+            with_current(|context| {
+                crate::entry::array::built_in(context, vec![Value::from_f64(index as f64).bits(), value])
+            })
+        })
+        .collect();
+    let listed = with_current(|context| crate::entry::array::built_in(context, pairs));
+    crate::entry::list_iterator::over(listed)
 }
 
 /// A new instance of the view's own class, over these bytes.

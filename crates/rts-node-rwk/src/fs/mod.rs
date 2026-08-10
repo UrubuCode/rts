@@ -58,13 +58,17 @@
 //!
 //! # Not implemented, by name
 //!
-//! - **Every bare (non-`Sync`) top-level async/callback form** — `readFile`,
-//!   `writeFile`, and so on called directly off `fs` rather than
-//!   `fs.promises`. Blocked on the same no-user-code-reentry limit the module
-//!   doc states: a callback is user code a native cannot call back into.
+//! - **`readFile`/`writeFile`/`stat`/`exists`/`access`/`readdir`, the err-first
+//!   callback forms** — ARE implemented, see [`callbacks`]. What looked like a
+//!   re-entry problem was not one for a callback invoked exactly ONCE, inside
+//!   the native call that already has the answer: `fs/watch.rs`'s `pump`
+//!   already calls into JS the same way for a stored listener, so this reuses
+//!   that it is safe. The other bare forms below still are not implemented —
+//!   they need re-entry spread across more than one native call, which a
+//!   single err-first callback does not.
 //!   `fs.promises.*`/`fsPromises.*` (including `FileHandle`, see
-//!   [`handle`]) do not have this problem — they settle a `Promise` rather
-//!   than invoke anything, which is ordinary data a native can build.
+//!   [`handle`]) settle a `Promise` rather than invoke anything, which is
+//!   ordinary data a native can build.
 //! - **`readSync`/`writeSync`'s five-positional-argument form**
 //!   (`readSync(fd, buffer, offset, length, position)`) — a member here has
 //!   four call slots at most; the options-object form
@@ -109,10 +113,12 @@
 
 mod basic;
 mod bytes;
+mod callbacks;
 mod constants;
 mod dir;
 mod dirent;
 mod dirs;
+mod encoding;
 mod fd;
 mod glob;
 mod handle;
@@ -121,6 +127,8 @@ mod perms;
 mod promises;
 mod stats;
 mod statfs;
+mod streams;
+mod utf8stream;
 mod watch;
 
 use rts_core_rwk::entry::{Context, Provided};
@@ -177,11 +185,24 @@ pub fn namespace(context: &mut Context) -> u64 {
         ("watch", watch::watch),
         ("watchFile", watch::watch_file),
         ("unwatchFile", watch::unwatch_file),
+        ("readFile", callbacks::read_file),
+        ("writeFile", callbacks::write_file),
+        ("stat", callbacks::stat),
+        ("exists", callbacks::exists),
+        ("access", callbacks::access),
+        ("readdir", callbacks::readdir),
+        ("createWriteStream", streams::create_write_stream),
+        ("createReadStream", streams::create_read_stream),
     ];
     let namespace = rts_core_rwk::entry::make_namespace(context, members);
     constants::install(context, namespace);
     let promises = promises::namespace(context);
     rts_core_rwk::entry::put_member(context, namespace, "promises", promises);
+    for (name, ctor) in streams::constructors(context) {
+        rts_core_rwk::entry::put_member(context, namespace, name, ctor);
+    }
+    let utf8_stream_ctor = utf8stream::ctor(context);
+    rts_core_rwk::entry::put_member(context, namespace, "Utf8Stream", utf8_stream_ctor);
     namespace
 }
 
@@ -255,9 +276,17 @@ pub(crate) fn number(value: u64) -> Option<f64> {
 /// one.
 mod outcome {
     use std::cell::Cell;
+    use std::io;
 
     thread_local! {
         static LAST: Cell<bool> = const { Cell::new(true) };
+        /// The Node-shaped error code for the last FAILURE recorded — `""`
+        /// after a success, since nothing reads this without checking
+        /// [`succeeded`]/the sync return value first. Read by
+        /// `fs.promises`/the callback forms to build the `.code` a Node
+        /// program's `catch (e) { e.code }` reads; the `*Sync` members never
+        /// read it, matching their own stated `undefined`-either-way answer.
+        static LAST_CODE: Cell<&'static str> = const { Cell::new("") };
     }
 
     /// Records what an operation answered, and answers `undefined` — which is
@@ -267,13 +296,85 @@ mod outcome {
         LAST.with(|held| held.set(succeeded));
     }
 
+    /// [`record`], plus the `io::Error`'s Node-shaped code when it failed —
+    /// one call standing in for both, so a member cannot update one and
+    /// forget the other.
+    pub(in crate::fs) fn record_io<T>(result: &io::Result<T>) {
+        match result {
+            Ok(_) => record(true),
+            Err(error) => {
+                record(false);
+                LAST_CODE.with(|held| held.set(node_code(error.kind())));
+            }
+        }
+    }
+
     /// Whether it succeeded.
     pub(in crate::fs) fn succeeded() -> bool {
         LAST.with(Cell::get)
     }
+
+    /// The Node-shaped code (`"ENOENT"`, …) for the last recorded failure.
+    /// `"UNKNOWN"` for a real failure whose kind this table does not name —
+    /// never a guess at a MORE specific code than the `io::ErrorKind` actually
+    /// carried.
+    pub(in crate::fs) fn last_code() -> &'static str {
+        LAST_CODE.with(Cell::get)
+    }
+
+    fn node_code(kind: io::ErrorKind) -> &'static str {
+        super::io_node_code(kind)
+    }
 }
 
-pub(self) use outcome::{record, succeeded};
+pub(self) use outcome::{last_code, record, record_io, succeeded};
+
+/// An `io::ErrorKind` as the Node-shaped code (`"ENOENT"`, …) a `catch (e) {
+/// e.code }` reads. Shared by [`outcome::record_io`] (the `*Sync` failure
+/// path) and [`stats::stat_result`]'s caller (which never touches `outcome`
+/// at all, since [`stats::stat_sync`] raises rather than recording) — one
+/// table rather than the two that would otherwise drift on which kind gets
+/// which code.
+pub(crate) fn io_node_code(kind: std::io::ErrorKind) -> &'static str {
+    use std::io::ErrorKind;
+    match kind {
+        ErrorKind::NotFound => "ENOENT",
+        ErrorKind::PermissionDenied => "EACCES",
+        ErrorKind::AlreadyExists => "EEXIST",
+        ErrorKind::NotADirectory => "ENOTDIR",
+        ErrorKind::IsADirectory => "EISDIR",
+        ErrorKind::DirectoryNotEmpty => "ENOTEMPTY",
+        _ => "UNKNOWN",
+    }
+}
+
+/// A plain object shaped like the piece of a Node error a `catch (e)` in this
+/// engine's test suite actually reads — `.code` and `.message` — built rather
+/// than thrown, because these are used as a PROMISE'S rejection value, and
+/// this crate can only THROW (`entry::throw_type_error`, `TypeError` only,
+/// see its own doc); a rejection is data a `settled` call takes, not a raise.
+///
+/// # Why not `undefined` — the reason this exists at all
+///
+/// `fs.promises.readFile` of a missing path used to reject with the bare
+/// `undefined` `*Sync` failure already answers everywhere else in this
+/// module. That is indistinguishable, AT THIS BOUNDARY, from "no rejection
+/// value was ever produced" — `await`ing such a promise inside a `try` does
+/// land in the `catch`, but the caught value's `.code` read then throws its
+/// own `TypeError` (`.code` of `undefined`), UNCAUGHT, because it is not
+/// inside the same `try`. Every `node_fs_promises*` test hit exactly this:
+/// `rts: unhandled promise rejection: undefined` followed by an uncaught
+/// exception, before a single assertion ran. A real object with a `.code`
+/// closes that hole without needing anything from `rts-core-rwk` beyond what
+/// is already public.
+pub(crate) fn node_error(context: &mut Context, code: &str, message: &str) -> u64 {
+    let error = rts_core_rwk::entry::make_object(context);
+    let code_value = rts_core_rwk::entry::make_string(context, code);
+    rts_core_rwk::entry::put_member(context, error, "code", code_value);
+    let message_value = rts_core_rwk::entry::make_string(context, message);
+    rts_core_rwk::entry::put_member(context, error, "message", message_value);
+    error
+}
 
 /// Node's `(path[, options], listener)` overload, resolved.
 ///

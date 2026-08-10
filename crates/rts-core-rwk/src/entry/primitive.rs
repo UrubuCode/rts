@@ -59,13 +59,44 @@ pub(super) fn is_object_in(context: &Context, value: u64) -> bool {
 /// primitive" path to report it, which is the honest absence it already has.
 /// Inventing `undefined` here would turn a contract violation into a value.
 ///
-/// `Symbol.toPrimitive` is not consulted yet. It is looked up before the two
-/// methods and is additive on top of this; leaving it out means an object that
-/// defines it is converted by its `valueOf` instead, which is a wrong answer for
-/// `Date` and for nothing else this engine can build today.
+/// `Symbol.toPrimitive` is consulted first, ahead of both methods: an object
+/// defining it decides its own conversion for every hint, and `valueOf`/
+/// `toString` never run when it does.
 pub(super) fn to_primitive(value: u64, hint: Hint) -> u64 {
     if !with_current(|context| is_object_in(context, value)) {
         return value;
+    }
+
+    // `Symbol.toPrimitive`, asked BEFORE `valueOf`/`toString`: the language
+    // says a user method under this name overrides both rather than sitting
+    // beside them, and it is the one call in this file whose ANSWER is taken
+    // even when it is an object — the spec makes that a `TypeError`, and this
+    // engine's honest absence for a throw it cannot raise is to fall through
+    // to the ordinary pair rather than pretend the object was the primitive.
+    if let Some((key, hint_text)) = with_current(|context| {
+        Some((
+            super::symbol::well_known(context, "toPrimitive"),
+            context.intern_value(Str::from_str(match hint {
+                Hint::String => "string",
+                Hint::Number => "number",
+                Hint::Default => "default",
+            })).bits(),
+        ))
+    }) {
+        let method = super::computed::get_indexed(value, key);
+        if with_current(|context| super::modules::is_callable_in(context, method)) {
+            let absent = with_current(|context| undefined_of(context));
+            let answer = super::functions::call(method, value, hint_text, absent, absent, absent);
+            // Rule 8: the method is user code, and this native carries the
+            // answer forward — `undefined` is a value, so a throw left
+            // unasked would be spent as though the method had answered it.
+            if super::throw::in_flight() {
+                return value;
+            }
+            if !with_current(|context| is_object_in(context, answer)) {
+                return answer;
+            }
+        }
     }
 
     // `Hint::Default` behaves as `Hint::Number` for every object without a

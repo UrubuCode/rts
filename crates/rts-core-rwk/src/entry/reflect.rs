@@ -134,4 +134,15 @@ impl Reflect {
     fn is_extensible(target: u64) -> bool {
         crate::value::Value(target).as_slot().is_some()
     }
+
+    /// `Reflect.preventExtensions(target)`.
+    ///
+    /// A no-op that answers `true`, the same trade [`is_extensible`] states:
+    /// nothing here enforces a sealed-to-new-properties object, so recording
+    /// the flag without an operation that reads it would be a promise no
+    /// write honours. `true` for any object, `false` for a non-object — the
+    /// one distinction this engine CAN make honestly.
+    fn prevent_extensions(target: u64) -> bool {
+        crate::value::Value(target).as_slot().is_some()
+    }
 }

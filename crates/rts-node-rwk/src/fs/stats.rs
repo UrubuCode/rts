@@ -35,14 +35,18 @@
 //! # Per-field honesty, not a plausible zero
 //!
 //! `dev`/`ino`/`mode`/`nlink`/`uid`/`gid`/`rdev`/`blksize`/`blocks` need
-//! `std::os::unix::fs::MetadataExt`, which exists only on Unix — on any other
-//! target every one of those is `undefined`, not `0`, because `0` is a
-//! legitimate device/inode number on some systems and would read as an
-//! answer rather than as "not available here". `ctimeMs` is the same story
-//! one field at a time: Unix has a real change time
-//! (`MetadataExt::ctime`/`ctime_nsec`); `std::fs::Metadata` has no
-//! cross-platform accessor for it at all, so it is `undefined` everywhere
-//! else. `atimeMs`/`mtimeMs`/`birthtimeMs` come from
+//! `std::os::unix::fs::MetadataExt` on Unix, or a synthesis from
+//! `std::os::windows::fs::MetadataExt::file_attributes()` on Windows (see
+//! [`windows_numeric`] for what that synthesis is and why it is not a guess —
+//! it is `libuv`'s own `uv__stat`, which is what real Node's `fs.statSync`
+//! runs through on that platform). On any OTHER target every one of those is
+//! `undefined`, not `0`, because `0` is a legitimate device/inode number on
+//! some systems and would read as an answer rather than as "not available
+//! here". `ctimeMs` is the same story one field at a time: Unix has a real
+//! change time (`MetadataExt::ctime`/`ctime_nsec`); `std::fs::Metadata` has
+//! no cross-platform accessor for it at all, so it is `undefined` everywhere
+//! else, Windows included — Windows has no separate change-time concept to
+//! report even synthetically. `atimeMs`/`mtimeMs`/`birthtimeMs` come from
 //! `Metadata::accessed`/`modified`/`created`, which exist on every target but
 //! answer `Err` where the underlying filesystem does not track that
 //! timestamp (Linux `birthtime` on some filesystems is the common case) —
@@ -92,11 +96,13 @@ pub(super) extern "C" fn stat_sync(_e: u64, _this: u64, path: u64, _a1: u64, _a2
         entry::throw_type_error("ENOENT: no such file or directory, stat");
         return entry::undefined_value();
     };
-    let Ok(metadata) = std::fs::metadata(&path) else {
-        entry::throw_type_error(&format!("ENOENT: no such file or directory, stat '{path}'"));
-        return entry::undefined_value();
-    };
-    build(&metadata)
+    match fetch(&path, true) {
+        Ok(metadata) => build(&metadata),
+        Err(_) => {
+            entry::throw_type_error(&format!("ENOENT: no such file or directory, stat '{path}'"));
+            entry::undefined_value()
+        }
+    }
 }
 
 /// `fs.lstatSync(path)` — identical to `statSync` except it does not follow a
@@ -107,11 +113,40 @@ pub(super) extern "C" fn lstat_sync(_e: u64, _this: u64, path: u64, _a1: u64, _a
         entry::throw_type_error("ENOENT: no such file or directory, lstat");
         return entry::undefined_value();
     };
-    let Ok(metadata) = std::fs::symlink_metadata(&path) else {
-        entry::throw_type_error(&format!("ENOENT: no such file or directory, lstat '{path}'"));
-        return entry::undefined_value();
-    };
-    build(&metadata)
+    match fetch(&path, false) {
+        Ok(metadata) => build(&metadata),
+        Err(_) => {
+            entry::throw_type_error(&format!("ENOENT: no such file or directory, lstat '{path}'"));
+            entry::undefined_value()
+        }
+    }
+}
+
+/// `follow`s a symlink at the final path component or not — one lookup, so
+/// `stat_sync`/`lstat_sync` and [`promised`] (`fs.promises.stat`/`lstat`,
+/// which must NOT throw — see that function's own doc) share the exact same
+/// `std::fs` call rather than two copies drifting on which error a bad path
+/// produces.
+fn fetch(path: &str, follow: bool) -> std::io::Result<std::fs::Metadata> {
+    match follow {
+        true => std::fs::metadata(path),
+        false => std::fs::symlink_metadata(path),
+    }
+}
+
+/// `fs.promises.stat`/`fs.promises.lstat`'s own body, reusing [`fetch`] and
+/// [`build`] rather than calling [`stat_sync`]/[`lstat_sync`] — those RAISE on
+/// failure (`entry::throw_type_error`), and a promise wrapper cannot look at
+/// that: `throw::in_flight`/`caught` are `pub(in crate::entry)`, not visible
+/// outside `rts-core-rwk` (only `throw_type_error` itself is public), so a
+/// caller in THIS crate has no way to ask whether the callee it just ran left
+/// a throw behind — calling the throwing form and ignoring the answer would
+/// be exactly the mistake rule 8 of that crate's README exists to name: the
+/// throw stays in flight, unasked-about, and surfaces later as whatever
+/// compiled code next happens to check. This never throws; it hands the
+/// `io::Error` back for [`super::promises`] to turn into a rejection.
+pub(super) fn stat_result(path: &str, follow: bool) -> std::io::Result<u64> {
+    fetch(path, follow).map(|metadata| build(&metadata))
 }
 
 /// A `SystemTime` result as milliseconds since the epoch, `None` when the
@@ -150,6 +185,47 @@ fn ctime_ms(_metadata: &std::fs::Metadata) -> Option<f64> {
     None
 }
 
+/// The numbers Windows actually has, synthesized the way `libuv`'s
+/// `uv__stat` (what real Node's `fs.statSync` runs through on Windows) does —
+/// this used to answer `undefined` for every one of these on Windows, which
+/// is what the module doc upstream of this function called "per-field
+/// honesty": `0` is a legitimate device/inode number on some systems, so a
+/// placeholder `0` would have read as an ANSWER. What was missing is that
+/// Windows is not one of the systems with nothing to say here — `mode`,
+/// `nlink`, `uid`, `gid`, `blksize` all have a real, checkable Windows value,
+/// and reporting `undefined` for them made `chmodSync`'s own effect
+/// unobservable (`statSync(f).mode` never changed) and failed `typeof uid ===
+/// "number"` outright. `dev`/`ino`/`rdev` genuinely have no cheap answer from
+/// `std::fs::Metadata` here (no volume serial number, no file index) and stay
+/// `0` — the one number `libuv` itself reports for them on this platform too,
+/// so `0` here is Node's own answer, not a stand-in invented for this crate.
+#[cfg(windows)]
+fn windows_numeric(metadata: &std::fs::Metadata) -> [(&'static str, f64); 9] {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_READONLY: u32 = 0x1;
+    const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
+    let attributes = metadata.file_attributes();
+    let mut mode: u32 = if attributes & FILE_ATTRIBUTE_DIRECTORY != 0 { 0o040000 } else { 0o100000 };
+    mode |= if attributes & FILE_ATTRIBUTE_READONLY != 0 { 0o400 } else { 0o600 };
+    // libuv duplicates the owner bits into group and other — Windows has no
+    // separate group/other permission model, so it reports the same bits
+    // three times rather than zeros a caller might read as "no access".
+    mode |= (mode & 0o700) >> 3;
+    mode |= (mode & 0o700) >> 6;
+    let blocks = metadata.len().div_ceil(512);
+    [
+        ("dev", 0.0),
+        ("ino", 0.0),
+        ("mode", mode as f64),
+        ("nlink", 1.0),
+        ("uid", 0.0),
+        ("gid", 0.0),
+        ("rdev", 0.0),
+        ("blksize", 4096.0),
+        ("blocks", blocks as f64),
+    ]
+}
+
 /// The `Stats`-shaped object every stat-family member answers.
 pub(super) fn build(metadata: &std::fs::Metadata) -> u64 {
     let bits = type_bits(metadata.file_type());
@@ -160,7 +236,9 @@ pub(super) fn build(metadata: &std::fs::Metadata) -> u64 {
     let ctime_ms = ctime_ms(metadata);
     #[cfg(unix)]
     let numeric: &[(&str, f64)] = &unix_numeric(metadata);
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    let numeric: &[(&str, f64)] = &windows_numeric(metadata);
+    #[cfg(not(any(unix, windows)))]
     let numeric: &[(&str, f64)] = &[];
     const UNIX_ONLY: &[&str] = &["dev", "ino", "mode", "nlink", "uid", "gid", "rdev", "blksize", "blocks"];
 
@@ -179,12 +257,12 @@ pub(super) fn build(metadata: &std::fs::Metadata) -> u64 {
             let field = entry::make_number(value);
             entry::put_member(context, stats, name, field);
         }
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         for name in UNIX_ONLY {
             let undef = entry::undefined_in(context);
             entry::put_member(context, stats, name, undef);
         }
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         let _ = UNIX_ONLY;
         stats
     })

@@ -129,6 +129,21 @@ impl Machine {
         Some((settlement, self.settlements.value_of(id)?.bits()))
     }
 
+    /// Marks a promise's settlement as looked at.
+    ///
+    /// `await` reads a settlement through [`Self::outcome`] directly rather
+    /// than through a reaction — there is no `Handler` to `record`, because
+    /// nothing is queued for later — so it is the one reader of a rejection
+    /// that [`react`](Self::react)'s call to [`Settlements::noticed`] never
+    /// reaches. Without this, `await`ing a rejection inside a `try`/`catch`
+    /// still reported it as unhandled: the value was read and thrown into the
+    /// handler correctly, but the settlement table never learned that anything
+    /// had looked, so it aged into `take_unhandled` at the end of the turn
+    /// regardless.
+    pub(super) fn notice(&mut self, id: PromiseId) {
+        self.settlements.noticed(id);
+    }
+
     /// Records a reaction and answers the identifier it waits under.
     fn record(&mut self, reaction: Reaction) -> ContinuationId {
         let id = ContinuationId(self.reactions.len() as u32);

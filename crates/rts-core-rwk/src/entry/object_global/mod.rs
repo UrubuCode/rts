@@ -395,6 +395,19 @@ extern "C" fn assign(_e: u64, _this: u64, target: u64, source: u64, a2: u64, a3:
             let value = super::computed::get_indexed(source, name);
             super::computed::set_indexed(target, name, value);
         }
+        // `own_keys` never reports a symbol — it is the string enumeration,
+        // and a symbol has no string spelling for it to report — so a
+        // `[sym]: v` entry used to vanish across `Object.assign` and spread
+        // silently, which is a merge that drops data rather than one that
+        // says it cannot copy something.
+        let symbols = with_current(|context| super::array::symbol_keyed(context, source));
+        for (key, value) in symbols {
+            with_current(|context| {
+                if let Some(cell) = crate::value::Value(target).as_slot() {
+                    super::objects::put(context, cell, key, value);
+                }
+            });
+        }
     }
     target
 }

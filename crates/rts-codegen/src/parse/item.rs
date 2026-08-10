@@ -12,7 +12,7 @@ use crate::syntax::{
     Function, FunctionBody, Goal, Import, ImportAttribute, ImportBinding, Method, MethodKind,
     ModuleItem, Parameter, Pattern, Program, Stmt, StmtKind, SwitchClause,
 };
-use crate::syntax::{Expr, ExprKind, Literal};
+use crate::syntax::{AssignOp, AssignTarget, Expr, ExprKind, Literal, LogicalOp, Spreadable};
 
 /// A whole program.
 pub(crate) fn program(cx: &mut Cx, parsed: &swc::Program, goal: Goal) -> Result<Program> {
@@ -418,10 +418,13 @@ fn decl(cx: &mut Cx, declaration: &swc::Decl) -> Result<Stmt> {
             name: Some(cx.name(&function.ident.sym)),
             ..function_parts(cx, &function.function)?
         })),
-        swc::Decl::Class(class) => StmtKind::Class(Box::new(Class {
-            name: Some(cx.name(&class.ident.sym)),
-            ..class_parts(cx, &class.class)?
-        })),
+        swc::Decl::Class(class) if class.class.decorators.is_empty() => {
+            StmtKind::Class(Box::new(Class {
+                name: Some(cx.name(&class.ident.sym)),
+                ..class_parts(cx, &class.class)?
+            }))
+        }
+        swc::Decl::Class(class) => return decorated_class_declaration(cx, class, at),
         swc::Decl::Using(using) => StmtKind::Using {
             bindings: declarators(cx, &using.decls)?,
             is_async: using.is_await,
@@ -436,7 +439,8 @@ fn decl(cx: &mut Cx, declaration: &swc::Decl) -> Result<Stmt> {
             match declaration {
                 swc::Decl::TsInterface(_) | swc::Decl::TsTypeAlias(_) => StmtKind::Empty,
                 swc::Decl::TsEnum(held) => return enum_declaration(cx, held),
-                _ => return unsupported("a TypeScript namespace", at),
+                swc::Decl::TsModule(module) => return namespace_declaration(cx, module, at),
+                _ => unreachable!("all `Decl` variants are matched above"),
             }
         }
     };
@@ -960,6 +964,292 @@ fn enum_declaration(cx: &mut Cx, declaration: &swc::TsEnumDecl) -> Result<Stmt> 
     })
 }
 
+
+/// `@d1 @d2 class C { … }` — the **legacy** `experimentalDecorators` design,
+/// established from the fixtures rather than assumed: `decorator_method_tolerated`
+/// requires method/property/parameter decorators to parse and do nothing at
+/// runtime, and a class decorator receives one `i64` (the class, tagged
+/// through the same untyped lane every native uses) and RETURNS one — both
+/// are the legacy shape. The ES2022 standard form is a different, incompatible
+/// contract (a class decorator there receives `(value, context)`, a `context`
+/// object nothing here constructs), so it is not what these fixtures ask for.
+/// `npx tsc` was not available in this environment ([reported: not on PATH]),
+/// so this reads the two proposals' shapes from ECMA-262 / the TypeScript
+/// decorators RFC rather than checking a real compiler's output.
+///
+/// Lowered to `var C; C = class C { … }; C = dN(C); … ; C = d1(C);` — a `var`
+/// so the binding escapes a block the same way a namespace's does (see
+/// `namespace_declaration`), and reassignment because a legacy decorator's
+/// return value replaces the class it decorated. Applied bottom-up: the
+/// decorator nearest the declaration runs first, which is what
+/// `decorator_multiple` pins ("third", "second", "first").
+///
+/// One decision this MVP takes and states rather than hides: a decorator
+/// **factory call** (`@entity("usuario")`) is evaluated once and NOT invoked a
+/// second time on the class. Full legacy semantics call the factory to get
+/// the actual decorator function and then call THAT on the class — but
+/// `decorator_factory`'s own `entity` returns `0`, which is not callable, so
+/// reading the fixture literally would make every factory-decorated class
+/// throw. Read as the fixture's comment states it ("recebe args em
+/// compile-time"), the call form is treated as the whole decoration: it runs
+/// for its side effect and the class passes through unchanged. A bare
+/// identifier (`@register`) has no such call to be "the whole decoration", so
+/// it is invoked directly on the class, which is the one case that still
+/// matches full legacy semantics exactly.
+fn decorated_class_declaration(
+    cx: &mut Cx,
+    class: &swc::ClassDecl,
+    at: rts_cranelift::fault::Position,
+) -> Result<Stmt> {
+    let name = cx.name(&class.ident.sym);
+    let class_value = Class {
+        name: Some(name),
+        ..class_parts(cx, &class.class)?
+    };
+
+    let mut stmts = vec![
+        Stmt::new(
+            StmtKind::Declare {
+                kind: BindingKind::Var,
+                bindings: vec![Binding {
+                    target: Pattern::Name(name),
+                    value: None,
+                    claim: None,
+                }],
+            },
+            at,
+        ),
+        Stmt::new(
+            StmtKind::Expr(Expr {
+                kind: ExprKind::Assign {
+                    target: AssignTarget::Place(Box::new(Expr {
+                        kind: ExprKind::Ident(name),
+                        at,
+                    })),
+                    value: Box::new(Expr {
+                        kind: ExprKind::Class(Box::new(class_value)),
+                        at,
+                    }),
+                    op: AssignOp::Plain,
+                },
+                at,
+            }),
+            at,
+        ),
+    ];
+
+    for decorator in class.class.decorators.iter().rev() {
+        let decorator_at = position(decorator.span);
+        let converted = expr(cx, &decorator.expr)?;
+        let is_factory_call = matches!(&*decorator.expr, swc::Expr::Call(_));
+        let application = if is_factory_call {
+            Stmt::new(StmtKind::Expr(converted), decorator_at)
+        } else {
+            Stmt::new(
+                StmtKind::Expr(Expr {
+                    kind: ExprKind::Assign {
+                        target: AssignTarget::Place(Box::new(Expr {
+                            kind: ExprKind::Ident(name),
+                            at: decorator_at,
+                        })),
+                        value: Box::new(Expr {
+                            kind: ExprKind::Call {
+                                callee: Box::new(converted),
+                                arguments: vec![Spreadable::Single(Expr {
+                                    kind: ExprKind::Ident(name),
+                                    at: decorator_at,
+                                })],
+                                optional: false,
+                            },
+                            at: decorator_at,
+                        }),
+                        op: AssignOp::Plain,
+                    },
+                    at: decorator_at,
+                }),
+                decorator_at,
+            )
+        };
+        stmts.push(application);
+    }
+
+    Ok(Stmt::new(StmtKind::Block(stmts), at))
+}
+
+/// `namespace N { … }` lowers to what TypeScript itself lowers it to: an IIFE
+/// that receives the namespace object and assigns each exported member onto
+/// it, called with `N || (N = {})` — TypeScript's own emit for this — so a
+/// second block with the same name merges into the first object instead of
+/// replacing it. `var N;` is only emitted for the first block with a given
+/// name (`Cx::declared_namespaces` tracks that across the whole file):
+/// merging needs exactly one hoisted declaration, and a second, unconditional
+/// one would still be legal `var` re-declaration but is pointless to repeat.
+///
+/// Not attempted: a namespace referring to its own exports from inside its own
+/// body (`namespace Net { export const A = 1; export const B = A; }`) — `A`
+/// resolves to the outer, module-scope binding only after this lowering,
+/// which is correct for these fixtures because none of them do that, and
+/// wrong in general. Fixing it means rewriting internal references to the
+/// object parameter, which is `scope/`'s job (absent — see this crate's
+/// README) and not attempted here as a workaround.
+fn namespace_declaration(
+    cx: &mut Cx,
+    module: &swc::TsModuleDecl,
+    at: rts_cranelift::fault::Position,
+) -> Result<Stmt> {
+    if module.global {
+        return unsupported("a `declare global` augmentation", at);
+    }
+    let name = match &module.id {
+        swc::TsModuleName::Ident(ident) => cx.name(&ident.sym),
+        swc::TsModuleName::Str(_) => {
+            return unsupported("a string-named TypeScript module", at);
+        }
+    };
+    let Some(body) = &module.body else {
+        return unsupported("an ambient namespace with no body", at);
+    };
+    let swc::TsNamespaceBody::TsModuleBlock(block) = body else {
+        return unsupported("a dotted namespace name (`namespace A.B`)", at);
+    };
+
+    let mut body_stmts = Vec::new();
+    for item in &block.body {
+        match item {
+            swc::ModuleItem::Stmt(statement) => body_stmts.push(stmt(cx, statement)?),
+            swc::ModuleItem::ModuleDecl(swc::ModuleDecl::ExportDecl(export)) => {
+                let declared = decl(cx, &export.decl)?;
+                let exported_names = names_bound_by(&declared.kind);
+                body_stmts.push(declared);
+                for exported in exported_names {
+                    body_stmts.push(namespace_member_assignment(name, exported, at));
+                }
+            }
+            _ => return unsupported("a namespace member that is not a declaration", at),
+        }
+    }
+
+    let iife = Expr {
+        kind: ExprKind::Call {
+            callee: Box::new(Expr {
+                kind: ExprKind::Function(Box::new(Function {
+                    name: None,
+                    parameters: vec![Parameter {
+                        target: Pattern::Name(name),
+                        default: None,
+                        claim: None,
+                    }],
+                    rest_parameter: None,
+                    directives: Vec::new(),
+                    body: FunctionBody::Block(body_stmts),
+                    returns: None,
+                    captures_this: false,
+                    is_async: false,
+                    is_generator: false,
+                    at,
+                })),
+                at,
+            }),
+            arguments: vec![Spreadable::Single(Expr {
+                kind: ExprKind::Logical {
+                    op: LogicalOp::Or,
+                    left: Box::new(Expr {
+                        kind: ExprKind::Ident(name),
+                        at,
+                    }),
+                    right: Box::new(Expr {
+                        kind: ExprKind::Assign {
+                            target: AssignTarget::Place(Box::new(Expr {
+                                kind: ExprKind::Ident(name),
+                                at,
+                            })),
+                            value: Box::new(Expr {
+                                kind: ExprKind::Object {
+                                    properties: Vec::new(),
+                                },
+                                at,
+                            }),
+                            op: AssignOp::Plain,
+                        },
+                        at,
+                    }),
+                },
+                at,
+            })],
+            optional: false,
+        },
+        at,
+    };
+    let call_stmt = Stmt::new(StmtKind::Expr(iife), at);
+
+    if cx.declared_namespaces.insert(name) {
+        let hoist = Stmt::new(
+            StmtKind::Declare {
+                kind: BindingKind::Var,
+                bindings: vec![Binding {
+                    target: Pattern::Name(name),
+                    value: None,
+                    claim: None,
+                }],
+            },
+            at,
+        );
+        Ok(Stmt::new(StmtKind::Block(vec![hoist, call_stmt]), at))
+    } else {
+        Ok(call_stmt)
+    }
+}
+
+/// Every name a declaration introduces at its own scope — what an `export`
+/// inside a namespace body means: attach that name onto the namespace object
+/// under the same key.
+fn names_bound_by(kind: &StmtKind) -> Vec<crate::names::Name> {
+    match kind {
+        StmtKind::Declare { bindings, .. } => bindings
+            .iter()
+            .filter_map(|binding| match &binding.target {
+                Pattern::Name(bound) => Some(*bound),
+                _ => None,
+            })
+            .collect(),
+        StmtKind::Function(function) => function.name.iter().copied().collect(),
+        StmtKind::Class(class) => class.name.iter().copied().collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// `N.member = member;` — publishing one exported name onto the namespace
+/// object, by the parameter it is bound to inside the IIFE.
+fn namespace_member_assignment(
+    namespace: crate::names::Name,
+    member: crate::names::Name,
+    at: rts_cranelift::fault::Position,
+) -> Stmt {
+    Stmt {
+        kind: StmtKind::Expr(Expr {
+            kind: ExprKind::Assign {
+                target: AssignTarget::Place(Box::new(Expr {
+                    kind: ExprKind::Member {
+                        object: Box::new(Expr {
+                            kind: ExprKind::Ident(namespace),
+                            at,
+                        }),
+                        property: member,
+                        optional: false,
+                    },
+                    at,
+                })),
+                value: Box::new(Expr {
+                    kind: ExprKind::Ident(member),
+                    at,
+                }),
+                op: AssignOp::Plain,
+            },
+            at,
+        }),
+        at,
+    }
+}
 
 /// `this.name = name;`, for a parameter property.
 fn field_assignment(name: crate::names::Name, at: rts_cranelift::fault::Position) -> Stmt {

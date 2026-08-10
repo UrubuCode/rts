@@ -10,9 +10,9 @@
 use rts_codegen::names::Names;
 use rts_codegen::parse::{ParseError, parse_module, parse_script};
 use rts_codegen::syntax::{
-    AssignOp, AssignTarget, BinaryOp, BindingKind, ClassElement, ClassKey, ExprKind, ForEachSource,
-    ForEachTarget, FunctionBody, Goal, Literal, LogicalOp, ModuleItem, Pattern, Program, Property,
-    PropertyKey, Stmt, StmtKind, UpdatePosition,
+    AssignOp, AssignTarget, BinaryOp, BindingKind, ClassElement, ClassKey, Expr, ExprKind,
+    ForEachSource, ForEachTarget, FunctionBody, Goal, Literal, LogicalOp, ModuleItem, Pattern,
+    Program, Property, PropertyKey, Stmt, StmtKind, UpdatePosition,
 };
 
 fn module(source: &str) -> (Program, Names) {
@@ -565,13 +565,13 @@ fn an_interface_is_erased_and_an_enum_becomes_the_object_it_means() {
     let lowered = parse_module("enum E { A }", &mut names).expect("an enum is a declaration");
     assert_eq!(statements(&lowered).len(), 1);
 
-    // A NAMESPACE still is refused, and for the reason the enum stopped being:
-    // nothing lowers one yet.
-    let refused = parse_module("namespace N { export const a = 1; }", &mut names);
-    assert!(
-        matches!(refused, Err(ParseError::Unsupported { .. })),
-        "a namespace emits code, so refusing it is honest and approximating it is not"
-    );
+    // A NAMESPACE also emits code now: an object built by an IIFE, matching
+    // TypeScript's own emit for it. `var N;` plus the call is two statements,
+    // held under one `Block` so the parser hands back exactly one `Stmt` per
+    // declaration, the same shape every other declaration arrives in.
+    let lowered = parse_module("namespace N { export const a = 1; }", &mut names)
+        .expect("a namespace lowers to an IIFE building an object");
+    assert_eq!(statements(&lowered).len(), 1);
 }
 
 #[test]
@@ -586,8 +586,13 @@ fn an_unsupported_construct_is_named_rather_than_dropped() {
     // It follows the refusal rather than being deleted with whatever construct
     // it happened to name, because what it pins is the *shape* of a refusal:
     // named, with a position, and distinguishable from a syntax error.
+    //
+    // Now pinned to a dotted namespace name (`namespace A.B { … }`): a plain
+    // `namespace N { … }` lowers (see the test above), but a dotted one is a
+    // namespace nested inside another with nothing this bridge builds for it
+    // yet, and refusing it is still the honest answer.
     let mut names = Names::new();
-    match parse_module("namespace N { export const a = 1; }", &mut names) {
+    match parse_module("namespace A.B { export const a = 1; }", &mut names) {
         Err(ParseError::Unsupported { construct, .. }) => {
             assert!(construct.contains("namespace"), "{construct}");
         }
@@ -790,4 +795,83 @@ fn a_private_member_is_not_the_property_of_the_same_letters() {
         panic!("expected a private key");
     };
     assert_eq!(names.text(*declared), "@@#x");
+}
+
+#[test]
+fn two_namespace_blocks_with_one_name_merge_into_one_object() {
+    // TypeScript merges `namespace N { … }` written twice under one name into
+    // one object — a program may extend a namespace from a second block the
+    // same way it extends a class from nowhere else. The hoisted `var N;` is
+    // what makes that possible: only the FIRST block emits it, and the second
+    // block's `N || (N = {})` finds the object the first one already built.
+    let mut names = Names::new();
+    let program = parse_module(
+        "namespace N { export const a = 1; } namespace N { export const b = 2; }",
+        &mut names,
+    )
+    .expect("two blocks with one name merge rather than refuse");
+    let body = statements(&program);
+    assert_eq!(body.len(), 2, "one statement per block, not one per name");
+
+    let StmtKind::Block(first) = &body[0].kind else {
+        panic!("the first block hoists its `var N;` under it: {:?}", body[0].kind);
+    };
+    assert!(
+        matches!(first[0].kind, StmtKind::Declare { kind: BindingKind::Var, .. }),
+        "the first block's own `var N;`: {:?}",
+        first[0].kind
+    );
+
+    // The second block merges: no `var` of its own, just the call.
+    assert!(
+        matches!(body[1].kind, StmtKind::Expr(_)),
+        "the second block does not re-hoist: {:?}",
+        body[1].kind
+    );
+}
+
+#[test]
+fn class_decorators_apply_bottom_up() {
+    // `@first @second class C {}` runs `second` before `first` — the
+    // decorator nearest the class runs first, which is the one point the
+    // legacy `experimentalDecorators` design and the ES2022 standard design
+    // agree on. Pinned on the SHAPE emitted (an assignment per decorator, in
+    // reverse source order) rather than by running the program, because this
+    // is `rts-codegen`'s tree, not `rts-host-rwk`'s runtime — the suite files
+    // `decorator_multiple.test.ts` pin the same rule end to end.
+    let mut names = Names::new();
+    let program = parse_module("@first @second class C {}", &mut names)
+        .expect("a decorated class declaration lowers rather than being refused");
+    let body = statements(&program);
+    assert_eq!(body.len(), 1);
+    let StmtKind::Block(stmts) = &body[0].kind else {
+        panic!("expected the var/assign/apply block: {:?}", body[0].kind);
+    };
+    // `var C;`, `C = class C {};`, then one application per decorator.
+    assert_eq!(stmts.len(), 4, "{stmts:?}");
+
+    let applications: Vec<&str> = stmts[2..]
+        .iter()
+        .map(|stmt| {
+            let StmtKind::Expr(Expr {
+                kind: ExprKind::Assign { value, .. },
+                ..
+            }) = &stmt.kind
+            else {
+                panic!("expected an assignment applying a decorator: {stmt:?}");
+            };
+            let ExprKind::Call { callee, .. } = &value.kind else {
+                panic!("expected a call: {value:?}");
+            };
+            let ExprKind::Ident(callee_name) = &callee.kind else {
+                panic!("expected the decorator called by name: {callee:?}");
+            };
+            names.text(*callee_name)
+        })
+        .collect();
+    assert_eq!(
+        applications,
+        vec!["second", "first"],
+        "the decorator nearest the class runs first"
+    );
 }

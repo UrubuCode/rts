@@ -79,6 +79,7 @@ mod regex;
 mod scope;
 mod sloppy;
 mod stmt;
+mod suspends;
 mod switch;
 mod template;
 mod unary;
@@ -512,7 +513,7 @@ pub fn emit_program_with_exports(
     ctx.globals = sloppy::created(body);
 
     let nothing = Scope::new();
-    let emitted = function::emit_body(
+    let mut emitted = function::emit_body(
         ctx,
         &nothing,
         &[],
@@ -527,6 +528,14 @@ pub fn emit_program_with_exports(
         specifier,
         publications,
     )?;
+    // A program or module entry has no `Function` node of its own to read
+    // `is_async` off — unlike every other body, which gets `may_suspend` from
+    // `function.rs`. `await` at this level is legal (a module's top level, or a
+    // script a host chose to wrap as one), so whether THIS frame may suspend is
+    // answered by looking at what it actually contains. Set on the emitted copy
+    // and not only on the declared signature, for the same reason `function.rs`
+    // does both: the verifier reads the emitted one.
+    emitted.signature.may_suspend = suspends::body_suspends(body);
     ctx.pending.push((entry, emitted));
     Ok(finish(entry, ctx))
 }
@@ -622,7 +631,7 @@ fn emit_unit(
     let entry = ctx.funcs.declare_function(sig);
     ctx.globals = sloppy::created(body);
     let nothing = Scope::new();
-    let emitted = function::emit_body(
+    let mut emitted = function::emit_body(
         ctx,
         &nothing,
         &[],
@@ -637,6 +646,10 @@ fn emit_unit(
         specifier,
         publications,
     )?;
+    // See the sibling comment in `emit_program_with_exports`: this is the other
+    // caller with no `Function` node of its own, and a graph of modules reaches
+    // its entries only through here.
+    emitted.signature.may_suspend = suspends::body_suspends(body);
     ctx.pending.push((entry, emitted));
     Ok(entry)
 }

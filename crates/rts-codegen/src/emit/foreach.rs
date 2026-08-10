@@ -49,27 +49,25 @@ pub fn emit_for_each(
     label: Option<Name>,
     over: crate::runtime::RuntimeOp,
 ) -> EmitResult<bool> {
-    use crate::syntax::{Binding as SyntaxBinding, BindingKind, ExprKind, ForEachTarget, StmtKind};
-
-    let crate::syntax::ForEachTarget::Declare {
-        target: pattern, ..
-    } = target
-    else {
-        // `for (x in o)` writes to something that already exists, once per
-        // pass, with no fresh binding at all. A different rule, and one that
-        // matters as soon as a closure is made in the body.
-        //
-        // This said `unreachable!` for the third case until there was one. A
-        // panic in the compiler is what a closed match is worth when the thing
-        // it was closed over opens — so both remaining cases are named.
-        return match target {
-            ForEachTarget::Assign(_) => super::expr::gap("`for-in` writing to an existing binding"),
-            ForEachTarget::Dispose { .. } => {
-                super::expr::gap("`using` in a for-head, which needs `Symbol.dispose`")
-            }
-            ForEachTarget::Declare { .. } => unreachable!("matched above"),
-        };
+    use crate::syntax::{
+        AssignOp, AssignTarget, Binding as SyntaxBinding, BindingKind, ExprKind, ForEachTarget,
+        StmtKind,
     };
+
+    // `for (x of xs)` / `for (x in o)` where `x` already exists: no fresh
+    // binding, the same place is written every pass. Unlike `Declare`, this
+    // does not need a block of its own — a shared place written repeatedly
+    // is exactly what the program asked for, not a bug to route around.
+    let pattern = match target {
+        ForEachTarget::Declare {
+            target: pattern, ..
+        } => pattern,
+        ForEachTarget::Assign(pattern) => pattern,
+        ForEachTarget::Dispose { .. } => {
+            return super::expr::gap("`using` in a for-head, which needs `Symbol.dispose`");
+        }
+    };
+    let fresh_binding = matches!(target, ForEachTarget::Declare { .. });
     let at = statement.at;
     let index = ctx.names.intern("__rts_in_index");
     let keys = ctx.names.intern("__rts_in_keys");
@@ -136,23 +134,42 @@ pub fn emit_for_each(
     // destructure, through `destructure::declare`, so a `for-of` over a
     // pattern is this expansion with nothing extra — the same reasoning that
     // makes `for-in` an ordinary `for` in the first place.
-    let bind = Stmt {
-        kind: StmtKind::Declare {
-            kind: BindingKind::Let,
-            bindings: vec![SyntaxBinding {
-                target: pattern.clone(),
-                value: Some(Expr {
-                    kind: ExprKind::Index {
-                        object: Box::new(name(keys)),
-                        index: Box::new(name(index)),
-                        optional: false,
-                    },
-                    at,
-                }),
-                claim: None,
-            }],
+    let element = Expr {
+        kind: ExprKind::Index {
+            object: Box::new(name(keys)),
+            index: Box::new(name(index)),
+            optional: false,
         },
         at,
+    };
+    let bind = if fresh_binding {
+        Stmt {
+            kind: StmtKind::Declare {
+                kind: BindingKind::Let,
+                bindings: vec![SyntaxBinding {
+                    target: pattern.clone(),
+                    value: Some(element),
+                    claim: None,
+                }],
+            },
+            at,
+        }
+    } else {
+        // `pattern` here is `Assign`'s: an arbitrary existing place, not a
+        // fresh name. `AssignTarget::Pattern` with `AssignOp::Plain` is the
+        // one target the language lets a pattern occupy this way, and it is
+        // what `for ([a, b] of pairs)` over an existing `a`/`b` needs too.
+        Stmt {
+            kind: StmtKind::Expr(Expr {
+                kind: ExprKind::Assign {
+                    target: AssignTarget::Pattern(pattern.clone()),
+                    value: Box::new(element),
+                    op: AssignOp::Plain,
+                },
+                at,
+            }),
+            at,
+        }
     };
     let inner = Stmt {
         kind: StmtKind::Block(vec![bind, body.clone()]),

@@ -157,6 +157,27 @@ pub(super) fn key_text_of(context: &Context, value: u64) -> Option<String> {
     Some(context.symbol_of(value)?.key.clone())
 }
 
+/// The symbol a key text names, the direction [`key_text_of`] does not run.
+///
+/// Needed for `Object.getOwnPropertySymbols`: the shape only ever held the
+/// key TEXT — `key_text_of` is what put it there — so answering the symbol
+/// VALUES an object's symbol-keyed properties use means undoing that, not
+/// doing it again with a second table. `"@@sym:<n>"` is `Symbol()`'s own
+/// encoding and decodes directly; everything else under the `@@` prefix is
+/// one of the shared ones — a well-known symbol or `Symbol.for` — and is
+/// answered by matching the shared table [`shared`] already keeps.
+pub(in crate::entry) fn value_of_key_text(context: &Context, text: &str) -> Option<u64> {
+    if let Some(number) = text.strip_prefix(&format!("{PREFIX}sym:")) {
+        let number: u64 = number.parse().ok()?;
+        if (number as usize) < context.symbols.made.len() {
+            return Some(Value::from_client(context.kinds.symbol, number).bits());
+        }
+        return None;
+    }
+    let (_, number) = context.symbols.shared.iter().find(|(held, _)| held == text)?;
+    Some(Value::from_client(context.kinds.symbol, u64::from(*number)).bits())
+}
+
 /// A new symbol under a key nothing has used.
 fn mint(context: &mut Context, key: String, description: Option<String>) -> u64 {
     let number = context.symbols.made.len() as u64;

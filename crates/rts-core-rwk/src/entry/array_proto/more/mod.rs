@@ -420,7 +420,19 @@ fn array_like(items: u64) -> Option<Vec<u64>> {
 
 /// One property, by name, as a value — `None` where the language reads
 /// `undefined`.
+///
+/// A typed array's element is asked for FIRST, through the same byte-range
+/// read `o[i]` uses (`buffers::indexed_get`) rather than the shape: an
+/// element lives in the view's bytes, not in a property slot, so the shape
+/// walk below always misses it and this used to hand back `undefined` for
+/// every element of `Array.from(typedArray)` even though `ta[i]` read it
+/// correctly.
 fn read(context: &mut Context, cell: u32, name: &str) -> Option<u64> {
+    if let Ok(index) = name.parse::<f64>()
+        && let Some(found) = super::super::buffers::indexed_get(context, cell, Value::from_f64(index))
+    {
+        return Some(found);
+    }
     let key = context.well_known(name);
     super::super::objects::read_property(context, cell, key).map(|found| found.bits())
 }

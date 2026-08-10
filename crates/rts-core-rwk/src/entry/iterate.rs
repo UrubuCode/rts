@@ -67,6 +67,15 @@ pub fn iterate(value: u64) -> u64 {
         if let Some(elements) = context.elements_at(cell) {
             return Found::Values(elements.clone());
         }
+        // A typed array's elements are a byte range, not a slot vector, so
+        // they never show up in `elements_at`. Without this, `for (const x of
+        // typedArray)` fell all the way to `protocol`, found no
+        // `Symbol.iterator` (typed arrays declare none here) and answered
+        // zero elements — a loop that silently ran empty rather than walking
+        // the view.
+        if let Some(view) = super::buffers::view_of(context, value) {
+            return Found::Values(super::buffers::typed::elements(context, &view));
+        }
         // Before the text check and before the protocol, because a collection's
         // elements are already held here: asking it for them through two calls
         // per element into a method of its own would be the same answer, slower,

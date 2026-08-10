@@ -123,12 +123,30 @@ pub(crate) fn namespace(context: &mut Context) -> u64 {
 }
 
 /// Wraps a `*Sync` native whose `undefined` return means FAILURE — rejects
-/// on `undefined`, resolves with the value otherwise.
+/// with a real error object on `undefined`, resolves with the value
+/// otherwise.
+///
+/// # Never rejects with the bare `undefined`
+///
+/// The `*Sync` failure signal IS `undefined`, and passing it straight to
+/// `settled` used to be exactly that — a promise "rejected" with a value
+/// indistinguishable, at the `await`/`catch` boundary, from no rejection
+/// value at all. See [`super::node_error`]'s own doc for the failure that
+/// produced and why a constructed object is what closes it: every member
+/// wrapped here now rejects with `{ code, message }`, `code` read from
+/// [`super::last_code`] — set by the SAME `*_sync` call this wraps, via
+/// [`super::record_io`], so it is never stale.
 fn answered(sync_result: u64) -> u64 {
     rts_core_rwk::entry::with_runtime(|context| {
         let absent = undefined_in(context);
-        let rejected = sync_result == absent;
-        settled(context, sync_result, rejected)
+        match sync_result == absent {
+            true => {
+                let code = super::last_code();
+                let error = super::node_error(context, code, &format!("{code}: operation failed"));
+                settled(context, error, true)
+            }
+            false => settled(context, sync_result, false),
+        }
     })
 }
 
@@ -141,10 +159,19 @@ fn answered(sync_result: u64) -> u64 {
 ///
 /// This always RESOLVED for one commit, and the consequence is the reason the
 /// channel exists: a `.then` success path ran after a write that never
-/// happened.
+/// happened. Rejects with a real object, same as [`answered`] — not the bare
+/// `sync_result`, which is `undefined` on both success and failure for every
+/// member this wraps and so carries no signal a `catch` could read anyway.
 fn done(sync_result: u64) -> u64 {
     let failed = !super::succeeded();
-    rts_core_rwk::entry::with_runtime(|context| settled(context, sync_result, failed))
+    rts_core_rwk::entry::with_runtime(|context| match failed {
+        true => {
+            let code = super::last_code();
+            let error = super::node_error(context, code, &format!("{code}: operation failed"));
+            settled(context, error, true)
+        }
+        false => settled(context, sync_result, false),
+    })
 }
 
 pub(super) extern "C" fn read_file(e: u64, this: u64, path: u64, encoding: u64, a2: u64, a3: u64) -> u64 {
@@ -195,12 +222,38 @@ pub(super) extern "C" fn cp(e: u64, this: u64, src: u64, dest: u64, options: u64
     done(dirs::cp_sync(e, this, src, dest, options, a3))
 }
 
-pub(super) extern "C" fn stat(e: u64, this: u64, path: u64, a1: u64, a2: u64, a3: u64) -> u64 {
-    answered(stats::stat_sync(e, this, path, a1, a2, a3))
+/// Does NOT call [`stats::stat_sync`] — see [`stats::stat_result`]'s own doc
+/// for why that would leave a throw in flight for nobody to ask about.
+pub(super) extern "C" fn stat(_e: u64, _this: u64, path: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    settle_stat(path, true)
 }
 
-pub(super) extern "C" fn lstat(e: u64, this: u64, path: u64, a1: u64, a2: u64, a3: u64) -> u64 {
-    answered(stats::lstat_sync(e, this, path, a1, a2, a3))
+/// See [`stat`].
+pub(super) extern "C" fn lstat(_e: u64, _this: u64, path: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    settle_stat(path, false)
+}
+
+fn settle_stat(path: u64, follow: bool) -> u64 {
+    let path_text = super::text(path);
+    // `stat_result` (through `build`) opens its OWN `with_runtime` — computed
+    // here, before the outer one below opens, rather than nested inside it:
+    // `with_current` holds a borrow for as long as its body runs, and a
+    // second `with_runtime` while the first is still open panics on the
+    // re-entry (the same trap `fs::watch`'s module doc names for
+    // `set_prototype`/`set_prototype_in`).
+    let outcome = path_text.as_deref().map(|path_text| (path_text.to_owned(), stats::stat_result(path_text, follow)));
+    rts_core_rwk::entry::with_runtime(|context| match outcome {
+        Some((_, Ok(value))) => settled(context, value, false),
+        Some((path_text, Err(io_error))) => {
+            let code = super::io_node_code(io_error.kind());
+            let error = super::node_error(context, code, &format!("{code}: no such file or directory, stat '{path_text}'"));
+            settled(context, error, true)
+        }
+        None => {
+            let error = super::node_error(context, "ENOENT", "ENOENT: no such file or directory, stat");
+            settled(context, error, true)
+        }
+    })
 }
 
 pub(super) extern "C" fn access(e: u64, this: u64, path: u64, mode: u64, a2: u64, a3: u64) -> u64 {

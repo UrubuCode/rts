@@ -29,7 +29,7 @@
 //! `readvSync`/`writevSync` use for every buffer after the first) never
 //! observes it.
 
-use rts_core_rwk::entry::{bytes_of, make_bytes, make_number, undefined_value, with_runtime, write_bytes};
+use rts_core_rwk::entry::{bytes_of, get_indexed, make_bytes, make_number, undefined_value, with_runtime, write_bytes};
 
 /// A numeric field off an options object, `None` when the object is absent,
 /// not an object, or does not carry the key — the same "absent" `option_flag`
@@ -44,9 +44,18 @@ pub(super) fn option_number(options: u64, name: &str) -> Option<f64> {
 }
 
 /// The bytes an array-like value (a real JS `Array`, here always a list of
-/// `Uint8Array`s) holds, read by `length` and index — the entry API has no
-/// array-element accessor, and `get_member` already reads any property name,
-/// numeric-looking ones included.
+/// `Uint8Array`s) holds, read by `length` and index.
+///
+/// `length` is an ordinary named property, so [`rts_core_rwk::entry::get_member`]
+/// finds it — but a dense `Array`'s ELEMENTS are not shape properties at all,
+/// they live in the array's own element storage, and `get_member(array, "0")`
+/// found nothing there and answered `undefined` for every index. `[b1, b2]`
+/// read back as one `undefined` per slot, so every buffer's `bytes_of` failed
+/// and `writevSync`/`readvSync` moved zero bytes. [`get_indexed`] is the
+/// computed-access entry point (`obj[key]`) that resolves an index into that
+/// storage the way compiled code itself does for `a[i]`, so this reads
+/// through it — with a NUMBER key, since `key_number`'s own doc names a
+/// string subscript as the different, slower path this is not taking.
 fn array_items(array: u64) -> Vec<u64> {
     let absent = undefined_value();
     if array == absent {
@@ -57,9 +66,7 @@ fn array_items(array: u64) -> Vec<u64> {
         rts_core_rwk::entry::number_of(value)
     })
     .unwrap_or(0.0) as usize;
-    (0..length)
-        .map(|index| with_runtime(|context| rts_core_rwk::entry::get_member(context, array, &index.to_string())))
-        .collect()
+    (0..length).map(|index| get_indexed(array, make_number(index as f64))).collect()
 }
 
 /// `fs.readFileSync(path, encoding?)` — bytes (a `Uint8Array`) when
