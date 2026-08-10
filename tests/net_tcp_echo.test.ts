@@ -10,7 +10,7 @@
 // caminho de falha o server e' MORTO (process.kill) em vez de aguardado
 // — o teste FALHA normalmente, nunca trava a suite.
 import { describe, test, expect } from "rts:test";
-import { net, gc, buffer, process, thread, fs } from "rts";
+import { net, gc, buffer, process, time, fs } from "rts";
 
 function resolveRtsExe(): string {
   if (fs.exists("target/release/rts.exe") === 1) return "target/release/rts.exe";
@@ -29,7 +29,7 @@ describe("fixture:net_tcp_echo", () => {
     // ~5s (25 x 200ms) em vez de um sleep fixo — cobre runner frio de CI.
     let client: i64 = 0;
     for (let attempt = 0; attempt < 25 && client == 0; attempt++) {
-      thread.sleep_ms(200);
+      time.sleep_ms(200);
       client = net.tcp_connect("127.0.0.1:45123");
     }
 

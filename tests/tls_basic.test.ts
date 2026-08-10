@@ -1,6 +1,6 @@
 // HTTPS via tls — handshake + GET contra api.github.com.
 import { describe, test, expect } from "rts:test";
-import { net, tls, buffer, thread } from "rts";
+import { net, tls, buffer, time } from "rts";
 
 describe("fixture:tls_basic", () => {
   test("handshake TLS + GET HTTPS retorna 200", () => {
@@ -25,7 +25,7 @@ describe("fixture:tls_basic", () => {
     req = req + "\r\n";
 
     const sent = tls.send(stream, req);
-    thread.sleep_ms(500);
+    time.sleep_ms(500);
 
     const buf = buffer.alloc_zeroed(8192);
     const n = tls.recv(stream, buffer.ptr(buf), 8192);

@@ -178,12 +178,31 @@ where the error is CONSTRUCTED. No line numbers yet — the machine records a
 source position per instruction and nothing maps an address back to one at run
 time, which is `rts_cranelift::observe`'s question.
 
-The largest gap now is the **`rts:` surface the old engine provided** that this
-one keeps: `atomic`, `sync`, `thread`, `io`, `buffer`, `net`, `fs`, `process`.
-The bare `rts` specifier exists and carries `num`, `math`, `hint` and `time`.
-`ptr`, `mem`, `alloc`, `ffi` and `trace` are NOT on that list — they return in
-another shape or not at all, and their tests were removed rather than left
-pinning an interface nothing will implement.
+**What the `rts:` surface keeps, and what left.** The bare `rts` specifier
+carries `num`, `math`, `hint`, `time`, `gc` and `atomic`. Still wanted from what
+the old engine provided: `io`, `buffer`, `net`, `fs`, `process`.
+
+**GONE by decision, and their tests with them** — `ptr`, `mem`, `alloc`, `ffi`,
+`trace`, `sync`, `thread`, `promise.new_*`, and `RtsePoint`. The first five left
+earlier because they return in another shape or not at all; `sync` and `thread`
+left on 08-10 for a reason worth keeping written down.
+
+`thread` needs two OS threads running JavaScript, and this engine cannot: a
+`Context` is reached through a thread-local and nothing in the host spawns a
+thread to run a callback. That is an architecture, not a gap, so a `thread`
+namespace would have been a name with nothing behind it.
+
+`sync` is the sharper case, because it EXISTED for a few hours on 08-10 before
+being removed. Its `mutex_lock` could not block — there is nothing to block
+against — so what shipped was a lock that always succeeded. That passes a test
+and lies to a reader, which is worse than the missing name: a program written
+against it would be correct here and wrong the day threads arrive. `atomic`
+survives the same argument only because its operations are read-modify-write on
+one thread, which is genuinely what they compute, and its module says so.
+
+The rule this leaves: **a surface that cannot do what its name means does not
+ship.** An absent name fails loudly at the call; a hollow one fails in
+production.
 
 **This is the direction for all new work.** `crates/rts-codegen-new` is the
 engine that currently runs `rts run` / `compile` / `test`, and it is being

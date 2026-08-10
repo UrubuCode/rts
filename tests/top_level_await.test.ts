@@ -1,6 +1,4 @@
 import { describe, test, expect } from "rts:test";
-import { promise } from "rts";
-
 let __rtsCapturedOutput: string = "";
 function print(value: string): void {
   __rtsCapturedOutput += value + "\n";
@@ -46,7 +44,7 @@ print("loop=" + total);
 // "uncaught exception (tag 1): 99", o que apagaria as 6 asserçoes acima.
 // A asserçao fica como esta' — falhando com caught=-1 — porque e' o
 // mesmo bug, visivel em vez de mascarado.
-const pr = promise.new_rejected(99);
+const pr = Promise.reject(99);
 let caught: i64 = -1;
 try {
   await pr;
