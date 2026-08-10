@@ -4026,6 +4026,7 @@ dependencies = [
  "rts-core",
  "rts-host",
  "rts-linker",
+ "rts-napi-rwk",
  "rts-std",
  "serde",
  "serde_json",

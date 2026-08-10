@@ -12,6 +12,9 @@ rts-host = { path = "../rts-host" }
 # about the runtime, and reaching it through the host would make the host
 # re-export something it has no other reason to know about.
 rts-core = { path = "../rts-core" }
+# `rts napi <file.node>`: the only binary that exports the `napi_*` symbols is
+# `rts`, so the only place an addon can be loaded is from inside it.
+rts-napi-rwk = { path = "../rts-napi-rwk" }
 rts-std = { path = "../rts-std" }
 rts-linker = { path = "../rts-linker" }
 anyhow = "1.0"

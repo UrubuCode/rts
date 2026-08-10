@@ -6,6 +6,7 @@ pub mod emit_types;
 pub mod init;
 pub mod install;
 pub mod ir;
+pub mod napi;
 pub mod new_engine;
 pub mod run;
 pub mod test_cmd;
@@ -228,6 +229,7 @@ where
         "test" => test_cmd::command(positional.get(1).cloned()),
         "emit-types" => emit_types::command(positional.get(1).cloned()),
         "ir" => ir::command(positional.get(1).cloned(), flags.as_compile_options()),
+        "napi" => napi::command(positional.get(1).cloned()),
         "i" | "install" | "add" => {
             let extra: Vec<String> = positional[1..].to_vec();
             install::command(extra)

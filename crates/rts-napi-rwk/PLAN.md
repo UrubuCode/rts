@@ -292,12 +292,61 @@ Asking a string for an `int32` is REFUSED rather than coerced. The ABI has
 `napi_coerce_to_number` for that, and answering 0 would hide an addon's type
 error.
 
-## P8d — a third-party addon
+## P8d — a third-party addon (MEASURED, does not run yet)
 
-What is left is the measurement, not the code: building a real `.node` against
-Node's headers and loading it. Every piece it needs is in and tested apart, and
-none of that is the same as one addon working — the crate's status stays "the
-tests pass" until an addon runs, and this line is what says so.
+Done, and the result is a list rather than a guess.
+
+`@napi-rs/uuid-win32-x64-msvc` — a real prebuilt addon off npm, 300 KB — was
+loaded with `rts napi <file>`. It MAPPED: the library opens, its constructors
+run, and it reaches the process looking for its bindings. Then it panicked with
+`Must load N-API bindings`, which is `napi-sys` saying a symbol it requires is
+not in the export table.
+
+Which is measurable, and was measured. The addon names every symbol it looks up
+as a string in its own binary — that is how `GetProcAddress` binding works — so
+the gap is a diff:
+
+**It wants 119. We export 80. Forty-five are missing.**
+
+```
+napi_add_env_cleanup_hook          napi_get_dataview_info
+napi_adjust_external_memory        napi_get_last_error_info
+napi_async_destroy                 napi_get_new_target
+napi_async_init                    napi_get_node_version
+napi_cancel_async_work             napi_get_prototype
+napi_close_callback_scope          napi_get_uv_event_loop
+napi_close_escapable_handle_scope  napi_get_value_string_latin1
+napi_close_handle_scope            napi_get_value_string_utf16
+napi_coerce_to_object              napi_get_version
+napi_create_dataview               napi_has_element
+napi_create_external_arraybuffer   napi_has_named_property
+napi_create_external_buffer        napi_has_own_property
+napi_create_promise                napi_is_arraybuffer
+napi_create_string_latin1          napi_is_dataview
+napi_create_string_utf16           napi_is_promise
+napi_create_symbol                 napi_make_callback
+napi_create_typedarray             napi_open_callback_scope
+napi_delete_element                napi_open_escapable_handle_scope
+napi_escape_handle                 napi_open_handle_scope
+napi_fatal_error                   napi_reject_deferred
+napi_fatal_exception               napi_remove_env_cleanup_hook
+napi_get_arraybuffer_info          napi_resolve_deferred
+                                   napi_run_script
+```
+
+Most are shallow. The handle scopes are `Env::open`/`Env::close`, which already
+exist; `has_named_property` and `has_element` are the doors P2 built; the
+promise four are `rts-core`'s `promise_new`/`promise_settle`. Three are not:
+`napi_get_uv_event_loop` hands over a libuv loop this engine does not have,
+`napi_make_callback` is Node's async-context machinery, and
+`napi_run_script` needs a compiler the AOT binary deliberately does not carry.
+
+**`napi_get_last_error_info` is the one to do first** regardless of size: it is
+what `napi-sys` probes before anything else, so its absence is what turns every
+other gap into one unhelpful panic.
+
+Until an addon actually runs, the crate's status stays "the tests pass". What
+changed is that the distance to that is now written down.
 
 The old `rts-napi` lists 157 names against this crate's 70, and the difference
 is the surface still missing rather than a disagreement — another reason to keep
