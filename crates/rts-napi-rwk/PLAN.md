@@ -157,6 +157,29 @@ and the same operator a program uses. The first version looked for a `message`
 property and a test now pins why that is wrong: a plain object with a `message`
 is not an Error.
 
+## P7d — classes and descriptors (DONE)
+
+`napi_define_class`, `napi_define_properties`, `napi_new_instance`,
+`napi_instanceof`, and the `napi_property_descriptor` an addon builds them from.
+
+A class is assembled the way the LANGUAGE assembles one — a callable marked as
+a constructor, a plain object as its prototype, methods put on the prototype,
+the two linked. Not with `rts-core`'s `make_prototype`, which is how `Math` and
+`Error` are made and is wrong here for two reasons it states itself: it takes a
+`&'static str` (an addon's name is read at run time) and it PANICS when two
+callers define one name from different files. Inside the engine that can only be
+a programming error; from an addon it would be a crash a script could cause.
+
+`napi_static` is honoured because it changes WHERE a member lives. `writable`,
+`enumerable` and `configurable` are not, and the module says so rather than
+accepting them quietly — a flag taken and ignored reads as supported.
+
+The phase also found a bug in P2 and fixed it: `napi_get_named_property` used
+`get_member`, which reads a data property and cannot run user code, so a getter
+answered `undefined` by name and its real value by key. Both doors go through
+`get_indexed` now, which is what P2's own module doc had claimed all along, and
+a test pins it.
+
 ## P8 — loading a real `.node`
 
 `napi_module_register`, the export table, and the first third-party addon that

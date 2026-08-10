@@ -91,9 +91,9 @@ JAVASCRIPT on two threads — is untouched and still true.
 
 ## What is absent now
 
-`napi_define_class` and the property-descriptor surface, `napi_new_instance`,
-BigInt and Date conversions, buffers and typed arrays, and the module
-registration a real `.node` enters through (P8).
+BigInt and Date conversions, buffers and typed arrays, the property ATTRIBUTES
+(`writable`/`enumerable`/`configurable`, which are read and ignored, and say so),
+and the module registration a real `.node` enters through (P8).
 
 None of them is waiting on the engine. They are volume, and `PLAN.md` says
 which phase each belongs to.

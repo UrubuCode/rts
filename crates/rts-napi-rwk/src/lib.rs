@@ -31,6 +31,8 @@
 //!
 //! P7c: errors — throwing a value, building one, and asking what is pending.
 //!
+//! P7d: classes — `napi_define_class`, property descriptors, `new`.
+//!
 //! Everything else in the ABI is absent rather than stubbed; an absent symbol
 //! fails to link loudly, which is the answer an addon can act on.
 //!
@@ -56,6 +58,7 @@
 
 pub mod abi;
 pub mod async_work;
+pub mod class;
 pub mod env;
 pub mod errors;
 pub mod functions;

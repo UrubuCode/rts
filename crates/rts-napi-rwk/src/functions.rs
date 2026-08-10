@@ -191,6 +191,19 @@ fn given_count(words: &[u64], undefined: u64) -> usize {
         .unwrap_or(0)
 }
 
+/// A callable value over an addon callback, as an engine word.
+///
+/// Public because a class is made of these: `napi_define_class` turns a method
+/// descriptor into one of these per method, and building them there would mean
+/// a second copy of the registration and the environment trick. The handle is
+/// the caller's to make — some of these are hung on a prototype rather than
+/// handed to the addon.
+pub fn callable_word(env: napi_env, cb: napi_callback, data: *mut c_void) -> u64 {
+    let slot = register(cb, data, env.0);
+    let environment = rts_core::entry::make_number(slot as f64);
+    rts_core::entry::closure_new(trampoline as usize as i64, environment)
+}
+
 /// `napi_create_function` — a JS callable whose body is the addon's.
 ///
 /// # Safety
@@ -210,9 +223,7 @@ pub unsafe extern "C" fn napi_create_function(
     if cb.is_none() {
         return napi_invalid_arg;
     }
-    let slot = register(cb, data, env.0);
-    let environment = rts_core::entry::make_number(slot as f64);
-    let word = rts_core::entry::closure_new(trampoline as usize as i64, environment);
+    let word = callable_word(env, cb, data);
 
     // SAFETY: the caller's contract.
     let Some(env) = (unsafe { env_of(env) }) else {

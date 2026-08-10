@@ -192,9 +192,16 @@ pub unsafe extern "C" fn napi_set_named_property(
     ) else {
         return napi_invalid_arg;
     };
-    rts_core::entry::with_runtime(|context| {
-        rts_core::entry::put_member(context, object, name, value)
+    // Through the SAME door `napi_set_property` uses, and this is the fix to a
+    // claim this module made and did not keep. `put_member` writes a data
+    // property directly; `set_indexed` is `o[k] = v`, which runs a setter if
+    // there is one. With `put_member` here, a property defined by
+    // `napi_define_properties` with a setter was silently overwritten by a plain
+    // value — three doors, two rooms.
+    let key = rts_core::entry::with_runtime(|context| {
+        rts_core::entry::make_string(context, name)
     });
+    rts_core::entry::set_indexed(object, key, value);
     napi_ok
 }
 
@@ -215,9 +222,16 @@ pub unsafe extern "C" fn napi_get_named_property(
     else {
         return napi_invalid_arg;
     };
-    let word = rts_core::entry::with_runtime(|context| {
-        rts_core::entry::get_member(context, object, name)
+    // `get_indexed`, not `get_member`, and the difference is a getter:
+    // `get_member` reads a data property and cannot run user code, because it
+    // holds the runtime's borrow while it looks. Reading a property defined by
+    // `napi_define_properties` with a getter answered `undefined` through this
+    // door and 7 through the keyed one — which is precisely the claim this
+    // module's own documentation makes and would have been breaking.
+    let key = rts_core::entry::with_runtime(|context| {
+        rts_core::entry::make_string(context, name)
     });
+    let word = rts_core::entry::get_indexed(object, key);
     // SAFETY: forwarded.
     unsafe { produce(env, result, word) }
 }
