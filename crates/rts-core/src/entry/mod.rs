@@ -575,7 +575,7 @@ pub struct Context {
     ///
     /// A list rather than a map: a host provides a handful. See [`modules`] for
     /// what this is and, more importantly, what it is not.
-    pub modules: Vec<(String, u64)>,
+    pub modules: Vec<modules::Registered>,
     /// How a host turns source text into a value, if it offered a way.
     ///
     /// Absent unless one installs it: this crate has no compiler and the crate

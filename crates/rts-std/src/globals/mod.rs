@@ -27,6 +27,7 @@
 pub mod emitter;
 pub mod events;
 pub mod output;
+pub mod pump;
 pub mod storage;
 pub mod text;
 pub mod timing;
@@ -36,6 +37,7 @@ use rts_core::entry::Context;
 /// Installs every global this crate provides.
 pub fn install(context: &mut Context) {
     output::install(context);
+    pump::install(context);
     text::install(context);
     events::install(context);
     timing::install(context);
