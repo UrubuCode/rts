@@ -1,6 +1,6 @@
 ---
 name: add-builtin-class
-description: Add a built-in class, namespace, or prototype method to the new engine's runtime (rts-core-rwk) with `#[rtse::class]` — Error family, Math, Number, JSON, Map/Set, Promise, Date, typed arrays, and anything else a program reaches by name. Use when a JavaScript global or a prototype method is missing at run time, or when a native needs state beside a cell.
+description: Add a built-in class, namespace, or prototype method to the new engine's runtime (rts-core) with `#[rtse::class]` — Error family, Math, Number, JSON, Map/Set, Promise, Date, typed arrays, and anything else a program reaches by name. Use when a JavaScript global or a prototype method is missing at run time, or when a native needs state beside a cell.
 ---
 
 # Adding a built-in class
@@ -16,7 +16,7 @@ Run `reuse-check` first.
 
 ## 0. Does it belong here?
 
-`rts-core-rwk` is what **every target has, including wasm**. Availability is the
+`rts-core` is what **every target has, including wasm**. Availability is the
 only membership rule.
 
 - **Core:** `Error` family, `Math`, `Number`, `Boolean`, `JSON`, `Symbol`,
@@ -71,7 +71,7 @@ crossing is undecided.
 
 The attribute **cannot** register itself — a proc macro cannot see its
 neighbours, and a distributed slice would collect in linker order. Call
-`register_<name>(context)` from `crates/rts-core-rwk/src/entry/global.rs`.
+`register_<name>(context)` from `crates/rts-core/src/entry/global.rs`.
 
 **Record before installing.** A registration must record itself on
 `class_support` before installing anything: installing interns names, interning
@@ -82,7 +82,7 @@ ran out.
 ## 3. State beside the cell, never a reserved layout
 
 State goes in an `Aside<T>` keyed by region index, declared on `Context` in
-`crates/rts-core-rwk/src/entry/mod.rs` and built in **both** `new()` and `over()`
+`crates/rts-core/src/entry/mod.rs` and built in **both** `new()` and `over()`
 — `over` rebuilds every `Aside` at the region's width, and one missed there
 indexes by a number that is not a cell.
 
@@ -108,12 +108,12 @@ body must do it for anything it calls.
 ## 5. Verify
 
 ```bash
-cargo check -p rts-core-rwk
-cargo test -p rts-core-rwk <area>
-cargo test -p rts-host-rwk running    # a program that uses it
+cargo check -p rts-core
+cargo test -p rts-core <area>
+cargo test -p rts-host running    # a program that uses it
 ```
 
-Add cases to `crates/rts-host-rwk/tests/suite/<area>.js` — those run the program.
+Add cases to `crates/rts-host/tests/suite/<area>.js` — those run the program.
 
 ## Never
 

@@ -40,7 +40,7 @@ mod widgets;
 mod scene_api;
 // `rts:gpu` — compute WGSL sobre o MESMO device compartilhado do render.
 // Lógica pura, como o resto do crate: a casca do motor antigo é `abi::gpu`, a do
-// novo é `rts-ui-rwk`. Este módulo sobe e baixa bytes e não sabe de onde vêm.
+// novo é `rts-ui`. Este módulo sobe e baixa bytes e não sabe de onde vêm.
 pub mod compute;
 
 // O DOM (árvore + parser + NodeId) E o ESTADO de estilo vivem no crate `rts-dom`;

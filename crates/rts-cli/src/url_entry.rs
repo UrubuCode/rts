@@ -12,7 +12,7 @@
 //! (`Rts v<version>` / `Rts development`).
 //!
 //! Relative specifiers resolve with the SAME candidate list as the disk
-//! resolver (`rts-host-rwk`'s `graph::resolve`): explicit extension
+//! resolver (`rts-host`'s `graph::resolve`): explicit extension
 //! as-is; otherwise `x.ts, x.rts, x.js, x/index.ts, x/index.rts, x/index.js`
 //! probed in order (first HTTP 200 wins). Builtins (`rts:*`, `node:*`) and
 //! bare npm specifiers are left untouched for the engine to handle.
@@ -89,7 +89,7 @@ fn relative_imports(text: &str, url: &UrlParts) -> Result<Vec<String>> {
     // would run the mirrored files — a specifier one accepted and the other
     // refused was a download that succeeded into a program that would not
     // compile, reported at the wrong end.
-    rts_host_rwk::graph::relative_imports(text)
+    rts_host::graph::relative_imports(text)
         .map_err(|e| anyhow!("parse of {} failed: {e}", url.to_url()))
 }
 

@@ -237,9 +237,9 @@ pub fn emit_expr(
         // waiting MEANS is the machine's: `Inst::Await` lowers to a call that
         // drains until the promise settles, so this frame keeps the machine
         // rather than yielding to its caller. That divergence is stated in
-        // `rts-core-rwk`'s `promise/machine.rs`, which is the half that does it.
+        // `rts-core`'s `promise/machine.rs`, which is the half that does it.
         // A rejected promise raises through the in-flight throw INSIDE
-        // `promise_await` (`rts-core-rwk`), the same mechanism a native uses
+        // `promise_await` (`rts-core`), the same mechanism a native uses
         // under rule 8 — but that native is reached by a raw machine call
         // `rts-cranelift` emits for `Inst::Await`, never through this crate's
         // `call` helper, so nothing asked afterward. `raise_if_thrown` is the
@@ -337,7 +337,7 @@ pub fn emit_expr(
 ///
 /// The exact rule is the canonical-index one: a decimal spelling of a number
 /// below 2^32-1 with no leading zero. Stating it here would be stating it twice,
-/// because `rts-core-rwk`'s `as_array_index` already owns it — and this crate
+/// because `rts-core`'s `as_array_index` already owns it — and this crate
 /// cannot call that one, being above it in the graph and forbidden from naming
 /// a runtime.
 ///
@@ -443,7 +443,7 @@ fn check_for_throw(builder: &mut FuncBuilder, ctx: &mut Ctx, op: RuntimeOp) -> E
 ///
 /// `await` does not lower through [`call`] — `rts-cranelift` lowers
 /// `Inst::Await` straight to `RtEntry::PromiseAwait`, a machine-level call this
-/// layer never sees as a `RuntimeOp`. `promise_await` (`rts-core-rwk`,
+/// layer never sees as a `RuntimeOp`. `promise_await` (`rts-core`,
 /// `entry/promise/machine.rs`) already raises through the in-flight throw when
 /// the awaited promise rejected — its own doc says a `try` around an `await`
 /// "reaches this one like any other call site", which was only true if
@@ -634,7 +634,7 @@ pub(super) fn emit_binary(
         // code, which no test caught because the tests stopped at the verifier.
         //
         // They come back when the runtime defines them. Refusing until then is
-        // what keeps `runtime/` and `rts-core-rwk` from stating different sets —
+        // what keeps `runtime/` and `rts-core` from stating different sets —
         // the exact drift the audit named, since nothing links the two yet.
         BinaryOp::Sub => RuntimeOp::Subtract,
         BinaryOp::Mul => RuntimeOp::Multiply,

@@ -174,7 +174,7 @@ jobs:
       # AOT smoke REMOVED from this job, and the reason is a real gap rather than
       # a flaky test. This job downloads the `rts` binary and has no cargo, and
       # since `rts compile` was cut over to the new engine it needs
-      # `rts_runtime_rwk.lib` ON DISK — the old engine EMBEDDED its archive in the
+      # `rts_runtime.lib` ON DISK — the old engine EMBEDDED its archive in the
       # binary and extracted it to ~/.rts/artifacts, and the new one has no
       # embedded fallback. So a DOWNLOADED `rts` cannot AOT-compile at all today.
       #

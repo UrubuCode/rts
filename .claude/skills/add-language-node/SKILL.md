@@ -67,7 +67,7 @@ behaviour of the language it pins.
 ```bash
 cargo check -p rts-codegen
 cargo test -p rts-codegen <filter>
-cargo test -p rts-host-rwk running     # the test that runs the program
+cargo test -p rts-host running     # the test that runs the program
 ```
 
 ## 5. Coverage is measured, never claimed

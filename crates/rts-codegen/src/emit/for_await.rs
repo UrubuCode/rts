@@ -4,7 +4,7 @@
 //!
 //! `foreach.rs`'s `for-of` reduces to an indexed loop over an array the
 //! runtime materialises **up front**, through [`crate::runtime::RuntimeOp::Iterate`]
-//! — `rts-core-rwk::entry::iterate` drains `[Symbol.iterator]()` to
+//! — `rts-core::entry::iterate` drains `[Symbol.iterator]()` to
 //! exhaustion before the loop body runs once. `for await` cannot reuse that:
 //! stepping an async iterator means calling `.next()` and awaiting its
 //! result, one pass at a time, interleaved with the body — collecting every

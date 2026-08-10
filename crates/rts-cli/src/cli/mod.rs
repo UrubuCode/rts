@@ -18,56 +18,56 @@ use anyhow::{Context, Result, anyhow, bail};
 use crate::compile_options::{CompilationProfile, CompileOptions};
 use crate::linker::WindowsSubsystem;
 
-/// Resolver for the embedded AOT archive (`rts-runtime-rwk`). The archive and
+/// Resolver for the embedded AOT archive (`rts-runtime`). The archive and
 /// its on-demand materialization live in the `rts` BIN crate
 /// (`runtime_objects.rs`), which the CLI cannot reach upward, so the bin
-/// installs its `rt_artifacts_rwk` here at startup.
+/// installs its `rt_artifacts` here at startup.
 ///
-/// [`runtime_archive_rwk`] falls back to it only when no fresh `target/` build
-/// exists, so a dev who just rebuilt `rts-runtime-rwk` gets their own archive
+/// [`runtime_archive`] falls back to it only when no fresh `target/` build
+/// exists, so a dev who just rebuilt `rts-runtime` gets their own archive
 /// rather than a possibly-stale embedded one.
-static ARCHIVE_RESOLVER_RWK: OnceLock<fn() -> Result<PathBuf>> = OnceLock::new();
+static ARCHIVE_RESOLVER: OnceLock<fn() -> Result<PathBuf>> = OnceLock::new();
 
-/// Install the embedded-archive resolver (`rts::rt_artifacts_rwk`).
+/// Install the embedded-archive resolver (`rts::rt_artifacts`).
 /// No-op if already set. A CLI invoked without calling this still works for
-/// `rts compile` as long as a fresh `target/{debug,release}/rts_runtime_rwk.lib`
+/// `rts compile` as long as a fresh `target/{debug,release}/rts_runtime.lib`
 /// exists — this only supplies the fallback for a binary run from elsewhere.
-pub fn set_runtime_archive_resolver_rwk(f: fn() -> Result<PathBuf>) {
-    let _ = ARCHIVE_RESOLVER_RWK.set(f);
+pub fn set_runtime_archive_resolver(f: fn() -> Result<PathBuf>) {
+    let _ = ARCHIVE_RESOLVER.set(f);
 }
 
-/// Locates the `rts-runtime-rwk` staticlib `rts compile` links the AOT objects
+/// Locates the `rts-runtime` staticlib `rts compile` links the AOT objects
 /// against.
 ///
 /// # `target/` is preferred, the embedded copy is the fallback
 ///
-/// A dev iterating on `rts-core-rwk`/`rts-std-rwk`/`rts-node-rwk` needs their
+/// A dev iterating on `rts-core`/`rts-std`/`rts-node` needs their
 /// freshly-built archive, not whatever shipped inside this `rts` binary — so a
-/// `target/{debug,release}/rts_runtime_rwk.lib` on disk always wins when
+/// `target/{debug,release}/rts_runtime.lib` on disk always wins when
 /// present. A `rts` copied to a machine with no `target/` at all (the case this
 /// exists for: a downloaded binary that could not `rts compile` before this
-/// change) falls back to [`set_runtime_archive_resolver_rwk`]'s embedded,
+/// change) falls back to [`set_runtime_archive_resolver`]'s embedded,
 /// extract-on-demand archive.
 ///
 /// # The staleness check
 ///
-/// Cargo happily links a `target/debug/rts_runtime_rwk.lib` that predates the
-/// last edit to `rts-core-rwk`, `rts-std-rwk` or `rts-node-rwk` — nothing
+/// Cargo happily links a `target/debug/rts_runtime.lib` that predates the
+/// last edit to `rts-core`, `rts-std` or `rts-node` — nothing
 /// rebuilds it just because `rts` itself was rebuilt, since (for the `target/`
-/// case) it was built by a separate `cargo build -p rts-runtime-rwk` invocation,
+/// case) it was built by a separate `cargo build -p rts-runtime` invocation,
 /// not as part of this binary's own dependency graph. So this compares the
 /// archive's mtime against every `.rs` file in the three source trees and
 /// refuses to link a stale one — the failure CLAUDE.md's "regress explicitly"
 /// rule asks for: loud, and naming what to run, rather than a binary that links
 /// and then answers a question the source no longer asks.
 ///
-/// This check does not apply to the embedded fallback: `rts-runtime-rwk` is now
+/// This check does not apply to the embedded fallback: `rts-runtime` is now
 /// a direct dependency of the `rts` bin crate (root `Cargo.toml`), so the
 /// archive `build.rs` embeds was necessarily built in the SAME `cargo build`
 /// invocation that produced this very binary — there is no separate source tree
 /// for it to be stale against. An embedded archive is only ever as stale as the
 /// `rts` executable running it.
-pub(crate) fn runtime_archive_rwk() -> Result<PathBuf> {
+pub(crate) fn runtime_archive() -> Result<PathBuf> {
     if let Ok(path) = std::env::var("RTS_RUNTIME_RWK_ARCHIVE") {
         return Ok(PathBuf::from(path));
     }
@@ -76,21 +76,21 @@ pub(crate) fn runtime_archive_rwk() -> Result<PathBuf> {
         workspace
             .join("target")
             .join(profile)
-            .join("rts_runtime_rwk.lib")
+            .join("rts_runtime.lib")
     });
     let dev_archive = candidates.into_iter().find(|path| path.is_file());
 
     let Some(archive) = dev_archive else {
-        return match ARCHIVE_RESOLVER_RWK.get() {
+        return match ARCHIVE_RESOLVER.get() {
             Some(f) => f().context(
-                "no `rts_runtime_rwk.lib` under target/{debug,release} and the embedded \
+                "no `rts_runtime.lib` under target/{debug,release} and the embedded \
                  new-engine runtime archive could not be materialized",
             ),
             None => bail!(
-                "no `rts_runtime_rwk.lib` under target/{{debug,release}} — build it first: \
-                 `cargo build -p rts-runtime-rwk` (or `--release`). No embedded-archive \
+                "no `rts_runtime.lib` under target/{{debug,release}} — build it first: \
+                 `cargo build -p rts-runtime` (or `--release`). No embedded-archive \
                  resolver was installed either (the `rts` bin must call \
-                 `rts::cli::set_runtime_archive_resolver_rwk(rts::rt_artifacts_rwk)` before \
+                 `rts::cli::set_runtime_archive_resolver(rts::rt_artifacts)` before \
                  dispatch)."
             ),
         };
@@ -100,12 +100,12 @@ pub(crate) fn runtime_archive_rwk() -> Result<PathBuf> {
         .and_then(|meta| meta.modified())
         .with_context(|| format!("stat {}", archive.display()))?;
 
-    for crate_name in ["rts-core-rwk", "rts-std-rwk", "rts-node-rwk", "rts-runtime-rwk"] {
+    for crate_name in ["rts-core", "rts-std", "rts-node", "rts-runtime"] {
         let source_dir = workspace.join("crates").join(crate_name).join("src");
         if let Some(stale) = newer_rust_file(&source_dir, archive_mtime)? {
             bail!(
                 "'{}' is newer than {} — rebuild the AOT runtime archive: \
-                 `cargo build -p rts-runtime-rwk` (or `--release` to match), then re-run \
+                 `cargo build -p rts-runtime` (or `--release` to match), then re-run \
                  `rts compile`. Cargo will not do this for you: the archive is not on \
                  `rts`'s own dependency graph.",
                 stale.display(),

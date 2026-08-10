@@ -6,15 +6,15 @@ members = [
     "crates/rts-input",
     "crates/rts-render",
     "crates/rts-egui",
-    "crates/rts-macro-rwk",
+    "crates/rts-macro",
     "crates/rts-cranelift",
     "crates/rts-codegen",
-    "crates/rts-core-rwk",
-    "crates/rts-ui-rwk",
-    "crates/rts-std-rwk",
-    "crates/rts-node-rwk",
-    "crates/rts-host-rwk",
-    "crates/rts-runtime-rwk",
+    "crates/rts-core",
+    "crates/rts-ui",
+    "crates/rts-std",
+    "crates/rts-node",
+    "crates/rts-host",
+    "crates/rts-runtime",
     "crates/rts-cli",
 ]
 resolver = "2"
@@ -49,14 +49,14 @@ path = "src/main.rs"
 
 [dependencies]
 rts-linker = { path = "crates/rts-linker" }
-# `rts-runtime-rwk` was on nobody's Cargo.toml — not even transitively — so a
-# plain `cargo build` never produced `rts_runtime_rwk.lib`/`librts_runtime_rwk.a`
+# `rts-runtime` was on nobody's Cargo.toml — not even transitively — so a
+# plain `cargo build` never produced `rts_runtime.lib`/`librts_runtime.a`
 # and `rts compile` (new engine AOT) could not work from a fresh checkout.
 # Direct dependency here for the same reason `rts-runtime` is listed here, per
 # its own Cargo.toml comment: Cargo only emits a staticlib for a package built
 # as a DIRECT target of the build, and being unreferenced (or merely a
 # dependency-of-a-dependency) does not count.
-rts-runtime-rwk = { path = "crates/rts-runtime-rwk" }
+rts-runtime = { path = "crates/rts-runtime" }
 rts-cli = { path = "crates/rts-cli" }
 anyhow = "1.0"
 backtrace = "0.3"
@@ -115,7 +115,7 @@ strip = "symbols"
 opt-level = 3
 [profile.release.package.rts-cranelift]
 opt-level = 3
-[profile.release.package.rts-core-rwk]
+[profile.release.package.rts-core]
 opt-level = 3
 [profile.release.package.cranelift-codegen]
 opt-level = 3

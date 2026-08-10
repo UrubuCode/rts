@@ -16,7 +16,7 @@ answers to the same question, not two spellings of one.
 ## What the port has to answer
 
 - **A handle that outlives a call.** N-API hands a `napi_ref` to C code that may
-  keep it across turns. `rts-core-rwk` has no equivalent yet — a value is
+  keep it across turns. `rts-core` has no equivalent yet — a value is
   reachable from the region or it is not — so this needs whatever the collector
   decides an external root is.
 - **Where the finalizer queue drains.** The old engine had

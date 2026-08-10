@@ -49,13 +49,13 @@ teaching it what a generator yields would put a language fact in the machine.
 temptation is a new instruction, and the answer is that `Suspend` plus an
 ordinary call already spells it.
 
-**The host** (`rts-host-rwk`). After emission, a function whose signature says it
+**The host** (`rts-host`). After emission, a function whose signature says it
 may suspend is put through `resumable_form` and the REWRITTEN function is placed.
 The host then registers, for that function's code address, the frame's type and
 the three field offsets. Keyed by ADDRESS rather than by name or index, because
 that is the one thing the runtime already holds about a compiled function.
 
-**The runtime** (`rts-core-rwk`), in `entry/generator.rs`. A generator object holds the frame cell and
+**The runtime** (`rts-core`), in `entry/generator.rs`. A generator object holds the frame cell and
 whether it is finished. `next(v)` writes `v` into `resumed_field`, calls the code
 with the frame's address, reads the finished flag, and answers `{ value, done }`.
 A second difference from what this proposed: `yield` was to reach the generator
@@ -105,7 +105,7 @@ the aggregate's fields, or whether it needs its own region.
 
 Getting that wrong is not a compile error. It is a generator that runs and reads
 the wrong words — so it was answered first, by
-`crates/rts-host-rwk/tests/generator_frame.rs`, which RUNS a rewritten function
+`crates/rts-host/tests/generator_frame.rs`, which RUNS a rewritten function
 against a frame the runtime's own heap handed out, under the addressing
 `compile_for` builds rather than one shaped to suit a test.
 

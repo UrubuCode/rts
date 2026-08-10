@@ -4008,7 +4008,7 @@ dependencies = [
  "backtrace",
  "rts-cli",
  "rts-linker",
- "rts-runtime-rwk",
+ "rts-runtime",
  "sha2 0.10.9",
  "zstd",
 ]
@@ -4022,10 +4022,10 @@ dependencies = [
  "console 0.15.11",
  "flate2",
  "indicatif",
- "rts-core-rwk",
- "rts-host-rwk",
+ "rts-core",
+ "rts-host",
  "rts-linker",
- "rts-std-rwk",
+ "rts-std",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -4045,13 +4045,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "rts-core-rwk"
+name = "rts-core"
 version = "0.1.0"
 dependencies = [
  "fancy-regex",
  "regex",
  "rts-cranelift",
- "rts-macro-rwk",
+ "rts-macro",
 ]
 
 [[package]]
@@ -4094,15 +4094,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "rts-host-rwk"
+name = "rts-host"
 version = "0.1.0"
 dependencies = [
  "rts-codegen",
- "rts-core-rwk",
+ "rts-core",
  "rts-cranelift",
- "rts-node-rwk",
- "rts-std-rwk",
- "rts-ui-rwk",
+ "rts-node",
+ "rts-std",
+ "rts-ui",
 ]
 
 [[package]]
@@ -4125,7 +4125,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rts-macro-rwk"
+name = "rts-macro"
 version = "0.1.0"
 dependencies = [
  "proc-macro2",
@@ -4135,7 +4135,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rts-node-rwk"
+name = "rts-node"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
@@ -4161,7 +4161,7 @@ dependencies = [
  "percent-encoding",
  "ripemd",
  "rsa",
- "rts-core-rwk",
+ "rts-core",
  "rustls",
  "scrypt",
  "sha1",
@@ -4179,26 +4179,26 @@ name = "rts-render"
 version = "0.1.0"
 
 [[package]]
-name = "rts-runtime-rwk"
+name = "rts-runtime"
 version = "0.1.0"
 dependencies = [
- "rts-core-rwk",
- "rts-node-rwk",
- "rts-std-rwk",
+ "rts-core",
+ "rts-node",
+ "rts-std",
 ]
 
 [[package]]
-name = "rts-std-rwk"
+name = "rts-std"
 version = "0.1.0"
 dependencies = [
- "rts-core-rwk",
+ "rts-core",
 ]
 
 [[package]]
-name = "rts-ui-rwk"
+name = "rts-ui"
 version = "0.1.0"
 dependencies = [
- "rts-core-rwk",
+ "rts-core",
  "rts-egui",
  "rts-input",
 ]

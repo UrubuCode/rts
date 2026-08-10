@@ -144,7 +144,7 @@ impossibility is different, and simpler:
   It runs at top-level, on the main thread (the JIT calls `__rts_startup` synchronously, directly, without
   spawn). The pointer here used to be
   `crates/rts-codegen-new/src/front/run/module_jit.rs`, a tree deleted on
-  2026-08-10; the equivalent is `rts-host-rwk`'s `run`.
+  2026-08-10; the equivalent is `rts-host`'s `run`.
 - The stop condition (a `bool`/`i64` returned by a primitive).
 - The application logic over the widgets' returns (app state in TS variables).
 

@@ -3,7 +3,7 @@
 These documents describe the `node:` surface **against an engine that no longer
 exists**. `crates/rts-codegen-new/` was deleted on 2026-08-10, once `rts ir`,
 `rts eval` and `rts emit-types` — the last things entering through it — had been
-rebuilt on `rts-codegen` + `rts-cranelift` + `rts-core-rwk`.
+rebuilt on `rts-codegen` + `rts-cranelift` + `rts-core`.
 
 ## What is still true, and what is not
 
@@ -28,8 +28,8 @@ recovers the real thing when a decision needs its reasoning.
 
 ## Where the answers are now
 
-- `crates/rts-node-rwk/` — the `node:` modules this engine provides.
-- `crates/rts-core-rwk/README.md` — the rules binding on a native.
+- `crates/rts-node/` — the `node:` modules this engine provides.
+- `crates/rts-core/README.md` — the rules binding on a native.
 - `docs/engine/authoring-natives.md` — how a module is authored here.
 - `CLAUDE.md` — what the `rts:`/`node:` surface currently carries, and what
   left by decision.

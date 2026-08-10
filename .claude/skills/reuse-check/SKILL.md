@@ -1,11 +1,11 @@
 ---
 name: reuse-check
-description: Mechanical search for an existing answer before writing new code in the new engine (rts-cranelift, rts-codegen, rts-core-rwk, rts-host-rwk, rts-macro-rwk). Run it BEFORE writing a value encoding, a layout, a numbering, a signature, a queue, a barrier, an interner, or anything that looks like machine bookkeeping. Also run it when a change feels like it needs a table, a registry, or a second source of a number.
+description: Mechanical search for an existing answer before writing new code in the new engine (rts-cranelift, rts-codegen, rts-core, rts-host, rts-macro). Run it BEFORE writing a value encoding, a layout, a numbering, a signature, a queue, a barrier, an interner, or anything that looks like machine bookkeeping. Also run it when a change feels like it needs a table, a registry, or a second source of a number.
 ---
 
 # Does something already answer this?
 
-The layering already burned this twice inside `rts-core-rwk`'s first three phases:
+The layering already burned this twice inside `rts-core`'s first three phases:
 the value encoding was re-derived (and canonicalised `NaN` differently), and a
 second `ShapeTree` was half-written before deletion. Both would have compiled.
 
@@ -38,11 +38,11 @@ design, not a concession.
 
 Second copies land inside one crate too. Search for the concept, then for the
 `Aside<T>` pattern specifically — state beside a cell is the established shape in
-`rts-core-rwk`, and a new field on `Context` for the same job is a duplicate.
+`rts-core`, and a new field on `Context` for the same job is a duplicate.
 
-- `crates/rts-core-rwk/src/entry/mod.rs` — the `Context` struct is the inventory
+- `crates/rts-core/src/entry/mod.rs` — the `Context` struct is the inventory
   of everything already held beside a cell. Read it before adding a field.
-- `crates/rts-core-rwk/src/entry/table.rs` — every numbered entry point.
+- `crates/rts-core/src/entry/table.rs` — every numbered entry point.
 - `crates/rts-codegen/src/runtime/mod.rs` — every operation the language calls.
 
 ## 3. Two tables of one number are a bug, not redundancy
@@ -50,7 +50,7 @@ Second copies land inside one crate too. Search for the concept, then for the
 Some duplication is correct and some is fatal, and they look alike. The test is
 whether the two sides must **agree about a number**:
 
-- Correct: `rts-codegen`'s `Names` and `rts-core-rwk`'s `Interner` are two tables
+- Correct: `rts-codegen`'s `Names` and `rts-core`'s `Interner` are two tables
   — different lifetimes, different contents — that mint from **one**
   `KeyRegistry`.
 - Fatal: two things minting their own numbers for one space. Two numberings are

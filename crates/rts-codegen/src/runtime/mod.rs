@@ -60,7 +60,7 @@ use crate::emit::UNPROVEN;
 /// exactly like the singleton numbering and the key numbering. The language
 /// decides it, because which convention compiled code uses is a fact about what
 /// this crate emits; the runtime restates it because it is what performs the
-/// call. `rts-host-rwk` is the one crate that may name both, and it asserts they
+/// call. `rts-host` is the one crate that may name both, and it asserts they
 /// agree — which is where a disagreement becomes a refusal instead of a jump
 /// with a corrupt stack.
 pub const ARGUMENT_SLOTS: usize = 4;
@@ -238,7 +238,7 @@ pub enum RuntimeOp {
     /// A call and not an instruction because the answer is global mutable state:
     /// the runtime holds the value a throw left behind. Emitted after every
     /// operation that can raise one, which is what lets a throw cross a frame at
-    /// all — see `rts-core-rwk`'s `entry/throw.rs`.
+    /// all — see `rts-core`'s `entry/throw.rs`.
     Thrown,
 
     /// The value in flight, clearing it.

@@ -1,6 +1,6 @@
 # What has to exist before `rts-host`
 
-An audit of `rts-cranelift`, `rts-codegen` and `rts-core-rwk`, asking one
+An audit of `rts-cranelift`, `rts-codegen` and `rts-core`, asking one
 question: is there anything missing that `rts-host` would be built on top of?
 
 Answer: yes, two things, and one of them is the reason `rts-host` should not be
@@ -14,7 +14,7 @@ started yet.
 |---|---|---|---|
 | `rts-cranelift` | none | none | IR, representations, shapes, frames, calls, unwinding, scheduling, two destinations |
 | `rts-codegen` | none | none | the tree, and a parser bridge that fills it |
-| `rts-core-rwk` | none | none | values, heap, text, objects, coercion, collection, promise values |
+| `rts-core` | none | none | values, heap, text, objects, coercion, collection, promise values |
 
 No unimplemented markers anywhere. What is absent is absent *structurally* — it
 is not that something was stubbed, it is that a connection was never made.
@@ -52,7 +52,7 @@ This is the larger of the two, and it is the next real phase of work.
 
 ## Gap 2 — the new runtime is unreachable from compiled code
 
-`rts-core-rwk` exports plain Rust functions. `strict_equals`, `add`,
+`rts-core` exports plain Rust functions. `strict_equals`, `add`,
 `ordinary_get` have no symbol and no index, and the baker does not scan the
 crate — `SCANNED_CRATES` lists twelve crates and this is not one.
 
@@ -120,7 +120,7 @@ thing wrong was a paragraph that a reader would have believed.
 
 ## Recommended order
 
-1. **Entry points for `rts-core-rwk`** — **done**, as `CoreEntry`. An explicitly
+1. **Entry points for `rts-core`** — **done**, as `CoreEntry`. An explicitly
    numbered enum, not the baker: see above for why the first recommendation here
    was a regression.
 2. **The lowering** — `rts-codegen/src/lower/`, tree to IR. The large one, and

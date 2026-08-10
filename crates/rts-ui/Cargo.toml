@@ -1,0 +1,32 @@
+[package]
+name = "rts-ui"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+# A superfície de UI do motor NOVO: `rts:egui` e `rts:input`.
+#
+# Existe como crate próprio pela única razão que `docs/engine/architecture.md`
+# aceita para uma fronteira — DISPONIBILIDADE. Uma janela precisa de um sistema
+# de janelas: não existe em wasm, não existe num build headless, e um alvo que
+# não a tem não deve carregar wgpu/winit no grafo para descobrir isso.
+#
+# Depende de `rts-core` (a superfície de host: namespaces, coerção, valores)
+# e dos crates de UI com `default-features = false` — isto é, SEM a ABI do motor
+# antigo. Ver o doc de `rts-egui/src/abi.rs`.
+
+[dependencies]
+rts-core = { path = "../rts-core" }
+rts-egui = { path = "../rts-egui", default-features = false, features = ["wgpu-backend"] }
+rts-input = { path = "../rts-input", default-features = false }
+
+# O backend de GPU concreto por SO, como `rts-runtime` já faz: dx12=Windows,
+# vulkan=Linux, metal=macOS. Features unem por target, sem redeclarar o wgpu.
+[target.'cfg(target_os = "windows")'.dependencies]
+rts-egui = { path = "../rts-egui", default-features = false, features = ["gpu-dx12"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rts-egui = { path = "../rts-egui", default-features = false, features = ["gpu-vulkan"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+rts-egui = { path = "../rts-egui", default-features = false, features = ["gpu-metal"] }

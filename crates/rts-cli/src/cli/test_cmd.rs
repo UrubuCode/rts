@@ -1,17 +1,17 @@
 //! `rts test [path]` — discover and run `.test.ts` / `.spec.ts` files.
 //!
-//! Cut over to the NEW engine (`rts-host-rwk`, over `rts-cranelift` +
-//! `rts-core-rwk`): each test file is compiled and executed through
+//! Cut over to the NEW engine (`rts-host`, over `rts-cranelift` +
+//! `rts-core`): each test file is compiled and executed through
 //! `crate::cli::new_engine::run_path`, with the full module graph resolved
 //! where one exists (`import { describe, test } from "rts:test"`, or a
-//! relative import). Pass/fail is tracked by `rts_std_rwk::test`
+//! relative import). Pass/fail is tracked by `rts_std::test`
 //! (`reset()`/`record()`), read here after each run.
 //!
 //! **What is NOT preserved across the cutover:** the old engine's `rts test`
 //! additionally compared stdout against a fixture, in `tests/fixtures/*.out`
 //! — that mechanism belongs to `codegen_fixtures`, a separate Rust
 //! integration test over a different, much smaller corpus, and was never
-//! reachable from this command. `rts_std_rwk::test`'s own module doc names
+//! reachable from this command. `rts_std::test`'s own module doc names
 //! the actual, narrower divergence from a real test harness: a failed
 //! `expect(...)` records and the test body keeps running, rather than
 //! throwing and stopping it. Nothing here compared full stdout against a
@@ -474,7 +474,7 @@ fn run_single_in_process(file: &Path, root: &Path) -> Result<()> {
     let label = relative_label(file, root);
     eprintln!("\n{}", dim(&label));
 
-    // Cutover: run the test file through the NEW engine (`rts-host-rwk`,
+    // Cutover: run the test file through the NEW engine (`rts-host`,
     // resolving the import graph where one exists). No cross-file reset is
     // needed here the way the old engine's `run_single_in_process` needed
     // one: this function runs exactly ONCE per process — the multi-file case
@@ -482,7 +482,7 @@ fn run_single_in_process(file: &Path, root: &Path) -> Result<()> {
     // no "next file" for this process to leave a clean slate for.
     //
     // `record()` MUST run inside `after` — i.e. on the SAME thread the
-    // program actually ran on. `rts_std_rwk::test`'s record is
+    // program actually ran on. `rts_std::test`'s record is
     // `thread_local!`, and the run happens on a freshly spawned 64 MB-stack
     // thread (see `new_engine`'s module doc): reading the record back on
     // THIS (the caller's) thread after `run_path` returns would always see
@@ -498,7 +498,7 @@ fn run_single_in_process(file: &Path, root: &Path) -> Result<()> {
     // isolation, or a bare `rts test <file>`), so there is no earlier run's
     // record to clear.
     let (run_result, reported) = crate::cli::new_engine::run_path_and(file, |run_result| {
-        (run_result, rts_std_rwk::test::record())
+        (run_result, rts_std::test::record())
     });
     print_summary(&reported);
     let file_failed = reported.iter().filter(|one| one.failure.is_some()).count();
@@ -513,12 +513,12 @@ fn run_single_in_process(file: &Path, root: &Path) -> Result<()> {
 }
 
 /// Prints the same pass/fail summary shape the old engine's
-/// `test_core::print_summary` printed, from an `rts_std_rwk::test::record()`
+/// `test_core::print_summary` printed, from an `rts_std::test::record()`
 /// list — so the parent's `parse_summary_counts` (which scrapes stderr for
 /// "N test(s) passed"/"N test(s) failed") keeps working unchanged across the
 /// cutover, and so does a human reading either engine's output.
-fn print_summary(reported: &[rts_std_rwk::test::Reported]) {
-    let failed: Vec<&rts_std_rwk::test::Reported> =
+fn print_summary(reported: &[rts_std::test::Reported]) {
+    let failed: Vec<&rts_std::test::Reported> =
         reported.iter().filter(|one| one.failure.is_some()).collect();
     let passed = reported.len() - failed.len();
     let total = reported.len();

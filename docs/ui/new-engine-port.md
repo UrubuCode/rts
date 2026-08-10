@@ -17,11 +17,11 @@ rts-egui / rts-dom / rts-render / rts-input     the logic. Plain Rust.
         │                                        &str, f64, u64. No engine.
         ├──────────────┐
         ▼              ▼
-   src/abi.rs      rts-ui-rwk          two shells over one logic
+   src/abi.rs      rts-ui          two shells over one logic
    (feature          (crate)
     old-engine)         │
         │               ▼
-        ▼        rts-core-rwk          natives: a function pointer beside a cell
+        ▼        rts-core          natives: a function pointer beside a cell
    rts-engine  ← rts-abi               natives: a linker symbol
 ```
 
@@ -41,7 +41,7 @@ The feature is the right mechanism because the question is one of
 reason `docs/engine/architecture.md` accepts for a crate boundary. It is not a
 permission: nothing is being forbidden, an interface is being removed.
 
-`rts-ui-rwk` is a crate of its own for the same rule one level up. A window
+`rts-ui` is a crate of its own for the same rule one level up. A window
 needs a window system: it does not exist on wasm, it does not exist in a
 headless build, and a target without one should not pull wgpu and winit into its
 graph to find that out. The host installs it behind the `ui` feature.
@@ -72,7 +72,7 @@ second position.** A surface mixing both conventions at random would be worse
 than either. A missing field takes a documented default. The first version of this said the
 reason was that the engine cannot throw; that stopped being true while this port
 was being written (`af0c5a03` — a native can now raise a catchable error, under
-rule 8 of `rts-core-rwk/README.md`). What remains is narrower and is a **gap**
+rule 8 of `rts-core/README.md`). What remains is narrower and is a **gap**
 rather than a property: `throw::type_error` is `pub(in crate::entry)`, so the
 error factory is not on the host surface. Until it is, a missing argument here
 can only become silence or a value — and a value is what this surface wants
@@ -149,13 +149,13 @@ things changed in the surface, all of them the same reasons as above:
 `egui.drawWater` came back with it — its only obstacle was `compute` being behind
 the feature.
 
-Verified by running: `cargo run -p rts-host-rwk --example gpu` uploads 1024
+Verified by running: `cargo run -p rts-host --example gpu` uploads 1024
 `u32`, runs a kernel that doubles them, reads back and checks every element. On
 an RTX 2080 Ti: zero mismatches. And the old engine's own suite still passes —
 `rts.exe test tests/gpu_compute.test.ts`, 5/5.
 
 Each absence fails at the `import` line, which is where it should hurt.
-`rts-std-rwk` once refused to register a façade `rts:egui` for exactly this
+`rts-std` once refused to register a façade `rts:egui` for exactly this
 reason: a UI that compiles and does not paint is the failure mode that costs the
 most time before it is understood.
 
@@ -163,16 +163,16 @@ most time before it is understood.
 
 ## How it is verified
 
-`crates/rts-host-rwk/tests/ui_surface.rs` — three tests, each one running the
+`crates/rts-host/tests/ui_surface.rs` — three tests, each one running the
 program: the specifiers resolve, the members are callable, and calling with no
 window crosses the boundary instead of aborting. That last one is not pedantry:
 a reentrant borrow of the context inside an `extern "C"` frame cannot unwind, so
 it **aborts the process** — which is a test disappearing, not a test failing.
 
-None of them opens a window. That is `crates/rts-host-rwk/examples/janela.rs`:
+None of them opens a window. That is `crates/rts-host/examples/janela.rs`:
 
 ```bash
-cargo run -p rts-host-rwk --example janela
+cargo run -p rts-host --example janela
 ```
 
 It is an example rather than an ignored test for a platform reason. winit panics
@@ -208,7 +208,7 @@ is faster or slower at drawing.
 
 ## The one thing the host does that the program does not have to know
 
-`rts_ui_rwk::shutdown()`, called by the host when a program ends.
+`rts_ui::shutdown()`, called by the host when a program ends.
 
 On Windows a `thread_local` destructor runs from the TLS callback during
 `LdrShutdownProcess` — while the driver's DLLs are being unloaded. Destroying a

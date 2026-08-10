@@ -1,6 +1,6 @@
 # Authoring natives for the new engine
 
-**What this is.** How a built-in class is declared for `rts-core-rwk`, what
+**What this is.** How a built-in class is declared for `rts-core`, what
 `#[rtse::class]` derives from that declaration, and which of the surrounding
 decisions were made deliberately rather than fallen into.
 
@@ -8,7 +8,7 @@ It was `RTS_RWK_IMPLEMENT.md` at the repository root, which carried the conditio
 that ends it: *split or deleted when the first three classes land through the
 attribute.* Seven landed — `Error` and its family, `Math`, `Number`, `Boolean`,
 `Function.prototype` — so the decisions are here and the queue is in
-`crates/rts-core-rwk/PLAN.md`, which is where a plan lives.
+`crates/rts-core/PLAN.md`, which is where a plan lives.
 
 ---
 
@@ -29,7 +29,7 @@ noun in it. Most of those are not symbols here.
 
 `generated/entries.rs` was once described as the new engine's index-addressed
 table. Nothing reads it, `TABLE_HASH` and `ENTRY_COUNT` appear nowhere outside
-`rts-symbol-baker`, and the baker does not scan `rts-core-rwk`,
+`rts-symbol-baker`, and the baker does not scan `rts-core`,
 `rts-cranelift` or `rts-codegen`. That row was the intent, written where a reader
 takes it for the state.
 
@@ -205,7 +205,7 @@ false in debug. The fix is at `lower::abi_return_type`.
 
 ## 7. Where a native belongs
 
-`rts-core-rwk` is what **every target has, including wasm**. Availability is the
+`rts-core` is what **every target has, including wasm**. Availability is the
 only membership rule.
 
 **Core:** `Error` and its subclasses, `Math`, `Number`, `Boolean`, `JSON`,
@@ -256,7 +256,7 @@ what a later call answers.
   collector cannot see one. `call` and `apply` keep nothing, which is why they
   landed and `bind` did not.
 - **Does the attribute emit into `rts-host` too?** It writes `crate::entry::…`
-  paths today, so it works anywhere inside `rts-core-rwk` and nowhere else. §7's
+  paths today, so it works anywhere inside `rts-core` and nowhere else. §7's
   split says both eventually, which means the installation point has to become
   something the declaration states.
 - **A property read on a primitive number.** `(5).toFixed(2)` has no cell to walk

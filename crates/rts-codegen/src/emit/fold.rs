@@ -146,7 +146,7 @@ fn fold_numeric(op: BinaryOp, a: f64, b: f64) -> Option<Literal> {
 /// `ToInt32`, restated.
 ///
 /// This crate depends on nothing below `rts-cranelift` — rule 1 — so it
-/// cannot call `rts-core-rwk/src/value/convert.rs::to_int32`, the runtime's
+/// cannot call `rts-core/src/value/convert.rs::to_int32`, the runtime's
 /// implementation, even though this function must answer exactly what that
 /// one answers: a fold that disagrees with the runtime is worse than no fold,
 /// because it makes one program behave two ways depending on whether the

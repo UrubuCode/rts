@@ -542,7 +542,7 @@ is a generic operation any more, and a test asserts that.
 **The regression that came with it, stated rather than quiet:** `-`, `*`, `/`
 and the four relational operators are now refused. They were accepted before as
 generic operations that could not be compiled. They return when the runtime
-defines them — inventing symbols here that `rts-core-rwk` does not export is
+defines them — inventing symbols here that `rts-core` does not export is
 exactly the drift the audit named, and nothing links the two sides yet to catch
 it.
 
@@ -571,7 +571,7 @@ preconditions — core's entry path, and a lowering — are now met.
 `o.x` and `o.x = v`, through three runtime entry points. A property key is
 resolved while compiling and crosses as a **number**, which makes a second
 agreement between the crates — the compiler's key registry and the runtime's
-must have issued the same ones — wired and asserted in `rts-host-rwk` beside the
+must have issued the same ones — wired and asserted in `rts-host` beside the
 singleton numbering.
 
 Shapes get their first real client, through the runtime rather than through
@@ -606,7 +606,7 @@ was.
 `-` and `+`, `void`, `?:`, `&&`/`||`/`??`, `++`/`--`, `!==`, the logical
 assignments on a local, and compound assignment to a property. `emit/choice.rs`
 and `emit/unary.rs`; 16 tests, every one of them run rather than verified,
-in `rts-host-rwk/tests/running.rs`.
+in `rts-host/tests/running.rs`.
 
 Chosen as a slice because it is exactly what needs **no new runtime operation
 and no new machine capability** — the whole set is branches, merges, and the
@@ -649,7 +649,7 @@ capabilities that do not exist:
   pointer into the text segment. Builder refuses an undeclared callee, verifier
   refuses it again for IR that did not come from the builder — rule 7 wants
   both. Two tests in `rts-cranelift/tests/calls.rs`.
-- **A callable, in `rts-core-rwk::entry::functions`** — a region cell at a
+- **A callable, in `rts-core::entry::functions`** — a region cell at a
   reserved layout holding two words, the code address and the environment. Not
   an object with two properties: `code` would then be a key in the registry that
   JavaScript could read and *write*, and a program storing a number there would
@@ -673,7 +673,7 @@ answer, it is a jump to an arbitrary address.
 needs a caller-allocated argument vector, which is a stack slot this compiler
 does not emit. A call with more arguments is refused **by name** rather than
 truncated. `ARGUMENT_SLOTS` is stated in `rts-codegen` — the language decides its
-own convention — restated in `rts-core-rwk`, and `rts-host-rwk` carries a `const`
+own convention — restated in `rts-core`, and `rts-host` carries a `const`
 assertion that they agree, the same shape as the singleton and key numberings.
 
 **Capture goes in an environment object, chained by `__outer`.** A captured local
@@ -696,7 +696,7 @@ wrongly out of it is two closures disagreeing about a variable.
 
 Function declarations and expressions, arrows, calls, `this`, recursion, mutual
 recursion, capture, and closures that outlive the call that made them. 22 tests
-in `rts-host-rwk/tests/running.rs`, every one of them run.
+in `rts-host/tests/running.rs`, every one of them run.
 
 `emit/binding.rs` is the answer to the prediction `scope.rs` made: four places
 matched on a binding, and a captured one is a chain walk rather than a register,
@@ -779,7 +779,7 @@ obvious implementation gets wrong **quietly**:
 is `NaN` in JavaScript and `1.0` from `powf`. Handled rather than inherited,
 because the wrong answer there is a plausible number rather than a crash.
 
-`==` was deliberately absent from `rts-core-rwk` until there was a client, and
+`==` was deliberately absent from `rts-core` until there was a client, and
 now there is. Everything that does not need a call is implemented; `null` and
 `undefined` are equal to each other and to nothing else — the one rule that is
 not a conversion, and the one an implementation written as "convert both to

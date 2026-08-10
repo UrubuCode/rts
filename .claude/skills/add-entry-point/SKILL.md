@@ -34,7 +34,7 @@ skipping the fifth ships a dead entry.
 - an arm in `signature()` → `UNPROVEN` where nothing is proved, `Repr::Bool` /
   `Repr::I64` where the runtime establishes something
 
-**2. `crates/rts-core-rwk/src/entry/<module>.rs`** — the implementation:
+**2. `crates/rts-core/src/entry/<module>.rs`** — the implementation:
 
 ```rust
 /// What it guarantees, and what was rejected.
@@ -54,27 +54,27 @@ pub fn my_op(target: u64, key: i64) -> u64 {
   collect inside `with_current`, drop, call, re-borrow to store. A second borrow
   in an `extern "C"` frame aborts the process — it cannot unwind.
 
-**3. `crates/rts-core-rwk/src/entry/mod.rs`** — `pub use <module>::my_op;`
+**3. `crates/rts-core/src/entry/mod.rs`** — `pub use <module>::my_op;`
 
-**4. `crates/rts-core-rwk/src/entry/table.rs`**
+**4. `crates/rts-core/src/entry/table.rs`**
 - import `MY_OP_ENTRY`
 - a `CoreEntry` variant with its number **written out**, appended
 - append to `CoreEntry::ALL`, an arm in `describe()` → `MY_OP_ENTRY`
 - raise `CORE_ENTRY_COUNT`. Removing an entry leaves its number as a gap; never
   renumber.
 
-**5. `crates/rts-host-rwk/src/entries.rs`** — an arm in `resolve()`:
+**5. `crates/rts-host/src/entries.rs`** — an arm in `resolve()`:
 
 ```rust
 RuntimeOp::MyOp => (CoreEntry::MyOp, {
-    rts_core_rwk::entry::my_op as extern "C" fn(u64, i64) -> u64 as *const u8
+    rts_core::entry::my_op as extern "C" fn(u64, i64) -> u64 as *const u8
 }),
 ```
 
 The cast **is** the shape check. Write it out.
 
 **6. Emit the call** in `crates/rts-codegen/src/emit/`, then a test in
-`crates/rts-host-rwk/tests/running.rs` that **runs** a program reaching it.
+`crates/rts-host/tests/running.rs` that **runs** a program reaching it.
 
 ---
 
@@ -82,7 +82,7 @@ The cast **is** the shape check. Write it out.
 
 The set is closed and small. Adding one is a change to
 `crates/rts-cranelift/src/symbols/mod.rs` (`RtEntry`, `ALL`, `COUNT`) plus an arm
-in `machine_entry` in `crates/rts-host-rwk/src/entries.rs`. A missing arm there is
+in `machine_entry` in `crates/rts-host/src/entries.rs`. A missing arm there is
 a crash inside compiled code, not a refusal — so it lands in the same change.
 
 ---
@@ -90,10 +90,10 @@ a crash inside compiled code, not a refusal — so it lands in the same change.
 ## Verify
 
 ```bash
-cargo check -p rts-codegen -p rts-core-rwk -p rts-host-rwk
-cargo test -p rts-host-rwk entries          # the agreement tests
-cargo test -p rts-core-rwk entry            # numbering and uniqueness
-cargo test -p rts-host-rwk running          # a program that runs it
+cargo check -p rts-codegen -p rts-core -p rts-host
+cargo test -p rts-host entries          # the agreement tests
+cargo test -p rts-core entry            # numbering and uniqueness
+cargo test -p rts-host running          # a program that runs it
 ```
 
 `entries.rs` tests fail loudly on a symbol skew and on a shape skew — do not

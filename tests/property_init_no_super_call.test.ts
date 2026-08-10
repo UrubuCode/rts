@@ -16,7 +16,7 @@ function print(value: string): void {
 // "parent não inicializa e Sub segue"; é um erro fatal na spec.
 //
 // GAP DE CAPACIDADE (fora da minha área — construção de classe/`super` é
-// `emit/call.rs`/`entry/functions.rs`, não `rts-core-rwk/entry`): este motor
+// `emit/call.rs`/`entry/functions.rs`, não `rts-core/entry`): este motor
 // não impõe essa checagem hoje, então `new Sub()` completa sem lançar — mas
 // MEDIDO nesta sessão (2026-08-09/10, `suite_run` sobre este ficheiro), `s.b`
 // lê `undefined`, não `13`: o inicializador de `Sub.b` também não roda quando

@@ -74,9 +74,16 @@ examples/music_test.wav
 __fs*
 __rts_*
 
-# AOT compile artifacts
+# AOT compile artifacts. `.lib` and `.rtsdata` are here because `rts compile`
+# leaves an import library and a data sidecar beside the binary, and the CI
+# smoke test writes both into the repository root — one of them was committed by
+# accident before this line existed.
 *.obj
 *.m
+*.lib
+*.rtsdata
+smoke_aot
+smoke_aot.exe
 
 # Personal working analysis doc (perf + state-management, not versioned)
 RTS_PERF_AND_STATELESS.md

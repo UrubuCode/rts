@@ -1,0 +1,29 @@
+[package]
+name = "rts-macro"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+description = "The authoring surface for the new engine: declare an entry point, derive its shape."
+
+[lib]
+proc-macro = true
+
+[dependencies]
+# Parsing and emitting tokens, and nothing else.
+#
+# Deliberately NOT rts-abi. The crate this reworks depends on it, which made
+# every crate using that macro depend transitively on the interface
+# `rts-cranelift::abi` replaced — so the new runtime was tied to the old one
+# through its build graph while looking independent in its source.
+#
+# Nor rts-cranelift. A proc macro emits TOKENS: this writes
+# `::rts_cranelift::abi::EntryDesc` into the expansion without knowing the type,
+# so nothing using it drags a compiler backend into its build.
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"
+
+[dev-dependencies]
+# Only the tests need the type the expansion names. The library still does not:
+# it writes the path and never resolves it.
+rts-cranelift = { path = "../rts-cranelift" }

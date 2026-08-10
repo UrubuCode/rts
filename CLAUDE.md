@@ -20,8 +20,8 @@ not background reading, and the rules in it are binding for changes inside it.
 |---|---|
 | `crates/rts-cranelift/` | its `README.md` (13 rules) |
 | `crates/rts-codegen/` | its `README.md` (10 rules) + `PLAN.md` |
-| `crates/rts-core-rwk/` | its `README.md` (8 rules) + `PLAN.md` |
-| `crates/rts-host-rwk/` | its `README.md` (6 rules) + `PLAN.md` |
+| `crates/rts-core/` | its `README.md` (8 rules) + `PLAN.md` |
+| `crates/rts-host/` | its `README.md` (6 rules) + `PLAN.md` |
 | `crates/rts-egui/`, DOM, render, input | `docs/ui/html-engine/` + `docs/ui/egui-crate.md`; for the NEW engine's side of it, `docs/ui/new-engine-port.md` |
 | anything else | this file, and `docs/README.md` for where things live |
 
@@ -71,8 +71,8 @@ Either rule alone is a preference; both at once means a decision has exactly one
 place it can be made. Full picture: `docs/engine/architecture.md`.
 
 Two more crates finish the shape, and each is half of something on purpose.
-`rts-core-rwk` is the runtime: it implements what the language calls out for and
-never decides what to call. `rts-host-rwk` is the only crate that may name all
+`rts-core` is the runtime: it implements what the language calls out for and
+never decides what to call. `rts-host` is the only crate that may name all
 three at once, which is why it is where a program runs — and why the agreements
 between them (the entry-point symbols, the singleton numbering, the property-key
 numbering) are wired and asserted there rather than assumed anywhere.
@@ -86,7 +86,7 @@ spread, `for-of`, and the built-ins a program reaches by name: the `Error`
 family, `Math`, `JSON`, `Map`, `Set`, `Promise`, `Date`, `Symbol`, plus what
 `node:` provides.
 
-`crates/rts-host-rwk/tests/running.rs` is what says so — every test in it runs
+`crates/rts-host/tests/running.rs` is what says so — every test in it runs
 the program rather than inspecting it — and the number is measured rather than
 claimed. **2026-08-09: 626 of the 797 `*.test.ts` files pass** — 535 of 818 at
 the start of 08-08, through generators, `yield*`, `Proxy`, native iterators,
@@ -97,7 +97,7 @@ The DENOMINATOR changed that day and both halves are stated because of it: 21
 files were removed for testing surfaces this engine will not have in that shape
 (`gc`, `ptr`, `mem`, `alloc`, `ffi`, `trace`), and SIX of them were passing. So
 the count fell by six while the share rose, and neither number alone says that.
-`crates/rts-host-rwk/examples/suite_run.rs` produced it, one process per file,
+`crates/rts-host/examples/suite_run.rs` produced it, one process per file,
 because an uncaught exception and an endless loop each take the process with
 them and a single-process harness would report whatever it reached first as the
 score. It compiles a file with a relative import as a GRAPH, which it did not
@@ -177,7 +177,7 @@ exist; the list is still built eagerly, which `entry/list_iterator.rs` states
 as the thing a lazy form replaces rather than joins.
 
 **A native can raise a catchable error now**, and the discipline that had to
-come first is rule 8 of `crates/rts-core-rwk/README.md`: a native that calls user
+come first is rule 8 of `crates/rts-core/README.md`: a native that calls user
 code asks whether the callee left a throw behind before it looks at the answer.
 Raising without it turned one silent wrong answer into a hang, which is why the
 first attempt was reverted before commit.
@@ -288,7 +288,7 @@ is shippable. The cheap way to know:
 
 ```bash
 git stash push -u                                     # measure the baseline
-cargo build --release -p rts-host-rwk --example suite_run
+cargo build --release -p rts-host --example suite_run
 for f in tests/*.test.ts; do ... done > /tmp/base.txt  # one process per file
 git stash pop
 # rebuild, re-run into /tmp/now.txt, then:
@@ -308,14 +308,17 @@ never acceptable. Silent regression is what turns a green suite into a lie.
 A runtime symbol is declared by an attribute and never written by hand. The
 attribute derives the ABI signature from the Rust signature, so drift between
 the two is unrepresentable rather than merely discouraged. One attribute now —
-`rts-macro-rwk`, spelled `rtse` in a manifest:
+`rts-macro`, spelled `rtse` in a manifest:
 
 ```toml
-rtse = { package = "rts-macro-rwk", path = "../rts-macro-rwk" }
+rtse = { package = "rts-macro", path = "../rts-macro" }
 ```
 
-There were two, and the second (`rts-macro`, over `rts-abi`) went with the old
-engine on 2026-08-10. So did `rts-symbol-baker` and its two rendered tables:
+There were two, under two names: this one was `rts-macro-rwk` while the old
+engine's `rts-macro` (over `rts-abi`) still existed and cargo would not have two
+crates under one name. The old one went on 2026-08-10 and the suffix went with
+it — everywhere, which is why no crate carries `-rwk` any more. So did
+`rts-symbol-baker` and its two rendered tables:
 `generated/symbol_table.rs`, read by the engine that no longer exists, and
 `generated/entries.rs`, which this file used to say the new engine read and
 which **nothing ever read** — written as the intent and left standing as though
@@ -368,13 +371,13 @@ that is not here does not exist, and `git log --diff-filter=D` is where it went.
 crates/
   rts-cranelift/     the machine: IR, repr, GC contract, frames, calls, unwind
   rts-codegen/       the language: JS/TS tree, parser bridge, emit, type pass
-  rts-core-rwk/      the runtime: values, heap, objects, coercion, entry points
-  rts-host-rwk/      where the three meet, and where a program runs
-  rts-macro-rwk/     #[rtse::entry] / #[rtse::class] — declare one, derive it
-  rts-std-rwk/       the `rts:` surface, and the globals
-  rts-node-rwk/      the `node:` surface
-  rts-ui-rwk/        `rts:egui` + `rts:input`, where a target has a screen
-  rts-runtime-rwk/   the AOT staticlib the compiled program links against
+  rts-core/          the runtime: values, heap, objects, coercion, entry points
+  rts-host/          where the three meet, and where a program runs
+  rts-macro/         #[rtse::entry] / #[rtse::class] — declare one, derive it
+  rts-std/           the `rts:` surface, and the globals
+  rts-node/          the `node:` surface
+  rts-ui/            `rts:egui` + `rts:input`, where a target has a screen
+  rts-runtime/       the AOT staticlib the compiled program links against
 
   rts-egui/ rts-dom/ rts-render/ rts-input/   the UI engine, engine-agnostic
   rts-linker/        native link            rts-cli/  the CLI
@@ -403,7 +406,7 @@ printing already. When a span comes back it will come from
 
 The four UI crates stay because they were never the old engine's: `rts-egui`,
 `rts-dom`, `rts-render` and `rts-input` each had an `old-engine` feature holding
-their ABI surface, and that feature is what was deleted. `rts-ui-rwk` consumes
+their ABI surface, and that feature is what was deleted. `rts-ui` consumes
 them through their plain Rust API and always did.
 
 docs/
@@ -462,18 +465,18 @@ The two examples remain the way to run one program with nothing of the CLI in
 the way:
 
 ```bash
-cargo run -q -p rts-host-rwk --example run_fixture file.ts   # one program
-cargo run -q -p rts-host-rwk --example suite_run tests/x.test.ts   # one test
+cargo run -q -p rts-host --example run_fixture file.ts   # one program
+cargo run -q -p rts-host --example suite_run tests/x.test.ts   # one test
 ```
 
 `run_fixture` and `suite_run` are one process per file on purpose: an uncaught
 exception and an endless loop each take the process with them.
 
-**AOT links `rts-runtime-rwk`, and it is a direct dependency of the `rts` bin
+**AOT links `rts-runtime`, and it is a direct dependency of the `rts` bin
 for that reason** — Cargo emits a `staticlib` only for a package built as a
 direct target, and being a dependency-of-a-dependency does not count. So an
-ordinary `cargo build` produces it. `cargo build -p rts-runtime-rwk` is still
-what to run after editing `rts-core-rwk`/`rts-std-rwk`/`rts-node-rwk`: nothing
+ordinary `cargo build` produces it. `cargo build -p rts-runtime` is still
+what to run after editing `rts-core`/`rts-std`/`rts-node`: nothing
 rebuilds the archive because `rts` was rebuilt, and `rts compile` refuses a
 stale one by name rather than linking it.
 

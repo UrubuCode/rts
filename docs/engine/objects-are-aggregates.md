@@ -94,13 +94,13 @@ and E4 never called it.
 Not a tweak. The obstacle is real and worth stating precisely.
 
 The machine addresses an object as `base + index × stride` — a **region of
-fixed-stride cells**. `rts-core-rwk`'s heap is a `Slab<Cell>` where a cell is a
+fixed-stride cells**. `rts-core`'s heap is a `Slab<Cell>` where a cell is a
 Rust enum holding a `Vec`. Indices are compatible in spirit; the storage is not.
 
 1. **The runtime's heap becomes the machine's heap.** A region with a stride,
    each cell being a header and inline slots. `RegionBases::single(base, stride)`
    already describes it.
-2. **`RtEntry::Alloc` gets an implementation** in `rts-core-rwk`, and the host
+2. **`RtEntry::Alloc` gets an implementation** in `rts-core`, and the host
    hands the machine the region's base.
 3. **An object that outgrows its inline slots needs somewhere to go.** A prior
    measurement in this repository put a bag of overflow at 0.25 ns, so the shape

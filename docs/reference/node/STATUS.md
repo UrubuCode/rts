@@ -1,13 +1,13 @@
 # `node:` on the new engine — what exists, what does not
 
 **Measured, not remembered.** The two lists come from `ls docs/reference/node/`
-and from the `install` table in `crates/rts-node-rwk/src/lib.rs`. Regenerate
+and from the `install` table in `crates/rts-node/src/lib.rs`. Regenerate
 rather than edit from memory:
 
 ```bash
 ls docs/reference/node/*.md | xargs -n1 basename | sed 's/\.md$//' \
   | grep -vE "architecture|crates|implementation-plan|INDEX|layering|node_completed|rts-std-migration|globals|STATUS" | sort > /tmp/ref.txt
-grep -oE '^\s+\("([a-z_]+)"' crates/rts-node-rwk/src/lib.rs | tr -d ' ("' | sort -u > /tmp/done.txt
+grep -oE '^\s+\("([a-z_]+)"' crates/rts-node/src/lib.rs | tr -d ' ("' | sort -u > /tmp/done.txt
 comm -23 /tmp/ref.txt /tmp/done.txt
 ```
 
@@ -28,8 +28,8 @@ that is the authority on its gaps; this file is about which modules exist at all
 `cluster` · `domain` · `inspector` · `repl` · `sqlite` · `worker_threads` · `trace_events` · `vm` · `wasi` · `http2`
 
 `Buffer` and `console` are not modules: `Buffer` is a class in the runtime
-(`rts-core-rwk`, where `layering.md` puts it) and `console` is a global installed
-by `rts-std-rwk`.
+(`rts-core`, where `layering.md` puts it) and `console` is a global installed
+by `rts-std`.
 
 ## Not registered, and what each waits on
 
@@ -68,7 +68,7 @@ point called inside one is a nested borrow, and an `extern "C"` frame cannot
 unwind — so it **aborts the process** rather than failing. Nine such aborts have
 been found across four modules; every one was this.
 
-The context-taking pairs are in `crates/rts-core-rwk/src/entry/modules.rs`:
+The context-taking pairs are in `crates/rts-core/src/entry/modules.rs`:
 `undefined_in`, `null_in`, `text_in`, `make_object`, `make_array_in`,
 `set_prototype_in`, `is_object`, `make_number`, `bytes_of`, `make_buffer`,
 `settled`, `make_prototype`, `make_instance`. `deep_copy` is the one exception
@@ -308,7 +308,7 @@ itself a `LoopSource`; the host runs one loop — drain microtasks, ask every
 source to deliver and to say when it wants to be asked again, sleep that long,
 repeat.
 
-**Why `rts-core-rwk` and not `rts-cranelift`.** The machine owns the *ordering*
+**Why `rts-core` and not `rts-cranelift`.** The machine owns the *ordering*
 (`src/sched/` — promises, continuations, the order they run in), because that is
 observable and the compiler emits for it. A deadline in milliseconds is not: it
 needs a wall clock and a way to wait, which not every target has, and a source's

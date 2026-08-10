@@ -43,8 +43,8 @@
 //!
 //! `this.#x` is not a property a program can reach by any string it can write —
 //! it is not access CONTROL, it is a key OUTSIDE the space a string literal can
-//! spell. That is the same shape `rts-core-rwk`'s `Symbol` key already uses:
-//! `crates/rts-core-rwk/src/entry/symbol.rs` keeps a well-known symbol as an
+//! spell. That is the same shape `rts-core`'s `Symbol` key already uses:
+//! `crates/rts-core/src/entry/symbol.rs` keeps a well-known symbol as an
 //! ordinary interned name under a reserved prefix (`"@@iterator"`) rather than a
 //! third `Key` variant, because a third variant would need a second path through
 //! every place a shape becomes a layout, a cache, or an enumeration.

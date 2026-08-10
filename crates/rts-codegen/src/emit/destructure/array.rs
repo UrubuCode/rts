@@ -51,7 +51,7 @@ use super::{ident, member_expr, place, plain_assign_stmt, Role};
 /// There is exactly one iterator, gotten by [`get_pattern_iterator`], never
 /// two competing notions of "the source": a `string`, a `Map`, a `Set`, and a
 /// typed array do NOT declare `Symbol.iterator` here —
-/// `crates/rts-core-rwk/src/entry/collections/mod.rs` states why for the
+/// `crates/rts-core/src/entry/collections/mod.rs` states why for the
 /// collections, and the same is true of the other two — so for those,
 /// [`get_pattern_iterator`] falls back to [`crate::runtime::RuntimeOp::Iterate`]'s
 /// eager materialisation, WRAPPED in a real iterator object (`Iterator.from`)

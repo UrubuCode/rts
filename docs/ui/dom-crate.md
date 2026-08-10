@@ -50,7 +50,7 @@ Same pattern as `egui`:
 
 - `rts-runtime`: dep + `pub use rts_dom as dom;` (`namespaces/mod.rs`).
 - `rts-codegen-new/registry_build.rs` (**deleted 2026-08-10** with its crate;
-  what replaces it is `#[rtse::class]` in `rts-core-rwk` — see
+  what replaces it is `#[rtse::class]` in `rts-core` — see
   `docs/reference/node/README.md`): one row in the `REGISTER` table
   (`Register { label: "dom", run: ns::dom::register, … }`). The front NEVER writes
   `"dom"` in control flow; it is data in the table.

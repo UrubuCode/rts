@@ -9,13 +9,13 @@
 //!
 //! The source is now `#[rtse::class]` itself — the attribute derives each
 //! signature from the Rust one and captures the `///` beside it, so there is no
-//! second spelling to keep in agreement. `rts_core_rwk::entry::declared` states
+//! second spelling to keep in agreement. `rts_core::entry::declared` states
 //! what the coverage is and what it deliberately leaves out.
 
 use anyhow::{Context, Result};
 
 pub fn command(output: Option<String>) -> Result<()> {
-    let dts = rts_core_rwk::entry::declared::render();
+    let dts = rts_core::entry::declared::render();
     match output {
         Some(path) => {
             std::fs::write(&path, &dts).with_context(|| format!("writing {path}"))?;

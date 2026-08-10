@@ -48,7 +48,7 @@ pub unsafe fn mesh_upload(win: u64, vptr: u64, vcount: i64, iptr: u64, icount: i
 ///
 /// Existe porque o motor NOVO entrega os dados como uma view tipada, cujos bytes
 /// são copiados na fronteira: não há endereço para o chamador acertar, e o
-/// coletor pode mover a célula sem que isto veja. Ver `rts-ui-rwk::value::bytes`.
+/// coletor pode mover a célula sem que isto veja. Ver `rts-ui::value::bytes`.
 pub fn upload_mesh(win: u64, verts: &[f32], indices: &[u32]) -> u64 {
     if verts.is_empty() || indices.is_empty() {
         return 0;

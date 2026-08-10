@@ -28,16 +28,16 @@ runs:
         # Both runtime archives are built as DIRECT targets before the workspace
         # build, because cargo emits a `staticlib` only for a package it was asked
         # for by name — a plain `cargo build` produces the rlib and no archive.
-        # `rts-runtime` is the old engine's; `rts-runtime-rwk` is the new one's,
+        # `rts-runtime` is the old engine's; `rts-runtime` is the new one's,
         # and `rts compile` now links against it, so leaving it out made the AOT
-        # smoke test fail with "no rts_runtime_rwk.lib under target/{debug,release}".
+        # smoke test fail with "no rts_runtime.lib under target/{debug,release}".
         if [ "${{ inputs.profile }}" = "release" ]; then
           cargo build --release -p rts-runtime
-          cargo build --release -p rts-runtime-rwk
+          cargo build --release -p rts-runtime
           cargo build --release
         else
           cargo build -p rts-runtime
-          cargo build -p rts-runtime-rwk
+          cargo build -p rts-runtime
           cargo build
         fi
 
@@ -49,14 +49,14 @@ runs:
         if ('${{ inputs.profile }}' -eq 'release') {
           cargo build --release -p rts-runtime
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo build --release -p rts-runtime-rwk
+          cargo build --release -p rts-runtime
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo build --release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         } else {
           cargo build -p rts-runtime
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo build -p rts-runtime-rwk
+          cargo build -p rts-runtime
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -7,12 +7,12 @@ license.workspace = true
 [dependencies]
 # The engine. Every command runs through it: `run`, `eval`, `test`, `compile`,
 # `ir`, and `emit-types` — which is what let `rts-codegen-new` be deleted.
-rts-host-rwk = { path = "../rts-host-rwk" }
+rts-host = { path = "../rts-host" }
 # Named directly for `rts emit-types` alone: the declared type surface is a fact
 # about the runtime, and reaching it through the host would make the host
 # re-export something it has no other reason to know about.
-rts-core-rwk = { path = "../rts-core-rwk" }
-rts-std-rwk = { path = "../rts-std-rwk" }
+rts-core = { path = "../rts-core" }
+rts-std = { path = "../rts-std" }
 rts-linker = { path = "../rts-linker" }
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }

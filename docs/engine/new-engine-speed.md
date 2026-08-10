@@ -132,7 +132,7 @@ It is also evidence that the machine is not the problem. The old engine reaches
 ## Reproducing it
 
 ```bash
-cargo build --release -p rts-host-rwk --example kernel --example perop
+cargo build --release -p rts-host --example kernel --example perop
 target/release/examples/kernel.exe 20000000 5
 target/release/examples/perop.exe 2000000
 ```

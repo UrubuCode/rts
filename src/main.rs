@@ -4,7 +4,7 @@ fn main() {
     // Hand the CLI the bin-owned runtime-archive resolver so `rts compile` (AOT)
     // can locate the embedded `<host>.a` to link against (the archive + its
     // on-demand materialization live in this bin crate, which the CLI can't reach).
-    rts::cli::set_runtime_archive_resolver_rwk(rts::rt_artifacts_rwk);
+    rts::cli::set_runtime_archive_resolver(rts::rt_artifacts);
 
 
     let status = rts::cli::dispatch(std::env::args());
@@ -22,7 +22,7 @@ fn main() {
     //
     // No-op when no GPU was ever created, so every other command pays nothing.
     //
-    // Called by `rts-host-rwk` at the end of every run now (`rts_ui_rwk::
+    // Called by `rts-host` at the end of every run now (`rts_ui::
     // shutdown`), which is where the device's lifetime actually ends. This
     // reached the OLD runtime's copy of the same thing and was deleted with it —
     // a second shutdown from the bin would either be a no-op or a race to drop

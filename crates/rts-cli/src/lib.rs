@@ -1,5 +1,5 @@
 //! `rts` CLI library. Every command runs through the engine — `rts-codegen` +
-//! `rts-cranelift` + `rts-core-rwk`, reached via `rts-host-rwk`.
+//! `rts-cranelift` + `rts-core`, reached via `rts-host`.
 //!
 //! # What left with the old engine
 //!

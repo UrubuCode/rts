@@ -149,7 +149,7 @@ drainLate();
 // could fix.
 
 // Every assertion below runs one loop turn later, because that is when Node
-// delivers 'end' too — see `crates/rts-node-rwk/src/stream/flowing.rs`. It used
+// delivers 'end' too — see `crates/rts-node/src/stream/flowing.rs`. It used
 // to assert `end1`/`pipeDone` synchronously, which passed only because this
 // engine emitted 'end' inside the call that started the flow; real Node fails
 // those same two lines. `suite_run` reads the record after the host's loop has

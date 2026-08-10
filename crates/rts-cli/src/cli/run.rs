@@ -27,13 +27,13 @@ pub fn command(input: Option<String>, _options: CompileOptions) -> Result<()> {
         }
     }
 
-    // Cutover: execute through the NEW engine (`rts-host-rwk` over
-    // `rts-cranelift` + `rts-core-rwk`). `new_engine::run_path` resolves the
+    // Cutover: execute through the NEW engine (`rts-host` over
+    // `rts-cranelift` + `rts-core`). `new_engine::run_path` resolves the
     // relative-import graph from the entry (compiling as a GRAPH when one is
     // found — see its module doc), lowers to Cranelift and runs it in-memory
     // (JIT), on a thread with the stack budget the emitter needs. An uncaught
     // exception inside the program is reported and ends the process from
-    // inside `Compiled::run` itself (see `rts-host-rwk::run`), the same way a
+    // inside `Compiled::run` itself (see `rts-host::run`), the same way a
     // real runtime ends on one — it is not swallowed here.
     crate::cli::new_engine::run_path(&input_path)
         .map_err(|e| anyhow!("{e}"))

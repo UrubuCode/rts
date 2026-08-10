@@ -76,7 +76,7 @@ Both are seconds. Do not build the workspace in release to check this crate.
 The code generator's own verifier answers *"is this well formed"* and **not**
 *"can this be compiled"*. Reading the first as the second already let two phases
 ship IR no destination could accept. A capability is proven when
-`crates/rts-host-rwk/tests/running.rs` runs a program through it.
+`crates/rts-host/tests/running.rs` runs a program through it.
 
 ## 5. What is not a machine question
 

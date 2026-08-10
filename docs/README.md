@@ -51,7 +51,7 @@ across two homes before anyone has followed it is how both go stale.
 
 It carried the condition that ends it: **split or deleted when the first three
 classes land through the attribute**. Seven did, so its decisions are
-`engine/authoring-natives.md` and its queue is `crates/rts-core-rwk/PLAN.md`,
+`engine/authoring-natives.md` and its queue is `crates/rts-core/PLAN.md`,
 which is what rule 2 says.
 
 It is recorded here rather than quietly removed, because the condition working is

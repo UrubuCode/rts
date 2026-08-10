@@ -128,7 +128,7 @@ const PROVIDED: &[&str] = &[
     //
     // Measured rather than guessed: these are the names the suite's own files
     // reach for undeclared, ranked by how many files each one refused
-    // (`rts-host-rwk`'s `suite_coverage`). `URL` and `TextEncoder` cost six
+    // (`rts-host`'s `suite_coverage`). `URL` and `TextEncoder` cost six
     // files each, `URLSearchParams` three.
     //
     // **Every name below has a real value in this workspace's host.** That is a
@@ -140,7 +140,7 @@ const PROVIDED: &[&str] = &[
     // `FinalizationRegistry`, `eval` and `Intl` are all reached by the suite and
     // are all ABSENT here for that reason, until something supplies them.
     // `SharedArrayBuffer`, `WeakRef`, `Atomics`, `EventEmitter`, `Iterator` and
-    // `Storage` joined the list below once `rts-core-rwk`/`rts-std-rwk` grew real
+    // `Storage` joined the list below once `rts-core`/`rts-std` grew real
     // values for them — `Atomics` single-threaded and honest about it,
     // `SharedArrayBuffer` with nothing to share WITH for the same reason,
     // `WeakRef.deref()` never yet answering `undefined` because nothing
@@ -150,7 +150,7 @@ const PROVIDED: &[&str] = &[
     // above rather than here because the runtime's error family answers for
     // itself, and `AggregateError` joined that family in the change that added
     // it — the list follows the value, never the other way round. The WHATWG
-    // group below was added by the change that installed it in `rts-std-rwk`.
+    // group below was added by the change that installed it in `rts-std`.
     //
     // Node's:
     "process",
@@ -181,7 +181,7 @@ const PROVIDED: &[&str] = &[
     "CustomEvent",
     "EventEmitter",
     "Storage",
-    // Installed by `rts-std-rwk`'s `globals/timing.rs`, and absent from this
+    // Installed by `rts-std`'s `globals/timing.rs`, and absent from this
     // list until now — so a program writing it with no import was refused at
     // compile time for a name that had a value all along. The two sets are
     // deliberately separate, which is what let them drift; that module's doc

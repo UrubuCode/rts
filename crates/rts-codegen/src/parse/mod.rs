@@ -127,7 +127,7 @@ impl Cx<'_> {
         // its PREFIX, and `#` alone is a prefix a program can write: `o["#main"]`
         // is an ordinary property and would have vanished from `Object.keys`.
         // `@@` is the space already reserved for keys no program can spell — see
-        // `rts-core-rwk`'s `symbol` module — so a private name joins it rather
+        // `rts-core`'s `symbol` module — so a private name joins it rather
         // than opening a second one that collides with real text.
         self.names.intern(&format!("@@#{text}"))
     }

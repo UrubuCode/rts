@@ -9,7 +9,7 @@ from no boundary at all.
 This document records what a second language would actually cost, which parts of
 the runtime are neutral **by construction** rather than by accident, and why the
 ordering that looks obvious is wrong. It is not a plan and nothing here is
-scheduled; `crates/rts-codegen/PLAN.md` and `crates/rts-core-rwk/PLAN.md` are
+scheduled; `crates/rts-codegen/PLAN.md` and `crates/rts-core/PLAN.md` are
 where work is queued.
 
 Lua is used throughout as the concrete case, because it is far enough from
@@ -20,7 +20,7 @@ specific to it beyond the examples.
 
 ## The neutrality is deliberate, and it is stated
 
-Two places in `rts-core-rwk` name a second language as the reason for a design,
+Two places in `rts-core` name a second language as the reason for a design,
 rather than as a hypothetical benefit:
 
 - `README.md` rule 4 — `Value` does not know that singleton 0 is `undefined`; the
@@ -32,7 +32,7 @@ rather than as a hypothetical benefit:
 That neutrality is exercised rather than aspirational. `Symbol` and `BigInt` are
 **kinds declared by the language**, on two of the four tags
 `TagRegistry::declare_kind` leaves to a client, and P8 records that nothing in
-`rts-core-rwk` names either one. The mechanism a second language would use is the
+`rts-core` names either one. The mechanism a second language would use is the
 mechanism the first language already uses for two of its own primitives.
 
 So the parameterised surface is: the singleton numbering, the kind tags, the key
@@ -70,7 +70,7 @@ The obvious mechanism — a configuration listing which entry points the second
 front end inherits — is wrong, and the reason is a property of the checking that
 already exists.
 
-`rts-host-rwk/src/entries.rs` is the only place the compiler's statement of the
+`rts-host/src/entries.rs` is the only place the compiler's statement of the
 entry-point set and the runtime's definition of it are both visible, and its
 `resolve` match makes each ABI shape a cast so that a signature change on either
 side is a type error. What it compares is **shape**. Two languages' answers to
@@ -109,7 +109,7 @@ it is what makes a second client possible.
 Four things. The first three are not about the second language at all — each is
 owed to JavaScript too, which is what decides the ordering.
 
-**Nothing throws.** `rts-core-rwk`'s divergence list opens with it: every
+**Nothing throws.** `rts-core`'s divergence list opens with it: every
 operation that should raise answers a value instead — `undefined`, `NaN`, `null`,
 or a clamp — because a throw no handler in the throwing function catches ends the
 program, and finding one in a caller needs an exception table and a personality
@@ -126,13 +126,13 @@ work, and it is the single largest item — larger than the rest of the language
 **The calling convention is per-language and is already in the right place.**
 `ARGUMENT_SLOTS = 4` lives in `rts-codegen` because which convention compiled
 code uses is a fact about what that crate emits, is restated by the runtime, and
-is asserted equal in `rts-host-rwk`. That placement is correct and it is also the
+is asserted equal in `rts-host`. That placement is correct and it is also the
 first thing that breaks: a language with real multiple returns and varargs wants
 a different convention, and the host asserts *one* equality. Two front ends with
-two conventions is where `rts-host-rwk` stops being generic in fact rather than
+two conventions is where `rts-host` stops being generic in fact rather than
 in intent.
 
-**Indexed storage does not exist.** `rts-core-rwk/README.md` lists it as
+**Indexed storage does not exist.** `rts-core/README.md` lists it as
 deliberately absent, waiting for arrays. This one is smaller than it appears: an
 array here is an object with integer-index keys and a `length` that is an own
 data property rather than a prototype accessor, so a Lua table and a JavaScript

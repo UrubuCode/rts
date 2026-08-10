@@ -28,7 +28,7 @@
 //! `address = base + cell * stride`, so a cell's index IS its location. Moving a
 //! cell in the region therefore changes every reference to it — the opposite of
 //! free — and additionally re-keys the eighteen `Aside` tables in
-//! `rts-core-rwk`, which are keyed by that index.
+//! `rts-core`, which are keyed by that index.
 //!
 //! So the first collector for the region is **non-moving**, and the compacting
 //! requirement below is deferred rather than met. The reason it survives at all

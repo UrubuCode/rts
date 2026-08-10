@@ -837,7 +837,7 @@ fn class_decorators_apply_bottom_up() {
     // legacy `experimentalDecorators` design and the ES2022 standard design
     // agree on. Pinned on the SHAPE emitted (an assignment per decorator, in
     // reverse source order) rather than by running the program, because this
-    // is `rts-codegen`'s tree, not `rts-host-rwk`'s runtime — the suite files
+    // is `rts-codegen`'s tree, not `rts-host`'s runtime — the suite files
     // `decorator_multiple.test.ts` pin the same rule end to end.
     let mut names = Names::new();
     let program = parse_module("@first @second class C {}", &mut names)

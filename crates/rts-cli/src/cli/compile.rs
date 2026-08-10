@@ -1,5 +1,5 @@
 //! `rts compile` — AOT native build on the NEW engine (`rts-codegen` +
-//! `rts-cranelift` + `rts-core-rwk` + `rts-host-rwk`).
+//! `rts-cranelift` + `rts-core` + `rts-host`).
 //!
 //! # Why this no longer calls `rts-codegen-new`
 //!
@@ -7,24 +7,24 @@
 //! the one thing still calling `rts_codegen_new::front::run::compile_path_to_object`,
 //! which meant an AOT binary and a JIT run of the SAME source could disagree —
 //! and did, for anything the two engines answer differently, since they are not
-//! the same engine. `rts-host-rwk::object` is the new engine's object-emission
-//! path (increment 4 of this crate's AOT campaign) and `rts-runtime-rwk` is its
+//! the same engine. `rts-host::object` is the new engine's object-emission
+//! path (increment 4 of this crate's AOT campaign) and `rts-runtime` is its
 //! `staticlib` facade, so both preconditions this command was held back for now
 //! exist.
 //!
 //! # What still needs a two-step build
 //!
-//! `cargo build -p rts-runtime-rwk` before `rts compile`, matching profile — the
+//! `cargo build -p rts-runtime` before `rts compile`, matching profile — the
 //! same requirement the old engine's `rts-runtime` had, and for the same
 //! reason: a `staticlib` is only emitted for a package built as a direct
 //! target, and cargo does not do that as a side effect of depending on it. See
-//! [`super::runtime_archive_rwk`] for the staleness check that makes skipping
+//! [`super::runtime_archive`] for the staleness check that makes skipping
 //! this loud instead of silently linking last week's runtime.
 //!
 //! # What this does not do yet
 //!
 //! A relative import (`import "./x"`) needs the module-graph object path —
-//! `rts_host_rwk::object` only compiles one file today, where `run.rs`'s
+//! `rts_host::object` only compiles one file today, where `run.rs`'s
 //! `compile_graph` has a memory counterpart and this does not yet. That is a
 //! stated gap, not a silent one: this refuses a program that imports a file
 //! rather than emitting an object missing a dependency's exports. See the AOT
@@ -79,7 +79,7 @@ pub fn command(
     const STACK: usize = 64 * 1024 * 1024;
     let program = std::thread::Builder::new()
         .stack_size(STACK)
-        .spawn(move || rts_host_rwk::object::compile_to_object(&source))
+        .spawn(move || rts_host::object::compile_to_object(&source))
         .expect("a thread to compile the new engine's AOT object on")
         .join()
         .expect("the compile thread not to panic")
@@ -95,8 +95,8 @@ pub fn command(
     std::fs::write(&obj_path, &program.bytes)
         .with_context(|| format!("write object {}", obj_path.display()))?;
 
-    let archive = super::runtime_archive_rwk()
-        .context("locate the new engine's AOT runtime archive (rts-runtime-rwk)")?;
+    let archive = super::runtime_archive()
+        .context("locate the new engine's AOT runtime archive (rts-runtime)")?;
     let exe_path = exe_output_path(output.as_deref(), &output_base);
 
     let mut request = LinkRequest::from_env();
@@ -108,13 +108,13 @@ pub fn command(
     let linked = link_objects_to_binary_with_request(&[obj_path.clone(), archive], &exe_path, &request)
         .with_context(|| format!("link {} + runtime archive", obj_path.display()))?;
 
-    // The sidecar `rts_host_rwk::object`'s module doc names: keys, literals,
+    // The sidecar `rts_host::object`'s module doc names: keys, literals,
     // template pieces and the singleton/kind numbering, read by the facade's
     // `main` before it calls the compiled entry. Written next to the FINAL exe
-    // path, matching what `rts-runtime-rwk::aot::main` derives from
+    // path, matching what `rts-runtime::aot::main` derives from
     // `current_exe()`.
     let manifest_path = linked.path.with_extension("rtsdata");
-    rts_host_rwk::object::write_manifest(&manifest_path, &program)
+    rts_host::object::write_manifest(&manifest_path, &program)
         .with_context(|| format!("write {}", manifest_path.display()))?;
 
     println!(
@@ -129,7 +129,7 @@ pub fn command(
 }
 
 /// The same substring test `rts_cli::cli::new_engine::imports_a_file` and
-/// `rts-host-rwk/examples/suite_run.rs` use — see that module's doc comment for
+/// `rts-host/examples/suite_run.rs` use — see that module's doc comment for
 /// why a relative import is checked this way rather than by parsing.
 fn imports_a_file(source: &str) -> bool {
     source.contains("from \"./")

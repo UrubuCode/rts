@@ -1,4 +1,4 @@
-# Node.js compatibility — `rts-node-rwk`, measured
+# Node.js compatibility — `rts-node`, measured
 
 What the new engine answers when a program written for Node runs on it.
 
@@ -13,7 +13,7 @@ that, and the source could not have told us which.
 ## How this was measured, and how to redo it
 
 ```bash
-cargo build -p rts-host-rwk --example run_fixture
+cargo build -p rts-host --example run_fixture
 target/debug/examples/run_fixture.exe probe.ts
 ```
 
@@ -113,7 +113,7 @@ both looked broken on Windows until the probes were rewritten with
 
 | what | result |
 |---|---|
-| `http.get(...)`, `http.request(...)`, `res.setHeader(...)` | `RefCell already borrowed` at `rts-core-rwk/src/entry/current.rs:93`, non-unwinding panic, exit 127 |
+| `http.get(...)`, `http.request(...)`, `res.setHeader(...)` | `RefCell already borrowed` at `rts-core/src/entry/current.rs:93`, non-unwinding panic, exit 127 |
 | `tty.isatty(99)` (invalid fd) | exit 127, no output at all |
 
 The HTTP one is a reentrant `with_runtime`: `http::outgoing::set_header` →
@@ -364,7 +364,7 @@ module.
 each honouring `options.signal`. `tests/node_timers_promises.test.ts` is what
 says so: 8 assertions, run. It shares `node:timers`' own queue rather than
 owning a second one, so `setTimeout(cb, 5)` and `await setTimeout(5)` have one
-order; `crates/rts-node-rwk/src/timers/promises.rs` states the two divergences
+order; `crates/rts-node/src/timers/promises.rs` states the two divergences
 (an abort is noticed on the next turn of the loop, not at the call, and an
 interval's tick is scheduled per `next()`).
 

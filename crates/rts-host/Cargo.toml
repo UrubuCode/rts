@@ -1,0 +1,73 @@
+[package]
+name = "rts-host"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+description = "Where a compiler and a runtime meet: the crate that runs a program."
+
+[dev-dependencies]
+rts-std = { path = "../rts-std" }
+
+[dependencies]
+# The language: source text to IR.
+rts-codegen = { path = "../rts-codegen" }
+
+# The machine: IR to code, and the two destinations.
+#
+# NOT cranelift-* — rts-cranelift's rule 1 is "no other crate in the workspace
+# may depend on cranelift-*", and this crate is not an exception to it. The
+# first version of this manifest named cranelift-module and cranelift-jit and
+# claimed the permission in its own README, which was an invention.
+#
+# The reason it seemed necessary is recorded in PLAN.md: the machine's placement
+# API took `cranelift_module::Linkage` and handed back a `JITModule`, so
+# obeying the rule was impossible. That was fixed where it belonged, in the
+# machine, rather than worked around here.
+rts-cranelift = { path = "../rts-cranelift" }
+
+# The runtime: what a compiled program calls out to.
+rts-core = { path = "../rts-core" }
+rts-std = { path = "../rts-std" }
+rts-node = { path = "../rts-node" }
+# A UI: `rts:egui` e `rts:input`. Opcional porque uma janela é uma questão de
+# DISPONIBILIDADE — não existe em wasm nem num build headless — e um alvo sem
+# ela não deve carregar wgpu/winit no grafo para descobrir isso.
+rts-ui = { path = "../rts-ui", optional = true }
+
+[features]
+# `ui` está FORA do default, e a razão é um débito do motor antigo em vez de uma
+# decisão sobre a UI.
+#
+# `rts-natives` deixa dois símbolos indefinidos (`__RTS_FN_GL_FUNCTION_CALL`,
+# `__RTS_FN_GL_RANGE_ERROR_NEW`) que só o binário daquele motor resolve, então
+# todo test binary que o linke falha — 18 deles já falham na `main`, incluindo os
+# de `rts-egui`, `rts-dom`, `rts-render` e `rts-input`.
+#
+# Num build de workspace o cargo UNIFICA features por pacote: `rts-runtime` pede
+# `rts-egui/old-engine`, logo `rts-egui` tem essa feature em qualquer alvo do
+# mesmo build — e um host que dependesse dele por default arrastaria
+# `rts-natives` para os próprios testes. Foi medido: `cargo build --workspace
+# --tests` passava de 18 alvos quebrados para 27, e os nove novos eram os testes
+# DESTE crate, que passam quando construídos sozinhos.
+#
+# Então a UI entra por opção enquanto aquele débito existir. `ui_surface` e o
+# exemplo `janela` a exigem (`required-features`), então nada some em silêncio:
+#
+#     cargo test -p rts-host --features ui
+default = []
+ui = ["dep:rts-ui"]
+
+# Os dois alvos que só existem com a UI. Sem isto um `cargo test -p rts-host`
+# tentaria compilá-los sem o crate e falharia por nome não resolvido, que é uma
+# mensagem sobre a causa errada.
+[[test]]
+name = "ui_surface"
+required-features = ["ui"]
+
+[[example]]
+name = "janela"
+required-features = ["ui"]
+
+[[example]]
+name = "gpu"
+required-features = ["ui"]

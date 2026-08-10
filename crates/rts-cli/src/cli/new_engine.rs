@@ -1,11 +1,11 @@
 //! The shared way `rts run` and `rts test` reach the NEW engine
-//! (`rts-host-rwk` + `rts-cranelift` + `rts-core-rwk`), after the cutover.
+//! (`rts-host` + `rts-cranelift` + `rts-core`), after the cutover.
 //!
 //! `rts emit-types` does NOT use this module — it stays on `rts-codegen-new`,
 //! which is the last thing that does (see the comment at that command).
 //!
 //! This is deliberately a thin restatement of
-//! `crates/rts-host-rwk/examples/suite_run.rs` and `run_fixture.rs`, which are
+//! `crates/rts-host/examples/suite_run.rs` and `run_fixture.rs`, which are
 //! the reference implementations for running a program on this engine. Two
 //! decisions are carried over rather than re-derived:
 //!
@@ -46,9 +46,9 @@ pub fn run_path(path: &Path) -> Result<(), String> {
 /// Same as [`run_path`], but `after` runs on the SAME thread as the compile
 /// and the run, immediately afterward, and its result is handed back out.
 ///
-/// This is not a convenience — it is load-bearing. `rts_std_rwk::test`'s
+/// This is not a convenience — it is load-bearing. `rts_std::test`'s
 /// record is `thread_local!`: a caller that ran the program on this thread
-/// and then read `rts_std_rwk::test::record()` back on the CALLING thread
+/// and then read `rts_std::test::record()` back on the CALLING thread
 /// would always read an empty record, silently reporting "0 tests" for every
 /// file. `after` is the hook that lets `rts test` read the record where it
 /// was actually written.
@@ -75,21 +75,21 @@ pub fn run_path_and<T: Send + 'static>(
 /// `run_path` — a caller cannot ask for something the input cannot answer.
 pub fn run_source(source: &str) -> Result<(), String> {
     on_a_deep_thread(source.to_owned(), |source| {
-        let mut program = rts_host_rwk::compile(&source).map_err(|e| format!("{e:?}"))?;
+        let mut program = rts_host::compile(&source).map_err(|e| format!("{e:?}"))?;
         program.run();
         Ok(())
     })
 }
 
 /// The IR of a program, as text, without running it. See
-/// [`rts_host_rwk::describe`].
+/// [`rts_host::describe`].
 ///
 /// On the deep thread for the same reason the run is: emission is what recurses
 /// with the shape of the expression, and a dump emits everything a run does.
 pub fn describe_path(path: &Path) -> Result<String, String> {
     let path = path.to_path_buf();
     on_a_deep_thread(path, |path| {
-        rts_host_rwk::describe::describe_path(&path).map_err(|e| format!("{e:?}"))
+        rts_host::describe::describe_path(&path).map_err(|e| format!("{e:?}"))
     })
 }
 
@@ -97,7 +97,7 @@ pub fn describe_path(path: &Path) -> Result<String, String> {
 /// are two functions.
 pub fn describe_source(source: &str) -> Result<String, String> {
     on_a_deep_thread(source.to_owned(), |source| {
-        rts_host_rwk::describe::describe_source(&source).map_err(|e| format!("{e:?}"))
+        rts_host::describe::describe_source(&source).map_err(|e| format!("{e:?}"))
     })
 }
 
@@ -117,9 +117,9 @@ fn run_path_inner(path: &Path) -> Result<(), String> {
     let source = std::fs::read_to_string(path)
         .map_err(|e| format!("unreadable: {} ({e})", path.display()))?;
     let compiled = if imports_a_file(&source) {
-        rts_host_rwk::compile_graph(path)
+        rts_host::compile_graph(path)
     } else {
-        rts_host_rwk::compile(&source)
+        rts_host::compile(&source)
     };
     let mut program = compiled.map_err(|e| format!("{e:?}"))?;
     program.run();

@@ -75,7 +75,7 @@ fn emit_rts_dts(path: &Path) -> Result<()> {
         "  export type i8 = number;\n  export type u8 = number;\n  export type i16 = number;\n  export type u16 = number;\n  export type i32 = number;\n  export type u32 = number;\n  export type i64 = number;\n  export type u64 = number;\n  export type isize = number;\n  export type usize = number;\n  export type f32 = number;\n  export type f64 = number;\n  export type bool = boolean;\n  export type str = string;\n",
     );
     out.push_str("}\n\n");
-    out.push_str(&rts_core_rwk::entry::declared::render());
+    out.push_str(&rts_core::entry::declared::render());
     std::fs::write(path, out).with_context(|| format!("failed to write {}", path.display()))?;
     Ok(())
 }

@@ -174,8 +174,8 @@ generator object rather than running, and the runtime holding the parked frame.
 
 ## Measured, and by what
 
-`cargo test -p rts-host-rwk --test suite_coverage -- --ignored`, over the 818
-`.test.ts` files in `tests/`, plus `crates/rts-host-rwk/examples/suite_run.rs`,
+`cargo test -p rts-host --test suite_coverage -- --ignored`, over the 818
+`.test.ts` files in `tests/`, plus `crates/rts-host/examples/suite_run.rs`,
 which RUNS each one in its own process because two failure modes take the process
 with them.
 
@@ -199,7 +199,7 @@ exemption the specification gives `typeof` for taking a reference rather than a
 value. The runtime supplied three names when that was written — `Object`,
 `RegExp`, `String` — and supplies twenty-one now, including the `Error` family,
 `Math`, `Number`, `Boolean`, `JSON`, `Map`, `Set`, `Promise`, `Date` and
-`Symbol`. `rts-node-rwk` adds what Node makes global without an import:
+`Symbol`. `rts-node` adds what Node makes global without an import:
 `process`, `Buffer`, `setTimeout` and `URL`.
 
 One thing is deliberately **stricter than the language**. Reading a name that
@@ -253,7 +253,7 @@ that only re-exports is a second name for one thing, and the second name is the
 one that goes stale.
 
 **One number space, two tables.** `Names::key` mints from the machine's
-`KeyRegistry`, and so does `rts-core-rwk`'s runtime interner. That is deliberate
+`KeyRegistry`, and so does `rts-core`'s runtime interner. That is deliberate
 and load-bearing: a shape is keyed by `Key` and there is one shape tree, so if
 the compiler numbered `"a"` from one counter and the runtime from another,
 `obj.a` compiled to a fixed slot and `obj["a"]` resolved at run time would look
