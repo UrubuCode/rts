@@ -298,6 +298,13 @@ const AF_INET6: i32 = libc::AF_INET6;
 
 /// A MAC address in Node's spelling; the all-zero placeholder when the adapter
 /// has none, which Node also uses for loopback.
+///
+/// Windows only, because its one caller is: off Windows the address arrives
+/// already formatted from `getifaddrs`. Without the `cfg` this is dead code on
+/// every other platform, and this crate `#![deny(dead_code)]`s — so the Linux
+/// leg of CI failed to COMPILE while Windows was green, which is the shape of
+/// breakage a local build cannot show.
+#[cfg(windows)]
 fn mac_text(bytes: &[u8], length: usize) -> String {
     let taken = length.min(bytes.len());
     match taken {
