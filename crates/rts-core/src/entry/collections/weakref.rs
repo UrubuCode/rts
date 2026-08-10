@@ -10,16 +10,20 @@
 //! alive exactly the way [`super::weak`]'s `WeakMap`/`WeakSet` keep their keys
 //! alive: strongly, as a leak, until something clears it.
 //!
-//! [`super::weak`]'s own doc names what a real weak reference needs: the
-//! `(slot, generation)` pair `heap/slab.rs`'s `Handle` already carries, bumped
-//! on free. This engine now has a mark-sweep collector, so the mechanism a real
-//! `WeakRef` waits on exists — reading a handle whose generation no longer
-//! matches is how "was this collected" gets answered honestly. Wiring `deref`
-//! through that is a separate change: it means the collector's sweep visiting
-//! every live `WeakRef` and clearing the ones whose target it just freed, which
-//! is not a fact this file can establish on its own. Until that lands, `deref`
-//! reads the strongly-held property, and this comment is the record of why that
-//! is the whole truth about it rather than an approximation.
+//! **The mechanism this was waiting for now exists**, and it is not the
+//! `(slot, generation)` pair this paragraph used to propose:
+//! [`crate::entry::weak`] watches a value and the sweep clears the watch as it
+//! frees the cell, which answers "was this collected" without a generation to
+//! compare. It was built for `rts-napi-rwk`'s `napi_ref` at refcount zero, and
+//! this is its second, obvious client.
+//!
+//! Wiring `deref` through it is still a separate change, and deliberately so:
+//! it is language-VISIBLE. `deref()` would begin answering `undefined` where it
+//! has always answered the target, which is correct and which no fixture in the
+//! suite has ever seen — so it belongs in a change whose suite run is about
+//! that and nothing else. Until then `deref` reads the strongly-held property,
+//! and this comment is the record of why that is the whole truth about it
+//! rather than an approximation.
 //!
 //! `FinalizationRegistry` is not implemented; it needs the same collector hook
 //! and a callback queue the drain loop would have to pump, and nothing here

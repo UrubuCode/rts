@@ -123,6 +123,10 @@ fn sweep(context: &mut Context, marks: &Marks) -> usize {
 /// object" trap this crate's rules keep naming. Doing the reads first removes
 /// the question.
 fn release(context: &mut Context, cell: u32) {
+    // Every watch on this cell, cleared before the cell goes back — a watcher
+    // reading a reused cell would read somebody else's object and every
+    // question would answer plausibly. See `super::weak`.
+    super::weak::clear_freed(context, cell);
     // A text cell's payload is a RAW slab index sitting in field 0, not an
     // encoded `Value` — `trace.rs`'s own documentation flags this as the one
     // thing the marker cannot follow, and says the sweep must reach it
@@ -258,6 +262,44 @@ mod tests {
             "released, and now nothing names it"
         );
         assert!(!context.region.live_refs().contains(&kept));
+    }
+
+    #[test]
+    fn a_watch_is_cleared_by_the_collection_that_frees_what_it_watched() {
+        // `entry::weak`'s whole claim, against a real cycle rather than against
+        // `clear_freed` called by hand. A watch that survived would hand its
+        // holder a word naming a cell the region is free to hand to somebody
+        // else — plausible answers to every question, which is the failure mode
+        // that module exists to remove.
+        let mut context = empty_context();
+        let doomed = plain(&mut context);
+        let watch = super::super::weak::watch(&mut context, Value::from_slot(doomed).bits())
+            .expect("a cell is watchable");
+
+        assert!(matches!(
+            super::super::weak::peek(&context, watch),
+            Some(Some(_))
+        ));
+        assert_eq!(collect_over_empty_stack(&mut context), 1, "nothing named it");
+        assert_eq!(
+            super::super::weak::peek(&context, watch),
+            Some(None),
+            "the watch remains and answers that its value is gone"
+        );
+    }
+
+    #[test]
+    fn a_watch_does_not_keep_its_value_alive() {
+        // The difference from `entry::external`, and the reason both exist. If
+        // watching rooted, this collection would free nothing.
+        let mut context = empty_context();
+        let cell = plain(&mut context);
+        let _ = super::super::weak::watch(&mut context, Value::from_slot(cell).bits());
+        assert_eq!(
+            collect_over_empty_stack(&mut context),
+            1,
+            "a watch is not a root"
+        );
     }
 
     #[test]

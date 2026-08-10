@@ -16,6 +16,9 @@
 //! P3: calling, both directions — a JS callable whose body is the addon's, the
 //! addon calling a JS function, and `napi_get_cb_info`.
 //!
+//! P4: references — a value an addon keeps after the call that produced it,
+//! strongly while its refcount is above zero and weakly at zero.
+//!
 //! Everything else in the ABI is absent rather than stubbed; an absent symbol
 //! fails to link loudly, which is the answer an addon can act on.
 //!
@@ -44,6 +47,7 @@ pub mod env;
 pub mod functions;
 pub mod handles;
 pub mod objects;
+pub mod references;
 pub mod values;
 
 pub use abi::{napi_env, napi_status, napi_value, napi_valuetype};

@@ -89,6 +89,7 @@ mod symbol;
 mod text;
 mod throw;
 pub mod trace;
+mod weak;
 mod uri;
 
 // The operators are defined in their own module and named from here, because a
@@ -139,6 +140,7 @@ mod table;
 pub use accessor::{define_getter, define_setter};
 pub use alloc::alloc;
 pub use external::{held_current, hold_current, release_current};
+pub use weak::{forget_current as weak_forget, peek_current as weak_peek, watch_current as weak_watch};
 pub use barrier::write_barrier;
 pub use cache::{cache_resolve, cache_resolve_store};
 pub use chain::{get_prototype, set_prototype};
@@ -531,6 +533,14 @@ pub struct Context {
     /// (a caller keeps it), so it is minted rather than positional. See
     /// [`external`].
     pub external: Vec<(u32, u64)>,
+    /// Values something outside the heap is WATCHING without keeping.
+    ///
+    /// The mirror of `external`, and the sweep clears an entry as it frees the
+    /// cell — see [`weak`], which explains why a kept word is worse than a
+    /// cleared one.
+    pub weak: Vec<(u32, u32, Option<u64>)>,
+    /// The next identifier [`weak::watch`] hands out. Never reused.
+    pub next_weak: u32,
     /// The next identifier [`external::hold`] hands out.
     ///
     /// Never reused, so a released identifier presented again is refused rather
@@ -724,6 +734,8 @@ impl Context {
             // compilation that produced the code.
             literals: Vec::new(),
             external: Vec::new(),
+            weak: Vec::new(),
+            next_weak: 1,
             next_external: 1,
             modules: Vec::new(),
             evaluator: None,

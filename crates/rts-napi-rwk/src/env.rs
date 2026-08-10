@@ -113,6 +113,7 @@ impl Env {
 /// `env` must be a pointer [`Env::into_raw`] produced and not yet destroyed.
 pub unsafe fn destroy(env: napi_env) {
     crate::functions::forget(env);
+    crate::references::forget(env);
     // SAFETY: the caller's contract.
     drop(unsafe { Env::from_raw(env) });
 }

@@ -57,12 +57,27 @@ the last non-`undefined` word, because the calling convention pads with
 `undefined` and `f(1, undefined)` is indistinguishable from `f(1)` at this
 layer.
 
-## P4 — references and lifetimes
+## P4 — references and lifetimes (DONE)
 
-`napi_create_reference`, `napi_reference_ref`/`unref`/`delete`, and the WEAK
-case, which `entry::external` deliberately does not answer: it holds, and a weak
-reference must not. That is the phase that asks the collector for a second
-capability rather than reusing the first one wrongly.
+`napi_create_reference`, `napi_reference_ref`/`unref`, `napi_get_reference_value`,
+`napi_delete_reference`.
+
+The phase asked the collector for a second capability rather than reusing the
+first one wrongly, and got it: `rts_core::entry::weak` WATCHES where `external`
+HOLDS, and the sweep clears a watch as it frees the cell. Two mechanisms, not
+one with a flag — holding and watching are opposite instructions to the
+collector, and a bit deciding which is how a value comes to be kept by a
+reference that promised not to.
+
+A refcount above zero holds; zero watches; `ref`/`unref` move between them. Once
+the collector has taken the value, `napi_get_reference_value` answers a NULL
+handle rather than `undefined`, because an addon must be able to tell a
+reference TO `undefined` from a reference whose value is gone.
+
+Second client, not built here: the language's own `WeakRef`, which holds its
+target strongly and says so. Wiring it is language-visible — `deref()` would
+start answering `undefined` — so it belongs in a change whose suite run is about
+that.
 
 ## P5 — wrapping native state
 
