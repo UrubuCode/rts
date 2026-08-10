@@ -102,7 +102,73 @@ fn main() {
 
 
     println!("cargo:rerun-if-changed=crates/rts-runtime/src/");
+
+    embed_new_engine_runtime(&out, &profile_dir);
+
     println!("cargo:rerun-if-changed=build.rs");
+}
+
+/// Mirrors the block above for the NEW engine's AOT runtime archive
+/// (`rts-runtime-rwk`, over `rts-core-rwk` + `rts-std-rwk` + `rts-node-rwk`).
+///
+/// Separate output names on purpose (`runtime_support_rwk.*`, distinct from the
+/// old engine's `runtime_support.*`) — `runtime_objects.rs` embeds both and each
+/// extracts to its own path under `~/.rts/`, so the two never collide and a
+/// downloaded `rts` can AOT-compile with either engine's archive without the
+/// other one being on disk.
+///
+/// Same "never fail the build" property: the new engine's JIT paths (`rts run`,
+/// `rts test`) never touch this archive, so a missing `rts-runtime-rwk`
+/// staticlib (e.g. mid-refactor, or a partial checkout) embeds a placeholder
+/// instead of blocking every `cargo build`.
+fn embed_new_engine_runtime(out: &Path, profile_dir: &Path) {
+    let output = out.join("runtime_support_rwk.a");
+    let output_zst = out.join("runtime_support_rwk.a.zst");
+    let sha_file = out.join("runtime_support_rwk.sha256");
+
+    // Same MSVC-vs-GNU staticlib naming split as the old engine's archive.
+    let candidates = ["librts_runtime_rwk.a", "rts_runtime_rwk.lib"];
+    let staticlib = candidates
+        .iter()
+        .map(|n| profile_dir.join(n))
+        .find(|p| p.is_file());
+
+    match staticlib {
+        Some(lib) => {
+            std::fs::copy(&lib, &output).unwrap_or_else(|e| {
+                panic!(
+                    "failed to copy runtime-rwk staticlib {} -> {}: {e}",
+                    lib.display(),
+                    output.display()
+                )
+            });
+            strip_bitcode_from_archive(&output);
+            let raw =
+                std::fs::read(&output).unwrap_or_else(|e| panic!("read {}: {e}", output.display()));
+            std::fs::write(&sha_file, format!("{:x}", Sha256::digest(&raw)))
+                .unwrap_or_else(|e| panic!("write {}: {e}", sha_file.display()));
+            zstd_to(&raw, &output_zst);
+            println!("cargo:rerun-if-changed={}", lib.display());
+        }
+        None => {
+            std::fs::write(&sha_file, "PLACEHOLDER").unwrap_or_else(|e| {
+                panic!("write placeholder sha {}: {e}", sha_file.display())
+            });
+            zstd_to(b"", &output_zst);
+            println!(
+                "cargo:warning=rts-runtime-rwk staticlib not found in {} — embedding a \
+                 placeholder. `rts run`/`rts test` (new engine JIT) work; for `rts compile` \
+                 (new engine AOT) this should not happen from a normal build, since \
+                 rts-runtime-rwk is now a direct dependency of the `rts` bin.",
+                profile_dir.display()
+            );
+        }
+    }
+
+    println!("cargo:rerun-if-changed=crates/rts-runtime-rwk/src/");
+    println!("cargo:rerun-if-changed=crates/rts-core-rwk/src/");
+    println!("cargo:rerun-if-changed=crates/rts-std-rwk/src/");
+    println!("cargo:rerun-if-changed=crates/rts-node-rwk/src/");
 }
 
 

@@ -20,3 +20,13 @@ pub fn rt_artifacts() -> anyhow::Result<std::path::PathBuf> {
 pub fn rt_artifacts_for_target(target: &str) -> anyhow::Result<std::path::PathBuf> {
     runtime_objects::ensure_artifacts_for_target(target)
 }
+
+/// NEW engine's AOT runtime archive for the host target
+/// (`~/.rts/artifacts-rwk/<host-triple>.a`), materialized from the copy embedded
+/// in this binary. See [`rt_artifacts`] for the old engine's equivalent — kept
+/// separate rather than unified because the two have different staleness rules
+/// (`rts-cli::cli::runtime_archive_rwk` still prefers a freshly built
+/// `target/` archive over this one).
+pub fn rt_artifacts_rwk() -> anyhow::Result<std::path::PathBuf> {
+    runtime_objects::ensure_artifacts_rwk()
+}

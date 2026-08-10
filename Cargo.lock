@@ -4827,6 +4827,7 @@ dependencies = [
  "rts-linker",
  "rts-parser",
  "rts-runtime",
+ "rts-runtime-rwk",
  "rustc-hash 1.1.0",
  "rustls",
  "serde",
@@ -4870,9 +4871,11 @@ dependencies = [
  "rts-codegen-new",
  "rts-diagnostics",
  "rts-engine",
+ "rts-host-rwk",
  "rts-linker",
  "rts-parser",
  "rts-runtime",
+ "rts-std-rwk",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -4937,6 +4940,7 @@ dependencies = [
  "cranelift-module",
  "cranelift-native",
  "cranelift-object",
+ "object 0.39.0",
  "rayon",
 ]
 
@@ -5200,6 +5204,15 @@ dependencies = [
  "rts-render",
  "rts-shared",
  "rts-std",
+]
+
+[[package]]
+name = "rts-runtime-rwk"
+version = "0.1.0"
+dependencies = [
+ "rts-core-rwk",
+ "rts-node-rwk",
+ "rts-std-rwk",
 ]
 
 [[package]]
