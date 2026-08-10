@@ -52,7 +52,9 @@
 //! aesthetic one.
 
 mod address;
+mod imports;
 mod layout;
 
 pub use address::{Addressing, RegionBase, RegionBases};
+pub use imports::HeapImports;
 pub use layout::{HeaderLayout, ObjectLayout, SLOT_BYTES};

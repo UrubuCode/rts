@@ -10,8 +10,11 @@ use cranelift_module::{Linkage, Module};
 use rts_cranelift::ir::{
     CmpOp, ConstDecl, FuncBuilder, FuncRegistry, Function, NumOp, ScalarBits, Signature, ValueId,
 };
-use rts_cranelift::repr::Repr;
-use rts_cranelift::target::{MachineModule, executable_memory, object_file};
+use rts_cranelift::mem::{ObjectLayout, RegionBase, RegionBases};
+use rts_cranelift::repr::{RefKind, Repr};
+use rts_cranelift::target::{
+    MachineModule, Placing, Visibility, executable_memory, object_file, place_in_object,
+};
 use rts_cranelift::types::TypeRegistry;
 
 fn function(params: &[Repr], returns: &[Repr]) -> Function {
@@ -275,4 +278,61 @@ fn the_same_program_goes_to_either_destination() {
             .define(id, &func, &funcs, &types)
             .expect("the pipeline before the destination is the same one");
     }
+}
+
+/// A field read through a heap whose base is a runtime-provided symbol,
+/// compiled to an object file, leaves an undefined reference to that symbol
+/// for a linker to resolve.
+///
+/// This is the case `RegionBase::Symbol` exists for: an ahead-of-time binary
+/// cannot bake the region's address in as a constant, because the region does
+/// not exist until the binary runs. What it CAN do is name a cell the runtime
+/// will write at startup — and this checks that naming actually reaches the
+/// object file, rather than only that lowering does not panic (the
+/// `unreachable!` it used to hit would panic on exactly this program).
+#[test]
+fn a_symbolic_heap_base_is_an_undefined_reference_in_an_object_file() {
+    let mut types = TypeRegistry::new();
+    let point = types.declare(&[Repr::I64, Repr::I64]);
+    let stride = ObjectLayout::of(point, &types).size;
+
+    let mut funcs = FuncRegistry::new();
+    let shape = funcs.declare_signature(Signature {
+        params: vec![Repr::Ref(RefKind::Aggregate(point))],
+        returns: vec![Repr::I64],
+        ..Signature::default()
+    });
+    let id = funcs.declare_function(shape);
+
+    let mut func = function(&[Repr::Ref(RefKind::Aggregate(point))], &[Repr::I64]);
+    let object = param(&func, 0);
+    let entry = func.entry;
+    let mut b = FuncBuilder::new(&mut func, &types, entry);
+    let y = b.field_load(object, point, 1).expect("field 1 exists");
+    b.ret(&[y]);
+
+    const SYMBOL: &str = "test_symbolic_region_base";
+    let bases = RegionBases::single(RegionBase::Symbol(SYMBOL.into()), stride);
+
+    let object_module = object_file("heap_symbol").expect("host");
+    let program = [Placing {
+        id,
+        name: "read_y",
+        visibility: Visibility::Exported,
+        body: Some(&func),
+    }];
+    let bytes = place_in_object(object_module, &program, &funcs, &types, Some(bases))
+        .expect("a symbolic base compiles rather than hitting the old `unreachable!`");
+
+    let file = object::File::parse(bytes.as_slice()).expect("a well-formed object file");
+    use object::{Object, ObjectSymbol};
+    let found = file.symbols().find(|symbol| symbol.name() == Ok(SYMBOL));
+    let symbol = found.unwrap_or_else(|| {
+        panic!("`{SYMBOL}` never appears in the object at all — the field load did not reach it")
+    });
+    assert!(
+        symbol.is_undefined(),
+        "`{SYMBOL}` is declared as something this compilation defines, not as the \
+         runtime-provided cell a linker must still resolve"
+    );
 }

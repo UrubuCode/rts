@@ -62,7 +62,11 @@ fn compile_with_heap(
         call_conv,
         Environment {
             outside: None,
-            heap: Some(Heap { bases, types }),
+            heap: Some(Heap {
+                bases,
+                types,
+                base: None,
+            }),
         },
     )
     .expect("lowering succeeds")
@@ -262,7 +266,8 @@ fn allocation_is_still_refused_because_it_is_not_arithmetic() {
                     outside: None,
                     heap: Some(Heap {
                         bases: &bases,
-                        types: &types
+                        types: &types,
+                        base: None,
                     }),
                 },
             ),

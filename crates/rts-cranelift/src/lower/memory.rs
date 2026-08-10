@@ -9,6 +9,7 @@
 
 use cranelift_codegen::ir::{InstBuilder, MemFlags, Value, types};
 use cranelift_frontend::FunctionBuilder;
+use cranelift_module::{DataId, ModuleDeclarations};
 
 use super::types::machine_type;
 use crate::mem::{Addressing, RegionBase, RegionBases};
@@ -18,11 +19,27 @@ use crate::repr::Repr;
 ///
 /// Held together because neither half is any use alone: the bases say how a
 /// reference becomes an address, and the registry says what is at that address.
+///
+/// `Copy`, deliberately: every field is a reference (or a reference beside a
+/// `Copy` identifier), so cloning this never clones what it points to, and a
+/// caller that only needs to read it back out of `self.heap` can do so
+/// without holding a borrow of `self` — which is what lets the cached-access
+/// lowering below call back into `&mut self` afterwards.
+#[derive(Clone, Copy)]
 pub struct Heap<'a> {
     /// How a reference becomes an address in this heap.
     pub bases: &'a RegionBases,
     /// What the objects in it look like.
     pub types: &'a crate::types::TypeRegistry,
+    /// Where this heap's symbolic base was declared, if it has one.
+    ///
+    /// Absent for a heap addressed entirely by [`RegionBase::Immediate`] —
+    /// nothing needs declaring for a constant. Present exactly when
+    /// [`RegionBases`] names a [`RegionBase::Symbol`], because reading a named
+    /// cell needs the module that declared it and the identifier that
+    /// declaration produced ([`crate::mem::HeapImports`]); the heap and the
+    /// module are configured together for this reason.
+    pub base: Option<(&'a ModuleDeclarations, DataId)>,
 }
 
 /// Computes an object's address from a reference.
@@ -31,10 +48,10 @@ pub struct Heap<'a> {
 /// so this is arithmetic rather than a call. That was the measured lever: doing
 /// it here rather than through a runtime function was worth more than any change
 /// to the value representation.
-pub fn address_of(builder: &mut FunctionBuilder, reference: Value, bases: &RegionBases) -> Value {
-    match bases.addressing() {
+pub fn address_of(builder: &mut FunctionBuilder, reference: Value, heap: &Heap) -> Value {
+    match heap.bases.addressing() {
         Addressing::Single { base, stride } => {
-            let base = materialize(builder, base);
+            let base = materialize(builder, base, heap);
             let offset = builder.ins().imul_imm(reference, i64::from(*stride));
             builder.ins().iadd(base, offset)
         }
@@ -48,7 +65,7 @@ pub fn address_of(builder: &mut FunctionBuilder, reference: Value, bases: &Regio
             let region = builder.ins().band_imm(reference, mask);
             let slot = builder.ins().ushr_imm(reference, i64::from(*selector_bits));
 
-            let table = materialize(builder, table);
+            let table = materialize(builder, table, heap);
             let entry = builder.ins().imul_imm(region, 8);
             let entry = builder.ins().iadd(table, entry);
             // The table of region bases is written when a region is created and
@@ -93,13 +110,32 @@ fn field_flags() -> MemFlags {
 }
 
 /// Reads a base address, however this destination provides one.
-fn materialize(builder: &mut FunctionBuilder, base: &RegionBase) -> Value {
+///
+/// An immediate base is a constant the host already knew when it built the
+/// heap. A symbolic one is not: the region does not exist until the compiled
+/// program runs, so the address is a value the runtime writes into a named
+/// cell at startup, and this reads that cell — one `global_value` to compute
+/// the cell's own address, one `load` to read what is in it. That second step
+/// is the part [`Addressing::Sharded`] already needed for its table of region
+/// bases; a symbolic [`Addressing::Single`] base reuses the same shape rather
+/// than inventing a second way to read a runtime-provided address.
+fn materialize(builder: &mut FunctionBuilder, base: &RegionBase, heap: &Heap) -> Value {
     match base {
         RegionBase::Immediate(address) => builder.ins().iconst(types::I64, *address as i64),
-        // A symbol has to be declared in the module before it can be read, which
-        // is why a heap whose bases live in one is only usable through a module.
-        // Reaching that case without one is a wiring mistake, not a condition to
-        // handle: the heap and the module are configured together.
-        RegionBase::Symbol(_) => unreachable!("a symbolic base needs the module path"),
+        // A symbol has to be declared in the module before it can be read,
+        // which is why a heap whose bases live in one is only usable through
+        // a module — `heap.base` is exactly that: absent only when `bases`
+        // named no symbol at all, in which case this arm is unreachable by
+        // construction. Reaching it with `heap.base` still `None` is a wiring
+        // mistake (the heap and the module configured apart from each other),
+        // not a condition this function can recover from.
+        RegionBase::Symbol(name) => {
+            let (machine, data) = heap
+                .base
+                .unwrap_or_else(|| panic!("symbolic base `{name}` was never declared in a module"));
+            let cell = crate::target::data_ref(machine, builder.func, data);
+            let address = builder.ins().global_value(types::I64, cell);
+            builder.ins().load(types::I64, MemFlags::trusted(), address, 0)
+        }
     }
 }

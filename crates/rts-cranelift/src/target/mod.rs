@@ -27,7 +27,7 @@ mod hosted;
 
 pub use declare::{Declarations, FunctionRefs, data_ref, func_ref};
 pub use destination::{executable_memory, executable_memory_calling, object_file};
-pub use hosted::{InMemory, Placing, Visibility, place_in_memory};
+pub use hosted::{InMemory, Placing, Visibility, place_in_memory, place_in_object};
 
 use cranelift_codegen::Context;
 use cranelift_codegen::control::ControlPlane;
@@ -97,6 +97,13 @@ pub struct MachineModule<'a> {
     /// Which entry points the code compiled so far names.
     entries: crate::symbols::EntryTable,
     heap: Option<crate::mem::RegionBases>,
+    /// Where this heap's symbolic base was declared, once it has been.
+    ///
+    /// Optional for the same reason `imports` is: declaring can fail and
+    /// [`MachineModule::new`] cannot, so it happens on the first compilation
+    /// rather than at construction — and only at all when [`Self::heap`] is
+    /// `Some`, mirroring `imports`'s own guard.
+    heap_imports: Option<crate::mem::HeapImports>,
     faults: std::collections::HashMap<FuncId, crate::fault::FaultTable>,
     positions: std::collections::HashMap<FuncId, crate::observe::PositionMap>,
     /// What each function is called and how much code it became.
@@ -118,6 +125,7 @@ impl<'a> MachineModule<'a> {
             imports: None,
             entries: crate::symbols::EntryTable::new(),
             heap: None,
+            heap_imports: None,
             faults: std::collections::HashMap::new(),
             positions: std::collections::HashMap::new(),
             emitted: std::collections::HashMap::new(),
@@ -369,6 +377,14 @@ impl<'a> MachineModule<'a> {
         if self.imports.is_none() {
             self.imports = Some(crate::symbols::EntryImports::declare_all(self.module)?);
         }
+        // Same guard, same reason: a heap's symbolic base — if it has one —
+        // must be declared before any function that reads it is lowered, and
+        // exactly once regardless of how many batches this compilation runs.
+        if self.heap_imports.is_none()
+            && let Some(bases) = &self.heap
+        {
+            self.heap_imports = Some(crate::mem::HeapImports::declare(self.module, bases)?);
+        }
 
         let mut planned = Vec::with_capacity(bodies.len());
         for &(id, body) in bodies {
@@ -410,6 +426,7 @@ impl<'a> MachineModule<'a> {
                 .as_ref()
                 .expect("the pre-pass declared the entry points"),
             heap: self.heap.as_ref(),
+            heap_imports: self.heap_imports.as_ref(),
             types,
             call_conv: self.call_conv,
         }
@@ -452,6 +469,7 @@ struct Shared<'a> {
     declarations: &'a Declarations,
     imports: &'a crate::symbols::EntryImports,
     heap: Option<&'a crate::mem::RegionBases>,
+    heap_imports: Option<&'a crate::mem::HeapImports>,
     types: &'a crate::types::TypeRegistry,
     call_conv: CallConv,
 }
@@ -472,6 +490,12 @@ fn lower_one(shared: &Shared<'_>, planned: Planned<'_>) -> Result<Prepared, Targ
         shared.heap.map(|bases| crate::lower::Heap {
             bases,
             types: shared.types,
+            // Present exactly when the heap has a symbolic base to read — see
+            // `HeapImports`'s own doc for why there is at most one per heap.
+            base: shared
+                .heap_imports
+                .and_then(|imports| imports.base())
+                .map(|data| (shared.machine, data)),
         }),
     )?;
 

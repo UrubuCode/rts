@@ -251,7 +251,7 @@ impl<'a> Body<'a> {
                 let repr = repr.ok_or(LowerError::NoSuchField { inst: id })?;
 
                 let reference = self.value(*object);
-                let address = memory::address_of(builder, reference, heap.bases);
+                let address = memory::address_of(builder, reference, heap);
                 memory::field_load(builder, address, offset, repr)
             }
 
@@ -284,7 +284,7 @@ impl<'a> Body<'a> {
 
                 let reference = self.value(*object);
                 let written = self.value(*value);
-                let address = memory::address_of(builder, reference, heap.bases);
+                let address = memory::address_of(builder, reference, heap);
                 memory::field_store(builder, address, offset, written);
 
                 if barrier {
@@ -457,15 +457,13 @@ impl<'a> Body<'a> {
         hit: &crate::ir::BlockCall,
         miss: &crate::ir::BlockCall,
     ) -> Result<(), LowerError> {
-        let bases = self.heap.as_ref().map(|heap| heap.bases).ok_or(
-            LowerError::TerminatorNotYetLowered {
-                block,
-                needs: Capability::Memory,
-            },
-        )?;
+        let heap = self.heap.ok_or(LowerError::TerminatorNotYetLowered {
+            block,
+            needs: Capability::Memory,
+        })?;
 
         let reference = self.value(object);
-        let address = memory::address_of(builder, reference, bases);
+        let address = memory::address_of(builder, reference, &heap);
         let header = memory::field_load(
             builder,
             address,
@@ -565,16 +563,14 @@ impl<'a> Body<'a> {
         hit: &crate::ir::BlockCall,
         miss: &crate::ir::BlockCall,
     ) -> Result<(), LowerError> {
-        let bases = self.heap.as_ref().map(|heap| heap.bases).ok_or(
-            LowerError::TerminatorNotYetLowered {
-                block,
-                needs: Capability::Memory,
-            },
-        )?;
+        let heap = self.heap.ok_or(LowerError::TerminatorNotYetLowered {
+            block,
+            needs: Capability::Memory,
+        })?;
 
         let reference = self.value(object);
         let written = self.value(value);
-        let address = memory::address_of(builder, reference, bases);
+        let address = memory::address_of(builder, reference, &heap);
         let header = memory::field_load(
             builder,
             address,

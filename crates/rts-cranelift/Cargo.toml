@@ -27,3 +27,8 @@ anyhow = "1.0"
 # across a pool, never `lower/`'s IR construction (see `target/mod.rs`'s
 # `MachineModule::prepare` doc for why that half must stay serial).
 rayon = "1.10"
+
+[dev-dependencies]
+# Reading back what `place_in_object` produced, to check an undefined symbol
+# is really in it — the same crate `cranelift-object` already writes with.
+object = { version = "0.39", default-features = false, features = ["read_core", "elf", "coff", "macho", "std"] }

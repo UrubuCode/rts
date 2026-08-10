@@ -87,7 +87,7 @@ impl Body<'_> {
                 // The type is in the object's header, which is where it was put
                 // so that a collector could read it without knowing what the
                 // object is. The same fact answers this question.
-                let address = memory::address_of(builder, reference, heap.bases);
+                let address = memory::address_of(builder, reference, heap);
                 let header = memory::field_load(
                     builder,
                     address,
