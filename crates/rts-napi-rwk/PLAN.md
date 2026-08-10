@@ -35,12 +35,27 @@ missing property is `napi_ok` with `undefined` (the language's answer and the
 ABI's are the same one), and a truncated string stops at a CHARACTER boundary,
 never mid-sequence.
 
-## P3 — functions, both directions
+## P3 — functions, both directions (DONE)
 
-`napi_create_function` (a JS callable whose body is the addon's), `napi_call_function`,
-`napi_callback_info` (argc/argv/this/data). The engine has `make_callable` and
-`call_with_args`; what this phase decides is where a callback's `data` pointer
-lives, and the answer is not a global map.
+`napi_create_function`, `napi_call_function`, `napi_get_cb_info`,
+`napi_is_callable`, and `env::destroy`, which is the teardown the registry made
+necessary.
+
+The decision this phase existed for: **a callback's identity travels in the
+environment**. `closure_new(code, environment)` stores a value beside the code
+and hands it back as the call's first argument — the mechanism a compiled
+closure uses to find what it captured — so one shared trampoline reads a slot
+number from there and stands in for the right addon function. Nothing is keyed
+by the callable's value, which is what "not a global map" meant.
+
+The registry is thread-local because a `Context` is: a callback can only run
+against the context it was registered under, so a global would be a lock around
+something with one legal user.
+
+What is deliberately approximate and stated where it happens: `argc` counts to
+the last non-`undefined` word, because the calling convention pads with
+`undefined` and `f(1, undefined)` is indistinguishable from `f(1)` at this
+layer.
 
 ## P4 — references and lifetimes
 

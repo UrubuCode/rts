@@ -25,6 +25,12 @@ pub struct Env {
     scopes: Vec<Scope>,
 }
 
+/// How many argument slots a call carries.
+///
+/// The engine's convention. `napi_get_cb_info` fills an array of exactly this
+/// many, so it is named once here rather than written as a `4` in two files.
+pub const ARGUMENTS: usize = 4;
+
 impl Env {
     /// An environment with one open scope: the one the ABI promises an addon.
     pub fn new() -> Self {
@@ -76,6 +82,12 @@ impl Env {
 
     /// Takes ownership back, dropping every open scope with it.
     ///
+    /// Not the whole teardown — see [`destroy`], which is what a caller wants.
+    /// This half exists on its own because the scopes must be dropped while the
+    /// runtime is still installed (they release external roots), and the
+    /// registry must be cleared while this pointer is still valid (it is the
+    /// key). Two steps, one order, stated in one place.
+    ///
     /// # Safety
     ///
     /// `env` must be a pointer [`Self::into_raw`] produced, not yet passed
@@ -87,6 +99,22 @@ impl Env {
             false => Some(unsafe { Box::from_raw(env.0.cast::<Env>()) }),
         }
     }
+}
+
+/// Tears an environment down: its registered functions, then itself.
+///
+/// The registry is cleared FIRST and it has to be: a slot is keyed by this
+/// pointer, and clearing after the box is freed would compare against a pointer
+/// that may already have been handed to something else — which would free the
+/// wrong addon's callbacks, silently, and only when two addons are loaded.
+///
+/// # Safety
+///
+/// `env` must be a pointer [`Env::into_raw`] produced and not yet destroyed.
+pub unsafe fn destroy(env: napi_env) {
+    crate::functions::forget(env);
+    // SAFETY: the caller's contract.
+    drop(unsafe { Env::from_raw(env) });
 }
 
 impl Default for Env {
