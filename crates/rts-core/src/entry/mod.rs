@@ -570,6 +570,14 @@ pub struct Context {
     /// the number the code carries is a position in this list, which is the
     /// same shape as the key and singleton numberings.
     pub literals: Vec<u64>,
+    /// The key `length` has, once something has asked. See `Self::well_known`.
+    ///
+    /// Not a constant: the number is whatever the registry issued for the name,
+    /// and the registry is seeded per run from what the compilation resolved —
+    /// so it is per context, like everything else here.
+    pub(super) length_key: Option<crate::object::Key>,
+    /// The same for `prototype`, which every `new` reads.
+    pub(super) prototype_key: Option<crate::object::Key>,
     /// The nine strings `typeof` can answer, each built at most once.
     ///
     /// # Why a cache rather than building the answer
@@ -817,6 +825,8 @@ impl Context {
             // Empty until a host seeds it. A program with no string literal
             // never reaches the table, and one that does gets it from the
             // compilation that produced the code.
+            length_key: None,
+            prototype_key: None,
             literals: Vec::new(),
             type_names: [None; TYPE_NAMES.len()],
             external: Vec::new(),

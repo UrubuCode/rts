@@ -241,7 +241,37 @@ impl Context {
     /// is one rule — the second copy is the one that would have interned
     /// against a different registry the day there were two.
     pub(super) fn well_known(&mut self, name: &str) -> crate::object::Key {
+        // Remembered by NAME, because the two hot ones are asked for on paths
+        // that run per operation rather than per program. `length` is the
+        // sharpest: `objects::reconcile_length` asks for it before every
+        // property write in the program, to find out whether the write is the
+        // one that truncates an array — so a construction with four fields
+        // built the text `"length"` as UTF-16 and hashed it four times, for an
+        // answer that cannot change within a run.
+        //
+        // A `HashMap<String, Key>` would hash the name to avoid hashing the
+        // name. Two `Option`s are what the measurement asked for, and anything
+        // else falls through to the intern exactly as before.
+        match name {
+            "length" => {
+                if let Some(held) = self.length_key {
+                    return held;
+                }
+            }
+            "prototype" => {
+                if let Some(held) = self.prototype_key {
+                    return held;
+                }
+            }
+            _ => {}
+        }
         let text = Str::from_str(name);
-        crate::object::Key::Name(self.interner.intern(&text, &mut self.keys))
+        let key = crate::object::Key::Name(self.interner.intern(&text, &mut self.keys));
+        match name {
+            "length" => self.length_key = Some(key),
+            "prototype" => self.prototype_key = Some(key),
+            _ => {}
+        }
+        key
     }
 }
