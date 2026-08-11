@@ -188,3 +188,71 @@ fn a_pointer_survives_another_buffer_being_allocated() {
         unsafe { env::destroy(raw) };
     });
 }
+
+#[test]
+fn detaching_takes_the_bytes_away_and_says_so_afterwards() {
+    in_a_program(|| {
+        let raw = Env::new().into_raw();
+        let mut data: *mut c_void = core::ptr::null_mut();
+        let mut buffer = handles::none();
+        // SAFETY: live env, local out-parameters.
+        unsafe { buffers::napi_create_buffer(raw, 8, &mut data, &mut buffer) };
+
+        let mut detached = true;
+        // SAFETY: a handle from the open scope, a local out-parameter.
+        unsafe { buffers::napi_is_detached_arraybuffer(raw, buffer, &mut detached) };
+        assert!(!detached);
+
+        // SAFETY: a handle from the open scope.
+        let status = unsafe { buffers::napi_detach_arraybuffer(raw, buffer) };
+        assert_eq!(status, napi_status::napi_ok);
+
+        // SAFETY: a handle from the open scope, a local out-parameter.
+        unsafe { buffers::napi_is_detached_arraybuffer(raw, buffer, &mut detached) };
+        assert!(detached);
+
+        // And the length went with them, which is what makes this a detach
+        // rather than a flag: an addon reading the info after detaching must
+        // not be told there are still eight bytes to write.
+        let mut after: *mut c_void = core::ptr::null_mut();
+        let mut size = 99usize;
+        // SAFETY: a handle from the open scope, local out-parameters.
+        unsafe { buffers::napi_get_buffer_info(raw, buffer, &mut after, &mut size) };
+        assert_eq!(size, 0);
+    });
+}
+
+#[test]
+fn detaching_twice_is_refused_rather_than_answered_twice() {
+    in_a_program(|| {
+        let raw = Env::new().into_raw();
+        let mut data: *mut c_void = core::ptr::null_mut();
+        let mut buffer = handles::none();
+        // SAFETY: live env, local out-parameters.
+        unsafe { buffers::napi_create_buffer(raw, 2, &mut data, &mut buffer) };
+        // SAFETY: a handle from the open scope.
+        unsafe { buffers::napi_detach_arraybuffer(raw, buffer) };
+        // SAFETY: a handle from the open scope.
+        let status = unsafe { buffers::napi_detach_arraybuffer(raw, buffer) };
+        assert_eq!(status, napi_status::napi_arraybuffer_expected);
+    });
+}
+
+#[test]
+fn a_number_is_not_a_detached_buffer() {
+    in_a_program(|| {
+        let raw = Env::new().into_raw();
+        let mut number = handles::none();
+        // SAFETY: live env, local out-parameter.
+        unsafe { values::napi_create_double(raw, 1.0, &mut number) };
+
+        // Not detached — false, and not a failure. "May I read this" has a
+        // true answer for a number, and it is "there is nothing detached here".
+        let mut detached = true;
+        // SAFETY: a handle from the open scope, a local out-parameter.
+        let status =
+            unsafe { buffers::napi_is_detached_arraybuffer(raw, number, &mut detached) };
+        assert_eq!(status, napi_status::napi_ok);
+        assert!(!detached);
+    });
+}

@@ -273,6 +273,38 @@ impl BigInt {
         self.magnitude_u64()
     }
 
+    /// A value from a sign and base-2^64 words, least significant first.
+    ///
+    /// The digits here are base-2^32 and the words are not, and the split is
+    /// deliberate: sixty-four-bit words are what the N-API spelling of a bigint
+    /// uses, and the conversion belongs in the module that owns the
+    /// representation rather than in the caller that happens to need it. A
+    /// caller assembling `digits` itself would also be assembling the
+    /// normalisation invariant [`Self::from_parts`] exists to hold.
+    pub fn from_words(negative: bool, words: &[u64]) -> Self {
+        let mut digits = Vec::with_capacity(words.len() * 2);
+        for word in words {
+            digits.push(*word as u32);
+            digits.push((*word >> 32) as u32);
+        }
+        Self::from_parts(negative, digits)
+    }
+
+    /// The sign and the base-2^64 words, least significant first.
+    ///
+    /// The inverse of [`Self::from_words`], and exact: zero answers an empty
+    /// slice, so a caller writing the words out writes nothing, which is what
+    /// the ABI's zero-length answer means.
+    pub fn to_words(&self) -> (bool, Vec<u64>) {
+        let mut words = Vec::with_capacity(self.digits.len().div_ceil(2));
+        for pair in self.digits.chunks(2) {
+            let low = pair[0] as u64;
+            let high = pair.get(1).copied().unwrap_or(0) as u64;
+            words.push(low | (high << 32));
+        }
+        (self.negative, words)
+    }
+
     /// The magnitude as a `u64`, ignoring the sign entirely.
     fn magnitude_u64(&self) -> Option<u64> {
         if self.digits.len() > 2 {

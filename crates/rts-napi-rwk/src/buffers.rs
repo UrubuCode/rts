@@ -276,3 +276,53 @@ pub unsafe extern "C" fn napi_create_arraybuffer(
     // SAFETY: forwarded.
     unsafe { produce(env, result, word) }
 }
+
+/// `napi_detach_arraybuffer` — give the bytes back.
+///
+/// Follows a view to the buffer behind it, because `napi_create_arraybuffer`
+/// here answers a `Uint8Array` (see its own note) and an addon detaching what
+/// it was given means the store either way.
+///
+/// # Safety
+///
+/// The ABI's.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn napi_detach_arraybuffer(
+    _env: napi_env,
+    arraybuffer: napi_value,
+) -> napi_status {
+    // SAFETY: the caller's contract.
+    let Some(word) = (unsafe { value_of(arraybuffer) }) else {
+        return napi_status::napi_invalid_arg;
+    };
+    match rts_core::entry::detach_buffer(word) {
+        true => napi_status::napi_ok,
+        // Already detached, or never a buffer. The ABI has a status for the
+        // second and none for the first, and they are the same sentence from
+        // the addon's side: there are no bytes here to take away.
+        false => napi_status::napi_arraybuffer_expected,
+    }
+}
+
+/// `napi_is_detached_arraybuffer`.
+///
+/// # Safety
+///
+/// The ABI's.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn napi_is_detached_arraybuffer(
+    _env: napi_env,
+    value: napi_value,
+    result: *mut bool,
+) -> napi_status {
+    // SAFETY: the caller's contract.
+    let Some(word) = (unsafe { value_of(value) }) else {
+        return napi_status::napi_invalid_arg;
+    };
+    if result.is_null() {
+        return napi_status::napi_invalid_arg;
+    }
+    // SAFETY: the caller's contract.
+    unsafe { *result = rts_core::entry::buffer_detached(word) };
+    napi_status::napi_ok
+}

@@ -72,20 +72,27 @@
 
 pub mod abi;
 pub mod async_work;
+pub mod bigints;
 pub mod buffers;
 pub mod class;
+pub mod cleanup;
 pub mod convert;
+pub mod dates;
 pub mod env;
 pub mod errors;
 pub mod exported;
+pub mod finalizers;
 pub mod functions;
 pub mod handles;
+pub mod instance;
+pub mod integrity;
 pub mod loader;
 pub mod module;
 pub mod objects;
 pub mod references;
 pub mod rest;
 pub mod scopes;
+pub mod tags;
 pub mod threadsafe;
 pub mod values;
 pub mod wrap;

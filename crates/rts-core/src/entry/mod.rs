@@ -132,6 +132,8 @@ pub use operators::{
 };
 pub use primitives::{add, number_to_string, same_value, strict_equals, to_boolean, to_boolean_in};
 pub use bigint_class::{bigint_new, negate};
+pub use bigints::{bigint_from_words, bigint_i64, bigint_u64, bigint_words};
+pub use buffers::detach::{buffer_detached, detach_buffer};
 pub use regex::regex_new;
 pub use text::{
     declare_keys, declare_literals, declare_templates, described, string_const, template_strings,
@@ -310,6 +312,12 @@ pub struct Context {
     /// The collector cannot see this — the same note every `Aside` here
     /// carries, and the same bet arrays already make.
     buffer_of: Aside<Slot>,
+    /// Which cells had their bytes taken away.
+    ///
+    /// Beside the cell rather than in place of the store, because "detached"
+    /// and "empty" are two states with one byte count — see
+    /// `buffers/detach.rs`, which is the only thing that writes this.
+    detached: Aside<bool>,
     /// What each `DataView` and typed array views: whose bytes, from where,
     /// how many, read as what.
     ///
@@ -675,6 +683,7 @@ impl Context {
             frames: Vec::new(),
             function_names: Vec::new(),
             buffer_of: Aside::in_region(bits),
+            detached: Aside::in_region(bits),
             views: Aside::in_region(bits),
             regexes: Aside::in_region(bits),
             accessors: Aside::in_region(bits),
@@ -745,6 +754,7 @@ impl Context {
             pending_call_name: None,
             buffers: Slab::new(),
             buffer_of: Aside::new(),
+            detached: Aside::new(),
             views: Aside::new(),
             collections: Aside::new(),
             generators: Aside::new(),

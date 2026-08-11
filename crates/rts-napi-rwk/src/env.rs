@@ -23,6 +23,10 @@ pub struct Env {
     /// [`Self::current`] never has to answer "no scope" to an addon that
     /// followed the rules.
     scopes: Vec<Scope>,
+    /// The pointer the addon keeps per environment. See [`crate::instance`].
+    pub instance: Option<crate::instance::Instance>,
+    /// Hooks to run at teardown. See [`crate::cleanup`].
+    pub cleanup: Vec<crate::cleanup::napi_async_cleanup_hook_handle>,
 }
 
 /// How many argument slots a call carries.
@@ -36,6 +40,8 @@ impl Env {
     pub fn new() -> Self {
         Env {
             scopes: vec![Scope::new()],
+            instance: None,
+            cleanup: Vec::new(),
         }
     }
 
@@ -126,7 +132,24 @@ impl Env {
 ///
 /// `env` must be a pointer [`Env::into_raw`] produced and not yet destroyed.
 pub unsafe fn destroy(env: napi_env) {
+    // The addon's own teardown runs FIRST, while everything it may reach is
+    // still standing: a cleanup hook is entitled to call back in, and one that
+    // ran after the scopes were dropped would be handed handles to nothing.
+    // SAFETY: the caller's contract — a live environment.
+    if let Some(held) = unsafe { crate::handles::env_of(env) } {
+        let hooks = core::mem::take(&mut held.cleanup);
+        // SAFETY: every handle in that list is one `crate::cleanup` leaked and
+        // has not been removed, which is the invariant that module keeps.
+        unsafe { crate::cleanup::run(hooks) };
+        if let Some(instance) = held.instance.take()
+            && let Some(finalize) = instance.finalize
+        {
+            // SAFETY: the addon's own function, with the two words it supplied.
+            unsafe { finalize(env, instance.data, instance.hint) };
+        }
+    }
     crate::functions::forget(env);
+    crate::finalizers::forget(env);
     crate::references::forget(env);
     crate::wrap::forget(env);
     crate::threadsafe::forget(env);

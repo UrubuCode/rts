@@ -80,6 +80,7 @@
 
 mod array_buffer;
 pub(in crate::entry) mod atomics;
+pub(in crate::entry) mod detach;
 mod data_view;
 pub(in crate::entry) mod element;
 mod shared_array_buffer;
