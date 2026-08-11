@@ -145,6 +145,15 @@ impl Compiled {
         );
         self.regions[0] = Some(outcome.region);
         self.resolves = outcome.resolves;
+        // Beside the phase timings, because it is the same question asked of
+        // the run rather than of the compile: a cached read that recognises
+        // what it sees costs a load, and one that does not costs a call into
+        // `cache_resolve`. A number near the read count means the caches are
+        // missing every time, which is a 15x difference and looks like nothing
+        // in a profile that only reports totals.
+        if std::env::var_os("RTS_TIMING").is_some() {
+            eprintln!("rts-timing cache misses  {:>8}", outcome.resolves);
+        }
         self.described = outcome.described;
         outcome.value
     }

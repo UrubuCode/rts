@@ -17,22 +17,32 @@
 // program that reaches it once. It is an attribution instrument: it says which
 // actions are expensive, not how much of any given program they are.
 //
-// # A known defect in this harness — read before quoting a number from it
+// # This file measures an ENGINE DEFECT as well as the operations
 //
-// Several rows report roughly TEN TIMES what the same operation costs when it
-// is written on its own. Measured 2026-08-11, release: `obj.a` in a loop is
-// 225 ns here and 16 ns in a four-line file; `typeof obj` is 250 ns here and
-// 26 ns there. The cause is not known yet, and four candidates have been
-// ruled out by measurement rather than by argument — reading an outer-scope
-// variable costs 3 ns more than a local, repeating the same variable names
-// across 40 closures costs nothing, storing a closure in an object costs
-// nothing, and the throw check is 9%.
+// Several rows report roughly ten times what the same operation costs when it
+// is written on its own — `obj.a` in a loop is 225 ns here and 14 ns in a small
+// file. That is not harness overhead. `RTS_TIMING=1` reports the number of
+// inline-cache misses, and the two cases differ by five orders of magnitude:
 //
-// So: the RANKING within a column is usable, and the ABSOLUTE nanoseconds are
-// not, and neither is any ratio to node computed from them. What this file is
-// good for until that is found is finding the expensive shapes and the
-// unavailable operations. Whoever finds the cause should delete this paragraph
-// and say what it was.
+//   without one extra function declared:      75 misses, 14.4 ns/op
+//   with it:                           1 135 690 misses, 240.9 ns/op
+//
+// One miss per iteration means every cached property read in the program is
+// resolving by name, forever. Adding a single named function declaration to a
+// file this shape flips it; an anonymous arrow in a `const` does not.
+//
+// What is ruled out, by measurement rather than by argument: an outer-scope
+// variable costs 3 ns more than a local, repeating variable names across 40
+// closures costs nothing, storing a closure in an object costs nothing, the
+// number of shapes and keys in the program costs nothing, the number of
+// top-level bindings costs nothing, running millions of allocations first
+// costs nothing, and the throw check is 9%. A small file with the same shapes
+// does not reproduce it, so the trigger needs the size or the structure this
+// file has and is not yet isolated.
+//
+// Until it is: the RANKING within a column is usable, the ABSOLUTE nanoseconds
+// are not, and neither is any ratio to node computed from them. Whoever
+// isolates the trigger should delete this paragraph and say what it was.
 //
 // # Honesty
 //
