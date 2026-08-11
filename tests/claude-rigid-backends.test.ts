@@ -15,64 +15,55 @@
 //
 // Então o que este arquivo pina é que perguntar funciona e que a resposta é a
 // verdade sobre este build — inclusive quando a verdade é "não".
+import { describe, test, expect } from "rts:test";
 import { backends, supports, threads } from "rts:rigid";
 
-// ── quantos motores este build tem ─────────────────────────────────────────
-//
-// Um, hoje: o solver gather. O teste não afirma que é UM — afirma que é pelo
-// menos um e que o número é real, porque acrescentar a Rapier atrás de uma
-// feature deve fazer este teste continuar passando em vez de virar manutenção.
-const n = backends();
-if (typeof n !== "number") throw new Error("backends() deve responder um número");
-if (n < 1) throw new Error("um build sem backend nenhum não deveria instalar rts:rigid");
+describe("rts:rigid diz o que este build NAO pode fazer", () => {
+  test("ha ao menos um backend, e o numero e real", () => {
+    const n = backends();
+    expect(typeof n).toBe("number");
+    // Ao menos um, e nao exatamente um: acrescentar a Rapier atras de uma
+    // feature deve fazer este teste continuar passando em vez de virar
+    // manutencao.
+    expect(n >= 1).toBe(true);
+  });
 
-// ── a capacidade que ESTE build tem ────────────────────────────────────────
-//
-// 0 é "existe algum backend", e tem de ser 1: se não houvesse, `step` não teria
-// o que chamar e a superfície seria um nome oco.
-if (supports(0) !== 1) throw new Error("nenhum backend disponível para uma cena comum");
+  test("uma cena comum tem onde rodar", () => {
+    // Se nao houvesse, `step` nao teria o que chamar e a superficie seria um
+    // nome oco — que e o que a regra do workspace recusa publicar.
+    expect(supports(0)).toBe(1);
+  });
 
-// ── e as quatro que ele NÃO tem, uma a uma ────────────────────────────────
-//
-// Cada uma destas responde 0 hoje, e cada 0 é um fato medido ou declarado, não
-// uma função pela metade:
-//
-//   1 casca contra casca  docs/colisores.md §3 mediu 2,2 BILHÕES de produtos
-//                         escalares por frame a 2000 corpos. O solver degrada o
-//                         par para esfera de propósito.
-//   2 colisão contínua    não há teste varrido; o teto de velocidade é uma rede,
-//                         não um conserto.
-//   3 angular             não há torque nem velocidade angular em lugar nenhum.
-//   4 juntas              não há junta nem articulação de onde pendurar uma.
-//
-// O dia em que a Rapier entrar atrás de uma feature, este bloco passa a falhar
-// NAQUELE build — e falhar é o comportamento certo, porque a resposta terá
-// mudado de verdade. É por isso que ele checa contra `backends()`: com mais de
-// um motor presente, a afirmação deixa de ser sobre este build.
-if (n === 1) {
-  const faltas = [1, 2, 3, 4];
-  for (let i = 0; i < faltas.length; i++) {
-    const r = supports(faltas[i]);
-    if (r !== 0) {
-      throw new Error(
-        "com só o solver gather, supports(" + faltas[i] + ") deveria ser 0 e veio " + r,
-      );
+  test("as quatro coisas que o solver gather NAO faz respondem 0", () => {
+    // Cada zero e um fato medido ou declarado:
+    //   1 casca x casca  2,2 BILHOES de produtos escalares/frame a 2000 corpos
+    //                    (docs/colisores.md §3). Degradado para esfera, de proposito.
+    //   2 continua       nao ha teste varrido; o teto de velocidade e rede.
+    //   3 angular        nao ha torque nem velocidade angular.
+    //   4 juntas         nenhuma, e nenhuma articulacao de onde pendurar uma.
+    //
+    // Condicionado a `backends() === 1` para que o dia em que a Rapier entrar
+    // este teste continue valido naquele build: a resposta tera mudado de
+    // verdade, e nao por manutencao.
+    if (backends() === 1) {
+      expect(supports(1)).toBe(0);
+      expect(supports(2)).toBe(0);
+      expect(supports(3)).toBe(0);
+      expect(supports(4)).toBe(0);
     }
-  }
-}
+  });
 
-// ── uma necessidade que não existe responde 0, nunca 1 ────────────────────
-//
-// A direção conservadora, e ela importa: um programa perguntando por algo que
-// este build nunca ouviu falar tem de ser respondido "não" em vez de "sim por
-// omissão". Um `supports` otimista é exatamente a fronteira que mente.
-if (supports(99) !== 0) throw new Error("uma necessidade desconhecida deve responder 0");
-if (supports(0 - 1) !== 0) throw new Error("um código negativo deve responder 0");
+  test("uma necessidade desconhecida responde 0, nunca 1", () => {
+    // A direcao conservadora. Um `supports` otimista e exatamente a fronteira
+    // que mente: um programa perguntando por algo que este build nunca ouviu
+    // falar tem de ser respondido "nao" em vez de "sim por omissao".
+    expect(supports(99)).toBe(0);
+    expect(supports(-1)).toBe(0);
+  });
 
-// ── e o que já existia continua ───────────────────────────────────────────
-const t = threads();
-if (typeof t !== "number" || t < 1) throw new Error("threads() deve responder ao menos 1");
-
-console.log("ok: backends=" + n + " threads=" + t + " suporta-cena-comum=" + supports(0));
-console.log("faltam: casca-x-casca=" + supports(1) + " continua=" + supports(2) +
-            " angular=" + supports(3) + " juntas=" + supports(4));
+  test("threads() continua respondendo", () => {
+    const t = threads();
+    expect(typeof t).toBe("number");
+    expect(t >= 1).toBe(true);
+  });
+});
