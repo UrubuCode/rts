@@ -4,13 +4,11 @@ version = "0.1.0"
 edition = "2024"
 license.workspace = true
 
-# Suporte a Node.js native addons (.node) pela porta N-API. Ver
-# docs/guides/napi.md. Só N-API puro (sem V8-direto/NAN).
-# Carregamento dinâmico via libloading; valores mapeados à HandleTable do engine.
+# This carried an `-rwk` suffix while the old engine's N-API crate still stood
+# beside it as the reference being read from — cargo will not have two crates
+# under one name. The suffix went on 2026-08-10 with the crate that forced it,
+# once the symbol sets matched: 145 names there, 146 here, nothing missing.
+# A phase is finished when the old code is gone, and this one is.
 
 [dependencies]
-rts-engine = { path = "../rts-engine" }
-rtse = { package = "rts-macro", path = "../rts-macro" }
-rts-shared = { path = "../rts-shared" }
-libloading = "0.8"
-indexmap = "2.14.0"
+rts-core = { path = "../rts-core" }

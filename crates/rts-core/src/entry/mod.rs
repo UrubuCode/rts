@@ -114,7 +114,7 @@ pub use iterate::{array_append, array_append_all, iterate};
 pub use modules::{
     module_publish_all,
     Provided, boolean_value, buffer_class, canonical_encoding, decode_base64, decode_bytes, declare_global,
-    declare_module, encode_base64, encode_text, get_member, make_array, make_array_in, make_callable,
+    declare_module, declare_module_lazy, encode_base64, encode_text, get_member, make_array, make_array_in, make_callable,
     make_bigint, make_buffer, make_namespace, make_number, make_object, make_string,
     bytes_of, bytes_pointer, get_member_at, is_array, is_object, make_bytes, member_key, make_instance, make_prototype, module_at_name, module_binding, module_namespace, module_publish, module_specifiers, forget_module, null_value, number_of,
     Evaluator, declare_evaluator, evaluate, evaluator, is_array_in, is_callable_in, member_names, string_in, null_in, put_member, set_prototype_in, text_in,
@@ -132,6 +132,8 @@ pub use operators::{
 };
 pub use primitives::{add, number_to_string, same_value, strict_equals, to_boolean, to_boolean_in};
 pub use bigint_class::{bigint_new, negate};
+pub use bigints::{bigint_from_words, bigint_i64, bigint_u64, bigint_words};
+pub use buffers::detach::{buffer_detached, detach_buffer};
 pub use regex::regex_new;
 pub use text::{
     declare_keys, declare_literals, declare_templates, described, string_const, template_strings,
@@ -165,6 +167,45 @@ use rts_cranelift::shape::{KeyRegistry, ShapeTree};
 use crate::heap::{Aside, Slab, Slot};
 use crate::text::{Interner, Str};
 use crate::value::Singletons;
+
+/// The names the runtime asks for BY NAME on a path that runs per operation.
+///
+/// On this list because a measurement put them here, not because they are
+/// special: `Context::well_known` remembers exactly these and interns
+/// everything else, and moving a name on or off changes only the cost.
+/// `length` is asked before every property write, `prototype` by every `new`,
+/// and the last three are stamped onto every typed array as it is built.
+pub const CACHED_KEYS: [&str; 5] = ["length", "prototype", "byteLength", "byteOffset", "buffer"];
+
+/// The strings the runtime builds as VALUES on a path that runs per operation.
+///
+/// Different from [`CACHED_KEYS`] in what is saved. A key is a number and
+/// interning one hashes text; a string here is a **cell**, so building one
+/// allocates — and an allocation is what brings the next collection closer, not
+/// merely what costs time.
+///
+/// `toJSON` is why this exists: `JSON.stringify` asks every object value
+/// whether it has one, and asking built the name as a fresh cell each time.
+pub const CACHED_TEXTS: [&str; 2] = ["toJSON", ""];
+
+/// Every string `typeof` can answer, in the order [`Context::type_names`]
+/// caches them.
+///
+/// The list is closed by the language rather than by this crate — ES says which
+/// nine — with `"unknown"` the tenth, which is not JavaScript's: it is what a
+/// client tag nothing wired produces, and it is here so that a wiring mistake
+/// reads as a wiring mistake instead of as `"undefined"`.
+pub const TYPE_NAMES: [&str; 9] = [
+    "number",
+    "boolean",
+    "undefined",
+    "object",
+    "symbol",
+    "bigint",
+    "string",
+    "function",
+    "unknown",
+];
 
 /// Everything a running program's operations need and cannot be handed.
 pub struct Context {
@@ -310,6 +351,12 @@ pub struct Context {
     /// The collector cannot see this — the same note every `Aside` here
     /// carries, and the same bet arrays already make.
     buffer_of: Aside<Slot>,
+    /// Which cells had their bytes taken away.
+    ///
+    /// Beside the cell rather than in place of the store, because "detached"
+    /// and "empty" are two states with one byte count — see
+    /// `buffers/detach.rs`, which is the only thing that writes this.
+    detached: Aside<bool>,
     /// What each `DataView` and typed array views: whose bytes, from where,
     /// how many, read as what.
     ///
@@ -543,6 +590,40 @@ pub struct Context {
     /// the number the code carries is a position in this list, which is the
     /// same shape as the key and singleton numberings.
     pub literals: Vec<u64>,
+    /// The key each of [`CACHED_KEYS`] has, once something has asked for it.
+    ///
+    /// Not constants: the number is whatever the registry issued for the name,
+    /// and the registry is seeded per run from what the compilation resolved —
+    /// so it is per context, like everything else here.
+    pub(super) well_known_keys: [Option<crate::object::Key>; CACHED_KEYS.len()],
+    /// The cell each of [`CACHED_TEXTS`] interned to, once something asked.
+    ///
+    /// Rooted by [`roots`], like `type_names`: nothing else holds these, and a
+    /// collection between two uses would free the one the next use hands back.
+    pub(super) well_known_texts: [Option<u64>; CACHED_TEXTS.len()],
+    /// The nine strings `typeof` can answer, each built at most once.
+    ///
+    /// # Why a cache rather than building the answer
+    ///
+    /// Because building it ALLOCATES. `intern_value` does not intern despite
+    /// the name — it inserts into the slab and calls `alloc_or_die` — so every
+    /// `typeof` in a program produced a new cell holding one of nine constant
+    /// words, and a cell is what makes a collection arrive sooner.
+    ///
+    /// Measured 2026-08-11, release, `bench/analytic.ts`: `typeof` cost 363 ns
+    /// against 32 ns for an optional chain that stays in compiled code. It does
+    /// no work — a tag switch — so the number was never about what it computes.
+    ///
+    /// # Why in the context and not a `static`
+    ///
+    /// A cell belongs to the region that allocated it, and there is one region
+    /// per run: a `static` would hand a second run a reference into a heap that
+    /// no longer exists. That is the same reason `literals` is seeded per run
+    /// rather than built once.
+    ///
+    /// Filled lazily, so a program that never asks pays nothing, and rooted by
+    /// [`super::roots`] because nothing else holds these.
+    pub type_names: [Option<u64>; TYPE_NAMES.len()],
     /// Values something OUTSIDE the heap is holding, and the collector must
     /// therefore keep.
     ///
@@ -669,6 +750,7 @@ impl Context {
             frames: Vec::new(),
             function_names: Vec::new(),
             buffer_of: Aside::in_region(bits),
+            detached: Aside::in_region(bits),
             views: Aside::in_region(bits),
             regexes: Aside::in_region(bits),
             accessors: Aside::in_region(bits),
@@ -739,6 +821,7 @@ impl Context {
             pending_call_name: None,
             buffers: Slab::new(),
             buffer_of: Aside::new(),
+            detached: Aside::new(),
             views: Aside::new(),
             collections: Aside::new(),
             generators: Aside::new(),
@@ -759,7 +842,10 @@ impl Context {
             // Empty until a host seeds it. A program with no string literal
             // never reaches the table, and one that does gets it from the
             // compilation that produced the code.
+            well_known_keys: [None; CACHED_KEYS.len()],
+            well_known_texts: [None; CACHED_TEXTS.len()],
             literals: Vec::new(),
+            type_names: [None; TYPE_NAMES.len()],
             external: Vec::new(),
             weak: Vec::new(),
             next_weak: 1,

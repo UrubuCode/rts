@@ -99,8 +99,8 @@ impl Json {
         // `SerializeJSONProperty` with a synthetic holder `{"": value}`, which is
         // what makes `{ toJSON(key) { return key } }` answer `""` when it is the
         // whole argument to `stringify` rather than a member of something.
-        let root_key = with_current(|context| context.intern_value(Str::from_str("")).bits());
-        match writer.write(value, root_key, 0) {
+        let root_key = with_current(|context| context.well_known_text(""));
+        match writer.write(value, super::json::write::HookKey::Given(root_key), 0) {
             true => {
                 let units = writer.finish();
                 with_current(|context| context.intern_value(Str::from_utf16(&units)).bits())

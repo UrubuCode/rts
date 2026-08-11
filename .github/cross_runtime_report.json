@@ -3118,7 +3118,7 @@
   "rts_exit": 134,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "\nthread '<unknown>' (8910) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": "\nthread '<unknown>' (9328) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
 }
 ,
 {
@@ -9152,7 +9152,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: __xrtFn is not a function\n    at chamaGlobal"
+  "rts_error": "rts: uncaught exception (tag 1): ReferenceError: __xrtFn is not defined\n    at chamaGlobal"
 }
 ,
 {

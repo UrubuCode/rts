@@ -179,6 +179,21 @@ pub(super) fn resolve(context: &mut Context, start: u32, key: Key) -> Found {
 /// An own **data** property stops the walk: `o.x = 1` on an object that has its
 /// own `x` writes the slot, whatever an inherited setter would have done.
 pub(super) fn setter_for(context: &mut Context, start: u32, key: Key) -> Option<u64> {
+    // Nothing in this program has ever defined an accessor, so no walk of any
+    // chain can find one. Exact rather than approximate: `reach` is zero until
+    // something is attached, and a setter is only ever reachable through this
+    // table.
+    //
+    // It is worth an early return because the walk is not cheap and every
+    // property WRITE pays it — `objects::set_property` asks before it stores,
+    // and for a write that ADDS a property the walk runs to the end of the
+    // chain, doing a type, a shape and a slot lookup per hop, to answer that
+    // there was never a setter anywhere. Measured 2026-08-11: a class with four
+    // fields cost ~640 ns per field to construct, and this is one of the two
+    // walks every one of those field initialisers performed.
+    if context.accessors.reach() == 0 {
+        return None;
+    }
     let Key::Name(machine) = key else {
         return None;
     };

@@ -170,34 +170,89 @@ pub(super) fn analyse(
     let mut escaping = Escaping {
         candidates: &collected.candidates,
         escaped: HashSet::new(),
+        why: HashMap::new(),
         everything: false,
         declaring: None,
     };
     for statement in body {
         scan_stmt(statement, 0, &mut escaping);
     }
+    // Why a candidate did not survive, counted rather than guessed at. Every
+    // refusal below is a heap allocation this pass could not remove, and until
+    // this existed the only way to know which refusal mattered was to read the
+    // file and pick one — which is how four campaigns in this repository were
+    // started on a premise that turned out to be false.
+    let mut refused = [0usize; 5];
     if escaping.everything {
+        report(
+            collected.candidates.len(),
+            0,
+            [collected.candidates.len(), 0, 0, 0, 0],
+            &escaping.why,
+        );
         return Flattened::default();
     }
 
-    let objects = collected
-        .candidates
-        .iter()
-        .filter(|(name, _)| !escaping.escaped.contains(name))
+    // One pass with the reasons checked in order, rather than a chain of
+    // `filter`s each counting into the same array — which is four mutable
+    // borrows of it alive at once, and does not compile. The order IS the
+    // report's meaning: a candidate that both escapes and is captured is
+    // counted under the first, so the columns sum to the refusals rather than
+    // over-counting them.
+    let mut objects: HashMap<Name, Vec<Name>> = HashMap::new();
+    for (name, candidate) in &collected.candidates {
         // A captured local lives in an environment object, which is storage two
-        // activations share. There is nothing to replace it with.
-        .filter(|(name, _)| !captured.contains(name))
-        // A parameter holds whatever a caller passed, and the declaration that
-        // made this a candidate would be shadowing it.
-        .filter(|(name, _)| !parameters.contains(name))
-        // Exactly one binding in the whole body introduces this spelling. Two —
-        // a redeclaration, a `catch` parameter, a loop target, an inner block's
+        // activations share. There is nothing to replace it with. A parameter
+        // holds whatever a caller passed. More than one introduction — a
+        // redeclaration, a `catch` parameter, a loop target, an inner block's
         // own `let` — means the name refers to more than one thing, and this
         // analysis works in names rather than in bindings.
-        .filter(|(name, _)| collected.introductions.get(name) == Some(&1))
-        .map(|(name, candidate)| (*name, candidate.keys.clone()))
-        .collect();
+        let reason = if escaping.escaped.contains(name) {
+            1
+        } else if captured.contains(name) {
+            2
+        } else if parameters.contains(name) {
+            3
+        } else if collected.introductions.get(name) != Some(&1) {
+            4
+        } else {
+            objects.insert(*name, candidate.keys.clone());
+            continue;
+        };
+        refused[reason] += 1;
+    }
+    report(collected.candidates.len(), objects.len(), refused, &escaping.why);
     Flattened { objects }
+}
+
+/// What `RTS_ESCAPE_STATS` prints: how many object literals this body could
+/// have replaced, how many it did, and which refusal accounted for the rest.
+///
+/// # Why counted here rather than derived from the emitted program
+///
+/// Because a refusal leaves no trace. An `ObjectNew` in the output could be a
+/// literal that escapes for a good reason or one this analysis merely cannot
+/// see through, and nothing downstream can tell the two apart — which is the
+/// difference between "working as designed" and "the next thing to fix".
+fn report(
+    candidates: usize,
+    kept: usize,
+    refused: [usize; 5],
+    why: &HashMap<&'static str, usize>,
+) {
+    if candidates == 0 || std::env::var_os("RTS_ESCAPE_STATS").is_none() {
+        return;
+    }
+    eprintln!(
+        "rts-escape {candidates} candidates, {kept} replaced; refused: \
+         unwalkable-node {}, escapes {}, captured {}, parameter {}, redeclared {}",
+        refused[0], refused[1], refused[2], refused[3], refused[4]
+    );
+    let mut reasons: Vec<(&&str, &usize)> = why.iter().collect();
+    reasons.sort_by(|a, b| b.1.cmp(a.1));
+    for (reason, count) in reasons {
+        eprintln!("rts-escape     {count} x {reason}");
+    }
 }
 
 /// What the first pass finds.
@@ -383,6 +438,9 @@ struct Escaping<'a> {
     /// Whether a node the shared walker does not descend into was reached, in
     /// which case nothing survives — see the module doc.
     everything: bool,
+    /// Why each candidate died, for `RTS_ESCAPE_STATS`. See `report`.
+    why: HashMap<&'static str, usize>,
+
     /// The name whose own initialiser is being scanned, if one is.
     ///
     /// # Why a read of it there is not the read this analysis models
@@ -402,7 +460,10 @@ struct Escaping<'a> {
 
 impl Escaping<'_> {
     /// Records that a name is reachable as a value, so nothing may replace it.
-    fn kill(&mut self, name: Name) {
+    fn kill(&mut self, name: Name, why: &'static str) {
+        if self.candidates.contains_key(&name) && !self.escaped.contains(&name) {
+            *self.why.entry(why).or_default() += 1;
+        }
         self.escaped.insert(name);
     }
 
@@ -416,7 +477,7 @@ impl Escaping<'_> {
     /// same footing `AssignTarget::Place` already gets one line up.
     fn kill_pattern(&mut self, pattern: &Pattern, depth: u32) {
         match pattern {
-            Pattern::Name(name) => self.kill(*name),
+            Pattern::Name(name) => self.kill(*name, "bound by a destructuring pattern"),
             Pattern::Target(expr) => scan_expr(expr, depth, self, false),
             Pattern::Object(object) => {
                 for property in &object.properties {
@@ -451,7 +512,7 @@ impl Escaping<'_> {
         // In its own initialiser the name is dead, so this is not an access at
         // all — it is the throw the program is entitled to.
         if self.declaring == Some(object) {
-            self.kill(object);
+            self.kill(object, "read inside its own initialiser");
             return;
         }
         let Some(candidate) = self.candidates.get(&object) else {
@@ -464,8 +525,10 @@ impl Escaping<'_> {
         // A key the literal did not write is not a key this analysis knows: it
         // would be read from the prototype chain, or answer `undefined`, and a
         // binding is neither.
-        if !known || (is_write && depth > declared_at) {
-            self.kill(object);
+        if !known {
+            self.kill(object, "a key the literal did not write");
+        } else if is_write && depth > declared_at {
+            self.kill(object, "written from an inner scope");
         }
     }
 }
@@ -655,7 +718,7 @@ fn scan_expr(expr: &Expr, depth: u32, state: &mut Escaping, allow_member: bool) 
     // default "escapes": the two allowed shapes returned above, so an identifier
     // arriving here is a mention this analysis does not model.
     if let ExprKind::Ident(name) = &expr.kind {
-        state.kill(*name);
+        state.kill(*name, "mentioned as a bare name");
     }
 
     // Which nodes hold values in every child. A node NOT named here has its

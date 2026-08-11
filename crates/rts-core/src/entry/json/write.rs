@@ -139,7 +139,7 @@ impl Writer {
     /// member's name in an object. It is a value rather than a `&Str` because
     /// that is what a call's argument is, and the empty-string root case has
     /// no `Str` lying around to borrow.
-    pub(super) fn write(&mut self, value: u64, key: u64, depth: usize) -> bool {
+    pub(super) fn write(&mut self, value: u64, key: HookKey, depth: usize) -> bool {
         let value = to_json_of(value, key);
         match with_current(|context| shape_of(context, value)) {
             Shape::Absent => return false,
@@ -186,7 +186,12 @@ impl Writer {
             // in an object they are skipped. The asymmetry is the language's
             // and it has a reason: an array's members are addressed by
             // position, so dropping one renumbers every one after it.
-            if !self.write(*element, key, depth + 1) {
+            // The key `toJSON` sees for an array member is its index, ToString'd
+            // -- `[9].toJSON` is called with `"0"`, never with the number 9. Built
+            // only if a hook is actually reached: it is a `number_to_string` and
+            // an ALLOCATION, and it was paid per element of every array ever
+            // serialised, for a hook almost no value has.
+            if !self.write(*element, HookKey::Index(at), depth + 1) {
                 self.ascii("null");
             }
         }
@@ -245,7 +250,7 @@ impl Writer {
             // `name` is already the string key, straight from `own_keys` — see
             // its comment above — so this is the same value `toJSON` must see,
             // with no second conversion to disagree with the first.
-            self.write(held, name, depth + 1);
+            self.write(held, HookKey::Given(name), depth + 1);
         }
         if written {
             self.newline(depth);
@@ -360,10 +365,10 @@ impl Writer {
 /// had a key in hand; now all three do, so the hook sees what the
 /// specification says it sees rather than a value that happened to be at hand
 /// at the one call site that had one.
-fn to_json_of(value: u64, key: u64) -> u64 {
+fn to_json_of(value: u64, key: HookKey) -> u64 {
     let name = with_current(|context| {
         match super::super::primitive::is_object_in(context, value) {
-            true => Some(context.intern_value(Str::from_str("toJSON")).bits()),
+            true => Some(context.well_known_text("toJSON")),
             false => None,
         }
     });
@@ -376,6 +381,37 @@ fn to_json_of(value: u64, key: u64) -> u64 {
     if !with_current(|context| super::super::modules::is_callable_in(context, hook)) {
         return value;
     }
-    let absent = with_current(|context| super::super::objects::undefined_of(context));
+    // Only HERE does the key become a value, which is the point of `HookKey`:
+    // by this line the value is an object AND it has a callable `toJSON`, which
+    // almost nothing does. Built eagerly it was a `number_to_string` and a cell
+    // per element of every array ever serialised.
+    let (key, absent) = with_current(|context| {
+        let key = match key {
+            HookKey::Given(value) => value,
+            HookKey::Index(at) => context
+                .intern_value(crate::coerce::number_to_string(at as f64))
+                .bits(),
+        };
+        (key, super::super::objects::undefined_of(context))
+    });
     super::super::functions::call(hook, value, key, absent, absent, absent)
+}
+
+/// What `toJSON` will be called with, before anything decides it will be
+/// called at all.
+///
+/// # Why the index is not resolved at the call site
+///
+/// Because resolving it ALLOCATES — an array member's key is its index
+/// ToString'd, which is a `number_to_string` and a string cell — and the site
+/// that has the index cannot know whether the member is even an object, let
+/// alone whether it has a hook. Every element of every array serialised paid
+/// for a value that was then discarded.
+#[derive(Clone, Copy)]
+pub(super) enum HookKey {
+    /// A key the caller already holds as a value: a property name, or the
+    /// empty string the root is serialised under.
+    Given(u64),
+    /// An array member's position, ToString'd only if a hook is reached.
+    Index(usize),
 }

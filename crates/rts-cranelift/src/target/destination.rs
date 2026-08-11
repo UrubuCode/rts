@@ -68,7 +68,7 @@ pub fn object_file(name: &str) -> Result<ObjectModule, TargetError> {
     // the in-memory destination gives — see `target::isa_with`. Code placed in
     // this process stays where it was relocated; code in an object file is
     // linked into an image the loader may put anywhere.
-    let isa = super::isa_with(super::object_addressing())?;
+    let isa = super::isa_with(super::object_addressing(), super::Priority::CodeQuality)?;
     let builder = ObjectBuilder::new(isa, name, cranelift_module::default_libcall_names())
         .map_err(|error| TargetError::Module(ModuleError::Backend(error.into())))?;
     Ok(ObjectModule::new(builder))

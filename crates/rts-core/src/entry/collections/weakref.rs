@@ -14,7 +14,7 @@
 //! `(slot, generation)` pair this paragraph used to propose:
 //! [`crate::entry::weak`] watches a value and the sweep clears the watch as it
 //! frees the cell, which answers "was this collected" without a generation to
-//! compare. It was built for `rts-napi-rwk`'s `napi_ref` at refcount zero, and
+//! compare. It was built for `rts-napi`'s `napi_ref` at refcount zero, and
 //! this is its second, obvious client.
 //!
 //! Wiring `deref` through it is still a separate change, and deliberately so:

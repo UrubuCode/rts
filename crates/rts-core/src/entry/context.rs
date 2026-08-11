@@ -241,7 +241,54 @@ impl Context {
     /// is one rule — the second copy is the one that would have interned
     /// against a different registry the day there were two.
     pub(super) fn well_known(&mut self, name: &str) -> crate::object::Key {
+        // Remembered for the names asked on paths that run per OPERATION rather
+        // than per program. `length` is the sharpest: `reconcile_length` asks
+        // for it before every property write in the program, to find out
+        // whether this is the write that truncates an array — so a construction
+        // with four fields built the text as UTF-16 and hashed it four times,
+        // for an answer that cannot change within a run. `prototype` is read by
+        // every `new`, and the other three are stamped onto every typed array.
+        //
+        // A linear scan of five short `&str`s, not a `HashMap<String, Key>`,
+        // which would hash the name to avoid hashing the name. Anything not on
+        // the list falls through to the intern exactly as before, and putting a
+        // name on it is only ever a speed decision — the answer is identical
+        // either way, because the intern is idempotent.
+        let held = super::CACHED_KEYS.iter().position(|&known| known == name);
+        if let Some(at) = held
+            && let Some(key) = self.well_known_keys[at]
+        {
+            return key;
+        }
         let text = Str::from_str(name);
-        crate::object::Key::Name(self.interner.intern(&text, &mut self.keys))
+        let key = crate::object::Key::Name(self.interner.intern(&text, &mut self.keys));
+        if let Some(at) = held {
+            self.well_known_keys[at] = Some(key);
+        }
+        key
+    }
+
+    /// A string the runtime itself needs as a VALUE, built at most once.
+    ///
+    /// The counterpart of [`Self::well_known`] for the other half of the same
+    /// problem: that one saves hashing text, this one saves an ALLOCATION.
+    /// `intern_value` does not intern despite its name — it inserts into the
+    /// slab and calls the allocator — so a name built per operation is a cell
+    /// per operation, and cells are what a collection has to walk.
+    ///
+    /// Falls through for a name not on [`super::CACHED_TEXTS`], so a caller
+    /// that hands it something else gets the ordinary behaviour.
+    pub(super) fn well_known_text(&mut self, name: &str) -> u64 {
+        let held = super::CACHED_TEXTS.iter().position(|&known| known == name);
+        if let Some(at) = held
+            && let Some(value) = self.well_known_texts[at]
+        {
+            return value;
+        }
+        let value = self.intern_value(Str::from_str(name)).bits();
+        if let Some(at) = held {
+            self.well_known_texts[at] = Some(value);
+        }
+        value
     }
 }

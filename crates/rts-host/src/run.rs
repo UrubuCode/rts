@@ -122,6 +122,7 @@ impl Compiled {
     /// knowing that. So [`run_region`] installs one around the call and takes it
     /// back afterwards, which is what makes two runs independent.
     pub fn run(&mut self) -> u64 {
+        let _timing = rts_cranelift::probe::Phase::start("run");
         // Region zero, moved in for the run and taken back after. Not copied:
         // there is one heap and its address is in the code.
         let region = self.regions[0]
@@ -144,6 +145,15 @@ impl Compiled {
         );
         self.regions[0] = Some(outcome.region);
         self.resolves = outcome.resolves;
+        // Beside the phase timings, because it is the same question asked of
+        // the run rather than of the compile: a cached read that recognises
+        // what it sees costs a load, and one that does not costs a call into
+        // `cache_resolve`. A number near the read count means the caches are
+        // missing every time, which is a 15x difference and looks like nothing
+        // in a profile that only reports totals.
+        if std::env::var_os("RTS_TIMING").is_some() {
+            eprintln!("rts-timing cache misses  {:>8}", outcome.resolves);
+        }
         self.described = outcome.described;
         outcome.value
     }
@@ -275,6 +285,7 @@ fn run_region(
     function_names: &[(u64, String)],
     region: rts_core::heap::Region,
 ) -> Outcome {
+    let _seeding = rts_cranelift::probe::Phase::start("seed-context");
     let mut context = rts_core::entry::Context::over(singletons, kinds, region);
     // What lets `alloc`'s collection trigger scan this thread's stack at all —
     // see `crate::stack`'s own documentation for why the call lives here and
@@ -317,10 +328,22 @@ fn run_region(
     // `await new Promise(r => setTimeout(r, 5))`, the standard way to wait,
     // ended the program with "this promise cannot settle".
     rts_core::entry::declare_rest(&mut context, |wait| std::thread::sleep(wait));
-    rts_std::install(&mut context);
-    rts_node::install(&mut context);
+    {
+        let _timing = rts_cranelift::probe::Phase::start("install-std");
+        rts_std::install(&mut context);
+    }
+    {
+        let _timing = rts_cranelift::probe::Phase::start("install-node");
+        rts_node::install(&mut context);
+    }
+    // Medido como os dois acima, e atras da mesma feature que o Cargo.toml
+    // declara no default: `rts:rigid` e o solver de rigidos paralelo, e um
+    // install que nao aparece na tabela de fases e um custo que ninguem ve.
     #[cfg(feature = "physics")]
-    rts_physics::install(&mut context);
+    {
+        let _timing = rts_cranelift::probe::Phase::start("install-physics");
+        rts_physics::install(&mut context);
+    }
     #[cfg(feature = "ui")]
     rts_ui::install(&mut context);
     // The modules a program may import. Registered by the HOST rather than by
@@ -328,6 +351,7 @@ fn run_region(
     // the program is given — and `rts-std` is where anything needing an
     // operating system lives, which is the same availability rule that keeps
     // `Math` in the runtime and `io.print` out of it.
+    drop(_seeding);
     let (context, (value, described)) = rts_core::entry::with_context(context, || {
         // A script closes over nothing, has no receiver and was passed no
         // arguments: `undefined` for all six, from the compiler's own numbering
@@ -475,6 +499,7 @@ pub(crate) struct FrontEnd {
 
 /// Parses and emits source text into one program. See [`FrontEnd`].
 pub(crate) fn front_end(source: &str) -> Result<FrontEnd, HostError> {
+    let _timing = rts_cranelift::probe::Phase::start("front-end");
     let mut names = Names::default();
     // A file that imports is compiled as a MODULE, and one that does not is
     // wrapped in a function as before. The distinction is not cosmetic: an
@@ -562,6 +587,7 @@ pub(crate) fn front_end(source: &str) -> Result<FrontEnd, HostError> {
     // declared before the body that defines it can take its address, so the
     // host declaring the entry afterwards stopped being possible.
     let emitted = {
+        let _timing = rts_cranelift::probe::Phase::start("emit");
         let mut ctx = Ctx::new(
             &model, &mut funcs, &mut calls, &mut keys, &mut names, &types,
         );
@@ -647,6 +673,7 @@ pub(crate) fn prepare(
     types: TypeRegistry,
     calls: RuntimeCalls,
 ) -> Result<Prepared, HostError> {
+    let _timing = rts_cranelift::probe::Phase::start("prepare");
     let script = emitted.entry;
     let mut emitted = emitted;
     let mut funcs = funcs;
@@ -854,7 +881,10 @@ fn assemble(
         }
     };
 
-    let placed = unsafe { place_in_memory(&placing, &outside, &funcs, &types, Some(bases))? };
+    let placed = {
+        let _timing = rts_cranelift::probe::Phase::start("place");
+        unsafe { place_in_memory(&placing, &outside, &funcs, &types, Some(bases))? }
+    };
 
     // Now the addresses exist, so the shapes can be keyed by the one thing the
     // runtime holds about a compiled function. A body that was rewritten and

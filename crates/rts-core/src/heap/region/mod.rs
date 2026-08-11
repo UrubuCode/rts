@@ -97,44 +97,81 @@ use rts_cranelift::mem::{HeaderLayout, SLOT_BYTES};
 /// How many inline slots a cell holds.
 ///
 /// Fifteen, so that a cell is 128 bytes: one word of header and fifteen of
-/// fields. It was **seven** — one cache line — and the note that stood here
-/// said the number was chosen for alignment, that how many properties a typical
-/// object has "has not been measured here", and that the answer "may well not
-/// be seven". It has been measured now, and it is not.
+/// fields, which is two cache lines on every target this runs on.
 ///
-/// # What the measurement was
+/// # Why it was seven, and what changed it
 ///
-/// A property past the inline slots spills beside the cell, and
-/// [`crate::entry::cache::cache_resolve`] refuses to cache a spilled slot —
-/// there is no overflow indirection for the compiled read to follow, so the
-/// site pays `cache_resolve` *and* the full `get_property` on **every pass**.
-/// That is a cliff, not a slope. Release, 2026-08-10, reading one property of
-/// one object in a loop: **11 ns for the first seven, 285 ns for the eighth** —
-/// 26× at the boundary, with nothing about the program changing across it.
+/// Seven made a cell exactly one cache line, and this doc said so — adding
+/// that the reason was alignment rather than any measurement of object sizes,
+/// that how many properties a typical object has "has not been measured here",
+/// and that the answer "may well not be seven". It was measured on 2026-08-11
+/// and it is not seven.
 ///
-/// It is not an exotic shape. Every module-scope binding a closure can see is a
-/// property of one scope object, so a file with eight top-level `const`s has
-/// its eighth read at 285 ns. That is how this was found: a fixture that looked
-/// like `number[]` being slower than `f64[]` was the fourth array in the file
-/// being the eighth property of the module scope.
+/// What made it matter is not the memory: it is that a property past the
+/// inline slots is **uncacheable**. `entry::cache::cache_resolve` answers -1
+/// for `slot >= INLINE_SLOTS`, because the overflow lives in a side table a
+/// compiled load cannot reach, so a read of the eighth property of an object
+/// resolves BY NAME on every pass, forever. A closure's environment is an
+/// object like any other, so a script with more than seven captured bindings
+/// put an ordinary variable past the boundary — and every read of it in every
+/// loop went through the runtime.
 ///
-/// # Why fifteen, and what it costs
+/// `bench/repro/`, two files differing by one function declaration, is what
+/// that looked like: 1 135 690 cache misses and 240.9 ns for `obj.a` against
+/// 75 misses and 14.4 ns. At fifteen slots both files are 14.5 ns.
 ///
-/// 128 bytes is two cache lines and a multiple of one, so a cell still never
-/// straddles a line — the alignment argument the old note made survives
-/// unchanged; what it does not survive is being the only argument.
+/// # What it costs, stated rather than smoothed over
 ///
-/// The cost is real and is the reason this is a number and not a fix: **a cell
-/// is twice the size**, so an object holding two properties pays 128 bytes for
-/// them. This buys the eighth through fifteenth property, and moves the cliff
-/// rather than removing it. Removing it is the overflow indirection
-/// `cache_resolve` names, which is a machine-layer change: the cache cell holds
-/// `(type, offset)` and the read is `load [cell + offset]`, and a spilled slot
-/// is not at any offset from the cell.
+/// A cell is twice the size, so a region is twice the memory (8 MB at the
+/// host's `CELLS`), an object straddles two cache lines instead of one, and
+/// allocation-heavy code moves twice the bytes. Measured, release, 2026-08-11:
 ///
-/// Measured against the suite before and after, one process per file: 739 of
-/// 800 both times, and the per-file lists identical — nothing lost, nothing
-/// gained.
+/// | | seven | fifteen |
+/// |---|---|---|
+/// | `bench/objbench.ts` | 5.66 s | **6.99 s** (+23.5%) |
+/// | `bench/monte_carlo_pi.ts` | 1.53 s | **1.60 s** (+4.3%) |
+/// | `bench/field_access.ts` | 61.5 ms | 54.4 ms (-11.7%) |
+/// | a property read, `bench/analytic.ts` | 265 ns | 14.7 ns (-94%) |
+/// | a test file in the corpus | — | -8% to -12% |
+///
+/// The suite is 739 of 800 either way, compared per file, with an empty LOST
+/// list.
+///
+/// # What this does NOT fix
+///
+/// The cliff. It moves to the sixteenth property, and an object with more of
+/// them pays exactly what the eighth used to. The fix that removes it rather
+/// than moving it is making the overflow addressable so `cache_resolve` can
+/// answer for it — the storage already exists (`spill_of`), and what is
+/// missing is the machine's half. Fifteen is what a one-line change buys until
+/// then, chosen with the trade above on the table.
+///
+/// # E por que não trinta e um, que é o próximo passo alinhado
+///
+/// Medido em 2026-08-11, depois de a escolha de quinze já estar tomada, porque
+/// "aumentar o número" é a primeira ideia de quem encontra este penhasco.
+///
+/// Trinta e um é o próximo valor que mantém `STRIDE` potência de dois (256
+/// bytes), e isso não é estética: o endereço é `base + index × stride`, e uma
+/// potência de dois é um deslocamento — vinte e quatro slots dariam 200 bytes e
+/// uma multiplicação de verdade em todo acesso a propriedade, além de fazer uma
+/// célula atravessar linha de cache.
+///
+/// Mesmo binário, mesma cena, 8000 objetos de uma classe cujos campos quentes
+/// JÁ CABEM nos quinze — ou seja, nada transborda em nenhuma das duas
+/// configurações e a única variável é o tamanho da célula:
+///
+/// | | quinze | trinta e um |
+/// |---|---|---|
+/// | ler cinco campos, ns/objeto | ~44 | 91,8 |
+/// | um `computeWorld` de motor de cena, ms/frame | **0,86** | 1,12 |
+///
+/// Trinta por cento pior no frame. Mover o penhasco para longe **custa**, e não
+/// é uma troca neutra que só gasta memória: a densidade de cache perdida cobra
+/// mais do que os slots extras compram no caso comum. O que resta consertável é
+/// o penhasco ser INVISÍVEL — nada avisa que uma classe passou de quinze, e o
+/// efeito aparece a 57× de distância da declaração que o causou.
+/// Ver UrubuCode/rts#2171.
 pub const INLINE_SLOTS: u32 = 15;
 
 /// How far apart consecutive cells are.
@@ -513,17 +550,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_cell_never_straddles_a_cache_line() {
-        // The invariant `INLINE_SLOTS` is chosen against, stated as a test
-        // because the constant and the reason are in different places and
-        // changing one without the other is how a comment starts lying.
+    fn a_cell_fills_whole_cache_lines_and_never_part_of_one() {
+        // This test pinned `STRIDE == 64` — a cell is ONE cache line — which
+        // was the reason seven slots was seven. Fifteen is what a measurement
+        // replaced it with (see `INLINE_SLOTS`), so what survives is the part
+        // that was actually load-bearing: a cell begins where a line begins, so
+        // reading a field never pays for a line the object does not fill.
         //
-        // It asserted `STRIDE == 64` while the count was seven, which pins the
-        // COUNT rather than the reason for it — so raising the count to fifteen
-        // failed a test that had nothing to say about the change. What matters
-        // is that a cell begins on a line boundary and ends on one: 128 bytes
-        // satisfies that exactly as 64 did, and 72 would not.
-        assert_eq!(STRIDE % 64, 0, "a cell spans whole cache lines");
+        // Stated as a test because the constant and the reason live in
+        // different places, and changing one without the other is how a comment
+        // starts lying — which is exactly what happened to the doc this
+        // replaces.
+        assert_eq!(
+            STRIDE % 64,
+            0,
+            "a cell must be a whole number of cache lines: at {STRIDE} bytes an \
+             object would start mid-line and a field read would touch a line \
+             belonging to the object before it"
+        );
+        // E a que amarra o STRIDE aos DOIS termos que o compõem: sem ela, mudar
+        // `INLINE_SLOTS` e esquecer de mudar `STRIDE` passaria neste teste
+        // enquanto o alinhamento por acaso continuasse múltiplo de 64.
         assert_eq!(STRIDE, HeaderLayout::BYTES + INLINE_SLOTS * SLOT_BYTES);
     }
 

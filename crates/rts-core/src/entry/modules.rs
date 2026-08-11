@@ -59,20 +59,48 @@ use crate::value::Value;
 pub struct Registered {
     /// The specifier as written in a program.
     pub specifier: String,
-    /// The namespace object it names.
-    pub namespace: u64,
+    /// The namespace object it names, once something has asked for it.
+    ///
+    /// `None` while [`Self::build`] has not run. See [`declare_module_lazy`]
+    /// for why a host would register one it has not built.
+    pub namespace: Option<u64>,
+    /// How to build the namespace the first time a program names it.
+    ///
+    /// `None` for a module registered with its object already in hand — a
+    /// compiled module's own `export`, which is published after it ran and
+    /// cannot be rebuilt from a function.
+    pub build: Option<Builder>,
     /// Registered by a host (`true`) rather than published by a compiled
     /// module's own `export`.
     pub provided: bool,
 }
 
 impl Context {
-    /// The namespace object a specifier names, if the host provided one.
-    fn module_at(&self, specifier: &str) -> Option<u64> {
-        self.modules
+    /// The namespace object a specifier names, if the host provided one —
+    /// building it here if this is the first time a program has named it.
+    fn module_at(&mut self, specifier: &str) -> Option<u64> {
+        let at = self
+            .modules
             .iter()
-            .find(|held| held.specifier == specifier)
-            .map(|held| held.namespace)
+            .position(|held| held.specifier == specifier)?;
+        if let Some(built) = self.modules[at].namespace {
+            return Some(built);
+        }
+        let build = self.modules[at].build?;
+        let namespace = build(self);
+        // Written to EVERY entry that shares this builder, not just the one
+        // asked for. `node:fs` and `fs` are two specifiers of one module, and
+        // Node's own `require('sys') === require('util')` is observable — so a
+        // second call would hand back a second object and make that false.
+        // Function-pointer identity is what says "same module" here; the
+        // alternative, a group number, is a second numbering for a fact the
+        // registration already states by passing one function.
+        for held in &mut self.modules {
+            if held.build.is_some_and(|other| std::ptr::fn_addr_eq(other, build)) {
+                held.namespace = Some(namespace);
+            }
+        }
+        Some(namespace)
     }
 
     /// Whether a specifier is one a host registered.
@@ -95,14 +123,72 @@ pub fn declare_module(context: &mut Context, specifier: &str, namespace: u64) {
         .find(|held| held.specifier == specifier);
     match held {
         Some(held) => {
-            held.namespace = namespace;
+            held.namespace = Some(namespace);
+            held.build = None;
             held.provided = true;
         }
         None => context.modules.push(Registered {
             specifier: specifier.to_owned(),
-            namespace,
+            namespace: Some(namespace),
+            build: None,
             provided: true,
         }),
+    }
+}
+
+/// What builds a namespace the first time a program names it.
+pub type Builder = fn(&mut Context) -> u64;
+
+/// Registers a module the host provides, WITHOUT building it.
+///
+/// Every specifier in `specifiers` names the same module, and the first one a
+/// program imports builds it for all of them.
+///
+/// # Why this exists
+///
+/// Measured, 2026-08-11, release: `rts_node::install` cost 5.7 ms of the 6.4 ms
+/// a trivial program spent between having compiled code and running it, and
+/// building the ~40 `node:` namespaces was 4 ms of that. Every program paid it,
+/// including the overwhelming majority that import nothing — and it is spread
+/// across the modules rather than concentrated in one (`constants` 0.9 ms,
+/// `http2` 0.8 ms, `process` 0.5 ms, then a long tail), so there was no single
+/// module to fix instead.
+///
+/// # Why a function pointer and not a closure
+///
+/// A `Box<dyn FnOnce>` would let a host capture, and what a host would capture
+/// is the context — which is the thing being handed back to the builder. The
+/// pointer also gives the identity [`Context::module_at`] uses to write one
+/// built namespace into every specifier that names it.
+///
+/// # What it does not change
+///
+/// Whether the module EXISTS. `provided` is set here, so
+/// `import fs from "node:fs"` binds the whole namespace and a specifier nothing
+/// registered still fails by name — the two questions a program can ask before
+/// anything is built are both answered without building anything.
+pub fn declare_module_lazy(context: &mut Context, specifiers: &[&str], build: Builder) {
+    for specifier in specifiers {
+        let held = context
+            .modules
+            .iter_mut()
+            .find(|held| held.specifier == *specifier);
+        match held {
+            // Never over a module already BUILT: a compiled module publishes
+            // its exports by running, and replacing that with a promise to
+            // build one later would discard what the program produced.
+            Some(held) if held.namespace.is_some() => {}
+            Some(held) => {
+                held.build = Some(build);
+                held.provided = true;
+            }
+            None => context.modules.push(Registered {
+                specifier: (*specifier).to_owned(),
+                namespace: None,
+                build: Some(build),
+                provided: true,
+            }),
+        }
     }
 }
 
@@ -970,7 +1056,8 @@ pub fn module_publish(specifier: i64, key: i64, value: u64) -> u64 {
                 let made = make_object(context);
                 context.modules.push(Registered {
                     specifier: text,
-                    namespace: made,
+                    namespace: Some(made),
+                    build: None,
                     provided: false,
                 });
                 made
@@ -995,8 +1082,15 @@ pub fn module_publish(specifier: i64, key: i64, value: u64) -> u64 {
 /// The host-facing half of [`module_namespace`], which takes a literal index a
 /// compiled program holds and nothing outside this crate can mint. `undefined`
 /// for a specifier nothing registered.
-pub fn module_at_name(context: &Context, specifier: &str) -> u64 {
-    context.module_at(specifier).unwrap_or_else(|| undefined_of(context))
+pub fn module_at_name(context: &mut Context, specifier: &str) -> u64 {
+    // `&mut` because naming a module is what BUILDS it now — see
+    // [`declare_module_lazy`]. A host asking by name gets the same object a
+    // program's `import` would, which is the whole point of there being one
+    // table.
+    match context.module_at(specifier) {
+        Some(namespace) => namespace,
+        None => undefined_of(context),
+    }
 }
 
 /// Every specifier registered, in registration order.
@@ -1095,7 +1189,8 @@ pub fn module_publish_all(specifier: i64, from: i64) -> u64 {
                 let made = make_object(context);
                 context.modules.push(Registered {
                     specifier: text,
-                    namespace: made,
+                    namespace: Some(made),
+                    build: None,
                     provided: false,
                 });
                 made

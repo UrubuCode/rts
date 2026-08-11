@@ -26,7 +26,7 @@
 //!
 //! # Who wants it
 //!
-//! `rts-napi-rwk`'s `napi_wrap` and `napi_create_external`: a C addon puts its
+//! `rts-napi`'s `napi_wrap` and `napi_create_external`: a C addon puts its
 //! own `struct` behind a JavaScript object and reads it back on every later
 //! call.
 //!

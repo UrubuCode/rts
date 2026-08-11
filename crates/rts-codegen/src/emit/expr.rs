@@ -426,9 +426,22 @@ pub(super) fn call(
 /// vanishes — so the two operations that ARE the check are the only exceptions,
 /// and they are excluded because including them recurses forever.
 ///
-/// No claim is made about what this costs. It is a call, a compare and a branch
-/// per operation, it has not been measured, and this repository's rule is that a
-/// performance claim is a measurement or nothing.
+/// # What it costs
+///
+/// It HAS been measured now, and this paragraph used to say it had not.
+/// 2026-08-11, release, `bench/analytic.ts` compiled with the check suppressed
+/// against the same file compiled normally: **9% of an operation at the median,
+/// and up to 30% on the cheap ones** — an optional chain 44.0 → 30.8 ns, an
+/// object literal 13.3 → 9.5 ns, a free call 39.3 → 31.1 ns. The expensive
+/// operations barely move, because a call, a compare and a branch is a fixed
+/// cost and they are not.
+///
+/// That is the size of the prize for making the flag a LOAD from a known
+/// address rather than a call — which the machine already does for a region
+/// base, and which is not done here yet. It is not the size of anything else:
+/// the same measurement refuted the idea that a fixed per-operation cost
+/// dominates this engine, since `type_of` costs 2.83 ns called from Rust
+/// (`rts-core/examples/entry_cost.rs`) and 26 ns from compiled code.
 fn check_for_throw(builder: &mut FuncBuilder, ctx: &mut Ctx, op: RuntimeOp) -> EmitResult<()> {
     if matches!(op, RuntimeOp::Thrown | RuntimeOp::TakeThrown) {
         return Ok(());

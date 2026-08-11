@@ -82,7 +82,17 @@ pub fn get_property(object: u64, key: i64) -> u64 {
     // that a lookup would take — the trap may call straight back in here.
     // `None` means this is an ordinary object, which is every object in a
     // program that never wrote `new Proxy`.
-    if let Some(key) = with_current(|context| key_of(context, key))
+    // Asked in the same borrow that resolves the key and does the lookup, and
+    // only of an object that IS one — `proxy_at` is a table read. It used to
+    // resolve the key in a borrow of its own, hand it to `proxy::get`, and then
+    // resolve it again below: two lookups and two borrows on every read that
+    // misses its cache, for a question almost every program answers "no" to.
+    let proxied = with_current(|context| {
+        let key = key_of(context, key)?;
+        let slot = Value(object).as_slot()?;
+        context.proxy_at(slot).map(|_| key)
+    });
+    if let Some(key) = proxied
         && let Some(answered) = super::proxy::get(object, key)
     {
         return answered;
@@ -125,30 +135,48 @@ pub fn get_property(object: u64, key: i64) -> u64 {
 /// after the borrow ends.
 #[rtse::entry]
 pub fn set_property(object: u64, key: i64, value: u64) -> u64 {
-    if let Some(key) = with_current(|context| key_of(context, key))
-        && let Some(answered) = super::proxy::set(object, key, value)
-    {
-        return answered;
-    }
-    let setter = with_current(|context| {
-        let Some(slot) = Value(object).as_slot() else {
-            // A write to a non-object is a silent no-op in sloppy mode and a
-            // `TypeError` in strict. Neither is emitted yet, and the value comes
-            // back either way because that is what the expression produces.
-            return None;
-        };
+    // ONE borrow of the context for the ordinary write, and the two paths that
+    // cannot finish inside it — a proxy trap and a setter, both of which call
+    // user code — leave with what they need instead.
+    //
+    // It was three: the key was resolved once for the proxy question and again
+    // for the write, and the proxy question was asked before anything had
+    // established that this even is one. Resolving a key is a lookup and taking
+    // the context is a thread-local and a borrow, so the common write — an
+    // object, no proxy, no setter — paid both twice for answers it discarded.
+    let decided = with_current(|context| {
+        let slot = Value(object).as_slot()?;
         let key = key_of(context, key)?;
+        if context.proxy_at(slot).is_some() {
+            return Some(Handled::Proxy(key));
+        }
         if let Some(setter) = super::accessor::setter_for(context, slot, key) {
-            return Some(setter);
+            return Some(Handled::Setter(setter));
         }
         put(context, slot, key, value);
         None
     });
-    if let Some(setter) = setter {
-        let undefined = with_current(|context| undefined_of(context));
-        super::functions::call(setter, object, value, undefined, undefined, undefined);
+    match decided {
+        // A write to a non-object is a silent no-op in sloppy mode and a
+        // `TypeError` in strict. Neither is emitted yet, and the value comes
+        // back either way because that is what the expression produces.
+        None => value,
+        Some(Handled::Proxy(key)) => super::proxy::set(object, key, value).unwrap_or(value),
+        Some(Handled::Setter(setter)) => {
+            let undefined = with_current(|context| undefined_of(context));
+            super::functions::call(setter, object, value, undefined, undefined, undefined);
+            value
+        }
     }
-    value
+}
+
+/// What a write turned out to need that cannot be done while the context is
+/// borrowed, because it calls user code.
+enum Handled {
+    /// A proxy's `set` trap, with the key already resolved.
+    Proxy(Key),
+    /// A setter found on the receiver or above it.
+    Setter(u64),
 }
 
 /// `super.x` — resolved above the home object, called against the receiver.

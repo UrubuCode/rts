@@ -4008,7 +4008,7 @@ dependencies = [
  "backtrace",
  "rts-cli",
  "rts-linker",
- "rts-napi-rwk",
+ "rts-napi",
  "rts-runtime",
  "sha2 0.10.9",
  "zstd",
@@ -4026,7 +4026,7 @@ dependencies = [
  "rts-core",
  "rts-host",
  "rts-linker",
- "rts-napi-rwk",
+ "rts-napi",
  "rts-std",
  "serde",
  "serde_json",
@@ -4138,7 +4138,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rts-napi-rwk"
+name = "rts-napi"
 version = "0.1.0"
 dependencies = [
  "rts-core",

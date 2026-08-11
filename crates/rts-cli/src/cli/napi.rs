@@ -29,7 +29,7 @@ pub fn command(input: Option<String>) -> Result<()> {
     // SAFETY: mapping arbitrary native code and running its constructors, which
     // is what loading an addon has always meant — the same trust `require` of a
     // `.node` asks for in Node.
-    let addon = unsafe { rts_napi_rwk::loader::open(&path) }.map_err(|e| anyhow!("{e}"))?;
+    let addon = unsafe { rts_napi::loader::open(&path) }.map_err(|e| anyhow!("{e}"))?;
 
     // A runtime, because the addon's registrar makes values: it creates
     // strings, hangs functions on an object, and every one of those reaches the
@@ -46,7 +46,7 @@ pub fn command(input: Option<String>) -> Result<()> {
         },
     );
     let (_, listed) = rts_core::entry::with_context(context, || {
-        let env = rts_napi_rwk::Env::new().into_raw();
+        let env = rts_napi::Env::new().into_raw();
         // SAFETY: the environment outlives the addon, which is never unloaded.
         let exports = unsafe { addon.exports(env) };
         let exports = exports?;
