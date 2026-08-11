@@ -4,6 +4,20 @@ version = "0.1.0"
 edition = "2024"
 license.workspace = true
 
+# A janela, repassada do host.
+#
+# Sem isto `ui` existia no `rts-host` e não havia como PEDIR: nada entre o
+# binário e ele repassava a feature, então `rts run jogo.ts` importava
+# `rts:egui` com zero membros — uma UI que compila e não pinta, que é
+# exatamente o modo de falhar que `rts-std` recusou uma vez ao não registrar um
+# `rts:egui` de fachada. A superfície estava pronta e inalcançável.
+#
+# Fora do default aqui pelo mesmo motivo que lá: uma janela é uma questão de
+# DISPONIBILIDADE, e um alvo sem tela não deve arrastar wgpu e winit para o
+# grafo para descobrir isso.
+[features]
+ui = ["rts-host/ui"]
+
 [dependencies]
 # The engine. Every command runs through it: `run`, `eval`, `test`, `compile`,
 # `ir`, and `emit-types` — which is what let `rts-codegen-new` be deleted.

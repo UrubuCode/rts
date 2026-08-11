@@ -187,6 +187,12 @@ const PROVIDED: &[&str] = &[
     // deliberately separate, which is what let them drift; that module's doc
     // names this list as the piece its caller has to add.
     "queueMicrotask",
+    // `rts-std`'s `globals/pump.rs` — devolver o controle ao laço do motor de
+    // dentro de um laço do programa. Entrou aqui na mesma mudança que o
+    // instalou, que é o que `queueMicrotask` acima ensina a fazer: o valor
+    // existia e o nome era recusado, e a diferença só aparece na CHAMADA — um
+    // `typeof` do mesmo nome respondia `"function"`.
+    "pumpEvents",
 ];
 
 /// Whether a name resolves against the global object.

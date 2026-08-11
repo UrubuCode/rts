@@ -116,7 +116,7 @@ pub use modules::{
     Provided, boolean_value, buffer_class, canonical_encoding, decode_base64, decode_bytes, declare_global,
     declare_module, encode_base64, encode_text, get_member, make_array, make_array_in, make_callable,
     make_bigint, make_buffer, make_namespace, make_number, make_object, make_string,
-    bytes_of, bytes_pointer, is_array, is_object, make_bytes, make_instance, make_prototype, module_at_name, module_binding, module_namespace, module_publish, module_specifiers, forget_module, null_value, number_of,
+    bytes_of, bytes_pointer, get_member_at, is_array, is_object, make_bytes, member_key, make_instance, make_prototype, module_at_name, module_binding, module_namespace, module_publish, module_specifiers, forget_module, null_value, number_of,
     Evaluator, declare_evaluator, evaluate, evaluator, is_array_in, is_callable_in, member_names, string_in, null_in, put_member, set_prototype_in, text_in,
     write_bytes,
     text_of, undefined_in, undefined_value, with_runtime,
@@ -575,7 +575,7 @@ pub struct Context {
     ///
     /// A list rather than a map: a host provides a handful. See [`modules`] for
     /// what this is and, more importantly, what it is not.
-    pub modules: Vec<(String, u64)>,
+    pub modules: Vec<modules::Registered>,
     /// How a host turns source text into a value, if it offered a way.
     ///
     /// Absent unless one installs it: this crate has no compiler and the crate

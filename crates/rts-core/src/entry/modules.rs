@@ -37,13 +37,49 @@ use super::{Context, with_current};
 use crate::text::Str;
 use crate::value::Value;
 
+/// One specifier, what it resolves to, and who registered it.
+///
+/// # Why the third field exists
+///
+/// Because `import fs from "m"` means two different things depending on the
+/// answer, and nothing else can tell them apart. A COMPILED module without an
+/// `export default` must answer `undefined` — that is ES semantics, and a
+/// namespace handed back instead would make a missing default look like a
+/// working import. A HOST module has no `export` statements at all: `node:fs` is
+/// an object of functions built in Rust, and Node's own CommonJS interop is what
+/// makes `import fs from "node:fs"` bind that whole object.
+///
+/// Both live in one table on purpose — [`module_publish`] documents why there is
+/// only one answer to what a specifier resolves to — so the distinction has to
+/// be recorded at registration rather than inferred later. Inferring it is what
+/// the first attempt did, by asking whether the namespace happened to have a
+/// `default` property, and that answers wrong for the compiled module that
+/// exports something *called* `default` and for the host module that defines
+/// one.
+pub struct Registered {
+    /// The specifier as written in a program.
+    pub specifier: String,
+    /// The namespace object it names.
+    pub namespace: u64,
+    /// Registered by a host (`true`) rather than published by a compiled
+    /// module's own `export`.
+    pub provided: bool,
+}
+
 impl Context {
     /// The namespace object a specifier names, if the host provided one.
     fn module_at(&self, specifier: &str) -> Option<u64> {
         self.modules
             .iter()
-            .find(|(name, _)| name == specifier)
-            .map(|(_, object)| *object)
+            .find(|held| held.specifier == specifier)
+            .map(|held| held.namespace)
+    }
+
+    /// Whether a specifier is one a host registered.
+    fn module_provided(&self, specifier: &str) -> bool {
+        self.modules
+            .iter()
+            .any(|held| held.specifier == specifier && held.provided)
     }
 }
 
@@ -56,10 +92,17 @@ pub fn declare_module(context: &mut Context, specifier: &str, namespace: u64) {
     let held = context
         .modules
         .iter_mut()
-        .find(|(name, _)| name == specifier);
+        .find(|held| held.specifier == specifier);
     match held {
-        Some((_, object)) => *object = namespace,
-        None => context.modules.push((specifier.to_owned(), namespace)),
+        Some(held) => {
+            held.namespace = namespace;
+            held.provided = true;
+        }
+        None => context.modules.push(Registered {
+            specifier: specifier.to_owned(),
+            namespace,
+            provided: true,
+        }),
     }
 }
 
@@ -73,12 +116,44 @@ pub fn declare_module(context: &mut Context, specifier: &str, namespace: u64) {
 /// reads the namespace once, at the point the program reaches it, and that is
 /// the divergence to state rather than the mechanism to fake.
 ///
-/// `undefined` for a specifier the host did not provide, which is what makes
-/// `import { x } from "./other.ts"` a program that runs and finds nothing
-/// instead of one that silently reads someone else's `x`.
+/// # An unresolved specifier THROWS, and what it did before
+///
+/// It answered `undefined`, and the binding went on to be used. The failure then
+/// arrived wherever the program first touched it — `import math from "rts:math"`
+/// died as `math.sin is not a function` inside `buildSphere`, forty files from
+/// the import that made the hole, and it read as a missing METHOD rather than a
+/// missing module.
+///
+/// That contradicted this repository's own rule that a surface which cannot do
+/// what its name means must not ship: an absent name has to fail loudly at the
+/// point it is written. It now does, with the specifier in the message.
+///
+/// The cost was measured before the change rather than argued: of the 797 files
+/// in the suite, nine import a specifier nothing registers (`rts:dom`,
+/// `rts:serde`, `rts:protobuf`, `rts:fmt`, `rts:fetch`, `rts:env`, `rts:buffer`,
+/// `rts:gpu`) and **all nine already failed** — on the very message this
+/// replaces. So the honest error costs no passing file and only moves each
+/// failure to where its cause is.
+///
+/// # `default` from a host module is the module
+///
+/// `import fs from "node:fs"` is how nearly all code is written, and a host
+/// module has no `export default` to find — so this answered `undefined` and
+/// every member of it read off nothing. The failure was not at the import: it
+/// arrived later as `fs.readFileSync is not a function`, naming the caller
+/// instead of the import that produced the hole.
+///
+/// So `default` on a HOST module falls back to the namespace itself, which is
+/// what Node's CommonJS interop does for exactly these specifiers. It is
+/// deliberately not done for a compiled module — see [`Registered`] — and not
+/// done when the host module defines a real `default`, since the property read
+/// happens first and only a miss reaches the fallback.
 #[rtse::entry]
 pub fn module_binding(specifier: i64, key: i64) -> u64 {
-    with_current(|context| {
+    // Two passes, because raising takes its own borrow: `named_error` builds the
+    // error with the program's own constructor, which allocates and interns. So
+    // the lookup answers what it found and the throw happens after it, outside.
+    let found = with_current(|context| {
         let absent = undefined_of(context);
         let Some(text) = context
             .literals
@@ -88,22 +163,52 @@ pub fn module_binding(specifier: i64, key: i64) -> u64 {
             .and_then(|cell| context.text_at(cell))
             .and_then(Str::to_rust)
         else {
-            return absent;
+            return Ok(absent);
         };
         let Some(namespace) = context.module_at(&text) else {
-            return absent;
+            return Err(text);
         };
         let Some(cell) = Value(namespace).as_slot() else {
-            return absent;
+            return Ok(absent);
         };
         let Ok(number) = u32::try_from(key) else {
-            return absent;
+            return Ok(absent);
         };
         let Some(key) = context.keys.key(number) else {
-            return absent;
+            return Ok(absent);
         };
-        read_property(context, cell, crate::object::Key::Name(key)).map_or(absent, |found| found.bits())
-    })
+        if let Some(found) = read_property(context, cell, crate::object::Key::Name(key)) {
+            return Ok(found.bits());
+        }
+        let wanted_default = context
+            .interner
+            .text(key)
+            .and_then(Str::to_rust)
+            .is_some_and(|name| name == "default");
+        if wanted_default && context.module_provided(&text) {
+            return Ok(namespace);
+        }
+        Ok(absent)
+    });
+    unresolved(found)
+}
+
+/// The answer, or the throw an unresolved specifier owes.
+///
+/// Shared by [`module_binding`] and [`module_namespace`] so the message a
+/// program sees is one sentence written once — two spellings of "no such module"
+/// is the kind of drift that makes a reader ask whether the two mean different
+/// things.
+fn unresolved(found: Result<u64, String>) -> u64 {
+    match found {
+        Ok(value) => value,
+        Err(specifier) => {
+            super::throw::plain_error(&format!(
+                "cannot resolve module \"{specifier}\" — nothing registered that specifier"
+            ));
+            undefined_value()
+        }
+    }
 }
 
 /// The whole namespace, for `import * as ns from "m"`.
@@ -113,18 +218,21 @@ pub fn module_binding(specifier: i64, key: i64) -> u64 {
 /// resolves to.
 #[rtse::entry]
 pub fn module_namespace(specifier: i64) -> u64 {
-    with_current(|context| {
+    let found = with_current(|context| {
         let absent = undefined_of(context);
-        context
+        let Some(text) = context
             .literals
             .get(specifier as usize)
             .copied()
             .and_then(|value| Value(value).as_slot())
             .and_then(|cell| context.text_at(cell))
             .and_then(Str::to_rust)
-            .and_then(|text| context.module_at(&text))
-            .unwrap_or(absent)
-    })
+        else {
+            return Ok(absent);
+        };
+        context.module_at(&text).ok_or(text)
+    });
+    unresolved(found)
 }
 
 /// The shape a host-provided function must have.
@@ -179,6 +287,48 @@ pub fn get_member(context: &mut Context, object: u64, name: &str) -> u64 {
     };
     let key = context.well_known(name);
     read_property(context, cell, key).map_or(absent, |found| found.bits())
+}
+
+/// The NUMBER of a property key, resolved once.
+///
+/// # Why this exists, and what it cost not to have it
+///
+/// [`get_member`] takes a `&str` and interns it on EVERY call. Interning is not
+/// cheap: `Str::from_str` walks the text once to decide the representation and
+/// again to `collect()` it into a fresh `Vec`, then the table hashes and
+/// compares. That is an allocation per lookup.
+///
+/// A host module reading an options object pays it per FIELD, per call. Measured
+/// in a real program: `rts:egui`'s `drawMesh` reads twelve names, a game drew
+/// 500 objects a frame, and that is 6 000 interning passes per frame — 8,4 ms of
+/// a 23,9 ms frame, which was the difference between 42 and 60 fps.
+///
+/// The names a native reads are FIXED at compile time, so the work is entirely
+/// repeated. Resolve once, keep the number, and use [`get_member_at`].
+pub fn member_key(context: &mut Context, name: &str) -> u32 {
+    match context.well_known(name) {
+        crate::object::Key::Name(key) => key.index() as u32,
+        // A symbol key cannot come from a `&str`, and answering 0 would be a
+        // silent wrong lookup — `u32::MAX` is a number no registry issues, so
+        // `get_member_at` misses instead.
+        _ => u32::MAX,
+    }
+}
+
+/// A member by an already-resolved key — the read half of [`member_key`].
+///
+/// Toma `&mut Context` porque `read_property` pode percorrer a cadeia de
+/// protótipos e materializar um acessor — nada é INTERNADO, que é o ponto, mas
+/// a leitura em si não é puramente compartilhada.
+pub fn get_member_at(context: &mut Context, object: u64, key: u32) -> u64 {
+    let absent = undefined_of(context);
+    let Some(cell) = Value(object).as_slot() else {
+        return absent;
+    };
+    let Some(key) = context.keys.key(key) else {
+        return absent;
+    };
+    read_property(context, cell, crate::object::Key::Name(key)).map_or(absent, |found| found.bits())
 }
 
 /// One Rust function as a callable value.
@@ -818,7 +968,11 @@ pub fn module_publish(specifier: i64, key: i64, value: u64) -> u64 {
             Some(namespace) => namespace,
             None => {
                 let made = make_object(context);
-                context.modules.push((text, made));
+                context.modules.push(Registered {
+                    specifier: text,
+                    namespace: made,
+                    provided: false,
+                });
                 made
             }
         };
@@ -854,7 +1008,7 @@ pub fn module_at_name(context: &Context, specifier: &str) -> u64 {
 /// what it can import is a different question, and it includes the modules a
 /// compiled program published for itself, which no static list has.
 pub fn module_specifiers(context: &Context) -> Vec<String> {
-    context.modules.iter().map(|(name, _)| name.clone()).collect()
+    context.modules.iter().map(|held| held.specifier.clone()).collect()
 }
 
 /// Removes a specifier, answering whether one was there.
@@ -871,7 +1025,7 @@ pub fn module_specifiers(context: &Context) -> Vec<String> {
 /// is, and calling it `delete` would suggest the module itself went away.
 pub fn forget_module(context: &mut Context, specifier: &str) -> bool {
     let before = context.modules.len();
-    context.modules.retain(|(name, _)| name != specifier);
+    context.modules.retain(|held| held.specifier != specifier);
     context.modules.len() != before
 }
 
@@ -939,7 +1093,11 @@ pub fn module_publish_all(specifier: i64, from: i64) -> u64 {
             Some(namespace) => namespace,
             None => {
                 let made = make_object(context);
-                context.modules.push((text, made));
+                context.modules.push(Registered {
+                    specifier: text,
+                    namespace: made,
+                    provided: false,
+                });
                 made
             }
         };

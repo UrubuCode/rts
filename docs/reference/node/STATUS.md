@@ -27,6 +27,18 @@ that is the authority on its gaps; this file is about which modules exist at all
 `console` · `dgram` · `http` · `https` · `module` · `readline` · `tls` ·
 `cluster` · `domain` · `inspector` · `repl` · `sqlite` · `worker_threads` · `trace_events` · `vm` · `wasi` · `http2`
 
+## Registered, but NOT a `node:` module
+
+`ws` — the npm package, registered under the bare specifier only. A WebSocket
+*server* is not part of Node's standard library: the platform gives the
+`'upgrade'` event on `http.Server` and the rest comes from npm. Registering
+`node:ws` would invent a name the platform does not have. See
+[`ws.md`](./ws.md); the *client* half is tracked as the `WebSocket` global in
+[`globals.md`](./globals.md) §2.19.
+
+The regeneration commands above list `node:` modules and deliberately do not
+find this one — it is here so a reader does not conclude it is missing.
+
 `Buffer` and `console` are not modules: `Buffer` is a class in the runtime
 (`rts-core`, where `layering.md` puts it) and `console` is a global installed
 by `rts-std`.

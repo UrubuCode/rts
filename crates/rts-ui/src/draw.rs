@@ -24,6 +24,7 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     ("horizontalBegin", horizontal_begin),
     ("horizontalEnd", horizontal_end),
     ("html", html),
+    ("drawImage", draw_image),
 ];
 
 /// `drawRect(win, { x, y, w, h, fill, strokeW, stroke, radius })`.
@@ -46,6 +47,41 @@ extern "C" fn draw_rect(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64)
         read[5],
         read[6] as i64,
         read[7],
+    );
+    value::nothing()
+}
+
+/// `drawImage(win, { x, y, w, h, pixels, imgWidth, imgHeight })` — pixels RGBA8
+/// num retângulo.
+///
+/// # Por que isto faltava, e o que a falta escondia
+///
+/// O `rts-egui` sabe pintar uma imagem desde sempre (`RenderBackend::image`), e
+/// esta casca simplesmente não tinha o membro. Quem olhasse só para cá concluiria
+/// que o motor não sabe desenhar imagem — foi o que quase aconteceu ao triar o
+/// gerador de miniaturas de um editor externo, que parecia bloqueado por uma
+/// capacidade ausente quando o bloqueio era um membro não exposto.
+///
+/// `pixels` é um `Uint8Array` e não um endereço, pela razão que `scene::mesh_upload`
+/// já documenta: o coletor move células.
+extern "C" fn draw_image(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64) -> u64 {
+    let read = options(
+        spec,
+        &["x", "y", "w", "h", "imgWidth", "imgHeight"],
+        &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    );
+    let Some(pixels) = value::member_bytes(spec, "pixels") else {
+        return value::nothing();
+    };
+    rts_egui::draw_image(
+        handle(win),
+        read[0],
+        read[1],
+        read[2],
+        read[3],
+        &pixels,
+        read[4] as i64,
+        read[5] as i64,
     );
     value::nothing()
 }

@@ -410,6 +410,20 @@ fn for_head(cx: &mut Cx, head: &swc::ForHead) -> Result<ForEachTarget> {
 fn decl(cx: &mut Cx, declaration: &swc::Decl) -> Result<Stmt> {
     let at = position(declaration.span());
     let kind = match declaration {
+        // `declare const x: T` states that something EXISTS elsewhere; it
+        // introduces no binding and emits nothing, which is the whole meaning of
+        // the keyword. Lowering it as an ordinary declaration bound `x` to
+        // `undefined` in the enclosing scope — and since the thing being
+        // declared is almost always a global, the binding SHADOWED the very
+        // value it was announcing.
+        //
+        // The failure reads as the global not existing: `declare const print`
+        // followed by `print(x)` died with "print is not a function", while the
+        // same call one line above the declaration worked. `declare function f`
+        // was never affected, because a function with no body is already
+        // nothing to emit — which is why this looked like a global that only
+        // sometimes existed.
+        swc::Decl::Var(variables) if variables.declare => StmtKind::Empty,
         swc::Decl::Var(variables) => StmtKind::Declare {
             kind: binding_kind(variables.kind),
             bindings: declarators(cx, &variables.decls)?,

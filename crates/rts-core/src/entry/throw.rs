@@ -270,6 +270,17 @@ pub(in crate::entry) fn range_error(message: &str) {
     named_error("RangeError", message);
 }
 
+/// Raises a plain `Error` a `catch` in the program can see.
+///
+/// For a failure that is about none of the three things the errors above name —
+/// not a value's type, not a range, not malformed text. Module resolution is the
+/// first: `import x from "m"` for an `m` nothing registered is not a wrong
+/// value, it is a name with nothing behind it, and it has to fail where it is
+/// written. See [`super::modules::module_binding`] for what it answered before.
+pub(in crate::entry) fn plain_error(message: &str) {
+    named_error("Error", message);
+}
+
 /// Raises a `SyntaxError` a `catch` in the program can see.
 ///
 /// Same construction as [`type_error`], for `JSON.parse` of text that is not

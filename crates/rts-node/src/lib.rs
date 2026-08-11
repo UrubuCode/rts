@@ -74,6 +74,7 @@ pub mod v8;
 pub mod wasi;
 pub mod vm;
 pub mod worker_threads;
+mod ws;
 pub mod zlib;
 
 use rts_core::entry::Context;
@@ -163,6 +164,14 @@ pub fn install(context: &mut Context) {
         rts_core::entry::declare_module(context, &format!("node:{name}"), namespace);
         rts_core::entry::declare_module(context, name, namespace);
     }
+
+    // `ws` fica FORA da lista acima, e é o único: aquele laço registra cada
+    // módulo sob duas grafias porque `node:fs` e `fs` são dois nomes do mesmo
+    // módulo do Node. `ws` não é um módulo do Node sob nenhuma das duas — é um
+    // pacote do npm, e a plataforma só oferece o evento `'upgrade'` do
+    // `http.Server` para quem quiser escrever um. Registrar `node:ws`
+    // inventaria um nome que o Node não tem.
+    ws::install(context);
 
     // What still has work to do after the program's last statement.
     //

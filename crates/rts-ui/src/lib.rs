@@ -24,6 +24,31 @@
 //! O resto dos nomes é igual, de propósito: um programa que já desenha continua
 //! a mesma leitura, e a diferença fica onde ela é real.
 //!
+//! # DUAS codificações de cor, e isto é uma armadilha e não um desenho
+//!
+//! O caminho 2D e o caminho 3D desta mesma superfície leem uma cor de formas
+//! DIFERENTES, e nada no nome das funções avisa:
+//!
+//! | caminho | funções | codificação | onde se lê |
+//! |---|---|---|---|
+//! | 2D | `drawRect`, `drawText`, `drawLine` | `0xRRGGBBAA` | `rts-egui/src/frame/render.rs` — `r = c >> 24` |
+//! | 3D | `drawMesh` | `0xAARRGGBB` | `rts-egui/src/scene_api.rs` — `a = c >> 24` |
+//!
+//! Um programa que compõe UI sobre uma cena chama as duas no mesmo frame, com
+//! constantes hexadecimais escritas à mão, e trocá-las não dá erro nenhum: dá
+//! uma cor errada, que é o defeito que se atribui ao próprio desenho antes de se
+//! suspeitar da superfície. `0xFF4FC3F7` é azul opaco numa e um verde
+//! transparente na outra.
+//!
+//! Está DITO aqui em vez de corrigido porque unificar quebra todo programa que
+//! já escreveu as constantes de um dos dois lados — inclusive os exemplos deste
+//! repositório. A correção quer uma decisão e uma passagem por todos os
+//! chamadores, não um commit de conveniência; enquanto ela não vem, isto é o
+//! aviso que faltava.
+//!
+//! Encontrado ao portar o rasterizador 2D de um projeto externo, verificando a
+//! codificação em vez de presumi-la.
+//!
 //! # O que NÃO está aqui, e não por esquecimento
 //!
 //! `rts:gpu` ESTAVA nesta lista, com a justificativa de que um buffer de compute

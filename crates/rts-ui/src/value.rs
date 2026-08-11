@@ -106,10 +106,64 @@ pub fn text(value: u64) -> String {
 /// Uma leitura, uma vez, é também a forma que não tem como errar isso.
 pub fn fields(object: u64, names: &[&str]) -> Vec<u64> {
     entry::with_runtime(|context| {
-        names
-            .iter()
-            .map(|name| entry::get_member(context, object, name))
-            .collect()
+        let mut out = Vec::with_capacity(names.len());
+        for name in names {
+            out.push(entry::get_member(context, object, name));
+        }
+        out
+    })
+}
+
+/// As chaves de uma tabela de nomes FIXA, resolvidas uma vez por thread.
+///
+/// # Por que isto existe
+///
+/// `get_member` interna o nome a CADA chamada, e internar aloca: `Str::from_str`
+/// percorre o texto para escolher a representação e de novo para `collect()` num
+/// `Vec` novo, e só então a tabela hasheia e compara.
+///
+/// Os nomes que um nativo lê são fixos em tempo de compilação, então esse
+/// trabalho é inteiramente repetido. MEDIDO num jogo real: `drawMesh` lê doze
+/// nomes, o editor desenhava 500 objetos por frame, e isso dava 6 000 passagens
+/// de interning por frame — 8,4 ms de um frame de 23,9 ms, que era a diferença
+/// entre 42 e 60 fps.
+///
+/// O cache é `thread_local` porque um `Key` é emitido pelo registry do CONTEXTO,
+/// e um contexto é por thread: compartilhar as chaves entre threads daria a uma
+/// thread o número que a outra emitiu, que é exatamente a classe de defeito que
+/// duas tabelas de um número produzem.
+///
+/// A chave do cache é o ENDEREÇO da tabela de nomes (`&'static [&str]`), não o
+/// conteúdo: as tabelas são constantes do crate, então o ponteiro identifica uma
+/// sem comparar strings — que é o custo que este cache existe para tirar.
+type Chaves = std::collections::HashMap<usize, Vec<u32>>;
+
+thread_local! {
+    static CHAVES: std::cell::RefCell<Chaves> = std::cell::RefCell::new(Chaves::new());
+}
+
+fn chaves_de(context: &mut entry::Context, names: &'static [&'static str]) -> Vec<u32> {
+    let id = names.as_ptr() as usize;
+    if let Some(found) = CHAVES.with(|c| c.borrow().get(&id).cloned()) {
+        return found;
+    }
+    let resolved: Vec<u32> = names.iter().map(|n| entry::member_key(context, n)).collect();
+    CHAVES.with(|c| c.borrow_mut().insert(id, resolved.clone()));
+    resolved
+}
+
+/// Os campos de um objeto de opções, por chaves já resolvidas.
+///
+/// O par de [`fields`] para uma tabela de nomes ESTÁTICA — que é o que todo
+/// membro desta superfície tem. Mesma leitura, sem internar nada.
+pub fn fields_static(object: u64, names: &'static [&'static str]) -> Vec<u64> {
+    entry::with_runtime(|context| {
+        let keys = chaves_de(context, names);
+        let mut out = Vec::with_capacity(keys.len());
+        for key in keys {
+            out.push(entry::get_member_at(context, object, key));
+        }
+        out
     })
 }
 
@@ -127,6 +181,18 @@ pub fn fields(object: u64, names: &[&str]) -> Vec<u64> {
 /// torna a fronteira segura, e é paga por upload — não por frame.
 pub fn bytes(value: u64) -> Option<Vec<u8>> {
     entry::with_runtime(|context| entry::bytes_of(context, value))
+}
+
+/// Os bytes de um MEMBRO de um objeto de opções.
+///
+/// [`bytes`] recebe a view diretamente, que serve a `meshUpload(win, verts, idx)`
+/// — onde ela é um argumento posicional. `drawImage` a recebe dentro do objeto de
+/// opções, junto dos números, e `options` só sabe ler números. Ler o membro e
+/// então pedir seus bytes é o que falta, e fica aqui em vez de no chamador para
+/// que exista UMA resposta a "os bytes de uma view", como o doc de [`bytes`] diz.
+pub fn member_bytes(object: u64, name: &str) -> Option<Vec<u8>> {
+    let held = entry::with_runtime(|context| entry::get_member(context, object, name));
+    bytes(held)
 }
 
 /// `undefined`, para um nativo que não responde nada.
