@@ -34,9 +34,59 @@
 //! seeded tables — the key registry and the literal table — because their
 //! contents are cells in *that* thread's region.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use super::Context;
+
+thread_local! {
+    /// The throw in flight, as `(tag, payload)`.
+    ///
+    /// # Why this is not a field of [`Context`], where it used to live
+    ///
+    /// Because compiled code asks after **every** call that can raise, and the
+    /// asking was the expensive half. Reaching it through [`with_current`] costs
+    /// a thread-local lookup, a `RefCell` borrow (a write, a check and a
+    /// restore) and an index into a `Vec`, to read one word that is almost
+    /// always `None`. Measured on a loop whose body is one array element read:
+    /// see the numbers in `super::throw::thrown`. Here it is a thread-local
+    /// lookup and a load.
+    ///
+    /// It is not a *mirror* of the field — the field is gone. A cached flag
+    /// beside the real slot would be a second source of one fact, kept in step
+    /// by hand, which is what this repository's "one source, generated views"
+    /// rule is about: two answers to one question is how the pair drifts and a
+    /// caught throw starts looking uncaught.
+    ///
+    /// One slot and not a stack, for the reason it always was: a second throw
+    /// cannot start before the first is caught or ends the program, because the
+    /// only thing that runs in between is compiled code returning.
+    ///
+    /// Nesting is handled by [`with_context`], which saves this across an inner
+    /// program and restores it afterwards — the same lifetime the field had when
+    /// it was part of the context being pushed.
+    static THROWN: Cell<Option<(i64, u64)>> = const { Cell::new(None) };
+}
+
+/// The throw in flight, without taking it.
+pub(crate) fn thrown_slot() -> Option<(i64, u64)> {
+    THROWN.with(Cell::get)
+}
+
+/// Whether a throw is in flight — the whole of what compiled code asks after a
+/// call, and the reason [`THROWN`] is not reached through [`with_current`].
+pub(crate) fn thrown_pending() -> bool {
+    THROWN.with(|slot| slot.get().is_some())
+}
+
+/// Puts a throw in flight, replacing whatever was there.
+pub(crate) fn set_thrown(value: Option<(i64, u64)>) {
+    THROWN.with(|slot| slot.set(value));
+}
+
+/// Takes the throw in flight, clearing it.
+pub(crate) fn take_thrown_slot() -> Option<(i64, u64)> {
+    THROWN.with(Cell::take)
+}
 
 thread_local! {
     /// This thread's contexts, innermost last, empty until something installs
@@ -74,7 +124,13 @@ thread_local! {
 /// call returns, and whatever was installed before it becomes current again.
 pub fn with_context<T>(context: Context, body: impl FnOnce() -> T) -> (Context, T) {
     CONTEXTS.with(|stack| stack.borrow_mut().push(context));
+    // The throw in flight belongs to the program that raised it, and an inner
+    // program starts with none. Saving it here is what the slot got for free
+    // while it was a field of the context being pushed; making it thread-local
+    // is what makes reading it cheap, so the lifetime is restored by hand.
+    let outer = take_thrown_slot();
     let value = body();
+    set_thrown(outer);
     let context = CONTEXTS.with(|stack| stack.borrow_mut().pop());
     (
         context.expect("the context pushed above is still on the stack"),

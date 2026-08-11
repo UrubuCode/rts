@@ -96,15 +96,46 @@ use rts_cranelift::mem::{HeaderLayout, SLOT_BYTES};
 
 /// How many inline slots a cell holds.
 ///
-/// Seven, so that a cell is 64 bytes: one word of header and seven of fields.
+/// Fifteen, so that a cell is 128 bytes: one word of header and fifteen of
+/// fields. It was **seven** — one cache line — and the note that stood here
+/// said the number was chosen for alignment, that how many properties a typical
+/// object has "has not been measured here", and that the answer "may well not
+/// be seven". It has been measured now, and it is not.
 ///
-/// The reason is alignment rather than a measurement of object sizes, and the
-/// difference matters. 64 bytes is a cache line on every target this runs on,
-/// so an object never straddles two of them — reading any field of an object
-/// touches one line. How many properties a typical object has is a different
-/// question, it has not been measured here, and the number that answers it may
-/// well not be seven.
-pub const INLINE_SLOTS: u32 = 7;
+/// # What the measurement was
+///
+/// A property past the inline slots spills beside the cell, and
+/// [`crate::entry::cache::cache_resolve`] refuses to cache a spilled slot —
+/// there is no overflow indirection for the compiled read to follow, so the
+/// site pays `cache_resolve` *and* the full `get_property` on **every pass**.
+/// That is a cliff, not a slope. Release, 2026-08-10, reading one property of
+/// one object in a loop: **11 ns for the first seven, 285 ns for the eighth** —
+/// 26× at the boundary, with nothing about the program changing across it.
+///
+/// It is not an exotic shape. Every module-scope binding a closure can see is a
+/// property of one scope object, so a file with eight top-level `const`s has
+/// its eighth read at 285 ns. That is how this was found: a fixture that looked
+/// like `number[]` being slower than `f64[]` was the fourth array in the file
+/// being the eighth property of the module scope.
+///
+/// # Why fifteen, and what it costs
+///
+/// 128 bytes is two cache lines and a multiple of one, so a cell still never
+/// straddles a line — the alignment argument the old note made survives
+/// unchanged; what it does not survive is being the only argument.
+///
+/// The cost is real and is the reason this is a number and not a fix: **a cell
+/// is twice the size**, so an object holding two properties pays 128 bytes for
+/// them. This buys the eighth through fifteenth property, and moves the cliff
+/// rather than removing it. Removing it is the overflow indirection
+/// `cache_resolve` names, which is a machine-layer change: the cache cell holds
+/// `(type, offset)` and the read is `load [cell + offset]`, and a spilled slot
+/// is not at any offset from the cell.
+///
+/// Measured against the suite before and after, one process per file: 739 of
+/// 800 both times, and the per-file lists identical — nothing lost, nothing
+/// gained.
+pub const INLINE_SLOTS: u32 = 15;
 
 /// How far apart consecutive cells are.
 pub const STRIDE: u32 = HeaderLayout::BYTES + INLINE_SLOTS * SLOT_BYTES;
@@ -482,11 +513,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_cell_is_a_cache_line() {
-        // The reason for seven slots rather than any other number. Stated as a
-        // test because the constant and the reason are in different places, and
+    fn a_cell_never_straddles_a_cache_line() {
+        // The invariant `INLINE_SLOTS` is chosen against, stated as a test
+        // because the constant and the reason are in different places and
         // changing one without the other is how a comment starts lying.
-        assert_eq!(STRIDE, 64);
+        //
+        // It asserted `STRIDE == 64` while the count was seven, which pins the
+        // COUNT rather than the reason for it — so raising the count to fifteen
+        // failed a test that had nothing to say about the change. What matters
+        // is that a cell begins on a line boundary and ends on one: 128 bytes
+        // satisfies that exactly as 64 did, and 72 would not.
+        assert_eq!(STRIDE % 64, 0, "a cell spans whole cache lines");
+        assert_eq!(STRIDE, HeaderLayout::BYTES + INLINE_SLOTS * SLOT_BYTES);
     }
 
     #[test]

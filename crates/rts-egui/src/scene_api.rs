@@ -167,6 +167,36 @@ pub fn set_shadow(
     );
 }
 
+/// A conversão de UM registro de desenho no que o scene pass enfileira.
+///
+/// Existe extraída porque [`draw_mesh`] e [`draw_mesh_batch`] precisam dela e
+/// duas grafias da mesma decisão é como a cor de um lote passaria a divergir da
+/// cor de um desenho solto sem que nada acusasse. A regra do alpha em especial
+/// é uma decisão, não uma fórmula: cor sem byte de alpha é OPACA.
+#[allow(clippy::too_many_arguments)]
+fn draw_record(
+    px: f32,
+    py: f32,
+    pz: f32,
+    rx: f32,
+    ry: f32,
+    sx: f32,
+    sy: f32,
+    sz: f32,
+    color: u32,
+    emissive: bool,
+) -> ([f32; 16], [f32; 4], f32) {
+    let m = model_matrix(px, py, pz, rx, ry, sx, sy, sz);
+    let a = (color >> 24) & 0xFF;
+    let col = [
+        ((color >> 16) & 0xFF) as f32 / 255.0,
+        ((color >> 8) & 0xFF) as f32 / 255.0,
+        (color & 0xFF) as f32 / 255.0,
+        if a == 0 { 1.0 } else { a as f32 / 255.0 }, // sem byte de alpha = opaco
+    ];
+    (m, col, if emissive { 1.0 } else { 0.0 })
+}
+
 /// Enfileira 1 draw da mesh `mesh` com transform (pos/rot/escala) + cor
 /// (0xAARRGGBB) + emissivo (0/1) + textura procedural (0=nenhuma, 1=xadrez).
 /// O draw acontece no scene pass, no `endFrame`.
@@ -186,20 +216,55 @@ pub fn draw_mesh(
     emissive: i64,
     tex: i64,
 ) {
-    let m = model_matrix(
+    let (m, col, em) = draw_record(
         px as f32, py as f32, pz as f32, rx as f32, ry as f32, sx as f32, sy as f32, sz as f32,
+        color as u32,
+        emissive != 0,
     );
-    let c = color as u32;
-    let a = (c >> 24) & 0xFF;
-    let col = [
-        ((c >> 16) & 0xFF) as f32 / 255.0,
-        ((c >> 8) & 0xFF) as f32 / 255.0,
-        (c & 0xFF) as f32 / 255.0,
-        if a == 0 { 1.0 } else { a as f32 / 255.0 }, // sem byte de alpha = opaco
-    ];
-    let em = if emissive != 0 { 1.0 } else { 0.0 };
     // tex: 0=nenhuma, 1=xadrez procedural, >=2 = id de textura real (textureUpload).
     with_scene(win, |s, _d| s.queue_draw(mesh, m, col, em, tex.max(0) as u64), ());
+}
+
+/// Enfileira N draws de uma vez. Responde quantos entraram.
+///
+/// # Por que isto existe, já que o pass JÁ instancia
+///
+/// `Scene3D::flush` ordena os draws por `(mesh, tex)` e monta um instance buffer
+/// — um draw call por grupo, e isso vale desde antes desta função. O que ela
+/// remove não é draw call nenhum: é a TRAVESSIA. Uma cena de 500 objetos fazia
+/// 500 idas TS→nativo por frame, cada uma materializando um objeto de 12 campos
+/// que o outro lado relia campo a campo, para no fim empurrar 500 tuplas na
+/// mesma `Vec`. Aqui é uma ida e um laço em Rust.
+///
+/// # A forma dos dados, e por que são DUAS views
+///
+/// `floats` traz 8 f32 por instância (x, y, z, rx, ry, sx, sy, sz) e `codes` 4
+/// u32 (mesh, color, emissive, tex). Separar custa um argumento e evita um bug
+/// silencioso: uma cor `0xAARRGGBB` com alpha passa de 2^24 e NÃO é exata em
+/// f32 — `0xFF203040` voltaria com o canal errado por arredondamento. Números
+/// que são identidade ou padrão de bits não viajam em ponto flutuante.
+///
+/// Views tipadas e não ponteiros, pela razão que `crate::upload_mesh` e o doc de
+/// `rts-ui` já dão: o coletor move células.
+pub fn draw_mesh_batch(win: u64, floats: &[f32], codes: &[u32]) -> i64 {
+    let count = (floats.len() / 8).min(codes.len() / 4);
+    if count == 0 {
+        return 0;
+    }
+    with_scene(
+        win,
+        |s, _d| {
+            for i in 0..count {
+                let f = &floats[i * 8..i * 8 + 8];
+                let c = &codes[i * 4..i * 4 + 4];
+                let (m, col, em) =
+                    draw_record(f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7], c[1], c[2] != 0);
+                s.queue_draw(c[0] as u64, m, col, em, c[3] as u64);
+            }
+            count as i64
+        },
+        0,
+    )
 }
 
 /// ÁGUA INSTANCIADA: desenha `count` instâncias da malha `mesh` lendo cada

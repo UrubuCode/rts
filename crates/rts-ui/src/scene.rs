@@ -14,8 +14,27 @@
 
 use rts_core::entry::Provided;
 
-use crate::value::{self, bytes, handle, integer, number};
+use crate::value::{self, bytes, handle, integer, member_bytes, number};
 use crate::window::options;
+
+/// Reinterpreta os bytes de uma view como `f32`, em ordem nativa.
+///
+/// Vive aqui e não em `value` porque é o formato de UM membro — o lote de
+/// desenho — e não uma coerção da superfície. `value::bytes` continua sendo a
+/// única porta de entrada dos bytes; isto só os lê.
+fn floats(raw: &[u8]) -> Vec<f32> {
+    raw.chunks_exact(4)
+        .map(|w| f32::from_ne_bytes([w[0], w[1], w[2], w[3]]))
+        .collect()
+}
+
+/// O mesmo para `u32` — ver `scene_api::draw_mesh_batch` sobre por que os
+/// códigos não viajam como float.
+fn codes(raw: &[u8]) -> Vec<u32> {
+    raw.chunks_exact(4)
+        .map(|w| u32::from_ne_bytes([w[0], w[1], w[2], w[3]]))
+        .collect()
+}
 
 /// Os membros do pass 3D de `rts:egui`.
 pub const MEMBERS: &[(&str, Provided)] = &[
@@ -29,6 +48,7 @@ pub const MEMBERS: &[(&str, Provided)] = &[
     ("setLight", set_light),
     ("setShadow", set_shadow),
     ("drawMesh", draw_mesh),
+    ("drawMeshBatch", draw_mesh_batch),
 ];
 
 /// `meshUpload(win, vertices, indices)` — o id da malha, `0` em falha.
@@ -160,4 +180,27 @@ extern "C" fn draw_mesh(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64)
         read[11] as i64,
     );
     value::nothing()
+}
+
+/// `drawMeshBatch(win, { transforms, codes })` — N desenhos numa travessia.
+/// Responde quantos entraram.
+///
+/// `transforms` é um `Float32Array` de 8 por objeto (x, y, z, rx, ry, sx, sy,
+/// sz); `codes` um `Uint32Array` de 4 (mesh, color, emissive, tex). A contagem
+/// sai do MENOR dos dois, então não há como declarar um número que discorde dos
+/// dados — a mesma regra de `mesh_upload`, pela mesma razão.
+///
+/// Um `drawMesh` por objeto continua existindo e continua correto; este é o
+/// caminho de quem desenha uma cena inteira, onde o custo não era o desenho e
+/// sim atravessar a fronteira 500 vezes por frame. `scene_api::draw_mesh_batch`
+/// explica por que os códigos não viajam junto dos floats.
+extern "C" fn draw_mesh_batch(_e: u64, _t: u64, win: u64, spec: u64, _b: u64, _c: u64) -> u64 {
+    let (Some(transforms), Some(raw_codes)) = (
+        member_bytes(spec, "transforms"),
+        member_bytes(spec, "codes"),
+    ) else {
+        return value::from_number(0.0);
+    };
+    let drawn = rts_egui::draw_mesh_batch(handle(win), &floats(&transforms), &codes(&raw_codes));
+    value::from_number(drawn as f64)
 }

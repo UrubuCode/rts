@@ -136,7 +136,12 @@ pub fn context_roots(context: &Context) -> Vec<Slot> {
     // `super::external`.
     words.extend(context.external.iter().map(|(_, value)| *value));
     words.extend(context.yielded);
-    words.extend(context.thrown.map(|(_, payload)| payload));
+    // The throw in flight. It is thread-local rather than a field of the
+    // context (see `super::current::THROWN`, and `super::throw::thrown` for the
+    // measurement that moved it), which changes where this reads it and NOT
+    // whether it is a root: an exception propagating between native frames has
+    // no other holder, and that is the `9c7b5c58` scar.
+    words.extend(super::current::thrown_slot().map(|(_, payload)| payload));
     words.extend(
         context
             .templates
@@ -255,7 +260,7 @@ mod tests {
     fn context_roots_include_the_call_stack_and_the_throw_in_flight() {
         let mut context = empty_context();
         context.callees.push(Value::from_slot(3).bits());
-        context.thrown = Some((0, Value::from_slot(9).bits()));
+        super::super::current::set_thrown(Some((0, Value::from_slot(9).bits())));
         let roots = context_roots(&context);
         assert!(roots.contains(&Slot(3)), "the running callable");
         assert!(

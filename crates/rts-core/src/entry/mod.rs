@@ -590,12 +590,6 @@ pub struct Context {
     pub loop_sources: Vec<(&'static str, loops::Source)>,
     /// How this host makes time pass, if it offered a way. See [`loops::Rest`].
     pub rest: Option<loops::Rest>,
-    /// The throw in flight, as (tag, payload).
-    ///
-    /// One slot and not a stack: a second throw cannot start before the first is
-    /// caught or ends the program, because the only thing that runs in between
-    /// is compiled code returning. See [`throw`].
-    pub thrown: Option<(i64, u64)>,
     /// What each tagged-template site declared, and what it has been made into.
     ///
     /// Two positions per piece — cooked then raw, as literal numbers — and the
@@ -774,7 +768,6 @@ impl Context {
             evaluator: None,
             loop_sources: Vec::new(),
             rest: None,
-            thrown: None,
             templates: Vec::new(),
             singletons,
             kinds,
