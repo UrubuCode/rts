@@ -71,3 +71,7 @@ required-features = ["ui"]
 [[example]]
 name = "gpu"
 required-features = ["ui"]
+
+[[example]]
+name = "ui_fixture"
+required-features = ["ui"]
