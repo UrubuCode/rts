@@ -13,6 +13,7 @@ members = [
     "crates/rts-ui",
     "crates/rts-std",
     "crates/rts-node",
+    "crates/rts-physics",
     "crates/rts-host",
     "crates/rts-runtime",
     "crates/rts-napi-rwk",
@@ -133,6 +134,15 @@ opt-level = 3
 [profile.release.package.rts-cranelift]
 opt-level = 3
 [profile.release.package.rts-core]
+opt-level = 3
+# The rigid-body solver, for the same REASON as the three above and a different
+# one besides: it is the only crate here whose whole job is a numeric inner loop
+# run thousands of times per frame, and `opt-level = "z"` on it is not a
+# conservative choice. Measured on the dense 2000-body scene of
+# `crates/rts-physics/examples/onde_custa.rs`, one thread, 2026-08-11: 1.60
+# ms/frame at "z" against 0.94 at 3, so the profile alone is 1.7× of the answer.
+# A number taken at "z" would have been partly a measurement of the profile.
+[profile.release.package.rts-physics]
 opt-level = 3
 [profile.release.package.cranelift-codegen]
 opt-level = 3

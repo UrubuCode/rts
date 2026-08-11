@@ -4103,6 +4103,7 @@ dependencies = [
  "rts-core",
  "rts-cranelift",
  "rts-node",
+ "rts-physics",
  "rts-std",
  "rts-ui",
 ]
@@ -4181,6 +4182,14 @@ dependencies = [
  "wasmi",
  "webpki-roots 1.0.6",
  "x25519-dalek",
+]
+
+[[package]]
+name = "rts-physics"
+version = "0.1.0"
+dependencies = [
+ "rayon",
+ "rts-core",
 ]
 
 [[package]]

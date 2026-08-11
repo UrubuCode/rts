@@ -1,0 +1,20 @@
+[package]
+name = "rts-physics"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+description = "The parallel rigid-body solver behind `rts:rigid` — the CPU fallback for a GPU-first scene."
+
+# Its own crate for the one reason `docs/engine/architecture.md` accepts for a
+# boundary: DISPONIBILIDADE. `rayon` is OS threads, which wasm does not have, and
+# a headless target that never simulates anything should not carry a thread pool
+# in its graph. Same argument that made `rts-ui` a crate rather than a module of
+# `rts-std`.
+
+[dependencies]
+rts-core = { path = "../rts-core" }
+
+# The same version `rts-cranelift` already pins. One `rayon` in the workspace is
+# one thread pool in the process: two would be two pools competing for the same
+# cores, which is a performance answer nobody chose.
+rayon = "1.10"

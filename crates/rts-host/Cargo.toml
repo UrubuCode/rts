@@ -29,6 +29,14 @@ rts-cranelift = { path = "../rts-cranelift" }
 rts-core = { path = "../rts-core" }
 rts-std = { path = "../rts-std" }
 rts-node = { path = "../rts-node" }
+# `rts:rigid`: um solver de corpos rígidos paralelo. Opcional pela mesma regra
+# de DISPONIBILIDADE que a UI: `rayon` são threads do SO, que wasm não tem, e um
+# alvo que nunca simula nada não deve carregar um pool de threads no grafo.
+#
+# Dentro do default, ao contrário da UI, porque não arrasta o débito do motor
+# antigo que mantém `ui` fora dele — `rts-physics` depende de `rts-core` e de
+# `rayon`, e de mais nada.
+rts-physics = { path = "../rts-physics", optional = true }
 # A UI: `rts:egui` e `rts:input`. Opcional porque uma janela é uma questão de
 # DISPONIBILIDADE — não existe em wasm nem num build headless — e um alvo sem
 # ela não deve carregar wgpu/winit no grafo para descobrir isso.
@@ -54,8 +62,9 @@ rts-ui = { path = "../rts-ui", optional = true }
 # exemplo `janela` a exigem (`required-features`), então nada some em silêncio:
 #
 #     cargo test -p rts-host --features ui
-default = []
+default = ["physics"]
 ui = ["dep:rts-ui"]
+physics = ["dep:rts-physics"]
 
 # Os dois alvos que só existem com a UI. Sem isto um `cargo test -p rts-host`
 # tentaria compilá-los sem o crate e falharia por nome não resolvido, que é uma

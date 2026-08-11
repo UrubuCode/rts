@@ -319,6 +319,8 @@ fn run_region(
     rts_core::entry::declare_rest(&mut context, |wait| std::thread::sleep(wait));
     rts_std::install(&mut context);
     rts_node::install(&mut context);
+    #[cfg(feature = "physics")]
+    rts_physics::install(&mut context);
     #[cfg(feature = "ui")]
     rts_ui::install(&mut context);
     // The modules a program may import. Registered by the HOST rather than by
