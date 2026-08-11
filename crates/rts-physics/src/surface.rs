@@ -42,7 +42,12 @@ pub fn namespace(context: &mut Context) -> u64 {
     entry::make_namespace(context, RIGID)
 }
 
-const RIGID: &[(&str, Provided)] = &[("step", step), ("threads", threads)];
+const RIGID: &[(&str, Provided)] = &[
+    ("step", step),
+    ("threads", threads),
+    ("backends", backends),
+    ("supports", supports),
+];
 
 thread_local! {
     /// The scratch the solver reuses. Per thread because a `Context` is, and
@@ -88,6 +93,60 @@ extern "C" fn step(_e: u64, _this: u64, pos: u64, vel: u64, ext: u64, world: u64
     };
     SOLVER.with(|solver| solver.borrow_mut().step(pos, vel, ext, world, substeps));
     entry::make_number((pos.len() / 4) as f64)
+}
+
+/// `rigid.backends()` — how many backends this build has.
+///
+/// A COUNT and not a list of names, and the reason is a limit rather than a
+/// choice: returning a string array from here means allocating engine values,
+/// and this crate's rule 2 says no worker touches the engine — the surface could,
+/// but then the one function that does would be the exception someone copies.
+/// A program that needs the names asks `supports` for the one it wants.
+///
+/// The count alone answers the question that matters most today: **one** means
+/// this build has only the gather solver, so a scene needing hulls, joints or
+/// continuous collision has nowhere to go and the program should say so rather
+/// than run and be quietly wrong.
+extern "C" fn backends(_e: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    entry::make_number(crate::registry::all().len() as f64)
+}
+
+/// `rigid.supports(need)` — can this build simulate a scene needing `need`?
+///
+/// `need` is a number and not a string for the same reason `backends` answers a
+/// count: reading a string here means reaching into the engine for its bytes,
+/// and every other member of this surface is arithmetic over buffers.
+///
+///   0  nothing in particular — is there any backend at all
+///   1  hull against hull, resolved as hulls rather than degraded to spheres
+///   2  continuous collision (a fast body must not tunnel)
+///   3  angular velocity and torque
+///   4  joints
+///
+/// Answers 1 or 0. **This is the member that makes the refusal usable**: a
+/// program that needs real hull contact asks before building a scene around it,
+/// instead of discovering at run time that its rocks are colliding as marbles.
+/// Today every one of 1..4 answers 0 in a default build, and that zero is the
+/// honest state rather than a gap in the implementation of this function.
+extern "C" fn supports(_e: u64, _this: u64, need: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let Some(code) = entry::number_of(need) else {
+        return entry::make_number(0.0);
+    };
+    let mut needs = crate::backend::Needs::default();
+    match code as i64 {
+        0 => {}
+        1 => needs.hull_against_hull = true,
+        2 => needs.continuous = true,
+        3 => needs.angular = true,
+        4 => needs.joints = true,
+        // An unknown need answers 0, which is the conservative direction: a
+        // program asking about something this build has never heard of is told
+        // "no" rather than "yes" by omission.
+        _ => return entry::make_number(0.0),
+    }
+    let all = crate::registry::all();
+    let ok = crate::registry::select(&all, &crate::registry::Selection::Any, &needs).is_ok();
+    entry::make_number(if ok { 1.0 } else { 0.0 })
 }
 
 /// `rigid.threads()` — how many workers a step is spread over.
