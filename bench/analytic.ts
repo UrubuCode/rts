@@ -17,6 +17,23 @@
 // program that reaches it once. It is an attribution instrument: it says which
 // actions are expensive, not how much of any given program they are.
 //
+// # A known defect in this harness — read before quoting a number from it
+//
+// Several rows report roughly TEN TIMES what the same operation costs when it
+// is written on its own. Measured 2026-08-11, release: `obj.a` in a loop is
+// 225 ns here and 16 ns in a four-line file; `typeof obj` is 250 ns here and
+// 26 ns there. The cause is not known yet, and four candidates have been
+// ruled out by measurement rather than by argument — reading an outer-scope
+// variable costs 3 ns more than a local, repeating the same variable names
+// across 40 closures costs nothing, storing a closure in an object costs
+// nothing, and the throw check is 9%.
+//
+// So: the RANKING within a column is usable, and the ABSOLUTE nanoseconds are
+// not, and neither is any ratio to node computed from them. What this file is
+// good for until that is found is finding the expensive shapes and the
+// unavailable operations. Whoever finds the cause should delete this paragraph
+// and say what it was.
+//
 // # Honesty
 //
 // Every case returns a number derived from its work and the harness sums it,
@@ -202,6 +219,15 @@ bench("prop", "in operator", (n) => {
 bench("prop", "typeof", (n) => {
   let a = 0;
   for (let i = 0; i < n; i++) if (typeof obj === "object") a++;
+  return a;
+});
+// `typeof` with NOTHING compared against it. The case above measures
+// `typeof x === "object"`, which is two operations — and string equality alone
+// costs more than the whole line looks like it should, so reading that row as
+// the cost of `typeof` overstates it by roughly a factor of two.
+bench("prop", "typeof alone", (n) => {
+  let a = 0;
+  for (let i = 0; i < n; i++) if (typeof obj) a++;
   return a;
 });
 bench("prop", "instanceof", (n) => {

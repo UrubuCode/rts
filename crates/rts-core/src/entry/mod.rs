@@ -168,6 +168,25 @@ use crate::heap::{Aside, Slab, Slot};
 use crate::text::{Interner, Str};
 use crate::value::Singletons;
 
+/// Every string `typeof` can answer, in the order [`Context::type_names`]
+/// caches them.
+///
+/// The list is closed by the language rather than by this crate — ES says which
+/// nine — with `"unknown"` the tenth, which is not JavaScript's: it is what a
+/// client tag nothing wired produces, and it is here so that a wiring mistake
+/// reads as a wiring mistake instead of as `"undefined"`.
+pub const TYPE_NAMES: [&str; 9] = [
+    "number",
+    "boolean",
+    "undefined",
+    "object",
+    "symbol",
+    "bigint",
+    "string",
+    "function",
+    "unknown",
+];
+
 /// Everything a running program's operations need and cannot be handed.
 pub struct Context {
     /// Every heap value, of whichever kind.
@@ -551,6 +570,29 @@ pub struct Context {
     /// the number the code carries is a position in this list, which is the
     /// same shape as the key and singleton numberings.
     pub literals: Vec<u64>,
+    /// The nine strings `typeof` can answer, each built at most once.
+    ///
+    /// # Why a cache rather than building the answer
+    ///
+    /// Because building it ALLOCATES. `intern_value` does not intern despite
+    /// the name — it inserts into the slab and calls `alloc_or_die` — so every
+    /// `typeof` in a program produced a new cell holding one of nine constant
+    /// words, and a cell is what makes a collection arrive sooner.
+    ///
+    /// Measured 2026-08-11, release, `bench/analytic.ts`: `typeof` cost 363 ns
+    /// against 32 ns for an optional chain that stays in compiled code. It does
+    /// no work — a tag switch — so the number was never about what it computes.
+    ///
+    /// # Why in the context and not a `static`
+    ///
+    /// A cell belongs to the region that allocated it, and there is one region
+    /// per run: a `static` would hand a second run a reference into a heap that
+    /// no longer exists. That is the same reason `literals` is seeded per run
+    /// rather than built once.
+    ///
+    /// Filled lazily, so a program that never asks pays nothing, and rooted by
+    /// [`super::roots`] because nothing else holds these.
+    pub type_names: [Option<u64>; TYPE_NAMES.len()],
     /// Values something OUTSIDE the heap is holding, and the collector must
     /// therefore keep.
     ///
@@ -776,6 +818,7 @@ impl Context {
             // never reaches the table, and one that does gets it from the
             // compilation that produced the code.
             literals: Vec::new(),
+            type_names: [None; TYPE_NAMES.len()],
             external: Vec::new(),
             weak: Vec::new(),
             next_weak: 1,
