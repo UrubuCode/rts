@@ -289,6 +289,48 @@ pub fn get_member(context: &mut Context, object: u64, name: &str) -> u64 {
     read_property(context, cell, key).map_or(absent, |found| found.bits())
 }
 
+/// The NUMBER of a property key, resolved once.
+///
+/// # Why this exists, and what it cost not to have it
+///
+/// [`get_member`] takes a `&str` and interns it on EVERY call. Interning is not
+/// cheap: `Str::from_str` walks the text once to decide the representation and
+/// again to `collect()` it into a fresh `Vec`, then the table hashes and
+/// compares. That is an allocation per lookup.
+///
+/// A host module reading an options object pays it per FIELD, per call. Measured
+/// in a real program: `rts:egui`'s `drawMesh` reads twelve names, a game drew
+/// 500 objects a frame, and that is 6 000 interning passes per frame — 8,4 ms of
+/// a 23,9 ms frame, which was the difference between 42 and 60 fps.
+///
+/// The names a native reads are FIXED at compile time, so the work is entirely
+/// repeated. Resolve once, keep the number, and use [`get_member_at`].
+pub fn member_key(context: &mut Context, name: &str) -> u32 {
+    match context.well_known(name) {
+        crate::object::Key::Name(key) => key.index() as u32,
+        // A symbol key cannot come from a `&str`, and answering 0 would be a
+        // silent wrong lookup — `u32::MAX` is a number no registry issues, so
+        // `get_member_at` misses instead.
+        _ => u32::MAX,
+    }
+}
+
+/// A member by an already-resolved key — the read half of [`member_key`].
+///
+/// Toma `&mut Context` porque `read_property` pode percorrer a cadeia de
+/// protótipos e materializar um acessor — nada é INTERNADO, que é o ponto, mas
+/// a leitura em si não é puramente compartilhada.
+pub fn get_member_at(context: &mut Context, object: u64, key: u32) -> u64 {
+    let absent = undefined_of(context);
+    let Some(cell) = Value(object).as_slot() else {
+        return absent;
+    };
+    let Some(key) = context.keys.key(key) else {
+        return absent;
+    };
+    read_property(context, cell, crate::object::Key::Name(key)).map_or(absent, |found| found.bits())
+}
+
 /// One Rust function as a callable value.
 ///
 /// The piece [`make_namespace`] is built out of, exported because a caller

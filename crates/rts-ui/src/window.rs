@@ -7,7 +7,7 @@
 
 use rts_core::entry::Provided;
 
-use crate::value::{self, fields, handle, integer, number, text};
+use crate::value::{self, fields, fields_static, handle, integer, number, text};
 
 /// Os membros que a janela e o frame contribuem para `rts:egui`.
 pub const MEMBERS: &[(&str, Provided)] = &[
@@ -127,8 +127,12 @@ extern "C" fn win_height(_e: u64, _t: u64, win: u64, _a: u64, _b: u64, _c: u64) 
 /// Vive aqui e é usado pelos módulos de desenho porque é a mecânica da decisão
 /// que `value` documenta: um objeto na segunda posição, campo ausente vale o
 /// default.
-pub fn options(object: u64, names: &[&str], defaults: &[f64]) -> Vec<f64> {
-    let read = fields(object, names);
+pub fn options(object: u64, names: &'static [&'static str], defaults: &[f64]) -> Vec<f64> {
+    // `fields_static` em vez de `fields`: as tabelas de nomes desta superfície
+    // são constantes do crate, então as chaves são resolvidas UMA vez por thread
+    // em vez de a cada chamada. Ver `value::fields_static` para o número que
+    // motivou — 8,4 ms de um frame de 23,9 num jogo real.
+    let read = fields_static(object, names);
     read.iter()
         .zip(defaults)
         .map(|(value, default)| number(*value, *default))
