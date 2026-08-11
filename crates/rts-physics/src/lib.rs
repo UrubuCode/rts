@@ -50,6 +50,9 @@
 #![deny(missing_docs)]
 #![deny(dead_code)]
 
+pub mod backend;
+pub mod registry;
+pub mod shape;
 pub mod solver;
 mod surface;
 

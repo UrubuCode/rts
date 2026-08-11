@@ -59,6 +59,9 @@
 pub mod contact;
 pub mod grid;
 
+mod adapter;
+pub use adapter::GatherBackend;
+
 use contact::{V3, add, contact as narrow, dot, length, scale, sub};
 use grid::Grid;
 use rayon::prelude::*;

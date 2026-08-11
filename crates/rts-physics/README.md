@@ -56,15 +56,80 @@ rather than objects with methods, and it is the same discipline `rts-node`'s ten
 an `extern "C"` frame cannot unwind — it aborts the process. Pointers are taken
 inside a short borrow; every slice is built and used outside it.
 
-### 4. Nothing is remembered between calls
+### 4. No ENGINE VALUE is remembered between calls
 
-No handle, no table of scenes, no view kept as a value. The collector cannot see a
-value held outside the heap unless told to, so a remembered typed array is one
-whose bytes are swept while this crate still points at them. Everything the step
-needs is in its four arguments, sub-step count included (`world[3]`).
+No handle to a cell, no table of scenes, no view kept as a value. The collector
+cannot see a value held outside the heap unless told to, so a remembered typed
+array is one whose bytes are swept while this crate still points at them.
+Everything the step needs about the *program* is in its four arguments, sub-step
+count included (`world[3]`).
 
-The one exception is scratch — a grid and two snapshot vectors — which holds no
-body state and is overwritten at the top of every sub-step.
+**This rule was "nothing is remembered between calls" and was narrowed on
+2026-08-11, with the reason.** As written it forbade all state, and the reason it
+gave — the collector cannot see a value held outside the heap — is a statement
+about *engine values*, not about memory. The scratch exception already showed the
+seam: a grid and two snapshot vectors persist and always did, because they hold no
+body state.
+
+What the wording cost is a whole class of backend. Every third-party engine worth
+plugging in — Rapier, PhysX, Jolt — keeps a persistent world: bodies with stable
+identity, and contact manifolds carried between frames. That persistence is not an
+implementation detail to be optimised away; it is **where their solvers get both
+their accuracy and their speed**, because warm-starting a contact from last
+frame's impulse is what makes a stack settle instead of jitter. A rule forbidding
+it forbids them, and it forbade them for a reason that does not apply to them: a
+Rapier world holds Rust-owned bodies, not cells, so there is nothing in it the
+collector could sweep.
+
+So the line is drawn where the hazard actually is:
+
+| may persist | may NOT persist |
+|---|---|
+| scratch (grid, snapshots) | a cell, a `Value`, a slot |
+| a backend's own world, in its own memory | a typed-array view or its bytes |
+| a shape converted from buffers | anything the collector owns |
+
+A backend that persists state must still answer a step whose input is the four
+buffers, because that is what makes the buffers the interface rather than a
+particular engine's object graph. Rebuilding a world from buffers every frame is
+allowed and slow; a backend that keeps one must detect that the scene changed
+shape — see rule 9.
+
+### 9. A backend REFUSES what it cannot do; it never approximates in silence
+
+The trait in `backend.rs` lets a step answer `Unsupported` and name what it could
+not do. This is not politeness, it is the crate's own history: the gather solver
+degrades a hull-against-hull pair to a sphere, and that is *correct* here because
+`docs/colisores.md` measured the alternative at 2.2 billion dot products a frame —
+but it is a silent approximation, and the only reason it is not a trap is that a
+document says so.
+
+A third-party backend makes that worse by an order of magnitude. Rapier does
+hull-against-hull properly; the gather solver does not; a program written against
+one and run on the other would be correct on one machine and wrong on another,
+which is exactly the "surface that cannot do what its name means" the workspace
+rule refuses.
+
+So: **capability is asked, not assumed.** `Backend::supports` answers before a
+step runs, a caller that asks for something a backend lacks gets a refusal by
+name, and no backend silently substitutes a shape it does have.
+
+### 10. PARITY is a property of a backend, and it is declared
+
+`RUST × GPU = 0.000000` over 13 supported contacts is measured, and it holds
+because the two are the same formulation. **No third-party engine will ever join
+that set**, and pretending otherwise is the failure this rule exists to prevent:
+Rapier and PhysX are different solvers — different contact generation, different
+ordering, different warm-starting — and they will not land where ours lands.
+
+`Backend::parity_group` answers which set a backend belongs to. Two backends in
+one group are compared by final position and a divergence is a bug; two in
+different groups are not comparable at all, and a test that compares them is
+testing nothing.
+
+A backend outside the parity group is not lesser. It is answering a different
+question — one with joints and continuous collision in it — and the honest thing
+is to say so in the type rather than in a comment nobody reads.
 
 ### 5. A refusal answers zero and simulates nothing
 
