@@ -164,6 +164,29 @@ fn main() {
         .build()
         .expect("a pool");
 
+    // Um `n` na linha de comando troca a tabela por uma varredura de THREADS
+    // nesse n. Ela responde a única pergunta que a tabela não responde: o solver
+    // satura as 16 threads? Se dobrar as threads deixar de dobrar a vazão, o
+    // custo por corpo cresce por SATURAÇÃO e não pela cena — e aí a comparação
+    // contra a GPU em n grande muda de leitura, porque a GPU tem folga de
+    // núcleos onde este solver já não tem.
+    if let Some(n) = std::env::args().nth(2).and_then(|a| a.parse::<usize>().ok()) {
+        println!("  escala de threads em n = {n}, cena densa, 1 sub-passo");
+        println!("  threads | ms/passo | speedup | eficiencia");
+        let mut base = 0.0f64;
+        for t in [1usize, 2, 4, 8, 12, 16] {
+            let pool = rayon::ThreadPoolBuilder::new().num_threads(t).build().expect("pool");
+            let ms = pool.install(|| time(n, 0.6, true, 1, BroadPhase::Grid));
+            if t == 1 {
+                base = ms;
+            }
+            println!(
+                "  {:<8}|{:>9.3} |{:>8.2}x |{:>10.0}%",
+                t, ms, base / ms, base / ms / t as f64 * 100.0
+            );
+        }
+        return;
+    }
     println!("[rts:rigid] ms/frame, release, one sub-step, {threads} threads");
     println!();
     println!("  n    | spread | dense | 2 sub-steps | dense, NO grid | settled");
