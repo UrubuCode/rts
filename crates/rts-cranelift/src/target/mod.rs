@@ -1026,6 +1026,34 @@ pub fn isa_with(
     };
     cranelift_codegen::settings::Configurable::set(&mut flags, "regalloc_algorithm", &algorithm)
         .expect("a real setting");
+    // `opt_level`, which the paragraph above says "stayed at its default" —
+    // and Cranelift's default is `none`, which gates out the WHOLE egraph
+    // mid-end: no GVN, no LICM, no redundant-load elimination, and
+    // `enable_alias_analysis` left `true` and inert
+    // (`cranelift-codegen-0.131.0/src/context.rs:185`).
+    //
+    // That paragraph also says a code-quality claim needs "a run long enough to
+    // show it" and that the test file it was measured on was not one. This knob
+    // is what makes the longer run possible, and the answer is now measured
+    // rather than open: on `bench/analytic.ts`, release, 2026-08-11, `speed`
+    // returns NOISE — the empty-loop floor 7.2 → 7.0 ns, `prop read own`
+    // 9.2 → 9.4 (worse), an array element read unmoved. The mid-end cannot
+    // optimize across an opaque call, and this engine's IR is mostly opaque
+    // calls, so there is little for it to see.
+    //
+    // Kept anyway, and env-gated so the default is bit-for-bit what it was,
+    // because the claim has to be re-checkable: the day the runtime stops being
+    // a call per operation is the day this setting starts mattering, and a
+    // measurement nobody can repeat is a claim.
+    //
+    // NOT the same question for the AOT destination, which asks for
+    // `Priority::CodeQuality` at `target/destination.rs` precisely to buy code
+    // quality at build time and is currently buying it with the optimizer off.
+    // No stated argument covers that, and this knob does not settle it.
+    if let Ok(level) = std::env::var("RTS_CL_OPT") {
+        cranelift_codegen::settings::Configurable::set(&mut flags, "opt_level", &level)
+            .expect("a real setting");
+    }
     let verify = match std::env::var_os("RTS_CL_VERIFY") {
         Some(_) => true,
         None => cfg!(debug_assertions),
