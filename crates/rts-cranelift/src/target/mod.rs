@@ -985,10 +985,42 @@ pub fn isa_with(
     // Which register allocator, which is the one setting where the two
     // destinations genuinely want opposite answers. `RTS_CL_REGALLOC` names one
     // explicitly, for the JIT program long-running enough to want the other.
+    //
+    // # `single_pass` is NOT the default any more, and this is why
+    //
+    // It was, for `CompileTime`, and it bought 25-49% off compiling a file. It
+    // also **generated wrong machine code** for the largest program in this
+    // workspace: the editor of the `rts-game` project segfaults 1.5 to 3 seconds
+    // in, every run, with no message — and the same binary on the same scene
+    // runs indefinitely with `backtracking`. Isolated with the flag this very
+    // comment introduced:
+    //
+    // ```text
+    // RTS_CL_REGALLOC=backtracking   exit 124, 124   (the timeout killed it)
+    // RTS_CL_REGALLOC=single_pass    exit 139, 139   (SIGSEGV)
+    // ```
+    //
+    // A minimal window program survives on `single_pass`, and every test in the
+    // suite passes on it — which is exactly why this reached a default. The
+    // corpus is 800 small files and the defect needs a big one, so "739 of 800,
+    // LOST empty" was true and did not cover the case.
+    //
+    // The trade is not close. A compiler that finishes 25-49% sooner and emits
+    // code that crashes has a negative value: the time it saves is spent by the
+    // person who has to find out why, and this took an afternoon of bisection to
+    // reach because the fault has no message and no backtrace.
+    //
+    // `RTS_CL_REGALLOC=single_pass` still names it, so the speed is available to
+    // anyone who measures their own program and finds it survives. What changed
+    // is which way the default fails: rule 12 says unproven behaviour fails
+    // safely, and a segfault is the least safe failure there is.
     let algorithm = match std::env::var("RTS_CL_REGALLOC") {
         Ok(named) => named,
+        // Both destinations take `backtracking` for now. The distinction the
+        // priority draws is real and stays in the type; what does not stay is a
+        // default that answers it with an allocator we have watched miscompile.
         Err(_) => match priority {
-            Priority::CompileTime => "single_pass".to_owned(),
+            Priority::CompileTime => "backtracking".to_owned(),
             Priority::CodeQuality => "backtracking".to_owned(),
         },
     };
