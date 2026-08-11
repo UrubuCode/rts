@@ -241,36 +241,29 @@ impl Context {
     /// is one rule — the second copy is the one that would have interned
     /// against a different registry the day there were two.
     pub(super) fn well_known(&mut self, name: &str) -> crate::object::Key {
-        // Remembered by NAME, because the two hot ones are asked for on paths
-        // that run per operation rather than per program. `length` is the
-        // sharpest: `objects::reconcile_length` asks for it before every
-        // property write in the program, to find out whether the write is the
-        // one that truncates an array — so a construction with four fields
-        // built the text `"length"` as UTF-16 and hashed it four times, for an
-        // answer that cannot change within a run.
+        // Remembered for the names asked on paths that run per OPERATION rather
+        // than per program. `length` is the sharpest: `reconcile_length` asks
+        // for it before every property write in the program, to find out
+        // whether this is the write that truncates an array — so a construction
+        // with four fields built the text as UTF-16 and hashed it four times,
+        // for an answer that cannot change within a run. `prototype` is read by
+        // every `new`, and the other three are stamped onto every typed array.
         //
-        // A `HashMap<String, Key>` would hash the name to avoid hashing the
-        // name. Two `Option`s are what the measurement asked for, and anything
-        // else falls through to the intern exactly as before.
-        match name {
-            "length" => {
-                if let Some(held) = self.length_key {
-                    return held;
-                }
-            }
-            "prototype" => {
-                if let Some(held) = self.prototype_key {
-                    return held;
-                }
-            }
-            _ => {}
+        // A linear scan of five short `&str`s, not a `HashMap<String, Key>`,
+        // which would hash the name to avoid hashing the name. Anything not on
+        // the list falls through to the intern exactly as before, and putting a
+        // name on it is only ever a speed decision — the answer is identical
+        // either way, because the intern is idempotent.
+        let held = super::CACHED_KEYS.iter().position(|&known| known == name);
+        if let Some(at) = held
+            && let Some(key) = self.well_known_keys[at]
+        {
+            return key;
         }
         let text = Str::from_str(name);
         let key = crate::object::Key::Name(self.interner.intern(&text, &mut self.keys));
-        match name {
-            "length" => self.length_key = Some(key),
-            "prototype" => self.prototype_key = Some(key),
-            _ => {}
+        if let Some(at) = held {
+            self.well_known_keys[at] = Some(key);
         }
         key
     }

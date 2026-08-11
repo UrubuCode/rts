@@ -168,6 +168,15 @@ use crate::heap::{Aside, Slab, Slot};
 use crate::text::{Interner, Str};
 use crate::value::Singletons;
 
+/// The names the runtime asks for BY NAME on a path that runs per operation.
+///
+/// On this list because a measurement put them here, not because they are
+/// special: `Context::well_known` remembers exactly these and interns
+/// everything else, and moving a name on or off changes only the cost.
+/// `length` is asked before every property write, `prototype` by every `new`,
+/// and the last three are stamped onto every typed array as it is built.
+pub const CACHED_KEYS: [&str; 5] = ["length", "prototype", "byteLength", "byteOffset", "buffer"];
+
 /// Every string `typeof` can answer, in the order [`Context::type_names`]
 /// caches them.
 ///
@@ -570,14 +579,12 @@ pub struct Context {
     /// the number the code carries is a position in this list, which is the
     /// same shape as the key and singleton numberings.
     pub literals: Vec<u64>,
-    /// The key `length` has, once something has asked. See `Self::well_known`.
+    /// The key each of [`CACHED_KEYS`] has, once something has asked for it.
     ///
-    /// Not a constant: the number is whatever the registry issued for the name,
+    /// Not constants: the number is whatever the registry issued for the name,
     /// and the registry is seeded per run from what the compilation resolved —
     /// so it is per context, like everything else here.
-    pub(super) length_key: Option<crate::object::Key>,
-    /// The same for `prototype`, which every `new` reads.
-    pub(super) prototype_key: Option<crate::object::Key>,
+    pub(super) well_known_keys: [Option<crate::object::Key>; CACHED_KEYS.len()],
     /// The nine strings `typeof` can answer, each built at most once.
     ///
     /// # Why a cache rather than building the answer
@@ -825,8 +832,7 @@ impl Context {
             // Empty until a host seeds it. A program with no string literal
             // never reaches the table, and one that does gets it from the
             // compilation that produced the code.
-            length_key: None,
-            prototype_key: None,
+            well_known_keys: [None; CACHED_KEYS.len()],
             literals: Vec::new(),
             type_names: [None; TYPE_NAMES.len()],
             external: Vec::new(),
