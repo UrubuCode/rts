@@ -917,10 +917,25 @@ mod tests {
         // stopped meaning "how many times was the target operated on". The
         // distinction is real rather than a way to make the number come out: an
         // operation on values has values, and the check has none.
+        //
+        // The INSTRUCTION forms are counted beside the call, and that is not
+        // widening the net to keep a number: `x` here is a local initialised
+        // from a literal, so `proven.rs` proves it holds a number and
+        // `emit_binary` takes `NumOp::Add` — this source emits no call at all
+        // any more. Counting calls alone therefore stopped measuring what the
+        // test is named for and started measuring which emission was chosen,
+        // which is a different question with its own tests in `proven.rs`.
+        //
+        // What the test pins is unchanged: `x += 1` is not `x = x + 1`, the
+        // target is evaluated once, and the day the target is `a[i++]` the
+        // count is what catches a rewrite that evaluates it twice.
         let func = emit_source("let x = 1; x += 1;").expect("emits");
         let adds = instructions(&func)
             .iter()
-            .filter(|inst| matches!(inst, Inst::Call { args, .. } if !args.is_empty()))
+            .filter(|inst| {
+                matches!(inst, Inst::Call { args, .. } if !args.is_empty())
+                    || matches!(inst, Inst::IntArith(..) | Inst::FloatArith(..))
+            })
             .count();
         assert_eq!(adds, 1);
     }

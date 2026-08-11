@@ -468,9 +468,15 @@ fn check_expr(
                     AssignOp::Plain => is_numeric(value, known),
                     // `x += y` is numeric when the result is: which for `+`
                     // needs BOTH sides numeric, because `+` on anything else may
-                    // concatenate.
+                    // concatenate. Both are checked right here — the target by
+                    // `holds_number` and the value by `is_numeric` — which is
+                    // exactly the evidence [`compound_keeps_a_number`] is
+                    // allowed to assume, and the reason it may accept `+` where
+                    // [`arithmetic`] must not.
                     AssignOp::Compound(binary) => {
-                        known.holds_number(*name) && arithmetic(*binary) && is_numeric(value, known)
+                        known.holds_number(*name)
+                            && compound_keeps_a_number(*binary)
+                            && is_numeric(value, known)
                     }
                     // Short-circuiting: `x ||= "a"` puts a string in `x`.
                     AssignOp::Logical(_) => false,
@@ -580,6 +586,49 @@ fn arithmetic(op: BinaryOp) -> bool {
     matches!(op, BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div)
 }
 
+/// Whether `target op= value` leaves a number in the proven representation,
+/// **given that both sides are already known to hold one**.
+///
+/// # Why this is not [`arithmetic`], and why the difference is `+`
+///
+/// [`arithmetic`] answers about an operator alone, so `+` cannot be in it: `+`
+/// is the one arithmetic-looking operator that may concatenate, and nothing
+/// about the operator says which it will do. That is a fact about the OPERATOR
+/// and it stays true.
+///
+/// This answers a different question, and the extra evidence is the whole
+/// difference: a caller that has already established the target holds a number
+/// and the value is a number has ruled concatenation out, because `+` on two
+/// numbers is addition. `emit::expr::emit_binary` agrees — `proven_binary`
+/// maps `Add` to `NumOp::Add`, and two `Repr::F64` operands take the
+/// instruction — so the result is kept proven rather than boxed, which is the
+/// second half of what [`arithmetic`] means and the half `%` fails.
+///
+/// `%` is therefore still absent, for the reason [`arithmetic`] gives: there is
+/// no remainder instruction, so a proved `%` would claim a machine
+/// representation for a value that arrives boxed, and the loop back edge would
+/// meet `BuildError::ImplicitNarrowing`.
+///
+/// # What this was, and the cost of it having been two answers
+///
+/// It was written twice, in one commit, disagreeing. `check_expr` asked
+/// `holds_number(target) && arithmetic(op)`, which is sound and refuses `acc +=
+/// i` — the single most common numeric statement there is, and the reason the
+/// empty-loop floor of `bench/analytic.ts` (whose accumulator is written with
+/// `+=`) measured 11.72 ns against 9.50 ns for the structurally identical loop
+/// at `bench/analytic.ts:66` whose accumulator is written with `a = a + 3` and
+/// takes the bare instruction. Two loops, one add each, and the 2.2 ns between
+/// them was the lost proof.
+///
+/// `is_numeric` asked `(arithmetic(op) || op == Add) && is_numeric(value)`,
+/// which accepts `+` and **never checks the target at all** — so `s += 1` for a
+/// string `s` answered "numeric", which is not slow code, it is `arith` on a
+/// string. Rule 3 is what this violated: one semantic rule, stated once, where
+/// it is decided.
+fn compound_keeps_a_number(op: BinaryOp) -> bool {
+    arithmetic(op) || op == BinaryOp::Add
+}
+
 /// Whether an expression certainly produces a number.
 fn is_numeric(expr: &Expr, known: &Numeric) -> bool {
     match &expr.kind {
@@ -647,11 +696,29 @@ fn is_numeric(expr: &Expr, known: &Numeric) -> bool {
         } => is_numeric(then_branch, known) && is_numeric(else_branch, known),
 
         // An assignment's value is what was assigned.
-        ExprKind::Assign { value, op, .. } => match op {
+        ExprKind::Assign { target, value, op } => match op {
             AssignOp::Plain => is_numeric(value, known),
-            AssignOp::Compound(binary) => {
-                (arithmetic(*binary) || *binary == BinaryOp::Add) && is_numeric(value, known)
-            }
+            // The TARGET is read too, and it was not. `x += y` produces what is
+            // left in `x`, so a compound assignment is numeric only when what
+            // was already there is — and this arm asked about the operator and
+            // the value alone, which answered "numeric" for `s += 1` on a
+            // string. That is not slow code, it is `arith` on a string.
+            //
+            // A target that is not a plain name is refused rather than assumed:
+            // `o.n += 1` and `a[i] += 1` read a property, and this pass proves
+            // things about locals. Answering "yes" for one would be the claim
+            // with no evidence the arm below this one exists to refuse.
+            AssignOp::Compound(binary) => match target {
+                AssignTarget::Place(place) => match &place.kind {
+                    ExprKind::Ident(name) => {
+                        known.holds_number(*name)
+                            && compound_keeps_a_number(*binary)
+                            && is_numeric(value, known)
+                    }
+                    _ => false,
+                },
+                _ => false,
+            },
             AssignOp::Logical(_) => false,
         },
 
@@ -720,6 +787,49 @@ mod tests {
     #[test]
     fn a_literal_initialiser_proves_a_local() {
         assert_eq!(proved("let x = 1;"), ["x"]);
+    }
+
+    #[test]
+    fn accumulating_with_plus_equals_keeps_the_proof() {
+        // The single most common numeric statement there is, and it used to
+        // lose the proof: `arithmetic` refuses `+` because `+` alone may
+        // concatenate, and this site asked `arithmetic` even though it had
+        // already established both sides hold numbers.
+        //
+        // What that cost is measurable in `bench/analytic.ts`, whose ~74 cases
+        // all share one counted loop: its floor case accumulates with `+=` and
+        // measured 11.72 ns, while `arith int add` — the same loop with one
+        // add, accumulating with `a = a + 3` — measured 9.50 ns and took the
+        // bare instruction.
+        assert_eq!(proved("let a = 0; for (let i = 0; i < 9; i++) a += i;"), ["a", "i"]);
+    }
+
+    #[test]
+    fn plus_equals_on_a_string_is_not_numeric() {
+        // The other half, and it was wrong in the other direction: `is_numeric`
+        // accepted `+` without ever reading the target, so this answered
+        // "numeric" and the emitter would have kept `s` in a machine double.
+        // That is not slow code, it is `arith` on a string.
+        assert_eq!(proved("let s = \"a\"; s += 1;"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_compound_assignment_to_a_property_proves_nothing() {
+        // `o.n += 1` reads a property, and a property is a claim with no
+        // evidence in this pass. `x` survives because its own initialiser
+        // proves it; nothing about `o` does.
+        assert_eq!(proved("let x = 1; const o = {n: 0}; o.n += 1;"), ["x"]);
+    }
+
+    #[test]
+    fn remainder_is_still_refused_even_between_two_numbers() {
+        // Not an oversight and not symmetric with `+`: `%` is excluded for a
+        // reason about the EMITTER rather than about the operands. There is no
+        // remainder instruction, so a proved `%` claims a machine
+        // representation for a value that arrives boxed, and the loop back edge
+        // meets `BuildError::ImplicitNarrowing`. Both sides being numbers does
+        // not change that, which is why relaxing `+` must not relax this.
+        assert_eq!(proved("let a = 1; let b = 2; a %= b;"), ["b"]);
     }
 
     #[test]
