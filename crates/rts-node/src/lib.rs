@@ -85,6 +85,66 @@ use rts_core::entry::Context;
 /// program writes and the bare one is what the ecosystem is full of, and a
 /// resolver that answered only one of them would refuse half the corpus for a
 /// reason that has nothing to do with what it can do.
+/// The modules built the first time a program names one, and not before.
+///
+/// # Why deferral is worth a table
+///
+/// Measured, 2026-08-11, release: [`install`] cost 5.7 ms of the 6.4 ms a
+/// trivial program spent between having compiled code and running it, and
+/// building these namespaces was 4 ms of it — paid by every program, including
+/// the ones that import nothing. The cost is spread (`constants` 0.9 ms,
+/// `http2` 0.8 ms, then a long tail), so there was no single module to fix.
+///
+/// # Why these and not everything
+///
+/// The list above [`install`]'s use of this one is eager, and each entry there
+/// says which of three reasons put it there. Nothing on THIS list is named by
+/// another specifier or by a global, so the only way to reach one is an import
+/// — which is exactly the event that builds it.
+const LAZY: &[(&str, fn(&mut Context) -> u64)] = &[
+    ("assert", assert::namespace),
+    ("async_hooks", async_hooks::namespace),
+    ("buffer", buffer::namespace),
+    ("child_process", child_process::namespace),
+    ("cluster", cluster::namespace),
+    ("console", console::namespace),
+    // A flattened VIEW of `os.constants`, `fs.constants` and the RSA half of
+    // `crypto.constants` — the tables themselves stay where they are, so no
+    // number is defined twice. Node deprecated this module and the ecosystem
+    // still imports it.
+    ("constants", constants::namespace),
+    ("crypto", crypto::namespace),
+    ("dgram", dgram::namespace),
+    ("diagnostics_channel", diagnostics_channel::namespace),
+    ("dns", dns::namespace),
+    ("domain", domain::namespace),
+    ("http", http::namespace),
+    ("http2", http2::namespace),
+    ("https", https::namespace),
+    ("net", net::namespace),
+    ("os", os::namespace),
+    ("path", path::namespace),
+    ("punycode", punycode::namespace),
+    ("querystring", querystring::namespace),
+    ("readline", readline::namespace),
+    ("repl", repl::namespace),
+    ("sqlite", sqlite::namespace),
+    ("string_decoder", string_decoder::namespace),
+    ("test", test_runner::namespace),
+    ("tls", tls::namespace),
+    ("trace_events", trace_events::namespace),
+    ("tty", tty::namespace),
+    ("v8", v8::namespace),
+    ("vm", vm::namespace),
+    ("wasi", wasi::namespace),
+    ("worker_threads", worker_threads::namespace),
+    ("zlib", zlib::namespace),
+];
+
+/// Registers every `node:` module this crate provides.
+///
+/// Under both spellings: `node:fs` and `fs`. Most are registered rather than
+/// built — see [`LAZY`].
 pub fn install(context: &mut Context) {
     // Built once and named twice. `fs::namespace` makes a NEW object every call,
     // so asking it a second time for `fs.promises` would register a specifier
@@ -111,58 +171,41 @@ pub fn install(context: &mut Context) {
     // `isDeepStrictEqual` this crate would have to keep in step with the
     // first.
     let util_namespace = util::namespace(context);
+    // The ones that must exist before the program starts, and each is on this
+    // list for a reason rather than by habit — see [`LAZY`] for what the rest
+    // do instead.
+    //
+    // - `events` and `stream`: the prototype-order rule above. A module that
+    //   chains onto `EventEmitter` must never be built first, and a LAZY module
+    //   is built whenever a program happens to import it, which is an order
+    //   nothing here controls. Keeping these two eager is what makes every
+    //   deferred build safe: they are already in place when one runs.
+    // - `fs`, `inspector`, `util`: a second specifier below names an object
+    //   read out of one of them (`fs/promises`, `inspector/promises`, `sys`).
+    // - `process`, `timers`, `url`, `perf_hooks`: a member of each is a GLOBAL,
+    //   so a program reaches it with no import for the deferral to key on.
     let modules = [
-        ("assert", assert::namespace(context)),
-        ("async_hooks", async_hooks::namespace(context)),
-        ("buffer", buffer::namespace(context)),
-        ("child_process", child_process::namespace(context)),
-        ("cluster", cluster::namespace(context)),
-        ("console", console::namespace(context)),
-        // A flattened VIEW of `os.constants`, `fs.constants` and the RSA half
-        // of `crypto.constants` — the tables themselves stay where they are, so
-        // no number is defined twice. Node deprecated this module and the
-        // ecosystem still imports it.
-        ("constants", constants::namespace(context)),
-        ("crypto", crypto::namespace(context)),
-        ("dgram", dgram::namespace(context)),
-        ("domain", domain::namespace(context)),
-        ("dns", dns::namespace(context)),
         ("events", events_namespace),
         ("fs", files),
-        ("os", os::namespace(context)),
-        ("path", path::namespace(context)),
-        ("process", process::namespace(context)),
-        ("querystring", querystring::namespace(context)),
-        ("repl", repl::namespace(context)),
-        ("readline", readline::namespace(context)),
-        ("sqlite", sqlite::namespace(context)),
-        ("stream", stream_namespace),
-        ("test", test_runner::namespace(context)),
-        ("diagnostics_channel", diagnostics_channel::namespace(context)),
-        ("http", http::namespace(context)),
-        ("http2", http2::namespace(context)),
-        ("https", https::namespace(context)),
         ("inspector", inspecting),
-        ("net", net::namespace(context)),
         ("perf_hooks", perf_hooks::namespace(context)),
-        ("punycode", punycode::namespace(context)),
-        ("string_decoder", string_decoder::namespace(context)),
+        ("process", process::namespace(context)),
+        ("stream", stream_namespace),
         ("timers", timers::namespace(context)),
-        ("tls", tls::namespace(context)),
-        ("trace_events", trace_events::namespace(context)),
-        ("tty", tty::namespace(context)),
         ("url", url::namespace(context)),
         ("util", util_namespace),
         ("sys", util_namespace),
-        ("v8", v8::namespace(context)),
-        ("vm", vm::namespace(context)),
-        ("wasi", wasi::namespace(context)),
-        ("worker_threads", worker_threads::namespace(context)),
-        ("zlib", zlib::namespace(context)),
     ];
     for (name, namespace) in modules {
         rts_core::entry::declare_module(context, &format!("node:{name}"), namespace);
         rts_core::entry::declare_module(context, name, namespace);
+    }
+    // Registering all of these costs 14 us, measured 2026-08-11 — which is the
+    // answer to "why not prune the list by what the program imports instead":
+    // a pruning pass could remove only this, and building what is left is 1.4 ms
+    // of eager namespaces the globals need whether or not anything is imported.
+    for (name, build) in LAZY {
+        rts_core::entry::declare_module_lazy(context, &[&format!("node:{name}"), name], *build);
     }
 
     // `ws` fica FORA da lista acima, e é o único: aquele laço registra cada
@@ -254,6 +297,12 @@ pub fn install(context: &mut Context) {
     // how `isBuiltin` comes to disagree with what an import actually finds. It
     // names itself too, which the loop above cannot do for it.
     let mut provided: Vec<&str> = modules.iter().map(|(name, _)| *name).collect();
+    // The deferred ones too, and this is the reason `isBuiltin` could not be
+    // built from what has been BUILT: a module nothing has imported yet is
+    // still a module Node reports as built in, and asking the registry "which
+    // namespaces exist" would answer with whichever ones a program happened to
+    // reach. The registration is the fact; the object is not.
+    provided.extend(LAZY.iter().map(|(name, _)| *name));
     provided.push("module");
     // `isBuiltin("timers/promises")` is true in Node, and this list is the only
     // thing that answers it. It is named here rather than at the point the

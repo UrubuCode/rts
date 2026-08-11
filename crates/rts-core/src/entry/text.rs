@@ -118,42 +118,79 @@ pub fn string_const(which: i64) -> u64 {
 #[rtse::entry]
 pub fn type_of(value: u64) -> u64 {
     with_current(|context| {
-        let text = match Value(value).kind() {
-            Kind::Float | Kind::Int => "number",
-            Kind::Bool => "boolean",
+        // The INDEX into `TYPE_NAMES`, not the text: the string it names is
+        // built at most once per run and cached, because building one allocates
+        // a cell — see `Context::type_names`.
+        let name = match Value(value).kind() {
+            Kind::Float | Kind::Int => TypeName::Number,
+            Kind::Bool => TypeName::Boolean,
             Kind::Singleton(number) => {
                 if number == context.singletons.undefined {
-                    "undefined"
+                    TypeName::Undefined
                 } else {
                     // `typeof null` is "object".
-                    "object"
+                    TypeName::Object
                 }
             }
             // The two the language declared for itself. Answered from the TAG,
             // with no side table consulted — which is the whole difference
             // between a primitive and a cell wearing a marker, and the reason
             // `typeof` on a symbol used to need a lookup and now does not.
-            Kind::Client { tag, .. } if tag == context.kinds.symbol => "symbol",
-            Kind::Client { tag, .. } if tag == context.kinds.bigint => "bigint",
+            Kind::Client { tag, .. } if tag == context.kinds.symbol => TypeName::Symbol,
+            Kind::Client { tag, .. } if tag == context.kinds.bigint => TypeName::Bigint,
             // A tag the language declared and this was never told about. There
             // is no honest answer, and `"undefined"` is the one that makes a
             // wiring mistake look like a value.
-            Kind::Client { .. } => "unknown",
+            Kind::Client { .. } => TypeName::Unknown,
             Kind::Reference(slot) => {
                 let slot = slot as u32;
                 match context.region.type_of(slot) {
-                    _ if context.callable_at(slot).is_some() => "function",
+                    _ if context.callable_at(slot).is_some() => TypeName::Function,
                     // A string.s cell, which `shape_of` already refuses to
                     // treat as an object for exactly this reason: what a
                     // reference IS is readable from beside the cell rather
                     // than from the encoding.
-                    _ if context.text_at(slot).is_some() => "string",
-                    _ => "object",
+                    _ if context.text_at(slot).is_some() => TypeName::String,
+                    _ => TypeName::Object,
                 }
             }
         };
-        context.intern_value(Str::from_str(text)).bits()
+        type_name(context, name)
     })
+}
+
+/// Which of [`super::TYPE_NAMES`] an answer is.
+///
+/// A name rather than an index literal at each arm: the arms and the table are
+/// two lists that have to agree, and `TYPE_NAMES[3]` written in a match arm is
+/// the spelling where they come to disagree silently.
+#[derive(Clone, Copy)]
+enum TypeName {
+    Number,
+    Boolean,
+    Undefined,
+    Object,
+    Symbol,
+    Bigint,
+    String,
+    Function,
+    Unknown,
+}
+
+/// The string for one of the nine, built on first use and kept for the run.
+///
+/// See [`super::Context::type_names`] for why this is a cache at all: the
+/// answer is one of nine constant words and building one ALLOCATES.
+fn type_name(context: &mut Context, name: TypeName) -> u64 {
+    let at = name as usize;
+    if let Some(held) = context.type_names[at] {
+        return held;
+    }
+    let made = context
+        .intern_value(Str::from_str(super::TYPE_NAMES[at]))
+        .bits();
+    context.type_names[at] = Some(made);
+    made
 }
 
 /// The text a value has, for a host that has to report a result.

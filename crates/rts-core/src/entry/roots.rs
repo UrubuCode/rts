@@ -143,7 +143,15 @@ pub fn context_roots(context: &Context) -> Vec<Slot> {
             .iter()
             .filter_map(|(_, strings)| *strings),
     );
-    words.extend(context.modules.iter().map(|held| held.namespace));
+    // The `typeof` answers built so far. Nothing else holds them — a program
+    // that drops the string `typeof x` produced keeps no reference, and the
+    // cache is what makes the next `typeof` hand back the same cell — so
+    // missing them here is a use-after-free that reproduces only after a
+    // collection between two `typeof`s.
+    words.extend(context.type_names.iter().flatten().copied());
+    // Only the ones a program has actually named: a module registered lazily
+    // has no object yet, and there is nothing to keep alive until it does.
+    words.extend(context.modules.iter().filter_map(|held| held.namespace));
     words.extend(
         context
             .classes

@@ -122,6 +122,7 @@ impl Compiled {
     /// knowing that. So [`run_region`] installs one around the call and takes it
     /// back afterwards, which is what makes two runs independent.
     pub fn run(&mut self) -> u64 {
+        let _timing = rts_cranelift::probe::Phase::start("run");
         // Region zero, moved in for the run and taken back after. Not copied:
         // there is one heap and its address is in the code.
         let region = self.regions[0]
@@ -275,6 +276,7 @@ fn run_region(
     function_names: &[(u64, String)],
     region: rts_core::heap::Region,
 ) -> Outcome {
+    let _seeding = rts_cranelift::probe::Phase::start("seed-context");
     let mut context = rts_core::entry::Context::over(singletons, kinds, region);
     // What lets `alloc`'s collection trigger scan this thread's stack at all —
     // see `crate::stack`'s own documentation for why the call lives here and
@@ -317,8 +319,14 @@ fn run_region(
     // `await new Promise(r => setTimeout(r, 5))`, the standard way to wait,
     // ended the program with "this promise cannot settle".
     rts_core::entry::declare_rest(&mut context, |wait| std::thread::sleep(wait));
-    rts_std::install(&mut context);
-    rts_node::install(&mut context);
+    {
+        let _timing = rts_cranelift::probe::Phase::start("install-std");
+        rts_std::install(&mut context);
+    }
+    {
+        let _timing = rts_cranelift::probe::Phase::start("install-node");
+        rts_node::install(&mut context);
+    }
     #[cfg(feature = "ui")]
     rts_ui::install(&mut context);
     // The modules a program may import. Registered by the HOST rather than by
@@ -326,6 +334,7 @@ fn run_region(
     // the program is given — and `rts-std` is where anything needing an
     // operating system lives, which is the same availability rule that keeps
     // `Math` in the runtime and `io.print` out of it.
+    drop(_seeding);
     let (context, (value, described)) = rts_core::entry::with_context(context, || {
         // A script closes over nothing, has no receiver and was passed no
         // arguments: `undefined` for all six, from the compiler's own numbering
@@ -473,6 +482,7 @@ pub(crate) struct FrontEnd {
 
 /// Parses and emits source text into one program. See [`FrontEnd`].
 pub(crate) fn front_end(source: &str) -> Result<FrontEnd, HostError> {
+    let _timing = rts_cranelift::probe::Phase::start("front-end");
     let mut names = Names::default();
     // A file that imports is compiled as a MODULE, and one that does not is
     // wrapped in a function as before. The distinction is not cosmetic: an
@@ -560,6 +570,7 @@ pub(crate) fn front_end(source: &str) -> Result<FrontEnd, HostError> {
     // declared before the body that defines it can take its address, so the
     // host declaring the entry afterwards stopped being possible.
     let emitted = {
+        let _timing = rts_cranelift::probe::Phase::start("emit");
         let mut ctx = Ctx::new(
             &model, &mut funcs, &mut calls, &mut keys, &mut names, &types,
         );
@@ -645,6 +656,7 @@ pub(crate) fn prepare(
     types: TypeRegistry,
     calls: RuntimeCalls,
 ) -> Result<Prepared, HostError> {
+    let _timing = rts_cranelift::probe::Phase::start("prepare");
     let script = emitted.entry;
     let mut emitted = emitted;
     let mut funcs = funcs;
@@ -852,7 +864,10 @@ fn assemble(
         }
     };
 
-    let placed = unsafe { place_in_memory(&placing, &outside, &funcs, &types, Some(bases))? };
+    let placed = {
+        let _timing = rts_cranelift::probe::Phase::start("place");
+        unsafe { place_in_memory(&placing, &outside, &funcs, &types, Some(bases))? }
+    };
 
     // Now the addresses exist, so the shapes can be keyed by the one thing the
     // runtime holds about a compiled function. A body that was rewritten and

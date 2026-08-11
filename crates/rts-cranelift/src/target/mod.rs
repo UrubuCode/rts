@@ -270,22 +270,49 @@ impl<'a> MachineModule<'a> {
         funcs: &FuncRegistry,
         types: &crate::types::TypeRegistry,
     ) -> Result<(), TargetError> {
-        let planned = self.plan(bodies, funcs)?;
+        let planned = {
+            let timing = crate::probe::Phase::start("plan");
+            let planned = self.plan(bodies, funcs)?;
+            timing.over(planned.len());
+            planned
+        };
         if planned.is_empty() {
             return Ok(());
         }
+        let count = planned.len();
 
         let results = {
+            let _timing = crate::probe::Phase::start("lower+compile");
             let shared = self.shared(types);
             let isa = self.module.isa();
             // Lower AND compile, per function, in one pass over the batch. The
             // two used to be separated by a thread boundary because only the
             // second could cross it; nothing separates them now.
+            // Summed per stage across whatever thread ran it, because the wall
+            // clock of the batch cannot separate them: the two run interleaved
+            // on N workers and only their totals are comparable to each other.
+            // The sum exceeds the wall clock by the parallelism, which is the
+            // point — it is what says whether our lowering or the code
+            // generator is the majority of the CPU spent here.
+            let lowering = std::sync::atomic::AtomicU64::new(0);
+            let compiling = std::sync::atomic::AtomicU64::new(0);
             let work = |one| -> Result<Emitted, TargetError> {
-                compile_one(isa, lower_one(&shared, one)?)
+                let at = std::time::Instant::now();
+                let prepared = lower_one(&shared, one)?;
+                let lowered_at = std::time::Instant::now();
+                let emitted = compile_one(isa, prepared)?;
+                lowering.fetch_add(
+                    (lowered_at - at).as_nanos() as u64,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+                compiling.fetch_add(
+                    lowered_at.elapsed().as_nanos() as u64,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+                Ok(emitted)
             };
 
-            if planned.len() < PARALLEL_THRESHOLD {
+            let results = if planned.len() < PARALLEL_THRESHOLD {
                 planned
                     .into_iter()
                     .map(work)
@@ -298,10 +325,30 @@ impl<'a> MachineModule<'a> {
                         .map(work)
                         .collect::<Result<Vec<_>, _>>()
                 })?
+            };
+            // Two clock reads per function, kept unconditional: at ~40 ns each
+            // they are a five-figure fraction of a phase measured in tens of
+            // milliseconds, and gating them would mean two spellings of this
+            // loop — the second of which is the one that stops being exercised.
+            let nanos = |sum: &std::sync::atomic::AtomicU64| {
+                sum.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e6
+            };
+            if std::env::var_os("RTS_TIMING").is_some() {
+                eprintln!(
+                    "rts-timing   cpu lowering {:>8.3} ms, machine-compile {:>8.3} ms \
+                     (codegen pass {:>8.3} ms), over {count}",
+                    nanos(&lowering),
+                    nanos(&compiling),
+                    CODEGEN_NANOS.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e6,
+                );
             }
+            results
         };
 
-        self.define_all(results)
+        let timing = crate::probe::Phase::start("define");
+        let defined = self.define_all(results);
+        timing.over(count);
+        defined
     }
 
     /// Lowers one function body to the code generator's IR, ready for machine
@@ -510,14 +557,31 @@ fn lower_one(shared: &Shared<'_>, planned: Planned<'_>) -> Result<Prepared, Targ
     })
 }
 
+/// How long `Context::compile` itself has taken, over this process.
+///
+/// Separated from what `compile_one` does around it — copying the code out,
+/// reading the fault table and the position map — because those are OURS and
+/// the code generator's own pass is not, and a single number for the pair says
+/// nothing about which to work on.
+static CODEGEN_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Machine-compiles one lowered function.
 fn compile_one(isa: &dyn TargetIsa, mut p: Prepared) -> Result<Emitted, TargetError> {
+    let started = std::time::Instant::now();
     p.context
         .compile(isa, &mut ControlPlane::default())
         .map_err(|error| TargetError::Compile(format!("in fn `{}`: {:?}", p.name, error.inner)))?;
     // A fresh, plain shared borrow — not the value `compile` returned, whose
     // lifetime is tied to `&mut p.context` and would make the `&p.context.func`
     // borrow below a borrow-checker error.
+    // Cumulative for the process, not per batch: `compile_one` has no batch to
+    // belong to — it is called from two places and runs on whatever worker took
+    // it — and the question it answers is a ratio, which a total answers as well
+    // as a delta would.
+    CODEGEN_NANOS.fetch_add(
+        started.elapsed().as_nanos() as u64,
+        std::sync::atomic::Ordering::Relaxed,
+    );
     let code = p
         .context
         .compiled_code()
@@ -589,10 +653,27 @@ struct Emitted {
 /// handful of functions is pure loss with nothing to hide it behind. 8 is
 /// `rts-codegen-new`'s `parcompile` measurement of where the equivalent split
 /// starts paying for itself on this repository's hardware (its module doc has
-/// the numbers); this crate has no such measurement of its own yet, so it
-/// borrows that one rather than inventing a different threshold with no
-/// evidence behind it.
-const PARALLEL_THRESHOLD: usize = 8;
+/// the numbers); this crate had no such measurement of its own, so it borrowed
+/// that one rather than inventing a different threshold with no evidence.
+///
+/// # Why it is 2 now, and what killed 8
+///
+/// A count is a bad proxy for the work in a batch, and this crate now has the
+/// measurement it was missing. `tests/claude-math-complete.test.ts` compiles as
+/// FOUR functions — one of them 12 979 IR instructions — and spends 56 ms of
+/// CPU in the code generator. Under a threshold of 8 that batch took the serial
+/// path, so its wall clock was the whole 56 ms; a 28-function file with a
+/// comparable total (51 ms of CPU) took 8.7 ms of wall clock on the pool.
+///
+/// So the case the threshold was protecting — few functions — is exactly the
+/// case that had the most to gain, because "few functions" in a compiled script
+/// means one enormous one rather than a small program. Measured 2026-08-11,
+/// `RTS_TIMING=1`, release.
+///
+/// It is not 1: a batch of one has nothing to overlap, so the pool could only
+/// cost. Everything above that has at least two bodies to run at once, and the
+/// pool is built once per process ([`pool`]'s `OnceLock`) rather than per batch.
+const PARALLEL_THRESHOLD: usize = 2;
 
 /// A dedicated rayon pool for the phase that lowers and machine-compiles.
 ///
@@ -780,8 +861,12 @@ impl Placements {
 ///
 /// Exposed because both destinations need one and neither should have to know
 /// how to ask for it.
+///
+/// Addressed absolutely and tuned for [`Priority::CompileTime`], which is what
+/// executable memory is: code compiled inside the wall clock of the program
+/// about to run it. An object file asks [`isa_with`] for the other answer.
 pub fn host_isa() -> Result<OwnedTargetIsa, TargetError> {
-    isa_with(Addressing::Absolute)
+    isa_with(Addressing::Absolute, Priority::CompileTime)
 }
 
 /// Whether compiled code may name an address directly.
@@ -826,13 +911,97 @@ pub enum Addressing {
 /// verified is the failure it addresses — `rts compile bench/pi_machin.ts` then
 /// `./smoke_aot` on the `macos-latest` runner, exit 138. The same job is what
 /// confirms or refutes the fix.
-pub fn isa_with(addressing: Addressing) -> Result<OwnedTargetIsa, TargetError> {
+/// Which side of the compile-time/code-quality trade a destination is on.
+///
+/// # Why this is a parameter and not a constant
+///
+/// Because the two destinations pay for compilation at different times, and the
+/// code generator has one setting where that reverses the answer. Measured
+/// 2026-08-11, release, `regalloc_algorithm`:
+///
+/// | | `backtracking` (default) | `single_pass` |
+/// |---|---|---|
+/// | placement, `claude-math-complete.test.ts` | 36.8 ms | 18.7 ms |
+/// | a 3×10⁸-iteration loop, end to end | 5.32 s | 6.30 s |
+/// | that file end to end | 52.9 ms | 43.0 ms |
+///
+/// A JIT run pays compilation inside the program's own wall clock, and almost
+/// every program in this repository's corpus finishes before the better code
+/// could earn its compilation back — the same file is 19% faster end to end.
+/// An object file pays it once, at build time, and then runs for as long as
+/// someone runs it, so the 18% it would lose in the loop is the only number
+/// that matters there.
+///
+/// This is what rule 4 of this crate's README means by a difference that is
+/// "about the destination": the PROGRAM is the same, and what differs is what
+/// each destination is buying.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Priority {
+    /// Compile as fast as possible; the code runs once, now. Executable memory.
+    CompileTime,
+    /// Generate the best code; compilation is paid once, elsewhere. Object file.
+    CodeQuality,
+}
+
+/// The architecture this process runs on, addressed the way a destination needs
+/// and tuned for what that destination is buying — see [`Priority`].
+pub fn isa_with(
+    addressing: Addressing,
+    priority: Priority,
+) -> Result<OwnedTargetIsa, TargetError> {
     let mut flags = cranelift_codegen::settings::builder();
     // Frame pointers are what makes a stack walkable, and a stack walk is how
     // the collector finds a frame with no descriptor. Turning them off would
     // save a register and cost the fallback that makes the migration possible.
     cranelift_codegen::settings::Configurable::set(&mut flags, "preserve_frame_pointers", "true")
         .expect("a real setting");
+    // The code generator's own verifier, which is on by default and runs over
+    // every function handed to it. It is left on in a debug build and turned off
+    // in a release one, and `RTS_CL_VERIFY` turns it back on either way.
+    //
+    // # Why it is not simply left on
+    //
+    // Measured, 2026-08-11, release, `RTS_TIMING=1` on
+    // `tests/claude-math-complete.test.ts`: 55 ms of placement with it, 45 ms
+    // without — 19% of the phase that is itself 85% of compiling a file. That is
+    // not a rounding error and it is paid on every run of every program.
+    //
+    // # Why turning it off is not a hole
+    //
+    // It checks the code generator's IR, which nothing but `lower/` writes, and
+    // `verify/` has already rejected the representation that IR was produced
+    // from. So it is a check of one translation, not of the program — and the
+    // build where a mistake in that translation is made is a debug build, where
+    // it stays on. Rule 12 says unproven behaviour fails safely, and this is the
+    // shape of that: the conservative form is the default where a defect is
+    // introduced, and the fast form is what a user runs.
+    //
+    // # What it does not say
+    //
+    // Nothing about `opt_level`, which was measured in the same session and
+    // stayed at its default: `speed` moved placement from 55 ms to 70 ms and did
+    // not move `run` on that file. A code-quality setting is a separate claim
+    // needing a run long enough to show it, and this file is not one.
+    // Which register allocator, which is the one setting where the two
+    // destinations genuinely want opposite answers. `RTS_CL_REGALLOC` names one
+    // explicitly, for the JIT program long-running enough to want the other.
+    let algorithm = match std::env::var("RTS_CL_REGALLOC") {
+        Ok(named) => named,
+        Err(_) => match priority {
+            Priority::CompileTime => "single_pass".to_owned(),
+            Priority::CodeQuality => "backtracking".to_owned(),
+        },
+    };
+    cranelift_codegen::settings::Configurable::set(&mut flags, "regalloc_algorithm", &algorithm)
+        .expect("a real setting");
+    let verify = match std::env::var_os("RTS_CL_VERIFY") {
+        Some(_) => true,
+        None => cfg!(debug_assertions),
+    };
+    if !verify {
+        cranelift_codegen::settings::Configurable::set(&mut flags, "enable_verifier", "false")
+            .expect("a real setting");
+    }
     if addressing == Addressing::Independent {
         cranelift_codegen::settings::Configurable::set(&mut flags, "is_pic", "true")
             .expect("a real setting");
